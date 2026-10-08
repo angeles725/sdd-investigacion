@@ -302,3 +302,125 @@ if ! declare -F hook_stop_wiring_state >/dev/null 2>&1; then
     return 0
   }
 fi
+
+# --- SCRIPT-RESOLUTION state (kit issue #1157) ---------------------------------------------------
+#   hook_stop_script_state_var <target-dir>
+#     Sets the GLOBAL $HOOK_SCRIPT_STATE to exactly one of:
+#       present      : at least one Stop-scoped retro-gate command names a script that exists and
+#                      can be opened for reading — the hook CAN load.
+#       missing      : every Stop-scoped retro-gate command names a script that does not exist (or
+#                      cannot be opened) — the hook is REGISTERED in settings.json but can NEVER
+#                      load. Distinct from 'wired' in hook_stop_wiring_state_var: that predicate is a
+#                      text match on the settings file and is DELIBERATELY unchanged (sweep-retros.sh
+#                      and research-sdd-status.sh stay byte-identical); this is a separate question
+#                      callers ask AFTER 'wired'/'wired-off-root'.
+#       unverifiable : no entry could be confirmed present and at least one could not be resolved to
+#                      a path — a bare command name (no '/', looked up via PATH), or a path still
+#                      containing '$', a backtick, '*' or '?' after $CLAUDE_PROJECT_DIR / $HOME / '~'
+#                      were substituted. This is "the instrument could not look", never a claim in
+#                      either direction (CLAUDE.md §7).
+#       no-entry     : settings.json is absent or unreadable, or its Stop block has no retro-gate
+#                      command — there is nothing to resolve (the wiring state names which).
+#       degraded     : awk is unavailable or failed — the measurement is invalid, NOT a zero.
+#     Resolved forms: absolute '/p', '$CLAUDE_PROJECT_DIR/p' and '${CLAUDE_PROJECT_DIR}/p' (against
+#     the normalized target), '$HOME/p', '~/p', and a relative 'dir/p' (against the target — the
+#     directory Claude Code runs project hooks from). Interpreter prefixes and trailing arguments
+#     ('bash "$CLAUDE_PROJECT_DIR"/x.sh --flag') are tolerated: every whitespace-delimited word of
+#     the command containing "retro-gate" is checked, quotes stripped.
+#     NOT checked: the executable bit (a fork-free awk cannot test it; 'bash x.sh' needs none), the
+#     settings.local.json / user-level registration paths (same narrowness as the wiring predicate),
+#     and where sessions launch from (kit issue #1134 — the other half of #1157, undecidable here).
+#     COST: exactly one awk fork per call, none for the absent/unreadable states. Always returns 0.
+#
+#   hook_stop_script_state <target-dir> : wrapper, prints $HOOK_SCRIPT_STATE (one extra fork).
+if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
+  hook_stop_script_state_var() {
+    local target="$1" settings rc
+    settings="$target/.claude/settings.json"
+    if [ ! -e "$settings" ] || [ ! -r "$settings" ]; then
+      HOOK_SCRIPT_STATE="no-entry"; return 0
+    fi
+    _hw_abspath "$target"
+    awk -v tgt="$HW_ABS_PATH" -v home="${HOME:-}" '
+      function esc_at(s, k,   b) { b = 0; while (k > 1 && substr(s, k - 1, 1) == "\\") { b++; k-- } return b % 2 }
+      function lit_repl(s, pat, r,   p, out) {
+        out = ""
+        while ((p = index(s, pat)) > 0) { out = out substr(s, 1, p - 1) r; s = substr(s, p + length(pat)) }
+        return out s
+      }
+      # check(line, pos): classify every retro-gate word of the JSON string that contains pos.
+      # Returns the index of the closing quote (so the scanner can skip the string), or 0.
+      function check(line, pos,   s, e, k, cmd, n, w, j, tok, r, ln) {
+        s = 0
+        for (k = pos - 1; k >= 1; k--) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { s = k; break }
+        e = 0
+        for (k = pos + 10; k <= length(line); k++) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { e = k; break }
+        entries++
+        if (s == 0 || e == 0) { unver++; return 0 }
+        cmd = substr(line, s + 1, e - s - 1)
+        gsub(/\\"/, "\"", cmd)
+        n = split(cmd, w, /[ \t]+/)
+        for (j = 1; j <= n; j++) {
+          if (index(w[j], "retro-gate") == 0) continue
+          tok = w[j]
+          gsub(/["\047]/, "", tok)
+          tok = lit_repl(tok, "${CLAUDE_PROJECT_DIR}", tgt)
+          tok = lit_repl(tok, "$CLAUDE_PROJECT_DIR", tgt)
+          tok = lit_repl(tok, "${HOME}", home)
+          tok = lit_repl(tok, "$HOME", home)
+          if (substr(tok, 1, 2) == "~/") tok = home substr(tok, 2)
+          if (tok ~ /[$`*?]/ || index(tok, "/") == 0) { unver++; continue }
+          if (substr(tok, 1, 1) != "/") tok = tgt "/" tok
+          r = (getline ln < tok); close(tok)
+          if (r >= 0) okc++; else miss++
+        }
+        return e
+      }
+      BEGIN { in_stop = 0; stop_depth = 0; depth = 0; entries = 0; okc = 0; miss = 0; unver = 0 }
+      {
+        n = length($0); i = 1
+        while (i <= n) {
+          c = substr($0, i, 1)
+          if (c == "{" || c == "[") {
+            depth++
+          } else if (c == "}" || c == "]") {
+            depth--
+            if (in_stop && depth <= stop_depth) { in_stop = 0 }
+          } else if (!in_stop && substr($0, i, 6) == "\"Stop\"") {
+            j = i + 6
+            while (j <= n && (substr($0, j, 1) == " " || substr($0, j, 1) == "\t")) j++
+            if (j <= n && substr($0, j, 1) == ":") { in_stop = 1; stop_depth = depth }
+            i = j
+          } else if (in_stop && substr($0, i, 10) == "retro-gate") {
+            e = check($0, i)
+            if (e > i) i = e
+          }
+          i++
+        }
+      }
+      END {
+        if (entries == 0) exit 3
+        if (okc > 0) exit 0
+        if (unver > 0) exit 5
+        exit 4
+      }
+    ' "$settings" 2>/dev/null
+    rc=$?
+    case "$rc" in
+      0) HOOK_SCRIPT_STATE="present" ;;
+      3) HOOK_SCRIPT_STATE="no-entry" ;;
+      4) HOOK_SCRIPT_STATE="missing" ;;
+      5) HOOK_SCRIPT_STATE="unverifiable" ;;
+      *) HOOK_SCRIPT_STATE="degraded" ;;
+    esac
+    return 0
+  }
+fi
+
+if ! declare -F hook_stop_script_state >/dev/null 2>&1; then
+  hook_stop_script_state() {
+    hook_stop_script_state_var "$1"
+    printf '%s' "$HOOK_SCRIPT_STATE"
+    return 0
+  }
+fi

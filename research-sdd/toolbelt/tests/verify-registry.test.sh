@@ -379,6 +379,71 @@ else
   no "3l hook yes + wired-off-root → tailored WARN" "exit=$RC out=[$OUT]"
 fi
 
+# --- kit issue #1157: REGISTERED-NEVER-LOADED — a Stop hook registered in settings.json whose script
+#     does not exist can never load. It is its OWN finding kind, never folded into 'wired' (silent) or
+#     the generic 'Stop hook is <state>' wording.
+wire_hook_abs() { mkdir -p "$1/.claude"; printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"%s"}]}]}}' "$2" > "$1/.claude/settings.json"; }
+
+# 3q — 'hook yes' + registered, script file ABSENT → tailored never-loaded WARN, counted as attention.
+kit="$(mkkit c3q-neverloaded)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json but its script does not exist" <<<"$OUT" \
+   && grep -q 'registered-never-loaded' <<<"$OUT" \
+   && ! grep -q 'Stop hook is wired' <<<"$OUT" && ! grep -qE "but the Stop hook is [a-z-]+ at" <<<"$OUT" \
+   && ! grep -qE '· 0 attention\.' <<<"$OUT"; then
+  ok "3q hook yes + registered but script missing → own registered-never-loaded WARN + attention" "(exit $RC)"
+else
+  no "3q hook yes + registered but script missing → own registered-never-loaded WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3r — positive control: same registration, script EXISTS → no never-loaded WARN.
+kit="$(mkkit c3r-scriptpresent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"; : > "$tgt/.claude/hooks/retro-gate-stop.sh"
+wire_hook_abs "$tgt" "\$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'registered-never-loaded' <<<"$OUT" && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3r hook yes + script exists → no never-loaded WARN" "(exit $RC)"
+else
+  no "3r hook yes + script exists → no never-loaded WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3s' — 'hook no' + registered with a missing script: the row's claim (no usable hook) is consistent,
+#       so the reverse check must NOT fire (it stays strict on a script that can load).
+kit="$(mkkit c3s2-hookno-neverloaded)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT" && ! grep -q 'registered-never-loaded' <<<"$OUT"; then
+  ok "3s2 hook no + registered-but-script-missing → no reverse WARN, no never-loaded WARN" "(exit $RC)"
+else
+  no "3s2 hook no + registered-but-script-missing → no reverse WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3t — script resolution DEGRADED (awk cannot run inside the lib's script-state probe): a typed WARN,
+#      never silence. The kit copy of the lib is rewired to a failing command.
+kit="$(mkkit c3t-degraded)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — .*script-resolution check degraded" <<<"$OUT" && ! grep -q 'does not exist' <<<"$OUT"; then
+  ok "3t script-state degraded → typed degraded WARN, no false missing" "(exit $RC)"
+else
+  no "3t script-state degraded → typed degraded WARN" "exit=$RC out=[$OUT]"
+fi
+
 # --- kit issue #1128: SYMMETRIC HOOK-WIRING RECONCILIATION — the inverse direction of #1108 -----------
 # A row claiming 'hook no' (no hook file at all) whose Stop hook IS actually wired is registry drift
 # the OTHER way: the row UNDER-claims. 'hook file yes' claims are out of this check's scope (kit issue
@@ -2993,6 +3058,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-hook-wiring-check" "$kit" 's/if \[ "\$_vr_hook_state" != "wired" \]; then  # HOOK-WIRING-CHECK/if false; then  # HOOK-WIRING-CHECK (mutated)/'; then
     vr_run "teeth-hook-wiring-check: neutered guard silences test 3f and regains clean line — has teeth" "$kit" 0 0 \
       --good-has 'Stop hook is' --bad-lacks 'Stop hook is'
+  fi
+
+  echo "-- teeth-hook-never-loaded: neuter HOOK-NEVER-LOADED-CHECK; test 3q must go silent --"
+  kit="$(mkkit teeth-neverloaded)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-hook-never-loaded" "$kit" 's/if \[ "\$_vr_script_state" = "missing" \]; then  # HOOK-NEVER-LOADED-CHECK/if false; then  # HOOK-NEVER-LOADED-CHECK (mutated)/'; then
+    vr_run "teeth-hook-never-loaded: neutered check silences test 3q — has teeth" "$kit" 0 0 \
+      --good-has 'registered-never-loaded' --bad-lacks 'registered-never-loaded'
+  fi
+
+  echo "-- teeth-hook-reverse-script-guard: drop the missing-script exclusion from the reverse check; test 3s2 must false-WARN --"
+  kit="$(mkkit teeth-reverse-script)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-hook-reverse-script-guard" "$kit" 's/if \[ "\$_vr_script_state2" != "missing" \]; then  # HOOK-REVERSE-SCRIPT-GUARD/if true; then  # HOOK-REVERSE-SCRIPT-GUARD (mutated)/'; then
+    vr_run "teeth-hook-reverse-script-guard: dropped exclusion false-fires on a missing script — test 3s2 has teeth" "$kit" 0 0 \
+      --good-lacks 'Stop hook IS wired' --bad-has 'Stop hook IS wired'
+  fi
+
+  echo "-- teeth-hook-script-degraded: neuter HOOK-SCRIPT-DEGRADED-CHECK; test 3t must go silent --"
+  kit="$(mkkit teeth-script-degraded)"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+  sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  if vr_mut "teeth-hook-script-degraded" "$kit" 's/if \[ "\$_vr_script_state" = "degraded" \]; then  # HOOK-SCRIPT-DEGRADED-CHECK/if false; then  # HOOK-SCRIPT-DEGRADED-CHECK (mutated)/'; then
+    vr_run "teeth-hook-script-degraded: neutered check silences test 3t — has teeth" "$kit" 0 0 \
+      --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded'
   fi
 
   echo "-- teeth-hook-claim-extract: widen HOOK-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3h ('hook no') must false-WARN --"

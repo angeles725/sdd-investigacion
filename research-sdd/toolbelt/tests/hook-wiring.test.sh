@@ -368,6 +368,89 @@ ln -s "$ROOT/t23-Q/y/z" "$d23_p/link"
 wire_settings "$d23_p/link/.." '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate"}]}]}}'
 assert_state "23 spelled target without .git, collapsed path is a git root → wired (flag 0, comparison equal)" "$d23_p/link/.." "wired"
 
+# --- 24 — kit issue #1157: SCRIPT-RESOLUTION state (hook_stop_script_state_var). A hook REGISTERED in
+#      settings.json whose command names a script that does not exist can never load; the text match
+#      behind hook_stop_wiring_state_var still says 'wired' (it is deliberately unchanged), so the
+#      script state is a SEPARATE typed answer: present | missing | unverifiable | no-entry | degraded.
+assert_script_state() {
+  local label="$1" d="$2" want="$3" got_var got_wrap
+  hook_stop_script_state_var "$d"; got_var="$HOOK_SCRIPT_STATE"
+  got_wrap="$(hook_stop_script_state "$d")"
+  if [ "$got_var" = "$want" ] && [ "$got_wrap" = "$want" ]; then ok "$label"
+  else no "$label" "var=[$got_var] wrapper=[$got_wrap] want=[$want]"; fi
+}
+declare -F hook_stop_script_state_var >/dev/null 2>&1 || { no "24 lib defines hook_stop_script_state_var"; }
+declare -F hook_stop_script_state >/dev/null 2>&1 || { no "24 lib defines hook_stop_script_state"; }
+st() { printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"%s"}]}]}}' "$1"; }
+
+d="$ROOT/t24a"; mkdir -p "$d/.claude/hooks"; : > "$d/.claude/hooks/retro-gate-stop.sh"
+wire_settings "$d" "$(st "$d/.claude/hooks/retro-gate-stop.sh")"
+assert_script_state "24a absolute command, script exists → present" "$d" "present"
+assert_state "24a' same fixture is still plain wired (wiring state unchanged)" "$d" "wired"
+
+d="$ROOT/t24b"; mkdir -p "$d"
+wire_settings "$d" "$(st "$d/.claude/hooks/retro-gate-stop.sh")"
+assert_script_state "24b absolute command, script deleted → missing" "$d" "missing"
+assert_state "24b' same fixture still reads wired (the text match is not widened)" "$d" "wired"
+
+d="$ROOT/t24c"; mkdir -p "$d/.claude/hooks"; : > "$d/.claude/hooks/retro-gate-stop.sh"
+wire_settings "$d" "$(st '$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh')"
+assert_script_state "24c \$CLAUDE_PROJECT_DIR command resolved against the target, exists → present" "$d" "present"
+
+d="$ROOT/t24d"; mkdir -p "$d"
+wire_settings "$d" "$(st '$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh')"
+assert_script_state "24d \$CLAUDE_PROJECT_DIR command, script absent → missing" "$d" "missing"
+
+d="$ROOT/t24e"; mkdir -p "$d/.claude/hooks"; : > "$d/.claude/hooks/retro-gate-stop.sh"
+wire_settings "$d" "$(st 'bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/retro-gate-stop.sh --flag')"
+assert_script_state "24e interpreter prefix + escaped-quoted \$CLAUDE_PROJECT_DIR + args, exists → present" "$d" "present"
+
+d="$ROOT/t24f"; mkdir -p "$d"
+wire_settings "$d" "$(st 'bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/retro-gate-stop.sh --flag')"
+assert_script_state "24f same shape, script absent → missing" "$d" "missing"
+
+d="$ROOT/t24g"; mkdir -p "$d"
+wire_settings "$d" "$(st 'retro-gate-stop.sh')"
+assert_script_state "24g bare command name (PATH lookup, no slash) → unverifiable, never a false missing" "$d" "unverifiable"
+
+d="$ROOT/t24h"; mkdir -p "$d"
+wire_settings "$d" "$(st '$SOME_UNKNOWN_VAR/retro-gate-stop.sh')"
+assert_script_state "24h unresolvable variable in path → unverifiable" "$d" "unverifiable"
+
+d="$ROOT/t24i"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/nope/retro-gate-a.sh"},{"type":"command","command":"'"$d"'/real-retro-gate-b.sh"}]}]}}'
+: > "$d/real-retro-gate-b.sh"
+assert_script_state "24i two registrations, one script exists → present (the hook can load)" "$d" "present"
+
+d="$ROOT/t24j"; mkdir -p "$d"
+wire_settings "$d" '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/nope/retro-gate-a.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"/x/other.sh"}]}]}}'
+assert_script_state "24j retro-gate only under SessionStart, Stop has none → no-entry" "$d" "no-entry"
+
+d="$ROOT/t24k"; mkdir -p "$d"
+assert_script_state "24k no settings.json → no-entry" "$d" "no-entry"
+
+d="$ROOT/t24l"; mkdir -p "$d"; wire_settings "$d" "$(st "$d/gone/retro-gate-stop.sh")"
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$d/.claude/settings.json"
+  assert_script_state "24l unreadable settings.json → no-entry (wiring state names unreadable)" "$d" "no-entry"
+  chmod 644 "$d/.claude/settings.json"
+else
+  echo "  SKIP  24l unreadable settings (running as root)"
+fi
+
+d="$ROOT/t24m"; mkdir -p "$d"; : > "$d/retro-gate-stop.sh"
+wire_settings "$d" "$(st "$d/retro-gate-stop.sh")"
+mkdir -p "$ROOT/t24m-emptybin"
+if (
+  export PATH="$ROOT/t24m-emptybin"
+  hook_stop_script_state_var "$d"; [ "$HOOK_SCRIPT_STATE" = "degraded" ]
+) 2>/dev/null; then ok "24m awk missing from PATH → typed degraded, not present/missing"
+else no "24m awk missing from PATH → typed degraded" "state did not read degraded"; fi
+
+d="$ROOT/t24n"; mkdir -p "$d/rel/.claude"; mkdir -p "$d/rel/sub"; : > "$d/rel/sub/retro-gate-stop.sh"
+wire_settings "$d/rel" "$(st 'sub/retro-gate-stop.sh')"
+assert_script_state "24n relative path with a slash resolves against the target → present" "$d/rel" "present"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -667,6 +750,43 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mut_absolut="$ROOT/hook-wiring.MUTANT-no-absolutize.sh"
   if mk "teeth: absolutize anchor in lib" "$LIB" "$mut_absolut" 's/\*)  d="\$PWD\/\$d" ;;/*)  : ;;  # MUTANT: relative target left relative/'; then
     tooth_state "relative-target absolutize dropped" "$mut_absolut" "wired-off-root" "nested" "case 15c" "$d15c_root"
+  fi
+
+  # kit issue #1157 script-resolution teeth. Each mutant is a COPY of the lib; the observation runs
+  # hook_stop_script_state_var from the mutated copy in a subshell and the case's fixture dir must
+  # no longer read as the pristine answer.
+  script_tooth() { # <label> <sed-expr> <fixture-dir> <pristine-state> <case>
+    local label="$1" expr="$2" dir="$3" want="$4" cs="$5" mut got
+    mut="$ROOT/hook-wiring.MUTANT-script-${cs// /-}.sh"
+    mk "teeth: $label anchor in lib" "$LIB" "$mut" "$expr" || return 0
+    got="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut"
+      hook_stop_script_state_var "$dir" 2>&1; printf '%s' "$HOOK_SCRIPT_STATE"
+    )"
+    if [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$cs still [$got]"
+    else ok "teeth: $label caught (real sourced lib)" "$cs read [$got] not [$want]"; fi
+  }
+  echo "-- teeth: treat every unopenable script as present — case 24b must go RED --"
+  script_tooth "missing script counted present" 's/if (r >= 0) okc++; else miss++/okc++/' "$ROOT/t24b" "missing" "case 24b"
+  echo "-- teeth: count an unresolvable word as missing — case 24g must go RED --"
+  script_tooth "unverifiable collapsed into missing" 's/index(tok, "\/") == 0) { unver++; continue }/index(tok, "\/") == 0) { miss++; continue }/' "$ROOT/t24g" "unverifiable" "case 24g"
+  echo "-- teeth: stop substituting \$CLAUDE_PROJECT_DIR — case 24c must go RED --"
+  script_tooth "CLAUDE_PROJECT_DIR substitution dropped" 's/tok = lit_repl(tok, "\$CLAUDE_PROJECT_DIR", tgt)/tok = tok/' "$ROOT/t24c" "present" "case 24c"
+  echo "-- teeth: collapse the degraded arm into missing — case 24m must go RED --"
+  mut_deg="$ROOT/hook-wiring.MUTANT-script-degraded.sh"
+  if mk "teeth: degraded arm anchor in lib" "$LIB" "$mut_deg" 's/\*) HOOK_SCRIPT_STATE="degraded" ;;/*) HOOK_SCRIPT_STATE="missing" ;;/'; then
+    mkdir -p "$ROOT/t24m-emptybin2"
+    r24m="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_deg"
+      export PATH="$ROOT/t24m-emptybin2"
+      hook_stop_script_state_var "$ROOT/t24m" 2>/dev/null; printf '%s' "$HOOK_SCRIPT_STATE"
+    )"
+    if [ "$r24m" = "degraded" ]; then no "teeth: degraded-collapse mutation NOT caught (theater)" "$r24m"
+    else ok "teeth: degraded-collapse mutation caught (real sourced lib)" "case 24m read [$r24m]"; fi
   fi
 fi
 
