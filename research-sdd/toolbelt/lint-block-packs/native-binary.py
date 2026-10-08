@@ -4,7 +4,9 @@
       file name, or the words PE32 / ELF / Mach-O / "PE binary|file|image|header|section" /
       Authenticode) whose paragraph, list item or table row lacks any of: the binary's sha256 (64 hex),
       an address anchor (`0x` + 3 or more hex digits, or VA/RVA/offset followed by hex), and two
-      distinct instruments from the allowlist below.
+      distinct instruments from the allowlist below. A heading claim is judged over its own body (up to the
+      first following heading of any level; a child section never clears its parent): evidence-bearing
+      body clears, empty body fires.
 
 Trigger is per clause; the requirement is per UNIT because the sha256 / address / instruments of one
 claim routinely sit in neighbouring sentences or cells. [CERT-doc] / [CERT-web] / [INFER] make no byte
@@ -54,6 +56,20 @@ def instruments(text):
 
 
 def build(api):
+    def section_text(doc, heading):
+        """The heading plus its OWN body: every unit up to the first following heading of any level.
+
+        A heading claim ("## 3.1 - [CERT] foo.dll is Authenticode-signed") keeps its sha256 / address /
+        instruments in the body below it, so it is judged over that body (kit #1548). A heading
+        with no body is judged on its own text and therefore fires."""
+        end = None
+        for h in doc.units:
+            if h.kind == "heading" and h.line > heading.line:
+                end = h.line
+                break
+        return " ".join(x.text for x in doc.units
+                        if x.line >= heading.line and (end is None or x.line < end))
+
     def rule_r9(doc):
         out = []
         for u in doc.units:
@@ -68,12 +84,13 @@ def build(api):
             doc.cov["r9_triggers"] += 1
             if doc.waived("R9", u):
                 continue
+            text = section_text(doc, u) if u.kind == "heading" else u.text
             missing = []
-            if not R9_SHA256_RE.search(u.text):
+            if not R9_SHA256_RE.search(text):
                 missing.append("no sha256 (64 hex) of the binary")
-            if not R9_ANCHOR_RE.search(u.text):
+            if not R9_ANCHOR_RE.search(text):
                 missing.append("no address anchor (0x... VA or file offset)")
-            n = len(instruments(u.text))
+            n = len(instruments(text))
             if n < 2:
                 missing.append(f"{n} of 2 instruments named (allowlist R9_INSTRUMENTS)")
             if missing:

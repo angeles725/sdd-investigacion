@@ -4,7 +4,11 @@
       lambda, ...) with an adoption verb and no bytecode/docSource evidence token in the same clause.
       A decompiler resugars, so "the source uses X" is not evidence that the class file does.
   R5  a fail-open / bypass / null-Context permission claim with no `dispatch:` clause naming the
-      resolved override. Scoped to clauses that are about permissions/security.
+      resolved override (or an inline `cited-absence:` clause citing that none exists). Scoped to clauses
+      that are about permissions/security. A unit made only of `>` blockquote lines that carries a gap
+      token (G<n>, "gap", a block link) is restated gap text and is skipped, counted as
+      `r5-quoted-skipped=` in the SUMMARY (0 included); a block's own `> Finding:` callout is judged.
+      The clearing clause needs real content (3+ characters, not TODO/TBD/?).
   R7  a dead/unused/unreferenced-constant or shadow-literal/hardcoded-duplicate claim without a
       compile-time-constant-inlining evidence token (javac inlines constants: "never read" in the
       decompiled code does not mean unreferenced in the class file).
@@ -16,8 +20,12 @@ import re
 
 R1_FEATURE_RE = re.compile("|".join([
     r"pattern-\s*match(?:ing)?", r"instanceof\s+pattern", r"JEP\s*394", r"switch\s+expression",
-    r"arrow\s+switch", r"text\s+block", r"\bvar\b", r"record\s+pattern", r"\bsealed\b",
-    r"enhanced\s+for", r"for-each", r"for\s+each", r"\blambda\b",
+    r"arrow\s+switch", r"text\s+block", r"record\s+pattern",
+    # Bare `var`, `sealed` and "for each" are ordinary English ("var-length", "sealed envelope", "for each
+    # record"): they count only in their Java-feature forms (kit #1548 calibration, fleet FP rate 20/30).
+    r"\brecords?\s*/\s*sealed\b", r"`var`", r"\bvar\s+(?:keyword|declarations?|inference)\b", r"local[\s-]+variable\s+type\s+inference",
+    r"\bsealed\s+(?:classes|class|interfaces|interface|hierarch\w*|types?)\b",
+    r"enhanced\s+for", r"for-each", r"\blambda\b",
 ]), re.IGNORECASE)
 R1_VERB_RE = re.compile("|".join([
     r"\buses?\b", r"\badopts?\b", r"\badopted\b", r"\badoption\b",
@@ -47,8 +55,23 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 # ordinary English word ("in the test context") and must not make a clause permission-scoped; the
 # phrase "null context" / "null-context" (the permission-bypass idiom) stays in scope in any case.
 R5_PERM_CONTEXT_RE = re.compile(
-    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bauth\w*\b|\bnull[\s-]+context\b)"
+    r"(?i:\bpermissions?\b|getPermissions|\bsecurity\b|\bcredentials?\b|\bo?auth\d?\b|\bauthn\b|\bauthz\b|\b(?:un|de)?(?:authenticat|authoriz|authoris)\w*|\bnull[\s-]+context\b)"
     r"|\bContext\b|\bcx\b")
+# Clearing forms: a resolved `dispatch:` clause, or an inline `cited-absence:` clause (the override was
+# searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").
+# The clause needs real content (3+ non-space characters, not a placeholder): an empty "dispatch:" or
+# "cited-absence: TODO" proves nothing.
+# The first token must also hold an alphanumeric run of 3+ chars ("---", "..." clear nothing) and must not
+# be a placeholder (TODO, unresolved, pending, unknown, ...).
+R5_CLEARED_RE = re.compile(
+    r"(?:dispatch|cited-absence):\s*(?!(?:todo|tbd|tba|tbc|xxx|n/?a|none|nil|null|unknown|unresolved|"
+    r"pending|unclear|missing|fixme|wip|\?+)(?!\w))(?=\S*[A-Za-z0-9]{3,})\S{3,}", re.IGNORECASE)
+# A quoted unit is skipped only when it carries an EXPLICIT restatement marker: a unit opening with "Gap",
+# a gap id with a colon ("G7:" / "B34-G6"), "gap G7", "see block", a "[Block n]" ref or a blockN.md link.
+# The plain word "gap" or a bare "G7" in prose does not qualify: a block's own `> Finding:` callout is judged.
+R5_GAP_REF_RE = re.compile(
+    r"^\s*Gap\b|\bG\d+\s*:|\bB\d+-G\d+\b|\bgap\s+G\d+|\bsee\s+block\b|\[Block\s*\d+\]|\bblock\d+\.md\b",
+    re.IGNORECASE)
 
 R7_TRIGGER_RE = re.compile("|".join([
     r"\b(?:dead|unused|unreferenced)\s+constants?\b",
@@ -74,7 +97,8 @@ def build(api):
         ("R1", mk("R1", lambda c: R1_FEATURE_RE.search(c) and R1_VERB_RE.search(c),
                   R1_EVIDENCE_RE.search, "syntax-adoption claim without bytecode/docSource evidence")),
         ("R5", mk("R5", lambda c: R5_CONSEQUENCE_RE.search(c) and R5_PERM_CONTEXT_RE.search(c),
-                  lambda c: "dispatch:" in c.lower(), "permission consequence claim without a resolved dispatch: target")),
+                  R5_CLEARED_RE.search, "permission consequence claim without a resolved dispatch: target",
+                  quoted_skip_re=R5_GAP_REF_RE)),
         ("R7", mk("R7", R7_TRIGGER_RE.search, R7_EVIDENCE_RE.search,
                   "constant-inlining claim without bytecode/docSource evidence")),
     ]

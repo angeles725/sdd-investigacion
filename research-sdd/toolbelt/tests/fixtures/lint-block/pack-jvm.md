@@ -8,7 +8,7 @@ R1-FIRST-BAD The new loader uses pattern-matching for instanceof checks.
 2. The handler uses a lambda here (javap shows invokedynamic).
 3. Uses `javap` output to confirm. The parser adopts text blocks for the template. R1-CLAUSE-BAD
 4. A var declaration is just a keyword in this file.
-5. Waived: the class uses var everywhere <!-- lint-waive: R1 reason=quoted from the vendor changelog -->
+5. Waived: the class uses `var` everywhere <!-- lint-waive: R1 reason=quoted from the vendor changelog -->
 6. Reason-less waiver: the class adopts sealed hierarchies. R1-NOREASON-BAD <!-- lint-waive: R1 -->
 
 | claim | note |
