@@ -18,6 +18,10 @@ if [ "${1:-}" = "--tooth" ]; then
 fi
 [ -f "$SUT_PLAN" ] || { echo "FATAL: trace_plan.py not found: $SUT_PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+declare -F mutant_vm_tooth_py_src >/dev/null && declare -F mutant_vm_core_teeth >/dev/null \
+  || { echo "FATAL: lib/mutant.sh lacks mutant_vm_tooth_py_src/mutant_vm_core_teeth" >&2; exit 2; }
 
 # --prove-teeth: a temp root for the staged mutants and the python section's counts file.
 # One EXIT trap for the whole suite (a second trap would replace this one).
@@ -28,7 +32,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   TEETH_COUNTS="$MUT/py-counts"
 fi
 
-RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" "${2:-}" <<'PY'
+RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" "${2:-}" <<'PY'
 import json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
@@ -130,60 +134,16 @@ Path("/tmp/rsdd").mkdir(exist_ok=True)
 # Focused re-runs of the RED11 / INV5-earlyfail / single-allocation base scenarios against
 # a SUT path given on the command line. The bash --prove-teeth section runs them against the
 # real SUT and against staged mutants, and asserts on the typed TOOTH_* line printed here.
-def _tooth_run(name):
-    import glob as _g, shutil as _sh, uuid as _u
-    import docker_common as _dc_t; from gate import GateError as _GE_t
-    import trace_exec as _ex_t
-    made = []
-    def _cleanup():
-        for _d in made: _sh.rmtree(_d, ignore_errors=True)
-    if name == "red11":
-        # RED11 body run twice with TOOTH_UUID set: a SUT that reuses a run_dir identity
-        # hands back a dir that the second run already finds in its before-set.
-        _uid = _u.uuid4().hex; verdict = "fresh"
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
-            for _i in (1, 2):
-                before = set(_g.glob("/tmp/rsdd/rsdd-*"))
-                r = cli("plan", "--target", str(elf), "--tracer", "strace", "--output", str(tmp / f"out{_i}"), "--allow-exec",
-                        xe={"PATH": p, "RSDD_EXEC_EXECUTOR": "", "TOOTH_UUID": _uid})
-                try: sl = json.loads(r.stdout).get("serial_log", "")
-                except Exception: sl = ""
-                if r.returncode != 0 or not sl:
-                    _cleanup(); print(f"TOOTH_RED11=error:rc={r.returncode}"); return
-                rd = str(Path(sl).parent); made.append(rd)
-                if rd in before or not Path(rd).exists(): verdict = "preexisting"
-        _cleanup(); print(f"TOOTH_RED11={verdict}"); return
-    if name in ("inv5", "alloc"):
-        # INV5-earlyfail body: pre_boot GateError (sentinel absent) after the run_dir allocation.
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td); p = _shims(tmp)
-            _plan = {"qemu_binary": "qemu-system-x86_64", "planned_argv": list(_GOOD_ARGV)}
-            _old = os.environ.get("PATH", ""); os.environ["PATH"] = p
-            _orig = _dc_t.make_run_subdir
-            def _track(run_uuid, root=_dc_t._DEFAULT_RSDD_ROOT):
-                rd = _orig(run_uuid, root); made.append(rd); return rd
-            _dc_t.make_run_subdir = _track
-            try:
-                raised = None
-                try: _ex_t.TraceVmExecutor(tmp / "out").evaluate(_plan)
-                except Exception as e: raised = e
-            finally:
-                os.environ["PATH"] = _old; _dc_t.make_run_subdir = _orig
-        if not (isinstance(raised, _GE_t) and "not found in planned_argv" in str(raised)):
-            _cleanup(); print(f"TOOTH_{name.upper()}=error:{type(raised).__name__}"); return
-        if name == "alloc":
-            n = len(made); _cleanup(); print(f"TOOTH_ALLOC={n}"); return
-        leaked = [d for d in made if Path(d).exists()]
-        _cleanup(); print("TOOTH_INV5=" + ("leaked" if leaked else "reaped")); return
-    print(f"TOOTH_ERROR=unknown scenario {name}")
+# _tooth_run(name, plan_flags, mod, cls) is shared with the sibling executor suite: it lives in
+# tests/lib/mutant.sh (mutant_vm_tooth_py_src) and runs here, in this suite's globals.
+exec(os.environ["RSDD_TOOTH_PY"], globals())
 
 # Reference argv matching the qemu+disk plan shape emitted by the rebuilt trace_plan.
 # Used by PARITY tests that call check_disk_policy directly (no executor needed).
 # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
 # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
 # NOTE: _GOOD_ARGV is duplicated verbatim in detonate-exec.test.sh; both copies must stay
-# in sync (the bash heredoc harness has no shared-include path for these fixtures).
+# in sync (RSDD_TOOTH_PY now shares _tooth_run via tests/lib/mutant.sh; moving these fixtures there is a follow-up).
 _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
 _GOOD_ARGV = [
     "bwrap",
@@ -202,7 +162,7 @@ _GOOD_ARGV = [
     "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
 ]
 if len(sys.argv) > 4 and sys.argv[3] == "--tooth":
-    _tooth_run(sys.argv[4]); sys.exit(0)
+    _tooth_run(sys.argv[4], lambda elf: ["--target", str(elf), "--tracer", "strace"], "trace_exec", "TraceVmExecutor"); sys.exit(0)
 
 # ── TRACE-RED1: gate-closed (no --allow-exec) → exit 3, shim NEVER spawned ──────
 with tempfile.TemporaryDirectory() as td:
@@ -991,67 +951,14 @@ py_rc=$?
 # focused --tooth scenario runs against the original and the mutant.
 # mutant_tooth codes: GOOD_RC=0 / BAD_RC=0 — the scenario always exits 0 and the verdict is the
 # anchored TOOTH_* line; --bad-lacks rejects a crash masquerading as a bite.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-for _f in mutant_chain mutant_tooth; do
-  declare -F "$_f" >/dev/null || { echo "FATAL: lib/mutant.sh lacks $_f" >&2; exit 2; }
-done
 py_p=0; py_f=0
 if [ -r "$TEETH_COUNTS" ] && read -r py_p py_f <"$TEETH_COUNTS" && [[ "$py_p" =~ ^[0-9]+$ && "$py_f" =~ ^[0-9]+$ ]]; then :; else
   echo "  FAIL  teeth: python section left no counts file [$TEETH_COUNTS]"; py_p=0; py_f=1
 fi
-b_pass=0; b_fail=0
-tt() { if mutant_tooth "$@"; then b_pass=$((b_pass+1)); else b_fail=$((b_fail+1)); fi; }
-_CRASH='Traceback|ImportError|ModuleNotFoundError|SyntaxError'
-CORE="$HERE/../lib/vm_boot_core.py"
-stage() {  # stage <name>: copy lib/*.py and the top-level modules into $MUT/<name>/
-  mkdir -p "$MUT/$1/lib" && cp "$HERE/../lib/"*.py "$MUT/$1/lib/" && cp "$HERE/../"*.py "$MUT/$1/" \
-    && [ -f "$MUT/$1/lib/trace_exec.py" ] && [ -f "$MUT/$1/trace_plan.py" ] && [ -f "$MUT/$1/lib/vm_boot_core.py" ]
-}
-# build <label> <name> <sed-expr>: stage, mutate vm_boot_core.py (exact-anchor sed; a dead anchor
-# makes mutant_chain refuse), then compile() it. A failure is counted ONCE here; the caller then
-# skips the tooth.
-build() {
-  if ! stage "$2"; then echo "  FAIL  $1: staging the mini-tree failed"; b_fail=$((b_fail+1)); return 1; fi
-  if ! MUTANT_SYNTAX=none mutant_chain "$1" "$CORE" "$MUT/$2/lib/vm_boot_core.py" "$3"; then b_fail=$((b_fail+1)); return 1; fi
-  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$MUT/$2/lib/vm_boot_core.py"; then
-    echo "  FAIL  $1: mutant does not compile"; b_fail=$((b_fail+1)); return 1
-  fi
-}
-# Staging control: the UNMUTATED staged tree must give the good verdicts on every scenario, else a
-# staging gap (missing import) would make each mutant "bite" by crashing.
-if stage clean; then
-  for _s in red11:fresh inv5:reaped alloc:1; do
-    _o="$(bash "$0" --tooth "${_s%%:*}" "$MUT/clean/lib/trace_exec.py" 2>&1)"; _rc=$?
-    _k="$(tr '[:lower:]' '[:upper:]' <<<"${_s%%:*}")"
-    if [ "$_rc" -eq 0 ] && grep -qE "^TOOTH_${_k}=${_s##*:}\$" <<<"$_o" && ! grep -qE "$_CRASH" <<<"$_o"; then
-      echo "  PASS  teeth-staging-control-${_s%%:*}: unmutated staged tree gives TOOTH_${_k}=${_s##*:}"; b_pass=$((b_pass+1))
-    else
-      echo "  FAIL  teeth-staging-control-${_s%%:*}: rc=$_rc output=[$_o]"; b_fail=$((b_fail+1))
-    fi
-  done
-else
-  echo "  FAIL  teeth-staging-control: staging the clean mini-tree failed"; b_fail=$((b_fail+1))
-fi
-
-# mutant 1 — run_dir identity: run_vm hands out a caller-chosen (reusable) run_dir identity.
-if build teeth-mut-red11 red11 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    run_dir = _dc.make_run_subdir(__import__("os").environ.get("TOOTH_UUID") or uuid.uuid4().hex)|'; then
-  tt teeth-mut-red11 0 0 "$MUT/red11/lib/trace_exec.py" --orig "$SUT_EXEC" \
-    --good-has '^TOOTH_RED11=fresh$' --good-lacks "$_CRASH" \
-    --bad-has '^TOOTH_RED11=preexisting$' --bad-lacks "$_CRASH" -- bash "$0" --tooth red11 @SUT@
-fi
-# mutant 2 — cleanup: the BaseException path no longer reaps run_dir (INV-5 directory half).
-if build teeth-mut-inv5 inv5 '/^    except BaseException:$/{n;s/^        shutil\.rmtree(run_dir, ignore_errors=True)$/        pass/;}'; then
-  tt teeth-mut-inv5 0 0 "$MUT/inv5/lib/trace_exec.py" --orig "$SUT_EXEC" \
-    --good-has '^TOOTH_INV5=reaped$' --good-lacks "$_CRASH" \
-    --bad-has '^TOOTH_INV5=leaked$' --bad-lacks "$_CRASH" -- bash "$0" --tooth inv5 @SUT@
-fi
-# mutant 3 — single allocation: run_vm allocates a second, orphaned run_dir.
-if build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    _dc.make_run_subdir(uuid.uuid4().hex)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)|'; then
-  tt teeth-mut-alloc 0 0 "$MUT/alloc/lib/trace_exec.py" --orig "$SUT_EXEC" \
-    --good-has '^TOOTH_ALLOC=1$' --good-lacks "$_CRASH" \
-    --bad-has '^TOOTH_ALLOC=2$' --bad-lacks "$_CRASH" -- bash "$0" --tooth alloc @SUT@
-fi
+# The stage / build / staging-control / three-mutant section is shared with the sibling executor suite
+# (tests/lib/mutant.sh, kit issue #1576); it reports through MVC_PASS / MVC_FAIL.
+mutant_vm_core_teeth trace "$HERE" "$0" "$SUT_EXEC" "$MUT"
+b_pass=$MVC_PASS; b_fail=$MVC_FAIL
 
 echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
 [ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
