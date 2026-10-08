@@ -62,7 +62,7 @@ const MALFORMED_PATTERN = new RegExp(
 const FENCE_OPEN = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
 
 // CommonMark block starts that interrupt a paragraph, and so end any code span still open: an HTML block
-// start (`<!--`), ATX heading, list item, blockquote, thematic break. (Indented code is out of scope.)
+// start (`<!--`), ATX heading, list item, blockquote, thematic break.
 const PARAGRAPH_INTERRUPT =
   /^ {0,3}(?:<!--|#{1,6}(?:\s|$)|(?:[-+*]|0{0,8}1[.)])[ \t]+\S|(?:=+|-+)[ \t]*$|>|(?:-[ \t]*){3,}$|(?:\*[ \t]*){3,}$|(?:_[ \t]*){3,}$)/;
 
@@ -80,11 +80,27 @@ function findSpanCloser(lines, i, col, n) {
   return null;
 }
 
+// A list-item start (up to 3 spaces indent). While inside a list, indented lines are item content, not code.
+const LIST_ITEM_START = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+\S/;
+
+// Column width of a line's leading whitespace, with tab stops of 4.
+function indentWidth(line) {
+  let w = 0;
+  for (const ch of line) {
+    if (ch === ' ') w++;
+    else if (ch === '\t') w += 4 - (w % 4);
+    else break;
+  }
+  return w;
+}
+
 function stripHiddenText(body) {
   const lines = String(body || '').split('\n');
   const out = [];
   let fence = null;
   let inComment = false;
+  let inList = false;
+  let inCode = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (fence !== null) {
@@ -98,6 +114,24 @@ function stripHiddenText(body) {
       if (open) {
         fence = open[1];
         continue;
+      }
+    }
+    if (!inComment) {
+      // Indented code block (CommonMark): 4+ columns (tab = 4) at document start or right after a blank
+      // line, outside a list item's content. A 4-space line directly after a paragraph line is a lazy
+      // continuation and stays visible. Emit an empty line so line structure is preserved.
+      const startsBlock = i === 0 || inCode || /^\s*$/.test(lines[i - 1]);
+      if (line.trim() !== '') {
+        if (LIST_ITEM_START.test(line)) {
+          inList = true;
+        } else if (startsBlock && indentWidth(line) < 2) {
+          inList = false;
+        }
+        inCode = startsBlock && !inList && indentWidth(line) >= 4 && !LIST_ITEM_START.test(line);
+        if (inCode) {
+          out.push('');
+          continue;
+        }
       }
     }
     let visible = '';
