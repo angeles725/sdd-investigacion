@@ -392,7 +392,7 @@ mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.
 } > "$kit/TARGETS.md"
 run "$kit"
 if [ "$RC" = 0 ] \
-   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json but its script does not exist" <<<"$OUT" \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json but EVERY registered retro-gate command names a script that does not exist" <<<"$OUT" \
    && grep -q 'registered-never-loaded' <<<"$OUT" \
    && ! grep -q 'Stop hook is wired' <<<"$OUT" && ! grep -qE "but the Stop hook is [a-z-]+ at" <<<"$OUT" \
    && ! grep -qE '· 0 attention\.' <<<"$OUT"; then
@@ -427,6 +427,48 @@ if [ "$RC" = 0 ] && ! grep -q 'Stop hook IS wired' <<<"$OUT" && ! grep -q 'regis
   ok "3s2 hook no + registered-but-script-missing → no reverse WARN, no never-loaded WARN" "(exit $RC)"
 else
   no "3s2 hook no + registered-but-script-missing → no reverse WARN" "exit=$RC out=[$OUT]"
+fi
+
+# 3s3 / 3s4 — the reverse-check skip needs a FIRM 'missing' (every entry resolved). An unverifiable
+#      registration (spaces without quotes, unresolved variable) or missing + unverifiable must still
+#      WARN the contradiction: absence of proof is not proof of absence.
+for _c in "s3:bash $PWD/not quoted/retro-gate-stop.sh" "s4:\$UNKNOWN_DIR/retro-gate-stop.sh"; do
+  kit="$(mkkit "c3${_c%%:*}-hookno-unverifiable")"; tgt="$kit/targetA"
+  mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "${_c#*:}"
+  { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+    printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+  } > "$kit/TARGETS.md"
+  run "$kit"
+  if [ "$RC" = 0 ] && grep -q 'Stop hook IS wired' <<<"$OUT"; then
+    ok "3${_c%%:*} hook no + unverifiable registration → reverse WARN still fires" "(exit $RC)"
+  else
+    no "3${_c%%:*} hook no + unverifiable registration → reverse WARN still fires" "exit=$RC out=[$OUT]"
+  fi
+done
+kit="$(mkkit c3s5-hookno-mixed)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude"
+printf '{"hooks":{"Stop":[{"hooks":[{"command":"%s/gone/retro-gate-a.sh"},{"command":"retro-gate-b"}]}]}}' "$tgt" > "$tgt/.claude/settings.json"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook no) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && grep -q 'Stop hook IS wired' <<<"$OUT"; then
+  ok "3s5 hook no + one missing + one unresolvable entry → reverse WARN still fires" "(exit $RC)"
+else
+  no "3s5 hook no + one missing + one unresolvable entry → reverse WARN still fires" "exit=$RC out=[$OUT]"
+fi
+# 3s6 — 'hook yes' + one missing + one present entry: any present wins → no never-loaded WARN.
+kit="$(mkkit c3s6-anypresent)"; tgt="$kit/targetA"
+mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude"; : > "$tgt/ok-retro-gate.sh"
+printf '{"hooks":{"Stop":[{"hooks":[{"command":"%s/gone/retro-gate-a.sh"},{"command":"%s/ok-retro-gate.sh"}]}]}}' "$tgt" "$tgt" > "$tgt/.claude/settings.json"
+{ printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
+  printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
+} > "$kit/TARGETS.md"
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'registered-never-loaded' <<<"$OUT"; then
+  ok "3s6 hook yes + one missing + one present entry → no never-loaded WARN (any present wins)" "(exit $RC)"
+else
+  no "3s6 hook yes + one missing + one present entry → no never-loaded WARN" "exit=$RC out=[$OUT]"
 fi
 
 # 3t — script resolution DEGRADED (awk cannot run inside the lib's script-state probe): a typed WARN,

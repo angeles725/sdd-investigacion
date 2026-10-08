@@ -308,25 +308,30 @@ fi
 #     Sets the GLOBAL $HOOK_SCRIPT_STATE to exactly one of:
 #       present      : at least one Stop-scoped retro-gate command names a script that exists and
 #                      can be opened for reading — the hook CAN load.
-#       missing      : every Stop-scoped retro-gate command names a script that does not exist (or
-#                      cannot be opened) — the hook is REGISTERED in settings.json but can NEVER
-#                      load. Distinct from 'wired' in hook_stop_wiring_state_var: that predicate is a
-#                      text match on the settings file and is DELIBERATELY unchanged (sweep-retros.sh
-#                      and research-sdd-status.sh stay byte-identical); this is a separate question
-#                      callers ask AFTER 'wired'/'wired-off-root'.
+#       missing      : EVERY Stop-scoped retro-gate command was resolved unambiguously to a path
+#                      that does not exist (or cannot be opened) — the hook is REGISTERED in
+#                      settings.json but can NEVER load. One present entry wins ('present'); one
+#                      unresolvable entry prevents 'missing' ('unverifiable'). 'missing' is a firm
+#                      claim, so it is emitted only when no entry was ambiguous. Distinct from 'wired'
+#                      in hook_stop_wiring_state_var: that predicate is a text match on the settings
+#                      file and is DELIBERATELY unchanged (sweep-retros.sh and research-sdd-status.sh
+#                      stay byte-identical); this is a separate question callers ask AFTER
+#                      'wired'/'wired-off-root'.
 #       unverifiable : no entry could be confirmed present and at least one could not be resolved to
-#                      a path — a bare command name (no '/', looked up via PATH), or a path still
-#                      containing '$', a backtick, '*' or '?' after $CLAUDE_PROJECT_DIR / $HOME / '~'
-#                      were substituted. This is "the instrument could not look", never a claim in
-#                      either direction (CLAUDE.md §7).
+#                      a path unambiguously — see "Resolved forms" for what does resolve. This is
+#                      "the instrument could not look", never a claim in either direction (§7).
 #       no-entry     : settings.json is absent or unreadable, or its Stop block has no retro-gate
 #                      command — there is nothing to resolve (the wiring state names which).
 #       degraded     : awk is unavailable or failed — the measurement is invalid, NOT a zero.
-#     Resolved forms: absolute '/p', '$CLAUDE_PROJECT_DIR/p' and '${CLAUDE_PROJECT_DIR}/p' (against
-#     the normalized target), '$HOME/p', '~/p', and a relative 'dir/p' (against the target — the
-#     directory Claude Code runs project hooks from). Interpreter prefixes and trailing arguments
-#     ('bash "$CLAUDE_PROJECT_DIR"/x.sh --flag') are tolerated: every whitespace-delimited word of
-#     the command containing "retro-gate" is checked, quotes stripped.
+#     Resolved forms (the ONLY ones): an absolute '/p'; a leading '$CLAUDE_PROJECT_DIR/p' or
+#     '${CLAUDE_PROJECT_DIR}/p' (against the normalized target); a leading '$HOME/p', '${HOME}/p' or
+#     '~/p' when HOME is non-empty; and a relative 'dir/p' (against the target, the directory Claude
+#     Code runs project hooks from) ONLY when the command contains no 'cd' and the word is the
+#     command itself or its first argument (word 1 or 2: 'x.sh' or 'bash x.sh'). Words are split
+#     quote-aware, so '"/my tools/retro-gate.sh"' is one word; interpreter prefixes and trailing
+#     arguments are tolerated. Everything else is 'unverifiable': a variable that is not a leading
+#     resolvable one, '~user/p', a backslash, glob characters, a bare command name (no '/'), a
+#     single-quoted '$'/'~', an unterminated quote, a relative path after 'cd', an empty HOME.
 #     NOT checked: the executable bit (a fork-free awk cannot test it; 'bash x.sh' needs none), the
 #     settings.local.json / user-level registration paths (same narrowness as the wiring predicate),
 #     and where sessions launch from (kit issue #1134 — the other half of #1157, undecidable here).
@@ -343,14 +348,31 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
     _hw_abspath "$target"
     awk -v tgt="$HW_ABS_PATH" -v home="${HOME:-}" '
       function esc_at(s, k,   b) { b = 0; while (k > 1 && substr(s, k - 1, 1) == "\\") { b++; k-- } return b % 2 }
-      function lit_repl(s, pat, r,   p, out) {
-        out = ""
-        while ((p = index(s, pat)) > 0) { out = out substr(s, 1, p - 1) r; s = substr(s, p + length(pat)) }
-        return out s
+      # pfx(s, pat): 1 when s starts with pat followed by "/" (the only place a variable is resolved).
+      function pfx(s, pat) { return substr(s, 1, length(pat) + 1) == pat "/" }
+      # resolve(w, hascd): a word of the command that mentions retro-gate -> "ok"/"miss"/"unver".
+      # "miss" is a firm claim, emitted only when the path was resolved unambiguously.
+      function resolve(w, hascd, widx,   tok, r, ln) {
+        tok = w
+        if (index(tok, "\047") > 0 && tok ~ /[$~]/) return "unver"   # single-quoted: the shell would not expand it
+        gsub(/["\047]/, "", tok)
+        if (pfx(tok, "${CLAUDE_PROJECT_DIR}")) tok = tgt substr(tok, 22)
+        else if (pfx(tok, "$CLAUDE_PROJECT_DIR")) tok = tgt substr(tok, 20)
+        else if (home != "" && pfx(tok, "${HOME}")) tok = home substr(tok, 8)
+        else if (home != "" && pfx(tok, "$HOME")) tok = home substr(tok, 6)
+        else if (home != "" && substr(tok, 1, 2) == "~/") tok = home substr(tok, 2)
+        if (tok ~ /[$`*?\\]/ || substr(tok, 1, 1) == "~" || index(tok, "/") == 0) return "unver"
+        if (substr(tok, 1, 1) != "/") {
+          if (hascd) return "unver"          # relative to a directory the command itself changed
+          if (widx > 2) return "unver"       # a relative word past the command/interpreter slots may be a fragment or an argument
+          tok = tgt "/" tok
+        }
+        r = (getline ln < tok); close(tok)
+        return (r >= 0) ? "ok" : "miss"
       }
       # check(line, pos): classify every retro-gate word of the JSON string that contains pos.
       # Returns the index of the closing quote (so the scanner can skip the string), or 0.
-      function check(line, pos,   s, e, k, cmd, n, w, j, tok, r, ln) {
+      function check(line, pos,   s, e, k, cmd, n, c, q, w, hascd, any, widx) {
         s = 0
         for (k = pos - 1; k >= 1; k--) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { s = k; break }
         e = 0
@@ -359,24 +381,28 @@ if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
         if (s == 0 || e == 0) { unver++; return 0 }
         cmd = substr(line, s + 1, e - s - 1)
         gsub(/\\"/, "\"", cmd)
-        n = split(cmd, w, /[ \t]+/)
-        for (j = 1; j <= n; j++) {
-          if (index(w[j], "retro-gate") == 0) continue
-          tok = w[j]
-          gsub(/["\047]/, "", tok)
-          tok = lit_repl(tok, "${CLAUDE_PROJECT_DIR}", tgt)
-          tok = lit_repl(tok, "$CLAUDE_PROJECT_DIR", tgt)
-          tok = lit_repl(tok, "${HOME}", home)
-          tok = lit_repl(tok, "$HOME", home)
-          if (substr(tok, 1, 2) == "~/") tok = home substr(tok, 2)
-          if (tok ~ /[$`*?]/ || index(tok, "/") == 0) { unver++; continue }
-          if (substr(tok, 1, 1) != "/") tok = tgt "/" tok
-          r = (getline ln < tok); close(tok)
-          if (r >= 0) okc++; else miss++
+        hascd = (cmd ~ /(^|[ \t;&|(])cd[ \t]/)
+        # quote-aware split: whitespace inside a quoted span does not end a word
+        n = length(cmd); q = ""; w = ""; any = 0; widx = 0
+        for (k = 1; k <= n + 1; k++) {
+          c = (k <= n) ? substr(cmd, k, 1) : " "
+          if (q == "" && (c == " " || c == "\t")) {
+            if (w != "") widx++
+            if (w != "" && index(w, "retro-gate") > 0) { any = 1; res[resn++] = resolve(w, hascd, widx) }
+            w = ""
+            continue
+          }
+          if (q == "" && (c == "\"" || c == "\047")) q = c
+          else if (q != "" && c == q) q = ""
+          w = w c
         }
+        if (q != "") { unver++; return e }   # unterminated quote: the command could not be split reliably
+        if (!any) unver++
+        for (k = 0; k < resn; k++) { if (res[k] == "ok") okc++; else if (res[k] == "miss") miss++; else unver++ }
+        resn = 0
         return e
       }
-      BEGIN { in_stop = 0; stop_depth = 0; depth = 0; entries = 0; okc = 0; miss = 0; unver = 0 }
+      BEGIN { in_stop = 0; stop_depth = 0; depth = 0; entries = 0; okc = 0; miss = 0; unver = 0; resn = 0 }
       {
         n = length($0); i = 1
         while (i <= n) {

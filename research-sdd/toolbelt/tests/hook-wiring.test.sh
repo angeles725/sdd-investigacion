@@ -451,6 +451,63 @@ d="$ROOT/t24n"; mkdir -p "$d/rel/.claude"; mkdir -p "$d/rel/sub"; : > "$d/rel/su
 wire_settings "$d/rel" "$(st 'sub/retro-gate-stop.sh')"
 assert_script_state "24n relative path with a slash resolves against the target → present" "$d/rel" "present"
 
+# --- 25 — kit issue #1157 round 2: 'missing' is a FIRM claim, emitted only when every registered
+#      command was resolved unambiguously; every other shape is 'unverifiable'.
+TL='~'; fh="$ROOT/t25-home"; mkdir -p "$fh/hk"; : > "$fh/hk/retro-gate-stop.sh"
+
+d="$ROOT/t25a"; mkdir -p "$d/.claude/hooks"; : > "$d/.claude/hooks/retro-gate-stop.sh"
+wire_settings "$d" "$(st '${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh')"
+assert_script_state "25a \${CLAUDE_PROJECT_DIR}/p, exists → present" "$d" "present"
+d="$ROOT/t25b"; mkdir -p "$d"
+wire_settings "$d" "$(st '${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh')"
+assert_script_state "25b \${CLAUDE_PROJECT_DIR}/p, absent → missing" "$d" "missing"
+
+d="$ROOT/t25c"; mkdir -p "$d"
+wire_settings "$d" "$(st '$HOME/hk/retro-gate-stop.sh')"
+HOME="$fh" assert_script_state "25c \$HOME/p, HOME set, exists → present" "$d" "present"
+wire_settings "$d" "$(st '${HOME}/hk/retro-gate-stop.sh')"
+HOME="$fh" assert_script_state "25d \${HOME}/p, HOME set, exists → present" "$d" "present"
+wire_settings "$d" "$(st "$TL/hk/retro-gate-stop.sh")"
+HOME="$fh" assert_script_state "25e ~/p, HOME set, exists → present" "$d" "present"
+wire_settings "$d" "$(st '$HOME/gone/retro-gate-stop.sh')"
+HOME="$fh" assert_script_state "25f \$HOME/p, HOME set, absent → missing" "$d" "missing"
+wire_settings "$d" "$(st '${HOME}/gone/retro-gate-stop.sh')"
+HOME="$fh" assert_script_state "25g \${HOME}/p, HOME set, absent → missing" "$d" "missing"
+wire_settings "$d" "$(st "$TL/gone/retro-gate-stop.sh")"
+HOME="$fh" assert_script_state "25h ~/p, HOME set, absent → missing" "$d" "missing"
+wire_settings "$d" "$(st '$HOME/hk/retro-gate-stop.sh')"
+HOME="" assert_script_state "25i \$HOME/p with HOME empty → unverifiable (never joined to the target)" "$d" "unverifiable"
+wire_settings "$d" "$(st "$TL/hk/retro-gate-stop.sh")"
+HOME="" assert_script_state "25j ~/p with HOME empty → unverifiable" "$d" "unverifiable"
+wire_settings "$d" "$(st '~someone/hk/retro-gate-stop.sh')"
+HOME="$fh" assert_script_state "25k ~user/p → unverifiable" "$d" "unverifiable"
+wire_settings "$d" "$(st '--dir=$CLAUDE_PROJECT_DIR/retro-gate-stop.sh')"
+assert_script_state "25l variable not at the start of the word → unverifiable" "$d" "unverifiable"
+
+d="$ROOT/t25m"; mkdir -p "$d/my tools"; : > "$d/my tools/retro-gate-stop.sh"
+wire_settings "$d" "$(st "bash \\\"$d/my tools/retro-gate-stop.sh\\\" --x")"
+assert_script_state "25m quoted path containing a space, exists → present" "$d" "present"
+wire_settings "$d" "$(st "bash \\\"$d/my gone/retro-gate-stop.sh\\\" --x")"
+assert_script_state "25n quoted path containing a space, absent → missing" "$d" "missing"
+wire_settings "$d" "$(st "bash \\\"$d/my tools/retro-gate-stop.sh --x")"
+assert_script_state "25o unterminated quote → unverifiable" "$d" "unverifiable"
+wire_settings "$d" "$(st "bash $d/my tools/retro-gate-stop.sh")"
+assert_script_state "25p unquoted space splits the word → the fragment is a bare name, unverifiable" "$d" "unverifiable"
+
+d="$ROOT/t25q"; mkdir -p "$d"
+wire_settings "$d" "$(st 'cd sub && ./retro-gate-stop.sh')"
+assert_script_state "25q relative path after a 'cd' in the command → unverifiable" "$d" "unverifiable"
+wire_settings "$d" "$(st './retro-gate-stop.sh')"
+assert_script_state "25r same relative path without 'cd' → joined to the target → missing" "$d" "missing"
+
+d="$ROOT/t25s"; mkdir -p "$d"; : > "$d/ok-retro-gate.sh"
+wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"retro-gate-b"}]}]}}'
+assert_script_state "25s one missing + one unresolvable → unverifiable, never missing" "$d" "unverifiable"
+wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"retro-gate-b"},{"command":"'"$d"'/ok-retro-gate.sh"}]}]}}'
+assert_script_state "25t one unresolvable + one present → present (any present wins)" "$d" "present"
+wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"/nope2/retro-gate-b.sh"}]}]}}'
+assert_script_state "25u every entry firmly absent → missing" "$d" "missing"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -769,11 +826,36 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth: $label caught (real sourced lib)" "$cs read [$got] not [$want]"; fi
   }
   echo "-- teeth: treat every unopenable script as present — case 24b must go RED --"
-  script_tooth "missing script counted present" 's/if (r >= 0) okc++; else miss++/okc++/' "$ROOT/t24b" "missing" "case 24b"
+  script_tooth "missing script counted present" 's/return (r >= 0) ? "ok" : "miss"/return "ok"/' "$ROOT/t24b" "missing" "case 24b"
   echo "-- teeth: count an unresolvable word as missing — case 24g must go RED --"
-  script_tooth "unverifiable collapsed into missing" 's/index(tok, "\/") == 0) { unver++; continue }/index(tok, "\/") == 0) { miss++; continue }/' "$ROOT/t24g" "unverifiable" "case 24g"
+  script_tooth "unverifiable collapsed into missing" 's/ || index(tok, "\/") == 0) return "unver"/ || index(tok, "\/") == 0) return "miss"/' "$ROOT/t24g" "unverifiable" "case 24g"
   echo "-- teeth: stop substituting \$CLAUDE_PROJECT_DIR — case 24c must go RED --"
-  script_tooth "CLAUDE_PROJECT_DIR substitution dropped" 's/tok = lit_repl(tok, "\$CLAUDE_PROJECT_DIR", tgt)/tok = tok/' "$ROOT/t24c" "present" "case 24c"
+  script_tooth "CLAUDE_PROJECT_DIR substitution dropped" 's/else if (pfx(tok, "\$CLAUDE_PROJECT_DIR")) tok = tgt substr(tok, 20)/else if (0) tok = tok/' "$ROOT/t24c" "present" "case 24c"
+  echo "-- teeth (round 2): firm-missing discipline, one mutant per resolution rule --"
+  mkdir -p "$ROOT/t25mq/my tools" "$ROOT/t25p"; : > "$ROOT/t25mq/my tools/retro-gate-stop.sh"
+  wire_settings "$ROOT/t25mq" "$(st "bash \\\"$ROOT/t25mq/my tools/retro-gate-stop.sh\\\" --x")"
+  wire_settings "$ROOT/t25p" "$(st "bash $ROOT/t25p/my tools/retro-gate-stop.sh")"
+  script_tooth "quote-aware split dropped" 's/if (q == "" \&\& (c == " " || c == "\\t")) {/if (c == " " || c == "\\t") {/' "$ROOT/t25mq" "present" "case 25m"
+  script_tooth "cd guard dropped" 's/if (hascd) return "unver"/if (0) return "unver"/' "$ROOT/t25q" "unverifiable" "case 25q"
+  script_tooth "word-slot guard dropped" 's/if (widx > 2) return "unver"/if (0) return "unver"/' "$ROOT/t25p" "unverifiable" "case 25p"
+  HOME="$fh" script_tooth "relative base join dropped" 's/tok = tgt "\/" tok$/tok = tok/' "$ROOT/t24n/rel" "present" "case 24n"
+  wire_settings "$ROOT/t25i" "$(st '$HOME/hk/retro-gate-stop.sh')"
+  HOME="" script_tooth "non-empty HOME guard dropped for \$HOME" 's/else if (home != "" \&\& pfx(tok, "\$HOME"))/else if (pfx(tok, "$HOME"))/' "$ROOT/t25i" "unverifiable" "case 25i"
+  wire_settings "$ROOT/t25i2" "$(st "$TL/hk/retro-gate-stop.sh")"
+  HOME="" script_tooth "non-empty HOME guard dropped for ~/" 's/else if (home != "" \&\& substr(tok, 1, 2) == "~\/")/else if (substr(tok, 1, 2) == "~\/")/' "$ROOT/t25i2" "unverifiable" "case 25j"
+  wire_settings "$ROOT/t25hm" "$(st '${HOME}/hk/retro-gate-stop.sh')"
+  HOME="$fh" script_tooth "\${HOME} substitution dropped" 's/else if (home != "" \&\& pfx(tok, "\${HOME}")) tok = home substr(tok, 8)/else if (0) tok = tok/' "$ROOT/t25hm" "present" "case 25d"
+  wire_settings "$ROOT/t25tl" "$(st "$TL/hk/retro-gate-stop.sh")"
+  HOME="$fh" script_tooth "tilde-slash substitution dropped" 's/else if (home != "" \&\& substr(tok, 1, 2) == "~\/") tok = home substr(tok, 2)/else if (0) tok = tok/' "$ROOT/t25tl" "present" "case 25e"
+  wire_settings "$ROOT/t25hv" "$(st '$HOME/hk/retro-gate-stop.sh')"
+  HOME="$fh" script_tooth "\$HOME substitution dropped" 's/else if (home != "" \&\& pfx(tok, "\$HOME")) tok = home substr(tok, 6)/else if (0) tok = tok/' "$ROOT/t25hv" "present" "case 25c"
+  wire_settings "$ROOT/t25ku" "$(st '~someone/hk/retro-gate-stop.sh')"
+  HOME="$fh" script_tooth "~user guard dropped" 's/ || substr(tok, 1, 1) == "~"//' "$ROOT/t25ku" "unverifiable" "case 25k"
+  script_tooth "braced CLAUDE_PROJECT_DIR substitution dropped" 's/if (pfx(tok, "\${CLAUDE_PROJECT_DIR}")) tok = tgt substr(tok, 22)/if (0) tok = tok/' "$ROOT/t25a" "present" "case 25a"
+  script_tooth "any-present-wins dropped" 's/if (okc > 0) exit 0/if (0) exit 0/' "$ROOT/t24i" "present" "case 24i"
+  wire_settings "$ROOT/t25s2" '{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"retro-gate-b"}]}]}}'
+  script_tooth "unresolvable-beats-missing dropped" 's/if (unver > 0) exit 5/if (0) exit 5/' "$ROOT/t25s2" "unverifiable" "case 25s"
+
   echo "-- teeth: collapse the degraded arm into missing — case 24m must go RED --"
   mut_deg="$ROOT/hook-wiring.MUTANT-script-degraded.sh"
   if mk "teeth: degraded arm anchor in lib" "$LIB" "$mut_deg" 's/\*) HOOK_SCRIPT_STATE="degraded" ;;/*) HOOK_SCRIPT_STATE="missing" ;;/'; then
