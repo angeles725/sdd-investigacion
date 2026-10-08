@@ -2920,6 +2920,15 @@ else no "UN17b: trailing --home rc=$URC (124 = hung) :: $UOUT"; fi
 UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$SUT" --harness pi --home "" 2>&1)"; URC=$?
 [ "$URC" = 2 ] && [ -z "$(find "$UN_FAKEHOME" -type f)" ] && ok "UN17c: an empty --home is rejected for a plain install too" || no "UN17c: install with empty --home rc=$URC :: $UOUT"
 
+# UN17d — an empty --harness value is a usage error too (it used to exit 0 having done nothing: a silent zero).
+uh="$TMP/un17d-home"; mkdir -p "$uh"
+for _m in "--uninstall --yes" ""; do
+  # shellcheck disable=SC2086
+  UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$SUT" $_m --harness "" --home "$uh" 2>&1)"; URC=$?
+  if [ "$URC" = 2 ] && grep -Fq -- '--harness requires' <<<"$UOUT" && [ -z "$(find "$uh" -type f)" ]; then ok "UN17d: --harness \"\" (${_m:-install}) → usage error, exit 2, nothing written"
+  else no "UN17d: empty --harness (${_m:-install}) rc=$URC :: $UOUT"; fi
+done
+
 # UN18 — a hash tool that FAILS on a file is not a verdict of modification: kept (unverifiable).
 uh="$TMP/un18-home"; mkdir -p "$uh"; _uinst "$uh" pi
 UN_SHIM="$TMP/un18-shim"; mkdir -p "$UN_SHIM"; printf '#!/bin/sh\nexit 1\n' > "$UN_SHIM/sha256sum"; chmod +x "$UN_SHIM/sha256sum"
@@ -3026,6 +3035,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   HOME="$UN_FAKEHOME" bash "$UM7" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
   if [ ! -e "$TMP/um7-out/skill-dir/SKILL.md" ]; then ok "teeth: containment-less mutant deletes a file outside the root through a symlinked dir → the realpath check has teeth"
   else no "teeth: containment-less mutant left the outside file — UN16 is THEATER"; fi
+
+  UM9="$MKI/research-sdd-install.MUTANT-un-noharnesscheck.$$.sh"
+  mutant_sed "$SUT" "$UM9" 's/if \[ \$# -lt 2 \] || \[ -z "\${2:-}" \]; then echo "research-sdd-install: --harness requires/if [ $# -lt 2 ]; then echo "research-sdd-install: --harness requires/' \
+    || no "teeth: UM9 could not be built"
+  UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$UM9" --uninstall --harness "" --home "$TMP/um9-home" 2>&1)"; URC=$?
+  if [ "$URC" != 2 ]; then ok "teeth: harness-check-less mutant accepts --harness \"\" (rc=$URC) → the empty --harness check has teeth"
+  else no "teeth: harness-check-less mutant still exits 2 — UN17d is THEATER"; fi
 
   UM8="$MKI/research-sdd-install.MUTANT-un-nohomecheck.$$.sh"
   mutant_sed "$SUT" "$UM8" '/^      --home)$/,/home="\$2"/s/if \[ \$# -lt 2 \] || \[ -z "\${2:-}" \]; then/if false; then/' \

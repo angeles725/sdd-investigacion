@@ -1093,7 +1093,8 @@ uninstall_one() {
       c=0; _rsdd_u_contained "$d" || c=$?
       if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$d" "directory"; continue; fi
       if [ "$c" != 0 ]; then _rsdd_u_report "kept (unverifiable)" "$d" "directory" "could not resolve the parent directory"; continue; fi
-      if err="$(rmdir "$d" 2>&1)"; then _rsdd_u_report removed "$d" "empty directory"
+      # LC_ALL=C: the "not empty" match below must not depend on the user's locale.
+      if err="$(LC_ALL=C rmdir "$d" 2>&1)"; then _rsdd_u_report removed "$d" "empty directory"
       elif [[ "$err" == *"not empty"* ]]; then _rsdd_u_report "kept (not empty)" "$d" "directory"
       else _rsdd_u_report "kept (rmdir failed: ${err##*: })" "$d" "directory"; fi
     done
@@ -1296,7 +1297,7 @@ main() {
       --uninstall)   uninstall=1; shift ;;
       --yes)         yes=1; shift ;;
       --harness)
-        if [ $# -lt 2 ]; then echo "research-sdd-install: --harness requires a value" >&2; usage >&2; return 2; fi
+        if [ $# -lt 2 ] || [ -z "${2:-}" ]; then echo "research-sdd-install: --harness requires a non-empty value" >&2; usage >&2; return 2; fi
         harness="$2"; shift 2 ;;
       --home)
         # An empty value would make rsdd_field build "/<rel>" paths or fall back to the real $HOME; a missing one
