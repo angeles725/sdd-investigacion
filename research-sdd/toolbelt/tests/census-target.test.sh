@@ -537,12 +537,12 @@ mkst "$TMP/st-spanword.md" "| high | G1 .aaa .bbb, run \`ccc -d\` and \`git log\
 out="$(xrun "$TMP/st-spanword.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
   && ok "60 span 'ccc -d' (words separated by spaces) claims nothing" || no "60 span words" "$w"
-mkst "$TMP/st-spanlist.md" "| high | G1 \`.aaa/.bbb\` and \`.ccc, .zzz\` | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-spanlist.md" "| high | G1 \`.aaa/.bbb\` and \`ccc, .zzz\` | x |" "- .zzz — dismissed: irrelevant"
 out="$(xrun "$TMP/st-spanlist.md")"
 mkst "$TMP/st-spancomp.md" "| high | G1 unpack \`.tar.gz\` | x |" "- .zzz — dismissed: irrelevant"
 out2="$(bash "$SUT" "$cp_" --state "$TMP/st-spancomp.md" 2>&1)"; w2="$(xline "$out2")"
 grep -q 'Audit cross-check: OK' <<<"$out" && grep -q 'WARNING: 1 of 2' <<<"$w2" && grep -q 'types: \.tar$' <<<"$w2" \
-  && ok "61 span lists ('.aaa/.bbb', '.ccc, .zzz') claim every item; span '.tar.gz' claims gz only" || no "61 span lists" "$(grep 'Audit cross-check' <<<"$out") | $w2"
+  && ok "61 span lists ('.aaa/.bbb', bare+dotted 'ccc, .zzz') claim every item; span '.tar.gz' claims gz only" || no "61 span lists" "$(grep 'Audit cross-check' <<<"$out") | $w2"
 # 62..63 — Dismissed head, dotted forms (kit #1986 review B1): the head token ends only at a
 #      boundary, a dotted compound claims its LAST segment, a dotless dotted name claims nothing.
 mkst "$TMP/st-hcomp.md" "| high | G1 x | x |" "- .tar.gz — 5 files — dismissed: archives"
@@ -590,16 +590,51 @@ mkst "$TMP/st-spanmixed.md" "| high | G1 .bbb .ccc, run \`aaa, pdf.js\` | x |" "
 out="$(xrun "$TMP/st-spanmixed.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" \
   && ok "69 span list with an invalid token ('aaa, pdf.js') claims nothing (not even aaa)" || no "69 span mixed list" "$w"
-mkst "$TMP/st-spandots.md" "| high | G1 \`.aaa/.bbb\` \`.ccc & .zzz\` | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-spandots.md" "| high | G1 \`.aaa/.bbb\` \`ccc & zzz\` | x |" "- .zzz — dismissed: irrelevant"
 out="$(xrun "$TMP/st-spandots.md")"
 grep -q 'Audit cross-check: OK' <<<"$out" \
-  && ok "70 dotted slash list and '&' list in spans still claim every item" || no "70 span dotted slash" "$(grep 'Audit cross-check' <<<"$out")"
+  && ok "70 dotted slash list and a bare '&' list ('ccc & zzz', only the span path can claim ccc) still claim every item" || no "70 span dotted slash" "$(grep 'Audit cross-check' <<<"$out")"
 # 57 — an UNPAIRED backtick is not a span: a real comment after it is still stripped (its types
 #      must not leak as claims — that would be a false closure).
 printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa it`s odd <!-- template: .bbb .ccc --> | x |\n\n## Dismissed file types\n\n- .zzz — dismissed: irrelevant\n' > "$TMP/st-unpaired.md"
 out="$(xrun "$TMP/st-unpaired.md")"; w="$(xline "$out")"
 grep -q 'WARNING: 2 of 3' <<<"$w" \
   && ok "57 unpaired backtick does not shield a real HTML comment (no false closure)" || no "57 unpaired backtick" "$(grep 'Audit cross-check' <<<"$out")"
+
+# 71..76 — Remaining claim-parser edges (kit #2007). 71: a Dismissed head '/' list holding a bare
+#      item of 4+ characters is a path ('vendor/ccc') and claims nothing. 72: a multi-item span list
+#      with a bare item under 3 characters ('c, js', 'c&js') claims nothing; a single-token span still
+#      does (48). 73: spans pair per LINE, so a span wrapped across two lines claims nothing it
+#      should not. 74..76: setext headings and 1-3-space-indented ATX headings end a section like
+#      '# '/'## '; a '---' after a blank line is a thematic break; 4+ spaces is code, not a heading.
+mkst "$TMP/st-hpath.md" "| high | G1 .aaa .bbb | x |" "- vendor/ccc — third-party bundles, dismissed"
+out="$(xrun "$TMP/st-hpath.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "71 Dismissed head 'vendor/ccc' (bare item of 4+ chars in a / list) claims nothing" || no "71 head path list" "$w"
+mkst "$TMP/st-spanshort.md" "| high | G1 \`c, js\` and \`c&js\` | x |" "- .zzz — dismissed: irrelevant"
+out="$(bash "$SUT" "$sh2" --state "$TMP/st-spanshort.md" 2>&1)"; w="$(xline "$out")"
+grep -q 'WARNING: 2 of 2' <<<"$w" \
+  && ok "72 span list with a bare item under 3 chars ('c, js', 'c&js') claims nothing" || no "72 span short items" "$w"
+mkst "$TMP/st-spanwrap.md" "| high | G1 .aaa .bbb, wrapped \`
+ccc\` here | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-spanwrap.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "73 a backtick span wrapped across two lines claims nothing (spans pair per line)" || no "73 wrapped span" "$w"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\nAppendix\n========\n\n.ccc mentioned here only\n' > "$TMP/st-setext1.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\nNotes\n-----\n\n.ccc mentioned here only\n' > "$TMP/st-setext2.md"
+printf '# state\n\nGap-backlog\n-----------\n\n| high | G1 .aaa .bbb .ccc | x |\n\nDismissed file types\n====================\n\n- .zzz — dismissed: irrelevant\n' > "$TMP/st-setext3.md"
+out1="$(xrun "$TMP/st-setext1.md")"; out2="$(xrun "$TMP/st-setext2.md")"; out3="$(xrun "$TMP/st-setext3.md")"
+grep -q 'WARNING: 1 of 3' <<<"$out1" && grep -q 'WARNING: 1 of 3' <<<"$out2" && grep -q 'Audit cross-check: OK' <<<"$out3" \
+  && ok "74 setext headings ('===' h1, '---' h2) end a section; a setext 'Gap-backlog' title starts one" || no "74 setext" "$(grep 'Audit cross-check' <<<"$out1") | $(grep 'Audit cross-check' <<<"$out2") | $(grep 'Audit cross-check' <<<"$out3")"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n  ## Notes\n\n.ccc mentioned here only\n' > "$TMP/st-indent3.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n    ## Notes\n\n.ccc claimed: four spaces is code, not a heading\n' > "$TMP/st-indent4.md"
+printf '# state\n\n## Gap-backlog\n\n| high | G1 .aaa .bbb | x |\n\n---\n\n.ccc after a thematic break stays in the section\n' > "$TMP/st-thematic.md"
+printf '# state\n\n## Gap-backlog\n\n- G1 .aaa .bbb\n---\n\n.ccc below a list item rule stays in the section\n' > "$TMP/st-listrule.md"
+out1="$(xrun "$TMP/st-indent3.md")"; out2="$(xrun "$TMP/st-indent4.md")"; out3="$(xrun "$TMP/st-thematic.md")"; out4="$(xrun "$TMP/st-listrule.md")"
+grep -q 'WARNING: 1 of 3' <<<"$out1" && grep -q 'Audit cross-check: OK' <<<"$out2" && grep -q 'Audit cross-check: OK' <<<"$out3" \
+  && ok "75 indented (1-3 space) ATX heading ends a section; 4-space indent and a blank-line '---' do not" || no "75 indented ATX / thematic" "$(grep 'Audit cross-check' <<<"$out1") | $(grep 'Audit cross-check' <<<"$out2") | $(grep 'Audit cross-check' <<<"$out3")"
+grep -q 'Audit cross-check: OK' <<<"$out4" \
+  && ok "76 a '---' directly under a list item is a thematic break, not a setext heading" || no "76 list item rule" "$(grep 'Audit cross-check' <<<"$out4")"
 
 # ---------------------------------------------------------------------------
 # TEETH: mutate the awk threshold comparison to make EVERY type starred, then assert a
@@ -1018,6 +1053,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth-xcheck-nostate" "$mutant_nostate" 's/if \[ -z "\$STATE" \]; then/if false; then/' \
     && tooth "teeth-xcheck-nostate: not-run branch removed → mutant emits no 'not run' line; SUT does" 0 0 "$mutant_nostate" \
          --good-has 'Audit cross-check: not run' --bad-lacks 'Audit cross-check: not run' -- bash @SUT@ "$xt"
+
+  # Kit #2007 teeth: one mutant per new guard, plus the span path itself for the bare-token cases.
+  tooth "teeth-xcheck-span-61: span parsing removed → 'ccc, .zzz' and '.aaa/.bbb' no longer claim (case 61 needs the span path); SUT claims" 0 0 "$mutant_span" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-spanlist.md"
+  tooth "teeth-xcheck-span-70: span parsing removed → bare 'ccc & zzz' no longer claims (case 70 needs the span path); SUT claims" 0 0 "$mutant_span" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-spandots.md"
+  mutant_hpath="$MUT/census-target.XHPATH-MUTANT.sh"
+  mk_sed "teeth-xcheck-hpath" "$mutant_hpath" 's/\[ "\$_hpath" = 0 \] || continue//' \
+    && tooth "teeth-xcheck-hpath: head path-list refusal removed → '- vendor/ccc' claims ccc; SUT does not" 0 0 "$mutant_hpath" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-hpath.md"
+  mutant_sshort="$MUT/census-target.XSSHORT-MUTANT.sh"
+  mk_sed "teeth-xcheck-sshort" "$mutant_sshort" 's/\[ "\$_short_ok" = 1 \] || continue//' \
+    && tooth "teeth-xcheck-sshort: short-item span refusal removed → 'c, js' / 'c&js' claim c and js; SUT does not" 0 0 "$mutant_sshort" \
+         --good-has 'WARNING: 2 of 2' --bad-lacks 'WARNING: 2 of 2' -- bash @SUT@ "$sh2" --state "$TMP/st-spanshort.md"
+  mutant_swrap="$MUT/census-target.XSWRAP-MUTANT.sh"
+  mk_sed "teeth-xcheck-swrap" "$mutant_swrap" "s/^done < <(grep -o '\`\[^\`\]\*\`' <<<\"\\\$_claims\" | tr -d '\`')/done < <(tr '\\\\n' ' ' <<<\"\$_claims\" | grep -o '\`[^\`]*\`' | tr -d '\`')/" \
+    && tooth "teeth-xcheck-swrap: spans paired across lines → a span wrapped over two lines claims ccc; SUT pairs per line" 0 0 "$mutant_swrap" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-spanwrap.md"
+  mutant_setext="$MUT/census-target.XSETEXT-MUTANT.sh"
+  mk_sed "teeth-xcheck-setext" "$mutant_setext" 's/s ~ \/\^ ? ? ?(=+|-+)\[\[:space:\]\]\*\$\//0/' \
+    && tooth "teeth-xcheck-setext: setext detection removed → an 'Appendix' / 'Notes' setext heading no longer ends the section; SUT ends it" 0 0 "$mutant_setext" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-setext1.md" \
+    && tooth "teeth-xcheck-setext-start: setext detection removed → a setext 'Gap-backlog' title no longer starts a section (DEGRADED); SUT reads OK" 0 0 "$mutant_setext" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-setext3.md"
+  mutant_them="$MUT/census-target.XTHEM-MUTANT.sh"
+  mk_sed "teeth-xcheck-thematic" "$mutant_them" 's/ \&\& L\[n - 1\] !~ \/\^\[\[:space:\]\]\*\$\/ \&\& !H\[n - 1\]/ \&\& !H[n - 1]/' \
+    && tooth "teeth-xcheck-thematic: blank-line guard removed → a '---' after a blank line becomes a heading and ends the section; SUT keeps it" 0 0 "$mutant_them" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-thematic.md"
+  mutant_slist="$MUT/census-target.XSLIST-MUTANT.sh"
+  mk_sed "teeth-xcheck-setext-list" "$mutant_slist" 's/L\[n - 1\] !~ \/\^ ? ? ?(\[-\*+\]|\[0-9\]+\[.)\])(\[\[:space:\]\]|\$)\/ \&\& //' \
+    && tooth "teeth-xcheck-setext-list: list-item guard removed → '---' under a bullet is a heading and ends the section; SUT keeps it" 0 0 "$mutant_slist" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-listrule.md"
+  mutant_indent="$MUT/census-target.XINDENT-MUTANT.sh"
+  mk_sed "teeth-xcheck-indent" "$mutant_indent" 's/if (s ~ \/\^ ? ? ?##?(\[\[:space:\]\]|\$)\/)/if (s ~ \/^##?([[:space:]]|$)\/)/' \
+    && tooth "teeth-xcheck-indent: indented ATX recognition removed → '  ## Notes' no longer ends the section; SUT ends it" 0 0 "$mutant_indent" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-indent3.md"
+  mutant_indent4="$MUT/census-target.XINDENT4-MUTANT.sh"
+  mk_sed "teeth-xcheck-indent4" "$mutant_indent4" 's/if (s ~ \/\^ ? ? ?##?(\[\[:space:\]\]|\$)\/)/if (s ~ \/^ *##?([[:space:]]|$)\/)/' \
+    && tooth "teeth-xcheck-indent4: 4+ space indent accepted → a code-indented '    ## Notes' ends the section; SUT keeps the claim" 0 0 "$mutant_indent4" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$xt" --state "$TMP/st-indent4.md"
 
   # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
   # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
