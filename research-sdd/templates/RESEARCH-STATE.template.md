@@ -66,7 +66,7 @@ last_iteration_ts:
 <!-- Written at BOOTSTRAP (PROMPT-LOOP BOOTSTRAP, STRETCH GOAL; kit issue #1268). Two lines. Seed gaps BACKWARD from
      the stretch so coverage is judged against it, not only against what looked reachable. An ambition record, not
      evidence: routes toward it stay [INFER]/proposed until executed. Also the reference for the pre-STOP
-     possibility audit (METHODOLOGY §8c). verify-state.sh does not parse this section. -->
+     possibility audit (METHODOLOGY §8c). verify-state.sh only WARNs when this section is present but lacks its `realistic:` or `stretch:` line (absent is silent; content is never judged). -->
 - **realistic:** <the scope that looks reachable with the tools and access in hand>
 - **stretch:** <the most ambitious version — what would full mastery of this system look like>
 
