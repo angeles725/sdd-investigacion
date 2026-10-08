@@ -1,4 +1,4 @@
-# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-3)
+# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-4)
 
 A read-only instrument that implements this contract accepts `--json` and then prints exactly ONE JSON
 document on stdout instead of its human report. Without `--json` its output is unchanged (byte-identical;
@@ -53,7 +53,7 @@ Exit codes of `--json` mode (every one it can return):
 | `sweep-retros.sh` | implemented (slice 1, kit issue #1711) | `research-sdd.sweep-retros/v1` |
 | `verify-registry.sh` | implemented (slice 2, kit issue #1711) | `research-sdd.verify-registry/v1` |
 | `resume-state.sh` | implemented (slice 3, kit issue #1711) | `research-sdd.resume-state/v1` |
-| `retro-gate.sh` | not yet | — |
+| `retro-gate.sh` | implemented (slice 4, kit issue #1711) | `research-sdd.retro-gate/v1` |
 
 ### `research-sdd.sweep-retros/v1`
 
@@ -158,3 +158,33 @@ Items, in this order (`repo`, then worktrees in `git worktree list` order, then 
 | `pr` | `number`, `branch`, `state`, `url` (only when `prs_status` is `ok`) |
 
 Every field keeps the meaning and null semantics documented in `resume-state.v1.md`.
+
+### `research-sdd.retro-gate/v1`
+
+`retro-gate.sh` is the §18 Stop-hook body: by default it prints the hook decision (`{"decision":"block",...}`) on a
+block and nothing on an allow, and always exits 0. `retro-gate.sh --json <target>` (the flag may sit in any position)
+prints this envelope INSTEAD of the decision; the gate itself is unchanged, so the block-once state file, the stop
+log, the issue seeding and every stderr line behave exactly as without the flag. `--json` is a machine-reading
+mode, not a hook registration: do not register it as the Stop hook (a hook wants the decision JSON and exit 0).
+
+State precedence: `degraded` (jq missing, rc 3) → `ok`. A completed run always carries one `verdict` item, so
+`absent-input`, `empty-input` and `no-match` are never emitted (the resume-state precedent): an allow is a real
+answer, and a missing target is an operational failure (rc 1, no stdout), not a state.
+
+`counts`: `blocked` (`1` when the verdict is `block`, else `0`), `degraded_check` (`1` when the change set was
+decided by the mtime fallback because the session-start sha was absent or unresolvable, else `0`). A `degraded`
+envelope has `counts:{}`.
+
+Process differences from the default mode, all in `--json` only: usage error (anything other than one `<target>`
+beside the flag) is rc 2, target not found / a missing or incomplete helper lib / a failed envelope build is rc 1
+(the default mode exits 0 on all of these, per the hook contract); both print their stderr message and nothing on
+stdout. rc 3 (jq missing) prints the `DEGRADED:` line beside the unchanged `state=allow branch=degraded` line and a
+hand-built `degraded` envelope on stdout (the default mode prints nothing on stdout). The envelope goes out before
+the issue seeding runs, so a Stop timeout during seeding cannot swallow it. The reason travels on jq's stdin, never
+argv.
+
+Item (exactly one):
+
+| `kind` | Fields |
+|---|---|
+| `verdict` | `verdict` (`allow` or `block`), `branch` (the stop-log branch: `loop-safety`, `block-once`, `no-change`, `retro-conforming`, `no-verifier`, `retro-pending`), `target` (basename), `session_id` (string or null when the hook JSON carried none), `check_mode` (`session-sha`, `mtime-fallback`, or null on `loop-safety`/`block-once`, which exit before the change set is evaluated), `newest_retro` (basename of the retro the verdict rests on, or null), `reason` (the block reason, byte-for-byte the default decision's `reason` after JSON decoding; null on an allow) |

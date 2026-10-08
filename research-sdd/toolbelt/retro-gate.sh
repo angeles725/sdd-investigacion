@@ -2,10 +2,16 @@
 # retro-gate.sh — §18 Stop-hook body: blocks once when research files advanced
 # without a conforming retro (U17 / #479 — PR 2 of 2).
 #
-# Usage: retro-gate.sh <target>
+# Usage: retro-gate.sh [--json] <target>
 #   Reads Claude Code Stop-hook JSON on stdin. Always exits 0 (hook contract).
 #   BLOCK = stdout {"decision":"block","reason":"<actionable text>"}
 #   ALLOW = exit 0, no JSON on stdout.
+#   --json (opt-in, kit issue #1711 slice 4): stdout carries ONE json-envelope.v1.md document
+#   (schema research-sdd.retro-gate/v1) INSTEAD of the hook decision; the gate itself (state files,
+#   stop log, issue seeding, stderr lines) is unchanged. It is a machine-reading mode, not a hook
+#   body: rc 0 verdict envelope · 1 operational failure (target not found, helper missing, envelope
+#   build failed; nothing on stdout) · 2 usage error (nothing on stdout) · 3 degraded (jq missing; a
+#   hand-built "state":"degraded" envelope on stdout).
 #
 # §7: always prints a one-line state summary to STDERR (never silent).
 # propose-never-apply: never writes to the target corpus; state files go under .claude/.
@@ -16,12 +22,24 @@ set -uo pipefail
 SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
 KIT="$(cd -P "$SELF_DIR/.." && pwd -P)"
 
-_usage() { printf 'Usage: %s <target>\n' "$(basename "$0")" >&2; }
+_usage() { printf 'Usage: %s [--json] <target>\n' "$(basename "$0")" >&2; }
+# SENTINEL-JSON-ARGS-START
+# --json is recognised in any position; everything else is a positional. Without it the argument
+# handling is exactly the pre-#1711 one (exactly one <target>, every failure exits 0 — hook contract).
+_ENV_JSON=0; _ERR_RC=0; _pos=()
+for _a in "$@"; do
+  if [ "$_a" = "--json" ]; then _ENV_JSON=1; else _pos+=("$_a"); fi
+done
+set -- ${_pos[@]+"${_pos[@]}"}
+if [ "$_ENV_JSON" -eq 1 ]; then _ERR_RC=1; fi
+# SENTINEL-JSON-ARGS-END
 if [ $# -ne 1 ]; then
-  _usage; printf 'retro-gate: ERROR: missing <target>\n' >&2; exit 0
+  _usage; printf 'retro-gate: ERROR: missing <target>\n' >&2
+  if [ "$_ENV_JSON" -eq 1 ]; then exit 2; fi
+  exit 0
 fi
 TARGET="$(cd "$1" 2>/dev/null && pwd)" || {
-  printf 'retro-gate: ERROR: target not found: %s\n' "$1" >&2; exit 0
+  printf 'retro-gate: ERROR: target not found: %s\n' "$1" >&2; exit "$_ERR_RC"
 }
 
 # SENTINEL-STOP-LOG-START
@@ -85,20 +103,20 @@ trap '_STOP_BRANCH=killed; exit 130' INT
 _bf_lib="$SELF_DIR/lib/block-files.sh"
 _rs_lib="$SELF_DIR/lib/retro-status.sh"
 for _lib in "$_bf_lib" "$_rs_lib"; do
-  [ -f "$_lib" ] || { printf 'retro-gate: ERROR: missing helper %s\n' "$_lib" >&2; exit 0; }
+  [ -f "$_lib" ] || { printf 'retro-gate: ERROR: missing helper %s\n' "$_lib" >&2; exit "$_ERR_RC"; }
 done
 # shellcheck source=lib/block-files.sh
 . "$_bf_lib"
 # shellcheck source=lib/retro-status.sh
 . "$_rs_lib"
-declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit 0; }
-declare -F block_files_nested_worktree_roots >/dev/null 2>&1 || { printf 'retro-gate: block_files_nested_worktree_roots not defined\n' >&2; exit 0; }
-declare -F block_files_path_in_nested_worktree >/dev/null 2>&1 || { printf 'retro-gate: block_files_path_in_nested_worktree not defined\n' >&2; exit 0; }
-declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit 0; }
-declare -F retro_marker_scope_line >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_scope_line not defined\n' >&2; exit 0; }
-declare -F retro_status_from_marker_line >/dev/null 2>&1 || { printf 'retro-gate: retro_status_from_marker_line not defined\n' >&2; exit 0; }
-declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_is_partial not defined\n' >&2; exit 0; }
-declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_out_of_scope not defined\n' >&2; exit 0; }
+declare -F block_file_filter >/dev/null 2>&1 || { printf 'retro-gate: block_file_filter not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F block_files_nested_worktree_roots >/dev/null 2>&1 || { printf 'retro-gate: block_files_nested_worktree_roots not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F block_files_path_in_nested_worktree >/dev/null 2>&1 || { printf 'retro-gate: block_files_path_in_nested_worktree not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F retro_is_excluded >/dev/null 2>&1 || { printf 'retro-gate: retro_is_excluded not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F retro_marker_scope_line >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_scope_line not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 || { printf 'retro-gate: retro_status_from_marker_line not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F retro_marker_is_partial >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_is_partial not defined\n' >&2; exit "$_ERR_RC"; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { printf 'retro-gate: retro_marker_out_of_scope not defined\n' >&2; exit "$_ERR_RC"; }
 
 # ── Nested worktree copies (kit issue #1223) ──────────────────────────────────
 # _nw_roots: newline-separated nested-worktree roots under $TARGET, probed ONCE below (after the
@@ -378,12 +396,51 @@ _json_escape_reason() {
   printf '%s' "$s"
 }
 
+# SENTINEL-ENVELOPE-START
+# ── --json envelope (kit issue #1711 slice 4; contract: json-envelope.v1.md) ──
+# _emit_envelope <verdict:allow|block> <check_mode> <newest_retro> <reason>: prints the ONE envelope.
+# The verdict item is always present on a completed run, so the state is `ok` (resume-state
+# precedent); absent-input / empty-input / no-match are never emitted. The block reason travels on
+# jq's STDIN (never argv: a long verify-retro finding list must not hit the per-argument limit).
+# A failed build is an operational failure: stderr message, exit 1, nothing on stdout.
+_emit_envelope() {
+  local verdict="$1" mode="$2" retro="$3" reason="${4:-}" has_reason=0 out blocked=0 degraded=0
+  if [ "$verdict" = "block" ]; then has_reason=1; blocked=1; fi
+  if [ "$mode" = "mtime-fallback" ]; then degraded=1; fi
+  out="$(printf '%s' "$reason" | jq -Rs \
+    --arg verdict "$verdict" --arg branch "${_STOP_BRANCH:-unclassified}" \
+    --arg target "$(basename "$TARGET")" --arg sid "$_session_id" --arg mode "$mode" \
+    --arg retro "$retro" --argjson has_reason "$has_reason" --argjson blocked "$blocked" \
+    --argjson degraded "$degraded" '
+    def nn: if . == "" then null else . end;
+    . as $reason
+    | {schema:"research-sdd.retro-gate/v1", state:"ok", reason:null,
+       counts:{blocked:$blocked, degraded_check:$degraded},
+       items:[{kind:"verdict", verdict:$verdict, branch:$branch, target:$target,
+               session_id:($sid|nn), check_mode:($mode|nn), newest_retro:($retro|nn),
+               reason:(if $has_reason == 1 then $reason else null end)}]}' 2>/dev/null)" && [ -n "$out" ] || {
+    printf 'retro-gate: ERROR: envelope build failed (jq)\n' >&2; exit 1
+  }
+  printf '%s\n' "$out"
+}
+# _verdict_allow: the --json counterpart of a bare `exit 0` allow; a no-op in the default mode.
+_verdict_allow() { if [ "$_ENV_JSON" -eq 1 ]; then _emit_envelope allow "$@"; fi; }
+# SENTINEL-ENVELOPE-END
+
 # SENTINEL-JQ-PROBE-START
 # ── Probe: jq required for JSON parsing ──────────────────────────────────────
 if ! command -v jq >/dev/null 2>&1; then
   _STOP_BRANCH="degraded"
   printf 'retro-gate: state=allow branch=degraded (jq missing — cannot read hook JSON) target=%s\n' \
     "$(basename "$TARGET")" >&2
+  # SENTINEL-JSON-DEGRADED-START
+  if [ "$_ENV_JSON" -eq 1 ]; then
+    # jq is what is missing, so the envelope is hand-built (pure bash); rc 3 is the typed state.
+    printf 'DEGRADED: jq not found; cannot read hook JSON or build the envelope\n' >&2
+    printf '{"schema":"research-sdd.retro-gate/v1","state":"degraded","reason":"jq not found; cannot read hook JSON or build the envelope","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  # SENTINEL-JSON-DEGRADED-END
   exit 0
 fi
 # SENTINEL-JQ-PROBE-END
@@ -399,6 +456,7 @@ if [ "$_stop_hook_active" = "true" ]; then
   _STOP_BRANCH="loop-safety"
   printf 'retro-gate: state=allow branch=loop-safety stop_hook_active=true target=%s\n' \
     "$(basename "$TARGET")" >&2
+  _verdict_allow "" "" ""
   exit 0
 fi
 # SENTINEL-STOP-HOOK-ACTIVE-END
@@ -412,6 +470,7 @@ if [ -n "$_session_id" ] && [ -f "$_blocked_file" ]; then
   _STOP_BRANCH="block-once"
   printf 'retro-gate: state=allow branch=block-once session=%s target=%s\n' \
     "$_session_id" "$(basename "$TARGET")" >&2
+  _verdict_allow "" "" ""
   exit 0
 fi
 # SENTINEL-BLOCK-ONCE-END
@@ -469,6 +528,9 @@ if [ "$_degraded" -eq 0 ]; then
     _degraded=1
   fi
 fi
+
+# --json: how the change set was decided (json-envelope.v1.md); fixed here, after both degrade checks.
+_check_mode="session-sha"; if [ "$_degraded" -eq 1 ]; then _check_mode="mtime-fallback"; fi
 
 # ── Detect changed research files ────────────────────────────────────────────
 _has_changed=0
@@ -636,6 +698,7 @@ fi
 if [ "$_degraded" -eq 0 ] && [ "$_has_changed" -eq 0 ]; then
   _STOP_BRANCH="no-change"
   printf 'retro-gate: state=allow branch=no-change target=%s\n' "$(basename "$TARGET")" >&2
+  _verdict_allow "session-sha" "" ""
   exit 0
 fi
 # SENTINEL-ALLOW-NO-CHANGE-END
@@ -786,6 +849,8 @@ else
       _STOP_BRANCH="retro-conforming"
       printf 'retro-gate: state=allow branch=retro-conforming retro=%s target=%s\n' \
         "$(basename "$_newest_retro")" "$(basename "$TARGET")" >&2
+      # The envelope goes out BEFORE seeding: seeding can be slow and a Stop timeout must not eat it.
+      _verdict_allow "$_check_mode" "$(basename "$_newest_retro")" ""
       # SENTINEL-SEEDING-CALL-START
       _run_issue_seeding "$TARGET" "$KIT"
       # SENTINEL-SEEDING-CALL-END
@@ -798,6 +863,7 @@ else
     _STOP_BRANCH="no-verifier"
     printf 'retro-gate: state=allow branch=no-verifier (verify-retro.sh absent) target=%s\n' \
       "$(basename "$TARGET")" >&2
+    _verdict_allow "$_check_mode" "$(basename "$_newest_retro")" ""
     exit 0
   fi
   # SENTINEL-VERIFY-RETRO-END
@@ -813,8 +879,12 @@ if [ -n "$_block_reason" ]; then
   printf 'retro-gate: state=block branch=retro-pending changed=%s retro=%s target=%s\n' \
     "$_n_changed" "$(basename "$_retro_label")" "$(basename "$TARGET")" >&2
   # SENTINEL-PURE-BASH-EMITTER-START
-  _reason_esc="$(_json_escape_reason "$_block_reason")"
-  printf '{"decision":"block","reason":"%s"}\n' "$_reason_esc"
+  if [ "$_ENV_JSON" -eq 1 ]; then
+    _emit_envelope block "$_check_mode" "${_newest_retro##*/}" "$_block_reason"
+  else
+    _reason_esc="$(_json_escape_reason "$_block_reason")"
+    printf '{"decision":"block","reason":"%s"}\n' "$_reason_esc"
+  fi
   # SENTINEL-PURE-BASH-EMITTER-END
 fi
 # SENTINEL-BLOCK-END
