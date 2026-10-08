@@ -1273,7 +1273,10 @@ Always read first, in this order:
      (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
      (step 4) before the import commit and the iteration history records `method: per-section-agent · N
      sections`. The exemption never covers a sequential run. `research-sdd-archive.sh` honors it: a commit
-     adding at most N blocks prints an exemption note instead of the WARN.
+     adding at most N blocks prints an exemption note instead of the WARN. N is taken from the CURRENT
+     run's recorded row (an Iteration-history table data row dated on/after the prior retro; the
+     match is exact, with the `·` separator); a stale row, prose or a fenced example never exempts. The
+     SELF-VERIFIED precondition is not machine-checked — the recorded method row is the declaration.
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
      blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).

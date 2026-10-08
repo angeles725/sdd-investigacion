@@ -601,19 +601,37 @@ echo "    blocks on disk : $blocks · retros: $retros · iteration-history rows:
 multi_block_commits=""
 exempt_import_commits=""
 # COMMIT EXEMPTION (kit #1887, PROMPT-LOOP §20 large-scale): a per-section-agent run produces N blocks in ONE
-# dispatch, so ONE import commit holding them is legitimate when the iteration history records
-# `method: per-section-agent · N sections`. We take the LARGEST recorded N and exempt only a commit whose
-# added-block count is <= N (a stale/short marker never excuses a bigger commit). A sequential run records no
-# such marker and so is never exempt. The "every block individually SELF-VERIFIED" precondition is not
-# machine-checkable here; the recorded method line is the declaration the exemption keys on.
+# dispatch, so ONE import commit holding them is legitimate when the CURRENT run's iteration history records
+# `method: per-section-agent · N sections`. The match is EXACT: lowercase `method:`, the separator is the
+# middle dot `·`, and `sections` is plural; any other spelling is no marker. Only TABLE DATA rows of
+# `## Iteration history` count (numeric first cell, outside code fences — prose, blockquotes and fenced
+# examples never exempt), and only rows dated on/after the day of the PRIOR retro (the same boundary the
+# commit scan below uses; with no prior retro, every row), so a stale large N from an earlier run cannot
+# excuse a later sequential run. A row with an unparseable date is not counted. We take the LARGEST N in
+# the window and exempt only a commit whose added-block count is <= N. The "every block individually
+# SELF-VERIFIED" precondition is NOT machine-checked here; the recorded method line is the declaration the
+# exemption keys on. An unreadable/absent state file leaves the exemption unevaluable (typed note; WARN fires).
 psa_max=0
-if [ -f "$state" ]; then
-  while IFS= read -r _psa_n; do
+psa_unevaluable=""
+if [ -f "$state" ] && [ -r "$state" ]; then
+  _psa_floor=0
+  [ "${prior_retro_epoch:-0}" -gt 0 ] && _psa_floor=$(( prior_retro_epoch - prior_retro_epoch % 86400 ))
+  while IFS=$'\t' read -r _psa_date _psa_n; do
     [ -n "$_psa_n" ] || continue
+    _psa_e="$(date -u -d "$_psa_date" +%s 2>/dev/null)" || continue
+    [ "$_psa_e" -ge "$_psa_floor" ] || continue
     [ "$_psa_n" -gt "$psa_max" ] 2>/dev/null && psa_max="$_psa_n"
-  done < <(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0} f' "$state" \
-    | grep -oE 'method:[[:space:]]*per-section-agent[[:space:]]*·[[:space:]]*[0-9]+[[:space:]]*sections' \
-    | grep -oE '[0-9]+')
+  done < <(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0}
+      f && /^[ \t]*```/{fence=!fence; next}
+      f && !fence {
+        l=$0; gsub(/^[ \t]+|[ \t]+$/,"",l); if (substr(l,1,1)!="|") next
+        sub(/^\|/,"",l); n=split(l,a,"|"); gsub(/^[ \t]+|[ \t]+$/,"",a[1]); gsub(/^[ \t]+|[ \t]+$/,"",a[2])
+        if (a[1] !~ /^[0-9]+$/) next
+        if (match(l, /method:[ \t]*per-section-agent[ \t]*·[ \t]*[0-9]+[ \t]*sections/)) {
+          m=substr(l,RSTART,RLENGTH); sub(/[ \t]*sections$/,"",m); sub(/^.*[^0-9]/,"",m); print a[2] "\t" m }
+      }' "$state")
+else
+  psa_unevaluable="state file absent or unreadable"
 fi
 if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
   while IFS= read -r sha; do
@@ -636,6 +654,9 @@ if git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
       fi
     fi
   done < <(git -C "$corpus" log --format=%H --since="@${prior_retro_epoch:-0}" 2>/dev/null)
+fi
+if [ -n "$psa_unevaluable" ] && [ -n "$multi_block_commits" ]; then
+  echo "  note: per-section-agent commit exemption (kit #1887) could not be evaluated — $psa_unevaluable"
 fi
 if [ -n "$exempt_import_commits" ]; then
   echo "  note: import commit(s) $exempt_import_commits exempt from ONE-BLOCK-PER-COMMIT (iteration history records method: per-section-agent · $psa_max sections; kit #1887)"

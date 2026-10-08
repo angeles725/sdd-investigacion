@@ -1078,8 +1078,10 @@ else no "one-block-clean: rc=$rc :: $(grep -i 'one-block' <<<"$out" | head -1)";
 # whose cell records <marker> (e.g. 'method: per-section-agent · 2 sections').
 mkrun_git_psa() {
   mkrun_git "$1" together
-  printf '| 2 | 2026-07-08 | import | B1,B2 | no · inline · %s | 0 |\n' "$2" > "$1/.psa-row"
-  awk -v rowf="$1/.psa-row" 'BEGIN{getline row < rowf} {print} index($0,"| 1 | 2026-07-07")==1{print row}' "$1/RESEARCH-STATE.md" > "$1/RESEARCH-STATE.md.new" \
+  # $3 = row date (default in-window); $4 = raw line to insert INSTEAD of a table row (prose/fence cases)
+  if [ -n "${4:-}" ]; then printf '%s\n' "$4" > "$1/.psa-row"
+  else printf '| 2 | %s | import | B1,B2 | no · inline · %s | 0 |\n' "${3:-2026-07-08}" "$2" > "$1/.psa-row"; fi
+  awk -v rowf="$1/.psa-row" 'BEGIN{while ((getline row < rowf) > 0) rows=rows row "\n"} {print} index($0,"| 1 | 2026-07-07")==1{printf "%s", rows}' "$1/RESEARCH-STATE.md" > "$1/RESEARCH-STATE.md.new" \
     && mv "$1/RESEARCH-STATE.md.new" "$1/RESEARCH-STATE.md"
   rm -f "$1/.psa-row"
 }
@@ -1105,6 +1107,45 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "22c non-per-section-agent method + multi-block commit → WARN still fires (exemption never covers sequential)"
 else no "22c seq-not-exempt: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22d — C1: a STALE row from before the prior retro (2026-01-15 < retro 2026-02-01), N=20, must not excuse a
+#       later multi-block commit → WARN still fires.
+d="$TMP/one-block-psa-stale"; mkrun_git_psa "$d" 'method: per-section-agent · 20 sections' 2026-01-15
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out" && ! grep -qi 'exempt from ONE-BLOCK' <<<"$out"; then
+  ok "22d stale N=20 row from before the prior retro → no exemption, WARN fires (C1)"
+else no "22d psa-stale: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22e — W2: the marker in a blockquote / fenced table row / non-numeric-first-cell row never exempts.
+d="$TMP/one-block-psa-prose"; mkrun_git_psa "$d" "" "" '> e.g. method: per-section-agent · 40 sections'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22e marker in a blockquote line → no exemption, WARN fires (W2)"
+else no "22e psa-prose: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+d="$TMP/one-block-psa-fence"; mkrun_git_psa "$d" "" "" $'```\n| 2 | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0 |\n```'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22e2 marker in a fenced table row → no exemption, WARN fires (W2)"
+else no "22e2 psa-fence: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+d="$TMP/one-block-psa-nonnum"; mkrun_git_psa "$d" "" "" '| n/a | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0 |'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22e3 row with a non-numeric first cell → no exemption, WARN fires (W2)"
+else no "22e3 psa-nonnum: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22e4 — W2: a pipe-less line whose first cell is numeric is not a table row (leading-pipe filter pinned alone).
+d="$TMP/one-block-psa-nopipe"; mkrun_git_psa "$d" "" "" '2 | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22e4 pipe-less numeric-first line → no exemption, WARN fires (W2)"
+else no "22e4 psa-nopipe: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22f — S4: the match is exact — an ASCII separator spelling is no marker.
+d="$TMP/one-block-psa-spell"; mkrun_git_psa "$d" 'method: per-section-agent - 2 sections'
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22f inexact marker spelling (ASCII hyphen separator) → no exemption, WARN fires (S4)"
+else no "22f psa-spell: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
 
 # mkrun_git_backlink <corpus> — a hermetic git corpus for the ONE-BLOCK-PER-COMMIT × §14 reconciliation:
 # baseline + retro (OLD dates), then B1 in its OWN commit, then ONE iteration commit that ADDS B2 (a new
@@ -1792,6 +1833,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && { mkrun_git_psa "$TMP/teeth-psa" 'method: per-section-agent · 2 sections'
          tooth "teeth: exemption neutered → per-section-agent import commit WARNs → case 22a has teeth" 0 0 "$MUT/archive.PSAMUTANT.sh" \
            --good-has "$ARCH_RE" --good-lacks 'WARN: ONE-BLOCK-PER-COMMIT' --bad-has 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa"; }
+
+  echo "-- teeth: #1887 C1 — drop the run-window date floor; the stale N=20 row must then wrongly exempt --"
+  mk_sed "teeth(22d)" "$MUT/archive.PSAWIN.sh" 's/\[ "\$_psa_e" -ge "\$_psa_floor" \] || continue/:/' \
+    && { mkrun_git_psa "$TMP/teeth-psa-stale" 'method: per-section-agent · 20 sections' 2026-01-15
+         tooth "teeth: window floor dropped → stale row exempts → case 22d has teeth" 0 0 "$MUT/archive.PSAWIN.sh" \
+           --good-has "$ARCH_RE" --good-has 'WARN: ONE-BLOCK-PER-COMMIT' --bad-lacks 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa-stale"; }
+
+  echo "-- teeth: #1887 W2 — accept lines without a leading pipe; a pipe-less numeric-first row must then wrongly exempt --"
+  mk_sed "teeth(22e)" "$MUT/archive.PSATBL.sh" 's/if (substr(l,1,1)!="|") next/if (0) next/' \
+    && { mkrun_git_psa "$TMP/teeth-psa-prose" "" "" '2 | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0'
+         tooth "teeth: leading-pipe filter dropped → pipe-less row exempts → case 22e has teeth" 0 0 "$MUT/archive.PSATBL.sh" \
+           --good-has "$ARCH_RE" --good-has 'WARN: ONE-BLOCK-PER-COMMIT' --bad-lacks 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa-prose"; }
+
+  echo "-- teeth: #1887 W2 — drop the numeric-first-cell and fence filters --"
+  mk_sed "teeth(22e3)" "$MUT/archive.PSANUM.sh" 's/if (a\[1\] !~ \/\^\[0-9\]+\$\/) next/if (0) next/' \
+    && { mkrun_git_psa "$TMP/teeth-psa-nonnum" "" "" '| n/a | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0 |'
+         tooth "teeth: numeric-first-cell filter dropped → non-data row exempts → case 22e3 has teeth" 0 0 "$MUT/archive.PSANUM.sh" \
+           --good-has "$ARCH_RE" --good-has 'WARN: ONE-BLOCK-PER-COMMIT' --bad-lacks 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa-nonnum"; }
+  mk_sed "teeth(22e2)" "$MUT/archive.PSAFENCE.sh" 's/f \&\& !fence {/f {/' \
+    && { mkrun_git_psa "$TMP/teeth-psa-fence" "" "" $'```\n| 2 | 2026-07-08 | x | B1,B2 | method: per-section-agent · 40 sections | 0 |\n```'
+         tooth "teeth: fence filter dropped → fenced row exempts → case 22e2 has teeth" 0 0 "$MUT/archive.PSAFENCE.sh" \
+           --good-has "$ARCH_RE" --good-has 'WARN: ONE-BLOCK-PER-COMMIT' --bad-lacks 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa-fence"; }
 
   echo "-- teeth: AR-VCORR — neuter the linter call (force rc 0); the one-directional corpus must stop REFUSING --"
   d="$TMP/vcorr-teeth"; mkvcorr "$d"
