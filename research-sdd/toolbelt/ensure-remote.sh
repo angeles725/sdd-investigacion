@@ -181,21 +181,28 @@ fi
 #   * allow is per path/glob — a blanket glob (only `*` `?` `/`), an absolute path or a `..` component is MALFORMED;
 #   * a malformed line is a typed config error naming file:line (exit 2) — nothing is created or pushed;
 #   * every allowed path is REPORTED as an `ALLOWED:` line; an entry matching no refused path is `STALE:` (non-fatal);
-#   * POSITIVE identification (not a deny list): an allowed path is honoured only if EVERY committed blob of it
-#     (`git log --all -m --raw` over the whole history, each blob read with `git cat-file blob` — never the worktree,
-#     so assume-unchanged / an overwritten key cannot hide) is positively identified as PUBLIC material:
-#       - PEM armour made EXCLUSIVELY of CERTIFICATE, PUBLIC KEY, RSA PUBLIC KEY, X509 CRL, TRUSTED CERTIFICATE blocks
-#         (any other armour anywhere in the file refuses);
+#   * POSITIVE identification (not a deny list): an allowed path is honoured only if EVERY committed blob of it is
+#     positively identified as PUBLIC material. The blobs are every id (pre-image AND post-image of each raw line;
+#     the all-zero id skipped) of `git log --all -m --full-history --no-renames --raw`, so side branches merged away
+#     are walked too; each is read with `git cat-file blob` into a mktemp copy (removed on EXIT/INT/TERM) — never the
+#     worktree, so assume-unchanged / an overwritten key cannot hide. A blob is public only if it is:
+#       - PEM in which EVERY armour block is one of CERTIFICATE, PUBLIC KEY, RSA PUBLIC KEY, X509 CRL, TRUSTED
+#         CERTIFICATE (any other armour anywhere refuses), whose base64 payload DECODES to DER that matches its label
+#         (a certificate or SPKI for CERTIFICATE/PUBLIC KEY; RSAPublicKey; CertificateList; certificate + trust
+#         SEQUENCE), whose in-block lines are all base64, and with no base64/hex line of 16+ characters outside blocks;
 #       - DER that parses end-to-end as an X.509 Certificate (SEQUENCE{SEQUENCE{[0] version ...}, SEQUENCE, BIT STRING})
 #         or as an SPKI whose AlgorithmIdentifier OID is a public-key algorithm (rsaEncryption, id-ecPublicKey,
 #         Ed25519, Ed448, X25519, X448);
-#       - a plain-text licence: no NUL/control bytes, no PRIVATE/SECRET/-----BEGIN/SSH2 markers, no base64-only
-#         line of 64+ characters.
-#     Anything else -> `REFUSED (not positively public): <path>` (exit 5). Explicit private markers (PEM PRIVATE KEY,
-#     DER PKCS#8/PKCS#1/SEC1 version-0/1 INTEGER, PuTTY-User-Key-File, AGE-SECRET-KEY, SSH2 armour) and the
-#     keystore/identity file TYPES (id_rsa*, *.p12, *.pfx, *.jks, *.keystore) stay a hard refusal (exit 5). Any git
-#     failure while reading history, or a path with no committed blob, fails closed (exit 7). Scope is unchanged:
-#     only what the patterns above refuse can be allowed (a NESTED licenses/ or certificates/ dir is not refused).
+#       - a plain-text licence: no NUL/control bytes, no PRIVATE/SECRET/-----BEGIN/SSH2 markers, no run of 32+ hex
+#         digits or 40+ base64 characters ANYWHERE in a line, and no line that is only 16+ hex digits once blanks and
+#         colons are dropped (hex-byte dumps).
+#     Anything else -> `REFUSED (not positively public): <path>` (exit 5). A Git LFS pointer blob (content not in the
+#     repository) -> `REFUSED (LFS pointer: content not inspectable): <path>` (exit 5). Explicit private markers (PEM
+#     PRIVATE KEY, DER PKCS#8/PKCS#1/SEC1 version-0/1 INTEGER, PuTTY-User-Key-File, AGE-SECRET-KEY, SSH2 armour) and
+#     the keystore/identity file TYPES (id_rsa*, *.p12, *.pfx, *.jks, *.keystore) stay a hard refusal (exit 5). Any
+#     git failure while reading history, a missing base64/od/mktemp, or a path with no committed blob, fails closed
+#     (exit 7). Scope is unchanged: only what the patterns above refuse can be allowed (a NESTED licenses/ or
+#     certificates/ dir is not refused).
 # rsdd_tlv HEX OFFSET — parse one DER TLV at a char offset into d_tag d_len d_hdr (hdr in hex chars); 1 = malformed/overrun.
 rsdd_tlv() {
   local h="$1" o="$2" lb nb
@@ -234,11 +241,54 @@ rsdd_der_public() {
     *) return 1;;
   esac
 }
+# rsdd_pem_block_ok LABEL HEX — the DER payload of one PEM block must really be what its label claims (public material).
+rsdd_pem_block_ok() {
+  local lab="$1" h="$2" o end t
+  case "$lab" in
+    CERTIFICATE|"PUBLIC KEY") rsdd_der_public "$h";;
+    "RSA PUBLIC KEY")                    # PKCS#1 RSAPublicKey: SEQUENCE{INTEGER n, INTEGER e}
+      rsdd_tlv "$h" 0 && [ "$d_tag" = 30 ] && [ $((d_hdr+2*d_len)) = "${#h}" ] || return 1
+      o=$d_hdr
+      for t in 02 02; do rsdd_tlv "$h" "$o" && [ "$d_tag" = "$t" ] || return 1; o=$((o+d_hdr+2*d_len)); done
+      [ "$o" = "${#h}" ];;
+    "X509 CRL")                          # CertificateList: SEQUENCE{tbsCertList, signatureAlgorithm, signatureValue}
+      rsdd_tlv "$h" 0 && [ "$d_tag" = 30 ] && [ $((d_hdr+2*d_len)) = "${#h}" ] || return 1
+      o=$d_hdr
+      for t in 30 30 03; do rsdd_tlv "$h" "$o" && [ "$d_tag" = "$t" ] || return 1; o=$((o+d_hdr+2*d_len)); done
+      [ "$o" = "${#h}" ];;
+    "TRUSTED CERTIFICATE")               # a Certificate followed by one SEQUENCE of trust settings
+      rsdd_tlv "$h" 0 || return 1
+      end=$((d_hdr+2*d_len)); rsdd_der_public "${h:0:end}" || return 1
+      [ "$end" = "${#h}" ] && return 0
+      rsdd_tlv "$h" "$end" && [ "$d_tag" = 30 ] && [ $((end+d_hdr+2*d_len)) = "${#h}" ];;
+    *) return 1;;
+  esac
+}
+# rsdd_pem_public FILE — 0 only if EVERY armour block decodes (base64) to DER matching its label, every line inside a
+# block is base64, and no line outside a block looks like encoded data (base64/hex run of 16+ characters).
+rsdd_pem_public() {
+  local l lab="" b64="" hex nblk=0 begin_re='^-----BEGIN (.*)-----$'
+  while IFS= read -r l || [ -n "$l" ]; do
+    l="${l%$'\r'}"
+    if [ -z "$lab" ]; then
+      if [[ "$l" =~ $begin_re ]]; then lab="${BASH_REMATCH[1]}"; b64=""; continue; fi
+      if [[ "$l" =~ ^[A-Za-z0-9+/=]{16,}$ ]]; then return 1; fi
+    elif [ "$l" = "-----END $lab-----" ]; then
+      hex="$(printf '%s' "$b64" | base64 -d 2>/dev/null | od -An -v -tx1 | tr -d ' \n')" || return 1
+      [ -n "$hex" ] && rsdd_pem_block_ok "$lab" "$hex" || return 1
+      lab=""; nblk=$((nblk+1))
+    else
+      [[ "$l" =~ ^[A-Za-z0-9+/=]*$ ]] || return 1
+      b64="$b64$l"
+    fi
+  done <"$1"
+  [ -z "$lab" ] && [ "$nblk" -gt 0 ]
+}
 # rsdd_cnt GREP-ARGS... — print the matching-line count; return 2 if grep itself failed (exit >1).
 rsdd_cnt() { local c rc; c="$(grep -ac "$@" 2>/dev/null)"; rc=$?; [ "$rc" -le 1 ] || return 2; printf '%s' "$c"; }
 # rsdd_text_public FILE — 0 = positively public PEM armour or licence text; 1 = not; 2 = could not be read.
 rsdd_text_public() {
-  local f="$1" h hn n_all n_ok e_all e_ok rc lab='(CERTIFICATE|PUBLIC KEY|RSA PUBLIC KEY|X509 CRL|TRUSTED CERTIFICATE)'
+  local f="$1" h hn n_all n_ok e_all e_ok rc l t lab='(CERTIFICATE|PUBLIC KEY|RSA PUBLIC KEY|X509 CRL|TRUSTED CERTIFICATE)'
   h="$(od -An -v -tx1 -N 65537 -- "$f" 2>/dev/null | tr -d ' \n')" || return 2
   [ -n "$h" ] && [ "${#h}" -le 131072 ] || return 1
   hn="$(tr -d '\000' <"$f" 2>/dev/null | od -An -v -tx1 -N 65537 | tr -d ' \n')" || return 2
@@ -252,18 +302,30 @@ rsdd_text_public() {
     e_ok="$(rsdd_cnt -E -- "^-----END $lab-----"$'\r''?$' "$f")" || return 2
     [ "$n_all" -gt 0 ] && [ "$n_all" = "$n_ok" ] && [ "$e_all" = "$e_ok" ] && [ "$n_ok" = "$e_ok" ] || return 1
     rc=0; grep -aEq -- '-----(BEGIN|END).*-----(BEGIN|END)' "$f" 2>/dev/null || rc=$?
-    case "$rc" in 1) return 0;; 0) return 1;; *) return 2;; esac
+    case "$rc" in 1) rsdd_pem_public "$f"; return $?;; 0) return 1;; *) return 2;; esac
   fi
   grep -aEq -- 'PRIVATE|SECRET|---- BEGIN|PuTTY-User-Key-File' "$f" 2>/dev/null; rc=$?
   case "$rc" in 0) return 1;; 1) :;; *) return 2;; esac
-  grep -aEq -- '^[A-Za-z0-9+/=]{64,}'$'\r''?$' "$f" 2>/dev/null; rc=$?
+  # key material hides as encoded runs ANYWHERE in a line, not only as whole lines: 32+ hex digits or 40+ base64 chars.
+  grep -aEq -- '[0-9a-fA-F]{32,}' "$f" 2>/dev/null; rc=$?
   case "$rc" in 0) return 1;; 1) :;; *) return 2;; esac
+  grep -aEq -- '[A-Za-z0-9+/=]{40,}' "$f" 2>/dev/null; rc=$?
+  case "$rc" in 0) return 1;; 1) :;; *) return 2;; esac
+  # ... and as hex-byte dumps ("00 11 22 ..." / "00:11:22:..."): a line of 16+ hex digits once blanks and colons go.
+  while IFS= read -r l || [ -n "$l" ]; do
+    t="${l//[[:space:]:]/}"
+    if [ "${#t}" -ge 16 ] && [[ "$t" =~ ^[0-9a-fA-F]+$ ]]; then return 1; fi
+  done <"$f"
   grep -aq '[[:alnum:]]' "$f" 2>/dev/null; rc=$?
   case "$rc" in 0) return 0;; 1) return 1;; *) return 2;; esac
 }
-# rsdd_classify FILE — 0 = positively public · 1 = explicit private-key marker · 2 = unreadable · 3 = not positively public.
+# rsdd_classify FILE — 0 = positively public · 1 = explicit private-key marker · 2 = unreadable · 3 = not positively public
+# · 4 = Git LFS pointer.
 rsdd_classify() {
   local f="$1" h rc rest
+  # A Git LFS pointer stands in for content that is not in this repository's objects: it cannot be inspected here.
+  grep -aq -- '^version https://git-lfs.github.com/spec/v1' "$f" 2>/dev/null; rc=$?
+  case "$rc" in 0) return 4;; 1) :;; *) return 2;; esac
   grep -aEq -- 'PRIVATE KEY( BLOCK)?-----|AGE-SECRET-KEY|PuTTY-User-Key-File|---- BEGIN SSH2' "$f" 2>/dev/null; rc=$?
   case "$rc" in 0) return 1;; 1) :;; *) return 2;; esac
   h="$(od -An -v -tx1 -N 65537 -- "$f" 2>/dev/null | tr -d ' \n')" || return 2
@@ -307,7 +369,18 @@ if [ -e "$allow_conf" ] || [ -L "$allow_conf" ]; then
   done < "$allow_conf"
 fi
 
-unallowed=""; priv_bad=""; notpub=""
+unallowed=""; priv_bad=""; notpub=""; lfsptr=""
+# The blob copy lives in a mktemp file only while it is classified; EXIT/INT/TERM remove it if the run is cut short.
+_tmp=""
+rsdd_cleanup() { if [ -n "${_tmp:-}" ]; then rm -f "$_tmp"; fi; }
+trap rsdd_cleanup EXIT
+trap 'rsdd_cleanup; exit 130' INT
+trap 'rsdd_cleanup; exit 143' TERM
+if [ "${#allow_globs[@]}" -gt 0 ]; then
+  for _t in base64 od mktemp; do
+    command -v "$_t" >/dev/null 2>&1 || { echo "REFUSED: '$_t' not found — cannot positively identify allowed files." >&2; exit 7; }
+  done
+fi
 while IFS= read -r _p; do
   [ -n "$_p" ] || continue
   _m=-1
@@ -319,29 +392,34 @@ while IFS= read -r _p; do
   case "${_p##*/}" in
     id_rsa*|*.p12|*.pfx|*.jks|*.keystore) priv_bad="$priv_bad $_p"; continue;;
   esac
-  # EVERY committed blob of the path (all refs, merges included) is read from the object store and classified.
-  if ! _log="$(git --literal-pathspecs -C "$target" log --all -m --no-renames --format= --raw --no-abbrev -- "$_p" 2>/dev/null)"; then
+  # EVERY committed blob of the path (all refs, merges included, side branches merged away too) is read from the
+  # object store and classified, both the pre-image and the post-image id of every raw diff line.
+  if ! _log="$(git --literal-pathspecs -C "$target" log --all -m --full-history --no-renames --format= --raw --no-abbrev -- "$_p" 2>/dev/null)"; then
     echo "REFUSED: could not read the git history of '$_p' (git log failed) — cannot verify it is public." >&2; exit 7
   fi
   _seen=" "; _nblob=0; _state=ok
   while read -r _m1 _m2 _old _new _st _rest; do
     case "$_m1" in :*) :;; *) continue;; esac
-    case "$_new" in ''|*[!0-9a-f]*) echo "REFUSED: unparseable git history for '$_p' — cannot verify it is public." >&2; exit 7;; esac
-    case "$_new" in *[!0]*) :;; *) continue;; esac          # all-zero id = deletion, no blob
-    case "$_seen" in *" $_new "*) continue;; esac
-    _seen="$_seen$_new "; _nblob=$((_nblob+1))
-    if ! _tmp="$(mktemp)"; then echo "REFUSED: mktemp failed — cannot verify '$_p' is public." >&2; exit 7; fi
-    if ! git -C "$target" cat-file blob "$_new" >"$_tmp" 2>/dev/null; then
-      rm -f "$_tmp"; echo "REFUSED: could not read blob $_new of '$_p' (git cat-file failed) — cannot verify it is public." >&2; exit 7
-    fi
-    _rc=0; rsdd_classify "$_tmp" || _rc=$?
-    rm -f "$_tmp"
-    case "$_rc" in
-      0) :;;
-      1) _state=priv; break;;
-      3) _state=notpub; break;;
-      *) echo "REFUSED: could not classify blob $_new of '$_p' — cannot verify it is public." >&2; exit 7;;
-    esac
+    for _id in "$_old" "$_new"; do
+      case "$_id" in ''|*[!0-9a-f]*) echo "REFUSED: unparseable git history for '$_p' — cannot verify it is public." >&2; exit 7;; esac
+      case "$_id" in *[!0]*) :;; *) continue;; esac          # all-zero id = no blob on that side
+      case "$_seen" in *" $_id "*) continue;; esac
+      _seen="$_seen$_id "; _nblob=$((_nblob+1))
+      if ! _tmp="$(mktemp)"; then _tmp=""; echo "REFUSED: mktemp failed — cannot verify '$_p' is public." >&2; exit 7; fi
+      if ! git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; then
+        echo "REFUSED: could not read blob $_id of '$_p' (git cat-file failed) — cannot verify it is public." >&2; exit 7
+      fi
+      _rc=0; rsdd_classify "$_tmp" || _rc=$?
+      rm -f "$_tmp"; _tmp=""
+      case "$_rc" in
+        0) :;;
+        1) _state=priv; break;;
+        3) _state=notpub; break;;
+        4) _state=lfs; break;;
+        *) echo "REFUSED: could not classify blob $_id of '$_p' — cannot verify it is public." >&2; exit 7;;
+      esac
+    done
+    [ "$_state" = ok ] || break
   done <<<"$_log"
   if [ "$_nblob" = 0 ]; then
     echo "REFUSED: no committed blob found for '$_p' — cannot verify it is public." >&2; exit 7
@@ -349,6 +427,7 @@ while IFS= read -r _p; do
   case "$_state" in
     priv)   priv_bad="$priv_bad $_p";;
     notpub) notpub="$notpub $_p";;
+    lfs)    lfsptr="$lfsptr $_p";;
     *)      echo "ALLOWED: $_p ($allow_rel:${allow_lines[$_m]} allow ${allow_globs[$_m]}; $_nblob blob(s) positively public)";;
   esac
 done <<<"$_tracked_raw"
@@ -358,6 +437,11 @@ done
 if [ -n "${priv_bad// }" ]; then
   echo "REFUSED: allowed path(s) contain private key material or are keystore/identity files:$priv_bad" >&2
   echo "         a private key can never be allowed — untrack it (git rm --cached) and cite it by structure + sha256." >&2
+  exit 5
+fi
+if [ -n "${lfsptr// }" ]; then
+  for _p in $lfsptr; do echo "REFUSED (LFS pointer: content not inspectable): $_p" >&2; done
+  echo "         the real content lives outside this repository's objects, so it cannot be shown to be public." >&2
   exit 5
 fi
 if [ -n "${notpub// }" ]; then

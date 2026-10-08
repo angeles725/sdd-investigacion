@@ -30,7 +30,7 @@ SUT="$HERE/../ensure-remote.sh"
 # --- resolve real binaries ONCE, before we restrict the PATH ----------------
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
 REAL_GIT="$(type -P git)"; [ -n "$REAL_GIT" ] || { echo "FATAL: git not found on PATH" >&2; exit 2; }
-CORE_UTILS=(dirname basename tr sed grep tail mktemp cat rm env sleep od)   # every external cmd the covered paths invoke
+CORE_UTILS=(dirname basename tr sed grep tail mktemp cat rm env sleep od base64)   # every external cmd the covered paths invoke
 CORE_PATHS=()
 for u in "${CORE_UTILS[@]}"; do
   p="$(type -P "$u")"; [ -n "$p" ] || { echo "FATAL: required coreutil '$u' not on PATH" >&2; exit 2; }
@@ -77,10 +77,15 @@ case " $* " in
       *" log "*)
         p="${@: -1}"; n=$(( $(cat "$BOX/blobn" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$BOX/blobn"
         sha="$(printf '%040x' "$n")"; printf '%s\n' "$p" > "$BOX/blob.$sha"
-        printf ':100644 100644 %040d %s M\t%s\n' 0 "$sha" "$p"; exit 0 ;;
+        old="$(printf '%040d' 0)"
+        # GIT_LOG_OLD_FILE: report a PRE-image blob too (a merge diff against a side parent), served from that file.
+        if [ -n "${GIT_LOG_OLD_FILE:-}" ]; then old="$(printf '%040x' $((n+1000)))"; printf '%s\n' "$GIT_LOG_OLD_FILE" > "$BOX/blob.$old"; fi
+        printf ':100644 100644 %s %s M\t%s\n' "$old" "$sha" "$p"; exit 0 ;;
       *)
         sha="${@: -1}"; p="$(cat "$BOX/blob.$sha")" || exit 1
-        cat "$BOX/target/$p" || exit 1; exit 0 ;;
+        cat "$BOX/target/$p" || exit 1
+        [ -n "${GIT_CATFILE_SLEEP:-}" ] && { echo $$ >> "$BOX/stub.pids"; exec sleep "$GIT_CATFILE_SLEEP"; }
+        exit 0 ;;
     esac ;;
   *" remote remove "*) [ -n "${GIT_REMOTE_REMOVE_FAIL:-}" ] && exit 1; rm -f "$BOX/origin-added"; exit 0 ;;
   *" get-url "*)
@@ -166,7 +171,7 @@ run() {
         GH_CREATE_EXIT="$GH_CREATE_EXIT" GH_VIS="$GH_VIS" SCAN_EXIT="$SCAN_EXIT" \
         GIT_TRACKED_SECRETS="$GIT_TRACKED_SECRETS" \
         GIT_GITIGNORE_DIRTY="$GIT_GITIGNORE_DIRTY" GH_USERS_EXIT="$GH_USERS_EXIT" \
-        GIT_STATUS_DIRTY="$GIT_STATUS_DIRTY" GIT_STATUS_FAIL="$GIT_STATUS_FAIL" \
+        GIT_STATUS_DIRTY="$GIT_STATUS_DIRTY" GIT_STATUS_FAIL="$GIT_STATUS_FAIL" GIT_LOG_OLD_FILE="${GIT_LOG_OLD_FILE:-}" \
         "$BASH_BIN" "$box/ensure-remote.sh" "$@" 2>&1)"; RC=$?
 }
 
@@ -689,6 +694,11 @@ nl=$'\n'
 put_conf() { local box="$1"; shift; mkdir -p "$box/target/.research-sdd"; printf '%s\n' "$@" > "$box/target/$CONF_REL"; }
 # hexfile HEX — write the bytes spelled by a hex string to stdout (byte-literal, hermetic fixtures).
 hexfile() { printf "$(printf '%s' "$1" | sed 's/../\\x&/g')"; }
+SPKI_HEX=3015300d06092a864886f70d0101010500030400deadbe
+CERT_HEX=30133008a003020102020101300306012a030200ab
+PK8_HEX=30820a0102010030820a0d06092a864886f70d0101010400
+# pem_of LABEL HEX — a PEM block whose payload is the DER bytes spelled by HEX.
+pem_of() { printf -- '-----BEGIN %s-----\n' "$1"; hexfile "$2" | base64; printf -- '-----END %s-----\n' "$1"; }
 # put_pub BOX REL KIND — fixture bytes at REL under the target.
 #   KIND: spki | pkcs8 | pkcs8s | sec1 | pkcs1 | pempub | pempriv | pemenc
 put_pub() {
@@ -699,7 +709,19 @@ put_pub() {
     pkcs8s)  printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20' > "$box/target/$rel";;
     sec1)    printf '\x30\x77\x02\x01\x01\x04\x20\x11\x22\x33' > "$box/target/$rel";;
     pkcs1)   printf '\x30\x82\x04\xa4\x02\x01\x00\x02\x82\x01\x01\x00' > "$box/target/$rel";;
-    pempub)  printf -- '-----BEGIN PUBLIC KEY-----\nMFkwEwYH\n-----END PUBLIC KEY-----\n' > "$box/target/$rel";;
+    pempub)  pem_of "PUBLIC KEY" "$SPKI_HEX" > "$box/target/$rel";;
+    pemrsapub) pem_of "RSA PUBLIC KEY" 3009020301000102020100 > "$box/target/$rel";;
+    pemcrl)  pem_of "X509 CRL" 300730003000030100 > "$box/target/$rel";;
+    relabel) pem_of "CERTIFICATE" "$PK8_HEX" > "$box/target/$rel";;
+    certplus) { pem_of "CERTIFICATE" "$CERT_HEX"; hexfile "$PK8_HEX" | base64; } > "$box/target/$rel";;
+    certhex) { pem_of "CERTIFICATE" "$CERT_HEX"; printf '%s\n' "$PK8_HEX"; } > "$box/target/$rel";;
+    lfs)     printf 'version https://git-lfs.github.com/spec/v1\noid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\nsize 12345\n' > "$box/target/$rel";;
+    lichex)  printf 'MIT License\nkey = 00112233445566778899aabbccddeeff\n' > "$box/target/$rel";;
+    licxxd)  { printf 'MIT License\n'; printf '%s\n' "$PK8_HEX" "$PK8_HEX"; } > "$box/target/$rel";;
+    licb64)  { printf 'MIT License\n'; hexfile "$PK8_HEX$PK8_HEX$PK8_HEX" | base64 -w 60; } > "$box/target/$rel";;
+    lichexsp) printf 'MIT License\n00 11 22 33 44 55 66 77 88 99 aa bb\n' > "$box/target/$rel";;
+    licrun)  printf 'MIT License\ntoken abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV end\n' > "$box/target/$rel";;
+    licnormal) printf 'Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/LICENSE-2.0\n\nCopyright (c) 2026 Example Corp. Licensed under the Apache License; you may not use this file except in compliance with the License. Unless required by applicable law or agreed to in writing, software is distributed on an "AS IS" BASIS.\nContact: legal@example.com or +1 555 0100 (2024-2026).\n' > "$box/target/$rel";;
     pempriv) printf -- '-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----\n' > "$box/target/$rel";;
     ed25519) hexfile 302a300506032b6570032100aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > "$box/target/$rel";;
     cert)    hexfile 30133008a003020102020101300306012a030200ab > "$box/target/$rel";;
@@ -717,8 +739,8 @@ put_pub() {
     ssh2)    printf -- '---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----\nProc-Type: 4,ENCRYPTED\nAAAA\n---- END SSH2 ENCRYPTED PRIVATE KEY ----\n' > "$box/target/$rel";;
     rawb64)  printf 'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgabcdefghijklmnop\nqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs\n' > "$box/target/$rel";;
     licence) printf 'MIT License\n\nCopyright (c) 2026 Example\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n' > "$box/target/$rel";;
-    pemcert) printf -- '-----BEGIN CERTIFICATE-----\nMIIBkTCB\n-----END CERTIFICATE-----\n' > "$box/target/$rel";;
-    pemmixed) printf -- '-----BEGIN CERTIFICATE-----\nMIIBkTCB\n-----END CERTIFICATE-----\n-----BEGIN EC PARAMETERS-----\nBggq\n-----END EC PARAMETERS-----\n' > "$box/target/$rel";;
+    pemcert) pem_of "CERTIFICATE" "$CERT_HEX" > "$box/target/$rel";;
+    pemmixed) { pem_of "CERTIFICATE" "$CERT_HEX"; printf -- '-----BEGIN EC PARAMETERS-----\nBggq\n-----END EC PARAMETERS-----\n'; } > "$box/target/$rel";;
     pemenc)  printf -- '-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFH\n-----END ENCRYPTED PRIVATE KEY-----\n' > "$box/target/$rel";;
   esac
 }
@@ -856,7 +878,7 @@ done
 
 # 37 — POSITIVE identification (kit issue #1943 follow-up): only material positively identified as public is honoured.
 #      Real public material -> ALLOWED: PEM cert / PEM public key / DER cert / DER SPKI (RSA + Ed25519) / licence text.
-for spec in "x.pem:pemcert" "x.pem:pempub" "x.der:cert" "x.der:certv1" "x.der:spki" "x.der:ed25519" "licenses/LICENSE:licence"; do
+for spec in "x.pem:pemcert" "x.pem:pempub" "x.der:cert" "x.der:certv1" "x.der:spki" "x.der:ed25519" "licenses/LICENSE:licence" "x.pem:pemrsapub" "x.pem:pemcrl" "licenses/APACHE:licnormal"; do
   rel="${spec%%:*}"; kind="${spec#*:}"
   reset_ctl; GIT_TRACKED_SECRETS="$rel"
   box="$(mkbox "c37-pos-$kind")"; put_conf "$box" "allow $rel"; put_pub "$box" "$rel" "$kind"
@@ -869,14 +891,18 @@ done
 # 38 — everything else is refused as NOT POSITIVELY PUBLIC (exit 5, no push), the path named on a typed line.
 for spec in "x.der:encpk8" "x.der:p12" "security/ks:jks" "security/secring.gpg:gpgsec" "k.key:rawb64" "x.pem:pemmixed" \
             "x.der:badoid" "licenses/n.txt:nulonly" "licenses/c.txt:ctrl" "licenses/s.txt:secrettxt" \
+            "x.pem:relabel" "x.pem:certplus" "x.pem:certhex" "licenses/l.txt:lfs" "licenses/h.txt:lichex" "licenses/x.txt:licxxd" \
+            "licenses/b.txt:licb64" "licenses/hs.txt:lichexsp" "licenses/r.txt:licrun" \
             "x.der:ppk" "k.key:age" "k.key:ssh2" "x.pem:pempriv"; do
   rel="${spec%%:*}"; kind="${spec#*:}"
   reset_ctl; GIT_TRACKED_SECRETS="$rel"
   box="$(mkbox "c38-neg-$kind")"; put_conf "$box" "allow $rel"; put_pub "$box" "$rel" "$kind"
   run "$box" "$box/target" --yes
   if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && ! grep -q '^ALLOWED: ' <<<"$OUT" && grep -q "^REFUSED.*: .*$rel" <<<"$OUT"; then
-    case "$kind" in encpk8|p12|jks|gpgsec|rawb64|pemmixed|badoid|nulonly|ctrl|secrettxt)
+    case "$kind" in encpk8|p12|jks|gpgsec|rawb64|pemmixed|badoid|nulonly|ctrl|secrettxt|relabel|certplus|certhex|lichex|licxxd|licb64|lichexsp|licrun)
       grep -q "^REFUSED (not positively public): $rel" <<<"$OUT" || no "38 $kind refused with the typed 'not positively public' line" "out=[$(outl)]";; esac
+    [ "$kind" != lfs ] || grep -q "^REFUSED (LFS pointer: content not inspectable): $rel" <<<"$OUT" \
+      || no "38 lfs refused with the typed 'LFS pointer: content not inspectable' line" "out=[$(outl)]"
     ok "38 non-public material ($kind) refused -> exit 5, no push" "(exit $RC)"
   else no "38 non-public material ($kind) refused -> exit 5, no push" "exit=$RC out=[$(outl)]"; fi
 done
@@ -934,6 +960,50 @@ real_commit "$box" other.txt licence; put_pub "$box" k.der cert
 run "$box" "$box/target" --yes
 if [ "$RC" = 7 ] && ! has_call "$box" 'git .* push'; then ok "41 allowed path with no committed blob -> fail closed 7" "(exit $RC)"
 else no "41 allowed path with no committed blob -> fail closed 7" "exit=$RC out=[$(outl)]"; fi
+
+# 42 — C1: a private key on a side branch that was merged away (`merge -s ours`) and deleted is still in the pushed
+#      history: refuse. The worktree and the first-parent history both look public.
+reset_ctl; GIT_TRACKED_SECRETS="k.pem"
+box="$(mkbox c42-merged-away)"; rgit "$box" init -q >/dev/null 2>&1; put_conf "$box" "allow k.pem"
+b0="$(rgit "$box" symbolic-ref --short HEAD)"
+real_commit "$box" k.pem pempub
+rgit "$box" checkout -q -b side >/dev/null 2>&1; real_commit "$box" k.pem pempriv
+rgit "$box" checkout -q "$b0" >/dev/null 2>&1; real_commit "$box" other.txt licence
+rgit "$box" merge -q -s ours side -m merge >/dev/null 2>&1; rgit "$box" branch -q -D side >/dev/null 2>&1
+run "$box" "$box/target" --yes
+if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && ! grep -q '^ALLOWED: ' <<<"$OUT" && has_call "$box" 'git .* log .*--full-history'; then
+  ok "42 private blob on a merged-away side branch -> refuse 5 (history walked with --full-history)" "(exit $RC)"
+else no "42 private blob on a merged-away side branch -> refuse 5" "exit=$RC out=[$(outl)]"; fi
+
+# 42b — the PRE-image id of a raw line is classified too: a merge diff against a side parent can carry the private blob
+#       only as `old`. The stub reports old = a private key file, new = the public worktree file.
+reset_ctl; GIT_TRACKED_SECRETS="k.der"
+box="$(mkbox c42b-old-blob)"; put_conf "$box" "allow k.der"; put_pub "$box" k.der spki; put_pub "$box" side-old.bin pkcs8
+OUT="$(PATH="$box/bin" HOME="$box/home" GIT_TRACKED_SECRETS="$GIT_TRACKED_SECRETS" GIT_LOG_OLD_FILE=side-old.bin "$BASH_BIN" "$box/ensure-remote.sh" "$box/target" --yes 2>&1)"; RC=$?
+if [ "$RC" = 5 ] && ! has_call "$box" 'git .* push' && ! grep -q '^ALLOWED: ' <<<"$OUT"; then
+  ok "42b private blob only as the PRE-image of a raw line -> refuse 5" "(exit $RC)"
+else no "42b private blob only as the PRE-image of a raw line -> refuse 5" "exit=$RC out=[$(outl)]"; fi
+
+# 43 — S5: a SIGTERM while a blob copy exists removes the mktemp copy (EXIT/INT/TERM trap). The git stub streams the
+#      blob and then stalls, so the SUT is killed with its temp file on disk.
+# trap_case BOX — run the SUT in BOX (TMPDIR=BOX/tmp), kill it with SIGTERM while the blob copy exists; sets tmp_before/after.
+trap_case() {
+  local box="$1" sut_pid
+  mkdir -p "$box/tmp"; put_conf "$box" "allow pub.der"; put_pub "$box" pub.der spki
+  ( PATH="$box/bin" HOME="$box/home" TMPDIR="$box/tmp" GIT_TRACKED_SECRETS="pub.der" GIT_CATFILE_SLEEP=30 \
+    exec "$BASH_BIN" "$box/ensure-remote.sh" "$box/target" --yes >"$box/out.txt" 2>&1 ) &
+  sut_pid=$!
+  for _w in $(seq 1 100); do [ -s "$box/stub.pids" ] && break; sleep 0.1; done
+  tmp_before="$(ls -A "$box/tmp" | tr '\n' ' ')"
+  kill -TERM "$sut_pid" 2>/dev/null; reap_stubs "$box"
+  wait "$sut_pid" 2>/dev/null
+  tmp_after="$(ls -A "$box/tmp" | tr '\n' ' ')"
+}
+reset_ctl
+box="$(mkbox c43-trap-cleanup)"; trap_case "$box"
+if [ -n "${tmp_before// }" ] && [ -z "${tmp_after// }" ]; then
+  ok "43 SIGTERM mid-classification removes the blob temp copy" "(before=[$tmp_before] after=[])"
+else no "43 SIGTERM mid-classification removes the blob temp copy" "before=[$tmp_before] after=[$tmp_after]"; fi
 
 # 40 — REAL openssl artefacts (skipped, typed, when openssl is absent; cases 37-39 keep the core hermetic).
 OPENSSL_BIN="$(type -P openssl || true)"
@@ -1353,6 +1423,11 @@ fi'
     local lab="$1" orig="$2" new="$3" tracked="$4" kind="$5" f; shift 5
     if [[ "$content" != *"$orig"* ]]; then no "$lab: build mutant" "anchor not found — SUT drifted?"; return 1; fi
     teeth_box "$lab" "$orig" "$new"; box="$TBOX"
+    # TOOTH_ORIG2/TOOTH_NEW2: a second substitution for rules that have a redundant twin (defence in depth).
+    if [ -n "${TOOTH_ORIG2:-}" ]; then
+      if [[ "$content" != *"$TOOTH_ORIG2"* ]]; then no "$lab: build mutant" "second anchor not found — SUT drifted?"; return 1; fi
+      local c2; c2="$(cat "$box/ensure-remote.sh")"; printf '%s\n' "${c2//"$TOOTH_ORIG2"/"$TOOTH_NEW2"}" > "$box/ensure-remote.sh"
+    fi
     GIT_TRACKED_SECRETS="$tracked"; put_conf "$box" "$@"
     for f in $tracked; do put_pub "$box" "$f" "$kind"; done
     run "$box" "$box/target" --yes; return 0
@@ -1381,7 +1456,7 @@ fi'
   tooth_allow teeth46-allowed-silent '*)      echo "ALLOWED:' '*)      : "ALLOWED:' pub.der spki "allow pub.der" \
     && { ! grep -q '^ALLOWED: ' <<<"$OUT" && ok "teeth46: ALLOWED reporting off -> silent allow — case 27 has teeth" \
          || no "teeth46: mutant still reports ALLOWED — case 27 is THEATER"; }
-  tooth_allow teeth47-catfile-fail-open 'if ! git -C "$target" cat-file blob "$_new" >"$_tmp" 2>/dev/null; then' 'git -C "$target" cat-file blob "$_new" >"$_tmp" 2>/dev/null; if false; then' ghost.der none "allow ghost.der" \
+  tooth_allow teeth47-catfile-fail-open 'if ! git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; then' 'git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; if false; then' ghost.der none "allow ghost.der" \
     && { [ "$RC" != 7 ] && ok "teeth47: cat-file failure ignored -> no fail-closed 7 (rc=$RC) — case 33 has teeth" \
          || no "teeth47: mutant still fails closed 7 — case 33 is THEATER"; }
   tooth_allow teeth48-blanket-allow 'unallowed="$unallowed $_p"; continue; fi' ': ; continue; fi' $'pub.der\nother.pem' spki "allow pub.der" \
@@ -1395,6 +1470,8 @@ fi'
   tooth_allow teeth50-oid-allowlist-off '2a864886f70d010101|2a8648ce3d0201|2b6570|2b6571|2b656e|2b656f) :;; *) return 1;; esac' '*) :;; esac' x.der badoid "allow x.der" \
     && { [ "$RC" = 0 ] && ok "teeth50: SPKI OID allow-list off -> unknown-algorithm DER pushed — case 38 (badoid) has teeth" \
          || no "teeth50: mutant still refuses (rc=$RC) — case 38 (badoid) is THEATER"; }
+  # The label-count gate and the per-block label switch both refuse foreign armour; the tooth removes both.
+  TOOTH_ORIG2=$'    *) return 1;;\n  esac\n}\n# rsdd_pem_public' TOOTH_NEW2=$'    *) :;;\n  esac\n}\n# rsdd_pem_public' \
   tooth_allow teeth51-pem-exclusive-off '[ "$n_all" -gt 0 ] && [ "$n_all" = "$n_ok" ] && [ "$e_all" = "$e_ok" ] && [ "$n_ok" = "$e_ok" ] || return 1' '[ "$n_ok" -gt 0 ] || return 1' x.pem pemmixed "allow x.pem" \
     && { [ "$RC" = 0 ] && ok "teeth51: PEM exclusivity off -> a PEM with foreign armour is pushed — case 38 (pemmixed) has teeth" \
          || no "teeth51: mutant still refuses (rc=$RC) — case 38 (pemmixed) is THEATER"; }
@@ -1404,7 +1481,7 @@ fi'
   tooth_allow teeth53-ctrl-check-off "LC_ALL=C grep -aq \$'[\\001-\\010\\013\\014\\016-\\037\\177]' \"\$f\"" "LC_ALL=C grep -aq 'NEVER-xyz' \"\$f\"" licenses/c.txt ctrl "allow licenses/c.txt" \
     && { [ "$RC" = 0 ] && ok "teeth53: control-byte check off -> binary 'licence' pushed — case 38 (ctrl) has teeth" \
          || no "teeth53: mutant still refuses (rc=$RC) — case 38 (ctrl) is THEATER"; }
-  tooth_allow teeth54-base64-line-off "grep -aEq -- '^[A-Za-z0-9+/=]{64,}'\$'\\r''?\$' \"\$f\"" "grep -aEq -- 'NEVER-xyz' \"\$f\"" k.key rawb64 "allow k.key" \
+  tooth_allow teeth54-base64-line-off "grep -aEq -- '[A-Za-z0-9+/=]{40,}' \"\$f\"" "grep -aEq -- 'NEVER-xyz' \"\$f\"" k.key rawb64 "allow k.key" \
     && { [ "$RC" = 0 ] && ok "teeth54: base64-body check off -> unarmoured key pushed — case 38 (rawb64) has teeth" \
          || no "teeth54: mutant still refuses (rc=$RC) — case 38 (rawb64) is THEATER"; }
   tooth_allow teeth55-text-marker-off "grep -aEq -- 'PRIVATE|SECRET|---- BEGIN|PuTTY-User-Key-File' \"\$f\"" "grep -aEq -- 'NEVER-xyz' \"\$f\"" licenses/s.txt secrettxt "allow licenses/s.txt" \
@@ -1420,9 +1497,11 @@ fi'
     && { [ "$RC" != 2 ] && ok "teeth58: '.' counted as literal -> *.* accepted — case 31 (*.*) has teeth" \
          || no "teeth58: mutant still exits 2 — case 31 (*.*) is THEATER"; }
   # teeth 59/60 — history: scan only the newest commit; accept a path that has no committed blob.
-  if [[ "$content" != *'log --all -m --no-renames'* ]]; then no "teeth59: build mutant" "history anchor not found — SUT drifted?"
+  if [[ "$content" != *'log --all -m --full-history --no-renames'* ]]; then no "teeth59: build mutant" "history anchor not found — SUT drifted?"
   else
-    teeth_box teeth59-latest-only 'log --all -m --no-renames' 'log -1 --all -m --no-renames'; box="$TBOX"
+    teeth_box teeth59-latest-only 'log --all -m --full-history --no-renames' 'log -1 --all -m --full-history --no-renames'; box="$TBOX"
+    # the pre-image walk would still see the earlier blob through the newest commit's diff; remove it too.
+    c2="$(cat "$box/ensure-remote.sh")"; printf '%s\n' "${c2//'for _id in "$_old" "$_new"; do'/'for _id in "$_new"; do'}" > "$box/ensure-remote.sh"
     GIT_TRACKED_SECRETS="k.der"; rgit "$box" init -q >/dev/null 2>&1; put_conf "$box" "allow k.der"
     real_commit "$box" k.der pkcs8; real_commit "$box" k.der cert
     run "$box" "$box/target" --yes
@@ -1437,6 +1516,49 @@ fi'
     run "$box" "$box/target" --yes
     if [ "$RC" = 0 ]; then ok "teeth60: path without a committed blob accepted -> pushed unverified — case 41 has teeth"
     else no "teeth60: mutant still fails closed (rc=$RC) — case 41 is THEATER"; fi
+  fi
+
+  # teeth 61-69 (round 2: old-id, --full-history, PEM payload, encoded runs, LFS, trap).
+  oldid_orig='for _id in "$_old" "$_new"; do'
+  if [[ "$content" != *"$oldid_orig"* ]]; then no "teeth61: build mutant" "old/new id anchor not found — SUT drifted?"
+  else
+    teeth_box teeth61-new-id-only "$oldid_orig" 'for _id in "$_new"; do'; box="$TBOX"
+    GIT_TRACKED_SECRETS="k.der"; put_conf "$box" "allow k.der"; put_pub "$box" k.der spki; put_pub "$box" side-old.bin pkcs8
+    GIT_LOG_OLD_FILE=side-old.bin run "$box" "$box/target" --yes
+    if [ "$RC" = 0 ]; then ok "teeth61: pre-image id ignored -> private blob seen only as old is pushed — case 42b has teeth"
+    else no "teeth61: mutant still refuses (rc=$RC) — case 42b is THEATER"; fi
+  fi
+  if [[ "$content" != *'--full-history'* ]]; then no "teeth62: build mutant" "--full-history anchor not found — SUT drifted?"
+  else
+    teeth_box teeth62-no-full-history 'log --all -m --full-history --no-renames' 'log --all -m --no-renames'; box="$TBOX"
+    GIT_TRACKED_SECRETS="k.pem"; rgit "$box" init -q >/dev/null 2>&1; put_conf "$box" "allow k.pem"; real_commit "$box" k.pem pempub
+    run "$box" "$box/target" --yes
+    if [ "$RC" = 0 ] && ! has_call "$box" 'git .* log .*--full-history'; then ok "teeth62: --full-history dropped from the walk — case 42 (flag pinned) has teeth"
+    else no "teeth62: mutant still walks with --full-history (rc=$RC) — case 42 is THEATER"; fi
+  fi
+  tooth_allow teeth63-pem-payload-off '[ -n "$hex" ] && rsdd_pem_block_ok "$lab" "$hex" || return 1' '[ -n "$hex" ] || return 1' x.pem relabel "allow x.pem" \
+    && { [ "$RC" = 0 ] && ok "teeth63: PEM payload check off -> private key relabelled CERTIFICATE pushed — case 38 (relabel) has teeth" \
+         || no "teeth63: mutant still refuses (rc=$RC) — case 38 (relabel) is THEATER"; }
+  tooth_allow teeth64-pem-stray-lines-off 'if [[ "$l" =~ ^[A-Za-z0-9+/=]{16,}$ ]]; then return 1; fi' ':' x.pem certplus "allow x.pem" \
+    && { [ "$RC" = 0 ] && ok "teeth64: stray-data check off -> CERTIFICATE + unarmoured PKCS#8 pushed — case 38 (certplus) has teeth" \
+         || no "teeth64: mutant still refuses (rc=$RC) — case 38 (certplus) is THEATER"; }
+  tooth_allow teeth65-hex-run-off "grep -aEq -- '[0-9a-fA-F]{32,}' \"\$f\"" "grep -aEq -- 'NEVER-xyz' \"\$f\"" licenses/h.txt lichex "allow licenses/h.txt" \
+    && { [ "$RC" = 0 ] && ok "teeth65: hex-run check off -> 'key = <32 hex>' licence pushed — case 38 (lichex) has teeth" \
+         || no "teeth65: mutant still refuses (rc=$RC) — case 38 (lichex) is THEATER"; }
+  tooth_allow teeth66-b64-run-off "grep -aEq -- '[A-Za-z0-9+/=]{40,}' \"\$f\"" "grep -aEq -- 'NEVER-xyz' \"\$f\"" licenses/r.txt licrun "allow licenses/r.txt" \
+    && { [ "$RC" = 0 ] && ok "teeth66: base64-run check off -> mid-line encoded run pushed — case 38 (licrun) has teeth" \
+         || no "teeth66: mutant still refuses (rc=$RC) — case 38 (licrun) is THEATER"; }
+  tooth_allow teeth67-hexdump-off 'if [ "${#t}" -ge 16 ] && [[ "$t" =~ ^[0-9a-fA-F]+$ ]]; then return 1; fi' ':' licenses/hs.txt lichexsp "allow licenses/hs.txt" \
+    && { [ "$RC" = 0 ] && ok "teeth67: hex-dump line check off -> spaced hex bytes pushed — case 38 (lichexsp) has teeth" \
+         || no "teeth67: mutant still refuses (rc=$RC) — case 38 (lichexsp) is THEATER"; }
+  tooth_allow teeth68-lfs-off 'case "$rc" in 0) return 4;;' 'case "$rc" in 0) :;;' licenses/l.txt lfs "allow licenses/l.txt" \
+    && { ! grep -q 'LFS pointer: content not inspectable' <<<"$OUT" && ok "teeth68: LFS check off -> typed LFS refusal lost — case 38 (lfs) has teeth" \
+         || no "teeth68: mutant still reports the LFS refusal — case 38 (lfs) is THEATER"; }
+  if [[ "$content" != *'rm -f "$_tmp"; fi; }'* ]]; then no "teeth69: build mutant" "cleanup anchor not found — SUT drifted?"
+  else
+    teeth_box teeth69-no-cleanup 'rm -f "$_tmp"; fi; }' ':; fi; }'; box="$TBOX"; trap_case "$box"
+    if [ -n "${tmp_after// }" ]; then ok "teeth69: cleanup trap neutered -> blob copy left behind — case 43 has teeth"
+    else no "teeth69: mutant still cleans up — case 43 is THEATER"; fi
   fi
 fi
 
