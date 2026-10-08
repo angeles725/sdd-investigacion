@@ -598,7 +598,7 @@ resolve_next() {
 # Reads the global $state like backlog_rows. An id matches a backlog Gap cell that equals it or starts with it followed
 # by a character that cannot continue an id (so G1 never matches G10 or G1-b).
 queue_next() {
-  local slug raw val id ids=() items=() rows pri gap st lead tok served="" cls c n=0 nunk=0 ndone=0 ndef=0 nblk=0 nprog=0 found j dup
+  local slug raw val id ids=() items=() rows pri gap st lead tok served="" cls c n=0 nunk=0 ndone=0 ndef=0 nblk=0 nprog=0 found nmatch j dup
   slug="$(basename "$state" .md)"; slug="${slug#RESEARCH-STATE}"; slug="${slug#-}"; slug="${slug:-root}"
   raw="$(awk '/^## /{exit} /<!--/{c=1} c{if (/-->/) c=0; next} /^(-[[:space:]]+)?next_session_queue:/{print}' "$state" 2>/dev/null)"
   if [ -z "$raw" ]; then
@@ -628,19 +628,23 @@ queue_next() {
   # ONE parse with the closed-class rows included (deferred / ~~p~~ / em-dash, as emitted for count_all_known_gaps), plus the OPEN
   # deferred rows that parse leaves to count_deferred: a queued gap that is closed or parked is KNOWN, never "unknown". resolve_next
   # keeps its own backlog_rows call and output.
-  rows="$(backlog_rows 1)"$'\n'"$(awk -F'|' '{ pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || NF!=6) next
-      g=$3; s=tolower($5); gsub(/^[ \t]+|[ \t]+$/,"",g); gsub(/^[ \t]+|[ \t]+$/,"",s)
+  # Open deferred rows: only inside a `## Gap-backlog` section, 4- or 5-column rows (a bolded `**deferred**` priority is a STALE backlog, so never reaches here).
+  rows="$(backlog_rows 1)"$'\n'"$(awk -F'|' '/^## /{ ib = ($0 ~ /^## Gap-backlog( \([^)]+\))?$/); next }
+      ib { pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || (NF!=6 && NF!=7)) next
+      gi=(NF==7) ? 4 : 3; si=NF-1; g=$gi; s=tolower($si); gsub(/^[ \t]+|[ \t]+$/,"",g); gsub(/^[ \t]+|[ \t]+$/,"",s)
+      if (NF==7) { g=$3; gsub(/^[ \t]+|[ \t]+$/,"",g) }
+      gsub(/^\*\*/,"",s)
       if (index(g,"~~") || index(s,"~~") || index(s,"✅")) next
       print "deferred-open\t" g "\t" s }' "$state")"
   for id in "${ids[@]}"; do
-    n=$((n+1)); found=0; cls=""
+    n=$((n+1)); found=0; cls=""; nmatch=0
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
       case "$pri" in UNCOUNTED|INVALID_PRIORITY) continue ;; esac
       lead="$gap"
       for _ in 1 2; do lead="${lead#\*\*}"; lead="${lead#\~\~}"; lead="${lead#\`}"; done
       case "$lead" in "$id") ;; "$id"[!A-Za-z0-9._-]*) ;; *) continue ;; esac
-      found=1
+      found=1; nmatch=$((nmatch+1))
       lead="${st#\*\*}"; lead="${lead/\*\*/}"; tok="${lead%% *}"
       case "$pri" in
         deferred-open) c=deferred ;;
@@ -655,13 +659,14 @@ queue_next() {
       esac
       if [ "$c" = serve ]; then
         [ -n "$served" ] || served="$(printf 'NEXT | %s | %s' "$pri" "$gap")"
-        cls=serve; break
+        cls=serve; continue
       fi
       [ -n "$cls" ] || cls="$c"
     done < <(printf '%s\n' "$rows")
     case "$cls" in
       terminal) ndone=$((ndone+1)) ;; deferred) ndef=$((ndef+1)) ;; blocked) nblk=$((nblk+1)) ;; inprogress) nprog=$((nprog+1)) ;;
     esac
+    if [ "$nmatch" -gt 1 ]; then printf 'WARN: queue-ambiguous-id [%s]: queued id [%s] (%s rows) matches several backlog rows — a servable one wins\n' "$slug" "$id" "$nmatch" >&2; fi
     if [ "$found" = 0 ]; then
       nunk=$((nunk+1)); printf 'WARN: queue-unknown-gap [%s]: queued id [%s] (position %s) matches no backlog row — skipped\n' "$slug" "$id" "$n" >&2
     fi

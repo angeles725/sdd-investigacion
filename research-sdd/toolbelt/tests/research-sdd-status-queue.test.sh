@@ -111,6 +111,51 @@ done
 mk_q "$TMP/q-prog/RESEARCH-STATE.md" 0 'next_session_queue: G9, G2' "${ROWS[@]:0:1}" "medium|G9 half done|in-progress" "low|G2 later|pending"
 nq "$SUT" "$TMP/q-prog" --queue; want "2n in-progress queued gap skipped, next served" "NEXT | low | G2 later"
 
+# --- 2t. open deferred rows: 5-column tables and Gap-backlog sections only (a bolded `**deferred**` priority is STALE in the kit, so unreachable) --------------------------------
+mk5="$TMP/q-5col"; mkdir -p "$mk5"
+cat > "$mk5/RESEARCH-STATE.md" <<'EOT'
+# Q5 — Research State
+
+next_session_queue: G8
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | ID | Gap | Artifact type / source | Status |
+|---|---|---|---|---|
+| high | G1 | first gap | web | pending |
+| deferred | G8 | parked thing | web | parked |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+EOT
+nq "$SUT" "$mk5" --queue
+if grep -q 'queue-unknown-gap' <<<"$err"; then no "2t 5-column open deferred row must be KNOWN [$err]"; else ok "2t 5-column open deferred row is known"; fi
+grep -q '1 deferred' <<<"$err" && ok "2t 5-column deferred counted as deferred" || no "2t counts [$err]"
+mk_q "$TMP/q-oob/RESEARCH-STATE.md" 0 'next_session_queue: G11' "high|G1 first gap|pending"
+printf '\n## Notes\n\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| deferred | G11 not a backlog row | web | parked |\n' >> "$TMP/q-oob/RESEARCH-STATE.md"
+nq "$SUT" "$TMP/q-oob" --queue; want "2v a deferred row outside a Gap-backlog section is NOT a backlog row (unknown, loud)" "NEXT | high | G1 first gap" 'WARN: queue-unknown-gap.*G11'
+
+# --- 2w. several rows match one queued id: warned, a servable one still wins ------------------------------------------------
+mk_q "$TMP/q-amb1/RESEARCH-STATE.md" 0 'next_session_queue: G4' "high|G4 old attempt|covered" "medium|G4 reopened|pending"
+nq "$SUT" "$TMP/q-amb1" --queue; want "2w closed row first, pending second -> pending served" "NEXT | medium | G4 reopened" 'WARN: queue-ambiguous-id.*G4.*2 rows'
+mk_q "$TMP/q-amb2/RESEARCH-STATE.md" 0 'next_session_queue: G4' "high|G4 reopened|pending" "medium|G4 old attempt|covered"
+nq "$SUT" "$TMP/q-amb2" --queue; want "2w pending row first, closed second -> same warning, pending served" "NEXT | high | G4 reopened" 'WARN: queue-ambiguous-id.*G4.*2 rows'
+nq "$SUT" "$FX/closed-plus-pending" --queue; want "2x closed G1 + pending G1-b -> G1 exhausted, priority order" "NEXT | high | G1-b follow-up of G1" 'queue-exhausted.*1 done'
+if grep -q 'queue-ambiguous-id' <<<"$err"; then no "2x G1-b must not make G1 ambiguous [$err]"; else ok "2x no ambiguity warning for a prefix sibling"; fi
+
 # --- 2o. field-parser edges -------------------------------------------------------------------------------------------
 d="$(mkd q-trail 'next_session_queue: G3, G2,')"; nq "$SUT" "$d" --queue; want "2o trailing comma is malformed (like ,,)" "NEXT | high | G1 first gap" 'WARN: queue-malformed.*trailing comma'
 d="$(mkd q-dup 'next_session_queue: G3, G3, G2')"; nq "$SUT" "$d" --queue; want "2p duplicate id warned, served once" "NEXT | low | G3 third gap" 'WARN: queue-duplicate-id.*G3'
@@ -203,7 +248,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     nq "$MUT" "$TMP/q-cls1" --queue; mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G10' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
     grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth I: closed-class rows unread -> em-dash gap reads unknown -> 2m has teeth" || no "teeth I: mutant still knew the em-dash gap [$err]"; fi
   # J: open deferred rows not read -> a queued parked gap reads unknown
-  if mutate J 's/if (pr!="deferred" || NF!=6) next/next/'; then
+  if mutate J 's/if (pr!="deferred" || (NF!=6 \&\& NF!=7)) next/next/'; then
     mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G8' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
     grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth J: open-deferred unread -> unknown -> 2m has teeth" || no "teeth J: mutant still knew the parked gap [$err]"; fi
   # K: in-progress counted as done -> the exhausted counts are wrong
@@ -242,6 +287,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutate S 's/case "\${val,,}" in/case "${val}" in/'; then
     nq "$MUT" "$TMP/q-NONE" --queue
     ! grep -q 'queue-empty' <<<"$err" && ok "teeth S: case-sensitive none -> 2q has teeth" || no "teeth S: still queue-empty [$err]"; fi
+  # T: open-deferred scan not limited to Gap-backlog sections -> 2v goes red
+  if mutate T 's/^      ib { pr=tolower/      { pr=tolower/'; then
+    nq "$MUT" "$TMP/q-oob" --queue
+    ! grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth T: deferred row outside the backlog read -> 2v has teeth" || no "teeth T: still unknown [$err]"; fi
+  # U: 5-column open deferred rows dropped -> 2t goes red
+  if mutate U 's/(NF!=6 \&\& NF!=7)/(NF!=6)/'; then
+    nq "$MUT" "$mk5" --queue
+    grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth U: 5-col deferred unread -> 2t has teeth" || no "teeth U: mutant still knew it [$err]"; fi
+  # W: ambiguity warning dropped -> 2w goes red
+  if mutate W 's/if \[ "\$nmatch" -gt 1 \]; then/if [ "$nmatch" -gt 99 ]; then/'; then
+    nq "$MUT" "$TMP/q-amb1" --queue
+    ! grep -q 'queue-ambiguous-id' <<<"$err" && ok "teeth W: ambiguity unreported -> 2w has teeth" || no "teeth W: still warned [$err]"; fi
+  # X: scan stops at the first servable row -> a second match is not counted (pending-first order) -> 2w goes red
+  if mutate X 's/cls=serve; continue$/cls=serve; break/'; then
+    nq "$MUT" "$TMP/q-amb2" --queue
+    ! grep -q 'queue-ambiguous-id' <<<"$err" && ok "teeth X: break at the served row hides a second match -> 2w has teeth" || no "teeth X: still warned [$err]"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
