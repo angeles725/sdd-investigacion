@@ -186,7 +186,7 @@ Always read first, in this order:
      `retros/` dir is invisible to the §18 supervision sweep (lesson: three.js — unregistered focus). Keep that row a
      LIVING MIRROR, not a one-time write: when a run-STOP or a §14 correction changes a fact mirrored there
      (block / run / retro / file counts), PROPOSE the row refresh as part of closing that run or correction
-     (the supervisor applies it; a run never edits TARGETS.md — METHODOLOGY §18 propose-never-apply, kit #1992) —
+     (the supervisor applies it; a run never edits an existing TARGETS.md row; registering a NEW target in step b is unchanged — METHODOLOGY §18 propose-never-apply, kit #1992) —
      three.js's row went stale at "21 md / 3 runs" while the corpus grew to 32 blocks / 5 runs.
      Keep that refreshed row to ONE scannable line (name · path · maturity · artifact · language);
      run-by-run narrative goes in the target's detail `###` section, never crammed into the master
@@ -1372,7 +1372,7 @@ Always read first, in this order:
          and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
          the same way even without formal outline completion: emit the retro when the batch closes, do
          not wait for the operator to ask (hilton B19-B24 had none until demanded).
-       - TARGETS.md row refresh (propose-never-apply, METHODOLOGY §18; kit #1992): a run never edits TARGETS.md; it
+       - TARGETS.md row refresh (propose-never-apply, METHODOLOGY §18; kit #1992): a run never edits an existing TARGETS.md row; it
          PROPOSES the new row values (block count, run facts) in its final return and in the retro; the
          supervisor (human) applies the refresh.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
