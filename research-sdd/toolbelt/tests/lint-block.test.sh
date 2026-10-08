@@ -398,6 +398,19 @@ want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-|PARENT-)?BAD' "$FX/pack-cal-r9.md
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24d R9: a heading claim is judged over its whole section: an evidence-less body and an empty body flag at the heading, an evidence-bearing body clears; paragraph and row claims still flag ($want)" || no "24d R9 heading-only (want=[$want] got=[$got])"
 grep -qE 'r9-triggers=6( |$)' <<< "$OUT" && ok "24e SUMMARY counts the heading claims as R9 triggers (r9-triggers=6: 4 headings, 1 paragraph, 1 row)" || no "24e r9-triggers (out=[$OUT])"
 
+# 25. Child-gap pack (kit #1214 / #1365): R4 coverage-check / measured-by at open time
+run --pack child-gap "$FX/pack-r4.md"
+want="$(lines_of R4- "$FX/pack-r4.md")"; got="$(reported R4 "$OUT" "$FX/pack-r4.md")"
+[ "$RC" -eq 1 ] && [ -n "$want" ] && [ "$got" = "$want" ] && ok "25a R4 flagged on the exact lines ($want): first and last bullet, placeholder clause, query without result, empty arrow result, number without measured-by, stub measured-by; arrow and code-span forms, a 'none' result, a continuation-line clause, line refs / dates / versions, a prose clause, a waiver, a fenced bullet and a bullet outside the section clear" || no "25a R4 (rc=$RC want=[$want] got=[$got] out=[$OUT])"
+grep -qE 'r4-triggers=14( |$)' <<< "$OUT" && grep -qF 'packs=child-gap' <<< "$OUT" && ok "25b SUMMARY names the pack and counts every bullet it inspected (r4-triggers=14)" || no "25b r4 coverage (out=[$OUT])"
+grep -qE 'child gap B61-G1: ABSENT' <<< "$OUT" && grep -qE 'child gap B61-G4: MALFORMED .*placeholder' <<< "$OUT" && grep -qE 'child gap B61-G5: MALFORMED .*no result' <<< "$OUT" && grep -qE 'child gap B61-G8: MEASURE - states 247' <<< "$OUT" && grep -qE 'child gap B61-G9: MEASURE .*measured-by' <<< "$OUT" && ok "25c findings are typed ABSENT / MALFORMED / MEASURE and name the gap id" || no "25c typed messages (out=[$OUT])"
+run --pack child-gap "$FX/pack-r4-single.md"
+[ "$RC" -eq 1 ] && [ "$(reported R4 "$OUT" "$FX/pack-r4-single.md")" = "$(lines_of R4- "$FX/pack-r4-single.md")" ] && grep -qE 'r4-triggers=1( |$)' <<< "$OUT" && ok "25d a single-bullet section is judged (r4-triggers=1)" || no "25d single bullet (rc=$RC out=[$OUT])"
+run --audit --pack child-gap "$FX/pack-r4-nosection.md"
+[ "$RC" -eq 0 ] && grep -qE 'R4=0' <<< "$OUT" && grep -qE 'r4-triggers=0( |$)' <<< "$OUT" && grep -qF 'NO-MATCH' <<< "$OUT" && ok "25e no child-gap section -> no finding, and the SUMMARY says r4-triggers=0 (a typed zero, not a silent one)" || no "25e no section (rc=$RC out=[$OUT])"
+run --pack jvm "$FX/pack-r4.md"
+[ "$(reported R4 "$OUT" "$FX/pack-r4.md")" = "" ] && ok "25f without --pack child-gap R4 is not enforced (opt-in)" || no "25f opt-in (out=[$OUT])"
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for lint-block.sh / lint_block.py --"
@@ -863,6 +876,23 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if tooth_build N9 lint-block-packs/native-binary.py 's#doc.cov\["r9_triggers"\] += 1#doc.cov["r9_triggers"] += 0#'; then
     mrun --pack native-binary "$FX/pack-r9.md"
     grep -qE 'r9-triggers=11( |$)' <<< "$MOUT" && no "teeth N9: mutant still reports r9-triggers=11 — THEATER" || ok "teeth N9: R9 counter neutered -> SUMMARY no longer proves the units were inspected -> case 21b has teeth"
+  fi
+  # child-gap pack
+  ptooth G1 lint-block-packs/child-gap.py 's#^                waived = any(.*#                waived = False#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G2 lint-block-packs/child-gap.py 's#out.append(("ABSENT", "no `coverage-check:` clause"))#pass#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G3 lint-block-packs/child-gap.py 's#elif len(plain.split()) >= 4:#elif len(plain.split()) >= 99:#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G4 lint-block-packs/child-gap.py 's#^RESULT_PLACEHOLDER_RE = .*#RESULT_PLACEHOLDER_RE = PLACEHOLDER_RE#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G5 lint-block-packs/child-gap.py 's#^    if not re.search(r"\[A-Za-z0-9\]{2,}", result) or RESULT_PLACEHOLDER_RE.match(result):#    if False:#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G6 lint-block-packs/child-gap.py 's#(?<!\[\\w.:\])#(?<![\\w.])#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G7 lint-block-packs/child-gap.py 's#^    prose = DATE_RE.sub(" ", prose)#    prose = prose#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G8 lint-block-packs/child-gap.py 's#or ANY_ITEM_RE.match(raw)):#or True):#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G9 lint-block-packs/child-gap.py 's#^                if i in doc.fenced:#                if False:#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G10 lint-block-packs/child-gap.py 's#^            if not SECTION_RE.search(title):#            if False:#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G11 lint-block-packs/child-gap.py 's#^    number = stated_number(prose)#    number = None#' "$FX/pack-r4.md" R4 R4- child-gap
+  ptooth G12 lint-block-packs/child-gap.py 's#^            if not re.search(r"\[A-Za-z0-9\]{2,}", mbody) or PLACEHOLDER_RE.match(mbody):#            if False:#' "$FX/pack-r4.md" R4 R4- child-gap
+  if tooth_build G13 lint-block-packs/child-gap.py 's#doc.cov\["r4_triggers"\] += 1#doc.cov["r4_triggers"] += 0#'; then
+    mrun --pack child-gap "$FX/pack-r4.md"
+    grep -qE 'r4-triggers=14( |$)' <<< "$MOUT" && no "teeth G13: mutant still reports r4-triggers=14 — THEATER" || ok "teeth G13: R4 counter neutered -> SUMMARY no longer proves the bullets were inspected -> case 25b has teeth"
   fi
   # T: wrapper — EMPTY-INPUT for a block-less directory removed
   if tooth_build T lint-block.sh 's#echo "EMPTY-INPUT: \$p has no canonical block files"#true#'; then
