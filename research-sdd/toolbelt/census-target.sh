@@ -19,9 +19,18 @@
 #           INHERITED (declared inherited census, read only from the Dismissed section) |
 #           DEGRADED (state absent, state not readable, or neither section present) | not run
 #           (no --state). HTML comments and fenced blocks are ignored (template text claims
-#           nothing). The match is a LITERAL type name as a standalone token (case-insensitive;
-#           'notes.js' / 'x.js.map' claim nothing; types of 1-2 characters need their leading
-#           dot; '(no ext)' for extensionless files). --state '' exits 2. A gap that
+#           nothing; a '<!--' inside a closed backtick span on the same line is prose (backticks
+#           pair per line), an unterminated comment is disclosed). The match is a LITERAL type
+#           name as a standalone token (case-insensitive; 'notes.js' / 'x.js.map' claim nothing)
+#           written in a deliberate form (kit #1986): with its leading dot in prose ('.js';
+#           '.tar.gz' claims 'gz'); as a backtick span whose WHOLE content is a type token or a
+#           list of them ('`.pdf`', '`.jpg/.png`', '`.jpg, .png`'; a '/' list needs every item
+#           dotted; '`bin/sh`', '`java -jar`', '`js-yaml`', '`db/`' and '`db\`' claim nothing); or as the head of a Dismissed bullet (a dotted head claims
+#           its last segment; a head without a dot claims only in list shape, '- jpg, png —
+#           reason', and with >= 3 characters, so '- Lock files' claims nothing). A bare prose
+#           word never claims.
+#           '(no ext)' for extensionless files. A level-1 or level-2 heading ends a section.
+#           --state '' exits 2. A gap that
 #           encompasses a type without naming it ("all images") is reported as a WARNING and
 #           must be confirmed by hand — the instrument reports what it matched, not what a
 #           human would read as covered.
@@ -141,23 +150,44 @@ if [ ! -f "$STATE" ] || [ ! -r "$STATE" ]; then
 fi
 _stars=$(printf '%s\n' "$_hist" | awk 'NF >= 4 && $NF == "*" { e = ""; for (i = 1; i <= NF - 3; i++) e = e (i > 1 ? " " : "") $i; print e }')
 # Live text = the state file minus HTML comments (single- and multi-line; template text lives
-# there) and fenced blocks (examples). A heading inside either is therefore not a section.
-_live=$(awk '
+# there) and fenced blocks (examples). A heading inside either is therefore not a section. A
+# '<!--' inside a CLOSED backtick span on the SAME line is prose (inline code), not a comment
+# opener (backticks pair per line); an unpaired backtick is not a span, so it can never hide a
+# real comment (a leaked template comment would be a false closure). A comment still open at EOF
+# is reported out-of-band through a flag file, never through the text stream.
+_ucouldnot=no
+_uflag=$(mktemp) || { _uflag=/dev/null; _ucouldnot=yes; }
+_live=$(awk -v uflag="$_uflag" '
   { line = $0; out = ""
     while (length(line) > 0) {
       if (inc) { i = index(line, "-->"); if (i == 0) line = ""; else { line = substr(line, i + 3); inc = 0 } }
-      else { i = index(line, "<!--"); if (i == 0) { out = out line; line = "" } else { out = out substr(line, 1, i - 1); line = substr(line, i + 4); inc = 1 } }
+      else {
+        i = index(line, "<!--"); b = index(line, "`")
+        if (b > 0 && (i == 0 || b < i)) {
+          c = index(substr(line, b + 1), "`")
+          if (c == 0) { out = out substr(line, 1, b); line = substr(line, b + 1) }
+          else { out = out substr(line, 1, b + c); line = substr(line, b + c + 1) }
+        } else if (i == 0) { out = out line; line = "" }
+        else { out = out substr(line, 1, i - 1); line = substr(line, i + 4); inc = 1 }
+      }
     }
     if (out ~ /^[[:space:]]*(```|~~~)/) { fence = !fence; next }
     if (!fence) print out
-  }' "$STATE")
+  }
+  END { if (inc) print "unterminated" > uflag }' "$STATE")
+_unterminated=no
+[ -s "$_uflag" ] && _unterminated=yes
+[ "$_uflag" = /dev/null ] || rm -f "$_uflag"
 # Claim text = the two sections that can close the obligation (any other section is out of scope).
-_claims=$(awk '/^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+(Gap-backlog|Dismissed file types)/) } p' <<<"$_live")
-_dismissed=$(awk '/^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+Dismissed file types/) } p' <<<"$_live")
+# A level-1 or level-2 heading ends a section; '###' and deeper stay inside it.
+_claims=$(awk '/^#[[:space:]]/ || /^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+(Gap-backlog|Dismissed file types)/) } p' <<<"$_live")
+_dismissed=$(awk '/^#[[:space:]]/ || /^##[[:space:]]/ { p = ($0 ~ /^##[[:space:]]+Dismissed file types/) } p' <<<"$_live")
 _has_backlog=no; grep -qE '^##[[:space:]]+Gap-backlog' <<<"$_live" && _has_backlog=yes
 _has_dismissed=no; grep -qE '^##[[:space:]]+Dismissed file types' <<<"$_live" && _has_dismissed=yes
 if [ "$_has_backlog" = no ] && [ "$_has_dismissed" = no ]; then
   echo "Audit cross-check: DEGRADED — state has neither a '## Gap-backlog' nor a '## Dismissed file types' section outside comments and fenced blocks (${STATE}); no claim could be read"
+  [ "$_unterminated" = yes ] && echo "   note: state has an unterminated HTML comment ('<!--' with no '-->'); every line after it was ignored"
+  [ "$_ucouldnot" = yes ] && echo "   note: unterminated-comment check: could not verify (no temp file)"
   exit 0
 fi
 if [ -z "$_stars" ]; then
@@ -169,12 +199,92 @@ if grep -qiE '^[[:space:]]*-[[:space:]]*none[[:space:]]+(—|--)[[:space:]]+cens
   echo "Audit cross-check: INHERITED — Dismissed file types declares a census inherited from the parent corpus; ${_total} starred type(s) not cross-checked here"
   exit 0
 fi
-# A claim is a standalone type token in live prose: not preceded by an alphanumeric, '_', '.', '/'
-# or '-' (so 'notes.js', 'a/js' and 'non-js' claim nothing), not followed by an alphanumeric or
-# '_' or by '.'+alphanumeric (so 'x.js.map' claims nothing, a sentence-final '.js.' does). Types
-# of 1-2 characters need their leading dot ('c', 'js' as bare words are ordinary prose).
+# A type is CLAIMED only by a deliberate form (kit #1986): (1) its leading dot in live prose
+# ('.js'; a compound '.tar.gz' claims its LAST segment 'gz', never 'tar'), (2) a backtick span
+# whose WHOLE trimmed content is a type token or a list of them ('.pdf', 'pdf', '.jpg, .png',
+# '.jpg/.png' (a slash list needs every item dotted), '.tar.gz'; spans pair per line), or (3) the head of a '## Dismissed file types'
+# bullet. A bare prose word never claims ("XML parser" does not close .xml). Prose tokens are
+# standalone: not preceded by an alphanumeric, '_', '.', '/' or '-' (so 'notes.js', 'a/js' and
+# 'non-js' claim nothing), not followed by an alphanumeric or '_' or by '.'+alphanumeric (so
+# 'x.js.map' claims nothing, a sentence-final '.js.' does).
 _lead='(^|[^[:alnum:]_./-])'
 _trail='([^[:alnum:]_.]|\.([^[:alnum:]_]|$)|$)'
+# _claimed = exact lowercase type names claimed by spans and Dismissed heads, one per line.
+_claimed=""
+_tok_re='^(\.[[:alnum:]_]+(\.[[:alnum:]_]+)*|[[:alnum:]_]+)$'
+_cand_re='^([^[:space:],/\&:]+)(.*)$'
+# A dotted token claims its LAST segment ('.tar.gz' -> gz); a bare token claims itself.
+_add_dotted() { local t="${1#.}"; _claimed="${_claimed}${t##*.}"$'\n'; }
+_add_bare() { _claimed="${_claimed}${1}"$'\n'; }
+# _parse_list <text>: split a leading list of type tokens ('a, b/c & d'). Sets _items (a token that
+# is not a valid type token, or a separator not followed by a valid token, is recorded as '!' and
+# ends the list; _seps holds the separator that preceded each item), _rest (text after the list,
+# leading spaces removed) and _term=1 when the list is followed by EOL, an em dash, ':' , '--' or
+# ' - '. Token delimiters: whitespace , / & : (an em dash is spaced first). A hyphenated, dotless
+# compound ('pdf.js', 'tar.gz') or path-touching token ('db\') is invalid.
+_parse_list() {
+  local rest="${1//—/ — }" item sep=""
+  _items=(); _seps=(); _term=0
+  while :; do
+    rest="${rest#"${rest%%[![:space:]*\`~]*}"}"
+    if [[ "$rest" =~ $_cand_re ]]; then
+      item="${BASH_REMATCH[1]}"; rest="${BASH_REMATCH[2]}"
+    else
+      [ -n "$sep" ] && _items+=("!")
+      break
+    fi
+    while [[ "$item" == *[\*\`~] ]]; do item="${item%?}"; done
+    if ! [[ "$item" =~ $_tok_re ]]; then _items+=("!"); break; fi
+    _items+=("$item"); _seps+=("$sep"); sep=""
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    case "$rest" in
+      [,/\&]*) sep="${rest:0:1}"; rest="${rest:1}"; continue;;
+    esac
+    break
+  done
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  _rest="$rest"
+  case "$rest" in ""|—*|:*|--*|"- "*|-) _term=1;; esac
+}
+# Spans: the whole trimmed content must be a clean list (no '!' token, nothing left over).
+while IFS= read -r _sp; do
+  [ -n "$_sp" ] || continue
+  _parse_list "$_sp"
+  [ -z "$_rest" ] || continue
+  [ "${#_items[@]}" -gt 0 ] || continue
+  [[ " ${_items[*]} " == *" ! "* ]] && continue  # SENTINEL-SPAN-BANG
+  # A '/'-joined list in a span ('src/js', 'bin/sh') is a path unless every item is dotted
+  # ('.jpg/.png'); ',' and '&' lists are not restricted.
+  _slash_ok=1
+  if [[ "${_seps[*]}" == */* ]]; then
+    for _it in "${_items[@]}"; do [[ "$_it" == .* ]] || _slash_ok=0; done
+  fi
+  [ "$_slash_ok" = 1 ] || continue
+  for _it in "${_items[@]}"; do
+    if [[ "$_it" == .* ]]; then _add_dotted "$_it"; else _add_bare "$_it"; fi
+  done
+done < <(grep -o '`[^`]*`' <<<"$_claims" | tr -d '`')
+# Dismissed heads: a DOTTED head token claims its last segment; a head token WITHOUT a leading
+# dot claims only in list shape (followed directly by , / & and another token, or by an em dash,
+# ':' , ' - ', EOL) and only with >= 3 characters ('- Lock files' and 'A handful of .so files'
+# claim nothing).
+while IFS= read -r _hl; do
+  _hl=$(sed -nE 's/^[[:space:]]*[-*+][[:space:]]+(.*)$/\1/p' <<<"$_hl")
+  [ -n "$_hl" ] || continue
+  _parse_list "$_hl"
+  [[ " ${_items[*]} " == *" ! "* ]] && continue  # SENTINEL-HEAD-BANG
+  _n=${#_items[@]}
+  for ((_i = 0; _i < _n; _i++)); do
+    _it="${_items[_i]}"
+    [ "$_it" = "!" ] && break
+    if [[ "$_it" == .* ]]; then
+      _add_dotted "$_it"
+    elif [ "${#_it}" -ge 3 ] && { [ "$_i" -lt $((_n - 1)) ] || [ "$_term" = 1 ]; }; then
+      _add_bare "$_it"
+    fi
+  done
+done <<<"$_dismissed"
+_claimed=$(tr 'A-Z' 'a-z' <<<"$_claimed")
 _holes=""; _nholes=0
 while IFS= read -r _e; do
   [ -n "$_e" ] || continue
@@ -183,8 +293,9 @@ while IFS= read -r _e; do
   else
     # Escape regex metacharacters in the extension.
     _re=$(printf '%s' "$_e" | sed 's/[][\.*^$+?(){}|/-]/\\&/g')
-    if [ "${#_e}" -le 2 ]; then _dot='\.'; else _dot='\.?'; fi
-    grep -qiE -- "${_lead}${_dot}${_re}${_trail}" <<<"$_claims" && continue
+    _seg='(\.[[:alnum:]_]+)*'
+    grep -qiE -- "${_lead}${_seg}\.${_re}${_trail}" <<<"$_claims" && continue
+    grep -qixF -- "$_e" <<<"$_claimed" && continue
   fi
   _nholes=$((_nholes + 1))
   if [ "$_e" = "(no ext)" ]; then _holes="${_holes} (no ext)"; else _holes="${_holes} .${_e}"; fi
@@ -196,4 +307,6 @@ else
   echo "Audit cross-check: OK — all ${_total} starred type(s) are named in Gap-backlog or Dismissed file types (by literal name; a type named in a gap that does not cover it still reads OK)"
 fi
 [ "$_has_dismissed" = no ] && echo "   note: state has no '## Dismissed file types' section"
+[ "$_unterminated" = yes ] && echo "   note: state has an unterminated HTML comment ('<!--' with no '-->'); every line after it was ignored, so a claim there was NOT read"
+[ "$_ucouldnot" = yes ] && echo "   note: unterminated-comment check: could not verify (no temp file)"
 exit 0
