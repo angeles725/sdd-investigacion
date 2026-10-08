@@ -6,6 +6,8 @@
 > Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
 > run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
 > PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+<!-- Variant (kit #1991): if a coordinator/operator forbade delegation, replace the Method paragraph above with
+     `> Method: inline (coordinator forbade delegation)` plus how the run was reviewed, so readers discount its self-review. -->
 
 > **Provenance:** base `<base sha>` · head `<head sha>` · gate-run `<AGGREGATE timestamp (UTC) + Suites run/passed line, or "none"; run-all.sh prints no run id>` · reruns `<none | each rerun of a suite/gate and why>`
 > One line, REQUIRED (kit issue #1712): the commits the run's claims were measured on and which gate run backs them. A rerun that changed a verdict is disclosed here, never silently replaced.

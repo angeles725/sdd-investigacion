@@ -1157,6 +1157,9 @@ Always read first, in this order:
          from the closing block. Full treatment: METHODOLOGY §19.
        - SELF-RETROSPECTIVE (per-focus SELF-RETROSPECTIVE at every focus STOP; campaign RETRO CHECKPOINT at campaign STOP — METHODOLOGY §18):
          before handing off, DELEGATE a fresh-context retro agent to review THIS run and PROPOSE kit deltas.
+         A coordinator/operator instruction forbidding delegation wins: write the retro inline and put
+         `Method: inline (coordinator forbade delegation)` in its header so readers discount its self-review
+         (METHODOLOGY §18, kit #1991).
          The journal (METHODOLOGY §18 journal mode) is a SUPPLEMENTAL SOURCE — the full run review still
          runs. The retro agent: (1) reads $KIT/PROMPT-LOOP.md + METHODOLOGY.md FIRST and dedupes; (2) reviews
          the run — blocks written, §14 corrections, rules skipped, improvised techniques; (3) reads journal
@@ -1284,6 +1287,10 @@ Always read first, in this order:
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
      blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
+     MID-RUN OUTLINE ADDITIONS (kit #1989): a coordinator may add work mid-run. Append it as a new outline item
+     `O<n>` marked "added by coordinator" in the outline AND in the iteration history. When the addition changes
+     CODE an earlier block cites (but not the cited text), prefer a dated addendum section in that block over a
+     new block; no §14 correction is needed because nothing the block cites became false.
   2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
      depends on GENRE:
        - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
@@ -1363,7 +1370,9 @@ Always read first, in this order:
          and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
          the same way even without formal outline completion: emit the retro when the batch closes, do
          not wait for the operator to ask (hilton B19-B24 had none until demanded).
-       - TARGETS.md row refresh: update block count and run facts as part of closing the document run.
+       - TARGETS.md row refresh (propose-never-apply, CLAUDE.md §8; kit #1992): a delegated or kit-read-only run
+         PROPOSES the new row values (block count, run facts) in its final return and in the retro; the
+         supervisor (human) applies the refresh.
        - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
          close-checklist). Use `--dry-run` to preview.
 
@@ -1491,7 +1500,9 @@ HARD RULES:
     that the TCP connection was established, before the TLS handshake even runs, NOT that the server
     accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
     server refused version X". Re-derive by an independent method or a targeted counter-probe before
-    treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.)
+    treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.) For aggregates, the cheapest form is
+    the CONCENTRATION CHECK (METHODOLOGY §11a): flag a series with ~50 %+ of its period on one day beside the
+    headline delta, or resolve it first.
   - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
     data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
     go to the SOURCE ARTIFACT rather than cross-referencing other derived views — each derived view
@@ -1768,7 +1779,8 @@ HARD RULES:
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
     Spanish corpus), write blocks in THAT language. Otherwise English. Do not infer exceptions.
     BOOTSTRAP commits the language in the TARGETS.md row (BOOTSTRAP step b). A mid-run switch is
-    a structured override: refresh the TARGETS.md row and note the transition block number and
+    a structured override: PROPOSE the TARGETS.md row refresh (the supervisor applies it; propose-never-apply)
+    and note the transition block number and
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
