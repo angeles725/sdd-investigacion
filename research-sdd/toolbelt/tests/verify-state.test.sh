@@ -2962,15 +2962,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Prints the mutant run's exit code; the real lib is restored afterwards.
   BRLIB="$HERE/../lib/blocked-rows.sh"
   libmut() {
-    local name="$1" expr="$2" fix="$3" rc
-    # bash -n refuses a syntax-broken mutant (#2011): it would otherwise exit 1 via the consumer's 'failed to define'
-    # guard and read as a caught mutation.
-    if ! sed "$expr" "$BRLIB" > "$TMP/lib/blocked-rows.sh" || cmp -s "$BRLIB" "$TMP/lib/blocked-rows.sh" \
-       || ! bash -n "$TMP/lib/blocked-rows.sh" 2>/dev/null; then
-      cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "BUILD-FAIL"; return 0
+    local name="$1" expr="$2" fix="$3" rc _bn _mo
+    # bash -n refuses a syntax-broken mutant (#2011); an awk program that does not compile cannot be seen by bash -n
+    # (it sits in single quotes), so the mutant run's own output is checked for an awk error too. Either would
+    # otherwise exit 1 / count 0 and read as a caught mutation. The reason is printed on stderr.
+    if ! sed "$expr" "$BRLIB" > "$TMP/lib/blocked-rows.sh" || cmp -s "$BRLIB" "$TMP/lib/blocked-rows.sh"; then
+      cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "libmut $name: sed changed nothing" >&2; echo "BUILD-FAIL"; return 0
+    fi
+    if ! _bn="$(bash -n "$TMP/lib/blocked-rows.sh" 2>&1)"; then
+      cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "libmut $name: mutant lib has a bash syntax error: $_bn" >&2; echo "BUILD-FAIL"; return 0
     fi
     cp "$SUT" "$TMP/verify-state.$name.sh"
-    bash "$TMP/verify-state.$name.sh" "$fix" >/dev/null 2>&1; rc=$?
+    _mo="$(bash "$TMP/verify-state.$name.sh" "$fix" 2>&1)"; rc=$?
+    if grep -Eq 'awk: |syntax error' <<<"$_mo"; then
+      cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "libmut $name: mutant awk program does not compile" >&2; echo "BUILD-FAIL"; return 0
+    fi
     cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "$rc"
   }
 
@@ -2980,7 +2986,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: B3a — remove Non-investigable section from the blocked body; B3a-FAIL fixture must false-pass --"
   mnigot="$(libmut B3NI "/blocked_rows_section \"\\\$1\" '## Non-investigable gaps'/d" "$TMP/non-investigable-fail")"
   if [ "$mnigot" = "BUILD-FAIL" ]; then
-    no "teeth(B3a): could not build Non-investigable mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+    no "teeth(B3a): could not build Non-investigable mutant (sed changed nothing, bash syntax error or awk compile error in the mutant lib — see the libmut line above; did lib/blocked-rows.sh change?)"
   elif [ "$mnigot" = 0 ]; then
     ok "teeth(B3a): mutant ignores Non-investigable → false-passes (mismatch undetected) → dual-section fix is load-bearing"
   else no "teeth(B3a): mutant exit $mnigot (want 0) — Non-investigable detection may not depend on the dual-section fix (THEATER)"; fi
@@ -2989,7 +2995,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: B3c — remove Blocked-slash section from the blocked body; B3c-FAIL fixture must false-pass --"
   mbsgot="$(libmut B3BS "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" "$TMP/blocked-slash-fail")"
   if [ "$mbsgot" = "BUILD-FAIL" ]; then
-    no "teeth(B3c): could not build Blocked-slash mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+    no "teeth(B3c): could not build Blocked-slash mutant (sed changed nothing, bash syntax error or awk compile error in the mutant lib — see the libmut line above; did lib/blocked-rows.sh change?)"
   elif [ "$mbsgot" = 0 ]; then
     ok "teeth(B3c): mutant ignores Blocked-slash → false-passes (mismatch undetected) → triple-section fix is load-bearing"
   else no "teeth(B3c): mutant exit $mbsgot (want 0) — Blocked-slash detection may not depend on the fix (THEATER)"; fi
@@ -2998,10 +3004,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: B911a — blind the RSDD-CHILD-GAPS-ANCHOR awk in the lib; B911a-FAIL fixture must false-pass --"
   m911got="$(libmut B911A "s/'## Child gaps surfaced at close'/'## Child gaps surfaced at closeZ'/" "$TMP/child-gaps-single-fail")"
   if [ "$m911got" = "BUILD-FAIL" ]; then
-    no "teeth(B911a): could not build mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+    no "teeth(B911a): could not build mutant (sed changed nothing, bash syntax error or awk compile error in the mutant lib — see the libmut line above; did lib/blocked-rows.sh change?)"
   elif [ "$m911got" = 0 ]; then
     ok "teeth(B911a): awk-blinded mutant misses continuation entry (d=0 vs e=0 → false-pass) → RSDD-CHILD-GAPS-ANCHOR awk is load-bearing"
   else no "teeth(B911a): mutant exit $m911got (want 0) — child-gaps detection may not depend on the awk block (THEATER)"; fi
+
+  # ---- libmut guard teeth (#2011): a syntax-broken or awk-broken mutant must be refused, not run ----
+  echo "-- teeth: libmut — a bash-syntax-breaking sed and an awk-breaking sed must both be BUILD-FAIL --"
+  mlbs="$(libmut LMSYN '$a )' "$TMP/child-gaps-single-fail" 2>/dev/null)"
+  [ "$mlbs" = "BUILD-FAIL" ] && ok "teeth(libmut): bash-syntax-broken mutant refused (BUILD-FAIL)" || no "teeth(libmut): bash-broken mutant not refused, got [$mlbs] (THEATER)"
+  mlas="$(libmut LMAWK 's/BEGIN { n=0;/BEGIN { n=0 +;/' "$TMP/child-gaps-single-fail" 2>/dev/null)"
+  [ "$mlas" = "BUILD-FAIL" ] && ok "teeth(libmut): awk-uncompilable mutant refused (BUILD-FAIL)" || no "teeth(libmut): awk-broken mutant not refused, got [$mlas] (THEATER)"
 
   # ---- B3b mutation: neuter derive_deferred → always return 0 → deferred_open mismatch undetected ----
   echo "-- teeth: B3b — neuter derive_deferred; fixture declaring deferred_open=0 vs 1 row must then false-pass --"

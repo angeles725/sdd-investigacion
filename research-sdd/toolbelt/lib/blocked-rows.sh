@@ -25,7 +25,9 @@
 #      the bullet content: `- ~~G9 …`, `- **~~G9 …`; a partial strike mid-line closes nothing), `✅`, the
 #      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP` and `ENCLOSED` are not the word, and a
 #      `NOT` / `NO` / `NEVER` within the two words before it negates it, as in `NOT YET CLOSED`; those are whole
-#      words too, so `X-NO CLOSED` is not negated, and `CLOSEDCLOSED` is not the word), and a bracketed `[closed]` / `[cerrado]` in any case. The match
+#      words too, so `X-NO CLOSED` is not negated, and `CLOSEDCLOSED` is not the word).
+#      Window semantics: a "word" is a run of [A-Za-z0-9_-]; punctuation and `—` between words do not stop the
+#      window (`NOT — CLOSED` is negated), and non-ASCII bytes split words (an accented letter ends one)., and a bracketed `[closed]` / `[cerrado]` in any case. The match
 #      is on the bullet line only, so prose such as "not closed" in an OPEN entry never closes it. Standard blocked sections are unaffected: an entry listed there is blocked
 #      by definition (a closed gap leaves them, METHODOLOGY §21.1).
 

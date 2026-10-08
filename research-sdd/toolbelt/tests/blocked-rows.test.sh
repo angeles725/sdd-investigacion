@@ -149,7 +149,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (sed uses '#' delimiters; '&' is escaped.)
   tg() { # LABEL SED-EXPR WHAT GOOD-RE BAD-RE FIXTURE
     mk "$1 mutant build" "$LIB" "$MD/$1.sh" "$2" \
-      && tt "$1: $3" 0 0 "$MD/$1.sh" --orig "$LIB" --good-has "$4" --bad-has "$5" -- "${COUNT_ARGV[@]}" "$6"
+      && tt "$1: $3" 0 0 "$MD/$1.sh" --orig "$LIB" --good-has "$4" --bad-has "$5" --bad-lacks 'awk: |syntax error' -- "${COUNT_ARGV[@]}" "$6"
   }
   BND='s#if (bef !~ /\[A-Za-z0-9_-\]/ \&\& aft !~ /\[A-Za-z0-9_-\]/ \&\& #if (#'
   tg TOOTH-4f1 "$BND" "without the boundary check CLOSED-LOOP falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-closed-loop.expect1.md"
@@ -158,6 +158,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tg TOOTH-4h 's#k < 2; k++#k < 1; k++#' "a negation window of one word lets NOT YET CLOSED close" '^1$' '^0$' "$FIX/child-open-not-yet-closed.expect1.md"
   tg TOOTH-4i 's#w == "NO" ||#w ~ /NO$/ ||#' "a suffix match on NO makes X-NO CLOSED negate (whole-word token lost)" '^0$' '^1$' "$FIX/child-closed-id-ending-no.expect0.md"
   tg TOOTH-4j 's# || w == "NEVER"##' "without NEVER in the negation set NEVER CLOSED closes" '^1$' '^0$' "$FIX/child-open-never-closed.expect1.md"
+  tg TOOTH-4l 's#off = pos + rl - 1; t = substr(s, off + 1)#break#' "breaking out of the rescan loop on the first rejection loses ENCLOSED CLOSED" '^0$' '^1$' "$FIX/child-closed-after-rejected-match.expect0.md"
   tg TOOTH-4k 's#bef = (pos > 1) ? substr(s, pos - 1, 1)#bef = (RSTART > 1) ? substr(t, RSTART - 1, 1)#' "re-anchoring the preceding char at RSTART==1 after a rejected match makes CLOSEDCLOSED close" '^1$' '^0$' "$FIX/child-open-repeated-closedclosed.expect1.md"
 
   # TOOTH-5: the `## Blocked /` family is part of the body (METHODOLOGY §21.1).
