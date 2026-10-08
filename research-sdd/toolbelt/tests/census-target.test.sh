@@ -270,6 +270,116 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 19..33 — Audit cross-check (--state <RESEARCH-STATE.md>, kit #965). The audit obligation for
+# starred types used to be prose-only; with --state the census cross-checks each starred type
+# against the state file's '## Gap-backlog' and '## Dismissed file types' sections (literal-name
+# match, WARN-only: exit stays 0). Typed states: OK / WARNING / NO-STARRED / INHERITED /
+# DEGRADED (state unreadable, or neither section present) / not run (no --state flag).
+# The target has three starred types of DIFFERENT counts so the sorted list has a FIRST (.aaa,
+# 7 files), MIDDLE (.bbb, 6) and LAST (.ccc, 5) row; .zzz (1 file) is not starred.
+xt="$TMP/xcheck-target"; mkdir -p "$xt"
+for i in 1 2 3 4 5 6 7; do printf 'x\n' > "$xt/f${i}.aaa"; done
+for i in 1 2 3 4 5 6;   do printf 'x\n' > "$xt/g${i}.bbb"; done
+for i in 1 2 3 4 5;     do printf 'x\n' > "$xt/h${i}.ccc"; done
+printf 'x\n' > "$xt/one.zzz"
+mkst() { # mkst <file> <backlog-body> <dismissed-body|-NOSECTION->
+  { printf '# state\n\n## Gap-backlog\n\n%s\n\n## Iteration history\n\nnotes\n' "$2"
+    if [ "$3" != "-NOSECTION-" ]; then printf '\n## Dismissed file types\n\n%s\n' "$3"; fi; } > "$1"
+}
+xrun() { bash "$SUT" "$xt" --state "$1" 2>&1; }
+xline() { grep 'Audit cross-check: WARNING' <<<"$1"; }
+
+# 19 — all three starred types named (backlog and dismissed mixed) → OK; unstarred .zzz is not required.
+mkst "$TMP/st-ok.md" "| high | G1 Read the .aaa files | x |" "- .bbb — 6 files · 0.0 MB — dismissed: fixtures
+- .ccc — 5 files · 0.0 MB — dismissed: fixtures"
+out="$(xrun "$TMP/st-ok.md")"
+grep -q 'Audit cross-check: OK' <<<"$out" && ! xline "$out" >/dev/null \
+  && ok "19 all starred types named → cross-check OK" || no "19 expected OK" "$(grep 'Audit cross-check' <<<"$out")"
+
+# 20..22 — an uncovered type in FIRST / MIDDLE / LAST position is named, the covered ones are not.
+mkst "$TMP/st-first.md" "| high | G1 .bbb and .ccc | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-first.md")"
+w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3 starred type' <<<"$w" && grep -q '\.aaa' <<<"$w" && ! grep -qE '\.(bbb|ccc)' <<<"$w" \
+  && ok "20 FIRST starred type (.aaa) uncovered → named" || no "20 first-position hole" "$w"
+mkst "$TMP/st-mid.md" "| high | G1 .aaa and .ccc | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-mid.md")"
+w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3 starred type' <<<"$w" && grep -q '\.bbb' <<<"$w" && ! grep -qE '\.(aaa|ccc)' <<<"$w" \
+  && ok "21 MIDDLE starred type (.bbb) uncovered → named" || no "21 middle-position hole" "$w"
+mkst "$TMP/st-last.md" "| high | G1 .aaa and .bbb | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-last.md")"
+w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3 starred type' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w" \
+  && ok "22 LAST starred type (.ccc) uncovered → named" || no "22 last-position hole" "$w"
+
+# 23 — WARN-only: a hole never changes the exit code.
+mkst "$TMP/st-none.md" "| high | G1 nothing relevant | x |" "- .zzz — dismissed: irrelevant"
+bash "$SUT" "$xt" --state "$TMP/st-none.md" >/dev/null 2>&1; rc=$?
+out="$(xrun "$TMP/st-none.md")"
+[ "$rc" = 0 ] && grep -q 'WARNING: 3 of 3 starred type' <<<"$out" \
+  && ok "23 all three uncovered → WARNING 3 of 3, exit 0 (WARN-only)" || no "23 exit/count" "rc=$rc $(grep 'Audit cross-check' <<<"$out")"
+
+# 24 — a mention OUTSIDE the two sections (Blocked gaps) does not close the audit.
+mkst "$TMP/st-hist.md" "| high | G1 .aaa and .bbb | x |" "- .zzz — dismissed: irrelevant"
+printf '\n## Blocked gaps\n\n.ccc was mentioned here only\n' >> "$TMP/st-hist.md"
+out="$(xrun "$TMP/st-hist.md")"
+w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "24 mention outside backlog/dismissed sections does not close the audit" || no "24 section scoping" "$w"
+
+# 25 — token boundary + case folding: '.aaax' / 'xaaa' must not claim .aaa; '.BBB' claims .bbb.
+mkst "$TMP/st-bound.md" "| high | G1 .aaax xaaa .BBB .ccc | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-bound.md")"
+w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" && ! grep -qE '\.(bbb|ccc)' <<<"$w" \
+  && ok "25 token boundary holds (.aaax / xaaa do not claim .aaa) and match is case-insensitive" || no "25 boundary/case" "$w"
+
+# 26 — absent state file → DEGRADED (typed), never a silent OK.
+out="$(xrun "$TMP/no-such-state.md")"; bash "$SUT" "$xt" --state "$TMP/no-such-state.md" >/dev/null 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q 'Audit cross-check: DEGRADED' <<<"$out" && ! grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "26 absent state file → DEGRADED, not OK (exit 0)" || no "26 absent state" "rc=$rc $(grep 'Audit cross-check' <<<"$out")"
+
+# 27 — state with NEITHER section → DEGRADED (cannot see any claim).
+printf '# state\n\n## Coverage\n\nx\n' > "$TMP/st-nosec.md"
+out="$(xrun "$TMP/st-nosec.md")"
+grep -q 'Audit cross-check: DEGRADED' <<<"$out" && ! grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "27 state without Gap-backlog and Dismissed sections → DEGRADED" || no "27 no sections" "$(grep 'Audit cross-check' <<<"$out")"
+
+# 28 — Dismissed section absent but backlog names every starred type → OK with the absence disclosed.
+mkst "$TMP/st-nodis.md" "| high | G1 .aaa .bbb .ccc | x |" "-NOSECTION-"
+out="$(xrun "$TMP/st-nodis.md")"
+grep -q 'Audit cross-check: OK' <<<"$out" && grep -qi 'no .## Dismissed file types. section' <<<"$out" \
+  && ok "28 Dismissed section absent, backlog covers all → OK with the absence disclosed" || no "28 no dismissed section" "$(grep -i 'cross-check\|Dismissed' <<<"$out" | head -3)"
+
+# 29 — no starred types → NO-STARRED (distinct from OK).
+nt="$TMP/xcheck-nostar"; mkdir -p "$nt"; printf 'x\n' > "$nt/a.txt"
+out="$(bash "$SUT" "$nt" --state "$TMP/st-ok.md" 2>&1)"
+grep -q 'Audit cross-check: NO-STARRED' <<<"$out" && ! grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "29 no starred types → NO-STARRED (distinct from OK)" || no "29 no starred" "$(grep 'Audit cross-check' <<<"$out")"
+
+# 30 — '(no ext)' starred: needs the literal '(no ext)' in a section.
+ne="$TMP/xcheck-noext"; mkdir -p "$ne"
+for i in 1 2 3 4 5; do printf 'x\n' > "$ne/LICENSE${i}"; done
+mkst "$TMP/st-ne-bad.md" "| high | G1 ext files | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-ne-ok.md" "| high | G1 x | x |" "- (no ext) — 5 files · 0.0 MB — dismissed: license texts"
+out1="$(bash "$SUT" "$ne" --state "$TMP/st-ne-bad.md" 2>&1)"; out2="$(bash "$SUT" "$ne" --state "$TMP/st-ne-ok.md" 2>&1)"
+grep -q 'WARNING: 1 of 1' <<<"$out1" && grep -qF '(no ext)' <<<"$(xline "$out1")" && grep -q 'Audit cross-check: OK' <<<"$out2" \
+  && ok "30 (no ext) starred: uncovered → WARNING, '(no ext)' in Dismissed → OK" || no "30 no-ext" "$(grep 'Audit cross-check' <<<"$out1")"
+
+# 31 — declared inherited census (METHODOLOGY §6) → INHERITED, not a silent OK and not a WARNING.
+mkst "$TMP/st-inh.md" "| high | G1 x | x |" "- none — census inherited from parent corpus bootstrap (scoped focus; reads subset x already classified)"
+out="$(xrun "$TMP/st-inh.md")"
+grep -q 'Audit cross-check: INHERITED' <<<"$out" && ! xline "$out" >/dev/null \
+  && ok "31 declared inherited census → INHERITED" || no "31 inherited" "$(grep 'Audit cross-check' <<<"$out")"
+
+# 32 — without --state the cross-check is reported as not run (the gap is visible); --state without a value → exit 2.
+out="$(run "$xt")"
+grep -q 'Audit cross-check: not run' <<<"$out" \
+  && ok "32 no --state → 'not run' line (the gap is visible)" || no "32 not-run line" "$(grep 'cross-check' <<<"$out")"
+[ "$(code "$xt" --state)" = 2 ] && ok "33 --state without a value → exit 2" || no "33 --state w/o value: got $(code "$xt" --state)"
+
+# ---------------------------------------------------------------------------
 # TEETH: mutate the awk threshold comparison to make EVERY type starred, then assert a
 # sub-threshold type (1 file, well below count=5) is STILL not starred on the original SUT.
 # The mutant (flag=1 always) MUST star the sub-threshold type — proving the comparison
@@ -524,6 +634,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth-mb" "$mutant_mb" 's/bytes\[e\] >= tm + 0/0 >= tm + 0/' \
     && tooth "teeth-mb: byte-neutered mutant does NOT star the 1MB file (count < 5, byte arm dead); SUT does — byte comparison is load-bearing" 0 0 "$mutant_mb" \
          --good-has 'iso[[:space:]].*\*' --bad-lacks 'iso[[:space:]].*\*' -- bash @SUT@ "$d"
+
+  # Audit cross-check teeth (#965): each mutant disables one load-bearing rule of the cross-check;
+  # the SUT must show the verdict, the mutant the opposite (exact-verdict, not just "differs").
+  echo "-- teeth-xcheck: hole detection / section scoping / token boundary / typed states --"
+  mutant_hole="$MUT/census-target.XHOLE-MUTANT.sh"
+  mk_sed "teeth-xcheck-hole" "$mutant_hole" 's/\[ "\$_nholes" -gt 0 \]/[ "$_nholes" -gt 99 ]/' \
+    && tooth "teeth-xcheck-hole: hole-count gate neutered → mutant says OK for 3 unclosed types; SUT warns" 0 0 "$mutant_hole" \
+         --good-has 'Audit cross-check: WARNING: 3 of 3' --bad-lacks 'Audit cross-check: WARNING' -- bash @SUT@ "$xt" --state "$TMP/st-none.md"
+  mutant_scope="$MUT/census-target.XSCOPE-MUTANT.sh"
+  mk_sed "teeth-xcheck-scope" "$mutant_scope" 's/p = (\$0 ~ \/\^##\[\[:space:\]\]+(Gap-backlog|Dismissed file types)\/)/p = 1/' \
+    && tooth "teeth-xcheck-scope: every section counted as a claim → mutant lets a Blocked-gaps mention close .ccc; SUT does not" 0 0 "$mutant_scope" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-hist.md"
+  mutant_bound="$MUT/census-target.XBOUND-MUTANT.sh"
+  mk_sed "teeth-xcheck-bound" "$mutant_bound" 's/\(\[\^\[:alnum:\]_\]|\$\))/(.*|$))/' \
+    && tooth "teeth-xcheck-bound: trailing token boundary dropped → mutant lets '.aaax' claim .aaa; SUT does not" 0 0 "$mutant_bound" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bound.md"
+  mutant_unread="$MUT/census-target.XUNREAD-MUTANT.sh"
+  mk_sed "teeth-xcheck-unread" "$mutant_unread" 's/if \[ ! -f "\$STATE" \] || \[ ! -r "\$STATE" \]; then/if false; then/' \
+    && tooth "teeth-xcheck-unread: unreadable-state probe removed → mutant loses the 'not readable' diagnosis; SUT names it" 0 0 "$mutant_unread" \
+         --good-has 'state file not readable' --bad-lacks 'state file not readable' -- bash @SUT@ "$xt" --state "$TMP/no-such-state.md"
+  mutant_nostar="$MUT/census-target.XNOSTAR-MUTANT.sh"
+  mk_sed "teeth-xcheck-nostar" "$mutant_nostar" 's/if \[ -z "\$_stars" \]; then/if false; then/' \
+    && tooth "teeth-xcheck-nostar: empty-starred branch removed → mutant no longer says NO-STARRED; SUT does" 0 0 "$mutant_nostar" \
+         --good-has 'Audit cross-check: NO-STARRED' --bad-lacks 'Audit cross-check: NO-STARRED' -- bash @SUT@ "$nt" --state "$TMP/st-ok.md"
+  mutant_nostate="$MUT/census-target.XNOSTATE-MUTANT.sh"
+  mk_sed "teeth-xcheck-nostate" "$mutant_nostate" 's/if \[ -z "\$STATE" \]; then/if false; then/' \
+    && tooth "teeth-xcheck-nostate: not-run branch removed → mutant emits no 'not run' line; SUT does" 0 0 "$mutant_nostate" \
+         --good-has 'Audit cross-check: not run' --bad-lacks 'Audit cross-check: not run' -- bash @SUT@ "$xt"
 
   # Neutral-mutant refusals (#1299): the helper must reject a mutant that cannot be a real mutation,
   # so a control built from one can never read as teeth. Asserts the SPECIFIC refusal code of each.
