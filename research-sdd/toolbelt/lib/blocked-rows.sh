@@ -14,6 +14,10 @@
 #   blocked_open_count FILE             derived blocked_open: an integer on stdout, rc 0.
 #                                       FILE absent or unreadable: NOTHING on stdout, a typed message on
 #                                       stderr, rc 2 — absent-input is never a silent 0 (CLAUDE.md §7).
+#                                       A stage that could not run (awk/grep missing, crashing or erroring, or
+#                                       yielding a non-integer): NOTHING on stdout, `blocked-rows: degraded <why>`
+#                                       on stderr, rc 3 — a broken instrument is never a confident 0. Callers MUST
+#                                       check the rc (command substitution hides it unless `|| ...` is used).
 #
 # What counts (unchanged from the two scripts' shared behaviour, plus the #913 closed-entry rule):
 #   1. Standard sections: every bullet line carrying `needs:` (`^\s*-\s.*needs:`, so a bare `- none`
@@ -23,13 +27,15 @@
 #   3. (#913) a child-gap entry whose BULLET line carries a closed marker does not count, even when it
 #      keeps a `needs:` clause for the record. Closed markers: `~~` striking the whole entry (it must open
 #      the bullet content: `- ~~G9 …`, `- **~~G9 …`; a partial strike mid-line closes nothing), `✅`, the
-#      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP` and `ENCLOSED` are not the word, and a
-#      `NOT` / `NO` / `NEVER` within the two words before it negates it, as in `NOT YET CLOSED`; those are whole
-#      words too, so `X-NO CLOSED` is not negated, and `CLOSEDCLOSED` is not the word).
+#      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP`, `ENCLOSED` and `CLOSEDCLOSED` are not the word),
+#      or a bracketed `[closed]` / `[cerrado]` in any case. A `NOT` / `NO` / `NEVER` within the two words before
+#      CLOSED/CERRADO negates it, as in `NOT YET CLOSED`; the negation words are whole words (`X-NO CLOSED` is
+#      not negated) and match in any case (`Not CLOSED` is negated), while the CLOSED/CERRADO marker stays uppercase.
 #      Window semantics: a "word" is a run of [A-Za-z0-9_-]; punctuation and `—` between words do not stop the
-#      window (`NOT — CLOSED` is negated), and non-ASCII bytes split words (an accented letter ends one)., and a bracketed `[closed]` / `[cerrado]` in any case. The match
-#      is on the bullet line only, so prose such as "not closed" in an OPEN entry never closes it. Standard blocked sections are unaffected: an entry listed there is blocked
-#      by definition (a closed gap leaves them, METHODOLOGY §21.1).
+#      window (`NOT — CLOSED` is negated), a standalone run of `-` / `_` (`NOT YET - CLOSED`) is not a word and
+#      uses no slot, and non-ASCII bytes split words (an accented letter ends one). The match is on the bullet
+#      line only, so prose such as "not closed" in an OPEN entry never closes it. Standard blocked sections are
+#      unaffected: an entry listed there is blocked by definition (a closed gap leaves them, METHODOLOGY §21.1).
 
 blocked_rows_section() {   # FILE HEADING
   awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"
@@ -42,21 +48,32 @@ blocked_rows_body() {      # FILE
 }
 
 blocked_open_count() {     # FILE
-  local _f="$1" _d1 _d2
+  local _f="$1" _body _sec _d1 _d2 _rc
   if [ ! -r "$_f" ] || [ -d "$_f" ]; then
     echo "blocked-rows: state file absent or unreadable: ${_f:-<empty path>}" >&2
     return 2
   fi
-  _d1="$(blocked_rows_body "$_f" | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"  # RSDD-PROSE-BLOCKED-ANCHOR
+  # Every stage's exit status is captured: an awk/grep that cannot run or errors must surface as a typed
+  # degraded state (rc 3), never as a confident 0 (CLAUDE.md §7, third question: could the instrument run?).
+  _body="$(blocked_rows_body "$_f")"; _rc=$?
+  [ "$_rc" -eq 0 ] || { echo "blocked-rows: degraded section extractor (awk) exited $_rc on $_f" >&2; return 3; }
+  _d1="$(printf '%s\n' "$_body" | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"; _rc=$?  # RSDD-PROSE-BLOCKED-ANCHOR
+  # grep -c prints the count and exits 1 on zero matches; only rc >= 2 is an error
+  [ "$_rc" -le 1 ] || { echo "blocked-rows: degraded standard-section counter (grep) exited $_rc on $_f" >&2; return 3; }
+  _sec="$(blocked_rows_section "$_f" '## Child gaps surfaced at close')"; _rc=$?
+  [ "$_rc" -eq 0 ] || { echo "blocked-rows: degraded child-gap extractor (awk) exited $_rc on $_f" >&2; return 3; }
   # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
-  _d2="$(blocked_rows_section "$_f" '## Child gaps surfaced at close' | awk '
-    function negated(pre,   p, k, w) {                       # NEGATION-WINDOW: NOT/NO/NEVER in the 2 words before
-      p = pre
-      for (k = 0; k < 2; k++) {
+  _d2="$(printf '%s\n' "$_sec" | awk '
+    function negated(pre,   p, k, w, u) {                    # NEGATION-WINDOW: NOT/NO/NEVER in the 2 words before
+      p = pre; k = 0
+      while (k < 2) {
         if (!match(p, /[A-Za-z0-9_-]+[^A-Za-z0-9_-]*$/)) return 0
         w = substr(p, RSTART, RLENGTH); sub(/[^A-Za-z0-9_-]+$/, "", w)
-        if (w == "NOT" || w == "NO" || w == "NEVER") return 1      # whole word, same boundary set as bef/aft
         p = substr(p, 1, RSTART - 1)
+        if (w ~ /^[-_]+$/) continue                          # DASH-SKIP: a bare - / _ run is punctuation, not a word
+        u = toupper(w)                                       # NEGATION-ICASE: negation words match in any case
+        if (u == "NOT" || u == "NO" || u == "NEVER") return 1      # whole word, same boundary set as bef/aft
+        k++
       }
       return 0
     }
@@ -83,6 +100,9 @@ blocked_open_count() {     # FILE
       if (!cl && tolower($0) ~ /needs:/) { n++; done=1 }
       next }
     { if (ib && !done && !cl && tolower($0) ~ /needs:/) { n++; done=1 } }
-    END { print n+0 }')"
-  echo $(( ${_d1:-0} + ${_d2:-0} ))
+    END { print n+0 }')"; _rc=$?
+  [ "$_rc" -eq 0 ] || { echo "blocked-rows: degraded child-gap counter (awk) exited $_rc on $_f" >&2; return 3; }
+  case "$_d1" in ''|*[!0-9]*) echo "blocked-rows: degraded standard-section counter gave non-integer [$_d1] on $_f" >&2; return 3 ;; esac
+  case "$_d2" in ''|*[!0-9]*) echo "blocked-rows: degraded child-gap counter gave non-integer [$_d2] on $_f" >&2; return 3 ;; esac
+  echo $(( _d1 + _d2 ))
 }
