@@ -62,7 +62,7 @@ last_iteration_ts:
 <!-- THIS is document mode's work-list, seeded UP FRONT from three sources: (a) what the user already
      knows, (b) their notes, (c) RECONSTRUCTing the steps of the session just lived. There is NO
      discovery here — unlike "Gap-backlog" below, nothing is added to this table by uncovering
-     gaps; it is filled once at BOOTSTRAP/seed time and then worked off. ONE OUTLINE ITEM = ONE BLOCK
+     gaps; it is seeded once at BOOTSTRAP/seed time and then worked off (the run never self-feeds it; a coordinator's mid-run additions are legal per PROMPT-LOOP DOCUMENT CYCLE step 1, kit #1989). ONE OUTLINE ITEM = ONE BLOCK
      (step 2). Genre decides the evidence base: documenting how the SUBJECT works → ordinary [CERT]
      file:line; documenting a PROCEDURE/how-to → the session itself is the evidence, preserved under
      sources/probes/ and cited [CERT-hw]/[CERT-live] (METHODOLOGY §20, same markers §12 already uses —
@@ -107,7 +107,7 @@ last_iteration_ts:
 
 ## Stop control (document mode — the OUTLINE terminates the run, not gap-exhaustion; METHODOLOGY §20)
 
-- **Outline items total**: <N>   ← from "## Outline" above; seeded once at BOOTSTRAP/seed time, not self-fed
+- **Outline items total**: <N>   ← from "## Outline" above; seeded once at BOOTSTRAP/seed time, never self-fed by the run; bump it when a coordinator adds an outline row mid-run (PROMPT-LOOP DOCUMENT CYCLE step 1, kit #1989)
 - **Outline items covered**: 0
 - **Open gaps — read-only investigable**: 0   ← always 0 in document mode (no gap-discovery backlog — see "## Gap-backlog" above); kept only so this file satisfies the shared research-state.v1 envelope contract other kit tooling reads
 - **Open gaps — requires-execution**: 0

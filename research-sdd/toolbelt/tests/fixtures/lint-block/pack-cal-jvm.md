@@ -16,3 +16,21 @@
 14. The unauthenticated endpoint bypasses the check. CAL-R5-BAD
 15. The OAuth flow is ungated. CAL-R5-BAD
 16. The deauthorize step is a no-op. CAL-R5-BAD
+17. The Access policy action Bypass disables enforcement for the matched security rule. CAL-R5-CLEAR
+18. Service Auth is evaluated before Bypass when the policy decides who is authorized. CAL-R5-CLEAR
+19. A `bypass` policy lets the credentials check be skipped for the path. CAL-R5-CLEAR
+20. The Bypass action also fails open when authorization errors out. CAL-R5-BAD
+21. A caller can bypass the Access authorization when the header is absent. CAL-R5-BAD
+22. The authentication filter bypasses the policy entirely. CAL-R5-BAD
+23. Bypassed Access requests reach the authorization layer unchecked. CAL-R5-BAD
+24. Access evaluates the Allow rule before the Bypass rule, so the authorization order matters. CAL-R5-CLEAR
+25. Auth Bypass in the station servlet. CAL-R5-BAD
+26. **Bypass:** the security filter is skipped. CAL-R5-BAD
+27. Bypass of the permission check when cx is absent. CAL-R5-BAD
+28. Universal Bypass Checklist for the permission model. CAL-R5-BAD
+29. The Access check has a `bypass` of the authorization layer. CAL-R5-BAD
+30. (sentinel probe: the scrub must not rejoin its neighbours) The Access policy evaluates fails Bypass open for the authorization step. CAL-R5-CLEAR
+31. Access lets a Bypass skip the authorization check. CAL-R5-CLEAR
+32. Auth Bypass in the save action. CAL-R5-BAD
+33. Permission Bypass (see Block 4). CAL-R5-BAD
+34. Permission Bypass, see [Block A]. CAL-R5-BAD

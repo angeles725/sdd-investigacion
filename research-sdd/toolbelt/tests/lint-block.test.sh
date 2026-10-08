@@ -353,7 +353,7 @@ run --pack jvm "$FX/pack-adv-jvm.md"
 want="$(lines_of ADV-R1-BAD "$FX/pack-adv-jvm.md")"; got="$(reported R1 "$OUT" "$FX/pack-adv-jvm.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "22a R1: 'CFR output' does not clear an adoption claim (a decompiler resugars; only javap/bytecode/docSource do) ($want)" || no "22a CFR (want=[$want] got=[$got])"
 want="$(lines_of ADV-R5-BAD "$FX/pack-adv-jvm.md")"; got="$(reported R5 "$OUT" "$FX/pack-adv-jvm.md")"
-[ "$got" = "$want" ] && [ -n "$want" ] && ok "22b R5: lower-case ordinary word 'context' is not permission scope; capitalised 'Context' still is ($want)" || no "22b R5 context case (want=[$want] got=[$got])"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "22b R5: lower-case ordinary word 'context' is not permission scope; a bare capitalised 'Context' (no 'null') and a bare lower-case 'cx' are, while upper-case 'CX' is not ($want)" || no "22b R5 context case (want=[$want] got=[$got])"
 run --pack multi-version "$FX/pack-adv-r8.md"
 want="$(lines_of ADV-R8-BAD "$FX/pack-adv-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-adv-r8.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "22c R8: '14.15' and '4.150' are not a 4.15 baseline; 4.15, N4.15 and PowerB still clear ($want)" || no "22c R8 baseline boundary (want=[$want] got=[$got])"
@@ -389,7 +389,7 @@ run --pack jvm "$FX/pack-cal-jvm.md"
 want="$(lines_of CAL-R1-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R1 "$OUT" "$FX/pack-cal-jvm.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24a R1: 'var-length', 'for each' and 'sealed envelope' (English prose) are not syntax-adoption features; \`var\`, the var keyword, sealed interfaces and for-each still are ($want)" || no "24a R1 prose false positives (want=[$want] got=[$got])"
 want="$(lines_of CAL-R5-BAD "$FX/pack-cal-jvm.md")"; got="$(reported R5 "$OUT" "$FX/pack-cal-jvm.md")"
-[ "$got" = "$want" ] && [ -n "$want" ] && ok "24b R5: 'authored' is not permission scope; authentication, authorization, unauthenticated, deauthorize, OAuth, auth and authz still are ($want)" || no "24b R5 auth breadth (want=[$want] got=[$got])"
+[ "$got" = "$want" ] && [ -n "$want" ] && ok "24b R5: 'authored' is not permission scope and the Access policy action name 'Bypass' is not a bypass finding; authentication, authorization, unauthenticated, deauthorize, OAuth, auth and authz, 'Bypass ... fails open', a lower-case verb 'bypass', a Bypass outside Access wording (items 25-29, 32-34) still are; a lone capitalised Bypass next to Access wording is the pinned residual trade-off (item 31) ($want)" || no "24b R5 auth breadth (want=[$want] got=[$got])"
 run --pack multi-version "$FX/pack-cal-r8.md"
 want="$(lines_of CAL-R8-BAD "$FX/pack-cal-r8.md")"; got="$(reported R8 "$OUT" "$FX/pack-cal-r8.md")"
 [ "$got" = "$want" ] && [ -n "$want" ] && ok "24c R8: a negated ('not new in N5'), question ('Is ... N5-only?') or 'whether' clause is not an attribution claim; affirmative claims still flag ($want)" || no "24c R8 negation/question (want=[$want] got=[$got])"
@@ -770,6 +770,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # kit #1517 advisories: each new guard has its own mutant
   ptooth J8 lint-block-packs/jvm.py 's#r"\\bdocSource\\b", r"\\bbytecode\\b"#r"\\bdocSource\\b", r"\\bCFR\\b", r"\\bbytecode\\b"#' "$FX/pack-adv-jvm.md" R1 ADV-R1-BAD jvm
   ptooth J9 lint-block-packs/jvm.py 's#^    r"|\\bContext\\b|\\bcx\\b")#    r"|(?i:\\bContext\\b)|\\bcx\\b")#' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
+  ptooth J11 lint-block-packs/jvm.py 's#|\\bcx\\b")#|(?i:\\bcx\\b)")#' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
+  ptooth J12 lint-block-packs/jvm.py 's#^    r"|\\bContext\\b|\\bcx\\b")#    r"|\\bcx\\b")#' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
+  ptooth J13 lint-block-packs/jvm.py 's#|\\bContext\\b|\\bcx\\b")#|\\bContext\\b")#' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
   ptooth J10 lint-block-packs/jvm.py 's#|\\bnull\[\\s-\]+context\\b##' "$FX/pack-adv-jvm.md" R5 ADV-R5-BAD jvm
   ptooth M5 lint-block-packs/multi-version.py 's#(?<!\[\\d.\])##' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
   ptooth M6 lint-block-packs/multi-version.py 's#4\\.15(?!\\d)#4\\.15#' "$FX/pack-adv-r8.md" R8 ADV-R8-BAD multi-version
@@ -802,6 +805,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth CR6 lint-block-packs/multi-version.py 's#(?:is|are|was|were|does|did)#(?:xx)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR7 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and #if #' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR10 lint-block-packs/multi-version.py 's#R8_WHETHER_RE.search(before)#R8_WHETHER_RE.search(clause)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
+  ptooth CR30 lint-block-packs/jvm.py 's#^R5_ACCESS_ACTION_RE = .*#R5_ACCESS_ACTION_RE = re.compile(r"(?!)")#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR31 lint-block-packs/jvm.py 's#re.compile(r"\\bBypass\\b|#re.compile(r"\\bBypass[a-z]*\\b|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR32 lint-block-packs/jvm.py 's#re.compile(r"\\bBypass\\b|#re.compile(r"(?i:\\bbypass\\b)|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR33 lint-block-packs/jvm.py 's#^    if R5_ACCESS_CTX_RE.search(clause):#    if True:#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR34 lint-block-packs/jvm.py 's#^    if R5_ACCESS_CTX_RE.search(clause):#    if False:#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR35 lint-block-packs/jvm.py 's#`bypass`(?=\\s+(?:policy|policies|action|rule)s?\\b)#`bypass`#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR36 lint-block-packs/jvm.py 's#|`bypass`(?=\\s+(?:policy|policies|action|rule)s?\\b)")#")#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR37 lint-block-packs/jvm.py 's#sub("\\x00", clause)#sub("", clause)#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR38 lint-block-packs/jvm.py 's#|(?<!\\\[)\\bBlock\\b(?!\\s\*\\d)|#|(?<!\\\[)\\bBlock\\b|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR39 lint-block-packs/jvm.py 's#|(?<!\\\[)\\bBlock\\b(?!\\s\*\\d)|#|\\bBlock\\b(?!\\s*\\d)|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR40 lint-block-packs/jvm.py 's#\\bBypass\\s+actions?\\b|\\baction:|#\\baction\\b|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
   ptooth CR11 lint-block-packs/jvm.py 's#r"\\brecords?\\s\*/\\s\*sealed\\b", ##' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
   cal_r9_want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-|PARENT-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
   if tooth_build CR8 lint-block-packs/native-binary.py 's#text = section_text(doc, u)#text = u.text#'; then
