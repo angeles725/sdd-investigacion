@@ -209,14 +209,14 @@ done
 [ "$_ft" = 0 ] && ok "H4o: a 0.7 s verify under a 1 s bound is never reported timed out before the bound elapsed (10 runs)" || no "H4o: $_ft/10 timeouts reported before the 1 s bound elapsed"
 # Fractional-sleep probe (#1771): a `sleep` that cannot do fractions must not make the watchdog burn its whole count at once.
 # Shim A rejects fractions at once (exit 2, like a POSIX-only sleep); shim B accepts them but returns at once (rc 0); shim C
-# rejects them only on the FIRST THREE calls per caller PID (each after a real 0.1 s, so every elapsed sample of the probe passes) and at once
+# rejects them only on the FIRST FIVE calls per caller PID (each after a real 0.1 s, so every elapsed sample of the probe passes) and at once
 # afterwards: only the exit-status half of the probe can catch it (tooth T). The mark is keyed on the caller's PPID, and PIDs get
 # reused between two runs, so tooth T clears $SHIMC/mark.* inside its own command: before EVERY run (good and mutant), never once.
 REALSLEEP="$(command -v sleep)"
 SHIMA="$ROOT/shimA"; SHIMB="$ROOT/shimB"; SHIMC="$ROOT/shimC"; mkdir -p "$SHIMA" "$SHIMB" "$SHIMC"
 printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) echo "sleep: invalid time interval" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$REALSLEEP" > "$SHIMA/sleep"
 printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) exit 0 ;; esac\nexec %s "$@"\n' "$REALSLEEP" > "$SHIMB/sleep"
-printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) n=0; for m in 1 2 3; do [ -e "%s/mark.$PPID.$m" ] && n=$m; done; if [ "$n" -lt 3 ]; then : >"%s/mark.$PPID.$((n+1))"; %s 0.1; fi; echo "sleep: invalid time interval" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$SHIMC" "$SHIMC" "$REALSLEEP" "$REALSLEEP" > "$SHIMC/sleep"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) n=0; for m in 1 2 3 4 5; do [ -e "%s/mark.$PPID.$m" ] && n=$m; done; if [ "$n" -lt 5 ]; then : >"%s/mark.$PPID.$((n+1))"; %s 0.1; fi; echo "sleep: invalid time interval" >&2; exit 2 ;; esac\nexec %s "$@"\n' "$SHIMC" "$SHIMC" "$REALSLEEP" "$REALSLEEP" > "$SHIMC/sleep"
 chmod +x "$SHIMA/sleep" "$SHIMB/sleep" "$SHIMC/sleep"
 # The elapsed half of the probe needs $EPOCHREALTIME (bash 5+); on an older BASH_BIN shim B is undetectable by design, so it is
 # a typed SKIP (never silent) there. Shim A (rejects fractions) is caught by the exit-status half on every bash.
@@ -230,11 +230,11 @@ for _sh in A B; do
 done
 # Load robustness of the probe (#1978): a sleep that returns at once can still show a >=50 ms gap between the two $EPOCHREALTIME reads
 # when the box is descheduling the probe (CPU contention), which a single sample reads as "fractions work" and the healthy verify
-# is then killed by 30 instant polls. Shim E models exactly that: the FIRST fractional sleep per caller PID takes a real 0.1 s
-# (the probe sample is inflated), every later one returns at once. The probe must take more than one sample. The mark is keyed
+# is then killed by 30 instant polls. Shim E models exactly that: the FIRST FOUR fractional sleeps per caller PID take a real 0.1 s
+# (so probe samples 1-4 are inflated, no luck needed), the fifth returns at once: the probe must keep sampling to the last. The mark is keyed
 # on the caller's PPID and cleared before EVERY run (PID reuse), like shim C.
 SHIME="$ROOT/shimE"; mkdir -p "$SHIME"
-printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) m="%s/mark.$PPID"; if [ ! -e "$m" ]; then : >"$m"; %s 0.1; fi; exit 0 ;; esac\nexec %s "$@"\n' "$SHIME" "$REALSLEEP" "$REALSLEEP" > "$SHIME/sleep"; chmod +x "$SHIME/sleep"
+printf '#!/usr/bin/env bash\ncase "${1:-}" in *[!0-9]*) n=0; for m in 1 2 3 4; do [ -e "%s/mark.$PPID.$m" ] && n=$m; done; if [ "$n" -lt 4 ]; then : >"%s/mark.$PPID.$((n+1))"; %s 0.1; fi; exit 0 ;; esac\nexec %s "$@"\n' "$SHIME" "$SHIME" "$REALSLEEP" "$REALSLEEP" > "$SHIME/sleep"; chmod +x "$SHIME/sleep"
 if [ -z "$HAVE_ERT" ]; then printf '  SKIP  H4p(E): %s has no EPOCHREALTIME, the elapsed half of the probe cannot run\n' "$BASH_BIN"
 else
   rm -f "$SHIME"/mark.*
@@ -372,10 +372,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # R: bound shorter than vt -> a verify finishing inside the bound can be reported timed out.
   _mk "R" "$SUT" "$MB/m-r.sh" 's/vmax=\$((vt \* vper))/vmax=$((vt * 4))/' \
     && _tt "teeth: bound shorter than vt -> a verify within the bound is reported timed out" 0 0 "$MB/m-r.sh" \
-       --good-has '^0$' --bad-lacks "$_CRASH|^0$" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "STUB_VERIFY_SLEEP=0.9" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
+       --good-has '^0$' --bad-lacks "$_CRASH|^0$" -- "$_ENV" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "STUB_VERIFY_SLEEP=1.2" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
        "$BASH_BIN" -c 'bash "$1" "$2" 2>/dev/null | grep -c "timed out"; :' _ "$SB/decode.sh" @SUT@
-  # (R's verify takes 0.9 s: the probe's three samples add 0.3 s before the poll count starts, so the mutant's 4 polls end at ~0.7 s,
-  # while the real bound ends at ~1.3 s.)
+  # (R's verify takes 1.2 s: the probe's five samples add 0.5 s before the poll count starts, so the mutant's 4 polls end at ~0.9 s,
+  # while the real bound ends at ~1.5 s.)
   # S: the done marker IS written, but the hook neither waits for nor kills the watchdog (distinct from L, which also drops the marker).
   # The watchdog then notices the marker within one poll, i.e. AFTER the hook returned. Deterministic, no pgrep: shim S rejects the
   # 0.1 probe (so the watchdog polls with an integer `sleep 1`, still mid-poll when the 0.3 s verify ends) and records its caller's
@@ -397,7 +397,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIMB:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
   fi
   if [ -z "$HAVE_ERT" ]; then printf '  SKIP  teeth W: %s has no EPOCHREALTIME, the elapsed half of the probe cannot run\n' "$BASH_BIN"; else
-  _mk "W" "$SUT" "$MB/m-w.sh" 's/for vn in 1 2 3; do/for vn in 3; do/' \
+  _mk "W" "$SUT" "$MB/m-w.sh" 's/for vn in 1 2 3 4 5; do/for vn in 5; do/' \
     && _tt "teeth: probe takes one elapsed sample -> a load-inflated sample on a sleep that returns at once kills a healthy verify" 0 0 "$MB/m-w.sh" \
        --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "PATH=$SHIME:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=1" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" -c 'rm -f "$1"/mark.*; exec bash "$2" "$3"' _ "$SHIME" "$SB/decode.sh" @SUT@
   fi

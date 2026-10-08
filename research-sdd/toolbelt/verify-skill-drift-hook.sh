@@ -73,12 +73,12 @@ if [ -x "$vcmd" ]; then
       sleep 0.1 2>/dev/null || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-RC
       # 50 ms threshold: a working `sleep 0.1` takes ~100 ms; one that reads 0.1 as 0 returns in <5 ms. 50 ms sits between them.
       # A slow sample proves nothing (CPU contention can stretch the gap around a sleep that returned at once), only a FAST
-      # one proves the sleep is broken, so three samples are taken and a single fast one is enough (#1978); a working sleep
-      # pays two extra 0.1 s probes once per session start.
+      # one proves the sleep is broken, so five samples are taken and a single fast one is enough (#1978); a working sleep
+      # pays four extra 0.1 s probes once per session start.
       if [ "$vper" -eq 10 ] && [ -n "$vp0" ] && [ -n "${EPOCHREALTIME:-}" ]; then   # radix may be '.' or ',' by locale
-        for vn in 1 2 3; do   # SENTINEL-SLEEP-PROBE-SAMPLES
+        for vn in 1 2 3 4 5; do   # SENTINEL-SLEEP-PROBE-SAMPLES
           [ $(( ${EPOCHREALTIME//[.,]/} - ${vp0//[.,]/} )) -ge 50000 ] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED
-          [ "$vper" -eq 10 ] && [ "$vn" -lt 3 ] || break
+          [ "$vper" -eq 10 ] && [ "$vn" -lt 5 ] || break
           vp0="$EPOCHREALTIME"; sleep 0.1 2>/dev/null
         done
       fi
