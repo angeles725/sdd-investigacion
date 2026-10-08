@@ -140,7 +140,7 @@ exec(os.environ["RSDD_TOOTH_PY"], globals())
 # Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
 # --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
 # NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
-# in sync (the bash heredoc harness has no shared-include path for these fixtures).
+# in sync (RSDD_TOOTH_PY now shares _tooth_run via tests/lib/mutant.sh; moving these fixtures there is a follow-up).
 _SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
 _GOOD_ARGV = [
     "bwrap",
