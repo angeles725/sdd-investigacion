@@ -130,7 +130,7 @@ exactly one class, first match wins:
 | counter | `token=`, `$token`, `${token`, or inside `$(( ... ))` | no: a variable, not a state |
 | comment | the token sits in a trailing comment (outside single and double quotes, so `echo 'item #3 absent-input'` is not one) | no |
 | emit-jq | a jq state literal, `then "token"` or `else "token"` | yes |
-| consumer | the token is the argument of a matcher: an UNQUOTED `grep`/`egrep`/`fgrep` or `case` at command position earlier on the line; `==`, `!=` or `=~` immediately before it; a single `=` before it only when an unquoted `[` or `[[` opens earlier on the line; a case-pattern line (starts with `*`, the token before the closing paren); an awk pattern line (starts with `/`, the token before the closing slash, followed by `{` or end of line) | no |
+| consumer | the token is the argument of a matcher: an UNQUOTED `grep`/`egrep`/`fgrep` or `case` as the command the token belongs to (only the segment after the last unquoted `;`, `&&`, `||`, `|`, `then`, `do`, `else` or case-pattern `)` before the token is examined, so `grep -q x f || echo "no-match"` is an emission); `==`, `!=` or `=~` immediately before it; a single `=` before it only when an unquoted `[` or `[[` opens earlier on the line; a case-pattern line (starts with `*`, the token before the closing paren); an awk pattern line (starts with `/`, the token before the closing slash, followed by `{` or end of line) | no |
 | emit-echo | the line is an `echo` / `printf` (so `echo "state=no-match"` and `printf 'no-match: grep found 0 rows'` are emissions) | yes |
 | emit-assign | an assignment: `x=token`, `x="token"`, or jq `.f = "token"` | yes |
 | emit-marker | a parenthesised marker `(token` inside a string on any other line (an emit helper call) | yes |
@@ -147,7 +147,12 @@ used, since they drift.
 
 Not seen, by design: python (`*.py`; the test counts the files that mention a token and reports them as out of
 scope), a state printed by a helper whose call sites carry no marker or token, a token assembled across lines
-or from variables, and `*.sh` outside the two traversed directories. The test fails when a registry input row
+or from variables, and `*.sh` outside the two traversed directories. Two shell constructs are declared blind
+spots (neither is skipped nor flagged): heredoc bodies, which have no heredoc awareness and are classified line
+by line like code (a plain prose body line is usually UNCLASSIFIED and so loud, but a body line that looks like an
+`echo` or an assignment is classified as one), and `$'...'` ANSI-C quoting, which the quote-state machine reads as
+an ordinary single-quoted string, so an escaped `\'` inside it ends the quote early and misaligns the mask for the
+rest of that line. The test fails when a registry input row
 lists a script that does not emit the code (stale emitter), when a script emits a code its row does not list
 (emitter mismatch), when an emitted token has no row, and when a row's code is never emitted (stale row).
 

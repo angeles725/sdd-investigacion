@@ -231,9 +231,16 @@ BEGIN {
   q_eq = "(==|!=|=~)[ \t]*[\"\047]?$"
   q_brk = "[^=!<>][ \t]=[ \t]*[\"\047]?$"
   re_br = "(^|[^[:alnum:]_])\\[\\[?[ \t]"
-  cmdre = "(^|[;&|({!]|[[:space:]](if|then|elif|while|until|do)[[:space:]])[[:space:]]*"
+  cmdre = "(^|[;&|({!]|(^|[[:space:]])(if|then|elif|while|until|do)[[:space:]])[[:space:]]*"
   re_grep = cmdre "(grep|egrep|fgrep)[[:space:]]"
   re_case = cmdre "case[[:space:]]"
+}
+# lastseg: the part of a masked prefix after its last unquoted command separator (; && || | then do else, or the
+# ) that ends a case pattern), i.e. the simple command the token belongs to.
+function lastseg(p,   r) {
+  r = p
+  gsub(/.*(;|&&|\|\||\||[[:space:]](then|do|else)[[:space:]]|\))/, "", r)
+  return r
 }
 function mask(p,   i, n, ch, st, out, prev) {
   n = length(p); st = ""; out = ""; prev = " "
@@ -270,6 +277,7 @@ function mask(p,   i, n, ch, st, out, prev) {
     s = substr(s, rs + pl + length(m))
     prefix = substr(scan, 1, tokstart - 1)
     mp = substr(mk, 1, tokstart - 1)
+    sg = lastseg(mp)   # TOOTH-IC-SEG
     c = ""
     if (post == "=") c = "counter"   # TOOTH-IC-CTR-EQ
     if (c == "" && pre == "$") c = "counter"   # TOOTH-IC-CTR-DOLLAR
@@ -277,8 +285,8 @@ function mask(p,   i, n, ch, st, out, prev) {
     if (c == "" && prefix ~ /\$\(\([^)]*$/) c = "counter"   # TOOTH-IC-CTR-ARITH
     if (c == "" && substr(mk, tokstart, 1) == "C") c = "comment"   # TOOTH-IC-COMMENT
     if (c == "" && pre == "\"" && prefix ~ /(then|else)[ \t]+"$/) c = "emit-jq"   # TOOTH-IC-JQ
-    if (c == "" && mp ~ re_grep) c = "consumer"   # TOOTH-IC-CONS-GREP
-    if (c == "" && mp ~ re_case) c = "consumer"   # TOOTH-IC-CONS-CASE
+    if (c == "" && sg ~ re_grep) c = "consumer"   # TOOTH-IC-CONS-GREP
+    if (c == "" && sg ~ re_case) c = "consumer"   # TOOTH-IC-CONS-CASE
     if (c == "" && prefix ~ q_eq) c = "consumer"   # TOOTH-IC-CONS-EQ
     if (c == "" && prefix ~ q_brk && mp ~ re_br) c = "consumer"   # TOOTH-IC-CONS-BRK
     if (c == "" && prefix ~ /^[[:space:]]*\*/ && prefix !~ /\)/ && scan ~ /\)/) c = "consumer"   # TOOTH-IC-CONS-STAR
@@ -736,6 +744,10 @@ haz h_slash "/usr/bin/printf 'no-match: x\\n'" no-match
 haz h_star '*) echo "no-match: x" ;;' no-match
 haz h_sqhash "echo 'item #3 unclassifiable'" unclassifiable
 haz h_dqhash 'echo "item #3 unclassifiable"' unclassifiable
+# a grep/case earlier on the line does not make a later command's token a consumer
+haz h_seg_or 'grep -q pat "$f" || echo "no-match: $f"' no-match
+haz h_seg_then 'if grep -q x "$f"; then echo "no-match"; fi' no-match
+haz h_seg_case 'case "$x" in "") echo "unclassifiable: $p" ;; esac' unclassifiable
 
 mkifix i_counter
 printf '\n%s' 'echo "n=$no_match_count unclassifiable=$n unclassifiable-items: 0 unclassifiable-row: 1"' >> "$tmp/i_counter/tb/a.sh"
@@ -838,8 +850,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-comment     i_good        0 1 '/# TOOTH-IC-COMMENT/s/== "C"/== "ZZ"/'
   ictooth ic-hash        i_good        0 1 '/# TOOTH-IC-HASH/s/ch == "#"/ch == "ZZ"/'
   # one tooth per consumer alternative (positive: the line must stay a non-emit)
-  ictooth ic-cons-grep   i_good        0 1 '/# TOOTH-IC-CONS-GREP/s/mp ~ re_grep/mp ~ "ZZ"/'
-  ictooth ic-cons-case   i_good        0 1 '/# TOOTH-IC-CONS-CASE/s/mp ~ re_case/mp ~ "ZZ"/'
+  ictooth ic-cons-grep   i_good        0 1 '/# TOOTH-IC-CONS-GREP/s/sg ~ re_grep/mp ~ "ZZ"/'
+  ictooth ic-cons-case   i_good        0 1 '/# TOOTH-IC-CONS-CASE/s/sg ~ re_case/mp ~ "ZZ"/'
   ictooth ic-cons-eq     i_good        0 1 '/# TOOTH-IC-CONS-EQ/s/prefix ~ q_eq/prefix ~ "ZZ"/'
   ictooth ic-cons-brk    i_good        0 1 '/# TOOTH-IC-CONS-BRK/s/prefix ~ q_brk/prefix ~ "ZZ"/'
   ictooth ic-cons-star   i_good        0 1 '/# TOOTH-IC-CONS-STAR/s/prefix ~ \/^\[\[:space:\]\]\*\\\*\//prefix ~ \/ZZ\//'
@@ -847,8 +859,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-assign      i_good        0 1 '/# TOOTH-IC-ASSIGN/s/prefix ~ q_assign/prefix ~ "ZZ"/'
   # negative: the over-broad consumer/comment rules this scanner used to have, reintroduced one at a time,
   # must make the matching hazard fixture go clean (rc 1 -> 0), proving the hazard fixtures bite
-  ictooth ic-haz-grep    h_grepmsg     1 0 '/# TOOTH-IC-CONS-GREP/s|mp ~ re_grep|scan ~ /grep[[:space:]]/|'
-  ictooth ic-haz-case    h_casemsg     1 0 '/# TOOTH-IC-CONS-CASE/s|mp ~ re_case|scan ~ /case[[:space:]]/|'
+  ictooth ic-haz-grep    h_grepmsg     1 0 '/# TOOTH-IC-CONS-GREP/s|sg ~ re_grep|scan ~ /grep[[:space:]]/|'
+  ictooth ic-haz-case    h_casemsg     1 0 '/# TOOTH-IC-CONS-CASE/s|sg ~ re_case|scan ~ /case[[:space:]]/|'
   ictooth ic-haz-eq      h_eqmsg       1 0 '/# TOOTH-IC-CONS-EQ/s|prefix ~ q_eq|prefix ~ q_assign|'
   ictooth ic-haz-shassign h_shassign   1 0 '/# TOOTH-IC-CONS-EQ/s|prefix ~ q_eq|prefix ~ q_assign|'
   ictooth ic-haz-jqassign h_jqassign   1 0 '/# TOOTH-IC-CONS-BRK/s/ && mp ~ re_br/ \&\& 1/'
@@ -856,6 +868,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-haz-star    h_star        1 0 '/# TOOTH-IC-CONS-STAR/s/prefix !~ \/\\)\//1/'
   ictooth ic-haz-sqhash  h_sqhash      1 0 '/# TOOTH-IC-SQ/s/st = "s"/st = ""/'
   ictooth ic-haz-dqhash  h_dqhash      1 0 '/# TOOTH-IC-DQ/s/st = "d"/st = ""/'
+  ictooth ic-haz-seg-or   h_seg_or     1 0 '/# TOOTH-IC-SEG/s/lastseg(mp)/mp/'
+  ictooth ic-haz-seg-then h_seg_then   1 0 '/# TOOTH-IC-SEG/s/lastseg(mp)/mp/'
+  ictooth ic-haz-seg-case h_seg_case   1 0 '/# TOOTH-IC-SEG/s/lastseg(mp)/mp/'
   ictooth ic-jq          i_good        0 1 '/# TOOTH-IC-JQ/s/(then|else)/(thenX|elseX)/'
   ictooth ic-escape      i_good        0 1 '/# TOOTH-IC-ESCAPE/s/\[tn\]/[zz]/'
   ictooth ic-marker     i_good        0 1 '/# TOOTH-IC-MARKER/s/pre == "("/pre == "Z"/'
