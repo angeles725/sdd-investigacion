@@ -311,3 +311,46 @@ test('a genuinely commented or fenced reference is still ignored next to inline-
   const body = 'See `<!-- x -->`.\n<!-- Closes #1 -->\n```\nCloses #2\n```\nCloses #3';
   assert.deepEqual(parseLinkedIssues(body), ok(closing(3)));
 });
+
+test('CommonMark indented code blocks hide references; list content and lazy continuation stay visible', () => {
+  // Indented code: 4+ spaces (or a tab) after a blank line or at document start, outside a list item.
+  assert.deepEqual(parseLinkedIssues('Intro.\n\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('Intro.\n\n\tCloses #5'), ok());
+  assert.deepEqual(parseLinkedIssues('Intro.\n\n    code\n    Closes #5\n\nCloses #6'), ok(closing(6)));
+  // Fewer than 4 columns is not code.
+  assert.deepEqual(parseLinkedIssues('Intro.\n\n   Closes #5'), ok(closing(5)));
+  // A 4-space line directly after a paragraph line is a lazy continuation, not code.
+  assert.deepEqual(parseLinkedIssues('Intro.\n    Closes #5'), ok(closing(5)));
+  // List-item continuation content indented 4+ spaces still counts.
+  assert.deepEqual(parseLinkedIssues('- item\n\n    Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('1. item\n\n    Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('- item\n\n\tCloses #5'), ok(closing(5)));
+  // Once the list has ended, the indented block is code again.
+  assert.deepEqual(parseLinkedIssues('- item\n\nIntro.\n\n    Closes #5'), ok());
+});
+
+test('indented code: empty list markers, closed blocks, thematic breaks, paragraph ordinals and blockquotes', () => {
+  // Fail-closed: an empty list marker still opens an item, so its indented content stays visible.
+  assert.deepEqual(parseLinkedIssues('-\n  foo\n\n    Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('1.\n   foo\n\n    Closes #5'), ok(closing(5)));
+  // An indented line right after a heading, thematic break, closing fence or comment block is code.
+  assert.deepEqual(parseLinkedIssues('## H\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('---\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('```\nx\n```\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('<!-- x -->\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('<!--\nx\n-->\n    Closes #5'), ok());
+  // A thematic break is not a list item.
+  assert.deepEqual(parseLinkedIssues('* * *\n\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('- - -\n\n    Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('***\n\n    Closes #5'), ok());
+  // A non-interrupting `2.` inside a paragraph does not open a list.
+  assert.deepEqual(parseLinkedIssues('text\n2. foo\n\n    Closes #5'), ok());
+  // Blockquote indented code.
+  assert.deepEqual(parseLinkedIssues('> a\n>\n>     Closes #5'), ok());
+  assert.deepEqual(parseLinkedIssues('>     Closes #5'), ok());
+  // Guards: blockquote lazy continuation, list item inside a blockquote, paragraph bullet stay visible.
+  assert.deepEqual(parseLinkedIssues('> a\n>     Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('> - a\n>\n>     Closes #5'), ok(closing(5)));
+  assert.deepEqual(parseLinkedIssues('text\n- foo\n\n    Closes #5'), ok(closing(5)));
+});
