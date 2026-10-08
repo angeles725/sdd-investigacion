@@ -15,7 +15,7 @@
 #   is picked up automatically — nothing is hardcoded.
 #
 # Usage:
-#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]
+#   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
 #
 #   --lane <name>    Passthrough (kit issue #1821): exports RSDD_TEST_LANE=<name> to every suite so the
 #                    lane-aware ones (lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
@@ -30,11 +30,16 @@
 #                    the flag the line is report-only; a root that could not be created or scanned is
 #                    reported as DEGRADED (and fails under the flag), never as a confident 0.
 #
+#   --keep-tmp       Do not remove the per-run temp root on exit (kit issue #1645): its kept path is
+#                    printed as `TMPDIR kept: <path>` (or `TMPDIR kept: none (...)` when no root could
+#                    be created) so a failing run's debugging leftovers can be inspected. Opt-in; the
+#                    default still removes the root.
+#
 #   -j N             Opt-in parallel run (kit issue #1463), N = 1..6; needs GNU parallel (absent ->
 #                    typed DEGRADED line, serial run). Serial is the default and the reference.
 #                    Hermeticity guards snapshot once around the batch; a leak found there triggers
 #                    a serial re-run of only the candidate suites (those whose run window held the
-#                    leaked path's mtime) names the suite; otherwise a typed batch label plus an
+#                    leaked path's mtime) to name the offender; otherwise a typed batch label plus an
 #                    `Attribution:` line saying why, never silently.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
@@ -223,6 +228,7 @@ fi
 PROVE_TEETH=""
 REQUIRE_TEETH=""
 REQUIRE_CLEAN_TMP=""
+KEEP_TMP=""
 # Opt-in parallelism (kit issue #1463): `-j N` / `-jN` / `--jobs N`, N a plain integer 1..6 (the
 # cap is deliberate: the heavy suites are CPU/IO-bound and a runaway fan-out makes timing-
 # sensitive suites flaky). Refused: bare `-j`, `-j 0`, `-j 100%`, non-numeric, N above the cap.
@@ -230,7 +236,7 @@ REQUIRE_CLEAN_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--lane <fast|slow|all>] [-j N]"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]"
 LANE_ARG=""
 _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
   local v="$1" lib="$SCRIPT_DIR/../lib/test-lane.sh"
@@ -276,6 +282,9 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
       ;;
     --require-clean-tmp)
       REQUIRE_CLEAN_TMP=1
+      ;;
+    --keep-tmp)
+      KEEP_TMP=1
       ;;
     --lane)
       _ai=$((_ai + 1))
@@ -388,6 +397,8 @@ tmp_scan_failed=()      # suites whose existing TMPDIR subdir could not be scann
 tmp_create_failed=()    # suites whose per-suite TMPDIR subdir could not be CREATED (they ran on the caller's TMPDIR)
 if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]; then
   export RUN_TMP_ROOT
+  # SENTINEL-KEEP-TMP-EARLY
+  [[ -n "$KEEP_TMP" ]] && echo "run-all.sh: --keep-tmp: per-run TMPDIR root kept at $RUN_TMP_ROOT" >&2
 else
   RUN_TMP_ROOT=""
   TMPDIR_DEGRADED_REASON="the per-run TMPDIR root could not be created ('mktemp -d' failed); suites ran with the caller's TMPDIR"
@@ -396,7 +407,7 @@ fi
 _run_all_cleanup() {
   rm -f "$tmp_out"
   [[ -n "$_par_dir_created" && -n "$PAR_DIR" ]] && rm -rf "$PAR_DIR"
-  if [[ -n "$RUN_TMP_ROOT" ]]; then
+  if [[ -n "$RUN_TMP_ROOT" && -z "$KEEP_TMP" ]]; then
     # A leftover the suite chmod'ed shut would defeat rm -rf; reopen it first (best effort).
     chmod -R u+rwX "$RUN_TMP_ROOT" 2>/dev/null
     rm -rf "$RUN_TMP_ROOT"
@@ -428,12 +439,14 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
   if [[ -n "${PAR_DIR:-}" && -e "$PAR_DIR/$2.tmpfail" ]]; then tmp_create_failed+=("$1"); return 0; fi
   # SENTINEL-TMPDIR-ABSENT
   [[ -e "$RUN_TMP_ROOT/$2" ]] || return 0
-  if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
+  # One "." per entry (-exec printf), counted by length: a name containing a newline is ONE entry
+  # (kit issue #1645), and find's own rc is still the scan verdict.
+  if ! _o="$(find "$RUN_TMP_ROOT/$2" -mindepth 1 -maxdepth 1 -exec printf '.%.0s' {} + 2>/dev/null)"; then
     tmp_scan_failed+=("$1")
     return 0
   fi
   [[ -n "$_o" ]] || return 0
-  _n="$(printf '%s\n' "$_o" | wc -l)"
+  _n=${#_o}
   tmp_leftovers+=("$1: $((_n + 0))")
   tmp_leftover_total=$((tmp_leftover_total + _n))
 }
@@ -544,7 +557,7 @@ _parallel_gnu_ok() {
 # Attribution of a batch leak (kit issue #1491 item 1). The batch snapshot proves a leak happened
 # but not WHO. Each -j worker records its suite's [start,end] wall-clock window; the leaked path's
 # mtime (the LAST writer) falls inside the window of the suite(s) that were running at that moment,
-# so only those candidates (at most -j N of them, never the whole corpus) are re-run serially, each
+# so only those candidates (typically at most -j N of them: the union over leaked paths and windows, never the whole corpus) are re-run serially, each
 # under a per-suite timeout (RUN_ALL_ATTRIBUTION_TIMEOUT seconds, default 600, via `timeout` when
 # present). A candidate is blamed when the leaked path's signature (full-resolution mtime AND
 # content hash) changes across its re-run: mtime alone misses a suite that restores the mtime, the
@@ -554,6 +567,8 @@ _parallel_gnu_ok() {
 # or date capability) keeps the typed batch label AND gets a typed `Attribution:` line saying why
 # — never a silent label. Side effects of a re-run are the suite's own (the same as the first run).
 ATTRIBUTION_LINES=()
+ATTR_TOL_FINE=0.05     # seconds: sub-second (GNU stat %.9Y) mtime vs a fractional run window
+ATTR_TOL_COARSE=1      # seconds: whole-second mtime (BSD stat -f %m) or whole-second run window
 _STAT_MODE=""
 _probe_stat() {
   local _v _f="${PAR_DIR:-$SCRIPT_DIR}/run1.sh"
@@ -574,7 +589,7 @@ _sig_of() {     # _sig_of <path>: "<mtime>|<sha1 of a regular file>"
   [[ -f "$1" ]] && _h="$(sha1sum -- "$1" 2>/dev/null)" && _h="${_h%% *}"
   printf '%s|%s' "$(_mtime_of "$1")" "$_h"
 }
-_pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its new/modified batch entries
+_pend_add() {   # _pend_add <violations-array-name> <src-tag> <root> <first-new-index>: queue the new/modified batch entries from <first-new-index> on
   local -n _pv="$1"; local _from="$4" _i _e _kind _path
   for ((_i = _from; _i < ${#_pv[@]}; _i++)); do
     _e="${_pv[$_i]#"$PARALLEL_LABEL leaked: "}"
@@ -584,7 +599,7 @@ _pend_add() {   # _pend_add <violations-array-name> <src-tag> <root>: queue its 
   done
 }
 _attribute_batch_leaks() {
-  local _i _j _s _b _m _w _ws _we _tol _t _cmd_to _rt
+  local _i _j _s _b _m _w _ws _we _wt _tol _t _cmd_to _rt
   local -a _pend_path=() _pend_kind=() _pend_src=() _pend_done=() _pend_before=() _cand=() _attr=()
   # Clean batch: no new violation of either kind -> silent, byte-identical to before.
   [[ ${#hermeticity_violations[@]} -eq $1 && ${#kit_tree_violations[@]} -eq $2 ]] && return 0
@@ -597,7 +612,7 @@ _attribute_batch_leaks() {
     echo "run-all.sh: -j attribution DEGRADED — no usable stat; leaks keep the batch label" >&2
     return 0
   fi
-  _tol=0.05; [[ "$_STAT_MODE" == bsd ]] && _tol=1
+  _tol="$ATTR_TOL_FINE"; [[ "$_STAT_MODE" == bsd ]] && _tol="$ATTR_TOL_COARSE"
   # Candidate suites: those whose recorded window contains a leaked path's mtime.
   for _i in "${!_pend_path[@]}"; do
     _m="$(_mtime_of "${_pend_path[$_i]}")"
@@ -605,7 +620,10 @@ _attribute_batch_leaks() {
     for _j in "${!all_suites[@]}"; do
       [[ -f "$PAR_DIR/$((_j + 1)).win" ]] || continue
       read -r _ws _we < "$PAR_DIR/$((_j + 1)).win"
-      if awk -v m="$_m" -v s="$_ws" -v e="$_we" -v t="$_tol" 'BEGIN { exit !(m + 0 >= s - t && m + 0 <= e + t) }'; then
+      # Whole-second window records (a `date` without %N) widen the tolerance: the stat mtime keeps
+      # its fraction, so [floor(start), floor(end)] alone would miss a write in the last second.
+      _wt="$_tol"; [[ "$_ws$_we" == *.* ]] || _wt="$ATTR_TOL_COARSE"
+      if awk -v m="$_m" -v s="$_ws" -v e="$_we" -v t="$_wt" 'BEGIN { exit !(m + 0 >= s - t && m + 0 <= e + t) }'; then
         [[ " ${_cand[*]} " == *" $_j "* ]] || _cand+=("$_j")
       fi
     done
@@ -617,6 +635,12 @@ _attribute_batch_leaks() {
   fi
   mapfile -t _cand < <(printf '%s\n' "${_cand[@]}" | sort -n)
   _t="${RUN_ALL_ATTRIBUTION_TIMEOUT:-600}"; _cmd_to=()
+  # `timeout abc` exits 125 without running the suite: every re-run would then "reproduce nothing"
+  # silently. Validate once, say so, and fall back to the default.
+  if ! [[ "$_t" =~ ^[1-9][0-9]*$ ]]; then
+    ATTRIBUTION_LINES+=("Attribution: RUN_ALL_ATTRIBUTION_TIMEOUT='$_t' is not a positive integer; using 600")
+    _t=600
+  fi
   command -v timeout >/dev/null 2>&1 && _cmd_to=(timeout "$_t")
   echo "run-all.sh: -j leak detected in the batch; re-running ${#_cand[@]} candidate suite(s) of ${#all_suites[@]} serially to name the offender" >&2
   for _j in "${_cand[@]}"; do
@@ -675,7 +699,8 @@ if [[ -n "${RUN_TMP_ROOT:-}" ]]; then
   if mkdir -p "$RUN_TMP_ROOT/$idx" 2>/dev/null; then export TMPDIR="$RUN_TMP_ROOT/$idx"; else : > "$PAR_DIR/$idx.tmpfail"; fi
 fi
 # Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
-_t0="$(date +%s.%N 2>/dev/null)"
+_now() { local _v; _v="$(date +%s.%N 2>/dev/null)"; case "$_v" in ""|*[!0-9.]*) _v="$(date +%s 2>/dev/null)" ;; esac; printf '%s' "$_v"; }
+_t0="$(_now)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
 # with a "started" line and no "done" line.
 echo "run-all.sh: -j started: $(basename "$suite")" >&2
@@ -687,7 +712,7 @@ else
   bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
 fi
 rc=$?
-_t1="$(date +%s.%N 2>/dev/null)"
+_t1="$(_now)"
 case "$_t0$_t1" in *[!0-9.]*|"") ;; *) echo "$_t0 $_t1" > "$PAR_DIR/$idx.win" ;; esac
 echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.rc"
 echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
@@ -895,7 +920,7 @@ if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
-  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
+  echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (the suites whose recorded window matched — typically at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
   for _al in "${ATTRIBUTION_LINES[@]}"; do echo "$_al"; done
 elif [[ -n "$PARALLEL_DEGRADED_REASON" ]]; then
   echo "Parallel: DEGRADED — $PARALLEL_DEGRADED_REASON"
@@ -955,11 +980,17 @@ else
     echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
   fi
   if [[ ${#tmp_scan_failed[@]} -gt 0 || ${#tmp_create_failed[@]} -gt 0 ]]; then
-    _ts_names=""; _tc_names=""
-    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; fi
-    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; fi
-    echo "TMPDIR scan: DEGRADED — could not scan the TMPDIR of [$_ts_names]; per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR); their leftovers are unverified"
+    _ts_names=""; _tc_names=""; _td_parts=()
+    if [[ ${#tmp_scan_failed[@]} -gt 0 ]]; then _ts_names="$(printf '%s, ' "${tmp_scan_failed[@]}")"; _ts_names="${_ts_names%, }"; _td_parts+=("could not scan the TMPDIR of [$_ts_names]"); fi
+    if [[ ${#tmp_create_failed[@]} -gt 0 ]]; then _tc_names="$(printf '%s, ' "${tmp_create_failed[@]}")"; _tc_names="${_tc_names%, }"; _td_parts+=("per-suite TMPDIR could not be created for [$_tc_names] (they ran on the caller's TMPDIR)"); fi
+    # Only the clauses that apply (kit issue #1645): an empty [] clause is noise that reads as a finding.
+    echo "TMPDIR scan: DEGRADED — $(printf '%s; ' "${_td_parts[@]}")their leftovers are unverified"
   fi
+fi
+# SENTINEL-TMPDIR-KEPT
+if [[ -n "$KEEP_TMP" ]]; then
+  if [[ -n "$RUN_TMP_ROOT" ]]; then echo "TMPDIR kept: $RUN_TMP_ROOT"
+  else echo "TMPDIR kept: none (no per-run TMPDIR root was created, so there is nothing to keep)"; fi
 fi
 # --- Teeth report (--prove-teeth / --require-teeth only) ------------------
 if [[ -n "$PROVE_TEETH" ]]; then
