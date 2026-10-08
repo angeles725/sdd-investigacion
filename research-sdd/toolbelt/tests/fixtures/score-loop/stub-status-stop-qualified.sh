@@ -6,5 +6,6 @@
 if [[ "${2:-}" == "--next" ]]; then
   printf '%s\n' "${STUB_STOP_LINE:-STOP | read-only-investigable exhausted (0)}"
 else
-  echo "  campaign        : pending=0 active=0 done=2 bound-stopped=0 rejected=0"
+  # $STUB_QUEUE_LINE overrides the queue line: a non-empty queue, or a `none (...)` undeclared shape.
+  echo "${STUB_QUEUE_LINE:-  campaign        : pending=0 active=0 done=2 bound-stopped=0 rejected=0}"
 fi

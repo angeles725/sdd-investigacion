@@ -572,7 +572,7 @@ grep -qE '^C4 degraded research-sdd-status.sh failed \(default exit=1, --next ex
 
 # Kit #1995: a QUALIFIED `--next` STOP is not a clean zero-open exhaustion. Every STOP form the status script
 # emits is enumerated here (research-sdd-status.sh: _stop_exhausted, IDG-UNVERIFIED-MARKER, the two `no active
-# focus` sites, outline_next_step) and each qualifier must surface in a typed C4 degraded line, never `pass`.
+# focus` sites; outline_next_step's STOP is NOT reachable through --next, it is only a defensive whitelist entry) and each qualifier must surface in a typed C4 degraded line, never `pass`.
 STUB_QUAL="$FIX/stub-status-stop-qualified.sh"
 c4q() { STUB_STOP_LINE="$1" RSDD_STATUS_SCRIPT="$STUB_QUAL" bash "$SUT" --corpus "$ROOT/continue" \
   --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 '; }
@@ -591,7 +591,7 @@ chk_q "no active focus + bu" 'STOP | no active focus (1 declared stopped/paused 
 chk_q "unknown form"         'STOP | something the scorer never heard of' 'unrecognized STOP form'
 out="$(c4q 'STOP | outline fully covered (5/5)')"
 grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1995 outline fully covered: still a clean terminal STOP (C4 pass)" || no "1995 outline covered: C4 ($out)"
+  && ok "1995 outline fully covered (defensive whitelist, unreachable via --next): C4 pass" || no "1995 outline covered: C4 ($out)"
 out="$(c4q 'STOP | read-only-investigable exhausted (0)')"
 grep -qE '^C4 pass STOP token present' <<<"$out" \
   && ok "1995 bare exhausted STOP: C4 pass unchanged" || no "1995 bare STOP: C4 ($out)"
@@ -600,6 +600,18 @@ out="$(STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unre
   bash "$SUT" --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
 grep -qE '^C4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1' <<<"$out" \
   && ok "1995 qualified STOP + commit after STOP: C4 fail" || no "1995 qualified+poststop: C4 ($out)"
+
+# The qualifier replaces only the pass / n-a outcomes: a declared NON-EMPTY queue still fails, an undeclared queue
+# is degraded (not n/a), and an empty queue is degraded (not pass).
+QSTOP='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 2 rows]'
+out="$(STUB_QUEUE_LINE='  campaign        : pending=1 active=1 done=2 bound-stopped=0 rejected=0' STUB_STOP_LINE="$QSTOP" RSDD_STATUS_SCRIPT="$STUB_QUAL" \
+  bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
+grep -qE '^C4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0' <<<"$out" \
+  && ok "1995 qualified STOP + non-empty queue: C4 fail (no downgrade to degraded)" || no "1995 qualified+non-empty: C4 ($out)"
+out="$(STUB_QUEUE_LINE='  campaign        : none (2 active focus(es), 0 with a queue)' STUB_STOP_LINE="$QSTOP" RSDD_STATUS_SCRIPT="$STUB_QUAL" \
+  bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
+grep -qE '^C4 degraded STOP is qualified.*\[backlog-unreadable: 2 rows\]' <<<"$out" \
+  && ok "1995 qualified STOP + undeclared queue: C4 degraded (not n/a)" || no "1995 qualified+undeclared: C4 ($out)"
 
 # ============================================================================================
 # Mutation self-test (--prove-teeth): flip one matching seam per criterion, plus the two
@@ -855,6 +867,12 @@ LENIENT
     tt "teeth-1995-qualified: branch disabled → a qualified STOP scores C4 pass" 0 0 \
       --good-has '^C4 degraded STOP is qualified' --bad-lacks '^C4 degraded' --bad-has '^C4 pass' -- \
       env STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 29 rows]' RSDD_STATUS_SCRIPT="$STUB_QUAL" bash @SUT@ --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl"
+  fi
+  echo "-- teeth-1995-order: qualified branch placed before the queue checks; expect a non-empty queue to degrade --"
+  if mk 1995-order 's/^    if \[\[ "\$declared_queue" -eq 0 \]\]; then$/    if [[ -n "$stop_qualifier" ]]; then emit C4 degraded "STOP is qualified: $stop_qualifier"; elif [[ "$declared_queue" -eq 0 ]]; then/'; then
+    tt "teeth-1995-order: qualifier outranks the queue → a qualified STOP with a non-empty queue degrades instead of failing" 0 0 \
+      --good-has '^C4 fail .*queue=non-empty' --bad-lacks '^C4 fail' --bad-has '^C4 degraded' -- \
+      env STUB_QUEUE_LINE='  campaign        : pending=1 active=1 done=2 bound-stopped=0 rejected=0' STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 2 rows]' RSDD_STATUS_SCRIPT="$STUB_QUAL" bash @SUT@ --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl"
   fi
   echo "-- teeth-1995-classify: treat every STOP as clean; expect an unknown form to score pass --"
   if mk 1995-classify 's/^    if \[\[ "\$stop_rest" == "read-only-investigable exhausted (0)" || /    if true || [[ "$stop_rest" == "read-only-investigable exhausted (0)" || /'; then
