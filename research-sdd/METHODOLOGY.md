@@ -2836,6 +2836,15 @@ matrix (subsystem × depth × static-vs-dynamic × known-vs-gap); the prioritize
 This is the recommended BOOTSTRAP path (PROMPT-LOOP step e) whenever the corpus is large enough that a
 hand-listed plan would miss areas — proven on the protocols focus (matrix → 6 well-shaped gaps).
 
+**Prior-coverage reconciliation is a REQUIRED first output of the audit-first sweep (kit issue #1116).** Before
+the sweep proposes any gap, it greps the corpus for the subsystem/module name and reports the single
+most-comprehensive existing block, then frames every proposed gap RELATIVE to it ("B200 covers X breadth; this gap
+opens the Y internal that B200 named out-of-scope"). A sweep brief that does not require this section leaves the
+REMITTANCE-versus-DEEPEN call to luck: a focus proposed as "a module the corpus never opened" was found to be
+largely covered by an existing 160-line block only because the brief happened to list that block as a REMITTANCE
+candidate. Complements the focus-distinctness check (new-focus bootstrap), which rejects or rescopes a whole focus; this
+frames the surviving gaps. (Source: niagara-research `retros/2026-08-28-template-focus-retro.md` D1.)
+
 **Scale the bootstrap to the taxonomy's size — one boundary, two sides.** As a working heuristic (revise on
 contradiction), let the number of candidate surfaces decide HOW to seed. When a package is small and legible
 — up to roughly 20 classes/commands you can read directly — seed the gaps INLINE and skip the delegated
@@ -2902,6 +2911,14 @@ opcodes", "8 handlers", or "48 states" with no actual count has GUESSED — meas
 `<package/dir>`", naming the counting method it would use (`find … | wc -l`, `fd -e java`, class-name dedup)
 and the scope boundary it ranges over. A bare integer presented as fact, with no method and no scope, is
 the defect this rule stops — the reader cannot tell a measurement from a guess (§7).
+
+**A sweep-named architectural pattern must cite a concrete file (kit issue #1116).** When a delegated sweep names a
+pattern ("factory", "builder", "step-builder", "registry") as a property of the target, it MUST cite one concrete
+file (or class) that instantiates it; a pattern with no cited instance is dropped, not carried into a gap. A
+count taken over a whole JAR/module is not a count of the target package — state the package path the number
+ranges over (the rule above). Measured: a sweep reported "~48 classes with 40+ `BUx*Factory` step builders" for a
+package that holds 3 classes and no `*Factory` class at all, because it had counted the whole `-ux` JAR and
+invented the pattern. (Source: niagara-research `retros/2026-08-28-provisioning-focus-retro.md` D1.)
 
 **Verify a gap's PREMISE before sealing it.** A sweep proposes gaps from names it INFERS exist — a
 `module.xml` component, a `ClassName.java`, an expected subsystem. Before a proposed gap enters the backlog,
