@@ -87,7 +87,7 @@ MKKIT_WRAPPER_EOF
   cp "$HERE/../verify-state.sh" "$kdir/verify-state.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$kdir/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$kdir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"
+  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$kdir/lib/blocked-rows.sh"
   cp "$HERE/../lib/retro-status.sh" "$kdir/lib/retro-status.sh"
   cp "$HERE/../lib/hook-wiring.sh" "$kdir/lib/hook-wiring.sh"
   case "$mode" in
@@ -141,7 +141,7 @@ mk_kit_real_reconcile() {
   cp "$HERE/../reconcile-issues.sh" "$kdir/reconcile-issues.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$kdir/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$kdir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"
+  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$kdir/lib/blocked-rows.sh"
   cp "$HERE/../lib/retro-status.sh" "$kdir/lib/retro-status.sh"
   cp "$HERE/../lib/hook-wiring.sh" "$kdir/lib/hook-wiring.sh"
   cp "$HERE/../lib/retro-grammar.sh" "$kdir/lib/retro-grammar.sh"
@@ -1024,15 +1024,23 @@ _cb52="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v1 -
 grep -qE 'WARN.*no attributed block ids|no attributed block ids.*WARN' <<<"$_sync52_stderr" \
   && ok "sync-bs-warn: --sync-state emits WARN on stderr when seeding covered_blocks=0 (no attributed ids)" \
   || no "sync-bs-warn: no WARN emitted on stderr — silent zero (want: WARN about no attributed block ids)"
+# #907 predicates (shared with the teeth below so the mutants are judged by the SAME assertions).
+# _sg_unverifiable_info OUT: the SPECIFIC unverifiable INFO line, not just any INFO.
+_sg_unverifiable_info() { grep -qE '^ +INFO +covered_blocks unverifiable under shared-global: no attributed block ids listed' <<<"$1"; }
+# _sg_attr_positive OUT: positive evidence that an attributed shared-global run was verified, not merely FAIL-free.
+_sg_attr_positive() { grep -qE 'envelope +: covered_blocks=2/' <<<"$1" && grep -qE '^ +ok +envelope validated' <<<"$1" \
+  && ! grep -qE 'INFO +covered_blocks unverifiable' <<<"$1"; }
 # 53 — sync-bs-e2e: declare → sync → verify-state must exit 0 AND report INFO unverifiable + cb=0
 # covered_blocks=0 is unverifiable (no attributed ids), not a false-pass. verify-state must exit 0
 # with INFO (not FAIL) and the envelope line must show covered_blocks=0/<ondisk>.
+# #907: the INFO is scoped to the SPECIFIC unverifiable line (an unscoped `grep INFO` is satisfied by the
+# always-printed "corpus total ... informational" INFO, so it could not tell unverifiable from verified).
 _vs53out="$(bash "$HERE/../verify-state.sh" "$d52" 2>/dev/null)"; _vs53rc=$?
 if [ "$_vs53rc" = "0" ] \
     && grep -qE 'covered_blocks=0/' <<<"$_vs53out" \
-    && grep -qF 'INFO' <<<"$_vs53out"; then
+    && _sg_unverifiable_info "$_vs53out"; then
   ok "sync-bs-e2e: verify-state exits 0 + INFO unverifiable + covered_blocks=0/<ondisk> after sync"
-else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0, cb=0/<N>, INFO)"; fi
+else no "sync-bs-e2e: rc=$_vs53rc :: $(grep 'envelope' <<<"$_vs53out" | head -1) (want rc=0, cb=0/<N>, the scoped 'covered_blocks unverifiable' INFO)"; fi
 
 # 53b — sync-bs-indented-nospace: issue #126 item 2 — `  block_scope:shared-global` (indented + no space).
 # env_get: $1="block_scope:shared-global" (no trailing colon) → no match → empty.
@@ -1071,11 +1079,16 @@ _t905_cb="$(awk '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/research-state.v
 [ "$_t905_cb" = "2" ] \
   && ok "T-905-SG-ATTR: --sync-state seeds cb=2 (B1,B2 attributed; 5 corpus files)" \
   || no "T-905-SG-ATTR: cb=$_t905_cb (want 2) — attributed count not used or wrong count"
+# #907: the absence of FAIL alone is negative-only (a crashed verify-state prints no FAIL either), so the
+# pass is also asserted POSITIVELY: the envelope line reports covered_blocks=2/, the run ends in the
+# "envelope validated" ok line, and the attributed path does NOT print the unverifiable INFO.
 _t905_vs_out="$(bash "$HERE/../verify-state.sh" "$d_905" 2>&1)"
 if grep -qF 'FAIL' <<<"$_t905_vs_out"; then
   no "T-905-SG-ATTR: verify-state FAILs with attributed covered_blocks=2 (want CHECK A pass)"
+elif ! _sg_attr_positive "$_t905_vs_out"; then
+  no "T-905-SG-ATTR: no positive evidence (want envelope covered_blocks=2/, an 'ok envelope validated' line, no unverifiable INFO) :: $(grep -m1 'envelope' <<<"$_t905_vs_out")"
 else
-  ok "T-905-SG-ATTR: verify-state passes CHECK A (covered_blocks=2 == 2 attributed)"
+  ok "T-905-SG-ATTR: verify-state passes CHECK A (covered_blocks=2 == 2 attributed) — positive: envelope covered_blocks=2/, envelope validated, not unverifiable"
 fi
 
 # ---- ISSUE #143 — unknown priority concealment chain -----------------------------------------------
@@ -2141,7 +2154,7 @@ cp "$HERE/../lib/retro-status.sh" "$_kit_perf/lib/retro-status.sh"
 cp "$HERE/../lib/hook-wiring.sh" "$_kit_perf/lib/hook-wiring.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$_kit_perf/lib/focus-prefix.sh"
 cp "$HERE/../lib/state-files.sh" "$_kit_perf/lib/state-files.sh"
-cp "$HERE/../lib/block-files.sh" "$_kit_perf/lib/block-files.sh"
+cp "$HERE/../lib/block-files.sh" "$_kit_perf/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_kit_perf/lib/blocked-rows.sh"
 # Recording stub: logs LAST argument (retro path) to the invocations file, returns one untracked line.
 # Uses ${@: -1} because gate calls reconcile as: reconcile.sh --issues-cache <file> <retro>
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${@: -1}" >> "%s"\nprintf "untracked: row 1\\n"\nexit 0\n' \
@@ -2195,7 +2208,7 @@ cp "$HERE/../lib/retro-status.sh" "$_kit_ta/lib/retro-status.sh"
 cp "$HERE/../lib/hook-wiring.sh" "$_kit_ta/lib/hook-wiring.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$_kit_ta/lib/focus-prefix.sh"
 cp "$HERE/../lib/state-files.sh" "$_kit_ta/lib/state-files.sh"
-cp "$HERE/../lib/block-files.sh" "$_kit_ta/lib/block-files.sh"
+cp "$HERE/../lib/block-files.sh" "$_kit_ta/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_kit_ta/lib/blocked-rows.sh"
 # Recording stub: logs its argument (assert 0 calls); returns "tracked" so clean STOP if probe runs.
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "%s"\nprintf "tracked: row 1\\n"\nexit 0\n' \
   "$_ta_log" > "$_kit_ta/reconcile-issues.sh"
@@ -3549,7 +3562,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"  # SUT sources at $(dirname $0)/lib/
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"  # SUT sources at $(dirname $0)/lib/
   cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
   cp "$HERE/../lib/gh-visibility.sh" "$TMP/lib/gh-visibility.sh"  # kit #1820: the remote-visibility probe lives in the shared lib
   # kit #1637: DECLARED-KEEP (a declared counter above the derivation is carried forward) shadows every control
@@ -4386,6 +4399,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-905-SG-ZERO-WARN: SG-ZERO-WARN sentinel not found in SUT"
   fi
 
+  # ---- teeth-907: the scoped / positive assertions of T53 and T-905 must bite (kit #907) ----
+  # Both mutants are verify-state.sh copies. The OLD assertions (unscoped `grep INFO`, absence-of-FAIL only)
+  # would still pass on them; the new ones must not. Judged by the SAME predicates the tests use.
+  echo "-- teeth-907-T53: verify-state without the unverifiable INFO still prints other INFO lines; scoped assertion must go red --"
+  mu_907a="$TMP/verify-state.907a.MUTANT.sh"
+  sed '/echo "   INFO   covered_blocks unverifiable under shared-global/s/.*/      : # MUTANT-907-INFO/' "$HERE/../verify-state.sh" > "$mu_907a"
+  if ! grep -q 'MUTANT-907-INFO' "$mu_907a" || cmp -s "$HERE/../verify-state.sh" "$mu_907a"; then
+    no "teeth-907-T53: could not build mutant (INFO echo not found — did verify-state.sh change?)"
+  else
+    mkdir -p "$TMP/vs907a/lib"; cp "$HERE/../lib/"*.sh "$TMP/vs907a/lib/"; cp "$mu_907a" "$TMP/vs907a/verify-state.sh"
+    _o907_real="$(bash "$HERE/../verify-state.sh" "$d52" 2>/dev/null)"; _o907_mut="$(bash "$TMP/vs907a/verify-state.sh" "$d52" 2>/dev/null)"
+    if _sg_unverifiable_info "$_o907_real" && ! _sg_unverifiable_info "$_o907_mut" && grep -qF 'INFO' <<<"$_o907_mut"; then
+      ok "teeth-907-T53: mutant still prints INFO (old unscoped grep would pass) but the scoped assertion fails → T53 is load-bearing"
+    else no "teeth-907-T53: real-scoped=$(_sg_unverifiable_info "$_o907_real" && echo y || echo n) mutant-scoped=$(_sg_unverifiable_info "$_o907_mut" && echo y || echo n) — THEATER"; fi
+  fi
+  echo "-- teeth-907-T905: verify-state without the 'envelope validated' line is FAIL-free yet must fail the positive assertion --"
+  mu_907b="$TMP/verify-state.907b.MUTANT.sh"
+  sed '/envelope validated + summary consistent/s/.*/  : # MUTANT-907-OK/' "$HERE/../verify-state.sh" > "$mu_907b"
+  if ! grep -q 'MUTANT-907-OK' "$mu_907b" || cmp -s "$HERE/../verify-state.sh" "$mu_907b"; then
+    no "teeth-907-T905: could not build mutant (envelope-validated echo not found — did verify-state.sh change?)"
+  else
+    mkdir -p "$TMP/vs907b/lib"; cp "$HERE/../lib/"*.sh "$TMP/vs907b/lib/"; cp "$mu_907b" "$TMP/vs907b/verify-state.sh"
+    _o905_real="$(bash "$HERE/../verify-state.sh" "$d_905" 2>&1)"; _o905_mut="$(bash "$TMP/vs907b/verify-state.sh" "$d_905" 2>&1)"
+    if _sg_attr_positive "$_o905_real" && ! grep -qF 'FAIL' <<<"$_o905_mut" && ! _sg_attr_positive "$_o905_mut"; then
+      ok "teeth-907-T905: mutant is FAIL-free (old negative-only check would pass) but the positive assertion fails → T-905 is load-bearing"
+    else no "teeth-907-T905: real-positive=$(_sg_attr_positive "$_o905_real" && echo y || echo n) mutant-fail-free=$(grep -qF FAIL <<<"$_o905_mut" && echo n || echo y) mutant-positive=$(_sg_attr_positive "$_o905_mut" && echo y || echo n) — THEATER"; fi
+  fi
+
   # ---- teeth-SS-634-BOLD: remove ** stripping from BOTH layers; pending** must NOT count as investigable ----
   # SS-634-BOLD-STRIP (backlog_rows) and BOLD-STRIP (count_investigable) form a two-layer defense.
   # Removing only SS-634-BOLD-STRIP leaves BOLD-STRIP operative → io=1 (theater).
@@ -4583,7 +4624,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       cp "$HERE/../verify-state.sh" "$_unver_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_unver_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_unver_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_unver_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_unver_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_unver_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_unver_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_unver_kit/lib/hook-wiring.sh"
       printf '#!/usr/bin/env bash\nprintf "degraded: gh not authenticated\\n" >&2\nexit 1\n' \
@@ -4627,7 +4668,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       cp "$HERE/../verify-state.sh" "$_tmt_mut_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_tmt_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_tmt_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_tmt_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_tmt_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_tmt_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_tmt_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_tmt_mut_kit/lib/hook-wiring.sh"
       # Same 3s-sleep stub as T-IDG-TIMEOUT; mutant removes timeout wrapper → stub completes normally.
@@ -4675,7 +4716,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       cp "$HERE/../reconcile-issues.sh" "$_ctr_mut_kit/reconcile-issues.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_ctr_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_ctr_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ctr_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_ctr_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ctr_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_ctr_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_ctr_mut_kit/lib/hook-wiring.sh"
       cp "$HERE/../lib/retro-grammar.sh" "$_ctr_mut_kit/lib/retro-grammar.sh"
@@ -4731,7 +4772,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_opfail_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_opfail_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_opfail_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_opfail_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_opfail_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_opfail_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_opfail_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_opfail_kit/lib/hook-wiring.sh"
       # exit_1_empty stub: exits 1 with no output — same scenario as T-IDG-E.
@@ -4801,7 +4842,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_oos_teeth_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_oos_teeth_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_oos_teeth_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_oos_teeth_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_oos_teeth_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_oos_teeth_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_oos_teeth_kit/lib/retro-status.sh"
       # kit issue #1130 CI follow-up: research-sdd-status.sh unconditionally sources
       # lib/hook-wiring.sh (kit issue #1109, landed via #1120/#1129's merge into main) and exits 1
@@ -4856,7 +4897,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_fex_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_fex_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_fex_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_fex_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_fex_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_fex_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_fex_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_fex_kit/lib/hook-wiring.sh"
       # No reconcile stub needed: no retros are listed (stub find outputs nothing, exits 1).
@@ -4901,7 +4942,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_mtg_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_mtg_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_mtg_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_mtg_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_mtg_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_mtg_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_mtg_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_mtg_kit/lib/hook-wiring.sh"
       # tracked stub: if somehow retros are found (they won't be), all tracked → no ISSUES-DUE.
@@ -4949,7 +4990,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_sort_mut_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_sort_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_sort_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_sort_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_sort_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_sort_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_sort_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_sort_mut_kit/lib/hook-wiring.sh"
       # tracked stub: all retros tracked → no ISSUES-DUE; bare STOP if unverified flag is neutered.
@@ -4996,7 +5037,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_ta_mut_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_ta_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_ta_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ta_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_ta_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ta_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_ta_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_ta_mut_kit/lib/hook-wiring.sh"
       # tracked stub: probes skipped (ABSENT-SKIP fires), so reconcile is never called; just needs to exist.
@@ -5042,7 +5083,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_ee_mut_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_ee_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_ee_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ee_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_ee_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ee_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_ee_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_ee_mut_kit/lib/hook-wiring.sh"
       # recording_untracked stub: logs each invocation to _IDG_RECORD_LOG; returns untracked.
@@ -5085,7 +5126,7 @@ CTR_TEETH_EOF
       cp "$HERE/../verify-state.sh" "$_ab_mut_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_ab_mut_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_ab_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ab_mut_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_ab_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ab_mut_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_ab_mut_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_ab_mut_kit/lib/hook-wiring.sh"
       # tracked stub: returns no untracked lines; budget must be the only trigger.
@@ -5135,7 +5176,7 @@ CTR_TEETH_EOF
       cp "$HERE/../reconcile-issues.sh" "$_b1t_kdir/reconcile-issues.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_b1t_kdir/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_b1t_kdir/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_b1t_kdir/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_b1t_kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_b1t_kdir/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_b1t_kdir/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_b1t_kdir/lib/hook-wiring.sh"
       cp "$HERE/../lib/retro-grammar.sh" "$_b1t_kdir/lib/retro-grammar.sh"
@@ -5202,7 +5243,7 @@ GHTOOTHEOF
       cp "$HERE/../verify-state.sh" "$_btwt_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_btwt_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_btwt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_btwt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_btwt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_btwt_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_btwt_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_btwt_kit/lib/hook-wiring.sh"
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
@@ -5255,7 +5296,7 @@ BTWTTEOF
       cp "$HERE/../verify-state.sh" "$_blt_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_blt_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_blt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_blt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_blt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_blt_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_blt_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_blt_kit/lib/hook-wiring.sh"
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
@@ -5308,7 +5349,7 @@ BLTGHEOF
       cp "$HERE/../verify-state.sh" "$_bfbt_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_bfbt_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_bfbt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_bfbt_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_bfbt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_bfbt_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_bfbt_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_bfbt_kit/lib/hook-wiring.sh"
       # recording_untracked stub: logs the retro path to _IDG_RECORD_LOG; returns "untracked".
@@ -5361,7 +5402,7 @@ BLTGHEOF
       cp "$HERE/../verify-state.sh" "$_brev_kit/verify-state.sh"
       cp "$HERE/../lib/focus-prefix.sh" "$_brev_kit/lib/focus-prefix.sh"
       cp "$HERE/../lib/state-files.sh" "$_brev_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_brev_kit/lib/block-files.sh"
+      cp "$HERE/../lib/block-files.sh" "$_brev_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_brev_kit/lib/blocked-rows.sh"
       cp "$HERE/../lib/retro-status.sh" "$_brev_kit/lib/retro-status.sh"
       cp "$HERE/../lib/hook-wiring.sh" "$_brev_kit/lib/hook-wiring.sh"
       # cache_untracked_reverify_tracked stub: batch says untracked; per-retro says tracked (false-neg).
@@ -6741,7 +6782,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   cp "$SUT" "$_sh2_mutant_dir/research-sdd-status.sh"
   cp "$HERE/../lib/focus-prefix.sh" "$_sh2_mutant_dir/lib/focus-prefix.sh"
   cp "$HERE/../lib/state-files.sh" "$_sh2_mutant_dir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$_sh2_mutant_dir/lib/block-files.sh"
+  cp "$HERE/../lib/block-files.sh" "$_sh2_mutant_dir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_sh2_mutant_dir/lib/blocked-rows.sh"
   cp "$_sh_lib_mutant" "$_sh2_mutant_dir/lib/hook-wiring.sh"
   d="$TMP/hook-absent-teeth"; mkstate "$d" 1 "high|g1|pending"
   _sh2_out="$(bash "$_sh2_mutant_dir/research-sdd-status.sh" "$d" 2>/dev/null)"

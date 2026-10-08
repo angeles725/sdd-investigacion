@@ -32,6 +32,16 @@ declare -F inplace_blocked_count >/dev/null 2>&1 || { echo "verify-state: helper
 declare -F inplace_gap_id >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define inplace_gap_id" >&2; exit 1; }
 declare -F focus_range_block_count >/dev/null 2>&1 || { echo "verify-state: helper $_FPLIB failed to define focus_range_block_count" >&2; exit 1; }
 
+# Shared blocked-entry derivation (kit #923): the one definition of the blocked sections and of the awk that
+# counts `## Child gaps surfaced at close` entries, sourced by research-sdd-status.sh too. Same fail-closed
+# contract as the focus-prefix lib above: a partial source would otherwise yield an empty derived count.
+_BRLIB="$(cd "$(dirname "$0")" && pwd)/lib/blocked-rows.sh"
+if [ ! -f "$_BRLIB" ]; then echo "verify-state: cannot find helper $_BRLIB" >&2; exit 1; fi
+# shellcheck source=lib/blocked-rows.sh
+. "$_BRLIB"
+declare -F blocked_open_count >/dev/null 2>&1 || { echo "verify-state: helper $_BRLIB failed to define blocked_open_count" >&2; exit 1; }
+declare -F blocked_rows_body >/dev/null 2>&1 || { echo "verify-state: helper $_BRLIB failed to define blocked_rows_body" >&2; exit 1; }
+
 _BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
 # shellcheck source=lib/block-files.sh
@@ -85,10 +95,10 @@ env_field() { awk -v k="$2" '/<!-- research-state.v1 -->/{b=1;next} /<!-- \/rese
 is_int()    { case "$1" in ''|*[!0-9]*) return 1;; *) return 0;; esac; }
 
 
-# Ground-truth derivations. These MIRROR research-sdd-status.sh (section / backlog_rows / blocked_names /
-# is_blocked) EXACTLY: verify-state stays STANDALONE (no shared lib — status.sh's mutation harness copies
-# only verify-state.sh into a temp dir, so a sourced lib there would break it), which makes this a
-# DELIBERATE mirror that MUST stay in lockstep with status.sh and with what `--sync-state` writes.
+# Ground-truth derivations. The backlog/section helpers below MIRROR research-sdd-status.sh (section /
+# backlog_rows / blocked_names / is_blocked) EXACTLY — a deliberate mirror that MUST stay in lockstep with
+# status.sh and with what `--sync-state` writes. The BLOCKED-entry derivation is no longer mirrored: both
+# scripts source lib/blocked-rows.sh (kit #923), so it cannot drift.
 _section()      { awk -v h="$2" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$1"; }
 # BR-CACHE: avoids re-running the _backlog_rows awk (and re-emitting its structural WARNs to stderr)
 # when multiple checks within the same per-state pass all call _backlog_rows. Without the cache each
@@ -190,7 +200,7 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
 # form, e.g. "## Blocked / non-read-only gaps", "## Blocked / requires-execution gaps"). All three
 # follow the same "- <name> — needs: …" convention and map to the same blocked_open bucket.
 _blocked_names() {                                  # one exact blocked gap NAME per "- <name> — needs: ..." line
-  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
+  blocked_rows_body "$1" \
     | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
@@ -198,7 +208,7 @@ _blocked_names() {                                  # one exact blocked gap NAME
 # derived investigable_open = pending (LEADING-TOKEN) backlog rows whose gap is NOT blocked. This is
 # resolve_next's NEXT-eligibility set by construction — the STOP-CRITICAL number that closes the
 # premature-STOP class: if the envelope under-declares it, verify-state FAILs → --next returns STALE.
-_blocked_body() { { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; }; }  # the text blocked_open is derived from (mirrors status.sh blocked_body)
+_blocked_body() { blocked_rows_body "$1"; }  # the text blocked_open is derived from (lib/blocked-rows.sh, kit #923; the same function status.sh blocked_body calls)
 derive_investigable() {
   local sf="$1" blk gap st n=0 b hit
   blk="$(_blocked_names "$sf")"
@@ -267,24 +277,13 @@ _retyped_gaps() {
 # inflates the count.  The prose branch matches **needs:** (bold markdown), which excludes
 # historical/parenthetical backtick mentions such as "G6's original `needs:` was tshark".
 # Both branches may match the same line without double-counting (grep -c counts matching lines).
+# The counting itself now lives in lib/blocked-rows.sh (kit #923, shared with research-sdd-status.sh); a CLOSED
+# child-gap entry (~~, ✅, CERRADO, CLOSED, [closed]) that keeps a `needs:` clause is not counted (#913).
 # The third form is handled by a separate awk pass scoped to ## Child gaps surfaced at close ONLY;
 # it tracks bullet-entry state across lines so continuation-line `needs:` is attributed to its gap.
 # Scoping this awk to that heading keeps the existing grep's false-positive guard intact for the
 # standard sections (e.g. warp.md's '- none (... then record `needs:` ...)' advisory placeholder).
-derive_blocked() {
-  local _d1 _d2
-  _d1="$({ _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"  # RSDD-PROSE-BLOCKED-ANCHOR
-  # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
-  _d2="$(_section "$1" '## Child gaps surfaced at close' | awk '
-    BEGIN { n=0; ib=0; done=0 }
-    /^[[:space:]]*$/ { ib=0; done=0; next }
-    /^[[:space:]]*-[[:space:]]/ { ib=1; done=0
-      if (tolower($0) ~ /needs:/) { n++; done=1 }
-      next }
-    { if (ib && !done && tolower($0) ~ /needs:/) { n++; done=1 } }
-    END { print n+0 }')"
-  echo $(( ${_d1:-0} + ${_d2:-0} ))
-}
+derive_blocked() { blocked_open_count "$1"; }   # lib/blocked-rows.sh (kit #923): the one definition shared with research-sdd-status.sh
 # P23: count blocked/absent gap entries that carry `needs:` but NOT `tried:` (a tried: clause is
 # mandatory before a gap can be closed as absent-input; its absence means the operator parked the
 # gap without documenting what they attempted, collapsing absent-input and untried into one signal).
@@ -292,7 +291,7 @@ derive_blocked() {
 # paragraph containing **needs:** (prose form).  For prose, tried: may be on a different line
 # within the same paragraph, so we accumulate paragraph state across lines using awk.
 derive_missing_tried() {
-  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
+  blocked_rows_body "$1" \
   | awk '
     BEGIN { need=0; tried=0; miss=0 }
     /^[[:space:]]*$/ {
@@ -323,7 +322,7 @@ derive_missing_tried() {
 # to the previous one. A blank line ends a paragraph entry; inside a bullet entry it is a loose-list gap that ends the
 # entry only when the next non-blank line is not indented deeper than the bullet. END flushes the last entry.
 derive_missing_unblock() {
-  { _section "$1" '## Blocked gaps'; _section "$1" '## Non-investigable gaps'; _section "$1" '## Blocked /'; } \
+  blocked_rows_body "$1" \
   | awk '
     function flush() { if (need && !unb) miss++; else if (need && unb && upos < npos) ord++; need=0; unb=0; npos=0; upos=0; open=0; pend=0 }
     function ind(s) { match(s, /^[ \t]*/); return RLENGTH }

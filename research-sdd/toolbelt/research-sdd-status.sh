@@ -253,13 +253,24 @@ if [ ! -f "$_HWLIB" ]; then echo "research-sdd-status: cannot find helper $_HWLI
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "research-sdd-status: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
 unset _HWLIB
 
+# Shared blocked-entry derivation (kit #923): ONE definition of the blocked sections and of the awk that
+# counts `## Child gaps surfaced at close` entries, sourced by verify-state.sh too. Fail closed: this
+# script does not use `set -e`, so a partial source would otherwise yield an empty blocked count.
+_BRLIB="$here/lib/blocked-rows.sh"
+if [ ! -f "$_BRLIB" ]; then echo "research-sdd-status: cannot find helper $_BRLIB" >&2; exit 1; fi
+# shellcheck source=lib/blocked-rows.sh
+. "$_BRLIB"
+declare -F blocked_open_count >/dev/null 2>&1 || { echo "research-sdd-status: helper $_BRLIB failed to define blocked_open_count" >&2; exit 1; }
+declare -F blocked_rows_body >/dev/null 2>&1 || { echo "research-sdd-status: helper $_BRLIB failed to define blocked_rows_body" >&2; exit 1; }
+unset _BRLIB
+
 # --- section extractors (scope numeric/list greps to their section — never whole-file) ----------
 section() { awk -v h="$1" 'index($0,h)==1{f=1;next} /^## /{f=0} f' "$state"; }   # body of "## <h>..."
 stopctl()      { section '## Stop control'; }
 # B3a / B3c / B5: blocked_body also scans "## Non-investigable gaps" (semantically identical to
 # ## Blocked gaps; used in older/TRANE/EduVolt corpora) and "## Blocked / <qualifier>" (B3c, e.g.
-# niagara-research spyder focus). Mirrors _blocked_names() and derive_blocked() in verify-state.sh.
-blocked_body() { section '## Blocked gaps'; section '## Non-investigable gaps'; section '## Blocked /'; }
+# niagara-research spyder focus). Defined ONCE in lib/blocked-rows.sh; verify-state.sh sources the same function.
+blocked_body() { blocked_rows_body "$state"; }   # lib/blocked-rows.sh (kit #923): the one definition shared with verify-state.sh
 inv_count()    { stopctl | grep -iE 'read-only investigable' | grep -oE '[0-9]+' | head -1; }
 
 
@@ -440,24 +451,10 @@ blocked_names() {
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
 }
 is_blocked() { local g="$1" b; while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done < <(blocked_names); return 1; }
-# disk-DERIVED blocked_open — count of needs:-carrying entries under the standard blocked sections
-# (via blocked_body) PLUS entries in ## Child gaps surfaced at close where `needs:` may appear on a
-# continuation/indent line (multi-line bullet form — mirrors derive_blocked() in verify-state.sh).
-# blocked_body() combines ## Blocked gaps, ## Non-investigable gaps, and ## Blocked /.
-# RSDD-STATUS-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
-derive_blocked_open() {
-  local _d1 _d2
-  _d1="$(blocked_body | grep -icE '^[[:space:]]*-[[:space:]].*needs:|\*\*needs:\*\*')"
-  _d2="$(section '## Child gaps surfaced at close' | awk '
-    BEGIN { n=0; ib=0; done=0 }
-    /^[[:space:]]*$/ { ib=0; done=0; next }
-    /^[[:space:]]*-[[:space:]]/ { ib=1; done=0
-      if (tolower($0) ~ /needs:/) { n++; done=1 }
-      next }
-    { if (ib && !done && tolower($0) ~ /needs:/) { n++; done=1 } }
-    END { print n+0 }')"
-  echo $(( ${_d1:-0} + ${_d2:-0} ))
-}
+# disk-DERIVED blocked_open — delegated to lib/blocked-rows.sh blocked_open_count (kit #923), the same function
+# verify-state.sh calls: needs:-carrying entries under the standard blocked sections PLUS open entries in
+# ## Child gaps surfaced at close (a CLOSED child gap that keeps `needs:` is not counted, #913).
+derive_blocked_open() { blocked_open_count "$state"; }
 # B3b: count_deferred — count OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware). Mirrors derive_deferred()
 # in verify-state.sh. Reads from $state (the global current state file).

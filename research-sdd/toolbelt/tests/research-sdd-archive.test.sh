@@ -1533,6 +1533,7 @@ cp "$HERE/../scan-secrets.sh"     "$tbE/scan-secrets.sh"
 cp "$HERE/../lib/retro-status.sh" "$tbE/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$tbE/lib/focus-prefix.sh"
 cp "$HERE/../lib/block-files.sh"  "$tbE/lib/block-files.sh"   # required helper (block discriminator)
+cp "$HERE/../lib/blocked-rows.sh" "$tbE/lib/blocked-rows.sh"
 # STUB: enumeration returns nothing, as a permission-denied find would.
 printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
 out="$(bash "$tbE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -1557,6 +1558,7 @@ cp "$HERE/../scan-secrets.sh"     "$tbNE/scan-secrets.sh"
 cp "$HERE/../lib/retro-status.sh" "$tbNE/lib/retro-status.sh"
 cp "$HERE/../lib/focus-prefix.sh" "$tbNE/lib/focus-prefix.sh"
 cp "$HERE/../lib/block-files.sh"  "$tbNE/lib/block-files.sh"  # required helper (block discriminator)
+cp "$HERE/../lib/blocked-rows.sh" "$tbNE/lib/blocked-rows.sh"
 # STUB: enumeration returns two paths that do not exist — simulates paths that vanished
 # between the find scan and the inspection loop, or a broken enumerator outputting garbage.
 printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" \
@@ -1830,7 +1832,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # copied there ONCE.
   mkdir -p "$MUT/lib"
   cp "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$HERE/../verify-corrections.sh" "$MUT/"
-  cp "$HERE/../lib/retro-status.sh" "$HERE/../lib/focus-prefix.sh" "$HERE/../lib/state-files.sh" "$HERE/../lib/block-files.sh" "$MUT/lib/"
+  cp "$HERE/../lib/retro-status.sh" "$HERE/../lib/focus-prefix.sh" "$HERE/../lib/state-files.sh" "$HERE/../lib/block-files.sh" "$HERE/../lib/blocked-rows.sh" "$MUT/lib/"
   REFUSE_RE='REFUSED: reconcile'   # printed by the SUT's gate on exit 3
   ARCH_RE='^  archived'            # printed by the SUT's last line on exit 0
   UF_RE='undocumented_findings: REFUSE'

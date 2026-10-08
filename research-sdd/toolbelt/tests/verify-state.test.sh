@@ -2840,7 +2840,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # verify-state.sh to $TMP so the mutant status.sh can call it as $here/verify-state.sh).
   mkdir -p "$TMP/lib"
   cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"  # SUT sources at $(dirname $0)/lib/
+  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"  # SUT sources at $(dirname $0)/lib/
 
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"
@@ -2957,79 +2957,48 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth(B3): mutant exit $mfpgot (want 1) — multi-focus fix may not be exercised (THEATER)"; fi
   fi
 
-  # ---- B3a mutation: restrict blocked section to ## Blocked gaps only (remove Non-investigable branch) ----
-  # Use the B3a-FAIL fixture: 1 Non-investigable entry, envelope blocked_open=0 (wrong).
-  # Real SUT: derive_blocked finds the entry → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
-  # Mutant (only ## Blocked gaps): derive_blocked=0, e_blocked=0 → match → exit 0 (FALSE-PASS).
-  echo "-- teeth: B3a — remove Non-investigable section from derive_blocked; B3a-FAIL fixture must false-pass --"
-  mutantNI="$TMP/verify-state.B3NI.MUTANT.sh"
-  # Remove "; _section "$1" '## Non-investigable gaps'" from every line where it appears.
-  sed "s/; _section \"\\\$1\" '## Non-investigable gaps'//g" "$SUT" > "$mutantNI"
-  if grep -qF "'## Non-investigable gaps'" "$mutantNI"; then
-    no "teeth(B3a): could not build Non-investigable mutant (pattern still present — did the SUT change?)"
-  else
-    d="$TMP/non-investigable-fail"   # reuse B3a-FAIL: 1 Non-investigable entry, envelope blocked_open=0 (wrong)
-    bash "$mutantNI" "$d" >/dev/null 2>&1; mnigot=$?
-    if [ "$mnigot" = 0 ]; then
-      ok "teeth(B3a): mutant ignores Non-investigable → false-passes (mismatch undetected) → dual-section fix is load-bearing"
-    else no "teeth(B3a): mutant exit $mnigot (want 0) — Non-investigable detection may not depend on the dual-section fix (THEATER)"; fi
-  fi
-
-  # ---- B3c mutation: restrict blocked section to omit ## Blocked / prefix (remove Blocked-slash branch) ----
-  # Use the B3c-FAIL fixture: 1 Blocked-slash entry, envelope blocked_open=0 (wrong).
-  # Real SUT: derive_blocked finds the entry → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
-  # Mutant (without ## Blocked /): derive_blocked=0, e_blocked=0 → match → exit 0 (FALSE-PASS).
-  echo "-- teeth: B3c — remove Blocked-slash section from derive_blocked; B3c-FAIL fixture must false-pass --"
-  mutantBS="$TMP/verify-state.B3BS.MUTANT.sh"
-  sed "s|; _section \"\\\$1\" '## Blocked /'||g" "$SUT" > "$mutantBS"
-  if grep -q "section.*'## Blocked /'" "$mutantBS"; then
-    no "teeth(B3c): could not build Blocked-slash mutant (pattern still present — did the SUT change?)"
-  else
-    d="$TMP/blocked-slash-fail"   # reuse B3c-FAIL: 1 Blocked-slash entry, envelope blocked_open=0 (wrong)
-    bash "$mutantBS" "$d" >/dev/null 2>&1; mbsgot=$?
-    if [ "$mbsgot" = 0 ]; then
-      ok "teeth(B3c): mutant ignores Blocked-slash → false-passes (mismatch undetected) → triple-section fix is load-bearing"
-    else no "teeth(B3c): mutant exit $mbsgot (want 0) — Blocked-slash detection may not depend on the fix (THEATER)"; fi
-  fi
-
-  # ---- B911a mutation: remove RSDD-CHILD-GAPS-ANCHOR awk block → multi-line child-gap entry undetected ----
-  # Use the B911a-FAIL fixture: 1 child-gaps entry with `needs:` on continuation, envelope blocked_open=0 (wrong).
-  # Real SUT: derive_blocked finds the entry via awk → d_blocked=1 ≠ e_blocked=0 → FAIL (exit 1).
-  # Mutant (child-gaps awk removed): _d2=0, d_blocked=0 == e_blocked=0 → no mismatch → exit 0 (FALSE-PASS).
-  # Build via python3: the awk heredoc contains single quotes that confuse sed.
-  echo "-- teeth: B911a — remove RSDD-CHILD-GAPS-ANCHOR awk from derive_blocked; B911a-FAIL fixture must false-pass --"
-  mutant911a="$TMP/verify-state.B911A.MUTANT.sh"
-  if grep -q '# RSDD-CHILD-GAPS-ANCHOR' "$SUT"; then
-    python3 - "$SUT" "$mutant911a" <<'PYEOF'
-import sys, re
-src = open(sys.argv[1]).read()
-# Remove the _d2 assignment (the RSDD-CHILD-GAPS-ANCHOR awk block) and change the echo to use only _d1.
-# Strategy: replace the multi-line derive_blocked body with the old one-liner equivalent.
-# Remove _d2 line and the echo $(( ... )) line; replace with a one-liner that only counts _d1.
-mutant = re.sub(
-    r'  # RSDD-CHILD-GAPS-ANCHOR.*?  echo \$\(\( \$\{_d1:-0\} \+ \$\{_d2:-0\} \)\)',
-    '  echo "${_d1:-0}"',
-    src,
-    count=1,
-    flags=re.DOTALL
-)
-open(sys.argv[2], 'w').write(mutant)
-PYEOF
-    if [ ! -f "$mutant911a" ]; then
-      no "teeth(B911a): python3 did not write mutant file"
-    elif grep -q 'RSDD-CHILD-GAPS-ANCHOR' "$mutant911a"; then
-      no "teeth(B911a): could not build mutant (RSDD-CHILD-GAPS-ANCHOR still present after substitution)"
-    else
-      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-      d="$TMP/child-gaps-single-fail"   # reuse B911a-FAIL: 1 child-gaps entry, blocked_open=0 (wrong)
-      bash "$mutant911a" "$d" >/dev/null 2>&1; m911got=$?
-      if [ "$m911got" = 0 ]; then
-        ok "teeth(B911a): awk-removed mutant misses continuation entry (d=0 vs e=0 → false-pass) → RSDD-CHILD-GAPS-ANCHOR awk is load-bearing"
-      else no "teeth(B911a): mutant exit $m911got (want 0) — child-gaps detection may not depend on the awk block (THEATER)"; fi
+  # libmut NAME LIB-SED-EXPR FIXTURE-DIR: the blocked derivation lives in lib/blocked-rows.sh (kit #923), so these
+  # teeth mutate THE LIB (a refused/dead sed is a build failure) and run an unmodified SUT copy beside it.
+  # Prints the mutant run's exit code; the real lib is restored afterwards.
+  BRLIB="$HERE/../lib/blocked-rows.sh"
+  libmut() {
+    local name="$1" expr="$2" fix="$3" rc
+    if ! sed "$expr" "$BRLIB" > "$TMP/lib/blocked-rows.sh" || cmp -s "$BRLIB" "$TMP/lib/blocked-rows.sh"; then
+      cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "BUILD-FAIL"; return 0
     fi
-  else
-    no "teeth(B911a): RSDD-CHILD-GAPS-ANCHOR sentinel not found in SUT (child-gaps awk block not implemented)"
-  fi
+    cp "$SUT" "$TMP/verify-state.$name.sh"
+    bash "$TMP/verify-state.$name.sh" "$fix" >/dev/null 2>&1; rc=$?
+    cp "$BRLIB" "$TMP/lib/blocked-rows.sh"; echo "$rc"
+  }
+
+  # ---- B3a mutation: drop the Non-investigable section from the shared blocked body ----
+  # B3a-FAIL fixture: 1 Non-investigable entry, envelope blocked_open=0 (wrong). Real lib: derived 1 != 0 -> FAIL (1).
+  # Mutant lib (no Non-investigable section): derived 0 == 0 -> exit 0 (FALSE-PASS).
+  echo "-- teeth: B3a — remove Non-investigable section from the blocked body; B3a-FAIL fixture must false-pass --"
+  mnigot="$(libmut B3NI "/blocked_rows_section \"\\\$1\" '## Non-investigable gaps'/d" "$TMP/non-investigable-fail")"
+  if [ "$mnigot" = "BUILD-FAIL" ]; then
+    no "teeth(B3a): could not build Non-investigable mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+  elif [ "$mnigot" = 0 ]; then
+    ok "teeth(B3a): mutant ignores Non-investigable → false-passes (mismatch undetected) → dual-section fix is load-bearing"
+  else no "teeth(B3a): mutant exit $mnigot (want 0) — Non-investigable detection may not depend on the dual-section fix (THEATER)"; fi
+
+  # ---- B3c mutation: drop the '## Blocked /' section from the shared blocked body ----
+  echo "-- teeth: B3c — remove Blocked-slash section from the blocked body; B3c-FAIL fixture must false-pass --"
+  mbsgot="$(libmut B3BS "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" "$TMP/blocked-slash-fail")"
+  if [ "$mbsgot" = "BUILD-FAIL" ]; then
+    no "teeth(B3c): could not build Blocked-slash mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+  elif [ "$mbsgot" = 0 ]; then
+    ok "teeth(B3c): mutant ignores Blocked-slash → false-passes (mismatch undetected) → triple-section fix is load-bearing"
+  else no "teeth(B3c): mutant exit $mbsgot (want 0) — Blocked-slash detection may not depend on the fix (THEATER)"; fi
+
+  # ---- B911a mutation: the child-gaps awk reads a heading that does not exist -> continuation entry undetected ----
+  echo "-- teeth: B911a — blind the RSDD-CHILD-GAPS-ANCHOR awk in the lib; B911a-FAIL fixture must false-pass --"
+  m911got="$(libmut B911A "s/'## Child gaps surfaced at close'/'## Child gaps surfaced at closeZ'/" "$TMP/child-gaps-single-fail")"
+  if [ "$m911got" = "BUILD-FAIL" ]; then
+    no "teeth(B911a): could not build mutant (lib sed changed nothing — did lib/blocked-rows.sh change?)"
+  elif [ "$m911got" = 0 ]; then
+    ok "teeth(B911a): awk-blinded mutant misses continuation entry (d=0 vs e=0 → false-pass) → RSDD-CHILD-GAPS-ANCHOR awk is load-bearing"
+  else no "teeth(B911a): mutant exit $m911got (want 0) — child-gaps detection may not depend on the awk block (THEATER)"; fi
 
   # ---- B3b mutation: neuter derive_deferred → always return 0 → deferred_open mismatch undetected ----
   echo "-- teeth: B3b — neuter derive_deferred; fixture declaring deferred_open=0 vs 1 row must then false-pass --"
@@ -3093,38 +3062,16 @@ PYEOF
     no "teeth-P23: P23-MISSING-TRIED-WARN sentinel not found in SUT (P23 not implemented or marker missing)"
   fi
 
-  # ---- RSDD-PROSE-BLOCKED: revert derive_blocked to bullet-only; prose fixture must FAIL (not match) ----
-  # Mutation: strip the |\*\*needs:\*\* branch from the grep in derive_blocked so prose paragraphs
-  # are no longer counted. The T-PROSE-BLOCKED-MATCH fixture (blocked_open=1, prose entry) must then
-  # FAIL because derived=0 != declared=1.  Proves the RSDD-PROSE-BLOCKED-ANCHOR branch is load-bearing.
-  # python3 is used for the substitution because the target string contains backslash-asterisks that
-  # are unreliable to escape through multiple layers of shell+sed quoting.
-  echo "-- teeth-RSDD-PROSE: revert derive_blocked to bullet-only; prose fixture must FAIL (d=0 vs e=1) --"
-  mutantPROSE="$TMP/verify-state.PROSE.MUTANT.sh"
-  if grep -q '# RSDD-PROSE-BLOCKED-ANCHOR' "$SUT"; then
-    python3 - "$SUT" "$mutantPROSE" <<'PYEOF'
-import sys
-src = open(sys.argv[1]).read()
-# Remove the prose branch (the ERE alternative) from derive_blocked's grep pattern.
-# The literal text in the source file is: |\*\*needs:\*\*
-mutant = src.replace(r'|\*\*needs:\*\*', '', 1)
-open(sys.argv[2], 'w').write(mutant)
-PYEOF
-    if ! grep -q 'RSDD-PROSE-BLOCKED-ANCHOR' "$mutantPROSE"; then
-      no "teeth-RSDD-PROSE: python3 strip removed sentinel line unexpectedly — mutant broken"
-    elif grep -qF '|\*\*needs:\*\*' "$mutantPROSE"; then
-      no "teeth-RSDD-PROSE: could not build mutant (prose branch still present after substitution)"
-    else
-      cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-      d="$TMP/prose-blocked-match"   # reuse T-PROSE-BLOCKED-MATCH fixture: blocked_open=1, 1 prose entry
-      bash "$mutantPROSE" "$d" >/dev/null 2>&1; mprosegot=$?
-      if [ "$mprosegot" = 1 ]; then
-        ok "teeth-RSDD-PROSE: bullet-only mutant misses prose entry (d=0 vs e=1 → FAIL) → prose branch is load-bearing"
-      else no "teeth-RSDD-PROSE: mutant exit $mprosegot (want 1) — prose detection may not depend on the added branch (THEATER)"; fi
-    fi
-  else
-    no "teeth-RSDD-PROSE: RSDD-PROSE-BLOCKED-ANCHOR sentinel not found in SUT"
-  fi
+  # ---- RSDD-PROSE-BLOCKED: revert the shared count to bullet-only; prose fixture must FAIL (not match) ----
+  # Mutation (in lib/blocked-rows.sh): strip the |\*\*needs:\*\* branch so prose paragraphs are no longer counted.
+  # T-PROSE-BLOCKED-MATCH (blocked_open=1, prose entry) must then FAIL: derived 0 != declared 1.
+  echo "-- teeth-RSDD-PROSE: revert blocked count to bullet-only; prose fixture must FAIL (d=0 vs e=1) --"
+  mprosegot="$(libmut PROSE 's/|\\\*\\\*needs:\\\*\\\*//' "$TMP/prose-blocked-match")"
+  if [ "$mprosegot" = "BUILD-FAIL" ]; then
+    no "teeth-RSDD-PROSE: could not build mutant (prose branch not found in lib/blocked-rows.sh)"
+  elif [ "$mprosegot" = 1 ]; then
+    ok "teeth-RSDD-PROSE: bullet-only mutant misses prose entry (d=0 vs e=1 → FAIL) → prose branch is load-bearing"
+  else no "teeth-RSDD-PROSE: mutant exit $mprosegot (want 1) — prose detection may not depend on the added branch (THEATER)"; fi
 
   # ---- P7 mutation: neuter the INDEX.md placeholder check; placeholder fixture must stop WARNing ----
   echo "-- teeth-P7: neuter P7-INDEX-PLACEHOLDER-WARN; INDEX.md-placeholder fixture must NOT WARN --"
@@ -5625,7 +5572,7 @@ fi
 # teeth for kit #983: the OOB-separator width record in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-OOB5: restore the OOB-separator early return → VS-OOB-5COL goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   _vo_mut="$TMP/verify-state.OOB5.MUTANT.sh"
   cp "$SUT" "$_vo_mut"
   sed -i 's/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next };/if (!in_backlog) next;/' "$_vo_mut"
@@ -5643,7 +5590,7 @@ fi
 # teeth for kit #1307: the out-of-backlog Priority-header guard in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-FINDINGS: disable the OOB-NO-PRIORITY-HEADER guard → VS-FINDINGS goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   _vf_mut="$TMP/verify-state.FINDINGS.MUTANT.sh"
   cp "$SUT" "$_vf_mut"
   sed -i '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog \&\& !tbl_ok)/if (0)/' "$_vf_mut"
@@ -5662,7 +5609,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
   # _k34_canonfail <script> <target> — run <script> against <target> with the test-only `cd -P` seam
   # forcing the root canonicalization to fail.
   _k34_canonfail() {
