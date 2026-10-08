@@ -8,7 +8,9 @@ own HOT-CORE from SITUATIONAL sections). A rule lives here only if its trigger i
 every always-hit delegation rule — stays in PROMPT-LOOP.md core. Lazy-load != skip: every rule here
 still applies in full once its trigger fires; PROMPT-LOOP.md's core leaves a pointer naming the
 exact trigger and this file's section, so a driver reads a section here only when that trigger is
-live, and reads it IN FULL when it does.
+live, and reads it IN FULL when it does. One section, `step3-evidence-provenance`, is the explicit
+exception: it holds no operating rule, only the corpus provenance notes moved out of step 3
+(kit issue #1003), and is read only to audit where a rule came from.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
@@ -371,7 +373,8 @@ Trigger: none — this is provenance, not an operating rule. Read it only to aud
 rule came from. Kit issue #1003 (first slice) moved the corpus-specific `(Evidence: ...)` anecdotes
 out of the OPERATIONAL PROMPT's step 3 so every iteration stops paying for them; the rules
 themselves are unchanged and still live in PROMPT-LOOP.md step 3. Each row keeps the original
-note verbatim, keyed by the rule it annotated. Two short retro pointers (`SECRETS-SENSITIVE INLINE
+note verbatim, keyed by the rule it annotated. Two prose anecdotes without the `(Evidence:` wrapper (PRIOR COVERAGE CHECK, SCOPING JUDGMENTS ARE
+HYPOTHESES) are included, so step 3 is complete. Two short retro pointers (`SECRETS-SENSITIVE INLINE
 OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes.
 
 | Step 3 rule | Original provenance note |
@@ -391,3 +394,5 @@ OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes
 | IDENTIFIER-GRANULARITY CHECK | blender-llm B65 §65.2. |
 | DECOMMISSIONED/BROKEN ENDPOINT SUBCASE | niagara framework-drivers-closure D2. |
 | REACHABLE ≠ REPRESENTATIVE-DEFAULT | blender B9. |
+| PRIOR COVERAGE CHECK | Evidence: B279 ran module-navigator before reading B133, which already documented the JNI boundary; required a §279.9 self-revision. |
+| SCOPING JUDGMENTS ARE HYPOTHESES | Evidence (retro 2026-08-07): B381 refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START, argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing security facts. |

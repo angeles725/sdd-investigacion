@@ -496,12 +496,12 @@ Always read first, in this order:
      about. (Evidence: niagara B899–B928.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
+       (Corpus provenance for this step's rules: `$KIT/PROMPT-LOOP-APPENDIX.md#step3-evidence-provenance`.)
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
          overlaps this gap — especially the block that opened it. Step 5's pre-loop INDEX.md read
          names blocks; this check reads them. Cost: one targeted block read per gap. (Distinct from
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
-         after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
-         documented the JNI boundary; required a §279.9 self-revision.)
+         after the sweep.)
          GAP-ID VERIFY + ALREADY-COVERED PRE-CHECK (sub-agent launch): a gap ID in a writer prompt is
          the caller's LABEL, a hypothesis. The writer verifies it against the cited block's OWN file
          (the `Gap:` / gap-ID line there) BEFORE writing, and states any correction up front ("prompt
@@ -535,12 +535,8 @@ Always read first, in this order:
          boundary — the same family as GAP PREMISES ARE HYPOTHESES (BOOTSTRAP step e). When the
          cost of a targeted follow-up is low (e.g. one decompile pass or one block), TEST the
          judgment before accepting the closure. If a test REFUTES the judgment, issue a §14
-         correction on the prior block with a back-pointer. Evidence (retro 2026-08-07): B381
-         refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged
-         for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START,
-         argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing
-         security facts. A scope-out that costs one iteration to test is cheaper than six weeks of
-         missed findings.
+         correction on the prior block with a back-pointer. A scope-out that costs one iteration
+         to test is cheaper than six weeks of missed findings.
        - READ THE RESIDUE BEFORE THEORISING: before forming a theory about why a remainder does not
          fit — an unexplained bucket, a residual set, un-opened columns — READ those items first. A
          theory built on unread data is [INFER] from zero evidence; the actual contents often disprove it.
