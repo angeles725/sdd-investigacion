@@ -5,8 +5,10 @@
       A decompiler resugars, so "the source uses X" is not evidence that the class file does.
   R5  a fail-open / bypass / null-Context permission claim with no `dispatch:` clause naming the
       resolved override (or an inline `cited-absence:` clause citing that none exists). Scoped to clauses
-      that are about permissions/security; a unit made only of `>` blockquote lines (restated gap text)
-      is skipped and counted as `quoted-skipped=` in the SUMMARY.
+      that are about permissions/security. A unit made only of `>` blockquote lines that carries a gap
+      token (G<n>, "gap", a block link) is restated gap text and is skipped, counted as
+      `r5-quoted-skipped=` in the SUMMARY (0 included); a block's own `> Finding:` callout is judged.
+      The clearing clause needs real content (3+ characters, not TODO/TBD/?).
   R7  a dead/unused/unreferenced-constant or shadow-literal/hardcoded-duplicate claim without a
       compile-time-constant-inlining evidence token (javac inlines constants: "never read" in the
       decompiled code does not mean unreferenced in the class file).
@@ -57,7 +59,13 @@ R5_PERM_CONTEXT_RE = re.compile(
     r"|\bContext\b|\bcx\b")
 # Clearing forms: a resolved `dispatch:` clause, or an inline `cited-absence:` clause (the override was
 # searched for and its absence is cited, e.g. "cited-absence: grep of the corpus found no override").
-R5_CLEARED_RE = re.compile(r"dispatch:|cited-absence:", re.IGNORECASE)
+# The clause needs real content (3+ non-space characters, not a placeholder): an empty "dispatch:" or
+# "cited-absence: TODO" proves nothing.
+R5_CLEARED_RE = re.compile(
+    r"(?:dispatch|cited-absence):\s*(?!(?:todo|tbd|tba|xxx|n/?a|none|\?+)(?!\w))\S{3,}", re.IGNORECASE)
+# A quoted unit is skipped only when it restates a gap or another block (gap id, "gap", block link/ref);
+# a block's own `> Finding:` callout carries none of these and is still judged.
+R5_GAP_REF_RE = re.compile(r"\bG\d+\b|\bgaps?\b|\bsee\s+block\b|\[Block\s*\d+\]|\bblock\d+\.md\b", re.IGNORECASE)
 
 R7_TRIGGER_RE = re.compile("|".join([
     r"\b(?:dead|unused|unreferenced)\s+constants?\b",
@@ -84,7 +92,7 @@ def build(api):
                   R1_EVIDENCE_RE.search, "syntax-adoption claim without bytecode/docSource evidence")),
         ("R5", mk("R5", lambda c: R5_CONSEQUENCE_RE.search(c) and R5_PERM_CONTEXT_RE.search(c),
                   R5_CLEARED_RE.search, "permission consequence claim without a resolved dispatch: target",
-                  skip_quoted=True)),
+                  quoted_skip_re=R5_GAP_REF_RE)),
         ("R7", mk("R7", R7_TRIGGER_RE.search, R7_EVIDENCE_RE.search,
                   "constant-inlining claim without bytecode/docSource evidence")),
     ]

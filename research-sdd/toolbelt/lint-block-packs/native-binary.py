@@ -4,8 +4,8 @@
       file name, or the words PE32 / ELF / Mach-O / "PE binary|file|image|header|section" /
       Authenticode) whose paragraph, list item or table row lacks any of: the binary's sha256 (64 hex),
       an address anchor (`0x` + 3 or more hex digits, or VA/RVA/offset followed by hex), and two
-      distinct instruments from the allowlist below. A heading-only unit is skipped (and counted as
-      `r9-headings-skipped=`): its evidence lives in the body under it.
+      distinct instruments from the allowlist below. A heading claim is judged over its whole section (up
+      to the next heading of the same or higher level): evidence-bearing body clears, empty body fires.
 
 Trigger is per clause; the requirement is per UNIT because the sha256 / address / instruments of one
 claim routinely sit in neighbouring sentences or cells. [CERT-doc] / [CERT-web] / [INFER] make no byte
@@ -55,17 +55,28 @@ def instruments(text):
 
 
 def build(api):
+    def section_text(doc, heading):
+        """The heading plus every unit under it up to the next heading of the same or a higher level.
+
+        A heading claim ("## 3.1 - [CERT] foo.dll is Authenticode-signed") keeps its sha256 / address /
+        instruments in the body below it, so it is judged over that whole section (kit #1548). A heading
+        with no body is judged on its own text and therefore fires."""
+        lvl = len(heading.text) - len(heading.text.lstrip("#"))
+        end = None
+        for h in doc.units:
+            if h.kind != "heading" or h.line <= heading.line:
+                continue
+            hl = len(h.text) - len(h.text.lstrip("#"))
+            if hl <= lvl:
+                end = h.line
+                break
+        return " ".join(x.text for x in doc.units
+                        if x.line >= heading.line and (end is None or x.line < end))
+
     def rule_r9(doc):
         out = []
         for u in doc.units:
             if u.kind not in api.CLAIM_KINDS:
-                continue
-            if u.kind == "heading":
-                # A heading is a unit of its own: the sha256 / address / instruments live in the body
-                # below it, so a heading can never satisfy the per-unit requirement (kit #1548: ~20% of
-                # the fleet sample). Count the skip so the SUMMARY shows it was seen, not lost.
-                if any(R9_MARKER_RE.search(c) and R9_NATIVE_RE.search(c) for c in api.clauses(u.text)):
-                    doc.cov["r9_headings_skipped"] += 1
                 continue
             # Trigger: some clause pairs an evidence marker with native-binary context. The three
             # requirements below are then checked over the WHOLE unit (they sit in neighbouring clauses).
@@ -76,12 +87,13 @@ def build(api):
             doc.cov["r9_triggers"] += 1
             if doc.waived("R9", u):
                 continue
+            text = section_text(doc, u) if u.kind == "heading" else u.text
             missing = []
-            if not R9_SHA256_RE.search(u.text):
+            if not R9_SHA256_RE.search(text):
                 missing.append("no sha256 (64 hex) of the binary")
-            if not R9_ANCHOR_RE.search(u.text):
+            if not R9_ANCHOR_RE.search(text):
                 missing.append("no address anchor (0x... VA or file offset)")
-            n = len(instruments(u.text))
+            n = len(instruments(text))
             if n < 2:
                 missing.append(f"{n} of 2 instruments named (allowlist R9_INSTRUMENTS)")
             if missing:

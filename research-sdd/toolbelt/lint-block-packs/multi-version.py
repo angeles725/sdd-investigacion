@@ -22,21 +22,46 @@ R8_SURFACE_RE = re.compile(
     re.IGNORECASE)
 
 
-# A claim the clause only negates ("not new in N5"), asks about ("Is the jar N5-only?") or defers
+# A claim that is only negated ("not new in N5"), asked about ("Is the jar N5-only?") or deferred
 # ("whether ... is new in N5", "Confirm whether ...") attributes nothing to N5 (kit #1548 calibration:
-# R8 precision was ~47% with these in scope). Positional: "whether" or a negation must PRECEDE the
-# trigger, so "... are genuinely new in N5, but left open whether ..." is still a claim.
-R8_NEGATION_RE = re.compile(r"\b(?:not|never|isn't|aren't|wasn't|weren't)\s+(?:\w+\s+){0,2}$", re.IGNORECASE)
-R8_WHETHER_RE = re.compile(r"\bwhether\b", re.IGNORECASE)
-# clause_split consumes a mid-text "?", so also recognise the interrogative opening itself.
-R8_QUESTION_RE = re.compile(r"\?\s*$|^\s*(?:(?:\d+\.|[-*])\s+)?(?:is|are|was|were|does|did)\b", re.IGNORECASE)
+# R8 precision was ~47% with these in scope). Everything is POSITIONAL: it is judged on the sentence the
+# trigger sits in (split on ? ; . !) and, for "whether" / negation, on the sub-clause before the trigger
+# (after the last comma). So "The jar is new in N5; why was it missed?", "Is this a regression? No, the
+# package is new in N5." and "... are new in N5, but left open whether ..." all remain claims.
+# "not only/just/merely/simply/solely" is an intensifier, not a negation; "whether or not" defers nothing.
+R8_NEGATION_RE = re.compile(
+    r"\b(?:not(?!\s+(?:only|just|merely|simply|solely)\b)|never|isn't|aren't|wasn't|weren't)\s+(?:\w+\s+){0,2}$",
+    re.IGNORECASE)
+R8_WHETHER_RE = re.compile(r"\bwhether\b(?!\s+or\s+not\b)", re.IGNORECASE)
+# A sentence that opens as a question ("Is the jar N5-only", "3. Does ...") is interrogative even when the
+# splitter consumed its "?".
+R8_QUESTION_OPEN_RE = re.compile(r"^\s*(?:(?:\d+\.|[-*])\s+)?(?:is|are|was|were|does|did)\b", re.IGNORECASE)
+R8_SENTENCE_END_RE = re.compile(r"\?|[;.!](?=\s)")
+
+
+def sentence_spans(clause):
+    """[(start, end, ends_with_question)] covering the clause, split at ? ; . ! boundaries."""
+    spans, start = [], 0
+    for m in R8_SENTENCE_END_RE.finditer(clause):
+        spans.append((start, m.start(), m.group(0) == "?"))
+        start = m.end()
+    spans.append((start, len(clause), False))
+    return spans
 
 
 def is_r8_claim(clause):
-    if not R8_SURFACE_RE.search(clause) or R8_QUESTION_RE.search(clause):
+    if not R8_SURFACE_RE.search(clause):
         return False
+    spans = sentence_spans(clause)
     for t in R8_TRIGGER_RE.finditer(clause):
-        before = clause[:t.start()]
+        for start, end, is_question in spans:
+            if start <= t.start() < max(end, start + 1):
+                break
+        else:
+            continue
+        if is_question or R8_QUESTION_OPEN_RE.search(clause[start:end]):
+            continue
+        before = clause[start:t.start()].rsplit(",", 1)[-1]
         if not R8_WHETHER_RE.search(before) and not R8_NEGATION_RE.search(before):
             return True
     return False
