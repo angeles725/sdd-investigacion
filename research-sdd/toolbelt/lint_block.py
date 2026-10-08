@@ -45,7 +45,7 @@ Packs (kit #1365 item 1): `--pack NAME` (repeatable, comma lists and `--pack=NAM
 registers per-target rules under the reserved ids; without --pack the run is the generic core only. A
 pack that is unknown, malformed, empty or colliding exits 2 with nothing linted. SUMMARY then ends with
 `packs=<names> r<N>-triggers=<count>...` (how many claim clauses each pack rule actually looked at).
-Shipped: jvm (R1 R5 R7), multi-version (R8), native-binary (R9). Not shipped: R2, R4 (see RESERVED_PACK_RULE_IDS).
+Shipped: jvm (R1 R5 R7), multi-version (R8), native-binary (R9), child-gap (R4). Not shipped: R2 (see RESERVED_PACK_RULE_IDS).
 
 Modes
   default  FAIL mode: exit 1 when any finding remains.
@@ -424,8 +424,8 @@ RULES = [("R3", rule_r3), ("R6", rule_r6)]
 RULE_IDS = [r for r, _ in RULES]
 # Ids of the reference linter's per-target pack rules. A waiver naming one is valid in a block (it is
 # not R0); it is enforced only while a loaded pack registers that id, otherwise it is reported as INFO
-# and counted as `inactive-waivers`. R2 (needs a re-derived trigger vocabulary) and R4 (needs a
-# METHODOLOGY clause convention) are reserved but have no pack yet (kit #1365).
+# and counted as `inactive-waivers`. R2 (needs a re-derived trigger vocabulary) has no pack yet; R4 is
+# enforced by the child-gap pack (METHODOLOGY §8b child-gap grammar, kit #1214 #1365).
 RESERVED_PACK_RULE_IDS = ("R1", "R2", "R4", "R5", "R7", "R8", "R9")
 
 
