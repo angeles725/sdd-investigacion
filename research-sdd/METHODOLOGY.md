@@ -3743,6 +3743,13 @@ cause is reported on stderr. This is advisory: surface it and let the operator p
 loop in a hard block. The retro marker and issue remain the source of truth for provenance even when online
 verification is unavailable.
 
+A STOP may also end in `[backlog-unreadable: N rows]` (N backlog rows the parser could not count: near-miss heading,
+no-Priority-header table, non-tier priority, malformed row) or `[backlog-unreadable: unverified]` (a state file could not
+be counted at all), appended after any `[issue-coverage: unverified]` (kit #1959). Unlike the coverage marker this is NOT
+exhaustion: unread rows may hold open work. Reconcile the backlog grammar (`research-sdd-status.sh --sync-state`, move to a
+canonical `## Gap-backlog` heading with a Priority column) and re-run `--next`; `--emit-token` answers
+`return-token: unavailable` for it, never `STOP: campaign`. The count covers every state file, stopped/paused included.
+
 **Source of truth is hybrid.** The issue is authoritative for OPEN / triage / backlog; the retro marker records
 the FINAL `applied · #N` for offline provenance. This keeps the kit offline-first: the marker still resolves with
 no network, and any future `sweep-retros.sh`↔`gh` bridge MUST emit a typed `degraded` state when `gh` or the

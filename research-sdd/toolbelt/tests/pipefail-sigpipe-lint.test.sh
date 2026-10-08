@@ -20,6 +20,29 @@
 # directly above it) marks a DELIBERATE reproduction of the idiom (mutant bodies, sed/heredoc text). A marker
 # without a reason does not exempt. No path-based blanket exemption exists.
 #
+# The `| head` consumer family (kit issue #1145) is deliberately NOT linted — measured, not assumed (2026-10-07):
+#   incidence  723 `| head` sites in 79 files, 65 sites in 20 production files (tests/ excluded). Enumerator, run from
+#              research-sdd/: `grep -rnE '\| *head( |$)' --include='*.sh' toolbelt install` (then `| grep -v /tests/` for
+#              production). Scope: *.sh under toolbelt/ and install/ only. It matches `|head` and `| head` at any
+#              position on a physical line (including a continuation line that starts with `| head`); it does NOT see
+#              `|& head`, `head` reached through a variable/xargs/eval, or scripts without a .sh extension.
+#   mechanism  under pipefail a producer that writes more than the ~64 KB pipe buffer after `head` has exited gets
+#              SIGPIPE and the pipeline rc becomes 141, but the captured VALUE is still correct: probe
+#              `x="$(seq 1 300000 | head -1)"` under pipefail gave 200/200 rc=141 and 0/200 wrong values. So the
+#              family can only hurt where the pipeline's RC is consumed (`||`, `if`, `set -e`, `$?`), unlike
+#              `producer | grep -q`, where the rc IS the answer.
+#   classes    (a) value captures and diagnostic `$(…)` failure messages — rc discarded (no errexit in 18 of the 20
+#              production files); (b) `< <(… | head)` process substitutions — rc ignored by bash; (c) `|| true` /
+#              `|| x=""` absorbers over tiny cache/grep producers (detect-tools, verify-retro); (d) the only two
+#              production files with errexit (decompile-native.sh, scan-firmware.sh) read PIPESTATUS and accept 141
+#              explicitly at all 3 of their `| head` sites (decompile-native.sh:26, :31 and scan-firmware.sh:24); (e) `sort | head -1` over `find` output (verify-sources,
+#              scan-secrets, research-sdd-archive): sort may take the SIGPIPE, the rc is never read, the value is the
+#              first line either way.
+#   verdict    0 unguarded sites where a consumed rc sits behind a producer that can exceed 64 KB, so there is no
+#              defect to gate. A lint on the bare shape would flag ~700 benign sites and force an allow marker on
+#              each — noise that teaches operators to ignore the lint. Re-measure before adding a new rc-consuming
+#              `| head`; if one appears, read PIPESTATUS (see scan-firmware.sh) or use a here-string/redirect.
+#
 # Exit (default mode): 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
