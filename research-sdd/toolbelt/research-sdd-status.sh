@@ -1632,20 +1632,53 @@ if [ "$mode" = "--next" ]; then
     mapfile -t _rd_states < <(list_state_files "$target")
   fi
   # _rd_covers_derive <state> <declared-counter> <target> — kit issue #1640 (design accepted on the issue).
-  # The retro template carries a machine-readable column-0 `covers_through: B<n>` line (optionally scoped with
-  # ` focus=<slug>`, the RESEARCH-STATE-<slug>.md suffix). blocks_since_retro is derived as
-  # max(0, newest block id on disk − highest covers_through over the target's retros) and replaces the declared
-  # counter ONLY when LOWER. Sets _rd_eff (effective counter) and _rd_note (RETRO-DUE suffix). Every state in which
-  # the derivation cannot run is NAMED on stderr (§7): no retros / no field / malformed value / no block files /
-  # range-scoped focus / missing helper — each keeps the declared counter. Prose such as "coverage through B140" is
-  # deliberately NOT parsed (doctrine first). Called only for a counter that would fire, so legacy corpora stay quiet.
+  # The retro template carries a machine-readable column-0 `covers_through: B<n>` line, optionally scoped with
+  # ` focus=<slug>` (the RESEARCH-STATE-<slug>.md suffix; the un-suffixed root RESEARCH-STATE.md is `focus=root`).
+  # blocks_since_retro is derived as max(0, newest block id on disk − highest IN-RANGE covers_through over the
+  # target's retros) and replaces the declared counter ONLY when LOWER. FAIL-CLOSED PRINCIPLE: coverage may only ever
+  # LOWER the counter when the evidence unambiguously belongs to THIS focus; anything ambiguous keeps the declared
+  # counter (RETRO-DUE keeps firing). Hence: in a corpus with more than one state file an UNSCOPED line is ignored
+  # (typed note), a state-file slug that is not unique is refused, and a value above the newest block on disk is
+  # excluded from the maximum (typed WARN per retro) — it is never clamped to 0. Sets _rd_eff (effective counter)
+  # and _rd_note (RETRO-DUE suffix). Every state in which the derivation cannot run is NAMED on stderr (§7): no
+  # retros / no field / malformed value / no block files / range-scoped focus / missing helper / incomplete retro
+  # enumeration — each keeps the declared counter. Prose such as "coverage through B140" is deliberately NOT parsed
+  # (doctrine first). Called only for a counter that would fire, so legacy corpora stay quiet.
+  # The grammar below is byte-identical to the one in stage-retro-issues.sh (parity test in its suite).
+  # CV-GRAMMAR-BEGIN
+  _CV_AWK='
+/^(```|~~~)/ { m = substr($0, 1, 1); if (fence == "") fence = m; else if (fence == m) fence = ""; next }
+fence != "" { next }
+/^covers_through:/ {
+  line = $0; sub(/\r$/, "", line)
+  if (line ~ /^covers_through:[ \t]+B[0-9]+([ \t]+focus=[A-Za-z0-9._-]+)?[ \t]*$/) {
+    v = line; sub(/^covers_through:[ \t]+B/, "", v); n = v; sub(/[^0-9].*$/, "", n)
+    sl = "-"; if (v ~ /focus=/) { sl = v; sub(/^.*focus=/, "", sl); sub(/[ \t]*$/, "", sl) }
+    if (length(n) > 9) print "M"; else print "V " n " " sl
+  } else print "M"
+}'
+  # CV-GRAMMAR-END
   _rd_covers_derive() {  # RD-COVERS-DERIVE
-    local _st="$1" _decl="$2" _tg="$3" _base _slug _pfx _rng _dir _f _b _id _newest=-1 _rs _line _v
-    local _maxcov=-1 _nret=0 _nbad=0 _badlist="" _rc _rlist _rf _der=0
+    local _st="$1" _decl="$2" _tg="$3" _base _slug _myslug _pfx _rng _dir _f _b _id _newest=-1 _rs _line _v _sl
+    local _maxcov=-1 _nret=0 _nbad=0 _badlist="" _nover=0 _nunsc=0 _rlist _rf _der=0 _fo _frc _multi=0 _sfiles _sf _sfb _dups=0
     _rd_eff="$_decl"; _rd_note=""
     _base="$(basename "$_st")"; _slug=""
     case "$_base" in RESEARCH-STATE-*.md) _slug="${_base#RESEARCH-STATE-}"; _slug="${_slug%.md}";; esac
+    _myslug="${_slug:-root}"
     _dir="$(dirname "$_st")"
+    # more than one state file in the target = a multi-focus corpus: only a `focus=<own slug>` line is this focus's evidence
+    _sfiles="$(list_state_files "$_tg")"
+    if [ "$(grep -c . <<<"$_sfiles")" -gt 1 ]; then  # RD-MULTI-FOCUS
+      _multi=1
+      while IFS= read -r _sf; do
+        _sfb="$(basename "$_sf")"; _sfb="${_sfb#RESEARCH-STATE}"; _sfb="${_sfb#-}"; _sfb="${_sfb%.md}"
+        [ "${_sfb:-root}" = "$_myslug" ] && _dups=$((_dups+1))
+      done <<<"$_sfiles"
+      if [ "$_dups" -gt 1 ]; then
+        printf 'status: WARN: covers_through not applied: focus slug [%s] is not unique among the corpus state files (split layout) — using declared blocks_since_retro: %s\n' "$_myslug" "$_decl" >&2
+        return 0
+      fi
+    fi
     _pfx="$(derive_focus_prefix "$_st")"
     if [ -z "$_pfx" ]; then
       _rng="$(derive_focus_range "$_st" 2>/dev/null)"
@@ -1665,7 +1698,7 @@ if [ "$mode" = "--next" ]; then
     # newest block id in this focus's scope (same file predicate as the on-disk block count)
     while IFS= read -r _f; do
       _b="$(basename "$_f")"
-      if [ -n "$_pfx" ]; then
+      if [ -n "$_pfx" ]; then  # RD-NEWEST-PREFIX
         [[ "$_b" =~ ^${_pfx}(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$ ]] || continue
       else
         [[ "$_b" =~ ^.+-(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$ ]] || continue
@@ -1678,50 +1711,48 @@ if [ "$mode" = "--next" ]; then
       printf 'status: WARN: covers_through not applied: no block files found for %s — using declared blocks_since_retro: %s\n' "$_base" "$_decl" >&2
       return 0
     fi
-    # retros: the same enumeration predicate as the ISSUES-DUE gate / sweep-retros.sh
-    _rlist="$(find "$_tg" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' -type f 2>/dev/null | sort)"; _rc=$?
-    if [ "$_rc" -ne 0 ]; then
-      printf 'status: WARN: covers_through not applied: retro enumeration failed (sort exit %s) — using declared blocks_since_retro: %s\n' "$_rc" "$_decl" >&2
+    # retros: the same enumeration predicate as the ISSUES-DUE gate / sweep-retros.sh. find's own exit status is
+    # captured (IDG-FIND-EXIT-UNVERIFIED pattern): a partial listing is never read as the complete retro set.
+    _fo="$(find "$_tg" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' -type f 2>/dev/null)"; _frc=$?  # RD-FIND-EXIT
+    if [ "$_frc" -ne 0 ]; then
+      printf 'status: WARN: covers_through not applied: retro enumeration incomplete (find exit %s) — using declared blocks_since_retro: %s\n' "$_frc" "$_decl" >&2
       return 0
     fi
+    _rlist="$(LC_ALL=C sort <<<"$_fo")" || {
+      printf 'status: WARN: covers_through not applied: retro enumeration sort failed — using declared blocks_since_retro: %s\n' "$_decl" >&2
+      return 0; }
     while IFS= read -r _rf; do
       [ -n "$_rf" ] || continue
-      retro_is_excluded "$_rf" && continue
+      retro_is_excluded "$_rf" && continue  # RD-EXCLUDED-RETRO
       _nret=$((_nret+1))
       while IFS= read -r _line; do
         case "$_line" in
-          'V '*) _v="${_line#V }"
-                 if [[ "$_v" =~ ^[0-9]{1,9}$ ]]; then
-                   [ "$((10#$_v))" -gt "$_maxcov" ] && _maxcov=$((10#$_v))
-                 else _nbad=$((_nbad+1)); _badlist="$_badlist $(basename "$_rf")"; fi ;;
+          'V '*) _v="${_line#V }"; _sl="${_v#* }"; _v="${_v%% *}"
+                 if [ "$_sl" = "-" ]; then
+                   # unscoped: this focus's evidence only when it is the corpus's ONLY state file
+                   if [ "$_multi" = 1 ]; then _nunsc=$((_nunsc+1)); continue; fi  # RD-UNSCOPED-IGNORED
+                 elif [ "$_sl" != "$_myslug" ]; then continue; fi
+                 if [ "$((10#$_v))" -gt "$_newest" ]; then  # RD-OVER-RANGE
+                   _nover=$((_nover+1))
+                   printf 'status: WARN: covers_through B%s in %s exceeds newest block B%s on disk — value excluded (never clamped to 0)\n' "$((10#$_v))" "$(basename "$_rf")" "$_newest" >&2
+                 elif [ "$((10#$_v))" -gt "$_maxcov" ]; then
+                   _maxcov=$((10#$_v))
+                 fi ;;
           'M') _nbad=$((_nbad+1)); _badlist="$_badlist $(basename "$_rf")" ;;
         esac
-      done < <(awk -v slug="$_slug" '
-        /^```/ { fence = !fence; next }
-        fence { next }
-        /^covers_through:/ {
-          line = $0; sub(/\r$/, "", line)
-          if (line ~ /^covers_through:[ \t]+B[0-9]+([ \t]+focus=[A-Za-z0-9._-]+)?[ \t]*$/) {
-            v = line; sub(/^covers_through:[ \t]+B/, "", v); n = v; sub(/[^0-9].*$/, "", n)
-            sl = ""; if (v ~ /focus=/) { sl = v; sub(/^.*focus=/, "", sl); sub(/[ \t]*$/, "", sl) }
-            if (sl == "" || sl == slug) print "V " n
-          } else print "M"
-        }' "$_rf")
+      done < <(awk "$_CV_AWK" "$_rf")
     done <<< "$_rlist"
     [ "$_nbad" -gt 0 ] && printf 'status: WARN: covers_through: malformed in%s (want `covers_through: B<n>` with a number) — malformed lines ignored\n' "$_badlist" >&2
+    [ "$_nunsc" -gt 0 ] && printf 'status: WARN: covers_through: %s unscoped line(s) ignored — this corpus has several state files; write `covers_through: B<n> focus=%s` (root focus: focus=root)\n' "$_nunsc" "$_myslug" >&2
     if [ "$_nret" -eq 0 ]; then
       printf 'status: WARN: covers_through: absent (no retros found) — using declared blocks_since_retro: %s\n' "$_decl" >&2
       return 0
     fi
     if [ "$_maxcov" -lt 0 ]; then
-      [ "$_nbad" -gt 0 ] || printf 'status: WARN: covers_through: absent in %s retro(s) — using declared blocks_since_retro: %s\n' "$_nret" "$_decl" >&2
+      [ "$((_nbad + _nover + _nunsc))" -gt 0 ] || printf 'status: WARN: covers_through: absent in %s retro(s) — using declared blocks_since_retro: %s\n' "$_nret" "$_decl" >&2
       return 0
     fi
-    if [ "$_newest" -gt "$_maxcov" ]; then
-      _der=$((_newest - _maxcov))
-    elif [ "$_maxcov" -gt "$_newest" ]; then
-      printf 'status: WARN: covers_through B%s exceeds newest block B%s on disk — derived counter clamped to 0\n' "$_maxcov" "$_newest" >&2
-    fi
+    _der=$((_newest - _maxcov))
     if [ "$_der" -lt "$_decl" ]; then
       _rd_eff="$_der"
       _rd_note=" [derived: newest block B${_newest} − covers_through B${_maxcov}; declared counter was ${_decl}]"
@@ -1737,7 +1768,8 @@ if [ "$mode" = "--next" ]; then
     _rd_bsr="$(env_get blocks_since_retro)"
     _rd_note=""
     # kit issue #1640: only a counter that would FIRE is cross-checked against the retro's covers_through, and
-    # the derived value replaces it only when LOWER (a stale counter cannot fire early; it can never fire later).
+    # the derived value replaces it only when LOWER: coverage can only suppress or shorten a RETRO-DUE, never create
+    # one, and a counter at or below the threshold is never touched.
     if grep -qE '^[0-9]+$' <<<"$_rd_bsr" && [ "$_rd_bsr" -gt "$_rd_threshold" ]; then
       _rd_covers_derive "$state" "$_rd_bsr" "$target"  # RD-COVERS-THROUGH
       _rd_bsr="$_rd_eff"
