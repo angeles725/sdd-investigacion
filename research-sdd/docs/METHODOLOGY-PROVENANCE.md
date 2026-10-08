@@ -2,7 +2,7 @@
 
 Provenance for `research-sdd/METHODOLOGY.md`. Not an operating rule: read it only to audit where a
 rule came from. Kit issue #1003 (third slice) moved the bare corpus-pointer `(Evidence: ...)` notes
-(a corpus, focus, block or retro reference with no reason of its own) from the HOT-CORE tier of
+(a corpus, focus, block or retro reference with no reason of its own) from §5, §6, §11a, §12, §19 and §20b of
 METHODOLOGY.md to the table below; the rules themselves are unchanged and still live in
 METHODOLOGY.md. Each row keeps the original note verbatim, including its `Evidence:` prefix and
 parentheses. The first column is the exact bold label the annotated rule carries in METHODOLOGY.md
@@ -18,7 +18,7 @@ later slice; this file only ever receives bare pointers.
 | But the class-NAME token itself can be partially mangled. | (Evidence: niagara workbench focus, 6/12 blocks — B427/B429/B435-438.) |
 | JPMS products: measure module identities before `--patch-module` (kit #1618). | (Evidence: B139 §139.1/§139.2.) |
 | Precedence oracle: `-Xlog:class+load=info` (kit #1617). | (Evidence: B139 §139.2, 11 runs.) |
-| A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS. | (Evidence: B1206 §1206.4, a §14 correction to B1204; kit #1541.) |
+| A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS (kit #1541). | (Evidence: B1206 §1206.4, a §14 correction to B1204; kit #1541.) |
 | Vendor installer that initializes runtime state is a mutation — snapshot first. | (Evidence: niagara-research (licensing-deepdive focus)) |
 | Mutating the cited subject invalidates prior citations — re-anchor to a preserved snapshot. | (Evidence: blender-llm B6) |
 | Arm a local network sink and verify it is recording before the first probe. | (Evidence: blender-llm B6) |

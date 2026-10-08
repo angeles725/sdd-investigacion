@@ -1916,7 +1916,7 @@ Same family as UNANIMITY: a confident number is verified by a second path. (kit 
 
 **AGGREGATE MATCH ≠ EXAMPLE VALID (sibling of DECODED FIELD NAME IS A HYPOTHESIS, at row level).** When cross-checking an external document against local data, a matching HEADLINE AGGREGATE (totals, counts, medians, section-level statistics) does NOT validate the document's individual WORKED EXAMPLES (specific cited rows or timestamps). Spot-check every cited example independently: locate where its exact value triple actually occurs in the local data, and do not assume it is correct because the surrounding aggregate matches. A plausible field name and a plausible worked example are both unproven until checked against the answer key. (Evidence: B16 §16.2 vs §16.3 — the headline statistics (539 alarms, interruption durations, medians, L2 asymmetry) all matched, but the study's cited triple (17/09 08:30, point 70108 L2, 63.12 A) did not: the local data at 08:30 shows L2 = 85.9 A, stable; the matching value (63.06 A) occurs at 09:04, found only by searching the data for where the cited values occur; kit #1885.)
 
-**A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS.** A tool's summary line or header row is not a verdict on its sibling fields: `[expires: never]` in a license file listing reflected the FILE header expiration only, while 148 per-feature expirations sat beneath it. Read the per-item fields before certifying the whole.
+**A SUMMARY ROW CERTIFIES ONLY THE ROW IT PRINTS (kit #1541).** A tool's summary line or header row is not a verdict on its sibling fields: `[expires: never]` in a license file listing reflected the FILE header expiration only, while 148 per-feature expirations sat beneath it. Read the per-item fields before certifying the whole.
 
 **SILENT-SKIP HAZARD: verify optional enrichment inputs were consumed, not just exit-zero.** When invoking a tool with an optional enrichment input (symbol table, reference file, calibration source), confirm the run log contains the line proving the input was CONSUMED — not merely that the exit code was zero. A successful exit after silently skipping the enrichment is indistinguishable from a fully-loaded run unless consumption is explicitly logged. Check for the "loaded N symbols" / "processing X" confirmation before trusting a result. (Sources: blender-llm B51 §51.5 — Ghidra `Skipping PDB processing`; B45 §45.1 — `shadow_resolution_scale=2.0` silently clamped; B49 §49.2 — 2,505/2,505 success on an unusable artifact.)
 
@@ -2415,7 +2415,8 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   → settle window → independent read-back → byte-identical restore-to-original (see backup-before-destroy
   and cross-protocol oracle rules); (c) a bare `200 OK` is NOT verification — a malformed response body
   can return 200 and silently write wrong data; confirm the write via the independent read-back oracle
-  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient. The same read-back duty binds write commands inside shipped deliverable code
+  before recording `[CERT-hw]`. All three gates are mandatory; passing two of three is not sufficient.
+  The same read-back duty binds write commands inside shipped deliverable code
   (§11a SILENT-SKIP HAZARD; kit #1883).
 - **OFFENSIVE / DUAL-USE EXECUTION IS OUT OF DEFAULT SCOPE.** Building or running dual-use/offensive
   tooling to CLOSE a gap — a license or authentication BYPASS, a tamper that forces a verifier to accept
