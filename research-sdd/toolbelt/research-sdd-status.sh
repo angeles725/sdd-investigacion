@@ -1201,7 +1201,7 @@ _stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)%s\n' "$_
 # when the backlog parser left N rows UNCOUNTED (near-miss heading, no-Priority-header table, non-tier priority token,
 # malformed row — count_uncounted_rows, the number --sync-state treats as a lower bound). Empty when N=0, so a clean
 # backlog prints the bare STOP unchanged. _bu_compute STATE... sums the uncounted rows of exactly the state files the
-# verdict covers (the picked file when --root/--focus scopes, else every non-skipped file the aggregate walked) and sets
+# verdict covers (the picked file when --root/--focus scopes, else every state file, stopped and paused included) and sets
 # _BU_SUFFIX. It swaps the global $state that backlog_rows reads and restores it.
 _BU_SUFFIX=""
 # A count that cannot be taken (unreadable state file, backlog parser failure, grep error) is NOT zero: it yields the
