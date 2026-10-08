@@ -64,7 +64,7 @@ if [ -x "$vcmd" ]; then
     # within one poll (0.1 s, or 1 s on the integer-sleep fallback below) of $vf.done appearing. The bound is counted in poll
     # iterations (vt*vper sleeps: vper=10 of 0.1 s, or 1 of 1 s), never wall-clock SECONDS: SECONDS granularity could fire after just over vt-1 s; drift only lengthens it.
     # A `sleep` that cannot do fractions (POSIX-only userland: it rejects 0.1, or reads it as 0 and returns at once) would burn
-    # the whole count instantly and kill a healthy verify, so the watchdog probes `sleep 0.1` once (exit status, and elapsed when
+    # the whole count instantly and kill a healthy verify, so the watchdog probes `sleep 0.1` (exit status, then up to five elapsed samples when
     # $EPOCHREALTIME exists) and otherwise polls with integer `sleep 1` x vt (#1771). The fallback trades latency for safety: a
     # healthy verify can hold session start up to 1 s past its finish. Without $EPOCHREALTIME (bash < 5) only the exit-status
     # half runs, so a sleep that accepts 0.1 yet returns at once is not detected there.
@@ -72,8 +72,16 @@ if [ -x "$vcmd" ]; then
     ( vsl=0.1; vper=10; vp0="${EPOCHREALTIME:-}"
       sleep 0.1 2>/dev/null || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-RC
       # 50 ms threshold: a working `sleep 0.1` takes ~100 ms; one that reads 0.1 as 0 returns in <5 ms. 50 ms sits between them.
+      # A slow sample proves nothing (CPU contention can stretch the gap around a sleep that returned at once), only a FAST
+      # one proves the sleep is broken, so five samples are taken and a single fast one is enough (#1978); a working sleep
+      # pays four extra 0.1 s probes once per session start.
       if [ "$vper" -eq 10 ] && [ -n "$vp0" ] && [ -n "${EPOCHREALTIME:-}" ]; then   # radix may be '.' or ',' by locale
-        [ $(( ${EPOCHREALTIME//[.,]/} - ${vp0//[.,]/} )) -ge 50000 ] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED
+        for vn in 1 2 3 4 5; do   # SENTINEL-SLEEP-PROBE-SAMPLES
+          [ $(( ${EPOCHREALTIME//[.,]/} - ${vp0//[.,]/} )) -ge 50000 ] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED
+          [ "$vper" -eq 10 ] && [ "$vn" -lt 5 ] || break
+          [ ! -e "$vf.done" ] || break   # verify already finished: the remaining samples would only hold the hook up
+          vp0="$EPOCHREALTIME"; sleep 0.1 2>/dev/null
+        done
       fi
       vmax=$((vt * vper)); vi=0
       while [ ! -e "$vf.done" ] && [ "$vi" -lt "$vmax" ]; do sleep "$vsl"; vi=$((vi+1)); done
@@ -94,7 +102,7 @@ if [ -x "$vcmd" ]; then
   if [ -n "${extra_skip:-}" ]; then
     extra="verify: install --verify skipped: no timeout available (no timeout binary, no mktemp)"
   elif [ "$vrc" -eq 124 ]; then
-    extra="verify: install --verify timed out (RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT, default 10s)${extra:+
+    extra="verify: install --verify timed out (RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT, default 10s; on the pure-bash watchdog path the bound is that value plus up to ~0.5 s of sleep-probe time)${extra:+
 $extra}"
   elif [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then
     extra="verify: install --verify exited $vrc with no typed line"
