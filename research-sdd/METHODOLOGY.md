@@ -1358,10 +1358,7 @@ leading `**`. Live tokens (the row stays open):
 | `requires-execution` | open but not read-only; counted in `requires_execution_open` (§19) |
 | `blocked-on-<reason>` | open but blocked; `<reason>` matches `[a-z0-9/-]+` |
 
-Closed markers: `✅` or `~~` prefix ONLY. The bare words `covered`, `closed`, `done` do **not** close
-a row — they appear negated inside open asides and parsers cannot reliably distinguish the forms. Do
-not use them as closure markers. Everything after the leading token is **free decoration** (→ block
-ref, note, date).
+Closed markers: `✅` or `~~` prefix ONLY. The bare words `covered`, `closed`, `done` do **not** close a row — they appear negated inside open asides and parsers cannot reliably distinguish the forms. Do not use them as closure markers. Everything after the leading token is **free decoration** (→ block ref, note, date).
 
 **Deprecated aliases.** `open` and `queued` are non-conforming aliases of `pending`. Migrate to `pending`.
 
@@ -1395,6 +1392,8 @@ auto-applies. Migration classes to address:
 - Heading variants → `## Gap-backlog`.
 - Wrong column order or missing columns → 4-column canonical form (or accepted 5-column variant above).
 - Bare `|` inside cells → `&#124;`.
+
+**Child-gap bullet grammar at OPEN time (kit #1214).** A block's "Child gaps opened" section lists one bullet per child gap, `- B<n>-G<m> (<priority>, <type>) — <gap prose>`. At the moment a bullet is written it carries two clauses, in the bullet or its continuation lines. (1) `coverage-check: <query> → <result>` — the grep / INDEX query that asked whether the gap is ALREADY answered by an existing block, and what it returned (`none` is a legitimate result: the query ran and found nothing). `->` is accepted for `→`. The query may be written as a leading code span followed by the result in prose (the clause reads: the `rg` command in a code span, then "single hit: block18.md"), which is the form real blocks use; a prose-only clause with no code span is accepted when it is more than a stub (4+ words, and no placeholder word such as `n/a` or `TODO` anywhere in it), because a doc-reference query cannot be told from its result mechanically. A clause body ends at the next clause token, a `;`, or its sentence end (including before a digit-led sentence), so trailing prose is never read as the result. A placeholder (`TBD`, `TODO`, `n/a`), a query with no result, or an empty or placeholder result (`pending`, `missing`, `nil`, `tbd`; `none` is fine) is MALFORMED. A sub-bullet (`  - coverage-check: ...`) under the gap bullet belongs to it. (2) `measured-by: <tool/method>` — required whenever the gap prose states a number. A number in a gap is a hypothesis until the tool that produced it is named (the B114-header and "4,209 types vs 2,418 typelinks" incidents; PROMPT-LOOP "GAP NUMBERS ARE ALSO HYPOTHESES"). Numbers are read from the whole bullet except the clause bodies; decimals, percentages and unit-suffixed figures (`12.5%`, `2.5x`, `3k`) count, as does a figure inside `[Block 4, 247 classes]` (the block number does not). Not numbers: the gap id, the priority parenthetical, code spans, `B<n>` / `§N` references, 3-part versions and bare two-part ones (`4.15`), ISO dates, `:N` line references and tokens glued to letters (`N5`, `v2`). A bare or placeholder `measured-by:` is MEASURE. This is the open-time twin of the dispatch-time check (pending wave10-11 #3). The mechanical check is the opt-in `lint-block.sh --pack child-gap` rule **R4**, which reports three typed states per bullet, each naming the gap id: ABSENT (no `coverage-check:` token), MALFORMED (token present, clause not a query plus a result) and MEASURE (a stated number with no usable `measured-by:`). The SUMMARY line carries `r4-triggers=<n>`, the number of bullets inspected, so a file with no child-gap section reads `r4-triggers=0` rather than a silent clean. A judged section starts at an open-time heading naming child gaps (excluded only when the title ends in `closed` / `resolved`, starts with `closed` / `resolved` / `no child gaps`; `Child gaps opened (none resolved yet)` and `Gaps not yet closed` stay judged) and runs to the next heading of the same or a higher level, so `###` sub-headings stay inside it; a whole-line `**Child gaps opened**` label or a `- Child gaps opened:` list-item label starts one that runs to the next heading (a setext heading also ends it). Bullets in a code fence or a `>` quote are not judged, and gap-id bullets outside every judged section are counted as `r4-unscoped=<n>` (always printed) instead of vanishing. Waive one bullet with `<!-- lint-waive: R4 reason=... -->`. The convention starts with the blocks written after the 2026-09-28 retro; earlier blocks predate it and report ABSENT by definition, so run R4 in FAIL mode on new blocks and in `--audit` mode on legacy corpora. The check proves the clause is present and shaped, not that the query was honest.
 
 ## 8c. Campaign queue
 
@@ -3756,6 +3755,13 @@ exceeded, enumeration or subprocess error), `--next` emits
 cause is reported on stderr. This is advisory: surface it and let the operator proceed; it must not trap the
 loop in a hard block. The retro marker and issue remain the source of truth for provenance even when online
 verification is unavailable.
+
+A STOP may also end in `[backlog-unreadable: N rows]` (N backlog rows the parser could not count: near-miss heading,
+no-Priority-header table, non-tier priority, malformed row) or `[backlog-unreadable: unverified]` (a state file could not
+be counted at all), appended after any `[issue-coverage: unverified]` (kit #1959). Unlike the coverage marker this is NOT
+exhaustion: unread rows may hold open work. Reconcile the backlog grammar (`research-sdd-status.sh --sync-state`, move to a
+canonical `## Gap-backlog` heading with a Priority column) and re-run `--next`; `--emit-token` answers
+`return-token: unavailable` for it, never `STOP: campaign`. The count covers every state file, stopped/paused included.
 
 **Source of truth is hybrid.** The issue is authoritative for OPEN / triage / backlog; the retro marker records
 the FINAL `applied · #N` for offline provenance. This keeps the kit offline-first: the marker still resolves with

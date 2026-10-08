@@ -5,7 +5,7 @@
 # lint_block.py for the rule definitions: R0 waiver hygiene, R3 ephemeral evidence in Self-verify,
 # R6 cross-block comparison without a raw artifact). Per-target rule packs (kit #1365 item 1) plug
 # into the RULES registry in lint_block.py and are opt-in with --pack NAME: jvm (R1 R5 R7),
-# multi-version (R8), native-binary (R9). R2 and R4 have no pack yet. NOT wired into verify-block.sh.
+# multi-version (R8), native-binary (R9), child-gap (R4). R2 has no pack yet. NOT wired into verify-block.sh.
 #
 # Usage:
 #   lint-block.sh <block.md>...             FAIL mode: exit 1 if any finding remains. Use on NEW blocks.

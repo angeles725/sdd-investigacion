@@ -145,6 +145,15 @@ if [ "$g_rc" = 0 ] && [ -z "$g_out" ] && grep -q 'state=allow branch=unavailable
 else no "G-UNAVAILABLE: rc=$g_rc out=[$g_out] err=[$g_err]"; fi
 c="$(fresh corpus-stop-queue)"; run_gate "$c" "$(tr_ notoken.jsonl)" s1
 expect_allow "G-UNAVAILABLE-NOTOKEN: unavailable also allows a report with no token" unavailable
+# kit #1959: a STOP carrying [backlog-unreadable: N rows] is non-terminal -> --emit-token answers unavailable, so the gate
+# neither demands a STOP: campaign token nor blocks the report that (correctly) does not claim one.
+c="$(fresh_stop)"; sedi 's/^## Gap-backlog (prioritized)$/## Gap backlog/' "$c/RESEARCH-STATE.md"
+sedi '/^| high | done thing | web | covered |$/a\
+| 1 | numbered row | web | pending |' "$c/RESEARCH-STATE.md"
+run_gate "$c" "$(tr_ notoken.jsonl)" s1
+if [ "$g_rc" = 0 ] && [ -z "$g_out" ] && grep -q 'state=allow branch=unavailable' <<<"$g_err" && grep -qF 'backlog-unreadable' <<<"$g_err"; then
+  ok "G-UNREADABLE-STOP: a STOP with [backlog-unreadable: N rows] is unavailable (non-terminal) and never blocks"
+else no "G-UNREADABLE-STOP: rc=$g_rc out=[$g_out] err=[$g_err]"; fi
 
 echo "-- not a corpus target, target resolution --"
 e="$TMP/empty-target"; mkdir -p "$e"; run_gate "$e" "$(tr_ mismatch.jsonl)" s1
