@@ -616,13 +616,13 @@ _GOOD_ARGV = ["x"]
 exec(os.environ["RSDD_TOOTH_PY"], globals())
 _tooth_run(sys.argv[2], lambda elf: [], "fakeexec", "FakeExec")
 PY
-tp(){ RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" python3 -I "$VM/drv.py" "$VM/pystub" "$1" 2>&1; }
-if [ "$(tp alloc)" = "TOOTH_ALLOC=2" ]; then ok "vm tooth py: alloc counts both run_dir allocations made by the executor"
-else no "vm tooth py: alloc counts allocations (got [$(tp alloc)])"; fi
-if [ "$(tp inv5)" = "TOOTH_INV5=leaked" ]; then ok "vm tooth py: inv5 reports leaked when the executor does not reap its run_dir"
-else no "vm tooth py: inv5 leak verdict (got [$(tp inv5)])"; fi
-if [ "$(tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
-else no "vm tooth py: unknown scenario (got [$(tp zzz)])"; fi
+vm_tp(){ RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" python3 -I "$VM/drv.py" "$VM/pystub" "$1" 2>&1; }
+if [ "$(vm_tp alloc)" = "TOOTH_ALLOC=2" ]; then ok "vm tooth py: alloc counts both run_dir allocations made by the executor"
+else no "vm tooth py: alloc counts allocations (got [$(vm_tp alloc)])"; fi
+if [ "$(vm_tp inv5)" = "TOOTH_INV5=leaked" ]; then ok "vm tooth py: inv5 reports leaked when the executor does not reap its run_dir"
+else no "vm tooth py: inv5 leak verdict (got [$(vm_tp inv5)])"; fi
+if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
+else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
