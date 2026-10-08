@@ -1,6 +1,6 @@
-# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-3)
+# json-envelope.v1 — opt-in `--json` envelope for high fan-in instruments (kit issue #1711, slices 1-4)
 
-A read-only instrument that implements this contract accepts `--json` and then prints exactly ONE JSON
+An instrument that implements this contract (read-only, except `retro-gate.sh`; see its section) accepts `--json` and then prints exactly ONE JSON
 document on stdout instead of its human report. Without `--json` its output is unchanged (byte-identical;
 the flag is opt-in). The envelope carries the CLAUDE.md §7 state enum, so a caller never has to guess
 whether a zero count means "looked and found nothing" or "could not look".
@@ -37,13 +37,14 @@ Exit codes of `--json` mode (every one it can return):
 |---|---|---|
 | 0 | envelope printed, any state except `degraded` (a finding is advisory and never changes the exit code) | one envelope |
 | 1 | operational failure: unreadable `TARGETS.md`, no usable target path, a helper failed to load, or the `jq` envelope build itself failed | nothing |
+| 2 | usage error, for the instruments whose usage error already exits 2 (`verify-registry.sh`, `resume-state.sh`, `retro-gate.sh`; the exit code is per instrument, see below) | nothing |
 | 3 | `degraded` (a runtime dependency is missing) | one envelope with `"state":"degraded"` |
 
 - `degraded` exits 3, prints a `DEGRADED:` line on stderr, and still prints a valid envelope with
   `"state":"degraded"` so a machine caller sees the typed state instead of empty stdout.
 - Operational failures keep the instrument's existing behaviour: a message on stderr, exit 1, nothing on stdout.
-- The envelope is built with `jq`; the instrument probes for it before doing any work and hands it the data as files, never argv words, so a large backlog cannot hit the per-argument size limit.
-- The probe covers the capability, not just presence: the data is passed with `jq --rawfile` (jq >= 1.6), so a jq that lacks it is `degraded` (exit 3, reason `jq lacks --rawfile (jq >= 1.6 required)`), never a late exit 1.
+- The envelope is built with `jq`; the instrument probes for it before doing any work and hands it the data as files, never argv words, so a large backlog cannot hit the per-argument size limit (slices 1-3; `retro-gate.sh` is the exception: the block reason travels on jq's stdin and only short fields use `--arg`/`--argjson`).
+- The probe covers the capability, not just presence: in slices 1-3 the data is passed with `jq --rawfile` (jq >= 1.6; `retro-gate.sh` probes `jq -n --argjson x 1 '$x'` instead, jq >= 1.5, reason `jq lacks --argjson (jq >= 1.5 required)`), so a jq that lacks it is `degraded` (exit 3, reason `jq lacks --rawfile (jq >= 1.6 required)`), never a late exit 1.
 - Pending-retro rows travel from the sweep to the jq builder as named `name=value` fields, so the builder reads each field by name, not by position.
 
 ## Instruments
@@ -53,7 +54,7 @@ Exit codes of `--json` mode (every one it can return):
 | `sweep-retros.sh` | implemented (slice 1, kit issue #1711) | `research-sdd.sweep-retros/v1` |
 | `verify-registry.sh` | implemented (slice 2, kit issue #1711) | `research-sdd.verify-registry/v1` |
 | `resume-state.sh` | implemented (slice 3, kit issue #1711) | `research-sdd.resume-state/v1` |
-| `retro-gate.sh` | not yet | — |
+| `retro-gate.sh` | implemented (slice 4, kit issue #1711) | `research-sdd.retro-gate/v1` |
 
 ### `research-sdd.sweep-retros/v1`
 
@@ -158,3 +159,40 @@ Items, in this order (`repo`, then worktrees in `git worktree list` order, then 
 | `pr` | `number`, `branch`, `state`, `url` (only when `prs_status` is `ok`) |
 
 Every field keeps the meaning and null semantics documented in `resume-state.v1.md`.
+
+### `research-sdd.retro-gate/v1`
+
+`retro-gate.sh` is the §18 Stop-hook body: by default it prints the hook decision (`{"decision":"block",...}`) on a
+block and nothing on an allow, and always exits 0. `retro-gate.sh --json <target>` (the flag may sit in any position)
+prints this envelope INSTEAD of the decision; the gate itself is unchanged, so the block-once state file, the stop
+log, the issue seeding and every stderr line behave exactly as without the flag. `--json` is a machine-reading
+mode, not a hook registration: do not register it as the Stop hook (a hook wants the decision JSON and exit 0).
+
+**`retro-gate.sh` is the one instrument of this contract that is NOT read-only**, because `--json` runs the real gate. Two hazards: (1) a `--json` call fed a live session's hook JSON writes that session's block-once state file, so it consumes the session's one block (the real Stop that follows is allowed with `block-once`); (2) when a conforming retro is found it can seed GitHub issues through `stage-retro-issues.sh --apply`. Callers that only want to look must not pass a live `session_id` and should expect those side effects otherwise.
+
+State precedence: `degraded` (jq missing, rc 3) → `ok`. A completed run always carries one `verdict` item, so
+`absent-input`, `empty-input` and `no-match` are never emitted (the resume-state precedent): an allow is a real
+answer, and a missing target is an operational failure (rc 1, no stdout), not a state.
+
+`counts`: `blocked` (`1` when the verdict is `block`, else `0`), `degraded_check` (`1` when the change set was
+decided by the mtime fallback because the session-start sha was absent or unresolvable, else `0`), `unverified`
+(`1` when the verdict was reached without a check the gate normally makes: `verify-retro.sh` absent so the
+retro was not verified (`branch` `no-verifier`, an allow), the nested-worktree probe failed (any non-zero rc,
+including rc 3, an incomplete traversal), or a directory-symlink scan was skipped, timed out or incomplete; else
+`0`; each case also prints its typed stderr WARN, except rc 3, whose WARN comes from the lib). A directory link
+that is deliberately skipped because it resolves to `/`, `$HOME` or an ancestor of the target is a safety skip,
+not a failed check: it prints its WARN but does not set `unverified`. An allow with `unverified:1` is NOT a clean pass. A `degraded` envelope has `counts:{}`.
+
+Process differences from the default mode, all in `--json` only: usage error (anything other than one `<target>`
+beside the flag) is rc 2, target not found / a missing or incomplete helper lib / a failed envelope build is rc 1
+(the default mode exits 0 on all of these, per the hook contract). A build failure on a `retro-conforming` allow exits 1 before the issue seeding runs; both print their stderr message and nothing on
+stdout. rc 3 (jq missing, or a jq without `--argjson`, probed before the gate runs) prints the `DEGRADED:` line beside the unchanged `state=allow branch=degraded` line and a
+hand-built `degraded` envelope on stdout (the default mode prints nothing on stdout). The envelope goes out before
+the issue seeding runs, so a Stop timeout during seeding cannot swallow it. The reason travels on jq's stdin, never
+argv.
+
+Item (exactly one):
+
+| `kind` | Fields |
+|---|---|
+| `verdict` | `verdict` (`allow` or `block`), `branch` (the stop-log branch: `loop-safety`, `block-once`, `no-change`, `retro-conforming`, `no-verifier`, `retro-pending`), `target` (basename), `session_id` (string or null when the hook JSON carried none), `check_mode` (`session-sha`, `mtime-fallback`, or null on `loop-safety`/`block-once`, which exit before the change set is evaluated), `newest_retro` (basename of the retro the verdict rests on, or null), `reason` (the block reason, equal to the default decision's `reason` after JSON decoding, except that bytes that are not valid UTF-8 become U+FFFD in the envelope; null on an allow) |
