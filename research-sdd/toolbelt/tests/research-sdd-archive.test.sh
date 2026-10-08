@@ -1017,6 +1017,14 @@ mkrun_git() {
 
 - **Open gaps — read-only investigable**: 1
 EOF
+  # PSA_PRE_ROW (kit #1887): when set, that data row is committed into the BASELINE state, i.e. it exists as of
+  # the prior retro's commit and so belongs to an EARLIER run.
+  if [ -n "${PSA_PRE_ROW:-}" ]; then
+    printf '%s\n' "$PSA_PRE_ROW" > "$corpus/.pre-row"
+    awk -v rowf="$corpus/.pre-row" 'BEGIN{getline row < rowf} {print} index($0,"| 1 | 2026-07-07")==1{print row}' "$corpus/RESEARCH-STATE.md" > "$corpus/RESEARCH-STATE.md.new" \
+      && mv "$corpus/RESEARCH-STATE.md.new" "$corpus/RESEARCH-STATE.md"
+    rm -f "$corpus/.pre-row"
+  fi
   : > "$corpus/INDEX.md"
   git -C "$corpus" add -A
   GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" git -C "$corpus" commit -q -m baseline
@@ -1081,7 +1089,7 @@ mkrun_git_psa() {
   # $3 = row date (default in-window); $4 = raw line to insert INSTEAD of a table row (prose/fence cases)
   if [ -n "${4:-}" ]; then printf '%s\n' "$4" > "$1/.psa-row"
   else printf '| 2 | %s | import | B1,B2 | no · inline · %s | 0 |\n' "${3:-2026-07-08}" "$2" > "$1/.psa-row"; fi
-  awk -v rowf="$1/.psa-row" 'BEGIN{while ((getline row < rowf) > 0) rows=rows row "\n"} {print} index($0,"| 1 | 2026-07-07")==1{printf "%s", rows}' "$1/RESEARCH-STATE.md" > "$1/RESEARCH-STATE.md.new" \
+  awk -v rowf="$1/.psa-row" 'BEGIN{while ((getline row < rowf) > 0) rows=rows row "\n"} {L[NR]=$0; if ($0 ~ /^\| [0-9]+ \|/) last=NR} END{for(i=1;i<=NR;i++){print L[i]; if(i==last) printf "%s", rows}}' "$1/RESEARCH-STATE.md" > "$1/RESEARCH-STATE.md.new" \
     && mv "$1/RESEARCH-STATE.md.new" "$1/RESEARCH-STATE.md"
   rm -f "$1/.psa-row"
 }
@@ -1108,13 +1116,30 @@ if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
   ok "22c non-per-section-agent method + multi-block commit → WARN still fires (exemption never covers sequential)"
 else no "22c seq-not-exempt: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
 
-# 22d — C1: a STALE row from before the prior retro (2026-01-15 < retro 2026-02-01), N=20, must not excuse a
-#       later multi-block commit → WARN still fires.
-d="$TMP/one-block-psa-stale"; mkrun_git_psa "$d" 'method: per-section-agent · 20 sections' 2026-01-15
+# 22d — C1 (exact boundary): a STALE marker row that already existed AS OF the prior retro's commit (here even
+#       dated the retro's own day, 2026-02-01), N=20, must not excuse a later multi-block commit → WARN fires.
+d="$TMP/one-block-psa-stale"
+PSA_PRE_ROW='| 2 | 2026-02-01 | old | B0 | no · inline · method: per-section-agent · 20 sections | 0 |' mkrun_git "$d" together
 out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out" && ! grep -qi 'exempt from ONE-BLOCK' <<<"$out"; then
-  ok "22d stale N=20 row from before the prior retro → no exemption, WARN fires (C1)"
+  ok "22d stale N=20 row present at the prior retro's commit → no exemption, WARN fires (C1)"
 else no "22d psa-stale: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22d2 — the current run's row dated the SAME DAY as the prior retro (2026-02-01) is still current: it was
+#        added after the retro's commit, so the exact boundary exempts it (a day-floor would be ambiguous).
+d="$TMP/one-block-psa-sameday"; mkrun_git_psa "$d" 'method: per-section-agent · 2 sections' 2026-02-01
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && ! grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out" && grep -qi 'exempt from ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22d2 current-run row dated the retro's own day → exempt (exact boundary, no day-floor ambiguity)"
+else no "22d2 psa-sameday: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
+
+# 22d3 — a stale row at the retro's commit AND a smaller current-run row: only the current-run N counts.
+d="$TMP/one-block-psa-both"
+PSA_PRE_ROW='| 2 | 2026-02-01 | old | B0 | no · inline · method: per-section-agent · 20 sections | 0 |' mkrun_git_psa "$d" 'method: per-section-agent · 1 sections' 2026-07-08
+out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && grep -qi 'WARN: ONE-BLOCK-PER-COMMIT' <<<"$out"; then
+  ok "22d3 stale N=20 + current-run N=1 → N=1 governs, 2-block commit still WARNs"
+else no "22d3 psa-both: rc=$rc :: $(grep -iE 'one-block' <<<"$out" | head -2)"; fi
 
 # 22e — W2: the marker in a blockquote / fenced table row / non-numeric-first-cell row never exempts.
 d="$TMP/one-block-psa-prose"; mkrun_git_psa "$d" "" "" '> e.g. method: per-section-agent · 40 sections'
@@ -1834,10 +1859,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          tooth "teeth: exemption neutered → per-section-agent import commit WARNs → case 22a has teeth" 0 0 "$MUT/archive.PSAMUTANT.sh" \
            --good-has "$ARCH_RE" --good-lacks 'WARN: ONE-BLOCK-PER-COMMIT' --bad-has 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa"; }
 
-  echo "-- teeth: #1887 C1 — drop the run-window date floor; the stale N=20 row must then wrongly exempt --"
-  mk_sed "teeth(22d)" "$MUT/archive.PSAWIN.sh" 's/\[ "\$_psa_e" -ge "\$_psa_floor" \] || continue/:/' \
-    && { mkrun_git_psa "$TMP/teeth-psa-stale" 'method: per-section-agent · 20 sections' 2026-01-15
-         tooth "teeth: window floor dropped → stale row exempts → case 22d has teeth" 0 0 "$MUT/archive.PSAWIN.sh" \
+  echo "-- teeth: #1887 C1 — drop the run boundary (skip=0); the stale N=20 row must then wrongly exempt --"
+  mk_sed "teeth(22d)" "$MUT/archive.PSAWIN.sh" 's/rows > skip \&\& match/rows > 0 \&\& match/' \
+    && { PSA_PRE_ROW='| 2 | 2026-02-01 | old | B0 | no · inline · method: per-section-agent · 20 sections | 0 |' mkrun_git "$TMP/teeth-psa-stale" together
+         tooth "teeth: boundary dropped → stale row exempts → case 22d has teeth" 0 0 "$MUT/archive.PSAWIN.sh" \
            --good-has "$ARCH_RE" --good-has 'WARN: ONE-BLOCK-PER-COMMIT' --bad-lacks 'WARN: ONE-BLOCK-PER-COMMIT' -- run_on_fix @SUT@ "$TMP/teeth-psa-stale"; }
 
   echo "-- teeth: #1887 W2 — accept lines without a leading pipe; a pipe-less numeric-first row must then wrongly exempt --"

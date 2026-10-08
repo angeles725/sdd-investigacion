@@ -469,7 +469,7 @@ while IFS= read -r _mr_bf; do
   [ -n "$_mr_bf" ] || continue
   _mr_e="$(rsdd_added_epoch "$corpus" "$_mr_bf")"; [ "${_mr_e:-0}" -gt "$newest_block_epoch" ] && newest_block_epoch="$_mr_e"
 done < <(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter)
-retros=0; newest_retro_epoch=0; prior_retro_epoch=0
+retros=0; newest_retro_epoch=0; prior_retro_epoch=0; prior_retro_file=""
 while IFS= read -r _mr_rf; do
   [ -n "$_mr_rf" ] || continue
   retro_is_excluded "$_mr_rf" && continue
@@ -479,7 +479,9 @@ while IFS= read -r _mr_rf; do
   # prior_retro_epoch: the newest qualifying retro whose epoch is ≤ newest_block_epoch — this is the
   # "end of the previous run" and anchors the ONE-BLOCK-PER-COMMIT window so that a close retro
   # (added after blocks to satisfy this gate) does not shift the OBPC window past all the blocks.
-  [ "${_mr_e:-0}" -le "$newest_block_epoch" ] && [ "${_mr_e:-0}" -gt "$prior_retro_epoch" ] && prior_retro_epoch="$_mr_e"
+  if [ "${_mr_e:-0}" -le "$newest_block_epoch" ] && [ "${_mr_e:-0}" -gt "$prior_retro_epoch" ]; then
+    prior_retro_epoch="$_mr_e"; prior_retro_file="$_mr_rf"
+  fi
 done < <(find "$corpus" "$target" -maxdepth 2 -path '*/retros/*.md' 2>/dev/null | sort -u)
 if [ "${blocks:-0}" -gt 0 ] && { [ "$retros" -eq 0 ] || [ "$newest_block_epoch" -gt "$newest_retro_epoch" ]; }; then
   if [ "$retros" -eq 0 ]; then _mr_rdate="none"
@@ -605,31 +607,56 @@ exempt_import_commits=""
 # `method: per-section-agent · N sections`. The match is EXACT: lowercase `method:`, the separator is the
 # middle dot `·`, and `sections` is plural; any other spelling is no marker. Only TABLE DATA rows of
 # `## Iteration history` count (numeric first cell, outside code fences — prose, blockquotes and fenced
-# examples never exempt), and only rows dated on/after the day of the PRIOR retro (the same boundary the
-# commit scan below uses; with no prior retro, every row), so a stale large N from an earlier run cannot
-# excuse a later sequential run. A row with an unparseable date is not counted. We take the LARGEST N in
-# the window and exempt only a commit whose added-block count is <= N. The "every block individually
-# SELF-VERIFIED" precondition is NOT machine-checked here; the recorded method line is the declaration the
-# exemption keys on. An unreadable/absent state file leaves the exemption unevaluable (typed note; WARN fires).
+# examples never exempt). "Current run" is the EXACT boundary, not a date: the data rows already present in
+# the state file AS OF the commit that added the PRIOR retro (`git show <that commit>:<state file>`, same
+# row filter) belong to earlier runs and are skipped; only the rows after that count are considered.
+# Fallbacks: no prior retro, or the state file did not exist at that commit → every row counts; the prior
+# retro has no commit or `git ls-tree`/`git show` fails → typed note and NO exemption (fail closed). We take
+# the LARGEST N among the current-run rows and exempt only a commit whose added-block count is <= N. The
+# "every block individually SELF-VERIFIED" precondition is NOT machine-checked here; the recorded method
+# line is the declaration the exemption keys on. An unreadable/absent state file leaves the exemption
+# unevaluable (typed note; WARN fires).
 psa_max=0
 psa_unevaluable=""
-if [ -f "$state" ] && [ -r "$state" ]; then
-  _psa_floor=0
-  [ "${prior_retro_epoch:-0}" -gt 0 ] && _psa_floor=$(( prior_retro_epoch - prior_retro_epoch % 86400 ))
-  while IFS=$'\t' read -r _psa_date _psa_n; do
-    [ -n "$_psa_n" ] || continue
-    _psa_e="$(date -u -d "$_psa_date" +%s 2>/dev/null)" || continue
-    [ "$_psa_e" -ge "$_psa_floor" ] || continue
-    [ "$_psa_n" -gt "$psa_max" ] 2>/dev/null && psa_max="$_psa_n"
-  done < <(awk 'index($0,"## Iteration history")==1{f=1;next} /^## /{f=0}
+# psa_rows <skip>: read a state file on stdin; print "<ordinal>\t<N>" per data row carrying the marker whose
+# ordinal (among ALL data rows) is > <skip>; with skip=count it prints nothing. psa_count prints the row count.
+psa_awk='index($0,"## Iteration history")==1{f=1;next} /^## /{f=0}
       f && /^[ \t]*```/{fence=!fence; next}
       f && !fence {
         l=$0; gsub(/^[ \t]+|[ \t]+$/,"",l); if (substr(l,1,1)!="|") next
-        sub(/^\|/,"",l); n=split(l,a,"|"); gsub(/^[ \t]+|[ \t]+$/,"",a[1]); gsub(/^[ \t]+|[ \t]+$/,"",a[2])
+        sub(/^\|/,"",l); n=split(l,a,"|"); gsub(/^[ \t]+|[ \t]+$/,"",a[1])
         if (a[1] !~ /^[0-9]+$/) next
-        if (match(l, /method:[ \t]*per-section-agent[ \t]*·[ \t]*[0-9]+[ \t]*sections/)) {
-          m=substr(l,RSTART,RLENGTH); sub(/[ \t]*sections$/,"",m); sub(/^.*[^0-9]/,"",m); print a[2] "\t" m }
-      }' "$state")
+        rows++
+        if (mode=="count") next
+        if (rows > skip && match(l, /method:[ \t]*per-section-agent[ \t]*·[ \t]*[0-9]+[ \t]*sections/)) {
+          m=substr(l,RSTART,RLENGTH); sub(/[ \t]*sections$/,"",m); sub(/^.*[^0-9]/,"",m); print m }
+      }
+      END{ if (mode=="count") print rows+0 }'
+if [ -f "$state" ] && [ -r "$state" ]; then
+  _psa_skip=0
+  if [ -n "$prior_retro_file" ] && git -C "$corpus" rev-parse --git-dir >/dev/null 2>&1; then
+    _psa_rsha="$(git -C "$corpus" log --no-renames --diff-filter=A --format=%H -1 -- "$prior_retro_file" 2>/dev/null)"
+    if [ -z "$_psa_rsha" ]; then
+      psa_unevaluable="the prior retro has no commit, so the run boundary cannot be determined"
+    else
+      _psa_spath="$(git -C "$corpus" rev-parse --show-prefix 2>/dev/null)$(basename "$state")"
+      if ! _psa_tree="$(git -C "$corpus" ls-tree --name-only "$_psa_rsha" -- "$_psa_spath" 2>/dev/null)"; then
+        psa_unevaluable="git ls-tree failed at the prior retro's commit"
+      elif [ -n "$_psa_tree" ]; then
+        if _psa_old="$(git -C "$corpus" show "$_psa_rsha:$_psa_spath" 2>/dev/null)"; then
+          _psa_skip="$(printf '%s\n' "$_psa_old" | awk -v mode=count "$psa_awk")"
+        else
+          psa_unevaluable="git show of the state file at the prior retro's commit failed"
+        fi
+      fi   # state file absent at that commit → every row is current (_psa_skip stays 0)
+    fi
+  fi
+  if [ -z "$psa_unevaluable" ]; then
+    while IFS= read -r _psa_n; do
+      [ -n "$_psa_n" ] || continue
+      [ "$_psa_n" -gt "$psa_max" ] 2>/dev/null && psa_max="$_psa_n"
+    done < <(awk -v mode=rows -v skip="$_psa_skip" "$psa_awk" "$state")
+  fi
 else
   psa_unevaluable="state file absent or unreadable"
 fi

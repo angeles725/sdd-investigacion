@@ -1273,10 +1273,14 @@ Always read first, in this order:
      (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
      (step 4) before the import commit and the iteration history records `method: per-section-agent · N
      sections`. The exemption never covers a sequential run. `research-sdd-archive.sh` honors it: a commit
-     adding at most N blocks prints an exemption note instead of the WARN. N is taken from the CURRENT
-     run's recorded row (an Iteration-history table data row dated on/after the prior retro; the
-     match is exact, with the `·` separator); a stale row, prose or a fenced example never exempts. The
-     SELF-VERIFIED precondition is not machine-checked — the recorded method row is the declaration.
+     adding at most N blocks prints an exemption note instead of the WARN. N is the largest value among
+     the CURRENT run's recorded rows: Iteration-history table data rows (numeric first cell, outside code
+     fences) added AFTER the prior retro's commit — the archive counts the data rows in the state file as
+     of that commit (`git show`) and skips that many. With no prior retro, or no state file at that
+     commit, every row counts; if the prior retro has no commit or `git` fails, the exemption is not
+     evaluated (typed note, the WARN stands). The marker match is exact (`·` separator, plural
+     `sections`); a stale row, prose or a fenced example never exempts. The SELF-VERIFIED precondition is
+     not machine-checked — the recorded method row is the declaration.
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
      blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
