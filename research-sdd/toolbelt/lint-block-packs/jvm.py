@@ -52,15 +52,18 @@ R5_CONSEQUENCE_RE = re.compile("|".join([
 # Cloudflare Access names one of its policy ACTIONS "Bypass" (Allow / Block / Bypass / Service Auth), and
 # prose about those policies is not an auth-bypass finding (kit #1517 calibration, 17 FP on the cloudflare
 # corpus). Scrubbed, and ONLY in a clause that also carries Access-policy wording (R5_ACCESS_CTX_RE: policy /
-# policies / action, or the case-sensitive words Access, Allow, Block, Include, Exclude, Require, Service
-# Auth): (a) a capitalised bare `Bypass` (\bBypass\b, so not Bypasses/Bypassed) and (b) a code-span `bypass`
-# directly followed by policy / action / rule. Without that context nothing is scrubbed, so "Auth Bypass in
+# policies, "Bypass action", "action:", or the case-sensitive words Access, Allow, Include, Exclude, Require,
+# Service Auth, and Block unless it is a kit block citation: "Block 4" / "[Block"): (a) a capitalised bare
+# `Bypass` (\bBypass\b, so not Bypasses/Bypassed) and (b) a code-span `bypass` directly followed by
+# policy / action / rule. Without that context nothing is scrubbed, so "Auth Bypass in
 # the servlet", "**Bypass:** the filter is skipped" and "Bypass of the permission check" still fire. The
 # scrub leaves a \x00 sentinel so neighbouring words cannot join into a new token. A lower-case verb
 # "bypass", the verb forms and every other consequence token (fail-open, ungated, ...) always fire.
+# Residual trade-off: with Access wording present, a capitalised Bypass that is the ONLY consequence word in
+# the clause is scrubbed, so a genuine finding phrased that way next to the word "Access" is not reported.
 R5_ACCESS_ACTION_RE = re.compile(r"\bBypass\b|`bypass`(?=\s+(?:policy|policies|action|rule)s?\b)")
 R5_ACCESS_CTX_RE = re.compile(
-    r"\bpolic(?:y|ies)\b|\baction\b|\b(?:Access|Allow|Block|Include|Exclude|Require)\b|\bService\s+Auth\b")
+    r"\bpolic(?:y|ies)\b|\bBypass\s+actions?\b|\baction:|\b(?:Access|Allow|Include|Exclude|Require)\b|(?<!\[)\bBlock\b(?!\s*\d)|\bService\s+Auth\b")
 
 
 def r5_consequence(clause):

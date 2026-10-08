@@ -29,4 +29,8 @@
 27. Bypass of the permission check when cx is absent. CAL-R5-BAD
 28. Universal Bypass Checklist for the permission model. CAL-R5-BAD
 29. The Access check has a `bypass` of the authorization layer. CAL-R5-BAD
-30. The Access policy evaluates fails Bypass open for the authorization step. CAL-R5-CLEAR
+30. (sentinel probe: the scrub must not rejoin its neighbours) The Access policy evaluates fails Bypass open for the authorization step. CAL-R5-CLEAR
+31. Access lets a Bypass skip the authorization check. CAL-R5-CLEAR
+32. Auth Bypass in the save action. CAL-R5-BAD
+33. Permission Bypass (see Block 4). CAL-R5-BAD
+34. Permission Bypass, see [Block A]. CAL-R5-BAD
