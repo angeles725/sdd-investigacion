@@ -234,8 +234,9 @@ Always read first, in this order:
      version of the goal ("what would full mastery of this system look like") in RESEARCH-STATE `## Stretch goal`
      (template: `realistic:` / `stretch:` lines), then seed gaps BACKWARD from the stretch so coverage is judged
      against it, not only against what looked reachable. A stretch gap that is read-only investigable is a normal
-     `pending` row; one that needs a tool/access/build is a typed `blocked-on-<reason>`/`requires-execution` row
-     with an `unblock:` plan (METHODOLOGY §21.1), never silently dropped. The stretch is an ambition record, not
+     `pending` row; a build/PoC route is a `requires-execution` row (the re-queued route, not a wall); one that needs
+     a tool/access/operator input is a typed `blocked-on-<reason>` row with an `unblock:` plan (METHODOLOGY §21.1),
+     never silently dropped. The stretch is an ambition record, not
      evidence or a coverage claim: unexecuted routes toward it stay [INFER]/proposed (§3). It is the reference
      for the pre-STOP POSSIBILITY AUDIT (step 7; METHODOLOGY §8c). `verify-state.sh` only WARNs when a PRESENT `## Stretch goal` section lacks its `realistic:` or `stretch:` line; an absent section is silent and the content is never judged (kit #1361).
      CROSS-VERSION REPLICATION (kit #1937): the replication checklist's enumerated "known unknowns" are seeded as typed backlog gaps (`blocked-on-<reason>` / `requires-execution` with an `unblock:` plan) for the next-version focus, not left as checklist prose; see METHODOLOGY (kit #1937).

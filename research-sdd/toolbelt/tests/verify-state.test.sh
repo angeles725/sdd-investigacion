@@ -1078,7 +1078,7 @@ else no "1361-row-ok: $(grep -E 'unblock' <<<"$out")"; fi
 # ub_row_n <out> : the N of "N wall backlog row(s) missing" (empty when the WARN is absent)
 ub_row_n(){ grep -E 'WARN.*wall backlog row' <<<"$1" | grep -oE '[0-9]+ wall' | head -1 | grep -oE '[0-9]+'; }
 # W6: every wall-vocabulary state of METHODOLOGY §21.1 is recognised (one row each) ...
-for _st in 'blocked (requires-tool)' 'not-buildable' 'refused' 'unavailable' 'not-extracted' 'blocked-on-tool' '**blocked-on-tool**' 'blocked: no key'; do
+for _st in 'blocked (requires-tool)' 'not-buildable' 'refused' 'unavailable' 'not-extracted' 'blocked-on-tool' '**blocked-on-tool**' 'blocked: no key' '**blocked** (requires-tool)' 'refused: no' 'unavailable, later' 'not-buildable: x' 'not-extracted,' 'blocked, no'; do
   d="$TMP/ub-vocab"; UB_ROWS="| low | R1 wall gap | web | $_st |" ub_state "$d" 0 0 '## Stop control'
   out="$(run "$d")"
   if [ "$(ub_row_n "$out")" = 1 ]; then ok "1361-vocab: Status '$_st' is a wall → 1 row WARN"
@@ -1176,6 +1176,13 @@ d="$TMP/ub-degraded"; ub_state "$d" 1 0 '## Blocked gaps' "- a — needs: x"
 out="$(PATH="$_shim:$PATH" bash "$SUT" "$d" 2>/dev/null)"
 if grep -qE 'degraded +unblock-check: .*blocked sections' <<<"$out" && ! grep -qE 'WARN.*missing an unblock:' <<<"$out"; then ok "1361-degraded: failing entry parser → typed degraded line, not a silent zero"
 else no "1361-degraded: $(grep -E 'degraded|unblock' <<<"$out")"; fi
+# round 2 (item 5): a grep ERROR on the ## Stretch goal probe is a typed degraded line, never "absent" (grep shimmed to exit 2).
+_gshim="$TMP/grep-shim"; mkdir -p "$_gshim"; _realgrep="$(command -v grep)"
+printf '#!/bin/sh\ncase "$*" in *"^## Stretch goal"*) exit 2;; esac\nexec %s "$@"\n' "$_realgrep" > "$_gshim/grep"; chmod +x "$_gshim/grep"
+d="$TMP/sg-grep-err"; ub_state "$d" 0 0 '## Stretch goal' 'realistic: a'
+out="$(PATH="$_gshim:$PATH" bash "$SUT" "$d" 2>/dev/null)"
+if grep -qE 'degraded +stretch-check:' <<<"$out"; then ok "1361-sg-grep-err: grep error on the Stretch goal probe → typed degraded, not 'absent'"
+else no "1361-sg-grep-err: $(grep -E 'degraded|Stretch' <<<"$out")"; fi
 # ## Stretch goal: present-and-complete is silent; each missing line WARNs; absent is silent.
 d="$TMP/sg-ok"; ub_state "$d" 0 0 '## Stretch goal' 'realistic: map the API surface' 'stretch: full protocol reimplementation'
 out="$(run "$d")"
@@ -5761,6 +5768,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ub_mut VOCAB-blocked "$TMP/ub-t-vocab-blocked" 'WARN.*wall backlog row' '/# ROW-WALL-VOCAB/s/|blocked|/|XX|/'
   # S7: the typed degraded line (awk shimmed to fail only for the entry parser).
   UB_MUT_PATH="$TMP/awk-shim:$PATH" ub_mut TYPED-DEGRADE "$TMP/ub-degraded" 'degraded +unblock-check' 's/echo "   degraded   unblock-check: could not evaluate the blocked/: "   degraded unblock-check: could not evaluate the blocked/'
+  # round 2: inner-** strip, :/, suffix on every token, grep-error rc mapping.
+  UB_ROWS='| low | R1 wall gap | web | **blocked** (requires-tool) |' ub_state "$TMP/ub-t-bold" 0 0 '## Stop control'
+  UB_ROWS='| low | R1 wall gap | web | refused: no key |' ub_state "$TMP/ub-t-suffix" 0 0 '## Stop control'
+  ub_mut ROW-BOLD-STRIP "$TMP/ub-t-bold" 'WARN.*wall backlog row' '/# ROW-BOLD-STRIP/s|lead="\${lead/\\\*\\\*/}"|:|'
+  ub_mut ROW-TOKEN-SUFFIX "$TMP/ub-t-suffix" 'WARN.*wall backlog row' '/# ROW-TOKEN-SUFFIX/s|; tok="\${tok%%\[:,\]\*}"||'
+  UB_MUT_PATH="$TMP/grep-shim:$PATH" ub_mut STRETCH-GREP-RC "$TMP/sg-grep-err" 'degraded +stretch-check:' '/# STRETCH-GREP-RC/s|\*) return 2 ;;|*) echo absent; return 0 ;;|'
 fi
 
 echo "== $pass passed · $fail failed =="

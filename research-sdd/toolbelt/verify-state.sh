@@ -349,7 +349,7 @@ derive_missing_unblock() {
 # (exact Gap text or shared leading gap ID — the inplace_blocked_count rule), because that bullet holds the plan.
 # stdin: the _backlog_rows stream ("priority<TAB>gap<TAB>status", status already lowercased). $1: the blocked-section text.
 derive_missing_unblock_rows() {
-  local gap st tok n=0 _id _names _ids _bn
+  local gap st tok lead n=0 _id _names _ids _bn
   _names="$(printf '%s\n' "$1" | grep -iE '^[[:space:]]*-[[:space:]].*needs:' | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   _ids="$(while IFS= read -r _bn; do inplace_gap_id "$_bn"; done <<<"$_names")"
@@ -357,8 +357,9 @@ derive_missing_unblock_rows() {
     [ -z "$gap" ] && continue
     case "$gap" in *'~~'*) continue ;; esac  # ROW-CLOSED-GAP
     case "$st" in *'~~'*|*'✅'*) continue ;; esac  # ROW-CLOSED-STATUS
-    tok="${st%% *}"
-    case "$tok" in blocked-on-*|blocked|blocked:|blocked,|unavailable|refused|not-extracted|not-buildable) ;; *) continue ;; esac  # ROW-WALL-VOCAB
+    lead="${st#\*\*}"; lead="${lead/\*\*/}"  # ROW-BOLD-STRIP: `**blocked** (…)` -> `blocked (…)` (same inner-** strip as inplace_blocked_count)
+    tok="${lead%% *}"; tok="${tok%%[:,]*}"  # ROW-TOKEN-SUFFIX: a trailing `:` / `,` is punctuation on every vocabulary token
+    case "$tok" in blocked-on-*|blocked|unavailable|refused|not-extracted|not-buildable) ;; *) continue ;; esac  # ROW-WALL-VOCAB
     case "$st" in *'unblock:'*) continue ;; esac
     case $'\n'"$_names"$'\n' in *$'\n'"$gap"$'\n'*) continue ;; esac  # ROW-NAME-LINK
     _id="$(inplace_gap_id "$gap")"
@@ -371,7 +372,8 @@ derive_missing_unblock_rows() {
 # `stretch:` lines. Prints the missing line names space-separated; prints nothing when complete; prints "absent" when
 # the section is not there (absent is legitimate: older corpora, "stretch: not declared" — the caller stays silent).
 derive_stretch_missing() {
-  grep -q '^## Stretch goal' "$1" || { echo absent; return 0; }
+  grep -q '^## Stretch goal' "$1"
+  case $? in 0) ;; 1) echo absent; return 0 ;; *) return 2 ;; esac  # STRETCH-GREP-RC: exit 1 = absent; exit >=2 is a grep error, never "absent"
   _section "$1" '## Stretch goal' | awk '
     { l=tolower($0); gsub(/\*/,"",l) }
     l ~ /^[[:space:]]*(-[[:space:]]*)?realistic:/ { r=1 }
