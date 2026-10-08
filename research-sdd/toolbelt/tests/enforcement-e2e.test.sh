@@ -289,9 +289,10 @@ conforming_retro "$T_R5" "2026-09-01-r5-retro.md"
 
 rm -f "$SEED_LOG_R5"
 _r5_json="$(printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$SID_R5")"
-printf '%s' "$_r5_json" | SEED_LOG="$SEED_LOG_R5" \
+_r5_rc=0
+_r5_stdout="$(printf '%s' "$_r5_json" | SEED_LOG="$SEED_LOG_R5" \
   PATH="$MOCK_GH_R5:$PATH" "$BASH_BIN" "$FKIT_R5/toolbelt/retro-gate.sh" "$T_R5" \
-  >/dev/null 2>/dev/null || true
+  2>/dev/null)" || _r5_rc=$?
 
 if [ -f "$SEED_LOG_R5" ] && grep -qF -- '--apply' "$SEED_LOG_R5"; then
   ok "R5: gate auto-invoked stub seeder with --apply (EN3 seeding fires on conforming retro)"
@@ -414,6 +415,9 @@ mkdir -p "$MUT_STAT_KIT/lib"
 for _l in focus-prefix.sh state-files.sh block-files.sh hook-wiring.sh; do
   cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
 done
+# verify-state.sh is invoked by status's STALE gate. Without it (rc=127) the mutant answered STALE for
+# EVERY input, so "no RETRO-DUE" was read as a bite for the wrong reason (kit issue #1576).
+cp "$KIT_TOOLBELT/verify-state.sh" "$MUT_STAT_KIT/"
 
 # ── R2-TOOTH-A: mutant research-sdd-init.sh with the scaffold+wire SUBJECT guard neutered ─────
 # RDD finding (R2/R3-tooth-a-tautology): a hand-built settings.json fixture only proves a
@@ -490,14 +494,23 @@ MUT_STAT_R3="$MUT_STAT_KIT/research-sdd-status.sh"
 mk_or_stop "R3-TOOTH" "$STATUS_SUT" "$MUT_STAT_R3" 's/_rd_threshold=10/_rd_threshold=999/'
 chmod +x "$MUT_STAT_R3"
 
-_r3t_out="$("$BASH_BIN" "$MUT_STAT_R3" "$T_R3" --next 2>/dev/null)"
+# Exact BAD verdict (kit issue #1576): "no RETRO-DUE" alone also reads a crashed or silent mutant as a
+# bite. The threshold mutant must instead behave exactly like the REAL status at a below-threshold state
+# (bsr=0): same exit code, same output.
+T_R3C="$ROOT/r3-ctl-target"; mkdir -p "$T_R3C"
+state_file "$T_R3C" 0
+_r3c_rc=0; _r3c_out="$("$BASH_BIN" "$STATUS_SUT" "$T_R3C" --next 2>/dev/null)" || _r3c_rc=$?
+_r3t_rc=0; _r3t_out="$("$BASH_BIN" "$MUT_STAT_R3" "$T_R3" --next 2>/dev/null)" || _r3t_rc=$?
 _r3t_pass=1
 case "$_r3t_out" in RETRO-DUE*) _r3t_pass=0 ;; esac
 
-if [ "$_r3t_pass" -eq 1 ]; then
-  ok "R3-TOOTH: mutant (threshold=999) → no RETRO-DUE for bsr=11 → R3 check would FAIL (bites)"
+# The control itself must be a healthy answer (NEXT/STOP), or equal-but-failed outputs would pass.
+_r3c_healthy=0
+case "$_r3c_out" in "NEXT | "*|"STOP | "*) _r3c_healthy=1 ;; esac
+if [ "$_r3c_healthy" -eq 1 ] && [ "$_r3t_pass" -eq 1 ] && [ "$_r3t_rc" -eq "$_r3c_rc" ] && [ "$_r3t_out" = "$_r3c_out" ]; then
+  ok "R3-TOOTH: mutant (threshold=999) at bsr=11 behaves exactly like the real status at bsr=0 (rc=$_r3t_rc, no RETRO-DUE) → R3 check would FAIL (bites)"
 else
-  no "R3-TOOTH: mutant (threshold=999) should NOT produce RETRO-DUE but got [$_r3t_out]"
+  no "R3-TOOTH: mutant (threshold=999) should match the below-threshold control (rc=$_r3c_rc out=[$_r3c_out]) but got rc=$_r3t_rc out=[$_r3t_out]"
 fi
 
 # ── R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not called ─────────
@@ -507,16 +520,26 @@ mk_or_stop "R5-TOOTH" "$GATE_SUT" "$MUT_GATE_R5" '/# SENTINEL-SEEDING-CALL-START
 chmod +x "$MUT_GATE_R5"
 
 rm -f "$SEED_LOG_R5"
-printf '%s' "$_r5_json" | SEED_LOG="$SEED_LOG_R5" \
-  PATH="$MOCK_GH_R5:$PATH" "$BASH_BIN" "$MUT_GATE_R5" "$T_R5" \
-  >/dev/null 2>/dev/null || true
+_r5t_errf="$ROOT/r5-tooth-err"
+_r5t_rc=0
+_r5t_stdout="$(printf '%s' "$_r5_json" | SEED_LOG="$SEED_LOG_R5" \
+  PATH="$MOCK_GH_R5:$PATH" "$BASH_BIN" "$MUT_GATE_R5" "$T_R5" 2>"$_r5t_errf")" || _r5t_rc=$?
 
 _r5t_pass=1
 [ -f "$SEED_LOG_R5" ] && grep -qF -- '--apply' "$SEED_LOG_R5" && _r5t_pass=0
-if [ "$_r5t_pass" -eq 1 ]; then
-  ok "R5-TOOTH: mutant (seeding-call stripped) → seeder not called → R5 check would FAIL (bites)"
+# Exact BAD verdict (kit issue #1576): "seeder not called" also holds for a mutant that died before the
+# gate ran. The mutant must run to the same exit code and stdout as the real gate (R5 above) with no
+# shell-crash text on stderr, so the missing seeder call is the only difference.
+_r5t_crash=0
+grep -qE 'syntax error|command not found|unbound variable|unexpected' "$_r5t_errf" && _r5t_crash=1
+# The mutant must also have taken the target branch (retro-conforming), not retro-gate's no-verifier
+# branch, which likewise exits 0 with empty stdout and no seeder call.
+_r5t_branch=0
+grep -qF 'branch=retro-conforming' "$_r5t_errf" && _r5t_branch=1
+if [ "$_r5t_branch" -eq 1 ] && [ "$_r5t_pass" -eq 1 ] && [ "$_r5t_crash" -eq 0 ] && [ "$_r5t_rc" -eq "$_r5_rc" ] && [ "$_r5t_stdout" = "$_r5_stdout" ]; then
+  ok "R5-TOOTH: mutant (seeding-call stripped) → seeder not called, gate otherwise identical (rc=$_r5t_rc) → R5 check would FAIL (bites)"
 else
-  no "R5-TOOTH: mutant with seeding-call removed should NOT log --apply but did"
+  no "R5-TOOTH: mutant with seeding-call removed should skip --apply and otherwise match the real gate (real rc=$_r5_rc, mutant rc=$_r5t_rc, retro-conforming-branch=$_r5t_branch, apply-logged=$([ "$_r5t_pass" -eq 1 ] && echo no || echo yes), crash=$_r5t_crash)"
 fi
 
 # ── R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted ───────────────
@@ -526,16 +549,29 @@ mk_or_stop "R7-TOOTH" "$GATE_SUT" "$MUT_GATE_R7" '/# SENTINEL-GH-PROBE-START/,/#
 chmod +x "$MUT_GATE_R7"
 
 _r7t_errf="$ROOT/r7-tooth-err"
-_r7t_stdout="$(printf '%s' "$_r7_json" | PATH="$FAIL_AUTH_R7:$PATH" \
-  "$BASH_BIN" "$MUT_GATE_R7" "$T_R7" 2>"$_r7t_errf")"
+_r7t_rc=0
+_r7t_seed="$ROOT/r7-tooth-seed.log"; rm -f "$_r7t_seed"
+_r7t_stdout="$(printf '%s' "$_r7_json" | SEED_LOG="$_r7t_seed" PATH="$FAIL_AUTH_R7:$PATH" \
+  "$BASH_BIN" "$MUT_GATE_R7" "$T_R7" 2>"$_r7t_errf")" || _r7t_rc=$?
 _r7t_stderr="$(cat "$_r7t_errf")"
 
 _r7t_has_ghprobe_warn=0
 <<<"$_r7t_stderr" grep -q 'WARN.*not authenticated' && _r7t_has_ghprobe_warn=1
-if [ "$_r7t_has_ghprobe_warn" -eq 0 ]; then
-  ok "R7-TOOTH: mutant (gh-probe stripped) → no gh-auth WARN → R7 check would FAIL (bites)"
+# Exact BAD verdict (kit issue #1576): "no WARN" also holds for a mutant that crashed before the gate
+# ran. The mutant must run to the same exit code and stdout as the real gate (R7 above) with no
+# shell-crash text on stderr, so the missing gh-auth WARN is the only difference.
+_r7t_crash=0
+<<<"$_r7t_stderr" grep -qE 'syntax error|command not found|unbound variable|unexpected' && _r7t_crash=1
+# Target branch (retro-conforming, not no-verifier) and the stub seeder having run prove the gate got
+# past the verifier and reached the seeding step the gh probe guards.
+_r7t_branch=0
+<<<"$_r7t_stderr" grep -qF 'branch=retro-conforming' && _r7t_branch=1
+_r7t_seeded=0
+[ -f "$_r7t_seed" ] && _r7t_seeded=1
+if [ "$_r7t_branch" -eq 1 ] && [ "$_r7t_seeded" -eq 1 ] && [ "$_r7t_has_ghprobe_warn" -eq 0 ] && [ "$_r7t_crash" -eq 0 ] && [ "$_r7t_rc" -eq "$_r7_rc" ] && [ "$_r7t_stdout" = "$_r7_stdout" ]; then
+  ok "R7-TOOTH: mutant (gh-probe stripped) → no gh-auth WARN, gate otherwise identical (rc=$_r7t_rc) → R7 check would FAIL (bites)"
 else
-  no "R7-TOOTH: mutant with gh-probe removed should NOT emit gh-auth WARN but did; stderr=[$_r7t_stderr]"
+  no "R7-TOOTH: mutant with gh-probe removed should skip the gh-auth WARN and otherwise match the real gate (real rc=$_r7_rc, mutant rc=$_r7t_rc, warn-emitted=$_r7t_has_ghprobe_warn, retro-conforming-branch=$_r7t_branch, seeder-ran=$_r7t_seeded, crash=$_r7t_crash); stderr=[$_r7t_stderr]"
 fi
 
 echo

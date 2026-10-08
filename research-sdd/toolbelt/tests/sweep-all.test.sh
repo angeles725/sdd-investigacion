@@ -148,6 +148,11 @@ OUT="$(RSDD_SWEEP_TIMEOUT=1 bash "$FAKE/sweep-all.sh" 2>&1)"; RC=$?
 # the set the kit's own .claude/settings.json registers (each <name>-hook.sh maps to <name>.sh). A hook
 # added without a sweep-all entry (or the reverse) is exactly how verify-skill-drift went unwired.
 SETTINGS="$TOOLBELT/../../.claude/settings.json"
+# listed_scripts <sweep-all-path> — the unique, sorted script names the file lists as "$TOOLBELT/<name>.sh".
+# The single extraction pipeline for tests 9 and 10 and their teeth (kit issue #1787).
+listed_scripts() {
+  grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$1" | sed 's#^\$TOOLBELT/##' | sort -u
+}
 # parity_diff <sweep-all-path> — prints the divergence ("registered-only=[..] sweep-all-only=[..]");
 # empty output means the two sets are equal. rc 2 = could not extract a set (never a silent pass).
 parity_diff() {
@@ -163,7 +168,7 @@ for grp in d.get("hooks", {}).get("SessionStart", []):
 PY
 )"
   reg="$(printf '%s\n' "$reg" | sort -u)"
-  mine="$(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$sut" | sed 's#^\$TOOLBELT/##' | sort -u)"
+  mine="$(listed_scripts "$sut")"
   if [ -z "$reg" ] || [ -z "$mine" ]; then
     echo "could not extract a set (registered=[${reg//$'\n'/ }] sweep-all=[${mine//$'\n'/ }])"; return 2
   fi
@@ -176,7 +181,7 @@ if [ ! -f "$SETTINGS" ]; then
 else
   diff9="$(parity_diff "$SUT")"; rc9=$?
   canon="$(printf '%s\n' "${CANONICAL[@]}" | sort -u)"
-  mine9="$(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$SUT" | sed 's#^\$TOOLBELT/##' | sort -u)"
+  mine9="$(listed_scripts "$SUT")"
   [ "$rc9" -eq 0 ] && [ -z "$diff9" ] && [ "$canon" = "$mine9" ] \
     && ok "9 parity: sweep-all script list == registered SessionStart hook set == test CANONICAL" \
     || no "9 parity: $diff9 (rc=$rc9, canonical-equals-sut=$([ "$canon" = "$mine9" ] && echo y || echo n))"
@@ -189,9 +194,9 @@ missing_real() {
   local f
   while IFS= read -r f; do
     [ -f "$TOOLBELT/$f" ] && [ -x "$TOOLBELT/$f" ] || printf '%s ' "$f"
-  done < <(grep -oE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$1" | sed 's#^\$TOOLBELT/##' | sort -u)
+  done < <(listed_scripts "$1")
 }
-listed10="$(grep -cE '\$TOOLBELT/[A-Za-z0-9_.-]+\.sh' "$SUT")"
+listed10="$(listed_scripts "$SUT" | grep -c '^')"
 miss10="$(missing_real "$SUT")"
 [ "$listed10" -gt 0 ] && [ -z "$miss10" ] \
   && ok "10 real-scripts: all $listed10 listed scripts exist and are executable in the real toolbelt" \
@@ -206,7 +211,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: early-bail mutant must be caught by run-all assertion --"
   CALL_LOG_T="$TMP/callT.log"; rm -f "$CALL_LOG_T"
   for s in "${CANONICAL[@]}"; do make_logging_stub "$s" 0 "$CALL_LOG_T"; done
-  # Mutant sweep-all.sh: exits immediately after first script passes (dropping the rest).
+  # Mutant sweep-all.sh: `break`s at the top of the loop, so no script runs at all (dropping every one).
   # Built through lib/mutant.sh (refuses a dead stage, an identical/empty/syntax-broken or live-tree
   # mutant). It lives beside the stubs in $FAKE so they resolve: the shortfall below is the `break`,
   # not missing stubs.
@@ -216,12 +221,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     exit 1
   fi
   chmod +x "$FAKE/mutant-sweep-all.sh"
-  bash "$FAKE/mutant-sweep-all.sh" > /dev/null 2>&1 || true
+  # The verdict needs the mutant's typed early-bail shape, not just "few calls": a mutant that crashes
+  # before calling any stub also logs 0 calls and would read as a bite (kit issue #1576). A clean
+  # early-bail runs to the end: exit 0 (nothing failed), the summary header printed, and no per-script
+  # PASS/FAIL line (the loop body never ran).
+  # sweep-all.sh reads "${results[@]}" under set -u, which is an unbound-variable error on bash < 4.4 when
+  # nothing ran; that is the same early-bail shape, so accept rc 1 only with that exact message.
+  mutant_out="$(bash "$FAKE/mutant-sweep-all.sh" 2>&1)"; mutant_rc=$?
+  if [ "$mutant_rc" -eq 1 ] && <<<"$mutant_out" grep -qF 'results[@]: unbound variable'; then mutant_rc=0; fi
   mutant_calls="$(grep -c '^' "$CALL_LOG_T" 2>/dev/null || echo 0)"
-  if [ "$mutant_calls" -lt "${#CANONICAL[@]}" ]; then
-    ok "teeth: early-bail mutant calls $mutant_calls < ${#CANONICAL[@]} → run-all check would catch it (RED)"
+  mutant_banners="$(printf '%s\n' "$mutant_out" | grep -cE '^(PASS|FAIL)  ')"
+  if [ "$mutant_rc" -eq 0 ] && [ "$mutant_banners" -eq 0 ] \
+     && <<<"$mutant_out" grep -qF '== sweep-all summary' \
+     && [ "$mutant_calls" -lt "${#CANONICAL[@]}" ]; then
+    ok "teeth: early-bail mutant calls $mutant_calls < ${#CANONICAL[@]} with a clean early-bail (rc=0, summary printed, 0 banners) → run-all check would catch it (RED)"
   else
-    no "teeth: mutant called $mutant_calls scripts — run-all check is THEATER"
+    no "teeth: early-bail mutant not a clean early-bail (rc=$mutant_rc calls=$mutant_calls banners=$mutant_banners) — run-all check is THEATER or the mutant crashed (out=[$mutant_out])"
   fi
   # Parity teeth: dropping one script (the original gap) and adding an unregistered one must each diverge.
   if mutant_chain "teeth: parity drop-script mutant build" "$SUT" "$FAKE/mutant-drop.sh" '/verify-skill-drift\.sh"/d'; then

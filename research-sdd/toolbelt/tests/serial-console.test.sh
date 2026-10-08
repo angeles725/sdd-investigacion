@@ -212,13 +212,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkdir -p -- "$TDIR_A"
     STUB_A="$(make_stub "$TMP/teeth-a-stub" 0 "hw")"
     MUTANT_A_RC=0
-    POWERSHELL_BIN="$STUB_A" bash "$TMP/mutant-a.sh" run \
-      "$TDIR_A" COM3 9600 "show ver" >/dev/null 2>&1 || MUTANT_A_RC=$?
+    MUTANT_A_OUT="$(POWERSHELL_BIN="$STUB_A" bash "$TMP/mutant-a.sh" run \
+      "$TDIR_A" COM3 9600 "show ver" 2>&1)" || MUTANT_A_RC=$?
     MUTANT_A_FILE="$(find "$TDIR_A/sources/probes" -name 'serial-COM3-*.txt' 2>/dev/null | head -1)"
-    if [ "$MUTANT_A_RC" -ne 0 ] && [ -z "$MUTANT_A_FILE" ]; then
-      ok "teeth A: tee→/dev/null → no evidence file + non-zero exit → test 15 assertions catch it (RED)"
+    # Exact BAD verdict (kit issue #1576): the post-tee guard fires → exit exactly 5 with its typed
+    # message. A bare non-zero would also accept a crash of the mutant that never reached the guard.
+    if [ "$MUTANT_A_RC" -eq 5 ] && [ -z "$MUTANT_A_FILE" ] && grep -qF 'preservation FAILED' <<<"$MUTANT_A_OUT"; then
+      ok "teeth A: tee→/dev/null → no evidence file + exit exactly 5 + preservation-FAILED message → test 15 assertions catch it (RED)"
     else
-      no "teeth A: mutant with /dev/null tee should break test 15 but did not (rc=$MUTANT_A_RC file=${MUTANT_A_FILE:-absent})"
+      no "teeth A: mutant with /dev/null tee should exit 5 with 'preservation FAILED' and no file but did not (rc=$MUTANT_A_RC file=${MUTANT_A_FILE:-absent} out=[$MUTANT_A_OUT])"
     fi
   fi  # else: refusal already counted by mk_sed
 
