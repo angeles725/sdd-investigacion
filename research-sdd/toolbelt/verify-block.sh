@@ -11,7 +11,7 @@
 # where a from-memory self-report drifts. The token-check (does each [CERT] token appear in its source) still
 # needs the agent; this resolves the CITATION (does the cited file:line exist) mechanically.
 #
-# Usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] <block.md> [target-dir]
+# Usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] [--backptr=high|all|off] <block.md> [target-dir]
 #   Ephemeral-path cites FAIL by default (EPHEMERAL!, exit 1; kit #1660, the end of the kit #1207 staged rollout).
 #   Opt-out, for a corpus not yet cleaned: `--ephemeral=warn` or env RSDD_STRICT_EPHEMERAL=0 — each cite is then a typed WARN
 #   (EPHEMERAL?, counted and listed, exit unchanged). `--strict-ephemeral` / `--ephemeral=fail` / RSDD_STRICT_EPHEMERAL=1 force the
@@ -29,6 +29,11 @@
 #       or unreadable file stays a typed `extern`. A final `extern-check: verified N of A absolute backticked
 #       name.ext:N cite(s); R relative cite(s) cannot be resolved` line states what was checked; the token-check
 #       (does the line say what the block claims) still needs the agent. Without the flag: unchanged.
+#   §14 BACK-POINTER (kit #1962, section 12): a sentence that corrects an earlier block ("corrige B5", "refutes [Block 5]") whose cited
+#       block file holds no pointer back to this block is a candidate; --backptr=high (default) prints a per-line `BACKPTR?` only for
+#       the high-confidence shape (a correction act within 25 characters of a `[Block N]` / `Block N` / `Bloque N` cite) and counts the
+#       rest in ONE line, --backptr=all lists everything, --backptr=off skips it. Advisory, exit unchanged; not-found / ambiguous /
+#       degraded candidates are typed lines, never silent. Only canonical block file names (<prefix>-(block|bloque)<N>[-slug].md) are checked.
 #       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
@@ -106,6 +111,7 @@ STRICT_EP=1; [ "${RSDD_STRICT_EPHEMERAL:-}" = "0" ] && STRICT_EP=0   # VB-EP-DEF
 if [ -n "${RSDD_STRICT_EPHEMERAL+x}" ] && [ "${RSDD_STRICT_EPHEMERAL}" != "0" ] && [ "${RSDD_STRICT_EPHEMERAL}" != "1" ]; then   # VB-EP-ENVNOTICE
   echo "verify-block.sh: RSDD_STRICT_EPHEMERAL='${RSDD_STRICT_EPHEMERAL}' is not 0 or 1 — ignored, ephemeral cites FAIL (set 0 to opt out)" >&2
 fi
+BACKPTR_MODE=high  # kit #1962: --backptr=high (default: per-line BACKPTR? only for the high-confidence shape) | all | off
 EXTERN_CHECK=0  # kit #1906: opt-in, no env form (it reads and counts files outside the target and never prints their content)
 _vb_args=(); for _vb_a in "$@"; do
   case "$_vb_a" in
@@ -113,6 +119,8 @@ _vb_args=(); for _vb_a in "$@"; do
     --ephemeral=warn) STRICT_EP=0 ;;  # VB-EP-WARN-FLAG
     --ephemeral|--ephemeral=*) echo "verify-block.sh: unknown --ephemeral value '${_vb_a#--ephemeral}' (expected --ephemeral=warn or --ephemeral=fail)" >&2; exit 2 ;;  # VB-EP-BADVALUE
     --extern-check) EXTERN_CHECK=1 ;;  # VB-EXTERN-CHECK-FLAG
+    --backptr=high|--backptr=all|--backptr=off) BACKPTR_MODE="${_vb_a#--backptr=}" ;;  # VB-BACKPTR-FLAG
+    --backptr|--backptr=*) echo "verify-block.sh: unknown --backptr value '${_vb_a#--backptr}' (expected --backptr=high, --backptr=all or --backptr=off)" >&2; exit 2 ;;  # VB-BACKPTR-BADVALUE
     *) _vb_args+=("$_vb_a") ;;
   esac
 done
@@ -134,7 +142,7 @@ if [ "${1:-}" = "--possibility-sweep" ]; then
 fi
 
 block="${1:-}"
-[ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
+[ -f "$block" ] || { echo "usage: verify-block.sh [--strict-ephemeral | --ephemeral=warn|fail] [--extern-check] [--backptr=high|all|off] <block.md> [target-dir]  (sources/… cites resolve against target-dir: for a NESTED corpus pass the corpus root)" >&2; exit 2; }
 target="${2:-$(dirname "$block")}"
 # VB-LINECOUNT (kit #1919): the ONE line counter for every cite path (artifact, backtick, --extern-check). awk NR counts an
 # UNTERMINATED last line (`wc -l` counts newline characters and was one short; CR is not a line terminator: CRLF counts like LF).
@@ -1160,6 +1168,282 @@ else
       fi
     done <<<"$_vb_mf_cites"
     [ "$_vb_mf_n" -gt 0 ] && echo "-- preserved-script manifest findings: $_vb_mf_n (FAIL)"
+  fi
+fi
+
+# 12. §14 BACK-POINTER (kit #1962, METHODOLOGY §14 "corrected in BN") — a block that CORRECTS an earlier block must leave a
+#     back-pointer on the old one. When one SENTENCE of the checked block carries a correction act (refut* / corrig* / correg* /
+#     correcci* / supersed* / the verb forms corrects|corrected|correcting|correction, case-insensitive) AND cites an EARLIER
+#     block within 60 characters of it, the cited block's file is resolved in the same corpus and the candidate is reported when
+#     that file holds no pointer to the checked block. ADVISORY: the exit code never changes (a missing pointer is a finding for
+#     the human to verify by hand; the kit edits nothing, propose-never-apply).
+#     --backptr=high (default) prints a per-line `BACKPTR?` only for the HIGH-CONFIDENCE shape (the correction act within 25
+#     characters of a keyword cite: `[Block N]` / `Block N` / `Bloque N`); every other candidate is ONE count line
+#     (`N low-confidence candidate(s)`). --backptr=all lists them all; --backptr=off skips the section.
+#     MEASURED PRECISION (hand-classified sample of the DEFAULT output on the real fleet): 2026-10-07, 1390 real blocks, default mode: 50 per-line candidates, all 50
+#     hand-classified, 38 true corrections lacking a pointer = 76% (the first design printed 207 lines at roughly 55%); the low-confidence
+#     candidates are counted, not listed. Cost: the section roughly doubles a run (200 blocks: 30 s with --backptr=off, 64-78 s by default).
+#     Enumerated cite forms (~/niagara-research + ~/niagara5-research, 1404 files of which 14 are lint fixtures): `[Block N]` ·
+#     `Block N` · `Bloque N` · `blockN` / `bloqueN` · `BN` · `Block RN` / `Bloque RN`; a BARE `RN` counts only when the checked
+#     block's H1 is `# Block R<n>`. TWO SERIES coexist in one corpus (niagara-reflow-block5 `# Block R5` vs
+#     niagara-mental-model-bloque5): a cite carries its series (`R` or numeric), is resolved only against files of that series
+#     (the file's H1 decides), and the forward test (a cite of a LATER block is a forward pointer) compares within one series only.
+#     A pointer in the OLD block names the checked block's number in the checked block's own series: `B<n>` / `Block <n>` in the
+#     numeric series, `R<n>` / `Block R<n>` in the R series (bare `R<n>` is accepted nowhere else: it is a register or revision
+#     name), bounded so B11 is not satisfied by B110 / B11a / 5.11.
+#     Sentences: paragraphs end at a blank line, a heading, a list item or a table row; fenced code is skipped; a paragraph
+#     is split at `. ` / `! ` / `? ` / `; `.
+#     NOT a correction act by THIS block (each narrowing came from classifying the fleet sweep by hand; each has a tooth and each
+#     suppressed sentence is COUNTED in the summary as skipped: neg · self · passive · noun · list; corrector and far count each dropped CITE):
+#     the bare adjective "correct" / "correctly" / "correcto", the noun "corrigendum" (noun), negations ("No §14 correction",
+#     "Nothing here refutes", "corrects nothing"; "not only/just corrects" is NOT a negation) (neg), self-corrections (self), a
+#     third-party correction narrated passively ("was corrected") (passive), the CORRECTOR itself ("corrected by B96" /
+#     "corregido en B4" name the block that fixed it) (corrector), a cite more than 60 characters from the act (far), and
+#     cross-reference-list sentences: 3+ distinct blocks, or 2 under a "Connects"/"Related"/"see also" lead or with 2+ " · "
+#     separators (list). Cites of the block itself or of a LATER block of the same series are skipped and counted as forward=N.
+#     Candidates: canonical block files (lib/block-files.sh), listed ONCE per run, directly in the block's dir, else in
+#     target-dir, same file-name prefix first. Typed non-verdicts (never silent): not found (INFO) · several candidates
+#     (BACKPTR-AMBIGUOUS) · unreadable / failed scan / helper missing (DEGRADED) — none of them moves the exit code.
+_vb_bp_load() {
+  local src="${BASH_SOURCE[0]}" n=0 lt d here
+  while [ -L "$src" ] && [ "$n" -lt 40 ]; do
+    n=$((n + 1)); lt="$(readlink -- "$src")" || return 1
+    case "$lt" in /*) src="$lt" ;; *) d="${src%/*}"; [ "$d" = "$src" ] && d=.; src="$d/$lt" ;; esac
+  done
+  d="${src%/*}"; [ "$d" = "$src" ] && d=.
+  here="$(cd -P -- "$d" 2>/dev/null && pwd -P)" || return 1
+  [ -f "$here/lib/block-files.sh" ] || return 1
+  # shellcheck source=lib/block-files.sh
+  . "$here/lib/block-files.sh"
+  declare -F block_file_filter >/dev/null 2>&1
+}
+# _vb_bp_pairs <self-number>: one `C<TAB>line<TAB>series<TAB>N<TAB>conf<TAB>sentence-excerpt` per distinct earlier-block cite sitting in
+# a correction sentence (series R|N, conf high|low), then one `S<TAB>sentences<TAB>forward<TAB>list<TAB>neg<TAB>self<TAB>passive<TAB>noun<TAB>corrector<TAB>far<TAB>rmode`
+# trailer (correction sentences seen, cites skipped as forward, then the sentences suppressed by each filter, then 1 when the block is R-numbered).
+_vb_bp_pairs() {
+  awk -v self="$1" '
+    function isw(c) { return c ~ /[A-Za-z0-9_]/ }
+    function flush(   rest, sent) {
+      if (para == "") return
+      rest = para
+      while (rest != "") {
+        if (match(rest, /[.!?;]+[[:space:]]+/)) { sent = substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART + RLENGTH) }
+        else { sent = rest; rest = "" }
+        scan(sent)
+      }
+      para = ""
+    }
+    # blank(s, re): s with every match of re overwritten by spaces of the SAME length (positions stay comparable).
+    function blank(s, re,   out, pad) {
+      out = ""
+      while (match(s, re)) { pad = sprintf("%" RLENGTH "s", ""); out = out substr(s, 1, RSTART - 1) pad; s = substr(s, RSTART + RLENGTH) }
+      return out s
+    }
+    # neuter(s, re): the first 3 characters of every match become "xxx" (same length) so a later pattern cannot see them.
+    function neuter(s, re,   out) {
+      out = ""
+      while (match(s, re)) { out = out substr(s, 1, RSTART - 1) "xxx" substr(s, RSTART + 3, RLENGTH - 3); s = substr(s, RSTART + RLENGTH) }
+      return out s
+    }
+    function scan(sent,   low, off, rest, tok, pre, post, num, keep, ex, nd, i, dn, ds, dc, k, kx, key, vs, vl, n, cs, gap, mg, ctx, kw, ser, cdrop, fdrop, conf, VERB, selfser, bvs, bvl, before, tail) {
+      VERB = "refut|corrig|correg|correcci|correct(s|ed|ing|ion)|supersed"   # BP-VERBS: the bare word "correct" is mostly the adjective ("the correct template") and "correctly" the adverb
+      if (tolower(sent) !~ VERB) return
+      low = " " tolower(sent)   # the leading space is the left word boundary of the negation words below; stripped again before positions are used
+      low = blank(low, "corrigend[a-z]*")   # BP-CORRIGEND: the NOUN "corrigendum" labels a correction note, it is not a correction act (fleet sweep, kit #1962)
+      if (low !~ VERB) { c_noun++; return }
+      low = blank(low, "[^a-z](no|not a|without|ninguna?)[[:space:]]+(§14[ -]?[a-z]*[[:space:]]+)?([^[:space:]]+[[:space:]]+)?([^[:space:]]+[[:space:]]+)?(correction|correcci.n|refut[a-z]*)")   # BP-NEG: "No §14 correction" asserts the absence
+      low = blank(neuter(low, "[^a-z]not (only|just|merely)"), "[^a-z](nothing|without|never|rather than|instead of|not|no|nada)[[:space:]]+([a-z]+[[:space:]]+)?(here[[:space:]]+)?(correct|refut|supersed|corrig)[a-z]*")   # BP-NEG2: "Nothing here refutes", "without correcting"; neuter() first overwrites the boundary character and the "no" of "not only/just/merely" with xxx (same length), so the "not" alternative cannot match there and the correcting verb after it survives
+      low = blank(low, "(correct|refut|supersed|corrig)[a-z]*[[:space:]]+(nothing|nada|no[[:space:]]+(earlier|prior|previous))")   # BP-NEG3: "corrects nothing in B21"
+      if (low !~ VERB) { c_neg++; return }
+      low = blank(low, "self-correct[a-z]*|auto-?correc[a-z]*")   # BP-SELF: a block correcting ITSELF corrects no earlier block
+      if (low !~ VERB) { c_self++; return }
+      low = blank(low, "[^a-z](was|were|been|already|got|is|are|be)[[:space:]]+(also[[:space:]]+)?(corrected|refuted|superseded)")   # BP-PASSIVE: a third-party correction, narrated here
+      if (low !~ VERB) { c_passive++; return }
+      low = substr(low, 2)
+      nsent++
+      selfser = rmode ? "R" : "N"
+      rest = sent; off = 0; nd = 0; cdrop = 0; fdrop = 0; split("", dn); split("", ds); split("", dc); split("", k)
+      while (match(rest, /([Bb]lock|[Bb]loque) ?R?[0-9]+|B[0-9]+|R[0-9]+/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        cs = off + RSTART
+        pre = (cs > 1) ? substr(sent, cs - 1, 1) : ""
+        post = substr(rest, RSTART + RLENGTH, 1)
+        off += RSTART + RLENGTH - 1; rest = substr(rest, RSTART + RLENGTH)
+        keep = 1
+        if (pre != "" && isw(pre)) keep = 0   # BP-PRETOK: no cite glued to a preceding word (AB5, xR5)
+        if (tok ~ /^[BR][0-9]/ && post ~ /[A-Za-z_]/) keep = 0   # BP-POSTTOK: no cite glued to a following word (B5x)
+        if (tok ~ /^R[0-9]/ && !rmode) keep = 0   # BP-RMODE: a bare RN is a block cite only in an R-numbered corpus
+        if (!keep) continue
+        kw = (tok ~ /^[Bb]lo/)
+        ser = (tok ~ /R[0-9]+$/) ? "R" : "N"
+        # the CORRECTOR, not the corrected: "corrected by B96" / "corregido en [Block 11]" name the block that fixed it
+        ctx = substr(low, (cs > 40 ? cs - 40 : 1), (cs > 40 ? 40 : cs - 1))
+        if (ctx ~ /(corrected|refuted|superseded|corregid[oa]s?|refutad[oa]s?|supersedid[oa]s?)[[:space:]]+(by|in|en|por)[[:space:]]*[\[(*]*$/) { c_corr++; continue }   # BP-CORRECTOR: counted per dropped cite
+        # proximity: the nearest correction act, in characters between it and the cite
+        mg = 99999; n = low; bvs = 0; bvl = 0
+        while (match(n, VERB)) {
+          vs = length(low) - length(n) + RSTART; vl = RLENGTH
+          gap = (cs > vs) ? cs - (vs + vl) : vs - (cs + length(tok))
+          if (gap < mg) { mg = gap; bvs = vs; bvl = vl }
+          n = substr(n, RSTART + RLENGTH)
+        }
+        if (mg > 60) { c_far++; continue }   # BP-PROXIMITY: a verb further away belongs to another clause of a long sentence
+        # HIGH confidence = a keyword cite with the act within 25 characters AND the act BEFORE the cite ("Corrección al Bloque 28", "corrects
+        # [Block 5]"), or AFTER it only as a list-item tail ("[Block 21] — corregido en …"). An act after the cite otherwise belongs to the
+        # cite ("[Block 95] §95.9 correction", "[Block 790] §14 corrections", "[Block 476] … supersedes it"): the cite is the corrector.
+        before = (bvs + bvl <= cs)
+        tail = before ? "" : substr(low, cs + length(tok), bvs - (cs + length(tok)))
+        conf = (kw && mg <= 25 && (before || tail ~ /^(\]|\*|\)|[[:space:]]|:|-|—|–)*$/)) ? "high" : "low"   # BP-CONF
+        num = tok; gsub(/[^0-9]/, "", num); num += 0
+        key = ser SUBSEP num
+        if (!(key in k)) { nd++; k[key] = nd; ds[nd] = ser; dn[nd] = num; dc[nd] = conf }
+        else if (conf == "high") dc[k[key]] = "high"
+      }
+      if (nd == 0) return
+      # a sentence naming 3+ distinct blocks, or 2 under a "Connects" / "Related" lead or with 2+ " · " separators, is a cross-reference list
+      # ("Connects [B1] · [B2] · ... corrected"), not a correction of a specific block: skipped and COUNTED (fleet sweep, kit #1962).
+      if (nd >= 3 || (nd >= 2 && (low ~ /connects|conecta|related|see also/ || gsub(/ · /, "&", sent) >= 2))) { listed++; return }   # BP-LIST
+      for (i = 1; i <= nd; i++) {
+        if (ds[i] == selfser && dn[i] >= self) { fwd++; continue }   # BP-FORWARD: same series only; R5 and 5 are different blocks
+        key = ds[i] SUBSEP dn[i]
+        # one record per (series, block) for the WHOLE block: confidence is the MAX over its sentences (a later high-confidence sentence upgrades
+        # an earlier low one, and then also supplies the line and excerpt); emitted in first-seen order at END
+        ex = sent; gsub(/[\t"]+/, " ", ex); gsub(/^[[:space:]]+/, "", ex); ex = substr(ex, 1, 110)
+        if (!(key in seen)) { seen[key] = ++ne; eline[ne] = firstline; eser[ne] = ds[i]; enum[ne] = dn[i]; econf[ne] = dc[i]; eex[ne] = ex }
+        else if (dc[i] == "high" && econf[seen[key]] != "high") { econf[seen[key]] = "high"; eline[seen[key]] = firstline; eex[seen[key]] = ex }   # BP-MAXCONF
+      }
+    }
+    /^```/ { fence = !fence; flush(); next }
+    fence { next }
+    /^[[:space:]]*$/ { flush(); next }
+    /^#/ { flush(); if (!hseen) { hseen = 1; if ($0 ~ /^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9]/) rmode = 1 }; para = $0; firstline = NR; flush(); next }
+    /^[[:space:]]*([-*+]|[0-9]+[.)]|\|)/ { flush(); para = $0; firstline = NR; next }
+    { if (para == "") firstline = NR; para = (para == "" ? $0 : para " " $0) }
+    END { flush(); for (i = 1; i <= ne; i++) print "C\t" eline[i] "\t" eser[i] "\t" enum[i] "\t" econf[i] "\t" eex[i]; print "S\t" (nsent + 0) "\t" (fwd + 0) "\t" (listed + 0) "\t" (c_neg + 0) "\t" (c_self + 0) "\t" (c_passive + 0) "\t" (c_noun + 0) "\t" (c_corr + 0) "\t" (c_far + 0) "\t" (rmode + 0) }
+  ' "$block"
+}
+# _vb_bp_fser <file>: prints R when the file H1 is `# Block R<n>` (the R series), else N; rc 2 when the file cannot be read.
+_vb_bp_fser() {
+  local h rc
+  h="$(grep -m1 -E '^#' -- "$1" 2>/dev/null)"; rc=$?
+  if [ "$rc" -ge 2 ]; then return 2; fi
+  if [[ "$h" =~ ^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9] ]]; then echo R; else echo N; fi
+}
+_vb_bp_w=0; _vb_bp_i=0; _vb_bp_a=0; _vb_bp_d=0; _vb_bp_ok=0; _vb_bp_low=0
+echo "-- §14 back-pointer (kit #1962: a block that corrects an earlier block must be pointed back to from it; advisory, exit unchanged) --"
+_vb_bp_base="$(basename "$block")"
+_vb_bp_re='^(.*-)?(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$'
+if [ "$BACKPTR_MODE" = off ]; then
+  echo "   (back-pointer check off — --backptr=off)"
+elif ! [[ "$_vb_bp_base" =~ $_vb_bp_re ]]; then
+  echo "   (back-pointer check skipped — '$_vb_bp_base' is not a canonical block file name: <prefix>-(block|bloque)<N>[-slug].md)"
+elif ! _vb_bp_load; then
+  echo "   DEGRADED backptr: helper lib/block-files.sh unavailable — back-pointers NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+else
+  _vb_bp_pfx="${BASH_REMATCH[1]}"; _vb_bp_self=$((10#${BASH_REMATCH[3]}))
+  _vb_bp_dirs=()
+  for _vb_bp_x in "$(dirname "$block")" "$target"; do
+    _vb_bp_x="$(cd -P -- "$_vb_bp_x" 2>/dev/null && pwd -P)" || continue
+    [ "${_vb_bp_dirs[0]:-}" = "$_vb_bp_x" ] && continue
+    _vb_bp_dirs+=("$_vb_bp_x")
+  done
+  _vb_bp_pairs_out="$(_vb_bp_pairs "$_vb_bp_self")"; _vb_bp_prc=$?
+  if [ "$_vb_bp_prc" != 0 ] || [ "${#_vb_bp_dirs[@]}" -eq 0 ]; then
+    echo "   DEGRADED backptr: the sentence scan or the candidate directory failed (awk exit $_vb_bp_prc, ${#_vb_bp_dirs[@]} directories) — back-pointers NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+    _vb_bp_pairs_out=""
+  fi
+  # the canonical block files of each directory, listed ONCE per run (parallel arrays: path, directory index, number, prefix)
+  _vb_bp_fl=(); _vb_bp_fdx=(); _vb_bp_fnum=(); _vb_bp_fpf=(); _vb_bp_dbad=()
+  if [ -n "$_vb_bp_pairs_out" ]; then
+    for _vb_bp_di in "${!_vb_bp_dirs[@]}"; do
+      _vb_bp_ls="$(find "${_vb_bp_dirs[$_vb_bp_di]}" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort; echo "@@RC=${PIPESTATUS[0]}")"
+      if [ "${_vb_bp_ls##*@@RC=}" != 0 ]; then _vb_bp_dbad[_vb_bp_di]=1; continue; fi
+      _vb_bp_ls="$(printf '%s\n' "${_vb_bp_ls%@@RC=*}" | block_file_filter)"; _vb_bp_frc=$?
+      if [ "$_vb_bp_frc" -ge 2 ]; then _vb_bp_dbad[_vb_bp_di]=1; continue; fi
+      while IFS= read -r _vb_bp_f; do
+        [ -z "$_vb_bp_f" ] && continue
+        [[ "${_vb_bp_f##*/}" =~ $_vb_bp_re ]] || continue
+        _vb_bp_fl+=("$_vb_bp_f"); _vb_bp_fdx+=("$_vb_bp_di"); _vb_bp_fnum+=("$((10#${BASH_REMATCH[3]}))"); _vb_bp_fpf+=("${BASH_REMATCH[1]}")
+      done <<<"$_vb_bp_ls"
+    done
+  fi
+  # the S trailer first: the checked block's series decides the pointer form and the labels
+  _vb_bp_ns=0; _vb_bp_fw=0; _vb_bp_sl=0; _vb_bp_sn=0; _vb_bp_ss=0; _vb_bp_sp=0; _vb_bp_so=0; _vb_bp_sc=0; _vb_bp_sf=0; _vb_bp_rm=0
+  while IFS=$'\t' read -r _vb_bp_t _vb_bp_v1 _vb_bp_v2 _vb_bp_v3 _vb_bp_v4 _vb_bp_v5 _vb_bp_v6 _vb_bp_v7 _vb_bp_v8 _vb_bp_v9 _vb_bp_v10; do
+    [ "$_vb_bp_t" = "S" ] || continue
+    _vb_bp_ns="$_vb_bp_v1"; _vb_bp_fw="$_vb_bp_v2"; _vb_bp_sl="$_vb_bp_v3"; _vb_bp_sn="$_vb_bp_v4"; _vb_bp_ss="$_vb_bp_v5"
+    _vb_bp_sp="$_vb_bp_v6"; _vb_bp_so="$_vb_bp_v7"; _vb_bp_sc="$_vb_bp_v8"; _vb_bp_sf="$_vb_bp_v9"; _vb_bp_rm="$_vb_bp_v10"
+  done <<<"$_vb_bp_pairs_out"
+  if [ "$_vb_bp_rm" = 1 ]; then
+    _vb_bp_slab="R$_vb_bp_self"
+    # R series: R<n> or Block R<n>; a bare R<n> is accepted ONLY here (elsewhere it is a register or revision name)
+    _vb_bp_ptr="(^|[^A-Za-z0-9_])((([Bb]lock|[Bb]loque) ?)?R)0*${_vb_bp_self}([^0-9A-Za-z_]|\$)"   # BP-BOUNDARY
+  else
+    _vb_bp_slab="B$_vb_bp_self"
+    _vb_bp_ptr="(^|[^A-Za-z0-9_])(([Bb]lock|[Bb]loque) ?|B)0*${_vb_bp_self}([^0-9A-Za-z_]|\$)"   # BP-BOUNDARY
+  fi
+  while IFS=$'\t' read -r _vb_bp_t _vb_bp_l _vb_bp_ser _vb_bp_n _vb_bp_conf _vb_bp_ex; do
+    [ "$_vb_bp_t" = "C" ] || continue
+    _vb_bp_cl="$_vb_bp_n"; [ "$_vb_bp_ser" = R ] && _vb_bp_cl="R$_vb_bp_n"
+    # resolve the cited block: same-prefix canonical files first, then any prefix; per directory, only files of the cited SERIES
+    _vb_bp_cand=(); _vb_bp_scanbad=0; _vb_bp_state=""; _vb_bp_msg=""
+    for _vb_bp_pass in same any; do
+      for _vb_bp_di in "${!_vb_bp_dirs[@]}"; do
+        if [ "${_vb_bp_dbad[$_vb_bp_di]:-0}" = 1 ]; then _vb_bp_scanbad=1; continue; fi
+        for _vb_bp_fi in "${!_vb_bp_fl[@]}"; do
+          [ "${_vb_bp_fdx[$_vb_bp_fi]}" = "$_vb_bp_di" ] || continue
+          [ "${_vb_bp_fnum[$_vb_bp_fi]}" = "$_vb_bp_n" ] || continue
+          if [ "$_vb_bp_pass" = same ] && [ "${_vb_bp_fpf[$_vb_bp_fi]}" != "$_vb_bp_pfx" ]; then continue; fi   # BP-PREFIX
+          _vb_bp_fs="$(_vb_bp_fser "${_vb_bp_fl[$_vb_bp_fi]}")"; _vb_bp_frc=$?
+          # an unreadable file has no knowable series: it stays a candidate so the unreadable state is typed below, never dropped
+          if [ "$_vb_bp_frc" -eq 0 ] && [ "$_vb_bp_fs" != "$_vb_bp_ser" ]; then continue; fi   # BP-SERIES
+          _vb_bp_cand+=("${_vb_bp_fl[$_vb_bp_fi]}")
+        done
+        [ "${#_vb_bp_cand[@]}" -gt 0 ] && break
+      done
+      [ "${#_vb_bp_cand[@]}" -gt 0 ] && break
+    done
+    if [ "${#_vb_bp_cand[@]}" -eq 0 ]; then
+      if [ "$_vb_bp_scanbad" = 1 ]; then   # BP-SCANBAD
+        _vb_bp_state=degraded; _vb_bp_msg="   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_cl — the candidate scan under ${_vb_bp_dirs[*]} failed; back-pointer NOT checked"
+      else
+        _vb_bp_state=notfound; _vb_bp_msg="   INFO    backptr: line $_vb_bp_l cites block $_vb_bp_cl but its block file is not found under ${_vb_bp_dirs[*]} — back-pointer NOT checked"   # BP-NOTFOUND
+      fi
+    elif [ "${#_vb_bp_cand[@]}" -gt 1 ]; then   # BP-AMBIG
+      _vb_bp_names=""; for _vb_bp_f in "${_vb_bp_cand[@]}"; do _vb_bp_names="$_vb_bp_names${_vb_bp_names:+, }${_vb_bp_f##*/}"; done
+      _vb_bp_state=ambig; _vb_bp_msg="   BACKPTR-AMBIGUOUS  line $_vb_bp_l: block $_vb_bp_cl matches ${#_vb_bp_cand[@]} files ($_vb_bp_names) — back-pointer NOT checked; disambiguate by hand"
+    else
+      _vb_bp_old="${_vb_bp_cand[0]}"
+      if [ ! -r "$_vb_bp_old" ]; then   # BP-UNREADABLE
+        _vb_bp_state=degraded; _vb_bp_msg="   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_cl (${_vb_bp_old##*/}) is unreadable — back-pointer NOT checked"
+      elif grep -Eq "$_vb_bp_ptr" "$_vb_bp_old" 2>/dev/null; then   # BP-POINTER
+        _vb_bp_state=ok; _vb_bp_msg="   backptr-ok  line $_vb_bp_l: block $_vb_bp_cl (${_vb_bp_old##*/}) points back to $_vb_bp_slab"
+      else
+        _vb_bp_grc=$?
+        if [ "$_vb_bp_grc" -ge 2 ]; then   # BP-GREPRC
+          _vb_bp_state=degraded; _vb_bp_msg="   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_cl (${_vb_bp_old##*/}) could not be read by grep (exit $_vb_bp_grc) — back-pointer NOT checked"
+        else
+          _vb_bp_state=missing; _vb_bp_msg="   BACKPTR?  line $_vb_bp_l: possible correction of block $_vb_bp_cl (${_vb_bp_old##*/}); verify by hand, then consider a back-pointer to $_vb_bp_slab in ${_vb_bp_old##*/} (§14; advisory, exit unchanged) — sentence: \"$_vb_bp_ex\""
+        fi
+      fi
+    fi
+    case "$_vb_bp_state" in
+      missing) _vb_bp_w=$((_vb_bp_w+1)) ;; ok) _vb_bp_ok=$((_vb_bp_ok+1)) ;; ambig) _vb_bp_a=$((_vb_bp_a+1)) ;;
+      notfound) _vb_bp_i=$((_vb_bp_i+1)) ;; degraded) _vb_bp_d=$((_vb_bp_d+1)) ;;
+    esac
+    # default (high): per-line output only for the high-confidence shape; every other candidate is counted, never dropped
+    # not-found / ambiguous / degraded are typed non-verdicts: printed as their own lines in EVERY mode, whatever the confidence
+    if [ "$BACKPTR_MODE" = all ] || [ "$_vb_bp_conf" = high ] || { [ "$_vb_bp_state" != missing ] && [ "$_vb_bp_state" != ok ]; }; then echo "$_vb_bp_msg"   # BP-TYPED
+    elif [ "$_vb_bp_state" = missing ]; then _vb_bp_low=$((_vb_bp_low+1)); fi
+  done <<<"$_vb_bp_pairs_out"
+  _vb_bp_skipped="forward=$_vb_bp_fw neg=$_vb_bp_sn self=$_vb_bp_ss passive=$_vb_bp_sp noun=$_vb_bp_so corrector=$_vb_bp_sc far=$_vb_bp_sf list=$_vb_bp_sl"
+  if [ "$((_vb_bp_w + _vb_bp_i + _vb_bp_a + _vb_bp_d + _vb_bp_ok))" -eq 0 ]; then
+    echo "   (none — no correction sentence cites an earlier block; correction sentences scanned: $_vb_bp_ns; skipped: $_vb_bp_skipped)"
+  else
+    echo "-- back-pointer: $_vb_bp_w possibly missing · $_vb_bp_ok present · $_vb_bp_a ambiguous · $_vb_bp_i not found · $_vb_bp_d degraded (correction sentences: $_vb_bp_ns; skipped: $_vb_bp_skipped) — advisory, exit unchanged"
+    if [ "$_vb_bp_low" -gt 0 ]; then
+      echo "-- back-pointer: $_vb_bp_low low-confidence candidate(s) (--backptr=all to list)"
+    fi
   fi
 fi
 
