@@ -456,6 +456,17 @@ if [ "$_wdrf_stop_before" = 1 ] && [ "$_wdrf_stop_after" = 1 ]; then
 else
   no "  force-warning: the Stop entry should be present exactly once before and after --force (before=$_wdrf_stop_before after=$_wdrf_stop_after)"
 fi
+# The whole wiring (return-token-gate Stop entry, PreToolUse/Bash pkill-guard, SessionStart drift hook) must be semantically
+# unchanged: key-order-normalised comparison, so a harmless reformat passes but a dropped or duplicated hook does not.
+if command -v jq >/dev/null 2>&1; then
+  if [ -n "$_wdrf_settings_before" ] && [ "$(printf '%s' "$_wdrf_settings_before" | jq -S . 2>/dev/null)" = "$(jq -S . "$d/.claude/settings.json" 2>/dev/null)" ]; then
+    ok "  force-warning: the whole settings.json wiring is semantically unchanged by --force (jq -S before == after)"
+  else
+    no "  force-warning: --force changed the settings.json wiring (a hook was dropped, duplicated or altered)"
+  fi
+else
+  echo "  SKIP  force-warning: whole-wiring comparison needs jq"
+fi
 
 # BAD 1 — refuse over an existing INDEX
 d="$TMP/bad-index"; mkdir -p "$d"; printf 'SENTINEL\n' > "$d/INDEX.md"
@@ -4018,14 +4029,16 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k99sr.out" && no "teeth M-1509-SCAFFOLD-REPORT: still reports already wired — THEATER" \
       || ok "teeth M-1509-SCAFFOLD-REPORT: wrong report without the flag — K1509-d has teeth"
   else no "teeth M-1509-SCAFFOLD-REPORT: could not build mutant"; fi
-  # M-1550-INVALID-REGEX: an invalid-regex matcher is treated as covering Bash -> the guard is never appended.
+  # M-1550-INVALID-REGEX: an invalid-regex matcher is treated as covering Bash -> the guard is never appended and the
+  # scaffold report wrongly says "already wired" (the exit stays 0, so the wrong output must be PRESENT, not merely the right one absent).
   if _k43_build k50ir -e 's/ catch false))/ catch true))/'; then
-    d="$TMP/k43/k50ir-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
+    d="$TMP/k43/k50ir-t"; mkdir -p "$d/.claude"
     printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-    bash "$(_k96_inits k50ir)" "$d" --wire >/dev/null 2>&1
-    [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
-      && ok "teeth M-1550-INVALID-REGEX: an invalid regex read as covering leaves Bash unguarded — K1550-c2 has teeth" \
-      || no "teeth M-1550-INVALID-REGEX: Bash entry still added — THEATER"
+    bash "$(_k96_inits k50ir)" "$d" --corpus flat --scaffold --wire >"$TMP/k50ir.out" 2>&1; _k9_rc=$?
+    { [ "$_k9_rc" = 0 ] && [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
+      && grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k50ir.out"; } \
+      && ok "teeth M-1550-INVALID-REGEX: exit 0, Bash unguarded and the report says already wired — K1550-c2 has teeth" \
+      || no "teeth M-1550-INVALID-REGEX: expected exit 0 + count 0 + 'already wired' report (rc=$_k9_rc) — THEATER"
   else no "teeth M-1550-INVALID-REGEX: could not build mutant"; fi
   # M-1550-SS-ALREADY: the adapted-and-present SessionStart branch is lost -> reported as "registered".
   if _k43_build k50sa -e 's/elif \[ "\$_wire_has_ss" = "true" \]; then/elif false; then/'; then
@@ -4033,18 +4046,32 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     printf '#!/usr/bin/env bash\necho adapted body, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
     _k9_ss_cmd "$d" > "$d/.claude/settings.json"
     bash "$(_k96_inits k50sa)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sa.out" 2>&1
-    grep -qF "wired  : SessionStart hook already wired in" "$TMP/k50sa.out" && no "teeth M-1550-SS-ALREADY: still reports already wired — THEATER" \
-      || ok "teeth M-1550-SS-ALREADY: wrong report without the branch — K1550-ss adapted+present has teeth"
+    { grep -qF "wired  : SessionStart hook registered in" "$TMP/k50sa.out" && ! grep -qF "wired  : SessionStart hook already wired in" "$TMP/k50sa.out"; } \
+      && ok "teeth M-1550-SS-ALREADY: the wrong 'registered' report appears and 'already wired' is gone — K1550-ss adapted+present has teeth" \
+      || no "teeth M-1550-SS-ALREADY: expected the wrong 'registered' report — THEATER"
   else no "teeth M-1550-SS-ALREADY: could not build mutant"; fi
-  # M-1550-SS-LEFT-ASIS: the skip-but-present wording is lost.
-  if _k43_build k50sl -e 's/(left as-is — <SUBJECT>/(left alone — <SUBJECT>/'; then
+  # M-1550-SS-LEFT-ASIS: the skip-but-present wording at the SCAFFOLD site is changed (anchored on $_settings, so the
+  # wire-only line, which prints $_wo_settings, is left alone).
+  if _k43_build k50sl -e 's/\$_settings (left as-is/$_settings (left alone/'; then
     d="$TMP/k43/k50sl-t"; mkdir -p "$d/.claude/hooks"
     printf '#!/usr/bin/env bash\necho <SUBJECT> is not adapted\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
     _k9_ss_cmd "$d" > "$d/.claude/settings.json"
     bash "$(_k96_inits k50sl)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sl.out" 2>&1
-    grep -qF "(left as-is" "$TMP/k50sl.out" && no "teeth M-1550-SS-LEFT-ASIS: wording still present — THEATER" \
-      || ok "teeth M-1550-SS-LEFT-ASIS: wording gone — K1550-ss skip+present has teeth"
+    { grep -qF "(left alone" "$TMP/k50sl.out" && ! grep -qF "(left as-is" "$TMP/k50sl.out"; } \
+      && ok "teeth M-1550-SS-LEFT-ASIS: the changed wording appears and the pinned one is gone — K1550-ss skip+present has teeth" \
+      || no "teeth M-1550-SS-LEFT-ASIS: expected '(left alone' in place of '(left as-is' — THEATER"
   else no "teeth M-1550-SS-LEFT-ASIS: could not build mutant"; fi
+  # M-1159-FORCE-WIRING: the guard dedup is lost, so --force on a wired corpus DUPLICATES the pkill-guard entry. The Stop-once
+  # count cannot see that; the whole-wiring jq -S comparison must.
+  if _k43_build k59fw -e 's/(\$pk_cmds | any(. as \$c | (\$pk_variants | index(\$c)) != null)) as \$has_pk/false as $has_pk/'; then
+    d="$TMP/k43/k59fw-t"; mkdir -p "$d"
+    bash "$(_k96_inits k59fw)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    _k9_before="$(jq -S . "$d/.claude/settings.json" 2>/dev/null)"
+    bash "$(_k96_inits k59fw)" "$d" --wire --document --force >/dev/null 2>&1
+    { [ -n "$_k9_before" ] && [ "$_k9_before" != "$(jq -S . "$d/.claude/settings.json" 2>/dev/null)" ]; } \
+      && ok "teeth M-1159-FORCE-WIRING: a duplicated hook under --force changes the normalised settings.json — the whole-wiring comparison has teeth" \
+      || no "teeth M-1159-FORCE-WIRING: settings.json unchanged under the mutant — THEATER"
+  else no "teeth M-1159-FORCE-WIRING: could not build mutant"; fi
   # M-1509-MERGE-FAIL-EXIT: the scaffold --wire merge-failure exit is dropped → failure reads as success.
   if _k43_build k99mf -e 's/^if \[ "\${_wire_merge_failed:-0}" = 1 \]; then exit 4; fi$/:/'; then
     d="$TMP/k43/k99mf-t"; mkdir -p "$d/.claude"

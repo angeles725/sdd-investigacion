@@ -109,8 +109,8 @@
 # with --wire to opt in to scaffolding AND wiring in one call (--scaffold without --wire is a
 # usage error, exit 2 — it has no effect on its own); that combined path applies the SAME
 # <SUBJECT> SessionStart guard as the wire-only repair path above — a freshly-copied
-# hook-sessionstart.sh always carries a LIVE (non-comment) <SUBJECT> placeholder, so SessionStart
-# wiring is skipped (WARN) until the operator adapts it, exactly like the repair path. The
+# hook-sessionstart.sh carries a LIVE (non-comment) <SUBJECT> placeholder unless --subject filled it
+# (kit issue #1845), so SessionStart wiring is skipped (WARN) until the placeholder is gone, exactly like the repair path. The
 # recognized corpus-marker forms (both here and in the anti-clobber guard) are INDEX.md,
 # RESEARCH-STATE.md, the §16 multi-focus RESEARCH-STATE-<focus>.md, and CATALOG.md — a
 # multi-focus-only corpus (no plain RESEARCH-STATE.md) is still a real, present corpus.
@@ -1401,8 +1401,9 @@ fi
 if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   echo "-- §479 HOOK WIRING (propose-never-apply: paste this yourself, or re-run with --wire) --"
   echo "   Add to $target/.claude/settings.json — merge with any existing hooks:"
-  # kit issue #1550: name the 3rd positional (skip_ss) instead of passing a bare literal. The scaffold ships a hook that
-  # still carries the live placeholder, and the snippet is a proposal to adapt and paste, so SessionStart is always offered.
+  # kit issue #1550: name the 3rd positional (skip_ss) instead of passing a bare literal. The printed snippet is a
+  # proposal to paste, so SessionStart is always offered, whether or not the hook still carries a live <SUBJECT>
+  # (--subject fills it, kit issue #1845); the --wire path above is what skips an unadapted hook.
   _print_skip_ss="false"
   _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "$_print_skip_ss" "$_pk_cmd"
 fi
