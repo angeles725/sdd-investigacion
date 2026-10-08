@@ -806,8 +806,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth CR7 lint-block-packs/multi-version.py 's#if not R8_WHETHER_RE.search(before) and #if #' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR10 lint-block-packs/multi-version.py 's#R8_WHETHER_RE.search(before)#R8_WHETHER_RE.search(clause)#' "$FX/pack-cal-r8.md" R8 CAL-R8-BAD multi-version
   ptooth CR30 lint-block-packs/jvm.py 's#^R5_ACCESS_ACTION_RE = .*#R5_ACCESS_ACTION_RE = re.compile(r"(?!)")#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
-  ptooth CR31 lint-block-packs/jvm.py 's#\\bBypass\\b(?!es|ed)#\\bBypass[a-z]*\\b#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
-  ptooth CR32 lint-block-packs/jvm.py 's#r"\\bBypass\\b(?!es|ed)|#r"(?i:\\bbypass\\b)(?!es|ed)|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR31 lint-block-packs/jvm.py 's#re.compile(r"\\bBypass\\b|#re.compile(r"\\bBypass[a-z]*\\b|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR32 lint-block-packs/jvm.py 's#re.compile(r"\\bBypass\\b|#re.compile(r"(?i:\\bbypass\\b)|#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR33 lint-block-packs/jvm.py 's#^    if R5_ACCESS_CTX_RE.search(clause):#    if True:#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR34 lint-block-packs/jvm.py 's#^    if R5_ACCESS_CTX_RE.search(clause):#    if False:#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR35 lint-block-packs/jvm.py 's#`bypass`(?=\\s+(?:policy|policies|action|rule)s?\\b)#`bypass`#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR36 lint-block-packs/jvm.py 's#|`bypass`(?=\\s+(?:policy|policies|action|rule)s?\\b)")#")#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
+  ptooth CR37 lint-block-packs/jvm.py 's#sub("\\x00", clause)#sub("", clause)#' "$FX/pack-cal-jvm.md" R5 CAL-R5-BAD jvm
   ptooth CR11 lint-block-packs/jvm.py 's#r"\\brecords?\\s\*/\\s\*sealed\\b", ##' "$FX/pack-cal-jvm.md" R1 CAL-R1-BAD jvm
   cal_r9_want="$(grep -nE 'CAL-R9-(HEADING-|ROW-|EMPTY-|PARENT-)?BAD' "$FX/pack-cal-r9.md" | cut -d: -f1 | sort -n | tr '\n' ' ' | sed 's/ $//')"
   if tooth_build CR8 lint-block-packs/native-binary.py 's#text = section_text(doc, u)#text = u.text#'; then
