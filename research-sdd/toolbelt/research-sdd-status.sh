@@ -26,7 +26,8 @@
 #        (either STOP form, kit #1959) ... [backlog-unreadable: N rows] — N backlog rows were UNCOUNTED by the parser (near-miss heading,
 #              no-Priority-header table, non-tier priority, malformed row); the exhaustion is NOT confirmed. Appended last, after any
 #              [issue-coverage: unverified]; non-terminal — --emit-token answers `unavailable` for it instead of a STOP: campaign token.
-#              Counted over the files the verdict covers (picked file under --root/--focus, else every non-skipped file).
+#              Counted over the files the verdict covers (picked file under --root/--focus, else EVERY state file, stopped/paused included); an
+#              uncountable file gives `[backlog-unreadable: unverified]` (never 0). The default report's `next step` line carries it too.
 #        ISSUES-DUE | <count> untracked delta(s) in <retro> — first retro with untracked deltas found (early-exit:
 #              remaining retros NOT probed); seed: stage-retro-issues.sh <retro> --apply
 #        (aggregate probing budget: _IDG_AGGREGATE_BUDGET_SECS env var, default 60s — exceeded before all-clean confirmed → unverified marker)
@@ -1203,15 +1204,24 @@ _stop_exhausted() { printf 'STOP | read-only-investigable exhausted (0)%s\n' "$_
 # verdict covers (the picked file when --root/--focus scopes, else every non-skipped file the aggregate walked) and sets
 # _BU_SUFFIX. It swaps the global $state that backlog_rows reads and restores it.
 _BU_SUFFIX=""
+# A count that cannot be taken (unreadable state file, backlog parser failure, grep error) is NOT zero: it yields the
+# typed ` [backlog-unreadable: unverified]` qualifier instead (kit #1959 W2), non-terminal exactly like a numeric one.
 _bu_compute() {
-  local _bu_saved="$state" _bu_total=0 _bu_n _bu_f
+  local _bu_saved="$state" _bu_total=0 _bu_unv=0 _bu_n _bu_f _bu_rows _bu_rc
   for _bu_f in "$@"; do
-    state="$_bu_f"; _bu_n="$(count_uncounted_rows)"
-    case "$_bu_n" in ''|*[!0-9]*) _bu_n=0 ;; esac
+    state="$_bu_f"
+    if [ ! -r "$_bu_f" ]; then _bu_unv=1; continue; fi  # BU-UNREADABLE-FILE
+    _bu_rows="$(backlog_rows 1 2>/dev/null)"; _bu_rc=$?
+    if [ "$_bu_rc" -ne 0 ]; then _bu_unv=1; continue; fi  # BU-PARSER-RC
+    _bu_n="$(grep -c '^UNCOUNTED' <<<"$_bu_rows")"; _bu_rc=$?
+    if [ "$_bu_rc" -gt 1 ]; then _bu_unv=1; continue; fi
+    case "$_bu_n" in ''|*[!0-9]*) _bu_unv=1; continue ;; esac
     _bu_total=$(( _bu_total + _bu_n ))  # BU-SUM
   done
   state="$_bu_saved"
-  _BU_SUFFIX=""; [ "$_bu_total" -gt 0 ] && _BU_SUFFIX=" [backlog-unreadable: ${_bu_total} rows]"
+  _BU_SUFFIX=""
+  if [ "$_bu_unv" -gt 0 ]; then _BU_SUFFIX=" [backlog-unreadable: unverified]"  # BU-UNVERIFIED
+  elif [ "$_bu_total" -gt 0 ]; then _BU_SUFFIX=" [backlog-unreadable: ${_bu_total} rows]"; fi
   return 0
 }
 
@@ -1813,7 +1823,7 @@ fence != "" { next }
     # Scanning $corpus alone was the C3 false-STOP root cause one directory level up: alpha (stopped)
     # sorted first → corpus=alpha → aggregation never reached beta (active) → false STOP.
     mapfile -t _next_states < <(list_state_files "$target")
-    _nxt_skip_gaps=0; _nxt_walked=()
+    _nxt_skip_gaps=0
     : # IDG-PREC-SENTINEL (teeth-IDG-precedence: replace with 'issues_due_gate; exit 0' to verify gate fires AFTER resolve_next)
     for state in "${_next_states[@]}"; do
       _nxt_foc_slug="$(basename "$state" .md)"; _nxt_foc_slug="${_nxt_foc_slug#RESEARCH-STATE-}"
@@ -1827,14 +1837,15 @@ fence != "" { next }
         [ "${_nxt_skip_d_inv:-0}" != "0" ] && _nxt_skip_gaps=$(( _nxt_skip_gaps + 1 ))
         continue
       fi
-      _nxt_walked+=("$state")
       _r="$(resolve_next)"
       case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
     done
+    # kit #1959 W1: the qualifier counts EVERY state file, skipped (stopped/paused) ones included — a paused focus whose
+    # only open rows are unread must not leave a bare terminal STOP.
+    _bu_compute ${_next_states[@]+"${_next_states[@]}"}  # BU-WALKED
     if [ "$_nxt_skip_gaps" -gt 0 ]; then
-      echo "STOP | no active focus (${_nxt_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
+      echo "STOP | no active focus (${_nxt_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)${_BU_SUFFIX}"
     else
-      _bu_compute ${_nxt_walked[@]+"${_nxt_walked[@]}"}  # BU-WALKED
       issues_due_gate
     fi
   else
@@ -2404,10 +2415,11 @@ _ns_gap_run() (
     _r="$(resolve_next)"
     case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
   done
+  _bu_compute ${_ns_states[@]+"${_ns_states[@]}"}  # BU-REPORT (kit #1959 S1: the default report carries the same qualifier)
   if [ "$_ns_skip_gaps" -gt 0 ]; then
-    echo "STOP | no active focus (${_ns_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)"
+    echo "STOP | no active focus (${_ns_skip_gaps} declared stopped/paused in FOCUSES.md with open gaps)${_BU_SUFFIX}"
   else
-    echo "STOP | read-only-investigable exhausted (0)"
+    echo "STOP | read-only-investigable exhausted (0)${_BU_SUFFIX}"
   fi
 )
 _ns_doc=""

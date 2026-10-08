@@ -91,9 +91,14 @@ fxP="$TMP/paused"; mkdir -p "$fxP"
 mk_state "$fxP/RESEARCH-STATE.md" "$CANON" "$COV"
 mk_state "$fxP/RESEARCH-STATE-old.md" "$NEAR" "$COV" "$U1"
 printf '| focus | status |\n|---|---|\n| old | paused |\n' > "$fxP/FOCUSES.md"
-case "$(nx "$SUT" "$fxP")" in
-  "$BARE"|"STOP | no active focus"*) ok "2f paused focus's unread rows are not added to the aggregate verdict" ;;
-  *) no "2f paused focus: got [$(nx "$SUT" "$fxP")]" ;; esac
+want "2f a paused focus's unread rows still qualify the aggregate STOP (kit #1959 W1)" "$(nx "$SUT" "$fxP")" "$BARE [backlog-unreadable: 1 rows]"
+# a paused focus that still has an open gap: 'no active focus' form carries the qualifier too
+fxQ="$TMP/pausedgap"; mkdir -p "$fxQ"
+mk_state "$fxQ/RESEARCH-STATE.md" "$CANON" "$COV"
+mk_state "$fxQ/RESEARCH-STATE-old.md" "$NEAR" "$COV" "$U1" "| high | open gap | web | pending |"
+sed -i 's/^investigable_open: 0/investigable_open: 1/; s/^- \*\*Open gaps — read-only investigable\*\*: 0/- **Open gaps — read-only investigable**: 1/' "$fxQ/RESEARCH-STATE-old.md"
+printf '| focus | status |\n|---|---|\n| old | paused |\n' > "$fxQ/FOCUSES.md"
+want "2g paused focus with an open gap: 'no active focus' STOP carries the qualifier" "$(nx "$SUT" "$fxQ")" "STOP | no active focus (1 declared stopped/paused in FOCUSES.md with open gaps) [backlog-unreadable: 1 rows]"
 
 # 3. a NEXT verdict is untouched even when unread rows exist
 fxN="$TMP/next"; mkdir -p "$fxN"; mk_state "$fxN/RESEARCH-STATE.md" "$NEAR" "$COV" "$U1" "| high | real gap | web | pending |"
@@ -115,6 +120,32 @@ case "$(et "$fx1")" in
 want "5b emit-token: clean STOP still maps to the campaign token" "$(et "$fxClean")" "return-token: STOP: campaign — read-only-investigable exhausted (0)"
 bash "$SUT" "$fx1" --next --emit-token >/dev/null 2>&1; rc=$?
 [ "$rc" = 1 ] && ok "5c emit-token: unavailable exits 1" || no "5c emit-token unavailable rc=$rc (want 1)"
+
+# 7. a count that cannot be taken is NOT zero (kit #1959 W2): an unreadable state file -> [backlog-unreadable: unverified]
+if [ "$(id -u)" = 0 ]; then
+  printf '  SKIP  7 chmod 000 state file: running as root, the file stays readable (typed skip)\n'
+else
+  fxU="$TMP/unreadable"; mkdir -p "$fxU"
+  mk_state "$fxU/RESEARCH-STATE.md" "$CANON" "$COV"
+  mk_state "$fxU/RESEARCH-STATE-bad.md" "$CANON" "$COV"
+  printf '| focus | status |\n|---|---|\n| bad | paused |\n' > "$fxU/FOCUSES.md"
+  chmod 000 "$fxU/RESEARCH-STATE-bad.md"
+  got="$(nx "$SUT" "$fxU")"
+  case "$got" in
+    *"[backlog-unreadable: unverified]") ok "7a unreadable (chmod 000) paused state file -> unverified qualifier, never 0 [$got]" ;;
+    *) no "7a chmod 000 state file: want an '[backlog-unreadable: unverified]' suffix, got [$got]" ;;
+  esac
+  case "$(bash "$SUT" "$fxU" --next --emit-token 2>/dev/null | grep '^return-token:')" in
+    "return-token: unavailable ("*) ok "7b the unverified qualifier is non-terminal for --emit-token too" ;;
+    *) no "7b emit-token on unverified qualifier did not answer unavailable" ;; esac
+  chmod 644 "$fxU/RESEARCH-STATE-bad.md"
+fi
+
+# 8. the default (non --next) report carries the same qualifier on its 'next step' line (kit #1959 S1)
+rep="$(bash "$SUT" "$fx3" 2>/dev/null | sed -n 's/^  next step       : //p')"
+want "8a default report: next step line carries the qualifier" "$rep" "$BARE [backlog-unreadable: 3 rows]"
+rep="$(bash "$SUT" "$fxClean" 2>/dev/null | sed -n 's/^  next step       : //p')"
+want "8b default report: clean backlog stays bare" "$rep" "$BARE"
 
 # 6. consumer parse: the suffixed line is still selected by the `STOP | ` prefix exactly once (the verdict-pick shape
 #    return-token-gate and score-loop-transcript rely on)
@@ -151,6 +182,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # F: emit-token maps the suffixed STOP to the campaign token -> 5a goes red
   if mutate F '/ET-BU-NONTERMINAL/d'; then
     case "$(bash "$MUT" "$fx1" --next --emit-token 2>/dev/null | grep '^return-token:')" in "return-token: STOP: campaign"*) ok "teeth F: non-terminal guard dropped -> case 5a has teeth" ;; *) no "teeth F: THEATER or crashed mutant" ;; esac; fi
+  # G: W1 - the aggregate counts only the root file (skipped focus ignored) -> 2f goes red
+  if mutate G '/BU-WALKED/s/_bu_compute .*  # BU-WALKED/_bu_compute "$state"  # BU-WALKED/'; then
+    [ "$(nx "$MUT" "$fxP")" = "$BARE" ] && ok "teeth G: skipped focus not counted -> case 2f has teeth" || no "teeth G: THEATER or crashed mutant"; fi
+  # H: W2 - an uncountable file counts as zero -> 7a goes red (both guards removed so neither can still catch it)
+  if [ "$(id -u)" != 0 ]; then
+    if mutate H '/BU-UNREADABLE-FILE/d;/BU-PARSER-RC/d'; then
+      [ "$(nx "$MUT" "$fxU")" = "$BARE" ] && ok "teeth H: unreadable file counted as 0 -> case 7a has teeth" || no "teeth H: got [$(nx "$MUT" "$fxU")] - THEATER or crashed mutant"; fi
+    if mutate I 's/\[ "\$_bu_unv" -gt 0 \]; then _BU_SUFFIX=" \[backlog-unreadable: unverified\]"  # BU-UNVERIFIED/[ "$_bu_unv" -gt 99 ]; then _BU_SUFFIX=""  # BU-UNVERIFIED/'; then
+      [ "$(nx "$MUT" "$fxU")" = "$BARE" ] && ok "teeth I: unverified flag ignored -> case 7a has teeth" || no "teeth I: got [$(nx "$MUT" "$fxU")] - THEATER or crashed mutant"; fi
+  fi
+  # J: S1 - the default report drops the qualifier -> 8a goes red
+  if mutate J '/BU-REPORT/d'; then
+    [ "$(bash "$MUT" "$fx3" 2>/dev/null | sed -n 's/^  next step       : //p')" = "$BARE" ] && ok "teeth J: report qualifier dropped -> case 8a has teeth" || no "teeth J: THEATER or crashed mutant"; fi
 fi
 
 echo "== $pass passed · $fail failed =="

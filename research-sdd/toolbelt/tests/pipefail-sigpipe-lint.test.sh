@@ -21,7 +21,11 @@
 # without a reason does not exempt. No path-based blanket exemption exists.
 #
 # The `| head` consumer family (kit issue #1145) is deliberately NOT linted — measured, not assumed (2026-10-07):
-#   incidence  721 `| head` sites in 79 files under toolbelt/ + install/ (65 sites in 20 production files).
+#   incidence  723 `| head` sites in 79 files, 65 sites in 20 production files (tests/ excluded). Enumerator, run from
+#              research-sdd/: `grep -rnE '\| *head( |$)' --include='*.sh' toolbelt install` (then `| grep -v /tests/` for
+#              production). Scope: *.sh under toolbelt/ and install/ only. It matches `|head` and `| head` at any
+#              position on a physical line (including a continuation line that starts with `| head`); it does NOT see
+#              `|& head`, `head` reached through a variable/xargs/eval, or scripts without a .sh extension.
 #   mechanism  under pipefail a producer that writes more than the ~64 KB pipe buffer after `head` has exited gets
 #              SIGPIPE and the pipeline rc becomes 141, but the captured VALUE is still correct: probe
 #              `x="$(seq 1 300000 | head -1)"` under pipefail gave 200/200 rc=141 and 0/200 wrong values. So the
@@ -31,7 +35,7 @@
 #              production files); (b) `< <(… | head)` process substitutions — rc ignored by bash; (c) `|| true` /
 #              `|| x=""` absorbers over tiny cache/grep producers (detect-tools, verify-retro); (d) the only two
 #              production files with errexit (decompile-native.sh, scan-firmware.sh) read PIPESTATUS and accept 141
-#              explicitly at all 4 of their `| head` sites; (e) `sort | head -1` over `find` output (verify-sources,
+#              explicitly at all 3 of their `| head` sites (decompile-native.sh:26, :31 and scan-firmware.sh:24); (e) `sort | head -1` over `find` output (verify-sources,
 #              scan-secrets, research-sdd-archive): sort may take the SIGPIPE, the rc is never read, the value is the
 #              first line either way.
 #   verdict    0 unguarded sites where a consumed rc sits behind a producer that can exceed 64 KB, so there is no

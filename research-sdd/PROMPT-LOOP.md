@@ -112,7 +112,10 @@ Always read first, in this order:
   6. RESOLVE THE NEXT GAP mechanically — do NOT eyeball the backlog: `$KIT/toolbelt/research-sdd-status.sh $TARGET --next`
      returns one line — `NEXT | <priority> | <gap>` (investigate it),
      `STOP | <reason>` (§8 exhaustion; when reason contains `[issue-coverage: unverified]`, issue coverage
-     could NOT be verified — see below; treat as complete with unconfirmed coverage, advisory not a hard block),
+     could NOT be verified — see below; treat as complete with unconfirmed coverage, advisory not a hard block;
+     when it ends in `[backlog-unreadable: N rows]` or `[backlog-unreadable: unverified]` the STOP is NOT exhaustion —
+     backlog rows were not read: reconcile the backlog grammar (`--sync-state`, fix the heading/Priority column) and
+     re-run `--next`; `--emit-token` answers `unavailable` for it),
      `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
      --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`,
      `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
@@ -1832,7 +1835,7 @@ RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep loop
           enqueued=0, AND — on a multi-focus heavy/frontier corpus, §8c — the campaign-close
           partition check reports no genuinely unchartered unit),
         `STOP: campaign-bound-reached: <which>` — when a declared campaign bound fires.
-      When `research-sdd-status.sh <target> --next --emit-token` is available, copy its `return-token:` line verbatim; never compose the token by hand. If it prints `return-token: unavailable (<reason>)` (exit 1), that line is NOT a token: resolve the named state first (RETRO-DUE, ISSUES-DUE, STALE, BOOTSTRAP per their rules) and re-run; for a multi-focus or campaign-queue STOP, derive `next-entry:` / `STOP: campaign` from the §8c queue as this contract defines.
+      When `research-sdd-status.sh <target> --next --emit-token` is available, copy its `return-token:` line verbatim; never compose the token by hand. If it prints `return-token: unavailable (<reason>)` (exit 1), that line is NOT a token: resolve the named state first (RETRO-DUE, ISSUES-DUE, STALE, BOOTSTRAP per their rules) and re-run; for a multi-focus or campaign-queue STOP, derive `next-entry:` / `STOP: campaign` from the §8c queue as this contract defines. A STOP ending in `[backlog-unreadable: …]` is never a `STOP: campaign` token: it gets `unavailable` until the backlog is reconciled (`--sync-state`) and `--next` is re-run.
       Enforcement: once wired (kit issue #1732, `research-sdd-init.sh --wire`), `$KIT/toolbelt/return-token-gate.sh` runs as a second Stop hook and blocks the session ONCE when the final report's token is missing or differs from the provider-issued one, quoting the exact line to copy; a deliberate difference needs a `return-token-override: <reason>` line.
       A report that ends without any token is a halted-but-silent stop: the operator has no
       signal to distinguish "checkpoint, continuing" from "stopped". Never substitute a question
