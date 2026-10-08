@@ -3244,8 +3244,30 @@ the script is missing or exits 2/3 (a non-git corpus is exit 2). It is a loud WA
 decided slice 1 as report-only and no gate was decided, so stdout, the verdict, `--emit-token` and the exit code
 are unchanged and a close can still proceed over a WARN. Honoring it is the loop's step: resolve or keep-list
 every finding before declaring STOP. The run is bounded by `timeout` (`RSDD_STATUS_CLEAN_CHECK_TIMEOUT` seconds, an integer >= 1, default 20, anything else falls back to 20 with a WARN; a TERM-ignoring run is killed 5 s later; a timeout or a missing `timeout`/`gtimeout` is a typed `unverifiable` WARN). `RSDD_STATUS_NO_CLEAN_CHECK=1` skips it. A non-terminal verdict (`NEXT`,
-`ISSUES-DUE`, `STOP | no active focus`) does not run the check. Not built: stale worktrees, merged branches and
-`_evidence` retention scans (see `clean-check.v1.md` known limits) and a hard gate.
+`ISSUES-DUE`, `STOP | no active focus`) does not run the check.
+
+Retention scans (kit issue #1277 slice 3, report-only; maintainer decision 2026-10-07). `clean-check.sh` also prints
+typed `WARN` lines, counted in the summary as `warnings: N` and never added to the finding count, so WARNs never
+change the exit code: `WARN stale-worktree <path> missing|prunable (...)` (a registered non-main worktree whose
+path is gone or that git marks prunable), `WARN merged-branch <name> merged into <base>` and
+`WARN merged-remote-branch <remote/name> merged into <base>` (refs already merged into the base), and
+`WARN stale-backup <path> age=<d>d retention=<D>d` (an entry named `*rollback*` / `*backup*`, 1-2 levels below an
+`_evidence` directory, older than the retention age). Flags: `--base REF` (default `origin/HEAD`, else `main`, else
+`master`; an unresolvable REF is exit 2), `--evidence DIR` (scan exactly that directory; default every `_evidence`
+directory up to 4 levels below the target), `--backup-days N` (default 14). Absent, empty and degraded stay distinct
+(§7): `ABSENT-BASE`, `ABSENT-EVIDENCE`, `evidence: none found`, and `DEGRADED-WORKTREE-SCAN` /
+`DEGRADED-BRANCH-SCAN` / `DEGRADED-EVIDENCE-SCAN` (summary `degraded: ...`, exit 3 when otherwise clean). A hard
+gate is explicitly NOT adopted: the maintainer decided on 2026-10-07 to keep the instrument report-only. Known
+noise: a branch freshly created at the base tip counts as "merged". Operator action, per WARN, is by hand:
+`git worktree prune` or remove the stale worktree, delete a merged branch you no longer need, and delete a stale
+rollback backup once its task's results are merged.
+
+Two doctrine-only rules that no instrument checks (kit issue #1277). (1) Every rollback backup written under
+`_evidence` carries a RETENTION note (a one-line `RETENTION.txt` beside it, or the retention date in the
+directory name) saying when it may be deleted; a backup without one is not a deliverable, and `stale-backup` is the
+reminder that it outlived its task. (2) Tool output files such as `assess-*.json` must be written to the session
+scratchpad, never loose in the worktrees root (`<repo-parent>/<repo-name>-worktrees/`); no scan covers that
+directory, so an operator closing a campaign lists it by hand and deletes any stray `assess-*.json` left there.
 
 ## 16. Multi-focus corpus (parallel focuses under one target)
 
