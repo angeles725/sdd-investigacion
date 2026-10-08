@@ -496,27 +496,26 @@ Always read first, in this order:
      about. (Evidence: niagara B899–B928.)
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
+       (Corpus provenance for this step's rules: `$KIT/PROMPT-LOOP-APPENDIX.md#step3-evidence-provenance`.)
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
          overlaps this gap — especially the block that opened it. Step 5's pre-loop INDEX.md read
          names blocks; this check reads them. Cost: one targeted block read per gap. (Distinct from
          the sub-agent scope rule in VERIFY BEFORE ACTING below, which validates negative findings
-         after the sweep. Evidence: B279 ran module-navigator before reading B133, which already
-         documented the JNI boundary; required a §279.9 self-revision.)
+         after the sweep.)
          GAP-ID VERIFY + ALREADY-COVERED PRE-CHECK (sub-agent launch): a gap ID in a writer prompt is
          the caller's LABEL, a hypothesis. The writer verifies it against the cited block's OWN file
          (the `Gap:` / gap-ID line there) BEFORE writing, and states any correction up front ("prompt
          said B65-G3; block B65 defines B65-G1"). Then, before investigating, grep the gap ID across
          LATER blocks and RESEARCH-STATE: stale backlog rows point at gaps a later block already closed.
          On a hit, return `ALREADY-COVERED — <block> §<n.x>` and stop; the driver closes the row without
-         authoring a block (same closure path as REMITTANCE below). (Evidence: n5 waves 6-7 B69 B65-G1
-         vs G3, B74 B50-G7 vs G6; wave 11: 7 gaps returned ALREADY-COVERED at no re-derivation cost.)
+         authoring a block (same closure path as REMITTANCE below).
          REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
          but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
          the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
          this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
          sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
          the driver closes without authoring a block. This prevents wasted investigation if the gap is
-         remittance at fine grain even when the audit cleared it at coarse grain. (Evidence: apis focus API5/API6/API8.)
+         remittance at fine grain even when the audit cleared it at coarse grain.
          REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
          but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
          SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
@@ -524,24 +523,20 @@ Always read first, in this order:
          settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
          the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
          case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
-         not a wasted iteration. (Evidence: blender-llm B10, B4 §4.2/§4.5.)
+         not a wasted iteration.
          OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
          operator's data package, check whether the package already carries a pre-existing human
          classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
          label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity. (Evidence: blender-llm B76 §76.5.)
+         against — do not build a filter first and lose that calibration opportunity.
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
          boundary — the same family as GAP PREMISES ARE HYPOTHESES (BOOTSTRAP step e). When the
          cost of a targeted follow-up is low (e.g. one decompile pass or one block), TEST the
          judgment before accepting the closure. If a test REFUTES the judgment, issue a §14
-         correction on the prior block with a back-pointer. Evidence (retro 2026-08-07): B381
-         refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged
-         for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START,
-         argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing
-         security facts. A scope-out that costs one iteration to test is cheaper than six weeks of
-         missed findings.
+         correction on the prior block with a back-pointer. A scope-out that costs one iteration
+         to test is cheaper than six weeks of missed findings.
        - READ THE RESIDUE BEFORE THEORISING: before forming a theory about why a remainder does not
          fit — an unexplained bucket, a residual set, un-opened columns — READ those items first. A
          theory built on unread data is [INFER] from zero evidence; the actual contents often disprove it.
@@ -551,7 +546,6 @@ Always read first, in this order:
          derive is a hypothesis that no label exists; prove that absence before spending derivation
          effort. Absence proved from ONE regex or ONE search strategy is not proven absence — see
          RE-MEASURE A DRAMATIC NEGATIVE (HARD RULES) and GAP NUMBERS ARE ALSO HYPOTHESES (BOOTSTRAP e).
-         (Evidence: COB-IM2 B8, ANNOTATION-BEFORE-DERIVATION only; the originally cited commit no longer exists after that corpus's re-bootstrap.)
        - Decompile/read: `$KIT/toolbelt/`{decompile-java.sh | decompile-net.sh | decompile-native.sh | scan-firmware.sh}
        - Source code: direct reading + CodeGraph.
        - Web: WebSearch (specs/forums/manuals) + WebFetch (specific links).
@@ -563,7 +557,6 @@ Always read first, in this order:
          which falsely reads as proven absence — not a negative finding. Distinct from the existing
          "arm and verify sink recording" step in METHODOLOGY §12; this is the entry-point pre-check that
          precedes it: verify the path is wired for capture BEFORE spending probe time on it.
-         (Evidence: blender B6.)
        - Documents: if you find a relevant datasheet/manual/forum, DOWNLOAD it and preserve it with
          $KIT/toolbelt/fetch-doc.sh doc <url> $CORPUS [sub] [name] (lands in $CORPUS/sources/ + registered in SOURCES.md).
        - PDF extraction — turn a preserved PDF into greppable, citable Markdown with
@@ -651,7 +644,7 @@ Always read first, in this order:
          CWD-PATH BUG FIRST: before concluding a cited file does not exist (and thus concluding the
          sub-agent fabricated sources), rule out a cwd/relative-path bug — verify with
          `find <repo-root> -name <basename>` from the repo root. A file that returns "No such file"
-         from inside a subdirectory may exist relative to the project root. (Evidence: spyder commissioning.)
+         from inside a subdirectory may exist relative to the project root.
          PIN THE ROOT IN THE BRIEF (#1609): every sweep brief names the corpus root as an ABSOLUTE path (a stale cwd
          once returned remitted-only citations) and requires the return to state whether the sweep re-read the primary
          tree (fresh) or only prior blocks (remitted tier); a return without that statement is treated as remitted-only.
@@ -662,7 +655,7 @@ Always read first, in this order:
          (b) if the sub-agent asserts something does NOT exist / is NOT documented / is absent,
          grep-confirm it yourself before accepting, across ALL install roots the target uses (a
          split install keeps `bin/`+`jre/` apart from a config-home `modules/`; absence proved on one
-         root is not absence). (Evidence: n5 B102 "pxEditor absent", refuted by an `ls` of the config home.)
+         root is not absence).
          (c) Tool-use count is a signal: a detailed
          report with very few tool calls inferred instead of searched.
          PHYSICAL-ACTION FACTS (highest-priority VERIFY): for any cited fact a human will act on
@@ -672,7 +665,7 @@ Always read first, in this order:
          necessary but not sufficient here: verify-before-relay, not only verify-before-block. The
          driver must have read the cited line; trusting the sub-agent's accuracy for a fact that may
          cause hardware damage or a safety incident is not acceptable. Record: "physical-action verify:
-         N citations checked against real source, all confirmed." (Evidence: commissioning sweeps.)
+         N citations checked against real source, all confirmed."
        - HIDDEN-FLAG CROSS-CHECK — for a Go-CLI target block whose sweep SOURCE was `--help` output,
          also read the Go source's `cli.Flag` registrations for `Hidden: true` entries: they appear
          in neither `--help` nor `--help-all` yet may be operationally critical (4 missed in one
@@ -729,21 +722,20 @@ Always read first, in this order:
          reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
          against the intended count before proceeding. A filter that silently declines entries produces
          no error and no warning — the discrepancy is only visible by comparing intent vs. result.
-         (Evidence: blender-llm B60 §60.4.)
          NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
          package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
          (X %)` as a headline on every census. A complement gate or coverage claim applied after a
          narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
-         that must be named. (Evidence: blender-llm B62 §62.1–§62.3.)
+         that must be named.
          SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
          SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
          any value the researcher picks — a subject-declared threshold produces a partition with no
-         researcher-chosen numbers anywhere. (Evidence: blender-llm B63 §63.2.)
+         researcher-chosen numbers anywhere.
          IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
          DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
          proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
          instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
-         identifier is per-type or per-instance before using it as a grouping key. (Evidence: blender-llm B65 §65.2.)
+         identifier is per-type or per-instance before using it as a grouping key.
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -760,7 +752,7 @@ Always read first, in this order:
          strings, not live operational state. A string `"endpoint decommissioned"` is evidence the
          developer EXPECTED decommissioning; it is not evidence the endpoint IS currently offline.
          Apply FALSIFY BEFORE REPORTING before reporting any decommission/shutdown status from a
-         decompiled source. (Evidence: niagara framework-drivers-closure D2.)
+         decompiled source.
        - REACHABLE ≠ REPRESENTATIVE: before using a live endpoint response as evidence, confirm it
          is the PRODUCTION PATH, not a debug/test stub. A reachable URL proves only that the
          transport works. Check documented service paths (vendor manual, API spec, or prior corpus
@@ -771,7 +763,6 @@ Always read first, in this order:
          or citing its output as evidence, introspect the primitive's active mode or variant and
          confirm it is the one relevant to the gap. Distinct from the live-HTTP REACHABLE≠REPRESENTATIVE
          rule above (which governs live endpoint transport); this governs static node/tool configuration.
-         (Evidence: blender B9.)
        - CROSS-FOCUS SECURITY FEED: when a mechanics or coverage sweep incidentally finds a security
          footgun in decompiled code — an exposed credential store, an unguarded admin channel, an
          unsafe default — ADD a gap entry to the security focus's backlog in the same iteration. A

@@ -8,7 +8,9 @@ own HOT-CORE from SITUATIONAL sections). A rule lives here only if its trigger i
 every always-hit delegation rule — stays in PROMPT-LOOP.md core. Lazy-load != skip: every rule here
 still applies in full once its trigger fires; PROMPT-LOOP.md's core leaves a pointer naming the
 exact trigger and this file's section, so a driver reads a section here only when that trigger is
-live, and reads it IN FULL when it does.
+live, and reads it IN FULL when it does. One section, `step3-evidence-provenance`, is the explicit
+exception: it holds no operating rule, only the corpus provenance notes moved out of step 3
+(kit issue #1003), and is read only to audit where a rule came from.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
@@ -362,3 +364,35 @@ will start one. (Kit issue #1253.)
          25 JVMs on 16 threads.) Delegation multiplies this risk: every writer you add can start
          its own heavy job, so the brief states the job ceiling the writer may use.
 ```
+
+---
+
+## step3-evidence-provenance
+
+Trigger: none — this is provenance, not an operating rule. Read it only to audit where a step 3
+rule came from. Kit issue #1003 (first slice) moved the corpus-specific `(Evidence: ...)` anecdotes
+out of the OPERATIONAL PROMPT's step 3 so every iteration stops paying for them; the rules
+themselves are unchanged and still live in PROMPT-LOOP.md step 3. Each row keeps the original
+note verbatim, keyed by the rule it annotated. Two prose anecdotes without the `(Evidence:` wrapper (PRIOR COVERAGE CHECK, SCOPING JUDGMENTS ARE
+HYPOTHESES) are included, so step 3 is complete. Two short retro pointers (`SECRETS-SENSITIVE INLINE
+OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes.
+
+| Step 3 rule | Original provenance note |
+|---|---|
+| GAP-ID VERIFY + ALREADY-COVERED PRE-CHECK | n5 waves 6-7 B69 B65-G1 vs G3, B74 B50-G7 vs G6; wave 11: 7 gaps returned ALREADY-COVERED at no re-derivation cost. |
+| REMITTANCE-RISK FLAG | apis focus API5/API6/API8. |
+| REMITTANCE-TO-EVIDENCE UPGRADE | blender-llm B10, B4 §4.2/§4.5. |
+| OPERATOR-CLASSIFICATION-FIRST | blender-llm B76 §76.5. |
+| ANNOTATION-BEFORE-DERIVATION | COB-IM2 B8, ANNOTATION-BEFORE-DERIVATION only; the originally cited commit no longer exists after that corpus's re-bootstrap. |
+| ENTRY-POINT INSTRUMENTATION PRE-CHECK | blender B6. |
+| CWD-PATH BUG FIRST | spyder commissioning. |
+| VERIFY (b) absence grep-confirm across ALL install roots | n5 B102 "pxEditor absent", refuted by an `ls` of the config home. |
+| PHYSICAL-ACTION FACTS | commissioning sweeps. |
+| API-FILTER SILENT-DECLINE EXTENSION | blender-llm B60 §60.4. |
+| NARROWING-AXES AND READ-FRACTION | blender-llm B62 §62.1–§62.3. |
+| SUBJECT-DECLARED THRESHOLD | blender-llm B63 §63.2. |
+| IDENTIFIER-GRANULARITY CHECK | blender-llm B65 §65.2. |
+| DECOMMISSIONED/BROKEN ENDPOINT SUBCASE | niagara framework-drivers-closure D2. |
+| REACHABLE ≠ REPRESENTATIVE-DEFAULT | blender B9. |
+| PRIOR COVERAGE CHECK | Evidence: B279 ran module-navigator before reading B133, which already documented the JNI boundary; required a §279.9 self-revision. |
+| SCOPING JUDGMENTS ARE HYPOTHESES | Evidence (retro 2026-08-07): B381 refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START, argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing security facts. |
