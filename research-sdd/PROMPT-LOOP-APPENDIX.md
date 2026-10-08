@@ -8,9 +8,10 @@ own HOT-CORE from SITUATIONAL sections). A rule lives here only if its trigger i
 every always-hit delegation rule — stays in PROMPT-LOOP.md core. Lazy-load != skip: every rule here
 still applies in full once its trigger fires; PROMPT-LOOP.md's core leaves a pointer naming the
 exact trigger and this file's section, so a driver reads a section here only when that trigger is
-live, and reads it IN FULL when it does. One section, `step3-evidence-provenance`, is the explicit
-exception: it holds no operating rule, only the corpus provenance notes moved out of step 3
-(kit issue #1003), and is read only to audit where a rule came from.
+live, and reads it IN FULL when it does. Two sections, `step3-evidence-provenance` and
+`prompt-loop-evidence-provenance`, are the explicit exceptions: they hold no operating rule, only the
+corpus provenance notes moved out of PROMPT-LOOP.md (kit issue #1003: step 3, then the rest of the
+prompt), and are read only to audit where a rule came from.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
@@ -400,44 +401,52 @@ OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes
 ## prompt-loop-evidence-provenance
 
 Trigger: none — this is provenance, not an operating rule. Read it only to audit where a rule came from.
-Kit issue #1003 (second slice) moved the corpus-pointer `(Evidence: ...)` / `(lesson: ...)` notes that sat
-outside step 3 out of PROMPT-LOOP.md so every iteration stops paying for them; the rules themselves are
-unchanged and still live in PROMPT-LOOP.md. Each row keeps the original note's pointer text verbatim, keyed
-by the rule it annotated. Notes that carry a real reason (not just a corpus pointer) and the one-line retro
-`(Source: ...)` pointers stay in core.
+Kit issue #1003 (second slice) moved the corpus-pointer notes that sat outside step 3 out of
+PROMPT-LOOP.md so every iteration stops paying for them; the rules themselves are unchanged and still
+live in PROMPT-LOOP.md. Each row keeps the original note verbatim, including its `Evidence:` /
+`evidence:` / `lesson:` prefix and parentheses. The first column is the exact text the annotated rule
+carries in PROMPT-LOOP.md (a label or a unique opening phrase), so `grep -nF` on it finds the rule.
+Notes that carry a real reason (not just a corpus pointer) and the one-line retro `(Source: ...)`
+pointers stay in core.
 
-| Rule (PROMPT-LOOP.md) | Original provenance note |
+| Rule (exact text in PROMPT-LOOP.md) | Original note (verbatim) |
 |---|---|
-| UNOPENED-SOURCE READ-FRACTION (bootstrap, source access order) | blender-llm B66–B67 |
-| EVIDENCE-grounded DESIGN/APPLIED focus type ([INFER]/[CERT] ratio) | B611–B619 |
-| REMITTANCE-DOMINANT EXPECTATION | apis focus |
-| AUDIT BOOTSTRAP PRODUCTION SCOPE | niagara own-modules-audit |
-| SWEEP NUMBERS ARE ESTIMATES (sweep-agent count constraint) | access-control sweep AC3/AC4 |
-| BASE-MODULE GAP CHECK | provisioning focus — PV1/PV7 |
-| INCOMPATIBLE-TYPE DIFF PLAN | B386 §386.2 |
-| PDF CORPUS FAMILY-BLOCK | niagara optimizer-docs — family block |
-| RELEVANCE-TRIAGE CHECKPOINT (PDF CORPUS) | niagara optimizer-docs — triage |
-| GAP-PREMISE RE-DERIVE AT CHOOSE | blender-llm B57 §57.1 |
-| PER-ITERATION VALUE GATE (reference-batch iteration) | niagara B899–B928 |
-| LOCAL DOC CORPUS CITE DISCIPLINE | B336 `e975837` |
-| CORRECTNESS (direct measurement of class-file target) | B616/B617 |
-| SYNTHESIS-BLOCK REGISTRATION RULE | B413; commit `a852383` |
-| PRESERVATION-SURFACES-CORRECTIONS | blender-llm B15, B2/B3 |
-| NON-CORPUS AUDIT (STOP-gate dump sweep) | platform-native reopen |
-| FRONTIER-REOPEN DECISION SHAPE | #564 |
-| PER-SECTION-AGENT PATTERN | api-openness |
-| PRODUCE THE DELIVERABLE (companion reference artifacts) | api-openness |
-| ANONYMOUS-FETCH 403 != ABSENT (native pass-through flags) | `nre` pass-through flags |
-| PRESENT-ARTIFACT != EVIDENCE ABOUT ITS CONTENTS | niagara licensing |
-| CORROBORATION-FROM-INDEPENDENT-STORE (multi-source convergence) | niagara jace9000 bootstrap |
-| SET-INTERSECTION RE-DERIVE | blender-llm B61 §61.2 |
-| RULE VALIDATED ON ONE CLASS (topological re-validation) | blender-llm B61/B63 |
-| ABSENCE RETRACTION RE-VERIFY | B478 §478.5 |
-| DEFAULT PORT SWEEP CHECK | Fluke 177x |
-| DUAL-USE DESCOPE (blocked-on-dual-use) | niagara signing-pki-live |
-| CONVERSATION IS AN EXFIL SURFACE | computadoras B23–B25 |
-| RESUME, don't blindly redo | niagara B76/B122 |
-| ORCHESTRATED RETURN CONTRACT | niagara loop-continuation retro |
-| ONE BLOCK PER COMMIT | three.js B15+B16 |
-| PKILL BRACKET IDIOM | blender-llm B6 |
-| RETURN-CONTRACT MINIMUM FIELDS | niagara loop-continuation retro |
+| OPERATOR-SUPPLIED DATA PACKAGE | (Evidence: blender-llm B66–B67.) |
+| EVIDENCE-GROUNDED DESIGN focus type | (Evidence: B611–B619.) |
+| REMITTANCE-DOMINANT EXPECTATION | (Evidence: apis focus.) |
+| AUDIT BOOTSTRAP PRODUCTION SCOPE | (Evidence: niagara own-modules-audit.) |
+| FILTER-CALIBRATION DOMAIN | (Evidence: blender-llm B21–B37.) |
+| FILTER INHERITANCE PROHIBITION | (Evidence: blender-llm B61.) |
+| PRODUCT/VENDOR IDENTITY SUB-CHECK | (Evidence: B495 §495.3.) |
+| SWEEP HYPOTHESIS HIGH-RISK SUBCLASS | (Evidence: B622 §622.3, B624 §624.3.) |
+| SWEEP NUMERIC LABELING | (Evidence: access-control sweep AC3/AC4.) |
+| BASE-MODULE IDENTIFICATION | (Evidence: provisioning focus — PV1/PV7.) |
+| ARTIFACT-TYPE COMPATIBILITY | (Evidence: B386 §386.2.) |
+| PDF-HEAVY / DOCUMENTATION TARGET | (lesson: WEB-HMI10-CF) |
+| PDF CORPUS FAMILY-BLOCK | (Evidence: niagara optimizer-docs — family block.) |
+| RELEVANCE-TRIAGE CHECKPOINT (PDF CORPUS) | (Evidence: niagara optimizer-docs — triage.) |
+| GAP-PREMISE RE-DERIVE AT CHOOSE | (Evidence: blender-llm B57 §57.1.) |
+| PER-ITERATION VALUE GATE | (Evidence: niagara B899–B928.) |
+| LOCAL DOC CORPUS CITE DISCIPLINE | (Evidence: B336 `e975837`.) |
+| (c) ENVIRONMENT/RUNTIME-VERSION | (Evidence: B616/B617.) |
+| SYNTHESIS-BLOCK REGISTRATION RULE: a synthesis block | (evidence: niagara/email B334; commit `11142b9`) |
+| SAME-COMMIT CHILD-GAP RULE | (Evidence: B413; commit `a852383`.) |
+| PRESERVATION-SURFACES-CORRECTIONS | (Evidence: blender-llm B15, B2/B3.) |
+| ARTIFACT AUDIT | (Evidence: platform-native reopen.) |
+| FRONTIER-REOPEN DECISION SHAPE | (Evidence: #564.) |
+| LARGE-SCALE §20 (outline > ~15 items | (Evidence: api-openness.) |
+| PRODUCE THE DELIVERABLE | (Evidence: api-openness.) |
+| TARGET'S OWN LAUNCHER/CLI OPTIONS RUNG (#645) | (Evidence: `nre` pass-through flags.) |
+| NAME-THE-JAR ⇒ OPEN-THE-JAR | (Evidence: niagara licensing.) |
+| MULTI-MARKER BOOTSTRAP FUSION | (Evidence: niagara jace9000 bootstrap.) |
+| IDENTIFIER-LEVEL SET INTERSECTION (#603) | (Evidence: blender-llm B61 §61.2.) |
+| GROUPING-RULE DOMAIN (#611) | (Evidence: blender-llm B61/B63.) |
+| NEGATIVE-ABSENCE CLAIM DISCIPLINE (#732) | (Evidence: B478 §478.5.) |
+| VENDOR-DOCUMENTED PORTS FIRST (#670) | (Evidence: Fluke 177x.) |
+| OFFENSIVE/DUAL-USE GAP DESCOPING | (Evidence: niagara signing-pki-live.) |
+| The conversation is an exfil surface | (Evidence: computadoras B23–B25.) |
+| RESUME, don't blindly redo | (lesson: niagara B76/B122). |
+| (3) ORCHESTRATED | (Evidence: niagara loop-continuation retro.) |
+| ONE BLOCK PER COMMIT | (lesson: three.js B15+B16). |
+| PKILL -F WRAPPER-SHELL MATCH | (Evidence: blender-llm B6.) |
+| RETURN CONTRACT (per-iteration CHECKPOINT | (Evidence: niagara loop-continuation retro.) |

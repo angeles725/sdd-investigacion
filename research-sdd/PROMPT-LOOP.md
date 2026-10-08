@@ -307,12 +307,12 @@ Always read first, in this order:
      in the sweep prompt or the gap description. A filter whose coverage domain is undeclared is an
      instrument whose false-negative floor is unknown. (METHODOLOGY §6 licenses calibrated
      discriminators as symmetric and reusable within the same artifact kind; cross-kind reuse
-     requires re-stating the calibration domain — that is the boundary this rule marks.) (Evidence: blender-llm B21–B37.)
+     requires re-stating the calibration domain — that is the boundary this rule marks.)
      FILTER INHERITANCE PROHIBITION — never derive a filter's calibration envelope from a
      population that an EARLIER filter produced; derive it from the raw universe, or declare the
      inheritance chain explicitly AND verify the chained result against the raw universe before
      using it. A filter calibrated on a filtered population silently inherits its predecessor's
-     blind spots by construction and cannot detect what the earlier filter excluded. (Evidence: blender-llm B61.)
+     blind spots by construction and cannot detect what the earlier filter excluded.
      GAP PREMISES ARE HYPOTHESES, not assertions — the initial research plan is a best guess from
      outside the code. When investigation refutes a premise (e.g. a module assumed to belong to
      subsystem Y has zero imports from it), RENAME the gap in RESEARCH-STATE to reflect the real
@@ -323,14 +323,14 @@ Always read first, in this order:
      carries a PRODUCT or VENDOR ASSUMPTION (e.g. names a known framework, library, or vendor),
      verify the identity by reading the module.xml description or top package root BEFORE sealing
      the gap. A jar whose display name resembles a known product may be something entirely
-     different. (Evidence: B495 §495.3.)
+     different.
      SWEEP HYPOTHESIS HIGH-RISK SUBCLASS — security-bypass claims and surprising existence
      claims from the audit sweep are higher-risk premises than average: the sweep cannot read
      deeply enough to certify either. Label every security-bypass or existence surprise from the
      sweep "(sweep hypothesis — measure first)" in the gap description; never embed the sweep
      phrasing as a partial assertion or a confirmed claim. A gap description that reads "X bypasses
      the Niagara session" is an ungrounded security verdict; one that reads "X bypasses session
-     (sweep hypothesis — measure first)" is honest about its source and scope. (Evidence: B622 §622.3, B624 §624.3.)
+     (sweep hypothesis — measure first)" is honest about its source and scope.
      GAP NUMBERS ARE ALSO HYPOTHESES — when a gap's description contains a number that will serve
      as a denominator or threshold (e.g. "N classes", "M entries"), re-derive it from the source
      before using it, exactly as you would a structural premise. A wrong count silently scopes the
@@ -392,7 +392,7 @@ Always read first, in this order:
      page-anchored `.md` exists in `sources/extracted/` from the start (a documentation corpus IS the
      pages; range-limit per NORMAL CYCLE step 3 once gaps narrow). Without this step no page-anchored
      `.md` exists and blocks fall back to unstable `L<n>` line citations (or an ad-hoc flat
-     `pdftotext` dump) instead of citable `sources/...pdf :p.N` anchors (lesson: WEB-HMI10-CF). Not applicable to targets with no PDFs; a mixed
+     `pdftotext` dump) instead of citable `sources/...pdf :p.N` anchors. Not applicable to targets with no PDFs; a mixed
      corpus still extracts its PDFs at NORMAL CYCLE step 3, which also holds the extraction rules,
      range guidance, and citation format.
      PDF CORPUS FAMILY-BLOCK. When a documentation corpus contains ≥10 near-identical terse spec
@@ -500,6 +500,7 @@ Always read first, in this order:
   2. PROFILE: based on the gap's artifact type, pick the wrapper (tool-registry.md).
   3. INVESTIGATE (READ-ONLY), combining whatever is needed:
        (Corpus provenance for this step's rules: `$KIT/PROMPT-LOOP-APPENDIX.md#step3-evidence-provenance`.)
+       (Corpus provenance for the other rules: `$KIT/PROMPT-LOOP-APPENDIX.md#prompt-loop-evidence-provenance`.)
        - PRIOR COVERAGE CHECK: before any tool sweep, read corpus blocks whose INDEX.md description
          overlaps this gap — especially the block that opened it. Step 5's pre-loop INDEX.md read
          names blocks; this check reads them. Cost: one targeted block read per gap. (Distinct from
@@ -947,7 +948,7 @@ Always read first, in this order:
          entry only in iteration-history is invisible to `verify-state.sh` and the
          `requires_execution_open` counter — the gap will never reach the investigable/scheduler
          count. The "closing feel" of a synthesis block is precisely the blind spot where
-         registration gets skipped (evidence: niagara/email B334; commit `11142b9`).
+         registration gets skipped.
          SAME-COMMIT CHILD-GAP RULE (extends SYNTHESIS-BLOCK REGISTRATION RULE): register all child
          gaps surfaced by a synthesis block in RESEARCH-STATE in the SAME commit as the synthesis
          block itself. A gap named in the synthesis report but absent from RESEARCH-STATE at commit
