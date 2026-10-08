@@ -379,6 +379,81 @@ grep -q 'Audit cross-check: not run' <<<"$out" \
   && ok "32 no --state → 'not run' line (the gap is visible)" || no "32 not-run line" "$(grep 'cross-check' <<<"$out")"
 [ "$(code "$xt" --state)" = 2 ] && ok "33 --state without a value → exit 2" || no "33 --state w/o value: got $(code "$xt" --state)"
 
+# 34..45 — Claim hygiene (Opus review of #1984): a claim must be a standalone type token in
+# live prose. HTML comments (template text), fenced blocks and filenames-in-prose do not claim;
+# types of <= 2 characters need their leading dot; INHERITED is read only from the Dismissed
+# section; a heading inside a comment is not a section.
+# 34 — a multi-line HTML comment naming .aaa .bbb .ccc (the template-comment shape) claims nothing.
+mkst "$TMP/st-cmt.md" "<!-- template: list the file types you read,
+     e.g. .aaa .bbb
+     and .ccc -->
+| high | G1 nothing named | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-cmt.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "34 multi-line HTML comment naming every type claims nothing" || no "34 comment leak" "$(grep 'Audit cross-check' <<<"$out")"
+# 35 — a one-line comment beside a real claim: the claim counts, the comment text does not.
+mkst "$TMP/st-cmt1.md" "| high | G1 .aaa .bbb | x | <!-- .ccc -->" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-cmt1.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "35 inline HTML comment does not claim; the live claims on the same line still do" || no "35 inline comment" "$w"
+# 36 — a fenced block (example text) claims nothing.
+mkst "$TMP/st-fence.md" "| high | G1 .aaa .bbb | x |
+\`\`\`
+- .ccc — 5 files — dismissed: example only
+\`\`\`" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-fence.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" \
+  && ok "36 fenced block does not claim" || no "36 fence leak" "$w"
+# 37 — filenames in prose are not a type claim: 'notes.aaa', 'RESEARCH-STATE.bbb', 'x.ccc.map'.
+mkst "$TMP/st-fname.md" "| high | G1 see notes.aaa and RESEARCH-STATE.bbb and x.ccc.map | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-fname.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 3 of 3' <<<"$w" \
+  && ok "37 filename-in-prose (notes.aaa, RESEARCH-STATE.bbb, x.ccc.map) claims nothing" || no "37 filename leak" "$w"
+# 38 — sentence-final dot still claims ('.aaa.'), a bare 3+-char word claims ('bbb'), and a path segment does not ('dir/ccc').
+mkst "$TMP/st-tok.md" "| high | G1 reads the .aaa. Also bbb files; dir/ccc | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-tok.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 1 of 3' <<<"$w" && grep -q '\.ccc' <<<"$w" && ! grep -qE '\.(aaa|bbb)' <<<"$w" \
+  && ok "38 '.aaa.' and bare 'bbb' claim; path segment 'dir/ccc' does not" || no "38 token forms" "$w"
+# 39 — types of <= 2 characters need the leading dot: bare 'c' / 'js' words do not claim .c / .js.
+sh2="$TMP/xcheck-short"; mkdir -p "$sh2"
+for i in 1 2 3 4 5; do printf 'x\n' > "$sh2/a${i}.c"; printf 'x\n' > "$sh2/b${i}.js"; done
+mkst "$TMP/st-short-bad.md" "| high | G1 a c b and js scripts, h | x |" "- .zzz — dismissed: irrelevant"
+mkst "$TMP/st-short-ok.md" "| high | G1 .c sources | x |" "- .js — 5 files — dismissed: fixtures"
+out1="$(bash "$SUT" "$sh2" --state "$TMP/st-short-bad.md" 2>&1)"; out2="$(bash "$SUT" "$sh2" --state "$TMP/st-short-ok.md" 2>&1)"
+w="$(xline "$out1")"
+grep -q 'WARNING: 2 of 2' <<<"$w" && grep -q 'Audit cross-check: OK' <<<"$out2" \
+  && ok "39 one/two-char types need the leading dot (bare c / js do not claim; .c / .js do)" || no "39 short types" "$w | $(grep 'Audit cross-check' <<<"$out2")"
+# 40 — INHERITED only counts inside the Dismissed section, and accepts '--' as well as the em dash.
+mkst "$TMP/st-inh-bl.md" "- none — census inherited from parent corpus bootstrap (in the WRONG section)" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-inh-bl.md")"
+grep -q 'Audit cross-check: WARNING' <<<"$out" && ! grep -q 'Audit cross-check: INHERITED' <<<"$out" \
+  && ok "40 inherited declaration in the Gap-backlog section is NOT honoured" || no "40 inherited scope" "$(grep 'Audit cross-check' <<<"$out")"
+mkst "$TMP/st-inh-dd.md" "| high | G1 x | x |" "- none -- census inherited from parent corpus bootstrap (scoped focus)"
+out="$(xrun "$TMP/st-inh-dd.md")"
+grep -q 'Audit cross-check: INHERITED' <<<"$out" \
+  && ok "41 inherited declaration with '--' instead of an em dash → INHERITED" || no "41 inherited --" "$(grep 'Audit cross-check' <<<"$out")"
+# 42 — headings inside a comment are not sections: comment-only 'sections' → DEGRADED, not a silent OK.
+printf '# state\n\n<!--\n## Gap-backlog\n## Dismissed file types\n- .aaa .bbb .ccc\n-->\n\n## Coverage\n\nx\n' > "$TMP/st-cmthead.md"
+out="$(xrun "$TMP/st-cmthead.md")"
+grep -q 'Audit cross-check: DEGRADED' <<<"$out" && ! grep -q 'Audit cross-check: OK' <<<"$out" \
+  && ok "42 headings inside an HTML comment are not sections → DEGRADED" || no "42 comment headings" "$(grep 'Audit cross-check' <<<"$out")"
+# 43 — the OK line carries the literal-name caveat.
+out="$(xrun "$TMP/st-ok.md")"
+grep -qE 'Audit cross-check: OK.*by literal name' <<<"$out" \
+  && ok "43 OK line states it is by literal name" || no "43 OK caveat" "$(grep 'Audit cross-check' <<<"$out")"
+# 44 — --state "" → exit 2 (an empty path is a usage error, not 'not run').
+[ "$(code "$xt" --state "")" = 2 ] && ok "44 --state '' → exit 2" || no "44 --state '': got $(code "$xt" --state "")"
+# 45 — absent state is typed 'absent'; a directory is typed 'not readable' (two different states).
+out1="$(xrun "$TMP/no-such-state.md")"; mkdir -p "$TMP/state-is-dir"; out2="$(xrun "$TMP/state-is-dir")"
+grep -q 'DEGRADED — state file absent' <<<"$out1" && ! grep -q 'not readable' <<<"$out1" \
+  && grep -q 'DEGRADED — state file not readable' <<<"$out2" && ! grep -q 'absent' <<<"$out2" \
+  && ok "45 absent state file vs directory/unreadable are distinct DEGRADED states" || no "45 absent vs unreadable" "$(grep 'cross-check' <<<"$out1") | $(grep 'cross-check' <<<"$out2")"
+# 46 — trailing boundary: '.aaa.map' (a compound filename) does not claim .aaa.
+mkst "$TMP/st-trail.md" "| high | G1 bundles/app.bbb .ccc and then .aaa.map | x |" "- .zzz — dismissed: irrelevant"
+out="$(xrun "$TMP/st-trail.md")"; w="$(xline "$out")"
+grep -q 'WARNING: 2 of 3' <<<"$w" && grep -q '\.aaa' <<<"$w" && grep -q '\.bbb' <<<"$w" && ! grep -q '\.ccc' <<<"$w" \
+  && ok "46 compound '.aaa.map' and 'app.bbb' claim nothing; standalone .ccc does" || no "46 trailing boundary" "$w"
+
 # ---------------------------------------------------------------------------
 # TEETH: mutate the awk threshold comparison to make EVERY type starred, then assert a
 # sub-threshold type (1 file, well below count=5) is STILL not starred on the original SUT.
@@ -646,14 +721,72 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth-xcheck-scope" "$mutant_scope" 's/p = (\$0 ~ \/\^##\[\[:space:\]\]+(Gap-backlog|Dismissed file types)\/)/p = 1/' \
     && tooth "teeth-xcheck-scope: every section counted as a claim → mutant lets a Blocked-gaps mention close .ccc; SUT does not" 0 0 "$mutant_scope" \
          --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-hist.md"
-  mutant_bound="$MUT/census-target.XBOUND-MUTANT.sh"
-  mk_sed "teeth-xcheck-bound" "$mutant_bound" 's/\(\[\^\[:alnum:\]_\]|\$\))/(.*|$))/' \
-    && tooth "teeth-xcheck-bound: trailing token boundary dropped → mutant lets '.aaax' claim .aaa; SUT does not" 0 0 "$mutant_bound" \
-         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bound.md"
   mutant_unread="$MUT/census-target.XUNREAD-MUTANT.sh"
   mk_sed "teeth-xcheck-unread" "$mutant_unread" 's/if \[ ! -f "\$STATE" \] || \[ ! -r "\$STATE" \]; then/if false; then/' \
     && tooth "teeth-xcheck-unread: unreadable-state probe removed → mutant loses the 'not readable' diagnosis; SUT names it" 0 0 "$mutant_unread" \
-         --good-has 'state file not readable' --bad-lacks 'state file not readable' -- bash @SUT@ "$xt" --state "$TMP/no-such-state.md"
+         --good-has 'state file not readable' --bad-lacks 'state file not readable' -- bash @SUT@ "$xt" --state "$TMP/state-is-dir"
+  mutant_absent="$MUT/census-target.XABSENT-MUTANT.sh"
+  mk_sed "teeth-xcheck-absent" "$mutant_absent" 's/if \[ ! -e "\$STATE" \]; then/if false; then/' \
+    && tooth "teeth-xcheck-absent: absent-state probe removed → mutant mislabels it 'not readable'; SUT says 'absent'" 0 0 "$mutant_absent" \
+         --good-has 'state file absent' --bad-lacks 'state file absent' -- bash @SUT@ "$xt" --state "$TMP/no-such-state.md"
+  mutant_emptyarg="$MUT/census-target.XEMPTYARG-MUTANT.sh"
+  mk_sed "teeth-xcheck-emptyarg" "$mutant_emptyarg" 's/ || \[ -z "\$2" \]//' \
+    && tooth "teeth-xcheck-emptyarg: empty-path guard removed → mutant exits 0 on --state ''; SUT exits 2" 2 0 "$mutant_emptyarg" \
+         -- bash @SUT@ "$xt" --state ""
+  mutant_cmt="$MUT/census-target.XCMT-MUTANT.sh"
+  mk_sed "teeth-xcheck-comment" "$mutant_cmt" 's/line = substr(line, i + 4); inc = 1/line = substr(line, i + 4); inc = 0/' \
+    && tooth "teeth-xcheck-comment: comment stripping neutered → template-comment text claims every type; SUT keeps the 3 holes" 0 0 "$mutant_cmt" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-cmt.md" \
+    && tooth "teeth-xcheck-comment-heading: comment stripping neutered → headings inside a comment read as sections (no DEGRADED); SUT is DEGRADED" 0 0 "$mutant_cmt" \
+         --good-has 'Audit cross-check: DEGRADED' --bad-lacks 'Audit cross-check: DEGRADED' -- bash @SUT@ "$xt" --state "$TMP/st-cmthead.md"
+  mutant_fence="$MUT/census-target.XFENCE-MUTANT.sh"
+  mk_sed "teeth-xcheck-fence" "$mutant_fence" 's/fence = !fence; next/fence = fence; next/' \
+    && tooth "teeth-xcheck-fence: fence tracking neutered → example text in a fenced block claims .ccc; SUT does not" 0 0 "$mutant_fence" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-fence.md"
+  mutant_lead="$MUT/census-target.XLEAD-MUTANT.sh"
+  mk_sed "teeth-xcheck-lead" "$mutant_lead" "s/^_lead=.*/_lead='(^|.)'/" \
+    && tooth "teeth-xcheck-lead: leading boundary dropped → 'xaaa' claims .aaa; SUT does not" 0 0 "$mutant_lead" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bound.md"
+  mutant_leaddot="$MUT/census-target.XLEADDOT-MUTANT.sh"
+  mk_sed "teeth-xcheck-leaddot" "$mutant_leaddot" 's/^_lead=.*/_lead='"'"'(^|[^[:alnum:]_\/-])'"'"'/' \
+    && tooth "teeth-xcheck-leaddot: '.' dropped from the leading class → 'RESEARCH-STATE.bbb' claims bare bbb; SUT does not" 0 0 "$mutant_leaddot" \
+         --good-has 'WARNING: 3 of 3' --bad-lacks 'WARNING: 3 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-fname.md"
+  mutant_trail="$MUT/census-target.XTRAIL-MUTANT.sh"
+  mk_sed "teeth-xcheck-trail" "$mutant_trail" "s/^_trail=.*/_trail='(.|\$)'/" \
+    && tooth "teeth-xcheck-trail: trailing boundary dropped → '.aaa.map' claims .aaa; SUT does not" 0 0 "$mutant_trail" \
+         --good-has 'WARNING: 2 of 3' --bad-lacks 'WARNING: 2 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-trail.md"
+  mutant_short="$MUT/census-target.XSHORT-MUTANT.sh"
+  mk_sed "teeth-xcheck-short" "$mutant_short" 's/-le 2 \]; then _dot/-le 0 ]; then _dot/' \
+    && tooth "teeth-xcheck-short: leading-dot rule for 1-2 char types dropped → bare 'c' / 'js' claim; SUT does not" 0 0 "$mutant_short" \
+         --good-has 'WARNING: 2 of 2' --bad-lacks 'WARNING: 2 of 2' -- bash @SUT@ "$sh2" --state "$TMP/st-short-bad.md"
+  mutant_case="$MUT/census-target.XCASE-MUTANT.sh"
+  mk_sed "teeth-xcheck-case" "$mutant_case" 's/grep -qiE -- "\${_lead}/grep -qE -- "${_lead}/' \
+    && tooth "teeth-xcheck-case: case folding dropped → '.BBB' no longer claims .bbb; SUT folds case" 0 0 "$mutant_case" \
+         --good-has 'WARNING: 1 of 3' --bad-lacks 'WARNING: 1 of 3' -- bash @SUT@ "$xt" --state "$TMP/st-bound.md"
+  mutant_noext="$MUT/census-target.XNOEXT-MUTANT.sh"
+  mk_sed "teeth-xcheck-noext" "$mutant_noext" 's/grep -qiF -- "(no ext)" <<<"\$_claims" && continue/false \&\& continue/' \
+    && tooth "teeth-xcheck-noext: '(no ext)' claim lookup removed → mutant warns although (no ext) is dismissed; SUT says OK" 0 0 "$mutant_noext" \
+         --good-has 'Audit cross-check: OK' --bad-lacks 'Audit cross-check: OK' -- bash @SUT@ "$ne" --state "$TMP/st-ne-ok.md"
+  mutant_inh="$MUT/census-target.XINH-MUTANT.sh"
+  mk_sed "teeth-xcheck-inherited" "$mutant_inh" 's/census inherited\x27 <<<"\$_dismissed"/census inheritedZ\x27 <<<"$_dismissed"/' \
+    && tooth "teeth-xcheck-inherited: inherited-census recognition broken → mutant no longer says INHERITED; SUT does" 0 0 "$mutant_inh" \
+         --good-has 'Audit cross-check: INHERITED' --bad-lacks 'Audit cross-check: INHERITED' -- bash @SUT@ "$xt" --state "$TMP/st-inh.md"
+  mutant_inhscope="$MUT/census-target.XINHSCOPE-MUTANT.sh"
+  mk_sed "teeth-xcheck-inhscope" "$mutant_inhscope" 's/census inherited\x27 <<<"\$_dismissed"/census inherited\x27 <<<"$_claims"/' \
+    && tooth "teeth-xcheck-inhscope: inherited read from the whole claim text → a backlog line fakes INHERITED; SUT honours only Dismissed" 0 0 "$mutant_inhscope" \
+         --good-has 'Audit cross-check: WARNING' --bad-lacks 'Audit cross-check: WARNING' -- bash @SUT@ "$xt" --state "$TMP/st-inh-bl.md"
+  mutant_inhdd="$MUT/census-target.XINHDD-MUTANT.sh"
+  mk_sed "teeth-xcheck-inhdd" "$mutant_inhdd" 's/(—|--)\[\[:space:\]\]+census/(—)[[:space:]]+census/' \
+    && tooth "teeth-xcheck-inhdd: '--' form dropped → mutant misses the ASCII inherited declaration; SUT accepts it" 0 0 "$mutant_inhdd" \
+         --good-has 'Audit cross-check: INHERITED' --bad-lacks 'Audit cross-check: INHERITED' -- bash @SUT@ "$xt" --state "$TMP/st-inh-dd.md"
+  mutant_nosec="$MUT/census-target.XNOSEC-MUTANT.sh"
+  mk_sed "teeth-xcheck-nosec" "$mutant_nosec" 's/if \[ "\$_has_backlog" = no \] && \[ "\$_has_dismissed" = no \]; then/if false; then/' \
+    && tooth "teeth-xcheck-nosec: neither-section probe removed → mutant reports a verdict from a state with no claim sections; SUT is DEGRADED" 0 0 "$mutant_nosec" \
+         --good-has 'Audit cross-check: DEGRADED' --bad-lacks 'Audit cross-check: DEGRADED' -- bash @SUT@ "$xt" --state "$TMP/st-nosec.md"
+  mutant_okcav="$MUT/census-target.XOKCAV-MUTANT.sh"
+  mk_sed "teeth-xcheck-okcaveat" "$mutant_okcav" 's/ (by literal name; a type named in a gap that does not cover it still reads OK)//' \
+    && tooth "teeth-xcheck-okcaveat: OK-line caveat removed → mutant's OK no longer says 'by literal name'; SUT does" 0 0 "$mutant_okcav" \
+         --good-has 'by literal name' --bad-lacks 'by literal name' -- bash @SUT@ "$xt" --state "$TMP/st-ok.md"
   mutant_nostar="$MUT/census-target.XNOSTAR-MUTANT.sh"
   mk_sed "teeth-xcheck-nostar" "$mutant_nostar" 's/if \[ -z "\$_stars" \]; then/if false; then/' \
     && tooth "teeth-xcheck-nostar: empty-starred branch removed → mutant no longer says NO-STARRED; SUT does" 0 0 "$mutant_nostar" \
