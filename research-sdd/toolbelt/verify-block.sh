@@ -29,6 +29,9 @@
 #       or unreadable file stays a typed `extern`. A final `extern-check: verified N of A absolute backticked
 #       name.ext:N cite(s); R relative cite(s) cannot be resolved` line states what was checked; the token-check
 #       (does the line say what the block claims) still needs the agent. Without the flag: unchanged.
+#   §14 BACK-POINTER (kit #1962, section 12): a sentence that corrects an earlier block ("corrige B5", "refutes [Block 5]") whose cited
+#       block file holds no pointer back to this block is a typed WARN `BACKPTR?` (advisory, exit unchanged); not-found / ambiguous /
+#       degraded candidates are typed lines, never silent. Only canonical block file names (<prefix>-(block|bloque)<N>[-slug].md) are checked.
 #       The POSSIBILITY-FIRST lint (§1 trait, #1265) is ADVISORY (WARN, exit unchanged — like P6/P9: it is a
 #       prose-heuristic, so a hard FAIL would train operators to ignore the gate; the sweep surfaces, never edits).
 # Exit: 0 = no verifiable contradiction · 1 = a cited line is out of range, OR a cited block-evidence artifact
@@ -1160,6 +1163,199 @@ else
       fi
     done <<<"$_vb_mf_cites"
     [ "$_vb_mf_n" -gt 0 ] && echo "-- preserved-script manifest findings: $_vb_mf_n (FAIL)"
+  fi
+fi
+
+# 12. §14 BACK-POINTER (kit #1962, METHODOLOGY §14 "corrected in BN") — a block that CORRECTS an earlier block must leave a
+#     back-pointer on the old one. When one SENTENCE of the checked block carries a correction act (refut* / corrig* / correg* /
+#     correcci* / supersed* / the verb forms corrects|corrected|correcting|correction, case-insensitive) AND cites an EARLIER
+#     block within 60 characters of it, the cited block's file is resolved in the same corpus and a typed WARN `BACKPTR?` is
+#     printed when that file holds no pointer to the checked block. ADVISORY: the exit code never changes (a missing pointer is
+#     a finding for the human; the kit edits nothing, propose-never-apply).
+#     Enumerated cite forms (against ~/niagara-research + ~/niagara5-research, 1404 block files): `[Block N]` · `Block N` ·
+#     `Bloque N` · `blockN` / `bloqueN` · `BN` · `Block RN` / `Bloque RN`; a BARE `RN` counts only when the checked block's
+#     H1 is `# Block R<n>` (an R-numbered corpus — elsewhere RN is a register or a revision name). A pointer in the OLD block
+#     is the same forms naming the checked block's number, bounded so B11 is not satisfied by B110 / B11a / 5.11.
+#     Sentences: paragraphs end at a blank line, a heading, a list item or a table row; fenced code is skipped; a paragraph
+#     is split at `. ` / `! ` / `? ` / `; `.
+#     NOT a correction act by THIS block (each narrowing came from classifying the fleet sweep by hand; each has a tooth): the
+#     bare adjective "correct" / "correctly" / "correcto", the noun "corrigendum", negations ("No §14 correction", "Nothing here
+#     refutes", "corrects nothing"), self-corrections, a third-party correction narrated passively ("was corrected"), and the
+#     CORRECTOR itself ("corrected by B96" / "corregido en B4" name the block that fixed it). Skipped and COUNTED, never
+#     silent: cites of the block itself or of a LATER block (forward pointers), and cross-reference-list sentences (3+
+#     distinct blocks, or 2 under a "Connects"/"Related" lead or with 2+ " · " separators).
+#     Candidates: canonical block files (lib/block-files.sh) directly in the block's dir, else in target-dir, same file-name
+#     prefix first. Typed non-verdicts (never silent): not found (INFO) · several candidates (BACKPTR-AMBIGUOUS) ·
+#     unreadable / failed scan / helper missing (DEGRADED) — none of them moves the exit code.
+_vb_bp_load() {
+  local src="${BASH_SOURCE[0]}" n=0 lt d here
+  while [ -L "$src" ] && [ "$n" -lt 40 ]; do
+    n=$((n + 1)); lt="$(readlink -- "$src")" || return 1
+    case "$lt" in /*) src="$lt" ;; *) d="${src%/*}"; [ "$d" = "$src" ] && d=.; src="$d/$lt" ;; esac
+  done
+  d="${src%/*}"; [ "$d" = "$src" ] && d=.
+  here="$(cd -P -- "$d" 2>/dev/null && pwd -P)" || return 1
+  [ -f "$here/lib/block-files.sh" ] || return 1
+  # shellcheck source=lib/block-files.sh
+  . "$here/lib/block-files.sh"
+  declare -F block_file_filter >/dev/null 2>&1
+}
+# _vb_bp_pairs <self-number>: one `C<TAB>line<TAB>N<TAB>sentence-excerpt` per distinct earlier-block cite sitting in a correction sentence,
+# then one `S<TAB>sentences<TAB>skipped<TAB>listed` trailer (correction sentences seen · self/forward cites skipped · sentences
+# skipped as cross-reference lists).
+_vb_bp_pairs() {
+  awk -v self="$1" '
+    function isw(c) { return c ~ /[A-Za-z0-9_]/ }
+    function flush(   rest, sent) {
+      if (para == "") return
+      rest = para
+      while (rest != "") {
+        if (match(rest, /[.!?;]+[[:space:]]+/)) { sent = substr(rest, 1, RSTART - 1); rest = substr(rest, RSTART + RLENGTH) }
+        else { sent = rest; rest = "" }
+        scan(sent)
+      }
+      para = ""
+    }
+    # blank(s, re): s with every match of re overwritten by spaces of the SAME length (positions stay comparable).
+    function blank(s, re,   out, pad) {
+      out = ""
+      while (match(s, re)) { pad = sprintf("%" RLENGTH "s", ""); out = out substr(s, 1, RSTART - 1) pad; s = substr(s, RSTART + RLENGTH) }
+      return out s
+    }
+    function scan(sent,   low, off, rest, tok, pre, post, num, keep, ex, nd, i, dn, k, vs, vl, ok, n, cs, gap, ctx) {
+      low = blank(tolower(sent), "corrigend[a-z]*")   # BP-CORRIGEND: the NOUN "corrigendum" labels a correction note, it is not a correction act (fleet sweep, kit #1962)
+      low = blank(low, "(no|not a|without|ninguna?)[[:space:]]+(§14[ -]?[a-z]*[[:space:]]+)?(correction|correcci.n|refut[a-z]*)")   # BP-NEG: "No §14 correction" asserts the absence
+      low = blank(low, "(nothing|without|never|not|no|nada)[[:space:]]+([a-z]+[[:space:]]+)?(here[[:space:]]+)?(correct|refut|supersed|corrig)[a-z]*")   # BP-NEG2: "Nothing here refutes", "without correcting"
+      low = blank(low, "(correct|refut|supersed|corrig)[a-z]*[[:space:]]+(nothing|nada|no[[:space:]]+(earlier|prior|previous))")   # BP-NEG3: "corrects nothing in B21"
+      low = blank(low, "self-correct[a-z]*|auto-?correc[a-z]*")   # BP-SELF: a block correcting ITSELF corrects no earlier block
+      low = blank(low, "(was|were|been|already|got|is|are|be|later|also)[[:space:]]+(also[[:space:]]+)?(corrected|refuted|superseded)")   # BP-PASSIVE: a third-party correction, narrated here
+      # the bare word "correct" is mostly the adjective ("the correct template") and "correctly" the adverb: only the verb forms and the noun count.
+      if (low !~ /refut|corrig|correg|correcci|correct(s|ed|ing|ion)|supersed/) return   # BP-VERBS
+      nsent++
+      rest = sent; off = 0; nd = 0; split("", dn); split("", k)
+      while (match(rest, /([Bb]lock|[Bb]loque) ?R?[0-9]+|B[0-9]+|R[0-9]+/)) {
+        tok = substr(rest, RSTART, RLENGTH)
+        cs = off + RSTART
+        pre = (cs > 1) ? substr(sent, cs - 1, 1) : ""
+        post = substr(rest, RSTART + RLENGTH, 1)
+        off += RSTART + RLENGTH - 1; rest = substr(rest, RSTART + RLENGTH)
+        keep = 1
+        if (pre != "" && isw(pre)) keep = 0
+        if (tok ~ /^[BR][0-9]/ && post ~ /[A-Za-z_]/) keep = 0
+        if (tok ~ /^R[0-9]/ && !rmode) keep = 0
+        if (!keep) continue
+        # the CORRECTOR, not the corrected: "corrected by B96" / "corregido en [Block 11]" name the block that fixed it
+        ctx = substr(low, (cs > 40 ? cs - 40 : 1), (cs > 40 ? 40 : cs - 1))
+        if (ctx ~ /(corrected|refuted|superseded|corregid[oa]s?|refutad[oa]s?|supersedid[oa]s?)[[:space:]]+(by|in|en|por)[[:space:]]*[\[(*]*$/) continue   # BP-CORRECTOR
+        # proximity: a verb within 60 characters of the cite, else the verb belongs to another clause of a long sentence
+        ok = 0; n = low
+        while (match(n, /refut|corrig|correg|correcci|correct(s|ed|ing|ion)|supersed/)) {
+          vs = length(low) - length(n) + RSTART; vl = RLENGTH
+          gap = (cs > vs) ? cs - (vs + vl) : vs - (cs + length(tok))
+          if (gap <= 60) { ok = 1; break }   # BP-PROXIMITY
+          n = substr(n, RSTART + RLENGTH)
+        }
+        if (!ok) continue
+        num = tok; gsub(/[^0-9]/, "", num); num += 0
+        if (!(num in k)) { k[num] = 1; dn[++nd] = num }
+      }
+      # a sentence naming 3+ distinct blocks, or 2 under a "Connects" / "Related" lead or with 2+ " · " separators, is a cross-reference list ("Connects [B1] · [B2] · ... corrected"), not a correction
+      # of a specific block: skipped and COUNTED (fleet sweep, kit #1962).
+      if (nd >= 3 || (nd >= 2 && (low ~ /connects|conecta|fuente|related|see also/ || gsub(/ · /, "&", sent) >= 2))) { listed++; return }   # BP-LIST
+      for (i = 1; i <= nd; i++) {
+        num = dn[i]
+        if (num >= self) { skipped++; continue }   # BP-FORWARD
+        if (!(num in seen)) { seen[num] = 1; ex = sent; gsub(/[\t"]+/, " ", ex); gsub(/^[[:space:]]+/, "", ex); print "C\t" firstline "\t" num "\t" substr(ex, 1, 110) }
+      }
+    }
+    /^```/ { fence = !fence; flush(); next }
+    fence { next }
+    /^[[:space:]]*$/ { flush(); next }
+    /^#/ { flush(); if (!hseen) { hseen = 1; if ($0 ~ /^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9]/) rmode = 1 }; para = $0; firstline = NR; flush(); next }
+    /^[[:space:]]*([-*+]|[0-9]+[.)]|\|)/ { flush(); para = $0; firstline = NR; next }
+    { if (para == "") firstline = NR; para = (para == "" ? $0 : para " " $0) }
+    END { flush(); print "S\t" (nsent + 0) "\t" (skipped + 0) "\t" (listed + 0) }
+  ' "$block"
+}
+_vb_bp_w=0; _vb_bp_i=0; _vb_bp_a=0; _vb_bp_d=0; _vb_bp_ok=0
+echo "-- §14 back-pointer (kit #1962: a block that corrects an earlier block must be pointed back to from it; advisory, exit unchanged) --"
+_vb_bp_base="$(basename "$block")"
+_vb_bp_re='^(.*-)?(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$'
+if ! [[ "$_vb_bp_base" =~ $_vb_bp_re ]]; then
+  echo "   (back-pointer check skipped — '$_vb_bp_base' is not a canonical block file name: <prefix>-(block|bloque)<N>[-slug].md)"
+elif ! _vb_bp_load; then
+  echo "   DEGRADED backptr: helper lib/block-files.sh unavailable — back-pointers NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+else
+  _vb_bp_pfx="${BASH_REMATCH[1]}"; _vb_bp_self=$((10#${BASH_REMATCH[3]}))
+  _vb_bp_dirs=()
+  for _vb_bp_x in "$(dirname "$block")" "$target"; do
+    _vb_bp_x="$(cd -P -- "$_vb_bp_x" 2>/dev/null && pwd -P)" || continue
+    [ "${_vb_bp_dirs[0]:-}" = "$_vb_bp_x" ] && continue
+    _vb_bp_dirs+=("$_vb_bp_x")
+  done
+  _vb_bp_pairs_out="$(_vb_bp_pairs "$_vb_bp_self")"; _vb_bp_prc=$?
+  if [ "$_vb_bp_prc" != 0 ] || [ "${#_vb_bp_dirs[@]}" -eq 0 ]; then
+    echo "   DEGRADED backptr: the sentence scan or the candidate directory failed (awk exit $_vb_bp_prc, ${#_vb_bp_dirs[@]} directories) — back-pointers NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+    _vb_bp_pairs_out=""
+  fi
+  _vb_bp_ns=0; _vb_bp_sk=0; _vb_bp_ls_n=0
+  while IFS=$'\t' read -r _vb_bp_t _vb_bp_l _vb_bp_n _vb_bp_ex; do
+    if [ "$_vb_bp_t" = "S" ]; then _vb_bp_ns="$_vb_bp_l"; _vb_bp_sk="$_vb_bp_n"; _vb_bp_ls_n="$_vb_bp_ex"; continue; fi
+    [ "$_vb_bp_t" = "C" ] || continue
+    # resolve block _vb_bp_n: per directory, same-prefix canonical files first, then any prefix
+    _vb_bp_cand=(); _vb_bp_scanbad=0
+    for _vb_bp_pass in same any; do
+      for _vb_bp_dir in "${_vb_bp_dirs[@]}"; do
+        _vb_bp_ls="$(find "$_vb_bp_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort; echo "@@RC=${PIPESTATUS[0]}")"
+        if [ "${_vb_bp_ls##*@@RC=}" != 0 ]; then _vb_bp_scanbad=1; continue; fi
+        _vb_bp_ls="$(printf '%s\n' "${_vb_bp_ls%@@RC=*}" | block_file_filter)"; _vb_bp_frc=$?
+        if [ "$_vb_bp_frc" -ge 2 ]; then _vb_bp_scanbad=1; continue; fi
+        while IFS= read -r _vb_bp_f; do
+          [ -z "$_vb_bp_f" ] && continue
+          _vb_bp_b="${_vb_bp_f##*/}"
+          [[ "$_vb_bp_b" =~ $_vb_bp_re ]] || continue
+          [ "$((10#${BASH_REMATCH[3]}))" = "$_vb_bp_n" ] || continue
+          if [ "$_vb_bp_pass" = same ] && [ "${BASH_REMATCH[1]}" != "$_vb_bp_pfx" ]; then continue; fi
+          _vb_bp_cand+=("$_vb_bp_f")
+        done <<<"$_vb_bp_ls"
+        [ "${#_vb_bp_cand[@]}" -gt 0 ] && break
+      done
+      [ "${#_vb_bp_cand[@]}" -gt 0 ] && break
+    done
+    if [ "${#_vb_bp_cand[@]}" -eq 0 ]; then
+      if [ "$_vb_bp_scanbad" = 1 ]; then
+        echo "   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_n — the candidate scan under ${_vb_bp_dirs[*]} failed; back-pointer NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+      else
+        echo "   INFO    backptr: line $_vb_bp_l cites block $_vb_bp_n but its block file is not found under ${_vb_bp_dirs[*]} — back-pointer NOT checked"; _vb_bp_i=$((_vb_bp_i+1))   # BP-NOTFOUND
+      fi
+      continue
+    fi
+    if [ "${#_vb_bp_cand[@]}" -gt 1 ]; then   # BP-AMBIG
+      _vb_bp_names=""; for _vb_bp_f in "${_vb_bp_cand[@]}"; do _vb_bp_names="$_vb_bp_names${_vb_bp_names:+, }${_vb_bp_f##*/}"; done
+      echo "   BACKPTR-AMBIGUOUS  line $_vb_bp_l: block $_vb_bp_n matches ${#_vb_bp_cand[@]} files ($_vb_bp_names) — back-pointer NOT checked; disambiguate by hand"; _vb_bp_a=$((_vb_bp_a+1))
+      continue
+    fi
+    _vb_bp_old="${_vb_bp_cand[0]}"
+    if [ ! -r "$_vb_bp_old" ]; then
+      echo "   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_n (${_vb_bp_old##*/}) is unreadable — back-pointer NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+      continue
+    fi
+    # a pointer = B<self> | R<self> | block/bloque [R]<self>, bounded on both sides (no B110, B11a, 5.11)
+    if grep -Eq "(^|[^A-Za-z0-9_])(([Bb]lock|[Bb]loque) ?R?|[BR])0*${_vb_bp_self}([^0-9A-Za-z_]|\$)" "$_vb_bp_old" 2>/dev/null; then   # BP-POINTER
+      echo "   backptr-ok  line $_vb_bp_l: block $_vb_bp_n (${_vb_bp_old##*/}) points back to B$_vb_bp_self"; _vb_bp_ok=$((_vb_bp_ok+1))
+    else
+      _vb_bp_grc=$?
+      if [ "$_vb_bp_grc" -ge 2 ]; then
+        echo "   DEGRADED backptr: line $_vb_bp_l: block $_vb_bp_n (${_vb_bp_old##*/}) could not be read by grep (exit $_vb_bp_grc) — back-pointer NOT checked"; _vb_bp_d=$((_vb_bp_d+1))
+      else
+        echo "   BACKPTR?  line $_vb_bp_l: corrects/cites block $_vb_bp_n (${_vb_bp_old##*/}) but that file holds no back-pointer to B$_vb_bp_self — add \"corrected in B$_vb_bp_self\" there (§14; advisory, exit unchanged) — sentence: \"$_vb_bp_ex\""; _vb_bp_w=$((_vb_bp_w+1))
+      fi
+    fi
+  done <<<"$_vb_bp_pairs_out"
+  if [ "$((_vb_bp_w + _vb_bp_i + _vb_bp_a + _vb_bp_d + _vb_bp_ok))" -eq 0 ]; then
+    echo "   (none — no correction sentence cites an earlier block; correction sentences scanned: $_vb_bp_ns, skipped $_vb_bp_sk self/forward cite(s) and $_vb_bp_ls_n cross-reference-list sentence(s))"
+  else
+    echo "-- back-pointer: $_vb_bp_w missing · $_vb_bp_ok present · $_vb_bp_a ambiguous · $_vb_bp_i not found · $_vb_bp_d degraded (correction sentences: $_vb_bp_ns; skipped $_vb_bp_sk self/forward cite(s) and $_vb_bp_ls_n cross-reference-list sentence(s)) — WARN only, exit unchanged"
   fi
 fi
 
