@@ -2696,6 +2696,220 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth: no-member mutant still recorded the definitions — the bundle check is THEATER"; fi
 fi
 
+# =====================================================================================================
+# UN — --uninstall (kit issue #1033): dry-run by default, removal only with --yes, only what the
+# installer itself wrote and can PROVE it wrote (the sha256 markers / bundle record), typed per-file
+# results, idempotent. Every case runs against a throwaway --home; $HOME is pointed at a scratch dir
+# too, so a bug that ignored --home could still not touch the real one.
+UN_FAKEHOME="$TMP/un-fakehome"; mkdir -p "$UN_FAKEHOME"
+_uinst() { HOME="$UN_FAKEHOME" bash "$SUT" --home "$1" --harness "$2" ${3:+--profile "$3"} >/dev/null 2>&1; }
+_urun() { # <home> <args...> — sets UOUT / URC
+  local h="$1"; shift
+  UOUT="$(HOME="$UN_FAKEHOME" bash "$SUT" --uninstall --home "$h" "$@" 2>&1)"; URC=$?
+}
+_utree() { find "$1" \( -type f -o -type l \) -exec cksum {} + 2>/dev/null | LC_ALL=C sort; }
+_uhas() { grep -Fq -- "$1" <<<"$UOUT"; }
+_uflat() { printf '%s' "$UOUT" | tr '\n' '|'; }
+_ufiles() { (cd "$1" && find . \( -type f -o -type l \) | LC_ALL=C sort | tr '\n' ' '); }
+# _uedit_kitpath <file> — hand-edit the persisted "Kit path:" line of a launcher block, portably.
+_uedit_kitpath() { sed 's|^Kit path: .*|Kit path: /my/own/edit|' "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
+
+# UN1 — dry-run is the default: lists what would go, changes NOTHING.
+uh="$TMP/un1-home"; mkdir -p "$uh"; _uinst "$uh" pi
+before="$(_utree "$uh")"
+_urun "$uh" --harness pi
+after="$(_utree "$uh")"
+if [ "$URC" = 0 ] && [ "$before" = "$after" ] && [ -n "$before" ] && _uhas 'would-remove  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md' \
+   && _uhas 'would-remove  '"$uh"'/.pi/agent/prompts/research-sdd.md' && _uhas '[launcher block]' && ! _uhas 'removed  '; then
+  ok "UN1: --uninstall alone is a dry-run — lists would-remove for skill/template/launcher, filesystem unchanged"
+else no "UN1: dry-run wrong (rc=$URC, tree-changed=$([ "$before" = "$after" ] && echo no || echo YES)) :: $(_uflat)"; fi
+
+# UN2 — --yes removes every installer-written artifact, preserves the user's surrounding content.
+uh="$TMP/un2-home"; mkdir -p "$uh/.pi/agent"
+printf 'MY OWN SYSTEM PROMPT\n' > "$uh/.pi/agent/AGENTS.md"
+_uinst "$uh" pi
+mkdir -p "$uh/.pi/agent/skills/other"; printf 'user skill\n' > "$uh/.pi/agent/skills/other/SKILL.md"
+printf 'old\n' > "$uh/.pi/agent/skills/research-sdd/SKILL.md.local-backup"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && [ ! -e "$uh/.pi/agent/skills/research-sdd/SKILL.md" ] && [ ! -e "$uh/.pi/agent/prompts/research-sdd.md" ] \
+   && [ ! -e "$uh/.pi/agent/research-sdd/.installed-bundle-state" ] && [ ! -e "$uh/.pi/agent/research-sdd/.installed-skill-state" ] \
+   && [ ! -d "$uh/.pi/agent/research-sdd/profile" ] && [ "$(cat "$uh/.pi/agent/AGENTS.md")" = "MY OWN SYSTEM PROMPT" ] \
+   && [ -f "$uh/.pi/agent/skills/other/SKILL.md" ] && [ -f "$uh/.pi/agent/skills/research-sdd/SKILL.md.local-backup" ] \
+   && _uhas 'removed  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md'; then
+  ok "UN2: --yes removes skill, template, launcher block, render dir and state; user prompt content, other skills and .local-backup survive"
+else no "UN2: apply wrong (rc=$URC) :: $(_uflat) :: left: $(_ufiles "$uh")"; fi
+
+# UN3 — idempotent: a second run reports absent for everything and exits 0.
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && _uhas 'absent  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md' && _uhas 'absent  '"$uh"'/.pi/agent/prompts/research-sdd.md' \
+   && _uhas 'absent  '"$uh"'/.pi/agent/AGENTS.md' && ! _uhas 'removed  ' && ! _uhas 'failed  '; then
+  ok "UN3: second --uninstall --yes run reports absent (skill, template, launcher), removes nothing, exit 0"
+else no "UN3: second run not idempotent (rc=$URC) :: $(_uflat)"; fi
+
+# UN4 — a hand-edited SKILL.md is kept (modified); its marker and the bundle record stay so a later run can still prove ownership.
+uh="$TMP/un4-home"; mkdir -p "$uh"; _uinst "$uh" pi
+printf '\nmy delta\n' >> "$uh/.pi/agent/skills/research-sdd/SKILL.md"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && grep -q 'my delta' "$uh/.pi/agent/skills/research-sdd/SKILL.md" \
+   && _uhas 'kept (modified)  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md' && [ ! -e "$uh/.pi/agent/prompts/research-sdd.md" ] \
+   && [ -f "$uh/.pi/agent/research-sdd/.installed-skill-state" ] && [ -f "$uh/.pi/agent/research-sdd/.installed-bundle-state" ]; then
+  ok "UN4: a hand-edited SKILL.md is kept (modified) with its marker + record; untouched artifacts are still removed"
+else no "UN4: hand-edit not protected (rc=$URC) :: $(_uflat)"; fi
+
+# UN5 — a SKILL.md with NO marker at all (the user's own file) is never removed: kept (unproven).
+uh="$TMP/un5-home"; mkdir -p "$uh/.claude/skills/research-sdd"; printf 'not from the installer\n' > "$uh/.claude/skills/research-sdd/SKILL.md"
+_urun "$uh" --harness claude --yes
+if [ "$URC" = 0 ] && [ -f "$uh/.claude/skills/research-sdd/SKILL.md" ] && _uhas 'kept (unproven)  '"$uh"'/.claude/skills/research-sdd/SKILL.md'; then
+  ok "UN5: a skill file with no installer marker is kept (unproven), never removed"
+else no "UN5: unproven file mishandled (rc=$URC) :: $(_uflat)"; fi
+
+# UN6 — launcher block edited by hand → kept (modified); an unmodified block is spliced out and the surrounding content kept.
+uh="$TMP/un6-home"; mkdir -p "$uh/.pi/agent"; printf 'before\n' > "$uh/.pi/agent/AGENTS.md"; _uinst "$uh" pi
+printf 'after\n' >> "$uh/.pi/agent/AGENTS.md"
+_uedit_kitpath "$uh/.pi/agent/AGENTS.md"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && grep -q 'research-sdd:start' "$uh/.pi/agent/AGENTS.md" && grep -q '/my/own/edit' "$uh/.pi/agent/AGENTS.md" \
+   && _uhas 'kept (modified)  '"$uh"'/.pi/agent/AGENTS.md  [launcher block]'; then
+  ok "UN6a: an edited launcher block is kept (modified)"
+else no "UN6a: edited block mishandled (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un6b-home"; mkdir -p "$uh/.pi/agent"; printf 'before\n' > "$uh/.pi/agent/AGENTS.md"; _uinst "$uh" pi; printf 'after\n' >> "$uh/.pi/agent/AGENTS.md"
+_urun "$uh" --harness pi --yes
+if [ "$URC" = 0 ] && ! grep -q 'research-sdd' "$uh/.pi/agent/AGENTS.md" && grep -qx 'before' "$uh/.pi/agent/AGENTS.md" && grep -qx 'after' "$uh/.pi/agent/AGENTS.md"; then
+  ok "UN6b: an unmodified block is spliced out; the user's lines before AND after it survive"
+else no "UN6b: block removal damaged the prompt file (rc=$URC) :: $(tr '\n' '|' < "$uh/.pi/agent/AGENTS.md")"; fi
+
+# UN7 — a prompt file holding only our block goes with it (nothing else was in it), as do the emptied installer directories.
+uh="$TMP/un7-home"; mkdir -p "$uh"; _uinst "$uh" claude
+_urun "$uh" --harness claude --yes
+if [ "$URC" = 0 ] && [ ! -e "$uh/.claude/CLAUDE.md" ] && [ ! -d "$uh/.claude/research-sdd" ] && [ ! -d "$uh/.claude/skills/research-sdd" ]; then
+  ok "UN7: an installer-only prompt file, the claude agents and the emptied installer directories are all removed"
+else no "UN7: claude uninstall left residue (rc=$URC) :: $(_uflat) :: $(_ufiles "$uh")"; fi
+
+# UN8 — claude agent definitions: an edited one is kept (modified), a marker-less one is kept (unproven), the rest go.
+uh="$TMP/un8-home"; mkdir -p "$uh"; _uinst "$uh" claude
+a1="$(ls "$uh/.claude/agents" | sed -n 1p)"; a2="$(ls "$uh/.claude/agents" | sed -n 2p)"
+printf '\nedited\n' >> "$uh/.claude/agents/$a1"
+rm -f "$uh/.claude/research-sdd/.installed-agent-${a2%.md}-state"
+_urun "$uh" --harness claude --yes
+if [ -n "$a1" ] && [ -n "$a2" ] && [ -f "$uh/.claude/agents/$a1" ] && [ -f "$uh/.claude/agents/$a2" ] \
+   && _uhas "kept (modified)  $uh/.claude/agents/$a1" && _uhas "kept (unproven)  $uh/.claude/agents/$a2" \
+   && [ "$(find "$uh/.claude/agents" -type f | wc -l)" -eq 2 ]; then
+  ok "UN8: agent definitions — edited one kept (modified), marker-less one kept (unproven), every other managed definition removed"
+else no "UN8: agent handling wrong (rc=$URC) :: $(_uflat)"; fi
+
+# UN9 — rendered profile dir: removed when it is exactly what was recorded; an extra file inside keeps it.
+uh="$TMP/un9-home"; mkdir -p "$uh"; _uinst "$uh" pi general
+rd="$uh/.pi/agent/research-sdd/profile/general"
+[ -d "$rd" ] || no "UN9: setup — no render dir at $rd"
+printf 'mine\n' > "$rd/user-notes.txt"
+_urun "$uh" --harness pi --yes
+if [ -d "$rd" ] && [ -f "$rd/user-notes.txt" ] && _uhas "kept (modified)  $rd  [rendered profile]"; then
+  ok "UN9a: a render dir holding an unrecorded user file is kept (modified), not rm -rf'd"
+else no "UN9a: render dir with a user file mishandled (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un9b-home"; mkdir -p "$uh"; _uinst "$uh" pi general
+# Named kit files (not a directory-wide count: concurrent suites legitimately add files under toolbelt/).
+_kit_probe() { cksum "$KITROOT/METHODOLOGY.md" "$KITROOT/PROMPT-LOOP.md" "$KITROOT/skills/research-sdd/SKILL.md" "$KITROOT/toolbelt/render-profile.sh" 2>&1; }
+kit_before="$(_kit_probe)"
+_urun "$uh" --harness pi --yes
+if [ ! -e "$uh/.pi/agent/research-sdd" ] && [ -z "$(find "$uh/.pi/agent" -name '.installed-*' 2>/dev/null)" ]; then
+  ok "UN9b: a pristine render dir is removed together with all state files"
+else no "UN9b: pristine render left behind (rc=$URC) :: $(_ufiles "$uh")"; fi
+# The kit-view symlinks inside a render dir point INTO the kit: removal must never follow them.
+if [ "$kit_before" = "$(_kit_probe)" ] && ! grep -q 'No such file' <<<"$kit_before"; then
+  ok "UN9c: removing a render dir (full of symlinks into the kit) left the kit's own files intact"
+else no "UN9c: kit files changed or vanished after a render-dir removal ($kit_before -> $(_kit_probe))"; fi
+
+# UN10 — never leaves the install roots: a sibling harness and unrelated files under --home are untouched; --harness scopes.
+uh="$TMP/un10-home"; mkdir -p "$uh"; _uinst "$uh" claude; _uinst "$uh" pi
+printf 'x\n' > "$uh/unrelated.txt"
+_urun "$uh" --harness pi --yes
+if [ -f "$uh/unrelated.txt" ] && [ -f "$uh/.claude/skills/research-sdd/SKILL.md" ] && [ -f "$uh/.claude/CLAUDE.md" ] && [ ! -e "$uh/.pi/agent/skills/research-sdd/SKILL.md" ]; then
+  ok "UN10: --harness pi removes pi only — claude's install and unrelated files under --home are untouched"
+else no "UN10: scope leak (rc=$URC) :: $(_ufiles "$uh")"; fi
+
+# UN11 — default harness list is all; a never-installed home is all absent, exit 0, and nothing is written.
+uh="$TMP/un11-home"; mkdir -p "$uh"; _uinst "$uh" claude
+_urun "$uh" --yes
+if [ "$URC" = 0 ] && [ ! -e "$uh/.claude/skills/research-sdd/SKILL.md" ] && _uhas 'harness=pi' && _uhas 'harness=gentle-shell' && _uhas 'absent  '"$uh"'/.pi/agent/skills/research-sdd/SKILL.md'; then
+  ok "UN11: no --harness covers claude, pi and gentle-shell; harnesses that were never installed report absent"
+else no "UN11: all-harness run wrong (rc=$URC) :: $(_uflat)"; fi
+uh="$TMP/un11b-home"; mkdir -p "$uh"
+_urun "$uh"
+if [ "$URC" = 0 ] && [ -z "$(find "$uh" -type f)" ] && ! _uhas 'would-remove  ' && _uhas 'absent  '; then
+  ok "UN11b: a never-installed home → all absent, nothing to remove, exit 0"
+else no "UN11b: pristine home wrong (rc=$URC) :: $(_uflat)"; fi
+
+# UN12 — usage errors, exit 2, nothing touched.
+uh="$TMP/un12-home"; mkdir -p "$uh"; _uinst "$uh" pi; before="$(_utree "$uh")"
+for _bad in "--yes" "--uninstall --verify" "--uninstall --force-skill" "--uninstall --profile general" "--uninstall --dry-run --yes"; do
+  # shellcheck disable=SC2086
+  UOUT="$(HOME="$UN_FAKEHOME" bash "$SUT" $_bad --home "$uh" --harness pi 2>&1)"; URC=$?
+  if [ "$URC" = 2 ] && [ "$before" = "$(_utree "$uh")" ] && ! grep -Fq 'unknown argument' <<<"$UOUT" && grep -Fq 'uninstall' <<<"$UOUT"; then ok "UN12: '$_bad' → usage error, exit 2, nothing touched"
+  else no "UN12: '$_bad' rc=$URC :: $UOUT"; fi
+done
+UOUT="$(HOME="$UN_FAKEHOME" bash "$SUT" --uninstall --harness nosuch --home "$uh" 2>&1)"; URC=$?
+[ "$URC" = 2 ] && grep -Fq "unknown harness 'nosuch'" <<<"$UOUT" && ok "UN12: --uninstall with an unknown harness → exit 2" || no "UN12: unknown harness rc=$URC"
+
+# UN13 — --help documents the flags and the typed results.
+help_u="$(bash "$SUT" --help 2>&1)"
+if <<<"$help_u" grep -q -- '--uninstall' && <<<"$help_u" grep -q -- '--yes' && <<<"$help_u" grep -q 'kept (modified)' && <<<"$help_u" grep -q 'would-remove'; then
+  ok "UN13: --help documents --uninstall, --yes and the typed per-file results"
+else no "UN13: --help lacks the uninstall documentation"; fi
+
+# UN14 — no sha256 tool reachable: ownership cannot be proven, so refuse (degraded, exit 2) and remove nothing.
+uh="$TMP/un14-home"; mkdir -p "$uh"; _uinst "$uh" pi; before="$(_utree "$uh")"
+UN_BIN="$TMP/un14-bin"; mkdir -p "$UN_BIN"
+for _t in dirname basename awk sed cat mktemp rm mkdir find sort cmp paste tr cp mv grep head; do
+  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$UN_BIN/$_t"
+done
+UOUT="$(PATH="$UN_BIN" HOME="$UN_FAKEHOME" "$BASH" "$SUT" --uninstall --yes --home "$uh" --harness pi 2>&1)"; URC=$?
+if [ "$URC" = 2 ] && grep -Fq 'uninstall harness=pi status=degraded' <<<"$UOUT" && [ "$before" = "$(_utree "$uh")" ]; then
+  ok "UN14: without any sha256 tool --uninstall --yes is degraded (exit 2) and removes nothing"
+else no "UN14: no-hash-tool run wrong (rc=$URC) :: $UOUT"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: --uninstall mutants must break the dry-run / ownership / keep-the-record assertions --"
+  UM1="$MKI/research-sdd-install.MUTANT-un-alwaysapply.$$.sh"
+  mutant_sed "$SUT" "$UM1" 's/one apply=0; \[ "\$yes" = 1 \] && apply=1/one apply=1/' \
+    || no "teeth: UM1 could not be built"
+  uh="$TMP/um1-home"; mkdir -p "$uh"; _uinst "$uh" pi
+  HOME="$UN_FAKEHOME" bash "$UM1" --uninstall --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/skills/research-sdd/SKILL.md" ]; then ok "teeth: always-apply mutant deletes on a plain --uninstall → the dry-run default check has teeth"
+  else no "teeth: always-apply mutant still kept the files — UN1 is THEATER"; fi
+
+  UM2="$MKI/research-sdd-install.MUTANT-un-nomarker.$$.sh"
+  mutant_sed "$SUT" "$UM2" 's/elif _rsdd_marker_matches_deployed "\$marker" "\$path"; then st="proven"/elif true; then st="proven"/' \
+    || no "teeth: UM2 could not be built"
+  uh="$TMP/um2-home"; mkdir -p "$uh"; _uinst "$uh" pi; printf '\nmy delta\n' >> "$uh/.pi/agent/skills/research-sdd/SKILL.md"
+  HOME="$UN_FAKEHOME" bash "$UM2" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/skills/research-sdd/SKILL.md" ]; then ok "teeth: hash-less mutant deletes a hand-edited skill → the kept (modified) check has teeth"
+  else no "teeth: hash-less mutant still kept the edited skill — UN4 is THEATER"; fi
+
+  UM3="$MKI/research-sdd-install.MUTANT-un-noblockproof.$$.sh"
+  mutant_sed "$SUT" "$UM3" 's/if \[ "\$cur" != "\$recorded" \]; then/if false; then/' \
+    || no "teeth: UM3 could not be built"
+  uh="$TMP/um3-home"; mkdir -p "$uh"; _uinst "$uh" pi; _uedit_kitpath "$uh/.pi/agent/AGENTS.md"
+  HOME="$UN_FAKEHOME" bash "$UM3" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/AGENTS.md" ] || ! grep -q '/my/own/edit' "$uh/.pi/agent/AGENTS.md"; then ok "teeth: proof-less mutant strips an edited launcher block → the block ownership check has teeth"
+  else no "teeth: proof-less mutant kept the edited block — UN6a is THEATER"; fi
+
+  UM4="$MKI/research-sdd-install.MUTANT-un-rmrf.$$.sh"
+  mutant_sed "$SUT" "$UM4" 's/if \[ -n "\$bad" \]; then/if false; then/' \
+    || no "teeth: UM4 could not be built"
+  uh="$TMP/um4-home"; mkdir -p "$uh"; _uinst "$uh" pi general; printf 'mine\n' > "$uh/.pi/agent/research-sdd/profile/general/user-notes.txt"
+  HOME="$UN_FAKEHOME" bash "$UM4" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/research-sdd/profile/general/user-notes.txt" ]; then ok "teeth: proof-less mutant wipes a render dir holding a user file → the render ownership check has teeth"
+  else no "teeth: render-proof-less mutant kept the user file — UN9a is THEATER"; fi
+
+  UM5="$MKI/research-sdd-install.MUTANT-un-statekeep.$$.sh"
+  mutant_sed "$SUT" "$UM5" 's/\[ "\$_U_KEPT" = 0 \] && \[ "\$_U_FAILED" = 0 \] && rec_ok=1/rec_ok=1/' \
+    || no "teeth: UM5 could not be built"
+  uh="$TMP/um5-home"; mkdir -p "$uh"; _uinst "$uh" pi; printf '\nmy delta\n' >> "$uh/.pi/agent/skills/research-sdd/SKILL.md"
+  HOME="$UN_FAKEHOME" bash "$UM5" --uninstall --yes --home "$uh" --harness pi >/dev/null 2>&1
+  if [ ! -e "$uh/.pi/agent/research-sdd/.installed-bundle-state" ]; then ok "teeth: record-always-removed mutant loses the proof while a file is kept → the keep-the-record check has teeth"
+  else no "teeth: mutant still kept the record — UN4's record assertion is THEATER"; fi
+fi
+
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
 INSTALL_SNAP_AFTER="$(_install_tree_snapshot)" || INSTALL_SNAP_AFTER="<snapshot failed>"
 if [ "$INSTALL_SNAP_AFTER" = "$INSTALL_SNAP_BEFORE" ]; then

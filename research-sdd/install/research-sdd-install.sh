@@ -14,6 +14,7 @@
 # Usage:
 #   research-sdd-install.sh [--harness claude|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
 #   research-sdd-install.sh --verify [--harness claude|pi|gentle-shell|all] [--home <dir>]
+#   research-sdd-install.sh --uninstall [--yes] [--harness claude|pi|gentle-shell|all] [--home <dir>]
 #
 #   --harness     which harness(es) to install into (default: all, in registration order)
 #   --home        the home dir whose config roots are targeted (default: $HOME)
@@ -50,6 +51,24 @@
 #                 An install that KEEPS a hand-edited SKILL.md/template records the SOURCE digest for that
 #                 member plus a kept-hand-edit=<path> line: the hand-edit is never baselined, verify reports
 #                 it as drift and prints kept-hand-edit=<path> so the cause is named.
+#
+#   --uninstall   remove what this installer deployed (kit issue #1033). DRY-RUN BY DEFAULT: it lists what it
+#                 would remove and changes nothing; removal happens only with --yes. Only artifacts the installer
+#                 can PROVE it wrote are removed: a skill / slash-command template / agent definition whose sha256
+#                 still equals its install marker, the marked launcher block inside the shared prompt file (its
+#                 hash must equal the bundle record; the user's other lines are kept), a rendered profile dir that
+#                 holds exactly the recorded files, then the state files and the emptied installer directories.
+#                 Anything else is kept. ONE typed line per artifact, "  <status>  <path>  [<kind>]":
+#                   would-remove | removed | absent | failed
+#                   kept (modified)   the file/block/dir differs from what the installer recorded (hand-edit or extra file)
+#                   kept (unproven)   no marker/record vouches for it (the user's own file, or state already gone)
+#                   kept (not a regular file) · kept (unreadable) · kept (not empty) · kept (in use)
+#                 then a per-harness summary line. A second run reports absent. --harness scopes it (default all);
+#                 nothing outside <config_root> is touched. Exit: 0 ok · 1 a removal failed · 2 usage error, or
+#                 degraded (no sha256 tool: ownership cannot be proven, so nothing is removed).
+#                 --yes requires --uninstall; --uninstall cannot be combined with --verify, --dry-run --yes,
+#                 --force-skill or --profile (usage error, exit 2).
+#   --yes         confirm the removal --uninstall would otherwise only list
 #
 # pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
 # and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
@@ -810,6 +829,200 @@ _rsdd_verify_one() {
   return 1
 }
 
+# --- uninstall: remove only what the installer wrote AND can prove it wrote (kit issue #1033) -------
+# Ownership proof, never a guess: a deployed file is removed only when its CURRENT sha256 equals the one
+# the installer recorded in the matching marker (the same test the managed-overwrite path uses); the
+# launcher block only when its hash equals the bundle record's `#research-sdd-section` member; a rendered
+# profile dir only when every regular file in it is a recorded member with an unchanged hash. Everything
+# else is KEPT with a typed reason (CLAUDE.md §7: an unverifiable file is neither "removed" nor "absent").
+# Dry-run is the default (propose-never-apply, §8): nothing is written unless apply=1 (--yes).
+_U_REMOVED=0; _U_KEPT=0; _U_ABSENT=0; _U_FAILED=0; _U_LAST=""
+
+# _rsdd_u_report <status> <path> <kind> [note] — print the ONE typed line and count it.
+_rsdd_u_report() {
+  printf '  %s  %s  [%s]%s\n' "$1" "$2" "$3" "${4:+  ($4)}"
+  _U_LAST="$1"
+  case "$1" in
+    removed|would-remove) _U_REMOVED=$((_U_REMOVED + 1)) ;;
+    absent) _U_ABSENT=$((_U_ABSENT + 1)) ;;
+    kept*) _U_KEPT=$((_U_KEPT + 1)) ;;
+    *) _U_FAILED=$((_U_FAILED + 1)) ;;
+  esac
+}
+
+# _rsdd_u_remove <path> <kind> <apply> — delete one proven file (or only report it in dry-run).
+_rsdd_u_remove() {
+  if [ "$3" != 1 ]; then _rsdd_u_report would-remove "$1" "$2"
+  elif rm -f -- "$1"; then _rsdd_u_report removed "$1" "$2"
+  else _rsdd_u_report failed "$1" "$2"; fi
+}
+
+# _rsdd_u_state <state_file> <apply> — remove one installer state file; absent when it is not there.
+_rsdd_u_state() {
+  if [ ! -e "$1" ] && [ ! -L "$1" ]; then _rsdd_u_report absent "$1" state
+  else _rsdd_u_remove "$1" state "$2"; fi
+}
+
+# _rsdd_u_file <path> <marker> <kind> <apply> — one deployed file, judged against its marker.
+_rsdd_u_file() {
+  local path="$1" marker="$2" kind="$3" apply="$4" st
+  if [ -L "$path" ]; then st="kept (not a regular file)"
+  elif [ ! -e "$path" ]; then st="absent"
+  elif [ ! -f "$path" ]; then st="kept (not a regular file)"
+  elif [ ! -r "$path" ]; then st="kept (unreadable)"
+  elif [ -z "$(_rsdd_marker_field "$marker" sha256 2>/dev/null)" ]; then st="kept (unproven)"
+  elif _rsdd_marker_matches_deployed "$marker" "$path"; then st="proven"
+  else st="kept (modified)"; fi
+  if [ "$st" = proven ]; then _rsdd_u_remove "$path" "$kind" "$apply"; else _rsdd_u_report "$st" "$path" "$kind"; fi
+}
+
+# _rsdd_u_artifact <path> <marker> <kind> <apply> — a deployed file plus, once it is gone, its marker.
+_rsdd_u_artifact() {
+  _rsdd_u_file "$1" "$2" "$3" "$4"
+  case "$_U_LAST" in
+    removed|would-remove|absent) _rsdd_u_state "$2" "$4" ;;
+  esac
+}
+
+# _rsdd_u_recsha <record> <rel> — the sha256 the bundle record holds for member <rel> (empty + rc=1 if none).
+_rsdd_u_recsha() {
+  awk -v r="$2" 'index($0,"file=")==1 { rest=substr($0,6); i=index(rest,"  "); if (i>0 && substr(rest,i+2)==r) { print substr(rest,1,i-1); f=1; exit } } END { exit !f }' "$1" 2>/dev/null
+}
+
+# _rsdd_u_launcher <h> <home> <apply> <record> — the marked launcher block inside the SHARED prompt file.
+_rsdd_u_launcher() {
+  local h="$1" home="$2" apply="$3" record="$4" root pf rel recorded cur remaining aw tmp="" note=""
+  root="$(rsdd_field "$h" config_root "$home")"
+  pf="$(rsdd_field "$h" prompt_file "$home")"
+  rel="${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
+  if [ ! -e "$pf" ]; then _rsdd_u_report absent "$pf" "launcher block"; return 0; fi
+  if [ ! -f "$pf" ]; then _rsdd_u_report "kept (not a regular file)" "$pf" "launcher block"; return 0; fi
+  if [ ! -r "$pf" ]; then _rsdd_u_report "kept (unreadable)" "$pf" "launcher block"; return 0; fi
+  if ! _rsdd_section_text "$pf" >/dev/null; then _rsdd_u_report absent "$pf" "launcher block"; return 0; fi
+  recorded="$(_rsdd_u_recsha "$record" "$rel")" || recorded=""
+  if [ -z "$recorded" ]; then _rsdd_u_report "kept (unproven)" "$pf" "launcher block"; return 0; fi
+  cur="$(_rsdd_member_hash "$root" "$rel")" || cur=""
+  if [ "$cur" != "$recorded" ]; then _rsdd_u_report "kept (modified)" "$pf" "launcher block"; return 0; fi
+  # Same well-formed-pair rule as _rsdd_splice_file: drop the FIRST start..end pair, keep every other line.
+  remaining="$(awk -v start='<!-- research-sdd:start -->' -v end='<!-- research-sdd:end -->' '
+    BEGIN { done=0; inblk=0; orphan=0 }
+    {
+      if (!done && !inblk && $0 == start) { inblk=1; buf=$0 ORS; next }
+      if (inblk) {
+        if ($0 == start) { printf "%s", buf; orphan=1; buf=$0 ORS; next }
+        if ($0 == end)   { inblk=0; done=1; buf=""; next }
+        buf=buf $0 ORS; next
+      }
+      print
+    }
+    END { if (inblk) { printf "%s", buf; orphan=1 } exit (orphan?3:0) }
+  ' "$pf")"; aw=$?
+  if [ "$aw" = 3 ]; then _rsdd_u_report "kept (modified)" "$pf" "launcher block" "malformed marker"; return 0; fi
+  [ -n "${remaining//[[:space:]]/}" ] || note="the prompt file holds nothing else and is removed with it"
+  if [ "$apply" != 1 ]; then _rsdd_u_report would-remove "$pf" "launcher block" "$note"; return 0; fi
+  if [ -n "$note" ] && [ ! -L "$pf" ]; then
+    if rm -f -- "$pf"; then _rsdd_u_report removed "$pf" "launcher block" "$note"; else _rsdd_u_report failed "$pf" "launcher block"; fi
+    return 0
+  fi
+  # Preserved content back through the same write-back the splice uses (a symlinked prompt file is written THROUGH).
+  if tmp="$(mktemp)" && { if [ -n "$note" ]; then : > "$tmp"; else printf '%s\n' "$remaining" > "$tmp"; fi; } && _rsdd_write_back "$tmp" "$pf"; then
+    _rsdd_u_report removed "$pf" "launcher block"
+  else
+    [ -z "$tmp" ] || rm -f -- "$tmp"
+    _rsdd_u_report failed "$pf" "launcher block"
+  fi
+}
+
+# _rsdd_u_profiles <h> <home> <apply> <record> — rendered profile dirs under <config_root>/research-sdd/profile.
+_rsdd_u_profiles() {
+  local h="$1" home="$2" apply="$3" record="$4" root pdir rec_profile entries d name files f rel rsha asha bad
+  root="$(rsdd_field "$h" config_root "$home")"
+  pdir="$root/research-sdd/profile"
+  rec_profile="$(_rsdd_marker_field "$record" profile 2>/dev/null)" || rec_profile=""
+  if [ -L "$root/research-sdd" ] || [ -L "$pdir" ]; then _rsdd_u_report "kept (not a regular file)" "$pdir" "rendered profile"; return 0; fi
+  if [ ! -d "$pdir" ]; then _rsdd_u_report absent "$pdir" "rendered profile"; return 0; fi
+  if ! entries="$(find "$pdir" -mindepth 1 -maxdepth 1 2>/dev/null)"; then _rsdd_u_report "kept (unreadable)" "$pdir" "rendered profile"; return 0; fi
+  if [ -z "$entries" ]; then _rsdd_u_report absent "$pdir" "rendered profile"; return 0; fi
+  while IFS= read -r d; do
+    name="${d##*/}"
+    if [ -L "$d" ] || [ ! -d "$d" ] || ! [[ "$name" =~ ^[a-z0-9_-]+$ ]] || [ -z "$rec_profile" ] || [ "$name" != "$rec_profile" ]; then
+      _rsdd_u_report "kept (unproven)" "$d" "rendered profile"; continue
+    fi
+    if ! files="$(find "$d" -type f 2>/dev/null)"; then _rsdd_u_report "kept (unreadable)" "$d" "rendered profile"; continue; fi
+    bad=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      rel="${f#"$root"/}"
+      rsha="$(_rsdd_u_recsha "$record" "$rel")" || rsha=""
+      asha="$(_rsdd_sha256_file "$f")" || asha=""
+      if [ -z "$rsha" ] || [ "$rsha" != "$asha" ]; then bad="$bad $rel"; fi
+    done <<<"$files"
+    if [ -n "$bad" ]; then _rsdd_u_report "kept (modified)" "$d" "rendered profile" "differs from the record:$bad"; continue; fi
+    if [ "$apply" != 1 ]; then _rsdd_u_report would-remove "$d" "rendered profile"
+    elif _rsdd_clean_profile_dir "$d" "$root"; then _rsdd_u_report removed "$d" "rendered profile"
+    else _rsdd_u_report failed "$d" "rendered profile"; fi
+  done <<<"$entries"
+}
+
+# uninstall_one <h> <home> <apply> — one harness. Returns 0 clean, 1 a removal failed, 2 degraded.
+uninstall_one() {
+  local h="$1" home="$2" apply="$3" root record tmpl skill an names m n d rec_ok=0 verb
+  root="$(rsdd_field "$h" config_root "$home")"
+  record="$root/research-sdd/.installed-bundle-state"
+  if [ "$apply" = 1 ]; then verb=removed; printf 'uninstall harness=%s mode=apply\n' "$h"
+  else verb=would-remove; printf 'uninstall harness=%s mode=dry-run\n' "$h"; fi
+  if ! _rsdd_have_sha256; then
+    printf 'uninstall harness=%s status=degraded reason=no sha256 tool (sha256sum, shasum and python3 all absent): ownership cannot be proven, nothing removed\n' "$h"
+    return 2
+  fi
+  _U_REMOVED=0; _U_KEPT=0; _U_ABSENT=0; _U_FAILED=0
+
+  skill="$(rsdd_field "$h" skill_path "$home")"
+  _rsdd_u_artifact "$skill" "$root/research-sdd/.installed-skill-state" "skill" "$apply"
+
+  tmpl="$(rsdd_field "$h" prompt_template_path "$home")"
+  [ -z "$tmpl" ] || _rsdd_u_artifact "$tmpl" "$root/research-sdd/.installed-template-state" "slash-command prompt template" "$apply"
+
+  # Agent definitions: the kit's CURRENT names plus every name an install marker records, de-duplicated.
+  names="$(_rsdd_agent_names "$h" 2>/dev/null)" || names=""
+  for m in "$root"/research-sdd/.installed-agent-*-state; do
+    { [ -e "$m" ] || [ -L "$m" ]; } || continue
+    n="${m##*/.installed-agent-}"; n="${n%-state}"
+    if [[ "$n" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then names="$names"$'\n'"$n.md"
+    else _rsdd_u_report "kept (unproven)" "$m" state "unsafe agent name"; fi
+  done
+  names="$(printf '%s\n' "$names" | LC_ALL=C awk 'NF && !seen[$0]++' | LC_ALL=C sort)"
+  while IFS= read -r an; do
+    [ -n "$an" ] || continue
+    _rsdd_u_artifact "$root/agents/$an" "$root/research-sdd/.installed-agent-${an%.md}-state" "read-only agent definition" "$apply"
+  done <<<"$names"
+
+  _rsdd_u_launcher "$h" "$home" "$apply" "$record"
+  _rsdd_u_profiles "$h" "$home" "$apply" "$record"
+
+  # The bundle record is the proof for the launcher block and the render dir: drop it only when nothing
+  # it vouches for is still on disk (a kept file keeps its record so a later run can still prove it).
+  if [ ! -e "$record" ] && [ ! -L "$record" ]; then _rsdd_u_report absent "$record" state
+  else
+    [ "$_U_KEPT" = 0 ] && [ "$_U_FAILED" = 0 ] && rec_ok=1
+    if [ "$rec_ok" = 1 ]; then _rsdd_u_state "$record" "$apply"
+    else _rsdd_u_report "kept (in use)" "$record" state "kept files still need it as proof"; fi
+  fi
+
+  # Installer-named directories left empty: rmdir only (never rm -r), so a user file inside keeps its dir.
+  if [ "$apply" = 1 ]; then
+    for d in "$root/research-sdd/profile" "$root/skills/research-sdd" "$root/research-sdd"; do
+      { [ -d "$d" ] && [ ! -L "$d" ]; } || continue
+      if rmdir "$d" 2>/dev/null; then _rsdd_u_report removed "$d" "empty directory"
+      else _rsdd_u_report "kept (not empty)" "$d" "directory"; fi
+    done
+  else
+    printf '  note  installer directories left empty (research-sdd/profile, skills/research-sdd, research-sdd) are removed with --yes\n'
+  fi
+  printf '  summary harness=%s %s=%s kept=%s absent=%s failed=%s\n' "$h" "$verb" "$_U_REMOVED" "$_U_KEPT" "$_U_ABSENT" "$_U_FAILED"
+  [ "$_U_FAILED" = 0 ]
+}
+
 # --- the ONE install loop body — table-driven, no per-harness branching --------------------------
 install_one() {
   local h="$1" home="$2" dry="$3" force="$4" profile="$5" profile_source="$6" rc=0
@@ -996,9 +1209,11 @@ install_one() {
 }
 
 main() {
-  local harness="all" home="$HOME" dry=0 force=0 profile_flag="" verify=0
+  local harness="all" home="$HOME" dry=0 force=0 profile_flag="" verify=0 uninstall=0 yes=0
   while [ $# -gt 0 ]; do
     case "$1" in
+      --uninstall)   uninstall=1; shift ;;
+      --yes)         yes=1; shift ;;
       --harness)     harness="${2:-}"; shift 2 ;;
       --home)        home="${2:-}"; shift 2 ;;
       --dry-run)     dry=1; shift ;;
@@ -1023,6 +1238,24 @@ main() {
       return 2
     fi
   done
+
+  # --uninstall (kit issue #1033): dry-run unless --yes. Mode conflicts are usage errors (exit 2) raised
+  # before the filesystem is touched. Exit: 0 ok · 1 a removal failed · 2 degraded (no sha256 tool) or usage.
+  if [ "$yes" = 1 ] && [ "$uninstall" != 1 ]; then
+    echo "research-sdd-install: --yes confirms a removal and requires --uninstall" >&2; usage >&2; return 2
+  fi
+  if [ "$uninstall" = 1 ]; then
+    if [ "$verify" = 1 ] || [ "$force" = 1 ] || [ -n "$profile_flag" ] || { [ "$dry" = 1 ] && [ "$yes" = 1 ]; }; then
+      echo "research-sdd-install: --uninstall cannot be combined with --verify, --force-skill, --profile, or --dry-run together with --yes (it is a dry-run unless --yes is given)" >&2
+      usage >&2; return 2
+    fi
+    local urc=0 one apply=0; [ "$yes" = 1 ] && apply=1
+    for h in $list; do
+      one=0; uninstall_one "$h" "$home" "$apply" || one=$?
+      case "$one" in 0) ;; 1) [ "$urc" = 2 ] || urc=1 ;; *) urc=2 ;; esac
+    done
+    return "$urc"
+  fi
 
   # --verify (kit issue #1702): read-only, one typed line per harness, no profile resolution (the
   # recorded profile is read from the bundle record). Exit: 0 all match/absent · 1 drift · 2 any
