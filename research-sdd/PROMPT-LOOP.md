@@ -1272,8 +1272,8 @@ Always read first, in this order:
      commit holding the dispatch's blocks is legitimate for a per-section-agent run — ONE-BLOCK-PER-COMMIT
      (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
      (step 4) before the import commit and the iteration history records `method: per-section-agent · N
-     sections`. The exemption never covers a sequential run. (The `research-sdd-archive.sh` WARN does
-     not yet honor it — tracked in #1887.)
+     sections`. The exemption never covers a sequential run. `research-sdd-archive.sh` honors it: a commit
+     adding at most N blocks prints an exemption note instead of the WARN.
      STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
      driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
      blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
