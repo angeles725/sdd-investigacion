@@ -396,3 +396,48 @@ OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes
 | REACHABLE ≠ REPRESENTATIVE-DEFAULT | blender B9. |
 | PRIOR COVERAGE CHECK | Evidence: B279 ran module-navigator before reading B133, which already documented the JNI boundary; required a §279.9 self-revision. |
 | SCOPING JUDGMENTS ARE HYPOTHESES | Evidence (retro 2026-08-07): B381 refuted B129 §129.7's "decompilation not load-bearing" — a scope-out that held unchallenged for six weeks; the actual function bodies surfaced LocalSystem account, SERVICE_AUTO_START, argv-passed passphrase, DPAPI-no-entropy, and REG_BINARY under HKLM — all load-bearing security facts. |
+
+## prompt-loop-evidence-provenance
+
+Trigger: none — this is provenance, not an operating rule. Read it only to audit where a rule came from.
+Kit issue #1003 (second slice) moved the corpus-pointer `(Evidence: ...)` / `(lesson: ...)` notes that sat
+outside step 3 out of PROMPT-LOOP.md so every iteration stops paying for them; the rules themselves are
+unchanged and still live in PROMPT-LOOP.md. Each row keeps the original note's pointer text verbatim, keyed
+by the rule it annotated. Notes that carry a real reason (not just a corpus pointer) and the one-line retro
+`(Source: ...)` pointers stay in core.
+
+| Rule (PROMPT-LOOP.md) | Original provenance note |
+|---|---|
+| UNOPENED-SOURCE READ-FRACTION (bootstrap, source access order) | blender-llm B66–B67 |
+| EVIDENCE-grounded DESIGN/APPLIED focus type ([INFER]/[CERT] ratio) | B611–B619 |
+| REMITTANCE-DOMINANT EXPECTATION | apis focus |
+| AUDIT BOOTSTRAP PRODUCTION SCOPE | niagara own-modules-audit |
+| SWEEP NUMBERS ARE ESTIMATES (sweep-agent count constraint) | access-control sweep AC3/AC4 |
+| BASE-MODULE GAP CHECK | provisioning focus — PV1/PV7 |
+| INCOMPATIBLE-TYPE DIFF PLAN | B386 §386.2 |
+| PDF CORPUS FAMILY-BLOCK | niagara optimizer-docs — family block |
+| RELEVANCE-TRIAGE CHECKPOINT (PDF CORPUS) | niagara optimizer-docs — triage |
+| GAP-PREMISE RE-DERIVE AT CHOOSE | blender-llm B57 §57.1 |
+| PER-ITERATION VALUE GATE (reference-batch iteration) | niagara B899–B928 |
+| LOCAL DOC CORPUS CITE DISCIPLINE | B336 `e975837` |
+| CORRECTNESS (direct measurement of class-file target) | B616/B617 |
+| SYNTHESIS-BLOCK REGISTRATION RULE | B413; commit `a852383` |
+| PRESERVATION-SURFACES-CORRECTIONS | blender-llm B15, B2/B3 |
+| NON-CORPUS AUDIT (STOP-gate dump sweep) | platform-native reopen |
+| FRONTIER-REOPEN DECISION SHAPE | #564 |
+| PER-SECTION-AGENT PATTERN | api-openness |
+| PRODUCE THE DELIVERABLE (companion reference artifacts) | api-openness |
+| ANONYMOUS-FETCH 403 != ABSENT (native pass-through flags) | `nre` pass-through flags |
+| PRESENT-ARTIFACT != EVIDENCE ABOUT ITS CONTENTS | niagara licensing |
+| CORROBORATION-FROM-INDEPENDENT-STORE (multi-source convergence) | niagara jace9000 bootstrap |
+| SET-INTERSECTION RE-DERIVE | blender-llm B61 §61.2 |
+| RULE VALIDATED ON ONE CLASS (topological re-validation) | blender-llm B61/B63 |
+| ABSENCE RETRACTION RE-VERIFY | B478 §478.5 |
+| DEFAULT PORT SWEEP CHECK | Fluke 177x |
+| DUAL-USE DESCOPE (blocked-on-dual-use) | niagara signing-pki-live |
+| CONVERSATION IS AN EXFIL SURFACE | computadoras B23–B25 |
+| RESUME, don't blindly redo | niagara B76/B122 |
+| ORCHESTRATED RETURN CONTRACT | niagara loop-continuation retro |
+| ONE BLOCK PER COMMIT | three.js B15+B16 |
+| PKILL BRACKET IDIOM | blender-llm B6 |
+| RETURN-CONTRACT MINIMUM FIELDS | niagara loop-continuation retro |
