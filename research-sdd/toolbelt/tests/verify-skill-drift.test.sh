@@ -49,6 +49,27 @@ skip() { printf '  SKIP  %s\n' "$1"; }
 # The real kit path from this test's location
 KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 SRC_SKILL="$KIT/skills/research-sdd/SKILL.md"
+# SANDBOX_FILES: the ONE list of files the SUT resolves relative to its own path (kit issue #1576). Every
+# mini-kit sandbox below (main teeth sandbox, PIH, SYMLINK-TOOLBELT) is staged from it by stage_sandbox, and
+# the staging check iterates it, so a new SUT dependency cannot be staged in one place and missed in another.
+# Entries are "<live absolute path>|<path relative to the sandbox root>".
+SANDBOX_FILES=(
+  "$SUT|toolbelt/verify-skill-drift.sh"
+  "$KIT/toolbelt/render-profile.sh|toolbelt/render-profile.sh"
+  "$KIT/install/adapters.sh|install/adapters.sh"
+  "$KIT/profiles/general.slots.md|profiles/general.slots.md"
+  "$SRC_SKILL|skills/research-sdd/SKILL.md"
+  "$KIT/PROMPT-LOOP.md|PROMPT-LOOP.md"
+  "$KIT/METHODOLOGY.md|METHODOLOGY.md"
+)
+# stage_sandbox ROOT — copy every SANDBOX_FILES entry under ROOT (parents created), scripts made executable.
+stage_sandbox() {
+  local _e _rel
+  for _e in "${SANDBOX_FILES[@]}"; do
+    _rel="${_e#*|}"; mkdir -p "$1/$(dirname "$_rel")" && cp "${_e%%|*}" "$1/$_rel" 2>/dev/null
+  done
+  chmod +x "$1/toolbelt/verify-skill-drift.sh" "$1/toolbelt/render-profile.sh" 2>/dev/null
+}
 
 echo "== verify-skill-drift.test.sh =="
 
@@ -812,15 +833,9 @@ else
     PIK="$ROOT/pikit"; PIO="$ROOT/pikit-orig"
     mkdir -p "$PIK/install" "$PIK/toolbelt" "$PIK/skills/research-sdd" \
              "$PIO/install" "$PIO/toolbelt" "$PIO/skills/research-sdd"
-    for _d in "$PIK" "$PIO"; do
-      cp "$SUT" "$_d/toolbelt/verify-skill-drift.sh"
-      cp "$SRC_SKILL" "$_d/skills/research-sdd/SKILL.md"
-      # gentle-shell defaults to the "general" profile: the original must be able to re-render it.
-      mkdir -p "$_d/profiles"
-      cp "$KIT/toolbelt/render-profile.sh" "$_d/toolbelt/render-profile.sh"
-      cp "$KIT/profiles/general.slots.md" "$_d/profiles/general.slots.md"
-      cp "$KIT/PROMPT-LOOP.md" "$KIT/METHODOLOGY.md" "$_d/"
-    done
+    # gentle-shell defaults to the "general" profile: the original must be able to re-render it, so both
+    # sandboxes carry the full SANDBOX_FILES set (PIK's adapters.sh is then replaced by the mutant).
+    for _d in "$PIK" "$PIO"; do stage_sandbox "$_d"; done
     cp "$HERE/../../install/adapters.sh" "$PIO/install/adapters.sh"
     if ! cmp -s "$PIO/install/adapters.sh" "$HERE/../../install/adapters.sh"; then
       no "teeth PIH staging: pristine sandbox adapters.sh is not byte-identical to the live one"
@@ -849,32 +864,17 @@ if [ "$prove_teeth" -eq 1 ]; then
   # copy of the SUT), so original and mutant run from equivalent sandboxes — the comparison never
   # depends on the live tree. Layout: $ROOT/toolbelt/ (SUT copy, render-profile.sh, mutants) +
   # $ROOT/install/ + $ROOT/skills/ + $ROOT/profiles/ + $ROOT/PROMPT-LOOP.md + $ROOT/METHODOLOGY.md.
-  mkdir -p "$ROOT/install" "$ROOT/skills/research-sdd" "$ROOT/toolbelt" "$ROOT/profiles"
+  mkdir -p "$ROOT/toolbelt"
   MUT_DIR="$ROOT/toolbelt"
   SBX_ORIG="$MUT_DIR/verify-skill-drift.sh"
-  # stage_file LIVE_ABS SANDBOX_REL — copy one live file into the sandbox.
-  stage_file() { cp "$1" "$ROOT/$2" 2>/dev/null; }
-  stage_file "$SUT"                           toolbelt/verify-skill-drift.sh
-  stage_file "$KIT/toolbelt/render-profile.sh" toolbelt/render-profile.sh
-  stage_file "$KIT/install/adapters.sh"       install/adapters.sh
-  stage_file "$KIT/profiles/general.slots.md" profiles/general.slots.md
-  stage_file "$SRC_SKILL"                     skills/research-sdd/SKILL.md
-  stage_file "$KIT/PROMPT-LOOP.md"            PROMPT-LOOP.md
-  stage_file "$KIT/METHODOLOGY.md"            METHODOLOGY.md
-  chmod +x "$SBX_ORIG" "$MUT_DIR/render-profile.sh" 2>/dev/null
+  stage_sandbox "$ROOT"
   # Staging check: every file the SUT (and the render-profile.sh it calls) resolves relative to its
   # own path must be present in the sandbox AND byte-identical to its live counterpart. A missing or
   # drifted file fails loudly ONCE and the sandbox teeth are skipped, so a half-staged sandbox can
   # never turn a crash into a "bite".
   STAGE_OK=1
-  for _pair in "$SUT:toolbelt/verify-skill-drift.sh" \
-               "$KIT/toolbelt/render-profile.sh:toolbelt/render-profile.sh" \
-               "$KIT/install/adapters.sh:install/adapters.sh" \
-               "$KIT/profiles/general.slots.md:profiles/general.slots.md" \
-               "$SRC_SKILL:skills/research-sdd/SKILL.md" \
-               "$KIT/PROMPT-LOOP.md:PROMPT-LOOP.md" \
-               "$KIT/METHODOLOGY.md:METHODOLOGY.md"; do
-    _live="${_pair%%:*}"; _rel="${_pair#*:}"
+  for _pair in "${SANDBOX_FILES[@]}"; do
+    _live="${_pair%%|*}"; _rel="${_pair#*|}"
     if [ ! -s "$_live" ] || [ ! -s "$ROOT/$_rel" ] || ! cmp -s "$_live" "$ROOT/$_rel"; then
       no "TEETH staging: sandbox file '$_rel' missing, empty or not byte-identical to '$_live' — mini-kit sandbox incomplete"
       STAGE_OK=0
@@ -1168,15 +1168,7 @@ if [ "$prove_teeth" -eq 1 ]; then
       SCRATCH_TSYM="$ROOT/scratch_teeth_symlink"
       mkdir -p "$SCRATCH_TSYM/research-sdd/toolbelt" "$SCRATCH_TSYM/research-sdd/install" \
         "$SCRATCH_TSYM/research-sdd/profiles" "$SCRATCH_TSYM/research-sdd/skills/research-sdd"
-      cp "$KIT/toolbelt/verify-skill-drift.sh" "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh"
-      cp "$KIT/toolbelt/render-profile.sh"     "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
-      chmod +x "$SCRATCH_TSYM/research-sdd/toolbelt/verify-skill-drift.sh" \
-               "$SCRATCH_TSYM/research-sdd/toolbelt/render-profile.sh"
-      cp "$KIT/install/adapters.sh" "$SCRATCH_TSYM/research-sdd/install/adapters.sh"
-      cp "$KIT/profiles/general.slots.md" "$SCRATCH_TSYM/research-sdd/profiles/general.slots.md"
-      cp "$KIT/skills/research-sdd/SKILL.md" "$SCRATCH_TSYM/research-sdd/skills/research-sdd/SKILL.md"
-      cp "$KIT/PROMPT-LOOP.md" "$SCRATCH_TSYM/research-sdd/PROMPT-LOOP.md"
-      cp "$KIT/METHODOLOGY.md" "$SCRATCH_TSYM/research-sdd/METHODOLOGY.md"
+      stage_sandbox "$SCRATCH_TSYM/research-sdd"
       mkdir -p "$SCRATCH_TSYM/render/profile/general"
       ln -s "$SCRATCH_TSYM/research-sdd/toolbelt"  "$SCRATCH_TSYM/render/profile/general/toolbelt"
       ln -s "$SCRATCH_TSYM/research-sdd/install"   "$SCRATCH_TSYM/render/profile/general/install"

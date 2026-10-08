@@ -548,6 +548,82 @@ else no "count-once: reserved counter name (out=[$(cat "$TMP/co8.out")])"; fi
 if grep -qx 'rc=2' "$TMP/co6.out" && grep -q 'not a number' "$TMP/co6.out"; then ok "count-once: a non-numeric counter value is refused, not evaluated (rc 2)"
 else no "count-once: non-numeric counter (out=[$(cat "$TMP/co6.out")])"; fi
 
+# T18 — shared VM-executor tooth kit (#1576): mutant_vm_tooth_py_src (the python `_tooth_run` scenario
+# runner) and mutant_vm_core_teeth (stage / staging control / three real-SUT mutants), both parameterised
+# by the executor name so detonate-exec and trace-exec stop carrying two copies. The fixture is a tiny fake
+# SUT tree whose "scenario runner" reads the mutated vm_boot_core.py, so the verdicts are deterministic.
+VM="$TMP/vm"; mkdir -p "$VM/tests" "$VM/lib" "$VM/pystub"
+cat > "$VM/lib/vm_boot_core.py" <<'PY'
+import uuid
+def run_vm():
+    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)
+    try:
+        boot()
+    except BaseException:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        raise
+PY
+printf 'x = 1\n' > "$VM/lib/fake_exec.py"; printf 'x = 1\n' > "$VM/fake_plan.py"
+cat > "$VM/tests/self-good.sh" <<'SH'
+#!/usr/bin/env bash
+core="$(dirname "$3")/vm_boot_core.py"
+case "$2" in
+  red11) if grep -q TOOTH_UUID "$core"; then echo TOOTH_RED11=preexisting; else echo TOOTH_RED11=fresh; fi ;;
+  inv5)  if grep -q '^        pass$' "$core"; then echo TOOTH_INV5=leaked; else echo TOOTH_INV5=reaped; fi ;;
+  alloc) echo "TOOTH_ALLOC=$(grep -c 'make_run_subdir(' "$core")" ;;
+esac
+SH
+# blunt: always the GOOD verdicts, so no mutant ever bites. crash: right verdicts plus a python traceback.
+printf '#!/usr/bin/env bash\ncase "$2" in red11) echo TOOTH_RED11=fresh;; inv5) echo TOOTH_INV5=reaped;; alloc) echo TOOTH_ALLOC=1;; esac\n' > "$VM/tests/self-blunt.sh"
+printf '#!/usr/bin/env bash\nbash "$(dirname "$0")/self-blunt.sh" "$@"; echo "Traceback (most recent call last):"\n' > "$VM/tests/self-crash.sh"
+vm_run(){  # vm_run <self-script> <mut-dir> [tree]  -> prints the helper's lines then MVC=<pass>/<fail>
+  local t="${3:-$VM}"; mkdir -p "$2"
+  ( mutant_vm_core_teeth fake "$t/tests" "$t/tests/$1" "$t/lib/fake_exec.py" "$2"; echo "MVC=$MVC_PASS/$MVC_FAIL" ) 2>&1
+}
+res="$(vm_run self-good.sh "$TMP/vmmut1")"
+if grep -qx 'MVC=6/0' <<<"$res" && grep -q 'PASS  teeth-mut-alloc' <<<"$res"; then
+  ok "vm core: three staging controls and three real mutants all hold (6 pass, 0 fail)"
+else no "vm core: faithful scenario runner gives 6/0 (got [$res])"; fi
+res="$(vm_run self-blunt.sh "$TMP/vmmut2")"
+if grep -qx 'MVC=3/3' <<<"$res" && grep -q 'THEATER' <<<"$res"; then
+  ok "vm core: a scenario runner that never bites is 3 counted failures (THEATER), not a pass"
+else no "vm core: non-biting suite counts 3 failures (got [$res])"; fi
+res="$(vm_run self-crash.sh "$TMP/vmmut3")"
+if grep -qx 'MVC=0/6' <<<"$res"; then ok "vm core: a traceback on the unmutated tree fails the staging control"
+else no "vm core: crash on the clean tree fails the staging control (got [$res])"; fi
+cp -R "$VM" "$TMP/vm2"; sed -i 's/ignore_errors=True/ignore_errors=False/' "$TMP/vm2/lib/vm_boot_core.py"
+res="$(vm_run self-good.sh "$TMP/vmmut4" "$TMP/vm2")"
+if grep -qx 'MVC=5/1' <<<"$res" && grep -q 'FAIL  teeth-mut-inv5' <<<"$res"; then
+  ok "vm core: a dead mutation anchor is counted once and the other mutants still run (5 pass, 1 fail)"
+else no "vm core: a dead anchor is counted once (got [$res])"; fi
+# The python half: compile the shared source, then drive its scenarios against a stub executor.
+mutant_vm_tooth_py_src > "$VM/tooth.py"
+if python3 -I -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$VM/tooth.py" 2>/dev/null \
+   && grep -q '^def _tooth_run(name, plan_flags, mod, cls):$' "$VM/tooth.py"; then
+  ok "vm tooth py: the shared runner source compiles and has the (name, plan_flags, mod, cls) signature"
+else no "vm tooth py: the shared runner source compiles with the documented signature"; fi
+printf 'import tempfile\n_DEFAULT_RSDD_ROOT = "x"\ndef make_run_subdir(run_uuid, root=_DEFAULT_RSDD_ROOT):\n    return tempfile.mkdtemp(prefix="mvc-")\n' > "$VM/pystub/docker_common.py"
+printf 'class GateError(Exception):\n    pass\n' > "$VM/pystub/gate.py"
+printf 'import docker_common as dc\nfrom gate import GateError\nclass FakeExec:\n    def __init__(self, out): pass\n    def evaluate(self, plan):\n        dc.make_run_subdir("a"); dc.make_run_subdir("b")\n        raise GateError("sentinel not found in planned_argv")\n' > "$VM/pystub/fakeexec.py"
+cat > "$VM/drv.py" <<'PY'
+import os, sys, tempfile, json
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+def _shims(t): return os.environ.get("PATH", "")
+def _elf(t): return t
+def cli(*a, **k): raise SystemExit("cli is not used by this fixture")
+_GOOD_ARGV = ["x"]
+exec(os.environ["RSDD_TOOTH_PY"], globals())
+_tooth_run(sys.argv[2], lambda elf: [], "fakeexec", "FakeExec")
+PY
+tp(){ RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" python3 -I "$VM/drv.py" "$VM/pystub" "$1" 2>&1; }
+if [ "$(tp alloc)" = "TOOTH_ALLOC=2" ]; then ok "vm tooth py: alloc counts both run_dir allocations made by the executor"
+else no "vm tooth py: alloc counts allocations (got [$(tp alloc)])"; fi
+if [ "$(tp inv5)" = "TOOTH_INV5=leaked" ]; then ok "vm tooth py: inv5 reports leaked when the executor does not reap its run_dir"
+else no "vm tooth py: inv5 leak verdict (got [$(tp inv5)])"; fi
+if [ "$(tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
+else no "vm tooth py: unknown scenario (got [$(tp zzz)])"; fi
+
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   SELFTEST="$HERE/mutant.test.sh"
@@ -702,6 +778,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "count-once: dead stage"
   teeth_case countbuilt 's/mutant_or_count "\${1:-}" mutant_built "\${@:2}"/mutant_built "${@:2}"/' \
     "count-once: refused built"
+  # shared VM-executor tooth kit (#1576)
+  teeth_case vmalloc 's/n = len(made); _cleanup(); print(f"TOOTH_ALLOC={n}"); return/n = len(made) + 1; _cleanup(); print(f"TOOTH_ALLOC={n}"); return/' \
+    "vm tooth py: alloc counts allocations"
+  teeth_case vmleaked 's/("leaked" if leaked else "reaped")/("reaped" if leaked else "leaked")/' \
+    "vm tooth py: inv5 leak verdict"
+  teeth_case vmunknown 's/print(f"TOOTH_ERROR=unknown scenario {name}")/pass/' \
+    "vm tooth py: unknown scenario"
+  teeth_case vmcount 's/else MVC_FAIL=\$((MVC_FAIL+1)); fi; }/else :; fi; }/' \
+    "vm core: non-biting suite counts 3 failures"
+  teeth_case vmanchor 's/"\$core" "\$mut\/\$2\/lib\/vm_boot_core.py" "\$3"; then MVC_FAIL=\$((MVC_FAIL+1)); return 1/"$core" "$mut\/$2\/lib\/vm_boot_core.py" "$3"; then return 1/' \
+    "vm core: a dead anchor is counted once"
+  teeth_case vmcrash 's/ \&\& ! grep -qE "\$crash" <<<"\$o"//' \
+    "vm core: crash on the clean tree fails the staging control"
+  teeth_case vmmutate 's|/        pass/;}|/        raise/;}|' \
+    "vm core: faithful scenario runner gives 6/0"
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

@@ -779,7 +779,11 @@ if [ ! -f "$FIXTURES/bigbomb.bog" ]; then
 elif ! ( ulimit -v 720896 2>/dev/null ); then
   mut_no "M_BOMB unbounded read: ulimit -v not supported — SKIP"
 elif mut_build "M_BOMB unbounded read" MB 's/f\.read(_MAX_BOG_INFLATE + 1)/f.read()  # MUTANT-MBOMB/'; then
-  qt "M_BOMB unbounded read" 1 1 --good-has '^FACT=failed/True$' --bad-has '^FACT=failed/False$' \
+  # Bad verdict: the mutant must NOT reach the truncation verdict. A typed failed/False is the usual
+  # outcome (MemoryError caught -> status failed, truncated False); under a tighter ulimit the mutant may
+  # instead die before writing any JSON (FACT=none/none). Both are the unbounded read losing; a harness
+  # failure (ulimit refused, rc 98/99) still fails on the exact BAD_RC, and failed/True (the bounded verdict) is neither.
+  qt "M_BOMB unbounded read" 1 1 --good-has '^FACT=failed/True$' --bad-has '^FACT=(failed/False|none/none)$' \
     -- "$FIXTURES/bigbomb.bog" bomb 60
 fi
 
