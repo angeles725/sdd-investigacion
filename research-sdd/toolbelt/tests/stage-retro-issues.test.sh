@@ -5122,8 +5122,8 @@ box="$(mkbox case-1640d)"; mk_gh_stub "$box" nomatch
 retro="$(CV_STATES="RESEARCH-STATE-alpha.md" cv_retro_file "$box" r.md 'covers_through: B140\ncovers_through: Bxx\ncovers_through: B90 focus=alpha\n')"
 run "$box" "$retro"
 n_reset="$(grep -c '^proposed-reset:' <<<"$OUT")"
-if [ "$n_reset" = 2 ] && grep -qE '^proposed-reset: .* in RESEARCH-STATE-alpha\.md .*B90.*focus=alpha' <<<"$OUT" && grep -q 'covers_through: malformed' <<<"$OUT"; then
-  ok "T1640d: first + last (focus-scoped) lines both proposed, the middle malformed line warned" "()"
+if [ "$n_reset" = 1 ] && grep -qE '^proposed-reset: .* in RESEARCH-STATE-alpha\.md .*B90.*focus=alpha' <<<"$OUT" && grep -q 'covers_through: malformed' <<<"$OUT" && grep -q 'B140 in r.md is unscoped' <<<"$OUT"; then
+  ok "T1640d: first (unscoped, slugged state file → WARN) / middle (malformed → WARN) / last (focus-scoped → proposed)" "()"
 else no "T1640d: list edges" "n_reset=$n_reset out=[$OUT]"; fi
 
 # a fenced example and a blockquoted mention are not coverage
@@ -5165,6 +5165,23 @@ run "$box" "$retro"
 if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'no RESEARCH-STATE file found' <<<"$OUT"; then
   ok "T1640j: corpus with no state file → no proposal, typed WARN" "()"
 else no "T1640j: no state file" "out=[$OUT]"; fi
+# n1: the single state file is SLUGGED (a corpus that shrank): an unscoped line proposes nothing
+box="$(mkbox case-1640n)"; mk_gh_stub "$box" nomatch
+retro="$(CV_STATES="RESEARCH-STATE-alpha.md" cv_retro_file "$box" r.md 'covers_through: B140\n')"
+run "$box" "$retro"
+if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'unscoped but the only state file is RESEARCH-STATE-alpha.md' <<<"$OUT"; then
+  ok "T1640n: unscoped line + one slugged state file → no proposal, typed WARN" "()"
+else no "T1640n: unscoped line must only resolve to the root RESEARCH-STATE.md" "out=[$OUT]"; fi
+# split layout (target/a + target/b, each with its own RESEARCH-STATE.md), retro under target/a/retros: state files are counted
+# from the TARGET ROOT (as research-sdd-status.sh does), not from the retro's parent directory
+box="$(mkbox case-1640o)"; mk_gh_stub "$box" nomatch
+mkdir -p "$box/rh/target-foo/a/retros" "$box/rh/target-foo/b"; : > "$box/rh/target-foo/a/RESEARCH-STATE.md"; : > "$box/rh/target-foo/b/RESEARCH-STATE.md"
+retro="$box/rh/target-foo/a/retros/r.md"
+{ printf '<!-- review-status: pending -->\n# retro\n\ncovers_through: B140\ncovers_through: B140 focus=root\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |\n'; } > "$retro"
+run "$box" "$retro"
+if ! grep -q '^proposed-reset:' <<<"$OUT" && grep -q 'unscoped but the corpus has 2 state files' <<<"$OUT" && grep -q 'focus=root .*2 matching state file' <<<"$OUT"; then
+  ok "T1640o: split layout — both state files counted from the target root → ambiguous, no proposal" "()"
+else no "T1640o: state files must be counted from the target root" "out=[$OUT]"; fi
 # S7: ~~~ is a fence, and a backtick fence inside it does not close it
 box="$(mkbox case-1640k)"; mk_gh_stub "$box" nomatch
 retro="$(cv_retro_file "$box" r.md '~~~\ncovers_through: B140\n~~~\n~~~\n```\ncovers_through: B140\n~~~\n')"
@@ -5198,10 +5215,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-print teeth: print removed → no proposal (T1640a has teeth)" "()"
     else no "T1640-print teeth: mutant must flip T1640a" "THEATER: out=[$OUT]"; fi
   fi
-  if stg_mutant 1640multi nomatch -e 's/if \[ "\$_nsf" -eq 1 \]; then _hit=/if true; then _hit=/'; then
+  if stg_mutant 1640multi nomatch -e 's/if \[ "\$_nsf" -eq 1 \] \&\& \[ "\$(basename "\$_sfiles")" = "RESEARCH-STATE.md" \]; then _hit=/if true; then _hit=/'; then
     retro="$(CV_STATES="RESEARCH-STATE-alpha.md RESEARCH-STATE-beta.md" cv_retro_file "$MBOX" r.md 'covers_through: B140\n')"; run "$MBOX" "$retro"
     if grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-multi teeth: multi-state guard removed → unscoped line proposed (T1640f has teeth)" "()"
     else no "T1640-multi teeth: mutant must flip T1640f" "THEATER: out=[$OUT]"; fi
+  fi
+  if stg_mutant 1640root nomatch -e 's/ \&\& \[ "\$(basename "\$_sfiles")" = "RESEARCH-STATE.md" \]; then _hit=/; then _hit=/'; then
+    retro="$(CV_STATES="RESEARCH-STATE-alpha.md" cv_retro_file "$MBOX" r.md 'covers_through: B140\n')"; run "$MBOX" "$retro"
+    if grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-root teeth: root-only guard removed → slugged single state file accepted (T1640n has teeth)" "()"
+    else no "T1640-root teeth: mutant must flip T1640n" "THEATER: out=[$OUT]"; fi
+  fi
+  if stg_mutant 1640troot nomatch -e 's/find "\$_cvroot" -maxdepth 3/find "$_target_dir" -maxdepth 3/'; then
+    mkdir -p "$MBOX/rh/target-foo/a/retros" "$MBOX/rh/target-foo/b"; : > "$MBOX/rh/target-foo/a/RESEARCH-STATE.md"; : > "$MBOX/rh/target-foo/b/RESEARCH-STATE.md"
+    retro="$MBOX/rh/target-foo/a/retros/r.md"
+    printf '<!-- review-status: pending -->\n# retro\n\ncovers_through: B140\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | a fixture row | CLAUDE.md | B1 | fix | HIGH |\n' > "$retro"; run "$MBOX" "$retro"
+    if grep -q '^proposed-reset:' <<<"$OUT"; then ok "T1640-troot teeth: counted from the retro's parent dir → one state file seen, proposal printed (T1640o has teeth)" "()"
+    else no "T1640-troot teeth: mutant must flip T1640o" "THEATER: out=[$OUT]"; fi
   fi
   if stg_mutant 1640nhit nomatch -e 's/if \[ "\$_nhit" -ne 1 \]; then/if false; then/'; then
     retro="$(CV_STATES="RESEARCH-STATE-alpha.md" cv_retro_file "$MBOX" r.md 'covers_through: B140 focus=gamma\n')"; run "$MBOX" "$retro"

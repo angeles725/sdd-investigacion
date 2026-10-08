@@ -1512,10 +1512,20 @@ fence != "" { next }
 }'
 # CV-GRAMMAR-END
 _print_counter_reset() {
-  local _cl _nv=0 _nm=0 _kind _val _slug _sfiles _nsf _sf _sfb _sfs _hit _nhit _rel _rb
+  local _cl _nv=0 _nm=0 _kind _val _slug _sfiles _nsf _sf _sfb _sfs _hit _nhit _rel _rb _cvroot _cvbest _cvraw _cvp _cvx _retro_dir_p
   _rb="$(basename "$retro_file")"
-  # state files next to the retro: the same set as lib/state-files.sh list_state_files (maxdepth 3, templates and .git excluded)
-  _sfiles="$(find "$_target_dir" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | LC_ALL=C sort)"
+  _retro_dir_p="$(cd -P "$(dirname "$retro_file")" 2>/dev/null && pwd -P)"
+  # State files are counted from the TARGET ROOT (the retro's nearest registered ancestor — what research-sdd-status.sh is
+  # given as its target), not from the retro's parent dir: a split layout (target/a + target/b) must see both. The set is
+  # lib/state-files.sh list_state_files' (maxdepth 3, templates and .git excluded). An unregistered target falls back to
+  # the retro's parent-of-retros dir (_target_dir).
+  _cvroot="$_target_dir"; _cvbest=-1
+  while IFS=$'\t' read -r _cvraw _cvp; do
+    [ -n "$_cvp" ] || continue
+    _cvx="$(cd -P "$_cvp" 2>/dev/null && pwd -P)" || continue
+    case "$_retro_dir_p/" in "$_cvx"/*) [ "${#_cvx}" -gt "$_cvbest" ] && { _cvbest="${#_cvx}"; _cvroot="$_cvx"; } ;; esac
+  done < <(target_paths_pairs "$TARGETS_MD" 2>/dev/null)
+  _sfiles="$(find "$_cvroot" -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | LC_ALL=C sort)"
   _nsf="$(grep -c . <<<"$_sfiles")"
   while IFS= read -r _cl; do
     _kind="${_cl%% *}"; _val="${_cl#* }"
@@ -1523,8 +1533,10 @@ _print_counter_reset() {
       V) _nv=$((_nv+1)); _slug="${_val#* }"; _val="${_val%% *}"
          _hit=""; _nhit=0
          if [ "$_slug" = "-" ]; then
-           if [ "$_nsf" -eq 1 ]; then _hit="$_sfiles"; _nhit=1
-           elif [ "$_nsf" -eq 0 ]; then echo "WARN: covers_through B${_val} in ${_rb}: no RESEARCH-STATE file found under $_target_dir — no reset proposed" >&2; continue
+           # an unscoped line is accepted only for a lone ROOT state file (a lone slugged one still needs focus=<slug>)
+           if [ "$_nsf" -eq 1 ] && [ "$(basename "$_sfiles")" = "RESEARCH-STATE.md" ]; then _hit="$_sfiles"; _nhit=1
+           elif [ "$_nsf" -eq 0 ]; then echo "WARN: covers_through B${_val} in ${_rb}: no RESEARCH-STATE file found under $_cvroot — no reset proposed" >&2; continue
+           elif [ "$_nsf" -eq 1 ]; then echo "WARN: covers_through B${_val} in ${_rb} is unscoped but the only state file is $(basename "$_sfiles") — no reset proposed; write \`covers_through: B${_val} focus=<slug>\`" >&2; continue
            else echo "WARN: covers_through B${_val} in ${_rb} is unscoped but the corpus has ${_nsf} state files — no reset proposed; write \`covers_through: B${_val} focus=<slug>\` (root focus: focus=root)" >&2; continue; fi
          else
            while IFS= read -r _sf; do
@@ -1533,10 +1545,10 @@ _print_counter_reset() {
              if [ "${_sfs:-root}" = "$_slug" ]; then _hit="$_sf"; _nhit=$((_nhit+1)); fi
            done <<<"$_sfiles"
            if [ "$_nhit" -ne 1 ]; then
-             echo "WARN: covers_through B${_val} focus=${_slug} in ${_rb}: $_nhit matching state file(s) under $_target_dir — no reset proposed" >&2; continue
+             echo "WARN: covers_through B${_val} focus=${_slug} in ${_rb}: $_nhit matching state file(s) under $_cvroot — no reset proposed" >&2; continue
            fi
          fi
-         _rel="${_hit#"$_target_dir"/}"
+         _rel="${_hit#"$_cvroot"/}"
          if [ "$_slug" = "-" ]; then
            printf 'proposed-reset: blocks_since_retro: 0 in %s (retro covers_through B%s; set it by hand only if no newer block exists — propose-never-apply)\n' "$_rel" "$_val"
          else

@@ -17,12 +17,13 @@ covers_through: B<n>
 > `blocks_since_retro` as `max(0, newest block id on disk − covers_through)` and uses it for RETRO-DUE only when it is LOWER than the
 > declared counter, so a counter left stale across a session close cannot fire early. Coverage may only ever LOWER the counter when the
 > evidence unambiguously belongs to the focus, so anything ambiguous keeps the declared counter (RETRO-DUE keeps firing):
-> - A corpus with MORE THAN ONE `RESEARCH-STATE*.md` file ignores an unscoped line. Scope every line with ` focus=<slug>`: the
+> - An unscoped line counts only when the corpus's single state file is the root `RESEARCH-STATE.md`; with more than one `RESEARCH-STATE*.md` file, or a lone slugged one, it is ignored. Scope every line with ` focus=<slug>`: the
 >   `RESEARCH-STATE-<slug>.md` suffix, or `focus=root` for the un-suffixed `RESEARCH-STATE.md` (e.g. `covers_through: B140 focus=alpha`).
 >   The same slug in two directories (a split layout) is ambiguous and also keeps the declared counter.
 > - A value ABOVE the newest block on disk is excluded (a typo such as `B1400` must not hide a due retro); it is never clamped to 0.
 > - `stage-retro-issues.sh` only PRINTS a `blocks_since_retro: 0` reset line naming the exact `RESEARCH-STATE` file, for a human to apply
 >   (propose-never-apply); an ambiguous line prints a WARN and no proposal.
+> After renumbering or restructuring blocks, rewrite `covers_through` so it names ids that still exist on disk.
 > Prose such as "coverage through B140" is NOT parsed; a retro without the line, or with an unfilled `B<n>`, keeps the declared counter
 > and the tools say so on stderr.
 

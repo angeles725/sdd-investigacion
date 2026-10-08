@@ -1637,8 +1637,8 @@ if [ "$mode" = "--next" ]; then
   # blocks_since_retro is derived as max(0, newest block id on disk − highest IN-RANGE covers_through over the
   # target's retros) and replaces the declared counter ONLY when LOWER. FAIL-CLOSED PRINCIPLE: coverage may only ever
   # LOWER the counter when the evidence unambiguously belongs to THIS focus; anything ambiguous keeps the declared
-  # counter (RETRO-DUE keeps firing). Hence: in a corpus with more than one state file an UNSCOPED line is ignored
-  # (typed note), a state-file slug that is not unique is refused, and a value above the newest block on disk is
+  # counter (RETRO-DUE keeps firing). Hence: an UNSCOPED line counts only when the corpus's single state file is the
+  # root RESEARCH-STATE.md (several state files, or a lone slugged one, ignore it with a typed note), a state-file slug that is not unique is refused, and a value above the newest block on disk is
   # excluded from the maximum (typed WARN per retro) — it is never clamped to 0. Sets _rd_eff (effective counter)
   # and _rd_note (RETRO-DUE suffix). Every state in which the derivation cannot run is NAMED on stderr (§7): no
   # retros / no field / malformed value / no block files / range-scoped focus / missing helper / incomplete retro
@@ -1660,7 +1660,7 @@ fence != "" { next }
   # CV-GRAMMAR-END
   _rd_covers_derive() {  # RD-COVERS-DERIVE
     local _st="$1" _decl="$2" _tg="$3" _base _slug _myslug _pfx _rng _dir _f _b _id _newest=-1 _rs _line _v _sl
-    local _maxcov=-1 _nret=0 _nbad=0 _badlist="" _nover=0 _nunsc=0 _rlist _rf _der=0 _fo _frc _multi=0 _sfiles _sf _sfb _dups=0
+    local _maxcov=-1 _nret=0 _nbad=0 _badlist="" _nover=0 _nunsc=0 _rlist _rf _der=0 _fo _frc _multi=0 _unsc_ok=0 _sfiles _sf _sfb _dups=0
     _rd_eff="$_decl"; _rd_note=""
     _base="$(basename "$_st")"; _slug=""
     case "$_base" in RESEARCH-STATE-*.md) _slug="${_base#RESEARCH-STATE-}"; _slug="${_slug%.md}";; esac
@@ -1679,6 +1679,9 @@ fence != "" { next }
         return 0
       fi
     fi
+    # an UNSCOPED line is this focus's evidence only when the corpus has exactly one state file AND it is the root
+    # RESEARCH-STATE.md (a lone slugged file left after a corpus shrank still needs its explicit focus=<slug>)
+    [ "$_multi" = 0 ] && [ -z "$_slug" ] && _unsc_ok=1
     _pfx="$(derive_focus_prefix "$_st")"
     if [ -z "$_pfx" ]; then
       _rng="$(derive_focus_range "$_st" 2>/dev/null)"
@@ -1729,8 +1732,8 @@ fence != "" { next }
         case "$_line" in
           'V '*) _v="${_line#V }"; _sl="${_v#* }"; _v="${_v%% *}"
                  if [ "$_sl" = "-" ]; then
-                   # unscoped: this focus's evidence only when it is the corpus's ONLY state file
-                   if [ "$_multi" = 1 ]; then _nunsc=$((_nunsc+1)); continue; fi  # RD-UNSCOPED-IGNORED
+                   # unscoped: only the corpus's single root state file owns it
+                   if [ "$_unsc_ok" != 1 ]; then _nunsc=$((_nunsc+1)); continue; fi  # RD-UNSCOPED-IGNORED
                  elif [ "$_sl" != "$_myslug" ]; then continue; fi
                  if [ "$((10#$_v))" -gt "$_newest" ]; then  # RD-OVER-RANGE
                    _nover=$((_nover+1))
@@ -1743,7 +1746,7 @@ fence != "" { next }
       done < <(awk "$_CV_AWK" "$_rf")
     done <<< "$_rlist"
     [ "$_nbad" -gt 0 ] && printf 'status: WARN: covers_through: malformed in%s (want `covers_through: B<n>` with a number) — malformed lines ignored\n' "$_badlist" >&2
-    [ "$_nunsc" -gt 0 ] && printf 'status: WARN: covers_through: %s unscoped line(s) ignored — this corpus has several state files; write `covers_through: B<n> focus=%s` (root focus: focus=root)\n' "$_nunsc" "$_myslug" >&2
+    [ "$_nunsc" -gt 0 ] && printf 'status: WARN: covers_through: %s unscoped line(s) ignored — only a lone root RESEARCH-STATE.md owns unscoped evidence; write `covers_through: B<n> focus=%s` (root focus: focus=root)\n' "$_nunsc" "$_myslug" >&2
     if [ "$_nret" -eq 0 ]; then
       printf 'status: WARN: covers_through: absent (no retros found) — using declared blocks_since_retro: %s\n' "$_decl" >&2
       return 0

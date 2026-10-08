@@ -2017,6 +2017,17 @@ got="$(cv_next "$d")"
 case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640m5: duplicate slug across split directories → declared counter";; *) no "T-1640m5: got [$got]";; esac
 grep -q 'not unique' "$TMP/cv.err" && ok "T-1640m5: typed 'not unique' WARN" || no "T-1640m5: [$(cat "$TMP/cv.err")]"
 
+# n1: a SINGLE but SLUGGED state file (a corpus that shrank) must not accept an unscoped line either — only the root
+# RESEARCH-STATE.md owns unscoped evidence
+d="$TMP/t1640-n1"; mkdir -p "$d/retros"; retro_due_state "$d" 11; mv "$d/RESEARCH-STATE.md" "$d/RESEARCH-STATE-alpha.md"
+: > "$d/alpha-block141.md"; cv_cov "$d/RESEARCH-STATE-alpha.md" 1; cv_retro "$d" r.md 'covers_through: B140\n'
+got="$(cv_next "$d")"
+case "$got" in "RETRO-DUE | 11 blocks"*) ok "T-1640n1: unscoped line + one slugged state file → ignored, declared counter kept";; *) no "T-1640n1: got [$got]";; esac
+grep -q 'unscoped line(s) ignored' "$TMP/cv.err" && ok "T-1640n1: typed 'unscoped line(s) ignored' WARN" || no "T-1640n1: [$(cat "$TMP/cv.err")]"
+cv_retro "$d" r.md 'covers_through: B140 focus=alpha\n'
+got="$(cv_next "$d")"
+case "$got" in NEXT\ *) ok "T-1640n1b: the same slugged state file IS covered by its own focus=alpha line → NEXT";; *) no "T-1640n1b: got [$got]";; esac
+
 # W3: an incomplete retro enumeration (find exits non-zero on an unreadable directory) keeps the declared counter
 if [ "$(id -u)" != 0 ]; then
   d="$TMP/t1640-w3"; cv_state "$d" 11 141; cv_retro "$d" r.md 'covers_through: B140\n'; mkdir -p "$d/retros/locked"; chmod 000 "$d/retros/locked"
@@ -7754,7 +7765,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1640_tooth LOWER-ONLY "$TMP/t1640-b" "RETRO-DUE | 11 blocks" 's/if \[ "\$_der" -lt "\$_decl" \]; then/if true; then/'
   t1640_tooth MAX-OVER-RETROS "$TMP/t1640-h-first" "NEXT " 's/\[ "\$((10#\$_v))" -gt "\$_maxcov" \]/true/'
   t1640_tooth FENCE-SKIP "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/^fence != "" { next }$/# MUTANT/'
-  t1640_tooth UNSCOPED-IGNORED "$TMP/t1640-m1" "RETRO-DUE | 11 blocks" 's/if \[ "\$_multi" = 1 \]; then _nunsc=/if false; then _nunsc=/'
+  t1640_tooth UNSCOPED-IGNORED "$TMP/t1640-m1" "RETRO-DUE | 11 blocks" 's/if \[ "\$_unsc_ok" != 1 \]; then _nunsc=/if false; then _nunsc=/'
+  cv_retro "$TMP/t1640-n1" r.md 'covers_through: B140\n'   # the n1 case ends on its focus=alpha variant; restore the unscoped retro
+  t1640_tooth UNSCOPED-ROOT-ONLY "$TMP/t1640-n1" "RETRO-DUE | 11 blocks" 's/\[ -z "\$_slug" \] \&\& _unsc_ok=1/true \&\& _unsc_ok=1/'
   t1640_tooth OVER-RANGE-EXCLUDED "$TMP/t1640-i" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
   t1640_tooth OVER-RANGE-NO-SHADOW "$TMP/t1640-i4" "RETRO-DUE | 11 blocks" 's/if \[ "\$((10#\$_v))" -gt "\$_newest" \]; then  # RD-OVER-RANGE/if false; then  # RD-OVER-RANGE/'
   t1640_tooth EXCLUDED-RETRO "$TMP/t1640-j" "RETRO-DUE | 11 blocks" 's/retro_is_excluded "\$_rf" \&\& continue  # RD-EXCLUDED-RETRO/: # MUTANT/'
@@ -7762,7 +7775,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     chmod 000 "$TMP/t1640-w3/retros/locked"   # the w3 fixture is restored to 700 after its case; re-lock it for the tooth
     t1640_tooth FIND-EXIT "$TMP/t1640-w3" "RETRO-DUE | 11 blocks" 's/if \[ "\$_frc" -ne 0 \]; then/if false; then/'
     chmod 700 "$TMP/t1640-w3/retros/locked"
-  fi
+  else skip "teeth-1640-FIND-EXIT: running as root — directory permissions are ignored, the unreadable-directory fixture cannot fail find"; fi
   t1640_tooth DUP-SLUG "$TMP/t1640-m5" "RETRO-DUE | 11 blocks" 's/if \[ "\$_dups" -gt 1 \]; then/if false; then/'
   t1640_tooth FENCE-TILDE "$TMP/t1640-s7" "RETRO-DUE | 11 blocks" 's/^\/\^(```|~~~)\//\/^```\//'
   t1640_tooth FOCUS-SCOPE "$TMP/t1640-l2" "RETRO-DUE | 11 blocks" 's/elif \[ "\$_sl" != "\$_myslug" \]; then continue; fi/elif false; then continue; fi/'
