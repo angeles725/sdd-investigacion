@@ -347,9 +347,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- prove-teeth: corroborate-native-r2 mutation controls --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    && typeset -f mutant_cleanup_register >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth/mutant_cleanup_register" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth mutant_cleanup_register || exit 2
   # python mutant: no bash -n (scoped per call below, never exported: #1814)
 
   # teeth-SAFE_R2: mutate SAFE_R2 by appending '-w' via .append() →

@@ -111,8 +111,7 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # (MK_SYNTAX default); SUT mutants of render-profile.sh keep the bash syntax check (MK_SYNTAX=bash).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 
 PROVE_TEETH=0
 [ "${1:-}" = "--prove-teeth" ] && PROVE_TEETH=1

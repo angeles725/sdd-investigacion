@@ -23,8 +23,7 @@ SUT="$HERE/../verify-sources.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_sed >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_sed ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_sed || exit 2
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
