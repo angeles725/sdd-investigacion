@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../corroborate-pcap.sh"; MANIFEST="$HERE/../analysis_manifest.py"
+TOOLBELT="$(dirname "$HERE")"; PYSUT="$TOOLBELT/corroborate_pcap.py"
+# --prove-teeth child run: `--teeth-child <staged corroborate_pcap.py>` points the suite at a staged mutant
+# tree. An argument, not an environment variable, so a caller's ambient env can never swap the SUT of a plain run.
+if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then
+  SUT="$(dirname "$2")/corroborate-pcap.sh"; PYSUT="$2"
+fi
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 if ! command -v tshark >/dev/null 2>&1 || ! command -v capinfos >/dev/null 2>&1; then
   echo "SKIP: tshark/capinfos not in PATH — suite skipped (tool-missing)"
@@ -78,7 +84,7 @@ else no "symlink input rejection"; fi
 
 # T7: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
 # RED: fails before refuse_privileged_execution() is added to corroborate_pcap (no guard, message absent).
-if python3 - "$HERE/../corroborate_pcap.py" <<'PY'
+if python3 - "$PYSUT" <<'PY'
 import importlib.util, io, sys
 from contextlib import redirect_stderr
 spec = importlib.util.spec_from_file_location("corroborate_pcap", sys.argv[1])
@@ -93,5 +99,52 @@ assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg
 PY
 then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
 else no "root refusal"; fi
+
+
+# ---------------------------------------------------------------------------
+# --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
+# corroborate_pcap.py (wrapper, manifest CLI and lib/ staged beside it); the whole suite is re-run
+# with `--teeth-child <staged py>` and the named case must FAIL for its own reason: the bite
+# pattern is the case's FAIL label (or its assertion text), and any crash-class output
+# (ImportError, SyntaxError, NameError, AttributeError, ...) disqualifies the mutant.
+# ---------------------------------------------------------------------------
+if [[ "${1:-}" == "--prove-teeth" ]]; then
+  echo "-- teeth: mutation controls (determinism, bwrap markers, symlink input, root refusal) --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
+  _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
+  _builds_failed=0; _LIBEXPR=""
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+  # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates corroborate_pcap.py; a non-empty _LIBEXPR also
+  # mutates a private copy of lib/adapter_core.py with that expression.
+  _tooth() {
+    local label="$1" want="$2" d; shift 2
+    d="$_MUT/${label%%:*}"; mkdir -p "$d"
+    cp "$TOOLBELT/corroborate-pcap.sh" "$TOOLBELT/analysis_manifest.py" "$d/"
+    if [ -n "$_LIBEXPR" ]; then
+      mkdir -p "$d/lib"; cp "$TOOLBELT"/lib/*.py "$d/lib/"
+      MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label (adapter_core)" "$TOOLBELT/lib/adapter_core.py" "$d/lib/adapter_core.py" "$_LIBEXPR" || return 1
+    else
+      ln -s "$TOOLBELT/lib" "$d/lib"
+    fi
+    MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/corroborate_pcap.py" "$d/corroborate_pcap.py" "$@" || return 1
+    mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/corroborate_pcap.py" --orig "$TOOLBELT/corroborate_pcap.py" \
+      --bad-has "$want" --bad-lacks "$_CRASH" -- \
+      bash "$HERE/corroborate-pcap.test.sh" --teeth-child @SUT@
+  }
+  _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  _t "cp-nondeterministic: evidence gains a random nonce" "FAIL  determinism" \
+    's/"capinfos": {"argv": capinfos_cmd,/"capinfos": {"nonce": os.urandom(8).hex(), "argv": capinfos_cmd,/'
+  _t "cp-net-open: --unshare-net dropped from the sandbox argv" "FAIL  isolation markers in argv" \
+    's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
+  _LIBEXPR='s/ | getattr(os, "O_NOFOLLOW", 0)//'
+  _t "cp-follow-symlink: O_NOFOLLOW removed from every open on the input path" "FAIL  symlink input rejection" \
+    's/ | getattr(os, "O_NOFOLLOW", 0)//'
+  _LIBEXPR=""
+  _t "cp-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
+    's/^        refuse_privileged_execution()$/        pass/'
+  rm -rf "$_MUT"
+fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]

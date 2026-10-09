@@ -2,6 +2,12 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../pcap-flows.sh"; MANIFEST="$HERE/../analysis_manifest.py"
+TOOLBELT="$(dirname "$HERE")"; PYSUT="$TOOLBELT/pcap_flows.py"
+# --prove-teeth child run: `--teeth-child <staged pcap_flows.py>` points the suite at a staged mutant
+# tree. An argument, not an environment variable, so a caller's ambient env can never swap the SUT of a plain run.
+if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then
+  SUT="$(dirname "$2")/pcap-flows.sh"; PYSUT="$2"
+fi
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 if ! command -v tshark >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
   echo "SKIP: tshark or bwrap not in PATH — suite skipped (tool-missing)"
@@ -74,7 +80,7 @@ else no "non-pcap rejection"; fi
 # ── Unit: directional count swap + payload_complete (T7-T10) ─────────────────
 # RED: T7 fails before the endpoint-swap fix; T9/T10 fail before payload_complete fix.
 # T8 is a triangulation control that verifies the no-swap path is already correct.
-if python3 - "$HERE/../pcap_flows.py" <<'PY'
+if python3 - "$PYSUT" <<'PY'
 import sys, importlib.util
 spec = importlib.util.spec_from_file_location("pcap_flows", sys.argv[1])
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
@@ -130,7 +136,7 @@ else no "--max-streams cap + streams_truncated evidence (CRITICAL DoS fix)"; fi
 
 # T12: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
 # RED: fails before refuse_privileged_execution() is added to pcap_flows (no guard, message absent).
-if python3 - "$HERE/../pcap_flows.py" <<'PY'
+if python3 - "$PYSUT" <<'PY'
 import importlib.util, io, sys
 from contextlib import redirect_stderr
 spec = importlib.util.spec_from_file_location("pcap_flows", sys.argv[1])
@@ -145,5 +151,45 @@ assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg
 PY
 then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
 else no "root refusal"; fi
+
+
+# ---------------------------------------------------------------------------
+# --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
+# pcap_flows.py (wrapper, manifest CLI and lib/ staged beside it); the whole suite is re-run with
+# `--teeth-child <staged py>` and the named case must FAIL for its own reason: the bite pattern is
+# the case's FAIL label or the exact assertion text of the targeted check, and any crash-class
+# output (ImportError, SyntaxError, NameError, AttributeError, ...) disqualifies the mutant.
+# ---------------------------------------------------------------------------
+if [[ "${1:-}" == "--prove-teeth" ]]; then
+  echo "-- teeth: mutation controls (bwrap markers, digest format, direction swap, --max-streams, root refusal) --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
+  _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
+  _builds_failed=0
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+  # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates a staged copy of pcap_flows.py.
+  _tooth() {
+    local label="$1" want="$2" d; shift 2
+    d="$_MUT/${label%%:*}"; mkdir -p "$d"
+    cp "$TOOLBELT/pcap-flows.sh" "$TOOLBELT/analysis_manifest.py" "$d/"; ln -s "$TOOLBELT/lib" "$d/lib"
+    MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/pcap_flows.py" "$d/pcap_flows.py" "$@" || return 1
+    mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/pcap_flows.py" --orig "$TOOLBELT/pcap_flows.py" \
+      --bad-has "$want" --bad-lacks "$_CRASH" -- \
+      bash "$HERE/pcap-flows.test.sh" --teeth-child @SUT@
+  }
+  _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  _t "pf-net-open: --unshare-net dropped from the sandbox argv" "FAIL  isolation markers in argv" \
+    's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
+  _t "pf-digest-truncated: payload digest no longer a full sha256" "FAIL  payload digest format" \
+    's/"payload_sha256": "sha256:" + h.hexdigest(),/"payload_sha256": "sha256:" + h.hexdigest()[:32],/'
+  _t "pf-no-swap: directional counts not swapped with the endpoints" "frames_a2b=3 want 5" \
+    's/^            nums\[:4\] = nums\[2:4\] + nums\[0:2\].*/            pass/'
+  _t "pf-no-cap: --max-streams slice removed" "streams_analyzed=3" \
+    's/^            stream_ids = stream_ids\[:args.max_streams\]$/            pass/'
+  _t "pf-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
+    's/^        refuse_privileged_execution()$/        pass/'
+  rm -rf "$_MUT"
+fi
 
 echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
