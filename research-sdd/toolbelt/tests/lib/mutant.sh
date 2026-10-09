@@ -44,7 +44,7 @@
 #                                        forget, or double, the `else fail=$((fail+1))` branch.
 #   mutant_bootstrap FN...               the suite bootstrap probe, after `. lib/mutant.sh`: every named
 #                                        function must be defined, else `FATAL: lib/mutant.sh did not
-#                                        define FN` on stderr and rc 2 (callers `|| exit 2`). No names
+#                                        define FN` (with the sourced library's path) on stderr and rc 2 (callers `|| exit 2`). No names
 #                                        is REFUSED (rc 2): a probe that checks nothing proves nothing.
 #   mutant_crash_re [CLASS...]           print the crash-signature regex (grep -E) a tooth puts in a
 #                                        --bad-lacks / negative match, built from NAMED classes joined
@@ -355,7 +355,7 @@ mutant_bootstrap() {
     printf 'mutant_bootstrap: REFUSED — no helper names to check\n' >&2; return 2
   fi
   for _mb_fn in "$@"; do
-    declare -F "$_mb_fn" >/dev/null 2>&1 || { printf 'FATAL: lib/mutant.sh did not define %s\n' "$_mb_fn" >&2; return 2; }
+    declare -F "$_mb_fn" >/dev/null 2>&1 || { printf 'FATAL: lib/mutant.sh (%s) did not define %s\n' "${BASH_SOURCE[0]}" "$_mb_fn" >&2; return 2; }
   done
 }
 
@@ -365,7 +365,7 @@ _mutant_crash_class() {
     bash) printf '%s' 'integer expression expected|syntax error|unbound variable' ;;
     tb)   printf '%s' 'Traceback' ;;
     imp)  printf '%s' 'ImportError|ModuleNotFoundError' ;;
-    py)   printf '%s' 'Traceback|ImportError|ModuleNotFoundError' ;;
+    py)   printf '%s|%s' "$(_mutant_crash_class tb)" "$(_mutant_crash_class imp)" ;;
     cmd)  printf '%s' 'command not found' ;;
     awk)  printf '%s' 'awk: ' ;;
     *)    return 1 ;;
@@ -518,7 +518,7 @@ PY
 
 mutant_vm_core_teeth() {
   local ex="$1" here="$2" self="$3" sut_exec="$4" mut="$5"
-  local crash='Traceback|ImportError|ModuleNotFoundError|SyntaxError'
+  local crash; crash="$(mutant_crash_re py)|SyntaxError"
   local core="$here/../lib/vm_boot_core.py" s o rc k
   MVC_PASS=0; MVC_FAIL=0
   # stage NAME: copy lib/*.py and the top-level modules into $mut/NAME/

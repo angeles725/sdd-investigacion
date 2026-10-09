@@ -625,13 +625,20 @@ if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py
 else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 
 # T19 -- shared suite bootstrap and crash classifier (#1576): mutant_bootstrap replaces the copied
-# `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace the ~20 copied
-# CRASH regex literals. Each class is a named, explicit piece so variants that differ in meaning stay
-# different (a suite names the classes it wants; nothing is merged silently).
+# `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace the copied CRASH
+# regex literals where the classes compose byte-identically. MIGRATED: the verify-registry teeth block
+# (mutant_crash_re bash py), the mutant_vm_core_teeth crash regex (py + SyntaxError), and the
+# mutant.sh-sourcing bootstraps of verify-retro, adapter-core, adapter-helpers, analysis-manifest,
+# vm-disk-policy, discriminator-parity, gh-visibility, templates, mutant-syntax-export-lint,
+# detonate-exec and trace-exec. DEFERRED: decompile-net/decompile-native CRASH_RE (ImportError without
+# ModuleNotFoundError) and research-sdd-status-followups CRASH (no `integer expression expected`)
+# differ in meaning, so no class combination is byte-identical; decompile-native's probe checks
+# suite-local functions, not mutant.sh ones. Each class is a named, explicit piece so variants that
+# differ in meaning stay different (a suite names the classes it wants; nothing is merged silently).
 mutant_bootstrap mutant_chain mutant_tooth >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ]; then ok "bootstrap: every named helper defined -> rc 0"; else no "bootstrap: defined helpers (rc=$rc)"; fi
 mb_err="$(mutant_bootstrap mutant_chain mutant_no_such_helper_zz mutant_tooth 2>&1 >/dev/null)"; rc=$?
-if [ "$rc" -eq 2 ] && [ "$mb_err" = "FATAL: lib/mutant.sh did not define mutant_no_such_helper_zz" ]; then ok "bootstrap: a missing helper is rc 2 and named in the FATAL line"
+if [ "$rc" -eq 2 ] && [[ "$mb_err" == "FATAL: lib/mutant.sh ("*"mutant.sh) did not define mutant_no_such_helper_zz" ]]; then ok "bootstrap: a missing helper is rc 2 and named in the FATAL line, with the library path"
 else no "bootstrap: missing helper (rc=$rc err=[$mb_err])"; fi
 mb_err="$(mutant_bootstrap 2>&1 >/dev/null)"; rc=$?
 if [ "$rc" -eq 2 ] && [[ "$mb_err" == *REFUSED* ]]; then ok "bootstrap: no helper names is refused (a probe that checks nothing proves nothing)"
@@ -654,6 +661,15 @@ cr_got="$(mutant_crash_re imp)"
 if [ "$cr_got" = "ImportError|ModuleNotFoundError" ]; then ok "crash_re: class imp"; else no "crash_re: class imp (got=[$cr_got])"; fi
 cr_got="$(mutant_crash_re py)"
 if [ "$cr_got" = "Traceback|ImportError|ModuleNotFoundError" ]; then ok "crash_re: class py"; else no "crash_re: class py (got=[$cr_got])"; fi
+mutant_is_crash 'Traceback (most recent call last):' tb; rc=$?
+if [ "$rc" -eq 0 ]; then ok "crashtb: class tb matches Traceback"; else no "crashtb: Traceback (rc=$rc)"; fi
+mutant_is_crash 'ImportError: x' tb; rc=$?
+if [ "$rc" -eq 1 ]; then ok "crashtb: class tb does NOT match ImportError (no widening)"; else no "crashtb: ImportError (rc=$rc)"; fi
+mutant_is_crash 'ImportError: x' py; rc=$?; mutant_is_crash 'ModuleNotFoundError: x' py; rc2=$?; mutant_is_crash 'Traceback' py; rc3=$?
+if [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ] && [ "$rc3" -eq 0 ]; then ok "crashpy: class py matches Traceback, ImportError and ModuleNotFoundError"; else no "crashpy: members (rc=$rc/$rc2/$rc3)"; fi
+if [ "$(mutant_crash_re py)" = "$(mutant_crash_re tb imp)" ]; then ok "crashpy: py is exactly tb then imp (one source of truth)"; else no "crashpy: py != tb|imp"; fi
+mutant_is_crash 'all fine' py; rc=$?
+if [ "$rc" -eq 1 ]; then ok "crashpy: clean output is not a crash"; else no "crashpy: clean (rc=$rc)"; fi
 cr_got="$(mutant_crash_re cmd)"
 if [ "$cr_got" = "command not found" ]; then ok "crash_re: class cmd"; else no "crash_re: class cmd (got=[$cr_got])"; fi
 cr_got="$(mutant_crash_re awk)"

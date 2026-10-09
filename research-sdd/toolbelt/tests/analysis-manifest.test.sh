@@ -304,8 +304,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_py_replace >/dev/null && declare -F mutant_cleanup_register >/dev/null \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_py_replace/mutant_cleanup_register" >&2; exit 2; }
+  mutant_bootstrap mutant_py_replace mutant_cleanup_register || exit 2
   _amt="$(mktemp -d)"; mutant_cleanup_register "$_amt"   # one shared EXIT trap, no hand-written copy
   # _am_mutant LABEL OLD NEW OUT -- replace the first OLD in the SUT with NEW through the shared
   # lib/mutant.sh builder. rc 2 = anchor absent (SUT changed), rc 3 = refused by the helper or not

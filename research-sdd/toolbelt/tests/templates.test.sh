@@ -73,7 +73,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ -f "$MUTLIB" ] || { echo "FATAL: mutant lib not found: $MUTLIB" >&2; exit 2; }
   # shellcheck source=lib/mutant.sh
   . "$MUTLIB" || { echo "FATAL: sourcing $MUTLIB failed" >&2; exit 2; }
-  declare -F mutant_sed >/dev/null || { echo "FATAL: $MUTLIB did not define mutant_sed" >&2; exit 2; }
+  mutant_bootstrap mutant_sed || exit 2
   tooth() { # tooth NAME FILE PREDICATE SED_EXPR — the mutated FILE must fail PREDICATE (check|header_ok|readme_ok)
     local name="$1" file="$2" pred="$3" expr="$4" m="$TMP/$1.md"
     if MUTANT_SYNTAX=none mutant_sed "$file" "$m" "$expr" >/dev/null 2>&1; then
