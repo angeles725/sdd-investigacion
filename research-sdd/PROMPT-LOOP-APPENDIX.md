@@ -672,7 +672,7 @@ rule here verbatim from PROMPT-LOOP.md HARD RULES; SECRETS DISCIPLINE (live-inst
 
 ## step3-special-cases
 
-Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md step 3 leaves a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim, in two groups kept in their original order (the first from after PRIOR COVERAGE CHECK, the second from after the deliberately-kept step 3 rules that precede the API-FILTER rule). Read the rule whose trigger fired, in full.
+Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md step 3 leaves a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim, in two groups kept in their original order (the first from after PRIOR COVERAGE CHECK, the second from after the deliberately-kept step 3 rules that precede the API-FILTER rule). Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md, not to this file; "(step 5)" means PROMPT-LOOP.md step 5, and API-FILTER SILENT-DECLINE EXTENSION extends PRE-TEST POPULATION ANATOMY, which stays in core.
 
          REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
          but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
@@ -716,7 +716,7 @@ Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md 
 
 ## hard-rules-loop-mechanics
 
-Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order. ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full.
+Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order. ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
 
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
@@ -747,7 +747,7 @@ Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a 
     passing the harness session_id causes session_project_mismatch because it belongs to the
     orchestrator project. One insight = one `mem_save` call under a unique key. §18 consolidates
     these entries at the TERMINAL TRIGGER (METHODOLOGY §18 journal mode). NOTE: this is a DISTINCT
-    concern from MEMORY IS A MIRROR above — research findings destined for corpus blocks follow that
+    concern from MEMORY IS A MIRROR above (PROMPT-LOOP.md HARD RULES) — research findings destined for corpus blocks follow that
     rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
   - PKILL -F WRAPPER-SHELL MATCH. `pkill -f <pattern>` matches any process whose full command line
     contains <pattern> — including the enclosing `zsh -c`/`sh -c`/`bash -c` wrapper the harness

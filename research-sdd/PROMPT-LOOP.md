@@ -513,7 +513,7 @@ Always read first, in this order:
          said B65-G3; block B65 defines B65-G1"). Then, before investigating, grep the gap ID across
          LATER blocks and RESEARCH-STATE: stale backlog rows point at gaps a later block already closed.
          On a hit, return `ALREADY-COVERED — <block> §<n.x>` and stop; the driver closes the row without
-         authoring a block (same closure path as REMITTANCE below).
+         authoring a block (same closure path as REMITTANCE-RISK FLAG, `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases`).
          REMITTANCE-RISK FLAG / REMITTANCE-TO-EVIDENCE UPGRADE — SITUATIONAL: the PRIOR COVERAGE CHECK finds partial coverage (cannot tell whether new substance exists) or a gap answered only at [CERT-web]/[CERT-a]/[INFER]: read `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases` in full.
          OPERATOR-CLASSIFICATION-FIRST — SITUATIONAL: you are about to build an extractor or classification filter for an operator's data package: same section.
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
@@ -1522,12 +1522,12 @@ HARD RULES:
     (≤300s), so back-to-back iterations are cheaper AND faster. Only stretch the delay when you are
     genuinely BLOCKED waiting on something external (an install building, a live server coming up) —
     never just to space out ready decompilation work.
-  - BASH-TOOL PATH NOT PERSISTENT — SITUATIONAL: a native tool (decompiler, scan utility, custom script) lives off the default PATH: same section.
+  - BASH-TOOL PATH NOT PERSISTENT — SITUATIONAL: a native tool (decompiler, scan utility, custom script) lives off the default PATH, you set PATH/env in one Bash call for use in a later one, or a tool is "command not found": read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - WAKEUP GUARD (self-paced mode): before issuing a ScheduleWakeup, check whether one is already
     armed for this loop — do not double-schedule. One armed wakeup per iteration is the invariant.
     (Distinct from the "ScheduleWakeup for autonomous mode only" rule above — that governs WHEN to
     use it; this governs how many.)
-  - INSTANT CAPTURE — SITUATIONAL: a kit defect, capability idea, algorithm, formula or process insight surfaces mid-loop (save it with `mem_save` BEFORE the loop continues): same section.
+  - INSTANT CAPTURE — SITUATIONAL: a kit defect, capability idea, algorithm, formula or process insight surfaces mid-loop (save it with `mem_save` BEFORE the loop continues): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
@@ -1538,7 +1538,7 @@ HARD RULES:
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
-  - PKILL -F WRAPPER-SHELL MATCH — SITUATIONAL: you are about to kill, pgrep or stop a process, or report a job stopped (incl. VERIFY KILL BEFORE REPORTING, OPERATOR-SESSION SAFETY): same section.
+  - PKILL -F WRAPPER-SHELL MATCH — SITUATIONAL: you are about to kill, pgrep or stop a process, or report a job stopped (incl. VERIFY KILL BEFORE REPORTING, OPERATOR-SESSION SAFETY): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed
