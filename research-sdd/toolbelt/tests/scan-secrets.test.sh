@@ -28,7 +28,7 @@ runout(){ bash "$SUT" "$1" 2>&1; }
 # control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
 MUT="$(mktemp -d)"
 # The builders and the exact-verdict runner are shared: lib/mutant.sh mutant_chain / mutant_built /
 # mutant_tooth (#1299). They print their own FAIL/PASS line and return non-zero on failure; these
@@ -36,8 +36,8 @@ MUT="$(mktemp -d)"
 # Patterns in this suite match case-insensitively (its tooth() always did).
 # shellcheck disable=SC2034  # read by the sourced mutant_tooth
 MUTANT_TOOTH_ICASE=1
-mk_sed(){ local l="$1" o="$2"; shift 2; mutant_chain "$l" "${MK_ORIG:-$SUT}" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
-mk_verify(){ mutant_built "$1" "${MK_ORIG:-$SUT}" "$2" || { fail=$((fail+1)); return 1; }; }
+mk_sed(){ local l="$1" o="$2"; shift 2; mutant_chain_or_count fail "$l" "${MK_ORIG:-$SUT}" "$o" "$@" || return 1; }
+mk_verify(){ mutant_built_or_count fail "$1" "${MK_ORIG:-$SUT}" "$2" || return 1; }
 tooth(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
 echo "== scan-secrets.test.sh =="

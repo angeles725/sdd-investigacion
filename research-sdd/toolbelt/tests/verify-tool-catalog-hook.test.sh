@@ -104,8 +104,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
-  mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
   echo "-- teeth: hook must go red when silence is broken --"
 
   # Each tooth resets the hook copy (rm here, write_stub restores the pristine SUT) and is skipped when its
