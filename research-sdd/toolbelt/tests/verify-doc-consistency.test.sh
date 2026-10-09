@@ -764,7 +764,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # builds a fully SYNTHETIC scratch kit (mktemp -d) that never touches the real toolbelt/.
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   mutant_tsym="$(mktemp)"
-  sed -e 's/cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P/cd "$(dirname "$0")\/.." \&\& pwd/' \
+  sed -e 's/\(_RSDD_SELF="\$(CDPATH=[^ ]* cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' \
+      -e 's/cd -P -- "\$_RSDD_SELF\/\.\." && pwd -P/cd -- "$_RSDD_SELF\/.." \&\& pwd/' \
       -e 's/cd -P "\$KIT\/\.\." \&\& pwd -P/cd "$KIT\/.." \&\& pwd/' \
       "$SUT" > "$mutant_tsym"
   if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then

@@ -385,6 +385,20 @@ defect (archive-blocking) · `2` = bad args. All are covered by `tests/*.test.sh
 
 Session-start sweep aggregator: `sweep-all.sh` runs `sweep-retros.sh`, `sweep-audits.sh`, `verify-registry.sh`, and `verify-kit-clean.sh` in sequence. Each script always runs independently — a failure or timeout in one does not abort the others. Exit: 0 if all four passed, non-zero if any failed or timed out. Intended for Pi, gentle-shell and manual-run contexts (U-A20); redundant but harmless when Claude already executes the sweeps via its session-start hook. (OpenCode support was dropped on 2026-09-23 #954; Codex and Reasonix on 2026-10-03 #1471.) Per-script timeout: `RSDD_SWEEP_TIMEOUT` (default 30 s).
 
+## Script self-directory (BASH_SOURCE idiom)
+
+A toolbelt/install script that needs its own directory (to source `lib/*.sh` or run a sibling) resolves it from `${BASH_SOURCE[0]}`, never from `$0`. Under `bash name.sh` found through PATH or the cwd, `$0` has no slash, so `dirname "$0"` is `.` and `lib/` is read from the CALLER'S cwd (a planted `lib/` in an untrusted target runs); through a symlink in another directory `lib/` is not found at all (kit issue #1675). The one shared idiom, pasted at the top of each script (before the first use) and named `_RSDD_SELF`:
+
+```bash
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+```
+
+It is portable (no GNU `readlink -f`), follows absolute and relative symlink chains (bounded at 40 hops), and `pwd -P` yields the physical directory. `CDPATH='' cd` keeps an exported `CDPATH` from redirecting a relative invocation into a decoy directory. When the loop cannot finish (hop limit, or `readlink` missing/failing) it prints one typed stderr line, `<script>: degraded: self-dir symlink resolution incomplete (...)`, and falls back to the link's own directory (behaviour otherwise unchanged). `install/install.sh` carries the same block. `tests/self-dir-idiom.test.sh` pins the block byte-for-byte across every script and exercises relative multi-link chains, CDPATH, the degraded line and `--help` through a renamed symlink. Use `"$_RSDD_SELF/lib/x.sh"` for libs and `"$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"` for the kit root. `$0` stays fine for usage/display (`"${0##*/}"`, `usage: $0`). A lint that fails on any new `$0`-derived directory follows in kit issue #1675 part 2.
+
 ## Operator toolbelt (corpus lifecycle & kit maintenance)
 
 Scripts the supervisor/operator runs directly. None of these are invoked by the research loop itself

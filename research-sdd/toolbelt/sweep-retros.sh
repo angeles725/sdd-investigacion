@@ -35,12 +35,17 @@ if [ "$SR_JSON" = 1 ]; then
 fi
 
 # -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
-KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
 # stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
-LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+LIB="$_RSDD_SELF/lib/retro-status.sh"
 if [ ! -f "$LIB" ]; then
   echo "sweep-retros: cannot find helper $LIB" >&2
   exit 1
@@ -57,7 +62,7 @@ declare -F retro_marker_out_of_scope >/dev/null 2>&1 || { echo "sweep-retros: he
 declare -F retro_is_waived >/dev/null 2>&1 || { echo "sweep-retros: helper $LIB failed to define retro_is_waived" >&2; exit 1; }
 
 # Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
-_sr_tp_lib="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+_sr_tp_lib="$_RSDD_SELF/lib/target-paths.sh"
 if [ ! -f "$_sr_tp_lib" ]; then
   echo "sweep-retros: cannot find helper $_sr_tp_lib" >&2; exit 1
 fi
@@ -67,7 +72,7 @@ fi
 declare -F target_paths_all >/dev/null 2>&1 || { echo "sweep-retros: helper $_sr_tp_lib failed to define target_paths_all" >&2; exit 1; }
 unset _sr_tp_lib
 
-_sr_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+_sr_bf_lib="$_RSDD_SELF/lib/block-files.sh"
 if [ ! -f "$_sr_bf_lib" ]; then echo "sweep-retros: cannot find helper $_sr_bf_lib" >&2; exit 1; fi
 # shellcheck source=lib/block-files.sh
 . "$_sr_bf_lib"
@@ -76,7 +81,7 @@ unset _sr_bf_lib
 
 # Shared delta-heading grammar — canonical/deprecated heading recognition, row counting,
 # and unrecognised-heading detection (Rules 1–4). Single source of truth with verify-retro.sh.
-_sr_rg_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-grammar.sh"
+_sr_rg_lib="$_RSDD_SELF/lib/retro-grammar.sh"
 if [ ! -f "$_sr_rg_lib" ]; then echo "sweep-retros: cannot find helper $_sr_rg_lib" >&2; exit 1; fi
 # shellcheck source=lib/retro-grammar.sh
 . "$_sr_rg_lib"
@@ -90,7 +95,7 @@ unset _sr_rg_lib
 # work runs (kit issue #1108 round 2: sourcing it just before the WIRING-STATUS pass let ~70
 # lines of report print before a missing-lib exit 1, and the source's own `$(cd … && pwd)`
 # subshell sat inside the RSDD_PROFILE-measured window).
-_sr_hw_lib="$(cd "$(dirname "$0")" && pwd)/lib/hook-wiring.sh"
+_sr_hw_lib="$_RSDD_SELF/lib/hook-wiring.sh"
 if [ ! -f "$_sr_hw_lib" ]; then echo "sweep-retros: cannot find helper $_sr_hw_lib" >&2; exit 1; fi
 # shellcheck source=lib/hook-wiring.sh
 . "$_sr_hw_lib"

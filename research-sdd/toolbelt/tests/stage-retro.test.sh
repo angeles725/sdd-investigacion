@@ -1008,15 +1008,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (the profile dir) instead of the real kit repo, so the script can no longer find a git repo
   # there at all and must fail — proving `-P` is what makes case 12 work.
   echo "-- teeth: drop -P from both cd resolutions, expect symlinked invocation to fail --"
-  anchor_p1='KIT_REPO="$(cd -P "$(dirname "$0")/../.." && pwd)"'
-  anchor_p2='LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/retro-status.sh"'
+  anchor_p1='KIT_REPO="$(cd -P -- "$_RSDD_SELF/../.." && pwd -P)"'
+  anchor_p2="_RSDD_SELF=\"\$(CDPATH='' cd -- \"\$(dirname -- \"\$_rsdd_s\")\" && pwd -P)\""
   if [[ "$content" != *"$anchor_p1"* ]] || [[ "$content" != *"$anchor_p2"* ]]; then
     no "teeth: locate -P resolutions in SUT" "anchor not found — SUT drifted?"
   else
     repo="$(mkrepo teeth-symlink real)"
     mkretro "$repo" "targetA" "r1.md" "<!-- review-status: pending -->"
-    neutered_p1='KIT_REPO="$(cd "$(dirname "$0")/../.." && pwd)"'
-    neutered_p2='LIB="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"'
+    neutered_p1='KIT_REPO="$(cd -- "$_RSDD_SELF/../.." && pwd)"'
+    neutered_p2="_RSDD_SELF=\"\$(CDPATH='' cd -- \"\$(dirname -- \"\$_rsdd_s\")\" && pwd)\""
     mutated="${content/"$anchor_p1"/"$neutered_p1"}"
     mutated="${mutated/"$anchor_p2"/"$neutered_p2"}"
     printf '%s\n' "$mutated" > "$repo/research-sdd/toolbelt/stage-retro.sh"

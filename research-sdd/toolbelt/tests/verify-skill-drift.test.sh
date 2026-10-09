@@ -1139,7 +1139,7 @@ if [ "$prove_teeth" -eq 1 ]; then
     MUT_RPS="$ROOT/symmut/render-profile-mut-sym.sh"
     _sym_ok=1
     if mk "teeth SYMLINK-TOOLBELT verify-skill-drift.sh" "$SUT" "$MUT_SYM" \
-         's/SELF_DIR="\$(cd -P "\$(dirname "\$0")" \&\& pwd -P)"/SELF_DIR="$(cd "$(dirname "$0")" \&\& pwd)"/' \
+         's/\(_RSDD_SELF="\$(CDPATH=[^ ]* cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' \
          's/KIT_INSTALL="\$(cd -P "\$SELF_DIR\/\.\.\/install" 2>\/dev\/null \&\& pwd -P)"/KIT_INSTALL="$(cd "$SELF_DIR\/..\/install" 2>\/dev\/null \&\& pwd)"/' \
          's/KIT="\$(cd -P "\$KIT_INSTALL\/\.\." \&\& pwd -P)"/KIT="$(cd "$KIT_INSTALL\/.." \&\& pwd)"/'; then
       ok "teeth SYMLINK-TOOLBELT pre-check: verify-skill-drift.sh mutant built (-P reverted on all 3 hops)"

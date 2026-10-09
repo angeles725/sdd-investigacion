@@ -94,14 +94,19 @@ _vr_json_emit() {
 # #1024). Reproduced here specifically: without -P, KIT landed one level short of the real kit
 # root through a render dir's symlinked toolbelt/, so TARGETS_MD pointed at a path that does not
 # exist and this tool falsely WARNed "kit repo is NOT in its own TARGETS.md".
-KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Source the shared retro helper for retro_is_excluded so the §18 reachability check can
 # filter excluded retros (WARN-only tool: a missing lib falls back to a no-op that never
 # excludes, which may suppress the INFO for targets with only excluded retros — documented
 # conservative fallback; verify-registry never aborts on a missing helper).
-_vr_lib="$(cd "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+_vr_lib="$_RSDD_SELF/lib/retro-status.sh"
 # shellcheck source=lib/retro-status.sh
 [ -f "$_vr_lib" ] && . "$_vr_lib"
 declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; }  # no-op fallback
@@ -111,7 +116,7 @@ unset _vr_lib
 # Dual contract: a missing helper file (file-existence guard below) and a broken sourced lib
 # (missing-function guards) are OPERATIONAL failures that exit 1, matching the sibling scripts
 # (issue #140). Advisory findings (drift, schema) remain WARN-only and always exit 0.
-_vr_tp_lib="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+_vr_tp_lib="$_RSDD_SELF/lib/target-paths.sh"
 if [ ! -f "$_vr_tp_lib" ]; then
   echo "verify-registry: cannot find helper $_vr_tp_lib" >&2; exit 1  # VR-TP-FILE-CHECK
 fi
@@ -122,7 +127,7 @@ declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $
 declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 1; }  # VR-TP-PAIRS-CHECK
 unset _vr_tp_lib
 
-_vr_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+_vr_bf_lib="$_RSDD_SELF/lib/block-files.sh"
 if [ ! -f "$_vr_bf_lib" ]; then echo "verify-registry: cannot find helper $_vr_bf_lib" >&2; exit 1; fi
 # shellcheck source=lib/block-files.sh
 . "$_vr_bf_lib"
@@ -130,7 +135,7 @@ declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-registry: helper 
 unset _vr_bf_lib
 
 # Shared state-file resolver (kit issue #1818): single definition of "which RESEARCH-STATE does a consumer act on".
-_vr_sf_lib="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+_vr_sf_lib="$_RSDD_SELF/lib/state-files.sh"
 if [ ! -f "$_vr_sf_lib" ]; then echo "verify-registry: cannot find helper $_vr_sf_lib" >&2; exit 1; fi
 # shellcheck source=lib/state-files.sh
 . "$_vr_sf_lib"
@@ -139,7 +144,7 @@ unset _vr_sf_lib
 
 # Shared corpus-marker predicate (kit issue #1108): single source of truth with
 # research-sdd-init.sh's --wire anti-implicit-scaffold guard.
-_vr_cm_lib="$(cd "$(dirname "$0")" && pwd)/lib/corpus-markers.sh"
+_vr_cm_lib="$_RSDD_SELF/lib/corpus-markers.sh"
 if [ ! -f "$_vr_cm_lib" ]; then echo "verify-registry: cannot find helper $_vr_cm_lib" >&2; exit 1; fi
 # shellcheck source=lib/corpus-markers.sh
 . "$_vr_cm_lib"
@@ -148,7 +153,7 @@ unset _vr_cm_lib
 
 # Shared Stop-hook wiring predicate (kit issue #1108/#1109): single source of truth with
 # sweep-retros.sh's WIRING-STATUS fleet pass and research-sdd-status.sh's self-report line.
-_vr_hw_lib="$(cd "$(dirname "$0")" && pwd)/lib/hook-wiring.sh"
+_vr_hw_lib="$_RSDD_SELF/lib/hook-wiring.sh"
 if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_hw_lib" >&2; exit 1; fi
 # shellcheck source=lib/hook-wiring.sh
 . "$_vr_hw_lib"

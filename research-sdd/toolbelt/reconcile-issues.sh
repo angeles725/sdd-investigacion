@@ -142,7 +142,12 @@ _REPO="angeles725/sdd-investigacion"
 # reproduced: TARGETS_MD pointed at a nonexistent .../profile/research-sdd/TARGETS.md). -P forces
 # the kernel's physical path at each step, so both cd's walk the REAL directory tree regardless of
 # how many symlinks were traversed to invoke this script.
-_SCRIPT_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_SCRIPT_DIR="$_RSDD_SELF"
 KIT_ROOT="$(cd -P "$_SCRIPT_DIR/../.." && pwd -P)"
 TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
 

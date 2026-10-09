@@ -649,9 +649,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # ---- tooth (#1821-1b): resolve the script dir without following the symlink -> 25d must go red
-  echo "-- teeth-#1821-1b: no readlink -f (dirname of the symlink); 25d must go red --"
+  echo "-- teeth-#1821-1b: symlink loop disabled (dirname of the symlink); 25d must go red --"
   MUTANT_R="$ROOT/cov-map.MUT-R.sh"
-  if mutant_chain "teeth: MUT-R" "$SUT" "$MUTANT_R" 's#readlink -f -- "\$0"#echo "$0"#'; then
+  if mutant_chain "teeth: MUT-R" "$SUT" "$MUTANT_R" 's#^while \[ -L "\$_rsdd_s" \] \&\&#while false \&\&#'; then
     ln -sf "$MUTANT_R" "$ROOT/lnk/cm-link-mut.sh"
     mout_r="$(bash "$ROOT/lnk/cm-link-mut.sh" "$C25" --subject "$S25" 2>&1)"; mrc_r=$?
     if [ "$mrc_r" -eq 1 ] && ! <<<"$mout_r" grep -q 'modules:'; then
@@ -660,7 +660,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-#1821-1b: mutant still works through a symlink (THEATER)" "rc=$mrc_r out=$mout_r"
     fi
   else
-    no "teeth-#1821-1b: could not build mutant (readlink -f not found, or refused by lib/mutant.sh)"
+    no "teeth-#1821-1b: could not build mutant (symlink-loop line not found, or refused by lib/mutant.sh)"
   fi
 
 fi

@@ -40,7 +40,12 @@ set -uo pipefail
 # when this script was invoked through it, so _vsd_resolve_src's re-render tried to re-render the
 # render's OWN already-rendered (marker-free) sources and failed with "zero slot markers found in
 # sources" (exit 2, could-not-run under --all) for every non-claude profile, every time.
-SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+SELF_DIR="$_RSDD_SELF"
 KIT_INSTALL="$(cd -P "$SELF_DIR/../install" 2>/dev/null && pwd -P)" \
   || { printf 'verify-skill-drift: ERROR: install dir not found\n' >&2; exit 2; }
 ADAPTERS="$KIT_INSTALL/adapters.sh"

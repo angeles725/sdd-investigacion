@@ -178,11 +178,12 @@ awk -F'\t' '{cnt[$1]++; last[$1]=$2}
 
 # ---------- find block files in corpus using the kit discriminator (kit issue #1821: the shared
 # lib/block-files.sh, not a private copy of its regex). Fail closed if the helper is not defined.
-# Resolve the script directory THROUGH a symlinked invocation (readlink -f), so lib/ is found beside the
-# real script; fall back to dirname when readlink -f is unavailable.
-_cm_self="$(readlink -f -- "$0" 2>/dev/null)" || _cm_self=""
-[ -n "$_cm_self" ] || _cm_self="$0"
-_bflib="$(cd "$(dirname "$_cm_self")" && pwd)/lib/block-files.sh"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_bflib="$_RSDD_SELF/lib/block-files.sh"
 # shellcheck source=lib/block-files.sh
 . "$_bflib"   # source errors (missing/unreadable lib) stay visible on stderr
 if ! declare -F block_file_filter >/dev/null 2>&1; then

@@ -112,13 +112,18 @@ set -uo pipefail
 # persisted "Kit path:" names the symlink's REAL target, not the symlink path a user may be more
 # accustomed to seeing — this is intentional (a physical path is unambiguous and stable across
 # however the installer itself happened to be invoked), not a regression to work around.
-SELF="$(cd -P "$(dirname "$0")" && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+SELF="$_RSDD_SELF"
 KIT="$(cd -P "$SELF/.." && pwd -P)"
 # shellcheck source=adapters.sh
 . "$SELF/adapters.sh"
 
 usage() {
-  awk '/^# HELP-START$/{f=1;next} /^# HELP-END$/{f=0} f' "$SELF/$(basename "$0")" | sed 's/^# \{0,1\}//'
+  awk '/^# HELP-START$/{f=1;next} /^# HELP-END$/{f=0} f' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # --- prompt-surfacing strategies: dispatched by the STRATEGY VALUE, never by harness name ----------
