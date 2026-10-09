@@ -80,6 +80,28 @@ if [ "$rc" = 2 ] && [ -z "$out" ]; then ok "directory passed as the state file: 
 out="$(blocked_open_count "$FIX/no-sections.expect0.md" 2>/dev/null)"; rc=$?
 if [ "$rc" = 0 ] && [ "$out" = 0 ]; then ok "present state file with no blocked entries: rc 0, prints 0 (genuine zero)"; else no "genuine zero: rc=$rc out=[$out]"; fi
 
+echo "-- 3b. a broken awk/grep is a typed degraded state, never a confident 0 (CLAUDE.md §7) --"
+REAL_AWK="$(command -v awk)"
+mk_stub() { # DIR MODE: awk stub on PATH. all = always exits 2; child = exits 2 only for the child-gap program
+  mkdir -p "$1"
+  if [ "$2" = all ]; then printf '#!/bin/sh\necho "awk: stub failure" >&2\nexit 2\n' > "$1/awk"
+  else printf '#!/bin/sh\ncase "$*" in *is_closed*) echo "awk: syntax error" >&2; exit 2;; esac\nexec %s "$@"\n' "$REAL_AWK" > "$1/awk"; fi
+  chmod +x "$1/awk"
+}
+mk_stub "$TMP/stub-all" all; mk_stub "$TMP/stub-child" child
+for mode in all child; do
+  out="$(PATH="$TMP/stub-$mode:$PATH" blocked_open_count "$FIX/child-single-open.expect1.md" 2>"$TMP/err")"; rc=$?
+  if [ "$rc" = 3 ] && [ -z "$out" ] && grep -q '^blocked-rows: degraded ' "$TMP/err"; then ok "broken awk ($mode): rc 3, empty stdout, typed degraded stderr"
+  else no "broken awk ($mode): rc=$rc out=[$out] err=[$(cat "$TMP/err")]"; fi
+done
+{
+  s=verify-state
+  d="$TMP/deg-$s"; mkdir -p "$d"; cp "$FIX/child-single-open.expect1.md" "$d/RESEARCH-STATE.md"
+  out="$(PATH="$TMP/stub-child:$PATH" bash "$TOOLBELT/$s.sh" "$d" 2>&1)"; rc=$?
+  if [ "$rc" != 0 ] && grep -q 'blocked_open derivation degraded' <<<"$out"; then ok "$s with a broken awk: non-zero exit + typed degraded FAIL line"
+  else no "$s with a broken awk: rc=$rc :: $(grep -m1 -i 'blocked' <<<"$out")"; fi
+}
+
 echo "-- 4. a missing or function-less lib fails each consumer loudly --"
 mk_kit() { # DIR [lib-state: ok|missing|empty]
   local k="$1" st="${2:-ok}"; rm -rf "$k"; mkdir -p "$k"
@@ -111,23 +133,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
   MD="$TMP/mutants"; mkdir -p "$MD"
+  AWKBAD='awk: |syntax error|fatal:'   # a mutant that does not compile / dies at runtime is theater, not a bite
   COUNT_ARGV=(bash -c '. "$1"; blocked_open_count "$2"' _ @SUT@)
 
   # TOOTH-1 (#913): the bullet-line closed check is what stops a closed entry's own `needs:` counting.
   mk "TOOTH-1 mutant build" "$LIB" "$MD/t1.sh" 's/if (!cl \&\& tolower(\$0) ~ \/needs:\/)/if (tolower($0) ~ \/needs:\/)/' \
     && tt "TOOTH-1: closed entry with needs: on its bullet line counted when the closed check is dropped" 0 0 "$MD/t1.sh" --orig "$LIB" \
-         --good-has '^0$' --bad-has '^1$' -- "${COUNT_ARGV[@]}" "$FIX/child-closed-bullet-keeps-needs.expect0.md"
+         --good-has '^0$' --bad-has '^1$' --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$FIX/child-closed-bullet-keeps-needs.expect0.md"
 
   # TOOTH-2 (#913): the continuation-line closed check.
   mk "TOOTH-2 mutant build" "$LIB" "$MD/t2.sh" 's/if (ib \&\& !done \&\& !cl \&\&/if (ib \&\& !done \&\&/' \
     && tt "TOOTH-2: closed entry with needs: on a continuation line counted when the closed check is dropped" 0 0 "$MD/t2.sh" --orig "$LIB" \
-         --good-has '^0$' --bad-has '^1$' -- "${COUNT_ARGV[@]}" "$FIX/child-closed-single-keeps-needs.expect0.md"
+         --good-has '^0$' --bad-has '^1$' --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$FIX/child-closed-single-keeps-needs.expect0.md"
 
   # TOOTH-3: the closed flag is per ENTRY — each bullet re-derives it. A sticky flag lets a closed entry swallow
   # the open entry after it.
   mk "TOOTH-3 mutant build" "$LIB" "$MD/t3.sh" 's/cl=is_closed(\$0)/cl=(cl||is_closed($0))/' \
     && tt "TOOTH-3: a sticky closed flag hides the open entry that follows a closed one" 0 0 "$MD/t3.sh" --orig "$LIB" \
-         --good-has '^1$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$FIX/child-closed-first-then-open.expect1.md"
+         --good-has '^1$' --bad-has '^0$' --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$FIX/child-closed-first-then-open.expect1.md"
 
   # TOOTH-4a..4e: each closed-marker branch is load-bearing -- delete ONE branch and a fixture relying on it counts.
   # Marker lines in the lib carry a CLOSED-* sentinel; the bracket branch is the function's final return.
@@ -137,27 +160,62 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       mk "$1 mutant build" "$LIB" "$MD/$1.sh" "/# $2\$/d"
     fi && tt "$1: dropping the $2 branch makes a closed entry count" 0 0 "$MD/$1.sh" --orig "$LIB" \
-         --good-has '^0$' --bad-has '^[1-9]' -- "${COUNT_ARGV[@]}" "$3"
+         --good-has '^0$' --bad-has '^[1-9]' --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$3"
   }
   tb4 TOOTH-4a CLOSED-STRIKE  "$FIX/child-closed-markers-all.expect0.md"
   tb4 TOOTH-4b CLOSED-TICK    "$FIX/child-closed-markers-all.expect0.md"
   tb4 TOOTH-4c CLOSED-CERRADO "$FIX/child-closed-single-keeps-needs.expect0.md"
   tb4 TOOTH-4d CLOSED-WORD    "$FIX/child-closed-markers-all.expect0.md"
   tb4 TOOTH-4e BRACKET        "$FIX/child-closed-markers-all.expect0.md"
-  # TOOTH-4f: the whole-word/negation guard -- without it NOT CLOSED falsely closes an open entry.
-  mk "TOOTH-4f mutant build" "$LIB" "$MD/t4f.sh" 's/if (bef !~ .* return 1$/return 1/' \
-    && tt "TOOTH-4f: without the boundary/negation guard a false closure hides an open entry" 0 0 "$MD/t4f.sh" --orig "$LIB" \
-         --good-has '^1$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$FIX/child-open-not-closed.expect1.md"
+  # TOOTH-4f..4k: the word guard has independent parts; each gets its own mutant and its own fixture(s), and the
+  # boundary check is paired (closed-loop AND enclosed) so neither side of it is covered by a single case.
+  # (sed uses '#' delimiters; '&' is escaped.)
+  tg() { # LABEL SED-EXPR WHAT GOOD-RE BAD-RE FIXTURE
+    mk "$1 mutant build" "$LIB" "$MD/$1.sh" "$2" \
+      && tt "$1: $3" 0 0 "$MD/$1.sh" --orig "$LIB" --good-has "$4" --bad-has "$5" --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$6"
+  }
+  BND='s#if (bef !~ /\[A-Za-z0-9_-\]/ \&\& aft !~ /\[A-Za-z0-9_-\]/ \&\& #if (#'
+  tg TOOTH-4f1 "$BND" "without the boundary check CLOSED-LOOP falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-closed-loop.expect1.md"
+  tg TOOTH-4f2 "$BND" "without the boundary check ENCLOSED falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-enclosed.expect1.md"
+  tg TOOTH-4g 's# \&\& !negated(substr(s, 1, pos - 1))##' "without the negation check NOT CLOSED falsely closes an open entry" '^1$' '^0$' "$FIX/child-open-not-closed.expect1.md"
+  tg TOOTH-4h 's#while (k < 2)#while (k < 1)#' "a negation window of one word lets NOT YET CLOSED close" '^1$' '^0$' "$FIX/child-open-not-yet-closed.expect1.md"
+  tg TOOTH-4i 's#u == "NO" ||#u ~ /NO$/ ||#' "a suffix match on NO makes X-NO CLOSED negate (whole-word token lost)" '^0$' '^1$' "$FIX/child-closed-id-ending-no.expect0.md"
+  tg TOOTH-4j 's# || u == "NEVER"##' "without NEVER in the negation set NEVER CLOSED closes" '^1$' '^0$' "$FIX/child-open-never-closed.expect1.md"
+  tg TOOTH-4l 's#off = pos + rl - 1; t = substr(s, off + 1)#break#' "breaking out of the rescan loop on the first rejection loses ENCLOSED CLOSED" '^0$' '^1$' "$FIX/child-closed-after-rejected-match.expect0.md"
+  tg TOOTH-4k 's#bef = (pos > 1) ? substr(s, pos - 1, 1)#bef = (RSTART > 1) ? substr(t, RSTART - 1, 1)#' "re-anchoring the preceding char at RSTART==1 after a rejected match makes CLOSEDCLOSED close" '^1$' '^0$' "$FIX/child-open-repeated-closedclosed.expect1.md"
+  tg TOOTH-4m 's#while (k < 2)#while (k < 9)#' "a negation window of nine words lets a distant NOT negate CLOSED" '^0$' '^1$' "$FIX/child-closed-far-negation.expect0.md"
+  tg TOOTH-4n '/# DASH-SKIP/d' "without the dash skip a bare - consumes a window slot and NOT YET - CLOSED closes" '^1$' '^0$' "$FIX/child-open-dash-in-window.expect1.md"
+  tg TOOTH-4o 's#u = toupper(w) #u = w #' "a case-sensitive negation word lets Not CLOSED close" '^1$' '^0$' "$FIX/child-open-mixed-case-not.expect1.md"
+
+  # TOOTH-4p: the compile guard itself. A mutant that does not compile exits non-zero (degraded rc 3) and prints
+  # an awk diagnostic; mutant_tooth must REJECT it (rc != BAD_RC / guard match), never count it as a bite.
+  mk "TOOTH-4p mutant build" "$LIB" "$MD/t4p.sh" 's#while (k < 2)#while (k < 2 \&\& )#' \
+    && if mutant_tooth "TOOTH-4p-probe" 0 0 "$MD/t4p.sh" --orig "$LIB" --good-has '^0$' --bad-has '^1$' --bad-lacks "$AWKBAD" \
+         -- "${COUNT_ARGV[@]}" "$FIX/child-closed-far-negation.expect0.md" >/dev/null 2>&1; then
+         t_fail=$((t_fail+1)); echo "  FAIL  TOOTH-4p: a non-compiling awk mutant was counted as a bite"
+       else t_pass=$((t_pass+1)); echo "  PASS  TOOTH-4p: a non-compiling awk mutant is rejected, not counted as a bite"; fi
+
+  # TOOTH-8: the degraded guard -- without it a failing awk collapses into a confident 0 with rc 0.
+  mk "TOOTH-8 mutant build" "$LIB" "$MD/t8.sh" '/^  \[ "\$_rc" -eq 0 \] || { echo "blocked-rows: degraded child-gap counter/d; /^  case "\$_d2" in/d' \
+    && tt "TOOTH-8: a failing child-gap awk reads as a bare number when the degraded guard is dropped" 3 0 "$MD/t8.sh" --orig "$LIB" \
+         --good-lacks '^[0-9]' --bad-has '^[0-9]+$' -- bash -c 'PATH="$2:$PATH"; . "$1"; blocked_open_count "$3"' _ @SUT@ "$TMP/stub-child" "$FIX/child-single-open.expect1.md"
+
+  # TOOTH-9: verify-state names a degraded derivation instead of comparing the declared count to an empty string.
+  mkdir -p "$MD/g9/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g9/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g9/mut/"
+  mk "TOOTH-9 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g9/mut/verify-state.sh" 's# || d_blocked="DEGRADED"##' \
+    && tt "TOOTH-9: a degraded blocked_open derivation is named by verify-state; without the capture it is an unnamed mismatch" 1 1 "$MD/g9/mut/verify-state.sh" \
+         --orig "$TOOLBELT/verify-state.sh" --good-has 'derivation degraded' --bad-lacks 'derivation degraded' \
+         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3"' _ @SUT@ "$TMP/stub-child" "$TMP/deg-verify-state"
 
   # TOOTH-5: the `## Blocked /` family is part of the body (METHODOLOGY §21.1).
   mk "TOOTH-5 mutant build" "$LIB" "$MD/t5.sh" "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" \
     && tt "TOOTH-5: without the '## Blocked /' section the mixed fixture loses an entry" 0 0 "$MD/t5.sh" --orig "$LIB" \
-         --good-has '^5$' --bad-has '^4$' -- "${COUNT_ARGV[@]}" "$FIX/standard-and-child-mixed.expect5.md"
+         --good-has '^5$' --bad-has '^4$' --bad-lacks "$AWKBAD" -- "${COUNT_ARGV[@]}" "$FIX/standard-and-child-mixed.expect5.md"
 
   # TOOTH-6: the absent-input guard — without it a missing file is a silent zero.
   mk "TOOTH-6 mutant build" "$LIB" "$MD/t6.sh" '/if \[ ! -r "\$_f" \] || \[ -d "\$_f" \]; then/,/^  fi$/d' \
-    && tt "TOOTH-6: absent state file reads as a confident 0 when the guard is dropped" 2 0 "$MD/t6.sh" --orig "$LIB" \
-         --good-lacks '^0$' --bad-has '^0$' -- "${COUNT_ARGV[@]}" "$TMP/does-not-exist.md"
+    && tt "TOOTH-6: dropping the absent-input guard turns rc 2 into the degraded rc 3 (never a bare 0; the stage guard is the backstop)" 2 3 "$MD/t6.sh" --orig "$LIB" \
+         --good-lacks '^0$' --bad-lacks '^0$' -- "${COUNT_ARGV[@]}" "$TMP/does-not-exist.md"
 
   # TOOTH-7: the consumer's fail-closed guard turns a function-less lib into a loud exit 1 at source time.
   # Mutant exit codes differ by consumer: verify-state runs on and FAILs the envelope (rc 1, but WITHOUT the typed
