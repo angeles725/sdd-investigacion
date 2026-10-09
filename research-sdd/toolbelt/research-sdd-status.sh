@@ -34,6 +34,10 @@
 #        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
+#        DEGRADED | <reason>           — (kit #2024, exit 3) the blocked-rows derivation (lib/blocked-rows.sh blocked_open_count) failed for a
+#              state file the verdict reads (the picked file under --root/--focus, else EVERY state file, stopped/paused included):
+#              is_blocked would see an empty blocked set, so --next REFUSES to answer instead of handing out a blocked gap or an
+#              inflated paused-focus count. Fix the failure named on stderr and re-run; --emit-token answers `unavailable` for it.
 #   --queue (with --next; kit #1614) honours the operator-declared lane: a `next_session_queue: G1, G2` line in the
 #        state file's header (before its first `## ` heading) names gap ids in order, and --next returns the FIRST one that is
 #        still pending and not blocked (`NEXT | <priority> | <gap>`, same line shape). It only chooses AMONG eligible
@@ -63,7 +67,7 @@
 #        --root STALE gate stays corpus-wide (only --focus narrows it, #1543), so an active stale sibling focus
 #        still makes `--root --next` print STALE.
 #   (NONE is no longer emitted: an empty eligible-backlog means derived investigable=0 → STOP by construction.)
-# Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args. (malformed backlog rows are WARNed to stderr, never silently dropped.)
+# Exit: 0 ok · 1 --emit-token with no token available (`return-token: unavailable`) · 2 bad args · 3 --next refused: DEGRADED blocked-rows derivation (kit #2024). (malformed backlog rows are WARNed to stderr, never silently dropped.)
 set -uo pipefail
 
 _orig_args=("$@")   # --emit-token re-runs this script with the same argv minus the flag (kit #1706)
@@ -476,6 +480,21 @@ is_blocked() {
 # verify-state.sh calls: needs:-carrying entries under the standard blocked sections PLUS open entries in
 # ## Child gaps surfaced at close (a CLOSED child gap that keeps `needs:` is not counted, #913).
 derive_blocked_open() { blocked_open_count "$state"; }
+# _blocked_degraded_files FILE... (kit #2024): the shared "could the blocked set be read?" probe for EVERY state file a verdict walks.
+# Prints the comma-joined basenames whose blocked-section extraction DEGRADED (blocked_open_count rc 3) and returns 1; prints nothing
+# and returns 0 when none did. rc 2 (state file absent or unreadable) is NOT counted here: it is its own typed state, surfaced by the
+# [backlog-unreadable: ...] qualifier (kit #1959), and an unreadable file yields no backlog rows either, so is_blocked is never asked. Silent on stderr (callers print their own typed line); it takes files, never the global $state, so a loop that reassigns
+# $state cannot point it at the wrong focus. is_blocked/blocked_names/count_investigable all read the same extractors, so a failure
+# here means every blocked/investigable figure derived from that file is untrustworthy.
+_blocked_degraded_files() {
+  local _bd_f _bd_rc _bd_names=""
+  for _bd_f in "$@"; do  # BD-ALL-FOCUSES
+    blocked_open_count "$_bd_f" >/dev/null 2>&1; _bd_rc=$?
+    { [ "$_bd_rc" -eq 0 ] || [ "$_bd_rc" -eq 2 ]; } || _bd_names="${_bd_names:+$_bd_names,}$(basename "$_bd_f")"
+  done
+  [ -z "$_bd_names" ] || { printf '%s' "$_bd_names"; return 1; }
+  return 0
+}
 # B3b: count_deferred — count OPEN backlog rows whose priority column is exactly "deferred"
 # (explicitly-parked gaps — operator decision, not blocked by hardware). Mirrors derive_deferred()
 # in verify-state.sh. Reads from $state (the global current state file).
@@ -1936,6 +1955,16 @@ fence != "" { next }
       exit 0
     fi
   done
+  # DEGRADED gate (kit #2024): after STALE and RETRO-DUE, before any NEXT/STOP verdict. is_blocked() only logs a failed
+  # blocked-section read and then answers "not blocked", so a verdict derived from an unreadable file could hand out a
+  # blocked gap (NEXT) or an inflated paused-focus count (STOP). Refuse instead, for every file the verdict reads.
+  if [ "$_ns_scoped" = 1 ]; then _nxt_dg_files=("$_ns_pick"); else mapfile -t _nxt_dg_files < <(list_state_files "$target"); fi
+  _nxt_dg_names="$(_blocked_degraded_files ${_nxt_dg_files[@]+"${_nxt_dg_files[@]}"})"; _nxt_dg_rc=$?
+  if [ "$_nxt_dg_rc" -ne 0 ]; then  # NEXT-DEGRADED-GATE
+    printf 'research-sdd-status: --next refused: blocked-rows derivation degraded for %s — exit 3 (see the blocked-rows: stderr line from lib/blocked-rows.sh)\n' "$_nxt_dg_names" >&2
+    echo "DEGRADED | blocked-rows derivation unreadable for ${_nxt_dg_names} — --next would answer from an empty blocked set; fix the failure named on stderr, then re-run"
+    exit 3
+  fi
   if [ "$_ns_scoped" = 0 ]; then
     # Multi-focus guard (chihuahua/px-chart-classic regression + BLOCKER 2 split-layout): iterate every
     # state file under $target (not just $corpus=dirname(first)), so focuses in sibling subdirectories are
@@ -2414,11 +2443,12 @@ blk="$(derive_blocked_open)"; _blk_rc=$?   # disk-DERIVED (needs:-anchored) — 
 if [ "$_blk_rc" -ne 0 ]; then
   blk="DEGRADED"; inv="DEGRADED"   # every count derived from the blocked sections is untrustworthy now, not just blocked_open
   printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s)\n' "$_blk_rc" "$state" >&2
-  echo "degraded: blocked_open: blocked_open_count rc $_blk_rc — blocked/investigable/next step not derived (CLAUDE.md §7: not a zero)"   # BO-DEGRADED-LINE (S5): the script's `degraded:` stdout convention
 fi
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
+_RC_DEGRADED_PRINTED=0   # set by every typed `degraded:` echo of the report body (W6 footer below); outside the RC-WIRE region so the blocked_open line can set it too
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="
+[ "$_blk_rc" -eq 0 ] || { _RC_DEGRADED_PRINTED=1; echo "degraded: blocked_open: blocked_open_count rc $_blk_rc — blocked/investigable/next step not derived (CLAUDE.md §7: not a zero)"; }   # BO-DEGRADED-LINE (S5, #2024 item 4/6): inside the report body, flag set so the footer covers it
 _chk_abs="$(CDPATH="" cd -- "$target" 2>/dev/null && pwd)"  # kit #1150 item 1: name the directory the wiring was checked at
 echo "  Stop hook       : $(hook_stop_wiring_state "$target") (checked: ${_chk_abs:-$target})"
 echo "  coverage metric : ${metric:-<none>}"
@@ -2504,17 +2534,17 @@ else
   saturation_line
 fi
 campaign_status_block
-# W6 (kit issue #1704): when remote_visibility_block prints a typed `degraded:` line, name the registry that
-# gives its one continuation. SCOPE: this footer covers the remote-visibility block ONLY; other blocks that
-# print a typed state are not covered. The block runs directly (no subshell, no buffering, stdout/stderr order
-# untouched) and sets _RC_DEGRADED_PRINTED=1 on the same line as each of its `degraded:` echoes. Printed only
-# when the flag is set, so a clean report stays byte-identical. The registry lives in the kit's toolbelt next
-# to this script, not under the target.
+# W6 (kit issue #1704, widened by #2024): when remote_visibility_block or the blocked_open derivation prints a typed
+# `degraded:` line, name the registry that gives its one continuation. SCOPE: this footer covers the remote-visibility
+# block and the `degraded: blocked_open:` line ONLY; other blocks that print a typed state are not covered. The block
+# runs directly (no subshell, no buffering, stdout/stderr order untouched) and sets _RC_DEGRADED_PRINTED=1 on the same
+# line as each of those `degraded:` echoes (the flag is initialised before the report header). Printed only when the
+# flag is set, so a clean report stays byte-identical. The registry lives in the kit's toolbelt next to this script,
+# not under the target.
 # RC-WIRE-BEGIN
-_RC_DEGRADED_PRINTED=0
 remote_visibility_block
 if [ "$_RC_DEGRADED_PRINTED" = 1 ]; then  # RC-FOOTER
-  echo "  reason codes    : each typed remote-visibility degraded state above has one continuation in $here/reason-codes.v1.md"
+  echo "  reason codes    : each typed degraded state above (remote-visibility, blocked_open) has one continuation in $here/reason-codes.v1.md"
 fi
 # RC-WIRE-END
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
@@ -2550,11 +2580,16 @@ _ns_gap_run() (
   fi
 )
 _ns_doc=""
+# DISPLAY-DEGRADED-GATE (kit #2024): _ns_gap_run walks EVERY focus (and counts paused ones), so the gate must cover every
+# state file it walks, not only the head $state whose figures are shown above. Same probe as the --next gate.
+mapfile -t _ns_dg_files < <(list_state_files "$target")
+_ns_dg_names="$(_blocked_degraded_files ${_ns_dg_files[@]+"${_ns_dg_files[@]}"})"
+[ "$_blk_rc" -eq 0 ] || case ",$_ns_dg_names," in *",$(basename "$state"),"*) ;; *) _ns_dg_names="${_ns_dg_names:+$_ns_dg_names,}$(basename "$state")" ;; esac
 if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
 case "$_ns_doc" in
   NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
   *)
-    if [ "$_blk_rc" -ne 0 ]; then printf '  next step       : DEGRADED (blocked sections unreadable — a next gap derived from them would be inflated)\n'; else
+    if [ -n "$_ns_dg_names" ]; then printf '  next step       : DEGRADED (blocked-rows derivation unreadable for %s — a next gap or a paused-focus count derived from it would be inflated)\n' "$_ns_dg_names"; else  # NEXT-STEP-DEGRADED-GUARD
     if [ -z "$_ns_doc" ]; then
       printf '  next step       : '
       _ns_gap_run
