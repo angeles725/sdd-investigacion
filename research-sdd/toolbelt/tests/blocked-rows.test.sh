@@ -221,7 +221,8 @@ if [ -n "$_hl" ] && [ -n "$_dl" ] && [ "$_dl" -gt "$_hl" ]; then ok "the degrade
 else no "degraded: blocked_open: line position: header=[$_hl] degraded=[$_dl]"; fi
 if [ "$(grep -c '^  reason codes    : ' <<<"$out")" = 1 ]; then ok "a degraded blocked_open sets the reason-codes footer (exactly one line)"; else no "reason-codes footer missing or duplicated for a degraded blocked_open"; fi
 # #2024 item 5: the registry continuation names BOTH typed stderr forms of the lib
-if grep -F 'degraded: blocked_open: blocked_open_count rc' "$TOOLBELT/reason-codes.v1.md" | grep -qF 'state file absent or unreadable'; then ok "reason-codes row continuation names the rc-2 'state file absent or unreadable' form too"
+_rc_row="$(grep -F 'degraded: blocked_open: blocked_open_count rc' "$TOOLBELT/reason-codes.v1.md")"
+if grep -qF 'state file absent or unreadable' <<<"$_rc_row"; then ok "reason-codes row continuation names the rc-2 'state file absent or unreadable' form too"
 else no "reason-codes blocked_open row does not name the rc-2 stderr line"; fi
 # #2024 item 3: verify-state CHECK H must not sum with a degraded body (no spurious 'stale denominator' next to 'unverifiable')
 mkdir -p "$TMP/chkh"; sed 's/^known_gaps: 1$/known_gaps: 7/' "$FIX/next-blocked-gap.md" > "$TMP/chkh/RESEARCH-STATE.md"
