@@ -165,8 +165,8 @@ run_cases "$TB" main
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
-  mk_mut() { rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut() { rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
   echo "-- teeth: each trim, undone, must push its hook over cap or lose a count --"
 
   # mut_stage <label> <hook-basename> <instr> <raw> <sed-expr> — builds a mutant of the hook and stages it next

@@ -706,7 +706,7 @@ EOF
   # pristine copy lives in its own directory (outside the scan box) so OUT is not under ORIG's tree.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
   if [ "$RCT1" -eq 1 ] && ! grep -qE 'syntax error|command not found|unbound variable' <<<"$OUTT1"; then
@@ -715,7 +715,7 @@ EOF
     no "teeth: logical (non -P) fixture did NOT fail the lint — check is THEATER (rc=$RCT1 out=[$OUTT1])"
   fi
   # A refused build is counted once and the tooth is skipped, so the un-mutated logical fixture is never judged as the -P one.
-  if mutant_chain "teeth: -P fixture" "$TMP/teeth-orig/mut.sh" "$boxT/mut.sh" \
+  if mutant_chain_or_count fail "teeth: -P fixture" "$TMP/teeth-orig/mut.sh" "$boxT/mut.sh" \
       's/cd "\$(dirname "\$0")\/\.\." \&\& pwd/cd -P "$(dirname "$0")\/.." \&\& pwd -P/'; then
     OUTT2="$(bash "$SUT" "$boxT" 2>&1)"; RCT2=$?
     if [ "$RCT2" -eq 0 ]; then
@@ -723,8 +723,6 @@ EOF
     else
       no "teeth: -P'd fixture still fails the lint — check has no bite (rc=$RCT2 out=[$OUTT2])"
     fi
-  else
-    fail=$((fail+1))
   fi
 
   # ── issue #1033 L1: each newly recognised form has its own mutant of the SUT that reverts exactly
@@ -734,20 +732,16 @@ EOF
   mkdir -p "$TMP/l1-mut"
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   l1_tooth() { # <label> <fixture-box> <sed-expr>
-    if mutant_chain "teeth L1: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$3"; then
+    if mutant_chain_or_count fail "teeth L1: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$3"; then
       tt "teeth L1: $1 recognition removed makes the fixture pass unflagged" 1 0 "$TMP/l1-mut/$1.sh" \
         --good-has 'HIT .*fixed\.sh:2' --bad-lacks "HIT|$CRASH_RE" -- bash @SUT@ "$2"
-    else
-      fail=$((fail+1))
     fi
   }
   # #1033 follow-ups: each fixed behaviour gets a mutant that reverts exactly it.
   fu_tooth() { # <label> <fixture-box> <hit-line> <sed-expr> [<mutant-rc>]
-    if mutant_chain "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
+    if mutant_chain_or_count fail "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
       tt "teeth FU: $1 reverted makes the fixture lose that HIT" 1 "${5:-0}" "$TMP/l1-mut/$1.sh" \
         --good-has "HIT .*fixed\.sh:$3" --bad-lacks "HIT .*fixed\.sh:$3|$CRASH_RE" -- bash @SUT@ "$2"
-    else
-      fail=$((fail+1))
     fi
   }
   # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
@@ -763,36 +757,28 @@ EOF
   fu_tooth semicolon-in-subst "$box5p" 2 's#if \[ "\$c" = '"';'"' \] \&\& \[ -z "\$stack" \]; then#if [ "$c" = '"';'"' ]; then#'
   fu_tooth quote-context "$box5r" 2 's#if \[ "\$top" = d \]; then stack="\${stack%?}"; else stack+=d; fi#:#' 1
   fu_tooth nested-mask "$box5s" 2 's#_cdp_open '"'"'\$(…)'"'"' #_cdp_open '"'"'$(cd -P x)'"'"' #'
-  if mutant_chain "teeth FU: comment-kept" "$SUT" "$TMP/l1-mut/comment-kept.sh" 's#break  \# comment: drop the rest#:#'; then
+  if mutant_chain_or_count fail "teeth FU: comment-kept" "$SUT" "$TMP/l1-mut/comment-kept.sh" 's#break  \# comment: drop the rest#:#'; then
     tt "teeth FU: a kept comment makes the commented-out derivation a bogus HIT" 1 1 "$TMP/l1-mut/comment-kept.sh" \
       --good-lacks 'HIT .*fixed\.sh:5' --bad-has 'HIT .*fixed\.sh:5' -- bash @SUT@ "$box5r"
-  else
-    fail=$((fail+1))
   fi
   # 5h2: the glob-expanding split (the pre-round-5 code) must bite when the box is the cwd.
-  if mutant_chain "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's#local -a _stmts=("\${_CDP_PARTS\[@\]}")#local -a _stmts=(${line//;/ })#'; then
+  if mutant_chain_or_count fail "teeth FU: glob-split" "$SUT" "$TMP/l1-mut/glob-split.sh" 's#local -a _stmts=("\${_CDP_PARTS\[@\]}")#local -a _stmts=(${line//;/ })#'; then
     tt "teeth FU: glob-expanding split makes the filename-shaped file a bogus HIT" 0 1 "$TMP/l1-mut/glob-split.sh" \
       --bad-has 'HIT .*fixed\.sh:2' -- bash -c 'cd "$1" && bash "$2" "$1"' _ "$box5h2" @SUT@
-  else
-    fail=$((fail+1))
   fi
   # #1921 review: one mutant per guard / typed state.
   fu_tooth raw-dotdot "$box5u" 2 's#\[\[ "\${_CDP_RAW\[\$_si\]}" == \*"\.\."\* \]\]#[[ "$seg" == *".."* ]]#'
   # The unguarded apostrophe opens a bogus single-quote context: the line stays a HIT but becomes UNCLASSIFIABLE.
-  if mutant_chain "teeth FU: apostrophe-in-dq" "$SUT" "$TMP/l1-mut/apostrophe-in-dq.sh" 's# \&\& \[ "\$top" != d \]; then#; then#'; then
+  if mutant_chain_or_count fail "teeth FU: apostrophe-in-dq" "$SUT" "$TMP/l1-mut/apostrophe-in-dq.sh" 's# \&\& \[ "\$top" != d \]; then#; then#'; then
     tt "teeth FU: apostrophe-in-dq guard removed makes a balanced line UNCLASSIFIABLE" 1 1 "$TMP/l1-mut/apostrophe-in-dq.sh" \
       --good-lacks 'UNCLASSIFIABLE .*fixed\.sh:2 ' --bad-has 'UNCLASSIFIABLE .*fixed\.sh:2 ' -- bash @SUT@ "$box5w"
-  else
-    fail=$((fail+1))
   fi
   fu_tooth brace-context "$box5w" 3 's#if \[ "\$top" != c \]; then#if true; then#' 1
   fu_tooth backslash-escape "$box5w" 4 's#if \[ "\$c" = '"'"'\\'"'"' \]; then#if false; then#' 1
   unc_tooth() { # <label> <fixture-box> <line> <sed-expr>
-    if mutant_chain "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
+    if mutant_chain_or_count fail "teeth FU: $1" "$SUT" "$TMP/l1-mut/$1.sh" "$4"; then
       tt "teeth FU: $1 reverted loses the UNCLASSIFIABLE report for line $3" 0 0 "$TMP/l1-mut/$1.sh" \
         --good-has "UNCLASSIFIABLE .*fixed\\.sh:$3 " --bad-lacks "UNCLASSIFIABLE .*fixed\\.sh:$3 |$CRASH_RE" -- bash @SUT@ "$2"
-    else
-      fail=$((fail+1))
     fi
   }
   unc_tooth open-context "$box5v" 2 's#\[ -n "\$stack" \] \&\& _CDP_OPEN=1#:#'
@@ -803,22 +789,18 @@ EOF
   kitL2="$TMP/kit-l2"; mkdir -p "$kitL2/toolbelt/tests/lib"
   printf '%s\n' '#!/usr/bin/env bash' 'KIT="$(cd "$(dirname "$0")/.." && pwd)"' > "$kitL2/toolbelt/tests/lib/infra.sh"
   cp "$kitL2/toolbelt/tests/lib/infra.sh" "$kitL2/toolbelt/tests/bad.test.sh"
-  if mutant_chain "teeth L2: whole-tests-dir prune" "$SUT" "$TMP/l1-mut/l2-prune.sh" \
+  if mutant_chain_or_count fail "teeth L2: whole-tests-dir prune" "$SUT" "$TMP/l1-mut/l2-prune.sh" \
       "s#find \"\$d\" -type f -name '\*.sh' -not .*-print 2>/dev/null#find \"\$d\" -type d -name tests -prune -o -type f -name '*.sh' -print 2>/dev/null#"; then
     tt "teeth L2: restoring the whole-tests/ prune hides the infrastructure HIT" 1 0 "$TMP/l1-mut/l2-prune.sh" \
       --good-has 'HIT .*tests/lib/infra\.sh:2' --bad-lacks "HIT|$CRASH_RE" \
       -- bash -c 'cp "$1" "$2/toolbelt/verify-cd-physical.sh" && bash "$2/toolbelt/verify-cd-physical.sh" 2>&1' _ @SUT@ "$kitL2"
-  else
-    fail=$((fail+1))
   fi
   # ...and the converse: dropping the *.test.sh exclusion scans the suites' heredoc fixtures again.
-  if mutant_chain "teeth L2: no *.test.sh exclusion" "$SUT" "$TMP/l1-mut/l2-all.sh" \
+  if mutant_chain_or_count fail "teeth L2: no *.test.sh exclusion" "$SUT" "$TMP/l1-mut/l2-all.sh" \
       "s#-not .( -path '\*/tests/\*' -name '\*.test.sh' .) ##"; then
     tt "teeth L2: dropping the *.test.sh exclusion makes the suite a bogus HIT" 1 1 "$TMP/l1-mut/l2-all.sh" \
       --good-lacks 'bad\.test\.sh' --bad-has 'HIT .*tests/bad\.test\.sh:2' \
       -- bash -c 'cp "$1" "$2/toolbelt/verify-cd-physical.sh" && bash "$2/toolbelt/verify-cd-physical.sh" 2>&1' _ @SUT@ "$kitL2"
-  else
-    fail=$((fail+1))
   fi
   l1_tooth funchead "$box5j" 's|(\\{\[\[:space:\]\]\*)?|(ZZ)?|'
   l1_tooth kwflags "$box5k" 's|(\[\[:space:\]\]+-\[A-Za-z\]+)\*|(ZZ)*|'

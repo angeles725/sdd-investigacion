@@ -822,7 +822,7 @@ expect "empty scanned script -> DEGRADED rc 2" 2 "$tmp/d_empty/reg.md" "$tmp/d_e
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   mkdir -p "$tmp/mut"
   CRASH="$(mutant_crash_re bash py)" || exit 2
   # tooth NAME FIXTURE GOOD_RC BAD_RC SED_EXPR — the checker (--check-only) on FIXTURE must exit GOOD_RC
@@ -830,7 +830,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth() {
     local name="$1" fx="$2" good="$3" bad="$4" expr="$5" m="$tmp/mut/$1.sh" line
     local mode="${TOOTH_MODE:---check-only}" sub="${TOOTH_SUB:-scripts}"
-    mutant_chain "$name" "$SELF" "$m" "$expr" || { fail=$((fail + 1)); return 1; }
+    mutant_chain_or_count fail "$name" "$SELF" "$m" "$expr" || return 1
     if line="$(mutant_tooth "teeth $name" "$good" "$bad" "$m" --orig "$SELF" --bad-lacks "$CRASH" \
         -- bash @SUT@ "$mode" "$tmp/$fx/reg.md" "$tmp/$fx/$sub")"; then
       pass=$((pass + 1))

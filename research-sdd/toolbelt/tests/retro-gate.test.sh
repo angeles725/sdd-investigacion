@@ -3801,6 +3801,7 @@ hb_mutant "hb-batch-dropped (no ln after a dir)" \
 # bash, or would land in the live tree is REFUSED, so a green tooth cannot be a no-op.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
 FMUT="$ROOT/fmutkit"; mkdir -p "$FMUT"; cp -R "$FKIT/toolbelt" "$FMUT/toolbelt"
 # l_tooth <name> <sed-expr> <case-fn>: build the mutant into the stub kit, then <case-fn> <mutant>
 # must return 0 when the mutant misbehaves (its L-case assertion would FAIL).
@@ -4025,7 +4026,7 @@ printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cw
 URUNEOF
 chmod +x "$U_RUNNER"
 U_CRASHES="$(mutant_crash_re bash cmd)" || exit 2
-u_mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+u_mk() { mutant_chain_or_count fail "$@" || return 1; }
 u_tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 # u_teeth <label> <good-kit> <target> <sid> <good-has> <bad-has> <sed-expr>: build the mutant in a copy of
 # the good kit, then tooth: good gate matches <good-has>, mutant matches <bad-has>, neither crashes.

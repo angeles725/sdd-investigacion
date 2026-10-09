@@ -393,13 +393,13 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # With the mutation the cap fires at max+99 instead of max → assertion fails → RED.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
   # dead-stage refusals still apply).
   _MUT_DIR="$(mktemp -d)"
   _MUT_PY="$_MUT_DIR/corroborate_floss.py"
 
-  if MUTANT_SYNTAX=none mutant_chain "teeth-1" "$TOOLBELT/corroborate_floss.py" "$_MUT_PY" \
+  if MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-1" "$TOOLBELT/corroborate_floss.py" "$_MUT_PY" \
       's|raw_val = raw_val\[:max_string_len\]|raw_val = raw_val[:max_string_len+99]  # mutant|g'; then
     cat > "$_MUT_DIR/harness.py" <<'PY'
 import sys, importlib.util
@@ -443,8 +443,6 @@ PY
         python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
       pass=$((pass+1))
     else fail=$((fail+1)); fi
-  else
-    fail=$((fail+1))
   fi
 
   rm -rf "$_MUT_DIR"

@@ -1,6 +1,6 @@
 # Cloudflare-Tunnel + Windows-SSH bring-up
 
-Five compiled scars from provisioning a live-install Windows SSH appliance (`sshd` +
+Seven compiled scars from provisioning a live-install Windows SSH appliance (`sshd` +
 `cloudflared`) from scratch. Each scar produced a silent failure or a multi-hour
 lockout on a physically-inaccessible box; each has a one-line fix. Read these before
 touching a box's SSH or tunnel configuration.
@@ -185,6 +185,46 @@ file. (Kit #1961.)
 
 ---
 
+## 7. `Add-WindowsCapability` stalls — portable Win32-OpenSSH zip route
+
+When `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` stalls (observed for more than
+13 minutes with no progress; the capability download is unusable in practice on that bench), do not
+fall back to `sc.exe create` (scar 4 still holds). Use the portable Win32-OpenSSH release zip and
+let its own installer register the service:
+
+1. Extract the zip to a Windows path (e.g. `C:\Program Files\OpenSSH`).
+2. Run the bundled `install-sshd.ps1` **only when no `sshd` service exists**. The script deletes
+   and re-creates the service, which is exactly the pending-deletion race of scar 4. If an `sshd`
+   service is already present, delete it first and wait until `Get-Service sshd` returns nothing
+   (the scar 4 wait loop) before running the script. It registers `sshd` with the correct binary
+   path and security descriptor, the property scar 4 requires from the capability installer.
+3. Run `FixHostFilePermissions.ps1 -Confirm:$false`. It normalises owner and ACLs on the host keys
+   and `sshd_config`; it does **not** grant `NETWORK SERVICE` read on `C:\ProgramData\ssh\`, so
+   scar 1's ACL step is still required (see below).
+4. For an Administrators-group login, put the public key in
+   `C:\ProgramData\ssh\administrators_authorized_keys` and lock it down. Principal names are
+   localised on non-English Windows, so use the SIDs (`*S-1-5-32-544` = Administrators,
+   `*S-1-5-18` = SYSTEM):
+
+```powershell
+icacls.exe C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "*S-1-5-18:F" /grant "*S-1-5-32-544:F"
+```
+
+Then apply scar 2 (`-Profile Any` firewall rule) and scar 1 (the `NETWORK SERVICE` ACL step) before `Start-Service sshd`.
+
+**Automation channel from WSL:** use the Windows `ssh.exe` through WSL interop. A direct WSL `ssh`
+to the LAN bench timed out in the same session while `ssh.exe` reached it reliably.
+
+This is consistent with scar 4 provided the step 2 precondition holds: the rule is "never
+hand-register `sshd` with `sc.exe create`, and never re-create it while a deletion is pending".
+`install-sshd.ps1` is a registration channel that does not use `sc.exe create` directly, and the
+precondition avoids the pending-deletion race. (The precondition is the conservative reading; it was
+not verified against the shipped script's source in this change.)
+
+Evidence: niagara-research B1216 §1216.3. (Kit #2030.)
+
+---
+
 ## Scars summary
 
 | # | Scar | Silent failure mode | Fix |
@@ -195,6 +235,7 @@ file. (Kit #1961.)
 | 4 | `sc.exe create` on a pending-delete sshd | Service never registered, returns success | Wait for clean deletion; use `Add-WindowsCapability` |
 | 5 | Safety-net task assumed not verified | Risky step runs unprotected | Register → read back → abort if absent |
 | 6 | `sshd` hung while `Get-Service` says Running | Service status lies; SSH banner never arrives | Watchdog: TCP connect + banner read with timeout, `Restart-Service sshd` on failure (§6) |
+| 7 | `Add-WindowsCapability` stalls (>13 min) | Install never completes; no `sshd` service | Portable Win32-OpenSSH zip: `install-sshd.ps1` + `FixHostFilePermissions.ps1` + `administrators_authorized_keys` ACL; never `sc.exe create` (§7) |
 
 ---
 

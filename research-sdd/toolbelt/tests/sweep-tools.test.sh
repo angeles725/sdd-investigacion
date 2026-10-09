@@ -397,17 +397,17 @@ fi
 # $MUT (lib/mutant.sh treats the ORIG's own non-git directory as the live tree, so OUT may not sit beside it).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
 # mk_sed LABEL OUT EXPR...  build $OUT from $MK_ORIG (default $SUT) with one sed stage per EXPR (mutant_chain
 # refuses a dead stage); a refusal is counted as a failure here, the helper never touches the counters.
 mk_sed(){
   local orig="${MK_ORIG:-$SUT}" out="$2"
   mkdir -p "$(dirname "$out")"
-  mutant_chain "$1" "$orig" "$out" "${@:3}" || { fail=$((fail+1)); return 1; }
+  mutant_chain_or_count fail "$1" "$orig" "$out" "${@:3}" || return 1
 }
 # mk_verify LABEL OUT  validate a mutant built another way (heredoc), same refusals as mk_sed.
 mk_verify(){
-  mutant_built "$1" "${MK_ORIG:-$SUT}" "$2" || { fail=$((fail+1)); return 1; }
+  mutant_built_or_count fail "$1" "${MK_ORIG:-$SUT}" "$2" || return 1
 }
 # mut_kit KIT NAME  copy a fully-prepared sandbox kit to $ROOT/NAME-mut and print its path.
 mut_kit(){ cp -R "$1" "$ROOT/$2-mut" && printf '%s' "$ROOT/$2-mut"; }

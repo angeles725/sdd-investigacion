@@ -398,21 +398,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Every sed mutant of the SUT is built through lib/mutant.sh (mutant_chain): a stage that matches
   # nothing, an empty/byte-identical/invalid-bash mutant and a live-tree or symlink OUT are refused.
-  # A refused build prints its own FAIL line, is counted exactly once (the else branch of its
-  # `if mutant_chain`; the helper only prints), and its tooth never runs. The observations are kept as they were (they read
+  # A refused build prints its own FAIL line, is counted exactly once (by
+  # mutant_chain_or_count, which bumps `fail` on a refusal), and its tooth never runs. The observations are kept as they were (they read
   # the report/cache file or the exit code the base test asserts on); the exit-2 teeth additionally
   # assert the typed `unknown tool "X"` stderr line so a crash that happens to exit 2 is not a bite.
   # The two lib shims (teeth-il, teeth-h) override a lib function and symlink the SUT — not a sed
   # mutant of it — so they stay hand-built.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
 
   # teeth-1 (targets test c): mutant forces gate_rc=0 for absent tools.
   # A gate_rc that never goes to 1 has no bite for MISSING/UNUSABLE cases.
   # Verify: mutant exits 0 for absent ghidra → test-c assertion [ rc -ne 0 ] would FAIL.
   MUT1="$ROOT/detect-mut1.sh"
-  if mutant_chain "teeth: detect-mut1.sh" "$DETECT" "$MUT1" \
+  if mutant_chain_or_count fail "teeth: detect-mut1.sh" "$DETECT" "$MUT1" \
     's/gate_rc=1/gate_rc=0/g'; then
     chmod +x "$MUT1"
     rc_m1=0
@@ -426,15 +426,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-1: mutant must exit 0 for absent tool" "mutant rc=$rc_m1"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-2 (targets test d): mutant replaces PROBE_FAILED with MISSING everywhere.
   # Timed-out objdump → report says MISSING → --require evaluates as MISSING → prints
   # "MISSING — install it" (not "could not determine") → test-d stderr check goes RED.
   MUT2="$ROOT/detect-mut2.sh"
-  if mutant_chain "teeth: detect-mut2.sh" "$DETECT" "$MUT2" \
+  if mutant_chain_or_count fail "teeth: detect-mut2.sh" "$DETECT" "$MUT2" \
     's/PROBE_FAILED/MISSING/g'; then
     chmod +x "$MUT2"
     stderr_m2="$ROOT/stderr-m2.txt"
@@ -449,8 +447,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-2: mutant must not have 'could not determine'" \
          "stderr=[$(cat "$stderr_m2" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-3 (targets test f): MUT2 (PROBE_FAILED→MISSING globally) run against test-f setup.
@@ -510,7 +506,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-i (targets test i): mutant reverts CACHE default to cwd-relative ./.research-tools.txt
   # → file appears in cwd → test-i [ ! -e cwd/.research-tools.txt ] goes RED.
   MUT_I="$ROOT/detect-mut-i.sh"
-  if mutant_chain "teeth: detect-mut-i.sh" "$DETECT" "$MUT_I" \
+  if mutant_chain_or_count fail "teeth: detect-mut-i.sh" "$DETECT" "$MUT_I" \
     's|^CACHE=.*|CACHE="./.research-tools.txt"|'; then
     chmod +x "$MUT_I"
     TEMP_CWD_MUT_I="$ROOT/temp-cwd-mut-i"
@@ -529,8 +525,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-i: mutant must create .research-tools.txt in cwd" "(file absent)"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-k (targets test k): mutant restores silent write (|| true) → exits 0 on failure
@@ -538,7 +532,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   UNWRITE_MK="$ROOT/no-write-mk"
   mkdir -p "$UNWRITE_MK"
   MUT_K="$ROOT/detect-mut-k.sh"
-  if mutant_chain "teeth: detect-mut-k.sh" "$DETECT" "$MUT_K" \
+  if mutant_chain_or_count fail "teeth: detect-mut-k.sh" "$DETECT" "$MUT_K" \
     's#|| { printf.*cannot write cache file.*exit 1; }#|| true#'; then
     chmod +x "$MUT_K"
     chmod 000 "$UNWRITE_MK"
@@ -554,8 +548,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-k: mutant must exit 0 (write error swallowed)" "mutant rc=$rc_mk"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -644,7 +636,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-l (targets test l): mutant drops bwrap from require_label.
   # Mutation is applied to a COPY under $ROOT — never to $DETECT itself.
   MUTL="$ROOT/detect-mutl.sh"
-  if mutant_chain "teeth: detect-mutl.sh" "$DETECT" "$MUTL" \
+  if mutant_chain_or_count fail "teeth: detect-mutl.sh" "$DETECT" "$MUTL" \
     '/^    bwrap)  *printf/d'; then
     chmod +x "$MUTL"
     rc_ml=0
@@ -657,13 +649,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-l: mutant must exit 2 for unmapped bwrap" "mutant rc=$rc_ml (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ml.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-m (targets test m): mutant deletes the bwrap report row.
   MUTM="$ROOT/detect-mutm.sh"
-  if mutant_chain "teeth: detect-mutm.sh" "$DETECT" "$MUTM" \
+  if mutant_chain_or_count fail "teeth: detect-mutm.sh" "$DETECT" "$MUTM" \
     '/row "bwrap (sandbox)"/d'; then
     chmod +x "$MUTM"
     CACHE_MM="$ROOT/cache-mm.txt"
@@ -676,14 +666,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-m: mutant still prints bwrap row — test-m has no teeth" \
          "(line=[$(grep '^  bwrap' "$CACHE_MM" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-n (targets test n): mutant removes the [ hex ] section header.
   # Asserts that test-n detects a missing section header.
   MUTN="$ROOT/detect-mutn.sh"
-  if mutant_chain "teeth: detect-mutn.sh" "$DETECT" "$MUTN" \
+  if mutant_chain_or_count fail "teeth: detect-mutn.sh" "$DETECT" "$MUTN" \
     '/echo "\[ hex \]"/d'; then
     chmod +x "$MUTN"
     CACHE_MN="$ROOT/cache-mn.txt"
@@ -696,14 +684,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-n: mutant still has [ hex ] header — test-n has no teeth" \
          "(line=[$(grep '\[ hex \]' "$CACHE_MN" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-o (targets test o): mutant removes the krak2 row.
   # Asserts that test-o detects a missing tool label.
   MUTO="$ROOT/detect-muto.sh"
-  if mutant_chain "teeth: detect-muto.sh" "$DETECT" "$MUTO" \
+  if mutant_chain_or_count fail "teeth: detect-muto.sh" "$DETECT" "$MUTO" \
     '/row "krak2"/d'; then
     chmod +x "$MUTO"
     CACHE_MO="$ROOT/cache-mo.txt"
@@ -716,15 +702,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-o: mutant still prints krak2 row — test-o has no teeth" \
          "(line=[$(grep '^  krak2 ' "$CACHE_MO" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # teeth-p (targets test p): mutant removes the [ deliverable / render ] section header.
   MUTP="$ROOT/detect-mutp.sh"
-  if mutant_chain "teeth: detect-mutp.sh" "$DETECT" "$MUTP" \
+  if mutant_chain_or_count fail "teeth: detect-mutp.sh" "$DETECT" "$MUTP" \
     '/echo "\[ deliverable \/ render \]"/d'; then
     chmod +x "$MUTP"
     CACHE_MP="$ROOT/cache-mp.txt"
@@ -737,13 +721,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-p: mutant still has [ deliverable / render ] — test-p has no teeth" \
          "(line=[$(grep 'deliverable' "$CACHE_MP" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-q (targets test q): mutant removes the latex row.
   MUTQ="$ROOT/detect-mutq.sh"
-  if mutant_chain "teeth: detect-mutq.sh" "$DETECT" "$MUTQ" \
+  if mutant_chain_or_count fail "teeth: detect-mutq.sh" "$DETECT" "$MUTQ" \
     '/row "latex"/d'; then
     chmod +x "$MUTQ"
     CACHE_MQ="$ROOT/cache-mq.txt"
@@ -756,13 +738,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-q: mutant still prints latex row — test-q has no teeth" \
          "(line=[$(grep '^  latex ' "$CACHE_MQ" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-r (targets test r): mutant drops latex from require_label → exit 2.
   MUTR="$ROOT/detect-mutr.sh"
-  if mutant_chain "teeth: detect-mutr.sh" "$DETECT" "$MUTR" \
+  if mutant_chain_or_count fail "teeth: detect-mutr.sh" "$DETECT" "$MUTR" \
     '/^    latex)/d'; then
     chmod +x "$MUTR"
     rc_mr=0
@@ -775,13 +755,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-r: mutant must exit 2 for unmapped latex" "mutant rc=$rc_mr (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mr.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-s (targets test s): mutant drops circuitikz from require_label → exit 2.
   MUTS="$ROOT/detect-muts.sh"
-  if mutant_chain "teeth: detect-muts.sh" "$DETECT" "$MUTS" \
+  if mutant_chain_or_count fail "teeth: detect-muts.sh" "$DETECT" "$MUTS" \
     '/^    circuitikz)/d'; then
     chmod +x "$MUTS"
     rc_ms=0
@@ -794,8 +772,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-s: mutant must exit 2 for unmapped circuitikz" "mutant rc=$rc_ms (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_ms.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -834,7 +810,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # teeth-t1 (targets test t): mutant drops capinfos from require_label.
   MUT_T1="$ROOT/detect-mut-t1.sh"
-  if mutant_chain "teeth: detect-mut-t1.sh" "$DETECT" "$MUT_T1" \
+  if mutant_chain_or_count fail "teeth: detect-mut-t1.sh" "$DETECT" "$MUT_T1" \
     '/^    capinfos)  *printf/d'; then
     chmod +x "$MUT_T1"
     rc_mt1=0
@@ -847,13 +823,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-t1: mutant must exit 2 for unmapped capinfos" "mutant rc=$rc_mt1 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt1.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t2 (targets test t): mutant drops unsquashfs from require_label.
   MUT_T2="$ROOT/detect-mut-t2.sh"
-  if mutant_chain "teeth: detect-mut-t2.sh" "$DETECT" "$MUT_T2" \
+  if mutant_chain_or_count fail "teeth: detect-mut-t2.sh" "$DETECT" "$MUT_T2" \
     '/^    unsquashfs)  *printf/d'; then
     chmod +x "$MUT_T2"
     rc_mt2=0
@@ -866,13 +840,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-t2: mutant must exit 2 for unmapped unsquashfs" "mutant rc=$rc_mt2 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt2.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t3 (targets test t): mutant drops pwsh from require_label.
   MUT_T3="$ROOT/detect-mut-t3.sh"
-  if mutant_chain "teeth: detect-mut-t3.sh" "$DETECT" "$MUT_T3" \
+  if mutant_chain_or_count fail "teeth: detect-mut-t3.sh" "$DETECT" "$MUT_T3" \
     '/^    pwsh)  *printf/d'; then
     chmod +x "$MUT_T3"
     rc_mt3=0
@@ -885,13 +857,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-t3: mutant must exit 2 for unmapped pwsh" "mutant rc=$rc_mt3 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt3.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-t4 (targets test t): mutant drops ezdxf from require_label.
   MUT_T4="$ROOT/detect-mut-t4.sh"
-  if mutant_chain "teeth: detect-mut-t4.sh" "$DETECT" "$MUT_T4" \
+  if mutant_chain_or_count fail "teeth: detect-mut-t4.sh" "$DETECT" "$MUT_T4" \
     '/^    ezdxf)  *printf/d'; then
     chmod +x "$MUT_T4"
     rc_mt4=0
@@ -904,13 +874,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       no "teeth-t4: mutant must exit 2 for unmapped ezdxf" "mutant rc=$rc_mt4 (want 2 + unknown-tool line) stderr=[$(cat "$ROOT/err-rc_mt4.txt" 2>/dev/null)]"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 
   # teeth-u (targets test u): mutant drops the capinfos row from report().
   MUT_U="$ROOT/detect-mut-u.sh"
-  if mutant_chain "teeth: detect-mut-u.sh" "$DETECT" "$MUT_U" \
+  if mutant_chain_or_count fail "teeth: detect-mut-u.sh" "$DETECT" "$MUT_U" \
     '/row "capinfos"/d'; then
     chmod +x "$MUT_U"
     CACHE_MU="$ROOT/cache-mu.txt"
@@ -923,8 +891,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-u: mutant still prints capinfos row — test-u has no teeth" \
          "(line=[$(grep '^  capinfos ' "$CACHE_MU" | head -1)])"
     fi
-  else
-    fail=$((fail+1))  # the helper only PRINTS its FAIL line and never touches fail; counted here, once; tooth not run
   fi
 fi
 
@@ -958,7 +924,7 @@ else no "binwalk-major: RSDD_BINWALK not executable" "[$(grep -E '^  binwalk' <<
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   MUT_BW="$ROOT/detect-mut-bw.sh"
-  if mutant_chain "teeth: detect-mut-bw.sh" "$DETECT" "$MUT_BW" \
+  if mutant_chain_or_count fail "teeth: detect-mut-bw.sh" "$DETECT" "$MUT_BW" \
     's/elif \[ "\${bw_ver%%\.\*}" != "2" \]; then/elif false; then/'; then
     chmod +x "$MUT_BW"
     out_mbw="$(RSDD_PROBE_TIMEOUT=2 PATH="$BIN_BW3:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
@@ -966,8 +932,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if ! grep -qE '^  binwalk +WARN' <<<"$out_mbw"; then
       ok "teeth-binwalk-major: major check disabled → no WARN for 3.x — binwalk-major bites" "(WARN absent)"
     else no "teeth-binwalk-major: mutant still WARNs" ""; fi
-  else
-    fail=$((fail+1))
   fi
 fi
 
