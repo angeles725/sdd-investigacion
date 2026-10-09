@@ -198,12 +198,13 @@ OWN home (`C:\ProgramData\Niagara4.13\<brand>\security\`), while the interactive
 therefore has to exist in BOTH locations, and a `{valid}` from the CLI proves only the install side.
 
 Live-licence deploy checklist step: after placing a licence or certificate in the install's
-`security\`, place (or confirm) the same file under the daemon's `security\` home, hash-compare both
-copies against the source, and only then judge the daemon's behaviour.
+`security\`, place (or confirm) the same file under the daemon's `security\` home, verify both
+copies against the source per the METHODOLOGY §12 hash-verify rule, and only then judge the daemon's behaviour.
 
 The automated CHECK for install-vs-daemon parity is **deferred**: there is no substrate to build it
 on yet and incidence is a single target. The recurrence (B1217 §1217.2; B1215 §1215.3; B1202/B1203
-lineage) is recorded here as prose until a second target shows the same shape. Refs #2034.
+lineage) is recorded here as prose until a second target shows the same shape. Revisit trigger: when a second target shows the problem,
+add a `--daemon-home` option to `niagara-security-audit.sh`. Refs #2034.
 
 ## 7. Module-load oracle: direct `station.exe <name>` launch `[#1902]`
 
@@ -238,7 +239,8 @@ not sufficient" note in METHODOLOGY §12 (kit #1540).
 
 **`NIAGARA_HOME` at both scopes `[#2031]`.** A same-named user-scope variable (typically left behind
 by a second OEM installer) shadows the machine-scope one; see REMOTE-POWERSHELL.md §8. Version-switch
-scripts must set `NIAGARA_HOME` at BOTH Machine and User scope and verify with `nre -version`, not
+scripts must set `NIAGARA_HOME` at BOTH Machine and User scope, mirror it into the running session
+(`$env:NIAGARA_HOME = ...`; registry writes never reach a running process), and verify with `nre -version`, not
 with service state.
 
 ## 8. Defensive notes: config.bog and credentials.xml exposure `[#1599][#1600][#1601]`
