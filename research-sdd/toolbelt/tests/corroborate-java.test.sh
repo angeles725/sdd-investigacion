@@ -460,6 +460,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  _PY_CRASH="$(mutant_crash_re py)" || exit 2
   # python mutants: no bash -n (scoped per call below, never exported: #1814)
   # Scratch lives under $ROOT, so the suite's own EXIT trap (which also restores write permission
   # on trusted-tools) cleans it on every path.
@@ -553,7 +554,7 @@ PY
       local name="$1" expr="$2"; shift 2
       local mut="$td_java/mut/cf-$name.py"
       if ! MUTANT_SYNTAX=none mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
-      if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks "${FX_BAD_LACKS:-Traceback|ImportError|ModuleNotFoundError}" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+      if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks "${FX_BAD_LACKS:-$_PY_CRASH}" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     }
     R=(python3 "$ROOT/facts-runner.py" @SUT@ "$FX/facts.jar")
     fx_tooth threshold 's/^RESUGAR_MIN_MAJOR = 53$/RESUGAR_MIN_MAJOR = 66/' \

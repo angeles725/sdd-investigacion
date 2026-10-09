@@ -50,7 +50,7 @@ for f in SKILL PROMPT-LOOP METHODOLOGY; do
 done
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built || exit 2
+mutant_bootstrap mutant_chain mutant_built || die "lib/mutant.sh bootstrap failed (see the mutant_bootstrap FATAL line above)"
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }

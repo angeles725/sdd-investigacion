@@ -633,7 +633,7 @@ else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 # mutant-syntax-export-lint, detonate-exec and trace-exec; batch 1 (56 suites) moved every other
 # mutant.sh-only probe loop. NOT MIGRATED (deferred, scope is partial):
 # hand-rolled probe loops remain in 3 suites (owned by another open PR; enumerate with
-# `rg -l 'lib/mutant.sh (did not define|lacks)' research-sdd`, minus lib/mutant.sh itself); crash literals
+# `rg -l 'lib/mutant.sh (did not define|lacks|missing)' research-sdd`, minus lib/mutant.sh itself); crash literals
 # that differ in meaning stay local: decompile-net/decompile-native CRASH_RE (ImportError without
 # ModuleNotFoundError), research-sdd-status-followups CRASH and verify-skill-drift-hook _CRASH (no
 # `integer expression expected`); decompile-native probes suite-local functions, not mutant.sh ones.
