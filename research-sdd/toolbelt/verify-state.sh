@@ -21,7 +21,8 @@ set -uo pipefail
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
 while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
-_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
 _FPLIB="$_RSDD_SELF/lib/focus-prefix.sh"
 if [ ! -f "$_FPLIB" ]; then
   echo "verify-state: cannot find helper $_FPLIB" >&2; exit 1
@@ -595,7 +596,7 @@ _p8_root_check() {
       path_dir="$(dirname "$path")"
       if [ -d "$path_dir" ]; then
         # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
-        canon_dir="$(CDPATH= cd -P -- "$path_dir" 2>/dev/null && pwd -P)"
+        canon_dir="$(CDPATH='' cd -P -- "$path_dir" 2>/dev/null && pwd -P)"
         case "$canon_dir" in
           ''|*$'\n'*) ;;  # canonicalization failed/corrupted — keep path as-is
           *) path_base="$(basename "$path")"; path="$canon_dir/$path_base" ;;
@@ -656,7 +657,7 @@ fi
 # still fail for other environmental reasons (removed between the top-of-script check and here, a
 # permission change, etc.) — verified below, never assumed.
 # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
-_p8_canon="$(CDPATH= cd -P -- "$_p8_hroot" 2>/dev/null && pwd -P)"
+_p8_canon="$(CDPATH='' cd -P -- "$_p8_hroot" 2>/dev/null && pwd -P)"
 _p8_root_ok=1
 case "$_p8_canon" in
   ''|*$'\n'*) _p8_root_ok=0 ;;

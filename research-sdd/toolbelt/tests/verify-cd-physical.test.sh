@@ -24,6 +24,7 @@
 #   5h2  a bare `*` statement is never glob-expanded into a filename-shaped assignment (#1033)
 #   5p   a `;` inside `$( )` does not hide a bare climb — first/middle/last statement (issue #1921)
 #   5q   the -P'd `;` twin is clean and its climb counts as seen (no no-match)
+#   5x/5y the shared RSDD-SELF-DIR idiom roots `_RSDD_SELF`: a non -P climb from it is flagged, the -P'd twin is clean (#1675)
 #   5r   `;` inside quotes/backticks is data; a `;` after a `#` comment is not a statement
 #   5s   nested `$( )`: the outer climbing cd is judged on its own -P, not an inner cd's
 #   5u   a `..` reaching cd through a nested substitution is still flagged (#1921 review)
@@ -324,6 +325,36 @@ if [ "$RC5Q" -eq 0 ] && ! <<<"$OUT5Q" grep -q 'no-match\|^HIT'; then
   ok "5q the -P'd ';'-inside-\$( ) form is clean and its climb counts as seen (no no-match)"
 else
   no "5q -P'd ';' form wrongly flagged or reported no-match (rc=$RC5Q out=[$OUT5Q])"
+fi
+
+# ── 5x/5y. The shared RSDD-SELF-DIR idiom (kit #1675) roots a variable: a non -P climb from $_RSDD_SELF is
+#        flagged, and the -P'd twin is clean AND counts as a seen climb. (Before #1675's review the idiom's
+#        `_RSDD_SELF=` line was never tainted, so every `cd ... "$_RSDD_SELF/.."` climb was invisible.)
+box5x="$(mkbox case-rsdd-self-bare)"
+cat > "$box5x/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+_rsdd_s="${BASH_SOURCE[0]}"
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"
+KIT="$(cd -- "$_RSDD_SELF/.." && pwd)"
+EOF
+OUT5X="$(bash "$SUT" "$box5x" 2>&1)"; RC5X=$?
+if [ "$RC5X" -eq 1 ] && <<<"$OUT5X" grep -q 'HIT .*fixed\.sh:4'; then
+  ok "5x a non -P climb from \$_RSDD_SELF (the shared idiom) is flagged"
+else
+  no "5x a bare climb from \$_RSDD_SELF was missed (rc=$RC5X out=[$OUT5X])"
+fi
+box5y="$(mkbox case-rsdd-self-fixed)"
+cat > "$box5y/fixed.sh" <<'EOF'
+#!/usr/bin/env bash
+_rsdd_s="${BASH_SOURCE[0]}"
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
+EOF
+OUT5Y="$(bash "$SUT" "$box5y" 2>&1)"; RC5Y=$?
+if [ "$RC5Y" -eq 0 ] && ! <<<"$OUT5Y" grep -q 'no-match\|^HIT'; then
+  ok "5y the -P'd climb from \$_RSDD_SELF is clean and counts as a seen climb (no no-match)"
+else
+  no "5y -P'd climb from \$_RSDD_SELF wrongly flagged or reported no-match (rc=$RC5Y out=[$OUT5Y])"
 fi
 
 # ── 5r. A `;` inside double quotes, single quotes or backticks is data, not a separator; the splitter
@@ -720,6 +751,11 @@ EOF
     fi
   }
   # line 2 (`local`) still hits in the mutant, so the exit code stays 1: the bite is the lost line-3 HIT.
+  # #1675: the idiom recognition has a mutant that reverts exactly it (the `_RSDD_SELF=` line is no longer rooted).
+  fu_tooth rsdd-self-taint "$box5x" 4 "$(cat <<'EOF'
+s#\*'"\$_rsdd_s"'\*#*'@never@'*#
+EOF
+)"
   fu_tooth export-prefix "$box5g" 3 's/(local|export|/(local|/' 1
   fu_tooth second-climb "$box5m" 2 's/^          _climb_ok=1$/          _climb_ok=1; break/'
   fu_tooth or-pipe-split "$box5o" 2 "s#elif \[ \"\$c\" = '|' \]; then#elif [ \"\$c\" = '@' ]; then#"
