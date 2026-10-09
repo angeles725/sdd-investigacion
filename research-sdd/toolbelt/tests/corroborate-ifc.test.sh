@@ -183,7 +183,7 @@ fi
 echo "--- mutation control ---"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
 # dead-stage refusals still apply).
 export RSDD_IFC_PY
@@ -221,7 +221,7 @@ if ! python3 "$1" --manifest-cli "$(dirname "$1")/analysis_manifest.py" --input 
 fi
 python3 "$3" "$o/out/ifc-evidence.v1.json"
 SH
-if MUTANT_SYNTAX=none mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
+if MUTANT_SYNTAX=none mutant_chain_or_count fail "sort-key mutation" "$ORIG_PY" "$MUTDIR/corroborate_ifc.py" "s/-x\['count'\]/x['count']/"; then
   if mutant_tooth "teeth: histogram sort-key mutation breaks count-descending order" 0 0 \
       "$MUTDIR/corroborate_ifc.py" --orig "$ORIG_PY" \
       --good-has 'SORT: descending' --bad-has 'SORT: broken' --bad-lacks 'SORT: descending' -- \
@@ -229,8 +229,6 @@ if MUTANT_SYNTAX=none mutant_chain "sort-key mutation" "$ORIG_PY" "$MUTDIR/corro
       @SUT@ "$FIXTURES/valid.ifc" "$MUTDIR/order_check.py"; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
-else
-  fail=$((fail+1))
 fi
 rm -rf "$MUTDIR"
 

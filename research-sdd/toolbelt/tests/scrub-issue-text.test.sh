@@ -138,16 +138,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: scrub-issue-text.sh --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   MUT="$ROOT/mut"; mkdir -p "$MUT"
   CRASH="$(mutant_crash_re bash py awk cmd)" || exit 2
   # tooth <label> <input> <good-has> <sed-expr...>: the mutant must keep the raw text the original removed.
   tooth() {
     local label="$1" in="$2" rx="$3"; shift 3
     local m="$MUT/m$((++mi)).sh"
-    if mutant_chain "$label" "$SUT" "$m" "$@"; then
+    if mutant_chain_or_count fail "$label" "$SUT" "$m" "$@"; then
       if mutant_tooth "$label" 0 0 "$m" --good-has "$rx" --bad-lacks "$rx|$CRASH" -- \
            "$BASH_BIN" -c '. "$1"; printf "%s\n" "$2" | "${3:-scrub_issue_text}"' _ @SUT@ "$in" "$TFN"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-    else fail=$((fail+1)); fi
+    fi
   }
   mi=0; TFN=scrub_issue_text
   tooth "T-path-off: home path rule disabled → raw path leaks" 'at /home/bob/x end' 'at <path> end' 's/while (bmatch(line)) {/while (0) {/'
@@ -196,10 +197,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth "T-tail-bracket: ] allowed in path tail" 'see [/home/u/z] ok' 'see \[<path>\] ok' 's/\[^\]\[:space:\]`/[^[:space:]`/g'
   # count tooth: the path rule stops incrementing → the typed count lies
   m="$MUT/mcount.sh"
-  if mutant_chain "T-count: path rule stops counting" "$SUT" "$m" 's/"<path>"; line = substr(line, RSTART + RLENGTH); count++/"<path>"; line = substr(line, RSTART + RLENGTH)/'; then
+  if mutant_chain_or_count fail "T-count: path rule stops counting" "$SUT" "$m" 's/"<path>"; line = substr(line, RSTART + RLENGTH); count++/"<path>"; line = substr(line, RSTART + RLENGTH)/'; then
     if mutant_tooth "T-count: path rule stops counting → count reads 0" 0 0 "$m" --good-has 'redactions: 1' --bad-lacks "redactions: 1|$CRASH" -- \
          "$BASH_BIN" -c '. "$1"; printf "%s\n" "/home/u/x" | scrub_issue_text_count' _ @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
-  else fail=$((fail+1)); fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

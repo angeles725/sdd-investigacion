@@ -1803,7 +1803,7 @@ out40b="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40b=$?
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   MUT="$(mktemp -d)"
   trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
   export MUTANT_TOOTH_ICASE=1   # the output predicates below are case-insensitive, as they always were
@@ -1811,7 +1811,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # suite's counters, so the caller counts.
   # mk_sed LABEL OUT EXPR...  build $OUT from $SUT, one sed stage per EXPR (mutant_chain: each stage must change
   # the original ON ITS OWN, a chain whose first stage applies would hide a later no-op stage).
-  mk_sed(){ local label="$1" out="$2"; shift 2; mutant_chain "$label" "$SUT" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
+  mk_sed(){ local label="$1" out="$2"; shift 2; mutant_chain_or_count fail "$label" "$SUT" "$out" "$@" || return 1; }
   # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
   # The shared mutant_tooth runs ARGV against the original ('@SUT@' -> $SUT) and the mutant: PASS only when the
   # original returns exactly GOOD_RC (output matches --good-has, not --good-lacks) AND the mutant returns exactly

@@ -500,15 +500,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== --prove-teeth =="
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_cleanup_register || exit 2
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_cleanup_register mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
   MUT="$(mktemp -d)"
   mutant_cleanup_register "$MUT"   # chained onto the suite's own EXIT trap (ROOT cleanup), never replacing it
   # Thin counting wrappers over the shared helpers: they print their own FAIL/PASS lines and never touch
   # this suite's counters, so the caller counts.
   # mk_sed LABEL OUT EXPR...  build $OUT from $SUT, one sed stage per EXPR (each must apply on its own).
-  mk_sed() { local label="$1" out="$2"; shift 2; mutant_chain "$label" "$SUT" "$out" "$@" || { fail=$((fail+1)); return 1; }; }
+  mk_sed() { local label="$1" out="$2"; shift 2; mutant_chain_or_count fail "$label" "$SUT" "$out" "$@" || return 1; }
   # mk_verify LABEL OUT  validate a mutant built another way (awk), same refusals as mk_sed.
-  mk_verify() { mutant_built "$1" "$SUT" "$2" || { fail=$((fail+1)); return 1; }; }
+  mk_verify() { mutant_built_or_count fail "$1" "$SUT" "$2" || return 1; }
   # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-has RE] [--bad-lacks RE] -- ARGV...
   # Shared mutant_tooth ('@SUT@' -> $SUT for the original, the mutant for the bad run; stdout+stderr merged):
   # exact GOOD_RC + positive output on the original AND exact BAD_RC + positive output on the mutant.

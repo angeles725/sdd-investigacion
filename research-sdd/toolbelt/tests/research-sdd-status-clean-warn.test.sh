@@ -22,7 +22,7 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 echo "== research-sdd-status-clean-warn.test.sh =="
 
 # mkcorpus DIR IO — a git-tracked corpus; IO=0 is an exhausted STOP, IO=1 a NEXT.
@@ -152,7 +152,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt() { # LABEL SED-EXPR GOOD-RC BAD-RC [tooth flags] -- ARGV
     local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
     local m="$MUT/research-sdd-status.sh"
-    rm -f "$m"; mutant_chain "$label" "$SUT" "$m" "$expr" || { fail=$((fail+1)); return; }
+    rm -f "$m"; mutant_chain_or_count fail "$label" "$SUT" "$m" "$expr" || return 0
     if mutant_tooth "teeth: $label" "$grc" "$brc" "$m" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   # A: findings branch no longer echoes the finding lines
@@ -169,42 +169,42 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt D 's/\[ "\${RSDD_STATUS_NO_CLEAN_CHECK:-0}" = "1" \] && return 0//' 0 0 --good-lacks 'clean-check' --bad-has 'clean-check' -- env RSDD_STATUS_NO_CLEAN_CHECK=1 bash '@SUT@' "$TMP/c5" --next
   # E: timeout bound removed -> the slow clean-check runs its full 6s
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain E "$SUT" "$m" 's/"\$_cc_to" -k 5 "\$_cc_secs" bash/bash/'; then
+  if mutant_chain_or_count fail E "$SUT" "$m" 's/"\$_cc_to" -k 5 "\$_cc_secs" bash/bash/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit7/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
     if [ "$el" -ge "$CEIL7" ]; then ok "teeth E: unbounded mutant waited ${el}s -> 7a has teeth"; else no "teeth E: mutant still bounded (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
-  else fail=$((fail+1)); fi
+  fi
   # F: the INFO line leaks to stdout -> the golden compare (stdout+rc, check on vs off) goes red
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain F "$SUT" "$m" "s/at terminal STOP.n' >&2 ;;/at terminal STOP\\n' ;;/"; then
+  if mutant_chain_or_count fail F "$SUT" "$m" "s/at terminal STOP.n' >&2 ;;/at terminal STOP\\n' ;;/"; then
     a="$(bash "$m" "$TMP/c1" --next 2>/dev/null)"; b="$(RSDD_STATUS_NO_CLEAN_CHECK=1 bash "$m" "$TMP/c1" --next 2>/dev/null)"
     if [ "$a" != "$b" ]; then ok "teeth F: stdout leak -> golden differs -> 8a has teeth"; else no "teeth F: mutant still identical — THEATER"; fi
-  else fail=$((fail+1)); fi
+  fi
   # G: kill-after removed -> a TERM-ignoring child is waited on in full
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain G "$SUT" "$m" 's/"\$_cc_to" -k 5 /"$_cc_to" /'; then
+  if mutant_chain_or_count fail G "$SUT" "$m" 's/"\$_cc_to" -k 5 /"$_cc_to" /'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit10/clean-check.sh" "$MUT/clean-check.sh"
     t0=$SECONDS; RSDD_STATUS_CLEAN_CHECK_TIMEOUT=1 bash "$m" "$TMP/c1" --next >/dev/null 2>&1; el=$((SECONDS-t0))
     if [ "$el" -ge "$CEIL10" ]; then ok "teeth G: no kill-after -> waited ${el}s -> 10 has teeth"; else no "teeth G: mutant still killed (${el}s) — THEATER"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
-  else fail=$((fail+1)); fi
+  fi
   # H2: leading-zero strip dropped -> '000' is no longer recognised as zero and passes through
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain H2 "$SUT" "$m" 's/^    \*) _cc_stripped=.*$/    *) _cc_stripped="$_cc_secs" ;;/'; then
+  if mutant_chain_or_count fail H2 "$SUT" "$m" 's/^    \*) _cc_stripped=.*$/    *) _cc_stripped="$_cc_secs" ;;/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit9/clean-check.sh" "$MUT/clean-check.sh"
     e="$(RSDD_STATUS_CLEAN_CHECK_TIMEOUT=000 bash "$m" "$TMP/c1" --next 2>&1 >/dev/null)"
     if grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$e"; then no "teeth H2: mutant still rejects 000 — THEATER"; else ok "teeth H2: no leading-zero strip -> 000 accepted -> 9 has teeth"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
-  else fail=$((fail+1)); fi
+  fi
   # H: zero no longer rejected (empty-check disabled) -> test 9's typed fallback WARN disappears
   m="$MUT/research-sdd-status.sh"; rm -f "$m"
-  if mutant_chain H "$SUT" "$m" 's/if \[ -z "\$_cc_stripped" \]; then/if false; then/'; then
+  if mutant_chain_or_count fail H "$SUT" "$m" 's/if \[ -z "\$_cc_stripped" \]; then/if false; then/'; then
     rm -f "$MUT/clean-check.sh"; cp "$TMP/kit9/clean-check.sh" "$MUT/clean-check.sh"
     e="$(RSDD_STATUS_CLEAN_CHECK_TIMEOUT=0 bash "$m" "$TMP/c1" --next 2>&1 >/dev/null)"
     if grep -q 'invalid RSDD_STATUS_CLEAN_CHECK_TIMEOUT' <<<"$e"; then no "teeth H: mutant still rejects 0 — THEATER"; else ok "teeth H: zero accepted -> 9 has teeth"; fi
     rm -f "$MUT/clean-check.sh"; ln -s "$TB/clean-check.sh" "$MUT/clean-check.sh"
-  else fail=$((fail+1)); fi
+  fi
 fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

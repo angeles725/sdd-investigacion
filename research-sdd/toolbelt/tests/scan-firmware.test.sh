@@ -73,8 +73,8 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
-  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SOURCE" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain_or_count fail "$l" "$SOURCE" "$o" "$@" || return 1; }
   echo "-- teeth: M1 mutation: revert binwalk entropy guard to || true → S4 must go red --"
   _m1="$ROOT/scan-firmware.M1.sh"
   # Revert the PIPESTATUS-guarded form back to bare '|| true'.

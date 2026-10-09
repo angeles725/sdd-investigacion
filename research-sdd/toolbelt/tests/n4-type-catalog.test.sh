@@ -321,6 +321,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of n4_type_catalog.py must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUT"' EXIT
   # python mutants: MUTANT_SYNTAX=none is scoped per mutant_chain call, never exported (#1814)
   # pyok LABEL FILE : a mutant must still compile, so a syntax-broken mutant can never read as teeth
@@ -332,7 +333,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # GOOD_PATTERN and the mutant to LACK it (same rc 0 on both: only the verdict text flips).
   mp() {
     local label="$1" expr="$2" pat="$3" rc="${MP_RC:-0}"; shift 3
-    MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" ${MP_EXPR2:+"$MP_EXPR2"} || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$PY" "$MUT/m_$$.py" "$expr" ${MP_EXPR2:+"$MP_EXPR2"} || return 1
     pyok "$label" "$MUT/m_$$.py" || { fail=$((fail+1)); return 1; }
     if mutant_tooth "$label" "$rc" "$rc" "$MUT/m_$$.py" --orig "$PY" --good-has "$pat" --bad-lacks "$pat" -- python3 @SUT@ "$@"; then
       pass=$((pass+1))
@@ -344,7 +345,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mx LABEL EXPR GOOD_RC BAD_RC ARGV... : exit-code teeth
   mx() {
     local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
-    MUTANT_SYNTAX=none mutant_chain "$label" "$PY" "$MUT/m_$$.py" "$expr" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$PY" "$MUT/m_$$.py" "$expr" || return 1
     pyok "$label" "$MUT/m_$$.py" || { fail=$((fail+1)); return 1; }
     # MX_BADHAS: the mutant's output must name the expected failure (e.g. KeyError), so rc 1 alone is never the proof
     # shellcheck disable=SC2086 # MX_PREFIX is a deliberate word-split command prefix (e.g. "timeout 5")
@@ -385,7 +386,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mp "M19 hex literal branch removed" 's/\^0\[xX\]\[0-9a-fA-F\]+\$/^NOPE$/' 'hex +flags=16 +a ' show "$ROOT/num" BNum
   mp "M20 only the first |-separated numeric token decoded" 's/for part in expr\.split("|"):/for part in expr.split("|")[:1]:/' 'multi +flags=1032 ' show "$ROOT/num" BNum
   # M21 asserts the FULL printed sequence of hits (fixture walk order is zz,mm,aa; sorted is aa,mm,zz), so only the sort fixes it
-  MUTANT_SYNTAX=none mutant_chain "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain_or_count fail "M21" "$PY" "$MUT/m21.py" 's/hits = sorted(\(.*\))$/hits = list(\1)/'
   if mutant_tooth "M21 show hits not sorted (full sequence must be aa,mm,zz)" 0 0 "$MUT/m21.py" --orig "$PY" --good-has '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' --bad-lacks '^aa\.pkg\.BFoo,mm\.pkg\.BFoo,zz\.pkg\.BFoo$' -- bash -c 'python3 "$1" show "$2" BFoo | grep -oE "^[a-z.]+BFoo" | paste -sd, -' _ @SUT@ "$ROOT/two"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m21.py"
   MP_RC=1 mp "M22 empty-catalog message folded into 'no such type'" '0,/^    if not cat:$/s//    if False:/' 'no types catalogued' show "$ROOT/empty" BFoo
@@ -398,7 +399,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   MX_BADHAS=FileNotFoundError mx "M28 OSError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(ValueError, RecursionError)/' 2 1 show "$ROOT/no-such-catalog.json" B
   MX_BADHAS=UnicodeDecodeError mx "M29 ValueError no longer typed (exit 2 -> 1)" 's/(OSError, ValueError, RecursionError)/(OSError, RecursionError)/' 2 1 show "$ROOT/m-utf8.json" B
   # emission side of the slot-key round trip (T20a): build stops emitting 'facets' -> the script run on the MUTANT reports it
-  MUTANT_SYNTAX=none mutant_chain "M30" "$PY" "$MUT/m30.py" 's/rec\["default"\], rec\["facets"\] = _default_and_facets/rec["default"], _unused = _default_and_facets/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain_or_count fail "M30" "$PY" "$MUT/m30.py" 's/rec\["default"\], rec\["facets"\] = _default_and_facets/rec["default"], _unused = _default_and_facets/'
   pyok "M30" "$MUT/m30.py" || fail=$((fail+1))
   if mutant_tooth "M30 build stops emitting the 'facets' slot key (T20a round trip must go red)" 0 1 "$MUT/m30.py" --orig "$PY" --good-has '^slots [1-9][0-9]*$' --bad-has "^MISSING .*facets" -- python3 -I "$ROOT/roundtrip.py" @SUT@ "$FX/doc" "$FX/cfr"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   rm -f "$MUT/m30.py"
