@@ -19,8 +19,10 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# --prove-teeth child runs point the cases at a staged mutant copy of kaitai_driver.py.
-DRIVER_LIB="${RSDD_TEETH_KD_SUT:+$(dirname "$RSDD_TEETH_KD_SUT")}"; DRIVER_LIB="${DRIVER_LIB:-$HERE/../lib}"
+# --prove-teeth child run: `--teeth-child <staged kaitai_driver.py>` (an argument, never an environment
+# variable, so ambient env cannot swap the SUT of a plain run) points the cases at a staged mutant.
+DRIVER_LIB="$HERE/../lib"
+if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then DRIVER_LIB="$(dirname "$2")"; fi
 
 # ---------------------------------------------------------------------------
 # Dependency guard
@@ -369,7 +371,7 @@ fi
 
 # ---------------------------------------------------------------------------
 # --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
-# lib/kaitai_driver.py; the whole suite is re-run with RSDD_TEETH_KD_SUT pointing at the mutant
+# lib/kaitai_driver.py; the whole suite is re-run with --teeth-child pointing at the mutant
 # and the named case must FAIL.
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--prove-teeth" ]]; then
@@ -380,32 +382,33 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _KD_REAL="$HERE/../lib/kaitai_driver.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$_MUT"' EXIT
   _builds_failed=0
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
   # _tooth_kd LABEL BAD_CASE_LABEL BUILD_CMD... : BUILD_CMD gets the mutant OUT path appended.
   _tooth_kd() {
     local label="$1" want="$2" d; shift 2
     d="$_MUT/${label%%:*}"; mkdir -p "$d"
     mutant_or_count _builds_failed "$@" "$d/kaitai_driver.py" || return 1
     mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/kaitai_driver.py" --orig "$_KD_REAL" \
-      --bad-has "FAIL  $want" --bad-lacks "$(mutant_crash_re imp)|SyntaxError" -- \
-      env RSDD_TEETH_KD_SUT=@SUT@ bash "$HERE/kaitai-driver-walk-memcap.test.sh"
+      --bad-has "$want" --bad-lacks "$_CRASH" -- \
+      bash "$HERE/kaitai-driver-walk-memcap.test.sh" --teeth-child @SUT@
   }
   _t() { if _tooth_kd "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # T1 (:142): the walk-phase `except MemoryError` guard no longer catches MemoryError.
-  _t "kd-walk-guard: walk-phase except MemoryError retargeted" "T1:" \
+  _t "kd-walk-guard: walk-phase except MemoryError retargeted" "AssertionError: expected exit 0, got" \
     mutant_py_replace "kd-walk-guard" "$_KD_REAL" \
     $'    except MemoryError:\n        # RLIMIT_AS exhaustion during walk' \
     $'    except ZeroDivisionError:\n        # RLIMIT_AS exhaustion during walk'
   # T2 (:255): the write-all loop collapses to a single write (offset jumps to the end).
-  _t "kd-single-write: write-all loop advances past a short write" "T2:" \
+  _t "kd-single-write: write-all loop advances past a short write" "json.decoder.JSONDecodeError" \
     mutant_py_replace "kd-single-write" "$_KD_REAL" \
     '            _offset += _n' '            _offset = len(result_bytes)'
   # T3 (:364): a zero-byte write breaks out and reports success (silent truncation).
-  _t "kd-zero-break: zero-byte write breaks out and returns 0" "T3:" \
+  _t "kd-zero-break: zero-byte write breaks out and returns 0" "AssertionError: expected non-zero exit" \
     mutant_py_replace "kd-zero-break" "$_KD_REAL" \
     '                return 1  # cannot make progress; broken fd' '                break'
   # T3, M6 (pre-specified at the T3 comment): delete the `if _n == 0` branch; the loop spins and the
   # suite's `timeout` turns the hang into a T3 FAIL.
-  _t "kd-m6-no-zero-branch: if _n == 0 branch deleted (hang)" "T3:" \
+  _t "kd-m6-no-zero-branch: if _n == 0 branch deleted (hang)" "FAIL  T3:" \
     mutant_py_replace "kd-m6-no-zero-branch" "$_KD_REAL" \
     $'            if _n == 0:\n                return 1  # cannot make progress; broken fd\n' ''
   rm -rf "$_MUT"

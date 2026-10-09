@@ -3,7 +3,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../scan-firmware.sh"
 TOOLBELT="$(dirname "$HERE")"
 # --prove-teeth child runs point the python-level cases at a mutant copy of firmware_carve.py.
-FC="${RSDD_TEETH_FC_SUT:-$HERE/../firmware_carve.py}"
+FC="$HERE/../firmware_carve.py"
+if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then FC="$2"; fi
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"; rm -f "$ROOT-parent-link"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 run(){ "$SUT" carve "$ROOT/firmware.bin" "$1" "${@:2}"; }
@@ -57,14 +58,14 @@ s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.modu
 p=root/'headers'; h=bytearray(160); struct.pack_into('<5I6H8Q',h,0,0x73717368,1,0,4096,0,1,12,0,1,4,0,0,160,128,0xffffffffffffffff,96,120,0xffffffffffffffff,0xffffffffffffffff); p.write_bytes(h*10000)
 with p.open('r+b') as stream:
  data=mmap.mmap(stream.fileno(),0)
- try: f.candidates(data,2,3,1024); raise AssertionError()
+ try: f.candidates(data,2,3,10**12); raise AssertionError("candidate-count cap not enforced")
  except f.CarveError as exc: assert 'caps' in str(exc)
  data.close()
 for flags,offset in ((0,48),(0x80,88)):
  q=bytearray(h); struct.pack_into('<H',q,24,flags); struct.pack_into('<Q',q,offset,0xffffffffffffffff)
  p.write_bytes(q)
  with p.open('r+b') as stream:
-  data=mmap.mmap(stream.fileno(),0); assert not f.candidates(data,2,3,1024); data.close()
+  data=mmap.mmap(stream.fileno(),0); assert not f.candidates(data,2,3,1024), "required SquashFS table accepted when absent"; data.close()
 PY
 then ok "repeated candidates stay bounded and required SquashFS tables fail closed"; else no "bounded traversal and SquashFS tables"; fi
 if python3 - "$FC" "$ROOT" <<'PY'
@@ -145,7 +146,7 @@ PY
 then ok "worker(): calls refuse_privileged_execution() before accessing args (self-guard)"; else no "worker() self-guard"; fi
 # ---------------------------------------------------------------------------
 # --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
-# firmware_carve.py (lib/ symlinked beside it); the whole suite is re-run with RSDD_TEETH_FC_SUT
+# firmware_carve.py (lib/ symlinked beside it); the whole suite is re-run with --teeth-child
 # pointing the python-level cases at the mutant, and the named case must FAIL.
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" == "--prove-teeth" ]]; then
@@ -156,27 +157,32 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _FC_REAL="$TOOLBELT/firmware_carve.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"; rm -f "$ROOT-parent-link"' EXIT
   _builds_failed=0
+  _CRASH_ALL="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"; _CRASH="$_CRASH_ALL"
   _tooth_fc() { # LABEL BAD_CASE_LABEL SED_EXPR...
     local label="$1" want="$2" d; shift 2
     d="$_MUT/${label%%:*}"; mkdir -p "$d"; ln -s "$TOOLBELT/lib" "$d/lib"
     # The mutant is python: skip only the bash -n check; every other refusal still applies.
     MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$_FC_REAL" "$d/firmware_carve.py" "$@" || return 1
     mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/firmware_carve.py" --orig "$_FC_REAL" \
-      --bad-has "FAIL  $want" --bad-lacks "$(mutant_crash_re imp)|SyntaxError" -- \
-      env RSDD_TEETH_FC_SUT=@SUT@ bash "$HERE/firmware-carve.test.sh"
+      --bad-has "$want" --bad-lacks "$_CRASH" -- \
+      bash "$HERE/firmware-carve.test.sh" --teeth-child @SUT@
   }
   _t() { if _tooth_fc "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  _t "fc-hardlink: external hardlink check disabled" "hardlink safety" \
+  _t "fc-hardlink: external hardlink check disabled" "FAIL  hardlink safety" \
     's/if meta.st_nlink != 1: raise/if False: raise/'
-  _t "fc-caps: candidate count/files cap disabled" "bounded traversal and SquashFS tables" \
+  _t "fc-caps: candidate count/files cap disabled" "AssertionError: candidate-count cap not enforced" \
     's/if len(found) >= max_carves or len(found) + 2 > max_files: raise/if False: raise/'
-  _t "fc-tables: required SquashFS tables accepted when absent" "bounded traversal and SquashFS tables" \
+  _t "fc-tables: required SquashFS tables accepted when absent" "AssertionError: required SquashFS table accepted when absent" \
     's/and all(x != 0xffffffffffffffff for x in required):/and True:/'
-  _t "fc-root-main: main() root guard removed" "caller safety" \
+  _t "fc-root-main: main() root guard removed" "FAIL  caller safety" \
     's/^        refuse_privileged_execution()$/        pass/'
-  _t "fc-root-worker: root guard removed from main() and worker()" "--worker caller safety" \
+  # With the worker() guard gone, the self-guard case reports a legitimate AttributeError ("guard was not
+  # first: got AttributeError"), so the teeth below drop that class from the crash filter. Their bite
+  # patterns stay specific: the case's own FAIL label / exact assertion text.
+  _CRASH="${_CRASH_ALL/|AttributeError/}"
+  _t "fc-root-worker: root guard removed from main() and worker()" "FAIL  --worker caller safety" \
     's/^        refuse_privileged_execution()$/        pass/' 's/^    refuse_privileged_execution()  #.*/    pass/'
-  _t "fc-self-guard: worker() self-guard removed" "worker\\(\\) self-guard" \
+  _t "fc-self-guard: worker() self-guard removed" "AssertionError: guard was not first: got AttributeError" \
     's/^    refuse_privileged_execution()  #.*/    pass/'
   rm -rf "$_MUT"
 fi
