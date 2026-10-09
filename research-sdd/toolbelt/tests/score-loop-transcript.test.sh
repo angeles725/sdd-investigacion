@@ -613,6 +613,14 @@ out="$(STUB_QUEUE_LINE='  campaign        : none (2 active focus(es), 0 with a q
 grep -qE '^C4 degraded STOP is qualified.*\[backlog-unreadable: 2 rows\]' <<<"$out" \
   && ok "1995 qualified STOP + undeclared queue: C4 degraded (not n/a)" || no "1995 qualified+undeclared: C4 ($out)"
 
+# Hermeticity (kit issue #2052): a normal run of the SUT leaves a private TMPDIR empty.
+hp="$ROOT/priv-tmp-normal"; mkdir -p "$hp"
+TMPDIR="$hp" bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" >/dev/null 2>&1; hrc=$?
+if [ "$hrc" -ne 0 ]; then no "2052: normal run did not exit 0 (rc=$hrc), so the cleanup path was not exercised"
+elif [ ! -d "$hp" ]; then no "2052: private TMPDIR $hp is missing, so an empty count proves nothing"
+elif [ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ]; then ok "2052: normal SUT run (rc=0) leaves a private TMPDIR empty"
+else no "2052: normal run leaked $(find "$hp" -mindepth 1 | wc -l) entries"; fi
+
 # ============================================================================================
 # Mutation self-test (--prove-teeth): flip one matching seam per criterion, plus the two
 # round-2 seams explicitly called out (the operator origin.kind filter and the span check),
@@ -826,6 +834,22 @@ LENIENT
     tt "teeth-1017-range-validate: check removed → a non-integer cap is no longer a bad-args exit 2" 2 1 \
       --good-has 'RSDD_BLOCK_RANGE_CAP must be' --bad-lacks 'RSDD_BLOCK_RANGE_CAP must be' -- \
       env RSDD_BLOCK_RANGE_CAP=abc bash @SUT@ --corpus "$ROOT/range-cap"
+    # Hermeticity (kit issue #2052): this mutant aborts mid-scan (set -u on the non-integer cap) after the
+    # SUT has created its git-log temp file. An abnormal exit must still leave a private TMPDIR empty.
+    # Teeth-only: no real SUT path reaches that abort today (the cap is validated at the top of the SUT,
+    # the RANGE_CAP integer check), so the mutant is the only way to drive an abnormal exit here.
+    hp="$ROOT/priv-tmp-abort"; rm -rf "$hp"; mkdir -p "$hp"
+    habort="$(TMPDIR="$hp" RSDD_BLOCK_RANGE_CAP=abc bash "$m" --corpus "$ROOT/range-cap" --transcript "$FIX/continue-clean.jsonl" 2>&1 >/dev/null)"; hrc=$?
+    hl="teeth-1017-range-validate: abnormal SUT exit leaves TMPDIR empty"
+    if [ "$hrc" -eq 0 ] || ! grep -q 'unbound variable' <<<"$habort"; then
+      fail=$((fail+1)); echo "  FAIL  $hl — mutant did not abort with 'unbound variable' (rc=$hrc), abnormal path not exercised"
+    elif [ ! -d "$hp" ]; then
+      fail=$((fail+1)); echo "  FAIL  $hl — private TMPDIR $hp is missing, so an empty count proves nothing"
+    elif [ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ]; then
+      pass=$((pass+1)); echo "  PASS  $hl (rc=$hrc, unbound variable)"
+    else
+      fail=$((fail+1)); echo "  FAIL  $hl — leaked $(find "$hp" -mindepth 1 | wc -l) entries"
+    fi
   fi
 
   echo "-- teeth-1017-status-stderr: drop the status script's stderr from the degraded evidence --"

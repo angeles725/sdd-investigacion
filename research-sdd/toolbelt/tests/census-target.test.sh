@@ -52,12 +52,12 @@ code() { bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
 # verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
 # The builders and the exact-verdict runner are shared (lib/mutant.sh, #1299): they print their own
 # FAIL/PASS line and return non-zero on failure; these adapters only COUNT. MK_ORIG overrides the
 # original a mutant is built from (default $SUT).
-mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "${MK_ORIG:-$SUT}" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
-mk_verify() { mutant_built "$1" "${MK_ORIG:-$SUT}" "$2" || { fail=$((fail+1)); return 1; }; }
+mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain_or_count fail "$l" "${MK_ORIG:-$SUT}" "$o" "$@" || return 1; }
+mk_verify() { mutant_built_or_count fail "$1" "${MK_ORIG:-$SUT}" "$2" || return 1; }
 tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
 echo "== census-target.test.sh (SUT: $(basename "$SUT")) =="
