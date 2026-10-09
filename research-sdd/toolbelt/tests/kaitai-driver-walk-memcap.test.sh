@@ -22,7 +22,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # --prove-teeth child run: `--teeth-child <staged kaitai_driver.py>` (an argument, never an environment
 # variable, so ambient env cannot swap the SUT of a plain run) points the cases at a staged mutant.
 DRIVER_LIB="$HERE/../lib"
-if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then DRIVER_LIB="$(dirname "$2")"; fi
+if [ "${1:-}" = "--teeth-child" ]; then
+  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
+  DRIVER_LIB="$(dirname "$2")"; echo "TEETH-CHILD: SUT=$2"
+fi
 
 # ---------------------------------------------------------------------------
 # Dependency guard
@@ -245,7 +248,10 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     assert ret == 0, f"expected exit 0, got {ret}"
     assert captured, "stdout empty"
-    result = json.loads(captured.decode("utf-8"))
+    try:
+        result = json.loads(captured.decode("utf-8"))
+    except ValueError as exc:
+        raise AssertionError(f"T2: truncated JSON on stdout ({len(captured)} bytes): {exc}") from exc
     assert result.get("memory_cap") is False, (
         f"expected memory_cap:false on happy path, got {result.get('memory_cap')!r}"
     )
@@ -394,12 +400,12 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   }
   _t() { if _tooth_kd "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # T1 (:142): the walk-phase `except MemoryError` guard no longer catches MemoryError.
-  _t "kd-walk-guard: walk-phase except MemoryError retargeted" "AssertionError: expected exit 0, got" \
+  _t "kd-walk-guard: walk-phase except MemoryError retargeted" "got [0-9]+ \\(guard missing\\?\\)" \
     mutant_py_replace "kd-walk-guard" "$_KD_REAL" \
     $'    except MemoryError:\n        # RLIMIT_AS exhaustion during walk' \
     $'    except ZeroDivisionError:\n        # RLIMIT_AS exhaustion during walk'
   # T2 (:255): the write-all loop collapses to a single write (offset jumps to the end).
-  _t "kd-single-write: write-all loop advances past a short write" "json.decoder.JSONDecodeError" \
+  _t "kd-single-write: write-all loop advances past a short write" "AssertionError: T2: truncated JSON on stdout" \
     mutant_py_replace "kd-single-write" "$_KD_REAL" \
     '            _offset += _n' '            _offset = len(result_bytes)'
   # T3 (:364): a zero-byte write breaks out and reports success (silent truncation).

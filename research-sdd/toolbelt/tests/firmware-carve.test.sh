@@ -4,7 +4,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../scan-firmware.sh"
 TOOLBELT="$(dirname "$HERE")"
 # --prove-teeth child runs point the python-level cases at a mutant copy of firmware_carve.py.
 FC="$HERE/../firmware_carve.py"
-if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then FC="$2"; fi
+if [ "${1:-}" = "--teeth-child" ]; then
+  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
+  FC="$2"; echo "TEETH-CHILD: SUT=$FC"
+fi
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"; rm -f "$ROOT-parent-link"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 run(){ "$SUT" carve "$ROOT/firmware.bin" "$1" "${@:2}"; }
