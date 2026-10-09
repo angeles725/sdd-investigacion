@@ -464,7 +464,8 @@ else no "B1: dry-run + --force-skill + existing backup: wrong plan (got: $(print
 #      and produced a wrong "diverged" diagnosis. The new code must catch unreadable source
 #      before cmp -s, make it its own state in dry-run, refuse (rc≠0) in real-run without
 #      leaving a stray backup.
-#      Uses a fake kit (symlink + copy of adapters.sh) so the real kit is never modified.
+#      Uses a fake kit (COPIES of the installer and adapters.sh) so the real kit is never modified; the installer
+#      resolves its kit through symlinks (kit #1675), so a symlinked installer would land on the real kit.
 if [ "$(id -u)" -eq 0 ]; then
   ok "B3 dry-run source-unreadable check skipped (running as root — chmod 000 is a no-op)"
   ok "B3 dry-run no-diverged-label check skipped (root)"
@@ -615,12 +616,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     m7kit="$TMP/teeth-b3-kit"
     mkdir -p "$m7kit/install" "$m7kit/skills/research-sdd"
     cp "$HERE/../adapters.sh" "$m7kit/install/adapters.sh"
-    ln -sf "$MUTANT7" "$m7kit/install/research-sdd-install.sh"
+    cp "$MUTANT7" "$m7kit/install/research-sdd-install.sh"   # a COPY: a symlink would resolve to $MKI and read the real SKILL.md (kit #1675)
+    cp "$SUT" "$m7kit/install/research-sdd-install.control.sh"
     printf 'fake source\n' > "$m7kit/skills/research-sdd/SKILL.md"
     chmod 000 "$m7kit/skills/research-sdd/SKILL.md"
     m7sut="$m7kit/install/research-sdd-install.sh"
     home_m7="$TMP/teeth-b3"; mkdir -p "$home_m7/.claude/skills/research-sdd"
     printf '# deployed content\n' > "$home_m7/.claude/skills/research-sdd/SKILL.md"
+    # Control: the UNMUTATED installer in this very kit must report 'source not readable' — otherwise the kit is not
+    # the one the installer reads and the absence below proves nothing.
+    out_m7c="$(bash "$m7kit/install/research-sdd-install.control.sh" --dry-run --home "$home_m7" --harness claude 2>&1)"
+    if <<<"$out_m7c" grep -q 'INSTALL.*SKIP.*source.*not readable'; then
+      ok "teeth: MUTANT7 control — the unmutated installer in the fake kit reports 'source not readable'"
+    else
+      no "teeth: MUTANT7 control — the unmutated installer in the fake kit did NOT report 'source not readable' (fake kit not in use)"
+    fi
     out_m7="$(bash "$m7sut" --dry-run --home "$home_m7" --harness claude 2>&1)"
     if <<<"$out_m7" grep -q 'INSTALL.*SKIP.*source.*not readable'; then
       no "teeth: MUTANT7 still shows 'source not readable' — B3 check is THEATER"

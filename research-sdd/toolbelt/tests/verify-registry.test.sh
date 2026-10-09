@@ -1242,7 +1242,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # is why that separate pass is gone).
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   kit_tsym="$(mkkit teeth-symlink-toolbelt)"
-  if vr_mut "teeth SYMLINK-TOOLBELT" "$kit_tsym" 's/\(_RSDD_SELF="\$(cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' 's/cd -P -- "\$_RSDD_SELF\/\.\." && pwd -P/cd -- "$_RSDD_SELF\/.." \&\& pwd/'; then
+  if vr_mut "teeth SYMLINK-TOOLBELT" "$kit_tsym" 's/\(_RSDD_SELF="\$(CDPATH=[^ ]* cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' 's/cd -P -- "\$_RSDD_SELF\/\.\." && pwd -P/cd -- "$_RSDD_SELF\/.." \&\& pwd/'; then
     mkdir -p "$kit_tsym/profile/general"
     ln -s "$kit_tsym/toolbelt" "$kit_tsym/profile/general/toolbelt"
     { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'

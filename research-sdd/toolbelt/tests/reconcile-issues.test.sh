@@ -1063,7 +1063,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   box_tsym="$(mkbox teeth-symlink-toolbelt)"
   mutant_tsym="$box_tsym/research-sdd/toolbelt/reconcile-issues.sh"
-  sed -e 's/\(_RSDD_SELF="\$(cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' \
+  sed -e 's/\(_RSDD_SELF="\$(CDPATH=[^ ]* cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' \
       -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
       "$SUT" > "$mutant_tsym"
   if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then
