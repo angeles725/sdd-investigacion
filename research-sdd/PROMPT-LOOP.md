@@ -612,7 +612,7 @@ Always read first, in this order:
          exactly what SECRETS DISCIPLINE forbids in the driver context. Record as
          `no · inline (constraint: secrets-sensitive — <artifact type>)`. Applies only when the secret
          store is the SUBJECT, not when a directory merely contains secrets en passant. Pair with the
-         STRUCTURE-ONLY BINARY INSPECTION RECIPE in SECRETS DISCIPLINE for the safe inline technique.
+         STRUCTURE-ONLY BINARY INSPECTION RECIPE (`$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe`) for the safe inline technique.
          (Source: 2026-08-30-jace-data-at-rest-focus-retro.md ΔB)
          DELEGATION VARIANTS — SITUATIONAL: read `$KIT/PROMPT-LOOP-APPENDIX.md#delegation-variants`
          in full when the gap is a single large config artifact, a quick-mode operator question, ≥2
@@ -1457,7 +1457,7 @@ HARD RULES:
   - RE-MEASURE A DRAMATIC NEGATIVE — SITUATIONAL: an enumeration/join yields zero, near-total absence or an apparently dead/empty system (incl. IDENTIFIER-LEVEL SET INTERSECTION): same section.
   - NEVER COMPARE DIFFERENT LEVELS OR CUTS WITHOUT A DISCLAIMER — SITUATIONAL: you place two figures side by side: same section.
   - VERIFY-FIRST ON EXTERNAL DELIVERIES — SITUATIONAL: work reaches a third party (emailed report, cron sender, webhook, deployed endpoint): same section.
-  - RE-MEASURE A DRAMATIC POSITIVE — SITUATIONAL: a live probe yields a striking positive (apparent weakness, open/downgraded service) or an aggregate concentrated on one day: same section.
+  - RE-MEASURE A DRAMATIC POSITIVE — SITUATIONAL: a live probe yields a striking positive (apparent weakness, open/downgraded service), an aggregate concentrated on one day, or you report a period total or delta (headline aggregate; CONCENTRATION CHECK): same section.
   - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE — SITUATIONAL: derived views disagree, or a count is implausibly large for the system: same section.
   - N-SEARCH CONVENTION TRIGGER — SITUATIONAL: N>=3 independent search strategies returned zero for the same feature: same section.
   - TWO CORRECT COUNTS THAT DISAGREE = CONVENTION SIGNAL — SITUATIONAL: two independent positive counts of one feature disagree: same section.
@@ -1502,7 +1502,7 @@ HARD RULES:
     to the operator's own environment (`~/.cloudflared/`, shell dotfiles, keyrings) and to relayed peer
     material (a config a colleague sent). The rule is unchanged; only the trigger broadens.
     (Source: 2026-09-03-obix-and-loginless-dashboard-runbooks-retro.md D2)
-  - LIVE-SESSION ACCESS RECIPE — SITUATIONAL: live-install / Niagara target at run START before the first live probe, or any live probe that needs credentials, a redacted copy, a raw disk/media image, a binary-format check on a secret-bearing file, a config write on a live target, or the archive secrets gate: read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe` in full.
+  - LIVE-SESSION ACCESS RECIPE — SITUATIONAL: live-install / Niagara target at run START before the first live probe, or any live probe that needs credentials, a redacted copy, a raw disk/media image, a binary-format check on a secret-bearing file, a config write on a live target, a credential appears in the conversation (the exfil-surface rule), or on every archive (the archive secrets gate): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe` in full.
   - ONE block per iteration (deep and cited, not wide and vague).
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —

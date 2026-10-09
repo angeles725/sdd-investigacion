@@ -108,7 +108,7 @@ WSL without a driver for an exotic on-disk filesystem (→ §1d / no-mount parse
 
 **The raw `.img` is secret-bearing** (it contains every partition's keyrings, shadow, config files) —
 keep it in the scratchpad only; never commit it to `sources/` or the repo. Commit only the derived
-tree/manifest (names + sizes + sha256 per file, identifiers masked). See PROMPT-LOOP SECRETS DISCIPLINE.
+tree/manifest (names + sizes + sha256 per file, identifiers masked). See PROMPT-LOOP SECRETS DISCIPLINE and RAW DISK/MEDIA IMAGE IS SECRET-BEARING in `PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe`.
 
 ## 1d. USB-serial converter bridge (FTDI / CP210x → WSL `/dev/ttyUSB0`)
 
@@ -315,7 +315,7 @@ each response in `<target>/sources/probes/` as `[CERT-hw]`, the same discipline 
   `serial-console.sh check` detects this and prints the fix instead of a false run.
 - **Read-first, write-supervised (§3 applies).** The wrapper sends only the single command you hand it. A
   config-changing/reboot command over serial can brick the device just like a bad network write — explicit
-  user OK only, never in an autonomous loop, and label a mutation `⚠ CONFIG MUTATION` (PROMPT-LOOP LIVE-WRITE).
+  user OK only, never in an autonomous loop, and label a mutation `⚠ CONFIG MUTATION` (PROMPT-LOOP LIVE-WRITE; BLOCK LABEL in `PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe`).
 
 ## 6. Scripted SSH (paramiko-in-venv fallback)
 

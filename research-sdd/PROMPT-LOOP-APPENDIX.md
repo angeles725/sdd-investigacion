@@ -13,7 +13,7 @@ live, and reads it IN FULL when it does. Two sections, `step3-evidence-provenanc
 corpus provenance notes moved out of PROMPT-LOOP.md (kit issue #1003: step 3, then the rest of the
 prompt), and are read only to audit where a rule came from.
 
-The two `hard-rules-*` sections at the end are the one admission-rule exception: they hold trigger-bound HARD RULES (kit issue #1003 L2) that can fire on inline work too, moved here because each fires on a narrow condition, not on most iterations.
+The two `hard-rules-*` sections at the end are a second exception to that admission rule (the first is the provenance pair above): they hold trigger-bound HARD RULES (kit issue #1003 L2) that can fire on inline work too, moved here because each fires on a narrow condition, not on most iterations. WEB-RESEARCH DISCOVERY-ONLY and the DELEGATED SWEEP subcases stay in core precisely because they fire on most iterations.
 
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
@@ -408,7 +408,7 @@ PROMPT-LOOP.md so every iteration stops paying for them; the rules themselves ar
 live in PROMPT-LOOP.md. Each row keeps the original note verbatim, including its `Evidence:` /
 `evidence:` / `lesson:` prefix and parentheses. The first column is the exact text the annotated rule
 carries in PROMPT-LOOP.md (a label or a unique opening phrase), so `grep -nF` on it finds the rule.
-Two keys (`IDENTIFIER-LEVEL SET INTERSECTION (#603)`, `The conversation is an exfil surface`) name rules that kit issue #1003 slice 4 moved into the `hard-rules-measurement-and-claims` / `hard-rules-live-install-access-recipe` sections of this file; `grep -nF` them here instead of in PROMPT-LOOP.md.
+Seven keys (`NAME-THE-JAR`, `MULTI-MARKER`, `GROUPING-RULE`, `NEGATIVE-ABSENCE`, `VENDOR-DOCUMENTED PORTS`, `IDENTIFIER-LEVEL SET INTERSECTION (#603)`, `The conversation is an exfil surface`) name rules that kit issue #1003 slice 4 moved into the `hard-rules-measurement-and-claims` / `hard-rules-live-install-access-recipe` sections of this file; `grep -nF` them here instead of in PROMPT-LOOP.md.
 Notes that carry a real reason (not just a corpus pointer) and the one-line retro `(Source: ...)`
 pointers stay in core.
 
@@ -458,7 +458,7 @@ pointers stay in core.
 
 Trigger: one of the HARD RULES listed below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming
 its trigger. Kit issue #1003 (slice 4) moved these rules here verbatim and in their original relative order; NEVER MERGE A DUE
-CANDIDATE BEFORE ITS REVIEW and the `tried:` rule stayed in core between this group and the rules that precede it. Read the
+CANDIDATE BEFORE ITS REVIEW, the `tried:` rule, OFFENSIVE/DUAL-USE GAP DESCOPING and SECRETS DISCIPLINE stayed in core, after this group and before LIVE-SESSION ACCESS RECIPE; the rule immediately before the group, DISK-FIRST, also stayed in core. Read the
 rule whose trigger fired, in full.
 
   - REAL-ARTIFACT-FIRST (packaged artifact inspection) — When a gap is about physical packaging / layout /
@@ -522,7 +522,7 @@ rule whose trigger fired, in full.
     implausibly LARGE (thousands on a system known to be small), treat it as a hypothesis about
     instrument error FIRST — re-derive via an independent method before treating the result as a
     finding. For the near-zero direction (near-zero on a large system), use RE-MEASURE A DRAMATIC
-    NEGATIVE (two rules above), which already prescribes an independent re-derive. These are
+    NEGATIVE (four rules above), which already prescribes an independent re-derive. These are
     the same family: a derived view is an instrument; its inconsistency is evidence it may be
     reporting wrong.
   - N-SEARCH CONVENTION TRIGGER. When N ≥ 3 independent search strategies — different keys, layers,
@@ -573,8 +573,9 @@ rule whose trigger fired, in full.
 
 ## hard-rules-live-install-access-recipe
 
-Trigger: LIVE-SESSION ACCESS RECIPE — a live-install / Niagara target, at run START before the first live probe, or any
-live probe, redacted copy, raw image, config write or archive close on such a target. Kit issue #1003 (slice 4) moved this
+Trigger: LIVE-SESSION ACCESS RECIPE — a live-install / Niagara target at run START before the first live probe; any live
+probe, redacted copy, raw image, binary-format check, config write or credentialed command on such a target; a credential
+appearing in the conversation (the exfil-surface rule); and every archive close (the archive secrets gate). Kit issue #1003 (slice 4) moved this
 rule here verbatim from PROMPT-LOOP.md HARD RULES; SECRETS DISCIPLINE (live-install targets), which it references as
 "above", stayed in core. Read in full.
 
