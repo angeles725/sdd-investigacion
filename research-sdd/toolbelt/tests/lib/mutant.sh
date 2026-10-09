@@ -57,6 +57,11 @@
 #                                        Suites that mean a different set name different classes.
 #   mutant_is_crash TEXT [CLASS...]      rc 0 when TEXT matches mutant_crash_re CLASS... · 1 when not ·
 #                                        2 on an unknown class (never a quiet "not a crash")
+#   mutant_py_crash_strict / mutant_py_stage / mutant_py_stage_control / mutant_py_tooth
+#                                        the python-SUT tooth kit (kit issue #2053 WU1): the suite re-runs
+#                                        itself in `--teeth-child <path>` mode against a staged tree whose ONE
+#                                        module is mutated by mutant_py_replace; documented at its definition
+#                                        (end of this file).
 #   mutant_cleanup_register PATH         register an ABSOLUTE path (not / ) for `rm -rf --` at shell
 #                                        exit. One registry, one EXIT trap: the first call chains
 #                                        whatever EXIT trap already exists (`_mutant_cleanup_run; <old>`)
@@ -623,4 +628,68 @@ mutant_vm_core_teeth() {
       --bad-has '^TOOTH_ALLOC=2$' --bad-lacks "$crash" -- bash "$self" --tooth alloc @SUT@
   fi
   unset -f _mvc_stage _mvc_build _mvc_tt
+}
+
+# ── Shared python-SUT tooth kit (kit issue #2053 WU1) ────────────────────────────────────────────
+# For the suites whose SUT is a python module loaded from lib/ (plan_common.py, proc_common.py, ...). The suite
+# re-runs ITSELF in a child mode against a staged copy of the SUT tree that carries ONE mutated module.
+# Child mode contract (the suite implements it before its plain run, no helper needed there):
+#     --teeth-child <path>   use <path> as the SUT; exit 2 when it is not a file; print `TEETH-CHILD: SUT=<path>`
+# HERE is the suite's tests/ dir, SELF the suite script, MUT a temp root the caller owns, REL the module path
+# relative to the toolbelt dir (e.g. lib/plan_common.py). Tooth LABELs must be unique per MUT.
+#
+#   mutant_py_crash_strict                 prints the strict crash regex (grep -E): Traceback|ImportError|
+#                                          ModuleNotFoundError|SyntaxError|IndentationError|NameError|
+#                                          AttributeError|TypeError|KeyError|UnboundLocalError
+#   mutant_py_stage HERE DEST              copy HERE/../lib/*.py to DEST/lib/ and HERE/../*.py to DEST/ (the
+#                                          plan modules import lib/ through sys.path); rc 1 when no lib module
+#                                          was copied
+#   mutant_py_stage_control LABEL HERE SELF MUT REL
+#                                          stage UNMUTATED into MUT/clean and run the child on MUT/clean/REL: it
+#                                          must exit 0, print the TEETH-CHILD banner, report `0 failed` and carry
+#                                          no crash signature - else a staging gap would make every mutant "bite"
+#                                          by crashing. Prints PASS/FAIL; rc 0/1.
+#   mutant_py_tooth LABEL HERE SELF MUT REL OLD NEW BAD_HAS [CRASH_RE]
+#                                          stage a tree into MUT/LABEL, mutant_py_replace OLD->NEW in its REL
+#                                          (a dead anchor / non-compiling mutant is a FAIL), then mutant_tooth:
+#                                          the original child exits 0 with `0 failed`, the mutant child exits 1,
+#                                          prints BAD_HAS (the named FAIL label / assertion text, grep -E) and
+#                                          neither run matches CRASH_RE (default mutant_py_crash_strict; pass a
+#                                          narrower one when the suite legitimately prints an exception name).
+#                                          Prints PASS/FAIL; rc 0/1. The caller counts, as with mutant_tooth.
+mutant_py_crash_strict() { printf '%s' 'Traceback|ImportError|ModuleNotFoundError|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError'; }
+
+mutant_py_stage() {
+  local here="$1" dest="$2"
+  mkdir -p "$dest/lib" || return 1
+  # SENTINEL-PY-STAGE-LIB
+  cp "$here/../lib/"*.py "$dest/lib/" 2>/dev/null || return 1
+  cp "$here/../"*.py "$dest/" 2>/dev/null || true   # top-level modules are optional
+  return 0
+}
+
+mutant_py_stage_control() {
+  local label="$1" here="$2" self="$3" mut="$4" rel="$5" out rc
+  if ! mutant_py_stage "$here" "$mut/clean"; then echo "  FAIL  $label: staging the clean tree failed"; return 1; fi
+  out="$(bash "$self" --teeth-child "$mut/clean/$rel" 2>&1)"; rc=$?
+  # SENTINEL-PY-CONTROL
+  if [ "$rc" -eq 0 ] && grep -qF "TEETH-CHILD: SUT=$mut/clean/$rel" <<<"$out" && grep -qE '^== [0-9]+ passed · 0 failed ==$' <<<"$out" \
+     && ! grep -qE "$(mutant_py_crash_strict)" <<<"$out"; then
+    echo "  PASS  $label: unmutated staged tree passes via --teeth-child (rc 0, banner, 0 failed, no crash)"; return 0
+  fi
+  echo "  FAIL  $label: unmutated staged tree (rc=$rc): $(tr '\n' ' ' <<<"$out" | head -c 300)"; return 1
+}
+
+mutant_py_tooth() {
+  local label="$1" here="$2" self="$3" mut="$4" rel="$5" old="$6" new="$7" bad="$8" crash="${9:-}" err
+  [ -n "$crash" ] || crash="$(mutant_py_crash_strict)"
+  [ -n "$bad" ] || { echo "  FAIL  $label: mutant_py_tooth needs a BAD_HAS (the named FAIL label / assertion text)"; return 1; }
+  if ! mutant_py_stage "$here" "$mut/$label"; then echo "  FAIL  $label: staging the mini-tree failed"; return 1; fi
+  # SENTINEL-PY-REPLACE
+  if ! err="$(mutant_py_replace "$label" "$here/../$rel" "$old" "$new" "$mut/$label/$rel" 2>&1)"; then
+    echo "  FAIL  $label: mutant build failed :: $(tr '\n' ' ' <<<"$err")"; return 1
+  fi
+  mutant_tooth "$label" 0 1 "$mut/$label/$rel" --orig "$here/../$rel" \
+    --good-has '^== [0-9]+ passed · 0 failed ==$' --good-lacks "$crash" \
+    --bad-has "$bad" --bad-lacks "$crash" -- bash "$self" --teeth-child @SUT@
 }
