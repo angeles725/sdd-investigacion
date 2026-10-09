@@ -5,8 +5,10 @@ SUT="$HERE/../pcap-flows.sh"; MANIFEST="$HERE/../analysis_manifest.py"
 TOOLBELT="$(dirname "$HERE")"; PYSUT="$TOOLBELT/pcap_flows.py"
 # --prove-teeth child run: `--teeth-child <staged pcap_flows.py>` points the suite at a staged mutant
 # tree. An argument, not an environment variable, so a caller's ambient env can never swap the SUT of a plain run.
-if [ "${1:-}" = "--teeth-child" ] && [ -f "${2:-}" ]; then
+if [ "${1:-}" = "--teeth-child" ]; then
+  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
   SUT="$(dirname "$2")/pcap-flows.sh"; PYSUT="$2"
+  echo "TEETH-CHILD: SUT=$PYSUT"
 fi
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 if ! command -v tshark >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
