@@ -79,9 +79,11 @@
 #                            and `~/prototipos/clientes` (a sibling of the hisense target) carries
 #                            one session too. This predicate cannot see that class at all — it only
 #                            ever compares the registered path against its OWN git root, never
-#                            against real session launch directories (and must not: this file does
-#                            not read `~/.claude/projects` or any session transcript — that reading
-#                            was a one-time manual review activity, not a runtime capability).
+#                            against real session launch directories (and must not: the wiring state
+#                            never reads `~/.claude/projects` or any session transcript, so
+#                            sweep-retros.sh stays byte-identical). The launch-history question is a
+#                            SEPARATE predicate, hook_stop_launch_state_var, at the end of this file
+#                            (kit issue #1157), which reads only the existence of a history directory.
 #
 #                            Downgrade applies ONLY to an otherwise-'wired' result: an unwired,
 #                            absent-settings, or unreadable target makes no active-firing claim in
@@ -452,6 +454,66 @@ if ! declare -F hook_stop_script_state >/dev/null 2>&1; then
   hook_stop_script_state() {
     hook_stop_script_state_var "$1"
     printf '%s' "$HOOK_SCRIPT_STATE"
+    return 0
+  }
+fi
+
+# --- LAUNCH-HISTORY state (kit issue #1157) ------------------------------------------------------
+#   hook_stop_launch_state_var <target-dir>
+#     Sets the GLOBAL $HOOK_LAUNCH_STATE to exactly one of:
+#       launched    : Claude Code's per-project history directory for <target-dir> as the session
+#                     root exists and holds at least one `*.jsonl` session transcript — a session
+#                     HAS been launched from exactly this directory, so its project settings loaded.
+#       no-sessions : the history root exists and is readable, but holds no transcript for
+#                     <target-dir> — no session was ever launched from exactly this directory, so a
+#                     hook REGISTERED here has never been loaded (the launch site is elsewhere).
+#       unknown     : the instrument could not look — HOME unset/empty and no override, the history
+#                     root is absent or not a directory, the target path has a non-ASCII byte (the
+#                     directory-name encoding is per UTF-16 code unit in Claude Code but per byte
+#                     under a C locale), or the encoded name exceeds 200 characters (Claude Code
+#                     truncates and hashes long names). NO claim in either direction (§7): a machine
+#                     with no Claude history must not read as "never launched".
+#     Directory name = the absolute, ./..-collapsed target path with every character outside
+#     [A-Za-z0-9] replaced by '-' (so /home/u/a.b/c becomes -home-u-a-b-c), under
+#     "${RSDD_CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}". RSDD_CLAUDE_PROJECTS_DIR is a test seam
+#     (and an escape hatch for a non-default Claude config directory; CLAUDE_CONFIG_DIR is not read).
+#     A session launched in a SUBDIRECTORY or PARENT of <target-dir> records under its own name and
+#     does not count: project settings load from the launch directory only (observed behavior, kit
+#     issue #1134), which is the whole point of this question. Symlinked targets are not resolved.
+#     This is a SEPARATE question from the wiring state and the script state: it never changes
+#     hook_stop_wiring_state_var (sweep-retros.sh and research-sdd-status.sh stay byte-identical)
+#     and is asked by a caller only AFTER 'wired' / 'wired-off-root' and a non-'missing' script.
+#     COST: zero forks — builtins only ([ -d ], compgen, parameter expansion). Always returns 0.
+#
+#   hook_stop_launch_state <target-dir> : wrapper, prints $HOOK_LAUNCH_STATE (one extra fork).
+if ! declare -F hook_stop_launch_state_var >/dev/null 2>&1; then
+  hook_stop_launch_state_var() {
+    local root enc d
+    root="${RSDD_CLAUDE_PROJECTS_DIR:-}"
+    if [ -z "$root" ]; then
+      [ -n "${HOME:-}" ] || { HOOK_LAUNCH_STATE="unknown"; return 0; }
+      root="$HOME/.claude/projects"
+    fi
+    if [ ! -d "$root" ] || [ ! -r "$root" ]; then
+      HOOK_LAUNCH_STATE="unknown"; return 0
+    fi
+    _hw_abspath "$1"; d="$HW_ABS_PATH"
+    case "$d" in *[!\ -~]*) HOOK_LAUNCH_STATE="unknown"; return 0 ;; esac   # HOOK-LAUNCH-NONASCII-GUARD
+    enc="${d//[^A-Za-z0-9]/-}"
+    if [ "${#enc}" -gt 200 ]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi   # HOOK-LAUNCH-LONGNAME-GUARD
+    if compgen -G "$root/$enc/*.jsonl" >/dev/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK
+      HOOK_LAUNCH_STATE="launched"
+    else
+      HOOK_LAUNCH_STATE="no-sessions"
+    fi
+    return 0
+  }
+fi
+
+if ! declare -F hook_stop_launch_state >/dev/null 2>&1; then
+  hook_stop_launch_state() {
+    hook_stop_launch_state_var "$1"
+    printf '%s' "$HOOK_LAUNCH_STATE"
     return 0
   }
 fi

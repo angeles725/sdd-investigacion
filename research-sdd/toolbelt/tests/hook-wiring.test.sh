@@ -529,6 +529,62 @@ d="$ROOT/t26e"; mkdir -p "$d"
 wire_settings "$d" '{"hooks":{"Stop":[{"hooks":[{"command":"'"$fh"'/hk/retro-gate-stop.sh \"unterminated"},{"command":"/nope/retro-gate-b.sh"}]}]}}'
 assert_script_state "26e unterminated quote in entry 1 leaves no stale result for entry 2 → unverifiable" "$d" "unverifiable"
 
+# --- 27 — kit issue #1157: LAUNCH-HISTORY state (hook_stop_launch_state_var). A hook REGISTERED in
+#      settings.json is only loaded for a session launched in exactly that directory. The history
+#      root is a test seam ($RSDD_CLAUDE_PROJECTS_DIR), so every case builds its own fixture history.
+#      launched | no-sessions | unknown; 'unknown' is "could not look" and never reads as no-sessions.
+declare -F hook_stop_launch_state_var >/dev/null 2>&1 || no "27 lib defines hook_stop_launch_state_var"
+declare -F hook_stop_launch_state >/dev/null 2>&1 || no "27 lib defines hook_stop_launch_state"
+assert_launch() { # <label> <dir> <want> [history-root]
+  local label="$1" d="$2" want="$3" hist="${4-$ROOT/hist}" got_var got_wrap
+  got_var="$(RSDD_CLAUDE_PROJECTS_DIR="$hist" bash -c '. "$1"; hook_stop_launch_state_var "$2"; printf "%s" "$HOOK_LAUNCH_STATE"' _ "$LIB" "$d" 2>&1)"
+  got_wrap="$(RSDD_CLAUDE_PROJECTS_DIR="$hist" bash -c '. "$1"; hook_stop_launch_state "$2"' _ "$LIB" "$d" 2>&1)"
+  if [ "$got_var" = "$want" ] && [ "$got_wrap" = "$want" ]; then ok "$label"
+  else no "$label" "var=[$got_var] wrapper=[$got_wrap] want=[$want]"; fi
+}
+ENCROOT="${ROOT//[^A-Za-z0-9]/-}"
+mkdir -p "$ROOT/hist"
+# 27a — history dir named after the encoded path holds a transcript → launched.
+mkdir -p "$ROOT/hist/$ENCROOT-t27a"; : > "$ROOT/hist/$ENCROOT-t27a/s1.jsonl"
+assert_launch "27a transcript in the encoded history dir → launched" "$ROOT/t27a" "launched"
+# 27b — history root exists, no dir for this target → no-sessions.
+assert_launch "27b no history dir for the target → no-sessions" "$ROOT/t27b" "no-sessions"
+# 27c — dir exists but holds no *.jsonl (only a memory dir) → no-sessions (a dir alone is not a launch).
+mkdir -p "$ROOT/hist/$ENCROOT-t27c/memory"
+assert_launch "27c history dir without a transcript → no-sessions" "$ROOT/t27c" "no-sessions"
+# 27d — history root absent → unknown (could not look), never no-sessions.
+assert_launch "27d history root absent → unknown" "$ROOT/t27d" "unknown" "$ROOT/no-such-root"
+# 27e — no override and HOME empty → unknown.
+got="$(env -u RSDD_CLAUDE_PROJECTS_DIR HOME="" bash -c '. "$1"; hook_stop_launch_state_var "$2"; printf "%s" "$HOOK_LAUNCH_STATE"' _ "$LIB" "$ROOT/t27e" 2>&1)"
+if [ "$got" = "unknown" ]; then ok "27e HOME empty, no override → unknown"; else no "27e HOME empty, no override → unknown" "got [$got]"; fi
+# 27f — without the override the default root is $HOME/.claude/projects.
+mkdir -p "$ROOT/home27f/.claude/projects/$ENCROOT-t27f"; : > "$ROOT/home27f/.claude/projects/$ENCROOT-t27f/s.jsonl"
+got="$(env -u RSDD_CLAUDE_PROJECTS_DIR HOME="$ROOT/home27f" bash -c '. "$1"; hook_stop_launch_state_var "$2"; printf "%s" "$HOOK_LAUNCH_STATE"' _ "$LIB" "$ROOT/t27f" 2>&1)"
+if [ "$got" = "launched" ]; then ok "27f default root is \$HOME/.claude/projects"; else no "27f default root is \$HOME/.claude/projects" "got [$got]"; fi
+# 27g — every non-alphanumeric character encodes to '-' (dot, underscore, space), as Claude Code does.
+d="$ROOT/t27g.x_y z"; encg="${d//[^A-Za-z0-9]/-}"; mkdir -p "$ROOT/hist/$encg"; : > "$ROOT/hist/$encg/a.jsonl"
+assert_launch "27g dot/underscore/space in the path encode to '-' → launched" "$d" "launched"
+# 27h — a session launched in a PARENT or SUBDIRECTORY records under its own name and does not count.
+mkdir -p "$ROOT/hist/$ENCROOT-t27h-sub" "$ROOT/hist/$ENCROOT"
+: > "$ROOT/hist/$ENCROOT-t27h-sub/s.jsonl"; : > "$ROOT/hist/$ENCROOT/s.jsonl"
+assert_launch "27h sessions only in a sub/parent directory → no-sessions" "$ROOT/t27h" "no-sessions"
+# 27i — '.' and '..' components collapse before encoding.
+assert_launch "27i dotdot-collapsed target → launched" "$ROOT/t27a/../t27a/." "launched"
+# 27j/27k — the transcript is the LAST entry of a list (first is not a transcript) → launched;
+#           a non-.jsonl entry alone → no-sessions.
+mkdir -p "$ROOT/hist/$ENCROOT-t27j"; : > "$ROOT/hist/$ENCROOT-t27j/a.txt"; : > "$ROOT/hist/$ENCROOT-t27j/z.jsonl"
+assert_launch "27j only the last entry is a transcript → launched" "$ROOT/t27j" "launched"
+mkdir -p "$ROOT/hist/$ENCROOT-t27k"; : > "$ROOT/hist/$ENCROOT-t27k/a.jsonl.bak"
+assert_launch "27k a non-.jsonl entry alone → no-sessions" "$ROOT/t27k" "no-sessions"
+# 27l — a non-ASCII byte in the path: the encoding is per character/code unit, not per byte → unknown.
+assert_launch "27l non-ASCII path → unknown (no firm claim)" "$ROOT/t27l-ñ" "unknown"
+# 27m — an encoded name over 200 characters (Claude Code truncates + hashes) → unknown.
+long="$ROOT/$(printf 'x%.0s' $(seq 1 210))"
+assert_launch "27m encoded name over 200 chars → unknown" "$long" "unknown"
+# 27n — the launch question never changes the wiring state (sweep-retros stays byte-identical).
+d="$ROOT/t27n"; wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}]}}'
+assert_state "27n wiring state is history-blind (still wired with no history)" "$d" "wired"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell —
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL
@@ -886,6 +942,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   wire_settings "$ROOT/t26s3" "$(st "bash \\\"$TL/hk/retro-gate-stop.sh\\\"")"
   HOME="$fh" script_tooth "quoted-tilde guard dropped" 's/if (index(w, "\\"") > 0 \&\& substr(tok, 1, 1) == "~") return "unver"/if (0) return "unver"/' "$ROOT/t26s3" "unverifiable" "case 26d"
   script_tooth "stale-result reset dropped" 's/if (q != "") { unver++; resn = 0; return e }/if (q != "") { unver++; return e }/' "$ROOT/t26e" "unverifiable" "case 26e"
+
+  echo "-- teeth (#1157 launch history): one mutant per rule of hook_stop_launch_state_var --"
+  launch_tooth() { # <label> <sed-expr> <fixture-dir> <pristine-state> <case> [history-root]
+    local label="$1" expr="$2" dir="$3" want="$4" cs="$5" hist="${6-$ROOT/hist}" mut got
+    mut="$ROOT/hook-wiring.MUTANT-launch-${cs// /-}.sh"
+    mk "teeth: $label anchor in lib" "$LIB" "$mut" "$expr" || return 0
+    got="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var hook_stop_launch_state hook_stop_launch_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut"
+      RSDD_CLAUDE_PROJECTS_DIR="$hist" hook_stop_launch_state_var "$dir" 2>&1; printf '%s' "$HOOK_LAUNCH_STATE"
+    )"
+    if [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$cs still [$got]"
+    else ok "teeth: $label caught (real sourced lib)" "$cs read [$got] not [$want]"; fi
+  }
+  launch_tooth "history check always true" 's/if compgen -G "\$root\/\$enc\/\*.jsonl" >\/dev\/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK/if true; then  # HOOK-LAUNCH-HISTORY-CHECK/' "$ROOT/t27b" "no-sessions" "case 27b"
+  launch_tooth "history check always false" 's/if compgen -G "\$root\/\$enc\/\*.jsonl" >\/dev\/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK/if false; then  # HOOK-LAUNCH-HISTORY-CHECK/' "$ROOT/t27a" "launched" "case 27a"
+  launch_tooth "directory without transcript counted as launch" 's|compgen -G "\$root/\$enc/\*.jsonl"|compgen -G "$root/$enc"|' "$ROOT/t27c" "no-sessions" "case 27c"
+  launch_tooth "any file counted as a transcript" 's|\$root/\$enc/\*.jsonl|$root/$enc/*|' "$ROOT/t27k" "no-sessions" "case 27k"
+  launch_tooth "absent history root read as no-sessions" 's/if \[ ! -d "\$root" \] || \[ ! -r "\$root" \]; then/if false; then/' "$ROOT/t27d" "unknown" "case 27d" "$ROOT/no-such-root"
+  launch_tooth "encoding keeps dots" 's/enc="\${d\/\/\[^A-Za-z0-9\]\/-}"/enc="${d\/\/[^A-Za-z0-9.]\/-}"/' "$ROOT/t27g.x_y z" "launched" "case 27g"
+  launch_tooth "non-ASCII guard dropped" 's/case "\$d" in \*\[!\\ -~\]\*) HOOK_LAUNCH_STATE="unknown"; return 0 ;; esac   # HOOK-LAUNCH-NONASCII-GUARD/:/' "$ROOT/t27l-ñ" "unknown" "case 27l"
+  launch_tooth "long-name guard dropped" 's/if \[ "\${#enc}" -gt 200 \]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi   # HOOK-LAUNCH-LONGNAME-GUARD/:/' "$long" "unknown" "case 27m"
 
   echo "-- teeth: collapse the degraded arm into missing — case 24m must go RED --"
   mut_deg="$ROOT/hook-wiring.MUTANT-script-degraded.sh"

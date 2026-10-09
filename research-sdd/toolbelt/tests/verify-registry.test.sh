@@ -43,6 +43,10 @@ ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 # repo (this kit checkout, for instance) would let an ENCLOSING repo's .git bleed into the fixture.
 RSDD_HOOK_WIRING_CEILING="$(dirname "$ROOT")"
 export RSDD_HOOK_WIRING_CEILING
+# HERMETICITY (kit issue #1157): the launch-history check reads ~/.claude/projects. Point it at a root
+# that does not exist so every case sees launch state "unknown" (silent) unless it opts in via nsrun.
+RSDD_CLAUDE_PROJECTS_DIR="$ROOT/no-claude-history"
+export RSDD_CLAUDE_PROJECTS_DIR
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -486,6 +490,118 @@ if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — .*script-resolution ch
 else
   no "3t script-state degraded → typed degraded WARN" "exit=$RC out=[$OUT]"
 fi
+
+# --- kit issue #1157: REGISTERED-NO-SESSIONS — the hook is registered and its script exists, but no
+#     session was ever launched from exactly the target directory (project settings load from the launch
+#     directory only), so it has never been loaded. History root = $RSDD_CLAUDE_PROJECTS_DIR (test seam,
+#     exported absent at the top of this file → launch 'unknown' → silent for every older case).
+# nsrun <history-root|-> <kit> : run the SUT with the history root pointed at a fixture ('-' = absent).
+nsrun() { local h="$1"; [ "$h" = "-" ] && h="$ROOT/no-claude-history"; RSDD_CLAUDE_PROJECTS_DIR="$h" run "$2"; }
+# nshist <history-root> <target> [transcript] : create the history root and (optionally) a transcript for target.
+nshist() { mkdir -p "$1"; if [ -n "${3:-}" ]; then mkdir -p "$1/${2//[^A-Za-z0-9]/-}"; : > "$1/${2//[^A-Za-z0-9]/-}/s1.jsonl"; fi; }
+# nsrow <kit> <target> <cell> : one-row TARGETS.md.
+nsrow() { { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'; printf '| 1 | targetA | mature (%s) | `%s` |\n' "$3" "$2"; } > "$1/TARGETS.md"; }
+# nsfix <name> : kit + target with a registered, EXISTING hook script; echoes nothing, sets kit/tgt.
+nsfix() { kit="$(mkkit "$1")"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"; : > "$tgt/.claude/hooks/retro-gate-stop.sh"; wire_hook_abs "$tgt" "\$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh"; }
+
+# 3ns1 — 'hook yes' + registered + script exists + history root readable but no transcript for the target.
+nsfix c3ns1; hist="$ROOT/h-ns1"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json, but no Claude Code session was ever launched from exactly ${tgt}" <<<"$OUT" \
+   && grep -q "hook file yes / registered-no-sessions" <<<"$OUT" \
+   && ! grep -qE '· 0 attention\.' <<<"$OUT" && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
+  ok "3ns1 hook yes + registered + no sessions → registered-no-sessions WARN + attention" "(exit $RC)"
+else no "3ns1 hook yes + registered + no sessions → registered-no-sessions WARN" "exit=$RC out=[$OUT]"; fi
+
+# 3ns2 — same, with a transcript for the target → no WARN (the hook has loaded).
+nsfix c3ns2; hist="$ROOT/h-ns2"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'registered-no-sessions' <<<"$OUT" && ! grep -q 'Stop hook is' <<<"$OUT"; then
+  ok "3ns2 hook yes + registered + sessions exist → no registered-no-sessions WARN" "(exit $RC)"
+else no "3ns2 hook yes + sessions exist → no WARN" "exit=$RC out=[$OUT]"; fi
+
+# 3ns3 — launch 'unknown' (history root absent) → NO claim (a machine without Claude history must not WARN).
+nsfix c3ns3; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun - "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'registered-no-sessions' <<<"$OUT"; then
+  ok "3ns3 hook yes + history root absent (launch unknown) → silent, no claim" "(exit $RC)"
+else no "3ns3 launch unknown → silent" "exit=$RC out=[$OUT]"; fi
+
+# 3ns4 — 'hook yes' + script MISSING + no sessions: only registered-never-loaded (the stronger fact).
+kit="$(mkkit c3ns4)"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+hist="$ROOT/h-ns4"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && grep -q 'registered-never-loaded' <<<"$OUT" && ! grep -q 'registered-no-sessions' <<<"$OUT"; then
+  ok "3ns4 hook yes + script missing + no sessions → only registered-never-loaded" "(exit $RC)"
+else no "3ns4 script missing + no sessions → only never-loaded" "exit=$RC out=[$OUT]"; fi
+
+# 3ns5 — wired-off-root + no sessions: BOTH the structural off-root WARN and the no-sessions WARN (additive).
+kit="$(mkkit c3ns5)"; gitroot="$kit/repo"; tgt="$gitroot/targetA"; mkcorpus "$tgt" 3 "a"; git init -q "$gitroot" >/dev/null 2>&1
+mkdir -p "$tgt/.claude/hooks"; : > "$tgt/.claude/hooks/retro-gate-stop.sh"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+hist="$ROOT/h-ns5"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && grep -q 'is not its own git root' <<<"$OUT" && grep -q 'registered-no-sessions' <<<"$OUT"; then
+  ok "3ns5 hook yes + off-root + no sessions → off-root WARN and registered-no-sessions WARN" "(exit $RC)"
+else no "3ns5 off-root + no sessions → both WARNs" "exit=$RC out=[$OUT]"; fi
+
+# 3ns6 — 'hook file yes / unregistered' + hook IS registered + no sessions → unregistered-stale naming
+#        'registered-no-sessions'; the token order inside the cell (first / middle / last) is irrelevant.
+for _cell in 'hook file yes / unregistered / git yes' '3 md / hook file yes / unregistered / git yes' '3 md / git yes / hook file yes / unregistered'; do
+  nsfix c3ns6; hist="$ROOT/h-ns6"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" "$_cell"; nsrun "$hist" "$kit"
+  if [ "$RC" = 0 ] \
+     && grep -qE "WARN[[:space:]]+targetA — row claims 'unregistered' but the Stop hook IS registered at ${tgt}/.claude/settings.json" <<<"$OUT" \
+     && grep -q "the accurate token is 'registered-no-sessions'" <<<"$OUT" && ! grep -q "accurate claim is 'hook yes'" <<<"$OUT" \
+     && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
+    ok "3ns6 [$_cell] → unregistered-stale, cure registered-no-sessions" "(exit $RC)"
+  else no "3ns6 [$_cell] → unregistered-stale, cure registered-no-sessions" "exit=$RC out=[$OUT]"; fi
+done
+
+# 3ns7 — same row, sessions exist → cure is 'hook yes'.
+nsfix c3ns7; hist="$ROOT/h-ns7"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && grep -q "sessions HAVE been launched from exactly ${tgt}" <<<"$OUT" && grep -q "accurate claim is 'hook yes'" <<<"$OUT"; then
+  ok "3ns7 unregistered row + registered + sessions exist → cure is hook yes" "(exit $RC)"
+else no "3ns7 unregistered + sessions → hook yes" "exit=$RC out=[$OUT]"; fi
+
+# 3ns8 — same row, launch unknown → still a WARN (the registration alone contradicts 'unregistered'), naming launch unknown.
+nsfix c3ns8; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'; nsrun - "$kit"
+if [ "$RC" = 0 ] && grep -q 'launch unknown' <<<"$OUT" && grep -q "row claims 'unregistered' but the Stop hook IS registered" <<<"$OUT"; then
+  ok "3ns8 unregistered row + registered + launch unknown → WARN naming launch unknown" "(exit $RC)"
+else no "3ns8 unregistered + launch unknown → WARN" "exit=$RC out=[$OUT]"; fi
+
+# 3ns9 — 'unregistered' row whose hook is genuinely NOT registered (no settings) → silent, consistent.
+kit="$(mkkit c3ns9)"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; hist="$ROOT/h-ns9"; nshist "$hist" "$tgt"
+nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && ! grep -q "row claims 'unregistered'" <<<"$OUT" && ! grep -q 'nonconform\|not in schema' <<<"$OUT"; then
+  ok "3ns9 unregistered row + hook genuinely unregistered → silent" "(exit $RC)"
+else no "3ns9 unregistered + unregistered → silent" "exit=$RC out=[$OUT]"; fi
+
+# 3ns10 — 'unregistered' row + registered but script MISSING → silent (not this finding's claim).
+kit="$(mkkit c3ns10)"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
+hist="$ROOT/h-ns10"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && ! grep -q "row claims 'unregistered'" <<<"$OUT"; then
+  ok "3ns10 unregistered row + registered-but-script-missing → silent" "(exit $RC)"
+else no "3ns10 unregistered + script missing → silent" "exit=$RC out=[$OUT]"; fi
+
+# 3ns11 — 'hook file yes' WITHOUT unregistered/registered-no-sessions, registered → out of scope, silent.
+nsfix c3ns11; hist="$ROOT/h-ns11"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'registered-no-sessions\|row claims' <<<"$OUT"; then
+  ok "3ns11 bare 'hook file yes' + registered → out of scope, silent" "(exit $RC)"
+else no "3ns11 bare hook file yes → silent" "exit=$RC out=[$OUT]"; fi
+
+# 3ns12 — the NEW token is accepted by the maturity-cell schema, and a consistent row is clean.
+nsfix c3ns12; hist="$ROOT/h-ns12"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / registered-no-sessions'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'not in schema' <<<"$OUT" && ! grep -q 'no-sessions-stale\|row claims' <<<"$OUT" && ! grep -qE '^WARN[[:space:]]+targetA' <<<"$OUT"; then
+  ok "3ns12 registered-no-sessions row + registered + no sessions → schema-accepted, no WARN on the target" "(exit $RC)"
+else no "3ns12 consistent registered-no-sessions row → clean" "exit=$RC out=[$OUT]"; fi
+
+# 3ns13 — a registered-no-sessions row, but sessions now exist → stale.
+nsfix c3ns13; hist="$ROOT/h-ns13"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" 'hook file yes / registered-no-sessions / 3 md'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — row claims 'registered-no-sessions' but sessions HAVE now been launched" <<<"$OUT" && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
+  ok "3ns13 registered-no-sessions row + sessions exist → stale WARN" "(exit $RC)"
+else no "3ns13 registered-no-sessions + sessions → stale" "exit=$RC out=[$OUT]"; fi
+
+# 3ns14 — a registered-no-sessions row, but the hook is no longer registered → stale.
+kit="$(mkkit c3ns14)"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; hist="$ROOT/h-ns14"; nshist "$hist" "$tgt"
+nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / registered-no-sessions'; nsrun "$hist" "$kit"
+if [ "$RC" = 0 ] && grep -qE "row claims 'registered-no-sessions' but the Stop hook is not registered with a loadable script" <<<"$OUT" && grep -q 'wiring absent-settings' <<<"$OUT"; then
+  ok "3ns14 registered-no-sessions row + hook not registered → stale WARN naming the wiring state" "(exit $RC)"
+else no "3ns14 registered-no-sessions + unregistered → stale" "exit=$RC out=[$OUT]"; fi
 
 # --- kit issue #1128: SYMMETRIC HOOK-WIRING RECONCILIATION — the inverse direction of #1108 -----------
 # A row claiming 'hook no' (no hook file at all) whose Stop hook IS actually wired is registry drift
@@ -3135,6 +3251,34 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-hook-script-degraded" "$kit" 's/if \[ "\$_vr_script_state" = "degraded" \]; then  # HOOK-SCRIPT-DEGRADED-CHECK/if false; then  # HOOK-SCRIPT-DEGRADED-CHECK (mutated)/'; then
     vr_run "teeth-hook-script-degraded: neutered check silences test 3t — has teeth" "$kit" 0 0 \
       --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded'
+  fi
+
+  echo "-- teeth-hook-no-sessions: neuter HOOK-NO-SESSIONS-CHECK; test 3ns1 must go silent --"
+  nsfix teeth-nosessions; hist="$ROOT/h-teeth-ns"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'
+  if vr_mut "teeth-hook-no-sessions" "$kit" 's/if \[ "\$(hook_stop_launch_state "\$p")" = "no-sessions" \]; then  # HOOK-NO-SESSIONS-CHECK/if false; then  # HOOK-NO-SESSIONS-CHECK (mutated)/'; then
+    vr_run "teeth-hook-no-sessions: neutered check silences test 3ns1 — has teeth" "$kit" 0 0 \
+      --good-has 'registered-no-sessions' --bad-lacks 'registered-no-sessions' -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
+  fi
+
+  echo "-- teeth-hook-unregistered-stale: neuter HOOK-UNREGISTERED-STALE-CHECK; test 3ns6 must go silent --"
+  nsfix teeth-unregstale; hist="$ROOT/h-teeth-us"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'
+  if vr_mut "teeth-hook-unregistered-stale" "$kit" 's/if \[ "\$_vr_is_unreg" = 1 \]; then  # HOOK-UNREGISTERED-STALE-CHECK/if false; then  # HOOK-UNREGISTERED-STALE-CHECK (mutated)/'; then
+    vr_run "teeth-hook-unregistered-stale: neutered check silences test 3ns6 — has teeth" "$kit" 0 0 \
+      --good-has "row claims 'unregistered'" --bad-lacks "row claims 'unregistered'" -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
+  fi
+
+  echo "-- teeth-hook-no-sessions-stale: neuter HOOK-NO-SESSIONS-STALE-CHECK; test 3ns13 must go silent --"
+  nsfix teeth-nsstale; hist="$ROOT/h-teeth-nss"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / registered-no-sessions'
+  if vr_mut "teeth-hook-no-sessions-stale" "$kit" 's/if \[ "\$_vr_is_nosess" = 1 \] \&\& \[ "\$_vr_hf_launch" = "launched" \]; then  # HOOK-NO-SESSIONS-STALE-CHECK/if false; then  # HOOK-NO-SESSIONS-STALE-CHECK (mutated)/'; then
+    vr_run "teeth-hook-no-sessions-stale: neutered check silences test 3ns13 — has teeth" "$kit" 0 0 \
+      --good-has "sessions HAVE now been launched" --bad-lacks "sessions HAVE now been launched" -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
+  fi
+
+  echo "-- teeth-nosessions-token: drop the schema token; test 3ns12 must gain a nonconform-field WARN --"
+  nsfix teeth-nstoken; hist="$ROOT/h-teeth-nst"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / registered-no-sessions'
+  if vr_mut "teeth-nosessions-token" "$kit" 's/\[ "\$_vr_tok" = "registered-no-sessions" \] \&\& continue  # NONCONFORM-NOSESSIONS-TOKEN/: # NONCONFORM-NOSESSIONS-TOKEN (mutated)/'; then
+    vr_run "teeth-nosessions-token: dropped token trips the schema WARN — test 3ns12 has teeth" "$kit" 0 0 \
+      --good-lacks 'not in schema' --bad-has 'not in schema' -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
   fi
 
   echo "-- teeth-hook-claim-extract: widen HOOK-CLAIM-EXTRACT to match ANY 'hook ...' token; test 3h ('hook no') must false-WARN --"
