@@ -1,0 +1,3 @@
+# Scripts in the corpus that carry the `_RSDD_SELF` idiom but are deliberately NOT run by the planted-lib behavioural check.
+# Format: <path relative to research-sdd/toolbelt (install/ prefix = research-sdd/install)> | <reason of >= 3 words>
+install/install.sh | sources no lib/, runs only the sibling research-sdd-install.sh (itself listed) and installs system packages so running it here is unsafe
