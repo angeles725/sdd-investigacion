@@ -630,9 +630,15 @@ else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 # (bash py), the install suite's --verify teeth _CRASH (bash py cmd), the mutant_vm_core_teeth crash regex
 # (mutant_vm_crash_re = py + SyntaxError), and the mutant.sh bootstraps of verify-retro, adapter-core,
 # adapter-helpers, analysis-manifest, vm-disk-policy, discriminator-parity, gh-visibility, templates,
-# mutant-syntax-export-lint, detonate-exec and trace-exec. NOT MIGRATED (deferred, scope is partial):
-# hand-rolled probe loops remain in 59 suites (enumerate with
-# `rg -l 'lib/mutant.sh (did not define|lacks)' research-sdd`, minus lib/mutant.sh itself); crash literals
+# mutant-syntax-export-lint, detonate-exec and trace-exec, then blocked-rows, research-sdd-archive and
+# research-sdd-status-clean-warn. NOT MIGRATED (deferred, scope is partial): hand-rolled probe loops remain in
+# 57 suites, measured as the UNION of two enumerators: `rg -l 'lib/mutant.sh (did not define|lacks|missing)'
+# research-sdd` (57 files) and a sweep for `typeset -f mutant_` / `declare -F mutant_` outside lib/mutant.sh (48
+# files, all inside the rg list; the other nine probe through a `declare -F "$_mf"` loop). scan-vendor-leak.test.sh
+# matches rg through a header comment but also carries a real probe at its --prove-teeth bootstrap, so it counts.
+# The one differently-shaped probe, block-plan.test.sh `type mutant_sed || FATAL "mutant lib lacks mutant_sed"` (one
+# function, probing the lib resolved through $MUTLIB), matches
+# neither enumerator and is kept: it is outside this slice and migrates with the rest. Crash literals
 # that differ in meaning stay local: decompile-net/decompile-native CRASH_RE (ImportError without
 # ModuleNotFoundError), research-sdd-status-followups CRASH and verify-skill-drift-hook _CRASH (no
 # `integer expression expected`); decompile-native probes suite-local functions, not mutant.sh ones.

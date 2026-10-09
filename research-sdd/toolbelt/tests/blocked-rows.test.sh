@@ -256,8 +256,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== mutation controls =="
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 && declare -F mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   t_pass=0; t_fail=0
   mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }

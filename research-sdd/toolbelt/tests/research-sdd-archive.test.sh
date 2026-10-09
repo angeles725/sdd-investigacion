@@ -1803,8 +1803,7 @@ out40b="$(bash "$SUT" "$d" --dry-run 2>&1)"; rc40b=$?
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   MUT="$(mktemp -d)"
   trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
   export MUTANT_TOOTH_ICASE=1   # the output predicates below are case-insensitive, as they always were
