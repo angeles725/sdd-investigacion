@@ -8,7 +8,7 @@
 
 This document is the method contract. The operational engine is [`PROMPT-LOOP.md`](PROMPT-LOOP.md);
 the tools, [`toolbelt/tool-registry.md`](toolbelt/tool-registry.md); the subjects,
-[`TARGETS.md`](TARGETS.md). Bare corpus-pointer `(Evidence: ...)` notes live in
+[`TARGETS.md`](TARGETS.md). Bare corpus-pointer `(Evidence: ...)` and `(Source: ...)` notes live in
 [`docs/METHODOLOGY-PROVENANCE.md`](docs/METHODOLOGY-PROVENANCE.md), keyed by the label of the rule they annotate.
 
 ---
@@ -65,7 +65,7 @@ Behaviours the profile implies that the rules above did not yet name:
   phrase whose section has no ladder (>=3 list items/table rows labelled `route` plus a `cheapest` step;
   measurement language such as "physically impossible value" (§11a) is exempt; advisory, exit unchanged);
   `verify-block.sh --possibility-sweep <corpus>` lists every bare verdict already in a corpus (read-only) so
-  they can be reopened. (Source: 2026-09-30-possibility-first-mindset retro; kit issues #1263-#1266.)
+  they can be reopened.
 - **Mechanism before observation.** A block's `Connections` and evidence sections state the causal path
   ("this bit in the protection latch is read by X, which gates Y, so the process does Z"), not only the
   observed fact ("Y stops"). A block that reports what happens without the path that makes it happen has
@@ -96,7 +96,6 @@ Behaviours the profile implies that the rules above did not yet name:
   re-ingest an already-localized string — a local timezone label applied at storage propagates a double
   offset through every downstream join when a second conversion runs. The UTC value is the authoritative
   ground truth; display conversion is presentational and reversible, storage conversion is not.
-  (Source: fluke-177x-datos.)
 
 ## 2. The SDD-R phases (mapping from gentle-ai's SDD)
 
@@ -188,37 +187,31 @@ taxonomy, so they were decided together:
   evidence about the TRACKER STATE, not `[CERT-hw]`/`[CERT]` evidence about the version you have installed.
   Before treating a "closed" CVE or issue as resolved, verify the fix is present in the installed build —
   code-check or live probe. The installed/live evidence outranks the tracker exactly as live outranks doc.
-  (Source: 2026-09-16-blender-llm-b15-b16-source-and-security-retro.md delta #1)
 - **Name the gate condition for a gated defect.** When a defect is GATED — code present but unreachable
   until a specific action enables it (enabling a provider, deploying a handler, granting a flag) — the gate
   condition is a FIRST-CLASS component of the exploitability verdict alongside the static defect claim. Extend
   the static-defect / runtime-exploitability split above: record "what flips this live" in the same block as
   the defect. A verdict of "present" or "benign" without the gate is incomplete.
-  (Source: 2026-09-16-blender-llm-b15-b16-source-and-security-retro.md delta #3)
 - **In-code maintainer comments are primary-source evidence.** An inline comment stating a safety invariant
   or contract (e.g. `"never call X from here — not thread-safe, silently lost"`) is a legitimate `[CERT]`
   citation for the INTENT of that code, distinct from the behaviour the code implements. Cite it by `file:line`
   like any other source — it is first-party, versioned, and co-located with the implementation. Do not
   downgrade it to `[CERT-a]` merely because it is prose.
-  (Source: 2026-09-16-blender-llm-b10-bridge-threading-retro.md delta #2)
 - **CAPABILITY ≠ ENABLED.** For a pluggable integration (asset providers, optional backends, feature flags),
   documentation saying the system SUPPORTS X is `[CERT-web]` evidence about capability — not evidence X is
   currently ON. Query the live status endpoint and record supported-vs-enabled separately. A `[CERT-web]`
   "supports" claim and a `[CERT-hw]` "enabled right now" claim answer different questions; conflating them
   inflates the attack surface assessment (cf. §12 GATED-BY-DEPLOYMENT).
-  (Source: 2026-09-16-blender-llm-b14-asset-pipeline-retro.md delta #1)
 - **Per-record certainty for heuristic datasets.** When a block emits a DATASET produced by a heuristic
   algorithm (not a set of individual prose claims), certainty markers must travel per record — each record
   carrying its own evidence class, match evidence, and issues list. A single block-level confidence annotation
   is unusable downstream; a record the heuristic could not match is either `[INFER]` or an explicit
   `unmatched` entry, never a silent drop.
-  (Source: 2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md delta #5)
 - **Verify the DATA against the declared contract.** When a protocol or API is documented (OBIX, BACnet,
   Modbus, etc.), verify that what the system ACTUALLY returns matches the declared schema/contract before
   accepting values as `[CERT]`. A mismatch between the live response and the documented schema is a FINDING
   — record it as such, do NOT silently adopt the observed value as if the spec were correct. A contract
   mismatch that goes unrecorded corrupts every downstream block that cites the erroneous value.
-  (Source: niagara-research/retros/2026-09-03-obix-architecture-consulting-retro.md #3)
 
 **`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
 specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
@@ -632,11 +625,11 @@ Linux/WSL, or `hh.exe -decompile <dir>/ <file>.chm` on Windows. The extracted to
 `sources/extracted/<basename>/Topics/topicname.htm §section`. The tool-registry entry
 (`toolbelt/tool-registry.md`) covers the wrapper command and platform variants.
 
-**Slot vs. reader-derived value (API/facade boundary).** When documenting a data contract that crosses a servlet or facade boundary, distinguish a REAL slot (one the facade emits directly) from a reader-DERIVED value (one the servlet computes from anchor slots at read time) BEFORE naming any ord. Read the reader code (e.g. `DashboardReader.java`) — a derived value is absent from the oBIX facade; a facade poller will never find it and must instead read the anchor slots and recompute. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #2)
+**Slot vs. reader-derived value (API/facade boundary).** When documenting a data contract that crosses a servlet or facade boundary, distinguish a REAL slot (one the facade emits directly) from a reader-DERIVED value (one the servlet computes from anchor slots at read time) BEFORE naming any ord. Read the reader code (e.g. `DashboardReader.java`) — a derived value is absent from the oBIX facade; a facade poller will never find it and must instead read the anchor slots and recompute.
 
-**Control-write contract is incomplete without interlock semantics.** When relaying or documenting a control-WRITE ord (e.g. an HOA mode that overrides an automation loop), surface what interlocks the write bypasses and what safety limits it still respects. A write-ord contract that names only the values (`0/1/2`) without its interlock and safety semantics is evidence of what the write does, not evidence of what it may harm. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #5)
+**Control-write contract is incomplete without interlock semantics.** When relaying or documenting a control-WRITE ord (e.g. an HOA mode that overrides an automation loop), surface what interlocks the write bypasses and what safety limits it still respects. A write-ord contract that names only the values (`0/1/2`) without its interlock and safety semantics is evidence of what the write does, not evidence of what it may harm.
 
-**App INSTALL / artifact as a first-order source.** When the vendor ships an INSTALL tree (setup.exe, .msi, .dmg, or equivalent) alongside the binary being analyzed, treat its configuration files, XML schemas, limit tables, and resource templates as FIRST-ORDER evidence — outranking inference from the decompiled binary when both disagree. The install's declared values (threshold tables, unit labels, constraint XML) are the literal contract; the decompiler can only guess at them from float-constant pools. Preserve relevant install-tree files in `sources/` like any other primary source and cite them as `[CERT]` via `file:line` (not `[CERT-doc]` — they are first-party configuration, not downloaded documentation). (Source: 2026-09-13-mejora-continua-de-la-doctrina.md row 4)
+**App INSTALL / artifact as a first-order source.** When the vendor ships an INSTALL tree (setup.exe, .msi, .dmg, or equivalent) alongside the binary being analyzed, treat its configuration files, XML schemas, limit tables, and resource templates as FIRST-ORDER evidence — outranking inference from the decompiled binary when both disagree. The install's declared values (threshold tables, unit labels, constraint XML) are the literal contract; the decompiler can only guess at them from float-constant pools. Preserve relevant install-tree files in `sources/` like any other primary source and cite them as `[CERT]` via `file:line` (not `[CERT-doc]` — they are first-party configuration, not downloaded documentation).
 
 **Vendor SDK example tree outranks decompiled class tree.** When a vendor ships both an undecompiled SDK example tree (a `samples/` or `examples/` directory) and the binary being analyzed is also decompilable, the example tree is higher-fidelity evidence. Prefer it as primary source and cite `[CERT]` from it; fall back to the decompiled tree only for gaps the examples do not cover (unexported internals, method bodies the examples never exercise). This extends the App INSTALL precedence: a class the vendor example-ified directly carries its intent unambiguously, whereas decompilation reconstructs intent from bytecode.
 
@@ -686,7 +679,7 @@ gaps and declared coverage complete without ever running a census. It never open
 databases (450 MB), 161 Visio diagrams (76 MB), or 144 compiled DDC programs — file types that a
 three-second census would have put on the radar.
 
-**Plugin/extension-hosting targets: record load channels per entry point.** When the target hosts installable plugins or extensions, record from the start, per entry point, which runtime extension/plugin channels load (for a SPA, the main app, a config app and a preview each load plugins through different paths, and a zero-reference grep in one entry's chunk says nothing about the others). This is a generic coverage-matrix axis, not a SPA-only checklist. (Source: kit #1960.)
+**Plugin/extension-hosting targets: record load channels per entry point.** When the target hosts installable plugins or extensions, record from the start, per entry point, which runtime extension/plugin channels load (for a SPA, the main app, a config app and a preview each load plugins through different paths, and a zero-reference grep in one entry's chunk says nothing about the others). This is a generic coverage-matrix axis, not a SPA-only checklist.
 
 **Threshold for audit obligation.** A file type is starred (*) when it meets either threshold:
 `--threshold-count N` (default 5 files) OR `--threshold-mb M` (default 1 MB aggregate). Every
@@ -720,7 +713,7 @@ isolated per-package/per-class re-run, or a fallback-engine unit is reported as 
 one `UNIT:` line per affected unit. Cite a decompiled unit as evidence only after reading its `UNIT:` line:
 `result=marked` or `kept-primary` output carries a failure marker and `result=failed` has no output at all. A `reason=missing` unit is a class the engine silently left out; on a multi-release jar, classes present only under `META-INF/versions/N` are such a true omission with Vineflower. Header `reason=` tokens `coverage-sweep-unavailable`, `no-class-entries` and `total_budget_exhausted` mean the coverage proof itself could not be completed: treat the tree as unverified, never as covered. `timeout-unavailable` means the engines ran UNBOUNDED (no `timeout` binary); the sweep still ran.
 
-**Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. The opt-in checker `census-target.sh --state` reads this declaration (only inside `## Dismissed file types`; `--` is accepted for the em dash) and reports `INHERITED` instead of cross-checking; nothing in the loop invokes it yet. A silent skip is indistinguishable from a forgotten census. (Source: 2026-08-30-alarm-webhook-focus-retro.md D1)
+**Focus-inherited census (scoped focus over an already-censused corpus).** When a new focus (§16) opens over a target whose parent corpus was already censused at its bootstrap, and the focus reads only a SUBSET of artifacts that census already classified, the focus MAY inherit the parent census instead of re-running `census-target.sh`. Conditions: (a) the focus introduces no new subject-artifact type; (b) the inheritance is DECLARED in the focus's `RESEARCH-STATE-<focus>.md §§ Dismissed file types` with the fixed form: `- none — census inherited from parent corpus bootstrap (scoped focus; reads subset <path> already classified)`. The opt-in checker `census-target.sh --state` reads this declaration (only inside `## Dismissed file types`; `--` is accepted for the em dash) and reports `INHERITED` instead of cross-checking; nothing in the loop invokes it yet. A silent skip is indistinguishable from a forgotten census.
 
 **Census scope: enumerate every tree shape, state the exclusions.** A corpus-wide census or count must list
 each tree shape the corpus uses (e.g. `vineflower/`, `fallback/`, per-version dirs) and say which it excludes
@@ -741,7 +734,7 @@ beside the zero, rather than one negative grep; this is the method behind the §
 its size and open a gap to read it — everything measured downstream inherits the omission silently.
 This extends the dismissed-file-types doctrine: a residual left unread is an unclosed audit hole, not a
 valid classification. Sizing the bucket first (how many items, what fraction) determines whether the gap
-warrants its own block or can be folded into an adjacent one. (Source: blender-llm B35)
+warrants its own block or can be folded into an adjacent one.
 
 **Protocol / binary-format reconstruction.** When the subject is an opaque wire format or a proprietary
 binary record layout — no symbol-bearing managed binary exists, only data — use this named three-step pattern:
@@ -813,7 +806,7 @@ you already have can complete or score itself. Four facets of the same move:
   vocabulary noise within one class; "Sample-and-propagate by CLASS" propagates values across types;
   this rule splits the OUTPUT population before any aggregate is computed.
 
-**Giant single-line artifact navigation (minified / base64-laden files).** When a target file has multi-MB lines (base64 data URIs, minified JS, packed HTML), `Read` exceeds its token budget and a naive `grep -n` dumps mega-lines. Navigate with `sed -n 'A,Bp' | cut -c1-160` for known ranges. Apply a line-length filter FIRST for any keyword search — `awk 'length<300'` or a Python `for i,l in enumerate(open(f)): if len(l)<N and pat.search(l): print(i,l)` — for both LOCATING a symbol and CLASSIFYING the file (framework detection): `grep -ci "vue|d3"` returning 800+ hits on a minified file is base64 noise; `awk 'length<300' | grep` returned the correct "0 real hits → not Vue/D3" verdict. (Source: 2026-09-01-large-single-file-navigation-retro.md #1; 2026-09-03-research-sdd-cross-session-verify-retro.md #2)
+**Giant single-line artifact navigation (minified / base64-laden files).** When a target file has multi-MB lines (base64 data URIs, minified JS, packed HTML), `Read` exceeds its token budget and a naive `grep -n` dumps mega-lines. Navigate with `sed -n 'A,Bp' | cut -c1-160` for known ranges. Apply a line-length filter FIRST for any keyword search — `awk 'length<300'` or a Python `for i,l in enumerate(open(f)): if len(l)<N and pat.search(l): print(i,l)` — for both LOCATING a symbol and CLASSIFYING the file (framework detection): `grep -ci "vue|d3"` returning 800+ hits on a minified file is base64 noise; `awk 'length<300' | grep` returned the correct "0 real hits → not Vue/D3" verdict.
 
 **Entropy + byte histogram as a read-only encryption test.** When the question is "is this wire/blob
 encrypted?", compute Shannon entropy (bits/byte) and the byte-value histogram before assuming a cipher.
@@ -831,7 +824,7 @@ For a FIRMWARE image the ambiguity is partly resolvable: legitimately-compressed
 firmware (uImage/IFS/gzip/lzo) retains a container/header magic that binwalk catches, so **flat ~8.0-bit
 entropy PLUS zero binwalk signatures across the whole image** ⇒ encrypted is the strong reading. Keep the
 verdict honest: the measurements are `[CERT]`; "encrypted" stays `[INFER]` and the gap becomes a blocked
-child needing the running device or device-bound key. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D4)
+child needing the running device or device-bound key.
 
 **JPMS products: measure module identities before `--patch-module` (kit #1618).** Package roots are not module names. Run `java --module-path <dir> --list-modules` first (one command lists named and `automatic` modules); an assumed package-derived name fails with `WARNING: Unknown module: <name>`. Record the asymmetry too: only modules on the STARTUP module path are patchable from the launcher; modules a runtime-assembled `ModuleLayer` adds later are not.
 
@@ -839,9 +832,9 @@ child needing the running device or device-bound key. (Source: 2026-08-30-jace80
 
 **Feature-bid mining in Java bytecode (licensed-feature strings; kit issue #1542).** On a Java platform, a licence brand and a feature name are separate constant-pool strings, and `module.xml`/`MANIFEST` carry neither. Two passes: (1) `strings`/constant-pool dump of the classes, intersected with the known vocabulary; (2) `javap -c` and read the `ldc` window around each real call site (`hasFeature`/`checkFeature`-style) to bind brand to feature. Pass 1's "nothing uncovered" is VACUOUS unless candidates were first enumerated OUTSIDE the known vocabulary (§7 false-negative direction). Evidence is retro-sourced (niagara B1206-B1207, not re-run here); no wrapper tool yet.
 
-**Custom-implementation survey against the vendor's equivalent in `organized/docSource`.** To validate whether a custom implementation over the Baja framework is correct, search `organized/docSource` for the Tridium component that implements the EQUIVALENT concept (by concept, not class name) and compare hooks, guards, and primitives. A fleet survey returning 0 hits for the anti-pattern across all first-party classes is strong deviation evidence: a pattern absent from all vendor code is not a style choice but a genuine departure from the idiom. Record the count — a zero is a finding, not an absence of data. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #3)
+**Custom-implementation survey against the vendor's equivalent in `organized/docSource`.** To validate whether a custom implementation over the Baja framework is correct, search `organized/docSource` for the Tridium component that implements the EQUIVALENT concept (by concept, not class name) and compare hooks, guards, and primitives. A fleet survey returning 0 hits for the anti-pattern across all first-party classes is strong deviation evidence: a pattern absent from all vendor code is not a style choice but a genuine departure from the idiom. Record the count — a zero is a finding, not an absence of data.
 
-**Obfuscated `docSource` is a tool wall, not evidence.** When method names in `docSource` are mangled (Vineflower/Procyon emitting `ln`/`n` tokens in place of real names), that tree cannot support `[CERT]` claims about internals. Prefer the vineflower tree for clean names; if the vineflower tree is also mangled, mark the claim `[INFER]` or decline to write a thin block. Never `[CERT]` a claim derived from an `ln`-mangled method body. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #3)
+**Obfuscated `docSource` is a tool wall, not evidence.** When method names in `docSource` are mangled (Vineflower/Procyon emitting `ln`/`n` tokens in place of real names), that tree cannot support `[CERT]` claims about internals. Prefer the vineflower tree for clean names; if the vineflower tree is also mangled, mark the claim `[INFER]` or decline to write a thin block. Never `[CERT]` a claim derived from an `ln`-mangled method body.
 
 **`organized/docSource/…/extracted` is the PREFERRED source for reference and grammar blocks.** When both a
 decompiled tree and an `organized/docSource/…/extracted/` tree are available for the same class, prefer
@@ -855,15 +848,15 @@ Source: niagara-research/retros/2026-09-20-module-hardening-investigable-phase-r
 
 **Calibrated discriminators are symmetric and reusable.** A classifier calibrated on a confirmed-positive layer is a symmetric discriminator for any layer of the same geometric kind (e.g. line segments or polylines claimed to belong to a structural category). Run it against the candidate and compare the score to the baseline from the confirmed layer: high score → confirmed as that kind; near-zero → not. The two scores together are the evidence, and the discriminator needs no rewrite or recalibration per candidate — same tool, same threshold, opposite answer on opposite input, the contrast itself the finding. (Evidence: nave-panccadia B36 §36.2–§36.4 — a pairing/thickness test calibrated on a confirmed wall layer scored 91.7 % there vs. 0 % interior pairing on the candidate, classifying it non-wall with no new test.)
 
-**Corroboration doctrine applies to any measured quantity, not only decompiled binaries.** The kit frames corroboration around `corroborate-*.sh` and the twin-binary check — a decompile is NOT evidence until a second, independently-produced channel confirms it. The underlying rule is channel-independence and applies universally: before trusting a derived value, ask what SECOND, independently-produced channel reports the same quantity. Examples: CAD polyline geometry vs. draughtsman's text label (two channels, same claimed dimension); workbook `Largo_m` vs. DXF longest edge (two channels, same measured length — agreeing to 0.03 mm median validates both). Neither is a binary; the requirement is channel independence, not artifact type. Apply the two-channel discipline wherever you would otherwise cite a single derived value without cross-check. (Source: blender-llm/retros/2026-09-16-blender-llm-b17-b20-duct-pipeline-retro.md Δ6)
+**Corroboration doctrine applies to any measured quantity, not only decompiled binaries.** The kit frames corroboration around `corroborate-*.sh` and the twin-binary check — a decompile is NOT evidence until a second, independently-produced channel confirms it. The underlying rule is channel-independence and applies universally: before trusting a derived value, ask what SECOND, independently-produced channel reports the same quantity. Examples: CAD polyline geometry vs. draughtsman's text label (two channels, same claimed dimension); workbook `Largo_m` vs. DXF longest edge (two channels, same measured length — agreeing to 0.03 mm median validates both). Neither is a binary; the requirement is channel independence, not artifact type. Apply the two-channel discipline wherever you would otherwise cite a single derived value without cross-check.
 
 **Jar / packaged-artifact inspection rules.** Three rules that apply before drawing conclusions about a JAR or other packaged artifact:
 
-- **Real-artifact-first for packaging/layout gaps.** When a gap is about physical packaging, on-disk layout, or artifact shape, inspect the REAL artifact directly — `unzip -l <jar>` for entry taxonomy, `unzip -p <jar> META-INF/MANIFEST.MF` for manifest bytes — alongside any decompiled sweep. Decompiled source cannot show META-INF signing entries, jar entry taxonomy, or manifest bytes; the decompiler output is a secondary view, not the primary artifact record. (Source: niagara-research/retros/2026-08-29-module-anatomy-focus-retro.md module-anatomy-1)
+- **Real-artifact-first for packaging/layout gaps.** When a gap is about physical packaging, on-disk layout, or artifact shape, inspect the REAL artifact directly — `unzip -l <jar>` for entry taxonomy, `unzip -p <jar> META-INF/MANIFEST.MF` for manifest bytes — alongside any decompiled sweep. Decompiled source cannot show META-INF signing entries, jar entry taxonomy, or manifest bytes; the decompiler output is a secondary view, not the primary artifact record.
 
-- **Read the package histogram before judging size or emptiness.** Before declaring a jar "empty", "shell", or "heavy", read the PACKAGE HISTOGRAM (`unzip -l <jar> | awk '{print $NF}' | grep '\.class$' | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn`) AND the `rc/` or resource listing to distinguish own-code from bundled-library and web-assets. A jar with `class-count=0` or near-zero may be pure web assets; one with hundreds of classes may be 99 % bundled library. Misreading either produces a §14-correction-generating false finding. (Source: niagara-research/retros/2026-08-29-own-modules-audit-focus-retro.md own-modules-1)
+- **Read the package histogram before judging size or emptiness.** Before declaring a jar "empty", "shell", or "heavy", read the PACKAGE HISTOGRAM (`unzip -l <jar> | awk '{print $NF}' | grep '\.class$' | sed 's|/[^/]*$||' | sort | uniq -c | sort -rn`) AND the `rc/` or resource listing to distinguish own-code from bundled-library and web-assets. A jar with `class-count=0` or near-zero may be pure web assets; one with hundreds of classes may be 99 % bundled library. Misreading either produces a §14-correction-generating false finding.
 
-- **Prefer source over jar for INTENT and CONFIG claims when source is available.** When the gap is about INTENT (over-permission, dead code, configuration) and the source repo is accessible, prefer source files over the packaged jar — source shows whether declarations are real implementation or scaffold, whether annotations are populated or empty boilerplate, and whether config is active or vestigial. A jar can carry structure the source abandoned. A finding that reverses when source is consulted is a §14-grade false claim. (Source: niagara-research/retros/2026-08-29-chihuahua-source-focus-retro.md chihuahua-2)
+- **Prefer source over jar for INTENT and CONFIG claims when source is available.** When the gap is about INTENT (over-permission, dead code, configuration) and the source repo is accessible, prefer source files over the packaged jar — source shows whether declarations are real implementation or scaffold, whether annotations are populated or empty boilerplate, and whether config is active or vestigial. A jar can carry structure the source abandoned. A finding that reverses when source is consulted is a §14-grade false claim.
 
 ## 7. State and memory (hybrid)
 
@@ -985,7 +978,6 @@ causes the `--next` aggregator to report STALE for the ENTIRE corpus, because th
 all RESEARCH-STATE files and one file without the declaration pulls the whole-corpus result to STALE.
 (Evidence: `--next` returned STALE 7/7 iterations on a corpus where only the active focus declared
 `block_scope: shared-global`; 17 legacy closed-focus files lacked the declaration.)
-(Source: niagara-research/retros/2026-08-05-electronicSignature.md ES-B)
 
 **Cannot-see diagnostic.** Even when `block_scope` is absent/per-focus, if the focus-filtered count
 is 0 while other-prefix blocks exist, `verify-state` emits a distinguishing FAIL message that names
@@ -1053,7 +1045,6 @@ instruction, it must be re-typed into the `## Gap-backlog` table as a `blocked (
 `tried:` and `needs:` clauses — exactly like a tool wall. A prose deferral note in a block is not a
 backlog entry: it cannot be found by `verify-state.sh` derivation, does not appear in `investigable_open`,
 and silently vanishes when the loop advances. A typed gap row is recall-findable; a prose note is not.
-(Source: niagara D4.)
 
 2. **Backlog empty 2× (secondary).** No open gaps at all for two consecutive iterations.
 3. **Budget cap (safety net).** An optional max-blocks / max-token ceiling set at launch.
@@ -1067,13 +1058,12 @@ fail, record the LIMIT — what the data cannot answer and why — and re-rank r
 A bounded "we cannot answer X because the data has property Y" is a real finding that converts an
 open loop into a closed one; a pause deferred to "later" is not. This is the §8 stopping criterion
 applied at sub-line granularity rather than corpus granularity — the same rule, one level down.
-(Source: blender-llm/retros/2026-09-16-blender-llm-b21-b37-cad-reconstruction-retro.md Δ7.)
 
 **A long analysis is justified by a question only it can answer, not by having already started it.**
 When a cheaper instrument answers the question mid-run, stop the expensive one immediately and close
 the gap with the cheaper tool's answer. A running Ghidra decompile does not earn priority over a
 `llvm-pdbutil` census that already produced the same answer in minutes — the question is answered,
-and continuing is waste, not rigor. (Source: blender-llm Δ6, B54 §54.5.)
+and continuing is waste, not rigor.
 
 **Saturation is a soft REVIEW prompt, not a fourth STOP criterion.** The backlog rarely empties (each
 block uncovers 1-4 new gaps), so a subject can be substantively SATURATED long before the criteria above
@@ -1085,7 +1075,7 @@ On a mature corpus, saturation + a deliberate APPLICATION PIVOT — auditing pro
 synthesizing a security map, or handing findings to a build session — is a legitimate terminal SUPERIOR to a
 thin re-derivation of already-covered ground. When the status report shows saturation and the marginal value
 of a new block is lower than the value of applying existing coverage, pivot explicitly rather than continuing
-for iteration count. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #1)
+for iteration count.
 
 **The saturation prompt reads the `New gaps uncovered` cell by header name, and the cell needs a leading count.**
 Write `3 new — G7, G8, G9` or `none`, never a bare identifier list (`B754-G1/G2`, `IC1–IC4 seeded`): measured on
@@ -1111,7 +1101,6 @@ synthesis (which fires at FOCUS-level exhaustion): the intermediate synthesis ch
 accumulate secondary evidence without obscuring that the primary question is already settled. A gap
 labeled "secondary detail — does not change composition answer" at this checkpoint is honest about its
 weight; a focus that skips this checkpoint forces the reader to re-derive primacy from the block sequence.
-(Source: niagara RP-C, B362–B365.)
 
 **A gap closes on a negative finding too.** A rigorously proven ABSENCE closes a gap exactly like a
 positive one: if the investigation shows a thing is NOT there — cited as such — the gap is covered, not
@@ -1149,7 +1138,7 @@ On stopping, declare: blocks written, the **coverage metric** (gaps closed / kno
 NOT a free-floating percentage), the list of **blocked gaps each tagged with the tool/access it
 needs**, and the Tools Report (`toolbelt/INSTALLED-TOOLS.md`).
 
-**ACTIVE CLOSE: audit before declaring a gap closed or a deliverable done.** Before declaring done, explicitly audit: (a) what surface was NOT inspected, (b) what assumptions were inherited from a prior block or agent, and (c) whether the deliverable matches the ground truth that is available. The default question after "done" is "what didn't I explore?", not "ship it". A gap declared closed without an active-close audit may carry unacknowledged scope gaps and inherited assumptions — two of the most common sources of false closures in multi-block campaigns. (Source: fluke-177x-datos)
+**ACTIVE CLOSE: audit before declaring a gap closed or a deliverable done.** Before declaring done, explicitly audit: (a) what surface was NOT inspected, (b) what assumptions were inherited from a prior block or agent, and (c) whether the deliverable matches the ground truth that is available. The default question after "done" is "what didn't I explore?", not "ship it". A gap declared closed without an active-close audit may carry unacknowledged scope gaps and inherited assumptions — two of the most common sources of false closures in multi-block campaigns.
 
 **Pre-stop artifact audit: check for uncited decompiler dumps before honoring `investigable=0`.**
 Before honoring a STOP or `investigable=0` declaration, check `$TARGET/tools/` and `$CORPUS/audits/`
@@ -1157,7 +1146,7 @@ for decompiler dump files not cited in any corpus block. An uncited dump is body
 was acquired but never captured — a false-negative exhaustion signal. If any uncited dump covers a gap
 with no block-level body evidence, the STOP MUST NOT be honored: produce the missing block, then
 recheck. This check is mandatory even when the dump was produced by a prior session or agent run; the
-file's age does not make it cited. (Source: niagara D1.)
+file's age does not make it cited.
 
 **Coverage over the SUBJECT is a second, different metric — declare it when the subject has structure.** `gaps closed /
 known gaps` is a ratio over the gaps you KNOW; it cannot see the units of the subject no gap ever named. When the
@@ -1168,9 +1157,9 @@ reported its known-gap ratio honestly. Its consumer is §13 AUDIT-FIRST: uncited
 findings. Ambiguity is reported, never absorbed (a class name present in two modules is excluded from the join and
 counted). **Instrument:** `toolbelt/coverage-map.sh` (kit issue #421) implements both rules below; run it with `--top N`, declare the two numbers (unexcluded, and with the corpus's `coverage-exclude.txt`) in RESEARCH-STATE, and treat every listed uncited unit as a candidate gap to seed (§13 AUDIT-FIRST), never as a finding.
 
-**A unit counts as CITED only when one of its unambiguous file basenames appears in a block as an extension-bearing token (`<basename>.<ext>`, word-bounded, case-sensitive) or inside a path token; a bare class or file stem in prose is never a citation** (§3 citations are `file:line`). Measured on niagara: bare-stem matching turned `This.java`, `Open.java`, `User.java` from bundled third-party code into false citations and hid ~91 uncovered modules. (Source: kit issue #421 fleet acceptance, 2026-09-05)
+**A unit counts as CITED only when one of its unambiguous file basenames appears in a block as an extension-bearing token (`<basename>.<ext>`, word-bounded, case-sensitive) or inside a path token; a bare class or file stem in prose is never a citation** (§3 citations are `file:line`). Measured on niagara: bare-stem matching turned `This.java`, `Open.java`, `User.java` from bundled third-party code into false citations and hid ~91 uncovered modules.
 
-**The coverage universe is DECLARED, never inferred.** Units outside the research question (bundled third-party libraries such as commonsIo, hsqldb, qpid) are listed in a `coverage-exclude.txt` at the corpus root, one glob per line; the instrument prints `excluded by declaration: N unit(s)` every run. A hidden default exclusion list would be an inferred universe. The tool never writes `coverage-exclude.txt` (propose-never-apply); the top-N uncited list is what makes an operator see a vendor bundle and declare it out-of-scope. (Source: kit issue #421 fleet acceptance, 2026-09-05)
+**The coverage universe is DECLARED, never inferred.** Units outside the research question (bundled third-party libraries such as commonsIo, hsqldb, qpid) are listed in a `coverage-exclude.txt` at the corpus root, one glob per line; the instrument prints `excluded by declaration: N unit(s)` every run. A hidden default exclusion list would be an inferred universe. The tool never writes `coverage-exclude.txt` (propose-never-apply); the top-N uncited list is what makes an operator see a vendor bundle and declare it out-of-scope.
 
 **Gap counters are NOT mutually exclusive — a single gap can satisfy multiple counters simultaneously.**
 A gap that carries `Priority: deferred` AND `Status: requires-execution` AND appears under `## Blocked gaps`
@@ -1178,9 +1167,8 @@ is counted in `deferred_open`, `requires_execution_open`, AND `blocked_open` —
 one gap satisfies all three conditions. When reading the status envelope, do not add these counters to
 estimate the number of unresolved gaps; instead use `investigable_open` (which excludes deferred,
 blocked, and requires-execution entries) as the relevant forward-work count.
-(Source: niagara-research/retros/2026-08-29-ports-focus-retro.md DELTA-4)
 
-**`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` (+ in-place blocked, §21.1) always; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: an absence-closed gap exits the `- name — needs:` row form — transformed to a non-bullet prose note (never a `- … needs:` line), or removed — so `derive_blocked` no longer counts it; it is credited to `gaps_closed`, not `blocked_open`. A row still carrying `needs:` is by definition still blocked (open), not closed. (See the `tried:` clause paragraph, search term `tried: clause for blocked`.) (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is now partially enforced: a new WARN-only CHECK H (search `IDENTITY-SUM-CHECK` in `verify-state.sh`) flags drift in this identity (it adds the derived in-place-blocked term of §21.1; absent OR non-integer `deferred_open` is treated as 0), though it remains advisory (WARN, not FAIL). (Source: niagara module-mechanics-closeout)
+**`known_gaps` DENOMINATOR MUST BE LIVE.** The `known_gaps` count — the denominator of the coverage ratio `gaps_closed / known_gaps` — must equal `gaps_closed + investigable_open + blocked_open + deferred_open + requires_execution_open` (+ in-place blocked, §21.1) always; it is NOT frozen at the bootstrap seed count. Whenever a child gap is seeded mid-run, bump `known_gaps` immediately. A stale denominator inflates the coverage ratio: a run that closes 10 gaps against a 10-gap bootstrap reads 100 % even when it seeded 4 new gaps it never addressed. Two caveats: (a) `blocked_open` is disk-derived from the `- … needs:` rows under `## Blocked gaps` / `## Non-investigable gaps` (CHECK C pins it). `derive_blocked` matches the literal `needs:` token — a `~~struck~~` row still counts (measured) — so any row carrying `needs:` is in `blocked_open` by construction. Count each gap in exactly ONE term of the identity: an absence-closed gap exits the `- name — needs:` row form — transformed to a non-bullet prose note (never a `- … needs:` line), or removed — so `derive_blocked` no longer counts it; it is credited to `gaps_closed`, not `blocked_open`. A row still carrying `needs:` is by definition still blocked (open), not closed. (See the `tried:` clause paragraph, search term `tried: clause for blocked`.) (b) `known_gaps` and `gaps_closed` are DECLARED-only (not disk-validated); `verify-state.sh` CHECK 3 WARNs only on two-or-more DISTINCT denominators among the canonical coverage lines OUTSIDE the `## Iteration history` table (which it strips first); it never reads the envelope `known_gaps` field. Only CHECK D's corner (`gaps_closed == known_gaps` while investigable gaps remain) is enforced automatically; general `known_gaps` drift (a stale denominator with open gaps still counted) is now partially enforced: a new WARN-only CHECK H (search `IDENTITY-SUM-CHECK` in `verify-state.sh`) flags drift in this identity (it adds the derived in-place-blocked term of §21.1; absent OR non-integer `deferred_open` is treated as 0), though it remains advisory (WARN, not FAIL).
 
 **PAUSED (budget-cap) ≠ STOPPED (exhaustion).** Distinguish the two in RESEARCH-STATE vocabulary. A halt on
 the budget-cap safety-net (criterion 3) while read-only-investigable gaps are STILL open is a PAUSE, not a
@@ -1292,7 +1280,7 @@ only the CURRENT run's rows verbose.
 
 **A STOPPED focus may also be reopened to raise its evidence grade — a grade-upgrade reopen.** The paragraph above covers new tool / new question / hardware bench as the reopen motive; grade-upgrade reopen names a second, distinct category: the SAME questions are re-examined at higher fidelity (e.g. strings/RTTI evidence → decompiled function bodies) to produce stronger answers to questions already asked, not to pursue new ones. Its distinguishing risk is re-derivation (redundant churn that re-covers known ground) — not scope-creep — and that difference demands its own honesty discipline: **PRIOR-COVERAGE → REMIT → DEEPEN**. Start by auditing what the prior run established; REMIT those findings (cite, do not re-derive them); only then DEEPEN the grade with higher-fidelity evidence. A grade-upgrade that skips the REMIT step re-derives prior work and forfeits the legitimacy of the reopen. This category is legitimate and distinct from churn: the 2026-08-07 platform-native Ghidra sub-pass reopened a STOPPED native-decompilation focus to upgrade strings/RTTI evidence to decompiled function bodies, and surfaced 4 security facts that lower-fidelity evidence had not reached.
 
-**A mid-run operator sub-request that is cheap and cross-cutting becomes a BONUS block, not a deferral or a new focus.** When the operator injects a small, orthogonal question during an active campaign ("check the bit constants", "what are the framework flags?") that can be answered in the current context without derailing the focus, absorb it as an extra gap and deliver the block inline. Reserve backlog deferral for requests that are large, out-of-scope for the current angle, or require a separate bootstrap. Track the bonus gap in the backlog and the iteration record — do not let it vanish. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #3)
+**A mid-run operator sub-request that is cheap and cross-cutting becomes a BONUS block, not a deferral or a new focus.** When the operator injects a small, orthogonal question during an active campaign ("check the bit constants", "what are the framework flags?") that can be answered in the current context without derailing the focus, absorb it as an extra gap and deliver the block inline. Reserve backlog deferral for requests that are large, out-of-scope for the current angle, or require a separate bootstrap. Track the bonus gap in the backlog and the iteration record — do not let it vanish.
 
 **Live backlog injection ≠ reopening a STOPPED loop.** When the user adds new questions WHILE a focus is
 still ACTIVE (not stopped, not exhausted), the loop simply APPENDS them to the current backlog and widens its
@@ -1302,7 +1290,6 @@ budget: here the loop never stopped, so the new gaps just extend the queue it is
 backlog widened mid-run with `+BG13 modernización` and `BG11 → chihuahua` at the user's request).
 
 **Frontier mode (5th investigation mode — unexplored territory, breadth-first).** Use frontier mode for a genuinely new focus with NO prior corpus coverage on its proposed surfaces — for example, the first pass over an entirely uncharted subsystem or target. The goal is a COVERAGE MAP across many sub-areas, not deep certification of one. Characteristics: sweep strategy is BREADTH-FIRST and LIGHTER BLOCK DENSITY than a normal deep-dive focus; the `[INFER]`/`[CERT]` ratio is EXPECTED HIGH — that is not a defect but a signal that targeted deep-dive passes are needed later. Declare `MODE: frontier` in RESEARCH-STATE at bootstrap. A frontier focus is NOT under depth pressure from the marker ratio: a high `[INFER]` count signals "return with richer tooling", not "the focus is incomplete by §8 standards". Distinct from a grade-upgrade reopen (which deepens evidence for questions already asked on a STOPPED focus) and from live-backlog injection (which extends an active loop's queue). **FRONTIER-REOPEN DECISION SHAPE.** Before honoring STOP on a frontier focus, run a coverage/section audit: if the audit reveals >2 contiguous section entries uncovered OR >1 named sub-topic with no block coverage, that is a new tier, not an in-block residue — declare it in RESEARCH-STATE (name, seed list, convergence criterion) before the first iteration of the new tier and seed the backlog from the uncovered entries. A single in-child residue stays in-block (annotated sub-section); it does not constitute a new tier. A tier declared this way is a legitimate reopen; a tier opened without a RESEARCH-STATE declaration is not a reproducible corpus action.
-(Source: niagara-research/retros/2026-09-14-frontier-mode-proposal.md)
 
 **Documenting a problem is part of finishing it, not a deferred extra — a cadence rule, not a new debt.**
 Write the problem-entry (§4/§20 canonical template, or a journal entry per §20b when the work is
@@ -1600,26 +1587,23 @@ This line is what resume and the instrument read to distinguish three states: (a
    identifiers, however, ARE stable across languages and renamings — address ports by their socket
    identifier (`Fill Caps`, `Geometry`, `Value`), not by position or display label. A block that guesses
    a socket by position in a localized UI is a false `[CERT]`.
-   (Source: blender-llm/retros/2026-09-16-blender-llm-b7-b9-live-phase-session-retro.md Δ1)
 10. **When disambiguation by geometry or proximity is ambiguous, look for a conserved quantity.** A
     proximity or similarity threshold degrades smoothly into nonsense as it grows; there is no value at which
     it is safely wrong. A conservation law does not degrade: a candidate either satisfies it or does not, at
     any distance. Prefer the physical constraint as the primary FILTER and geometry as the tiebreak.
-    (see CONSERVATION CHECK, §11a) (Source: blender-llm B29/B32)
+    (see CONSERVATION CHECK, §11a)
 11. **PROPRIETARY-OPERATOR-DATA discipline.** When the research subject is the operator's own non-secret but
     confidential data (client CAD plans, a BOM, a project inventory), cite the SCHEMA + ONE representative
     record + aggregate statistics — keep the raw full inventory in the operator's own location, never copy it
     wholesale into the corpus. Preserve only researcher-computed derivations and schemas. This is distinct from
     SECRETS DISCIPLINE (which covers credentials/keys): confidential-but-non-secret engineering data uses a
     structure+sample contract, not a structure-only redaction.
-    (Source: 2026-09-16-blender-llm-b12-b13-cad-application-retro.md delta #1)
 12. **Record the GATING condition when copying a rule or threshold.** A numeric threshold or rule copied
     from one context into another is only correct under the condition that produced it — copy the condition
     along with the number. A monitor threshold tuned for one poll ordering is wrong under a different one:
     a 35-minute threshold was correct because one device polls in series BEHIND another; the same value
     copied without that gating condition would read as arbitrary, and a naive lower value (15 min) would
     false-alarm. State the "because of X" next to any copied rule/threshold, not just the value.
-    (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #4.)
 
 Corpus language: **English by default** — for new targets and targets with no existing corpus.
 **Exception (user-approved, per target):** a target with an established corpus in another language MAY
@@ -1860,7 +1844,7 @@ caught later by **cross-block correction (§14)**, not by any per-iteration re-c
 error-capture mechanism is §14, not an orchestrator gatekeeper — per-block Bash re-verify only adds
 permission friction and driver bloat for no demonstrated catch.
 
-**For an ENUMERATION or set-membership claim, read the code that DEFINES the set before answering.** "Is X on the dashboard", "which slots does Y expose" — any membership claim about an authoritative enumerable list must be settled by reading the list's definition (the array, the method that populates it, the config that declares members) whole, once. An agent summary or partial read of adjacent code is not a substitute; two operator-caught errors in one session — `freeze*` misclassified, `startDelay` misclassified — were both prevented by a single 55-line read of `DashboardReader.java:80-134`. (Source: 2026-09-03-research-sdd-commissioning-map-consulting-retro.md #1)
+**For an ENUMERATION or set-membership claim, read the code that DEFINES the set before answering.** "Is X on the dashboard", "which slots does Y expose" — any membership claim about an authoritative enumerable list must be settled by reading the list's definition (the array, the method that populates it, the config that declares members) whole, once. An agent summary or partial read of adjacent code is not a substitute; two operator-caught errors in one session — `freeze*` misclassified, `startDelay` misclassified — were both prevented by a single 55-line read of `DashboardReader.java:80-134`.
 
 **Scope: this applies to the STATIC read-only loop only.** In a DYNAMIC/hardware, destructive, or
 BUILD/PoC phase (§12), a per-block orchestrator Bash gate IS justified and expected — there it verifies
@@ -1875,7 +1859,7 @@ gets its OWN scoped adversarial re-check on the fix delta before any terminal ve
 fixes, each closed by a passing directed test, has introduced fresh CRITICAL defects caught only by re-judging
 the delta). The trust-the-self-report gate is scoped to STATIC blocks; a fix batch is not one.
 
-**DECOMPILED-TREE BLOCKS WILL SHOW ZERO RESOLVED CITATIONS — THIS IS EXPECTED.** When a block's `[CERT]` citations all point into decompiled trees (`organized/*/vineflower/`, reverse-engineered bytecode, `strings` output, etc.), `verify-block.sh` classifies all of them as `extern` and reports "ZERO file:line citations resolved". This is the EXPECTED signature — the tool cannot resolve paths outside the target directory. The mechanized citation gate has checked nothing; the burden falls ENTIRELY on inline token-verify for those citations. Self-verify for such a block MUST explicitly record: `verify-block: 0 resolved (all extern — decompiled trees); citation gate = inline token-verify N/M tokens`. A zero-resolved line without this explicit declaration is alarming without context and will be read as a failure. (Source: niagara-research B542–B547.)
+**DECOMPILED-TREE BLOCKS WILL SHOW ZERO RESOLVED CITATIONS — THIS IS EXPECTED.** When a block's `[CERT]` citations all point into decompiled trees (`organized/*/vineflower/`, reverse-engineered bytecode, `strings` output, etc.), `verify-block.sh` classifies all of them as `extern` and reports "ZERO file:line citations resolved". This is the EXPECTED signature — the tool cannot resolve paths outside the target directory. The mechanized citation gate has checked nothing; the burden falls ENTIRELY on inline token-verify for those citations. Self-verify for such a block MUST explicitly record: `verify-block: 0 resolved (all extern — decompiled trees); citation gate = inline token-verify N/M tokens`. A zero-resolved line without this explicit declaration is alarming without context and will be read as a failure.
 
 **DE-ESCALATION IS A VALID ITERATION-HISTORY OUTCOME, NOT A FAILURE.** When a driver re-verifies a claim and downgrades it — a `[CERT]` demoted to `[INFER]`, an overstated finding narrowed, a false positive retracted — record the outcome explicitly in the iteration history as a DE-ESCALATION. Subtracting a false finding has the same research value as adding a true one; an unlabelled retraction looks like a correction and obscures the evidence strength of the remaining corpus. (Source: niagara-research B341 "driver re-verify (downgraded overstated finding)"; B347 "2 de-escalations"; B349 §349.5.)
 
@@ -1887,16 +1871,16 @@ Read these rules when interpreting measured values, building data pipelines, or 
 such a slot as "happening now", read what SETS it and what READS it: an enable flag says the behaviour is armed, not
 that it is running. Derive the live condition from the OUTPUT state (the actuator, the status enum, the measured
 value) and refine it with the config flag — never the reverse. A viewer read `FreezeProtect` as "protection active"
-and had to be corrected twice. (Source: panccadia-3d-viewer/retros/2026-09-05-kit-retro-document-runs-b10-b19.md D3)
+and had to be corrected twice.
 
 **A vendor "since" or elapsed anchor may not reset on sub-cycles.** Compute an episode duration from the transition
 YOU track (the timestamp at which the condition you define became true), not from the vendor's own anchor, and state
 which transition the duration counts from. A `coolingSince` anchor that survived defrost sub-cycles produced a false
 "running 22 h"; the fix was a locally tracked elapsed counter. (Source: same retro, D4; B19 §19.3)
 
-**To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference. (Source: 2026-09-04-dashboardpan-2d-to-3d-port-multi-session-coordination-retro.md #1)
+**To prove a "what changed since X" delta when timestamps cannot discriminate (e.g. same-day commits), check the CONSUMER for ABSENCE, not the producer's commit boundary.** `grep -c <symbol>` against the artifact that would consume it: 0 hits = genuine delta; present = already there. This is cheaper and more reliable than reconstructing commit/deploy timelines, and the count is the evidence rather than a boundary inference.
 
-**UNANIMITY IS AN ARTIFACT DETECTOR: a 100 % hit-rate must be re-verified by an independent method.** A result where every item in the corpus matches — every gap closes, every token resolves, every check passes — is itself suspicious. Before trusting a unanimous result, re-verify by an independent method: re-key the join on a different column, group by an orthogonal dimension, or sample a disjoint subset. A 100 % rate on a real corpus almost always signals that the instrument is matching on an artefact of its own structure rather than the target signal. (Source: blender-llm B17-B20)
+**UNANIMITY IS AN ARTIFACT DETECTOR: a 100 % hit-rate must be re-verified by an independent method.** A result where every item in the corpus matches — every gap closes, every token resolves, every check passes — is itself suspicious. Before trusting a unanimous result, re-verify by an independent method: re-key the join on a different column, group by an orthogonal dimension, or sample a disjoint subset. A 100 % rate on a real corpus almost always signals that the instrument is matching on an artefact of its own structure rather than the target signal.
 
 **AN EXACT `[CERT]` COUNT IS PROVISIONAL UNTIL A SECOND INDEPENDENT COUNT AGREES.** A `[CERT]` claim asserting an EXACT count of enumerable
 items in a source (string literals, list entries, emitters, jars) stays provisional until a second, independent count agrees: a live re-run of
@@ -1904,11 +1888,11 @@ the counting mechanism at self-verify time, or a cross-check against another blo
 however confidently phrased, is not sealed; this catches plain manual-transcription miscounts that a regex fix does not (B53: 23 corrected to 27).
 Same family as UNANIMITY: a confident number is verified by a second path. (kit #1201)
 
-**MATCHING COUNTS ARE NOT A JOIN: equal cardinality does not establish intersection.** When two sets produced by different methods both return N items, the temptation is to treat them as the same N items — they are not, until the join is measured directly (inner-join on the key, count matching rows). An equal-cardinality coincidence that survives without a direct join check is a latent false positive. (Source: blender-llm B17-B20)
+**MATCHING COUNTS ARE NOT A JOIN: equal cardinality does not establish intersection.** When two sets produced by different methods both return N items, the temptation is to treat them as the same N items — they are not, until the join is measured directly (inner-join on the key, count matching rows). An equal-cardinality coincidence that survives without a direct join check is a latent false positive.
 
-**CONSERVATION CHECK: quantities that must sum or balance must be explicitly checked.** If a model or state machine has quantities that should be conserved (inputs = outputs, allocations = capacity, counts before = counts after), compute the balance explicitly — do not read it from the design description. An un-checked conservation invariant is invisible until a discrepancy surfaces in a downstream consumer. (Source: blender-llm B21-B37)
+**CONSERVATION CHECK: quantities that must sum or balance must be explicitly checked.** If a model or state machine has quantities that should be conserved (inputs = outputs, allocations = capacity, counts before = counts after), compute the balance explicitly — do not read it from the design description. An un-checked conservation invariant is invisible until a discrepancy surfaces in a downstream consumer.
 
-**RESEARCH-TO-QUOTE BRIDGE: map cited evidence to every quoted number in a synthesis report.** When a synthesis block carries effort, size, or cost metrics intended for a report audience, add a SYNTHESIS note that explicitly maps the cited evidence to each quoted number — e.g. "N hours from blocks B7, B12, B19 (heuristic; ±30 %)". Without the bridge, a reader cannot distinguish a measured quantity from an inference, and the number travels without its uncertainty. (Source: niagara-research reports focus)
+**RESEARCH-TO-QUOTE BRIDGE: map cited evidence to every quoted number in a synthesis report.** When a synthesis block carries effort, size, or cost metrics intended for a report audience, add a SYNTHESIS note that explicitly maps the cited evidence to each quoted number — e.g. "N hours from blocks B7, B12, B19 (heuristic; ±30 %)". Without the bridge, a reader cannot distinguish a measured quantity from an inference, and the number travels without its uncertainty.
 
 **DECODED FIELD NAME IS A HYPOTHESIS.** A field name inferred from surrounding context — protocol position, adjacent labels, vendor convention — is a hypothesis, not a fact. Confirm it against the answer key (the system's own export or dump) before computing any derived value from it. A wrong field name does not raise an error; it silently propagates the wrong value through every downstream calculation. (Source: fluke-177x-datos) For the live-system answer key that makes field-name confirmation possible, see SCALE GROUND TRUTH and SAME-SNAPSHOT COMPARISON in §12.
 
@@ -1928,11 +1912,11 @@ read-back parses localized output, match the locale-invariant token (the value),
 OK and the flag stayed `disabled`; the fix read `show interface store=persistent` and matched the value token,
 because the label was Spanish on that host; kit #1883.)
 
-**RECOMPUTE-BLINDNESS: at least one check must read consumer state, not derived state.** When a pipeline both APPLIES and ASSUMES a transform, an analysis that recomputes the expected transform cannot detect one that is wrong — both sides agree by construction. At least one check must read the state the CONSUMER reads (the render, the export, the downstream tool output), not the state the analysis derives. A passing registration residual and coverage metric will not detect a 45 km parent offset; only the render — returning empty — will. (Source: blender-llm B44 §44.4.)
+**RECOMPUTE-BLINDNESS: at least one check must read consumer state, not derived state.** When a pipeline both APPLIES and ASSUMES a transform, an analysis that recomputes the expected transform cannot detect one that is wrong — both sides agree by construction. At least one check must read the state the CONSUMER reads (the render, the export, the downstream tool output), not the state the analysis derives. A passing registration residual and coverage metric will not detect a 45 km parent offset; only the render — returning empty — will.
 
-**PRINT POPULATION COUNT IN THE SAME CALL AS THE MUTATION.** A count check that runs afterwards cannot distinguish "the change was fine" from "there is nothing left to check." The destruction of an entire subject population can exit with a clean defect count of zero if verification runs after the mutation and counts only survivors. Print the population in the mutating call itself so a catastrophic drop is immediately visible. (Source: blender-llm B59 §59.1.)
+**PRINT POPULATION COUNT IN THE SAME CALL AS THE MUTATION.** A count check that runs afterwards cannot distinguish "the change was fine" from "there is nothing left to check." The destruction of an entire subject population can exit with a clean defect count of zero if verification runs after the mutation and counts only survivors. Print the population in the mutating call itself so a catastrophic drop is immediately visible.
 
-**POPULATION-FLOOR GATE: a verification suite must not pass an empty subject.** Every gate that counts defects is satisfied by an empty subject — `0 manifold errors` passes whether the mesh has 50,000 faces or zero. Require at least one population-minimum check, placed FIRST: the gate must exit non-zero if the subject has fewer than N items, where N is the minimum known-sound size. (Source: blender-llm B59 §59.5.)
+**POPULATION-FLOOR GATE: a verification suite must not pass an empty subject.** Every gate that counts defects is satisfied by an empty subject — `0 manifold errors` passes whether the mesh has 50,000 faces or zero. Require at least one population-minimum check, placed FIRST: the gate must exit non-zero if the subject has fewer than N items, where N is the minimum known-sound size.
 
 **A SINGLE COMPARISON NEEDS A POPULATION FLOOR TOO.** Extend the rule above from suites to individual equalities:
 every equality in an evidence script asserts both operands are non-empty before it reports a match. An empty
@@ -1959,7 +1943,7 @@ unit regrades the whole container. Write each unit's result durably as soon as i
 atomic rename/fsync per batch) so an interrupted run resumes at the next missing unit. Gate it with an
 equivalence test — interrupt mid-container, rerun, require output byte-identical to an uninterrupted run — plus
 one test per key component (changing it must force recomputation). Never claim a speedup for the run that fills
-the cache. (Source: n5 fidelity long-run-throughput retro #1, #2.)
+the cache.
 
 **PER-UNIT PROCESS SPAWN OF A HEAVY RUNTIME IS A SMELL.** When a pipeline starts a JVM or interpreter per unit,
 measure the spawn share of wall time; if it dominates, keep a persistent server. (Evidence: jxbrowser took ~8 h
@@ -1988,7 +1972,7 @@ Source: n5 long-run-throughput retro #4.)
 
 **TREAT AN OPERATOR-REPORTED PHYSICALLY-IMPOSSIBLE VALUE AS A DATA PIPELINE BUG.** When the operator flags an anomaly as "physically impossible" — a timestamp inside a known recording gap, a value outside the sensor's physical range — investigate at the data layer first, not the display layer. A physically impossible value almost always points to a pipeline defect (wrong offset, wrong column, double conversion); a display-layer fix treats the symptom and leaves the root cause in place. (Source: fluke-177x-datos — an event cluster at 08:43 during the known nightly recording gap pointed directly to a 6-hour offset in the pipeline, not a formatting issue.)
 
-**VALIDATE EMBEDDED JAVASCRIPT WITH `node --check` BEFORE PUBLISHING AN HTML ARTIFACT.** For a standalone HTML artifact that embeds JavaScript, run `node --check` on each script block (plus a minimal runtime shim mocking `document`, `Chart`, `fetch`, etc.) before publishing. For `<script type="module">` content, pass via stdin with `--input-type=module` — file-mode raises `ERR_INPUT_TYPE_NOT_ALLOWED`. This catches syntax errors and view-rendering failures offline without a browser round-trip. A missing closing parenthesis can pass script-mode `node --check` yet blank a dashboard panel when loaded as a module. (Source: fluke-177x-datos 2026-09-14-entrega-dashboard-supabase-pages.md row 4.)
+**VALIDATE EMBEDDED JAVASCRIPT WITH `node --check` BEFORE PUBLISHING AN HTML ARTIFACT.** For a standalone HTML artifact that embeds JavaScript, run `node --check` on each script block (plus a minimal runtime shim mocking `document`, `Chart`, `fetch`, etc.) before publishing. For `<script type="module">` content, pass via stdin with `--input-type=module` — file-mode raises `ERR_INPUT_TYPE_NOT_ALLOWED`. This catches syntax errors and view-rendering failures offline without a browser round-trip. A missing closing parenthesis can pass script-mode `node --check` yet blank a dashboard panel when loaded as a module.
 
 **NULL-OR-NEGATIVE METRIC: probe the metric against a KNOWN-POSITIVE case before changing the metric.**
 A metric that cannot represent the change under test reports it as a regression — confidently, with no
@@ -2004,7 +1988,7 @@ counts bracketed marker tokens in the file, so a Self-verify section that quotes
 `[CERT]`/`[INFER]` tally adds those tokens to the next run's count, and every re-run drifts upward. Write
 the tally in prose or without brackets (`CERT 41, INFER 6`), or read it as an ADJUSTED count (§11 raw vs
 adjusted). Six n5 blocks (B61, B66, B67, B70, B72, B75) each rediscovered this independently. Doctrine
-only; the instrument does not exclude its own tally. (Source: n5 wave 6-7 retro #2)
+only; the instrument does not exclude its own tally.
 
 ## 11b. Verifying the verifier and the kit test-lane contract
 
@@ -2130,7 +2114,7 @@ before trusting its verdict:
   fixture, that JDK and that engine version only, and the script does not diff `javap` of two idiom variants
   or regenerate a per-JDK matrix — a rule about a construct it does not cover still needs the experiment
   extended or the rule dropped. For other tools (native compilers, packers) the experiment still lives in the
-  target's `tools/`. (Source: n5 method-errors retro #12.)
+  target's `tools/`.
 
 - **Coordinate-system handoffs are verification boundaries.** Any handoff between coordinate systems
   (CAD +Y up vs three.js +Z toward viewer; job-network numbering vs live-bus numbering) is a boundary
@@ -2160,7 +2144,7 @@ before trusting its verdict:
   to update: a retro or state file that did not receive its intended update is a silent no-op with a longer
   blast radius.
 
-**A GATE IS ONLY WORTH WHAT ITS REFERENCE IS WORTH: validate the reference before trusting the gate.** A red/green gate built on a defective reference misleads: it may pass a broken artefact because the reference itself is wrong. Before trusting a gate's verdict, confirm the reference was independently verified — not derived from the same source or method the gate is checking. (Source: blender-llm B21-B37)
+**A GATE IS ONLY WORTH WHAT ITS REFERENCE IS WORTH: validate the reference before trusting the gate.** A red/green gate built on a defective reference misleads: it may pass a broken artefact because the reference itself is wrong. Before trusting a gate's verdict, confirm the reference was independently verified — not derived from the same source or method the gate is checking.
 
 **HARNESS-GAP TRIAGE BEFORE DEFECT ATTRIBUTION.** When a harness reproduces a vendor runtime (compile, link,
 load, run), derive its load path from the vendor launcher itself (launcher strings, module lists, the shipped
@@ -2326,7 +2310,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   first: a slot null while `mode=interval` is a malfunction; the same slot null while `mode=schedule` is
   by design. One oBIX GET request settles a branch that multiple code-reading sessions may not close.
   Mandatory corollary: always read the MODE or condition field next to the value — a value read without
-  its mode is ambiguous and cannot confirm or refute a hypothesis. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #2)
+  its mode is ambiguous and cannot confirm or refute a hypothesis.
 - **Arm a local network sink and verify it is recording before the first probe.** Before sending
   any stimulus to the live target (a network request, a UI action, a protocol handshake), a local
   sink such as `strace -e trace=network`, `ss -tnp`, Wireshark/tcpdump, or a forwarding proxy must
@@ -2662,8 +2646,8 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
   the pattern suffices and re-firing is risk without new information) / **DEFERRED-requires-execution**
   (needs a built probe → §19). Consolidate them in a per-defect verdict table in the phase's terminal block.
 - **A negative dynamic result is a first-class finding, not a failed probe.** When a requires-execution step returns a NEGATIVE (the expected behaviour does NOT occur), record it with the same evidence standard as a positive result, and immediately check whether any prior block asserted the corresponding POSITIVE. If one does, §14-correct it in the same pass — do not defer to a later audit or wait for the operator to ask. This is the proactive execution-result pairing rule; it complements §14's proactive measurement-scan rule. B534's honest negative ("moved file is native") §14-corrected B532's "one Java method = HostId gate", but only because the operator kept asking; this rule makes the pairing mandatory on every negative execution result.
-- **SCALE GROUND TRUTH: seek the artefact the system itself PRODUCES as the answer key.** When validating by reproduction, the most reliable answer key is the export, report, or dump the live system produces under its own rules — not a reference transcribed from documentation or a prior analysis. The system-produced artefact reveals field-name bugs, missing fields, and encoding differences that documentation and captures hide. (Source: fluke-177x-datos)
-- **SAME-SNAPSHOT COMPARISON: compare against the EXACT same data snapshot.** When validating by reproduction, any size or timestamp difference between the reference and the test data simulates a false discrepancy. Compare the reproduction against the operator's own artefact from the same measurement session — not a same-day but different-session sample, not a re-export from a different firmware revision. A false discrepancy from mismatched snapshots wastes an iteration and may mask a real bug behind the size-change noise. (Source: fluke-177x-datos)
+- **SCALE GROUND TRUTH: seek the artefact the system itself PRODUCES as the answer key.** When validating by reproduction, the most reliable answer key is the export, report, or dump the live system produces under its own rules — not a reference transcribed from documentation or a prior analysis. The system-produced artefact reveals field-name bugs, missing fields, and encoding differences that documentation and captures hide.
+- **SAME-SNAPSHOT COMPARISON: compare against the EXACT same data snapshot.** When validating by reproduction, any size or timestamp difference between the reference and the test data simulates a false discrepancy. Compare the reproduction against the operator's own artefact from the same measurement session — not a same-day but different-session sample, not a re-export from a different firmware revision. A false discrepancy from mismatched snapshots wastes an iteration and may mask a real bug behind the size-change noise.
 - **Integrator-placed config is not derivable from module source — never fabricate its path.** A component's
   station mount/ORD (e.g. `Programacion/CompresorControl`) is placed by the integrator, not fixed by the module:
   a `BComponent` does not live under `/Services` by default. If no export, nav or probe names it, record the
@@ -2843,7 +2827,7 @@ opens the Y internal that B200 named out-of-scope"). A sweep brief that does not
 REMITTANCE-versus-DEEPEN call to luck: a focus proposed as "a module the corpus never opened" was found to be
 largely covered by an existing 160-line block only because the brief happened to list that block as a REMITTANCE
 candidate. Complements the focus-distinctness check (new-focus bootstrap), which rejects or rescopes a whole focus; this
-frames the surviving gaps. (Source: niagara-research `retros/2026-08-28-template-focus-retro.md` D1.)
+frames the surviving gaps.
 
 **Scale the bootstrap to the taxonomy's size — one boundary, two sides.** As a working heuristic (revise on
 contradiction), let the number of candidate surfaces decide HOW to seed. When a package is small and legible
@@ -2862,10 +2846,8 @@ Each axis runs as an independent parallel shard; the intersection of each axis w
 pre-prioritized gap set concentrated on uncovered failure modes rather than re-auditing covered surface.
 The standard scale heuristic (inline vs. delegated vs. parallel) still applies inside each axis; the
 failure-axis structure replaces the surface-set partitioning, not the size threshold.
-(Source: niagara module-hardening retro.)
 
 **Mature-corpus broad-enumeration audit: REMITTANCE-dominant, not discovery-dominant.** When the request over a mature multi-focus corpus is "enumerate/audit all surfaces of type X" (a broad enumeration over a taxonomy already substantially covered), expect that MOST candidate surfaces are already answered by existing blocks. The audit's PRIMARY value is the small delta set — surfaces genuinely NOT yet covered. Before delegating the audit sweep: pre-declare all surfaces the existing corpus already answers as REMITTANCE gaps with their `[Block N] §N.x` citations; instruct the sweep to seed ONLY the non-covered surfaces as new gaps. Record the pre-declared REMITTANCE list in RESEARCH-STATE as a named "Remittance declared:" section so coverage accounting stays honest and the delta set is visibly separated from the bulk. Seeding the full taxonomy blindly re-inflates the backlog with already-covered subjects and hides how little genuine new work remains. This is the corpus-level analogue of the per-gap PRIOR COVERAGE CHECK in PROMPT-LOOP §NORMAL CYCLE step 3: that check fires once per gap during investigation; this fires once per focus-open across the whole prior corpus.
-(Source: niagara-research/retros/2026-08-25-apis-closure.md D3)
 
 **Recursive auto-sharding for artifacts that exceed a single context window.** When a reading surface is
 too large for one agent to hold, the coordinator fans the question into disjoint sub-questions, delegates
@@ -2874,7 +2856,6 @@ conclusions (file:line + snippet) surface upward; raw content stays in the leave
 coordinator sweep → disjoint parallel shards → recursive auto-sharding (general-purpose/fork sub-agents; Explore/Plan leaves cannot sub-delegate) → cited output.
 Observed at one nested level (coordinator → sweeps → leaves); this is the gated exception to PROMPT-LOOP's prefer-ONE-level nesting caveat — for deeper or structured fan-out that caveat's Workflow-engine route still applies.
 This is the mechanism that converts "artifact too large to read" into "covered in parallel in one pass".
-(Source: fluke-177x-datos 2026-09-13-auto-sharding-recursivo-de-agentes, 2026-09-13-orquestacion-sweeps-paralelos-decompilado)
 
 **Gate for recursive auto-sharding (default OFF).** Enable recursive auto-sharding only when the reading
 surface genuinely exceeds a single context window AND the sub-questions are independently answerable.
@@ -2918,7 +2899,7 @@ file (or class) that instantiates it; a pattern with no cited instance is droppe
 count taken over a whole JAR/module is not a count of the target package — state the package path the number
 ranges over (the rule above). Measured: a sweep reported "~48 classes with 40+ `BUx*Factory` step builders" for a
 package that holds 3 classes and no `*Factory` class at all, because it had counted the whole `-ux` JAR and
-invented the pattern. (Source: niagara-research `retros/2026-08-28-provisioning-focus-retro.md` D1.)
+invented the pattern.
 
 **Verify a gap's PREMISE before sealing it.** A sweep proposes gaps from names it INFERS exist — a
 `module.xml` component, a `ClassName.java`, an expected subsystem. Before a proposed gap enters the backlog,
@@ -2971,7 +2952,6 @@ add an explicit reconciliation pass as part of the AUDIT-FIRST bootstrap: compar
 the subject's own records. This grounds severity (a defect the subject's own audit already flagged is
 known; a new one is a genuine gap), surfaces fix-path splits the code alone hides (the subject's audit
 may record why a known issue was NOT fixed or was partially addressed), and prevents duplicate effort.
-(Source: niagara-research/retros/2026-08-29-chihuahua-source-focus-retro.md chihuahua-3)
 
 **Shape gaps by independence AND certifiable depth — SPLIT and MERGE are one rule, not rival absolutes.**
 Two retros read as contradictory — one said MERGE thin adjacent gaps, one said SPLIT independent gaps into a
@@ -3074,14 +3054,12 @@ B64→B55). Make this a habit, not an accident:
   three jars together, dev tree vs. deployed binary, one focus vs. whole corpus). Document the scope of each
   count explicitly. Record the resolution as a SCOPE-CLARIFICATION in Connections — NOT as a §14 correction
   — unless the same artifact set was counted twice with genuinely different results.
-  (Source: niagara-research/retros/2026-08-28-kitcontrol-focus-retro.md D3)
 - **Layer-distinction reconciliation check.** Before invoking §14 correction on two apparently contradictory
   blocks, test whether they describe DIFFERENT ABSTRACTION LAYERS of the same system (e.g. draw/render layer
   vs. series/factory layer; API surface vs. internal implementation; wire protocol vs. application semantic).
   If so, BOTH blocks may be TRUE — they speak about different layers. Reconcile by naming the layers
   explicitly ("correct at the draw layer; the factory layer is open per BN") and do NOT correct either
   block. Reserve §14 correction for claims about the SAME layer of the SAME subject.
-  (Source: niagara-research/retros/2026-08-05-webChart.md WC-C)
 - **The threat-model axis clarifies scope too.** A later block that changes WHO the attacker is or WHAT they
   already hold (an insider with the station password vs a network attacker; an attacker holding the SD
   card vs one on the wire) CLARIFIES the prior block's scope rather than refuting it, and must name the
@@ -3128,7 +3106,6 @@ B64→B55). Make this a habit, not an accident:
   the proposing block. Cross-session numeric proposals have concrete failure modes: a proposed "multi-attach
   radius of 1.5 m" was measured at 0.8 m on the real data — at 1.5 m nearly the entire population was
   falsely claimed by a shared label.
-  (Source: COB-IM2/retros/2026-09-09-cob-im2-continuity-round.md D3)
 
 **Cross-corpus correction path (kit issue #1186).** An error found in a SIBLING target's corpus is never edited silently from another target's session: fix it with a correction PR in THAT repo (its own §14 correction block or edit) carrying a back-reference to the finding that exposed it (the citing block, retro or issue). Propose-never-apply across targets, the same rule §18 applies to the kit.
 
@@ -3409,7 +3386,7 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   next session when the trigger was missing. (Source: cloudflare/retros/2026-08-28-corpus-complete.md
   D-CORPUS-2)
 
-**Declared resume queue (`next_session_queue`).** A PAUSED header MAY carry one line, `next_session_queue: G1, G2` — gap ids, comma-separated, in the order the operator wants them resumed — in the state file's header (before its first `## ` heading), next to the `PAUSED (…)` line (§8 PAUSED rules). `research-sdd-status.sh <corpus> --next --queue` then returns the FIRST queued gap that is still pending and not blocked, so an operator-declared lane is not silently out-voted by priority order; without `--queue` the declaration is ignored. The queue chooses only AMONG eligible gaps: it never bypasses STALE, RETRO-DUE or ISSUES-DUE, and when no queued gap remains pending `--next --queue` falls back to the normal priority order and says so (`queue-exhausted`). It is per focus: in a multi-focus corpus the queue lives in that focus's own `RESEARCH-STATE-<slug>.md`. Write ids as they open the backlog's Gap cell (`B118-G1`); a prose `NEXT SESSION QUEUE` list is not read by the instrument (it reports `queue-prose-only`), so declare the field as well. Delete the line, or leave it empty, when the pause ends. The instrument distinguishes absent, declared-empty, exhausted, unknown-id and malformed declarations as typed notes (tool-registry `research-sdd-status.sh`). (Source: kit #1614, niagara5-research licence lane)
+**Declared resume queue (`next_session_queue`).** A PAUSED header MAY carry one line, `next_session_queue: G1, G2` — gap ids, comma-separated, in the order the operator wants them resumed — in the state file's header (before its first `## ` heading), next to the `PAUSED (…)` line (§8 PAUSED rules). `research-sdd-status.sh <corpus> --next --queue` then returns the FIRST queued gap that is still pending and not blocked, so an operator-declared lane is not silently out-voted by priority order; without `--queue` the declaration is ignored. The queue chooses only AMONG eligible gaps: it never bypasses STALE, RETRO-DUE or ISSUES-DUE, and when no queued gap remains pending `--next --queue` falls back to the normal priority order and says so (`queue-exhausted`). It is per focus: in a multi-focus corpus the queue lives in that focus's own `RESEARCH-STATE-<slug>.md`. Write ids as they open the backlog's Gap cell (`B118-G1`); a prose `NEXT SESSION QUEUE` list is not read by the instrument (it reports `queue-prose-only`), so declare the field as well. Delete the line, or leave it empty, when the pause ends. The instrument distinguishes absent, declared-empty, exhausted, unknown-id and malformed declarations as typed notes (tool-registry `research-sdd-status.sh`).
 
 **Focus-distinctness check (new focus on a mature corpus — before bootstrap, before any scaffold).** Before bootstrapping a new focus on an already-substantial corpus, run a focus-distinctness check: read all existing `RESEARCH-STATE-<focus>.md` files and the corpus `INDEX.md`; compare the proposed focus angle against existing focus names and their covered subjects. If the proposed focus substantially duplicates an existing focus's covered blocks (>~50 % of its proposed gaps are already answered by existing evidence), REJECT or RESCOPE the focus rather than investing in a bootstrap. Record the check result as `focus-distinctness: OK — <reason>` or `focus-distinctness: REJECTED — <overlap evidence>` in RESEARCH-STATE when the focus is opened. Use `tools/check-coverage.py` if present; otherwise read `FOCUSES.md` + `INDEX.md` manually. A focus whose core coverage already exists is wasted research, not complementary investigation. This check fires ONCE at focus-open; it is distinct from the per-gap PRIOR COVERAGE CHECK in the NORMAL CYCLE (which fires during each gap's investigation). (Evidence: frontier bootstrap breadth checks surfaced proposed focuses with significant corpus overlap; catching this at bootstrap is cheap, catching it mid-loop is not.)
 
@@ -3420,9 +3397,9 @@ TPK plus a license `masterPublicKey`, both invisible to a directory listing). Tr
 provisional identity until the compiled-in root that actually signs/verifies it is located; citing the leaf
 alone as "the trust root" cost two blocks a correction each. This is a recurring, cross-focus source of
 corpus confusion — worth checking for on ANY focus that documents a signing or licensing chain, not only the
-one that first found it. (Source: niagara-research/retros/2026-08-07-signing-pki.md SPKI-C.)
+one that first found it.
 
-**Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block. (Source: 2026-08-29-ports-focus-retro.md DELTA-2)
+**Consolidation focus.** When the deliverable is a REFERENCE TABLE or master synthesis rather than new evidence discovery, declare the focus angle as a consolidation focus. Characteristics: most gaps are REMITTANCE (pre-declared before the sweep begins); the audit sweep targets what is NOT yet consolidated, not what is not yet investigated; the closing block is a synthesis/reference block, not a new evidence block; `[INFER]`/`[CERT]` ratios expected to be high in the synthesis block. This sets correct angle expectations at bootstrap (PROMPT-LOOP step b2) and avoids misleading low-citation WARNs on the synthesis block.
 
 **Resuming a mature multi-focus corpus (kit #1557; §17 step 1, §8).** Before the first `--next` on a corpus that
 has run for many sessions, run `verify-state.sh` over EVERY focus first and budget a reconciliation pass: stale
@@ -3431,9 +3408,9 @@ picked, and the cost then lands in the middle of a block instead of at the plann
 with `research-sdd-status.sh --sync-state --focus <slug>`, re-run `verify-state.sh`, and only then resume the
 loop. (Retro: niagara-research 2026-10-14, corpus-gate-reconciliation, R3.)
 
-**Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus. (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2)
+**Sibling / twin focus.** When a subject already has a focus for one platform/architecture (e.g. Windows binaries) and you now hold the SAME subject on a different platform (ARM/QNX binaries), open a TWIN focus rather than re-bootstrapping from zero: (1) seed the backlog by mirroring the sibling focus's confirmed artifact inventory — each gap opens as "sibling of [Block N]"; (2) drive each block as a cross-platform contrast — the platform DIFFERENCE is a first-class finding, and where the twin refutes or refines a sibling block, issue a §14 correction with a back-pointer; (3) REMITTANCE-point every non-twin subject back to its owning focus (PROMPT-LOOP BOOTSTRAP e). Distinct from §5's "twin-binary" (same source, two binaries — a citation-offset hazard); here one subject lives on two platforms, each investigated as its own focus.
 
-**Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations. (Source: 2026-08-30-alarm-webhook-focus-retro.md D2)
+**Peer-session-triggered focus.** A focus may be requested by a PEER agent session (a teammate Claude), not the human operator, and its deliverable may be returned to that peer as consumer. Disciplines: (1) a peer-supplied backlog is a valid seed PROVIDED the driver still pre-declares remittances (BOOTSTRAP e) and runs the per-gap prior-coverage check; (2) the cross-session deliverable is a MIRROR, not the record — corpus blocks remain the citable artifact; (3) consumer identity does not waive census (or its declared inheritance, §6 focus-inherited census), source-preservation, or self-verify obligations.
 
 **Peer-axis-split focus.** When the SAME binary or artifact is analyzed by two peer sessions using DIFFERENT
 analysis techniques (e.g. one Java-decompiles the archive, one native-REs the extracted binary), open a
@@ -3444,13 +3421,13 @@ both sessions touched, so the second session credits the first with a back-point
 session `<slug>`" before the corpus block claims it; (3) shared CORPUS writes still serialize through the
 barrier above; (4) the two sets of blocks are linked via §14 cross-block pointers where their findings refine
 or contradict each other. Distinct from "Sibling / twin focus" (same technique on different platforms): here
-one artifact is split by technique, not by platform. (Source: niagara-research/retros/2026-08-24-licensing-deepdive.md D6)
+one artifact is split by technique, not by platform.
 
-**APPLIED / BUILD-ALONG focus.** When the operator executes a deliverable in live external tools (compiling, signing, deploying) and the loop's role flips from *probe unknowns* to *capture the live-verified procedure and emit operator-facing deliverables*, name this an APPLIED focus. Characteristics: high `[CERT-live]`/`[CERT-hw]` ratio, deliverable-first, gaps arrive from the operator's live questions rather than a backlog sweep. The §18 retro trigger fires at the natural close of an applied session, not only at a focus STOP — a session that changed how the next one should run is a retro trigger regardless of whether any focus reached its investigable-zero criterion. (Source: 2026-08-30-coldroom-module-build-retro.md #1)
+**APPLIED / BUILD-ALONG focus.** When the operator executes a deliverable in live external tools (compiling, signing, deploying) and the loop's role flips from *probe unknowns* to *capture the live-verified procedure and emit operator-facing deliverables*, name this an APPLIED focus. Characteristics: high `[CERT-live]`/`[CERT-hw]` ratio, deliverable-first, gaps arrive from the operator's live questions rather than a backlog sweep. The §18 retro trigger fires at the natural close of an applied session, not only at a focus STOP — a session that changed how the next one should run is a retro trigger regardless of whether any focus reached its investigable-zero criterion.
 
-**Distributed multi-session diagnosis split by source.** When the target is a live system with multiple evidence sources, split the investigation across peer sessions by source: one reads the CODE (highest behavioral fidelity), one reads the VENDOR ORIGINAL in `organized/docSource` (canonization against the idiom), one probes the LIVE SYSTEM by oBIX/Slot-Sheet (`[CERT-live]`). Each session arbitrates branches the others cannot close alone. Cross-session hygiene: each session cites its source with a marker; a correction from a peer requires re-opening the PRIMARY source, not merely accepting the peer's assertion. (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #1)
+**Distributed multi-session diagnosis split by source.** When the target is a live system with multiple evidence sources, split the investigation across peer sessions by source: one reads the CODE (highest behavioral fidelity), one reads the VENDOR ORIGINAL in `organized/docSource` (canonization against the idiom), one probes the LIVE SYSTEM by oBIX/Slot-Sheet (`[CERT-live]`). Each session arbitrates branches the others cannot close alone. Cross-session hygiene: each session cites its source with a marker; a correction from a peer requires re-opening the PRIMARY source, not merely accepting the peer's assertion.
 
-**Census → taxonomy → playbook triad for "document everything about X across many instances."** When the request covers N instances of the same kind (module families, component families), the canonical decomposition is: (1) fan out N parallel Explore sweeps (one per family, same questions); (2) synthesize a TAXONOMY block (how they differ, what patterns emerge); (3) write an OUR-MODULES PLAYBOOK block (what the findings mean for what the team builds). Seed the gaps as `census/<family>`, `taxonomy`, and `playbook` up front; parallel sweeps produce comparable, mergeable evidence and keep parent context clean. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #1)
+**Census → taxonomy → playbook triad for "document everything about X across many instances."** When the request covers N instances of the same kind (module families, component families), the canonical decomposition is: (1) fan out N parallel Explore sweeps (one per family, same questions); (2) synthesize a TAXONOMY block (how they differ, what patterns emerge); (3) write an OUR-MODULES PLAYBOOK block (what the findings mean for what the team builds). Seed the gaps as `census/<family>`, `taxonomy`, and `playbook` up front; parallel sweeps produce comparable, mergeable evidence and keep parent context clean.
 
 **Concurrent loops under one orchestrator.** Focuses (or whole targets) can run in PARALLEL, not just
 sequentially — a lean orchestrator drives N independent loops at once (proven: logosoft build/PoC + niagara
@@ -3473,7 +3450,7 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   Record the audit at `sources/probes/<round>/admission-<sha>.md`. A HOLD at one commit correctly blocked
   corpus citation for half a day; without the protocol, unexplained item drops enter the corpus as
   regressions. A target-agnostic checklist template lives at `templates/admission-audit.template.md` (create
-  when first needed for a corpus). (Source: COB-IM2/retros/2026-09-09-cob-im2-continuity-round.md D2)
+  when first needed for a corpus).
 - **Concurrency is a context-budget decision.** Run loops in parallel only while the orchestrator stays
   lean (it just routes task-notifications). If the orchestrator starts doing real work per loop, serialize.
 - **Global block-number allocation under `shared-global`.** When focuses share one corpus-wide block prefix
@@ -3664,7 +3641,7 @@ judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a 
    guidance prose from delta prose without a structural marker.  Any delta intended for kit review must
    use the canonical table row form or a `### D<n> —` entry to be reliably detected.
 
-**At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet. (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #7)
+**At a campaign retro, check whether a consuming kit has a corpus index that needs the new blocks.** If a downstream skill (e.g. `build-n4-module`) maintains a corpus-index that cites research blocks by number, a campaign that produced new relevant blocks creates an implicit debt: the index is stale. Propose the wiring as a kit-side delta in the consuming kit's own retro system — not in the research-sdd kit — so the link is tracked and reviewed there. No checker enforces this yet.
 
 **Cross-kit boundary — research-sdd retros propose research-sdd-kit deltas only.** A research-sdd session may
 spawn a large downstream implementation campaign on a DIFFERENT kit (e.g. `build-n4-module-kit`). Research stays
@@ -4116,7 +4093,7 @@ hard-stops, never blind.
   full suite is slow (755 tests, ~1,300 s serial, run 30+ times a day) maps changed files to their tests
   for per-task iteration, keeps the full suite as the CLOSING gate, and carries a test asserting every
   tool has a mapped test so the map cannot silently drift.
-- **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
+- **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation.
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
   skeletons — the STRUCTURE-ONLY BINARY INSPECTION RECIPE in `PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe`) and needs an explicit flag to print a raw value; a
@@ -4210,7 +4187,7 @@ hard-stops, never blind.
   per-version API-signature diff (`javap` output through a normalizer) is the first instrument to run, ranked
   against decompile fidelity: constants-level checks are `[CERT]`; a noisy class-level diff is not trusted
   unless the normalizer itself is validated (§11b equivalence-oracle controls). The tools live in the target
-  (niagara `tools/n4-api-sig.sh`, `n4-api-sigdiff.py`), not in the kit toolbelt. (Source: n4 agent-mcp retro #3.)
+  (niagara `tools/n4-api-sig.sh`, `n4-api-sigdiff.py`), not in the kit toolbelt.
 
 - **Deterministic camera-position hook (precondition for reproducible §19 QA captures).** For browser-rendered 3D deliverables, expose a deterministic camera-position hook at build time (e.g. `window.__cam = {position, target}` settable before the render loop starts) and drive it from the QA driver (e.g. a `--cam <name>` CLI flag that selects from a named set of positions). Name and document the positions used in the QA session alongside the captures under `sources/probes/` so a future run replicates the same angles. A random-orbit QA pass is non-reproducible and spends most captures on uninformative views; a named-position set makes each capture a deliberate, re-runnable measurement. The hook costs one build-time feature; absent it, a QA agent orbiting by click will waste half its budget finding useful angles before any meaningful capture is possible. This is a precondition for the external-oracle captures above to constitute evidence rather than orbit-lottery. (Evidence: nave-panccadia B38–B39 QA session — blind-orbit wasted roughly half captures on uninformative angles; `window.__cam` + `--cam <name>` Playwright CLI flag resolved this.)
 
@@ -4288,7 +4265,7 @@ pins its RESOLVED location (or the resolver command that produced it) in the cit
 
 **Pipeline-repo subjects.** When the subject's data directories are REWRITTEN by each pipeline run, the snapshot rule has a specific form: cite only committed blob references (`git show <sha>:<path>`) for any measurement that enters the corpus — never a working-tree path as primary evidence. Three failure modes recur: (1) *stale table* — a prior run's output survives at the current path and reads as fresh data; (2) *phantom regression* — a mid-run snapshot captures an intermediate state and produces a plausible-wrong number; (3) *working-tree drift* — the directory is rewritten while the block is being written, so citations diverge. Enforcement path: per-artifact sha256 execution-provenance stamp in the block header + a `--allow-unpinned` build guard that rejects working-tree paths without an explicit override.
 
-**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. **Exception:** once a section is marked settled (`[CERT]`/`[CERT-live]`), a later refutation follows §14's transparent correction (quote the retracted claim, add a "corrected" note), not a silent rewrite. (Source: niagara relayed-cert-live retro.)
+**LIVE/UNFOLDING operations.** When a live operation is ONGOING at documentation time — hardware under repair, a system still recovering, a deployment mid-flight — open the block with a `Status: LIVE/UNFOLDING` header line and record what IS confirmed so far. Do NOT close the block or run `verify-block.sh` until the operation resolves and all claims are past-tense. A `Status: LIVE/UNFOLDING` block is a valid in-progress artifact; it is better than silence, but it is not done. When the operation stabilizes, complete the block, remove the marker, and run the gate. **Revise in place, not by new block.** As evidence lands, update the SAME block — append to its evidence sections, update the status header, revise provisional claims. Do NOT open a new block for each update; one operation = one block, revised as it resolves. **Exception:** once a section is marked settled (`[CERT]`/`[CERT-live]`), a later refutation follows §14's transparent correction (quote the retracted claim, add a "corrected" note), not a silent rewrite.
 
 **Block plan (resume inside ONE long block).** For a long, multi-step block, write the ephemeral `$TARGET/.research-sdd/plan/current-plan.txt` at block open (before the first sub-step; template `$KIT/templates/block-plan.template.md`): a checklist of THAT block's sub-steps only (sweep → corroborate → write → self-verify → update catalog/index/state → commit), each ticked `[x]` only when its artifact is on disk (S5's artifact is checkable: the grep-able catalog/index row key and the RESEARCH-STATE last-block line, and S5 is idempotent — edit in place, never append twice). After a cut (§17), if the plan exists, verify every ticked item's artifact (a ticked item without its artifact is unticked again) and continue at the first unticked item. The plan is deleted at the block's commit — delete it BEFORE staging, then stage and commit — and never committed, so it never outlives the iteration. At open the plan records `opened-at: <HEAD sha>` and the block file path; on resume the plan is stale only if `git log <opened-at>..HEAD -- <block file>` is non-empty (a commit after `opened-at` touched the block): then delete it and resume from RESEARCH-STATE.md, never re-run its steps; if that `git log` cannot run (unresolvable `opened-at` after an amend/rebase, an unfilled header placeholder, no repo) the staleness check FAILS CLOSED — stop and ask, never treat the plan as fresh or stale (a block file that is merely tracked is NOT staleness: a long revision of a tracked block keeps its plan). Belt and braces: the target's `.gitignore` ignores `.research-sdd/plan/`; wiring that ignore line into init is a later slice (research-sdd-init.sh is not touched here). The path is a hidden directory and its name carries no "block"/"bloque", so no block enumerator matches it. NO-COLLISION RULE: the plan is not a state document — RESEARCH-STATE.md stays the only source for gaps, backlog, campaign queue, iteration history and "what's next"; the plan lists nothing but this block's sub-steps; it is not an ODD task document (`odd/tasks/*.md` is kit-maintenance only); the return-token gate and `research-sdd-status.sh --next` are unchanged and ignore it. Doctrine first: no checker script yet (a later slice). (Kit issue #1178; related #1614, #1274.)
 
@@ -4355,9 +4332,8 @@ one who populates the document-cycle state (see PROMPT-LOOP DOCUMENT CYCLE step 
 was actually written. Assign this explicitly in the delegation; an unassigned post-authoring state update is an
 orphan step that silently never runs. The operative statement is PROMPT-LOOP's DOCUMENT CYCLE step 1 STATE OWNERSHIP
 (kit #1888); this paragraph adds only the rationale.
-(Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.)
 
-**Mid-run outline additions by a coordinator are legal (kit #1989).** Append a new row with the next integer `#`, put "added by coordinator" in the item text and in the iteration history, and bump `Outline items total` and the `Outline coverage` denominator. When the addition changes code an earlier block cites but not the cited text, prefer a dated addendum section in that block over a new block (no §14 correction). Operative statement: PROMPT-LOOP DOCUMENT CYCLE step 1. (Source: tunnel/clientes/cancun/HotelHilton/retros/2026-10-07-energeticos-b27-b32.md delta #2.)
+**Mid-run outline additions by a coordinator are legal (kit #1989).** Append a new row with the next integer `#`, put "added by coordinator" in the item text and in the iteration history, and bump `Outline items total` and the `Outline coverage` denominator. When the addition changes code an earlier block cites but not the cited text, prefer a dated addendum section in that block over a new block (no §14 correction). Operative statement: PROMPT-LOOP DOCUMENT CYCLE step 1.
 
 **Migration runbooks spanning two owned services.** A document-mode run migrating both hosting and DNS in the same session produces `[CERT-hw]` evidence spanning two owned services — e.g. the host CLI (Vercel) and the DNS provider API (Cloudflare). Both are §12c owned-PaaS, not `[CERT-live]`. Do not downgrade DNS-side citations to `[CERT-live]` because the DNS vendor is a third party: the distinction is operational ownership (own account, own API key, own authoritative control), not vendor identity. Evidence: hisense B3 §3; three sibling migration runs (#27/#31/#33) share this two-service shape.
 
@@ -4392,7 +4368,7 @@ item with no Engram pointer is not done.
 
 **RESEARCH-STATE for corpora produced outside the loop.** When a corpus is authored by a bespoke multi-agent workflow rather than the standard PROMPT-LOOP (§2), a RESEARCH-STATE initialized at bootstrap but never iterated shows stale counts. Two approaches: **(a) do NOT initialize RESEARCH-STATE** — a missing state file is unambiguous (kit tools read it as not-started, which is accurate); OR **(b) initialize with `method: document-cycle-external`** in the state envelope — a SEMANTIC marker that §20 (document mode) and human reviewers read to distinguish an external-document corpus from an abandoned loop. `research-sdd-status.sh --sync-state` PRESERVES this marker (and every other preamble field) across a reseed — it reconciles only the machine-owned count fields — so the declaration survives mechanical reconciliation. NOTE: no kit tool AUTO-SUPPRESSES alerts from this field, and none should — a stale `TARGETS.md` row (`verify-registry.sh`) or an absent retro (`sweep-retros.sh`) for such a corpus is a LEGITIMATE signal to act on (refresh the row, add a retro), not a false positive to hide. Either approach is fine; what is wrong is a loop-format RESEARCH-STATE left at template-placeholder values while the corpus holds a different block count — that is the instrument reporting 0 when it has not actually looked.
 
-**Renderer by deliverable role (kit issue #1094).** Pick the renderer by what the reader asked for: a report is LaTeX (a Markdown block or HTML page is not a "reporte"); a wiring/connection diagram is CircuiTikZ (or plain TikZ) with aligned pins, orthogonal wires, colour-coded nets and a legend; an editorial diagram applies the diagram-design system by EXTRACTING its tokens and connector rules, not by installing the plugin. LaTeX and CircuiTikZ are already registered in `toolbelt/tool-registry.md` ("Deliverable / report generation"). With no headless browser available, redraw editorial figures in native TikZ with the same palette instead of embedding a raster. (Source: sullair 2026-08-25 document-mode rendering retro DR-1.)
+**Renderer by deliverable role (kit issue #1094).** Pick the renderer by what the reader asked for: a report is LaTeX (a Markdown block or HTML page is not a "reporte"); a wiring/connection diagram is CircuiTikZ (or plain TikZ) with aligned pins, orthogonal wires, colour-coded nets and a legend; an editorial diagram applies the diagram-design system by EXTRACTING its tokens and connector rules, not by installing the plugin. LaTeX and CircuiTikZ are already registered in `toolbelt/tool-registry.md` ("Deliverable / report generation"). With no headless browser available, redraw editorial figures in native TikZ with the same palette instead of embedding a raster.
 
 **Product.** Besides the cited blocks, document mode yields a human-readable deliverable — `HOWTO-<x>.md`,
 `SETUP-<x>.md`, or `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain deliverables are PROPOSED
@@ -4457,7 +4433,6 @@ no-match distinction still applies — never a bare zero):
   `blocked-on-tool` (capability not installed). Resolution path: re-run the decompiler on that
   specific artifact — not "install a tool" or "find a live backend". Record the class-absence
   evidence (`find`/`grep class <Name> = empty` + `ls <module>/` confirms archive-only).
-  (Source: 2026-09-14-module-mechanics-closeout-retro.md C1)
 - `not-buildable` — the instrument ran and produced a result, but the result carries **no
   discriminating signal** for the question being asked: every tested discriminator fails together.
   Only this state means *stop asking* — `unavailable` and `blocked-on-tool` say *try again with a
