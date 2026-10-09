@@ -456,6 +456,8 @@ mutant_tooth() {
 #                                     body needs the suite's own cli / _shims / _elf / _GOOD_ARGV /
 #                                     tempfile / json / Path / os, so it runs in the suite's globals).
 #                                     plan_flags is a callable(elf_path) -> list of `plan` CLI flags.
+#   mutant_vm_fixtures_py_src         prints the Python source of the shared suite fixtures (_X64, _BWRAP,
+#                                     _elf, _SCRATCH_PATH, _GOOD_ARGV); exported as RSDD_FIXTURES_PY.
 #   mutant_vm_core_teeth EXEC HERE SELF SUT_EXEC MUT
 #                                     the bash --prove-teeth section: stage a mini-tree, run the
 #                                     unmutated staging control for the three scenarios, then build and
@@ -516,6 +518,53 @@ def _tooth_run(name, plan_flags, mod, cls):
         leaked = [d for d in made if Path(d).exists()]
         _cleanup(); print("TOOTH_INV5=" + ("leaked" if leaked else "reaped")); return
     print(f"TOOTH_ERROR=unknown scenario {name}")
+PY
+}
+
+# mutant_vm_fixtures_py_src — prints the Python source of the fixtures detonate-exec and trace-exec
+# share byte for byte: _X64, _BWRAP (fake bwrap shim), _elf(tmp), _SCRATCH_PATH and _GOOD_ARGV.
+# Same contract as mutant_vm_tooth_py_src: the suite exports it as RSDD_FIXTURES_PY and execs it in
+# its own globals (needs `Path` imported there). The qemu shims stay in the suites: they differ.
+mutant_vm_fixtures_py_src() {
+  cat <<'PY'
+# ELF header: x86_64 little-endian
+_X64 = b'\x7fELF\x02\x01\x01' + b'\x00'*9 + b'\x02\x00\x3e\x00'
+
+# Fake bwrap: exec everything after "--"
+_BWRAP = """\
+#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+try:
+    sep = args.index("--"); cmd = args[sep+1:]
+    if cmd: os.execvp(cmd[0], cmd)
+except (ValueError, IndexError): pass
+sys.exit(0)
+"""
+
+def _elf(tmp: Path) -> Path:
+    p = tmp / "sample.elf"; p.write_bytes(_X64); return p
+
+# GOOD_ARGV matches the {detonate,trace}_plan.build_plan output shape. Includes all bwrap teeth
+# required by issue #61 (--cap-drop ALL, --unshare-pid, --tmpfs) and the scratch file bind
+# (INV-2 / issue #60).
+_SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
+_GOOD_ARGV = [
+    "bwrap",
+    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
+    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
+    "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
+    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
+    "--ro-bind", "/store/sample.bin", "/input/sample",
+    "--",
+    "qemu-system-x86_64",
+    "-m", "256", "-smp", "1", "-accel", "tcg",
+    "-nic", "none", "-nodefaults",
+    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
+    "-drive", f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio",
+    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
+]
 PY
 }
 
