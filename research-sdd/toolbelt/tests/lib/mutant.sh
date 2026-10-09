@@ -525,6 +525,7 @@ PY
 # share byte for byte: _X64, _BWRAP (fake bwrap shim), _elf(tmp), _SCRATCH_PATH and _GOOD_ARGV.
 # Same contract as mutant_vm_tooth_py_src: the suite exports it as RSDD_FIXTURES_PY and execs it in
 # its own globals (needs `Path` imported there). The qemu shims stay in the suites: they differ.
+# _GOOD_ARGV is also used by trace-exec's PARITY tests, which call check_disk_policy directly.
 mutant_vm_fixtures_py_src() {
   cat <<'PY'
 # ELF header: x86_64 little-endian
