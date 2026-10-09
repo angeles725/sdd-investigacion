@@ -46,14 +46,16 @@ lrl_forms() {
 forms recognised (in code lines only: comment-only lines skipped, backslash continuations joined first; the $0 may be
 followed by a quote, space, ; ) ` | & or the end of the line, so `dirname $0` and $(dirname $0|...) are seen):
   F1  dirname [--] "$0" | $0 | "${0}" | ${0}                    (also inside $(cd "$(dirname "$0")/.." ...))
-  F2  ${0%/*} | ${0%%/*} | any ${0%...} suffix strip
+  F2  ${0%/*} | ${0%%/*} | any ${0%...} suffix strip | any ${0/...} pattern substitution (e.g. ${0/%\/*})
   F3  readlink | realpath with $0 / ${0} among its arguments
   F4  alias: V="$0" | V=$0 | V="${0}" (also after local/export/readonly/declare, with or without flags such as -r or --), then dirname [--] "$V" | ${V%...} | readlink/realpath "$V" later in the file
 forms NOT recognised (known limits): ${BASH_SOURCE[0]:-$0} defaults, $0 smuggled through eval/xargs/sh -c, an alias
   passed through a function argument, `$0` read by `sed ... "$0"` (display only), usage/message uses of $0 and
   ${0##*/} / basename "$0" (display only), awk's $0
 exempt: a trailing `# lib-resolution-ok: <reason of >= 3 words>` comment (the # outside quotes) on the logical line
-comments: only a `#` outside '..' / ".." quotes at the start of a word starts one (nested quotes inside $(...) only toggle)
+comments: only a `#` outside '..' / ".." / $'..' quotes at the start of a word starts one (nested quotes inside $(...) only toggle)
+  KNOWN LIMIT: quote state is per logical line, so a `#` on the continuation line of a multi-line string ("a<newline>  # x")
+  reads as a comment and hides a following dirname "$0" on that line (pinned by a fixture in this suite)
 excluded corpus (declared, not gated): toolbelt/tests/*.sh, install/tests/*.sh, templates/*.sh (see the header)
 EOF
 }
@@ -66,9 +68,11 @@ function comment_start(s,   i, n, c, q, p) {
   n = length(s); q = ""
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
+    if (q == "$'") { if (c == "\\") i++; else if (c == "'") q = ""; continue }   # ANSI-C $'..' honours \'
     if (q == "'") { if (c == "'") q = ""; continue }
     if (c == "\\") { i++; continue }
     if (q == "\"") { if (c == "\"") q = ""; continue }
+    if (c == "$" && substr(s, i + 1, 1) == "'") { q = "$'"; i++; continue }   # SENTINEL-LRL-ANSIC
     if (c == "'" || c == "\"") { q = c; continue }   # SENTINEL-LRL-QUOTE
     if (c == "#") { p = (i > 1) ? substr(s, i - 1, 1) : " "; if (p ~ /[ \t;&|()]/) return i }
   }
@@ -86,7 +90,7 @@ function flush_logical(   code, line, v, k, hit, raw, fname, cs, cmt, rest, nw, 
   if (cs > 1) { cmt = substr(code, cs); code = substr(code, 1, cs - 1) }   # SENTINEL-LRL-COMMENT
   hit = ""
   if (code ~ /dirname[ \t]+(--[ \t]+)?["']?\$\{?0\}?(["' \t;)`|&]|$)/) hit = "F1"   # SENTINEL-LRL-F1
-  else if (code ~ /\$\{0%/) hit = "F2"   # SENTINEL-LRL-F2
+  else if (code ~ /\$\{0[%\/]/) hit = "F2"   # SENTINEL-LRL-F2
   else if (code ~ /(readlink|realpath)[^|;&)]*\$\{?0\}?(["' \t;)`|&]|$)/) hit = "F3"   # SENTINEL-LRL-F3
   else {
     for (k in alias) {
@@ -181,13 +185,13 @@ lrl_complete() {   # lrl_complete RESEARCH_DIR LIST EXCL -> report, rc 0 complet
     case "$l" in ''|'#'*) continue ;; esac
     path="${l%% | *}"; reason="${l#* | }"; [ "$path" != "$l" ] || reason=""
     read -ra _ws <<<"$reason"; nw="${#_ws[@]}"
-    if [ "$nw" -lt 3 ]; then echo "invalid exclusion (reason needs >= 3 words): $l"; bad=$((bad + 1)); fi
+    if [ "$nw" -lt 3 ]; then echo "invalid exclusion (reason needs >= 3 words): $l"; bad=$((bad + 1)); fi # SENTINEL-LRL-REASON
     exca+=("$path")
   done < "$excl"
   local missing stale both
   missing="$(comm -23 <(printf '%s\n' "${expa[@]}" | sort -u) <(printf '%s\n' "${lsta[@]:-}" "${exca[@]:-}" | sort -u))"   # SENTINEL-LRL-MISSING
   stale="$(comm -13 <(printf '%s\n' "${expa[@]}" | sort -u) <(printf '%s\n' "${lsta[@]:-}" "${exca[@]:-}" | sort -u) | grep -v '^$')"   # SENTINEL-LRL-STALE
-  both="$(comm -12 <(printf '%s\n' "${lsta[@]:-}" | sort -u) <(printf '%s\n' "${exca[@]:-}" | sort -u) | grep -v '^$')"
+  both="$(comm -12 <(printf '%s\n' "${lsta[@]:-}" | sort -u) <(printf '%s\n' "${exca[@]:-}" | sort -u) | grep -v '^$')"   # SENTINEL-LRL-BOTH
   printf 'completeness: derived %d (grep -l ^_RSDD_SELF=) · listed %d · excluded %d · missing %d · stale %d · listed-and-excluded %d · invalid %d\n' \
     "${#expa[@]}" "${#lsta[@]}" "${#exca[@]}" "$(grep -c . <<<"$missing")" "$(grep -c . <<<"$stale")" "$(grep -c . <<<"$both")" "$bad"
   [ -z "$missing" ] || printf 'missing (neither listed nor excluded): %s\n' "$(tr '\n' ' ' <<<"$missing")"
@@ -275,6 +279,18 @@ printf 'echo "${#arr[@]}" "$#"; d="$(dirname "$0")"\n' > "$TMP/fx/s6b.sh"
 check_scan "\${#x} and \$# are not comments" 1 "$TMP/fx/s6b.sh"
 printf 'echo ok # dirname "$0" in a trailing comment\n' > "$TMP/fx/s6c.sh"
 check_scan "a real trailing comment is still ignored" 0 "$TMP/fx/s6c.sh"
+cat > "$TMP/fx/f2b.sh" <<'EOF'
+d2=${0/%\/*}
+echo mid
+d3="${0/\/*/}"
+EOF
+check_scan "F2 pattern substitution on \$0 (\${0/%\\/*}, \${0/\\/*/}: 2 lines)" 2 "$TMP/fx/f2b.sh"
+cat > "$TMP/fx/ansic.sh" <<'EOF'
+x=$'it\'s # y'; d="$(dirname "$0")"
+EOF
+check_scan "\$'it\\'s # y' keeps the quote open, so the dirname after it is still scanned" 1 "$TMP/fx/ansic.sh"
+printf 'msg="a\n  # x"; d=$(dirname "$0")\n' > "$TMP/fx/multiline-str.sh"
+check_scan "KNOWN LIMIT (pinned): # on the continuation line of a multi-line string hides the dirname after it" 0 "$TMP/fx/multiline-str.sh"
 # S7: alias declared with flags.
 printf 'declare -r me="$0"\ntypeset -r m2=$0\nreadonly -- m3="$0"\nd="$(dirname "$me")"\ne="$(dirname "$m2")"\nf="$(dirname "$m3")"\n' > "$TMP/fx/f4c.sh"
 check_scan "F4 alias via declare -r / typeset -r / readonly -- (3 uses)" 3 "$TMP/fx/f4c.sh"
@@ -309,8 +325,9 @@ for l in "$TB"/lib/*.sh; do printf ': > "$RSDD_LR_MARK"\n' > "$planted/lib/$(bas
 # planted_run SCRIPT_DIR NAME -> 0 ONLY when the script existed, actually ran (rc not 126/127/124) and the marker was NOT
 # created. Sets PR_WHY (why it returned 1) and PR_REACHED (1 when the xtrace shows a lib source from outside the planted dir).
 PR_TIMEOUT="${RSDD_LR_TIMEOUT:-30}"
+TB_RE="$(printf '%s' "$TB" | sed 's/[][\.*^$+?(){}|]/\\&/g')"   # TB as a literal inside an ERE
 planted_run() {
-  local rc
+  local rc trace
   PR_WHY=""; PR_REACHED=0; rm -f "$mark" "$TMP/run.out"
   command -v "${RSDD_LR_TIMEOUT_BIN:-timeout}" >/dev/null 2>&1 || { PR_WHY="timeout not on PATH (DEGRADED: the behavioural run cannot be bounded)"; return 1; }   # SENTINEL-LRL-TIMEOUT
   [ -f "$1/$2" ] || { PR_WHY="script not found: $1/$2"; return 1; }   # SENTINEL-LRL-EXISTS
@@ -319,7 +336,10 @@ planted_run() {
   rc=$?
   case "$rc" in 124) PR_WHY="timed out after ${PR_TIMEOUT}s"; return 1 ;; 126|127) PR_WHY="could not run (rc $rc)"; return 1 ;; esac   # SENTINEL-LRL-RC
   [ ! -e "$mark" ] || { PR_WHY="planted lib executed"; return 1; }   # SENTINEL-LRL-PLANTED
-  if grep -E '^\++ (\.|source) ' "$TMP/run.out" | grep -F '/lib/' | grep -qvF " $planted/"; then PR_REACHED=1; fi
+  # Reached = the xtrace shows a source line whose path starts with the REAL "$TB/lib/" (not a ghost path, not the planted dir).
+  # The trace is captured first: a `producer | grep -q` pipeline under pipefail can read SIGPIPE as failure (CLAUDE.md §7).
+  trace="$(grep -E '^\++ (\.|source) ' "$TMP/run.out")"
+  if grep -qE "^\\++ (\\.|source) $TB_RE/lib/" <<<"$trace"; then PR_REACHED=1; fi   # SENTINEL-LRL-REACHED
   return 0
 }
 # Synthetic scripts: planted_run must be able to FAIL (a vacuous pass is a silent zero) — and to tell "reached a lib" from "exited early".
@@ -330,14 +350,17 @@ planted_selfchecks() {
   [ -n "$first" ] || { no "planted_run self-check: no real lib to model"; return; }
   printf 'echo real-lib\n' > "$d/lib/$first"
   printf 'exit 0\n' > "$d/early.sh"
-  printf '. "$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/lib/%s"\n' "$first" > "$d/real.sh"
+  printf '. "%s/lib/%s"\n' "$TB" "$first" > "$d/real.sh"
+  printf '. /nonexistent-dir/lib/x.sh\nexit 1\n' > "$d/ghost.sh"
   printf '. "$(dirname "$0")/lib/%s"\n' "$first" > "$d/bad.sh"
   printf 'exit 127\n' > "$d/e127.sh"
   printf 'sleep 5\n' > "$d/slow.sh"
   planted_run "$d" early.sh && [ "$PR_REACHED" -eq 0 ] && ok "planted_run: a script that exits early passes and is classed 'exited early'" || no "planted_run early exit: why=$PR_WHY reached=$PR_REACHED"
   planted_run "$d" real.sh && [ "$PR_REACHED" -eq 1 ] && ok "planted_run: a script sourcing its real lib passes and is classed 'reached a lib'" || no "planted_run real lib: why=$PR_WHY reached=$PR_REACHED"
+  planted_run "$d" ghost.sh && [ "$PR_REACHED" -eq 0 ] && ok "planted_run: a FAILED source from a ghost lib/ path is not counted as 'reached a lib'" || no "planted_run ghost source: why=$PR_WHY reached=$PR_REACHED"
   if planted_run "$d" bad.sh; then no "planted_run rejects a script that executes the planted lib (it PASSED a \$0-based lib source)"
-  else ok "planted_run rejects a script that executes the planted lib ($PR_WHY)"; fi
+  elif [ "$PR_WHY" = "planted lib executed" ]; then ok "planted_run rejects a script that executes the planted lib ($PR_WHY)"
+  else no "planted_run rejects a script that executes the planted lib (rejected for the WRONG reason: $PR_WHY)"; fi
   if planted_run "$d" missing.sh; then no "planted_run rejects a listed script that does not exist"; else ok "planted_run rejects a listed script that does not exist"; fi
   if planted_run "$d" e127.sh; then no "planted_run rejects a script that exits 127 (could not run)"; else ok "planted_run rejects a script that exits 127 (could not run)"; fi
   PR_TIMEOUT=1
@@ -388,20 +411,19 @@ if [ "$rc" -eq 2 ] && grep -q 'derived set is empty' <<<"$out"; then ok "complet
 mkdir -p "$TMP/linkbin"
 for name in sweep-retros.sh verify-registry.sh sweep-audits-hook.sh verify-state.sh; do
   ln -sf "$TB/$name" "$TMP/linkbin/$name"
-  rm -f "$mark"
-  ( cd "$planted" && RSDD_LR_MARK="$mark" HOME="$TMP/home" RESEARCH_HOME="$TMP/rh" PATH="$TMP/linkbin:$PATH" \
-      timeout 30 bash "$name" </dev/null >"$TMP/link.out" 2>&1 )
-  if [ ! -e "$mark" ] && ! grep -qE 'cannot find helper|failed to define|missing beside|No such file or directory' "$TMP/link.out"; then
-    ok "symlink invocation of $name finds its real lib/ and ignores the cwd's"
-  else no "symlink invocation of $name: marker=$([ -e "$mark" ] && echo yes || echo no) out=$(head -c 200 "$TMP/link.out" | tr '\n' ' ')"; fi
+  # planted_run: existence, timeout probe, rc 124/126/127, marker, and the reached-a-real-lib proof (path under "$TB/lib/").
+  if planted_run "$TMP/linkbin" "$name" && [ "$PR_REACHED" -eq 1 ] \
+     && ! grep -qE 'cannot find helper|failed to define|missing beside|No such file or directory' "$TMP/run.out"; then
+    ok "symlink invocation of $name reached its real lib/ and ignored the cwd's"
+  else no "symlink invocation of $name: why=${PR_WHY:-none} reached=$PR_REACHED marker=$([ -e "$mark" ] && echo yes || echo no) out=$(head -c 200 "$TMP/run.out" | tr '\n' ' ')"; fi
 done
 # A relative symlink (target relative to the link's directory) must resolve too.
 mkdir -p "$TMP/rel/bin"
 ln -sf "../tb/sweep-audits-hook.sh" "$TMP/rel/bin/sweep-audits-hook.sh"
 ln -sfn "$TB" "$TMP/rel/tb"
-( cd "$planted" && RSDD_LR_MARK="$mark" HOME="$TMP/home" RESEARCH_HOME="$TMP/rh" PATH="$TMP/rel/bin:$PATH" \
-    timeout 30 bash sweep-audits-hook.sh </dev/null >"$TMP/rel.out" 2>&1 )
-if ! grep -qE 'missing beside|cannot find' "$TMP/rel.out"; then ok "relative symlink resolves the real lib/"; else no "relative symlink: $(head -c 200 "$TMP/rel.out")"; fi
+if planted_run "$TMP/rel/bin" sweep-audits-hook.sh && [ "$PR_REACHED" -eq 1 ] && ! grep -qE 'missing beside|cannot find' "$TMP/run.out"; then
+  ok "relative symlink resolves the real lib/ (marker absent, real lib sourced)"
+else no "relative symlink: why=${PR_WHY:-none} reached=$PR_REACHED marker=$([ -e "$mark" ] && echo yes || echo no) out=$(head -c 200 "$TMP/run.out" | tr '\n' ' ')"; fi
 
 # ---- Teeth (mutation proof) -------------------------------------------------
 # shellcheck source=lib/mutant.sh
@@ -459,7 +481,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   sed -e 's#^_RSDD_SELF=.*#_RSDD_SELF="$(cd "$(dirname "$0")" \&\& pwd)"#' "$TB/sweep-audits-hook.sh" > "$MUT/beh/tb/sweep-audits-hook.sh"
   if grep -q 'dirname "\$0"' "$MUT/beh/tb/sweep-audits-hook.sh"; then
     if planted_run "$MUT/beh/tb" sweep-audits-hook.sh; then no "teeth behavioural: the \$0-based mutant did NOT execute the planted lib (the check has no teeth)"
-    else ok "teeth behavioural: a \$0-based mutant of a fixed script executes the planted lib → the behavioural check goes red"; fi
+    elif [ "$PR_WHY" = "planted lib executed" ]; then ok "teeth behavioural: a \$0-based mutant of a fixed script executes the planted lib → the behavioural check goes red"
+    else no "teeth behavioural: the mutant was rejected for the WRONG reason: $PR_WHY"; fi
   else no "teeth behavioural: mutant could not be built (no \$_RSDD_SELF assignment found in sweep-audits-hook.sh)"; fi
 
   # Tooth 10-13: F1 terminator class, quote-aware comment, marker word count, alias recording with flags.
@@ -474,9 +497,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth marker-words" "$MUT/words/$M" '/SENTINEL-LRL-MARKER$/ s/nw >= 3/nw >= 1/' \
     && tooth "teeth marker-words: 3-word minimum dropped -> a 2-word marker exempts" 1 0 "$MUT/words/$M" \
          --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan "$TMP/fx/ex3.sh"
+  # (Same mutation as tooth F4: it proves the flagged declarations feed the SAME alias table; the scanner has no flag-specific code.)
   mk_sed "teeth alias-flags" "$MUT/aflags/$M" '/SENTINEL-LRL-ALIAS$/ s/alias\[v\] = 1/v = v/' \
-    && tooth "teeth alias-flags: alias never recorded -> declare -r / typeset -r / readonly -- aliases missed" 1 0 "$MUT/aflags/$M" \
+    && tooth "teeth alias recording on flagged declarations (declare -r / typeset -r / readonly --): fixture f4c needs the alias table" 1 0 "$MUT/aflags/$M" \
          --good-has 'violations: 3' --bad-has 'violations: 0' -- bash @SUT@ --scan "$TMP/fx/f4c.sh"
+
+  mk_sed "teeth ansic" "$MUT/ansic/$M" '/SENTINEL-LRL-ANSIC$/ s/{ q = "\$'"'"'"; i++; continue }/{ }/' \
+    && tooth "teeth ansic: \$'..' quote state dropped -> the escaped quote inverts the state and hides the dirname" 1 0 "$MUT/ansic/$M" \
+         --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan "$TMP/fx/ansic.sh"
+  mk_sed "teeth F2-subst" "$MUT/f2s/$M" '/SENTINEL-LRL-F2$/ s/\[%\\\/\]/[%]/' \
+    && tooth "teeth F2-subst: pattern substitution dropped from F2 -> \${0/%\\/*} missed" 1 0 "$MUT/f2s/$M" \
+         --good-has 'violations: 2' --bad-has 'violations: 0' -- bash @SUT@ --scan "$TMP/fx/f2b.sh"
+
+  # Tooth: exclusion-reason rule, listed-and-excluded, reached counter.
+  mk_sed "teeth reason" "$MUT/reason/$M" '/SENTINEL-LRL-REASON$/ s/-lt 3/-lt 0/' \
+    && tooth "teeth reason: 3-word rule dropped -> a reasonless exclusion is accepted" 1 0 "$MUT/reason/$M" \
+         --good-has 'invalid 1' --bad-has 'invalid 0' -- bash @SUT@ --complete "$cr" "$TMP/cr-a.txt" "$TMP/cr-excl-bad.txt"
+  mk_sed "teeth both" "$MUT/both/$M" '/SENTINEL-LRL-BOTH$/ s/both="\$(.*)"/both=""/' \
+    && tooth "teeth both: listed-and-excluded check removed -> a double entry passes" 1 0 "$MUT/both/$M" \
+         --good-has 'listed-and-excluded 1' --bad-has 'listed-and-excluded 0' -- bash @SUT@ --complete "$cr" "$TMP/cr-all.txt" "$TMP/cr-excl.txt"
+  mk_sed "teeth reached" "$MUT/reached/$M" '/SENTINEL-LRL-REACHED$/ s/\$TB_RE\/lib\//[^ ]*\/lib\//' \
+    && tooth "teeth reached: real-prefix requirement dropped -> a failed ghost source counts as reached" 0 1 "$MUT/reached/$M" \
+         --good-has 'PASS  planted_run: a FAILED source' --bad-has 'FAIL  planted_run ghost source' -- bash @SUT@ --planted-selfcheck
 
   # Tooth 14-18: planted_run is not vacuous — each guard removed lets its synthetic bad case through.
   mk_sed "teeth planted_run RC" "$MUT/prRC/$M" '/SENTINEL-LRL-RC$/ s/.*/  :/' \
