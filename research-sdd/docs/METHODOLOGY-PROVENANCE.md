@@ -8,10 +8,11 @@ METHODOLOGY.md. Each row keeps the original note verbatim, including its `Eviden
 parentheses. The first column is the exact bold label the annotated rule carries in METHODOLOGY.md
 (without the `**` markers), so `grep -nF` on it finds the rule.
 
-Slice 7 (the rows after the first 18) moved 86 more: every bare end-of-line `(Source: ...)` retro or corpus
-pointer with no reason of its own. Moved in total: 104 notes. Not moved, and still in METHODOLOGY.md: notes that carry a reason or a case
-description, notes that embed a `Source:` retro pointer, every `(Evidence: ...)` note with a case description, `Source:` notes that carry a description or
-a relative reference such as "same retro", and every cross-reference to a section. This file only ever receives bare pointers.
+Slice 7 (the rows after the first 18) moved 94 more: every `(Source: ...)` retro or corpus pointer that
+stands alone at the end of a paragraph or list item (single-line, or wrapped across two lines) and gives no reason of
+its own. Moved in total: 112 notes. Not moved, by design: notes that carry a reason or a case description, and notes
+embedded mid-sentence in rule text; moving those would require rewriting rule text, which is not worth it. They stay in
+METHODOLOGY.md. Rows keep the original note verbatim (wrapped notes are joined onto one line).
 
 | Rule (exact label in METHODOLOGY.md) | Original note (verbatim) |
 |---|---|
@@ -106,7 +107,7 @@ a relative reference such as "same retro", and every cross-reference to a sectio
 | Consolidation focus. | (Source: 2026-08-29-ports-focus-retro.md DELTA-2) |
 | Sibling / twin focus. | (Source: 2026-08-30-jace8000-qnx-native-focus-retro.md D2) |
 | Peer-session-triggered focus. | (Source: 2026-08-30-alarm-webhook-focus-retro.md D2) |
-| dedup handoff | (Source: niagara-research/retros/2026-08-24-licensing-deepdive.md D6) |
+| Peer-axis-split focus. | (Source: niagara-research/retros/2026-08-24-licensing-deepdive.md D6) |
 | APPLIED / BUILD-ALONG focus. | (Source: 2026-08-30-coldroom-module-build-retro.md #1) |
 | Distributed multi-session diagnosis split by source. | (Source: 2026-09-03-research-sdd-multi-session-obix-oracle-and-tridium-canonization.md #1) |
 | Census → taxonomy → playbook triad for "document everything about X across many instances." | (Source: 2026-09-04-research-sdd-module-authoring-mega-campaign-retro.md #1) |
@@ -118,4 +119,12 @@ a relative reference such as "same retro", and every cross-reference to a sectio
 | Driver, not the authoring sub-agent, populates document-cycle state after authoring. | (Source: investigacion/mini-pc/corpus/retros/2026-09-12-mini-pc.md delta #3.) |
 | Mid-run outline additions by a coordinator are legal (kit #1989). | (Source: tunnel/clientes/cancun/HotelHilton/retros/2026-10-07-energeticos-b27-b32.md delta #2.) |
 | Renderer by deliverable role (kit issue #1094). | (Source: sullair 2026-08-25 document-mode rendering retro DR-1.) |
-| 21.1 Typed wall states | (Source: 2026-09-14-module-mechanics-closeout-retro.md C1) |
+| 21.1 Typed wall states | (Source: 2026-09-14-module-mechanics-closeout-retro.md C1) (annotates the `not-extracted` bullet) |
+| Anti-ephemeral-artifact rule. | (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.) |
+| Documenting a problem is part of finishing it, not a deferred extra — a cadence rule, not a new debt. | (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #2.) |
+| Gate for recursive auto-sharding (default OFF). | (Source: fluke-177x-datos 2026-09-13-auto-sharding-recursivo-de-agentes, 2026-09-13-orquestacion-sweeps-paralelos-decompilado) |
+| INDEX.md coverage: mandatory-per-block or explicitly read-on-demand. | (Source: cloudflare/retros/2026-08-28-corpus-complete.md D-CORPUS-1) |
+| Corpus-level close trigger. | (Source: cloudflare/retros/2026-08-28-corpus-complete.md D-CORPUS-2) |
+| Assumptions inherited from a compaction are hypotheses until re-verified. | (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar, 2026-09-13-camino-b-end-to-end-completo) |
+| Problem-entry template (canonical form for documenting a bug or incident fixed mid-session). | (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.) |
+| Two-layer alerting pattern (platform-up ≠ payload-freshness). | (Source: tunnel/clientes/Leon-Guanajuato/Pancaddia/corpus/retros/2026-09-14-incidente-pipeline-jace.md A-3.) |

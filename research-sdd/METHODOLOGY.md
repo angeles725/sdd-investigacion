@@ -927,8 +927,7 @@ artifact worth keeping — must be moved into the repo/corpus BEFORE the session
 in a scratchpad temp. A scratchpad is a working area, not storage: one session's dashboard source lived only
 under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it is worth citing or reusing
 later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
-the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207). (Source:
-investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #3.)
+the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207).
 
 ## 7b. State-envelope instruments (situational)
 
@@ -1300,8 +1299,7 @@ is genuinely undocumented (a `mem_save` with no block), and it clears the moment
 however late. A block written late and then decremented to 0 is not "still undocumented" under this rule —
 it is exactly what §7 already calls done. The reason to write promptly is not to avoid inventing debt the
 counter would otherwise miss; it is that a delayed write-up is where the root cause gets lost and a symptom
-gets mistaken for it. (Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md
-delta #2.)
+gets mistaken for it.
 
 ## 8b. Gap-backlog cell grammar (issue #147)
 
@@ -2861,8 +2859,7 @@ This is the mechanism that converts "artifact too large to read" into "covered i
 surface genuinely exceeds a single context window AND the sub-questions are independently answerable.
 Born disabled; it activates on those two triggers together. For trivial slices, resolve inline or use
 flat delegation — recursive fan-out on a small question is over-orchestration that multiplies token cost
-without adding coverage. (Source: fluke-177x-datos 2026-09-13-auto-sharding-recursivo-de-agentes,
-2026-09-13-orquestacion-sweeps-paralelos-decompilado)
+without adding coverage.
 
 **A multi-stage data pipeline must account for every record it discards.** When a pipeline stage drops
 records silently (waveforms, metadata rows, secondary tables), any coverage claim downstream is overstated
@@ -3377,14 +3374,12 @@ investigating in parallel — niagara ended up with three: `Spyder`, `OptimizerS
   `covered_blocks` after 9–14 blocks in a single session day. Declare one model and stick to it: (A) refresh
   the summary at every block iteration alongside the parent count, or (B) drop the hand-maintained mirror and
   point `INDEX.md` at `RESEARCH-STATE-<focus>.md` as the single source of truth. A mirror that promises
-  consistency it cannot guarantee under load is a slow defect, not a feature. (Source:
-  cloudflare/retros/2026-08-28-corpus-complete.md D-CORPUS-1)
+  consistency it cannot guarantee under load is a slow defect, not a feature.
 - **Corpus-level close trigger.** When the FINAL open focus of a multi-focus corpus reaches STOP, in addition
   to its per-focus §18 retro, write a **corpus-close retro** summarizing all focuses: what each found, how
   they related, and proposed next-focus candidates. Without this trigger, multi-focus corpora close with
   per-focus retros but no top-level closure artifact — the corpus-close retro was written retroactively the
-  next session when the trigger was missing. (Source: cloudflare/retros/2026-08-28-corpus-complete.md
-  D-CORPUS-2)
+  next session when the trigger was missing.
 
 **Declared resume queue (`next_session_queue`).** A PAUSED header MAY carry one line, `next_session_queue: G1, G2` — gap ids, comma-separated, in the order the operator wants them resumed — in the state file's header (before its first `## ` heading), next to the `PAUSED (…)` line (§8 PAUSED rules). `research-sdd-status.sh <corpus> --next --queue` then returns the FIRST queued gap that is still pending and not blocked, so an operator-declared lane is not silently out-voted by priority order; without `--queue` the declaration is ignored. The queue chooses only AMONG eligible gaps: it never bypasses STALE, RETRO-DUE or ISSUES-DUE, and when no queued gap remains pending `--next --queue` falls back to the normal priority order and says so (`queue-exhausted`). It is per focus: in a multi-focus corpus the queue lives in that focus's own `RESEARCH-STATE-<slug>.md`. Write ids as they open the backlog's Gap cell (`B118-G1`); a prose `NEXT SESSION QUEUE` list is not read by the instrument (it reports `queue-prose-only`), so declare the field as well. Delete the line, or leave it empty, when the pause ends. The instrument distinguishes absent, declared-empty, exhausted, unknown-id and malformed declarations as typed notes (tool-registry `research-sdd-status.sh`).
 
@@ -3505,8 +3500,7 @@ and B122 both did). Before re-launching an interrupted iteration:
    may present a prior finding as established fact because it was established in the session that was
    compacted. Before building on any load-bearing claim a recovered summary presents as settled,
    re-verify it against the primary source — the summary cannot distinguish a verified claim from an
-   unverified one it absorbed. (Source: fluke-177x-datos 2026-09-13-doctrina-detenerse-corto-y-explorar,
-   2026-09-13-camino-b-end-to-end-completo)
+   unverified one it absorbed.
 ## 18. Self-retrospective (the kit learns from its own runs)
 
 The engine improves by observing real runs — not by guesswork. Every improvement in this kit so far was
@@ -4291,7 +4285,6 @@ improvise a shorter form that drops root cause or verification. A problem entry 
 is incomplete, not "short". The operative form is PROMPT-LOOP's DOCUMENT CYCLE step 2 PROBLEM-ENTRY MOLD (kit
 #1889) — it states the same six fields and is authoritative for the run; this paragraph restates the fields only
 as rationale, and PROMPT-LOOP step 2 is operative.
-(Source: investigacion/mini-pc/corpus/retros/2026-09-14-doctrina-documentar-problemas.md delta #1.)
 
 **Pending-live registration (kit #1893).** A `[PENDING-live]` marker (retro example: the Spanish
 `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included, is a claim nobody has validated yet, and a
@@ -4320,8 +4313,7 @@ TRANSPORT layer — it does NOT confirm the PAYLOAD is fresh. Data can go stale 
 healthy (a tunnel stays up while the upstream feed freezes). Document such a deployment's alerting as
 TWO layers: the platform/transport check it already has, PLUS a freshness monitor independent of host
 liveness (a last-updated timestamp check, a staleness threshold on the data itself). A runbook that
-documents only the platform-up signal as "monitoring" has documented half the contract. (Source:
-tunnel/clientes/Leon-Guanajuato/Pancaddia/corpus/retros/2026-09-14-incidente-pipeline-jace.md A-3.)
+documents only the platform-up signal as "monitoring" has documented half the contract.
 
 **Driver, not the authoring sub-agent, populates document-cycle state after authoring.** When blocks are
 produced by a delegated per-section-agent (§16 large-scale pattern) rather than written inline, the
