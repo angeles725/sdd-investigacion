@@ -688,6 +688,8 @@ tooth_py() {
 }
 WRONG='check failed but wrong message'
 PASSED='check PASSED but expected FAIL'
+# REQ1-presence bites only through the MESSAGE: with the exists() guard off, read_text raises and the checker still rejects
+# the file, but as "cannot read registry: [Errno 2] ..." instead of "registry not found" - RED01 asserts the fragment "not found".
 tooth_py REQ1-presence 'if not reg_path.exists():' 'if False:' "  FAIL  RED01-missing-file: $WRONG"
 tooth_py REQ1-unparseable 'return entries if entries else None' 'return entries if entries else []' "  FAIL  RED10-unparseable: $PASSED"
 tooth_py REQ2-duplicate-id 'if eid in seen_ids:' 'if False:' "  FAIL  RED13-dup-id: $PASSED"
@@ -698,10 +700,16 @@ tooth_py REQ3-no-test-files 'if not file_ids:' 'if False:' "  FAIL  RED11-no-tes
 tooth_py REQ3-no-parseable-ids 'if not all_mjs and sh_total_ids == 0:' 'if False:' "  FAIL  RED09-no-test-ids: $PASSED"
 tooth_py REQ3-file-exists 'errors.append(f"{eid}: named test file not found: {rel_path}")' 'pass' "  FAIL  RED04-missing-testfile: $PASSED"
 tooth_py REQ3-id-in-labels 'if tid not in labels:' 'if False:' "  FAIL  RED05-missing-testid: $PASSED"
-tooth_py REQ3-label-aware 'labels = extract_declared_labels(file_text)' "labels = set(re.findall(r'[A-Za-z0-9_/-]+', file_text))" "  FAIL  RED08-prose-only-id: $PASSED"
+# Isolated raw-substring form: only the label-aware lookup changes (no tokeniser), so GREEN and RED05 stay as they were.
+tooth_py REQ3-label-aware 'if tid not in labels:' 'if tid not in file_text:' "  FAIL  RED08-prose-only-id: $PASSED"
 tooth_py REQ4-pending-in-map 'if pid not in open_map:' 'if False:' "  FAIL  RED06-pending-not-in-map: $PASSED"
 tooth_py REQ4-map-unknown-id 'errors.append(f"open-map references non-existent invariant: {mid}")' 'pass' "  FAIL  RED12-map-unknown-id: $PASSED"
+# Final guard: without it the REQ3/REQ4 errors are collected but the checker returns (True, []) -> every REQ3/REQ4 fixture (RED04-RED09, RED11, RED12) passes.
+tooth_py FINAL-guard $'    if errors:\n        return False, errors\n    return True, []' '    return True, []' "  FAIL  RED04-missing-testfile: $PASSED"
 tooth_py REQ4-map-enforced $'elif entry_map[mid][\'status\'] != \'pending\':' 'elif False:' "  FAIL  RED07-enforced-in-map: $PASSED"
+# Not mutated, on purpose: (1) the REQ2 early `if errors: return` guard - with it off, the REQ3 loop still runs on the same
+# entries and no RED fixture's expected fragment depends on the early exit (equivalent mutant for these fixtures); (2) the
+# `except Exception -> "cannot read registry"` branch - no fixture makes the registry exist but be unreadable (follow-up issue).
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
