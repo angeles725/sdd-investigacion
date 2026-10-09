@@ -339,6 +339,7 @@ with tempfile.TemporaryDirectory() as td:
     try:
         r = cli("plan", "--firmware", str(fw), "--output", str(tmp/"out"),
                 "--allow-docker", "--rest-base-url", "http://10.0.0.1:9100",
+                "--wall-seconds", "3",   # bounds the run if the loopback guard is ever removed (mutant): it fails at the readiness poll, never hangs
                 xe={"PATH": p, "RSDD_DOCKER_EXECUTOR": ""})
         assert r.returncode == 2, f"rc={r.returncode}"
         ok("NON-LOOPBACK: non-loopback URL → exit 2 (refused)")
@@ -549,6 +550,74 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         srv.shutdown()
 
+# ── Post-up containment (canned `docker inspect` / `compose ps -q` via the shim) ─
+# The container's Image is the frontend config ID the shim resolves to a known digest, so only the
+# mount / container-count checks can reject these runs. Each must exit 2 AND tear the project down.
+def _containment(label, why, extra_env, mounts=None):
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); fw, _ = _fw(tmp); rec = tmp/"c.json"; p = _shim(tmp)
+        srv = _http_server(); port = srv.server_address[1]
+        env = {"PATH": p, "RSDD_DOCKER_EXECUTOR": "", "DOCKER_SHIM_RECORD": str(rec), **extra_env}
+        if mounts is not None:
+            env["DOCKER_CONTAINER_INSPECT_JSON"] = json.dumps([{
+                "Id": "sha256:" + "a"*64, "Image": "sha256:" + "a"*64,
+                "Config": {"Image": "fkiecad/fact_frontend:latest"}, "Mounts": mounts,
+                "NetworkSettings": {"Networks": {"bridge": {"IPAddress": "172.20.0.2"}}}}])
+        try:
+            r = cli("plan", "--firmware", str(fw), "--output", str(tmp/"out"),
+                    "--allow-docker", "--rest-base-url", f"http://127.0.0.1:{port}", xe=env)
+            calls = json.loads(rec.read_text()) if rec.exists() else []
+            down_calls = [c for c in calls if c and c[0] == "compose" and "down" in c]
+            assert r.returncode == 2, f"rc={r.returncode} (expected 2; {why} absent)"
+            assert down_calls, f"no 'compose down' in shim record: {calls}"
+            ok(f"{label}: {why} → exit 2 + down called")
+        except Exception as e: nok(label, str(e))
+        finally: srv.shutdown()
+
+_containment("T-MOUNT-BIND", "unexpected host bind mount rejected",
+             {}, mounts=[{"Type": "bind", "Source": "/etc"}])
+_containment("T-MOUNT-VOL", "volume not scoped to the project rejected",
+             {}, mounts=[{"Type": "volume", "Name": "someone-elses-volume"}])
+_containment("T-NO-CIDS", "empty `compose ps -q` (no containers) rejected",
+             {"DOCKER_PS_OUTPUT": ""})
+
+# ── TOCTOU-symlink: a symlink at the firmware path must be refused (O_NOFOLLOW) ──
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    content = b"REAL-FIRMWARE" + b"\x00" * 16
+    real = tmp / "real.bin"; real.write_bytes(content)
+    link = tmp / "link.bin"; link.symlink_to(real)
+    plan = {"firmware": {"path": str(link), "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+                         "size": len(content)}}
+    try:
+        from gate import GateError
+        m._read_firmware_toctou(plan)
+        nok("TOCTOU-symlink: expected GateError for symlink firmware")
+    except GateError as exc:
+        if "cannot open" in str(exc): ok("TOCTOU-symlink: symlink firmware → GateError (O_NOFOLLOW)")
+        else: nok("TOCTOU-symlink", f"wrong GateError: {exc}")
+    except Exception as e: nok("TOCTOU-symlink", str(e))
+
+# ── TOCTOU-overflow: file larger than the declared size must be refused ───────
+# The recorded sha is of the first declared+1 bytes, so ONLY the overflow check can reject
+# (without it the truncated read would hash clean and be accepted).
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    content = b"OVERSIZE-FIRMWARE" + b"\x00" * 83
+    fw_path = tmp / "fw.bin"; fw_path.write_bytes(content)
+    declared = 10
+    plan = {"firmware": {"path": str(fw_path),
+                         "sha256": "sha256:" + hashlib.sha256(content[:declared + 1]).hexdigest(),
+                         "size": declared}}
+    try:
+        from gate import GateError
+        m._read_firmware_toctou(plan)
+        nok("TOCTOU-overflow: expected GateError for oversize firmware")
+    except GateError as exc:
+        if "exceeds declared size" in str(exc): ok("TOCTOU-overflow: oversize firmware → GateError (declared-size overflow)")
+        else: nok("TOCTOU-overflow", f"wrong GateError: {exc}")
+    except Exception as e: nok("TOCTOU-overflow", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -594,12 +663,19 @@ tt teeth-bounded-limit 'limit = cap + 1' 'limit = cap' 'FAIL  T-A2: GateError mu
 # stub noise, not a SUT crash. This one tooth therefore uses the strict filter MINUS the Traceback header; BAD_HAS pins the case's own text.
 CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
 tt teeth-analysis-cap-const '= 64 * 1024 * 1024' '= 1024' 'FAIL  T-A1: GateError \(false-timeout in RED\)' "$CRASH_NOTB"
-# Not mutated, with the fixture that WOULD isolate each (no case exists yet; adding one changes plain output):
-#  - post-up mount containment (volume project scope / bind source) and `if not cids`: the shim's DOCKER_CONTAINER_INSPECT_JSON /
-#    DOCKER_PS_OUTPUT knobs can drive them; no case sets them.
-#  - _read_firmware_toctou O_NOFOLLOW / declared-size overflow: needs a symlink and an oversize file; no case builds them.
-#  - _check_loopback via the CLI (NON-LOOPBACK): with the guard off the run would poll 10.0.0.1 for the 7200 s default wall -
-#    unsafe to execute; the UNIT-loopback case calls the guard directly and is a candidate for a tooth.
+tt teeth-mount-bind 'if not (src == fw_path or src.startswith(run_dir_host)):' 'if False:' 'FAIL  T-MOUNT-BIND: rc=0 \(expected 2; unexpected host bind mount'
+tt teeth-mount-volume 'if vol_name and not vol_name.startswith(project_name):' 'if False:' 'FAIL  T-MOUNT-VOL: rc=0 \(expected 2; volume not scoped'
+tt teeth-no-containers 'if not cids:' 'if False:' 'FAIL  T-NO-CIDS: rc=0 \(expected 2; empty'
+tt teeth-toctou-nofollow '| getattr(os, "O_NOFOLLOW", 0)' '' 'FAIL  TOCTOU-symlink: expected GateError for symlink firmware'
+tt teeth-toctou-overflow 'if extra:' 'if False:' 'FAIL  TOCTOU-overflow: expected GateError for oversize firmware'
+# The direct UNIT-loopback case bites this mutant. The CLI NON-LOOPBACK case cannot: with the guard off it still exits 2, because the run
+# fails at the readiness poll against 10.0.0.1 (bounded to 3 s by --wall-seconds, so a mutant run can never hang). The exit code alone
+# cannot tell the guard from that later failure, which is why the unit case is the tooth.
+tt teeth-loopback-guard 'if host not in _LOOPBACK_HOSTS:' 'if False:' 'FAIL  UNIT-loopback: expected GateError'
+# Not mutated (real reasons only):
+#  - the CLI NON-LOOPBACK case as a tooth, for the reason above (and a mutant run would make a bounded 3 s connection attempt to 10.0.0.1).
+#  - post-up checks that need a malformed docker reply (inspect timeout / invalid JSON / missing Image field / RepoDigests absent):
+#    the shim has no knob for them; they are fail-closed GateErrors whose mutants need new shim modes, left for a follow-up.
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
