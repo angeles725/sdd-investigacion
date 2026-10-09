@@ -457,11 +457,21 @@ saturation_line() {
 # Blocked gap NAMES (one trimmed name per "- <name> — needs: ..." line) — matched EXACTLY, never as
 # a substring of free prose (a pending gap "hardware" must not be killed by "- x — needs: hardware").
 blocked_names() {
-  blocked_body | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
+  local _bn_body   # BODY-RC (#2017 W1): capture the body WITH its rc; a failed extractor is rc 3, never an empty list
+  _bn_body="$(blocked_body)" || return 3
+  printf '%s\n' "$_bn_body" | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' \
-    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | { grep -v '^$' || [ "$?" -eq 1 ]; }   # grep rc 1 = no names (empty-input), only rc >= 2 is an error
 }
-is_blocked() { local g="$1" b; while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done < <(blocked_names); return 1; }
+is_blocked() {
+  local g="$1" b _ib_names _ib_rc
+  _ib_names="$(blocked_names)"; _ib_rc=$?
+  if [ "$_ib_rc" -ne 0 ]; then   # IS-BLOCKED-DEGRADED: an unreadable blocked section must not read as "nothing is blocked" silently
+    printf 'research-sdd-status: blocked sections could not be extracted (rc %s on %s) — is_blocked sees no blocked gaps (degraded derivation)\n' "$_ib_rc" "$state" >&2
+    return 1
+  fi
+  while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done <<<"$_ib_names"; return 1
+}
 # disk-DERIVED blocked_open — delegated to lib/blocked-rows.sh blocked_open_count (kit #923), the same function
 # verify-state.sh calls: needs:-carrying entries under the standard blocked sections PLUS open entries in
 # ## Child gaps surfaced at close (a CLOSED child gap that keeps `needs:` is not counted, #913).
@@ -1005,6 +1015,18 @@ if [ "$mode" = "--sync-state" ]; then
       "${#_states[@]}" "$target" >&2
     exit 1  # SYNC-SCOPE-GUARD
   fi
+  # BO-DEGRADED-SYNC (#2017 W2): derive blocked_open for EVERY state file BEFORE the first write; one degraded
+  # derivation refuses the whole sync (no envelope written at all), never a half-rewritten set of foci.
+  declare -A _BO_PRE=()
+  for state in "${_states[@]}"; do
+    state="$(readlink -f "$state" 2>/dev/null || printf '%s' "$state")"
+    _bo_v="$(derive_blocked_open)"; _bo_rc=$?
+    if [ "$_bo_rc" -ne 0 ]; then
+      printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s) — NO envelope written\n' "$_bo_rc" "$state" >&2
+      exit 1
+    fi
+    _BO_PRE["$state"]="$_bo_v"
+  done
   for state in "${_states[@]}"; do
     # Write THROUGH a symlinked state file to its real path (else the mv below would replace the symlink
     # with a regular file, silently breaking a shared/canonical state). readlink -f also canonicalizes a
@@ -1090,9 +1112,7 @@ if [ "$mode" = "--sync-state" ]; then
     if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ -z "$_sfrange" ] && [ "$_e_bs" != "shared-global" ] \
        && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then _cw=1; fi  # ROOT-CORPUS-WIDE
     io="$(count_investigable)"
-    bo="$(derive_blocked_open)"; _bo_rc=$?   # same disk-derived helper the status display reuses (single source of truth)
-    # BO-DEGRADED-SYNC (#2017): a failed derivation (rc != 0, empty stdout) must never reach the envelope as blank/0.
-    [ "$_bo_rc" -eq 0 ] || { printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s) — envelope NOT written\n' "$_bo_rc" "$state" >&2; exit 1; }
+    bo="${_BO_PRE[$state]}"   # derived (and rc-checked) in the pre-pass above: same disk-derived helper the status display reuses
     def="$(count_deferred)"
     _ipb="$(backlog_rows 2>/dev/null | inplace_blocked_count "$(blocked_body)")"   # in-place blocked rows (#1915; shared lib/focus-prefix.sh helper, mirrored by verify-state CHECK H): open, in no other bucket — never closed
     # requires_execution_open: compute BEFORE cov/kg so KG-BACKLOG-GC can use dreq.
@@ -2392,8 +2412,9 @@ blk="$(derive_blocked_open)"; _blk_rc=$?   # disk-DERIVED (needs:-anchored) — 
 # BO-DEGRADED-DISPLAY (#2017): a failed derivation is shown as DEGRADED, never as a blank/0/`?` count. Exit stays 0 by
 # this script's contract (findings are REPORTED in the output, see the final exit); the typed line goes to stderr.
 if [ "$_blk_rc" -ne 0 ]; then
-  blk="DEGRADED"
+  blk="DEGRADED"; inv="DEGRADED"   # every count derived from the blocked sections is untrustworthy now, not just blocked_open
   printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s)\n' "$_blk_rc" "$state" >&2
+  echo "degraded: blocked_open: blocked_open_count rc $_blk_rc — blocked/investigable/next step not derived (CLAUDE.md §7: not a zero)"   # BO-DEGRADED-LINE (S5): the script's `degraded:` stdout convention
 fi
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
@@ -2533,6 +2554,7 @@ if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRA
 case "$_ns_doc" in
   NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
   *)
+    if [ "$_blk_rc" -ne 0 ]; then printf '  next step       : DEGRADED (blocked sections unreadable — a next gap derived from them would be inflated)\n'; else
     if [ -z "$_ns_doc" ]; then
       printf '  next step       : '
       _ns_gap_run
@@ -2540,6 +2562,7 @@ case "$_ns_doc" in
       _ns_gap="$(_ns_gap_run)"
       case "$_ns_gap" in STOP*) _ns_gap="$_ns_doc" ;; esac  # DOC-STOP-GUARD: only a gap STOP yields to the Outline STOP; NEXT and any other verdict is kept
       printf '  next step       : %s\n' "$_ns_gap"
+    fi
     fi
     ;;
 esac

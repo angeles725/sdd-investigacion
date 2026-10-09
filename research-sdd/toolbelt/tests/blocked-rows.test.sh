@@ -117,6 +117,29 @@ done
   else no "status --sync-state with a broken awk: rc=$rc cmp=$(cmp -s "$TMP/before-sync.md" "$d/RESEARCH-STATE.md" && echo same || echo CHANGED) :: $(head -1 "$TMP/err")"; fi
 }
 
+# W1 (#2017): every count derived from the blocked sections degrades with them, not only blocked_open.
+{
+  d="$TMP/deg-status"
+  out="$(PATH="$TMP/stub-child:$PATH" bash "$ST" "$d" 2>/dev/null)"
+  if grep -q '^degraded: blocked_open:' <<<"$out" && grep -q 'stop-control .*investigable=DEGRADED' <<<"$out" && grep -q 'next step .*: DEGRADED' <<<"$out"; then
+    ok "status display with a broken awk: stdout degraded: line + investigable=DEGRADED + next step DEGRADED"
+  else no "status display with a broken awk (W1/S5): $(grep -E 'degraded:|stop-control|next step' <<<"$out" | tr '\n' '|')"; fi
+}
+# W2 (#2017): a degraded focus must leave EVERY focus file untouched; the scope guard also covers the two-focus case.
+{
+  d="$TMP/deg-multi"; rm -rf "$d"; mkdir -p "$d"
+  cp "$FIX/child-single-open.expect1.md" "$d/RESEARCH-STATE-a.md"; cp "$FIX/child-single-open.expect1.md" "$d/RESEARCH-STATE-b.md"
+  cp "$d/RESEARCH-STATE-a.md" "$TMP/multi-a.before"; cp "$d/RESEARCH-STATE-b.md" "$TMP/multi-b.before"
+  PATH="$TMP/stub-child:$PATH" bash "$ST" "$d" --sync-state >/dev/null 2>"$TMP/err"; rc=$?
+  if [ "$rc" = 1 ] && cmp -s "$TMP/multi-a.before" "$d/RESEARCH-STATE-a.md" && cmp -s "$TMP/multi-b.before" "$d/RESEARCH-STATE-b.md"; then
+    ok "two-focus --sync-state with a broken awk: exit 1, neither focus file written"
+  else no "two-focus --sync-state with a broken awk: rc=$rc"; fi
+  PATH="$TMP/stub-child:$PATH" bash "$ST" "$d" --sync-state --focus b >/dev/null 2>"$TMP/err"; rc=$?
+  if [ "$rc" = 1 ] && grep -q 'blocked_open derivation degraded' "$TMP/err" && cmp -s "$TMP/multi-a.before" "$d/RESEARCH-STATE-a.md" && cmp -s "$TMP/multi-b.before" "$d/RESEARCH-STATE-b.md"; then
+    ok "--sync-state --focus b with a broken awk: exit 1, typed line, both focus files byte-identical"
+  else no "--sync-state --focus b with a broken awk: rc=$rc :: $(head -1 "$TMP/err")"; fi
+}
+
 echo "-- 3c. blocked_rows_body reports the first failing extractor, not only the last (#2018 item 3) --"
 mk_body_stub() { # DIR HEADING: awk stub that fails only for the extractor of HEADING
   mkdir -p "$1"; printf '#!/bin/sh\ncase "$*" in *"h=%s"*) echo "awk: stub failure" >&2; exit 2;; esac\nexec %s "$@"\n' "$2" "$REAL_AWK" > "$1/awk"; chmod +x "$1/awk"
@@ -128,6 +151,14 @@ for n in 1 2 3; do
   out="$(PATH="$TMP/stub-body$n:$PATH" blocked_open_count "$FIX/standard-and-child-mixed.expect5.md" 2>/dev/null)"; rc=$?
   if [ "$rc" = 3 ] && [ -z "$out" ]; then ok "blocked_open_count: extractor $n of 3 failing is degraded rc 3, empty stdout"; else no "blocked_open_count: extractor $n failing: rc=$rc out=[$out]"; fi
 done
+
+# W1 (#2017): verify-state must FAIL typed when the blocked sections cannot be extracted, never count against an empty list.
+{
+  d="$TMP/deg-vs-body"; mkdir -p "$d"; cp "$FIX/standard-and-child-mixed.expect5.md" "$d/RESEARCH-STATE.md"
+  out="$(PATH="$TMP/stub-body1:$PATH" bash "$VS" "$d" 2>&1)"; rc=$?
+  if [ "$rc" != 0 ] && grep -q 'investigable_open derivation degraded' <<<"$out"; then ok "verify-state with a failing non-last extractor: FAIL investigable_open derivation degraded"
+  else no "verify-state with a failing non-last extractor: rc=$rc :: $(grep -m2 -i 'investigable\|degraded' <<<"$out")"; fi
+}
 
 echo "-- 4. a missing or function-less lib fails each consumer loudly --"
 mk_kit() { # DIR [lib-state: ok|missing|empty]
@@ -246,14 +277,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for site in SYNC DISPLAY; do
     mkdir -p "$MD/g11-$site/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g11-$site/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g11-$site/mut/"
   done
-  mk "TOOTH-11 mutant build" "$ST" "$MD/g11-SYNC/mut/research-sdd-status.sh" '/# BO-DEGRADED-SYNC/{n;d}' \
+  mk "TOOTH-11 mutant build" "$ST" "$MD/g11-SYNC/mut/research-sdd-status.sh" 's#if \[ "\$_bo_rc" -ne 0 \]; then#if false; then#' \
     && tt "TOOTH-11: --sync-state refuses to write on a degraded blocked_open; without the rc check it writes the envelope" 1 0 "$MD/g11-SYNC/mut/research-sdd-status.sh" \
          --orig "$ST" --good-has 'derivation degraded' --bad-lacks 'derivation degraded' \
          -- bash -c 'd="$3/s"; rm -rf "$d"; mkdir -p "$d"; cp "$4" "$d/RESEARCH-STATE.md"; PATH="$2:$PATH" bash "$1" "$d" --sync-state 2>&1' _ @SUT@ "$TMP/stub-child" "$TMP" "$FIX/child-single-open.expect1.md"
-  mk "TOOTH-12 mutant build" "$ST" "$MD/g11-DISPLAY/mut/research-sdd-status.sh" 's#^  blk="DEGRADED"$#  blk=""#' \
+  mk "TOOTH-12 mutant build" "$ST" "$MD/g11-DISPLAY/mut/research-sdd-status.sh" 's#blk="DEGRADED"; inv="DEGRADED"#blk=""; inv="DEGRADED"#' \
     && tt "TOOTH-12: the display prints blocked=DEGRADED; without it the count is blank" 0 0 "$MD/g11-DISPLAY/mut/research-sdd-status.sh" \
          --orig "$ST" --good-has 'blocked=DEGRADED' --bad-lacks 'blocked=DEGRADED' \
          -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null' _ @SUT@ "$TMP/stub-child" "$TMP/deg-status"
+
+  # TOOTH-13 (#2017 W1, status display): investigable/next step degrade with blocked_open, not only the blocked= field.
+  mkdir -p "$MD/g13/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g13/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g13/mut/"
+  mk "TOOTH-13 mutant build" "$ST" "$MD/g13/mut/research-sdd-status.sh" 's#; inv="DEGRADED"##' \
+    && tt "TOOTH-13: the display prints investigable=DEGRADED; without it the prose number sits next to blocked=DEGRADED" 0 0 "$MD/g13/mut/research-sdd-status.sh" \
+         --orig "$ST" --good-has 'investigable=DEGRADED' --bad-lacks 'investigable=DEGRADED' \
+         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null' _ @SUT@ "$TMP/stub-child" "$TMP/deg-status"
+
+  # TOOTH-14 (#2017 W1, verify-state): the body rc reaches derive_investigable.
+  mkdir -p "$MD/g14/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g14/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g14/mut/"
+  mk "TOOTH-14 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g14/mut/verify-state.sh" 's#_bn_body="$(blocked_rows_body "$1")" || return 3#_bn_body="$(blocked_rows_body "$1")"#' \
+    && tt "TOOTH-14: verify-state names a degraded investigable_open derivation; without the body rc it counts against an empty list" 1 1 "$MD/g14/mut/verify-state.sh" \
+         --orig "$TOOLBELT/verify-state.sh" --good-has 'investigable_open derivation degraded' --bad-lacks 'investigable_open derivation degraded' \
+         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>&1' _ @SUT@ "$TMP/stub-body1" "$TMP/deg-vs-body"
 
   # TOOTH-8: the degraded guard -- without it a failing awk collapses into a confident 0 with rc 0.
   mk "TOOTH-8 mutant build" "$LIB" "$MD/t8.sh" '/^  \[ "\$_rc" -eq 0 \] || { echo "blocked-rows: degraded child-gap counter/d; /^  case "\$_d2" in/d' \

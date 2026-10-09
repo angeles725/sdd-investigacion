@@ -2893,7 +2893,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mismatch (declared=0 vs derived=2) can trigger a failure.  Without CHECK B, the mutant exits 0.
   echo "-- teeth: neuter ENVELOPE CHECK B (investigable_open); expect the under-declared fixture to pass --"
   mutantE="$TMP/verify-state.ENVB.MUTANT.sh"
-  sed 's/^\( *\)if ! is_int "\$e_inv" .*then$/\1if false; then  # MUTANT: envelope investigable check neutered/' "$SUT" > "$mutantE"
+  sed 's/^\( *\)elif ! is_int "\$e_inv" .*then$/\1elif false; then  # MUTANT: envelope investigable check neutered/' "$SUT" > "$mutantE"
   if ! grep -q 'MUTANT: envelope investigable check neutered' "$mutantE"; then
     no "teeth(envB): could not build mutant (CHECK B guard line not found — did the SUT change?)"
   else
@@ -2984,7 +2984,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # B3a-FAIL fixture: 1 Non-investigable entry, envelope blocked_open=0 (wrong). Real lib: derived 1 != 0 -> FAIL (1).
   # Mutant lib (no Non-investigable section): derived 0 == 0 -> exit 0 (FALSE-PASS).
   echo "-- teeth: B3a — remove Non-investigable section from the blocked body; B3a-FAIL fixture must false-pass --"
-  mnigot="$(libmut B3NI "/blocked_rows_section \"\\\$1\" '## Non-investigable gaps'/d" "$TMP/non-investigable-fail")"
+  mnigot="$(libmut B3NI "s|'## Non-investigable gaps' ||" "$TMP/non-investigable-fail")"
   if [ "$mnigot" = "BUILD-FAIL" ]; then
     no "teeth(B3a): could not build Non-investigable mutant (sed changed nothing, bash syntax error or awk compile error in the mutant lib — see the libmut line above; did lib/blocked-rows.sh change?)"
   elif [ "$mnigot" = 0 ]; then
@@ -2993,7 +2993,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # ---- B3c mutation: drop the '## Blocked /' section from the shared blocked body ----
   echo "-- teeth: B3c — remove Blocked-slash section from the blocked body; B3c-FAIL fixture must false-pass --"
-  mbsgot="$(libmut B3BS "/blocked_rows_section \"\\\$1\" '## Blocked \\/'/d" "$TMP/blocked-slash-fail")"
+  mbsgot="$(libmut B3BS "s| '## Blocked /'; do|; do|" "$TMP/blocked-slash-fail")"
   if [ "$mbsgot" = "BUILD-FAIL" ]; then
     no "teeth(B3c): could not build Blocked-slash mutant (sed changed nothing, bash syntax error or awk compile error in the mutant lib — see the libmut line above; did lib/blocked-rows.sh change?)"
   elif [ "$mbsgot" = 0 ]; then

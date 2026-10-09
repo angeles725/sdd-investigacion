@@ -36,6 +36,9 @@
 #      `LONGER` (any case): `Not CLOSED`, `no longer closed`, `not yet CLOSED` negate. Anywhere else in the
 #      window only the UPPERCASE `NOT` / `NO` / `NEVER` negate, so lowercase prose such as `no repro — CLOSED`,
 #      `not needed, CLOSED` or `no reproducible — CLOSED` is a closed gap, not a negated one.
+#      Known ambiguity: `regression? no — CLOSED` reads as NEGATED (a lowercase `no` adjacent to the marker, after
+#      punctuation, is indistinguishable from `no CLOSED`), so that closed gap is counted as open (a false open, never
+#      a silent zero). Reword it (or drop the lowercase `no`) to close it.
 #      Window semantics: a "word" is a run of [A-Za-z0-9_-]; punctuation and `—` between words do not stop the
 #      window (`NOT — CLOSED` is negated), a standalone run of `-` / `_` (`NOT YET - CLOSED`) is not a word and
 #      uses no slot, and non-ASCII bytes split words (an accented letter ends one). The match is on the bullet
