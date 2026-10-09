@@ -624,6 +624,52 @@ else no "vm tooth py: inv5 leak verdict (got [$(vm_tp inv5)])"; fi
 if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
 else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 
+# The shared fixtures (mutant_vm_fixtures_py_src): exec it the way the suites do and check the contracts the
+# suites rely on -- the scratch path is bound AND used as the writable drive, the sample drive is readonly,
+# the ELF stub carries the x86_64 magic, and the bwrap shim execs whatever follows "--".
+mutant_vm_fixtures_py_src > "$VM/fix.py"
+cat > "$VM/fixdrv.py" <<'PY'
+import os, subprocess, sys, tempfile
+from pathlib import Path
+exec(os.environ["RSDD_FIXTURES_PY"], globals())
+a = _GOOD_ARGV
+assert a[a.index("--bind") + 1] == _SCRATCH_PATH == a[a.index("--bind") + 2], "scratch bind"
+assert f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio" in a, "scratch drive"
+assert "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio" in a, "readonly sample drive"
+assert a[a.index("--") + 1] == "qemu-system-x86_64", "argv separator"
+assert a[a.index("/store/sample.bin") - 1] == "--ro-bind", "sample ro-bind"
+_pre = a[:a.index("--")]
+for _f in ("--unshare-net", "--unshare-pid", "--tmpfs"):
+    assert _f in _pre, "bwrap tooth " + _f
+assert _pre[_pre.index("--cap-drop") + 1] == "ALL", "bwrap tooth --cap-drop ALL"
+_SB = "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
+assert a[a.index("-sandbox") + 1] == _SB, "qemu -sandbox option string"
+with tempfile.TemporaryDirectory() as td:
+    t = Path(td); e = _elf(t)
+    assert e.read_bytes()[:5] == b"\x7fELF\x02" and e.read_bytes()[18:20] == b"\x3e\x00", "x86_64 header"
+    b = t / "bwrap"; b.write_text(_BWRAP); b.chmod(0o755)
+    r = subprocess.run([str(b), "--unshare-net", "--", "echo", "shim-ok"], capture_output=True, text=True)
+    assert r.stdout.strip() == "shim-ok", "bwrap shim execs the command after --"
+print("FIXTURES_OK")
+PY
+fx(){ RSDD_FIXTURES_PY="$(cat "$1")" python3 -I "$VM/fixdrv.py" 2>&1 | tail -1; }
+if [ "$(fx "$VM/fix.py")" = "FIXTURES_OK" ]; then ok "vm fixtures py: _GOOD_ARGV, _elf and the bwrap shim satisfy the contracts the suites rely on"
+else no "vm fixtures py: shared fixture contracts (got [$(fx "$VM/fix.py")])"; fi
+# Each fixture property gets its OWN mutant, so no assertion can be dead behind another one.
+fxm(){  # fxm <label> <sed-expr>: the mutated fixture must fail the contract check
+  sed "$2" "$VM/fix.py" > "$VM/fix-bad.py"
+  if cmp -s "$VM/fix.py" "$VM/fix-bad.py"; then no "vm fixtures py: mutant '$1' changed nothing (dead anchor)"
+  elif [ "$(fx "$VM/fix-bad.py")" != "FIXTURES_OK" ]; then ok "vm fixtures py: $1 is caught (the case bites)"
+  else no "vm fixtures py: mutant '$1' must fail the contract check"; fi
+}
+fxm "sample drive without readonly=on" 's/readonly=on,snapshot=off,format=raw,if=virtio",$/snapshot=off,format=raw,if=virtio",/'
+fxm "sample bound with --bind instead of --ro-bind" 's/"--ro-bind", "\/store\/sample.bin"/"--bind", "\/store\/sample.bin"/'
+fxm "bwrap without --unshare-net" 's/"--unshare-net", //'
+fxm "bwrap without --unshare-pid" 's/"--unshare-pid", //'
+fxm "bwrap --cap-drop not ALL" 's/"--cap-drop", "ALL"/"--cap-drop", "NET_RAW"/'
+fxm "bwrap without --tmpfs" 's/"--tmpfs", "\/tmp\/rsdd", //'
+fxm "weakened qemu -sandbox value" 's/"-sandbox", "on,[^"]*"/"-sandbox", "on"/'
+
 # T19 -- shared suite bootstrap and crash classifier (#1576): mutant_bootstrap replaces the copied
 # `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace copied CRASH regex
 # literals where the classes compose byte-identically. MIGRATED: the verify-registry teeth block
