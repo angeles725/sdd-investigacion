@@ -1090,14 +1090,15 @@ for state in "${states[@]}"; do
   if is_int "$e_gc" && is_int "$e_kg" && is_int "$e_inv" && is_int "$e_blocked" && is_int "$e_req"; then  # IDENTITY-INT-GUARD
     # in_place_blocked (#1915) has NO envelope field: --sync-state subtracts it from gaps_closed, so it is the one
     # DERIVED term of the identity (same shared helper as the writer). 0 when the corpus has no such row.
+    _ipb_unreadable=0
     if ! _ipb_body="$(_blocked_body "$state")"; then  # IPB-DEGRADED
-      echo "   WARN   identity-check: could not extract the blocked sections — the in_place_blocked term is unverifiable (NOT a zero); see the blocked-rows message above"
-      d_ipb=0
+      echo "   WARN   identity-check: could not extract the blocked sections — the in_place_blocked term is unverifiable (NOT a zero), so the known_gaps identity is not checked; see the blocked-rows message above"
+      d_ipb=0; _ipb_unreadable=1   # #2024 item 3: the sum below is SKIPPED, not computed with a made-up 0 (that raised a spurious "stale denominator" WARN next to this one)
     else
     d_ipb="$(_backlog_rows "$state" | inplace_blocked_count "$_ipb_body")"; is_int "$d_ipb" || d_ipb=0  # INPLACE-IDENTITY-TERM
     fi
     _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req + d_ipb ))  # IDENTITY-REQ-VAR
-    if [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
+    if [ "$_ipb_unreadable" != 1 ] && [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
       if [ "$d_ipb" -gt 0 ]; then
         echo "   WARN   envelope known_gaps=$e_kg != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)+in_place_blocked(derived: $d_ipb open blocked backlog row(s) not in blocked_open)=$_identity_sum — stale denominator; reconcile."
       else

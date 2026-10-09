@@ -131,7 +131,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ -f "$MUTLIB" ] || { echo "FATAL: mutant lib not found: $MUTLIB" >&2; exit 2; }
   # shellcheck source=lib/mutant.sh
   . "$MUTLIB" || { echo "FATAL: mutant lib failed to source" >&2; exit 2; }
-  type mutant_sed >/dev/null 2>&1 || { echo "FATAL: mutant lib lacks mutant_sed" >&2; exit 2; }
+  mutant_bootstrap mutant_sed || exit 2
   n=0  # markdown mutants: MUTANT_SYNTAX=none is scoped per call below (#1814)
   # tooth LABEL FILE PREDICATE SED_EXPR : mutate a copy; predicate must now FAIL
   tooth() {

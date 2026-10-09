@@ -22,8 +22,7 @@ ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 echo "== research-sdd-status-clean-warn.test.sh =="
 
 # mkcorpus DIR IO — a git-tracked corpus; IO=0 is an exhausted STOP, IO=1 a NEXT.
