@@ -147,6 +147,7 @@ with tempfile.TemporaryDirectory() as td:
         calls = json.loads(rec.read_text()) if rec.exists() else []
         assert r.returncode == 2, f"rc={r.returncode}"
         assert calls == [], f"shim was invoked (must not boot qemu-user): {calls}"
+        assert "qemu-user live exec refused" in r.stderr, f"refusal reason missing from stderr: {r.stderr[:200]!r}"
         ok("RED4: qemu-user + allow=True → exit 2 (refused), shim never spawned")
     except Exception as e: nok("RED4", str(e))
 
@@ -296,6 +297,10 @@ with tempfile.TemporaryDirectory() as td:
             try:
                 os.kill(child_pid, 0)
                 nok("RED7", f"child pid={child_pid} still alive after killpg")
+                try:  # do not leak the survivor (its own session, so outside any group we hold)
+                    _pg = os.getpgid(child_pid)
+                    if _pg != os.getpgrp(): os.killpg(_pg, signal.SIGKILL)
+                except OSError: pass
             except OSError:
                 ok("RED7: child-process reaped via killpg (process-TREE killed)")
         else:
@@ -427,6 +432,13 @@ with tempfile.TemporaryDirectory() as td:
                "(INV-5 process-tree enforced — window closed)")
     except Exception as e:
         nok("RED-INV5-popen-window", str(e))
+    finally:  # never leak the 300 s sleeper when the window is open (regression / mutant)
+        _p = captured_proc[0]
+        if _p is not None and _p.poll() is None:
+            try: os.killpg(_p.pid, signal.SIGKILL)
+            except OSError: pass
+            try: _p.wait(5)
+            except Exception: pass
 
 _counts = os.environ.get("RSDD_TEETH_COUNTS", "")
 if _counts:
@@ -455,35 +467,67 @@ py_p=0; py_f=0
 if [ -r "$TEETH_COUNTS" ] && read -r py_p py_f <"$TEETH_COUNTS" && [[ "$py_p" =~ ^[0-9]+$ && "$py_f" =~ ^[0-9]+$ ]]; then :; else
   echo "  FAIL  teeth: python section left no counts file [$TEETH_COUNTS]"; py_p=0; py_f=1
 fi
-echo "-- teeth: mutation controls (forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity) --"
+echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity) --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
+mutant_bootstrap mutant_chain_or_count mutant_crash_re || exit 2
 TOOLBELT="$(dirname "$HERE")"
 b_pass=0; b_fail=0; _builds_failed=0
 _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+# One UNMUTATED staged-tree control run (proves the staging; it must reproduce the python section's own
+# result), then each mutant is run ONCE and compared against it: rc != 0, the targeted FAIL text present,
+# no crash-class output. (mutant_tooth would re-run the original against the live tree for every mutant.)
+_stage() { # DIR : copy lib/*.py and the top-level modules into DIR
+  mkdir -p "$1/lib" && cp "$TOOLBELT"/lib/*.py "$1/lib/" && cp "$TOOLBELT"/*.py "$1/"
+}
+if _stage "$MUT/clean"; then
+  _co="$(bash "$HERE/qemu-exec.test.sh" --teeth-child "$MUT/clean/lib/qemu_exec.py" 2>&1)"; _crc=$?
+  if [ "$_crc" -eq 0 ] && grep -qE "^== ${py_p} passed · 0 failed ==\$" <<<"$_co" && ! grep -qE "$_CRASH" <<<"$_co"; then
+    echo "  PASS  teeth-staging-control: unmutated staged tree passes ${py_p}/0"; b_pass=$((b_pass+1))
+  else
+    echo "  FAIL  teeth-staging-control: rc=$_crc, expected '== ${py_p} passed · 0 failed ==' and no crash output"; b_fail=$((b_fail+1))
+  fi
+else
+  echo "  FAIL  teeth-staging-control: staging the clean mini-tree failed"; b_fail=$((b_fail+1))
+fi
 # _tooth LABEL BITE_REGEX FILE SED_EXPR... : mutate FILE (relative to the toolbelt) in a fresh staged copy.
+# A non-empty _XFILE/_XEXPR additionally mutates a second staged file with that one expression.
+_XFILE=""; _XEXPR=""
 _tooth() {
-  local label="$1" want="$2" file="$3" d; shift 3
-  d="$MUT/${label%%:*}"; mkdir -p "$d/lib"
-  cp "$TOOLBELT"/lib/*.py "$d/lib/" && cp "$TOOLBELT"/*.py "$d/" || { echo "  FAIL  $label: staging the mini-tree failed"; return 1; }
+  local label="$1" want="$2" file="$3" d out rc; shift 3
+  d="$MUT/${label%%:*}"
+  _stage "$d" || { echo "  FAIL  $label: staging the mini-tree failed"; return 1; }
   MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/$file" "$d/$file" "$@" || return 1
-  mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/lib/qemu_exec.py" --orig "$TOOLBELT/lib/qemu_exec.py" \
-    --bad-has "$want" --bad-lacks "$_CRASH" -- \
-    bash "$HERE/qemu-exec.test.sh" --teeth-child @SUT@
+  if [ -n "$_XFILE" ]; then
+    MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label (2nd file)" "$TOOLBELT/$_XFILE" "$d/$_XFILE" "$_XEXPR" || return 1
+  fi
+  out="$(bash "$HERE/qemu-exec.test.sh" --teeth-child "$d/lib/qemu_exec.py" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "  FAIL  $label — THEATER: mutant run passed (rc=0)"; return 1; fi
+  if ! grep -qE -- "$want" <<<"$out"; then echo "  FAIL  $label — THEATER: mutant output lacks /$want/"; return 1; fi
+  if grep -qE -- "$_CRASH" <<<"$out"; then echo "  FAIL  $label — THEATER: mutant output has crash-class text (a crash is not a bite)"; return 1; fi
+  echo "  PASS  $label: case goes RED with the mutant [rc=$rc]"
 }
 _t() { if _tooth "$@"; then b_pass=$((b_pass+1)); else b_fail=$((b_fail+1)); fi; }
-# RED4 (qemu-user refused) has no tooth here: the refusal sits behind four redundant layers (qemu_plan.py CLI,
-# qemu_exec._preflight, the executor dispatch and the missing containment flags of a qemu-user plan), so no
-# single-file mutant can reach the shim; removing one layer leaves the case green by design.
+# RED4: the CLI refusal is one of several layers, but only it prints "qemu-user live exec refused"; without it
+# the run still exits 2 (executor not implemented / missing containment flags) and RED4 now catches that by reason.
+_t "qe-user-cli-refusal: qemu_plan.py qemu-user refusal removed" "FAIL  RED4: refusal reason missing" qemu_plan.py \
+  's/if args.allow_exec and args.mode == "qemu-user":/if False:/'
+# RED3 is shadowed by _REQUIRED (a plan-side drop alone dies at preflight), so the real regression is a
+# CONSISTENT two-file removal of -snapshot.
+_XFILE="qemu_plan.py"; _XEXPR='s/"-nographic", "-no-reboot", "-snapshot"\]/"-nographic", "-no-reboot"]/'
+_t "qe-snapshot-dropped: -snapshot dropped from _REQUIRED and from the qemu_plan.py argv" "FAIL  RED3: -snapshot missing" lib/qemu_exec.py \
+  's/"-nodefaults", "-snapshot", /"-nodefaults", /'
+_XFILE=""; _XEXPR=""
 _t "qe-net-allowed: -net no longer a forbidden flag" "FAIL  RED5--net user: expected GateError" lib/qemu_exec.py \
   's/"-runas", "-net", "-netdev"})/"-runas", "-netdev"})/'
 _t "qe-virtfs-allowed: -virtfs no longer a forbidden flag" "FAIL  RED5--virtfs: expected GateError" lib/qemu_exec.py \
   's/frozenset({"-virtfs", /frozenset({/'
 _t "qe-sandbox-allow: -sandbox value may carry =allow" "FAIL  RED-NEW--sandbox spawn=allow: expected GateError" lib/qemu_exec.py \
   's/ and "=allow" not in v//'
-_t "qe-shell-true: shell=True appears in qemu_exec.py" "FAIL  RED9" lib/qemu_exec.py \
+_t "qe-shell-true-exec: shell=True appears in qemu_exec.py" "FAIL  RED9: shell=True found in qemu_exec.py" lib/qemu_exec.py \
   '$a# shell=True'
+_t "qe-shell-true-popen: the real Popen in vm_boot_core.py gains shell=True" "FAIL  RED9: shell=True found in lib/vm_boot_core.py" lib/vm_boot_core.py \
+  's/^            exec_argv, start_new_session=True,$/            exec_argv, shell=True, start_new_session=True,/'
 _t "qe-killpg-off: run_vm reaps the child but not its process group" "FAIL  RED7" lib/vm_boot_core.py \
   's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)/'
 _t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV5-popen-window" lib/vm_boot_core.py \
