@@ -120,6 +120,28 @@ with tempfile.TemporaryDirectory() as td:
         ok("T5: ltrace → qemu-system+disk plan; tracer in kernel cmdline (D3 rebuild)")
     except Exception as e: nok("T5: ltrace-plan-argv-vm-disk-form", str(e))
 
+# ── T5c: bwrap namespace flags + qemu inner belt (mirror of detonate-plan T5c) ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out)]))
+        assert rc == 3
+        argv5c = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        assert "--unshare-ipc" in argv5c, "--unshare-ipc missing from bwrap prefix"
+        assert "--unshare-uts" in argv5c, "--unshare-uts missing from bwrap prefix"
+        assert "--unshare-cgroup" in argv5c, "--unshare-cgroup missing from bwrap prefix"
+        assert "-accel" in argv5c and argv5c[argv5c.index("-accel")+1] == "tcg", \
+            "-accel tcg missing from planned_argv"
+        assert "-nic" in argv5c and argv5c[argv5c.index("-nic")+1] == "none", \
+            "-nic none missing from planned_argv"
+        assert "-smp" in argv5c and argv5c[argv5c.index("-smp")+1] == "1", \
+            "-smp 1 missing from planned_argv"
+        assert "-nodefaults" in argv5c, "-nodefaults missing from planned_argv"
+        assert any(a.startswith("on,") for a in argv5c), \
+            "-sandbox on,... value missing from planned_argv"
+        ok("T5c: bwrap --unshare-ipc/uts/cgroup present; qemu inner belt: -accel tcg, -nic none, -smp 1, -nodefaults, -sandbox on")
+    except Exception as e: nok("T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt", str(e))
+
 # ── T6: gdb-batch → qemu-system+disk plan (D3 rebuild) ──────────────────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
@@ -150,8 +172,10 @@ with tempfile.TemporaryDirectory() as td:
                                      max_input_bytes=None, kernel="/rsdd/vmlinuz", rootfs="/rsdd/rootfs.img")
         import contextlib, io
         _err = io.StringIO()
-        with contextlib.redirect_stderr(_err): rc = m.plan_trace(args)
-        print(_err.getvalue(), end="", file=sys.stderr)   # keep the plain output byte-identical
+        try:
+            with contextlib.redirect_stderr(_err): rc = m.plan_trace(args)
+        finally:
+            print(_err.getvalue(), end="", file=sys.stderr)   # keep the plain output byte-identical, even if plan_trace raises
         assert rc == 2, f"expected 2, got {rc}"
         # build_plan's KeyError handler also returns 2, so the exit code alone cannot show the tracer guard fired
         assert "unsupported tracer" in _err.getvalue(), f"tracer guard message missing: {_err.getvalue()[:120]!r}"
@@ -454,6 +478,14 @@ mutant_cleanup_register "$MUT" || exit 2
 tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
 echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
 if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+B='FAIL  T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt: '
+tt teeth-unshare-ipc '"--unshare-ipc", ' '' "${B}--unshare-ipc missing from bwrap prefix"
+tt teeth-accel-tcg '"-accel", "tcg",' '"-accel", "kvm",' "${B}-accel tcg missing from planned_argv"
+tt teeth-nic-none '"-nic", "none",' '"-nic", "user",' "${B}-nic none missing from planned_argv"
+tt teeth-smp-one '"-smp", "1",' '"-smp", "2",' "${B}-smp 1 missing from planned_argv"
+tt teeth-nodefaults '"-nodefaults",' '"-nodefaults-off",' "${B}-nodefaults missing from planned_argv"
+tt teeth-sandbox-on '"on,obsolete=deny,' '"off,obsolete=deny,' "${B}-sandbox on,... value missing from planned_argv"
+tt teeth-sample-readonly 'file=/input/sample,readonly=on,snapshot=off' 'file=/input/sample,snapshot=off' 'FAIL  T4: strace-plan-argv-vm-disk-form: sample readonly drive missing'
 tt teeth-tracer-guard 'if args.tracer not in _VALID_TRACERS:' 'if False:' 'FAIL  T7: unsupported-tracer-clean-error: tracer guard message missing'
 tt teeth-scratch-after-tmpfs '"--cap-drop", "ALL",' '"--cap-drop", "ALL", "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,' 'FAIL  T-scratch-bind: scratch-bind-after-tmpfs: --bind at [0-9]+ must come AFTER'
 tt teeth-tmpfs-dropped '"--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",' '"--dir", "/tmp/rsdd/out",' 'FAIL  T-scratch-bind: scratch-bind-after-tmpfs: --tmpfs missing from planned_argv'
