@@ -3,12 +3,29 @@
 # RED: exits 2 (SUT absent) before lib/docker_exec.py + emba_plan.py wiring.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../lib/docker_exec.py"
-EMBA="$HERE/../emba_plan.py"
-[ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+ROOT="$HERE/.."
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  ARG="${2:-}"
+  [ -f "$ARG" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$ARG]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$ARG"
+  case "$ARG" in */lib/*) ROOT="$(cd "$(dirname "$ARG")/.." && pwd)" ;; *) ROOT="$(cd "$(dirname "$ARG")" && pwd)" ;; esac
+fi
+SUT="$ROOT/lib/docker_exec.py"
+EMBA="$ROOT/emba_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # the mutated file replaces its own slot; every other slot stays in the staged tree
+  case "$ARG" in
+    */lib/*) case "$(basename "$ARG")" in
+      docker_exec.py) SUT="$ARG" ;;
+    esac ;;
+    *) case "$(basename "$ARG")" in
+      emba_plan.py) EMBA="$ARG" ;;
+    esac ;;
+  esac
+fi
+[ -f "$SUT" ] || { echo "FATAL: docker_exec.py not found: $SUT" >&2; exit 2; }
 [ -f "$EMBA" ] || { echo "FATAL: emba_plan.py not found: $EMBA" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "$EMBA" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import hashlib, importlib.util, json, os, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -52,8 +69,12 @@ elif cmd=="run":
     if wf:
         for i,arg in enumerate(a):
             if arg=="-v" and i+1<len(a) and "/tmp/rsdd" in a[i+1]:
-                host=a[i+1].split(":")[0]; os.makedirs(host,exist_ok=True)
-                open(os.path.join(host,wf),"w").write("emba-output")
+                host=a[i+1].split(":")[0]
+                # Only a per-run dir is ever written: a mutant that leaves the shared /tmp/rsdd mount
+                # unrewritten must not drop files into the host's shared /tmp/rsdd.
+                if "/rsdd-" in host:
+                    os.makedirs(host,exist_ok=True)
+                    open(os.path.join(host,wf),"w").write("emba-output")
     sl=float(os.environ.get("DOCKER_RUN_SLEEP","0"))
     if sl: time.sleep(sl)
     sys.exit(int(os.environ.get("DOCKER_RUN_EXIT","0")))
@@ -218,3 +239,32 @@ for label, bad_plan in [
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT" "$EMBA"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT" "$EMBA")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "lib/docker_exec.py"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-gate-allow emba_plan.py 'run_gate_epilogue(CAP_DOCKER, args.allow_docker, plan' 'run_gate_epilogue(CAP_DOCKER, True, plan' 'FAIL  RED1: rc='
+tt teeth-timeout-kill lib/docker_exec.py '_docker_kill(container_name)   # then best-effort container cleanup' 'pass' 'FAIL  G-timeout: rc=2 cmds='
+tt teeth-output-cap lib/docker_exec.py 'stdout, stdout_trunc = _dc.cap(raw_out[0])' 'stdout, stdout_trunc = raw_out[0].decode(errors="replace"), False' 'FAIL  CRIT1: large-stdout-cap: stdout_truncated=False'
+tt teeth-exit-126 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 127)' 'FAIL  CRIT3-126: rc=0'
+tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount in exec_argv'
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
