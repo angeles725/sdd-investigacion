@@ -181,8 +181,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: resume-render mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   MUT="$(mktemp -d)"; trap 'rm -rf "$TMP" "$MUT"' EXIT
-  mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ mutant_chain_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   D="$FX/state-degraded.json"
   mk unknown-as-none "$SUT" "$MUT/m1.sh" 's/if \.prs == null or \.prs_status != "ok" then/if false then/' \

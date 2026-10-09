@@ -175,13 +175,13 @@ fi
 # mutant (exact rc on both sides: a crashing mutant is not teeth).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (mutant_chain refuses a dead
 # stage); a refusal is counted as a failure here, the helper itself never touches the counters.
 mk_sed(){
   local out="$2"
   mkdir -p "$(dirname "$out")"
-  mutant_chain "$1" "$SUT" "$out" "${@:3}" || { fail=$((fail+1)); return 1; }
+  mutant_chain_or_count fail "$1" "$SUT" "$out" "${@:3}" || return 1
 }
 # tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
 # Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line). The pre-migration
