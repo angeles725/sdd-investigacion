@@ -160,6 +160,111 @@ done
   else no "verify-state with a failing non-last extractor: rc=$rc :: $(grep -m2 -i 'investigable\|degraded' <<<"$out")"; fi
 }
 
+echo "-- 3d. --next and the multi-focus display refuse a degraded blocked-rows derivation (#2024) --"
+# The --next STALE gate runs verify-state first (CHECK C FAILs on the SAME degraded blocked count, over the same file set,
+# stopped/paused included), so a REPEATABLE failure is answered `STALE` before the DEGRADED gate (asserted with the real
+# verify-state below). DEGRADED/exit 3 is the backup for a failure that appears AFTER that gate passed (transient). To reach
+# it deterministically the kit copy below replaces verify-state.sh with a pass-through. Every refusal case has a healthy
+# twin, so "always DEGRADED" fails.
+mk_stub_focus() { # DIR NAME: awk stub failing only the blocked-section extractors that read a file whose name contains NAME
+  mkdir -p "$1"; printf '#!/bin/sh\ncase "$*" in *"h=## "*%s*) echo "awk: stub failure" >&2; exit 2;; esac\nexec %s "$@"\n' "$2" "$REAL_AWK" > "$1/awk"; chmod +x "$1/awk"
+}
+mk_nkit() { # DIR: a kit copy whose verify-state.sh always passes
+  rm -rf "$1"; mkdir -p "$1"; cp -r "$TOOLBELT/lib" "$1/lib"; cp "$TOOLBELT"/*.sh "$1/"; printf '#!/bin/sh\nexit 0\n' > "$1/verify-state.sh"
+}
+mk_multi() { # DIR PAUSED(b|none): a = closed focus, b = one pending gap that its Blocked gaps section blocks
+  rm -rf "$1"; mkdir -p "$1"; cp "$FIX/next-closed-focus.md" "$1/RESEARCH-STATE-a.md"; cp "$FIX/next-blocked-gap.md" "$1/RESEARCH-STATE-b.md"
+  if [ "$2" = b ]; then
+    { printf '# Focus Registry\n\n| Focus | Status | State file | Block prefix |\n|---|---|---|---|\n'
+      printf '| a | active | RESEARCH-STATE-a.md | a- |\n| b | paused (1 open gap) | RESEARCH-STATE-b.md | b- |\n'; } > "$1/FOCUSES.md"
+  fi
+}
+mkdir -p "$TMP/empty-path"; mk_nkit "$TMP/nkit"; mk_stub_focus "$TMP/stub-fb" 'RESEARCH-STATE-b'
+mkdir -p "$TMP/nsingle"; cp "$FIX/next-blocked-gap.md" "$TMP/nsingle/RESEARCH-STATE.md"
+mk_multi "$TMP/nmulti" none; mk_multi "$TMP/npaused" b
+nx() { # PATHDIR DIR [args...]: run the pass-through kit's --next; sets out/rc
+  local _p="$1" _d="$2"; shift 2
+  out="$(PATH="$_p:$PATH" bash "$TMP/nkit/research-sdd-status.sh" "$_d" --next "$@" 2>/dev/null)"; rc=$?
+}
+dg() { grep -q '^DEGRADED | ' <<<"$out" && ! grep -q '^NEXT | ' <<<"$out" && [ "$rc" = 3 ]; }
+nx "$TMP/stub-body1" "$TMP/nsingle"
+if dg; then ok "--next, Blocked-gaps extractor failing: typed DEGRADED answer, exit 3, no NEXT"; else no "--next with a failing Blocked-gaps extractor: rc=$rc out=[$out]"; fi
+nx "$TMP/stub-child" "$TMP/nsingle"
+if dg; then ok "--next, child-gap counter failing: typed DEGRADED answer, exit 3, no NEXT"; else no "--next with a failing child-gap counter: rc=$rc out=[$out]"; fi
+nx "$TMP/empty-path" "$TMP/nsingle"
+if [ "$rc" = 0 ] && [ "$out" = "STOP | read-only-investigable exhausted (0)" ]; then ok "--next, healthy twin: blocked gap is skipped, STOP, exit 0 (the refusal is not unconditional)"
+else no "--next healthy twin: rc=$rc out=[$out]"; fi
+nx "$TMP/stub-fb" "$TMP/nmulti"
+if dg; then ok "--next over two focuses, the NON-head focus degraded: DEGRADED, exit 3"; else no "--next with a degraded non-head focus: rc=$rc out=[$out]"; fi
+nx "$TMP/stub-fb" "$TMP/nmulti" --focus b
+if dg; then ok "--next --focus b with b degraded: DEGRADED, exit 3"; else no "--next --focus b degraded: rc=$rc out=[$out]"; fi
+nx "$TMP/stub-fb" "$TMP/nmulti" --focus a
+if [ "$rc" = 0 ] && ! grep -q '^DEGRADED' <<<"$out"; then ok "--next --focus a scopes the refusal to the picked focus: healthy a answers (exit 0)"; else no "--next --focus a with only b degraded: rc=$rc out=[$out]"; fi
+nx "$TMP/stub-fb" "$TMP/npaused"
+if dg; then ok "--next with the PAUSED focus degraded: DEGRADED, exit 3 (not an inflated 'no active focus' count)"; else no "--next with a degraded paused focus: rc=$rc out=[$out]"; fi
+nx "$TMP/empty-path" "$TMP/npaused"
+if [ "$rc" = 0 ] && grep -q '^STOP | read-only-investigable exhausted (0)' <<<"$out"; then ok "--next paused-focus healthy twin: exit 0 and the exhausted STOP"; else no "--next paused healthy twin: rc=$rc out=[$out]"; fi
+# the default report must refuse a NEXT/STOP verdict derived from a degraded read of ANY focus it walks
+sd() { out="$(PATH="$1:$PATH" bash "$ST" "$2" 2>/dev/null)"; rc=$?; }
+sd "$TMP/stub-fb" "$TMP/nmulti"
+if grep -q 'next step .*: DEGRADED' <<<"$out" && ! grep -qE 'next step .*(NEXT|STOP) \|' <<<"$out"; then ok "display, NON-head focus degraded: next step DEGRADED, no NEXT/STOP verdict"
+else no "display with a degraded non-head focus: $(grep 'next step' <<<"$out")"; fi
+sd "$TMP/stub-fb" "$TMP/npaused"
+if grep -q 'next step .*: DEGRADED' <<<"$out" && ! grep -qE 'next step .*(NEXT|STOP) \|' <<<"$out"; then ok "display, PAUSED focus degraded: next step DEGRADED, no inflated paused-focus count"
+else no "display with a degraded paused focus: $(grep 'next step' <<<"$out")"; fi
+sd "$TMP/empty-path" "$TMP/npaused"
+if grep -q 'next step       : STOP | ' <<<"$out"; then ok "display, healthy twin: next step carries the STOP verdict"; else no "display healthy twin: $(grep 'next step' <<<"$out")"; fi
+if grep -q 'next step .*blocked-rows derivation' <<<"$(PATH="$TMP/stub-fb:$PATH" bash "$ST" "$TMP/nmulti" 2>/dev/null)"; then ok "display next step names the blocked-rows derivation (not 'blocked sections unreadable')"
+else no "display next step wording does not name the blocked-rows derivation"; fi
+# #2024 item 4/6: the stdout degraded: line sits inside the report body and the reason-codes footer covers it
+out="$(PATH="$TMP/stub-child:$PATH" bash "$ST" "$TMP/deg-status" 2>/dev/null)"
+_hl="$(grep -n '^== research-sdd-status:' <<<"$out" | head -1 | cut -d: -f1)"; _dl="$(grep -n '^degraded: blocked_open:' <<<"$out" | head -1 | cut -d: -f1)"
+if [ -n "$_hl" ] && [ -n "$_dl" ] && [ "$_dl" -gt "$_hl" ]; then ok "the degraded: blocked_open: line prints after the == research-sdd-status: header (line $_dl > $_hl)"
+else no "degraded: blocked_open: line position: header=[$_hl] degraded=[$_dl]"; fi
+if [ "$(grep -c '^  reason codes    : ' <<<"$out")" = 1 ]; then ok "a degraded blocked_open sets the reason-codes footer (exactly one line)"; else no "reason-codes footer missing or duplicated for a degraded blocked_open"; fi
+# #2024 item 5: the registry continuation names BOTH typed stderr forms of the lib
+_rc_row="$(grep -F 'degraded: blocked_open: blocked_open_count rc' "$TOOLBELT/reason-codes.v1.md")"
+if grep -qF 'state file absent or unreadable' <<<"$_rc_row"; then ok "reason-codes row continuation names the rc-2 'state file absent or unreadable' form too"
+else no "reason-codes blocked_open row does not name the rc-2 stderr line"; fi
+# #2024 item 3: verify-state CHECK H must not sum with a degraded body (no spurious 'stale denominator' next to 'unverifiable')
+mkdir -p "$TMP/chkh"; sed 's/^known_gaps: 1$/known_gaps: 7/' "$FIX/next-blocked-gap.md" > "$TMP/chkh/RESEARCH-STATE.md"
+out="$(bash "$VS" "$TMP/chkh" 2>&1)"
+if grep -q 'stale denominator' <<<"$out"; then ok "CHECK H control: a healthy read with a wrong known_gaps does WARN 'stale denominator'"; else no "CHECK H control lost its stale-denominator WARN: $(grep -m2 'known_gaps' <<<"$out")"; fi
+out="$(PATH="$TMP/stub-body1:$PATH" bash "$VS" "$TMP/chkh" 2>&1)"
+if grep -q 'identity-check: could not extract the blocked sections' <<<"$out" && ! grep -q 'stale denominator\|!= sum of declared' <<<"$out"; then ok "CHECK H with a failing body read: 'unverifiable' WARN only, no identity sum"
+else no "CHECK H with a failing body read still sums: $(grep -m3 'identity\|known_gaps' <<<"$out")"; fi
+
+# W1 (#2024 review): with the REAL verify-state a repeatable failure is STALE (exit 0), not DEGRADED
+out="$(PATH="$TMP/stub-child:$PATH" bash "$ST" "$TMP/nsingle" --next 2>/dev/null)"; rc=$?
+if [ "$rc" = 0 ] && grep -q '^STALE .*blocked_open derivation degraded' <<<"$out"; then ok "--next with the real verify-state and a repeatable failure: STALE naming the degraded derivation, exit 0"
+else no "--next real verify-state, repeatable failure: rc=$rc out=[$out]"; fi
+# S1: a degraded NON-head focus sets the reason-codes footer too
+out="$(PATH="$TMP/stub-fb:$PATH" bash "$ST" "$TMP/nmulti" 2>/dev/null)"
+if [ "$(grep -c '^  reason codes    : ' <<<"$out")" = 1 ]; then ok "display, NON-head focus degraded: exactly one reason-codes footer"; else no "display non-head degraded: footer count $(grep -c '^  reason codes    : ' <<<"$out")"; fi
+# S2: split layout -- two state files with the same basename are named by path relative to the target
+rm -rf "$TMP/nsplit"; mkdir -p "$TMP/nsplit/x" "$TMP/nsplit/y"; cp "$FIX/next-closed-focus.md" "$TMP/nsplit/x/RESEARCH-STATE.md"; cp "$FIX/next-blocked-gap.md" "$TMP/nsplit/y/RESEARCH-STATE.md"
+mk_stub_focus "$TMP/stub-fy" '/y/'
+nx "$TMP/stub-fy" "$TMP/nsplit"
+if [ "$rc" = 3 ] && grep -q 'unreadable for y/RESEARCH-STATE\.md ' <<<"$out" && ! grep -q 'x/RESEARCH-STATE' <<<"$out"; then ok "--next names the degraded split-layout file by its relative path (y/RESEARCH-STATE.md), not a colliding basename"
+else no "--next split layout naming: rc=$rc out=[$out]"; fi
+# S3: a blocked read that fails AFTER the gate passed (resolve_next's own read) is fatal, never "not blocked"
+mk_count_stub() { # DIR N: awk stub whose blocked-section extractors fail from the (N+1)th call on
+  mkdir -p "$1"; : > "$1/count"; printf '#!/bin/sh\ncase "$*" in *"h=## "*) echo x >> "%s/count"; if [ "$(wc -l < "%s/count")" -gt %s ]; then echo "awk: stub failure" >&2; exit 2; fi;; esac\nexec %s "$@"\n' "$1" "$1" "$2" "$REAL_AWK" > "$1/awk"; chmod +x "$1/awk"
+}
+mk_count_stub "$TMP/stub-late" 4
+nx "$TMP/stub-late" "$TMP/nsingle"
+if dg && grep -q 'read failed while resolving' <<<"$out"; then ok "--next, blocked read failing after the gate (resolve_next): the backup DEGRADED line, exit 3, no NEXT"; else no "--next with a late blocked-read failure: rc=$rc out=[$out]"; fi
+# --queue path (queue_next has its own is_blocked call)
+rm -rf "$TMP/nqueue"; mkdir -p "$TMP/nqueue"; sed 's/^# T — Research State$/# T — Research State\nnext_session_queue: alpha-gap/' "$FIX/next-blocked-gap.md" > "$TMP/nqueue/RESEARCH-STATE.md"
+: > "$TMP/stub-late/count"; nx "$TMP/stub-late" "$TMP/nqueue" --queue
+if dg && grep -q 'read failed while resolving' <<<"$out"; then ok "--next --queue, blocked read failing after the gate (queue_next): the backup DEGRADED line, exit 3, no NEXT"; else no "--next --queue with a late blocked-read failure: rc=$rc out=[$out]"; fi
+nx "$TMP/empty-path" "$TMP/nqueue" --queue
+if [ "$rc" = 0 ] && ! grep -q '^DEGRADED' <<<"$out"; then ok "--next --queue healthy twin: exit 0, no DEGRADED"; else no "--next --queue healthy twin: rc=$rc out=[$out]"; fi
+# the paused-focus count (count_investigable) is a read of its own
+mk_count_stub "$TMP/stub-late8" 8
+nx "$TMP/stub-late8" "$TMP/npaused"
+if dg && grep -q 'read failed while counting' <<<"$out"; then ok "--next, blocked read failing while counting a PAUSED focus: DEGRADED, exit 3 (not an inflated 'no active focus' count)"; else no "--next late failure in the paused count: rc=$rc out=[$out]"; fi
+
 echo "-- 4. a missing or function-less lib fails each consumer loudly --"
 mk_kit() { # DIR [lib-state: ok|missing|empty]
   local k="$1" st="${2:-ok}"; rm -rf "$k"; mkdir -p "$k"
@@ -185,8 +290,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== mutation controls =="
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 && declare -F mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   t_pass=0; t_fail=0
   mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
@@ -299,6 +403,89 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-14: verify-state names a degraded investigable_open derivation; without the body rc it counts against an empty list" 1 1 "$MD/g14/mut/verify-state.sh" \
          --orig "$TOOLBELT/verify-state.sh" --good-has 'investigable_open derivation degraded' --bad-lacks 'investigable_open derivation degraded' \
          -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>&1' _ @SUT@ "$TMP/stub-body1" "$TMP/deg-vs-body"
+
+  # TOOTH-15..25 (#2024): --next and the multi-focus display refuse a degraded blocked-rows derivation.
+  # mkpair DIR: orig/ and mut/ kit copies whose verify-state.sh always passes (so the STALE gate does not pre-empt the path).
+  mkpair() { local p; for p in orig mut; do rm -rf "${1:?}/$p"; mkdir -p "$1/$p/lib"; cp "$TOOLBELT"/lib/*.sh "$1/$p/lib/"; cp "$TOOLBELT"/*.sh "$1/$p/"; printf '#!/bin/sh\nexit 0\n' > "$1/$p/verify-state.sh"; done; }
+  NXT_CMD=(bash -c 'PATH="$2:$PATH"; bash "$1" "$3" --next "${@:4}" 2>/dev/null' _ @SUT@)
+  DSP_CMD=(bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null' _ @SUT@)
+  P15="$MD/g15"; mkpair "$P15"
+  mk "TOOTH-15 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#if \[ "\$_nxt_dg_rc" -ne 0 \]; then  \# NEXT-DEGRADED-GATE#if false; then  \# NEXT-DEGRADED-GATE#' \
+    && tt "TOOTH-15: --next refuses on a degraded PAUSED focus (the gate names it; the count backup only says counting); without the gate the probe message is lost" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/npaused"
+  mk "TOOTH-16 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut2.sh" 's#^    exit 3$#    exit 0#' \
+    && cp "$P15/mut2.sh" "$P15/mut/research-sdd-status.sh" \
+    && tt "TOOTH-16: the DEGRADED refusal exits 3, a distinct code; with exit 0 it reads as a normal answer" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has '^DEGRADED \| ' --bad-has '^DEGRADED \| ' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-body1" "$TMP/nsingle"
+  mkpair "$P15"
+  mk "TOOTH-17 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#_nxt_dg_files=("\$_ns_pick")#mapfile -t _nxt_dg_files < <(list_state_files "$target")#' \
+    && tt "TOOTH-17: --focus a scopes the refusal to the picked focus; probing every focus makes a healthy a refuse on b" 0 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-lacks '^DEGRADED' --bad-has '^DEGRADED \| ' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/nmulti" --focus a
+  # TOOTH-18/19: the probe covers EVERY state file -- a head-only probe misses a degraded non-head or paused focus
+  # (both the --next gate and the default display call the one helper).
+  mkpair "$P15"
+  mk "TOOTH-18 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#for _bd_f in "\$@"; do  \# BD-ALL-FOCUSES#for _bd_f in "${1:-}"; do  \# BD-ALL-FOCUSES#' \
+    && tt "TOOTH-18: --next over a degraded NON-head focus is refused by the probe (not only by resolve_next's backup); a head-only probe loses the probe message" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/nmulti" \
+    && tt "TOOTH-18b: --next over a degraded PAUSED focus refuses; a head-only probe loses the probe message (the count backup still refuses, naming counting)" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/npaused" \
+    && tt "TOOTH-18c: the default report's next step covers a degraded non-head focus; a head-only probe prints NEXT" 0 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'next step +: DEGRADED \(blocked-rows derivation unreadable' --bad-lacks 'next step +: DEGRADED \(blocked-rows derivation unreadable' \
+         -- "${DSP_CMD[@]}" "$TMP/stub-fb" "$TMP/nmulti"
+  # TOOTH-24/25/26 (#2024 review S1, S2, S3)
+  mkpair "$P15"
+  mk "TOOTH-24 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" '/# RC-FLAG-NONHEAD/d' \
+    && tt "TOOTH-24: a degraded non-head focus sets the reason-codes flag; without it no footer is printed" 0 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has '^  reason codes    : ' --bad-lacks '^  reason codes    : ' \
+         -- "${DSP_CMD[@]}" "$TMP/stub-fb" "$TMP/nmulti"
+  mkpair "$P15"
+  mk "TOOTH-25 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#\$(_rel_state "\$_bd_f")#$(basename "$_bd_f")#' \
+    && tt "TOOTH-25: degraded files are named relative to the target; a basename collides across split-layout directories" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'unreadable for y/RESEARCH-STATE' --bad-lacks 'unreadable for y/RESEARCH-STATE' \
+         -- "${NXT_CMD[@]}" "$TMP/stub-fy" "$TMP/nsplit"
+  mkpair "$P15"
+  mk "TOOTH-26 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#if \[ "\$_rn_ib" -ne 1 \]; then echo "DEGRADED#if false; then echo "DEGRADED#' \
+    && tt "TOOTH-26: resolve_next treats a failing is_blocked read as fatal; without it the gap is handed out as NEXT" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has '^DEGRADED \| ' --bad-has '^NEXT \| ' \
+         -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next 2>/dev/null' _ @SUT@ "$TMP/stub-late" "$TMP/nsingle"
+  # TOOTH-27/28 (#2024 round 2): the --queue path (queue_next) and the paused-focus count read blocked status on their own.
+  mkpair "$P15"
+  mk "TOOTH-27 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" '/# QUEUE-DEGRADED-FATAL/s#\*) .*; return 3 ;; esac ;;#*) c=serve ;; esac ;;#' \
+    && tt "TOOTH-27: queue_next treats an unreadable is_blocked as fatal; without it the queued gap is served as NEXT" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'read failed while resolving' --bad-has '^NEXT \| ' \
+         -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next --queue 2>/dev/null' _ @SUT@ "$TMP/stub-late" "$TMP/nqueue"
+  mkpair "$P15"
+  mk "TOOTH-28 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" '/# COUNT-DEGRADED-EXIT/s#|| { echo .*exit 3; }#|| true#' \
+    && tt "TOOTH-28: the paused-focus count refuses on an unreadable is_blocked; without it the inflated no-active-focus STOP is printed" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'read failed while counting' --bad-has '^STOP \| no active focus' \
+         -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next 2>/dev/null' _ @SUT@ "$TMP/stub-late8" "$TMP/npaused"
+  # TOOTH-20 (#2024 item 1): the display's `next step : DEGRADED` guard, turned into `if false; then`.
+  mkdir -p "$MD/g20/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g20/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g20/mut/"
+  mk "TOOTH-20 mutant build" "$ST" "$MD/g20/mut/research-sdd-status.sh" 's#if \[ -n "\$_ns_dg_names" \]; then printf#if false; then printf#' \
+    && tt "TOOTH-20: the display prints next step DEGRADED on a degraded read; without the guard it prints a derived verdict" 0 0 "$MD/g20/mut/research-sdd-status.sh" \
+         --orig "$ST" --good-has 'next step +: DEGRADED' --bad-lacks 'next step +: DEGRADED' \
+         -- "${DSP_CMD[@]}" "$TMP/stub-child" "$TMP/deg-status"
+  # TOOTH-21/22 (#2024 items 4, 6): the degraded: line is inside the body, and it sets the flag the footer reads.
+  mkdir -p "$MD/g21/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g21/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g21/mut/"
+  mk "TOOTH-21 mutant build" "$ST" "$MD/g21/mut/research-sdd-status.sh" '/^echo "== research-sdd-status:/{N;s/^\(.*\)\n\(.*\)$/\2\n\1/}' \
+    && tt "TOOTH-21: the degraded: blocked_open: line prints after the header; swapped, it prints before it" 0 0 "$MD/g21/mut/research-sdd-status.sh" \
+         --orig "$ST" --good-has '^inside$' --bad-has '^before$' \
+         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null | awk '"'"'/^== research-sdd-status:/{h=NR} /^degraded: blocked_open:/{print (h && NR>h) ? "inside" : "before"}'"'"'' _ @SUT@ "$TMP/stub-child" "$TMP/deg-status"
+  mk "TOOTH-22 mutant build" "$ST" "$MD/g21/mut/research-sdd-status.sh" 's#_RC_DEGRADED_PRINTED=1; echo "degraded: blocked_open:#echo "degraded: blocked_open:#;/# RC-FLAG-NONHEAD/d' \
+    && tt "TOOTH-22: a degraded blocked_open sets the reason-codes flag (both sites, which back each other up); without them the footer is missing" 0 0 "$MD/g21/mut/research-sdd-status.sh" \
+         --orig "$ST" --good-has '^  reason codes    : ' --bad-lacks '^  reason codes    : ' \
+         -- "${DSP_CMD[@]}" "$TMP/stub-child" "$TMP/deg-status"
+  # TOOTH-23 (#2024 item 3): verify-state skips the known_gaps identity when the body read failed.
+  mkdir -p "$MD/g23/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g23/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g23/mut/"
+  mk "TOOTH-23 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g23/mut/verify-state.sh" 's#\[ "\$_ipb_unreadable" != 1 \] \&\& ##' \
+    && tt "TOOTH-23: no identity sum with an unreadable body; with the skip dropped a spurious stale-denominator WARN appears" 0 0 "$MD/g23/mut/verify-state.sh" \
+         --orig "$TOOLBELT/verify-state.sh" --good-lacks 'stale denominator' --bad-has 'stale denominator' \
+         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>&1; true' _ @SUT@ "$TMP/stub-body1" "$TMP/chkh"
 
   # TOOTH-8: the degraded guard -- without it a failing awk collapses into a confident 0 with rc 0.
   mk "TOOTH-8 mutant build" "$LIB" "$MD/t8.sh" '/^  \[ "\$_rc" -eq 0 \] || { echo "blocked-rows: degraded child-gap counter/d; /^  case "\$_d2" in/d' \

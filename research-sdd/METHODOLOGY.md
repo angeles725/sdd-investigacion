@@ -3713,7 +3713,7 @@ exhausting investigable gaps (when `--next` would otherwise emit `STOP`), it pro
 untracked deltas via `reconcile-issues.sh`. On finding any, it emits
 `ISSUES-DUE | <N> untracked delta(s) in <retro> — seed: stage-retro-issues.sh <retro> --apply`
 (early-exit on the first retro found; count and path are scoped to that retro only). The `--next` precedence
-order is: `STALE → RETRO-DUE → NEXT → ISSUES-DUE → STOP`. The loop is NOT DONE while `--next` returns
+order is: `STALE → RETRO-DUE → DEGRADED → NEXT → ISSUES-DUE → STOP` (`DEGRADED` exits 3). The loop is NOT DONE while `--next` returns
 `ISSUES-DUE`; a terminal `STOP` is required before the investigation can be reported complete.
 
 `--next` is read-only: it detects and gates; it never runs `--apply` itself (propose-never-apply). Seeding

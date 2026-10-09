@@ -212,7 +212,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if mutant_sed "$TB/research-sdd-status.sh" "$t/research-sdd-status.sh" "$2" >/dev/null 2>&1; then MUT="$t/research-sdd-status.sh"; return 0; fi
     no "teeth $1: mutant could not be built (anchor absent / refused by lib/mutant.sh)"; return 1; }
   # A: the queue is never consulted -> 1a goes red
-  if mutate A 's/^  if \[ "\$queue_flag" = 1 \]; then queue_next \&\& return 0; fi$/  :/'; then
+  if mutate A 's/^    queue_next; _rq_rc=\$?$/    _rq_rc=1/'; then
     nq "$MUT" "$TMP/q-first" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth A: queue ignored -> priority verdict -> 1a has teeth" || no "teeth A: want the priority verdict, got [$out] — THEATER/crash"; fi
   # B: pending test dropped (a covered queued gap is served) -> 2c goes red
@@ -220,7 +220,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     nq "$MUT" "$TMP/q-done" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth B: done gap served -> 2c has teeth" || no "teeth B: want the done head served, got [$out] — THEATER/crash"; fi
   # C: blocked check dropped -> 1h2 goes red
-  if mutate C 's/pending) if is_blocked "\$gap"; then c=blocked; else c=serve; fi ;;/pending) c=serve ;;/'; then
+  if mutate C 's/^\(             pending) \)is_blocked "\$gap"; _qn_ib=\$?$/\1_qn_ib=1/'; then
     nq "$MUT" "$TMP/q-blk2" --queue
     [ "$out" = "NEXT | high | G1 first gap" ] && ok "teeth C: blocked head served -> 1h2 has teeth" || no "teeth C: want the blocked head served, got [$out] — THEATER/crash"; fi
   # D: the id-boundary guard dropped (prefix match) -> 1g goes red
