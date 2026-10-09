@@ -35,7 +35,7 @@
 # payload contains pkill/pgrep, the decision is "ask" (never a silent allow).
 set -uo pipefail
 
-_ALTERNATIVES='Safe alternatives: (a) record the PID at spawn ($! or a PID file) and kill that PID; (b) match by exact process name: pkill -x <name> / pgrep -x <name>; (c) bracket-escape the pattern so it cannot match its own text: pkill -f "[p]attern". See PROMPT-LOOP "PKILL -F WRAPPER-SHELL MATCH".'
+_ALTERNATIVES='Safe alternatives: (a) record the PID at spawn ($! or a PID file) and kill that PID; (b) match by exact process name: pkill -x <name> / pgrep -x <name>; (c) bracket-escape the pattern so it cannot match its own text: pkill -f "[p]attern". See PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics "PKILL -F WRAPPER-SHELL MATCH".'
 
 _input="$(cat)"
 [ -n "$_input" ] || exit 0

@@ -168,8 +168,7 @@ else no "dual-mode (b): no-arg parent.parent did not catalog into <dir>/CATALOG.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_built >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mutant_bootstrap mutant_built || exit 2
   # the mutants are python source, not bash: MUTANT_SYNTAX=none is scoped per call (#1814)
   # TEETH A — BLOCK_RE's prefix+dash requirement is what EXCLUDES a bare `bloque9.md` (case 5) and keeps the
   # cross-check honest. Build a mutant whose BLOCK_RE drops that requirement (prefix + leading dash made

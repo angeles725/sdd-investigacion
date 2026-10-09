@@ -101,7 +101,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the doc must make check_doc fail --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh missing mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_cleanup_register || exit 2
   MDIR="$(mktemp -d)"; mutant_cleanup_register "$MDIR"
   tooth() { # tooth LABEL SED_EXPR
     local m="$MDIR/$1.md" out n

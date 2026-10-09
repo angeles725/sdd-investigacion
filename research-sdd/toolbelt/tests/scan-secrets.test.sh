@@ -28,8 +28,7 @@ runout(){ bash "$SUT" "$1" 2>&1; }
 # control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
 MUT="$(mktemp -d)"
 # The builders and the exact-verdict runner are shared: lib/mutant.sh mutant_chain / mutant_built /
 # mutant_tooth (#1299). They print their own FAIL/PASS line and return non-zero on failure; these

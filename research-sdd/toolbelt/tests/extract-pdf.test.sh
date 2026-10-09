@@ -24,8 +24,7 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 load_mutant() {
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
 }
 
 echo "== extract-pdf.test.sh (SUT: $(basename "$SUT")) =="

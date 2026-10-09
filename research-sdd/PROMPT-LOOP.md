@@ -271,6 +271,7 @@ Always read first, in this order:
      evidence>" in RESEARCH-STATE when the focus is opened. (Evidence: frontier bootstrap breadth
      checks surfaced proposed focuses with significant corpus overlap; catching this at bootstrap is
      cheap, catching it mid-loop is not.)
+     FRONTIER BOOTSTRAP — SITUATIONAL: the focus is genuinely unexplored territory with no prior corpus coverage (declare "MODE: frontier" in RESEARCH-STATE; the [INFER]/[CERT] ratio is expected HIGH there, not an exhaustion signal): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` (FRONTIER MODE) in full before declaring the mode.
 
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      PRE-DECLARE REMITTANCES FIRST (new focus over a mature MULTI-FOCUS corpus — before the sweep):
@@ -513,27 +514,9 @@ Always read first, in this order:
          said B65-G3; block B65 defines B65-G1"). Then, before investigating, grep the gap ID across
          LATER blocks and RESEARCH-STATE: stale backlog rows point at gaps a later block already closed.
          On a hit, return `ALREADY-COVERED — <block> §<n.x>` and stop; the driver closes the row without
-         authoring a block (same closure path as REMITTANCE below).
-         REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
-         but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
-         the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
-         this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
-         sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
-         the driver closes without authoring a block. This prevents wasted investigation if the gap is
-         remittance at fine grain even when the audit cleared it at coarse grain.
-         REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
-         but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
-         SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
-         marker-tier upgrade justifies authoring a new block even though the coverage question is
-         settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
-         the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
-         case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
-         not a wasted iteration.
-         OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
-         operator's data package, check whether the package already carries a pre-existing human
-         classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
-         label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity.
+         authoring a block (same closure path as REMITTANCE-RISK FLAG, `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases`).
+         REMITTANCE-RISK FLAG / REMITTANCE-TO-EVIDENCE UPGRADE — SITUATIONAL: the PRIOR COVERAGE CHECK finds partial coverage (cannot tell whether new substance exists) or a gap answered only at [CERT-web]/[CERT-a]/[INFER]: read `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases` in full.
+         OPERATOR-CLASSIFICATION-FIRST — SITUATIONAL: you are about to build an extractor or classification filter for an operator's data package: same section.
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -723,24 +706,7 @@ Always read first, in this order:
          from "the input was absent", satisfying §7). (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
          which fires AFTER a striking result to verify it; this gate fires BEFORE the test, when the
          population is still uncounted.)
-         API-FILTER SILENT-DECLINE EXTENSION: after applying an API call (select, filter, mark) that
-         reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
-         against the intended count before proceeding. A filter that silently declines entries produces
-         no error and no warning — the discrepancy is only visible by comparing intent vs. result.
-         NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
-         package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
-         (X %)` as a headline on every census. A complement gate or coverage claim applied after a
-         narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
-         that must be named.
-         SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
-         SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
-         any value the researcher picks — a subject-declared threshold produces a partition with no
-         researcher-chosen numbers anywhere.
-         IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
-         DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
-         proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
-         instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
-         identifier is per-type or per-instance before using it as a grouping key.
+         API-FILTER SILENT-DECLINE EXTENSION / NARROWING-AXES AND READ-FRACTION / SUBJECT-DECLARED THRESHOLD / IDENTIFIER-GRANULARITY CHECK — SITUATIONAL: a sweep applies an API select/filter/mark, selects by both container and kind, chooses a classification threshold, or keys on an identifier as a unique entity: read `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases` and apply the rule whose trigger fired.
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -795,12 +761,7 @@ Always read first, in this order:
        [CERT-hw] sources/probes/... (highest) · [CERT-live] live remote-service response (§12b) ·
        [CERT] file:line · [CERT-doc] sources/...pdf §N · [CERT-web] URL+date · [CERT-a] forum (URL) ·
        [INFER] deduction.  (canonical list: METHODOLOGY §3)
-     LOCAL DOC CORPUS CITE DISCIPLINE: at the first `[CERT-doc]` claim in a block that draws from a
-     new local doc corpus (sources preserved under `sources/manuals/<focus>-docs/`), cite by the FULL
-     HTML basename exactly as registered in the SOURCES.md row — NOT a doc-title shorthand or a
-     truncated form. METHODOLOGY §5 encodes this at the registry level; this surfaces it as a prompted
-     gate at the per-block cite-point so a sub-agent does not have to remember the §5 policy
-     independently.
+     LOCAL DOC CORPUS CITE DISCIPLINE — SITUATIONAL: your first `[CERT-doc]` claim in a block draws from a new local doc corpus (sources under `sources/manuals/<focus>-docs/`): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
      Include the Connections section linking related [Block K].
      BLOCK PLAN OPEN (long, multi-step blocks only): at block open, BEFORE the first sub-step, copy
      `$KIT/templates/block-plan.template.md` to `$TARGET/.research-sdd/plan/current-plan.txt` and record `opened-at: <HEAD sha>` plus the block file path in its header, then list THIS block's sub-steps (sweep → corroborate →
@@ -823,46 +784,10 @@ Always read first, in this order:
        - Before committing the block, run `$KIT/toolbelt/lint-block.sh <block.md>` next to `verify-block.sh`
          (METHODOLOGY §11 "Block lint"): a non-zero exit is a defect to fix or to waive with a reasoned
          `lint-waive` token; `lint-block.sh --audit <corpus>` is the report-only form for legacy corpora.
-         GOVERNED-FAILURE ORACLE (steering proofs; METHODOLOGY §19, kit #1616): a block claiming a replaced constant/key/toggle took effect
-         shows the failure (or pass) at the EXACT call that value governs, with the replaced value the ONLY difference from the baseline
-         run, plus the counter-experiment (the same call passing once the dependent artifact is re-aligned). Any other failure proves nothing.
-         Packs are per-target-class and audit-first: run `lint-block.sh --audit --pack <name>` and classify
-         the findings before relying on FAIL mode; calibration false-positive rates are tracked on #1517.
-         VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS. When a block's `[CERT]` citations
-         all point into decompiled trees (`organized/*/vineflower/`, `organized/*/procyon/`, `audits/*.c`,
-         etc.), verify-block classifies them as `extern` — it prints `resolved 0 of M` and a graded WARN
-         (INFO for declared synthesis/capture/document/absence-centred/decision types; WARN otherwise)
-         and exits 0. This output is EXPECTED, not an error: the script cannot follow a decompiler output
-         path. The mechanized citation gate has checked nothing for that block; the burden falls ENTIRELY
-         on the inline token-verify in this step 5. Self-verify must record this explicitly — e.g.
-         "verify-block: resolved 0 of N (all extern — decompiled trees); sole citation gate = inline
-         token-verify N/M rows" — so the omission is visible, not silently assumed covered. Separately:
-         set `SOURCE_ROOT` to the decompiled-tree root to let the script resolve those paths; without it,
-         inline token-verify is non-negotiable for any decompile-based block. `extern` citations
-         (beautified/decompiled/snapshot) are not script-verifiable — still token-check those by reading.
-         BASE-RELATIVE CITATION BLIND SPOT: verify-block resolves `[CERT]` paths against two
-         roots in order: (1) `$target` — the second CLI argument, defaulting to the block's own
-         directory; (2) the git toplevel of `$target` (N-PROJECT-FALLBACK). The blind spot is a
-         path relative to a directory that is NEITHER `$target` NOR `$target`'s git toplevel —
-         for example, a path relative to a corpus sub-directory (e.g. `sources/`) when the block
-         dir is `$target`, or relative to a parent project root when the corpus is its own git
-         repo and `$target` was passed explicitly as a different directory. Such a path is
-         classified `extern` — appearing unresolvable though it is local. Fix: ensure citations
-         resolve against `$target` or its git toplevel. A `[CERT]` that verify-block marks
-         `extern` for a local file is a citation-form bug, not a decompiler limitation.
-         TALLY-LINE TOKEN INFLATION: verify-block.sh counts ALL bracketed marker tokens in the
-         block body after the header-legend fence — including a self-verify tally line written
-         with the same syntax (`[CERT] 12`, `[INFER] 5`). This inflates the reported count by 1
-         per type. Two compatible remedies: (a) keep the tally in the RETURN CONTRACT / iteration
-         report (not in the block body) — METHODOLOGY §11's "literal verify-block.sh output"
-         mandate applies to the RETURN, not to block content; or (b) if the tally must appear in
-         the block body, run verify-block BEFORE appending the self-verify section and paste
-         those pre-paste numbers; note that a re-run over the FINISHED block inflates each type
-         by the number of bracketed tokens the pasted text contains — +1/type for a
-         one-token-per-type tally line or table; +2 [CERT], +2 [INFER], +1 each other type
-         (zero-count types read 1) for the full literal output. Do NOT write plain numerals
-         (`CERT 12`) as a substitute in the RETURN — §11 requires the literal bracketed
-         verify-block.sh output there.
+         GOVERNED-FAILURE ORACLE — SITUATIONAL: a block claims a replaced constant/key/toggle took effect (steering proof; also `lint-block.sh --audit --pack`): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
+         VERIFY-BLOCK CITATION GATE: BLIND FOR DECOMPILED-TREE BLOCKS — SITUATIONAL: the block's `[CERT]` citations point into decompiled trees, or verify-block prints `resolved 0 of M` / classifies citations `extern`: same section.
+         BASE-RELATIVE CITATION BLIND SPOT — SITUATIONAL: verify-block marks a `[CERT]` path `extern` although the file is local (a path relative to neither `$target` nor its git toplevel): same section.
+         TALLY-LINE TOKEN INFLATION — SITUATIONAL: the self-verify tally appears in the block body, or a re-run of verify-block over a finished block reports inflated counts: same section.
        - Token check: grep-confirm EVERY load-bearing [CERT] token is present in its cited source;
          report how many you checked. Escalate/downgrade markers honestly (a critical [CERT-a]: try to
          confirm in the primary source first).
@@ -957,6 +882,7 @@ Always read first, in this order:
          before a planned follow-up registration. This also applies to any iteration, not only
          synthesis: whenever "New gaps uncovered" is non-empty, the backlog rows must exist in the
          same commit.
+         TERMINAL-TIER CONVERGENCE — SITUATIONAL: this focus is running a second investigation tier over first-tier child gaps, and you are about to seed child gaps from it: record residues as in-block sub-sections instead of grandchild backlog rows; read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
        - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
          backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
          A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
@@ -964,23 +890,13 @@ Always read first, in this order:
          NEXT-ITERATION ARCHIVE AUDIT (which checks bookkeeping counts — gap totals, marker sync);
          the archive audit catches accounting errors; this sweep catches semantic drift in the
          backlog itself. Run it inline, not as a separate pass.
-         REMITTANCE GAP REOPENING: METHODOLOGY §8 defines remittance as a gap-closure category
-         that avoids writing a redundant block — so there is no "remittance block" to upgrade.
-         When a gap closed-by-remittance later gains direct evidence that confirms the remitted
-         claim, REOPEN the gap in RESEARCH-STATE (set status back to `pending`) and close it by
-         NEW investigation in the normal cycle. The new block cites the prior remission chain in
-         its Connections section (e.g. "original gap closed-by-remittance to [Block N] §N.x;
-         now confirmed directly"). Record the reopen + reclosure in the iteration-history row.
+         REMITTANCE GAP REOPENING — SITUATIONAL: a gap closed-by-remittance later gains direct evidence confirming the remitted claim: read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
        - BACK-FILL SOURCES.md's "Citing blocks" cell — when this block cites a source registered in SOURCES.md
          (this iteration, or an earlier one whose trailing cell is still blank), write THIS block's ID into that
          row's last column before closing the iteration. `fetch-doc.sh`'s `reg()` leaves the cell blank by design
          (a later manual back-fill); leaving it blank silently disables `verify-sources.sh`'s FABRICATED-citation
          cross-check for that row — the check only cross-validates rows that DO list a block (METHODOLOGY §5).
-         PRESERVATION-SURFACES-CORRECTIONS: a §5 debt-closing pass that verifies bare-URL citations
-         routinely surfaces link drift (a repo rename, an issue state change, a moved page) that
-         demands §14 corrections on prior blocks. Budget for those corrections when scoping a
-         preservation gap — do not treat them as scope creep; they are the expected second-order
-         output of a careful preservation pass.
+         PRESERVATION-SURFACES-CORRECTIONS — SITUATIONAL: you scope or run a §5 debt-closing preservation pass over bare-URL citations: same section.
        - RECORD the iteration in RESEARCH-STATE's Iteration history table (append the row with
          `toolbelt/append-iteration-row.sh [--apply] <RESEARCH-STATE.md> "<row>"` — dry run by default, `--apply`
          writes atomically, refuses a row whose cell count differs from the header; never hand-edit the table, which
@@ -1082,33 +998,9 @@ Always read first, in this order:
      STOP does not fire; a build/PoC (§19) item is seeded `requires-execution` and listed in the STOP declaration
      as a §19 hand-off; operator items are typed blocked rows. STOP when the list is empty or each item is
      operator-parked or handed off in the declaration. Routes are [INFER]/proposed, never findings.
-     TERMINAL-TIER CONVERGENCE: when a focus runs a second investigation tier over first-tier child
-     gaps (revisiting sub-gaps surfaced by a prior block), record residues as in-block sub-sections
-     rather than seeding new grandchild backlog rows. Grandchild rows re-inflate the investigable
-     count and prevent the STOP criterion from firing on a focus that is structurally complete. A
-     bounded second-pass is a block annotation; a genuinely new open question is a new backlog row.
-     A focus that applies this rule and arrives at `investigable_open=0` is structurally converged;
-     the STOP criterion fires normally, and the §18 RETRO CHECKPOINT applies — do not continue
-     iterating past structural convergence (evidence: module-mechanics focus hit `investigable_open=0`
-     after MM1–MM32 + 29 children; "sigue" re-opened Section-E as a new tier — correct, but only
-     because the operator explicitly declared it; under campaign mode, an autonomous run enqueues the new tier per §8c and pops it without operator involvement).
-     FRONTIER MODE (5th investigation mode — full definition in METHODOLOGY §8): covers genuinely
-     unexplored territory with no prior corpus coverage. The sweep strategy is BREADTH-FIRST with
-     LIGHTER BLOCK DENSITY — the goal is a coverage map across many sub-areas, not deep certification
-     of one. Declare "MODE: frontier" in RESEARCH-STATE at bootstrap. A frontier focus is NOT under
-     depth pressure from the [INFER]/[CERT] ratio: the ratio is expected HIGH and signals a need to
-     return later with targeted deep-dive modes, NOT exhaustion. Distinct from a deep-dive focus
-     reopened via FRONTIER-REOPEN (below), which continues an existing corpus; a frontier MODE focus
-     starts with no prior evidence on its proposed surfaces.
-     FRONTIER-REOPEN DECISION SHAPE: at STOP-CANDIDATE in heavy or frontier modes, run a coverage/section audit before
-     honoring STOP. If the audit reveals >2 contiguous section entries uncovered OR >1 named
-     sub-topic with no block coverage, that is a new tier, not an in-block residue — enqueue
-     each new tier as a §8c campaign queue row with `kind=tier` (name, seed list, convergence
-     criterion), seed the backlog from the uncovered entries, and write `last_audit:` once for
-     this audit (one audit, one outcome). A single in-child residue stays in-block (annotated
-     sub-section); it does not constitute a new tier. A tier declared this way is a legitimate
-     reopen; a tier opened without a §8c queue row is a silent operator-only call an autonomous
-     run cannot replicate.
+     TERMINAL-TIER CONVERGENCE — SITUATIONAL: a focus runs a second investigation tier over first-tier child gaps (residues vs grandchild backlog rows): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
+     FRONTIER MODE — SITUATIONAL: the focus is (or is being bootstrapped as) MODE: frontier, i.e. genuinely unexplored territory with no prior corpus coverage: same section.
+     FRONTIER-REOPEN DECISION SHAPE — SITUATIONAL: STOP-CANDIDATE in heavy or frontier mode (the TERMINAL TRIGGER below runs this audit once before honoring STOP): same section.
      TERMINAL TRIGGER (the open loop — see METHODOLOGY §8): STOP is not a dead end. The loop stays CLOSED
      (self-continuing) while read-only-investigable > 0; when it hits 0, OPEN the loop to the environment and
      fire the next action instead of just declaring:
@@ -1133,16 +1025,7 @@ Always read first, in this order:
          block-quality findings, write them as cited blocks using `sources/probes/` for tool evidence
          BEFORE the phase ends; a deliverable is not a substitute for the evidence trail, and findings
          that exist only in code/engram are invisible to the corpus.
-         VISUAL/GEOMETRIC ORACLE (extends §19 CLOSE RULE): for a deliverable with a visual or geometric
-         form (a rendered model, a floor plan, a spatial diagram), §19 close MUST include a comparison
-         against a RENDERING of the source — and, when the deliverable is itself rendered, against a
-         render of the deliverable AS ITS VIEWER draws it (not of the raw data feeding it). Symmetric
-         measures such as lengths, areas, and counts are INVARIANT under reflection and cannot detect
-         mirror/flip errors. A gate authored from the same corpus as the build inherits the build's
-         geometric blind spots. Three consecutive defects (inverted slab bounding box, mirrored plan,
-         doubly-flipped slab) each passed a green numeric gate and were caught only by the operator
-         looking at the render. The EXTERNAL ORACLE is the comparison render, not the corpus-authored
-         numeric gate. Record: "visual oracle: rendering compared vs. source, N discrepancies noted."
+         VISUAL/GEOMETRIC ORACLE — SITUATIONAL: a §19 close whose deliverable has a visual or geometric form (rendered model, floor plan, spatial diagram): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
          —, or the DYNAMIC/hardware phase §12) — and, if that next phase is
          itself autonomous and safe, launch it; if it needs a human decision or hardware, declare and hand
          off to the user/orchestrator. Only a corpus with NO pending §8c queue entry AND no safe next phase ends silent.
@@ -1206,14 +1089,7 @@ Always read first, in this order:
          reviewed; add ` focus=<slug>`, or `focus=root`, in a multi-state corpus) from the template, and apply by hand
          the `proposed-reset: blocks_since_retro: 0 in <state file> …` line `stage-retro-issues.sh` prints (it never
          edits a state file; propose-never-apply, METHODOLOGY §18).
-         CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
-         triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
-         project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for any other
-         harness (pi, gentle-shell), so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
-         pi/gentle-shell, run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` by hand right after the
-         retro is written (the same point the RETRO CHECKPOINT above requires it), before ending the run.
-         No SessionStart hook fires there either: on pi/gentle-shell also run `$KIT/toolbelt/sweep-all.sh`
-         at session start.
+         CLAUDE-CODE-ONLY — SITUATIONAL: the run is on pi or gentle-shell (no Stop hook, so no retro-existence block or delta auto-seeding): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full (run `stage-retro-issues.sh <retro> --apply` by hand after the retro is written, and `sweep-all.sh` by hand at session start).
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
@@ -1223,160 +1099,7 @@ Always read first, in this order:
          RESEARCH-STATE label.
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
-  This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
-  It NEVER runs the gap-discovery / AUDIT-FIRST path (BOOTSTRAP step e / METHODOLOGY §13): no gap-backlog is
-  seeded and no self-feeding backlog is used. It REUSES the kit's markers, block anatomy, verify-block gate,
-  and INDEX/CATALOG conventions unchanged. Full definition: METHODOLOGY §20.
-  PREFLIGHT (new-target path only): if the subject path has NO corpus (no `RESEARCH-STATE`/`INDEX` at
-  `$TARGET` or `$TARGET/corpus/`) AND the triage decision gate classified the request as explicit document/
-  create intent for a new target → run BOOTSTRAP steps a, a2, b (TARGETS.md registration), and c — scaffold
-  via:
-
-    research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name> --document
-
-  (kit issue #1114). **`--document` is REQUIRED here** — omitting it seeds the generic gap-discovery
-  RESEARCH-STATE (placeholder `## Gap-backlog` rows this mode never discovers or closes) instead of the
-  OUTLINE-driven variant. See `$KIT/templates/RESEARCH-STATE-document.template.md`'s own header comment
-  for the full rationale (empty Gap-backlog, `## Outline` work-list, `method: document-cycle` envelope
-  marker, and why that differs from `method: document-cycle-external`). Step e (gap-seeding) is explicitly
-  skipped — this preflight is the mechanical registration and scaffolding only; it does not seed a
-  discovery backlog and does not change this mode's outline-driven contract.
-  The `--document` scaffold already seeds the envelope at 0 with no Gap-backlog rows — do not hand-correct
-  those counters (kit #1886).
-  1. SEED THE OUTLINE (replaces gap-discovery). Instead of uncovering gaps, seed the FULL list of
-     topics/steps up front. Three sources: (a) what the user already knows, (b) their notes, (c) RECONSTRUCT
-     the steps of the session just lived (e.g. a how-to for connecting an EM500 sensor, or bringing up a
-     tool). The OUTLINE IS the work-list — there is NO AUDIT-FIRST discovery and no self-feeding backlog.
-     PRE-OUTLINE SWEEP (before outlining, two cheap lookups; each can change the outline):
-       - SIBLING-CORPUS PREFLIGHT (cross-target subject, kit #1907): when the subject spans more than
-         one target (a how-to that touches several hosts or repos), grep the sibling corpora for an
-         existing deliverable of the same subject (`HOWTO-*`, `RUNBOOK*`, `hardening/`) BEFORE
-         outlining. Reuse or cite what exists; a deliverable found only mid-run forces blocks already
-         written to be redone (evidence: a tunnel how-to found at its B9 forced B6 to upgrade 3
-         `[INFER]` claims to `[CERT]`).
-       - MEMORY-ONLY FINDINGS (kit #1894): `mem_search` the target (project + topic `research/<target>/`)
-         for findings that have NO block (memory-only). Open a block for each one that the deliverable
-         will state; until that block exists the finding is undocumented, so raise
-         `undocumented_findings` in RESEARCH-STATE (a temporary state a later block must close). Never
-         cite memory directly from the deliverable, and never let such findings surface only through
-         `mem_save` conflict candidates after the deliverable is drafted. This is the intake side of
-         the HARD RULE MEMORY IS A MIRROR, NEVER A SUBSTITUTE.
-     LARGE-SCALE §20 (outline > ~15 items — per-section-agent pattern): the sequential
-     one-item-per-iteration model is viable up to ~10–15 sections; beyond that the driver context
-     accumulates across the whole run, defeating context-lean delegation. At scale: (a) pre-extract
-     source material into per-section slices BEFORE dispatching — the source-before-agent rule applies
-     at slice level (each slice confirmed readable); (b) dispatch ONE agent per outline item, each
-     receiving its pre-extracted slice + the outline structure, returning ONLY cited findings
-     (file:line + load-bearing snippets), NOT raw dumps; (c) the driver writes the blocks from those
-     findings, then the PDF-citation spot-check (`$KIT/PROMPT-LOOP-APPENDIX.md#delegation-briefs`), and runs SELF-VERIFY (step 4) per block. Model tier per cognitive demand (NORMAL CYCLE
-     step 3 MODEL TIER rule). Record in the iteration history as `method: per-section-agent · N sections`.
-     This pattern does NOT remove the one-item-per-block rule — each agent targets one block; what
-     changes is that N agents run in one dispatch round rather than N sequential iterations.
-     COMMIT EXEMPTION (kit #1887): because N blocks are produced in ONE dispatch, a single import
-     commit holding the dispatch's blocks is legitimate for a per-section-agent run — ONE-BLOCK-PER-COMMIT
-     (step 7 closure obligations) is exempt for it, provided every block was individually SELF-VERIFIED
-     (step 4) before the import commit and the iteration history records `method: per-section-agent · N
-     sections`. The exemption never covers a sequential run. `research-sdd-archive.sh` honors it: a commit
-     adding at most N blocks prints an exemption note instead of the WARN. N is the largest value among
-     the CURRENT run's recorded rows: Iteration-history table data rows (numeric first cell, outside code
-     fences) added AFTER the prior retro's commit — the archive counts the data rows in the state file as
-     of that commit (`git show`) and skips that many. With no prior retro, or no state file at that
-     commit, every row counts; if the prior retro has no commit or `git` fails, the exemption is not
-     evaluated (typed note, the WARN stands). The marker match is exact (`·` separator, plural
-     `sections`); a stale row, prose or a fenced example never exempts. The SELF-VERIFIED precondition is
-     not machine-checked — the recorded method row is the declaration.
-     STATE OWNERSHIP (kit #1888): when the author agents are instructed NOT to touch RESEARCH-STATE, the
-     driver owns populating the document-cycle state (envelope counts, `## Outline` rows) after the
-     blocks land; an unassigned owner leaves the template state orphaned (retro: mini-pc 2026-09-12, #1888).
-     MID-RUN OUTLINE ADDITIONS (kit #1989): a coordinator may add work mid-run. Append a new outline row with the
-     next integer `#` (the status tooling reads integer `#` cells only); put "added by coordinator" in the item text AND
-     in the iteration history, and bump `Outline items total` and the `Outline coverage` denominator. When the addition changes
-     CODE an earlier block cites (but not the cited text), prefer a dated addendum section in that block over a
-     new block; no §14 correction is needed because nothing the block cites became false.
-  2. ONE OUTLINE ITEM = ONE BLOCK: transcribe + cite that item following the block anatomy (§4). Evidence
-     depends on GENRE:
-       - Documenting how something in the SUBJECT works → `[CERT]` file:line (same as the static loop).
-       - Documenting a PROCEDURE / how-to (connect the EM500, bring up a tool, a runbook step) → the evidence
-         is the SESSION itself: the commands run, the GUI navigated, the outputs — PRESERVED under
-         `sources/probes/` and cited `[CERT-hw]` / `[CERT-live]` per channel, EXACTLY as the dynamic phase
-         (§12) already does. Do NOT invent a new marker; reuse the existing ones (the one sanctioned
-         addition is `[PENDING-live]`, below).
-       - PROBLEM-ENTRY MOLD (kit #1889): every problem or lesson recorded inside a document-cycle block
-         uses ONE canonical shape: symptom → cause → fix → why it works → when/where (commit) →
-         verification + marker (`[CERT-*]`). A problem entry missing any element is incomplete, not
-         "short". (Evidence: six traceable, reproducible problem entries in one block used this mold.)
-       - PENDING-LIVE REGISTRATION (kit #1893): a `[PENDING-live]` marker (the retro's example was the
-         Spanish `[PENDIENTE-live]`) in ANY block, a `Type: document` runbook included (it never runs the
-         §13 gap backlog), must ALSO be registered in RESEARCH-STATE in the SAME commit, as a
-         `## Blocked gaps` bullet `- <claim> — needs: first live run`, bumping `known_gaps` with it (the bullet
-         raises `blocked_open`; METHODOLOGY's gap-counter rule otherwise trips CHECK H). A dedicated pending-validation
-         section is NOT defined yet and no tool counts one (Refs #1893). A deliverable must NOT make an
-         unvalidated mode its DEFAULT unless that bullet names the first live run as the validation.
-         (Evidence: a coexistence mode tagged pending-live in a block header, unlisted in state, shipped
-         as the kit default and failed on first real use.)
-  3. AUTO-ROUTE the write destination by knowledge TYPE (the MODE decides — the user does NOT specify per
-     call), PER CLAIM, not per block: one block may hold subject claims AND toolchain claims, so route
-     each claim separately (the toolchain half proposed via the retro, not left only inside the block).
-     Ask: "does this knowledge serve OTHER targets too?"
-       - Knowledge ABOUT the subject under study (this gateway's config, how to connect a sensor to THIS
-         device) → the TARGET's corpus (`$CORPUS`), like any block.
-       - REUSABLE TOOLCHAIN / environment knowledge (bring up Ghidra, use bkcrack, a WSL setup step — useful
-         across ANY target) → PROPOSE to the kit: record it in the §18 retro TOOLS section as a `promote`
-         (new toolbelt file) or `absorb` (delta into an existing kit file) candidate, PLUS an Engram pointer
-         so it is recall-findable immediately. The supervisor writes it to `$KIT/toolbelt/` and registers it
-         in `$KIT/toolbelt/tool-registry.md` after the run — kit changes are never applied from inside a run
-         (§18 propose-never-apply). (The browser-appliance and serial bring-up how-tos in
-         `$KIT/toolbelt/DYNAMIC-SETUP.md` are the kind of toolchain how-tos this routing eventually produces.)
-  4. SELF-VERIFY: run `$KIT/toolbelt/verify-block.sh <block>` and the load-bearing token-check — the SAME
-     gate as NORMAL CYCLE step 5. Procedure blocks preserve their probe evidence under `sources/probes/`
-     (`[CERT-hw]` / `[CERT-live]`), same as §12.
-     TARGET-DIR FOR NESTED CORPORA (kit #1905): `verify-block.sh <block> [target-dir]` resolves
-     `file:line` cites relative to target-dir, which defaults to the block's own directory. In a NESTED
-     corpus (`$TARGET/corpus/`) pass `$CORPUS` (the corpus dir) as target-dir when the block cites
-     `sources/…`; passing the target root resolves nothing (evidence: `$TARGET` → 0 of 17 cites
-     resolved, `$TARGET/corpus` → all `ok`). A near-zero resolved count on a cite-heavy block is a
-     wrong target-dir until proven otherwise, not a clean block.
-     DOCUMENT AFTER EVERY VERIFICATION OR CHANGE (kit #1890): "done" is not only a closing act. After
-     EVERY verification, fix or change made during the run, record it immediately in the block (using
-     the problem-entry mold of step 2) and mirror it (step 5) — do not batch the write-up to the end
-     of the run. A change or verification with no written trace is not done (see also METHODOLOGY §8, §18).
-     STATE SYNC PER BLOCK (kit #1899, prompt half): in the SAME commit as each block (per-section-agent
-     runs: once, in the import commit), run `$KIT/toolbelt/research-sdd-status.sh $CORPUS --sync-state
-     --focus <slug>` and `$KIT/toolbelt/verify-state.sh $CORPUS --focus <slug>` on a multi-focus corpus,
-     or `research-sdd-status.sh $CORPUS --sync-state --root` and `verify-state.sh $CORPUS` (no flag) on a
-     single plain `RESEARCH-STATE.md` (what `research-sdd-init.sh --document` creates), so the RESEARCH-STATE
-     envelope's `covered_blocks` never lags the block files and INDEX.
-  5. MANDATORY ENGRAM MIRROR (non-negotiable — this is the whole point of the mode). Mirror EVERYTHING
-     documented to Engram as topic pointers so the doc is always recall-findable: subject knowledge under
-     `research/<target>/<topic>`, toolchain knowledge under a kit-level pointer. This exists because a real
-     session re-discovered Ghidra setup from scratch when `toolbelt/GHIDRA-MCP.md` already documented it but
-     Engram carried no pointer — the mirror is what prevents that. A documented item with NO Engram pointer
-     is NOT done.
-  6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
-     `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
-     deliverables are PROPOSED via the §18 retro TOOLS section and land in `$KIT/toolbelt/` only after
-     the supervisor acts). For REFERENCE-MANUAL corpora (a corpus whose blocks
-     document a large API/SDK/protocol), also produce COMPANION REFERENCE ARTIFACTS: a cheat sheet
-     (most-used paths on one page), a glossary, a symbol-to-chapter keyword index, and optionally a
-     single-file full-manual build. These are not blocks and carry no evidence markers — they are
-     navigator aids, not procedural deliverables. Place at $CORPUS root.
-  7. STOP when the OUTLINE is fully covered — NOT on gap-exhaustion (there is no gap set, so no
-     read-only-investigable count and no 2×-empty secondary criterion apply). The outline is the terminator.
-     CLOSURE OBLIGATIONS: the outline-completion STOP inherits the following from the NORMAL CYCLE:
-       - ONE-BLOCK-PER-COMMIT and the commit-message convention (`research(<target>/<focus>): B<n>
-         <slug>`) apply throughout the document cycle, not only at normal-cycle close (LOOP
-         CONTINUATION hard rule). Exception: a LARGE-SCALE §20 per-section-agent dispatch may land as
-         one import commit (step 1, COMMIT EXEMPTION, kit #1887).
-       - SELF-RETROSPECTIVE (METHODOLOGY §18): delegate a fresh-context retro agent exactly as the
-         NORMAL CYCLE terminal trigger prescribes. §18 fires "at every focus STOP and at campaign STOP",
-         and outline completion is a focus completion. A DOCUMENT-MODE BATCH of 3+ blocks (a tanda) ends
-         the same way even without formal outline completion: emit the retro when the batch closes, do
-         not wait for the operator to ask (hilton B19-B24 had none until demanded).
-       - TARGETS.md row refresh (propose-never-apply, METHODOLOGY §18; kit #1992): a run never edits an existing TARGETS.md row; it
-         PROPOSES the new row values (block count, run facts) in its final return and in the retro; the
-         supervisor (human) applies the refresh.
-       - `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the
-         close-checklist). Use `--dry-run` to preview.
+  SITUATIONAL: this whole mode is entered ONLY when invoked as `document`. Read `$KIT/PROMPT-LOOP-APPENDIX.md#document-cycle` in FULL before the first step of a document run: it holds the operative contract (PREFLIGHT and steps 1-7). References elsewhere to "PROMPT-LOOP's DOCUMENT CYCLE step N" mean that section.
 
 HARD RULES:
   - MEMORY IS A MIRROR, NEVER A SUBSTITUTE. Every project/decision finding saved to memory (engram)
@@ -1504,10 +1227,7 @@ HARD RULES:
     (Source: 2026-09-03-obix-and-loginless-dashboard-runbooks-retro.md D2)
   - LIVE-SESSION ACCESS RECIPE — SITUATIONAL: live-install / Niagara target at run START before the first live probe, or any live probe that needs credentials, a redacted copy, a raw disk/media image, a binary-format check on a secret-bearing file, a config write on a live target, a credential appears in the conversation (the exfil-surface rule), or on every archive (the archive secrets gate): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe` in full.
   - ONE block per iteration (deep and cited, not wide and vague).
-  - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
-    live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
-    LIVE from the real system. Never cite them from a prior note/block (lesson: the logosoft bench program B66-B70 — TARGETS row #8; corpus not present on every machine, so qualify before citing). The worked example with the actual hex values
-    lives in METHODOLOGY §12 — single source; don't restate the values here.
+  - RE-MEASURE GROUND-TRUTH — SITUATIONAL: you enter a DYNAMIC/hardware phase or any new live measurement (checksums, versions, IPs, build ids): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state.
@@ -1517,7 +1237,7 @@ HARD RULES:
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the
-    iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit, enqueue any
+    iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit (heavy/frontier modes), enqueue any
     new entries, and pop the next queue entry in the same run (METHODOLOGY §8c).
     A RUN ends only on campaign STOP, a requires-execution wall, an operator pause, or a tool failure;
     a TURN ends after the mode continuation call (ScheduleWakeup / harness re-fire / RETURN CONTRACT token).
@@ -1560,37 +1280,12 @@ HARD RULES:
     (≤300s), so back-to-back iterations are cheaper AND faster. Only stretch the delay when you are
     genuinely BLOCKED waiting on something external (an install building, a live server coming up) —
     never just to space out ready decompilation work.
-  - BASH-TOOL PATH NOT PERSISTENT: the shell state (including PATH) is reset between Bash tool
-    calls on every platform — the harness initializes each call from the user's shell profile, so
-    PATH changes made in one call are gone in the next. When a native tool (decompiler, scan
-    utility, custom script) lives off the default PATH, two approaches: (a) durable — add the
-    tool's directory to your shell profile so the harness picks it up on each init; (b) fallback
-    — prepend in EVERY Bash call: `export PATH=<tool-dir>:$PATH && <command>`. Do not rely on a
-    PATH set in a prior call. Cross-reference: BOOTSTRAP (a) / detect-tools.sh already covers
-    off-PATH decompilers ("may live under linuxbrew Cellar … and still be off PATH").
+  - BASH-TOOL PATH NOT PERSISTENT — SITUATIONAL: a native tool (decompiler, scan utility, custom script) lives off the default PATH, you set PATH/env in one Bash call for use in a later one, or a tool is "command not found": read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - WAKEUP GUARD (self-paced mode): before issuing a ScheduleWakeup, check whether one is already
     armed for this loop — do not double-schedule. One armed wakeup per iteration is the invariant.
     (Distinct from the "ScheduleWakeup for autonomous mode only" rule above — that governs WHEN to
     use it; this governs how many.)
-  - INSTANT CAPTURE (mid-loop kit insights). When a defect, capability idea, algorithm, formula, or
-    process insight surfaces during any loop step, save a conforming journal entry via `mem_save`
-    BEFORE the loop continues — deferred capture (saving at the terminal instead of the moment) is
-    out of spec. Required fields: `title: "<YYYY-MM-DD> <category>: <insight>"` (category ∈
-    improvement / defect / tool-idea / algorithm-idea / formula-idea), `topic_key:
-    "research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>"` (UTC; unique across sessions and parallel
-    focus lanes; for multi-focus targets use
-    `research/<target>/<focus>/journal/<YYYY-MM-DD>-<HHMMSS>` — same §16 convention),
-    `project: "<target>"`, `type: bugfix | discovery | pattern` (do NOT use "decision" — see
-    METHODOLOGY §18 type carve-out), and `content: "<one-line description> — evidence: <block/§/ref>"`.
-    <HHMMSS> is agent-supplied: read the clock per entry (`date -u +%Y-%m-%d-%H%M%S` yields the full
-    suffix) — an LLM has no clock of its own; if two insights surface within the same second, re-read
-    the clock or append -2, -3, never reusing one timestamp for two entries. Omit session_id: Engram
-    resolves the target project's active session, or falls back to manual-save-<target>, via resolveFallbackSessionID;
-    passing the harness session_id causes session_project_mismatch because it belongs to the
-    orchestrator project. One insight = one `mem_save` call under a unique key. §18 consolidates
-    these entries at the TERMINAL TRIGGER (METHODOLOGY §18 journal mode). NOTE: this is a DISTINCT
-    concern from MEMORY IS A MIRROR above — research findings destined for corpus blocks follow that
-    rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
+  - INSTANT CAPTURE — SITUATIONAL: a kit defect, capability idea, algorithm, formula or process insight surfaces mid-loop (save it with `mem_save` BEFORE the loop continues): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
@@ -1601,32 +1296,7 @@ HARD RULES:
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
-  - PKILL -F WRAPPER-SHELL MATCH. `pkill -f <pattern>` matches any process whose full command line
-    contains <pattern> — including the enclosing `zsh -c`/`sh -c`/`bash -c` wrapper the harness
-    wraps every Bash call in. When the pattern string appears inside that wrapper's argv, pkill signals
-    every match — killing the enclosing session shell as well as (or instead of) the intended child. The naive remedy `kill $(pgrep -f <pattern>)` returns
-    the SAME wrapper PIDs and has the same effect. Safe alternatives: (a) record the target PID at
-    spawn (`$!` or a PID file) and kill that specific PID; (b) match by exact process name (`pkill
-    -x <name>` / `pgrep -x <name>`), which matches the process NAME (`comm`, truncated to 15 chars on
-    Linux) rather than the command line and so cannot match a `zsh`/`bash` wrapper — but a target name
-    longer than 15 chars will silently not match; (c) the bracket idiom
-    `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
-    the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
-    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv.
-    Mechanical guard: `templates/hook-pretool-pkill-guard.sh` (PreToolUse, matcher `Bash`) denies a
-    command-position `pkill -f`/`pgrep -f`/`--full` without `-x` and without a bracket-escaped pattern, naming
-    (a)-(c); without `jq` it degrades to `ask`. `research-sdd-init.sh` installs it as
-    `<TARGET>/.claude/hooks/pkill-guard.sh` (create-only) and `--wire` registers it under `hooks.PreToolUse`.
-    VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
-    actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
-    reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)
-    can leave a second competing job running; two Ghidra analyses ran in parallel for 20 minutes while
-    the session reported one had stopped — caught only by PID-level re-check.
-    OPERATOR-SESSION SAFETY (#671): when the operator has an active session on the target host, never
-    kill by name pattern — use explicit PID only. `pkill -f <pattern>` can terminate operator-owned
-    processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
-    before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
-    PID is the driver-owned process before killing.
+  - PKILL -F WRAPPER-SHELL MATCH — SITUATIONAL: you are about to kill, pgrep or stop a process, or report a job stopped (incl. VERIFY KILL BEFORE REPORTING, OPERATOR-SESSION SAFETY): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed

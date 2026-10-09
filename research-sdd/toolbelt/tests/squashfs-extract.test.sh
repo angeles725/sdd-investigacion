@@ -134,8 +134,7 @@ echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   echo "-- teeth: mutation controls --"
   _tp=0; _tf=0
   _tok(){ printf '  PASS  %s\n' "$1"; _tp=$((_tp+1)); }

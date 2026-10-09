@@ -168,8 +168,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # through the SAME predicates the main checks use.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
   export -f order_state section21_of s21_has
   # tt LABEL GOOD_RC BAD_RC MUTANT [mutant_tooth opts] -- ARGV  count the shared mutant_tooth verdict.
