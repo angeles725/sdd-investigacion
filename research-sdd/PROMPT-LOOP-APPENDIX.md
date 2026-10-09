@@ -13,6 +13,8 @@ live, and reads it IN FULL when it does. Two sections, `step3-evidence-provenanc
 corpus provenance notes moved out of PROMPT-LOOP.md (kit issue #1003: step 3, then the rest of the
 prompt), and are read only to audit where a rule came from.
 
+The two `hard-rules-*` sections at the end are the one admission-rule exception: they hold trigger-bound HARD RULES (kit issue #1003 L2) that can fire on inline work too, moved here because each fires on a narrow condition, not on most iterations.
+
 No content below is reworded from its original PROMPT-LOOP.md location — this is a straight move.
 Where a rule that used to sit between two moved rules stays in core, the moved rules keep their
 original relative order and the note in their section says which rule stayed behind.
@@ -406,6 +408,7 @@ PROMPT-LOOP.md so every iteration stops paying for them; the rules themselves ar
 live in PROMPT-LOOP.md. Each row keeps the original note verbatim, including its `Evidence:` /
 `evidence:` / `lesson:` prefix and parentheses. The first column is the exact text the annotated rule
 carries in PROMPT-LOOP.md (a label or a unique opening phrase), so `grep -nF` on it finds the rule.
+Two keys (`IDENTIFIER-LEVEL SET INTERSECTION (#603)`, `The conversation is an exfil surface`) name rules that kit issue #1003 slice 4 moved into the `hard-rules-measurement-and-claims` / `hard-rules-live-install-access-recipe` sections of this file; `grep -nF` them here instead of in PROMPT-LOOP.md.
 Notes that carry a real reason (not just a corpus pointer) and the one-line retro `(Source: ...)`
 pointers stay in core.
 
@@ -450,3 +453,216 @@ pointers stay in core.
 | ONE BLOCK PER COMMIT | (lesson: three.js B15+B16). |
 | PKILL -F WRAPPER-SHELL MATCH | (Evidence: blender-llm B6.) |
 | RETURN CONTRACT (per-iteration CHECKPOINT | (Evidence: niagara loop-continuation retro.) |
+
+## hard-rules-measurement-and-claims
+
+Trigger: one of the HARD RULES listed below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming
+its trigger. Kit issue #1003 (slice 4) moved these rules here verbatim and in their original relative order; NEVER MERGE A DUE
+CANDIDATE BEFORE ITS REVIEW and the `tried:` rule stayed in core between this group and the rules that precede it. Read the
+rule whose trigger fired, in full.
+
+  - REAL-ARTIFACT-FIRST (packaged artifact inspection) — When a gap is about physical packaging / layout /
+    on-disk artifact SHAPE, inspect the REAL packaged artifact directly (e.g. `unzip -l`/`unzip -p` over
+    the signed jar) before/alongside the decompiled tree — `META-INF` signing entries, jar-entry taxonomy,
+    and manifest bytes are INVISIBLE in decompiled source. Distinct from DISK-FIRST (which is disk-vs-live):
+    this targets the packaged artifact vs the decompiled source. RIDER (source>jar for intent): when the
+    finding is about INTENT (over-permission, dead code, config), prefer SOURCE if available — a packaged
+    artifact shows declarations; source shows whether they are real or scaffold.
+  - NAME-THE-JAR ⇒ OPEN-THE-JAR. Citing a JAR, DLL, archive, or packaged artifact by name is not
+    evidence about its contents — the name confirms only that the container exists on disk.
+    Decompile or extract the artifact before claiming anything about what it implements, licenses,
+    or registers; "the jar is present" is a pre-condition, not a finding. A jar cited for licensing
+    evidence with no decompilation is [INFER], not [CERT].
+  - MULTI-MARKER BOOTSTRAP FUSION. A bootstrap gap (or any gap) that draws simultaneously from
+    multiple independent evidence channels — e.g. [CERT-doc]+[CERT-web]+[CERT]+[CERT-live] all
+    supporting the same claim — is a valid FUSION. Name it as fusion explicitly in the self-verify
+    tally so reviewers read the redundancy as corroboration; see the sibling
+    CORROBORATION-FROM-INDEPENDENT-STORE pattern (NORMAL CYCLE step 5 self-verify tally), which
+    prescribes the same declaration for evidence blocks. Each marker still requires the evidence its
+    tier demands; this rule names the multi-source convergence as a corroboration pattern, not as a
+    waiver of per-marker standards.
+  - RE-MEASURE A DRAMATIC NEGATIVE. When an enumeration or join yields a striking negative result
+    (zero matches, near-total absence, a system that appears dead or empty), do NOT report it from
+    a single measurement. Re-derive it by an independent method — a different key, a different
+    grouping, a spot-check of raw records — before it enters a block. A counting artifact and a
+    genuine finding are indistinguishable in the output; only a second measurement separates them.
+    `verify-block.sh` cannot detect a wrong join key — this is a distinct failure class from
+    marker/citation errors.
+    IDENTIFIER-LEVEL SET INTERSECTION (#603): when the subject's entities carry a stable identifier
+    (handle, UUID, class name, object ID), prefer an ID-level set intersection over a second count
+    as the re-derive method. A count comparison can agree by coincidence while masking membership
+    differences; an intersection proves set equivalence and names any residue explicitly — which
+    members are present, which are missing, and whether the discrepancy is a subset or a symmetric
+    difference.
+  - NEVER COMPARE DIFFERENT LEVELS OR CUTS WITHOUT A DISCLAIMER (twin of RE-MEASURE A DRAMATIC
+    NEGATIVE). Before setting two figures side by side, state what level and cut each is: equipment vs
+    service-entrance, full month vs partial, extracted vs live, own count vs a vendor aggregate. If they
+    differ, say so next to the comparison or do not compare. A mismatched pair reads as a dramatic
+    result (hilton B21: 20% vs 46.9% from a double count; B23/B24: monthly vendor total vs partial
+    measured) and the second measurement the sibling rule demands must be like-for-like.
+  - VERIFY-FIRST ON EXTERNAL DELIVERIES. Anything that reaches a third party (an emailed report, a cron
+    sender, a webhook, a deployed endpoint): build and test in an isolated preview, use endpoints that
+    do NOT send, never arm a cron or make a real send without the operator's consent, and confirm the
+    recipients by API rather than from memory. Production stays untouched until the OK. (Evidence:
+    hilton energeticos report worker, B19-B24.)
+  - RE-MEASURE A DRAMATIC POSITIVE. The same re-derive obligation applies when a live probe yields a
+    striking positive (an apparent security weakness, an unexpectedly open or downgraded service). Do
+    NOT escalate or capture it as a block from a single measurement. The banner-vs-protocol trap: a
+    probe tool's connection banner (e.g. openssl `CONNECTED`) is a TRANSPORT event — it records only
+    that the TCP connection was established, before the TLS handshake even runs, NOT that the server
+    accepted the specific protocol version under test. "The client cannot offer version X" is not the same claim as "the
+    server refused version X". Re-derive by an independent method or a targeted counter-probe before
+    treating the finding as confirmed. (Evidence: jace8000; METHODOLOGY §12.) For aggregates, the cheapest form is
+    the CONCENTRATION CHECK (METHODOLOGY §11a, kit #1988): flag a series with ~50 %+ of its period on one day beside the
+    headline delta, or resolve it first.
+  - DERIVED-VIEW INCONSISTENCY / IMPLAUSIBLE MAGNITUDE. When a derived or aggregated view of the
+    data is inconsistent (conflicting counts, missing rows, version mismatch between two summaries),
+    go to the SOURCE ARTIFACT rather than cross-referencing other derived views — each derived view
+    may propagate the same upstream defect. Independently, when an enumeration or count is
+    implausibly LARGE (thousands on a system known to be small), treat it as a hypothesis about
+    instrument error FIRST — re-derive via an independent method before treating the result as a
+    finding. For the near-zero direction (near-zero on a large system), use RE-MEASURE A DRAMATIC
+    NEGATIVE (two rules above), which already prescribes an independent re-derive. These are
+    the same family: a derived view is an instrument; its inconsistency is evidence it may be
+    reporting wrong.
+  - N-SEARCH CONVENTION TRIGGER. When N ≥ 3 independent search strategies — different keys, layers,
+    or geometric/structural approaches — all return zero for the same feature category, the aggregate
+    is a convention-inspection trigger, distinct from the single-result RE-MEASURE rules above. BEFORE
+    launching a further symbol search, ask whether the corpus convention for this feature type encodes
+    PRESENCE BY ABSENCE — the feature is where something is missing, not where a mark appears. If so,
+    the next step is a structural or gap-reading pass, not another symbol search. Record the convention
+    and the N failed strategies as its evidence (B37 §37.4: six independent searches — arcs, layer
+    filter, circle fit, modelspace, insert points, jamb pairs — all zero; convention: wall-stops, not
+    drawn symbols).
+  - TWO CORRECT COUNTS THAT DISAGREE = CONVENTION SIGNAL. Two INDEPENDENT counts of the same feature that
+    disagree yet are BOTH correct under different conventions (e.g. 8 drawn leaf+swing symbols ⊂ 21
+    operator-counted openings) are a convention-inspection signal, not an error on one side — and the gap
+    between them MEASURES the fraction the narrower convention captures. Distinct from GAP NUMBERS ARE ALSO
+    HYPOTHESES (one count is WRONG) and from N-SEARCH CONVENTION TRIGGER above (N≥3 strategies all ZERO):
+    here both counts are positive and correct. Resolve by naming each convention and testing the subset
+    hypothesis, not by re-searching. (1 observed case; cheap sub-rule, not new machinery.)
+  - GROUPING-RULE DOMAIN (#611). A grouping or clustering rule carries the shape-class domain in which
+    it was validated — not just a threshold. Before reusing the rule on a different shape class, state
+    the class it was validated on and confirm the new class shares the same topological properties.
+    A rule derived from compact bodies does not apply to thin crossing geometry without re-validation:
+    transitive bbox-contact over crossing slivers can grow without bound, collapsing the entire dataset
+    into one cluster.
+  - NEGATIVE-ABSENCE CLAIM DISCIPLINE (#732). A negative existence claim ("no X found", "Y is
+    absent") is [CERT] ONLY when the EXACT artifact that would contain X was opened and searched.
+    Asserting absence about an artifact NOT opened is [INFER], not [CERT]. Before recording a
+    negative finding: confirm the container (jar, module, config file) was actually inspected; do NOT
+    propagate a sub-agent's "not found" without verifying the scope covered the right artifact. A §14
+    correction that retracts a prior finding based on absence must re-verify the absence in the exact
+    named artifact before accepting the retraction.
+    CENSUS TOKEN (#1212): the cited search must be by CONTENT (class, package or resource name INSIDE
+    archives) across ALL declared artifact roots; a test for one guessed filename (`saml.jar` absent,
+    yet `saml-rt/ux/wb.jar` ship) or a look in one directory (Program Files, not the config home) does
+    not count. Cite the token searched and the root list.
+  - VENDOR-DOCUMENTED PORTS FIRST (#670). Before making any connection attempt against a live
+    target, read the vendor's documented management/API port from the manual or API spec. Never rely
+    on a default port sweep (e.g., 22/80/443/8080) to discover the active service port: a
+    vendor-specific port outside the sweep range will produce a false "no data path" conclusion.
+    This check belongs BEFORE the first connection attempt, not as a recovery step after sweeps
+    fail.
+  - CONCURRENT-SWEEP DISJOINT FILE SETS (#644). When parallelizing agent sweeps, only parallelize
+    agents whose target file sets (blocks to write, shared state to update — INDEX, RESEARCH-STATE,
+    SOURCES.md) are FULLY DISJOINT. The driver serializes writes to all shared corpus files; most
+    documentation and methodology gaps cluster on the same shared files, so serial dispatch is
+    often the correct choice and not a performance issue. Parallelism is safe only when each agent
+    owns an exclusive, non-overlapping set of output files.
+
+## hard-rules-live-install-access-recipe
+
+Trigger: LIVE-SESSION ACCESS RECIPE — a live-install / Niagara target, at run START before the first live probe, or any
+live probe, redacted copy, raw image, config write or archive close on such a target. Kit issue #1003 (slice 4) moved this
+rule here verbatim from PROMPT-LOOP.md HARD RULES; SECRETS DISCIPLINE (live-install targets), which it references as
+"above", stayed in core. Read in full.
+
+  - LIVE-SESSION ACCESS RECIPE (live-install / Niagara targets; kit #1931) — at run START, before the first live
+    probe, capture and record the access recipe for each live channel in use (workbench launch, station fox
+    URI, platform daemon port) per toolbelt/NIAGARA-N4-FRAMEWORK.md §9, as a block or `sources/probes/` note
+    (host/port/URI STRUCTURE only; never credentials, SECRETS DISCIPLINE above). A run that closes without it
+    makes the next session re-derive ports and URIs from scratch (a ~40 min loss recurred on 2026-10-07).
+    REDACTED-FILE GENERATION WORKFLOW. When preserving a REDACTED copy in `sources/probes/`: (1) generate
+    in scratchpad, never directly in `sources/`; (2) verify the mask worked with a SILENT count: `grep -c
+    '<secret-pattern>' <masked-temp>` must return `0` — do NOT use bare `grep <pattern>` (no `-c`), which
+    prints the raw value on a missed match; (3) test the mask pattern on a known-sample snippet FIRST
+    before running over the full artifact; (4) only after a verified zero, move to `sources/probes/` and
+    register in SOURCES.md. (Source: 2026-08-30-jace-station-config-focus-retro.md Δ1)
+    RAW DISK/MEDIA IMAGE IS SECRET-BEARING. A full `dd`/PowerShell raw image of a physical device
+    contains every partition's secrets (`/etc/shadow`, keyrings, keystores, config credentials) — keep it
+    in the SCRATCHPAD ONLY, never under `sources/`. Commit ONLY the DERIVED tree/manifest: paths + sizes
+    + per-file sha256, with Host IDs and credential values masked. Anchor the image's identity by its
+    sha256 recorded out of the repo. (Source: 2026-08-30-jace8000-sd-focus-retro.md D3)
+    STRUCTURE-ONLY BINARY INSPECTION RECIPE. To identify the FORMAT or TYPE of a secret-bearing binary
+    without printing its value, use this ordered recipe — none of these steps print key/hash bytes:
+    (1) MAGIC BYTES: `od -A x -N 8 -t x1z <file>` — identifies container format from first 8 bytes;
+    (2) SIZE: `wc -c <file>` — identifies key length (32 B = AES-256 raw key, 665 B = wrapped blob);
+    (3) DISTINCT-BYTE-COUNT (entropy proxy): `od -An -tu1 <file> | tr ' ' '\n' | sort -nu | wc -l` —
+    200+ distinct values = ciphertext/wrapped key; low = framing/plaintext structure;
+    (4) DELIMITER SKELETON: for a TEXT-FORMAT secret field, `sed 's/[a-zA-Z0-9]/x/g'` reveals
+    separators, prefix tags, and segment counts while eliminating every hash/salt/key byte — quote only
+    the skeleton, never the original. This recipe answers "what FORMAT is this field?"; the §6 entropy
+    test answers the orthogonal question "is this blob encrypted?". Run whichever the gap needs.
+    (Source: 2026-08-30-jace-data-at-rest-focus-retro.md ΔA)
+    **The conversation is an exfil surface.** A credential pasted into chat lands in the session
+    transcript/logs and is compromised immediately — treat it the same as a commit to a public
+    repository and rotate it without delay. Out-of-band delivery is not optional.
+    LIVE-WRITE recipe that keeps this invariant on an AUTHENTICATED write: (a) authenticate out-of-band —
+    a curl `-K` config file in scratchpad, NEVER the credential in argv / probe cmdline / sources /
+    engram / the conversation itself;
+    (b) a secret-bearing body (e.g. a config) is backed up to scratchpad and cited by `sha256`+byte-count,
+    NEVER by its body; (c) mutate with a BENIGN disposable marker (not real data), confirm via an
+    independent oracle (§12), then restore byte-identical and VERIFY the restore; (d) drive it through a
+    dedicated MINIMAL-PRIVILEGE ephemeral principal, revoked at session end. See METHODOLOGY §12.
+    CREDENTIAL SOURCE + POST-RUN SWEEP: take test credentials from a mode-600 file OUTSIDE the repo,
+    never pasted in a channel or embedded in an artifact; after EVERY live run that used one, grep the
+    run's outputs (report, stdout, audit, journal) for the secret value as a FIXED string read from the
+    credential file, never typed into argv. Run it as THREE steps inside a script or subshell `( ... )` (so `exit 2`
+    never closes an interactive shell), exit 2 = SWEEP NOT RUN, distinct from a clean 0 (#1507): (0) strip CR and
+    trailing whitespace from the cred file (`sed -i 's/[[:space:]]*$//'`; a CRLF pattern never matches the secret
+    and returns a false 0); (1) guard: `grep -q . <cred-file>` must find at least one NON-EMPTY pattern line AFTER
+    the strip, else `echo "SWEEP NOT RUN" >&2; exit 2` (a missing, empty or whitespace-only file must not pass: an
+    empty pattern matches every line); then `test -r` EVERY output path, same exit 2 (a missing file through a
+    `cat` pipe still prints 0); (2) `cat <outputs> | grep -cF -f <cred-file>` prints ONE total (grep -c exits 1 on
+    0 hits — a CLEAN sweep, not a failure; with several files `grep -c` prints one `file:N` line each, hence
+    the concatenation). Require a printed total of exactly 0; no printed number means the sweep did not run.
+    Record the count in the block, and delete the credential file (0 hits on 5 runs x 4 outputs).
+    COMMAND CONSTRUCTION (#1384): when a probe needs credentials, never build the command in an unquoted
+    string variable (`C="curl -u $U:$P"; $C url`) — use a shell function (`ob() { curl -u "$U:$P" "$@"; }`)
+    or an array. Under zsh the variable is not word-split, so the shell prints the whole command, secret
+    included, in its "command not found" error. (Evidence: pancaddia oBIX read leaked the credential.)
+    MINIMAL-PRIVILEGE CAVEAT: minting an ephemeral principal is a SURFACE-DEPENDENT capability — cloud
+    platforms and managed IAM (AWS/GCP/Azure) typically can; embedded controllers, PLC/SCADA stacks,
+    and hardware I/O APIs typically cannot. Check for an existing low-privilege account FIRST. When
+    minting is unavailable, fall back to the benign disposable-marker mutation of step (c) above (or a
+    dry-run) with an existing credential. See
+    METHODOLOGY §12 for the surface-by-surface breakdown.
+    REMEDIATION BRANCH (when the write REMOVES a discovered vulnerability, not a probe): a permanent,
+    user-authorized security remediation is NOT the reversible-probe case — its correct END-STATE is the fix
+    APPLIED, not reverted. Steps (a),(b),(d) still hold (out-of-band auth, sha256 backup-before-destroy, minimal
+    principal), but step (c)'s "restore byte-identical + VERIFY the restore" is REPLACED by "verified fix +
+    confirmed no side-effect on other state". Do NOT restore a vulnerability you just removed by rote compliance
+    with the revert ladder — retain the backup for auditability, but leave the fix in place.
+    BLOCK LABEL: an authorized config mutation on a live target must mark its block `⚠ CONFIG MUTATION` and
+    record before/after state (and that a byte-identical revert was offered) — so an audit can tell a supervised
+    write apart from a pure read at a glance.
+    MECHANIZED at the close: `research-sdd-archive.sh` runs `toolbelt/scan-secrets.sh` as a fail-closed
+    GATE. The working-tree half scans EVERY regular file under the physical target (the archive builds
+    that list itself and passes it as `--files-from`; dirty, untracked AND gitignored files are all
+    included, symlinks are not followed), never scan-secrets.sh's default-mode narrowing to the shallowest
+    block directory (kit issue #1015). The list goes through scan-secrets.sh's own file scope —
+    `*.md`/config files, not arbitrary source files, kit issue #987 item 2. When the target IS a git
+    repo root with at least one commit, the gate ALSO runs `--committed` (everything ever committed,
+    reachable from HEAD). A high-confidence secret VALUE from either REFUSES the close (exit 3); the
+    output names the path and line, never the value. Dirtiness alone never refuses — the close flow
+    always leaves the tree dirty at this point. Degraded states, all typed and never a bare `ok`: a
+    target with no git repo of its own, nested inside a larger one (compared PHYSICALLY, `pwd -P` — a
+    path through a symlink is not nested) or a repo root with NO COMMITS yet (`git init` before the first
+    corpus commit) gets the working-tree scan only plus a stderr WARN, since there is no scannable
+    history; a list that cannot be computed or is empty REFUSES; an unreadable DIRECTORY is skipped (git
+    cannot add it either) and disclosed as `ok, N unreadable path(s) not scanned`; an unreadable in-scope
+    FILE or any grep read error is DEGRADED (exit 3), never `ok`. There is no override flag and no
+    git-ignore filter: a refusal on a gitignored secret store (`.env`, `*.conf`, `credentials`) is
+    resolved by moving the secret store OUTSIDE the target directory (keep only its path and structure
+    in the corpus), not by exempting it.
