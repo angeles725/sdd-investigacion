@@ -1090,7 +1090,9 @@ if [ "$mode" = "--sync-state" ]; then
     if [ "$(basename "$state")" = "RESEARCH-STATE.md" ] && [ -z "$_sfpfx" ] && [ -z "$_sfrange" ] && [ "$_e_bs" != "shared-global" ] \
        && [ "$(list_state_files "$target" | wc -l | tr -d ' ')" -gt 1 ]; then _cw=1; fi  # ROOT-CORPUS-WIDE
     io="$(count_investigable)"
-    bo="$(derive_blocked_open)"   # same disk-derived helper the status display reuses (single source of truth)
+    bo="$(derive_blocked_open)"; _bo_rc=$?   # same disk-derived helper the status display reuses (single source of truth)
+    # BO-DEGRADED-SYNC (#2017): a failed derivation (rc != 0, empty stdout) must never reach the envelope as blank/0.
+    [ "$_bo_rc" -eq 0 ] || { printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s) — envelope NOT written\n' "$_bo_rc" "$state" >&2; exit 1; }
     def="$(count_deferred)"
     _ipb="$(backlog_rows 2>/dev/null | inplace_blocked_count "$(blocked_body)")"   # in-place blocked rows (#1915; shared lib/focus-prefix.sh helper, mirrored by verify-state CHECK H): open, in no other bucket — never closed
     # requires_execution_open: compute BEFORE cov/kg so KG-BACKLOG-GC can use dreq.
@@ -2386,7 +2388,13 @@ else
 fi
 inv="$(inv_count)"
 req="$(req_prose)"   # token-anchored + paren-stripped (a bare first-integer grep grabbed §8 on logosoft)
-blk="$(derive_blocked_open)"   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
+blk="$(derive_blocked_open)"; _blk_rc=$?   # disk-DERIVED (needs:-anchored) — NOT the stop-control prose, whose bare first-integer grep grabbed a "§8" section number (logosoft showed blocked=8)
+# BO-DEGRADED-DISPLAY (#2017): a failed derivation is shown as DEGRADED, never as a blank/0/`?` count. Exit stays 0 by
+# this script's contract (findings are REPORTED in the output, see the final exit); the typed line goes to stderr.
+if [ "$_blk_rc" -ne 0 ]; then
+  blk="DEGRADED"
+  printf 'research-sdd-status: blocked_open derivation degraded (blocked_open_count rc %s on %s)\n' "$_blk_rc" "$state" >&2
+fi
 ph=$(backlog_rows 2>/dev/null | awk -F'\t' '$2~/~~/{next} {st=$3; sub(/^\*\*/, "", st); sub(/\*\*$/, "", st)} st=="pending"{n[$1]++} END{printf "high=%d medium=%d low=%d", n["high"], n["medium"], n["low"]}')
 
 echo "== research-sdd-status: $(basename "$target")  ·  corpus: $rel =="

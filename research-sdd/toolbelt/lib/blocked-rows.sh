@@ -11,6 +11,7 @@
 #                                       line STARTS with HEADING (index()==1: no regex, no substring hit)
 #   blocked_rows_body FILE              the text blocked_open is derived from: `## Blocked gaps`, then
 #                                       `## Non-investigable gaps`, then `## Blocked /` (METHODOLOGY §21.1)
+#                                       Returns the FIRST non-zero rc of its three extractors (all three still run).
 #   blocked_open_count FILE             derived blocked_open: an integer on stdout, rc 0.
 #                                       FILE absent or unreadable: NOTHING on stdout, a typed message on
 #                                       stderr, rc 2 — absent-input is never a silent 0 (CLAUDE.md §7).
@@ -30,7 +31,11 @@
 #      uppercase WHOLE WORDS `CERRADO` / `CLOSED` (`CLOSED-LOOP`, `ENCLOSED` and `CLOSEDCLOSED` are not the word),
 #      or a bracketed `[closed]` / `[cerrado]` in any case. A `NOT` / `NO` / `NEVER` within the two words before
 #      CLOSED/CERRADO negates it, as in `NOT YET CLOSED`; the negation words are whole words (`X-NO CLOSED` is
-#      not negated) and match in any case (`Not CLOSED` is negated), while the CLOSED/CERRADO marker stays uppercase.
+#      not negated); the CLOSED/CERRADO marker stays uppercase. Case rule (#2018): a negation word matches in ANY
+#      case only when it is DIRECTLY adjacent to the marker or separated from it only by the fillers `YET` /
+#      `LONGER` (any case): `Not CLOSED`, `no longer closed`, `not yet CLOSED` negate. Anywhere else in the
+#      window only the UPPERCASE `NOT` / `NO` / `NEVER` negate, so lowercase prose such as `no repro — CLOSED`,
+#      `not needed, CLOSED` or `no reproducible — CLOSED` is a closed gap, not a negated one.
 #      Window semantics: a "word" is a run of [A-Za-z0-9_-]; punctuation and `—` between words do not stop the
 #      window (`NOT — CLOSED` is negated), a standalone run of `-` / `_` (`NOT YET - CLOSED`) is not a word and
 #      uses no slot, and non-ASCII bytes split words (an accented letter ends one). The match is on the bullet
@@ -42,9 +47,12 @@ blocked_rows_section() {   # FILE HEADING
 }
 
 blocked_rows_body() {      # FILE
-  blocked_rows_section "$1" '## Blocked gaps'
-  blocked_rows_section "$1" '## Non-investigable gaps'
-  blocked_rows_section "$1" '## Blocked /'
+  local _br_rc=0 _br_h _br_r
+  for _br_h in '## Blocked gaps' '## Non-investigable gaps' '## Blocked /'; do
+    blocked_rows_section "$1" "$_br_h"; _br_r=$?          # BODY-RC: remember the FIRST failing extractor, but still run the rest
+    [ "$_br_r" -eq 0 ] || [ "$_br_rc" -ne 0 ] || _br_rc=$_br_r
+  done
+  return "$_br_rc"
 }
 
 blocked_open_count() {     # FILE
@@ -64,15 +72,18 @@ blocked_open_count() {     # FILE
   [ "$_rc" -eq 0 ] || { echo "blocked-rows: degraded child-gap extractor (awk) exited $_rc on $_f" >&2; return 3; }
   # RSDD-CHILD-GAPS-ANCHOR: multi-line bullet form in ## Child gaps surfaced at close
   _d2="$(printf '%s\n' "$_sec" | awk '
-    function negated(pre,   p, k, w, u) {                    # NEGATION-WINDOW: NOT/NO/NEVER in the 2 words before
-      p = pre; k = 0
+    function negated(pre,   p, k, w, u, fill) {              # NEGATION-WINDOW: NOT/NO/NEVER in the 2 words before
+      p = pre; k = 0; fill = 1                               # fill: every word between here and CLOSED is a filler
       while (k < 2) {
         if (!match(p, /[A-Za-z0-9_-]+[^A-Za-z0-9_-]*$/)) return 0
         w = substr(p, RSTART, RLENGTH); sub(/[^A-Za-z0-9_-]+$/, "", w)
         p = substr(p, 1, RSTART - 1)
         if (w ~ /^[-_]+$/) continue                          # DASH-SKIP: a bare - / _ run is punctuation, not a word
-        u = toupper(w)                                       # NEGATION-ICASE: negation words match in any case
-        if (u == "NOT" || u == "NO" || u == "NEVER") return 1      # whole word, same boundary set as bef/aft
+        u = toupper(w)                                       # NEGATION-ICASE: adjacent / filler-separated negation matches in any case
+        if (u == "NOT" || u == "NO" || u == "NEVER") {       # whole word, same boundary set as bef/aft
+          if (fill || w == u) return 1                       # NEGATION-ADJACENT: any case only when adjacent (or via YET/LONGER); else UPPERCASE only
+        }
+        if (u != "YET" && u != "LONGER") fill = 0            # NEGATION-FILLER: the known fillers keep the any-case rule alive
         k++
       }
       return 0
