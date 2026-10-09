@@ -200,10 +200,12 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
 # form, e.g. "## Blocked / non-read-only gaps", "## Blocked / requires-execution gaps"). All three
 # follow the same "- <name> — needs: …" convention and map to the same blocked_open bucket.
 _blocked_names() {                                  # one exact blocked gap NAME per "- <name> — needs: ..." line
-  blocked_rows_body "$1" \
+  local _bn_body   # BODY-RC (#2017 W1): the body's rc is captured, a failed extractor is rc 3 — never an empty list
+  _bn_body="$(blocked_rows_body "$1")" || return 3
+  printf '%s\n' "$_bn_body" \
     | sed -n 's/^[[:space:]]*-[[:space:]]*//p' \
     | sed -E 's/[[:space:]]*[-–—]+[[:space:]]*needs:.*$//I; s/[[:space:]]*needs:.*$//I' \
-    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$'
+    | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | { grep -v '^$' || [ "$?" -eq 1 ]; }   # grep rc 1 = no names (empty-input)
 }
 # derived investigable_open = pending (LEADING-TOKEN) backlog rows whose gap is NOT blocked. This is
 # resolve_next's NEXT-eligibility set by construction — the STOP-CRITICAL number that closes the
@@ -211,7 +213,7 @@ _blocked_names() {                                  # one exact blocked gap NAME
 _blocked_body() { blocked_rows_body "$1"; }  # the text blocked_open is derived from (lib/blocked-rows.sh, kit #923; the same function status.sh blocked_body calls)
 derive_investigable() {
   local sf="$1" blk gap st n=0 b hit
-  blk="$(_blocked_names "$sf")"
+  blk="$(_blocked_names "$sf")" || { echo "DEGRADED"; return 3; }   # INV-DEGRADED: never count pending gaps against an empty blocked list
   while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
     [ -z "$gap" ] && continue
     [ "${st%% *}" = "pending" ] || continue         # bare `pending` or decorated `pending (...)`; NOT "blocked (pending review)"
@@ -291,7 +293,8 @@ derive_blocked() { blocked_open_count "$1"; }   # lib/blocked-rows.sh (kit #923)
 # paragraph containing **needs:** (prose form).  For prose, tried: may be on a different line
 # within the same paragraph, so we accumulate paragraph state across lines using awk.
 derive_missing_tried() {
-  blocked_rows_body "$1" \
+  local _mt_body; _mt_body="$(blocked_rows_body "$1")" || return 3   # BODY-RC (#2017 W1)
+  printf '%s\n' "$_mt_body" \
   | awk '
     BEGIN { need=0; tried=0; miss=0 }
     /^[[:space:]]*$/ {
@@ -322,7 +325,8 @@ derive_missing_tried() {
 # to the previous one. A blank line ends a paragraph entry; inside a bullet entry it is a loose-list gap that ends the
 # entry only when the next non-blank line is not indented deeper than the bullet. END flushes the last entry.
 derive_missing_unblock() {
-  blocked_rows_body "$1" \
+  local _mu_body; _mu_body="$(blocked_rows_body "$1")" || return 3   # BODY-RC (#2017 W1)
+  printf '%s\n' "$_mu_body" \
   | awk '
     function flush() { if (need && !unb) miss++; else if (need && unb && upos < npos) ord++; need=0; unb=0; npos=0; upos=0; open=0; pend=0 }
     function ind(s) { match(s, /^[ \t]*/); return RLENGTH }
@@ -924,7 +928,7 @@ for state in "${states[@]}"; do
   fi
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
-  d_inv="$(derive_investigable "$state")"
+  d_inv="$(derive_investigable "$state")" || d_inv="DEGRADED"   # INV-DEGRADED-CAPTURE
   d_blocked="$(derive_blocked "$state")" || d_blocked="DEGRADED"   # BLOCKED-DEGRADED: blocked_open_count rc!=0 (typed message already on stderr) is never a derived 0
   d_req="$(derive_requires_execution "$state")"
   d_def="$(derive_deferred "$state")"
@@ -1003,7 +1007,10 @@ for state in "${states[@]}"; do
   # ENVELOPE CHECK B (FAIL, STOP-CRITICAL) — declared investigable_open must equal the NEXT-eligible set.
   # This is the check that closes the premature-STOP class BY CONSTRUCTION: an under-declared count here
   # (e.g. investigable_open: 0 while 2 pending non-blocked gaps remain) FAILs → --next returns STALE, not STOP.
-  if ! is_int "$e_inv" || [ "$e_inv" != "$d_inv" ]; then
+  if [ "$d_inv" = "DEGRADED" ]; then  # INV-DEGRADED-FAIL
+    echo "   FAIL   investigable_open derivation degraded (blocked sections could not be extracted; see the blocked-rows message above) — the declared investigable_open=${e_inv:-<missing>} cannot be verified"
+    frc=1; rc=1
+  elif ! is_int "$e_inv" || [ "$e_inv" != "$d_inv" ]; then
     echo "   FAIL   envelope investigable_open=${e_inv:-<missing>} != ${d_inv} NEXT-eligible pending gap(s) — re-seed: --sync-state"
     echo "          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it."
     frc=1; rc=1
@@ -1019,7 +1026,7 @@ for state in "${states[@]}"; do
   # ENVELOPE CHECK D (FAIL) — envelope-side of CHECK 1: declared FULL coverage (gaps_closed == known_gaps,
   # denominator > 0) while investigable gaps still remain. gaps_closed/known_gaps are declared-only (not
   # disk-derivable), so this is a consistency check against the DERIVED investigable count, not a mismatch.
-  if is_int "$e_gc" && is_int "$e_kg" && [ "$e_kg" -gt 0 ] && [ "$e_gc" = "$e_kg" ] && [ "$d_inv" -gt 0 ]; then
+  if is_int "$e_gc" && is_int "$e_kg" && [ "$e_kg" -gt 0 ] && [ "$e_gc" = "$e_kg" ] && is_int "$d_inv" && [ "$d_inv" -gt 0 ]; then
     echo "   FAIL   envelope gaps_closed=$e_gc == known_gaps=$e_kg while $d_inv investigable gap(s) remain — premature-STOP hazard."
     frc=1; rc=1
   fi
@@ -1078,7 +1085,12 @@ for state in "${states[@]}"; do
   if is_int "$e_gc" && is_int "$e_kg" && is_int "$e_inv" && is_int "$e_blocked" && is_int "$e_req"; then  # IDENTITY-INT-GUARD
     # in_place_blocked (#1915) has NO envelope field: --sync-state subtracts it from gaps_closed, so it is the one
     # DERIVED term of the identity (same shared helper as the writer). 0 when the corpus has no such row.
-    d_ipb="$(_backlog_rows "$state" | inplace_blocked_count "$(_blocked_body "$state")")"; is_int "$d_ipb" || d_ipb=0  # INPLACE-IDENTITY-TERM
+    if ! _ipb_body="$(_blocked_body "$state")"; then  # IPB-DEGRADED
+      echo "   WARN   identity-check: could not extract the blocked sections — the in_place_blocked term is unverifiable (NOT a zero); see the blocked-rows message above"
+      d_ipb=0
+    else
+    d_ipb="$(_backlog_rows "$state" | inplace_blocked_count "$_ipb_body")"; is_int "$d_ipb" || d_ipb=0  # INPLACE-IDENTITY-TERM
+    fi
     _identity_sum=$(( e_gc + e_inv + e_blocked + _h_def + e_req + d_ipb ))  # IDENTITY-REQ-VAR
     if [ "$_identity_sum" -ne "$e_kg" ]; then  # IDENTITY-SUM-CHECK
       if [ "$d_ipb" -gt 0 ]; then
@@ -1092,7 +1104,10 @@ for state in "${states[@]}"; do
   # P23: blocked/absent gaps missing a tried: clause. A tried: entry documents what alternatives
   # were explored and what measurement confirmed the gap was actually blocked (not just untried).
   # WARN-only — never fails the run; this is advisory hygiene, not a structural defect.
-  d_missing_tried="$(derive_missing_tried "$state")"
+  if ! d_missing_tried="$(derive_missing_tried "$state")"; then  # TRIED-DEGRADED
+    echo "   degraded   tried-check: could not extract the blocked sections (blocked_rows_body failed) — measurement invalid, NOT a zero."
+    d_missing_tried=0
+  fi
   if [ "${d_missing_tried:-0}" -gt 0 ]; then  # P23-MISSING-TRIED-WARN
     echo "   WARN   $d_missing_tried blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input."
   fi
@@ -1114,7 +1129,7 @@ for state in "${states[@]}"; do
     echo "   degraded   unblock-check: could not evaluate the blocked sections for an unblock: line (helper output: '${_mu:-}') — measurement invalid, NOT a zero."
   fi
   _br_rows="$(_backlog_rows "$state" || :)"  # _backlog_rows returns 1 by construction on a backlog with no rows (its last test); that is the empty-input state, not a failure
-  if _mr="$(printf '%s\n' "$_br_rows" | derive_missing_unblock_rows "$(_blocked_body "$state")")" && is_int "$_mr"; then  # UNBLOCK-ROW-TYPED
+  if _mrb="$(_blocked_body "$state")" && _mr="$(printf '%s\n' "$_br_rows" | derive_missing_unblock_rows "$_mrb")" && is_int "$_mr"; then  # UNBLOCK-ROW-TYPED
     if [ "$_mr" -gt 0 ]; then  # UNBLOCK-ROW-WARN
       echo "   WARN   $_mr wall backlog row(s) missing an unblock: plan at the end of the Status cell (presence-only check; a row linked by name or gap ID to a ## Blocked gaps bullet is exempt) — METHODOLOGY §21.1."
     fi
@@ -1200,7 +1215,7 @@ for state in "${states[@]}"; do
   _sc_prose="$(grep -iE 'read-only investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+' "$state" 2>/dev/null | head -1)"
   if [ -n "$_sc_prose" ]; then
     _sc_n="$(printf '%s' "$_sc_prose" | grep -oiE 'investigable\*{0,2}:[[:space:]]*\*{0,2}[0-9]+' | grep -oE '[0-9]+$')"  # SCEX-EXTRACT-ANCHOR
-    if [ -n "$_sc_n" ] && [ "$_sc_n" != "$d_inv" ]; then  # SC-CROSS-CHECK
+    if [ -n "$_sc_n" ] && [ "$d_inv" != "DEGRADED" ] && [ "$_sc_n" != "$d_inv" ]; then  # SC-CROSS-CHECK
       echo "   FAIL   stop-control prose 'read-only-investigable: ${_sc_n}' but backlog derives ${d_inv} investigable gap(s) — refresh the Stop control section and re-seed: --sync-state"
       frc=1; rc=1
     fi
