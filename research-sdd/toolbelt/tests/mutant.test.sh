@@ -625,16 +625,18 @@ if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py
 else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 
 # T19 -- shared suite bootstrap and crash classifier (#1576): mutant_bootstrap replaces the copied
-# `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace the copied CRASH
-# regex literals where the classes compose byte-identically. MIGRATED: the verify-registry teeth block
-# (mutant_crash_re bash py), the mutant_vm_core_teeth crash regex (py + SyntaxError), and the
-# mutant.sh-sourcing bootstraps of verify-retro, adapter-core, adapter-helpers, analysis-manifest,
-# vm-disk-policy, discriminator-parity, gh-visibility, templates, mutant-syntax-export-lint,
-# detonate-exec and trace-exec. DEFERRED: decompile-net/decompile-native CRASH_RE (ImportError without
-# ModuleNotFoundError) and research-sdd-status-followups CRASH (no `integer expression expected`)
-# differ in meaning, so no class combination is byte-identical; decompile-native's probe checks
-# suite-local functions, not mutant.sh ones. Each class is a named, explicit piece so variants that
-# differ in meaning stay different (a suite names the classes it wants; nothing is merged silently).
+# `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace copied CRASH regex
+# literals where the classes compose byte-identically. MIGRATED: the verify-registry teeth block
+# (bash py), the install suite's --verify teeth _CRASH (bash py cmd), the mutant_vm_core_teeth crash regex
+# (mutant_vm_crash_re = py + SyntaxError), and the mutant.sh bootstraps of verify-retro, adapter-core,
+# adapter-helpers, analysis-manifest, vm-disk-policy, discriminator-parity, gh-visibility, templates,
+# mutant-syntax-export-lint, detonate-exec and trace-exec. NOT MIGRATED (deferred, scope is partial):
+# hand-rolled probe loops remain in 59 suites (enumerate with
+# `rg -l 'lib/mutant.sh (did not define|lacks)' research-sdd`, minus lib/mutant.sh itself); crash literals
+# that differ in meaning stay local: decompile-net/decompile-native CRASH_RE (ImportError without
+# ModuleNotFoundError), research-sdd-status-followups CRASH and verify-skill-drift-hook _CRASH (no
+# `integer expression expected`); decompile-native probes suite-local functions, not mutant.sh ones.
+# Each class is a named, explicit piece so variants that differ in meaning stay different.
 mutant_bootstrap mutant_chain mutant_tooth >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 0 ]; then ok "bootstrap: every named helper defined -> rc 0"; else no "bootstrap: defined helpers (rc=$rc)"; fi
 mb_err="$(mutant_bootstrap mutant_chain mutant_no_such_helper_zz mutant_tooth 2>&1 >/dev/null)"; rc=$?
@@ -670,6 +672,8 @@ if [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ] && [ "$rc3" -eq 0 ]; then ok "crashpy: cl
 if [ "$(mutant_crash_re py)" = "$(mutant_crash_re tb imp)" ]; then ok "crashpy: py is exactly tb then imp (one source of truth)"; else no "crashpy: py != tb|imp"; fi
 mutant_is_crash 'all fine' py; rc=$?
 if [ "$rc" -eq 1 ]; then ok "crashpy: clean output is not a crash"; else no "crashpy: clean (rc=$rc)"; fi
+vc_got="$(mutant_vm_crash_re)"
+if [ "$vc_got" = "Traceback|ImportError|ModuleNotFoundError|SyntaxError" ]; then ok "vm_crash_re: pinned value (py classes + SyntaxError)"; else no "vm_crash_re: value (got=[$vc_got])"; fi
 cr_got="$(mutant_crash_re cmd)"
 if [ "$cr_got" = "command not found" ]; then ok "crash_re: class cmd"; else no "crash_re: class cmd (got=[$cr_got])"; fi
 cr_got="$(mutant_crash_re awk)"

@@ -383,6 +383,9 @@ mutant_crash_re() {
   printf '%s' "$_mc_re"
 }
 
+# mutant_vm_crash_re — the crash regex of the VM-core teeth: the py classes plus SyntaxError.
+mutant_vm_crash_re() { printf '%s|SyntaxError' "$(mutant_crash_re py)"; }
+
 # mutant_is_crash TEXT [CLASS...] — see header.
 mutant_is_crash() {
   local _mi_text="${1-}" _mi_re
@@ -518,7 +521,7 @@ PY
 
 mutant_vm_core_teeth() {
   local ex="$1" here="$2" self="$3" sut_exec="$4" mut="$5"
-  local crash; crash="$(mutant_crash_re py)|SyntaxError"
+  local crash; crash="$(mutant_vm_crash_re)"
   local core="$here/../lib/vm_boot_core.py" s o rc k
   MVC_PASS=0; MVC_FAIL=0
   # stage NAME: copy lib/*.py and the top-level modules into $mut/NAME/
