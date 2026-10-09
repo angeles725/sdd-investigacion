@@ -80,7 +80,8 @@ else no "non-pcap rejection"; fi
 
 # T6: negative — symlink input is rejected (identity() uses O_NOFOLLOW)
 ln -s "$ROOT/fixture.pcap" "$ROOT/link.pcap"
-if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>/dev/null; then
+if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>"$ROOT/link.err" \
+   && grep -q 'corroborate-pcap: not a pcap' "$ROOT/link.err"; then
   ok "symlink input is rejected by O_NOFOLLOW identity check"
 else no "symlink input rejection"; fi
 
@@ -149,7 +150,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _t "cp-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
     's/^        refuse_privileged_execution()$/        pass/'
   # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
-  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
+  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
   _ctl_out="$(_tooth "cp-ctl-nameerror: sandbox misspelled (NameError)" "FAIL  isolation markers in argv" \
     's/prefix = sandbox(bwrap, env)/prefix = sandboxX(bwrap, env)/' 2>&1)"; _ctl_rc=$?
   if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \

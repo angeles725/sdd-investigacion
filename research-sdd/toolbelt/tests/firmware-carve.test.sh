@@ -102,19 +102,22 @@ if ! "$SUT" carve "$ROOT/link.bin" "$ROOT/link-out" 2>/dev/null && ! "$SUT" carv
   && ! run "$ROOT-parent-link/out" 2>/dev/null; then ok "links, devices, types, unsafe parents, and collisions fail closed"; else no "path safety"; fi
 if ! "$SUT" extract "$ROOT/firmware.bin" "$ROOT/legacy" 2>"$ROOT/legacy.err" && grep -q 'removed.*carve' "$ROOT/legacy.err"; then ok "unsafe legacy extraction is unreachable and gives migration guidance"; else no "legacy migration"; fi
 if python3 - "$FC" <<'PY'
-import importlib.util,io,sys
+import contextlib,importlib.util,io,sys
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f)
-buf=io.StringIO(); f.os.geteuid=lambda:0; sys.stderr=buf; r=f.main(['--input','x','--output','y']); sys.stderr=sys.__stderr__
-assert r==2 and "root or set-id" in buf.getvalue()
+buf=io.StringIO(); f.os.geteuid=lambda:0
+with contextlib.redirect_stderr(buf): r=f.main(['--input','x','--output','y'])
+assert r==2, f"expected exit 2 for root, got {r}"
+assert "root or set-id" in buf.getvalue(), f"expected 'root or set-id' in stderr, got: {buf.getvalue()!r}"
 PY
 then ok "root execution fails closed"; else no "caller safety"; fi
 if python3 - "$FC" <<'PY'
-import importlib.util,io,sys
+import contextlib,importlib.util,io,sys
 s=importlib.util.spec_from_file_location('f',sys.argv[1]); f=importlib.util.module_from_spec(s); s.loader.exec_module(f)
-buf=io.StringIO(); f.os.geteuid=lambda:0; sys.stderr=buf
-r=f.main(['--input','x','--output','y','--worker','--stage','/tmp','--input-record','{}','--bwrap-path','/usr/bin/bwrap','--bwrap-sha256','sha256:abc'])
-sys.stderr=sys.__stderr__
-assert r==2 and "root or set-id" in buf.getvalue()
+buf=io.StringIO(); f.os.geteuid=lambda:0
+with contextlib.redirect_stderr(buf):
+    r=f.main(['--input','x','--output','y','--worker','--stage','/tmp','--input-record','{}','--bwrap-path','/usr/bin/bwrap','--bwrap-sha256','sha256:abc'])
+assert r==2, f"expected exit 2 for root, got {r}"
+assert "root or set-id" in buf.getvalue(), f"expected 'root or set-id' in stderr, got: {buf.getvalue()!r}"
 PY
 then ok "--worker root execution fails closed (guard hoisted above worker branch)"; else no "--worker caller safety"; fi
 if python3 - "$FC" "$ROOT" <<'PY'
@@ -179,10 +182,11 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     's/if len(found) >= max_carves or len(found) + 2 > max_files: raise/if False: raise/'
   _t "fc-tables: required SquashFS tables accepted when absent" "AssertionError: required SquashFS table accepted when absent" \
     's/and all(x != 0xffffffffffffffff for x in required):/and True:/'
-  _t "fc-root-main: main() root guard removed" "FAIL  caller safety" \
+  _t "fc-root-main: main() root guard removed" "expected exit 2 for root|'root or set-id' in stderr" \
     's/^        refuse_privileged_execution()$/        pass/'
   # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
-  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
+  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
   _ctl_out="$(_tooth_fc "fc-ctl-nameerror: max_carves misspelled (NameError)" "FAIL  " \
     's/if len(found) >= max_carves or len(found) + 2 > max_files: raise/if len(found) >= max_carvesX or len(found) + 2 > max_files: raise/' 2>&1)"; _ctl_rc=$?
   if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
@@ -191,12 +195,21 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   else
     echo "  FAIL  fc-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
   fi
+  # Control (kit issue #2066, Opus S1): a NameError on the ROOT path used to hide behind the bare `FAIL  caller safety`
+  # label (sys.stderr was swapped, not redirected, so the traceback was swallowed). It must now be refused.
+  _ctl2_out="$(_tooth_fc "fc-ctl-nameerror-root: root-path NameError (guard call misspelled)" "FAIL  caller safety|expected exit 2 for root" \
+    's/^        refuse_privileged_execution()$/        refuse_privileged_executionX()/' 2>&1)"; _ctl2_rc=$?
+  if [ "$_ctl2_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl2_out"; then
+    echo "  PASS  fc-ctl-nameerror-root: a NameError on the root path is refused (traceback no longer swallowed)"; pass=$((pass+1))
+  else
+    echo "  FAIL  fc-ctl-nameerror-root: root-path NameError mutant was not refused (rc=$_ctl2_rc): $(tr '\n' ' ' <<<"$_ctl2_out" | head -c 200)"; fail=$((fail+1))
+  fi
   # With the worker() guard gone, the self-guard case reports a legitimate AttributeError ("guard was not
   # first: got AttributeError"), so the teeth below drop that class from the crash filter. Their bite
   # patterns stay specific: the case's own FAIL label / exact assertion text.
   # Carve-out kept minimal: only the AttributeError class and its "has no attribute" message form are dropped.
   _CRASH="${_CRASH_ALL/|AttributeError/}"; _CRASH="${_CRASH/|has no attribute/}"
-  _t "fc-root-worker: root guard removed from main() and worker()" "FAIL  --worker caller safety" \
+  _t "fc-root-worker: root guard removed from main() and worker()" "expected exit 2 for root|'root or set-id' in stderr" \
     's/^        refuse_privileged_execution()$/        pass/' 's/^    refuse_privileged_execution()  #.*/    pass/'
   _t "fc-self-guard: worker() self-guard removed" "AssertionError: guard was not first: got AttributeError" \
     's/^    refuse_privileged_execution()  #.*/    pass/'

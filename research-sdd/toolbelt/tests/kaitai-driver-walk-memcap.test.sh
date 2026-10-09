@@ -420,7 +420,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     mutant_py_replace "kd-m6-no-zero-branch" "$_KD_REAL" \
     $'            if _n == 0:\n                return 1  # cannot make progress; broken fd\n' ''
   # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
-  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
+  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
   _ctl_out="$(_tooth_kd "kd-ctl-nameerror: _offset step misspelled (NameError)" "FAIL  " \
     mutant_py_replace "kd-ctl-nameerror" "$_KD_REAL" \
     '            _offset += _n' '            _offset += _nX' 2>&1)"; _ctl_rc=$?
