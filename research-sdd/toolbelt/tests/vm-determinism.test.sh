@@ -106,7 +106,10 @@ with tempfile.TemporaryDirectory() as tmp:
         m.verify_determinism(det, rpath); ok("verify_determinism passes with real receipt")
     except Exception as e: nok("verify_determinism real receipt", str(e))
     try:
-        bad = copy.deepcopy(det); bad["receipt_identity"] = FAKE
+        # a VALID record (passes validate_determinism) that names a different receipt, so only verify_determinism's identity check can reject it
+        bad = m.build_determinism({**det_spec, "receipt_identity": FAKE,
+                                   "reproducible": {"basis": "identity-match", "replicate_identity": FAKE}})
+        m.validate_determinism(bad)
         try: m.verify_determinism(bad, rpath); nok("verify should fail for wrong receipt_identity")
         except m.VmDeterminismError: ok("verify_determinism fails closed on wrong receipt_identity")
     except Exception as e: nok("verify wrong receipt_identity", str(e))
@@ -177,8 +180,7 @@ tt teeth-clock-mode 'and clock.get("mode") == "pinned"' 'and True' "FAIL  condit
 tt teeth-seed-null 'and seed is not None' 'and True' "FAIL  condition seed=null: basis must be 'identity-match'"
 tt teeth-replicate-id 'and rid is not None and repid is not None and rid == repid)' 'and rid is not None and repid is not None)' "FAIL  condition replicate_id!=rid: basis must be 'identity-match'"
 tt teeth-lc-contradiction 'if actual_lc[k] != stored_lc[k]:' 'if False:' 'FAIL  verify should fail on lc contradiction'
-# Not mutated (measured equivalent mutant): verify_determinism's `actual_id != record["receipt_identity"]` check - the "wrong receipt_identity"
-# case is rejected earlier by validate_determinism's record-identity check, so the verify-side guard is never the one that fires.
+tt teeth-receipt-identity 'if actual_id != record["receipt_identity"]:' 'if False:' 'FAIL  verify should fail for wrong receipt_identity'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
