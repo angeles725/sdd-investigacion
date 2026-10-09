@@ -514,26 +514,8 @@ Always read first, in this order:
          LATER blocks and RESEARCH-STATE: stale backlog rows point at gaps a later block already closed.
          On a hit, return `ALREADY-COVERED — <block> §<n.x>` and stop; the driver closes the row without
          authoring a block (same closure path as REMITTANCE below).
-         REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
-         but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
-         the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
-         this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
-         sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
-         the driver closes without authoring a block. This prevents wasted investigation if the gap is
-         remittance at fine grain even when the audit cleared it at coarse grain.
-         REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
-         but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
-         SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
-         marker-tier upgrade justifies authoring a new block even though the coverage question is
-         settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
-         the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
-         case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
-         not a wasted iteration.
-         OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
-         operator's data package, check whether the package already carries a pre-existing human
-         classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
-         label field). A human classification is a REFERENCE STANDARD the extractor can be scored
-         against — do not build a filter first and lose that calibration opportunity.
+         REMITTANCE-RISK FLAG / REMITTANCE-TO-EVIDENCE UPGRADE — SITUATIONAL: the PRIOR COVERAGE CHECK finds partial coverage (cannot tell whether new substance exists) or a gap answered only at [CERT-web]/[CERT-a]/[INFER]: read `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases` in full.
+         OPERATOR-CLASSIFICATION-FIRST — SITUATIONAL: you are about to build an extractor or classification filter for an operator's data package: same section.
        - SCOPING JUDGMENTS ARE HYPOTHESES: a prior block's recorded reason for NOT investigating
          further ("X is not load-bearing", "Y would add only implementation detail", "decompilation
          would add only the exact argv-dispatch order") is a testable HYPOTHESIS, not a settled
@@ -723,24 +705,7 @@ Always read first, in this order:
          from "the input was absent", satisfying §7). (Distinct from RE-MEASURE A DRAMATIC NEGATIVE,
          which fires AFTER a striking result to verify it; this gate fires BEFORE the test, when the
          population is still uncounted.)
-         API-FILTER SILENT-DECLINE EXTENSION: after applying an API call (select, filter, mark) that
-         reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
-         against the intended count before proceeding. A filter that silently declines entries produces
-         no error and no warning — the discrepancy is only visible by comparing intent vs. result.
-         NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
-         package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
-         (X %)` as a headline on every census. A complement gate or coverage claim applied after a
-         narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
-         that must be named.
-         SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
-         SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
-         any value the researcher picks — a subject-declared threshold produces a partition with no
-         researcher-chosen numbers anywhere.
-         IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
-         DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
-         proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
-         instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
-         identifier is per-type or per-instance before using it as a grouping key.
+         API-FILTER SILENT-DECLINE EXTENSION / NARROWING-AXES AND READ-FRACTION / SUBJECT-DECLARED THRESHOLD / IDENTIFIER-GRANULARITY CHECK — SITUATIONAL: a sweep applies an API select/filter/mark, selects by both container and kind, chooses a classification threshold, or keys on an identifier as a unique entity: read `$KIT/PROMPT-LOOP-APPENDIX.md#step3-special-cases` and apply the rule whose trigger fired.
        - FALSIFY BEFORE REPORTING an operational conclusion. When the gap's answer would drive an
          operational recommendation (an alert, an escalation, a client report), cast it as a
          falsifiable hypothesis FIRST and test it against data already on disk before reporting it.
@@ -1504,10 +1469,7 @@ HARD RULES:
     (Source: 2026-09-03-obix-and-loginless-dashboard-runbooks-retro.md D2)
   - LIVE-SESSION ACCESS RECIPE — SITUATIONAL: live-install / Niagara target at run START before the first live probe, or any live probe that needs credentials, a redacted copy, a raw disk/media image, a binary-format check on a secret-bearing file, a config write on a live target, a credential appears in the conversation (the exfil-surface rule), or on every archive (the archive secrets gate): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe` in full.
   - ONE block per iteration (deep and cited, not wide and vague).
-  - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
-    live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
-    LIVE from the real system. Never cite them from a prior note/block (lesson: the logosoft bench program B66-B70 — TARGETS row #8; corpus not present on every machine, so qualify before citing). The worked example with the actual hex values
-    lives in METHODOLOGY §12 — single source; don't restate the values here.
+  - RE-MEASURE GROUND-TRUTH — SITUATIONAL: you enter a DYNAMIC/hardware phase or any new live measurement (checksums, versions, IPs, build ids): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - RESUME, don't blindly redo. After a kill/crash/interruption of an iteration, FIRST check
     `git -C $TARGET log` + on-disk artifacts to see whether that iteration already LANDED its commit
     before re-launching it — resume from real state.
@@ -1560,37 +1522,12 @@ HARD RULES:
     (≤300s), so back-to-back iterations are cheaper AND faster. Only stretch the delay when you are
     genuinely BLOCKED waiting on something external (an install building, a live server coming up) —
     never just to space out ready decompilation work.
-  - BASH-TOOL PATH NOT PERSISTENT: the shell state (including PATH) is reset between Bash tool
-    calls on every platform — the harness initializes each call from the user's shell profile, so
-    PATH changes made in one call are gone in the next. When a native tool (decompiler, scan
-    utility, custom script) lives off the default PATH, two approaches: (a) durable — add the
-    tool's directory to your shell profile so the harness picks it up on each init; (b) fallback
-    — prepend in EVERY Bash call: `export PATH=<tool-dir>:$PATH && <command>`. Do not rely on a
-    PATH set in a prior call. Cross-reference: BOOTSTRAP (a) / detect-tools.sh already covers
-    off-PATH decompilers ("may live under linuxbrew Cellar … and still be off PATH").
+  - BASH-TOOL PATH NOT PERSISTENT — SITUATIONAL: a native tool (decompiler, scan utility, custom script) lives off the default PATH: same section.
   - WAKEUP GUARD (self-paced mode): before issuing a ScheduleWakeup, check whether one is already
     armed for this loop — do not double-schedule. One armed wakeup per iteration is the invariant.
     (Distinct from the "ScheduleWakeup for autonomous mode only" rule above — that governs WHEN to
     use it; this governs how many.)
-  - INSTANT CAPTURE (mid-loop kit insights). When a defect, capability idea, algorithm, formula, or
-    process insight surfaces during any loop step, save a conforming journal entry via `mem_save`
-    BEFORE the loop continues — deferred capture (saving at the terminal instead of the moment) is
-    out of spec. Required fields: `title: "<YYYY-MM-DD> <category>: <insight>"` (category ∈
-    improvement / defect / tool-idea / algorithm-idea / formula-idea), `topic_key:
-    "research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>"` (UTC; unique across sessions and parallel
-    focus lanes; for multi-focus targets use
-    `research/<target>/<focus>/journal/<YYYY-MM-DD>-<HHMMSS>` — same §16 convention),
-    `project: "<target>"`, `type: bugfix | discovery | pattern` (do NOT use "decision" — see
-    METHODOLOGY §18 type carve-out), and `content: "<one-line description> — evidence: <block/§/ref>"`.
-    <HHMMSS> is agent-supplied: read the clock per entry (`date -u +%Y-%m-%d-%H%M%S` yields the full
-    suffix) — an LLM has no clock of its own; if two insights surface within the same second, re-read
-    the clock or append -2, -3, never reusing one timestamp for two entries. Omit session_id: Engram
-    resolves the target project's active session, or falls back to manual-save-<target>, via resolveFallbackSessionID;
-    passing the harness session_id causes session_project_mismatch because it belongs to the
-    orchestrator project. One insight = one `mem_save` call under a unique key. §18 consolidates
-    these entries at the TERMINAL TRIGGER (METHODOLOGY §18 journal mode). NOTE: this is a DISTINCT
-    concern from MEMORY IS A MIRROR above — research findings destined for corpus blocks follow that
-    rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
+  - INSTANT CAPTURE — SITUATIONAL: a kit defect, capability idea, algorithm, formula or process insight surfaces mid-loop (save it with `mem_save` BEFORE the loop continues): same section.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature
@@ -1601,32 +1538,7 @@ HARD RULES:
     reason — not a prose RESEARCH-STATE comment; a silent switch leaves a split-language corpus
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
-  - PKILL -F WRAPPER-SHELL MATCH. `pkill -f <pattern>` matches any process whose full command line
-    contains <pattern> — including the enclosing `zsh -c`/`sh -c`/`bash -c` wrapper the harness
-    wraps every Bash call in. When the pattern string appears inside that wrapper's argv, pkill signals
-    every match — killing the enclosing session shell as well as (or instead of) the intended child. The naive remedy `kill $(pgrep -f <pattern>)` returns
-    the SAME wrapper PIDs and has the same effect. Safe alternatives: (a) record the target PID at
-    spawn (`$!` or a PID file) and kill that specific PID; (b) match by exact process name (`pkill
-    -x <name>` / `pgrep -x <name>`), which matches the process NAME (`comm`, truncated to 15 chars on
-    Linux) rather than the command line and so cannot match a `zsh`/`bash` wrapper — but a target name
-    longer than 15 chars will silently not match; (c) the bracket idiom
-    `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
-    the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
-    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv.
-    Mechanical guard: `templates/hook-pretool-pkill-guard.sh` (PreToolUse, matcher `Bash`) denies a
-    command-position `pkill -f`/`pgrep -f`/`--full` without `-x` and without a bracket-escaped pattern, naming
-    (a)-(c); without `jq` it degrades to `ask`. `research-sdd-init.sh` installs it as
-    `<TARGET>/.claude/hooks/pkill-guard.sh` (create-only) and `--wire` registers it under `hooks.PreToolUse`.
-    VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
-    actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
-    reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)
-    can leave a second competing job running; two Ghidra analyses ran in parallel for 20 minutes while
-    the session reported one had stopped — caught only by PID-level re-check.
-    OPERATOR-SESSION SAFETY (#671): when the operator has an active session on the target host, never
-    kill by name pattern — use explicit PID only. `pkill -f <pattern>` can terminate operator-owned
-    processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
-    before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
-    PID is the driver-owned process before killing.
+  - PKILL -F WRAPPER-SHELL MATCH — SITUATIONAL: you are about to kill, pgrep or stop a process, or report a job stopped (incl. VERIFY KILL BEFORE REPORTING, OPERATOR-SESSION SAFETY): same section.
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed
