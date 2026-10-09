@@ -5,10 +5,25 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../lib/qemu_exec.py"
 PLAN="$HERE/../qemu_plan.py"
+# --prove-teeth child run: `--teeth-child <staged lib/qemu_exec.py>` (an argument, never an environment
+# variable, so ambient env cannot swap the SUT of a plain run) runs the whole suite against a staged
+# mutant tree; its qemu_plan.py CLI is the staged copy next to it.
+if [ "${1:-}" = "--teeth-child" ]; then
+  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
+  SUT="$2"; PLAN="$(dirname "$2")/../qemu_plan.py"
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -f "$PLAN" ] || { echo "FATAL: qemu_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "$PLAN" <<'PY'
+# --prove-teeth: a temp root for the staged mutants and the python section's counts file.
+MUT=""; TEETH_COUNTS=""
+trap '[ -z "$MUT" ] || rm -rf "$MUT"' EXIT
+if [ "${1:-}" = "--prove-teeth" ]; then
+  MUT="$(mktemp -d)" || { echo "FATAL: mktemp failed" >&2; exit 2; }
+  TEETH_COUNTS="$MUT/py-counts"
+fi
+RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT" "$PLAN" <<'PY'
 import importlib.util, json, os, signal, struct, subprocess, sys, tempfile, time, unittest.mock
 from pathlib import Path
 
@@ -413,6 +428,70 @@ with tempfile.TemporaryDirectory() as td:
     except Exception as e:
         nok("RED-INV5-popen-window", str(e))
 
-print(f"\n== {passed} passed · {failed} failed ==")
+_counts = os.environ.get("RSDD_TEETH_COUNTS", "")
+if _counts:
+    # --prove-teeth: the bash section adds its mutant results and prints the one final line.
+    Path(_counts).write_text(f"{passed} {failed}\n")
+    print(f"\n-- python section: {passed} passed · {failed} failed --")
+else:
+    print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+py_rc=$?
+[ "${1:-}" = "--prove-teeth" ] || exit "$py_rc"
+
+# ── Real-SUT mutants (--prove-teeth, kit issue #2053) ─────────────────────────
+# Each mutant is a staged copy of the toolbelt (lib/*.py plus the top-level modules; the suite and
+# qemu_plan.py put both on sys.path) with ONE sed-mutated file; the WHOLE suite is re-run against it
+# with `--teeth-child` and the targeted case must FAIL. The bite pattern is that case's own FAIL
+# label, and any crash-class output (ImportError, NameError, ...) disqualifies the mutant.
+#
+# mutant_vm_core_teeth (tests/lib/mutant.sh) is NOT used: its inv5/alloc scenarios need a pre_boot
+# GateError ("scratch sentinel not found in planned_argv"), which LiveQemuBootExecutor never has
+# (run_vm(..., pre_boot=None)), and its fixtures (_GOOD_ARGV) are being moved by PR #2046.
+# The shared-core mutants below (killpg, reap, receipt identity) are therefore expressed on this
+# suite's own qemu cases instead.
+py_p=0; py_f=0
+if [ -r "$TEETH_COUNTS" ] && read -r py_p py_f <"$TEETH_COUNTS" && [[ "$py_p" =~ ^[0-9]+$ && "$py_f" =~ ^[0-9]+$ ]]; then :; else
+  echo "  FAIL  teeth: python section left no counts file [$TEETH_COUNTS]"; py_p=0; py_f=1
+fi
+echo "-- teeth: mutation controls (forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity) --"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
+TOOLBELT="$(dirname "$HERE")"
+b_pass=0; b_fail=0; _builds_failed=0
+_CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+# _tooth LABEL BITE_REGEX FILE SED_EXPR... : mutate FILE (relative to the toolbelt) in a fresh staged copy.
+_tooth() {
+  local label="$1" want="$2" file="$3" d; shift 3
+  d="$MUT/${label%%:*}"; mkdir -p "$d/lib"
+  cp "$TOOLBELT"/lib/*.py "$d/lib/" && cp "$TOOLBELT"/*.py "$d/" || { echo "  FAIL  $label: staging the mini-tree failed"; return 1; }
+  MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/$file" "$d/$file" "$@" || return 1
+  mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/lib/qemu_exec.py" --orig "$TOOLBELT/lib/qemu_exec.py" \
+    --bad-has "$want" --bad-lacks "$_CRASH" -- \
+    bash "$HERE/qemu-exec.test.sh" --teeth-child @SUT@
+}
+_t() { if _tooth "$@"; then b_pass=$((b_pass+1)); else b_fail=$((b_fail+1)); fi; }
+# RED4 (qemu-user refused) has no tooth here: the refusal sits behind four redundant layers (qemu_plan.py CLI,
+# qemu_exec._preflight, the executor dispatch and the missing containment flags of a qemu-user plan), so no
+# single-file mutant can reach the shim; removing one layer leaves the case green by design.
+_t "qe-net-allowed: -net no longer a forbidden flag" "FAIL  RED5--net user: expected GateError" lib/qemu_exec.py \
+  's/"-runas", "-net", "-netdev"})/"-runas", "-netdev"})/'
+_t "qe-virtfs-allowed: -virtfs no longer a forbidden flag" "FAIL  RED5--virtfs: expected GateError" lib/qemu_exec.py \
+  's/frozenset({"-virtfs", /frozenset({/'
+_t "qe-sandbox-allow: -sandbox value may carry =allow" "FAIL  RED-NEW--sandbox spawn=allow: expected GateError" lib/qemu_exec.py \
+  's/ and "=allow" not in v//'
+_t "qe-shell-true: shell=True appears in qemu_exec.py" "FAIL  RED9" lib/qemu_exec.py \
+  '$a# shell=True'
+_t "qe-killpg-off: run_vm reaps the child but not its process group" "FAIL  RED7" lib/vm_boot_core.py \
+  's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)/'
+_t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV5-popen-window" lib/vm_boot_core.py \
+  's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        pass/'
+_t "qe-receipt-id: vm_receipt_identity key renamed in the evidence" "FAIL  RED8" lib/vm_boot_core.py \
+  's/ev\["vm_receipt_identity"\] = receipt_identity/ev["vm_receipt_id"] = receipt_identity/'
+
+echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
+[ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
+exit 0
+
