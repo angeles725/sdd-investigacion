@@ -2,10 +2,15 @@
 # fact-plan.test.sh — RED-first contract tests for fact-plan.v1 (U-D18 / item 18)
 # Written BEFORE fact_plan.py; suite exits 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../fact_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../fact_plan.py"; REL="fact_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import hashlib, importlib.util, json, os, subprocess, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -195,3 +200,34 @@ with tempfile.TemporaryDirectory() as td:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-network '"network": "internal-bridge",' '"network": "host",' "FAIL  T4: well-formed-plan: network='host'"
+tt teeth-privileged 'argv += ["up", "-d"]' 'argv += ["up", "-d", "--privileged"]' 'FAIL  T4: well-formed-plan: --privileged in argv'
+tt teeth-submission-sha '"firmware_sha256": input_sha,' '"firmware_sha256": "sha256:0",' 'FAIL  T13: submission-sha256-identity$'
+tt teeth-plugin-injection 'plugins.append(_validate(plug, f"plugin {plug!r}", _NAME_RE))' 'plugins.append(plug)' 'FAIL  T12-semicolon: plugin-injection: semicolon: rc=3'
+tt teeth-compose-path 'reject_mount_delimiters(cf_abs, "compose-file path", FactPlanError)' 'pass' 'FAIL  T11-colon: compose-file-colon: cf-colon: rc=3'
+tt teeth-input-cap '_file_identity(firmware, max_bytes=args.max_input_bytes)' '_file_identity(firmware)' 'FAIL  T_CAP1: cap-below-firmware-size: got 3'
+# Not mutated: T8 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
