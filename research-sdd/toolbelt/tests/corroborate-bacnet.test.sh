@@ -132,11 +132,11 @@ fi
 echo "-- teeth: bacnet mutation controls --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 # The mutants are python files: skip the bash -n syntax check (the helper still refuses empty,
 # identical, live-tree and symlink mutants, and a stage that matches nothing).
 # MUTANT_SYNTAX=none (python mutants) is scoped per call in mk_sed, never exported (#1814)
-mk_sed() { local l="$1" o="$2"; shift 2; MUTANT_SYNTAX=none mutant_chain "$l" "$ORIG_PY" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+mk_sed() { local l="$1" o="$2"; shift 2; MUTANT_SYNTAX=none mutant_chain_or_count fail "$l" "$ORIG_PY" "$o" "$@" || return 1; }
 tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"

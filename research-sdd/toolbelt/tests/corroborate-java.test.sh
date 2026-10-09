@@ -459,7 +459,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # emit no pointer.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   _PY_CRASH="$(mutant_crash_re py)" || exit 2
   # python mutants: no bash -n (scoped per call below, never exported: #1814)
   # Scratch lives under $ROOT, so the suite's own EXIT trap (which also restores write permission
@@ -502,7 +502,7 @@ PY
     return "$rc"
   }
   if [ "$_java_staged" -ne 1 ]; then :   # staging failure already counted; the tooth must not run
-  elif MUTANT_SYNTAX=none mutant_chain "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
+  elif MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-warn-java" "$HERE/../corroborate_java.py" "$td_java/mut/corroborate_java.py" \
       '/^        if failures:$/{N;/\n            warn_evidence(schema=SCHEMA, destination=destination, detail=", ".join(failures))$/d;}'; then
     if mutant_tooth "teeth-warn-java: guard removed → stderr empty → warn-java assertion fires (has teeth)" 1 1 "$td_java/mut/corroborate_java.py" \
         --orig "$HERE/../corroborate_java.py" \
@@ -511,8 +511,6 @@ PY
         run_java_py @SUT@; then
       pass=$((pass+1))
     else fail=$((fail+1)); fi
-  else
-    fail=$((fail+1))
   fi
 
   # ── teeth: class-file facts (kit #1205) ────────────────────────────────────
@@ -553,7 +551,7 @@ PY
     fx_tooth() {
       local name="$1" expr="$2"; shift 2
       local mut="$td_java/mut/cf-$name.py"
-      if ! MUTANT_SYNTAX=none mutant_chain "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then fail=$((fail+1)); return; fi
+      if ! MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-facts-$name" "$HERE/../corroborate_java.py" "$mut" "$expr"; then return; fi
       if mutant_tooth "teeth-facts-$name" 0 "${FX_BAD_RC:-0}" "$mut" --orig "$HERE/../corroborate_java.py" --bad-lacks "${FX_BAD_LACKS:-$_PY_CRASH}" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     }
     R=(python3 "$ROOT/facts-runner.py" @SUT@ "$FX/facts.jar")

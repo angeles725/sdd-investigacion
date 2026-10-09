@@ -342,6 +342,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   TB="$HERE/.."
   MT="$TMP/mt"; mkdir -p "$MT"
   mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; printf '%s' "$t"; }
@@ -438,7 +439,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # --- lib/mutant.sh teeth for the #1657 advisories (exact rc + anchored typed line; a crash never reads as a bite)
   CRASH="$(mutant_crash_re bash py)" || exit 2
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk() { mutant_chain_or_count fail "$@" || return 1; }
   # U: a bare legal tier is passed through unchanged again -> case 25a loses its proposal
   t="$(mk_tree U)"
   mk U "$SUT" "$t/migrate-backlogs.sh" 's/if (legal(q)) { np = q }/if (legal(q)) { np = p }/' \

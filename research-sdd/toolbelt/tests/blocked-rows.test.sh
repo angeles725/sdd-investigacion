@@ -290,9 +290,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "== mutation controls =="
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   t_pass=0; t_fail=0
-  mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
+  mk() { mutant_chain_or_count t_fail "$@" || return 1; }
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
   MD="$TMP/mutants"; mkdir -p "$MD"
   AWKBAD='awk: |syntax error|fatal:'   # a mutant that does not compile / dies at runtime is theater, not a bite
