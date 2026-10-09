@@ -79,9 +79,17 @@
 #                            and `~/prototipos/clientes` (a sibling of the hisense target) carries
 #                            one session too. This predicate cannot see that class at all — it only
 #                            ever compares the registered path against its OWN git root, never
-#                            against real session launch directories (and must not: this file does
-#                            not read `~/.claude/projects` or any session transcript — that reading
-#                            was a one-time manual review activity, not a runtime capability).
+#                            against real session launch directories. History of this rule: until kit
+#                            issue #1157 this file stated "must not read `~/.claude/projects` or any
+#                            session transcript — that reading was a one-time manual review activity,
+#                            not a runtime capability". DESIGN DECISION (kit issue #1157): that rule is
+#                            LIFTED for one scoped purpose — detecting "registered but never loaded"
+#                            requires launch evidence, and #1157's own evidence cites that history.
+#                            New scope: directory/glob EXISTENCE only (a `*.jsonl` name under the
+#                            project's history directory), NEVER transcript contents. The wiring state
+#                            itself stays history-blind (sweep-retros.sh stays byte-identical); the
+#                            launch question is the SEPARATE predicate hook_stop_launch_state_var at
+#                            the end of this file.
 #
 #                            Downgrade applies ONLY to an otherwise-'wired' result: an unwired,
 #                            absent-settings, or unreadable target makes no active-firing claim in
@@ -452,6 +460,83 @@ if ! declare -F hook_stop_script_state >/dev/null 2>&1; then
   hook_stop_script_state() {
     hook_stop_script_state_var "$1"
     printf '%s' "$HOOK_SCRIPT_STATE"
+    return 0
+  }
+fi
+
+# --- LAUNCH-HISTORY state (kit issue #1157) ------------------------------------------------------
+#   hook_stop_launch_state_var <target-dir>
+#     Sets the GLOBAL $HOOK_LAUNCH_STATE to exactly one of:
+#       launched    : Claude Code's per-project history directory for <target-dir> as the session
+#                     root exists and holds at least one `*.jsonl` session transcript — a Claude Code
+#                     session was retained from exactly this directory. This says NOTHING about
+#                     whether the hook existed or was registered at that time: the transcript may
+#                     predate the registration, so 'launched' is evidence the directory is a launch
+#                     site, not that the hook has fired.
+#       no-sessions : the history root exists and is readable, but holds no retained transcript for
+#                     <target-dir>. RETENTION: Claude Code prunes old transcripts, so this means "no
+#                     RETAINED Claude Code transcript", not a proof that no session ever started
+#                     there. The Stop hook in .claude/settings.json is Claude-Code-specific: a
+#                     target worked in another harness (pi, gentle-shell) has no such history and
+#                     reads no-sessions without the hook being wrong for that harness.
+#       unknown     : the instrument could not look — HOME unset/empty and no override, the history
+#                     root is absent or not a directory, the target path has a non-ASCII byte (the
+#                     directory-name encoding is per UTF-16 code unit in Claude Code but per byte
+#                     under a C locale), the encoded name exceeds 200 characters (Claude Code
+#                     truncates and hashes long names), or any component of the target path is a
+#                     symlink (Claude Code records the resolved path, which this fork-free check
+#                     cannot compute). NO claim in either direction (§7).
+#     DESIGN DECISION (kit issue #1157): this predicate lifts the earlier rule "the lib must not read
+#     ~/.claude/projects"; the read is limited to directory/glob EXISTENCE, never transcript contents.
+#     Directory name = the absolute, ./..-collapsed target path with every character outside
+#     [A-Za-z0-9] replaced by '-' (so /home/u/a.b/c becomes -home-u-a-b-c), under
+#     "${RSDD_CLAUDE_PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}".
+#     RSDD_CLAUDE_PROJECTS_DIR is the test seam (it wins over CLAUDE_CONFIG_DIR).
+#     A session launched in a SUBDIRECTORY or PARENT of <target-dir> records under its own name and
+#     does not count: project settings load from the launch directory only (observed behavior, kit
+#     issue #1134), which is the whole point of this question.
+#     This is a SEPARATE question from the wiring state and the script state: it never changes
+#     hook_stop_wiring_state_var (sweep-retros.sh and research-sdd-status.sh stay byte-identical)
+#     and is asked by a caller only AFTER 'wired' / 'wired-off-root' and a non-'missing' script.
+#     COST: zero forks — builtins only ([ -d ], [ -L ], compgen, parameter expansion). Returns 0.
+#
+#   hook_stop_launch_state <target-dir> : wrapper, prints $HOOK_LAUNCH_STATE (one extra fork).
+if ! declare -F hook_stop_launch_state_var >/dev/null 2>&1; then
+  hook_stop_launch_state_var() {
+    local root enc d
+    root="${RSDD_CLAUDE_PROJECTS_DIR:-}"
+    if [ -z "$root" ]; then
+      if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then root="$CLAUDE_CONFIG_DIR/projects"
+      elif [ -n "${HOME:-}" ]; then root="$HOME/.claude/projects"
+      else HOOK_LAUNCH_STATE="unknown"; return 0; fi
+    fi
+    if [ ! -d "$root" ] || [ ! -r "$root" ]; then
+      HOOK_LAUNCH_STATE="unknown"; return 0
+    fi
+    _hw_abspath "$1"; d="$HW_ABS_PATH"
+    case "$d" in *[!\ -~]*) HOOK_LAUNCH_STATE="unknown"; return 0 ;; esac   # HOOK-LAUNCH-NONASCII-GUARD
+    # SYMLINK GUARD: Claude Code records the RESOLVED cwd; any symlinked component of the registered
+    # path would make the encoded name point at the wrong directory. Builtins only (no pwd -P fork).
+    local _hw_c="$d"
+    while [ -n "$_hw_c" ] && [ "$_hw_c" != "/" ]; do
+      if [ -L "$_hw_c" ]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi  # HOOK-LAUNCH-SYMLINK-GUARD
+      _hw_c="${_hw_c%/*}"
+    done
+    enc="${d//[^A-Za-z0-9]/-}"
+    if [ "${#enc}" -gt 200 ]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi   # HOOK-LAUNCH-LONGNAME-GUARD
+    if compgen -G "$root/$enc/*.jsonl" >/dev/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK
+      HOOK_LAUNCH_STATE="launched"
+    else
+      HOOK_LAUNCH_STATE="no-sessions"
+    fi
+    return 0
+  }
+fi
+
+if ! declare -F hook_stop_launch_state >/dev/null 2>&1; then
+  hook_stop_launch_state() {
+    hook_stop_launch_state_var "$1"
+    printf '%s' "$HOOK_LAUNCH_STATE"
     return 0
   }
 fi
