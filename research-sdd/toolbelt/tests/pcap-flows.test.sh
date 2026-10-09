@@ -58,7 +58,8 @@ else no "manifest verification"; fi
 # T4: network isolation — argv must contain bwrap markers
 if python3 - "$ROOT/a/pcap-flows.v1.json" <<'PY'
 import json,sys; d=json.load(open(sys.argv[1])); a=d['conversations']['argv']
-assert '--unshare-net' in a and '--cap-drop' in a
+assert '--unshare-net' in a, "--unshare-net missing from argv"
+assert '--cap-drop' in a, "--cap-drop missing from argv"
 PY
 then ok "bwrap network-denial markers present in recorded conversations argv"
 else no "isolation markers in argv"; fi
@@ -169,7 +170,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
   _builds_failed=0
-  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
+  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
+  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates a staged copy of pcap_flows.py.
   _tooth() {
     local label="$1" want="$2" d; shift 2
@@ -181,7 +184,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
       bash "$HERE/pcap-flows.test.sh" --teeth-child @SUT@
   }
   _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  _t "pf-net-open: --unshare-net dropped from the sandbox argv" "FAIL  isolation markers in argv" \
+  _t "pf-net-open: --unshare-net dropped from the sandbox argv" "AssertionError: --unshare-net missing from argv" \
     's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
   _t "pf-digest-truncated: payload digest no longer a full sha256" "FAIL  payload digest format" \
     's/"payload_sha256": "sha256:" + h.hexdigest(),/"payload_sha256": "sha256:" + h.hexdigest()[:32],/'
@@ -191,6 +194,16 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     's/^            stream_ids = stream_ids\[:args.max_streams\]$/            pass/'
   _t "pf-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
     's/^        refuse_privileged_execution()$/        pass/'
+  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
+  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  _ctl_out="$(_tooth "pf-ctl-nameerror: sandbox misspelled (NameError)" "FAIL  isolation markers in argv" \
+    's/prefix = sandbox(bwrap, env)/prefix = sandboxX(bwrap, env)/' 2>&1)"; _ctl_rc=$?
+  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
+     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
+    echo "  PASS  pf-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
+  else
+    echo "  FAIL  pf-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
+  fi
   rm -rf "$_MUT"
 fi
 

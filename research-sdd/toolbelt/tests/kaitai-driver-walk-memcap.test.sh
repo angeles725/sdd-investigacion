@@ -388,7 +388,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _KD_REAL="$HERE/../lib/kaitai_driver.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$_MUT"' EXIT
   _builds_failed=0
-  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
+  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
+  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   # _tooth_kd LABEL BAD_CASE_LABEL BUILD_CMD... : BUILD_CMD gets the mutant OUT path appended.
   _tooth_kd() {
     local label="$1" want="$2" d; shift 2
@@ -417,6 +419,17 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _t "kd-m6-no-zero-branch: if _n == 0 branch deleted (hang)" "FAIL  T3:" \
     mutant_py_replace "kd-m6-no-zero-branch" "$_KD_REAL" \
     $'            if _n == 0:\n                return 1  # cannot make progress; broken fd\n' ''
+  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
+  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  _ctl_out="$(_tooth_kd "kd-ctl-nameerror: _offset step misspelled (NameError)" "FAIL  " \
+    mutant_py_replace "kd-ctl-nameerror" "$_KD_REAL" \
+    '            _offset += _n' '            _offset += _nX' 2>&1)"; _ctl_rc=$?
+  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
+     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
+    echo "  PASS  kd-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
+  else
+    echo "  FAIL  kd-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
+  fi
   rm -rf "$_MUT"
 fi
 

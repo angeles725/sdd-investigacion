@@ -160,7 +160,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _FC_REAL="$TOOLBELT/firmware_carve.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"; rm -f "$ROOT-parent-link"' EXIT
   _builds_failed=0
-  _CRASH_ALL="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"; _CRASH="$_CRASH_ALL"
+  _CRASH_ALL="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"; _CRASH="$_CRASH_ALL"
+  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
+  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   _tooth_fc() { # LABEL BAD_CASE_LABEL SED_EXPR...
     local label="$1" want="$2" d; shift 2
     d="$_MUT/${label%%:*}"; mkdir -p "$d"; ln -s "$TOOLBELT/lib" "$d/lib"
@@ -179,10 +181,21 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     's/and all(x != 0xffffffffffffffff for x in required):/and True:/'
   _t "fc-root-main: main() root guard removed" "FAIL  caller safety" \
     's/^        refuse_privileged_execution()$/        pass/'
+  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
+  # The message-form half is checked on the str(e) text alone (no class name), the machinery half end to end.
+  _ctl_out="$(_tooth_fc "fc-ctl-nameerror: max_carves misspelled (NameError)" "FAIL  " \
+    's/if len(found) >= max_carves or len(found) + 2 > max_files: raise/if len(found) >= max_carvesX or len(found) + 2 > max_files: raise/' 2>&1)"; _ctl_rc=$?
+  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
+     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
+    echo "  PASS  fc-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
+  else
+    echo "  FAIL  fc-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
+  fi
   # With the worker() guard gone, the self-guard case reports a legitimate AttributeError ("guard was not
   # first: got AttributeError"), so the teeth below drop that class from the crash filter. Their bite
   # patterns stay specific: the case's own FAIL label / exact assertion text.
-  _CRASH="${_CRASH_ALL/|AttributeError/}"
+  # Carve-out kept minimal: only the AttributeError class and its "has no attribute" message form are dropped.
+  _CRASH="${_CRASH_ALL/|AttributeError/}"; _CRASH="${_CRASH/|has no attribute/}"
   _t "fc-root-worker: root guard removed from main() and worker()" "FAIL  --worker caller safety" \
     's/^        refuse_privileged_execution()$/        pass/' 's/^    refuse_privileged_execution()  #.*/    pass/'
   _t "fc-self-guard: worker() self-guard removed" "AssertionError: guard was not first: got AttributeError" \
