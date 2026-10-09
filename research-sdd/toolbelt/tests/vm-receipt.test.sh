@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # vm-receipt.test.sh — contract tests for vm-run-receipt.v1
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../vm_receipt.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../vm_receipt.py"; REL="vm_receipt.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import copy,hashlib,importlib.util,json,subprocess,sys,tempfile
 from pathlib import Path
 sut=Path(sys.argv[1])
@@ -44,7 +49,7 @@ with tempfile.TemporaryDirectory() as tmp:
     m.verify_receipt(r1,R)
     ok("verify_receipt passes when artifacts match recorded digests")
     (R/"output.txt").write_bytes(b"tampered!")
-    try: m.verify_receipt(r1,R); assert False
+    try: m.verify_receipt(r1,R); assert False,"verify_receipt must fail closed on artifact digest mismatch"
     except m.VmReceiptError: ok("verify_receipt fails closed on artifact digest mismatch")
     (R/"output.txt").write_bytes(b"output data")
     for label,mutate in [
@@ -98,3 +103,38 @@ with tempfile.TemporaryDirectory() as tmp:
     ok("regression: valid relative artifact path still verifies after hardening")
 print(f"== {passed} passed · 0 failed ==")
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+# This suite reports a bite as an uncaught AssertionError (it has no nok()), so the Traceback header is the expected signal:
+# the crash filter is the strict one MINUS Traceback, and every BAD_HAS pins the AssertionError message text.
+CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+tt teeth-digest-mismatch 'if actual_size != rec["size"] or actual_sha != rec["sha256"]:' 'if False:' 'AssertionError: verify_receipt must fail closed on artifact digest mismatch' "$CRASH_NOTB"
+tt teeth-dotdot 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if Path(p).is_absolute():' "AssertionError: _artifacts must reject dotdot path '../escape'" "$CRASH_NOTB"
+tt teeth-absolute 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if ".." in Path(p).parts:' 'AssertionError: _artifacts must reject absolute artifact path' "$CRASH_NOTB"
+tt teeth-nan 'or not math.isfinite(v[k]) or v[k] < 0):' 'or v[k] < 0):' 'AssertionError: _observed must reject NaN mem_bytes_peak' "$CRASH_NOTB"
+# Not mutated (measured equivalent mutants - no case isolates them): the validate_receipt field checks the corrupt-record table exercises
+# (zero limit via _posint, exit_status both/neither) - each mutant was run and the suite stayed green, because validate_receipt's identity
+# check rejects every mutated record first; and the verify_receipt "resolves outside artifacts_dir" confinement - the absolute /etc/passwd
+# case is rejected earlier by _artifacts, so no case reaches that guard on its own.
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
