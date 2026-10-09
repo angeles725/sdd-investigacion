@@ -423,11 +423,11 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # tooth LABEL CASEFN SED_EXPR [needs-timeout] — build a mutant of the lib, require the case to FAIL on it.
   tooth() {
     local label="$1" fn="$2" expr="$3" m="$TMP/mut-$1.sh" extra=("${@:4}")
-    if ! mutant_chain "teeth $label" "$LIB" "$m" "$expr"; then fail=$((fail+1)); return; fi
+    if ! mutant_chain_or_count fail "teeth $label" "$LIB" "$m" "$expr"; then return; fi
     if "$fn" "$m" "${extra[@]}"; then no "teeth $label: case still holds on the mutant — THEATER"
     else ok "teeth $label: case goes red"; fi
   }
