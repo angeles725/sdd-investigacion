@@ -25,23 +25,28 @@ def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
 def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if r else ""))
 
 # ── PC1: single-proc mode reaps sleep-30 within grace period ─────────────────
+proc = None
 try:
-    proc = subprocess.Popen(["sleep", "30"])
+    proc = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     m.reap_process_tree(proc, grace_s=5, use_group=False)
     assert proc.poll() is not None, f"process still alive: poll={proc.poll()}"
     ok("PC1: single-proc reap_process_tree reaps sleep-30 within grace period")
 except Exception as e: nok("PC1", str(e))
+finally:
+    if proc is not None and proc.poll() is None: proc.kill(); proc.wait()   # never leak the victim (a broken reaper)
 
 # ── PC2: group mode reaps process spawned with start_new_session=True ─────────
 try:
     # Spawn a process in its own session (new process group).
     # Use a simple sleep so it doesn't spawn child procs at this level,
     # but start_new_session=True ensures killpg path is exercised.
-    proc = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    proc = subprocess.Popen(["sleep", "30"], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     m.reap_process_tree(proc, grace_s=5, use_group=True)
     assert proc.poll() is not None, f"process still alive after group reap: poll={proc.poll()}"
     ok("PC2: group-mode reap_process_tree reaps start_new_session process")
 except Exception as e: nok("PC2", str(e))
+finally:
+    if proc is not None and proc.poll() is None: proc.kill(); proc.wait()   # never leak the victim (a broken reaper)
 
 # ── PC3: never raises when proc already exited ────────────────────────────────
 try:
@@ -79,10 +84,13 @@ try:
         sut_path = Path({str(sut_path)!r})
         sp = importlib.util.spec_from_file_location("proc_common", sut_path)
         m2 = importlib.util.module_from_spec(sp); sp.loader.exec_module(m2)
-        victim = subprocess.Popen(["sleep", "30"])
-        m2.reap_process_tree(victim, grace_s=2, use_group=True)
-        assert victim.poll() is not None, "victim still alive after reap"
-        print("survived")
+        victim = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            m2.reap_process_tree(victim, grace_s=2, use_group=True)
+            assert victim.poll() is not None, "victim still alive after reap"
+            print("survived")
+        finally:
+            if victim.poll() is None: victim.kill(); victim.wait()
     """).strip()
     # start_new_session isolates the worker: if unfixed code fires killpg on its
     # own pgid the blast is contained to this subprocess, not the test runner.
@@ -123,10 +131,10 @@ tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass
 echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
 if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 
-# PC1/PC2/PC6 mutants leave their `sleep 30` victims to expire on their own (the reaper is the thing being broken).
+# The PC1/PC2/PC6 victims are killed and waited on by the test itself (try/finally on the exact handle), so a broken reaper leaks nothing.
 tt teeth-PC1 'if proc.poll() is not None:' 'if True:' 'FAIL  PC1: process still alive'
 tt teeth-PC2 'pgid = os.getpgid(proc.pid)' 'pgid = os.getpgid(proc.pid) + 99999' 'FAIL  PC2: process still alive after group reap'
-tt teeth-PC6 'if pgid == os.getpgrp():' 'if False:' 'FAIL  PC6: reaper killed by own killpg'
+tt teeth-PC6 'if pgid == os.getpgrp():' 'if False:' 'FAIL  PC6: reaper killed by own killpg \(rc=-15\)'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

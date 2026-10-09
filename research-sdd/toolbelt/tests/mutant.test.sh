@@ -769,6 +769,11 @@ SH
 printf '#!/usr/bin/env bash\necho "TEETH-CHILD: SUT=$2"; echo "== 1 passed · 0 failed =="\n' > "$PYT/tests/self-blunt.sh"
 printf '#!/usr/bin/env bash\nbash "$(dirname "$0")/self-good.sh" "$@"; rc=$?; grep -q BAD "$2" && echo "Traceback (most recent call last):"; exit $rc\n' > "$PYT/tests/self-crash.sh"
 sed "s/F-1: broke/F-1: KeyError: x/" "$PYT/tests/self-good.sh" > "$PYT/tests/self-keyerr.sh"
+# str(e) forms: a suite that prints `nok(label, str(e))` drops the class, so a NameError reads "name 'x' is not defined".
+sed "s/F-1: broke/F-1: name 'x' is not defined/" "$PYT/tests/self-good.sh" > "$PYT/tests/self-nameerr.sh"
+# control fixtures: a clean child with no banner, and a clean child that prints a Traceback while reporting 0 failed.
+printf '#!/usr/bin/env bash\necho "== 1 passed · 0 failed =="\n' > "$PYT/tests/self-nobanner.sh"
+printf '#!/usr/bin/env bash\necho "TEETH-CHILD: SUT=$2"; echo "Traceback (most recent call last):"; echo "== 1 passed · 0 failed =="\n' > "$PYT/tests/self-cleancrash.sh"
 pyt(){  # pyt <self-script> <label> <old> <new> <bad-has> [crash-re] -> helper output + RC=<rc>
   local self="$1" label="$2"; shift 2
   mkdir -p "$TMP/pymut-$label"
@@ -795,6 +800,9 @@ else no "py tooth strict default vs KeyError (got [$res])"; fi
 res="$(pyt self-keyerr.sh t7 'x = 1' 'x = BAD' 'FAIL  F-1: KeyError: x' 'Traceback')"
 if grep -qx 'RC=0' <<<"$res"; then ok "py tooth: a narrower per-tooth CRASH_RE lets that legitimate text through"
 else no "py tooth CRASH_RE override (got [$res])"; fi
+res="$(pyt self-nameerr.sh t10 'x = 1' 'x = BAD' 'FAIL  F-1')"
+if grep -qx 'RC=1' <<<"$res" && grep -q 'mutant output still matches' <<<"$res"; then ok "py tooth: a NameError mutant whose suite prints only str(e) (\"is not defined\") is REFUSED even with a label-only BAD_HAS"
+else no "py tooth str(e) NameError (got [$res])"; fi
 res="$(pyt self-good.sh t8 'x = 1' 'x = BAD' '')"
 if grep -qx 'RC=1' <<<"$res" && grep -q 'needs a BAD_HAS' <<<"$res"; then ok "py tooth: an empty BAD_HAS is refused (a tooth with no named label proves nothing)"
 else no "py tooth empty BAD_HAS (got [$res])"; fi
@@ -815,7 +823,14 @@ mkdir -p "$TMP/pymut-ctl3"
 res3="$(mutant_py_stage_control ctl "$PYT/tests" "$PYT/tests/self-good.sh" "$TMP/pymut-ctl3" lib/fake.py 2>&1)"; rc3=$?
 printf 'x = 1\n' > "$PYT/lib/fake.py"
 if [ "$rc3" -eq 1 ] && grep -q 'FAIL  ctl' <<<"$res3"; then ok "py control: a staged tree whose unmutated child fails is a FAIL (staging gap / broken SUT)"; else no "py control failing child (rc=$rc3 $res3)"; fi
+mkdir -p "$TMP/pymut-ctl4" "$TMP/pymut-ctl5"
+res4="$(mutant_py_stage_control ctl "$PYT/tests" "$PYT/tests/self-nobanner.sh" "$TMP/pymut-ctl4" lib/fake.py 2>&1)"; rc4=$?
+if [ "$rc4" -eq 1 ] && grep -q 'FAIL  ctl' <<<"$res4"; then ok "py control: a clean child that prints no TEETH-CHILD banner fails the control (the SUT was not argument-selected)"; else no "py control no banner (rc=$rc4 $res4)"; fi
+res5="$(mutant_py_stage_control ctl "$PYT/tests" "$PYT/tests/self-cleancrash.sh" "$TMP/pymut-ctl5" lib/fake.py 2>&1)"; rc5=$?
+if [ "$rc5" -eq 1 ] && grep -q 'FAIL  ctl' <<<"$res5"; then ok "py control: a clean child that prints a Traceback while reporting 0 failed fails the control"; else no "py control clean crash (rc=$rc5 $res5)"; fi
 res="$(bash -c '. "$1"; mutant_py_crash_strict' _ "$LIB")"
+mmiss=""; for c in "name 'x' is not defined" "No module named 'x'" "cannot import name 'y'" "object has no attribute 'z'" "'NoneType' object is not callable" "takes 1 positional argument" "unexpected keyword argument 'k'" "invalid syntax"; do grep -qE "$res" <<<"$c" || mmiss="$mmiss [$c]"; done
+if [ -z "$mmiss" ]; then ok "py crash_strict: matches the str(e) message forms (class dropped by nok(label, str(e)))"; else no "py crash_strict message forms miss:$mmiss"; fi
 miss=""; for c in Traceback ImportError ModuleNotFoundError SyntaxError IndentationError NameError AttributeError TypeError KeyError UnboundLocalError; do grep -qE "$res" <<<"$c" || miss="$miss $c"; done
 if [ -z "$miss" ]; then ok "py crash_strict: matches every named exception class"; else no "py crash_strict misses:$miss"; fi
 
@@ -1018,6 +1033,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # python-SUT tooth kit (#2053 WU1)
   teeth_case pycrash "s/|KeyError|/|/" \
     "py crash_strict misses"
+  teeth_case pymsg "s/|is not defined|/|/" \
+    "py tooth str(e) NameError"
+  teeth_case pybanner '/SENTINEL-PY-CONTROL/,+1s/ && grep -qF "TEETH-CHILD: SUT=\$mut\/clean\/\$rel" <<<"\$out"//' \
+    "py control no banner"
+  teeth_case pycleancrash '/SENTINEL-PY-CONTROL/,+2s/ *&& ! grep -qE "\$(mutant_py_crash_strict)" <<<"\$out"; then/; then/' \
+    "py control clean crash"
   teeth_case pystage '/SENTINEL-PY-STAGE-LIB/,+1s/2>\/dev\/null || return 1/2>\/dev\/null || true/' \
     "py stage no lib"
   teeth_case pytop 's/^  cp "\$here\/\.\.\/"\*\.py "\$dest\/" 2>\/dev\/null || true.*/  :/' \

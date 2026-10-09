@@ -638,12 +638,25 @@ mutant_vm_core_teeth() {
 # HERE is the suite's tests/ dir, SELF the suite script, MUT a temp root the caller owns, REL the module path
 # relative to the toolbelt dir (e.g. lib/plan_common.py). Tooth LABELs must be unique per MUT.
 #
-#   mutant_py_crash_strict                 prints the strict crash regex (grep -E): Traceback|ImportError|
-#                                          ModuleNotFoundError|SyntaxError|IndentationError|NameError|
-#                                          AttributeError|TypeError|KeyError|UnboundLocalError
+#   mutant_py_crash_strict                 prints the strict crash regex (grep -E): the exception CLASS names
+#                                          (Traceback|ImportError|ModuleNotFoundError|SyntaxError|
+#                                          IndentationError|NameError|AttributeError|TypeError|KeyError|
+#                                          UnboundLocalError) AND their str(e) message forms, because suites
+#                                          that print `nok(label, str(e))` drop the class (NameError reads
+#                                          "name 'X' is not defined"): is not defined|No module named|cannot
+#                                          import name|has no attribute|object is not (callable|subscriptable|
+#                                          iterable)|positional argument|unexpected keyword argument|invalid
+#                                          syntax|referenced before assignment|unsupported operand|not
+#                                          supported between|list index out of range|missing N required|NoneType
+#                                          BAD_HAS MUST therefore carry the ASSERTION text the suite prints for
+#                                          the bitten case (e.g. `FAIL  PC6: reaper killed by own killpg \(rc=-15\)`),
+#                                          never just a label: a label-only BAD_HAS cannot tell a real bite from
+#                                          a mutant that merely broke the case.
 #   mutant_py_stage HERE DEST              copy HERE/../lib/*.py to DEST/lib/ and HERE/../*.py to DEST/ (the
 #                                          plan modules import lib/ through sys.path); rc 1 when no lib module
-#                                          was copied
+#                                          was copied. ONLY *.py files at those two levels are staged: non-.py data
+#                                          files and subpackages are NOT, and the mandatory control below is what
+#                                          detects such a staging gap (a SUT that needs one fails the control).
 #   mutant_py_stage_control LABEL HERE SELF MUT REL
 #                                          stage UNMUTATED into MUT/clean and run the child on MUT/clean/REL: it
 #                                          must exit 0, print the TEETH-CHILD banner, report `0 failed` and carry
@@ -657,7 +670,7 @@ mutant_vm_core_teeth() {
 #                                          neither run matches CRASH_RE (default mutant_py_crash_strict; pass a
 #                                          narrower one when the suite legitimately prints an exception name).
 #                                          Prints PASS/FAIL; rc 0/1. The caller counts, as with mutant_tooth.
-mutant_py_crash_strict() { printf '%s' 'Traceback|ImportError|ModuleNotFoundError|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError'; }
+mutant_py_crash_strict() { printf '%s' 'Traceback|ImportError|ModuleNotFoundError|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand|not supported between|list index out of range|missing [0-9]+ required|NoneType'; }
 
 mutant_py_stage() {
   local here="$1" dest="$2"
