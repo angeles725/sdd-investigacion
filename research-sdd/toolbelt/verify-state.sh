@@ -596,7 +596,7 @@ _p8_root_check() {
       path_dir="$(dirname "$path")"
       if [ -d "$path_dir" ]; then
         # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
-        canon_dir="$(CDPATH='' cd -P -- "$path_dir" 2>/dev/null && pwd -P)"
+        canon_dir="$(CDPATH= cd -P -- "$path_dir" 2>/dev/null && pwd -P)"
         case "$canon_dir" in
           ''|*$'\n'*) ;;  # canonicalization failed/corrupted — keep path as-is
           *) path_base="$(basename "$path")"; path="$canon_dir/$path_base" ;;
@@ -657,7 +657,7 @@ fi
 # still fail for other environmental reasons (removed between the top-of-script check and here, a
 # permission change, etc.) — verified below, never assumed.
 # shellcheck disable=SC1007  # CDPATH= (empty) is a deliberate prefix assignment, not a typo.
-_p8_canon="$(CDPATH='' cd -P -- "$_p8_hroot" 2>/dev/null && pwd -P)"
+_p8_canon="$(CDPATH= cd -P -- "$_p8_hroot" 2>/dev/null && pwd -P)"
 _p8_root_ok=1
 case "$_p8_canon" in
   ''|*$'\n'*) _p8_root_ok=0 ;;

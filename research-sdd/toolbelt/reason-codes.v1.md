@@ -107,6 +107,7 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)` | degraded | migrate-backlogs.sh | the state-file scan failed; this is NOT the same as no state files | run the scan by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
 | `degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)` | degraded | migrate-backlogs.sh | the FOCUSES.md scan failed, so the document-focus check has no verdict | run `find` for FOCUSES.md by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
 | `degraded: migrate-backlogs: awk failed reading` | degraded | migrate-backlogs.sh | awk failed reading a FOCUSES.md, so the document-focus check was not computed | run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh` |
+| `degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at` | degraded | research-sdd-status.sh, reconcile-issues.sh, stage-retro-issues.sh, research-sdd-init.sh, migrate-backlogs.sh | the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found | re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path |
 
 ## Input class
 
