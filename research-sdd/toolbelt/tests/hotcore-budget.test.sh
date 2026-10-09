@@ -758,9 +758,7 @@ sys.stdout.write(s.replace(old, new))
   # mutant is counted as ONE failure here and its tooth is skipped (the builders return 1).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_built; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built || exit 2
 
   # mk_chain ORIG OUT EXPR... -- one sed stage per EXPR; each must change ORIG on its own.
   mk_chain() {

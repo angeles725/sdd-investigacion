@@ -4022,7 +4022,7 @@ printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cw
   | PATH="$4:$PATH" bash "$1" "$2" >/dev/null
 URUNEOF
 chmod +x "$U_RUNNER"
-U_CRASHES='integer expression expected|syntax error|unbound variable|command not found'
+U_CRASHES="$(mutant_crash_re bash cmd)" || exit 2
 u_mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
 u_tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 # u_teeth <label> <good-kit> <target> <sid> <good-has> <bad-has> <sed-expr>: build the mutant in a copy of

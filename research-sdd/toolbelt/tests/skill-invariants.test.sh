@@ -543,9 +543,7 @@ if [ "$PROVE_TEETH" = 1 ]; then
   # refuses an unchanged mutant, so they cannot be reached on a refused build.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_built; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built || exit 2
 
   # Teeth A1: remove 'the 7 markers' → A1 positive check must go RED.
   mutant1="$TMP/SKILL.mutant1.md"

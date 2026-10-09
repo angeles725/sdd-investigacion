@@ -256,16 +256,14 @@ tno() { printf '  FAIL  %s\n' "$1"; teeth_fail=$((teeth_fail+1)); }
 # (mk_mut / mk_built) and its control is skipped, so a stale or missing mutant is never run.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _mf in mutant_chain mutant_built mutant_tooth; do
-  declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
 # mk_mut LABEL SRC DST EXPR... — mutant_chain, counting a refusal. mk_built LABEL ORIG OUT — mutant_built likewise.
 mk_mut() { mutant_chain "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
 mk_built() { mutant_built "$@" || { teeth_fail=$((teeth_fail+1)); return 1; }; }
 # tt LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...  — mutant_tooth (EXACT exit codes on the original and the mutant).
 tt() { if mutant_tooth "$@"; then teeth_pass=$((teeth_pass+1)); else teeth_fail=$((teeth_fail+1)); fi; }
 # A bad side that is only an exit code must not be a crash: these never read as a bite.
-CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
+CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
 
 # Helper: create a mutant by deleting the block between a sentinel pair. Both markers must occur exactly
 # once, so the range cannot run open-ended to EOF on a missing END marker.

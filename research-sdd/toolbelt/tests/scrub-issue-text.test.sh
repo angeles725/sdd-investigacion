@@ -139,7 +139,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   MUT="$ROOT/mut"; mkdir -p "$MUT"
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|awk: |command not found'
+  CRASH="$(mutant_crash_re bash py awk cmd)" || exit 2
   # tooth <label> <input> <good-has> <sed-expr...>: the mutant must keep the raw text the original removed.
   tooth() {
     local label="$1" in="$2" rx="$3"; shift 3

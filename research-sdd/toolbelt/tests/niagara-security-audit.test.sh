@@ -784,9 +784,7 @@ fi
 # missing function is a loud suite failure, never a silently skipped tooth.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
-for _fn in mutant_chain mutant_tooth; do
-  declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh does not define $_fn" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 # niagara_security_audit.py imports only the standard library (see its import block), so a single-file
 # mutant copy is self-contained; the helper's bash syntax check does not apply, so nsa_mk runs ast.parse.
 MUTROOT="$ROOT/mut"; mkdir -p "$MUTROOT" || { echo "FATAL: cannot create $MUTROOT" >&2; exit 2; }

@@ -17,8 +17,7 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-declare -F mutant_vm_tooth_py_src >/dev/null && declare -F mutant_vm_core_teeth >/dev/null \
-  || { echo "FATAL: lib/mutant.sh lacks mutant_vm_tooth_py_src/mutant_vm_core_teeth" >&2; exit 2; }
+mutant_bootstrap mutant_vm_tooth_py_src mutant_vm_core_teeth || exit 2
 
 # --prove-teeth: a temp root for the staged mutants and the python section's counts file.
 # One EXIT trap for the whole suite (a second trap would replace this one).

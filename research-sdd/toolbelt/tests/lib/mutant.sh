@@ -42,6 +42,21 @@
 #   mutant_built_or_count COUNTER LABEL ORIG OUT           mutant_or_count COUNTER mutant_built ...
 #                                        the count-once contract in one place: a call site cannot
 #                                        forget, or double, the `else fail=$((fail+1))` branch.
+#   mutant_bootstrap FN...               the suite bootstrap probe, after `. lib/mutant.sh`: every named
+#                                        function must be defined, else `FATAL: lib/mutant.sh did not
+#                                        define FN` (with the sourced library's path) on stderr and rc 2 (callers `|| exit 2`). No names
+#                                        is REFUSED (rc 2): a probe that checks nothing proves nothing.
+#   mutant_crash_re [CLASS...]           print the crash-signature regex (grep -E) a tooth puts in a
+#                                        --bad-lacks / negative match, built from NAMED classes joined
+#                                        with | in the order given: bash = `integer expression expected|
+#                                        syntax error|unbound variable` · tb = `Traceback` · imp =
+#                                        `ImportError|ModuleNotFoundError` · py = tb + imp · cmd =
+#                                        `command not found` · awk = `awk: ` (trailing space). No
+#                                        CLASS = `bash py`. An unknown class is rc 2 with NO output
+#                                        (an empty regex would match everything); callers `|| exit 2`.
+#                                        Suites that mean a different set name different classes.
+#   mutant_is_crash TEXT [CLASS...]      rc 0 when TEXT matches mutant_crash_re CLASS... · 1 when not ·
+#                                        2 on an unknown class (never a quiet "not a crash")
 #   mutant_cleanup_register PATH         register an ABSOLUTE path (not / ) for `rm -rf --` at shell
 #                                        exit. One registry, one EXIT trap: the first call chains
 #                                        whatever EXIT trap already exists (`_mutant_cleanup_run; <old>`)
@@ -333,6 +348,52 @@ mutant_cleanup_register() {
   esac
 }
 
+# mutant_bootstrap FN... — see header.
+mutant_bootstrap() {
+  local _mb_fn
+  if [ "$#" -eq 0 ]; then
+    printf 'mutant_bootstrap: REFUSED — no helper names to check\n' >&2; return 2
+  fi
+  for _mb_fn in "$@"; do
+    declare -F "$_mb_fn" >/dev/null 2>&1 || { printf 'FATAL: lib/mutant.sh (%s) did not define %s\n' "${BASH_SOURCE[0]}" "$_mb_fn" >&2; return 2; }
+  done
+}
+
+# _mutant_crash_class CLASS — the regex piece for one named class; rc 1 for an unknown class.
+_mutant_crash_class() {
+  case "$1" in
+    bash) printf '%s' 'integer expression expected|syntax error|unbound variable' ;;
+    tb)   printf '%s' 'Traceback' ;;
+    imp)  printf '%s' 'ImportError|ModuleNotFoundError' ;;
+    py)   printf '%s|%s' "$(_mutant_crash_class tb)" "$(_mutant_crash_class imp)" ;;
+    cmd)  printf '%s' 'command not found' ;;
+    awk)  printf '%s' 'awk: ' ;;
+    *)    return 1 ;;
+  esac
+}
+
+# mutant_crash_re [CLASS...] — see header.
+mutant_crash_re() {
+  local _mc_c _mc_part _mc_re=""
+  [ "$#" -gt 0 ] || set -- bash py
+  for _mc_c in "$@"; do
+    _mc_part="$(_mutant_crash_class "$_mc_c")" || { printf 'mutant_crash_re: unknown class [%s]\n' "$_mc_c" >&2; return 2; }
+    _mc_re="${_mc_re:+$_mc_re|}$_mc_part"
+  done
+  printf '%s' "$_mc_re"
+}
+
+# mutant_vm_crash_re — the crash regex of the VM-core teeth: the py classes plus SyntaxError.
+mutant_vm_crash_re() { printf '%s|SyntaxError' "$(mutant_crash_re py)"; }
+
+# mutant_is_crash TEXT [CLASS...] — see header.
+mutant_is_crash() {
+  local _mi_text="${1-}" _mi_re
+  shift
+  _mi_re="$(mutant_crash_re "$@")" || return 2
+  grep -qE -- "$_mi_re" <<<"$_mi_text"
+}
+
 # mutant_tooth LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV... — see header.
 mutant_tooth() {
   local label="$1" grc="$2" brc="$3" mut="$4"
@@ -460,7 +521,7 @@ PY
 
 mutant_vm_core_teeth() {
   local ex="$1" here="$2" self="$3" sut_exec="$4" mut="$5"
-  local crash='Traceback|ImportError|ModuleNotFoundError|SyntaxError'
+  local crash; crash="$(mutant_vm_crash_re)"
   local core="$here/../lib/vm_boot_core.py" s o rc k
   MVC_PASS=0; MVC_FAIL=0
   # stage NAME: copy lib/*.py and the top-level modules into $mut/NAME/

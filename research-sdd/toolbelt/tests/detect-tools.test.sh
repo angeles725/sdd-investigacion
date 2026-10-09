@@ -406,7 +406,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mutant of it — so they stay hand-built.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
 
   # teeth-1 (targets test c): mutant forces gate_rc=0 for absent tools.
   # A gate_rc that never goes to 1 has no bite for MISSING/UNUSABLE cases.

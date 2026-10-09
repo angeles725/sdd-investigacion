@@ -106,7 +106,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local m; m="$MUT/m-$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '_').sh"
     mk_sed "$label" "$m" "$expr" && tooth "teeth: $label" "$grc" "$brc" "$m" "$@"
   }
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  CRASH="$(mutant_crash_re bash py)" || exit 2
   TAB=$'\t'
   # COUNT: prints `n=<occurrences of LINE in the parser output>` then the raw output (so a crash is visible)
   COUNT=("$BASH_BIN" -c '. "$1"; o="$(scripts_manifest_rows "$2" "$3" 2>&1)"; printf "n=%s\n%s\n" "$(printf "%s\n" "$o" | grep -cxF -- "$4")" "$o"' _ @SUT@)

@@ -907,9 +907,7 @@ MUTANT_DIR="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUTANT_DIR"' EXIT
 # not as a bare argv run), so they are not expressible as mutant_tooth calls without a redesign.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _fn in mutant_chain mutant_built; do
-  declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define $_fn" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_built || exit 2
 
 # mk_chain LABEL ORIG OUT EXPR... / mk_built LABEL ORIG OUT — count a refused build exactly once.
 # OUT is removed first so a refused (dead-stage) build can never leave a stale file for the tooth.

@@ -496,7 +496,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # not-valid-bash / live-tree / symlink OUT). $ROOT is a mktemp dir, so every box is under TMPDIR.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_built >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mutant_bootstrap mutant_built || exit 2
   # _it_mutant LABEL BOX OLD NEW -- write the SUT into BOX/install-tool.sh with the (unique) OLD replaced
   # by NEW (NEW may be empty = deletion). rc 1 = anchor absent or the helper refused the mutant; the
   # failure is already counted ONCE here, so the caller must skip its tooth (no second count).

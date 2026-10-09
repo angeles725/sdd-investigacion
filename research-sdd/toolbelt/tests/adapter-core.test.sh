@@ -520,8 +520,7 @@ PYEOF
   # (ast_check.py exits 0 on a SyntaxError, so an unparseable mutant would otherwise read as teeth).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_py_replace >/dev/null \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_py_replace" >&2; exit 2; }
+  mutant_bootstrap mutant_py_replace || exit 2
   _ANCHOR=$'        refuse_privileged_execution()\n        if args.worker: return worker(args)'
   # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW through the
   # shared lib/mutant.sh builder (rc 2 = anchor absent, rc 3 = refused / not valid Python).

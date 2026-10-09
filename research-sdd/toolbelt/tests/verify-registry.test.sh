@@ -63,10 +63,10 @@ _vr_teeth_init() {
   [ -z "$_VR_TEETH_READY" ] || return 0
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  local _fn
-  for _fn in mutant_chain mutant_built mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+  # Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
+  VR_CRASH="$(mutant_crash_re bash py)" || exit 2
+  [ -n "$VR_CRASH" ] || { echo "FATAL: VR_CRASH is empty after _vr_teeth_init" >&2; exit 2; }
   _VR_TEETH_READY=1
 }
 # vr_mut LABEL KIT SED_EXPR... : build the mutant of the real SUT inside KIT's toolbelt/.
@@ -80,6 +80,9 @@ vr_mut() {
 vr_run() {
   local label="$1" kit="$2" grc="$3" brc="$4" a have_argv=""
   shift 4
+  # A teeth block that skipped _vr_teeth_init (or ran it in a subshell) has an empty VR_CRASH: then
+  # `--bad-lacks "$VR_CRASH"` is skipped and "X|$VR_CRASH" matches everything. Refuse loudly.
+  [ -n "${VR_CRASH:-}" ] || { echo "  FAIL  $label: VR_CRASH is empty (call _vr_teeth_init in the main shell first)"; fail=$((fail+1)); return; }
   for a in "$@"; do [ "$a" = -- ] && have_argv=1; done
   [ -n "$have_argv" ] || set -- "$@" -- "$BASH_BIN" @SUT@
   if mutant_tooth "$label" "$grc" "$brc" "$kit/toolbelt/verify-registry-mut.sh" \
@@ -89,8 +92,6 @@ vr_run() {
     fail=$((fail+1))
   fi
 }
-# Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
-VR_CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
 # The clean verdict line, anchored at line start.
 VR_CLEAN='^Registry consistent with reality'
 

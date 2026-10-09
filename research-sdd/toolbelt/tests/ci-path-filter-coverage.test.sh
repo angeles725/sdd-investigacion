@@ -359,7 +359,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # compare derivations, so there is no mutant file to build and they keep their observations.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mutant_bootstrap mutant_built || exit 2
   mk_built() { MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
 
   # Teeth A: stub parity test with an extra known input; derivation must include it.

@@ -377,7 +377,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # the mutants live in $TMP, so the SUT's lib/ must resolve beside them (as verify-block.test.sh does)
   ln -s "$HERE/../lib" "$TMP/lib"
-  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
+  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
   # teeth <mode> <sentinel> <label> <fixture> <sed-expr> <regex> [flag] [target]
   #   lose: the original prints <regex>, the mutant must NOT.   gain: the original lacks it, the mutant must print it.
   #   flag defaults to --backptr=all (every candidate listed); pass "-" for the DEFAULT (high) mode.

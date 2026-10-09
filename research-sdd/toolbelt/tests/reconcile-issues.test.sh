@@ -1424,6 +1424,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # ---- kit issue #1332 item 2 teeth (entry form) — mutant built with tests/lib/mutant.sh ----
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  # _crash_strict TEXT CLASS... : mutant_is_crash with exit 2 (bad class / internal error) kept LOUD.
+  # A plain `if mutant_is_crash` reads rc 2 as "not a crash", which would let a broken classifier pass.
+  _crash_strict() { local _cs_rc; mutant_is_crash "$@"; _cs_rc=$?
+    case "$_cs_rc" in 0|1) return "$_cs_rc" ;; *) echo "FATAL: mutant_is_crash rc=$_cs_rc" >&2; exit 2 ;; esac; }
   ENTRY_FIX="$HERE/fixtures/retro-entry-form-applied-3.md"
   echo "-- teeth T1332-R1: entry-form fallback removed (cases 39a/39b/39c must flip) --"
   box_e1="$(mkbox teeth-entry)"; mk_gh_stub "$box_e1" nomatch
@@ -2892,7 +2896,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         run "$mb" --issues-cache "$ROOT/open1555-$bn.txt" "$mr" ;;
       *) run "$mb" "$mr" ;;
     esac
-    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+    if _crash_strict "$OUT" bash; then
       no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
     fi
     case "$expect" in
@@ -2920,7 +2924,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_chain T1555-f "$SUT" "$mbf/research-sdd/toolbelt/reconcile-issues.sh" \
        '/^_fetch_closed_bodies() {/,/^}/s/\[ "\$_n" -ge "\$_LIST_LIMIT" \]/[ "$_n" -gt "$_LIST_LIMIT" ]/'; then
     RECONCILE_ISSUES_LIST_LIMIT=2 run "$mbf" "$(mk44 "$mbf")"
-    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+    if _crash_strict "$OUT" bash; then
       no "T1555-f teeth" "the mutant CRASHED: out=[$OUT]"
     elif [ "$RC" = 0 ] && ! grep -q '^degraded: gh issue list (closed) returned' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT"; then
       ok "T1555-f teeth: miscounted cap guard -> no typed degraded, confident untracked (case 44j has teeth)" "()"
@@ -2950,7 +2954,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       nogit) mkdir -p "$ROOT/notarepo1709"; RECONCILE_ISSUES_GIT_DIR="$ROOT/notarepo1709" run "$mb" "$mr" ;;
       *) run "$mb" "$mr" ;;
     esac
-    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+    if _crash_strict "$OUT" bash; then
       no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
     fi
     case "$kase" in
@@ -3024,7 +3028,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       apifail) GH_STUB_OLD_GH=1 GH_STUB_API_FAIL=1 run "$mb" "$mr" ;;
       *) GH_STUB_OLD_GH=1 run "$mb" "$mr" ;;
     esac
-    if grep -qE 'integer expression expected|syntax error|unbound variable' <<<"$OUT"; then
+    if _crash_strict "$OUT" bash; then
       no "$label teeth" "the mutant CRASHED instead of changing behaviour: out=[$OUT]"; return 0
     fi
     verdict=1

@@ -131,7 +131,7 @@ echo "=== --prove-teeth: verifying mutation controls ==="
 # Sourced only on the teeth path: a plain run never depends on the mutation helper.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+mutant_bootstrap mutant_chain || exit 2
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

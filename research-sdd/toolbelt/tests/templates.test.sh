@@ -58,14 +58,16 @@ rc2() { # rc2 LABEL EXPECT_RC ENV... -> run this suite with the env assignments
 rc2 "missing template" 2 ODD_TASK_TEMPLATE="$TMP/absent.md"
 rc2 "missing README" 2 ODD_TASK_README="$TMP/absent-readme.md"
 rc2 "mktemp failure" 2 TMPDIR="$TMP/no/such/dir"
-: > "$TMP/empty-lib.sh"
-rc2l() { # rc2l LABEL ENV... (teeth mode)
-  local label="$1"; shift
-  env ODD_TEMPLATES_CHILD=1 "$@" bash "$0" --prove-teeth >/dev/null 2>&1; local got=$?
-  if [ "$got" = 2 ]; then ok "$label -> exit 2"; else no "$label -> exit $got (wanted 2)"; fi
+# A real copy of lib/mutant.sh with ONLY mutant_sed renamed away: every other helper (incl. mutant_bootstrap)
+# still loads, so the exit 2 below can only come from the mutant_sed probe naming it on stderr.
+sed 's/^mutant_sed() {/mutant_sed_removed() {/' "$HERE/lib/mutant.sh" > "$TMP/no-sed-lib.sh"
+rc2l() { # rc2l LABEL STDERR_PATTERN ENV... (teeth mode)
+  local label="$1" pat="$2"; shift 2
+  env ODD_TEMPLATES_CHILD=1 "$@" bash "$0" --prove-teeth >/dev/null 2>"$TMP/rc2l.err"; local got=$?
+  if [ "$got" = 2 ] && grep -q -- "$pat" "$TMP/rc2l.err"; then ok "$label -> exit 2 naming [$pat]"; else no "$label -> exit $got err=[$(head -c 200 "$TMP/rc2l.err")] (wanted 2 + [$pat])"; fi
 }
-rc2l "missing mutant lib" ODD_MUTANT_LIB="$TMP/absent-lib.sh"
-rc2l "mutant lib without mutant_sed" ODD_MUTANT_LIB="$TMP/empty-lib.sh"
+rc2l "missing mutant lib" 'mutant lib not found' ODD_MUTANT_LIB="$TMP/absent-lib.sh"
+rc2l "mutant lib without mutant_sed" 'did not define mutant_sed' ODD_MUTANT_LIB="$TMP/no-sed-lib.sh"
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -73,7 +75,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   [ -f "$MUTLIB" ] || { echo "FATAL: mutant lib not found: $MUTLIB" >&2; exit 2; }
   # shellcheck source=lib/mutant.sh
   . "$MUTLIB" || { echo "FATAL: sourcing $MUTLIB failed" >&2; exit 2; }
-  declare -F mutant_sed >/dev/null || { echo "FATAL: $MUTLIB did not define mutant_sed" >&2; exit 2; }
+  mutant_bootstrap mutant_sed || exit 2
   tooth() { # tooth NAME FILE PREDICATE SED_EXPR — the mutated FILE must fail PREDICATE (check|header_ok|readme_ok)
     local name="$1" file="$2" pred="$3" expr="$4" m="$TMP/$1.md"
     if MUTANT_SYNTAX=none mutant_sed "$file" "$m" "$expr" >/dev/null 2>&1; then

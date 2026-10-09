@@ -167,8 +167,7 @@ else no "5 expected exit 1 on a planted export, got rc=${r_plant:-?}"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
-  declare -F mutant_cleanup_register >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_cleanup_register" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_cleanup_register || exit 2
   MT="$(mktemp -d)"
   mutant_cleanup_register "$MT" || { rm -rf "$MT"; echo "FATAL: mutant_cleanup_register refused $MT" >&2; exit 2; }
   echo "-- teeth: detector regex that never matches must make the planted-export controls fail --"
