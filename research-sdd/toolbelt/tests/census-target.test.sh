@@ -52,8 +52,7 @@ code() { bash "$SUT" "$@" >/dev/null 2>&1; echo $?; }
 # verdict on the mutant.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
 # The builders and the exact-verdict runner are shared (lib/mutant.sh, #1299): they print their own
 # FAIL/PASS line and return non-zero on failure; these adapters only COUNT. MK_ORIG overrides the
 # original a mutant is built from (default $SUT).

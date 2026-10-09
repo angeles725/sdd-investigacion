@@ -297,8 +297,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   MUT="$(mktemp -d)"
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }

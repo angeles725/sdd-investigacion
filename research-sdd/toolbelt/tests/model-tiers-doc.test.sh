@@ -74,8 +74,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # original) AND the BAD verdict (it fails on the mutant).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
   export -f _has_claude_profile _has_opus_55 _has_sonnet_5 _has_haiku_45_200k
   # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant (mutant_chain);

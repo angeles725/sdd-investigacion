@@ -155,8 +155,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUT"' EXIT
   mk() { mkdir -p "$(dirname "$2")"; mutant_chain "$1" "$SUT" "$2" "${@:3}" || { fail=$((fail+1)); return 1; }; }
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }

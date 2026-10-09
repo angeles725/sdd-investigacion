@@ -175,8 +175,7 @@ fi
 # mutant (exact rc on both sides: a crashing mutant is not teeth).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (mutant_chain refuses a dead
 # stage); a refusal is counted as a failure here, the helper itself never touches the counters.
 mk_sed(){

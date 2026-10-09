@@ -1964,8 +1964,7 @@ done
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   MUT="$(mktemp -d)"
   # mutant copies of the SUT live flat in $MUT and resolve lib/ beside themselves (kit #1659: scripts-manifest.sh)
   ln -s "$HERE/../lib" "$MUT/lib"

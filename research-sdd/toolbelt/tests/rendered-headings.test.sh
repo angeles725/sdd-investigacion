@@ -50,8 +50,7 @@ for f in SKILL PROMPT-LOOP METHODOLOGY; do
 done
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
-  || die "lib/mutant.sh did not define mutant_chain/mutant_built"
+mutant_bootstrap mutant_chain mutant_built || exit 2
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }

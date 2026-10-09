@@ -459,8 +459,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # emit no pointer.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   # python mutants: no bash -n (scoped per call below, never exported: #1814)
   # Scratch lives under $ROOT, so the suite's own EXIT trap (which also restores write permission
   # on trusted-tools) cleans it on every path.

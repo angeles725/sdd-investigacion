@@ -630,8 +630,9 @@ else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
 # (bash py), the install suite's --verify teeth _CRASH (bash py cmd), the mutant_vm_core_teeth crash regex
 # (mutant_vm_crash_re = py + SyntaxError), and the mutant.sh bootstraps of verify-retro, adapter-core,
 # adapter-helpers, analysis-manifest, vm-disk-policy, discriminator-parity, gh-visibility, templates,
-# mutant-syntax-export-lint, detonate-exec and trace-exec. NOT MIGRATED (deferred, scope is partial):
-# hand-rolled probe loops remain in 59 suites (enumerate with
+# mutant-syntax-export-lint, detonate-exec and trace-exec; batch 1 (56 suites) moved every other
+# mutant.sh-only probe loop. NOT MIGRATED (deferred, scope is partial):
+# hand-rolled probe loops remain in 3 suites (owned by another open PR; enumerate with
 # `rg -l 'lib/mutant.sh (did not define|lacks)' research-sdd`, minus lib/mutant.sh itself); crash literals
 # that differ in meaning stay local: decompile-net/decompile-native CRASH_RE (ImportError without
 # ModuleNotFoundError), research-sdd-status-followups CRASH and verify-skill-drift-hook _CRASH (no
