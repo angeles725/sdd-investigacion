@@ -73,7 +73,7 @@ echo "-- no-jq: hook exits 0 and emits hookSpecificOutput JSON when jq is absent
 # Hermetic approach: build a temp bin with symlinks to exactly the external tools the hook
 # needs before the probe fires, and NOTHING else — so jq is provably absent.
 #
-# External tools used between shebang and probe (lines 13–40 of the template):
+# External tools used between the shebang and the jq probe of the template (search for "_hook_stdin=$(cat)"):
 #   cat      — line 13: _hook_stdin=$(cat)
 #   dirname  — the _hook_target line: dirname -- "${BASH_SOURCE[0]}" (self-dir, #2042)
 #   jq       — line 14: pipeline with || fallback; intentionally excluded here
