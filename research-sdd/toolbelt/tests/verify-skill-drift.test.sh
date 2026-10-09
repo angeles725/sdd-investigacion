@@ -785,9 +785,7 @@ for arg in "$@"; do [ "$arg" = "--prove-teeth" ] && prove_teeth=1; done
 if [ "$prove_teeth" -eq 1 ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   mk()  { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt()  { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 fi

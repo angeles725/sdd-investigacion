@@ -436,7 +436,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     grep -q '^absent-input: no RESEARCH-STATE' <<<"$o" && no "teeth I: mutant still typed — THEATER" || ok "teeth I: absent-input silenced -> case 11a has teeth"
   else no "teeth I: mutant could not be built"; fi
   # --- lib/mutant.sh teeth for the #1657 advisories (exact rc + anchored typed line; a crash never reads as a bite)
-  CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  CRASH="$(mutant_crash_re bash py)" || exit 2
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   # U: a bare legal tier is passed through unchanged again -> case 25a loses its proposal

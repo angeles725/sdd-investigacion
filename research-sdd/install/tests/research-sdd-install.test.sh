@@ -2273,7 +2273,7 @@ else no "V23: record refused for a path containing MISSING :: $v23"; fi
 #     anchored typed line, and a crash can never read as a bite.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: --verify mutants (lib/mutant.sh) --"
-  _CRASH='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|command not found'
+  _CRASH="$(mutant_crash_re bash py cmd)" || exit 2
   _vmk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   _vtt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   _TV="$TMP/teeth-verify"; mkdir -p "$_TV"

@@ -1040,7 +1040,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   content="$(cat "$SUT")"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mutant_bootstrap mutant_built || exit 2
   # mut_sub LABEL ORIG NEW OUT — bash-substitute ORIG→NEW in the SUT text into OUT, then vet OUT with
   # lib/mutant.sh (refuses an identical, empty, syntax-broken or live-tree mutant). A refusal records a
   # FAIL and the run STOPS (mk_or_stop pattern), so a tooth never runs on a refused mutant path.

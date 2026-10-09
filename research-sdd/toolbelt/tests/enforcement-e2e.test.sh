@@ -389,7 +389,7 @@ echo "-- TEETH: mutation controls --"
 
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+mutant_bootstrap mutant_chain || exit 2
 # A refused mutant (dead stage, identical, empty, syntax-broken, live-tree) must not be run: the
 # R3/R5/R7 assertions pass on "nothing happened", so an absent mutant would read as a bite.
 mk_or_stop() {

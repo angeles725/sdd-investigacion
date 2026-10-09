@@ -185,9 +185,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # removed by the single EXIT trap above) next to a staged stub lib/tool-env.sh, never beside the SUT.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_built mutant_tooth; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
   # A refused build counts ONE failure here and its tooth is never run.
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   mkb(){ mutant_built "$@" || { fail=$((fail+1)); return 1; }; }

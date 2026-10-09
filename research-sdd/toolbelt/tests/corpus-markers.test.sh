@@ -79,7 +79,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Sourced only here: a plain run never depends on the mutation helper.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   echo "-- teeth: force the RESEARCH-STATE branch's return 0 to return 1 — case 1 must go RED --"
   mut_false="$ROOT/corpus-markers.MUTANT-always-false.sh"
   # lib/mutant.sh refuses a dead stage (anchor drifted) and an empty, identical, syntax-broken or live-tree mutant.

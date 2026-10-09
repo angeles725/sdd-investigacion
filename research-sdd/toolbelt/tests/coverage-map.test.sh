@@ -346,9 +346,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # counts ONE failure and the tooth never runs.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _fn in mutant_chain mutant_built; do
-    declare -F "$_fn" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_built || exit 2
   # mk_chain OUT EXPR... -- sed mutant of the SUT, every stage must change it on its own
   mk_chain() {
     local out="$1" msg; shift

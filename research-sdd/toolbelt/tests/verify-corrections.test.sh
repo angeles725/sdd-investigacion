@@ -110,7 +110,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A bad side that is only an exit code must not be a crash: these never read as a bite.
-  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback'
+  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
   # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
   mkdir -p "$TMP/lib"
   cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"

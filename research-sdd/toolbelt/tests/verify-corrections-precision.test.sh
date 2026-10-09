@@ -382,7 +382,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   done
   mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  CRASH='integer expression expected|syntax error|unbound variable|command not found|Traceback|awk: '
+  CRASH="$(mutant_crash_re bash cmd tb awk)" || exit 2
   mkdir -p "$TMP/lib"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
 
   echo "-- teeth (#1868 item 1): cross-focus qualifier --"

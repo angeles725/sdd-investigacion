@@ -765,7 +765,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # worktrees), which is not expressible as a stateless mutant_tooth argv run.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_built >/dev/null 2>&1 || { echo "FATAL: $HERE/lib/mutant.sh did not define mutant_built" >&2; exit 2; }
+  mutant_bootstrap mutant_built || exit 2
   # mutant_ok LABEL OUT — verify the mutant just written to OUT against the real SUT; one failure on refusal.
   mutant_ok() { mutant_built "$1" "$SUT" "$2" || { fail=$((fail+1)); return 1; }; }
   echo "-- teeth: neuter the fail-closed guard, expect a broken helper to fail-OPEN and BRANCH --"

@@ -353,9 +353,7 @@ fi
 # The mutants live under $ROOT (mktemp -d, trap-cleaned above), never beside the SUT.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-for _fn in mutant_chain mutant_built mutant_tooth; do
-  declare -F "$_fn" >/dev/null 2>&1 || { echo "FATAL: lib/mutant.sh did not define $_fn" >&2; exit 2; }
-done
+mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
 # shellcheck disable=SC2034  # read by mutant_tooth (default original) in lib/mutant.sh
 SUT="$LIB"
 # mk LABEL OUT EXPR... — sed-build a mutant of $LIB (each EXPR must change the SUT on its own); a refusal
@@ -482,7 +480,7 @@ echo "-- teeth TNR: target_name_for_retro mutants --"
 M="${ROOT}/tnr-mutant"
 # NODIR: the typed no-resolving-path refusal; RTERR: bash runtime errors that would make a mutant's rc a crash.
 NODIR='resolves to a directory'
-RTERR='integer expression expected|syntax error|unbound variable'
+RTERR="$(mutant_crash_re bash)" || exit 2
 # TNR-1: keep walking after the first match -> OUTERMOST registered ancestor wins (case 14).
 if mk "teeth TNR-1" "$M-1.sh" 's|break 2   # SENTINEL-TNR-NEAREST.*|:|'; then
   tnr_tt "teeth TNR-1: outermost-ancestor mutant flips case 14 (has teeth)" 0 0 "$M-1.sh" "$TN14a" "$ri" "$ROOT" \

@@ -675,7 +675,7 @@ EOF
   # pristine copy lives in its own directory (outside the scan box) so OUT is not under ORIG's tree.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  declare -F mutant_chain >/dev/null || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
   if [ "$RCT1" -eq 1 ] && ! grep -qE 'syntax error|command not found|unbound variable' <<<"$OUTT1"; then
@@ -699,7 +699,7 @@ EOF
   # ── issue #1033 L1: each newly recognised form has its own mutant of the SUT that reverts exactly
   # that recognition; the real SUT must exit 1 with a HIT on the fixture and the mutant must exit 0
   # with no HIT (a crash is neither, and --bad-lacks refuses it as a bite).
-  CRASH_RE='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError|command not found'
+  CRASH_RE="$(mutant_crash_re bash py cmd)" || exit 2
   mkdir -p "$TMP/l1-mut"
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   l1_tooth() { # <label> <fixture-box> <sed-expr>
