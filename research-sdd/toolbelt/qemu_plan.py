@@ -5,7 +5,7 @@ no subprocess spawned, no target emulated. Live exec gated behind --allow-exec.
 See gate-authorization.v1.md and qemu-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, os, struct, sys
+import argparse, hashlib, os, stat, struct, sys
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ _HERE = Path(__file__).parent; _LIB = _HERE / "lib"
 for _p in (str(_LIB), str(_HERE)):
     if _p not in sys.path: sys.path.insert(0, _p)
 
-from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
+from adapter_core import AdapterError, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
 from gate import CAP_EXEC                                                       # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
@@ -36,15 +36,8 @@ _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 
 class QemuPlanError(AdapterError): ...
 
 
-def _read_elf_arch(path: Path) -> str:
-    """Read e_machine (raw bytes, O_NOFOLLOW) → qemu arch suffix; QemuPlanError on any fault."""
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-        try: hdr = os.read(fd, _ELF_MIN)
-        finally: os.close(fd)
-    except OSError as exc:
-        raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
+def _elf_arch(hdr: bytes) -> str:
+    """Parse e_machine from an ELF header prefix → qemu arch suffix; QemuPlanError on any fault."""
     if len(hdr) < _ELF_MIN:
         raise QemuPlanError(f"file too short for ELF header: {len(hdr)} < {_ELF_MIN} bytes")
     if hdr[:4] != _ELF_MAGIC:
@@ -58,6 +51,49 @@ def _read_elf_arch(path: Path) -> str:
     if arch is None:
         raise QemuPlanError(f"unsupported e_machine=0x{e_machine:04x}: not in qemu arch mapping")
     return arch
+
+
+def _read_target(path: Path, max_bytes: int | None) -> tuple[str, int, str]:
+    """Open the target ONCE (O_NOFOLLOW) and derive arch, size and sha256 from that single fd.
+
+    Returns (arch, size, "sha256:<hex>"). The ELF header is read from the fd, then the fd is rewound and
+    hashed, so arch and sha256 always describe the same open file; an fstat taken at open and again after
+    hashing (dev/ino/mode/size/mtime/ctime) refuses a target mutated in place (#2069). AdapterError /
+    QemuPlanError on any fault.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
+    try:
+        try:
+            before = os.fstat(fd)
+            hdr = os.read(fd, _ELF_MIN)
+        except OSError as exc:
+            raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
+        arch = _elf_arch(hdr)
+        if not stat.S_ISREG(before.st_mode):
+            raise AdapterError(f"not a regular file: {path}")
+        if max_bytes is not None and before.st_size > max_bytes:
+            raise AdapterError("input exceeds max-input-bytes")
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            digest = hashlib.sha256(); total = 0; chunk_size = 1024 * 1024
+            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
+                total += len(chunk)
+                if max_bytes is not None and total > max_bytes:
+                    raise AdapterError("input exceeds max-input-bytes")
+                digest.update(chunk)
+            after = os.fstat(fd)
+        except OSError as exc:
+            raise AdapterError(f"I/O error reading file: {path}") from exc
+        fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
+        if fields(before) != fields(after) or total != before.st_size:
+            raise AdapterError(f"file changed while hashing: {path}")
+        return arch, total, "sha256:" + digest.hexdigest()
+    finally:
+        os.close(fd)
 
 
 def build_plan(target: Path, mode: str, arch: str, caps: dict[str, int], *,
@@ -111,9 +147,7 @@ def plan_qemu(args: Any) -> int:
     except BindScopeError as exc:
         print(f"qemu-plan: unsafe output path: {exc}", file=sys.stderr); return 2
     target = Path(args.target)
-    try: arch = _read_elf_arch(target)
-    except QemuPlanError as exc: print(f"qemu-plan: {exc}", file=sys.stderr); return 2
-    try: _, input_size, input_sha = _file_identity(target, max_bytes=args.max_input_bytes)
+    try: arch, input_size, input_sha = _read_target(target, args.max_input_bytes)
     except AdapterError as exc: print(f"qemu-plan: {exc}", file=sys.stderr); return 2
     caps = {"cpu_seconds": args.cpu_seconds, "mem_bytes": args.max_mem_bytes,
             "wall_seconds": args.wall_seconds, "output_bytes": args.max_output_bytes}
