@@ -132,6 +132,17 @@ with tempfile.TemporaryDirectory() as td:
         ok("T7: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T7: bind-path-safety", str(e))
 
+# ── T7b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir()
+    try:
+        r = cli("plan","--interface","eth0","--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T7b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T7b: bind-scope-home-belt", str(e))
+
 # ── T8: same spec → identical plan; det declared:false, basis:dry-run-plan ───
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); out1 = R/"r1"; out2 = R/"r2"
@@ -176,7 +187,7 @@ tt teeth-gate-flag 'run_gate_epilogue(CAP_LIVE_CAPTURE, args.allow_live_capture,
 tt teeth-bpf-argv 'argv += ["-f", bpf]' 'argv += []' 'FAIL  T4: well-formed-plan: bpf filter not in argv'
 tt teeth-iface-injection 'if not _IFACE_RE.fullmatch(name):' 'if False:' 'FAIL  T5: interface-injection-rejected: got 3'
 tt teeth-duration-argv 'f"duration:{duration}",' '"duration:0",' 'FAIL  T6: caps-and-defaults: duration not in argv'
-# Not mutated: T7 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T7b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

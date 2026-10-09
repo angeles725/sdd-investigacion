@@ -137,6 +137,7 @@ with tempfile.TemporaryDirectory() as td:
     try:
         r = cli("plan","--target",str(link),"--mode","qemu-user","--output",str(out))
         assert r.returncode == 2 and "Traceback" not in r.stderr
+        assert "cannot read ELF header" in r.stderr, f"arch reader did not refuse the symlink: {r.stderr[:200]}"
         ok("T11: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
     except Exception as e: nok("T11: symlink-target-clean-error", str(e))
 
@@ -172,6 +173,17 @@ with tempfile.TemporaryDirectory() as td:
         assert r.returncode == 2, f"got {r.returncode}"
         ok("T14: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T14: bind-path-safety", str(e))
+
+# ── T14b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir(); tgt = R/"t.elf"; tgt.write_bytes(_ARM)
+    try:
+        r = cli("plan","--target",str(tgt),"--mode","qemu-user","--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T14b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T14b: bind-scope-home-belt", str(e))
 
 
 # ── T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback ──
@@ -303,8 +315,8 @@ tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sand
 tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
 tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
 tt teeth-input-cap '_file_identity(target, max_bytes=args.max_input_bytes)' '_file_identity(target)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
-# Not mutated (measured equivalent mutant): the O_NOFOLLOW flag in the qemu_plan arch reader - T11 (symlink target) stays green without it because adapter_core.identity rejects symlinks first.
-# Not mutated: T14 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
+tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

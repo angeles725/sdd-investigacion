@@ -122,6 +122,17 @@ with tempfile.TemporaryDirectory() as td:
         assert r.returncode == 2, f"got {r.returncode}"
         ok("T8: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T8: bind-path-safety", str(e))
+
+# ── T8b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir(); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16)
+    try:
+        r = cli("plan","--firmware",str(fw),"--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T8b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T8b: bind-scope-home-belt", str(e))
 # ── T9: same input → identical plan; det declared:false, basis:dry-run-plan ──────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16)
@@ -180,7 +191,8 @@ with tempfile.TemporaryDirectory() as td:
         m.plan_fact(m._parser(["plan","--firmware",str(fw),"--output",str(out)]))
         p = json.loads((out/"fact-plan.v1.json").read_text())
         expected = "sha256:" + hashlib.sha256(content).hexdigest()
-        assert p["firmware"]["sha256"] == expected and p["submission"]["firmware_sha256"] == expected
+        assert p["firmware"]["sha256"] == expected, f"firmware.sha256 {p['firmware']['sha256']!r} != {expected!r}"
+        assert p["submission"]["firmware_sha256"] == expected, f"submission.firmware_sha256 {p['submission']['firmware_sha256']!r} != {expected!r}"
         ok("T13: submission sha256 matches firmware identity")
     except Exception as e: nok("T13: submission-sha256-identity", str(e))
 
@@ -223,11 +235,11 @@ echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mu
 if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 tt teeth-network '"network": "internal-bridge",' '"network": "host",' "FAIL  T4: well-formed-plan: network='host'"
 tt teeth-privileged 'argv += ["up", "-d"]' 'argv += ["up", "-d", "--privileged"]' 'FAIL  T4: well-formed-plan: --privileged in argv'
-tt teeth-submission-sha '"firmware_sha256": input_sha,' '"firmware_sha256": "sha256:0",' 'FAIL  T13: submission-sha256-identity$'
+tt teeth-submission-sha '"firmware_sha256": input_sha,' '"firmware_sha256": "sha256:0",' 'FAIL  T13: submission-sha256-identity: submission.firmware_sha256 '
 tt teeth-plugin-injection 'plugins.append(_validate(plug, f"plugin {plug!r}", _NAME_RE))' 'plugins.append(plug)' 'FAIL  T12-semicolon: plugin-injection: semicolon: rc=3'
 tt teeth-compose-path 'reject_mount_delimiters(cf_abs, "compose-file path", FactPlanError)' 'pass' 'FAIL  T11-colon: compose-file-colon: cf-colon: rc=3'
 tt teeth-input-cap '_file_identity(firmware, max_bytes=args.max_input_bytes)' '_file_identity(firmware)' 'FAIL  T_CAP1: cap-below-firmware-size: got 3'
-# Not mutated: T8 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T8b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

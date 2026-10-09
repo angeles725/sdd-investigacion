@@ -150,6 +150,17 @@ with tempfile.TemporaryDirectory() as td:
         ok("T8: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T8: bind-path-safety", str(e))
 
+# ── T8b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir(); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16)
+    try:
+        r = cli("plan","--firmware",str(fw),"--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T8b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T8b: bind-scope-home-belt", str(e))
+
 # ── T9: same input → identical plan; det declared:false, basis:dry-run-plan ───
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); fw = R/"fw.bin"; fw.write_bytes(b"FIRM" + b"\x00"*16)
@@ -250,7 +261,7 @@ tt teeth-tag-injection 'return validate_token(tag, "image tag", _TAG_RE, EmbaPla
 tt teeth-profile-injection 'return validate_token(profile, "profile", _PROFILE_RE, EmbaPlanError)' 'return profile' 'FAIL  T6-semicolon: profile-injection: semicolon: got 3'
 tt teeth-colon-path 'reject_mount_delimiters(fw_abs, "firmware path", EmbaPlanError)' 'pass' 'FAIL  T10: firmware-colon-path: got 3'
 tt teeth-input-cap '_file_identity(firmware, max_bytes=args.max_input_bytes)' '_file_identity(firmware)' 'FAIL  T_CAP1: cap-below-firmware-size: got 3'
-# Not mutated: T8 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T8b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
