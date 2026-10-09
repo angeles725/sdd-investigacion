@@ -253,7 +253,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # exit GOOD and the mutant to exit BAD (a crashing mutant is THEATER, not teeth).
   tt(){ local label="$1" expr="$2" fx="$3" grc="$4" brc="$5"; shift 5
     local m="$MUT/state-update.sh"
-    if ! mutant_chain "$label" "$SUT" "$m" "$expr"; then fail=$((fail+1)); return; fi
+    if ! mutant_chain_or_count fail "$label" "$SUT" "$m" "$expr"; then return; fi
     if mutant_tooth "$label" "$grc" "$brc" "$m" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   tt exit-code-on-change   's/^\[ "\$changed" -eq 0 \] || exit 1$/true/' "$TMP/drift" 1 0
@@ -282,37 +282,37 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt withheld-counted      '/SU-WITHHELD-COUNTED/d' "$TMP/rootcw" 0 0 --good-has 'unproposed=1' --bad-lacks 'unproposed=1'
   STATE_UPDATE_VERIFY="$TMP/stub-sg.sh" tt sg-tab-class 's/\^\[\[:space:\]\]\*block_scope:\[\[:space:\]\]\*/^[ \\t]*block_scope:[ \\t]*/' "$TMP/sgtab" 1 0
   m="$MUT/state-update.sh"
-  if mutant_chain cmp-probe "$SUT" "$m" 's/for _t in diff mktemp awk cmp; do/for _t in diff mktemp awk; do/'; then
+  if mutant_chain_or_count fail cmp-probe "$SUT" "$m" 's/for _t in diff mktemp awk cmp; do/for _t in diff mktemp awk; do/'; then
     PATH="$TMP/nocmp" "$BASH" "$m" "$TMP/drift" >/dev/null 2>"$TMP/stderr"
     if ! grep -qF "required tool 'cmp' not found" "$TMP/stderr"; then ok "teeth cmp-probe: without the probe the typed missing-tool message is gone"; else no "teeth cmp-probe: mutant still names the missing tool — THEATER"; fi
-  else fail=$((fail+1)); fi
-  if mutant_chain diff-rc-gate "$SUT" "$m" 's/if \[ "\$drc" -ne 1 \]; then/if false; then/'; then
+  fi
+  if mutant_chain_or_count fail diff-rc-gate "$SUT" "$m" 's/if \[ "\$drc" -ne 1 \]; then/if false; then/'; then
     PATH="$TMP/baddiff:$PATH" bash "$m" "$TMP/drift" >/dev/null 2>&1; mrc=$?
     if [ "$mrc" != 3 ]; then ok "teeth diff-rc-gate: without the gate a failing diff is not DEGRADED (rc $mrc)"; else no "teeth diff-rc-gate: mutant still rc 3 — THEATER"; fi
-  else fail=$((fail+1)); fi
-  if mutant_chain cmp-rc-gate "$SUT" "$m" 's/elif \[ "\$crc" -ne 0 \]; then/elif false; then/'; then
+  fi
+  if mutant_chain_or_count fail cmp-rc-gate "$SUT" "$m" 's/elif \[ "\$crc" -ne 0 \]; then/elif false; then/'; then
     PATH="$TMP/badcmp:$PATH" bash "$m" "$TMP/drift" >/dev/null 2>&1; mrc=$?
     if [ "$mrc" != 3 ]; then ok "teeth cmp-rc-gate: without the gate a failing cmp is not DEGRADED (rc $mrc)"; else no "teeth cmp-rc-gate: mutant still rc 3 — THEATER"; fi
-  else fail=$((fail+1)); fi
+  fi
   # list-fail-gate: the failing-helper tree from case 23 with the rc gate removed must stop reading DEGRADED.
   m="$TMP/hf/state-update-m.sh"
-  if mutant_chain list-fail-gate "$SUT" "$m" 's/^if \[ "\$lrc" -ne 0 \] || /if false || /'; then
+  if mutant_chain_or_count fail list-fail-gate "$SUT" "$m" 's/^if \[ "\$lrc" -ne 0 \] || /if false || /'; then
     bash "$m" "$TMP/clean" >/dev/null 2>&1; mrc=$?
     if [ "$mrc" = 2 ]; then ok "teeth list-fail-gate: without the rc gate the failing helper reads as 'no state files' (rc 2)"; else no "teeth list-fail-gate: mutant rc=$mrc — THEATER"; fi
-  else fail=$((fail+1)); fi
+  fi
   # summary-not-last: a stray line printed after the summary must be caught by the case-24 predicate.
   m="$MUT/state-update.sh"
-  if mutant_chain summary-not-last "$SUT" "$m" 's/^  \[ -n "\$work" \] && rm -rf "\$work"$/  [ -n "$work" ] \&\& rm -rf "$work"; echo trailing >\&2/'; then
+  if mutant_chain_or_count fail summary-not-last "$SUT" "$m" 's/^  \[ -n "\$work" \] && rm -rf "\$work"$/  [ -n "$work" ] \&\& rm -rf "$work"; echo trailing >\&2/'; then
     bash "$m" "$TMP/clean" >/dev/null 2>"$TMP/stderr"
     if last_is_summary; then no "teeth summary-not-last: mutant still ends with the summary — THEATER"; else ok "teeth summary-not-last: a trailing line defeats the last-line predicate"; fi
-  else fail=$((fail+1)); fi
+  fi
   # never-write: run the seeder-equivalent write path on the live target — here, make the rewrite land on "$s".
   m="$MUT/state-update.sh"
-  if mutant_chain never-write "$SUT" "$m" 's#> "\$work/proposed" 2> "\$work/awk.err"#> "$s.new" 2> "$work/awk.err" \&\& mv "$s.new" "$s"#'; then
+  if mutant_chain_or_count fail never-write "$SUT" "$m" 's#> "\$work/proposed" 2> "\$work/awk.err"#> "$s.new" 2> "$work/awk.err" \&\& mv "$s.new" "$s"#'; then
     d="$TMP/ro2"; blocks "$d" proj-block1.md proj-block2.md; state "$d/RESEARCH-STATE.md" 1 1 1
     before="$(snap "$d")"; bash "$m" "$d" >/dev/null 2>&1; after="$(snap "$d")"
     if [ "$before" != "$after" ]; then ok "teeth never-write: mutant modifies the target, so case 4 bites"; else no "teeth never-write: mutant left the target unchanged — THEATER"; fi
-  else fail=$((fail+1)); fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
