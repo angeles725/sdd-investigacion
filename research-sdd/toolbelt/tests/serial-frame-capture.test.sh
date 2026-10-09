@@ -295,12 +295,13 @@ if _sfc_mutant "M3 sweep-§7" 's/else "failed"  # sweep-all-fail/else "complete"
 fi
 
 # --- Control: a CRASH mutant must be REFUSED by the same machinery ----------------------------------------------
-# sys.exit(undefined_name) makes the plan-only guard raise NameError (rc 1 + traceback): wrong rc, crash text -> THEATER.
+# sys.exit(undefined_name) makes the plan-only guard raise NameError: it exits 1, which this control EXPECTS as the bad rc, so
+# only the --bad-lacks crash screen (Traceback in the output) can refuse it - removing that screen turns this control red.
 if _sfc_mutant "ctl guard-crash" 's/sys\.exit(3)/sys.exit(undefined_name_ctl)/'; then
-  _ctl_out="$(_sfc_tooth "ctl guard-crash: M1 probe on a crashing mutant" 3 0 'SFC-EXIT=3' 'SFC-EXIT=' "$_P1")"
+  _ctl_out="$(_sfc_tooth "ctl guard-crash: M1 probe on a crashing mutant" 3 1 'SFC-EXIT=3' 'SFC-EXIT=' "$_P1")"
   if grep -qF "THEATER" <<<"$_ctl_out"; then
     # _sfc_tooth ran in a subshell: its counters did not move, so the refusal is the PASS here.
-    mut_ok "ctl guard-crash: a crashing mutant is refused by the exact-rc / crash-free tooth"
+    mut_ok "ctl guard-crash: a crashing mutant with the expected bad rc is refused by the crash screen alone"
   else
     mut_no "ctl guard-crash: a crashing mutant was NOT refused: $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"
   fi

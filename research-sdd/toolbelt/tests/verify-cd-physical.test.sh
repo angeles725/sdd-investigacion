@@ -709,7 +709,8 @@ EOF
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
   mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
-  if [ "$RCT1" -eq 1 ] && ! grep -qE "$(mutant_crash_re bash cmd)" <<<"$OUTT1"; then
+  _cdp_crash="$(mutant_crash_re bash cmd)" || exit 2
+  if [ "$RCT1" -eq 1 ] && ! grep -qE "$_cdp_crash" <<<"$OUTT1"; then
     ok "teeth: logical (non -P) fixture makes the lint FAIL — the core distinction has teeth"
   else
     no "teeth: logical (non -P) fixture did NOT fail the lint — check is THEATER (rc=$RCT1 out=[$OUTT1])"

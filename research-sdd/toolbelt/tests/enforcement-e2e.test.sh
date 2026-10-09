@@ -392,7 +392,7 @@ echo "-- TEETH: mutation controls --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 mutant_bootstrap mutant_chain mutant_crash_re || exit 2
-_E2E_CRASH="$(mutant_crash_re bash cmd)" || exit 2
+_E2E_CRASH="$(mutant_crash_re bash cmd)|unexpected EOF" || exit 2
 # A refused mutant (dead stage, identical, empty, syntax-broken, live-tree) must not be run: the
 # R3/R5/R7 assertions pass on "nothing happened", so an absent mutant would read as a bite.
 mk_or_stop() {

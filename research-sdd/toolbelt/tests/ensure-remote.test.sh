@@ -1435,8 +1435,8 @@ fi'
   }
   echo "-- teeth 40-49: remove one allow-list rule at a time, expect the pinning case to go red --"
   tooth_allow teeth40-allow-never-matches 'if [[ $_p == ${allow_globs[$_i]} ]]; then' 'if false; then' pub.der spki "allow pub.der" \
-    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth40: allow that never matches -> allowed file refused (exit 5, crash-free) — case 27 has teeth" \
-         || no "teeth40: expected exit 5 crash-free, got rc=$RC — case 27 is THEATER"; }
+    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && grep -q '^REFUSED.*: .*pub\.der' <<<"$OUT" && ok "teeth40: allow that never matches -> allowed file refused (exit 5, crash-free) — case 27 has teeth" \
+         || no "teeth40: expected exit 5, crash-free, typed REFUSED line, got rc=$RC — case 27 is THEATER"; }
   # The explicit private markers are a second line behind positive identification: with one removed the file is still
   # refused (not positively public) but the typed PRIVATE-KEY refusal of case 32 is lost.
   tooth_allow teeth41-pem-marker-off "grep -aEq -- 'PRIVATE KEY( BLOCK)?-----|AGE-SECRET-KEY|PuTTY-User-Key-File|---- BEGIN SSH2' \"\$f\"" "grep -aEq -- 'NEVER-MATCHES-xyz' \"\$f\"" k.der pempriv "allow k.der" \
@@ -1458,8 +1458,8 @@ fi'
     && { ! grep -q '^ALLOWED: ' <<<"$OUT" && ok "teeth46: ALLOWED reporting off -> silent allow — case 27 has teeth" \
          || no "teeth46: mutant still reports ALLOWED — case 27 is THEATER"; }
   tooth_allow teeth47-catfile-fail-open 'if ! git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; then' 'git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; if false; then' ghost.der none "allow ghost.der" \
-    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth47: cat-file failure ignored -> exit 5 instead of fail-closed 7, crash-free — case 33 has teeth" \
-         || no "teeth47: expected exit 5 crash-free, got rc=$RC — case 33 is THEATER"; }
+    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && grep -q '^REFUSED.*: .*ghost\.der' <<<"$OUT" && ok "teeth47: cat-file failure ignored -> exit 5 instead of fail-closed 7, crash-free — case 33 has teeth" \
+         || no "teeth47: expected exit 5, crash-free, typed REFUSED line, got rc=$RC — case 33 is THEATER"; }
   tooth_allow teeth48-blanket-allow 'unallowed="$unallowed $_p"; continue; fi' ': ; continue; fi' $'pub.der\nother.pem' spki "allow pub.der" \
     && { [ "$RC" = 0 ] && ok "teeth48: un-allowed tracked secret ignored -> pushed — case 29 has teeth" \
          || no "teeth48: mutant still refuses (rc=$RC) — case 29 is THEATER"; }
