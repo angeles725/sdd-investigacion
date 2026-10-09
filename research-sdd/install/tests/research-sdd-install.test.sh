@@ -474,7 +474,7 @@ else
   b3kit="$TMP/b3-fake-kit"
   mkdir -p "$b3kit/install" "$b3kit/skills/research-sdd"
   cp "$HERE/../adapters.sh" "$b3kit/install/adapters.sh"
-  ln -sf "$SUT" "$b3kit/install/research-sdd-install.sh"
+  cp "$SUT" "$b3kit/install/research-sdd-install.sh"   # a COPY: the installer now resolves its kit from BASH_SOURCE through symlinks (kit #1675), so a symlink would land on the real kit
   printf 'fake source\n' > "$b3kit/skills/research-sdd/SKILL.md"
   chmod 000 "$b3kit/skills/research-sdd/SKILL.md"
   b3sut="$b3kit/install/research-sdd-install.sh"

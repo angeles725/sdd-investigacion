@@ -38,7 +38,11 @@ set -uo pipefail
 
 _usage() { echo "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]" >&2; }
 
-_HERE="$(cd "$(dirname "$0")" && pwd)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_HERE="$_RSDD_SELF"
 _GRLIB="$_HERE/lib/gap-rows.sh"
 _BFLIB="$_HERE/lib/block-files.sh"
 [ -f "$_GRLIB" ] || { echo "check-gap-drift: cannot find helper $_GRLIB" >&2; exit 2; }

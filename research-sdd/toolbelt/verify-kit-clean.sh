@@ -13,7 +13,11 @@ set -uo pipefail
 # Read-only at SessionStart (kit issue #1820): no git call may refresh the index or take an optional lock
 # (index.lock) while a sibling session commits — the same guarantee resume-state.sh gives.
 export GIT_OPTIONAL_LOCKS=0
-here="$(cd "$(dirname "$0")" && pwd)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+here="$_RSDD_SELF"
 repo="${1:-$here}"
 [ -d "$repo" ] || { echo "usage: verify-kit-clean.sh [<kit-repo>]" >&2; exit 2; }
 root="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" || { echo "verify-kit-clean: not a git repo: $repo" >&2; exit 2; }

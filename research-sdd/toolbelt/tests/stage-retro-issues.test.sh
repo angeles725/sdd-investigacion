@@ -1034,7 +1034,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   box_tsym="$(mkbox teeth-symlink-toolbelt)"
   retro_tsym="$(mk_retro "$box_tsym" target-foo r-tsym.md - "| 1 | do a thing fixture row | some/file | cite | fix | P2 |")"
   mutant_tsym="$box_tsym/research-sdd/toolbelt/stage-retro-issues.sh"
-  sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
+  sed -e 's/\(_RSDD_SELF="\$(cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' \
       -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
       "$SUT" > "$mutant_tsym"
   if diff -q "$SUT" "$mutant_tsym" >/dev/null 2>&1; then

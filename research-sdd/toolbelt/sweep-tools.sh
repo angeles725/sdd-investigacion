@@ -5,11 +5,15 @@
 # Usage: research-sdd/toolbelt/sweep-tools.sh
 
 # -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
-KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
 TARGETS_MD="$KIT/TARGETS.md"
 
 # Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
-LIB="$(cd "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+LIB="$_RSDD_SELF/lib/target-paths.sh"
 if [ ! -f "$LIB" ]; then
   echo "sweep-tools: cannot find helper $LIB" >&2; exit 1
 fi

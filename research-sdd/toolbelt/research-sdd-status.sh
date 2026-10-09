@@ -175,7 +175,11 @@ fi
 # The default / --focus pick goes through lib/state-files.sh resolve_state_file (kit #1818): root first,
 # shallowest first, one definition shared with archive / verify-state / verify-registry. Sourced HERE, before
 # the pick, because the pick decides $corpus that everything below derives from.
-_SFLIB="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_SFLIB="$_RSDD_SELF/lib/state-files.sh"
 if [ ! -f "$_SFLIB" ]; then
   echo "research-sdd-status: cannot find helper $_SFLIB" >&2; exit 1
 fi
@@ -227,7 +231,7 @@ else
   fi
 fi
 corpus="$(dirname "$state")"
-here="$(cd "$(dirname "$0")" && pwd)"
+here="$_RSDD_SELF"
 
 # Shared focus-prefix derivation — single source of truth (research-sdd-status.sh and verify-state.sh
 # previously carried hand-copied derive_focus_prefix() / _focus_prefix() that were byte-identical but

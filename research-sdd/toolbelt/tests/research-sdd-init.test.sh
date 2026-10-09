@@ -3695,7 +3695,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the render dir path again when reached through a symlinked toolbelt/.
   echo "-- teeth SYMLINK-TOOLBELT: revert -P to plain cd/pwd --"
   _ki_mut="$TMP/ki-mut.sh"
-  sed 's/KIT="\$(cd -P "\$(dirname "\$0")\/\.\." \&\& pwd -P)"/KIT="$(cd "$(dirname "$0")\/.." \&\& pwd)"/' \
+  sed -e 's/\(_RSDD_SELF="\$(cd -- "\$(dirname -- "\$_rsdd_s")" && pwd\) -P)"/\1)"/' -e 's/cd -P -- "\$_RSDD_SELF\/\.\." && pwd -P/cd -- "$_RSDD_SELF\/.." \&\& pwd/' \
     "$SUT" > "$_ki_mut"
   chmod +x "$_ki_mut"
   if diff -q "$SUT" "$_ki_mut" >/dev/null 2>&1; then

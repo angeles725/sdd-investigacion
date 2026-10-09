@@ -65,7 +65,11 @@ target="${1:-}"
 [ -n "$target" ] && [ -d "$target" ] || { echo "usage: scan-secrets.sh [--committed | --files-from <list|->] <target-dir>" >&2; exit 2; }
 [ -z "$files_from" ] || [ "$committed" = 0 ] || { echo "usage: scan-secrets.sh --files-from cannot be combined with --committed (history is not a file set)" >&2; exit 2; }
 # -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
-here="$(cd -P "$(dirname "$0")" && pwd -P)"; KIT="$(cd -P "$here/.." && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+here="$_RSDD_SELF"; KIT="$(cd -P "$here/.." && pwd -P)"
 
 # Advisory keyword boundary pattern (PCRE). Defined here so the committed-mode probe block's
 # ONE LOOP can use it; also used in the advisory section and default-mode grep.

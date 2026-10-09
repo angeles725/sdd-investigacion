@@ -40,7 +40,11 @@ set -uo pipefail
 # real repo root — reproduced: this made a genuinely-repo-root-resolvable retros/ citation report
 # as broken (1 broken citation through the render vs. 0 through the kit directly). -P makes BOTH
 # derivations always resolve the REAL kit/repo root regardless of how this script was invoked.
-KIT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
 
 # Resolve defaults relative to the script's own KIT directory so cwd never matters.
 RSDD_METHODOLOGY="${RSDD_METHODOLOGY:-$KIT/METHODOLOGY.md}"

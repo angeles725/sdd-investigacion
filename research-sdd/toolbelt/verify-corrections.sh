@@ -20,7 +20,11 @@
 #       `degraded:` line + exit 1, never an "ok" (an unreadable instrument is not a clean corpus).
 set -uo pipefail
 
-_vc_bf_lib="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_vc_bf_lib="$_RSDD_SELF/lib/block-files.sh"
 if [ ! -f "$_vc_bf_lib" ]; then echo "verify-corrections: cannot find helper $_vc_bf_lib" >&2; exit 1; fi
 # shellcheck source=lib/block-files.sh
 . "$_vc_bf_lib"

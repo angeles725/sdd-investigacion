@@ -23,12 +23,16 @@ fi
 # path, not through the real kit tree the symlink points at — landing on the profile
 # directory instead of the kit repo root. `pwd` needs no -P here: once `cd -P` has landed in
 # the physical directory, $PWD is already the real path.
-KIT_REPO="$(cd -P "$(dirname "$0")/../.." && pwd)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT_REPO="$(cd -P -- "$_RSDD_SELF/../.." && pwd -P)"
 
 # Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
 # stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
 # Same symlink hazard as KIT_REPO above — resolve physically.
-LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/retro-status.sh"
+LIB="$_RSDD_SELF/lib/retro-status.sh"
 if [ ! -f "$LIB" ]; then
   echo "stage-retro: cannot find helper $LIB" >&2
   exit 1
@@ -68,7 +72,7 @@ target=$(basename "$target_root")   # fallback label only (see the registered-na
 # names a branch and a commit trailer, so an unreadable / empty registry or an unregistered retro is
 # a loud WARN + basename fallback here (not the hard exit the issue-seeding scripts take): nothing
 # keyed on the name has been written yet. Resolved BEFORE any git mutation.
-TP_LIB="$(cd -P "$(dirname "$0")" && pwd)/lib/target-paths.sh"
+TP_LIB="$_RSDD_SELF/lib/target-paths.sh"
 if [ ! -f "$TP_LIB" ]; then
   echo "stage-retro: cannot find helper $TP_LIB" >&2
   exit 1

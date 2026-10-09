@@ -115,7 +115,11 @@
 
 set -uo pipefail
 
-_SELF_DIR="$(cd -P "$(dirname "$0")" && pwd -P)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_SELF_DIR="$_RSDD_SELF"
 
 _default_scope=0
 if [ "$#" -gt 0 ]; then
@@ -327,7 +331,7 @@ _lint_scan_file() {
       # "cheap shapes" — `dirname -- "$0"` and the braced `"${0}"` form were previously invisible).
       if [[ "$code" == *'dirname "$0"'* || "$code" == *'dirname -- "$0"'* \
             || "$code" == *'dirname "${0}"'* || "$code" == *'dirname -- "${0}"'* \
-            || "$code" == *'BASH_SOURCE'* ]]; then
+            || "$code" == *'BASH_SOURCE'* ]]; then   # lib-resolution-ok: pattern literals the scanner matches, not a resolution (kit #1675)
         is_rooted=1
       else
         for tv in "${!tainted[@]}"; do

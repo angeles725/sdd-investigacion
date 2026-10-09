@@ -18,7 +18,11 @@ set -uo pipefail
 # Shared focus-prefix derivation — single source of truth (verify-state.sh and research-sdd-status.sh
 # previously carried hand-copied implementations that were byte-identical but could drift;
 # lib/focus-prefix.sh eliminates that hazard).
-_FPLIB="$(cd "$(dirname "$0")" && pwd)/lib/focus-prefix.sh"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_FPLIB="$_RSDD_SELF/lib/focus-prefix.sh"
 if [ ! -f "$_FPLIB" ]; then
   echo "verify-state: cannot find helper $_FPLIB" >&2; exit 1
 fi
@@ -35,14 +39,14 @@ declare -F focus_range_block_count >/dev/null 2>&1 || { echo "verify-state: help
 # Shared blocked-entry derivation (kit #923): the one definition of the blocked sections and of the awk that
 # counts `## Child gaps surfaced at close` entries, sourced by research-sdd-status.sh too. Same fail-closed
 # contract as the focus-prefix lib above: a partial source would otherwise yield an empty derived count.
-_BRLIB="$(cd "$(dirname "$0")" && pwd)/lib/blocked-rows.sh"
+_BRLIB="$_RSDD_SELF/lib/blocked-rows.sh"
 if [ ! -f "$_BRLIB" ]; then echo "verify-state: cannot find helper $_BRLIB" >&2; exit 1; fi
 # shellcheck source=lib/blocked-rows.sh
 . "$_BRLIB"
 declare -F blocked_open_count >/dev/null 2>&1 || { echo "verify-state: helper $_BRLIB failed to define blocked_open_count" >&2; exit 1; }
 declare -F blocked_rows_body >/dev/null 2>&1 || { echo "verify-state: helper $_BRLIB failed to define blocked_rows_body" >&2; exit 1; }
 
-_BFLIB="$(cd "$(dirname "$0")" && pwd)/lib/block-files.sh"
+_BFLIB="$_RSDD_SELF/lib/block-files.sh"
 if [ ! -f "$_BFLIB" ]; then echo "verify-state: cannot find helper $_BFLIB" >&2; exit 1; fi
 # shellcheck source=lib/block-files.sh
 . "$_BFLIB"
@@ -50,7 +54,7 @@ declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-state: helper lib
 unset _BFLIB
 
 # Shared state-file resolver (kit issue #1818); -H preserves this script's `find -H` symlink semantics.
-_SFLIB="$(cd "$(dirname "$0")" && pwd)/lib/state-files.sh"
+_SFLIB="$_RSDD_SELF/lib/state-files.sh"
 if [ ! -f "$_SFLIB" ]; then echo "verify-state: cannot find helper $_SFLIB" >&2; exit 1; fi
 # shellcheck source=lib/state-files.sh
 . "$_SFLIB"
@@ -1271,7 +1275,7 @@ for state in "${states[@]}"; do
   # Delegated to check-gap-drift.sh (one implementation, also runnable standalone); never changes rc.
   # Only runs when the state HAS gap-id rows; a missing/failed checker is a typed degraded WARN, never silence.
   if grep -qE '^[[:space:]]*\|[^|]*\|[[:space:]]*B[0-9]+-G[0-9]+' "$state" 2>/dev/null; then  # GAP-DRIFT-ROWS-PRESENT
-    _gd="$(cd "$(dirname "$0")" && pwd)/check-gap-drift.sh"
+    _gd="$_RSDD_SELF/check-gap-drift.sh"
     if [ ! -f "$_gd" ]; then
       echo "   WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh; B<n>-G<m> rows were NOT compared with their block bullets"
     else

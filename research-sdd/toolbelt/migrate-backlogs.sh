@@ -45,7 +45,11 @@
 # Exit: 0 inspected (with or without proposals; proposals are findings, not failures) · 1 operational failure
 # (awk/diff/mktemp unavailable, unreadable file, a failed state-file scan or a `diff` status >= 2 -> typed `degraded:` on stderr; diff 0 = no change, not counted) · 2 bad args or target is not a directory.
 set -uo pipefail
-here="$(cd "$(dirname "$0")" && pwd)"
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+_RSDD_SELF="$(cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+here="$_RSDD_SELF"
 target="${1:-}"
 [ "$#" -eq 1 ] && [ -n "$target" ] || { echo "usage: migrate-backlogs.sh <corpus-dir>" >&2; exit 2; }
 [ -d "$target" ] || { echo "absent-input: $target is not a directory" >&2; exit 2; }
