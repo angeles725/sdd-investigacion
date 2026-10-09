@@ -242,13 +242,18 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── REAP_1: _reap reaped sleep-30 subprocess within grace period ──────────────
 import subprocess as _sp
+_proc = None
 try:
-    _proc = _sp.Popen(["sleep", "30"])
+    _proc = _sp.Popen(["sleep", "30"], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
     m._reap(_proc)
     assert _proc.poll() is not None, f"process still alive after _reap: poll={_proc.poll()}"
     ok("REAP_1: _reap reaped sleep-30 within grace period")
 except AttributeError as e: nok("REAP_1", f"_reap not found: {e}")
 except Exception as e: nok("REAP_1", str(e))
+finally:
+    # Kill only the exact spawned handle: a _reap mutant must not leave a 30 s orphan behind.
+    if _proc is not None and _proc.poll() is None:
+        _proc.kill(); _proc.wait(timeout=5)
 
 # ── FILESIZE_1: _filesize_kb exact formula (kB) + cap engagement ──────────────
 try:
@@ -293,5 +298,7 @@ tt teeth-w-rewrite lib/capture_exec.py 'exec_argv[w_idx + 1] = pcap_path' 'pass'
 tt teeth-filesize-formula lib/capture_exec.py 'raw = (24 + packet_count * (snaplen + 16)) // 1000 + 1' 'raw = (24 + packet_count * (snaplen + 16)) // 1024 + 1' 'FAIL  FILESIZE_1: expected 152'
 tt teeth-filesize-ceiling lib/capture_exec.py 'return min(raw, _FILESIZE_KB_MAX)' 'return raw' 'FAIL  FILESIZE_1: expected 524288'
 
+tt teeth-filesize-delta lib/capture_exec.py 'argv_deltas.append({"transform": "add-filesize-cap", "value": filesize_arg})' 'pass' 'FAIL  CRIT2: missing'
+tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
