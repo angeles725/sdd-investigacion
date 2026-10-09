@@ -15,7 +15,12 @@
 # Exit: 0 = nothing to block · 1 = a leak found / the range or content could not be scanned (fail closed, "push BLOCKED") ·
 # scanner exit codes 2/3 are passed through. The ONE exit-0-without-checking case is a missing scanner: typed "NOT checked".
 set -uo pipefail
-here="$(cd "$(dirname "$0")" && pwd)"
+# RSDD-SELF-DIR (kit #1675/#2042): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd
+# (the scanner is a sibling in the KIT checkout, so a link to this file must resolve to the kit, not to the link's directory).
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+here="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
 SCAN="${RSDD_VENDOR_LEAK_SCANNER:-$here/../toolbelt/scan-vendor-leak.sh}"
 [ -f "$SCAN" ] || { echo "research-sdd vendor-leak guard: scanner not found at $SCAN — this push was NOT checked (scanner missing; reinstall the kit or delete this hook)" >&2; exit 0; }
 

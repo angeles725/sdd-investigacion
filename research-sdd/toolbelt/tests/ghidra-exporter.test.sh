@@ -351,13 +351,13 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # lib/mutant.sh is sourced only on this path; every helper the controls call is probed.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_built mutant_tooth || exit 2
+  mutant_bootstrap mutant_built mutant_tooth mutant_or_count mutant_built_or_count || exit 2
   # The SUT of these controls is a JSON fixture, not a shell script: skip the `bash -n` check.
   # Each mutant is validated as JSON by its own builder (json.loads round-trip) instead.
   # MUTANT_SYNTAX=none is scoped per call in mk() below, never exported (#1814)
   _MUT="$(mktemp -d)"   # removed by the single _cleanup EXIT trap installed above
 
-  mk(){ MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ MUTANT_SYNTAX=none mutant_built_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 
   # Checkers: the same assertions the fast lane runs on the same fixture artifact (T1-fast and

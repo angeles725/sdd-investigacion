@@ -353,17 +353,17 @@ fi
 # The mutants live under $ROOT (mktemp -d, trap-cleaned above), never beside the SUT.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
 # shellcheck disable=SC2034  # read by mutant_tooth (default original) in lib/mutant.sh
 SUT="$LIB"
 # mk LABEL OUT EXPR... — sed-build a mutant of $LIB (each EXPR must change the SUT on its own); a refusal
 # records one FAIL (printed by the helper) and returns 1 so the caller never runs a tooth on it.
 mk() {
   local l="$1" out="$2"; shift 2
-  if mutant_chain "$l" "$LIB" "$out" "$@"; then
+  if mutant_chain_or_count fail "$l" "$LIB" "$out" "$@"; then
     ok "$l (a): mutant differs from SUT"; ok "$l (b): mutant passes bash -n"; return 0
   fi
-  fail=$((fail+1)); return 1
+  return 1
 }
 tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 # blk FILE START_FIXED END — "N,M" line range of ONE exact block: the single line containing START_FIXED
@@ -405,12 +405,12 @@ if ! declare -F target_paths_all >/dev/null 2>&1; then
   }
 fi
 MUTANT_SRC
-  if mutant_built "teeth: wide-scan mutant build" "$LIB" "$MUTANT"; then
+  if mutant_built_or_count fail "teeth: wide-scan mutant build" "$LIB" "$MUTANT"; then
     tt "teeth: wide-scan mutant leaks prose (case 1b has teeth)" 0 0 "$MUTANT" \
       --good-has '^/table/real/path$' --good-lacks '/prose/should/not/appear' \
       --bad-has '^/prose/should/not/appear$' -- \
       "$BASH_BIN" --norc -c "source '@SUT@'; target_paths_all \"\$1\"" -- "$FX"
-  else fail=$((fail+1)); fi
+  fi
 fi
 
 # Teeth for cases 6 and 7: delete the exact SENTINEL-TP-*-NOARG block (the fix guard). Both runs exit 1

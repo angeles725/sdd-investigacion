@@ -297,9 +297,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook mutants (lib/mutant.sh) --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh" || { echo "FATAL: mutant helper missing" >&2; exit 2; }
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   SUT="$HOOK_SB"; MB="$ROOT/mb"; mkdir -p "$MB" "$MB/lib"; cp "$HERE/../lib/hook-emit.sh" "$MB/lib/hook-emit.sh"; cp "$SB/verify-skill-drift.sh" "$SB/install-verify-stub.sh" "$SB/decode.sh" "$MB/"   # mutants run beside their own stubs, NOT beside the SUT (mutant.sh refuses that)
   _CRASH='syntax error|unbound variable|command not found'
-  _mk() { mutant_chain "$@" || fail=$((fail+1)); }
+  _mk() { mutant_chain_or_count fail "$@"; }
   _tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   _ENV="$(command -v env)"
   # Mutants live in the sandbox beside the stubs (the hook finds its drift script via its own dir).

@@ -370,8 +370,8 @@ else no "typed states in default mode :: $(grep -i backptr <<<"$o1")"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
-  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # the mutants live in $TMP, so the SUT's lib/ must resolve beside them (as verify-block.test.sh does)
   ln -s "$HERE/../lib" "$TMP/lib"

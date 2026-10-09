@@ -15,14 +15,11 @@
 #   Exit (--scan, --scan-tree): 0 no violations · 1 violations · 2 operational failure (absent corpus, zero files,
 #   unreadable file, no code lines seen) — a zero is never a silent pass (CLAUDE.md §7).
 #
-# Corpus (declared): research-sdd/toolbelt/*.sh · research-sdd/toolbelt/lib/*.sh · research-sdd/install/*.sh.
+# Corpus (declared): research-sdd/toolbelt/*.sh · research-sdd/toolbelt/lib/*.sh · research-sdd/install/*.sh ·
+# research-sdd/templates/*.sh (hook templates copied into a target; gated since kit issue #2042).
 # EXCLUDED (declared, reported by --scan-tree, never gated):
 #   - toolbelt/tests/ and install/tests/ — test suites are launched by path from run-all.sh / a developer and
 #     only locate their own fixtures; 190+ of them use `dirname "$0"` and none is a PATH-resolved entry point.
-#   - templates/*.sh — hook templates COPIED into a target repo and run by git / Claude Code by path, not kit entry points;
-#     two of them DO derive a directory from `dirname "$0"` (hook-prepush-vendor-leak.sh runs a sibling scanner through it,
-#     hook-sessionstart.sh climbs from it). Known residual, not covered here; fixing a template is a separate work unit.
-#     --scan-tree prints how many templates exist and which still carry a $0-derived directory.
 #
 # Exemption is EXPLICIT: a trailing shell comment `# lib-resolution-ok: <reason of >= 3 words>` on the logical line
 # (the last physical line of a backslash continuation) marks a DELIBERATE mention (pattern literals in a scanner).
@@ -47,6 +44,7 @@ forms recognised (in code lines only: comment-only lines skipped, backslash cont
 followed by a quote, space, ; ) ` | & or the end of the line, so `dirname $0` and $(dirname $0|...) are seen):
   F1  dirname [--] "$0" | $0 | "${0}" | ${0}                    (also inside $(cd "$(dirname "$0")/.." ...))
   F2  ${0%/*} | ${0%%/*} | any ${0%...} suffix strip | any ${0/...} pattern substitution (e.g. ${0/%\/*})
+      (the widened F2 `${0[%/]` would also flag a display-only ${0//…}; the corpus has none today - re-check at the next acceptance sweep)
   F3  readlink | realpath with $0 / ${0} among its arguments
   F4  alias: V="$0" | V=$0 | V="${0}" (also after local/export/readonly/declare, with or without flags such as -r or --), then dirname [--] "$V" | ${V%...} | readlink/realpath "$V" later in the file
 forms NOT recognised (known limits): ${BASH_SOURCE[0]:-$0} defaults, $0 smuggled through eval/xargs/sh -c, an alias
@@ -56,7 +54,7 @@ exempt: a trailing `# lib-resolution-ok: <reason of >= 3 words>` comment (the # 
 comments: only a `#` outside '..' / ".." / $'..' quotes at the start of a word starts one (nested quotes inside $(...) only toggle)
   KNOWN LIMIT: quote state is per logical line, so a `#` on the continuation line of a multi-line string ("a<newline>  # x")
   reads as a comment and hides a following dirname "$0" on that line (pinned by a fixture in this suite)
-excluded corpus (declared, not gated): toolbelt/tests/*.sh, install/tests/*.sh, templates/*.sh (see the header)
+excluded corpus (declared, not gated): toolbelt/tests/*.sh, install/tests/*.sh (see the header)
 EOF
 }
 
@@ -139,28 +137,16 @@ lrl_scan() {   # lrl_scan FILE... -> report on stdout, rc 0/1/2
   return "$rc"
 }
 
-lrl_templates() {   # lrl_templates RESEARCH_DIR -> one report line about the declared-excluded templates/*.sh
-  local t n=0 tf=() out names
-  [ -d "$1/templates" ] || { echo "excluded templates/*.sh: directory absent (nothing to report)"; return 0; }
-  for t in "$1"/templates/*.sh; do [ -e "$t" ] || continue; tf+=("$t"); n=$((n + 1)); done
-  [ "$n" -gt 0 ] || { echo "excluded templates/*.sh: 0 files (nothing to report)"; return 0; }
-  out="$(awk "$LRL_AWK" "${tf[@]}")" || { echo "excluded templates/*.sh: $n files, scan FAILED (not gated)"; return 0; }
-  names="$(grep -E '^[^ ]+:[0-9]+:F[0-9]: ' <<<"$out" | sed -E 's#^(.*/)?([^/:]+):[0-9]+:F[0-9]: .*#\2#' | sort -u | tr '\n' ' ')"
-  printf 'excluded templates/*.sh: %d files, %s with a $0-derived directory (declared residual, not gated): %s\n' \
-    "$n" "$(grep -cE '^[^ ]+:[0-9]+:F[0-9]: ' <<<"$out")" "${names:-none}"
-}
-
 lrl_tree() {   # lrl_tree RESEARCH_DIR -> report with corpus counts
   local root="$1" d n files=() c
   [ -d "$root/toolbelt" ] || { echo "ERROR: absent corpus: $root/toolbelt" >&2; return 2; }
-  for d in toolbelt toolbelt/lib install; do
+  for d in toolbelt toolbelt/lib install templates; do   # SENTINEL-LRL-TPLDIR
     [ -d "$root/$d" ] || { echo "ERROR: absent corpus dir: $root/$d" >&2; return 2; }
     c=0
     for n in "$root/$d"/*.sh; do [ -e "$n" ] || continue; files+=("$n"); c=$((c + 1)); done
     printf 'corpus %s/*.sh: %d\n' "$d" "$c"
     [ "$c" -gt 0 ] || { echo "ERROR: empty corpus: $root/$d has no *.sh files" >&2; return 2; }
   done
-  lrl_templates "$root"
   lrl_forms
   lrl_scan "${files[@]}"
 }
@@ -311,7 +297,7 @@ if [ "$rc" -eq 2 ] && grep -q 'absent corpus' <<<"$out"; then ok "absent corpus 
 out="$(bash "$SELF" --scan-tree "$TB/.." 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qx 'violations: 0' <<<"$out"; then ok "REAL TREE: 0 \$0-derived directories across the declared corpus"
 else no "REAL TREE lint failed (rc=$rc): $(grep -E '^[^ ]+:[0-9]+:F[0-9]|ERROR' <<<"$out" | head -10 | tr '\n' ';')"; fi
-for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus toolbelt/lib/\*\.sh: [1-9]' '^corpus install/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
+for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus toolbelt/lib/\*\.sh: [1-9]' '^corpus install/\*\.sh: [1-9]' '^corpus templates/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
   if grep -qE -- "$pat" <<<"$out"; then ok "report prints: $pat"; else no "report is missing: $pat"; fi
 done
 
@@ -337,6 +323,8 @@ planted_run() {
   case "$rc" in 124) PR_WHY="timed out after ${PR_TIMEOUT}s"; return 1 ;; 126|127) PR_WHY="could not run (rc $rc)"; return 1 ;; esac   # SENTINEL-LRL-RC
   [ ! -e "$mark" ] || { PR_WHY="planted lib executed"; return 1; }   # SENTINEL-LRL-PLANTED
   # Reached = the xtrace shows a source line whose path starts with the REAL "$TB/lib/" (not a ghost path, not the planted dir).
+  # ASSUMPTION (declared limit): xtrace prints the sourced path UNQUOTED, so a $TB containing whitespace never matches and
+  # every script reads reached=0 - which FAILS LOUDLY ("no listed script reached a real lib source"), never silently.
   # The trace is captured first: a `producer | grep -q` pipeline under pipefail can read SIGPIPE as failure (CLAUDE.md §7).
   trace="$(grep -E '^\++ (\.|source) ' "$TMP/run.out")"
   if grep -qE "^\\++ (\\.|source) $TB_RE/lib/" <<<"$trace"; then PR_REACHED=1; fi   # SENTINEL-LRL-REACHED
@@ -345,10 +333,9 @@ planted_run() {
 # Synthetic scripts: planted_run must be able to FAIL (a vacuous pass is a silent zero) — and to tell "reached a lib" from "exited early".
 planted_selfchecks() {
   local d="$TMP/pr" first="" l
-  mkdir -p "$d/lib"
+  mkdir -p "$d"
   for l in "$TB"/lib/*.sh; do first="$(basename "$l")"; break; done
   [ -n "$first" ] || { no "planted_run self-check: no real lib to model"; return; }
-  printf 'echo real-lib\n' > "$d/lib/$first"
   printf 'exit 0\n' > "$d/early.sh"
   printf '. "%s/lib/%s"\n' "$TB" "$first" > "$d/real.sh"
   printf '. /nonexistent-dir/lib/x.sh\nexit 1\n' > "$d/ghost.sh"
@@ -425,6 +412,36 @@ if planted_run "$TMP/rel/bin" sweep-audits-hook.sh && [ "$PR_REACHED" -eq 1 ] &&
   ok "relative symlink resolves the real lib/ (marker absent, real lib sourced)"
 else no "relative symlink: why=${PR_WHY:-none} reached=$PR_REACHED marker=$([ -e "$mark" ] && echo yes || echo no) out=$(head -c 200 "$TMP/run.out" | tr '\n' ' ')"; fi
 
+# ---- Templates are part of the gated corpus: a $0-derived dirname re-planted in a template copy is flagged (#2042) ----
+tt="$TMP/tt"; mkdir -p "$tt/toolbelt/lib" "$tt/install" "$tt/templates"
+printf 'echo a\n' > "$tt/toolbelt/a.sh"; printf 'echo b\n' > "$tt/toolbelt/lib/b.sh"; printf 'echo c\n' > "$tt/install/c.sh"
+cp "$TB/../templates/hook-sessionstart.sh" "$tt/templates/hook-sessionstart.sh"
+out="$(bash "$SELF" --scan-tree "$tt" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'violations: 0' <<<"$out"; then ok "templates: the real hook-sessionstart.sh template copy is clean under --scan-tree"; else no "templates: clean template copy flagged (rc=$rc): $(grep -E '^[^ ]+:[0-9]+:F[0-9]' <<<"$out" | head -3 | tr '\n' ';')"; fi
+printf '_hook_target="$(cd "$(dirname "$0")/../.." && pwd)"\n' >> "$tt/templates/hook-sessionstart.sh"
+out="$(bash "$SELF" --scan-tree "$tt" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qx 'violations: 1' <<<"$out" && grep -qE 'templates/hook-sessionstart\.sh:[0-9]+:F1: ' <<<"$out"; then ok "templates: a re-planted dirname \"\$0\" in a template copy is flagged (violations: 1, rc 1)"; else no "templates: re-planted \$0 dirname in a template not flagged (rc=$rc): $(grep -E '^violations|ERROR' <<<"$out" | tr '\n' ';')"; fi
+
+# ---- Templates: hook-prepush-vendor-leak.sh finds its sibling scanner from its OWN path (#2042) -------------------
+# A pre-push hook is run by path from <target>/.git/hooks/pre-push -> `bash <KIT>/templates/hook-prepush-vendor-leak.sh`; the
+# $0-derived form took the scanner from the CALLER's cwd when bash found the file through PATH. Run it by bare name (PATH)
+# and through a symlink from another directory, from a decoy git repo's cwd: the scanner must be found ("NOT checked" absent).
+TPL="$TB/../templates/hook-prepush-vendor-leak.sh"
+tpl_run() {   # tpl_run HOOK_DIR NAME -> TPL_OUT (stderr+stdout), TPL_RC; runs the hook from a decoy repo with an empty push
+  TPL_OUT="$(cd "$TMP/tplcwd/x/y" && PATH="$1:$PATH" bash "$2" </dev/null 2>&1)"; TPL_RC=$?
+}
+mkdir -p "$TMP/tplcwd/x/y" "$TMP/tpllink"
+git -C "$TMP/tplcwd" init -q -b main 2>/dev/null
+ln -sf "$TPL" "$TMP/tpllink/hook-prepush-vendor-leak.sh"
+if [ -f "$TPL" ] && [ -f "$TB/scan-vendor-leak.sh" ]; then
+  tpl_run "$TB/../templates" hook-prepush-vendor-leak.sh
+  if [ "$TPL_RC" -eq 0 ] && ! grep -q 'scanner not found' <<<"$TPL_OUT"; then ok "template hook-prepush-vendor-leak.sh (PATH, bare name, other cwd) finds its sibling scanner"
+  else no "template hook-prepush-vendor-leak.sh by bare name from another cwd: rc=$TPL_RC out=$(head -c 200 <<<"$TPL_OUT" | tr '\n' ' ')"; fi
+  tpl_run "$TMP/tpllink" hook-prepush-vendor-leak.sh
+  if [ "$TPL_RC" -eq 0 ] && ! grep -q 'scanner not found' <<<"$TPL_OUT"; then ok "template hook-prepush-vendor-leak.sh through a symlink in another directory finds the real scanner"
+  else no "template hook-prepush-vendor-leak.sh through a symlink: rc=$TPL_RC out=$(head -c 200 <<<"$TPL_OUT" | tr '\n' ' ')"; fi
+else no "template behavioural check: template or scanner missing ($TPL, $TB/scan-vendor-leak.sh)"; fi
+
 # ---- Teeth (mutation proof) -------------------------------------------------
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
@@ -474,6 +491,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth code-lines" "$MUT/code/$M" '/^  grep -qE .\^code lines: .*# SENTINEL-LRL-CODE-LINES$/ s/.*/  :/' \
     && tooth "teeth code-lines: guard removed → a code-less file passes silently" 2 0 "$MUT/code/$M" \
          --good-has 'no code lines' --bad-has 'violations: 0' -- bash @SUT@ --scan "$TMP/fx/empty.sh"
+
+  # Tooth: templates/ is in the scanned corpus - drop it from the corpus loop and a planted template violation reads clean.
+  mk_sed "teeth templates-scanned" "$MUT/tpl/$M" '/SENTINEL-LRL-TPLDIR$/ s/ templates; do/; do/' \
+    && tooth "teeth templates-scanned: templates dropped from the corpus -> a \$0 dirname in a template is missed" 1 0 "$MUT/tpl/$M" \
+         --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan-tree "$tt"
+
+  # Tooth: the prepush template check bites - the hook re-derived from $0 (bare name, other cwd) cannot find its scanner.
+  mkdir -p "$MUT/pp/toolbelt" "$MUT/pp/templates"; cp "$TB/scan-vendor-leak.sh" "$MUT/pp/toolbelt/"
+  if mutant_chain "teeth prepush-self-dir mutant build" "$TPL" "$MUT/pp/templates/hook-prepush-vendor-leak.sh" '/^_rsdd_s=/ s/"\${BASH_SOURCE\[0\]}"/"$0"/'; then
+    tpl_run "$MUT/pp/templates" hook-prepush-vendor-leak.sh
+    if grep -q 'scanner not found' <<<"$TPL_OUT"; then ok "teeth prepush-self-dir: a \$0-derived mutant cannot find its scanner from another cwd (the template check goes red)"
+    else no "teeth prepush-self-dir: the \$0-derived mutant still found its scanner - the check has no teeth (out=$(head -c 120 <<<"$TPL_OUT" | tr '\n' ' '))"; fi
+  else fail=$((fail + 1)); fi
 
   # Tooth 9: the behavioural check bites — the cwd-derived resolution is restored in a COPY of one script.
   mkdir -p "$MUT/beh/tb/lib"
