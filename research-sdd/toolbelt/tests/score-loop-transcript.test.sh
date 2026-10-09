@@ -613,6 +613,12 @@ out="$(STUB_QUEUE_LINE='  campaign        : none (2 active focus(es), 0 with a q
 grep -qE '^C4 degraded STOP is qualified.*\[backlog-unreadable: 2 rows\]' <<<"$out" \
   && ok "1995 qualified STOP + undeclared queue: C4 degraded (not n/a)" || no "1995 qualified+undeclared: C4 ($out)"
 
+# Hermeticity (kit issue #2052): a normal run of the SUT leaves a private TMPDIR empty.
+hp="$ROOT/priv-tmp-normal"; mkdir -p "$hp"
+TMPDIR="$hp" bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" >/dev/null 2>&1
+[ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ] \
+  && ok "2052: normal SUT run leaves a private TMPDIR empty" || no "2052: normal run leaked $(find "$hp" -mindepth 1 | wc -l) entries"
+
 # ============================================================================================
 # Mutation self-test (--prove-teeth): flip one matching seam per criterion, plus the two
 # round-2 seams explicitly called out (the operator origin.kind filter and the span check),
@@ -826,6 +832,13 @@ LENIENT
     tt "teeth-1017-range-validate: check removed → a non-integer cap is no longer a bad-args exit 2" 2 1 \
       --good-has 'RSDD_BLOCK_RANGE_CAP must be' --bad-lacks 'RSDD_BLOCK_RANGE_CAP must be' -- \
       env RSDD_BLOCK_RANGE_CAP=abc bash @SUT@ --corpus "$ROOT/range-cap"
+    # Hermeticity (kit issue #2052): this mutant aborts mid-scan (set -u on the non-integer cap) after the
+    # SUT has created its git-log temp file. An abnormal exit must still leave a private TMPDIR empty.
+    hp="$ROOT/priv-tmp-abort"; rm -rf "$hp"; mkdir -p "$hp"
+    TMPDIR="$hp" RSDD_BLOCK_RANGE_CAP=abc bash "$m" --corpus "$ROOT/range-cap" --transcript "$FIX/continue-clean.jsonl" >/dev/null 2>&1
+    [ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ] \
+      && pass=$((pass+1)) && echo "  PASS  teeth-1017-range-validate: abnormal SUT exit leaves TMPDIR empty" \
+      || { fail=$((fail+1)); echo "  FAIL  teeth-1017-range-validate: abnormal SUT exit leaked: $(find "$hp" -mindepth 1 | wc -l) entries"; }
   fi
 
   echo "-- teeth-1017-status-stderr: drop the status script's stderr from the degraded evidence --"
