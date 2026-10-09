@@ -105,6 +105,9 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `hook-wired-contradiction` | row claims `hook no` but the Stop hook is wired |
 | `hook-registered-never-loaded` | row claims `hook yes`; the Stop hook is registered but every registered retro-gate command names a script that does not exist, so it can never load |
 | `hook-script-degraded` | row claims `hook yes`; the script-resolution check could not run (awk unavailable or failed), so loadability is unknown |
+| `hook-registered-no-sessions` | row claims `hook yes`; the Stop hook is registered with a loadable script, but no retained Claude Code transcript exists for a session launched from exactly the target directory, so it is not known to have loaded |
+| `hook-unregistered-stale` | row carries `hook file yes / unregistered` but the Stop hook IS registered with a loadable script |
+| `hook-no-sessions-stale` | row carries `registered-no-sessions` but the hook is no longer registered with a loadable script, or a retained transcript now exists |
 | `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
 | `nc-no-count` | `nc` row without a claimed `N md` count |
 | `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |

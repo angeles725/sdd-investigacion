@@ -21,6 +21,8 @@
 # Exit : 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOLBELT="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
