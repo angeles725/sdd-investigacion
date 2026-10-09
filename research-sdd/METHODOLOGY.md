@@ -4119,7 +4119,7 @@ hard-stops, never blind.
 - **A scratchpad PoC proving control-logic claims is a cheap, high-value evidence step.** When a gap asks whether a control-logic algorithm (an arming check, a timer calculation, a state machine) is correct, extract the pure logic into a minimal PoC (Java/Python, no live system needed), write directed tests that exercise the boundary cases including adversarial inputs, and run it in the scratchpad. The PoC oracle is its own test output; a round-trip byte diff is not needed for logic-only claims. Mark a passing PoC `[CERT]` for the mathematical/logical behavior and name the `[INFER]` gap between the PoC and the live deployment context (thread scheduling, live state) as a separate gap. Do NOT mutate a shared subject mid-session; the PoC runs in isolation. (Source: 2026-09-03-research-sdd-rt-authoring-campaign-retro.md #6)
 - **Bake redaction into reader tools that touch secret-bearing stores.** A parser over a history database,
   keystore, or config store emits STRUCTURE and masked values by default (paths, sizes, digests, field
-  skeletons — the PROMPT-LOOP SECRETS DISCIPLINE recipe) and needs an explicit flag to print a raw value; a
+  skeletons — the STRUCTURE-ONLY BINARY INSPECTION RECIPE in `PROMPT-LOOP-APPENDIX.md#hard-rules-live-install-access-recipe`) and needs an explicit flag to print a raw value; a
   reader whose default output must be redacted by hand afterwards will leak on the first forgotten run.
 - **Stop counter: `requires-execution` → 0.** The static loop stops at read-only-investigable = 0; the
   build loop stops when the `requires-execution` count hits 0 — each PoC that lands decrements it. Track it
