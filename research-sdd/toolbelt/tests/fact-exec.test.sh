@@ -4,12 +4,18 @@
 # All docker/network calls are offline (fake shim + loopback ThreadingHTTPServer).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../lib/fact_exec.py"
+SUT="$HERE/../lib/fact_exec.py"; REL="lib/fact_exec.py"
 FACT="$HERE/../fact_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  FACT="$(dirname "$SUT")/../fact_plan.py"   # the CLI cases must import the SAME staged lib/ the mutant lives in
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -f "$FACT" ] || { echo "FATAL: fact_plan.py not found: $FACT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "$FACT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import hashlib, http.server, importlib.util, json, os, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
@@ -546,3 +552,54 @@ with tempfile.TemporaryDirectory() as td:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT" "$FACT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT" "$FACT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+# The teardown lives in ONE `finally`; each mutant skips `compose down` only for the failure the named case provokes
+# (matched on the GateError text), so each FLAGSHIP-DOWN case is bitten by its own mutant, not by a shared one.
+DN='        _compose_down(exec_argv_base)'
+dn() { printf '        if %s not in str(sys.exc_info()[1]): _compose_down(exec_argv_base)' "$1"; }
+tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOWN1: no 'compose down' in shim record on up-fail"
+tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
+tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
+tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
+# The failure itself must also be detected (exit 2), not just cleaned up.
+tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
+tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'
+tt teeth-analysis-finished 'if astatus.get("is_finished") or astatus.get("finished"):' 'if True:' 'FAIL  FLAGSHIP-DOWN3: rc=0'
+tt teeth-toctou-sha 'if actual_sha != fw_sha256:' 'if False:' 'FAIL  TOCTOU: expected GateError on mismatch'
+tt teeth-digest-membership 'if not img_digests.intersection(resolved_digests):' 'if False:' 'FAIL  T-B: rc=0 \(expected 2; digest membership'
+tt teeth-network-internal 'if net_info[0].get("Internal") is not True:' 'if False:' 'FAIL  T-B2: rc=0 \(expected 2; network internal'
+tt teeth-analysis-cap-check 'if exceeded:' 'if False:' 'FAIL  T-A2: GateError must mention cap'
+tt teeth-bounded-limit 'limit = cap + 1' 'limit = cap' 'FAIL  T-A2: GateError must mention cap'
+# A 1 KiB cap makes the client hang up on the stub's 200 KiB body, so the stub's server thread prints a BrokenPipeError Traceback: that is
+# stub noise, not a SUT crash. This one tooth therefore uses the strict filter MINUS the Traceback header; BAD_HAS pins the case's own text.
+CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+tt teeth-analysis-cap-const '= 64 * 1024 * 1024' '= 1024' 'FAIL  T-A1: GateError \(false-timeout in RED\)' "$CRASH_NOTB"
+# Not mutated, with the fixture that WOULD isolate each (no case exists yet; adding one changes plain output):
+#  - post-up mount containment (volume project scope / bind source) and `if not cids`: the shim's DOCKER_CONTAINER_INSPECT_JSON /
+#    DOCKER_PS_OUTPUT knobs can drive them; no case sets them.
+#  - _read_firmware_toctou O_NOFOLLOW / declared-size overflow: needs a symlink and an oversize file; no case builds them.
+#  - _check_loopback via the CLI (NON-LOOPBACK): with the guard off the run would poll 10.0.0.1 for the 7200 s default wall -
+#    unsafe to execute; the UNIT-loopback case calls the guard directly and is a candidate for a tooth.
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
