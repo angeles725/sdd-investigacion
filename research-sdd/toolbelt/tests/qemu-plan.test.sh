@@ -303,6 +303,7 @@ tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sand
 tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
 tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
 tt teeth-input-cap '_file_identity(target, max_bytes=args.max_input_bytes)' '_file_identity(target)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
+# Not mutated (measured equivalent mutant): the O_NOFOLLOW flag in the qemu_plan arch reader - T11 (symlink target) stays green without it because adapter_core.identity rejects symlinks first.
 # Not mutated: T14 (bind-scope) - with assert_safe_bind_root off the run would mkdir/write under /home on the host; unsafe to execute.
 
 echo "== $pass passed · $fail failed =="
