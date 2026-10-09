@@ -342,7 +342,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for migrate-backlogs.sh --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
   TB="$HERE/.."
   MT="$TMP/mt"; mkdir -p "$MT"
   mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; printf '%s' "$t"; }
