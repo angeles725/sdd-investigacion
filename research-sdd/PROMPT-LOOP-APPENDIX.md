@@ -379,6 +379,7 @@ themselves are unchanged and still live in PROMPT-LOOP.md step 3. Each row keeps
 note verbatim, keyed by the rule it annotated. Two prose anecdotes without the `(Evidence:` wrapper (PRIOR COVERAGE CHECK, SCOPING JUDGMENTS ARE
 HYPOTHESES) are included, so step 3 is complete. Two short retro pointers (`SECRETS-SENSITIVE INLINE
 OVERRIDE`, `PEER CATCH`) stay in core: they are one-line pointers, not anecdotes.
+Kit issue #1003 slice 5 moved seven of the keyed rules (REMITTANCE-RISK FLAG, REMITTANCE-TO-EVIDENCE UPGRADE, OPERATOR-CLASSIFICATION-FIRST, API-FILTER SILENT-DECLINE EXTENSION, NARROWING-AXES AND READ-FRACTION, SUBJECT-DECLARED THRESHOLD, IDENTIFIER-GRANULARITY CHECK) into the `step3-special-cases` section of this file; their key text now appears in core only in the one-line pointers, and the rule itself is `grep -nF`-able in `step3-special-cases`.
 
 | Step 3 rule | Original provenance note |
 |---|---|
@@ -409,6 +410,7 @@ live in PROMPT-LOOP.md. Each row keeps the original note verbatim, including its
 `evidence:` / `lesson:` prefix and parentheses. The first column is the exact text the annotated rule
 carries in PROMPT-LOOP.md (a label or a unique opening phrase), so `grep -nF` on it finds the rule.
 Seven keys (`NAME-THE-JAR`, `MULTI-MARKER`, `GROUPING-RULE`, `NEGATIVE-ABSENCE`, `VENDOR-DOCUMENTED PORTS`, `IDENTIFIER-LEVEL SET INTERSECTION (#603)`, `The conversation is an exfil surface`) name rules that kit issue #1003 slice 4 moved into the `hard-rules-measurement-and-claims` / `hard-rules-live-install-access-recipe` sections of this file; `grep -nF` them here instead of in PROMPT-LOOP.md.
+Slice 5 also moved `PKILL -F WRAPPER-SHELL MATCH` into the `hard-rules-loop-mechanics` section of this file; the key stays valid against the core pointer, and the rule is in that section.
 Notes that carry a real reason (not just a corpus pointer) and the one-line retro `(Source: ...)`
 pointers stay in core.
 
@@ -667,3 +669,109 @@ rule here verbatim from PROMPT-LOOP.md HARD RULES; SECRETS DISCIPLINE (live-inst
     git-ignore filter: a refusal on a gitignored secret store (`.env`, `*.conf`, `credentials`) is
     resolved by moving the secret store OUTSIDE the target directory (keep only its path and structure
     in the corpus), not by exempting it.
+
+## step3-special-cases
+
+Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md step 3 leaves a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim, in two groups kept in their original order (the first from after PRIOR COVERAGE CHECK, the second from after the deliberately-kept step 3 rules that precede the API-FILTER rule). Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md, not to this file; "(step 5)" means PROMPT-LOOP.md step 5, and API-FILTER SILENT-DECLINE EXTENSION extends PRE-TEST POPULATION ANATOMY, which stays in core.
+
+         REMITTANCE-RISK FLAG: when the PRIOR COVERAGE CHECK finds partial corpus coverage for a gap
+         but cannot determine whether genuine new substance exists, flag the gap as REMITTANCE-risk in
+         the backlog and include this flag in the sweep prompt: "check REMITTANCE FIRST — state whether
+         this gap is fully answered by [Block N] §N.x with no new substance, BEFORE any tool use." A
+         sweep that returns 'REMITTANCE — no new substance, cite [Block N] §N.x' is a valid closure;
+         the driver closes without authoring a block. This prevents wasted investigation if the gap is
+         remittance at fine grain even when the audit cleared it at coarse grain.
+         REMITTANCE-TO-EVIDENCE UPGRADE: when the PRIOR COVERAGE CHECK finds a gap already answered
+         but only at [CERT-web]/[CERT-a]/[INFER] (asserted from docs or memory), reading the PRIMARY
+         SOURCE to lift the same claim to [CERT] is genuine new substance — NOT a remittance. The
+         marker-tier upgrade justifies authoring a new block even though the coverage question is
+         settled. The kit's existing "escalate a critical [CERT-a] before accepting" rule (step 5) and
+         the CORROBORATION-FROM-INDEPENDENT-STORE pattern (step 5 self-verify) handle the after-the-fact
+         case; this rule names the before-the-block case: a tier upgrade is a valid gap-closure path,
+         not a wasted iteration.
+         OPERATOR-CLASSIFICATION-FIRST: before building an extractor or classification filter for an
+         operator's data package, check whether the package already carries a pre-existing human
+         classification column (e.g. `Clase provisional`, `Revisión humana`, or any manually reviewed
+         label field). A human classification is a REFERENCE STANDARD the extractor can be scored
+         against — do not build a filter first and lose that calibration opportunity.
+
+         API-FILTER SILENT-DECLINE EXTENSION: after applying an API call (select, filter, mark) that
+         reports NO refusal, read the population BACK FROM THE SYSTEM and compare the returned count
+         against the intended count before proceeding. A filter that silently declines entries produces
+         no error and no warning — the discrepancy is only visible by comparing intent vs. result.
+         NARROWING-AXES AND READ-FRACTION: when a sweep selects by BOTH container (layer/table/
+         package) AND kind (entity type/class), declare BOTH narrowing axes and print `read N of M
+         (X %)` as a headline on every census. A complement gate or coverage claim applied after a
+         narrowing cannot see the unread fraction — the unread portion is an implicit scope exclusion
+         that must be named.
+         SUBJECT-DECLARED THRESHOLD: before choosing a classification threshold, look for one the
+         SUBJECT ITSELF DECLARES in its artifact metadata. Prefer a value the artifact carries over
+         any value the researcher picks — a subject-declared threshold produces a partition with no
+         researcher-chosen numbers anywhere.
+         IDENTIFIER-GRANULARITY CHECK: before keying on an identifier as a unique entity, count its
+         DISTINCT VALUES against its OCCURRENCE count. A label in a document is a TYPE reference until
+         proven otherwise — 44 distinct strings spanning 212 occurrences represent 44 types, not 212
+         instances; collapsing by occurrence conflates all instances of one type. Confirm whether the
+         identifier is per-type or per-instance before using it as a grouping key.
+
+## hard-rules-loop-mechanics
+
+Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order. ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
+
+  - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
+    live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
+    LIVE from the real system. Never cite them from a prior note/block (lesson: the logosoft bench program B66-B70 — TARGETS row #8; corpus not present on every machine, so qualify before citing). The worked example with the actual hex values
+    lives in METHODOLOGY §12 — single source; don't restate the values here.
+  - BASH-TOOL PATH NOT PERSISTENT: the shell state (including PATH) is reset between Bash tool
+    calls on every platform — the harness initializes each call from the user's shell profile, so
+    PATH changes made in one call are gone in the next. When a native tool (decompiler, scan
+    utility, custom script) lives off the default PATH, two approaches: (a) durable — add the
+    tool's directory to your shell profile so the harness picks it up on each init; (b) fallback
+    — prepend in EVERY Bash call: `export PATH=<tool-dir>:$PATH && <command>`. Do not rely on a
+    PATH set in a prior call. Cross-reference: BOOTSTRAP (a) / detect-tools.sh already covers
+    off-PATH decompilers ("may live under linuxbrew Cellar … and still be off PATH").
+  - INSTANT CAPTURE (mid-loop kit insights). When a defect, capability idea, algorithm, formula, or
+    process insight surfaces during any loop step, save a conforming journal entry via `mem_save`
+    BEFORE the loop continues — deferred capture (saving at the terminal instead of the moment) is
+    out of spec. Required fields: `title: "<YYYY-MM-DD> <category>: <insight>"` (category ∈
+    improvement / defect / tool-idea / algorithm-idea / formula-idea), `topic_key:
+    "research/<target>/journal/<YYYY-MM-DD>-<HHMMSS>"` (UTC; unique across sessions and parallel
+    focus lanes; for multi-focus targets use
+    `research/<target>/<focus>/journal/<YYYY-MM-DD>-<HHMMSS>` — same §16 convention),
+    `project: "<target>"`, `type: bugfix | discovery | pattern` (do NOT use "decision" — see
+    METHODOLOGY §18 type carve-out), and `content: "<one-line description> — evidence: <block/§/ref>"`.
+    <HHMMSS> is agent-supplied: read the clock per entry (`date -u +%Y-%m-%d-%H%M%S` yields the full
+    suffix) — an LLM has no clock of its own; if two insights surface within the same second, re-read
+    the clock or append -2, -3, never reusing one timestamp for two entries. Omit session_id: Engram
+    resolves the target project's active session, or falls back to manual-save-<target>, via resolveFallbackSessionID;
+    passing the harness session_id causes session_project_mismatch because it belongs to the
+    orchestrator project. One insight = one `mem_save` call under a unique key. §18 consolidates
+    these entries at the TERMINAL TRIGGER (METHODOLOGY §18 journal mode). NOTE: this is a DISTINCT
+    concern from MEMORY IS A MIRROR above (PROMPT-LOOP.md HARD RULES) — research findings destined for corpus blocks follow that
+    rule; kit-methodology insights destined for the retro follow this one. Both apply simultaneously.
+  - PKILL -F WRAPPER-SHELL MATCH. `pkill -f <pattern>` matches any process whose full command line
+    contains <pattern> — including the enclosing `zsh -c`/`sh -c`/`bash -c` wrapper the harness
+    wraps every Bash call in. When the pattern string appears inside that wrapper's argv, pkill signals
+    every match — killing the enclosing session shell as well as (or instead of) the intended child. The naive remedy `kill $(pgrep -f <pattern>)` returns
+    the SAME wrapper PIDs and has the same effect. Safe alternatives: (a) record the target PID at
+    spawn (`$!` or a PID file) and kill that specific PID; (b) match by exact process name (`pkill
+    -x <name>` / `pgrep -x <name>`), which matches the process NAME (`comm`, truncated to 15 chars on
+    Linux) rather than the command line and so cannot match a `zsh`/`bash` wrapper — but a target name
+    longer than 15 chars will silently not match; (c) the bracket idiom
+    `pkill -f '[p]attern'` — the bracketed first character matches the target process line, but
+    the literal string `[p]attern` does not appear in any wrapper's argv and so cannot match the
+    wrapper — provided the plain pattern appears nowhere else in the same Bash call's argv.
+    Mechanical guard: `templates/hook-pretool-pkill-guard.sh` (PreToolUse, matcher `Bash`) denies a
+    command-position `pkill -f`/`pgrep -f`/`--full` without `-x` and without a bracket-escaped pattern, naming
+    (a)-(c); without `jq` it degrades to `ask`. `research-sdd-init.sh` installs it as
+    `<TARGET>/.claude/hooks/pkill-guard.sh` (create-only) and `--wire` registers it under `hooks.PreToolUse`.
+    VERIFY KILL BEFORE REPORTING (#587): after any kill attempt, confirm the target process is
+    actually dead with `pgrep -x <name>` or `kill -0 <pid>` (exit non-zero = process gone) before
+    reporting the job stopped. A pkill that returned non-zero (or silently matched the wrong process)
+    can leave a second competing job running; two Ghidra analyses ran in parallel for 20 minutes while
+    the session reported one had stopped — caught only by PID-level re-check.
+    OPERATOR-SESSION SAFETY (#671): when the operator has an active session on the target host, never
+    kill by name pattern — use explicit PID only. `pkill -f <pattern>` can terminate operator-owned
+    processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
+    before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
+    PID is the driver-owned process before killing.
