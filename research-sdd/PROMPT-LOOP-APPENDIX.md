@@ -411,7 +411,7 @@ live in PROMPT-LOOP.md. Each row keeps the original note verbatim, including its
 carries in PROMPT-LOOP.md (a label or a unique opening phrase), so `grep -nF` on it finds the rule.
 Seven keys (`NAME-THE-JAR`, `MULTI-MARKER`, `GROUPING-RULE`, `NEGATIVE-ABSENCE`, `VENDOR-DOCUMENTED PORTS`, `IDENTIFIER-LEVEL SET INTERSECTION (#603)`, `The conversation is an exfil surface`) name rules that kit issue #1003 slice 4 moved into the `hard-rules-measurement-and-claims` / `hard-rules-live-install-access-recipe` sections of this file; `grep -nF` them here instead of in PROMPT-LOOP.md.
 Slice 5 also moved `PKILL -F WRAPPER-SHELL MATCH` into the `hard-rules-loop-mechanics` section of this file; the key stays valid against the core pointer, and the rule is in that section.
-Slice 6 moved the body of the DOCUMENT CYCLE section into `document-cycle` in this file, so the keys `LARGE-SCALE §20 (outline > ~15 items` and `PRODUCE THE DELIVERABLE` now match text there rather than in PROMPT-LOOP.md; `grep -nF` them in the `document-cycle` section.
+Slice 6 also moved `LOCAL DOC CORPUS CITE DISCIPLINE`, `PRESERVATION-SURFACES-CORRECTIONS` and `FRONTIER-REOPEN DECISION SHAPE` into the `steps4-7-special-cases` section of this file (the keys stay valid against the core pointers; the rules are in that section). Slice 6 moved the body of the DOCUMENT CYCLE section into `document-cycle` in this file, so the keys `LARGE-SCALE §20 (outline > ~15 items` and `PRODUCE THE DELIVERABLE` now match text there rather than in PROMPT-LOOP.md; `grep -nF` them in the `document-cycle` section.
 Notes that carry a real reason (not just a corpus pointer) and the one-line retro `(Source: ...)`
 pointers stay in core.
 
@@ -882,7 +882,7 @@ Trigger: a special case of NORMAL CYCLE steps 4-7 listed below fires; PROMPT-LOO
          looking at the render. The EXTERNAL ORACLE is the comparison render, not the corpus-authored
          numeric gate. Record: "visual oracle: rendering compared vs. source, N discrepancies noted."
 
-         CLAUDE-CODE-ONLY (kit issue #1110): this Stop-hook enforcement — and the delta auto-seeding it
+         CLAUDE-CODE-ONLY (kit issue #1110): the RETRO CHECKPOINT Stop-hook enforcement (PROMPT-LOOP.md step 7) — and the delta auto-seeding it
          triggers via `stage-retro-issues.sh` — is wired only through Claude Code's `Stop` hook (project,
          project-local, or user-level Claude Code settings); the kit wires no Stop-equivalent for any other
          harness (pi, gentle-shell), so their runs never auto-seed, and (as above) the retro-existence block is lost too. On
@@ -893,7 +893,7 @@ Trigger: a special case of NORMAL CYCLE steps 4-7 listed below fires; PROMPT-LOO
 
 ## document-cycle
 
-Trigger: the run was invoked as `document` (CAPTURE mode). Kit issue #1003 (slice 6) moved the body of the DOCUMENT CYCLE section here verbatim from PROMPT-LOOP.md; the `== DOCUMENT CYCLE` heading and a pointer stay in core. Positional references ("above", "below", NORMAL CYCLE) refer to PROMPT-LOOP.md. Read in full.
+Trigger: the run was invoked as `document` (CAPTURE mode). Kit issue #1003 (slice 6) moved the body of the DOCUMENT CYCLE section here verbatim from PROMPT-LOOP.md; the `== DOCUMENT CYCLE` heading and a pointer stay in core. Positional references that point inside this section (e.g. `[PENDING-live]`, below) stay within the section; references to NORMAL CYCLE, BOOTSTRAP or HARD RULES refer to PROMPT-LOOP.md. Read in full.
 
   This mode CAPTURES knowledge you already have or just produced in a session — it does NOT DISCOVER gaps.
   It NEVER runs the gap-discovery / AUDIT-FIRST path (BOOTSTRAP step e / METHODOLOGY §13): no gap-backlog is

@@ -271,6 +271,7 @@ Always read first, in this order:
      evidence>" in RESEARCH-STATE when the focus is opened. (Evidence: frontier bootstrap breadth
      checks surfaced proposed focuses with significant corpus overlap; catching this at bootstrap is
      cheap, catching it mid-loop is not.)
+     FRONTIER BOOTSTRAP — SITUATIONAL: the focus is genuinely unexplored territory with no prior corpus coverage (declare "MODE: frontier" in RESEARCH-STATE; the [INFER]/[CERT] ratio is expected HIGH there, not an exhaustion signal): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` (FRONTIER MODE) in full before declaring the mode.
 
      AUDIT-FIRST BACKLOG (mature/large corpus, or a new focus over one): do NOT hand-guess the gaps.
      PRE-DECLARE REMITTANCES FIRST (new focus over a mature MULTI-FOCUS corpus — before the sweep):
@@ -881,6 +882,7 @@ Always read first, in this order:
          before a planned follow-up registration. This also applies to any iteration, not only
          synthesis: whenever "New gaps uncovered" is non-empty, the backlog rows must exist in the
          same commit.
+         TERMINAL-TIER CONVERGENCE — SITUATIONAL: this focus is running a second investigation tier over first-tier child gaps, and you are about to seed child gaps from it: record residues as in-block sub-sections instead of grandchild backlog rows; read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full.
        - REVERSE BACKLOG SWEEP: after closing a gap OR retiring a §14 premise, re-read the open
          backlog and re-scope or rename any gap whose PREMISE this block just answered or invalidated.
          A gap that was opened as "is X true?" becomes stale if this block proved X false — it must
@@ -1087,7 +1089,7 @@ Always read first, in this order:
          reviewed; add ` focus=<slug>`, or `focus=root`, in a multi-state corpus) from the template, and apply by hand
          the `proposed-reset: blocks_since_retro: 0 in <state file> …` line `stage-retro-issues.sh` prints (it never
          edits a state file; propose-never-apply, METHODOLOGY §18).
-         CLAUDE-CODE-ONLY — SITUATIONAL: the run is on pi or gentle-shell (no Stop hook, so no retro-existence block or delta auto-seeding): same section (run `stage-retro-issues.sh <retro> --apply` and `sweep-all.sh` by hand).
+         CLAUDE-CODE-ONLY — SITUATIONAL: the run is on pi or gentle-shell (no Stop hook, so no retro-existence block or delta auto-seeding): read `$KIT/PROMPT-LOOP-APPENDIX.md#steps4-7-special-cases` in full (run `stage-retro-issues.sh <retro> --apply` by hand after the retro is written, and `sweep-all.sh` by hand at session start).
          OPERATOR-DIRECTED PAUSE: the RETRO CHECKPOINT EXIT CONDITION above supersedes any "MAY"
          language elsewhere — the retro is mandatory whenever research files changed (block /
          RESEARCH-STATE / CATALOG / INDEX), regardless of pause type: an operator-directed pause, a
@@ -1235,7 +1237,7 @@ HARD RULES:
   - LOOP CONTINUATION — after every iteration, evaluate the stopping criterion (METHODOLOGY §8). While
     work remains (read-only-investigable > 0, or any campaign queue entry is `pending` or `active`), start the
     next gap; the continuation call (per mode below) is the last action of the turn, after the
-    iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit, enqueue any
+    iteration report. A focus stop does not end a campaign: run the FRONTIER-REOPEN audit (heavy/frontier modes), enqueue any
     new entries, and pop the next queue entry in the same run (METHODOLOGY §8c).
     A RUN ends only on campaign STOP, a requires-execution wall, an operator pause, or a tool failure;
     a TURN ends after the mode continuation call (ScheduleWakeup / harness re-fire / RETURN CONTRACT token).
