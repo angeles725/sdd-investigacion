@@ -2266,7 +2266,7 @@ phase is DIFFERENT and must NOT run as a blind autonomous loop:
 - **Hash-verify every artifact deployed to a live system before interpreting its behaviour.** A license file, JAR, module or config copied
   onto a live system is `sha256`-compared with its source (not byte size alone: a corruption can keep the size) BEFORE any verdict about
   the system's response. Example: a corrupted `scp` left a 1291 B license where the source was 805 B, and the failure was misread as a
-  regeneration fragility. A file-list verdict (`nre -licenses`) is necessary, not sufficient. (kit #1540; B1208 §1208.1-§1208.2)
+  regeneration fragility. A file-list verdict (`nre -licenses`) is necessary, not sufficient, and on a multi-install bench it is unaudited unless it prints `niagara.home` beside the verdict (`toolbelt/NIAGARA-N4-FRAMEWORK.md` §7). (kit #1540, #2032; B1208 §1208.1-§1208.2)
 - **Mutating the cited subject invalidates prior citations — re-anchor to a preserved snapshot.**
   If a probe modifies the target (installs a package, writes a config, restarts a service), any
   citation issued against the PRE-MUTATION state now refers to a changed artifact. Before continuing:

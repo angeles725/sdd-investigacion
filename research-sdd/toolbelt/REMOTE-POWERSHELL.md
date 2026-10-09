@@ -269,6 +269,14 @@ the registry read alone.
 
 Evidence: kit issue #1900 (niagara-reflow-block1.md §R1.6; `n4-boot-stderr.txt`).
 
+**Same-named user-scope variable shadows the machine-scope one `[#2031]`.** The collision is not
+limited to `JAVA_TOOL_OPTIONS`: for any variable, a user-scope value with the same name takes
+precedence over the machine-scope value in that user's processes (a second OEM installer can leave one
+behind), so a script that sets only the Machine scope can be silently defeated. A version-switch script
+must set the variable at BOTH Machine and User scope, mirror it into the live process environment
+(`$env:NAME = ...`; registry writes never reach an already-running process), and verify by the
+tool's own behaviour rather than by service state. Niagara instance: `NIAGARA-N4-FRAMEWORK.md §7`.
+
 ## 9. Live-install: JNI dependent-DLL resolution needs `PATH`, not just `-Djava.library.path` `[#1580]`
 
 When driving a live-install Windows lab over SSH to run a Java process that loads a JNI provider,
