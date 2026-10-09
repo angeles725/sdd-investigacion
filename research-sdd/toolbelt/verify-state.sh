@@ -925,7 +925,7 @@ for state in "${states[@]}"; do
 
   # --- envelope contract: recompute ground truth, compare to declared ints ---------------------
   d_inv="$(derive_investigable "$state")"
-  d_blocked="$(derive_blocked "$state")"
+  d_blocked="$(derive_blocked "$state")" || d_blocked="DEGRADED"   # BLOCKED-DEGRADED: blocked_open_count rc!=0 (typed message already on stderr) is never a derived 0
   d_req="$(derive_requires_execution "$state")"
   d_def="$(derive_deferred "$state")"
   e_covered="$(env_field "$state" covered_blocks)"
@@ -1009,7 +1009,10 @@ for state in "${states[@]}"; do
     frc=1; rc=1
   fi
   # ENVELOPE CHECK C (FAIL) — declared blocked_open must equal the on-disk "## Blocked gaps" entry count.
-  if ! is_int "$e_blocked" || [ "$e_blocked" != "$d_blocked" ]; then
+  if [ "$d_blocked" = "DEGRADED" ]; then
+    echo "   FAIL   blocked_open derivation degraded (lib/blocked-rows.sh could not count; see the blocked-rows: message above) — the declared blocked_open=${e_blocked:-<missing>} cannot be verified"
+    frc=1; rc=1
+  elif ! is_int "$e_blocked" || [ "$e_blocked" != "$d_blocked" ]; then
     echo "   FAIL   envelope blocked_open=${e_blocked:-<missing>} != ${d_blocked} blocked entr(y/ies) — re-seed: --sync-state"
     frc=1; rc=1
   fi
