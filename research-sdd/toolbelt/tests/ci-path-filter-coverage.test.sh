@@ -359,8 +359,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # compare derivations, so there is no mutant file to build and they keep their observations.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_built || exit 2
-  mk_built() { MUTANT_SYNTAX=none mutant_built "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_built mutant_or_count mutant_built_or_count || exit 2
+  mk_built() { MUTANT_SYNTAX=none mutant_built_or_count fail "$@" || return 1; }
 
   # Teeth A: stub parity test with an extra known input; derivation must include it.
   # This proves ci-path-filter-coverage.test.sh reads the live parity test at runtime,

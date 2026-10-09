@@ -17,7 +17,7 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_vm_tooth_py_src mutant_vm_core_teeth || exit 2
+mutant_bootstrap mutant_vm_tooth_py_src mutant_vm_fixtures_py_src mutant_vm_core_teeth || exit 2
 
 # --prove-teeth: a temp root for the staged mutants and the python section's counts file.
 # One EXIT trap for the whole suite (a second trap would replace this one).
@@ -28,7 +28,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   TEETH_COUNTS="$MUT/py-counts"
 fi
 
-RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" "${2:-}" <<'PY'
+RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" RSDD_FIXTURES_PY="$(mutant_vm_fixtures_py_src)" RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" "${2:-}" <<'PY'
 import importlib.util, json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
@@ -49,21 +49,6 @@ def cli(*a, xe=None):
     if xe: e.update(xe)
     return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
                           capture_output=True, text=True, env=e)
-
-# ELF header: x86_64 little-endian
-_X64 = b'\x7fELF\x02\x01\x01' + b'\x00'*9 + b'\x02\x00\x3e\x00'
-
-# Fake bwrap: exec everything after "--"
-_BWRAP = """\
-#!/usr/bin/env python3
-import os, sys
-args = sys.argv[1:]
-try:
-    sep = args.index("--"); cmd = args[sep+1:]
-    if cmd: os.execvp(cmd[0], cmd)
-except (ValueError, IndexError): pass
-sys.exit(0)
-"""
 
 # Extended fake qemu shim for detonate:
 # - records argv (QEMU_SHIM_RECORD)
@@ -122,9 +107,6 @@ def _shims(tmp: Path) -> str:
         p = tmp / name; p.write_text(body); p.chmod(0o755)
     return str(tmp) + ":" + os.environ.get("PATH", "")
 
-def _elf(tmp: Path) -> Path:
-    p = tmp / "sample.elf"; p.write_bytes(_X64); return p
-
 Path("/tmp/rsdd").mkdir(exist_ok=True)
 
 # ── Tooth scenarios (--tooth <name> <sut_exec>) ────────────────────────────────
@@ -135,28 +117,9 @@ Path("/tmp/rsdd").mkdir(exist_ok=True)
 # tests/lib/mutant.sh (mutant_vm_tooth_py_src) and runs here, in this suite's globals.
 exec(os.environ["RSDD_TOOTH_PY"], globals())
 
-# GOOD_ARGV matches detonate_plan.build_plan output shape.
-# Includes all bwrap teeth required by issue #61 (--cap-drop ALL,
-# --unshare-pid, --tmpfs) and the scratch file bind (INV-2 / issue #60).
-# NOTE: _GOOD_ARGV is duplicated verbatim in trace-exec.test.sh; both copies must stay
-# in sync (RSDD_TOOTH_PY now shares _tooth_run via tests/lib/mutant.sh; moving these fixtures there is a follow-up).
-_SCRATCH_PATH = "/rsdd/rsdd-test/scratch.img"
-_GOOD_ARGV = [
-    "bwrap",
-    "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
-    "--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",
-    "--bind", _SCRATCH_PATH, _SCRATCH_PATH,
-    "--ro-bind", "/store/rootfs.img", "/input/rootfs",
-    "--ro-bind", "/store/sample.bin", "/input/sample",
-    "--",
-    "qemu-system-x86_64",
-    "-m", "256", "-smp", "1", "-accel", "tcg",
-    "-nic", "none", "-nodefaults",
-    "-sandbox", "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
-    "-drive", "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
-    "-drive", f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio",
-    "-drive", "file=/input/rootfs,snapshot=on,format=raw,if=virtio",
-]
+# Shared fixtures (_X64, _BWRAP, _elf, _SCRATCH_PATH, _GOOD_ARGV) live in tests/lib/mutant.sh
+# (mutant_vm_fixtures_py_src) and run here, in this suite's globals.
+exec(os.environ["RSDD_FIXTURES_PY"], globals())
 if len(sys.argv) > 4 and sys.argv[3] == "--tooth":
     _tooth_run(sys.argv[4], lambda elf: ["--sample", str(elf)], "detonate_exec", "DetonateVmExecutor"); sys.exit(0)
 

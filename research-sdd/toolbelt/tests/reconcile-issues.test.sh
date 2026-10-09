@@ -1424,6 +1424,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # ---- kit issue #1332 item 2 teeth (entry form) — mutant built with tests/lib/mutant.sh ----
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # _crash_strict TEXT CLASS... : mutant_is_crash with exit 2 (bad class / internal error) kept LOUD.
   # A plain `if mutant_is_crash` reads rc 2 as "not a crash", which would let a broken classifier pass.
   _crash_strict() { local _cs_rc; mutant_is_crash "$@"; _cs_rc=$?
@@ -2886,8 +2887,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local label="$1" bn="$2" mode="$3" expr="$4" expect="$5" mb mr
     echo "-- teeth $label --"
     mb="$(mkbox "teeth-1555-$bn")"; mk_gh_stub "$mb" "$mode" "$SIG44E"
-    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
-      fail=$((fail+1)); return 0
+    if ! mutant_chain_or_count fail "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
+      return 0
     fi
     mr="$(mk44 "$mb")"
     case "$expect" in
@@ -2921,7 +2922,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # T1555-f: the closed cap guard miscounts (-ge -> -gt): a reply that exactly fills --limit reads as complete.
   echo "-- teeth T1555-f --"
   mbf="$(mkbox teeth-1555-cap)"; mk_gh_stub "$mbf" closed-fill
-  if mutant_chain T1555-f "$SUT" "$mbf/research-sdd/toolbelt/reconcile-issues.sh" \
+  if mutant_chain_or_count fail T1555-f "$SUT" "$mbf/research-sdd/toolbelt/reconcile-issues.sh" \
        '/^_fetch_closed_bodies() {/,/^}/s/\[ "\$_n" -ge "\$_LIST_LIMIT" \]/[ "$_n" -gt "$_LIST_LIMIT" ]/'; then
     RECONCILE_ISSUES_LIST_LIMIT=2 run "$mbf" "$(mk44 "$mbf")"
     if _crash_strict "$OUT" bash; then
@@ -2929,7 +2930,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     elif [ "$RC" = 0 ] && ! grep -q '^degraded: gh issue list (closed) returned' <<<"$OUT" && grep -q '^untracked: row 1 ' <<<"$OUT"; then
       ok "T1555-f teeth: miscounted cap guard -> no typed degraded, confident untracked (case 44j has teeth)" "()"
     else no "T1555-f teeth" "case 44j is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  fi
 
   # ---- kit issue #1709 teeth (closure-evidence rule) ----
   # tooth1709 <label> <box> <expr> <case> : mutant from ONE sed expr; the case's wrong reading must appear.
@@ -2946,8 +2947,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       absent)      mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: 1234567890abcdef1234567890abcdef12345678\\n${EVTEST}" ;;
       *)           mk_gh_stub "$mb" closed-completed "${SIG44}\\nCommit: ${C_MAIN}\\n${EVTEST}" ;;
     esac
-    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
-      fail=$((fail+1)); return 0
+    if ! mutant_chain_or_count fail "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then
+      return 0
     fi
     mr="$(mk44 "$mb")"
     case "$kase" in
@@ -3018,7 +3019,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       apifail) mk_gh_stub "$mb" closed-completed "$SIG44E" ;;
       oldgh) mk_gh_stub "$mb" closed-completed "$SIG44" ;;
     esac
-    mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr" || { fail=$((fail+1)); return 0; }
+    mutant_chain_or_count fail "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr" || return 0
     mr="$(mk44 "$mb")"
     [ "$kase" != batch ] || mk44 "$mb" r44b.md >/dev/null
     case "$kase" in
@@ -3079,11 +3080,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # T1752-i: the repo key dropped from the cache check -> 45v1 (repo B resolved against repo A's listing) must go red.
   echo "-- teeth T1752-i --"
   mbi="$ROOT/teeth-1752-i.sh"
-  if mutant_chain T1752-i "$SUT" "$mbi" 's/\[ "\$(head -1 "\$_SR_FILE" 2>\/dev\/null)" != "loaded \$_REPO" \]/[ "$(head -1 "$_SR_FILE" 2>\/dev\/null | cut -c1-6)" != "loaded" ]/'; then
+  if mutant_chain_or_count fail T1752-i "$SUT" "$mbi" 's/\[ "\$(head -1 "\$_SR_FILE" 2>\/dev\/null)" != "loaded \$_REPO" \]/[ "$(head -1 "$_SR_FILE" 2>\/dev\/null | cut -c1-6)" != "loaded" ]/'; then
     sr_mut="$(sr_unit "$mbi" repo)"
     if [ "$sr_mut" != "completed not_planned" ]; then ok "T1752-i teeth: repo key dropped -> B resolved against A's listing (45v1 has teeth)" "()"
     else no "T1752-i teeth" "45v1 is THEATER: got [$sr_mut]"; fi
-  else fail=$((fail+1)); fi
+  fi
   # ---- kit issue #1784 teeth: each mutant must break the case that pins the behaviour (unbuildable = FAIL) ----
   # tooth1784 <label> <kase> <sed-expr>. kase: listfail (44n) | pause:<msg>:<env> (44o-r, expect sleeps differ from
   # <want>) | since (44s) | cache (44t) | trap (44u). The verdict is "the pinned good behaviour is GONE".
@@ -3091,7 +3092,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     local label="$1" kase="$2" expr="$3" want="${4:-}" mb good=1 menv
     echo "-- teeth $label --"
     mb="$(mkbox "teeth-1784-$label")"; mk_gh_stub "$mb" closed-completed "$SIG44E"
-    if ! mutant_chain "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then fail=$((fail+1)); return 0; fi
+    if ! mutant_chain_or_count fail "$label" "$SUT" "$mb/research-sdd/toolbelt/reconcile-issues.sh" "$expr"; then return 0; fi
     case "$kase" in
       listfail)
         GH_STUB_OLD_GH=1 GH_STUB_OLDGH_LIST_FAIL=1 run "$mb" "$(mk44 "$mb")"
@@ -3131,49 +3132,49 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # T1784-m: X-RateLimit-Reset read as an absolute number of seconds (the subtraction of "now" dropped).
   echo "-- teeth T1784-m --"
   mbm="$(mkbox teeth-1784-m)"; mk_gh_stub "$mbm" closed-completed "$SIG44E"
-  if mutant_chain T1784-m "$SUT" "$mbm/research-sdd/toolbelt/reconcile-issues.sh" 's/_w=\$(( BASH_REMATCH\[1\] - _now ))/_w=$(( BASH_REMATCH[1] ))/'; then
+  if mutant_chain_or_count fail T1784-m "$SUT" "$mbm/research-sdd/toolbelt/reconcile-issues.sh" 's/_w=\$(( BASH_REMATCH\[1\] - _now ))/_w=$(( BASH_REMATCH[1] ))/'; then
     backoff_run "$mbm" "gh: HTTP 403 X-RateLimit-Reset: $(( $(date +%s) + 5 ))" X=1
     if [ "$BO_SLEEPS" -gt 5 ] 2>/dev/null; then ok "T1784-m teeth: reset epoch used as a duration -> wait out of range (44p has teeth)" "(sleeps=[$BO_SLEEPS])"
     else no "T1784-m teeth" "44p is THEATER: sleeps=[$BO_SLEEPS]"; fi
-  else fail=$((fail+1)); fi
+  fi
   # (j) token extraction consumes boundaries (space kept inside a token): 45q's lists lose a SHA.
   echo "-- teeth T1709-j --"
   mbj="$(mkbox teeth-1709-lists)"; mk_gh_stub "$mbj" closed-completed "${SIG44}\\nCommits: ${C_SIDE} ${C_MAIN}\\n${EVTEST}"
-  if mutant_chain T1709-j "$SUT" "$mbj/research-sdd/toolbelt/reconcile-issues.sh" \
+  if mutant_chain_or_count fail T1709-j "$SUT" "$mbj/research-sdd/toolbelt/reconcile-issues.sh" \
        "s/| tr -c '0-9a-fA-F\\\\n' '\\\\n' \\\\/| tr -c '0-9a-fA-F, \\\\n' '\\\\n' \\\\/"; then
     run "$mbj" "$(mk44 "$mbj")"
     if ! grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-j teeth: delimiters kept in tokens -> list evidence lost (case 45q has teeth)" "()"
     else no "T1709-j teeth" "case 45q is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  fi
   # (k) lines before the first signature are no longer dropped: 45r's preamble test is credited.
   echo "-- teeth T1709-k --"
   mbk="$(mkbox teeth-1709-preamble)"; mk_gh_stub "$mbk" nomatch
-  if mutant_chain T1709-k "$SUT" "$mbk/research-sdd/toolbelt/reconcile-issues.sh" \
+  if mutant_chain_or_count fail T1709-k "$SUT" "$mbk/research-sdd/toolbelt/reconcile-issues.sh" \
        's/^        if (!started) { ignored++; next }  # RECONCILE-RECORD-PREAMBLE$/        if (0) { ignored++; next }/'; then
     run "$mbk" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45r.txt" "$(mk44 "$mbk")"
     if ! grep -q '^note: closed-cache: .* belong to no record' <<<"$OUT"; then ok "T1709-k teeth: preamble no longer detected -> typed note lost (case 45r has teeth)" "()"
     else no "T1709-k teeth" "case 45r is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  fi
   # (h) signature lines no longer split records: a separator-less cache merges two issues.
   echo "-- teeth T1709-h --"
   mbh="$(mkbox teeth-1709-sigsplit)"; mk_gh_stub "$mbh" nomatch
-  if mutant_chain T1709-h "$SUT" "$mbh/research-sdd/toolbelt/reconcile-issues.sh" \
+  if mutant_chain_or_count fail T1709-h "$SUT" "$mbh/research-sdd/toolbelt/reconcile-issues.sh" \
        's/^          flush(); started = 1$/          started = 1/'; then
     mrh="$(mk44 "$mbh")"
     run "$mbh" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45n.txt" "$mrh"
     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-h teeth: mutant merges separator-less records -> row 1 wrongly shipped (case 45n has teeth)" "()"
     else no "T1709-h teeth" "case 45n is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  fi
   # (e) record separators ignored: another issue's evidence is credited to row 1.
   echo "-- teeth T1709-e --"
   mbe="$(mkbox teeth-1709-records)"; mk_gh_stub "$mbe" nomatch
-  if mutant_chain T1709-e "$SUT" "$mbe/research-sdd/toolbelt/reconcile-issues.sh" \
+  if mutant_chain_or_count fail T1709-e "$SUT" "$mbe/research-sdd/toolbelt/reconcile-issues.sh" \
        's/^    \$0 == "\\036" { flush(); next }$/    $0 == "\\036" { next }/'; then
     mre="$(mk44 "$mbe")"
     run "$mbe" --issues-cache "$ROOT/open45j.txt" --closed-cache "$ROOT/closed45j.txt" "$mre"
     if grep -q '^shipped: row 1 ' <<<"$OUT"; then ok "T1709-e teeth: mutant merges records -> row 1 wrongly shipped (case 45j has teeth)" "()"
     else no "T1709-e teeth" "case 45j is THEATER: rc=$RC out=[$OUT]"; fi
-  else fail=$((fail+1)); fi
+  fi
 
   # ---- kit issue #1709 slice 2 teeth (the `regressed` class) - mutants built with tests/lib/mutant.sh ----
   # t46 <label> <scenario> <effect> <sed-expr>: build the scenario against a mutant of the SUT (an unbuildable or
@@ -3184,7 +3185,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     echo "-- teeth $label --"
     mb="$(mkbox "teeth-46-$label")"; mk_gh_stub "$mb" closed-completed "$SIGRA_E"
     [ "$mtarget" != lib ] || { msrc="$RETRO_GRAMMAR_LIB"; mdst=lib/retro-grammar.sh; }
-    if ! mutant_chain "$label" "$msrc" "$mb/research-sdd/toolbelt/$mdst" "$expr"; then fail=$((fail+1)); return 0; fi
+    if ! mutant_chain_or_count fail "$label" "$msrc" "$mb/research-sdd/toolbelt/$mdst" "$expr"; then return 0; fi
     mk44 "$mb" "$RA" >/dev/null
     args=("$mb/rh/target-foo/retros/$RA")
     case "$kase" in
@@ -3253,10 +3254,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   for _pt in "bold|/_dl=\"\\\$(printf/s/\\\\1\\//\\\\1X\\//" 'header|s/h\[k\] ~ \/\^(proposed change.*) ct = k$/h[k] ~ \/NEVER\/) ct = k/'; do
     _pl="${_pt%%|*}"; _pe="${_pt#*|}"; echo "-- teeth T1709s2-parity-$_pl --"
     _pm="$ROOT/parity-mut-$_pl.sh"
-    if mutant_chain "T1709s2-parity-$_pl" "$RETRO_GRAMMAR_LIB" "$_pm" "$_pe"; then
+    if mutant_chain_or_count fail "T1709s2-parity-$_pl" "$RETRO_GRAMMAR_LIB" "$_pm" "$_pe"; then
       if par_check "$_pm" 2>/dev/null; then no "T1709s2-parity-$_pl teeth" "case 47 is THEATER: a drifted parser still passes parity"
       else ok "T1709s2-parity-$_pl teeth: drifted title parser fails the stage parity check (47 has teeth)" "()"; fi
-    else fail=$((fail+1)); fi
+    fi
   done
   if [ "$(id -u)" != 0 ]; then
     t46 T1709s2-q unreadable rc0 '^degraded: later retro not readable' 's/_reg_degraded=1; continue$/continue/'

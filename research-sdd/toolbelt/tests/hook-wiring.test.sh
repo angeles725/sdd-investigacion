@@ -609,8 +609,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # subshell and its state variable read), so they are not expressible as mutant_tooth argv runs.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
-  mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk() { mutant_chain_or_count fail "$@" || return 1; }
   echo "-- teeth: force the awk always-found (END { exit 0 }) — case 3 must go RED --"
   mut_wired="$ROOT/hook-wiring.MUTANT-always-wired.sh"
   if mk "teeth: 'END { exit !found }' anchor in lib" "$LIB" "$mut_wired" 's/END { exit !found }/END { exit 0 }  # MUTANT: always found/'; then
