@@ -248,6 +248,12 @@
 
 set -uo pipefail
 
+# One registry, one EXIT trap (kit issue #2052): every temp file is appended to _TMP_FILES right after
+# its mktemp, so an abnormal exit (set -u abort, signal) cannot leak one. Normal paths still rm early.
+_TMP_FILES=()
+_cleanup_tmp() { [[ ${#_TMP_FILES[@]} -eq 0 ]] || rm -f -- "${_TMP_FILES[@]}"; }
+trap _cleanup_tmp EXIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
@@ -396,8 +402,9 @@ TRANSCRIPT_LAST_ISO=""
 ANY_ORIGIN_PRESENT=1
 
 if [[ -n "$TRANSCRIPT" && "$JQ_AVAILABLE" -eq 1 ]]; then
-  TRANSCRIPT_TSV="$(mktemp)"; TS_LIST="$(mktemp)"; TS_EPOCHS="$(mktemp)"
-  trap 'rm -f "$TRANSCRIPT_TSV" "$TS_LIST" "$TS_EPOCHS"' EXIT
+  TRANSCRIPT_TSV="$(mktemp)"; _TMP_FILES+=("$TRANSCRIPT_TSV")
+  TS_LIST="$(mktemp)"; _TMP_FILES+=("$TS_LIST")
+  TS_EPOCHS="$(mktemp)"; _TMP_FILES+=("$TS_EPOCHS")
   # last_para is emitted as @base64, not @tsv-escaped raw text: @tsv's own escaping (\t/\n/\r/\\
   # as two-character sequences) cannot be reversed unambiguously in bash for text that itself
   # contains a literal backslash next to one of those letters (a real "\n" typed by a model, a
@@ -544,7 +551,8 @@ scan_block_commits() {
   [[ -n "$2" ]] && extra+=(--until="$2")
 
   local git_out git_err rc
-  git_out="$(mktemp)"; git_err="$(mktemp)"
+  git_out="$(mktemp)"; _TMP_FILES+=("$git_out")
+  git_err="$(mktemp)"; _TMP_FILES+=("$git_err")
   git -C "$CORPUS" log --no-color --format='%H%x09%cI%x09%s' ${extra[@]+"${extra[@]}"} "$range" -- . >"$git_out" 2>"$git_err"
   rc=$?
   if [[ "$rc" -ne 0 ]]; then
@@ -828,7 +836,7 @@ c4() {
   # status script's actual answer is correct.
   local status_default status_next rc_default rc_next
   local c4_err
-  c4_err="$(mktemp)"
+  c4_err="$(mktemp)"; _TMP_FILES+=("$c4_err")
   status_default="$(bash "$STATUS_SCRIPT" "$CORPUS" 2>"$c4_err")"; rc_default=$?
   status_next="$(bash "$STATUS_SCRIPT" "$CORPUS" --next 2>>"$c4_err")"; rc_next=$?
   if [[ "$rc_default" -ne 0 || "$rc_next" -ne 0 ]]; then

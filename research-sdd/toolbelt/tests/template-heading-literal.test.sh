@@ -125,11 +125,12 @@ done
 if [ "$PROVE" -eq 1 ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   MUT="$(mktemp -d)"; mutant_cleanup_register "$MUT"
   S="$TPL/RESEARCH-STATE.template.md"; D="$TPL/RESEARCH-STATE-document.template.md"
   tooth_scan() {  # LABEL SUT-FILE WANT-SUBSTR EXPR... — mutant must make scan_file report WANT; the original must not.
     local label="$1" sut="$2" want="$3"; shift 3
-    MUTANT_SYNTAX=none mutant_chain "$label" "$sut" "$MUT/$label.md" "$@" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$sut" "$MUT/$label.md" "$@" || return 1
     local o m
     o="$(scan_file "$sut")"; m="$(scan_file "$MUT/$label.md")"
     if grep -q 'heading literal' <<<"$o"; then no "teeth-$label: the ORIGINAL already violates"; return 1; fi
@@ -145,13 +146,13 @@ if [ "$PROVE" -eq 1 ]; then
   # three-hash form, second comment on the same line as a first
   tooth_scan h3-second-on-line "$S" '"## Stop control"' 's/^## Coverage$/<!-- a --> <!-- see ### Stop control -->\n&/'
   # H2 tooth: dropping the exact-heading sentence from the scaffold must turn H2 red
-  MUTANT_SYNTAX=none mutant_chain "h2-drop" "$S" "$MUT/h2-drop.md" 's/^"Campaign queue" — the section greps.*$/(heading text omitted)/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain_or_count fail "h2-drop" "$S" "$MUT/h2-drop.md" 's/^"Campaign queue" — the section greps.*$/(heading text omitted)/'
   if [ -f "$MUT/h2-drop.md" ]; then
     if scaffold_documented "$S" "Campaign queue" && ! scaffold_documented "$MUT/h2-drop.md" "Campaign queue"; then ok "teeth-h2-drop: scaffold without the exact heading text is red"
     else no "teeth-h2-drop: H2 did not distinguish the mutant"; fi
   fi
   # a real, non-fenced heading OUTSIDE a comment must stay green (the comment rule has a tooth that does not over-fire)
-  MUTANT_SYNTAX=none mutant_chain "outside-green" "$S" "$MUT/outside-green.md" 's/^## Coverage$/&\n\n## Gap-backlog extra/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain_or_count fail "outside-green" "$S" "$MUT/outside-green.md" 's/^## Coverage$/&\n\n## Gap-backlog extra/'
   if [ -f "$MUT/outside-green.md" ]; then
     og="$(scan_file "$MUT/outside-green.md")"
     if grep -q 'heading literal' <<<"$og"; then no "teeth-outside-green: a heading outside a comment was flagged"

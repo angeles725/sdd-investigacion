@@ -377,8 +377,8 @@ done
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
-  mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   CRASH="$(mutant_crash_re bash cmd tb awk)" || exit 2
   mkdir -p "$TMP/lib"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"

@@ -256,13 +256,13 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # status="complete" while truncation=True — the live-module test bites this regression.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   # The mutants are python files: skip the bash -n check (empty, identical, live-tree, symlink
   # and dead-stage refusals still apply).
   _mut_dir="$(mktemp -d)"
   if [[ ! -f "$_FIX_DISHONEST" ]]; then
     no "teeth-validate-curated: fixture missing: $_FIX_DISHONEST (run regen first)"
-  elif MUTANT_SYNTAX=none mutant_chain "teeth-validate-curated" "$SUT_PY" "$_mut_dir/corroborate_ghidra.py" \
+  elif MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-validate-curated" "$SUT_PY" "$_mut_dir/corroborate_ghidra.py" \
       's/if (value\["status"\] == "partial") != partial: raise ValueError/pass  # mutant: status==partial check disabled/'; then
     cat > "$_mut_dir/harness.py" <<'PY'
 import sys, importlib.util
@@ -288,8 +288,6 @@ PY
         --bad-lacks 'REJECTED' -- python3 "$_mut_dir/harness.py" "$TOOLBELT" @SUT@ "$_FIX_DISHONEST"; then
       pass=$((pass+1))
     else fail=$((fail+1)); fi
-  else
-    fail=$((fail+1))
   fi
   rm -rf "$_mut_dir"
 
@@ -315,7 +313,7 @@ PY
     # Delete exactly the two-line inline guard: the `if` line AND the line right after it, only when that next
     # line is the warn_evidence( call. Any other shape leaves the file unchanged and mutant_chain refuses the
     # byte-identical mutant loudly — the deletion can never silently grow.
-    MUTANT_SYNTAX=none mutant_chain "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-warn-ghidra" "$HERE/../corroborate_ghidra.py" "$td_gh/corroborate_ghidra.py" \
       '/if completeness not in ("complete","partial"):/{N;/\n[[:space:]]*warn_evidence(/d;}'
     mut_rc=$?
     if [ "$mut_rc" -eq 0 ]; then
@@ -330,7 +328,7 @@ PY
         && ! grep -q 'ghidra-corroboration.v1' "$td_gh/teeth.err" 2>/dev/null; then
         ok "teeth-warn-ghidra: guard removed → stderr empty → warn-ghidra assertion fires (has teeth)"
       else no "teeth-warn-ghidra: pointer still emitted without guard — NO teeth"; fi
-    else fail=$((fail+1)); fi  # mutant_chain printed the typed refusal
+    fi  # mutant_chain_or_count already counted the typed refusal
     rm -rf "$td_gh"
   fi # slow teeth
 

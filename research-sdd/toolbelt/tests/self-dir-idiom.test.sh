@@ -124,9 +124,9 @@ rm -rf "$t"
 # ---- Teeth -----------------------------------------------------------------
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 tooth() { if mutant_tooth "$@"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
-mk_sed() { mkdir -p "$(dirname "$2")"; mutant_chain "$1" "$3" "$2" "${@:4}" || { fail=$((fail + 1)); return 1; }; }
+mk_sed() { mkdir -p "$(dirname "$2")"; mutant_chain_or_count fail "$1" "$3" "$2" "${@:4}" || return 1; }
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   MUT="$(mktemp -d)"

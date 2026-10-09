@@ -20,6 +20,14 @@
 # Override registry path for CI or manual checks:
 #   INVARIANTS_REGISTRY=/path/to/other.md bash process-integrity.test.sh
 #
+#   bash process-integrity.test.sh --prove-teeth
+#     Plain run first, then mutation teeth (kit issue #2053 WU10). The suite has no external SUT: the
+#     checker is the embedded python below. Under --prove-teeth it is staged as a file, one mutant per
+#     distinct check it enforces is built from the staged copy (lib/mutant.sh), and each mutant is run
+#     through the hidden `--teeth-child <path>` mode (same fixtures, checker taken from <path>; exit 2
+#     on a non-file path, prints `TEETH-CHILD: SUT=<path>`). A tooth passes only when the matching
+#     RED fixture stops being caught (its named FAIL line), with no Traceback/ImportError crash.
+#
 # STRICT TDD: RED fixture tests appear before the GREEN test; each RED fixture
 # must be rejected with the expected error fragment; GREEN must pass.
 
@@ -29,7 +37,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 REGISTRY_PATH="${INVARIANTS_REGISTRY:-$REPO_ROOT/openspec/invariants.md}"
 
-python3 - "$REGISTRY_PATH" "$REPO_ROOT" <<'PYEOF'
+# The embedded checker lives in a variable so --prove-teeth can stage it as a file; stdin stays free.
+IFS= read -r -d '' CHECKER_PY <<'PYEOF'
 import re, sys, tempfile
 from pathlib import Path
 
@@ -621,3 +630,86 @@ assert_passes("GREEN-real-registry", registry_path)
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PYEOF
+
+if [ "${1:-}" = "--teeth-child" ]; then
+  _child="${2:-}"
+  [ -f "$_child" ] || { echo "process-integrity: --teeth-child needs an existing checker file, got [$_child]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$_child"
+  python3 "$_child" "$REGISTRY_PATH" "$REPO_ROOT"; exit $?
+fi
+
+if [ "${1:-}" != "--prove-teeth" ]; then
+  python3 -c "$CHECKER_PY" "$REGISTRY_PATH" "$REPO_ROOT"; exit $?
+fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its per-case lines are kept, its aggregate line is replaced by one combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$CHECKER_PY" "$REGISTRY_PATH" "$REPO_ROOT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) — the checker did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_replace mutant_tooth mutant_or_count mutant_crash_re mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+CRASH_RE="$(mutant_crash_re py)" || exit 2
+mkdir -p "$MUT/src" "$MUT/mut" || exit 2
+STAGED="$MUT/src/checker.py"
+printf '%s\n' "$CHECKER_PY" > "$STAGED"
+
+echo "-- teeth: each distinct invariant check must be load-bearing (embedded checker staged, one mutant per check) --"
+
+# Control 1: the unmutated staged copy behaves exactly like the embedded checker.
+ctl_out="$(bash "$SELF" --teeth-child "$STAGED" 2>&1)"; ctl_rc=$?
+if [ "$ctl_rc" -eq 0 ] && grep -qF "TEETH-CHILD: SUT=$STAGED" <<<"$ctl_out" && grep -q 'PASS  GREEN-real-registry' <<<"$ctl_out" && ! grep -qE '  FAIL  ' <<<"$ctl_out"; then
+  echo "  PASS  teeth control: the unmutated staged checker passes every fixture via --teeth-child (rc 0, banner printed)"; pass=$((pass + 1))
+else
+  echo "  FAIL  teeth control: unmutated staged checker (rc=$ctl_rc): $(tr '\n' ' ' <<<"$ctl_out" | head -c 300)"; fail=$((fail + 1))
+fi
+# Control 2: --teeth-child fails closed on a non-file path.
+bash "$SELF" --teeth-child "$MUT/no-such-checker.py" >/dev/null 2>&1; nf_rc=$?
+if [ "$nf_rc" -eq 2 ]; then echo "  PASS  teeth control: --teeth-child on a non-file path exits 2 (fails closed)"; pass=$((pass + 1))
+else echo "  FAIL  teeth control: --teeth-child on a non-file path exited $nf_rc (want 2)"; fail=$((fail + 1)); fi
+
+# tooth_py NAME OLD NEW BAD_HAS — mutate the FIRST literal OLD of the staged checker into NEW, run the whole suite against
+# the mutant: it must exit 1 and print BAD_HAS (the named RED fixture's FAIL line) without a Python crash signature.
+tooth_py() {
+  local name="$1" old="$2" new="$3" bad="$4" m="$MUT/mut/$1.py"
+  mutant_or_count fail mutant_py_replace "teeth $name" "$STAGED" "$old" "$new" "$m" || return 1
+  if mutant_tooth "teeth $name" 0 1 "$m" --orig "$STAGED" --good-has 'PASS  GREEN-real-registry' \
+       --bad-has "$bad" --bad-lacks "$CRASH_RE" -- bash "$SELF" --teeth-child @SUT@; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+}
+WRONG='check failed but wrong message'
+PASSED='check PASSED but expected FAIL'
+# REQ1-presence bites only through the MESSAGE: with the exists() guard off, read_text raises and the checker still rejects
+# the file, but as "cannot read registry: [Errno 2] ..." instead of "registry not found" - RED01 asserts the fragment "not found".
+tooth_py REQ1-presence 'if not reg_path.exists():' 'if False:' "  FAIL  RED01-missing-file: $WRONG"
+tooth_py REQ1-unparseable 'return entries if entries else None' 'return entries if entries else []' "  FAIL  RED10-unparseable: $PASSED"
+tooth_py REQ2-duplicate-id 'if eid in seen_ids:' 'if False:' "  FAIL  RED13-dup-id: $PASSED"
+tooth_py REQ2-contiguity 'if i not in inv_set:' 'if False:' "  FAIL  RED14-gap: $PASSED"
+tooth_py REQ2-required-field 'if not entry.get(field):' 'if False:' "  FAIL  RED02-missing-field: $PASSED"
+tooth_py REQ2-status-value $'if st and st not in (\'enforced\', \'pending\'):' 'if False:' "  FAIL  RED03-invalid-status: $PASSED"
+tooth_py REQ3-no-test-files 'if not file_ids:' 'if False:' "  FAIL  RED11-no-test-files: $PASSED"
+tooth_py REQ3-no-parseable-ids 'if not all_mjs and sh_total_ids == 0:' 'if False:' "  FAIL  RED09-no-test-ids: $PASSED"
+tooth_py REQ3-file-exists 'errors.append(f"{eid}: named test file not found: {rel_path}")' 'pass' "  FAIL  RED04-missing-testfile: $PASSED"
+tooth_py REQ3-id-in-labels 'if tid not in labels:' 'if False:' "  FAIL  RED05-missing-testid: $PASSED"
+# Isolated raw-substring form: only the label-aware lookup changes (no tokeniser), so GREEN and RED05 stay as they were.
+tooth_py REQ3-label-aware 'if tid not in labels:' 'if tid not in file_text:' "  FAIL  RED08-prose-only-id: $PASSED"
+tooth_py REQ4-pending-in-map 'if pid not in open_map:' 'if False:' "  FAIL  RED06-pending-not-in-map: $PASSED"
+tooth_py REQ4-map-unknown-id 'errors.append(f"open-map references non-existent invariant: {mid}")' 'pass' "  FAIL  RED12-map-unknown-id: $PASSED"
+# Final guard: without it the REQ3/REQ4 errors are collected but the checker returns (True, []) -> every REQ3/REQ4 fixture (RED04-RED09, RED11, RED12) passes.
+tooth_py FINAL-guard $'    if errors:\n        return False, errors\n    return True, []' '    return True, []' "  FAIL  RED04-missing-testfile: $PASSED"
+tooth_py REQ4-map-enforced $'elif entry_map[mid][\'status\'] != \'pending\':' 'elif False:' "  FAIL  RED07-enforced-in-map: $PASSED"
+# Not mutated, on purpose: (1) the REQ2 early `if errors: return` guard - with it off, the REQ3 loop still runs on the same
+# entries and no RED fixture's expected fragment depends on the early exit (equivalent mutant for these fixtures); (2) the
+# `except Exception -> "cannot read registry"` branch - no fixture makes the registry exist but be unreadable (follow-up issue).
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

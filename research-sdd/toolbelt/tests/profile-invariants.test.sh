@@ -105,7 +105,7 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 source "$LIB"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built || exit 2
+mutant_bootstrap mutant_chain mutant_built mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -610,14 +610,14 @@ if [ "$PROVE_TEETH" -eq 1 ]; then
   # mk_sed_from ORIG LABEL OUT EXPR  build OUT from ORIG with one sed EXPR (mutant_chain); false (and a FAIL) when refused.
   mk_sed_from() {
     local orig="$1" label="$2" out="$3" e="$4"
-    MUTANT_SYNTAX=none mutant_chain "$label" "$orig" "$out" "$e" && return 0
-    fail=$((fail+1)); return 1
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$orig" "$out" "$e" && return 0
+    return 1
   }
   # mk_verify_from ORIG LABEL OUT  validate a mutant built another way (python3, append) with the same refusals.
   mk_verify_from() {
     local orig="$1" label="$2" out="$3"
-    MUTANT_SYNTAX=none mutant_built "$label" "$orig" "$out" && return 0
-    fail=$((fail+1)); return 1
+    MUTANT_SYNTAX=none mutant_built_or_count fail "$label" "$orig" "$out" && return 0
+    return 1
   }
 
   # GOOD verdicts: the exact assertion each tooth below flips, run on the UNMUTATED renders. A tooth only

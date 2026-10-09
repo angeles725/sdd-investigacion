@@ -150,12 +150,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Sourced only here: a plain run never depends on the mutation helper.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   t_pass=0; t_fail=0
   # Every tooth builds a REAL mutant (a copy of the SUT, via lib/mutant.sh: refuses a dead stage, empty,
   # identical, syntax-broken, live-tree and symlink mutants) and asserts the exact GOOD verdict on the
   # original and the exact BAD verdict on the mutant (mutant_tooth: a crashing mutant is THEATER).
-  mk() { mutant_chain "$@" || { t_fail=$((t_fail+1)); return 1; }; }
+  mk() { mutant_chain_or_count t_fail "$@" || return 1; }
   # tt LABEL GOOD_RC BAD_RC MUTANT ...: the exact exit codes the ORIGINAL and the MUTANT run must return.
   tt() { if mutant_tooth "$@"; then t_pass=$((t_pass+1)); else t_fail=$((t_fail+1)); fi; }
   MD="$ROOT/mutants"; mkdir -p "$MD"

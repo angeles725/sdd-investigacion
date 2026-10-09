@@ -273,6 +273,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-RTG: each guard is load-bearing --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   RTG_CRASH="$(mutant_crash_re bash py)" || exit 2
   # The tooth driver: a fresh corpus copy per run (the marker must not leak between the good and the mutant run).
   # env: RTG_TWICE=1 runs the gate twice on one copy · RTG_BETWEEN=1 moves the corpus to a new expected token between
@@ -310,7 +311,7 @@ RUN
   rtg_t() { # <label> <sed-expr> <good-rc> <bad-rc> <corpus> <transcript> <session> <mutant_tooth match args...>
     # the mutant is built from the REAL gate ($SUT) into $RTG_TBDIR (default $TB), so it finds the siblings there
     local lbl="$1" expr="$2" grc="$3" brc="$4" corp="$5" trn="$6" sid="$7" dir="${RTG_TBDIR:-$TB}"; shift 7
-    mutant_chain "$lbl" "$SUT" "$dir/rtg.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$dir/rtg.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" "$grc" "$brc" "$dir/rtg.$lbl.MUTANT.sh" --orig "$dir/return-token-gate.sh" "$@" -- bash "$TMP/rtg-run.sh" @SUT@ "$corp" "$trn" "$sid"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   NX="$FX/corpus-next"; SQ="$FX/corpus-stop-queue"; BLOCK='"decision":"block"'

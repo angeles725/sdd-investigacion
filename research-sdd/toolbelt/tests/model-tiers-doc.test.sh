@@ -74,14 +74,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # original) AND the BAD verdict (it fails on the mutant).
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   # The predicates are shell functions: export them so the bash the shared mutant_tooth spawns sees them.
   export -f _has_claude_profile _has_opus_55 _has_sonnet_5 _has_haiku_45_200k
   # tooth LABEL PREDICATE SED_EXPR  delete every doc line matching SED_EXPR into a mutant (mutant_chain);
   # PREDICATE must hold on the original (rc 0) and must NOT hold on the mutant (rc 1) — mutant_tooth.
   tooth() {
     local label="$1" pred="$2" expr="$3" out="$TT/$1.md" line
-    MUTANT_SYNTAX=none mutant_chain "$label" "$DOC" "$out" "$expr" || { fail=$((fail+1)); return 1; }
+    MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$DOC" "$out" "$expr" || return 1
     if line="$(mutant_tooth "$label: $pred" 0 1 "$out" --orig "$DOC" -- bash -c "$pred"' "$1"' _ @SUT@)"; then
       pass=$((pass+1)); printf '%s\n' "$line"
     else
