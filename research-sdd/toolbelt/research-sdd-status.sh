@@ -36,7 +36,7 @@
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
 #        DEGRADED | <reason>           — (kit #2024, exit 3) BACKUP gate for a blocked-rows failure that appears AFTER the STALE gate passed
 #              (a transient extractor failure): the verdict probes every state file it reads (the picked file under --root/--focus,
-#              else EVERY state file, stopped/paused included) and resolve_next treats an is_blocked read failure as fatal, so --next
+#              else EVERY state file, stopped/paused included) and resolve_next, queue_next (--queue) and the paused-focus count treat an is_blocked read failure as fatal, so --next
 #              REFUSES to answer instead of handing out a blocked gap or an inflated paused-focus count. A REPEATABLE failure is
 #              answered first by `STALE | ... blocked_open derivation degraded` (verify-state CHECK C fails on the same read, same
 #              file set). Fix the failure named on stderr and re-run; --emit-token answers `unavailable` for it.
@@ -473,7 +473,7 @@ is_blocked() {
   local g="$1" b _ib_names _ib_rc
   _ib_names="$(blocked_names)"; _ib_rc=$?
   if [ "$_ib_rc" -ne 0 ]; then   # IS-BLOCKED-DEGRADED: an unreadable blocked section must not read as "nothing is blocked" silently
-    printf 'research-sdd-status: blocked sections could not be extracted (rc %s on %s) — is_blocked sees no blocked gaps (degraded derivation)\n' "$_ib_rc" "$state" >&2
+    printf 'research-sdd-status: blocked sections could not be extracted (rc %s on %s) — blocked status UNKNOWN (degraded derivation; callers fail closed)\n' "$_ib_rc" "$state" >&2
     return 2   # IS-BLOCKED-RC2 (#2024 S3): 0 blocked, 1 not blocked, 2 UNKNOWN (degraded) — resolve_next treats 2 as fatal
   fi
   while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done <<<"$_ib_names"; return 1
@@ -685,7 +685,9 @@ queue_next() {
         deferred|'~~'|—) c=terminal ;;
         *) if [[ "$gap" == *'~~'* ]]; then c=terminal
            else case "$tok" in
-             pending) if is_blocked "$gap"; then c=blocked; else c=serve; fi ;;
+             pending) is_blocked "$gap"; _qn_ib=$?
+                      case "$_qn_ib" in 0) c=blocked ;; 1) c=serve ;;
+                        *) echo "DEGRADED | blocked-rows read failed while resolving $gap in $(_rel_state "$state") — no gap is handed out; fix the failure named on stderr, then re-run"; return 3 ;; esac ;;  # QUEUE-DEGRADED-FATAL (#2024)
              blocked*|requires-execution*) c=blocked ;;
              closed|'[closed]'|covered|'[covered]'|done|'[done]'|cubierto|'[cubierto]'|'✅'*|'~~'*) c=terminal ;;
              *) c=inprogress ;;
@@ -712,7 +714,12 @@ queue_next() {
 
 # resolve_next_q — resolve_next, preferring the declared queue when --queue was given (kit #1614).
 resolve_next_q() {
-  if [ "$queue_flag" = 1 ]; then queue_next && return 0; fi
+  local _rq_rc
+  if [ "$queue_flag" = 1 ]; then
+    queue_next; _rq_rc=$?
+    [ "$_rq_rc" -eq 0 ] && return 0
+    [ "$_rq_rc" -eq 3 ] && return 3   # RESOLVE-Q-PASSTHROUGH: a degraded queue read never falls back to the priority walk
+  fi
   resolve_next
 }
 
@@ -720,7 +727,7 @@ resolve_next_q() {
 # derived investigable_open, reusing THIS script's backlog_rows/is_blocked — IDENTICAL to resolve_next's
 # NEXT-eligibility set (single source of truth), and to what verify-state.sh recomputes.
 count_investigable() {
-  local gap st lead tok n=0
+  local gap st lead tok n=0 _ci_ib _ci_deg=0
   while IFS=$'\t' read -r _ gap st; do          # field 1 (priority) unused here → discard into _
     [ -z "$gap" ] && continue
     case "$gap" in *'~~'*) continue ;; esac      # struck-through gap name: resolved row, skip silently  # STRICKEN-GAP-SKIP
@@ -734,10 +741,13 @@ count_investigable() {
       esac
       continue
     }
-    is_blocked "$gap" && continue
+    is_blocked "$gap"; _ci_ib=$?
+    [ "$_ci_ib" -eq 0 ] && continue
+    [ "$_ci_ib" -eq 1 ] || _ci_deg=1   # CI-DEGRADED-RC (#2024): an unknown blocked status is neither counted nor silently "not blocked"
     n=$((n+1))
   done < <(backlog_rows 2>/dev/null)
   echo "$n"
+  return "$_ci_deg"   # 0, or 3 when any blocked read failed: the count is then inflated and callers that gate a verdict must refuse
 }
 # count_retyped_in_table — OPEN backlog rows whose leading Status token is `re-typed`/`retyped` (#1638). Such a
 # row is deliberately NOT investigable and NOT a blocked bucket (METHODOLOGY §8b: it leaves the main table in
@@ -1987,7 +1997,7 @@ fence != "" { next }
       if [ "$_nxt_foc_tok" = "stopped" ] || [ "$_nxt_foc_tok" = "paused" ]; then
         printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_nxt_foc_slug" "$_nxt_foc_tok" >&2
         [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
-        _nxt_skip_d_inv="$(count_investigable 2>/dev/null)"
+        _nxt_skip_d_inv="$(count_investigable 2>/dev/null)" || { echo "DEGRADED | blocked-rows read failed while counting the paused/stopped focus $(_rel_state "$state") — the no-active-focus count would be inflated; fix the failure named on stderr, then re-run"; exit 3; }  # COUNT-DEGRADED-EXIT
         [ "${_nxt_skip_d_inv:-0}" != "0" ] && _nxt_skip_gaps=$(( _nxt_skip_gaps + 1 ))
         continue
       fi
@@ -2577,7 +2587,7 @@ _ns_gap_run() (
     if [ "$_ns_foc_tok" = "stopped" ] || [ "$_ns_foc_tok" = "paused" ]; then
       printf 'INFO: skipped %s (focus-status: %s in FOCUSES.md)\n' "$_ns_foc_slug" "$_ns_foc_tok" >&2
       [ -r "$state" ] || printf 'WARN: cannot read state file %s\n' "$state" >&2
-      _ns_inv="$(count_investigable 2>/dev/null)"
+      _ns_inv="$(count_investigable 2>/dev/null)" || { echo "DEGRADED | blocked-rows read failed while counting the paused/stopped focus $(_rel_state "$state") — the no-active-focus count would be inflated; fix the failure named on stderr, then re-run"; exit 0; }
       [ "${_ns_inv:-0}" != "0" ] && _ns_skip_gaps=$(( _ns_skip_gaps + 1 ))
       continue
     fi

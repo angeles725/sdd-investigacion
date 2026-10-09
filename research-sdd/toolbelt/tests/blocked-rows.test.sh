@@ -253,7 +253,17 @@ mk_count_stub() { # DIR N: awk stub whose blocked-section extractors fail from t
 }
 mk_count_stub "$TMP/stub-late" 4
 nx "$TMP/stub-late" "$TMP/nsingle"
-if dg; then ok "--next, blocked read failing after the gate (resolve_next): DEGRADED, exit 3, no NEXT"; else no "--next with a late blocked-read failure: rc=$rc out=[$out]"; fi
+if dg && grep -q 'read failed while resolving' <<<"$out"; then ok "--next, blocked read failing after the gate (resolve_next): the backup DEGRADED line, exit 3, no NEXT"; else no "--next with a late blocked-read failure: rc=$rc out=[$out]"; fi
+# --queue path (queue_next has its own is_blocked call)
+rm -rf "$TMP/nqueue"; mkdir -p "$TMP/nqueue"; sed 's/^# T — Research State$/# T — Research State\nnext_session_queue: alpha-gap/' "$FIX/next-blocked-gap.md" > "$TMP/nqueue/RESEARCH-STATE.md"
+: > "$TMP/stub-late/count"; nx "$TMP/stub-late" "$TMP/nqueue" --queue
+if dg && grep -q 'read failed while resolving' <<<"$out"; then ok "--next --queue, blocked read failing after the gate (queue_next): the backup DEGRADED line, exit 3, no NEXT"; else no "--next --queue with a late blocked-read failure: rc=$rc out=[$out]"; fi
+nx "$TMP/empty-path" "$TMP/nqueue" --queue
+if [ "$rc" = 0 ] && ! grep -q '^DEGRADED' <<<"$out"; then ok "--next --queue healthy twin: exit 0, no DEGRADED"; else no "--next --queue healthy twin: rc=$rc out=[$out]"; fi
+# the paused-focus count (count_investigable) is a read of its own
+mk_count_stub "$TMP/stub-late8" 8
+nx "$TMP/stub-late8" "$TMP/npaused"
+if dg && grep -q 'read failed while counting' <<<"$out"; then ok "--next, blocked read failing while counting a PAUSED focus: DEGRADED, exit 3 (not an inflated 'no active focus' count)"; else no "--next late failure in the paused count: rc=$rc out=[$out]"; fi
 
 echo "-- 4. a missing or function-less lib fails each consumer loudly --"
 mk_kit() { # DIR [lib-state: ok|missing|empty]
@@ -401,8 +411,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   DSP_CMD=(bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null' _ @SUT@)
   P15="$MD/g15"; mkpair "$P15"
   mk "TOOTH-15 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" 's#if \[ "\$_nxt_dg_rc" -ne 0 \]; then  \# NEXT-DEGRADED-GATE#if false; then  \# NEXT-DEGRADED-GATE#' \
-    && tt "TOOTH-15: --next refuses on a degraded PAUSED focus (only the gate sees it; resolve_next never reads a paused focus); without the gate it prints an inflated STOP" 3 0 "$P15/mut/research-sdd-status.sh" \
-         --orig "$P15/orig/research-sdd-status.sh" --good-has '^DEGRADED \| ' --bad-lacks '^DEGRADED \| ' \
+    && tt "TOOTH-15: --next refuses on a degraded PAUSED focus (the gate names it; the count backup only says counting); without the gate the probe message is lost" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
          -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/npaused"
   mk "TOOTH-16 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut2.sh" 's#^    exit 3$#    exit 0#' \
     && cp "$P15/mut2.sh" "$P15/mut/research-sdd-status.sh" \
@@ -421,8 +431,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-18: --next over a degraded NON-head focus is refused by the probe (not only by resolve_next's backup); a head-only probe loses the probe message" 3 3 "$P15/mut/research-sdd-status.sh" \
          --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
          -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/nmulti" \
-    && tt "TOOTH-18b: --next over a degraded PAUSED focus refuses; a head-only probe prints an inflated no-active-focus count" 3 0 "$P15/mut/research-sdd-status.sh" \
-         --orig "$P15/orig/research-sdd-status.sh" --good-has '^DEGRADED \| ' --bad-has '^STOP \| no active focus' \
+    && tt "TOOTH-18b: --next over a degraded PAUSED focus refuses; a head-only probe loses the probe message (the count backup still refuses, naming counting)" 3 3 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'derivation unreadable for' --bad-lacks 'derivation unreadable for' \
          -- "${NXT_CMD[@]}" "$TMP/stub-fb" "$TMP/npaused" \
     && tt "TOOTH-18c: the default report's next step covers a degraded non-head focus; a head-only probe prints NEXT" 0 0 "$P15/mut/research-sdd-status.sh" \
          --orig "$P15/orig/research-sdd-status.sh" --good-has 'next step +: DEGRADED \(blocked-rows derivation unreadable' --bad-lacks 'next step +: DEGRADED \(blocked-rows derivation unreadable' \
@@ -443,6 +453,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-26: resolve_next treats a failing is_blocked read as fatal; without it the gap is handed out as NEXT" 3 0 "$P15/mut/research-sdd-status.sh" \
          --orig "$P15/orig/research-sdd-status.sh" --good-has '^DEGRADED \| ' --bad-has '^NEXT \| ' \
          -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next 2>/dev/null' _ @SUT@ "$TMP/stub-late" "$TMP/nsingle"
+  # TOOTH-27/28 (#2024 round 2): the --queue path (queue_next) and the paused-focus count read blocked status on their own.
+  mkpair "$P15"
+  mk "TOOTH-27 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" '/# QUEUE-DEGRADED-FATAL/s#\*) .*; return 3 ;; esac ;;#*) c=serve ;; esac ;;#' \
+    && tt "TOOTH-27: queue_next treats an unreadable is_blocked as fatal; without it the queued gap is served as NEXT" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'read failed while resolving' --bad-has '^NEXT \| ' \
+         -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next --queue 2>/dev/null' _ @SUT@ "$TMP/stub-late" "$TMP/nqueue"
+  mkpair "$P15"
+  mk "TOOTH-28 mutant build" "$P15/orig/research-sdd-status.sh" "$P15/mut/research-sdd-status.sh" '/# COUNT-DEGRADED-EXIT/s#|| { echo .*exit 3; }#|| true#' \
+    && tt "TOOTH-28: the paused-focus count refuses on an unreadable is_blocked; without it the inflated no-active-focus STOP is printed" 3 0 "$P15/mut/research-sdd-status.sh" \
+         --orig "$P15/orig/research-sdd-status.sh" --good-has 'read failed while counting' --bad-has '^STOP \| no active focus' \
+         -- bash -c ': > "$2/count"; PATH="$2:$PATH"; bash "$1" "$3" --next 2>/dev/null' _ @SUT@ "$TMP/stub-late8" "$TMP/npaused"
   # TOOTH-20 (#2024 item 1): the display's `next step : DEGRADED` guard, turned into `if false; then`.
   mkdir -p "$MD/g20/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g20/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g20/mut/"
   mk "TOOTH-20 mutant build" "$ST" "$MD/g20/mut/research-sdd-status.sh" 's#if \[ -n "\$_ns_dg_names" \]; then printf#if false; then printf#' \
