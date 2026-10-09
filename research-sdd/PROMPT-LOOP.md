@@ -119,6 +119,8 @@ Always read first, in this order:
      re-run `--next`; `--emit-token` answers `unavailable` for it),
      `STALE | <reason>` (envelope/backlog inconsistent — run `$KIT/toolbelt/research-sdd-status.sh $TARGET
      --sync-state`, reconcile, and retry; do NOT proceed on STALE), `BOOTSTRAP | <reason>`,
+     `DEGRADED | <reason>` (exit 3 — a blocked-sections read failed while `--next` was resolving; the answer would come
+     from an empty blocked set, so do NOT proceed: fix the failure named on stderr and re-run `--next`),
      `RETRO-DUE | <focus>` (the focus has crossed the §18 blocks-since-retro threshold — delegate the §18
      retro (or write it inline when a coordinator forbids delegation, §18) as the CURRENT iteration before resuming normal gaps; the retro is mandatory, not optional — see
      RETRO CHECKPOINT under step 7's TERMINAL TRIGGER. `--next` emits RETRO-DUE automatically once
@@ -127,7 +129,7 @@ Always read first, in this order:
      `ISSUES-DUE | <N> untracked delta(s) in <retro> — seed: stage-retro-issues.sh <retro> --apply`
      (issued when exhausted work would otherwise STOP, but the named retro has deltas not yet tracked as open
      GitHub issues; early-exit on the FIRST such retro found — remaining retros are NOT probed, count and path
-     are scoped to that one retro only; `--next` precedence: STALE → RETRO-DUE → NEXT → ISSUES-DUE → STOP).
+     are scoped to that one retro only; `--next` precedence: STALE → RETRO-DUE → DEGRADED → NEXT → ISSUES-DUE → STOP).
      Response to ISSUES-DUE: run `$KIT/toolbelt/stage-retro-issues.sh <retro> --apply` to seed issues for the
      untracked deltas, then re-run `--next` and continue. The loop is NOT DONE while `--next` returns
      ISSUES-DUE — a terminal `STOP` is required before the investigation can be reported complete (§18

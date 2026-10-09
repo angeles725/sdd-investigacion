@@ -34,10 +34,12 @@
 #        RETRO-DUE | <count> ...       — §18 cadence: too many blocks without a retro; write one before resuming
 #        STALE | <reason>              — RESEARCH-STATE is internally inconsistent; run --sync-state, reconcile, retry
 #        BOOTSTRAP | <reason>          — no RESEARCH-STATE yet → run research-sdd-init.sh
-#        DEGRADED | <reason>           — (kit #2024, exit 3) the blocked-rows derivation (lib/blocked-rows.sh blocked_open_count) failed for a
-#              state file the verdict reads (the picked file under --root/--focus, else EVERY state file, stopped/paused included):
-#              is_blocked would see an empty blocked set, so --next REFUSES to answer instead of handing out a blocked gap or an
-#              inflated paused-focus count. Fix the failure named on stderr and re-run; --emit-token answers `unavailable` for it.
+#        DEGRADED | <reason>           — (kit #2024, exit 3) BACKUP gate for a blocked-rows failure that appears AFTER the STALE gate passed
+#              (a transient extractor failure): the verdict probes every state file it reads (the picked file under --root/--focus,
+#              else EVERY state file, stopped/paused included) and resolve_next treats an is_blocked read failure as fatal, so --next
+#              REFUSES to answer instead of handing out a blocked gap or an inflated paused-focus count. A REPEATABLE failure is
+#              answered first by `STALE | ... blocked_open derivation degraded` (verify-state CHECK C fails on the same read, same
+#              file set). Fix the failure named on stderr and re-run; --emit-token answers `unavailable` for it.
 #   --queue (with --next; kit #1614) honours the operator-declared lane: a `next_session_queue: G1, G2` line in the
 #        state file's header (before its first `## ` heading) names gap ids in order, and --next returns the FIRST one that is
 #        still pending and not blocked (`NEXT | <priority> | <gap>`, same line shape). It only chooses AMONG eligible
@@ -472,7 +474,7 @@ is_blocked() {
   _ib_names="$(blocked_names)"; _ib_rc=$?
   if [ "$_ib_rc" -ne 0 ]; then   # IS-BLOCKED-DEGRADED: an unreadable blocked section must not read as "nothing is blocked" silently
     printf 'research-sdd-status: blocked sections could not be extracted (rc %s on %s) — is_blocked sees no blocked gaps (degraded derivation)\n' "$_ib_rc" "$state" >&2
-    return 1
+    return 2   # IS-BLOCKED-RC2 (#2024 S3): 0 blocked, 1 not blocked, 2 UNKNOWN (degraded) — resolve_next treats 2 as fatal
   fi
   while IFS= read -r b; do [ "$b" = "$g" ] && return 0; done <<<"$_ib_names"; return 1
 }
@@ -486,11 +488,12 @@ derive_blocked_open() { blocked_open_count "$state"; }
 # [backlog-unreadable: ...] qualifier (kit #1959), and an unreadable file yields no backlog rows either, so is_blocked is never asked. Silent on stderr (callers print their own typed line); it takes files, never the global $state, so a loop that reassigns
 # $state cannot point it at the wrong focus. is_blocked/blocked_names/count_investigable all read the same extractors, so a failure
 # here means every blocked/investigable figure derived from that file is untrustworthy.
+_rel_state() { local _rs_p="$1" _rs_t="${target%/}"; case "$_rs_p" in "$_rs_t"/*) printf '%s' "${_rs_p#"$_rs_t"/}" ;; *) printf '%s' "$_rs_p" ;; esac; }  # #2024 S2: path relative to the target (split layouts repeat basenames)
 _blocked_degraded_files() {
   local _bd_f _bd_rc _bd_names=""
   for _bd_f in "$@"; do  # BD-ALL-FOCUSES
     blocked_open_count "$_bd_f" >/dev/null 2>&1; _bd_rc=$?
-    { [ "$_bd_rc" -eq 0 ] || [ "$_bd_rc" -eq 2 ]; } || _bd_names="${_bd_names:+$_bd_names,}$(basename "$_bd_f")"
+    { [ "$_bd_rc" -eq 0 ] || [ "$_bd_rc" -eq 2 ]; } || _bd_names="${_bd_names:+$_bd_names,}$(_rel_state "$_bd_f")"
   done
   [ -z "$_bd_names" ] || { printf '%s' "$_bd_names"; return 1; }
   return 0
@@ -601,7 +604,7 @@ backlog_rows() {
 
 resolve_next() {
   local rows; rows="$(backlog_rows)"             # compute ONCE — else the WARN fires per priority tier
-  local prio pri gap st lead tok
+  local prio pri gap st lead tok _rn_ib
   for prio in high medium low; do
     while IFS=$'\t' read -r pri gap st; do
       [ -z "$gap" ] && continue
@@ -609,7 +612,9 @@ resolve_next() {
       lead="${st#\*\*}"; lead="${lead/\*\*/}"       # §8b: strip leading ** and its closing pair (handles **pending** (note))
       tok="${lead%% *}"
       [ "$tok" = "pending" ] || continue           # LEADING-TOKEN — bare `pending` or decorated `pending (uncovered by B7)`; NOT "not pending" / "blocked (pending review)"
-      is_blocked "$gap" && continue
+      is_blocked "$gap"; _rn_ib=$?
+      [ "$_rn_ib" -eq 0 ] && continue
+      if [ "$_rn_ib" -ne 1 ]; then echo "DEGRADED | blocked-rows read failed while resolving $gap in $(_rel_state "$state") — no gap is handed out; fix the failure named on stderr, then re-run"; return 3; fi  # RESOLVE-DEGRADED-FATAL (#2024 S3)
       printf 'NEXT | %s | %s\n' "$pri" "$gap"; return 0
     done < <(printf '%s\n' "$rows" | awk -F'\t' -v P="$prio" '$1==P')
   done
@@ -1987,7 +1992,7 @@ fence != "" { next }
         continue
       fi
       _r="$(resolve_next_q)"
-      case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
+      case "$_r" in NEXT\ *) echo "$_r"; exit 0;; DEGRADED\ *) echo "$_r"; exit 3;; esac  # RESOLVE-DEGRADED-EXIT
     done
     # kit #1959 W1: the qualifier counts EVERY state file, skipped (stopped/paused) ones included — a paused focus whose
     # only open rows are unread must not leave a bare terminal STOP.
@@ -2003,6 +2008,7 @@ fence != "" { next }
       "STOP | read-only-investigable exhausted (0)")
         _bu_compute "$_ns_pick"  # BU-SCOPE
         issues_due_gate ;;  # IDG-FOCUS-GATE
+      DEGRADED\ *) printf '%s\n' "$_rn_out"; exit 3 ;;
       *) printf '%s\n' "$_rn_out" ;;
     esac
   fi
@@ -2534,6 +2540,12 @@ else
   saturation_line
 fi
 campaign_status_block
+# DISPLAY-DEGRADED-GATE (kit #2024): _ns_gap_run walks EVERY focus (and counts paused ones), so the gate must cover every
+# state file it walks, not only the head $state whose figures are shown above. Same probe as the --next gate.
+mapfile -t _ns_dg_files < <(list_state_files "$target")
+_ns_dg_names="$(_blocked_degraded_files ${_ns_dg_files[@]+"${_ns_dg_files[@]}"})"
+[ "$_blk_rc" -eq 0 ] || case ",$_ns_dg_names," in *",$(_rel_state "$state"),"*) ;; *) _ns_dg_names="${_ns_dg_names:+$_ns_dg_names,}$(_rel_state "$state")" ;; esac
+[ -z "$_ns_dg_names" ] || _RC_DEGRADED_PRINTED=1   # RC-FLAG-NONHEAD (#2024 S1): a degraded non-head focus sets the footer flag too
 # W6 (kit issue #1704, widened by #2024): when remote_visibility_block or the blocked_open derivation prints a typed
 # `degraded:` line, name the registry that gives its one continuation. SCOPE: this footer covers the remote-visibility
 # block and the `degraded: blocked_open:` line ONLY; other blocks that print a typed state are not covered. The block
@@ -2544,7 +2556,7 @@ campaign_status_block
 # RC-WIRE-BEGIN
 remote_visibility_block
 if [ "$_RC_DEGRADED_PRINTED" = 1 ]; then  # RC-FOOTER
-  echo "  reason codes    : each typed degraded state above (remote-visibility, blocked_open) has one continuation in $here/reason-codes.v1.md"
+  echo "  reason codes    : each typed degraded state in this report (remote-visibility, blocked_open, blocked-rows next step) has one continuation in $here/reason-codes.v1.md"
 fi
 # RC-WIRE-END
 # next step: aggregate across ALL focuses under $target (not just the alphabetically-first one via $state).
@@ -2570,7 +2582,7 @@ _ns_gap_run() (
       continue
     fi
     _r="$(resolve_next)"
-    case "$_r" in NEXT\ *) echo "$_r"; exit 0;; esac
+    case "$_r" in NEXT\ *|DEGRADED\ *) echo "$_r"; exit 0;; esac
   done
   _bu_compute ${_ns_states[@]+"${_ns_states[@]}"}  # BU-REPORT (kit #1959 S1: the default report carries the same qualifier)
   if [ "$_ns_skip_gaps" -gt 0 ]; then
@@ -2580,11 +2592,6 @@ _ns_gap_run() (
   fi
 )
 _ns_doc=""
-# DISPLAY-DEGRADED-GATE (kit #2024): _ns_gap_run walks EVERY focus (and counts paused ones), so the gate must cover every
-# state file it walks, not only the head $state whose figures are shown above. Same probe as the --next gate.
-mapfile -t _ns_dg_files < <(list_state_files "$target")
-_ns_dg_names="$(_blocked_degraded_files ${_ns_dg_files[@]+"${_ns_dg_files[@]}"})"
-[ "$_blk_rc" -eq 0 ] || case ",$_ns_dg_names," in *",$(basename "$state"),"*) ;; *) _ns_dg_names="${_ns_dg_names:+$_ns_dg_names,}$(basename "$state")" ;; esac
 if [ "$_doc_mode" = 1 ]; then _ns_doc="$(outline_next_step)"; fi  # DOC-NEXT-BRANCH
 case "$_ns_doc" in
   NEXT*|BOOTSTRAP*) printf '  next step       : %s\n' "$_ns_doc" ;;
