@@ -332,6 +332,31 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_TOCTOU2: in-place mutation between header read and hash → refused (exit 2)")
     except Exception as e: nok("T_TOCTOU2: mutation-mid-read-refused", str(e))
 
+# ── T_TOCTOU3: same-size header overwrite between header read and hashing → arch/sha agree or refused ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    a_bytes = _ARM + b'A'*64
+    tgt.write_bytes(a_bytes)
+    ino = os.stat(tgt).st_ino; real_read = os.read; fired = []
+    def over_read(fd, n):
+        r = real_read(fd, n)
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(tgt, "r+b") as fh: fh.write(_X64)   # same size: header now says x86_64
+        return r
+    try:
+        with unittest.mock.patch("os.read", over_read):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert fired, "overwrite hook never fired"
+        assert rc in (2, 3), f"unexpected rc {rc}"
+        if rc == 3:
+            p = json.loads((out/"qemu-plan.v1.json").read_text())
+            want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+            assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+                f"header/hash disagree: arch={p['arch']} sha256={p['target']['sha256']} (original bytes hash {want})"
+        ok("T_TOCTOU3: same-size header overwrite mid-read → refused or arch/sha256 from the same bytes")
+    except Exception as e: nok("T_TOCTOU3: header-hash-agreement", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -362,8 +387,10 @@ tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sand
 tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
 tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
 tt teeth-input-cap '_read_target(target, args.max_input_bytes)' '_read_target(target, None)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
-tt teeth-single-open 'os.lseek(fd, 0, os.SEEK_SET)' 'os.close(fd); fd = os.open(path, flags)' 'FAIL  T_TOCTOU1: single-open-consistent-identity: target opened 2 times'
 tt teeth-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  T_TOCTOU2: mutation-mid-read-refused: in-place mutation mid-read accepted'
+tt teeth-single-open 'os.read(fd, _ELF_MIN)' 'os.read(fd, _ELF_MIN); os.close(fd); fd = os.open(path, flags)' 'FAIL  T_TOCTOU1: single-open-consistent-identity: target opened 2 times'
+# Rewind-and-reread plus a neutralised fstat recheck (which would otherwise mask it): header/hash agreement must hold by construction.
+tt teeth-seed-digest $'            digest = hashlib.sha256(); digest.update(hdr); total = len(hdr); chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = os.fstat(fd)' $'            os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = before' 'FAIL  T_TOCTOU3: header-hash-agreement: header/hash disagree'
 tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
 tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
 

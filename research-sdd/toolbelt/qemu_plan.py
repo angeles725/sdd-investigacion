@@ -72,14 +72,17 @@ def _read_target(path: Path, max_bytes: int | None) -> tuple[str, int, str]:
             hdr = os.read(fd, _ELF_MIN)
         except OSError as exc:
             raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
-        arch = _elf_arch(hdr)
+        arch = _elf_arch(hdr)  # header parsed before the regular-file check: keeps the pre-existing error messages and FIFO/char-device behaviour identical
         if not stat.S_ISREG(before.st_mode):
             raise AdapterError(f"not a regular file: {path}")
         if max_bytes is not None and before.st_size > max_bytes:
             raise AdapterError("input exceeds max-input-bytes")
         try:
-            os.lseek(fd, 0, os.SEEK_SET)
-            digest = hashlib.sha256(); total = 0; chunk_size = 1024 * 1024
+            # Seed the digest with the header bytes already read: header and hash cover the same bytes by
+            # construction (no rewind / re-read); the fstat recheck below is the second line of defence.
+            digest = hashlib.sha256(); digest.update(hdr); total = len(hdr); chunk_size = 1024 * 1024
+            if max_bytes is not None and total > max_bytes:
+                raise AdapterError("input exceeds max-input-bytes")
             while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
                 total += len(chunk)
                 if max_bytes is not None and total > max_bytes:
