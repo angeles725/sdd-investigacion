@@ -183,6 +183,29 @@ editing its signature block directly (the same textual-surgery discipline as the
 above) and confirm that the signing step is a fixpoint — a second application changes nothing more.
 Evidence: B1212 §1212.3. [#1581]
 
+**One branded licence per brand slot `[#2033]`.** The licence DB accepts at most ONE branded licence
+per brand slot. Loading a second licence with a different `brandId` (observed: a second
+`brandId=Webs` file) fails at DB-load time: `nre -licenses` prints that file as
+`{invalid: Cannot have multiple branded licenses}` **and silently omits the entire Features
+section** (16.5 KB of output collapsed to 595 B), so a missing Features section is a symptom of this
+conflict, not of an empty licence. **Fix:** rename the conflicting file to `.disabled` (never delete
+it) and keep the backup; the backup-before-destroy rule in METHODOLOGY §12 applies unchanged.
+Evidence: B1217 §1217.3 (probe `o3-branded-conflict.txt`).
+
+**Two security homes: install vs daemon `[#2034]`.** The platform daemon loads `security\` from its
+OWN home (`C:\ProgramData\Niagara4.13\<brand>\security\`), while the interactive CLI oracle
+(`nre -licenses`) reads the install context only. A licence or certificate the daemon must see
+therefore has to exist in BOTH locations, and a `{valid}` from the CLI proves only the install side.
+
+Live-licence deploy checklist step: after placing a licence or certificate in the install's
+`security\`, place (or confirm) the same file under the daemon's `security\` home, verify both
+copies against the source per the METHODOLOGY §12 hash-verify rule, and only then judge the daemon's behaviour.
+
+The automated CHECK for install-vs-daemon parity is **deferred**: there is no substrate to build it
+on yet and incidence is a single target. The recurrence (B1217 §1217.2; B1215 §1215.3; B1202/B1203
+lineage) is recorded here as prose until a second target shows the same shape. Revisit trigger: when a second target shows the problem,
+add a `--daemon-home` option to `niagara-security-audit.sh`. Refs #2034.
+
 ## 7. Module-load oracle: direct `station.exe <name>` launch `[#1902]`
 
 **Standard oracle for "did this module load successfully": launch the station binary directly.**
@@ -206,6 +229,19 @@ environment variable. This caveat applies only to the service-boot path; the dir
 launch above always reflects the environment of the shell that launched it.
 
 Evidence: kit issue #1902 (R1.5/R1.6; `reflow-station-test4.log`).
+
+**Multi-install bench: every CLI oracle verdict prints `niagara.home` `[#2031][#2032]`.** On a bench
+with more than one Niagara install, the launcher can resolve a DIFFERENT install than the one under
+test, so a `{valid}` with no home line is unaudited. Print `niagara.home` next to every CLI oracle
+verdict (`nre -licenses`, `nre -version`, ...) and compare it to the intended install before
+accepting the verdict. Evidence: B1216 §1216.5, §1216.1; B1217 §1217.1. This extends the "necessary,
+not sufficient" note in METHODOLOGY §12 (kit #1540).
+
+**`NIAGARA_HOME` at both scopes `[#2031]`.** A same-named user-scope variable (typically left behind
+by a second OEM installer) shadows the machine-scope one; see REMOTE-POWERSHELL.md §8. Version-switch
+scripts must set `NIAGARA_HOME` at BOTH Machine and User scope, mirror it into the running session
+(`$env:NIAGARA_HOME = ...`; registry writes never reach a running process), and verify with `nre -version`, not
+with service state.
 
 ## 8. Defensive notes: config.bog and credentials.xml exposure `[#1599][#1600][#1601]`
 
