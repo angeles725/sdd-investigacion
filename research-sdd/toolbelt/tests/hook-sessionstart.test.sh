@@ -73,9 +73,9 @@ echo "-- no-jq: hook exits 0 and emits hookSpecificOutput JSON when jq is absent
 # Hermetic approach: build a temp bin with symlinks to exactly the external tools the hook
 # needs before the probe fires, and NOTHING else — so jq is provably absent.
 #
-# External tools used between shebang and probe (lines 13–40 of the template):
+# External tools used between the shebang and the jq probe of the template (search for "_hook_stdin=$(cat)"):
 #   cat      — line 13: _hook_stdin=$(cat)
-#   dirname  — line 20: _hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
+#   dirname  — the _hook_target line: dirname -- "${BASH_SOURCE[0]}" (self-dir, #2042)
 #   jq       — line 14: pipeline with || fallback; intentionally excluded here
 # All other calls (git, find, mkdir) are inside 'if [ -n "$_session_id" ]' which is
 # skipped when jq is absent (|| _session_id="" leaves _session_id empty).
@@ -123,7 +123,7 @@ fi
 echo "-- rotation: a >7-day-old session must keep its OWN state files, but an unrelated old one is still purged --"
 _rotd="$TMP/rotation-target"
 mkdir -p "$_rotd/.claude/hooks"
-# Install the hook at its real two-levels-below-target layout ($0-relative _hook_target
+# Install the hook at its real two-levels-below-target layout (BASH_SOURCE-relative _hook_target
 # resolution depends on this — same layout the P8 block below uses).
 cp "$SUT" "$_rotd/.claude/hooks/research-protocol.sh"
 _rot_sid="rot984-current-session"
@@ -238,6 +238,33 @@ if <<<"$_p8_out" grep -q 'WARN.*hook-placeholder.*<KIT>'; then
   no "p8: unexpected <KIT> placeholder WARN — template still contains <KIT>"
 else
   ok "p8: no <KIT> placeholder WARN (\$RESEARCH_SDD_KIT correctly used)"
+fi
+
+# ── SELF-DIR: _hook_target comes from the script's own path, never $0 / the caller's cwd (#2042) ──
+
+echo "-- self-dir: a hook found through PATH from another cwd still records its sha in ITS target --"
+# `PATH=<hooks dir> bash research-protocol.sh` leaves $0 without a slash, so a $0-derived dirname is "." and the
+# target is taken from the CALLER's cwd. The decoy cwd is itself a git repo, so a mis-resolved target would write there.
+# Layout: <TMP>/sd-cwd/x/y is the cwd; two levels up (<TMP>/sd-cwd) is the repo a $0-derived resolution would hit.
+_sd_run() {   # _sd_run HOOK_DIR SESSION_ID -> runs the installed hook by bare name from the decoy cwd
+  ( cd "$TMP/sd-cwd/x/y" && printf '{"session_id":"%s"}' "$2" | PATH="$1:$PATH" bash research-protocol.sh >/dev/null 2>&1 )
+}
+_sd_t="$TMP/sd-target"; mkdir -p "$_sd_t/.claude/hooks" "$TMP/sd-cwd/x/y"
+git -C "$_sd_t" init -q -b main
+git -C "$_sd_t" -c user.email=t@example.com -c user.name=tester commit -q --allow-empty -m init
+git -C "$TMP/sd-cwd" init -q -b main
+git -C "$TMP/sd-cwd" -c user.email=t@example.com -c user.name=tester commit -q --allow-empty -m init
+cp "$SUT" "$_sd_t/.claude/hooks/research-protocol.sh"
+_sd_run "$_sd_t/.claude/hooks" sd1
+if [ -s "$_sd_t/.claude/.rsdd-session-sd1" ]; then
+  ok "self-dir: the sha is recorded under the hook's own target (.claude/.rsdd-session-<id>)"
+else
+  no "self-dir: no sha recorded under the hook's own target — _hook_target was taken from the caller's cwd"
+fi
+if [ ! -e "$TMP/sd-cwd/.claude" ]; then
+  ok "self-dir: nothing is written under the caller's cwd tree"
+else
+  no "self-dir: the hook wrote under the caller's cwd tree ($TMP/sd-cwd/.claude)"
 fi
 
 # ── MUTATION CONTROLS (--prove-teeth) ────────────────────────────────────────────────────────
@@ -400,6 +427,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth M3: P8 <KIT> WARN fires on mutant with <KIT> injected (has teeth)"
     else
       no "teeth M3: P8 mutant did not warn about <KIT> — p8 check has no teeth"
+    fi
+  fi
+
+  echo "-- teeth M6: the self-dir check bites when the target is derived from \$0 again (#2042) --"
+  _m6d="$TMP/sd-mutant"; mkdir -p "$_m6d/.claude/hooks"
+  if ! mutant_chain "teeth M6 mutant build" "$SUT" "$_m6d/.claude/hooks/research-protocol.sh" '/^_hook_target=/ s/"\${BASH_SOURCE\[0\]}"/"$0"/'; then
+    no "teeth M6: could not build mutant (anchor drifted or refused by lib/mutant.sh)"
+  else
+    git -C "$_m6d" init -q -b main
+    git -C "$_m6d" -c user.email=t@example.com -c user.name=tester commit -q --allow-empty -m init
+    _sd_run "$_m6d/.claude/hooks" sd6
+    if [ ! -s "$_m6d/.claude/.rsdd-session-sd6" ]; then
+      ok "teeth M6: a \$0-derived mutant records nothing in its own target (RED as expected)"
+    else
+      no "teeth M6: the \$0-derived mutant still recorded its sha under its own target — the self-dir check has no teeth"
     fi
   fi
 
