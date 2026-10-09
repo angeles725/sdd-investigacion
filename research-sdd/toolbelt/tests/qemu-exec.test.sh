@@ -473,7 +473,7 @@ echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags
 mutant_bootstrap mutant_chain_or_count mutant_crash_re || exit 2
 TOOLBELT="$(dirname "$HERE")"
 b_pass=0; b_fail=0; _builds_failed=0
-_CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+_CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
 # One UNMUTATED staged-tree control run (proves the staging; it must reproduce the python section's own
 # result), then each mutant is run ONCE and compared against it: rc != 0, the targeted FAIL text present,
 # no crash-class output. (mutant_tooth would re-run the original against the live tree for every mutant.)
@@ -528,12 +528,21 @@ _t "qe-shell-true-exec: shell=True appears in qemu_exec.py" "FAIL  RED9: shell=T
   '$a# shell=True'
 _t "qe-shell-true-popen: the real Popen in vm_boot_core.py gains shell=True" "FAIL  RED9: shell=True found in lib/vm_boot_core.py" lib/vm_boot_core.py \
   's/^            exec_argv, start_new_session=True,$/            exec_argv, shell=True, start_new_session=True,/'
-_t "qe-killpg-off: run_vm reaps the child but not its process group" "FAIL  RED7" lib/vm_boot_core.py \
+_t "qe-killpg-off: run_vm reaps the child but not its process group" "FAIL  RED7: child pid=[0-9]+ still alive after killpg" lib/vm_boot_core.py \
   's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)/'
-_t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV5-popen-window" lib/vm_boot_core.py \
+_t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV5-popen-window: child PID still alive" lib/vm_boot_core.py \
   's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        pass/'
-_t "qe-receipt-id: vm_receipt_identity key renamed in the evidence" "FAIL  RED8" lib/vm_boot_core.py \
+_t "qe-receipt-id: vm_receipt_identity key renamed in the evidence" "FAIL  RED8: vm_receipt_identity missing" lib/vm_boot_core.py \
   's/ev\["vm_receipt_identity"\] = receipt_identity/ev["vm_receipt_id"] = receipt_identity/'
+# Control: a NameError mutant prints the targeted `FAIL  RED8` label too, so only the crash-message forms in
+# _CRASH can refuse it. The tooth machinery must REFUSE it (rc 1, crash-class text), not count it as a bite.
+_ctl_out="$(_tooth "qe-ctl-nameerror: receipt_identity misspelled (NameError)" "FAIL  RED8" lib/vm_boot_core.py \
+  's/ev\["vm_receipt_identity"\] = receipt_identity/ev["vm_receipt_identity"] = receipt_identityX/' 2>&1)"; _ctl_rc=$?
+if [ "$_ctl_rc" -eq 1 ] && grep -qF "crash-class text" <<<"$_ctl_out"; then
+  echo "  PASS  qe-ctl-nameerror: a NameError mutant is refused by the tooth machinery (crash message forms)"; b_pass=$((b_pass+1))
+else
+  echo "  FAIL  qe-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; b_fail=$((b_fail+1))
+fi
 
 echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
 [ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
