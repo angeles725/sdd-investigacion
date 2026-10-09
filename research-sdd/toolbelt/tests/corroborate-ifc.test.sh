@@ -183,8 +183,7 @@ fi
 echo "--- mutation control ---"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
 # dead-stage refusals still apply).
 export RSDD_IFC_PY

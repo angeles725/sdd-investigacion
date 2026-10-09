@@ -228,8 +228,7 @@ PATH="$STUB:/usr/bin:/bin" "$BASH_BIN" "$SUT" "$TMP/test.dwg" "$TMP/out8.png" \
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain" >&2; exit 2; }
+  mutant_bootstrap mutant_chain || exit 2
   mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
 
   # teeth-rd-ezdxf-dep: neuter RD-EZDXF-DEP-CHECK; missing ezdxf must NOT

@@ -105,8 +105,7 @@ command -v python3 >/dev/null || { echo "FATAL: python3 required"; exit 2; }
 source "$LIB"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_built >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_built ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_built || exit 2
 
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }

@@ -963,8 +963,7 @@ fi
 # is NOT teeth — the old `!= <good value>` verdicts counted a crash as "DETECTED".
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth ($HERE/lib/mutant.sh)" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 MUTDIR=""
 trap '
   chmod 755 "$ROOT/unreadable-subdir-module/art-x/extracted/secret-dir" 2>/dev/null || true

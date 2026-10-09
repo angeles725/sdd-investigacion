@@ -132,8 +132,7 @@ fi
 echo "-- teeth: bacnet mutation controls --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-  || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
 # The mutants are python files: skip the bash -n syntax check (the helper still refuses empty,
 # identical, live-tree and symlink mutants, and a stage that matches nothing).
 # MUTANT_SYNTAX=none (python mutants) is scoped per call in mk_sed, never exported (#1814)

@@ -297,8 +297,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  typeset -f mutant_chain >/dev/null 2>&1 && typeset -f mutant_tooth >/dev/null 2>&1 \
-    || { echo "FATAL: lib/mutant.sh did not define mutant_chain/mutant_tooth" >&2; exit 2; }
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  _BASH_CRASH="$(mutant_crash_re bash)" || exit 2
   MUT="$(mktemp -d)"
   mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
@@ -368,7 +368,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && { if [ "$(tab_state "$SUT")" = no ] && [ "$(tab_state "$MUT/s3.sh")" = yes ]; then ok "S3 literal tab in SUT → lint predicate bites"; else no "S3 tab mutant not detected"; fi; }
   # S4 (#1545 R3): failing conf index lookup tolerated → falls through instead of typed DEGRADED.
   mk "S4 idx-degraded" "$SUT" "$MUT/s4.sh" 's/^  || { echo "DEGRADED: git could not read the index entry.*$/  || true/' \
-    && tt "S4 index lookup failure tolerated → no typed DEGRADED (the later unmerged listing still exits 3, so the typed line is the contract)" 3 3 "$MUT/s4.sh" --good-has '^DEGRADED: git could not read the index entry' --bad-lacks '^DEGRADED: git could not read the index entry' --bad-lacks 'integer expression expected|syntax error|unbound variable' -- bash @SUT@ "$TMP/badidx"
+    && tt "S4 index lookup failure tolerated → no typed DEGRADED (the later unmerged listing still exits 3, so the typed line is the contract)" 3 3 "$MUT/s4.sh" --good-has '^DEGRADED: git could not read the index entry' --bad-lacks '^DEGRADED: git could not read the index entry' --bad-lacks "$_BASH_CRASH" -- bash @SUT@ "$TMP/badidx"
   # S5 (#1545 R4): trap installed AFTER the mktemps again → the first temp file leaks when the 2nd mktemp fails.
   mk "S5 trap-late" "$SUT" "$MUT/s5.sh" '/^trap .rm -f /d; /^conf_tmp="/a trap '"'"'rm -f "$files_tmp" "$conf_tmp" "$unmerged_tmp"'"'"' EXIT' \
     && { g="$(leftover_mk "$SUT" 2 "$TMP/iso-s5g")"; b="$(leftover_mk "$MUT/s5.sh" 2 "$TMP/iso-s5b")"

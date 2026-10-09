@@ -201,9 +201,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  for _mf in mutant_chain mutant_tooth; do
-    declare -F "$_mf" >/dev/null || { echo "FATAL: lib/mutant.sh did not define $_mf" >&2; exit 2; }
-  done
+  mutant_bootstrap mutant_chain mutant_tooth || exit 2
   mk_mut(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A bad side that is only an exit code must not be a crash: these never read as a bite.
