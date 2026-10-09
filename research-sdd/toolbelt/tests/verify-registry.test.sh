@@ -507,7 +507,7 @@ nsfix() { kit="$(mkkit "$1")"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; mkdir 
 # 3ns1 — 'hook yes' + registered + script exists + history root readable but no transcript for the target.
 nsfix c3ns1; hist="$ROOT/h-ns1"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"
 if [ "$RC" = 0 ] \
-   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json, but no Claude Code session was ever launched from exactly ${tgt}" <<<"$OUT" \
+   && grep -qE "WARN[[:space:]]+targetA — row claims 'hook yes' and the Stop hook is registered at ${tgt}/.claude/settings.json, but there is no retained Claude Code transcript for a session launched from exactly ${tgt}" <<<"$OUT" \
    && grep -q "hook file yes / registered-no-sessions" <<<"$OUT" \
    && ! grep -qE '· 0 attention\.' <<<"$OUT" && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
   ok "3ns1 hook yes + registered + no sessions → registered-no-sessions WARN + attention" "(exit $RC)"
@@ -546,7 +546,7 @@ for _cell in 'hook file yes / unregistered / git yes' '3 md / hook file yes / un
   nsfix c3ns6; hist="$ROOT/h-ns6"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" "$_cell"; nsrun "$hist" "$kit"
   if [ "$RC" = 0 ] \
      && grep -qE "WARN[[:space:]]+targetA — row claims 'unregistered' but the Stop hook IS registered at ${tgt}/.claude/settings.json" <<<"$OUT" \
-     && grep -q "the accurate token is 'registered-no-sessions'" <<<"$OUT" && ! grep -q "accurate claim is 'hook yes'" <<<"$OUT" \
+     && grep -q "the accurate token is 'registered-no-sessions'" <<<"$OUT" && ! grep -q "accurate claim is likely 'hook yes'" <<<"$OUT" \
      && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
     ok "3ns6 [$_cell] → unregistered-stale, cure registered-no-sessions" "(exit $RC)"
   else no "3ns6 [$_cell] → unregistered-stale, cure registered-no-sessions" "exit=$RC out=[$OUT]"; fi
@@ -554,7 +554,7 @@ done
 
 # 3ns7 — same row, sessions exist → cure is 'hook yes'.
 nsfix c3ns7; hist="$ROOT/h-ns7"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / unregistered'; nsrun "$hist" "$kit"
-if [ "$RC" = 0 ] && grep -q "sessions HAVE been launched from exactly ${tgt}" <<<"$OUT" && grep -q "accurate claim is 'hook yes'" <<<"$OUT"; then
+if [ "$RC" = 0 ] && grep -q "a retained Claude Code transcript exists for a session launched from exactly ${tgt}" <<<"$OUT" && grep -q "accurate claim is likely 'hook yes'" <<<"$OUT"; then
   ok "3ns7 unregistered row + registered + sessions exist → cure is hook yes" "(exit $RC)"
 else no "3ns7 unregistered + sessions → hook yes" "exit=$RC out=[$OUT]"; fi
 
@@ -592,7 +592,7 @@ else no "3ns12 consistent registered-no-sessions row → clean" "exit=$RC out=[$
 
 # 3ns13 — a registered-no-sessions row, but sessions now exist → stale.
 nsfix c3ns13; hist="$ROOT/h-ns13"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" 'hook file yes / registered-no-sessions / 3 md'; nsrun "$hist" "$kit"
-if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — row claims 'registered-no-sessions' but sessions HAVE now been launched" <<<"$OUT" && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
+if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — row claims 'registered-no-sessions' but a retained Claude Code transcript now exists" <<<"$OUT" && ! grep -q "$VR_CLEAN" <<<"$OUT"; then
   ok "3ns13 registered-no-sessions row + sessions exist → stale WARN" "(exit $RC)"
 else no "3ns13 registered-no-sessions + sessions → stale" "exit=$RC out=[$OUT]"; fi
 
@@ -3271,7 +3271,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   nsfix teeth-nsstale; hist="$ROOT/h-teeth-nss"; nshist "$hist" "$tgt" t; nsrow "$kit" "$tgt" '3 md / git yes / hook file yes / registered-no-sessions'
   if vr_mut "teeth-hook-no-sessions-stale" "$kit" 's/if \[ "\$_vr_is_nosess" = 1 \] \&\& \[ "\$_vr_hf_launch" = "launched" \]; then  # HOOK-NO-SESSIONS-STALE-CHECK/if false; then  # HOOK-NO-SESSIONS-STALE-CHECK (mutated)/'; then
     vr_run "teeth-hook-no-sessions-stale: neutered check silences test 3ns13 — has teeth" "$kit" 0 0 \
-      --good-has "sessions HAVE now been launched" --bad-lacks "sessions HAVE now been launched" -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
+      --good-has "retained Claude Code transcript now exists" --bad-lacks "retained Claude Code transcript now exists" -- env RSDD_CLAUDE_PROJECTS_DIR="$hist" "$BASH_BIN" @SUT@
   fi
 
   echo "-- teeth-nosessions-token: drop the schema token; test 3ns12 must gain a nonconform-field WARN --"

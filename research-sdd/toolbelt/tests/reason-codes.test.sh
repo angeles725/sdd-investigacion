@@ -32,6 +32,8 @@
 #          kit issue #1704 slice 2 — the scan, its recognised forms and its waivers are declared in reason-codes.v1.md)
 # Exit: 0 all held · 1 any failure · 2 typed DEGRADED (could not look).
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 
 SELF="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$SELF")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)

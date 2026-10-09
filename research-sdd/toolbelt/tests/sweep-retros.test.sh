@@ -20,6 +20,8 @@
 # Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
 
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="${SWEEP_RETROS_SUT:-$HERE/../sweep-retros.sh}"   # override = run the suite against another build (RED check)
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }

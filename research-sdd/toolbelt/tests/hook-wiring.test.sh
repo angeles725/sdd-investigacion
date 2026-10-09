@@ -581,6 +581,17 @@ assert_launch "27l non-ASCII path → unknown (no firm claim)" "$ROOT/t27l-ñ" "
 # 27m — an encoded name over 200 characters (Claude Code truncates + hashes) → unknown.
 long="$ROOT/$(printf 'x%.0s' $(seq 1 210))"
 assert_launch "27m encoded name over 200 chars → unknown" "$long" "unknown"
+# 27o — CLAUDE_CONFIG_DIR is honoured when no override is set (and the override wins over it).
+mkdir -p "$ROOT/cfg27o/projects/$ENCROOT-t27o"; : > "$ROOT/cfg27o/projects/$ENCROOT-t27o/s.jsonl"
+got="$(env -u RSDD_CLAUDE_PROJECTS_DIR CLAUDE_CONFIG_DIR="$ROOT/cfg27o" HOME="$ROOT/nohome" bash -c '. "$1"; hook_stop_launch_state_var "$2"; printf "%s" "$HOOK_LAUNCH_STATE"' _ "$LIB" "$ROOT/t27o" 2>&1)"
+if [ "$got" = "launched" ]; then ok "27o CLAUDE_CONFIG_DIR/projects is the default root"; else no "27o CLAUDE_CONFIG_DIR/projects is the default root" "got [$got]"; fi
+assert_launch "27o2 RSDD_CLAUDE_PROJECTS_DIR wins over CLAUDE_CONFIG_DIR" "$ROOT/t27o" "no-sessions"
+# 27p — a symlinked target (leaf or ancestor component) → unknown, never no-sessions: Claude Code records the resolved path.
+mkdir -p "$ROOT/real27p/sub"; ln -s "$ROOT/real27p" "$ROOT/link27p"
+assert_launch "27p symlinked ancestor component → unknown" "$ROOT/link27p/sub" "unknown"
+ln -s "$ROOT/real27p/sub" "$ROOT/leaf27p"
+assert_launch "27p2 symlinked leaf → unknown" "$ROOT/leaf27p" "unknown"
+assert_launch "27p3 real (non-symlink) path alongside → no-sessions" "$ROOT/real27p/sub" "no-sessions"
 # 27n — the launch question never changes the wiring state (sweep-retros stays byte-identical).
 d="$ROOT/t27n"; wire_settings "$d" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}]}}'
 assert_state "27n wiring state is history-blind (still wired with no history)" "$d" "wired"
@@ -964,6 +975,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   launch_tooth "absent history root read as no-sessions" 's/if \[ ! -d "\$root" \] || \[ ! -r "\$root" \]; then/if false; then/' "$ROOT/t27d" "unknown" "case 27d" "$ROOT/no-such-root"
   launch_tooth "encoding keeps dots" 's/enc="\${d\/\/\[^A-Za-z0-9\]\/-}"/enc="${d\/\/[^A-Za-z0-9.]\/-}"/' "$ROOT/t27g.x_y z" "launched" "case 27g"
   launch_tooth "non-ASCII guard dropped" 's/case "\$d" in \*\[!\\ -~\]\*) HOOK_LAUNCH_STATE="unknown"; return 0 ;; esac   # HOOK-LAUNCH-NONASCII-GUARD/:/' "$ROOT/t27l-ñ" "unknown" "case 27l"
+  launch_tooth "symlink guard dropped" 's/if \[ -L "\$_hw_c" \]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi  # HOOK-LAUNCH-SYMLINK-GUARD/:/' "$ROOT/link27p/sub" "unknown" "case 27p"
+  mut_cfg="$ROOT/hook-wiring.MUTANT-launch-config-dir.sh"
+  if mk "teeth: CLAUDE_CONFIG_DIR branch anchor in lib" "$LIB" "$mut_cfg" 's/if \[ -n "\${CLAUDE_CONFIG_DIR:-}" \]; then root="\$CLAUDE_CONFIG_DIR\/projects"/if false; then root=""/'; then
+    got="$(
+      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var hook_stop_launch_state hook_stop_launch_state_var _hw_find_git_root _hw_abspath
+      # shellcheck disable=SC1090
+      . "$mut_cfg"
+      unset RSDD_CLAUDE_PROJECTS_DIR; CLAUDE_CONFIG_DIR="$ROOT/cfg27o" HOME="$ROOT/nohome" hook_stop_launch_state_var "$ROOT/t27o" 2>&1; printf '%s' "$HOOK_LAUNCH_STATE"
+    )"
+    if [ "$got" = "launched" ]; then no "teeth: CLAUDE_CONFIG_DIR ignored NOT caught (theater)" "still [$got]"
+    else ok "teeth: CLAUDE_CONFIG_DIR ignored caught (real sourced lib)" "case 27o read [$got] not [launched]"; fi
+  fi
   launch_tooth "long-name guard dropped" 's/if \[ "\${#enc}" -gt 200 \]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi   # HOOK-LAUNCH-LONGNAME-GUARD/:/' "$long" "unknown" "case 27m"
 
   echo "-- teeth: collapse the degraded arm into missing — case 24m must go RED --"

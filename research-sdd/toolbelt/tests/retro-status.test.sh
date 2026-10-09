@@ -22,6 +22,8 @@
 # Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
 
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HELPER="$HERE/../lib/retro-status.sh"
 [ -f "$HELPER" ] || { echo "FATAL: helper under test not found: $HELPER" >&2; exit 2; }

@@ -363,12 +363,12 @@ for p in $paths; do
       attention=$((attention + 1))
     fi
     # REGISTERED-NO-SESSIONS (kit issue #1157), ADDITIVE to the findings above: the hook is registered
-    # and its script is not firmly missing, but no session was ever launched from exactly this
+    # and its script is not firmly missing, but no retained Claude Code transcript exists for exactly this
     # directory (project settings load from the launch directory only), so 'hook yes' ("will fire")
     # over-claims. launch 'unknown' (no Claude history to read) makes no claim and stays silent.
     if [ "$_vr_script_state" != "" ] && [ "$_vr_script_state" != "missing" ]; then
       if [ "$(hook_stop_launch_state "$p")" = "no-sessions" ]; then  # HOOK-NO-SESSIONS-CHECK
-        _vr_finding hook-registered-no-sessions WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but no Claude Code session was ever launched from exactly ${p} (no transcript in the project history), so it has never been loaded (registered-no-sessions; launch directory is a maintainer decision, kit issue #1134); refresh the row to 'hook file yes / registered-no-sessions' or launch sessions there (propose-never-apply)."
+        _vr_finding hook-registered-no-sessions WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but there is no retained Claude Code transcript for a session launched from exactly ${p} (Claude Code prunes old transcripts; the Stop hook in .claude/settings.json is Claude-Code-specific, so a target worked in another harness reads the same), so it is not known to have loaded (registered-no-sessions; launch directory is a maintainer decision, kit issue #1134); refresh the row to 'hook file yes / registered-no-sessions' or launch Claude Code sessions there (propose-never-apply)."
         attention=$((attention + 1))
       fi
     fi
@@ -393,15 +393,15 @@ for p in $paths; do
         _vr_hf_launch="$(hook_stop_launch_state "$p")"
         if [ "$_vr_is_unreg" = 1 ]; then  # HOOK-UNREGISTERED-STALE-CHECK
           case "$_vr_hf_launch" in
-            no-sessions) _vr_hf_cure="no session was ever launched from exactly ${p}, so the accurate token is 'registered-no-sessions'" ;;
-            launched)    _vr_hf_cure="sessions HAVE been launched from exactly ${p}, so the hook loads and the accurate claim is 'hook yes'" ;;
+            no-sessions) _vr_hf_cure="there is no retained Claude Code transcript for a session launched from exactly ${p}, so the accurate token is 'registered-no-sessions'" ;;
+            launched)    _vr_hf_cure="a retained Claude Code transcript exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired) and the accurate claim is likely 'hook yes'" ;;
             *)           _vr_hf_cure="the launch history could not be read (launch unknown), so verify by hand whether the accurate token is 'registered-no-sessions' or 'hook yes'" ;;
           esac
           _vr_finding hook-unregistered-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'unregistered' but the Stop hook IS registered at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); ${_vr_hf_cure}; refresh the row (propose-never-apply)."
           attention=$((attention + 1))
         fi
         if [ "$_vr_is_nosess" = 1 ] && [ "$_vr_hf_launch" = "launched" ]; then  # HOOK-NO-SESSIONS-STALE-CHECK
-          _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but sessions HAVE now been launched from exactly ${p}; the hook loads, so the accurate claim is 'hook yes'; refresh the row (propose-never-apply)."
+          _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but a retained Claude Code transcript now exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired); the accurate claim is likely 'hook yes'; refresh the row (propose-never-apply)."
           attention=$((attention + 1))
         fi
       elif [ "$_vr_is_nosess" = 1 ]; then
