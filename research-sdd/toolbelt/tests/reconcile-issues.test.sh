@@ -1424,6 +1424,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # ---- kit issue #1332 item 2 teeth (entry form) — mutant built with tests/lib/mutant.sh ----
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # _crash_strict TEXT CLASS... : mutant_is_crash with exit 2 (bad class / internal error) kept LOUD.
   # A plain `if mutant_is_crash` reads rc 2 as "not a crash", which would let a broken classifier pass.
   _crash_strict() { local _cs_rc; mutant_is_crash "$@"; _cs_rc=$?

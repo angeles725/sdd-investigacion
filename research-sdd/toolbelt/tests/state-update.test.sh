@@ -246,6 +246,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: state-update.sh mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   MUT="$TMP/mut"; mkdir -p "$MUT/lib"
   cp "$TOOLBELT/verify-state.sh" "$TOOLBELT/check-gap-drift.sh" "$MUT/" 2>/dev/null; cp "$TOOLBELT"/lib/*.sh "$MUT/lib/" 2>/dev/null
   # tt <label> <sed-expr> <fixture> <good rc> <bad rc> [mutant_tooth options]: the mutant is a copy of the SUT
