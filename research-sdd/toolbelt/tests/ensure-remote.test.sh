@@ -1040,7 +1040,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   content="$(cat "$SUT")"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_built || exit 2
+  mutant_bootstrap mutant_built mutant_crash_re || exit 2
+  CRASH_RE="$(mutant_crash_re bash cmd)" || exit 2
   # mut_sub LABEL ORIG NEW OUT — bash-substitute ORIG→NEW in the SUT text into OUT, then vet OUT with
   # lib/mutant.sh (refuses an identical, empty, syntax-broken or live-tree mutant). A refusal records a
   # FAIL and the run STOPS (mk_or_stop pattern), so a tooth never runs on a refused mutant path.
@@ -1434,8 +1435,8 @@ fi'
   }
   echo "-- teeth 40-49: remove one allow-list rule at a time, expect the pinning case to go red --"
   tooth_allow teeth40-allow-never-matches 'if [[ $_p == ${allow_globs[$_i]} ]]; then' 'if false; then' pub.der spki "allow pub.der" \
-    && { [ "$RC" != 0 ] && ok "teeth40: allow that never matches -> allowed file refused — case 27 has teeth" \
-         || no "teeth40: mutant still pushes (rc=$RC) — case 27 is THEATER"; }
+    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth40: allow that never matches -> allowed file refused (exit 5, crash-free) — case 27 has teeth" \
+         || no "teeth40: expected exit 5 crash-free, got rc=$RC — case 27 is THEATER"; }
   # The explicit private markers are a second line behind positive identification: with one removed the file is still
   # refused (not positively public) but the typed PRIVATE-KEY refusal of case 32 is lost.
   tooth_allow teeth41-pem-marker-off "grep -aEq -- 'PRIVATE KEY( BLOCK)?-----|AGE-SECRET-KEY|PuTTY-User-Key-File|---- BEGIN SSH2' \"\$f\"" "grep -aEq -- 'NEVER-MATCHES-xyz' \"\$f\"" k.der pempriv "allow k.der" \
@@ -1448,17 +1449,17 @@ fi'
     && { ! grep -q '^STALE: ' <<<"$OUT" && ok "teeth43: stale reporting off -> no STALE line — case 30 has teeth" \
          || no "teeth43: mutant still reports STALE — case 30 is THEATER"; }
   tooth_allow teeth44-malformed-accepted 'if [ -n "$_why" ]; then' 'if false; then' pub.der spki "deny pub.der" \
-    && { [ "$RC" != 2 ] && ok "teeth44: malformed line accepted -> no exit 2 — case 31 has teeth" \
-         || no "teeth44: mutant still exits 2 — case 31 is THEATER"; }
+    && { [ "$RC" = 0 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth44: malformed line accepted -> exit 0 instead of 2, crash-free — case 31 has teeth" \
+         || no "teeth44: expected exit 0 crash-free, got rc=$RC — case 31 is THEATER"; }
   tooth_allow teeth45-blanket-accepted "elif [ -z \"\$(printf '%s' \"\$_g\" | tr -d '[]!()@+|*?/.')\" ]; then" 'elif false; then' pub.der spki "allow *" \
-    && { [ "$RC" != 2 ] && ok "teeth45: blanket glob accepted -> no exit 2 — case 31 (allow *) has teeth" \
-         || no "teeth45: mutant still exits 2 — case 31 (allow *) is THEATER"; }
+    && { [ "$RC" = 0 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth45: blanket glob accepted -> exit 0 instead of 2, crash-free — case 31 (allow *) has teeth" \
+         || no "teeth45: expected exit 0 crash-free, got rc=$RC — case 31 (allow *) is THEATER"; }
   tooth_allow teeth46-allowed-silent '*)      echo "ALLOWED:' '*)      : "ALLOWED:' pub.der spki "allow pub.der" \
     && { ! grep -q '^ALLOWED: ' <<<"$OUT" && ok "teeth46: ALLOWED reporting off -> silent allow — case 27 has teeth" \
          || no "teeth46: mutant still reports ALLOWED — case 27 is THEATER"; }
   tooth_allow teeth47-catfile-fail-open 'if ! git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; then' 'git -C "$target" cat-file blob "$_id" >"$_tmp" 2>/dev/null; if false; then' ghost.der none "allow ghost.der" \
-    && { [ "$RC" != 7 ] && ok "teeth47: cat-file failure ignored -> no fail-closed 7 (rc=$RC) — case 33 has teeth" \
-         || no "teeth47: mutant still fails closed 7 — case 33 is THEATER"; }
+    && { [ "$RC" = 5 ] && ! grep -qE "$CRASH_RE" <<<"$OUT" && ok "teeth47: cat-file failure ignored -> exit 5 instead of fail-closed 7, crash-free — case 33 has teeth" \
+         || no "teeth47: expected exit 5 crash-free, got rc=$RC — case 33 is THEATER"; }
   tooth_allow teeth48-blanket-allow 'unallowed="$unallowed $_p"; continue; fi' ': ; continue; fi' $'pub.der\nother.pem' spki "allow pub.der" \
     && { [ "$RC" = 0 ] && ok "teeth48: un-allowed tracked secret ignored -> pushed — case 29 has teeth" \
          || no "teeth48: mutant still refuses (rc=$RC) — case 29 is THEATER"; }

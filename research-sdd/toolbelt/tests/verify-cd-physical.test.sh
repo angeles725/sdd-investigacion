@@ -706,10 +706,10 @@ EOF
   # pristine copy lives in its own directory (outside the scan box) so OUT is not under ORIG's tree.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
   mkdir -p "$TMP/teeth-orig"; cp "$boxT/mut.sh" "$TMP/teeth-orig/mut.sh"
   OUTT1="$(bash "$SUT" "$boxT" 2>&1)"; RCT1=$?
-  if [ "$RCT1" -eq 1 ] && ! grep -qE 'syntax error|command not found|unbound variable' <<<"$OUTT1"; then
+  if [ "$RCT1" -eq 1 ] && ! grep -qE "$(mutant_crash_re bash cmd)" <<<"$OUTT1"; then
     ok "teeth: logical (non -P) fixture makes the lint FAIL — the core distinction has teeth"
   else
     no "teeth: logical (non -P) fixture did NOT fail the lint — check is THEATER (rc=$RCT1 out=[$OUTT1])"

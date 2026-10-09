@@ -233,7 +233,7 @@ fi
 echo "-- teeth: serial-frame-capture mutation controls --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_crash_re || exit 2
 # ---------------------------------------------------------------------------
 MUT_PASS=0; MUT_FAIL=0
 mut_ok(){ echo "  PASS(mut)  $1"; MUT_PASS=$((MUT_PASS+1)); }
@@ -246,81 +246,66 @@ if [ ! -f "$ORIG_PY" ]; then
   echo "== $pass passed · $fail failed =="; exit 1
 fi
 
-# --- M1: change sys.exit(3) to sys.exit(0) in the plan-only guard -----------
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-# lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
-if ! MUTANT_SYNTAX=none mutant_chain "M1 guard-exit" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
-     's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/'; then
-  mut_no "M1 guard-exit: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
-elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
-  mut_no "M1 guard-exit: mutant failed py_compile"
-else
-  _m1_exit=0
-  python3 "$MUTDIR/serial-frame_capture.py" sweep \
-    --port /dev/null --output "$ROOT/mut_t1.json" 2>/dev/null || _m1_exit=$?
-  if [ "$_m1_exit" -eq 3 ]; then
-    mut_no "M1 guard-exit mutation NOT detected (mutant still exits 3)"
-  else
-    mut_ok "M1 guard-exit mutation detected: exit $_m1_exit ≠ 3 (T1 would catch this)"
+# Each tooth is a mutant_tooth: a probe runs the ORIGINAL and the MUTANT and prints typed facts; the original must
+# exit GOOD_RC and print its fact, the mutant must exit exactly BAD_RC, print the mutated fact and no crash signature.
+# A traceback (rc 1, a missing or unreadable JSON, an ImportError) is therefore a refused mutant, never a bite.
+CRASH_RE="$(mutant_crash_re py)" || exit 2
+# _sfc_mutant LABEL SED_EXPR : build the mutant into $MUTDIR; rc 1 (and a FAIL(mut) line) when it cannot be built.
+_sfc_mutant() {
+  MUTDIR="$(mktemp -d)"; cp -a "$SUT_DIR/." "$MUTDIR/"
+  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
+  if ! MUTANT_SYNTAX=none mutant_chain "$1" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" "$2"; then
+    mut_no "$1: mutant refused by lib/mutant.sh (reason on the FAIL line above)"; rm -rf "$MUTDIR"; return 1
   fi
+  if ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
+    mut_no "$1: mutant failed py_compile"; rm -rf "$MUTDIR"; return 1
+  fi
+}
+# _sfc_tooth LABEL GOOD_RC BAD_RC GOOD_HAS BAD_HAS PROBE_SCRIPT : the probe is `bash -c PROBE_SCRIPT _ @SUT@ OUTJSON`.
+_sfc_tooth() {
+  local label="$1" grc="$2" brc="$3" ghas="$4" bhas="$5" probe="$6"
+  if mutant_tooth "$label" "$grc" "$brc" "$MUTDIR/serial-frame_capture.py" --orig "$ORIG_PY" \
+       --good-has "$ghas" --bad-has "$bhas" --bad-lacks "$CRASH_RE" -- \
+       env "PYSTUB=$ROOT/pystubs-fail" bash -c "$probe" _ @SUT@ "$ROOT/mut_probe.json"; then MUT_PASS=$((MUT_PASS+1)); else MUT_FAIL=$((MUT_FAIL+1)); fi
+}
+# M1 probe: plan-only guard. Original exits 3; the mutant exits 0.
+_P1='rm -f "$2"; python3 "$1" sweep --port /dev/null --output "$2" 2>&1; rc=$?; echo "SFC-EXIT=$rc"; exit "$rc"'
+# M2/M3 probes print the typed fact "SFC-STATUS=<status in the written JSON>" (a missing JSON prints no STATUS line).
+_P2='rm -f "$2"; python3 "$1" sweep --port /dev/null --output "$2" 2>&1; python3 -c "import json,sys; print(\"SFC-STATUS=\" + json.load(open(sys.argv[1]))[\"status\"])" "$2"'
+_P3='rm -f "$2"; PYTHONPATH="$PYSTUB" python3 "$1" sweep --port /dev/ttySTUB0 --allow-live-probe --output "$2" 2>&1; rc=$?; python3 -c "import json,sys; print(\"SFC-STATUS=\" + json.load(open(sys.argv[1]))[\"status\"])" "$2"; exit "$rc"'
+
+# --- M1: change sys.exit(3) to sys.exit(0) in the plan-only guard -----------
+if _sfc_mutant "M1 guard-exit" 's/sys\.exit(3)/sys.exit(0)  # MUTANT-M1/'; then
+  _sfc_tooth "M1 guard-exit: plan-only guard exits 0 instead of 3" 3 0 'SFC-EXIT=3' 'SFC-EXIT=0' "$_P1"
+  rm -rf "$MUTDIR"
 fi
-rm -rf "$MUTDIR"
 
 # --- M2: change plan status to a wrong value ---------------------------------
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
-if ! MUTANT_SYNTAX=none mutant_chain "M2 plan-status" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
-     's/"status": "plan-only",/"status": "broken-plan",  # MUTANT-M2/'; then
-  mut_no "M2 plan-status: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
-elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
-  mut_no "M2 plan-status: mutant failed py_compile"
-else
-  _m2_exit=0
-  python3 "$MUTDIR/serial-frame_capture.py" sweep \
-    --port /dev/null --output "$ROOT/mut_t2.json" 2>/dev/null || _m2_exit=$?
-  if python3 - "$ROOT/mut_t2.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get('status') == 'plan-only', "status not plan-only"
-PY
-  then
-    mut_no "M2 plan-status: mutation NOT detected (status check did not fire)"
-  else
-    mut_ok "M2 plan-status mutation detected: T2 schema check would fire"
-  fi
+if _sfc_mutant "M2 plan-status" 's/"status": "plan-only",/"status": "broken-plan",  # MUTANT-M2/'; then
+  _sfc_tooth "M2 plan-status: plan JSON status is broken-plan" 0 0 'SFC-STATUS=plan-only' 'SFC-STATUS=broken-plan' "$_P2"
+  rm -rf "$MUTDIR"
 fi
-rm -rf "$MUTDIR"
 
 # --- M3: Remove sweep §7 exit-1 (status:failed → status:complete) -----------
-# Expected: T8 assertion (status == 'failed') fires when all bauds fail
-MUTDIR="$(mktemp -d)"
-cp -a "$SUT_DIR/." "$MUTDIR/"
 # Target the sweep_status ternary sentinel comment.  No inline comment added to
 # avoid eating syntax (see analyze M6/M8 lesson).
-if ! MUTANT_SYNTAX=none mutant_chain "M3 sweep-§7" "$ORIG_PY" "$MUTDIR/serial-frame_capture.py" \
-     's/else "failed"  # sweep-all-fail/else "complete"/'; then
-  mut_no "M3 sweep-§7: mutant refused by lib/mutant.sh (reason on the FAIL line above)"
-elif ! python3 -m py_compile "$MUTDIR/serial-frame_capture.py" 2>/dev/null; then
-  mut_no "M3 sweep-§7: mutant failed py_compile"
-else
-  _m3_exit=0
-  PYTHONPATH="$ROOT/pystubs-fail" python3 "$MUTDIR/serial-frame_capture.py" \
-    sweep --port /dev/ttySTUB0 --allow-live-probe --output "$ROOT/mut_t3.json" \
-    2>/dev/null || _m3_exit=$?
-  if [ "$_m3_exit" -eq 1 ] && python3 - "$ROOT/mut_t3.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-# T8 assertion: status must be 'failed' — SHOULD fail for mutant (it emits 'complete')
-assert d['status'] == 'failed', "status not failed"
-PY
-  then
-    mut_no "M3 sweep-§7: mutation NOT detected (T8 assertion did not fire)"
-  else
-    mut_ok "M3 sweep-§7 removal detected: T8 assertion fires (status not failed)"
-  fi
+if _sfc_mutant "M3 sweep-§7" 's/else "failed"  # sweep-all-fail/else "complete"/'; then
+  _sfc_tooth "M3 sweep-§7: all-baud failure reports status complete" 1 0 'SFC-STATUS=failed' 'SFC-STATUS=complete' "$_P3"
+  rm -rf "$MUTDIR"
 fi
-rm -rf "$MUTDIR"
+
+# --- Control: a CRASH mutant must be REFUSED by the same machinery ----------------------------------------------
+# sys.exit(undefined_name) makes the plan-only guard raise NameError (rc 1 + traceback): wrong rc, crash text -> THEATER.
+if _sfc_mutant "ctl guard-crash" 's/sys\.exit(3)/sys.exit(undefined_name_ctl)/'; then
+  _ctl_out="$(_sfc_tooth "ctl guard-crash: M1 probe on a crashing mutant" 3 0 'SFC-EXIT=3' 'SFC-EXIT=' "$_P1")"
+  if grep -qF "THEATER" <<<"$_ctl_out"; then
+    # _sfc_tooth ran in a subshell: its counters did not move, so the refusal is the PASS here.
+    mut_ok "ctl guard-crash: a crashing mutant is refused by the exact-rc / crash-free tooth"
+  else
+    mut_no "ctl guard-crash: a crashing mutant was NOT refused: $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"
+  fi
+  rm -rf "$MUTDIR"
+fi
 
 pass=$((pass + MUT_PASS))
 fail=$((fail + MUT_FAIL))
