@@ -208,7 +208,34 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 
 ---
 
-## 7. Redfish probe traps (LOW)
+## 7. Vendor `.exe` hangs over non-interactive SSH (stdin and console inheritance)
+
+A native vendor CLI (e.g. `nre.exe -licenses`, any `.exe` used as an oracle) launched directly over
+a non-interactive Windows SSH session can **hang indefinitely**, even though the same command
+returns in about 2 s locally. The process inherits the SSH channel's stdin and console and blocks
+waiting on them; no error is printed. A bare `cmd /c "... < NUL"` was also observed to hang, so
+redirecting stdin alone is not sufficient.
+
+**Working pattern:** run the call inside a `Start-Job`, redirect stdin from `NUL` and both output
+streams to files inside the job, bound the wait with `Wait-Job -Timeout`, then read the files:
+
+```powershell
+$out = 'C:\tmp\rsdd_work\out.txt'; $err = 'C:\tmp\rsdd_work\err.txt'
+$job = Start-Job { cmd /c "`"<exe>`" <args> < NUL > $using:out 2> $using:err" }
+if (Wait-Job $job -Timeout 60) { Receive-Job $job | Out-Null } else { Stop-Job $job; 'TIMEOUT' }
+Remove-Job $job -Force
+Get-Content $out, $err
+```
+
+Always bound the wait: a timeout is a typed result (`TIMEOUT`), not an empty verdict. Read the
+captured files rather than the job output, since the vendor tool writes to its own handles.
+For the related shell-side trap where `ssh` consumes the stdin of a `while read` loop, see
+`REMOTE-POWERSHELL.md §4.4`. Evidence: niagara-research B1216 §1216.3 (probe
+`nre-ssh-hang-pattern.ps1`). (Kit #2029.)
+
+---
+
+## 8. Redfish probe traps (LOW)
 
 ### HTTPS TLS failure on older PDU/BMC firmware — try plain HTTP first
 
@@ -234,6 +261,7 @@ a .45 EL2P PDU was read successfully over `http://` after `https://` rejected th
 | 9 | Tag-byte scan for region end | Desync on first false match in payload | Walk by length field |
 | 10 | Windows-native binary writing to UNC path (`\\wsl.localhost\...`) | Error 67 or silent output loss | Stage under `/mnt/c/...`; use `cmd.exe /c` for invocation |
 | 11 | HTTPS Redfish TLS handshake failure (older PDU/BMC firmware) | Endpoint appears unreachable even with permissive cert callback | Retry the same path over plain HTTP |
+| 12 | Vendor `.exe` (e.g. `nre.exe`) launched directly over non-interactive SSH | Hangs indefinitely, no error (about 2 s locally) | `Start-Job { cmd /c "... < NUL > out 2> err" }` + `Wait-Job -Timeout`; read the files (§7) |
 
 ---
 
