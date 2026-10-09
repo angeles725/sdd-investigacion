@@ -212,19 +212,28 @@ to `\\wsl.localhost\...`; routing via `/mnt/c` resolved error 67.
 
 A native vendor CLI (e.g. `nre.exe -licenses`, any `.exe` used as an oracle) launched directly over
 a non-interactive Windows SSH session can **hang indefinitely**, even though the same command
-returns in about 2 s locally. The process inherits the SSH channel's stdin and console and blocks
-waiting on them; no error is printed. A bare `cmd /c "... < NUL"` was also observed to hang, so
+returns in about 2 s locally. The process most likely blocks on inherited stdin/console handles from
+the SSH channel (the mechanism is not established by the evidence); no error is printed. A bare `cmd /c "... < NUL"` was also observed to hang, so
 redirecting stdin alone is not sufficient.
 
 **Working pattern:** run the call inside a `Start-Job`, redirect stdin from `NUL` and both output
 streams to files inside the job, bound the wait with `Wait-Job -Timeout`, then read the files:
 
 ```powershell
-$out = 'C:\tmp\rsdd_work\out.txt'; $err = 'C:\tmp\rsdd_work\err.txt'
-$job = Start-Job { cmd /c "`"<exe>`" <args> < NUL > $using:out 2> $using:err" }
-if (Wait-Job $job -Timeout 60) { Receive-Job $job | Out-Null } else { Stop-Job $job; 'TIMEOUT' }
+$dir = 'C:\tmp\rsdd_work'; New-Item -ItemType Directory -Force $dir | Out-Null
+$out = "$dir\out.txt"; $err = "$dir\err.txt"
+Remove-Item $out, $err -ErrorAction SilentlyContinue   # a stale file must not read as this run's verdict
+$job = Start-Job {
+    $o = $using:out; $e = $using:err
+    cmd /c "`"<exe>`" <args> < NUL > `"$o`" 2> `"$e`""
+}
+if (Wait-Job $job -Timeout 60) { Receive-Job $job | Out-Null }
+else {
+    Stop-Job $job; 'TIMEOUT'
+    Stop-Process -Name '<exe-basename>' -Force -ErrorAction SilentlyContinue   # Stop-Job leaves the hung .exe
+}
 Remove-Job $job -Force
-Get-Content $out, $err
+Get-Content $out, $err -ErrorAction SilentlyContinue
 ```
 
 Always bound the wait: a timeout is a typed result (`TIMEOUT`), not an empty verdict. Read the
