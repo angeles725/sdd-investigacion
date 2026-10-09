@@ -154,6 +154,7 @@ if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_h
 . "$_vr_hw_lib"
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
 declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
+declare -F hook_stop_launch_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_launch_state" >&2; exit 1; }
 unset _vr_hw_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -273,7 +274,7 @@ for p in $paths; do
   # This mirrors the unclassifiable-block guard pattern: the instrument declares what it could not
   # classify rather than silently passing.
   # Known patterns: N md|blocks [@date[,...]] · N focuses · N runs|run · N retros[+...] ·
-  # N-of-N gaps · nc · git yes|no · remote yes|no · hook <anything> · unregistered.
+  # N-of-N gaps · nc · git yes|no · remote yes|no · hook <anything> · unregistered · registered-no-sessions.
   # Absent parenthetical → no check (the row has no schema-validated fields; not an error).
   if [ -n "$_vr_inner" ]; then
     while IFS= read -r _vr_tok || [ -n "$_vr_tok" ]; do  # TOKENIZER-LAST-TOKEN-FIX
@@ -300,8 +301,9 @@ for p in $paths; do
       grep -qE '^remote[[:space:]]+(yes|no)$' <<<"$_vr_tok" && continue
       # hook (any form: hook yes / hook no / hook file yes / hook deferred / hook yes ×2 / …)
       grep -qE '^hook[[:space:]]' <<<"$_vr_tok" && continue
-      # unregistered
+      # unregistered · registered-no-sessions (kit issue #1157: registered in settings, never loaded)
       [ "$_vr_tok" = "unregistered" ] && continue
+      [ "$_vr_tok" = "registered-no-sessions" ] && continue  # NONCONFORM-NOSESSIONS-TOKEN
       # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
       _vr_finding nonconform-field WARN "$(basename "$p")" "$(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
       unresolved=$((unresolved + 1))
@@ -359,6 +361,53 @@ for p in $paths; do
     elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
       _vr_finding hook-unwired WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
       attention=$((attention + 1))
+    fi
+    # REGISTERED-NO-SESSIONS (kit issue #1157), ADDITIVE to the findings above: the hook is registered
+    # and its script is not firmly missing, but no retained Claude Code transcript exists for exactly this
+    # directory (project settings load from the launch directory only), so 'hook yes' ("will fire")
+    # over-claims. launch 'unknown' (no Claude history to read) makes no claim and stays silent.
+    if [ "$_vr_script_state" != "" ] && [ "$_vr_script_state" != "missing" ]; then
+      if [ "$(hook_stop_launch_state "$p")" = "no-sessions" ]; then  # HOOK-NO-SESSIONS-CHECK
+        _vr_finding hook-registered-no-sessions WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but there is no retained Claude Code transcript for a session launched from exactly ${p} (Claude Code prunes old transcripts; the Stop hook in .claude/settings.json is Claude-Code-specific, so a target worked in another harness reads the same), so it is not known to have loaded (registered-no-sessions; launch directory is a maintainer decision, kit issue #1134); refresh the row to 'hook file yes / registered-no-sessions' or launch Claude Code sessions there (propose-never-apply)."
+        attention=$((attention + 1))
+      fi
+    fi
+  fi
+
+  # UNREGISTERED / REGISTERED-NO-SESSIONS ROW RECONCILIATION (kit issue #1157): the reverse direction
+  # for rows that claim 'hook file yes'. 'unregistered' is defined as "not referenced by any loaded
+  # settings file"; a row carrying it while <target>/.claude/settings.json DOES register the hook (and
+  # the script can load) uses the wrong word. The cure depends on the launch state: no sessions ->
+  # 'registered-no-sessions'; sessions exist -> 'hook yes'. A row carrying 'registered-no-sessions' is
+  # stale when the hook is no longer registered/loadable or sessions now exist. Launch 'unknown' never
+  # produces a finding for the second case and is named in the message for the first.
+  _vr_hook_toks="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  if grep -qiE '^hook[[:space:]]+file[[:space:]]+yes([^a-zA-Z0-9]|$)' <<<"$_vr_hook_toks"; then  # HOOK-FILE-CLAIM-EXTRACT
+    _vr_is_unreg=0; _vr_is_nosess=0
+    grep -qx 'unregistered' <<<"$_vr_hook_toks" && _vr_is_unreg=1
+    grep -qx 'registered-no-sessions' <<<"$_vr_hook_toks" && _vr_is_nosess=1
+    if [ "$_vr_is_unreg" = 1 ] || [ "$_vr_is_nosess" = 1 ]; then
+      _vr_hf_state="$(hook_stop_wiring_state "$p")"; _vr_hf_script=""
+      case "$_vr_hf_state" in wired|wired-off-root) _vr_hf_script="$(hook_stop_script_state "$p")" ;; esac
+      if [ -n "$_vr_hf_script" ] && [ "$_vr_hf_script" != "missing" ]; then
+        _vr_hf_launch="$(hook_stop_launch_state "$p")"
+        if [ "$_vr_is_unreg" = 1 ]; then  # HOOK-UNREGISTERED-STALE-CHECK
+          case "$_vr_hf_launch" in
+            no-sessions) _vr_hf_cure="there is no retained Claude Code transcript for a session launched from exactly ${p}, so the accurate token is 'registered-no-sessions'" ;;
+            launched)    _vr_hf_cure="a retained Claude Code transcript exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired) and the accurate claim is likely 'hook yes'" ;;
+            *)           _vr_hf_cure="the launch history could not be read (launch unknown), so verify by hand whether the accurate token is 'registered-no-sessions' or 'hook yes'" ;;
+          esac
+          _vr_finding hook-unregistered-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'unregistered' but the Stop hook IS registered at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); ${_vr_hf_cure}; refresh the row (propose-never-apply)."
+          attention=$((attention + 1))
+        fi
+        if [ "$_vr_is_nosess" = 1 ] && [ "$_vr_hf_launch" = "launched" ]; then  # HOOK-NO-SESSIONS-STALE-CHECK
+          _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but a retained Claude Code transcript now exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired); the accurate claim is likely 'hook yes'; refresh the row (propose-never-apply)."
+          attention=$((attention + 1))
+        fi
+      elif [ "$_vr_is_nosess" = 1 ]; then
+        _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but the Stop hook is not registered with a loadable script at ${p}/.claude/settings.json (wiring ${_vr_hf_state}, script ${_vr_hf_script:-n/a}); refresh the row (propose-never-apply)."
+        attention=$((attention + 1))
+      fi
     fi
   fi
 

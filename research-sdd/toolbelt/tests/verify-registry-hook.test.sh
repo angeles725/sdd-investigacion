@@ -4,6 +4,8 @@
 # Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-registry-hook.sh"
 

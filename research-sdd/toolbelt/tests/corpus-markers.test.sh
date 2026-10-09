@@ -7,6 +7,8 @@
 # Usage: corpus-markers.test.sh [--prove-teeth]
 # Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LIB="$HERE/../lib/corpus-markers.sh"
 [ -f "$LIB" ] || { echo "FATAL: lib not found: $LIB" >&2; exit 2; }
