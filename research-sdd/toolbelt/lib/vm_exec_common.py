@@ -9,7 +9,7 @@ The two executors import and call run_evaluate, passing only the values that
 genuinely differ: schema_version and plan_label (used in one diagnostic string).
 """
 from __future__ import annotations
-import hashlib, os, shutil, sys
+import hashlib, os, shutil, sys, tempfile
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ if str(_HERE) not in sys.path:
 import docker_common as _dc    # noqa: E402
 import vm_boot_core as _vbc   # noqa: E402
 import vm_disk_policy as _vdp  # noqa: E402
+import vm_pin as _vp           # noqa: E402
 from gate import GateError     # noqa: E402
 
 # Sentinel value emitted by detonate_plan / trace_plan for the scratch disk path.
@@ -230,9 +231,17 @@ def run_evaluate(
     # run_dir and AFTER preflight, BEFORE the pre-snapshot and Popen.
     # argv_deltas is captured by the closure and injected into ev in Step 5.
     argv_deltas: list[dict[str, Any]] = []
+    # Plan identity (#2090): detonate records the sample under "sample", trace under "target".
+    ident = (plan.get("sample") if plan_label == "detonate" else plan.get("target")) or {}
+    stage = tempfile.mkdtemp(prefix="rsdd-vm-sample-")  # private 0700, honours TMPDIR
 
     def pre_boot(run_dir: str, exec_argv: list[str]) -> list[str]:
-        """Create scratch.img in run_vm's run_dir; substitute sentinel in exec_argv."""
+        """Pin the sample to the planned identity; create scratch.img in run_vm's run_dir; substitute sentinel."""
+        spath = ident.get("path", "")
+        if spath:
+            dest = _vp.pin_file(spath, ident.get("sha256"), ident.get("size"), stage,
+                                f"{plan_label} sample", "boot")
+            exec_argv = _vp.rebind_source(exec_argv, spath, dest)
         scratch_path = f"{run_dir}/scratch.img"
         # Create fresh zeroed scratch disk (O_NOFOLLOW, fail-closed).
         try:
@@ -274,10 +283,13 @@ def run_evaluate(
     # Step 4 — delegate to the shared boot/reap/receipt engine.
     # run_vm owns the single run_dir; pre_boot writes scratch.img into it so
     # output_files(run_dir) returns [scratch.img, serial.log] → outputs[] coherent.
-    ev = _vbc.run_vm(
-        plan, preflight=_thin_preflight,
-        snapshot_hook=snapshot_hook, pre_boot=pre_boot,
-    )
+    try:
+        ev = _vbc.run_vm(
+            plan, preflight=_thin_preflight,
+            snapshot_hook=snapshot_hook, pre_boot=pre_boot,
+        )
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
     # Step 5 — inject executor-specific fields.
     ev["schema_version"] = schema_version
