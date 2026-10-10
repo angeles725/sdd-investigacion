@@ -40,6 +40,10 @@ pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
+# Own TMPDIR sandbox (kit issue #2098): every temp path this suite (or a case it spawns) creates lands
+# here, so the final assertion can prove nothing is left behind. The trap removes the sandbox itself.
+_SB="$(mktemp -d)"; export TMPDIR="$_SB"; trap 'rm -rf "$_SB"' EXIT
+
 # ---------------------------------------------------------------------------
 # T1: walk-phase MemoryError → memory_cap:true, exit 0.
 #     Injects MemoryError by monkeypatching kaitai_driver._walk.
@@ -279,7 +283,8 @@ fi
 # indefinitely (_offset never advances past the stalled byte) → HANGS.
 # ---------------------------------------------------------------------------
 # timeout: the pre-specified M6 mutant (no `_n == 0` branch) spins forever; a hang must read as a FAIL.
-if timeout 20 python3 - "$DRIVER_LIB" <<'PY'
+_T3DIR="$(mktemp -d)"
+if timeout 20 python3 - "$DRIVER_LIB" "$_T3DIR" <<'PY'
 import sys, os, json, types, tempfile, importlib.util
 
 driver_lib = sys.argv[1]
@@ -300,80 +305,81 @@ class _KStream:
 fake_ks.KaitaiStruct = _KS
 fake_ks.KaitaiStream = _KStream
 
-with tempfile.TemporaryDirectory() as tmpdir:
-    with open(os.path.join(tmpdir, "demo.py"), "w") as f:
-        f.write("from kaitaistruct import KaitaiStruct, KaitaiStream\n")
-        f.write("class Demo(KaitaiStruct):\n")
-        f.write("    def _read(self): pass\n")
-    with open(os.path.join(tmpdir, "sample.bin"), "wb") as f:
-        f.write(b"test")
+tmpdir = sys.argv[2]  # bash-owned (removed with the suite sandbox even when `timeout` kills this python)
+with open(os.path.join(tmpdir, "demo.py"), "w") as f:
+    f.write("from kaitaistruct import KaitaiStruct, KaitaiStream\n")
+    f.write("class Demo(KaitaiStruct):\n")
+    f.write("    def _read(self): pass\n")
+with open(os.path.join(tmpdir, "sample.bin"), "wb") as f:
+    f.write(b"test")
 
-    sys.modules["kaitaistruct"] = fake_ks
+sys.modules["kaitaistruct"] = fake_ks
 
-    real_write = driver.os.write
-    call_count = [0]
+real_write = driver.os.write
+call_count = [0]
 
-    def zero_after_first(fd, data):
-        """Write one byte normally on the first call; return 0 on all subsequent
-        calls to simulate a stalled / broken fd mid-payload."""
-        call_count[0] += 1
-        if fd == 1:
-            if call_count[0] == 1:
-                real_write(fd, bytes(data[:1]))
-                return 1
-            return 0
-        return real_write(fd, data)
+def zero_after_first(fd, data):
+    """Write one byte normally on the first call; return 0 on all subsequent
+    calls to simulate a stalled / broken fd mid-payload."""
+    call_count[0] += 1
+    if fd == 1:
+        if call_count[0] == 1:
+            real_write(fd, bytes(data[:1]))
+            return 1
+        return 0
+    return real_write(fd, data)
 
-    driver.os.write = zero_after_first
+driver.os.write = zero_after_first
 
-    rfd, wfd = os.pipe()
-    saved_fd1 = os.dup(1)
-    os.dup2(wfd, 1)
-    os.close(wfd)
+rfd, wfd = os.pipe()
+saved_fd1 = os.dup(1)
+os.dup2(wfd, 1)
+os.close(wfd)
 
-    old_argv = sys.argv[:]
-    sys.argv = [
-        "kaitai_driver",
-        "--module-dir", tmpdir,
-        "--stem", "demo",
-        "--input", os.path.join(tmpdir, "sample.bin"),
-    ]
+old_argv = sys.argv[:]
+sys.argv = [
+    "kaitai_driver",
+    "--module-dir", tmpdir,
+    "--stem", "demo",
+    "--input", os.path.join(tmpdir, "sample.bin"),
+]
 
-    try:
-        ret = driver.main()
-    except SystemExit as e:
-        ret = int(e.code) if e.code is not None else 0
-    except Exception as e:
-        ret = 99
-        print(f"driver.main raised: {e}", file=sys.stderr)
-    finally:
-        sys.argv = old_argv
-        sys.modules.pop("kaitaistruct", None)
-        driver.os.write = real_write
+try:
+    ret = driver.main()
+except SystemExit as e:
+    ret = int(e.code) if e.code is not None else 0
+except Exception as e:
+    ret = 99
+    print(f"driver.main raised: {e}", file=sys.stderr)
+finally:
+    sys.argv = old_argv
+    sys.modules.pop("kaitaistruct", None)
+    driver.os.write = real_write
 
-    os.dup2(saved_fd1, 1)
-    os.close(saved_fd1)
+os.dup2(saved_fd1, 1)
+os.close(saved_fd1)
 
-    chunks = []
-    while True:
-        chunk = os.read(rfd, 65536)
-        if not chunk:
-            break
-        chunks.append(chunk)
-    os.close(rfd)
+chunks = []
+while True:
+    chunk = os.read(rfd, 65536)
+    if not chunk:
+        break
+    chunks.append(chunk)
+os.close(rfd)
 
-    captured = b"".join(chunks)
+captured = b"".join(chunks)
 
-    assert ret != 0, (
-        f"expected non-zero exit (partial write is failure), "
-        f"got exit={ret} wrote={len(captured)} bytes — "
-        "break+return 0 still present (silent truncation)"
-    )
-    print(f"OK: exit={ret} wrote={len(captured)} bytes before 0-return → non-zero exit")
+assert ret != 0, (
+    f"expected non-zero exit (partial write is failure), "
+    f"got exit={ret} wrote={len(captured)} bytes — "
+    "break+return 0 still present (silent truncation)"
+)
+print(f"OK: exit={ret} wrote={len(captured)} bytes before 0-return → non-zero exit")
 PY
 then ok "T3: os.write returning 0 mid-payload → exit non-zero (not silent truncation)"
 else no "T3: zero-return exit code"
 fi
+rm -rf "$_T3DIR"
 
 # ---------------------------------------------------------------------------
 # --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
@@ -386,7 +392,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_or_count mutant_py_replace mutant_tooth mutant_crash_re || exit 2
   _KD_REAL="$HERE/../lib/kaitai_driver.py"
-  _MUT="$(mktemp -d)"; trap 'rm -rf "$_MUT"' EXIT
+  _MUT="$(mktemp -d)"
   _builds_failed=0
   _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
   # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
@@ -433,6 +439,12 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   fi
   rm -rf "$_MUT"
 fi
+
+# Sandbox leftovers (kit issue #2098): the suite must leave its own TMPDIR empty. A case killed by `timeout`
+# (the M6 hang mutant) never runs python's TemporaryDirectory cleanup, so that case's temp dir is bash-owned.
+_left="$(ls -A "$_SB" 2>&1)"
+if [ -z "$_left" ]; then echo "  PASS  sandbox: suite TMPDIR is empty at exit"; pass=$((pass+1))
+else echo "  FAIL  sandbox: suite left entries in its TMPDIR: $(tr '\n' ' ' <<<"$_left")"; fail=$((fail+1)); fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
