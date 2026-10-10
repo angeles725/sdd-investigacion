@@ -42,7 +42,9 @@ no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 # Own TMPDIR sandbox (kit issue #2098): every temp path this suite (or a case it spawns) creates lands
 # here, so the final assertion can prove nothing is left behind. The trap removes the sandbox itself.
-_SB="$(mktemp -d)"; export TMPDIR="$_SB"; trap 'rm -rf "$_SB"' EXIT
+_SB="$(mktemp -d)"
+[ -d "$_SB" ] || { echo "  FAIL  sandbox: mktemp -d failed (no TMPDIR sandbox)"; exit 2; }
+export TMPDIR="$_SB"; trap 'rm -rf "$_SB"' EXIT
 
 # ---------------------------------------------------------------------------
 # T1: walk-phase MemoryError → memory_cap:true, exit 0.
@@ -284,6 +286,7 @@ fi
 # ---------------------------------------------------------------------------
 # timeout: the pre-specified M6 mutant (no `_n == 0` branch) spins forever; a hang must read as a FAIL.
 _T3DIR="$(mktemp -d)"
+[ -d "$_T3DIR" ] || { echo "  FAIL  T3: mktemp -d failed (no scratch dir)"; exit 2; }
 if timeout 20 python3 - "$DRIVER_LIB" "$_T3DIR" <<'PY'
 import sys, os, json, types, tempfile, importlib.util
 
@@ -407,16 +410,16 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
       bash "$HERE/kaitai-driver-walk-memcap.test.sh" --teeth-child @SUT@
   }
   _t() { if _tooth_kd "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  # T1 (:142): the walk-phase `except MemoryError` guard no longer catches MemoryError.
+  # T1 (walk-phase guard, `got [0-9]+ (guard missing?)` assert): the walk-phase `except MemoryError` guard no longer catches MemoryError.
   _t "kd-walk-guard: walk-phase except MemoryError retargeted" "got [0-9]+ \\(guard missing\\?\\)" \
     mutant_py_replace "kd-walk-guard" "$_KD_REAL" \
     $'    except MemoryError:\n        # RLIMIT_AS exhaustion during walk' \
     $'    except ZeroDivisionError:\n        # RLIMIT_AS exhaustion during walk'
-  # T2 (:255): the write-all loop collapses to a single write (offset jumps to the end).
+  # T2 (write-all loop, `T2: truncated JSON on stdout` assert): the write-all loop collapses to a single write (offset jumps to the end).
   _t "kd-single-write: write-all loop advances past a short write" "AssertionError: T2: truncated JSON on stdout" \
     mutant_py_replace "kd-single-write" "$_KD_REAL" \
     '            _offset += _n' '            _offset = len(result_bytes)'
-  # T3 (:364): a zero-byte write breaks out and reports success (silent truncation).
+  # T3 (zero-byte write, `expected non-zero exit` assert): a zero-byte write breaks out and reports success (silent truncation).
   _t "kd-zero-break: zero-byte write breaks out and returns 0" "AssertionError: expected non-zero exit" \
     mutant_py_replace "kd-zero-break" "$_KD_REAL" \
     '                return 1  # cannot make progress; broken fd' '                break'
@@ -428,9 +431,10 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # T3 temp dir (kit issue #2098): the suite itself is the SUT. The mutant deletes the bash-side
   # `rm -rf "$_T3DIR"` (HERE pinned so the staged copy still finds lib/), and the sandbox-empty assertion must go RED.
   _SUITE_SELF="$HERE/kaitai-driver-walk-memcap.test.sh"
+  _H="${HERE//\\/\\\\}"; _H="${_H//|/\\|}"; _H="${_H//&/\\&}"  # escape backslash, | and & for the sed replacement
   _d="$_MUT/kd-t3-leak"; mkdir -p "$_d"
   if mutant_or_count _builds_failed mutant_chain "kd-t3-leak" "$_SUITE_SELF" "$_d/suite.test.sh" \
-       '/^rm -rf "\$_T3DIR"$/d' "s|^HERE=.*|HERE=\"$HERE\"|" \
+       '/^rm -rf "\$_T3DIR"$/d' "s|^HERE=.*|HERE=\"$_H\"|" \
      && mutant_tooth "kd-t3-leak: T3 temp-dir removal deleted: sandbox-empty assertion goes RED" 0 1 "$_d/suite.test.sh" \
        --orig "$_SUITE_SELF" --bad-has "FAIL  sandbox: suite left entries" --bad-lacks "$_CRASH" -- bash @SUT@; then
     pass=$((pass+1)); else fail=$((fail+1)); fi
@@ -447,6 +451,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
     echo "  FAIL  kd-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
   fi
   rm -rf "$_MUT"
+  if [ "$_builds_failed" -ne 0 ]; then echo "  FAIL  teeth: $_builds_failed mutant build(s) failed"; fail=$((fail+1)); fi
 fi
 
 # Sandbox leftovers (kit issue #2098): the suite must leave its own TMPDIR empty. A case killed by `timeout`
