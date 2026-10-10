@@ -574,6 +574,8 @@ for _mlabel, _mutate in [
 # ── RSDD-TMP-NOLEAK (#2061): no run dir THIS suite produced landed under the global /tmp/rsdd ──
 # Attribution is by identity (_produced), not by file content. Other new rsdd-* entries are someone
 # else's (a concurrent suite): reported as INFO, never failed on or deleted.
+# Known limitation: a cli() child that creates its run dir and raises after Popen never prints serial_log,
+# so that dir is not recorded and surfaces only as INFO; a wrong root is still detected by RSDD-TMP-ROUTE.
 _leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
 if _leaked:
     nok("RSDD-TMP-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
