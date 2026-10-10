@@ -419,7 +419,7 @@ tt teeth-timeout-outcome lib/capture_exec.py '                timed_out = True' 
 tt teeth-capture-clock lib/capture_exec.py '_STARTUP_BUDGET_S: int = 30 ' '_STARTUP_BUDGET_S: int = 0 ' 'FAIL  CLOCK1: outcome=timeout-partial'
 tt teeth-capture-wall lib/capture_exec.py 'min(ceiling, started + wall_len)' 'ceiling' 'FAIL  RED8: per-capture wall did not bite'
 tt teeth-capture-ceiling lib/capture_exec.py 'deadline = ceiling if started is None' 'deadline = float("inf") if started is None' 'FAIL  CLOCK2:'
-tt teeth-root-hardcoded lib/capture_exec.py '_dc.make_run_subdir(run_uuid, _dc.rsdd_root())' '_dc.make_run_subdir(run_uuid)' 'FAIL  CAP-NOLEAK: new entries under /tmp/rsdd'
+tt teeth-root-hardcoded lib/capture_exec.py '_dc.make_run_subdir(run_uuid, rsdd_root)' '_dc.make_run_subdir(run_uuid)' 'FAIL  CAP-NOLEAK: new entries under /tmp/rsdd'
 tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

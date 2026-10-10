@@ -122,13 +122,13 @@ def _extract_iface(argv: list[str]) -> str:
         raise GateError("plan.planned_argv missing -i IFACE (interface not specified)")
 
 
-def _preflight(plan: dict[str, Any]) -> None:
-    """Defense-in-depth preflight (gate-authorization.v1 rule 4). GateError → exit 2."""
+def _preflight(plan: dict[str, Any]) -> str:
+    """Defense-in-depth preflight (gate-authorization.v1 rule 4). GateError → exit 2. Returns the verified rsdd root."""
     check_dumpcap_privilege()                         # (a) binary + privilege
     argv = plan.get("planned_argv", [])
     validate_plan_argv(argv)                          # (b) structural — ensures list[str] before iface extract
     check_iface_allowlist(_extract_iface(argv))       # (c) allowlist
-    _dc.ensure_rsdd_root()                            # (d) /tmp/rsdd real dir
+    return _dc.ensure_rsdd_root()                     # (d) rsdd root ($RSDD_VM_ROOT|/tmp/rsdd) real dir
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ class LiveCaptureExecutor:
         Wall-timeout is a labeled outcome (timeout-partial), not an error: dumpcap SIGTERM
         flushes a valid partial pcap before dying.
         """
-        _preflight(plan)
+        rsdd_root = _preflight(plan)
         planned_argv: list[str] = list(plan.get("planned_argv", []))
         cap_spec = plan.get("capture_spec", {})
         duration_s: int = int(cap_spec.get("duration_seconds", 60))
@@ -161,7 +161,7 @@ class LiveCaptureExecutor:
 
         # Per-run output subdir (O_NOFOLLOW fd-anchored — closes pcap -w symlink TOCTOU).
         run_uuid = uuid.uuid4().hex
-        run_dir = _dc.make_run_subdir(run_uuid, _dc.rsdd_root())
+        run_dir = _dc.make_run_subdir(run_uuid, rsdd_root)
         pcap_path = f"{run_dir}/capture.pcap"
 
         # Transform 1: rewrite -w to per-run subdir.

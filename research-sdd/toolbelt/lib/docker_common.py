@@ -184,11 +184,26 @@ def rsdd_root() -> str:
 
 
 def ensure_rsdd_root() -> str:
-    """Resolve rsdd_root(), create it (0700) only when it is an explicit override, verify it, return it."""
+    """Resolve rsdd_root(), verify it and return it.
+
+    The default /tmp/rsdd is only verified (a real non-symlink directory). An explicit $RSDD_VM_ROOT override must
+    be absolute; it is created 0700 when missing and must then be a real directory owned by the effective user
+    and not group/world-writable (GateError otherwise).
+    """
     root = rsdd_root()
-    if root != _DEFAULT_RSDD_ROOT:
+    if root == _DEFAULT_RSDD_ROOT:
+        verify_rsdd_root(root)
+        return root
+    if not os.path.isabs(root):
+        raise GateError(f"$RSDD_VM_ROOT must be an absolute path: {root!r}")
+    try:
         os.makedirs(root, mode=0o700, exist_ok=True)
-    verify_rsdd_root(root)
+    except OSError as exc:
+        raise GateError(f"$RSDD_VM_ROOT {root} cannot be created: {exc}") from exc
+    verify_rsdd_root(root)  # override root
+    st = os.lstat(root)
+    if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise GateError(f"$RSDD_VM_ROOT {root} must be owned by the current user and not group/world-writable")
     return root
 
 

@@ -510,7 +510,7 @@ class LiveFactExecutor:
         _dc.assert_network_policy(planned_argv, "forbid")
         # No --privileged anywhere in planned argv
         _dc.forbid_privileged(planned_argv)
-        # /tmp/rsdd must be a real non-symlink directory
+        # rsdd root ($RSDD_VM_ROOT|/tmp/rsdd) real dir
         rsdd_root = _dc.ensure_rsdd_root()
 
         # ── Resolve 3 image digests (local inspect, NO pull) ──────────────────

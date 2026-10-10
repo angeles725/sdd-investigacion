@@ -265,6 +265,38 @@ with tempfile.TemporaryDirectory() as td:
             except Exception as e: nok(f"G-unit-{label}", str(e))
     finally: os.environ["PATH"]=_old_path
 
+# ── ROOT-*: the explicit $RSDD_VM_ROOT override is validated (#2090 review W1/W2) ──
+# Owner check (st_uid != euid) cannot be exercised unprivileged (no chown to a foreign uid): only the mode half is tested.
+def _root_case(label, setup, expect_err):
+    _old = os.environ.get("RSDD_VM_ROOT"); _cwd = os.getcwd()
+    with tempfile.TemporaryDirectory(prefix="de-root-") as _td:
+        try:
+            os.chdir(_td)
+            os.environ["RSDD_VM_ROOT"] = setup(_td)
+            try:
+                got = m._dc.ensure_rsdd_root()
+                if expect_err: nok(label, f"expected GateError, got {got!r}")
+                else:
+                    st = os.lstat(got); assert (st.st_mode & 0o777) == 0o700, oct(st.st_mode)
+                    ok(label)
+            except GateError:
+                ok(label) if expect_err else nok(label, "unexpected GateError")
+            except Exception as e: nok(label, repr(e))
+        finally:
+            os.chdir(_cwd)
+            if _old is None: os.environ.pop("RSDD_VM_ROOT", None)
+            else: os.environ["RSDD_VM_ROOT"] = _old
+def _s_symlink(td): os.mkdir(td + "/real"); os.symlink(td + "/real", td + "/lnk"); return td + "/lnk"
+def _s_file(td): Path(td + "/f").write_text("x"); return td + "/f"
+def _s_missing(td): return td + "/new/root"
+def _s_rel(td): return "rel-root"
+def _s_mode(td): os.mkdir(td + "/wr", 0o700); os.chmod(td + "/wr", 0o770); return td + "/wr"
+_root_case("ROOT-SYMLINK: symlink override root -> GateError", _s_symlink, True)
+_root_case("ROOT-FILE: regular-file override root -> GateError", _s_file, True)
+_root_case("ROOT-MISSING: missing override root is created as a 0700 dir", _s_missing, False)
+_root_case("ROOT-RELATIVE: relative override root -> GateError", _s_rel, True)
+_root_case("ROOT-MODE: group-writable override root -> GateError", _s_mode, True)
+
 # ── DOCKER-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
 # Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
 # (a concurrent suite): INFO only, never failed on or deleted.
@@ -306,7 +338,10 @@ tt teeth-gate-allow emba_plan.py 'run_gate_epilogue(CAP_DOCKER, args.allow_docke
 tt teeth-timeout-kill lib/docker_exec.py '_docker_kill(container_name)   # then best-effort container cleanup' 'pass' 'FAIL  G-timeout: rc=2 cmds='
 tt teeth-output-cap lib/docker_exec.py 'stdout, stdout_trunc = _dc.cap(raw_out[0])' 'stdout, stdout_trunc = raw_out[0].decode(errors="replace"), False' 'FAIL  CRIT1: large-stdout-cap: stdout_truncated=False'
 tt teeth-exit-126 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 127)' 'FAIL  CRIT3-126: rc=0'
-tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, _dc.rsdd_root())' '_dc.make_run_subdir(run_uuid)' 'FAIL  DOCKER-NOLEAK: new entries under /tmp/rsdd'
+tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, rsdd_root)' '_dc.make_run_subdir(run_uuid)' 'FAIL  DOCKER-NOLEAK: new entries under /tmp/rsdd'
+tt teeth-root-noverify lib/docker_common.py 'verify_rsdd_root(root)  # override root' 'os.lstat = os.stat  # verify deleted; also blind the later lstat so the mode check cannot back it up' 'FAIL  ROOT-SYMLINK'
+tt teeth-root-nomode lib/docker_common.py 'if st.st_uid != os.geteuid() or st.st_mode & 0o022:' 'if False:' 'FAIL  ROOT-MODE'
+tt teeth-root-noabs lib/docker_common.py 'if not os.path.isabs(root):' 'if False:' 'FAIL  ROOT-RELATIVE'
 tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount under the sandbox root in exec_argv'
 
 tt teeth-exit-125 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (126, 127)' 'FAIL  G-failure-125: rc=0'

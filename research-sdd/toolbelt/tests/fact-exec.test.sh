@@ -695,8 +695,8 @@ tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOW
 tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
 tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
 tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
-# The failure itself must also be detected (exit 2), not just cleaned up.
 tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full)' 'FAIL  FACT-NOLEAK: new entries under /tmp/rsdd'
+# The failure itself must also be detected (exit 2), not just cleaned up.
 tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
 tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'
 tt teeth-analysis-finished 'if astatus.get("is_finished") or astatus.get("finished"):' 'if True:' 'FAIL  FLAGSHIP-DOWN3: rc=0'
