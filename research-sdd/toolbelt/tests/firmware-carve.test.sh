@@ -159,11 +159,12 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- teeth: mutation controls (hardlinks, bounded traversal, SquashFS tables, root guards, worker self-guard) --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
+  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_py_crash_strict || exit 2
   _FC_REAL="$TOOLBELT/firmware_carve.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"; rm -f "$ROOT-parent-link"' EXIT
   _builds_failed=0
-  _CRASH_ALL="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"; _CRASH="$_CRASH_ALL"
+  # Strict set minus the bare Traceback token: a bitten mutant legitimately prints an AssertionError traceback.
+  _CRASH_ALL="$(mutant_py_crash_strict)"; _CRASH_ALL="${_CRASH_ALL#Traceback|}"; _CRASH="$_CRASH_ALL"
   # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
   # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   _tooth_fc() { # LABEL BAD_CASE_LABEL SED_EXPR...
