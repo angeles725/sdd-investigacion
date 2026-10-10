@@ -48,6 +48,7 @@ def run_vm(
     preflight: Any,
     snapshot_hook: Any = None,
     pre_boot: Any = None,
+    root: str | None = None,
 ) -> dict[str, Any]:
     """Boot a QEMU VM; return vm-boot-run.v1 evidence dict.
 
@@ -72,6 +73,10 @@ def run_vm(
         and Popen.  Returns the (possibly substituted) exec_argv.  The callback may
         create files in run_dir (e.g. scratch.img) so they appear in output_files()
         and are hashed by snapshot_hook.  When ``None``, exec_argv is unchanged.
+    root:
+        Optional host isolation root under which the per-run subdir is created.
+        ``None`` keeps docker_common's default (/tmp/rsdd), byte-identical for
+        the detonate/trace callers.
     """
     preflight(plan)
     exec_argv: list[str] = list(plan["planned_argv"])
@@ -81,7 +86,8 @@ def run_vm(
     qbin = resolve_qbin(plan, exec_argv)
 
     # Per-run subdir (O_NOFOLLOW fd-anchored) — the SINGLE run_dir for this call.
-    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)
+    run_dir = (_dc.make_run_subdir(uuid.uuid4().hex) if root is None
+               else _dc.make_run_subdir(uuid.uuid4().hex, root))
     serial_log = f"{run_dir}/serial.log"
     argv_deltas: list[dict[str, Any]] = []
 
