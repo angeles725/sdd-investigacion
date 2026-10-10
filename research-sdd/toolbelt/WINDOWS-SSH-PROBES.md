@@ -259,6 +259,8 @@ Observed `[CERT-live]`: a Workbench process launched this way (task `WBCopierTes
 session 1. The exact argument list used is not recorded in kit #2082, hence `[unverified]` above.
 Verify the session number rather than trusting task status. For Workbench, use the
 NIAGARA-N4-FRAMEWORK §9 recipe, not this bare form. See also NIAGARA-N4-FRAMEWORK.md §9.
+A modal certificate-approval dialog that hangs a headless client session is an instance of this problem:
+see NIAGARA-N4-FRAMEWORK.md §12.
 (Kit #2082.)
 
 ---
