@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # vm-receipt.test.sh — contract tests for vm-run-receipt.v1
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../vm_receipt.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../vm_receipt.py"; REL="vm_receipt.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
-import copy,hashlib,importlib.util,json,subprocess,sys,tempfile
+IFS= read -r -d '' PY_SRC <<'PY'
+import copy,hashlib,importlib.util,json,os,subprocess,sys,tempfile
 from pathlib import Path
+if not __debug__: print("FATAL: bare asserts are the only checks here; refusing to run under PYTHONOPTIMIZE/-O",file=sys.stderr); sys.exit(2)
 sut=Path(sys.argv[1])
 s=importlib.util.spec_from_file_location("vm_receipt",sut); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
 passed=0
@@ -44,7 +50,7 @@ with tempfile.TemporaryDirectory() as tmp:
     m.verify_receipt(r1,R)
     ok("verify_receipt passes when artifacts match recorded digests")
     (R/"output.txt").write_bytes(b"tampered!")
-    try: m.verify_receipt(r1,R); assert False
+    try: m.verify_receipt(r1,R); assert False,"verify_receipt must fail closed on artifact digest mismatch"
     except m.VmReceiptError: ok("verify_receipt fails closed on artifact digest mismatch")
     (R/"output.txt").write_bytes(b"output data")
     for label,mutate in [
@@ -96,5 +102,73 @@ with tempfile.TemporaryDirectory() as tmp:
         except m.VmReceiptError: ok("path-traversal: absolute path rejected, artifacts_dir confined")
     m.verify_receipt(r1,R)
     ok("regression: valid relative artifact path still verifies after hardening")
+    # --- field checks reached only when the identity is re-stamped over the corrupt record ---
+    def _restamp(mut):
+        t=copy.deepcopy(r1); mut(t); t["identity"]=m._identity(t); return t
+    for label,mut in [
+        ("restamped both exit_code and signal",    lambda d: d["exit_status"].update(signal=9)),
+        ("restamped neither exit_code nor signal", lambda d: d["exit_status"].update(exit_code=None,signal=None)),
+        ("restamped zero limit",                   lambda d: d["limits"].update(cpu_seconds=0)),
+        ("restamped negative limit",               lambda d: d["limits"].update(mem_bytes=-1)),
+    ]:
+        try: m.validate_receipt(_restamp(mut)); assert False,"expected field-check VmReceiptError for: "+label
+        except m.VmReceiptError as e:
+            assert "identity does not match" not in str(e),"identity check fired instead of the field check for: "+label
+            ok(f"validate_receipt field check rejects {label}")
+    # --- verify_receipt confinement: a relative symlink inside artifacts_dir that resolves outside it ---
+    with tempfile.TemporaryDirectory() as out_tmp:
+        outside=Path(out_tmp)/"secret.txt"; outside.write_bytes(b"outside data")
+        os.symlink(os.path.relpath(outside,R),R/"esc")
+        _,_es,_eh=m._file_identity(outside)
+        esc=m.build_receipt({**spec,"inputs":[{"path":"esc","sha256":_eh,"size":_es}]})
+        try: m.verify_receipt(esc,R); assert False,"CRITICAL: verify_receipt followed a symlink escaping artifacts_dir"
+        except m.VmReceiptError as e:
+            assert "resolves outside artifacts_dir" in str(e),"escape rejected by the wrong check: "+str(e)
+            ok("verify_receipt rejects a symlink resolving outside artifacts_dir")
+    (R/"esc").unlink()
 print(f"== {passed} passed · 0 failed ==")
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+# This suite reports a bite as an uncaught AssertionError (it has no nok()), so the Traceback header is the expected signal:
+# the crash filter is the strict one MINUS Traceback, and every BAD_HAS pins the AssertionError message text.
+CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+tt teeth-digest-mismatch 'if actual_size != rec["size"] or actual_sha != rec["sha256"]:' 'if False:' 'AssertionError: verify_receipt must fail closed on artifact digest mismatch' "$CRASH_NOTB"
+tt teeth-dotdot 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if Path(p).is_absolute():' "AssertionError: _artifacts must reject dotdot path '../escape'" "$CRASH_NOTB"
+tt teeth-absolute 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if ".." in Path(p).parts:' 'AssertionError: _artifacts must reject absolute artifact path' "$CRASH_NOTB"
+tt teeth-nan 'or not math.isfinite(v[k]) or v[k] < 0):' 'or v[k] < 0):' 'AssertionError: _observed must reject NaN mem_bytes_peak' "$CRASH_NOTB"
+tt teeth-exit-both-neither 'if (ec is None) == (sig is None):' 'if False:' 'AssertionError: expected field-check VmReceiptError for: restamped both exit_code and signal' "$CRASH_NOTB"
+tt teeth-pos-int 'or v <= 0:' ':' 'AssertionError: expected field-check VmReceiptError for: restamped zero limit' "$CRASH_NOTB"
+tt teeth-confinement 'if not (resolved == root or root in resolved.parents):' 'if False:' 'AssertionError: CRITICAL: verify_receipt followed a symlink escaping artifacts_dir' "$CRASH_NOTB"
+# The corrupt-record table above (zero limit, exit_status both/neither) is rejected by validate_receipt's identity check before the field
+# checks run; the re-stamped cases reach them. The absolute /etc/passwd case is rejected earlier by _artifacts, so only the symlink case
+# reaches the verify_receipt confinement guard.
+# Bare asserts are the only checks: under PYTHONOPTIMIZE a plain run would go silently green, so the suite refuses to run (exit 2).
+opt_out="$(PYTHONOPTIMIZE=1 python3 -c "$PY_SRC" "$SUT" 2>&1)"; opt_rc=$?
+if [ "$opt_rc" -eq 2 ] && grep -qF 'refusing to run under PYTHONOPTIMIZE' <<<"$opt_out"; then
+  echo "  PASS  suite refuses to run under PYTHONOPTIMIZE (rc 2, message)"; pass=$((pass + 1))
+else
+  echo "  FAIL  suite must refuse to run under PYTHONOPTIMIZE (rc=$opt_rc): $(tr '\n' ' ' <<<"$opt_out" | head -c 200)"; fail=$((fail + 1))
+fi
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

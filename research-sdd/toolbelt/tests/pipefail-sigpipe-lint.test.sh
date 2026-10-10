@@ -292,11 +292,11 @@ printf '%s\n' "$out" | sed -n '/^corpus /p;/^files scanned/p;/^violations:/p;/^e
 # ---- Teeth (mutation proof) -------------------------------------------------
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 mk_sed() {
   local out="$2"
   mkdir -p "$(dirname "$out")"
-  mutant_chain "$1" "$SELF" "$out" "${@:3}" || { fail=$((fail+1)); return 1; }
+  mutant_chain_or_count fail "$1" "$SELF" "$out" "${@:3}" || return 1
 }
 tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
 

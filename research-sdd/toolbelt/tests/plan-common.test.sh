@@ -2,10 +2,15 @@
 # plan-common.test.sh — unit tests for lib/plan_common.py (U-24.2a)
 # Tests the extracted shared plan-adapter helpers in isolation.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/plan_common.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/plan_common.py"; REL="lib/plan_common.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, re, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -231,6 +236,95 @@ try:
     ok("PC-11: run_gate_epilogue passes plan_written=True to execute_or_plan")
 except Exception as e: nok("PC-11: run_gate_epilogue plan_written=True", str(e))
 
+# ── PC-RTO: read_target_once derives head, size and sha256 from ONE fd (#2077) ──
+import hashlib
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; data = b"\x7fELF" + bytes(range(60)) * 3; t.write_bytes(data)
+    try:
+        head, size, sha = m.read_target_once(t, None)
+        assert head == data[:20] and size == len(data) and sha == "sha256:" + hashlib.sha256(data).hexdigest(), (head, size, sha)
+        ok("PC-RTO1: head/size/sha256 match the file")
+    except Exception as e: nok("PC-RTO1: head-size-sha-match", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(b"\x7fELF" + b"A"*64)
+    ino = os.stat(t).st_ino; real_read = os.read; fired = []
+    def mut_read(fd, n):
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(t, "ab") as fh: fh.write(b"tail")
+        return real_read(fd, n)
+    try:
+        with unittest.mock.patch("os.read", mut_read):
+            try: m.read_target_once(t, None); got = "accepted"
+            except m.AdapterError as exc: got = str(exc)
+        assert fired, "mutation hook never fired"
+        assert got.startswith("file changed while hashing"), f"in-place mutation mid-read: {got}"
+        ok("PC-RTO2: in-place mutation after the header read -> refused")
+    except Exception as e: nok("PC-RTO2: mutation-mid-read-refused", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; a = b"\x7fELF" + b"A"*64; t.write_bytes(a)
+    ino = os.stat(t).st_ino; real_read = os.read; fired = []
+    def over_read(fd, n):
+        r = real_read(fd, n)
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(t, "r+b") as fh: fh.write(b"\x7fELF" + b"B"*8)   # same size, header bytes rewritten
+        return r
+    try:
+        with unittest.mock.patch("os.read", over_read):
+            try: head, _, sha = m.read_target_once(t, None); got = (head, sha)
+            except m.AdapterError: got = None
+        assert fired, "overwrite hook never fired"
+        if got is not None:
+            assert got[0] == a[:20] and got[1] == "sha256:" + hashlib.sha256(a).hexdigest(), f"header/hash disagree: {got}"
+        ok("PC-RTO3: same-size overwrite after the header read -> refused or head/sha from the same bytes")
+    except Exception as e: nok("PC-RTO3: header-hash-agreement", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(b"\x7fELF" + b"A"*64); ln = R/"ln"; ln.symlink_to(t); d = R/"d"; d.mkdir()
+    def refusal(p, cap):
+        try: m.read_target_once(p, cap); return "accepted"
+        except m.AdapterError as exc: return str(exc)
+    try:
+        assert refusal(ln, None) == f"cannot open regular non-symlink file: {ln}", refusal(ln, None)
+        assert refusal(d, None) == f"not a regular file: {d}", refusal(d, None)
+        assert refusal(t, 8) == "input exceeds max-input-bytes", refusal(t, 8)
+        ok("PC-RTO4: symlink / directory / over-cap refused with identity's exact messages")
+    except Exception as e: nok("PC-RTO4: refusal-messages", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+
+tt teeth-PC-4a 'if ":" in path_str or "," in path_str:' 'if "," in path_str:' 'FAIL  PC-4a: colon not rejected'
+tt teeth-PC-6b $'if result.get("outcome") == "authorization-required":\n        return EXIT_AUTH_REQUIRED' $'if result.get("outcome") == "authorization-required":\n        return 0' 'FAIL  PC-6: run_gate_epilogue: auth case: expected 3, got 0'
+tt teeth-PC-7 'except (AdapterError, OSError) as exc:' 'except OSError as exc:' 'FAIL  PC-7: run_adapter_main AdapterError: disk-full-test'
+tt teeth-PC-10 'except (AdapterError, OSError) as exc:' 'except BaseException as exc:' 'FAIL  PC-10: run_adapter_main KeyboardInterrupt: KeyboardInterrupt was NOT re-raised'
+
+tt teeth-rto-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  PC-RTO2: mutation-mid-read-refused'
+tt teeth-rto-seed-digest 'digest = hashlib.sha256(); digest.update(head); total = len(head)' 'os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; before = os.fstat(fd)' 'FAIL  PC-RTO3: header-hash-agreement'
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

@@ -180,13 +180,13 @@ jt_kinds() { kinds_check "$1" "$DOC"; }
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # jteeth <label> <case-fn> <sed-expr>... : the case must HOLD on the unmutated SUT first (else vacuous), then break on the mutant.
   jteeth() {
     local label="$1" fn="$2" mut; shift 2
     "$fn" "$SUT" || { no "teeth JSON-$label: case FAILS on the unmutated SUT — tooth is vacuous" ""; return; }
     mut="$ROOT/jt-$label.sh"
-    mutant_chain "teeth JSON-$label" "$SUT" "$mut" "$@" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "teeth JSON-$label" "$SUT" "$mut" "$@" || return 0
     if "$fn" "$mut"; then no "teeth JSON-$label: mutant survived — case is THEATER" ""; else ok "teeth JSON-$label: mutant breaks the case (has teeth)" "()"; fi
   }
   jteeth optin    jt_optin    's/--json) json=1; shift ;;/--json) shift ;;/'

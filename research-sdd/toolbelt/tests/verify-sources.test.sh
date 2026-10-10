@@ -23,7 +23,7 @@ SUT="$HERE/../verify-sources.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_sed || exit 2
+mutant_bootstrap mutant_sed mutant_or_count mutant_chain_or_count || exit 2
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 
@@ -1185,7 +1185,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Shared helpers (lib/mutant.sh, #1299) print their own FAIL/PASS line and return non-zero on
   # failure; these adapters only COUNT. Each tooth asserts the EXACT rc (and output patterns) of the
   # real SUT and of the mutant on the same fixture.
-  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain "$l" "$SUT" "$o" "$@" || { fail=$((fail+1)); return 1; }; }
+  mk_sed() { local l="$1" o="$2"; shift 2; mutant_chain_or_count fail "$l" "$SUT" "$o" "$@" || return 1; }
   tooth() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # Multi-line / quote-bearing replacements are sed scripts held in variables (one -e stage each).
   APPENDED_SED="$(cat <<'SED'

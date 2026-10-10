@@ -109,8 +109,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   tt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  mk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk() { mutant_chain_or_count fail "$@" || return 1; }
   CRASH='syntax error|unbound variable|command not found'
   # each mutant lives in its OWN copy of the kit tree (the SUT resolves lib/ and verify-state.sh from its own dir)
   mt() { printf '%s' "$TMP/mt/$1"; }

@@ -306,7 +306,7 @@ kcase kit-not-registered WARN "$(basename "$kit")" "$kit"
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # jteeth <label> <case-fn> <sed-expr>... : build a mutant kit; the case-fn must report a break (rc != 0).
   jteeth() {
     local label="$1" fn="$2" mk mut pk; shift 2
@@ -314,7 +314,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     pk="$(mkkit "jtp-$label")"
     "$fn" "$pk" || { no "teeth JSON-$label: case FAILS on the unmutated SUT — tooth is vacuous" ""; return; }
     mk="$(mkkit "jt-$label")"; mut="$ROOT/jt-$label.sh"
-    mutant_chain "teeth JSON-$label" "$SUT" "$mut" "$@" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "teeth JSON-$label" "$SUT" "$mut" "$@" || return 0
     cp "$mut" "$mk/toolbelt/verify-registry.sh"
     if "$fn" "$mk"; then no "teeth JSON-$label: mutant survived — case is THEATER" ""; else ok "teeth JSON-$label: mutant breaks the case (has teeth)" "()"; fi
   }

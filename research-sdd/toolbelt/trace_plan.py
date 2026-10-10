@@ -19,13 +19,13 @@ _HERE = Path(__file__).parent; _LIB = _HERE / "lib"
 for _p in (str(_LIB), str(_HERE)):
     if _p not in sys.path: sys.path.insert(0, _p)
 
-from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
+from adapter_core import AdapterError, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
 from gate import CAP_EXEC                                                       # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
-    run_adapter_main, add_max_input_bytes_arg,
+    run_adapter_main, add_max_input_bytes_arg, read_target_once,
 )
 from vm_disk_policy import broad_qemu_root_message as _broad_qemu_root_msg      # noqa: E402
 
@@ -62,18 +62,11 @@ _TRACER_OPTIONS: dict[str, dict[str, Any]] = {
 class TracePlanError(AdapterError): ...
 
 
-def _sniff_arch(path: Path) -> str:
-    """Read ELF e_machine O_NOFOLLOW → qemu arch suffix; 'x86_64' on any fault.
+def _arch_from_head(hdr: bytes) -> str:
+    """ELF e_machine from a header prefix → qemu arch suffix; 'x86_64' on any fault.
 
-    NOTE: byte-identical to detonate_plan._sniff_arch — keep in sync manually.
+    NOTE: byte-identical to detonate_plan._arch_from_head — keep in sync manually.
     """
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-        try: hdr = os.read(fd, 20)
-        finally: os.close(fd)
-    except OSError:
-        return "x86_64"
     if len(hdr) < 20 or hdr[:4] != b"\x7fELF":
         return "x86_64"
     ei_data = hdr[5]
@@ -201,9 +194,10 @@ def plan_trace(args: Any) -> int:
         print(f"trace-plan: unsupported tracer: {args.tracer!r}; valid: {sorted(_VALID_TRACERS)}",
               file=sys.stderr); return 2
     target = Path(args.target)
-    try: _, input_size, input_sha = _file_identity(target, max_bytes=args.max_input_bytes)
+    # ONE open: header sniff and sha256 come from the same fd (#2077).
+    try: head, input_size, input_sha = read_target_once(target, args.max_input_bytes)
     except AdapterError as exc: print(f"trace-plan: {exc}", file=sys.stderr); return 2
-    arch = _sniff_arch(target)   # ELF e_machine → qemu arch; degrades to "x86_64"
+    arch = _arch_from_head(head)   # ELF e_machine → qemu arch; "x86_64" fallback
     # Emit the broad-qemu-root warning BEFORE caps validation so operators see it
     # even when caps are also wrong — the warning is diagnostic and independent.
     qemu_root = getattr(args, "qemu_root", None)

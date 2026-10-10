@@ -3,12 +3,29 @@
 # RED: exits 2 (SUT not found) before lib/capture_exec.py + capture_plan.py wiring.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../lib/capture_exec.py"
-PLAN="$HERE/../capture_plan.py"
-[ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+ROOT="$HERE/.."
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  ARG="${2:-}"
+  [ -f "$ARG" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$ARG]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$ARG"
+  case "$ARG" in */lib/*) ROOT="$(cd "$(dirname "$ARG")/.." && pwd)" ;; *) ROOT="$(cd "$(dirname "$ARG")" && pwd)" ;; esac
+fi
+SUT="$ROOT/lib/capture_exec.py"
+PLAN="$ROOT/capture_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # the mutated file replaces its own slot; every other slot stays in the staged tree
+  case "$ARG" in
+    */lib/*) case "$(basename "$ARG")" in
+      capture_exec.py) SUT="$ARG" ;;
+    esac ;;
+    *) case "$(basename "$ARG")" in
+      capture_plan.py) PLAN="$ARG" ;;
+    esac ;;
+  esac
+fi
+[ -f "$SUT" ] || { echo "FATAL: capture_exec.py not found: $SUT" >&2; exit 2; }
 [ -f "$PLAN" ] || { echo "FATAL: capture_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "$PLAN" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, subprocess, struct, sys, tempfile
 from pathlib import Path
 
@@ -49,9 +66,12 @@ if args and args[0] == "-D":
     sys.exit(0)
 for i, a in enumerate(args):
     if a == "-w" and i + 1 < len(args):
-        try:
-            with open(args[i + 1], "wb") as f: f.write(PCAP_MAGIC)
-        except Exception: pass
+        # Only a per-run path (/tmp/rsdd/rsdd-<uuid>/...) is ever written: a mutant that leaves -w unrewritten
+        # must not create /tmp/rsdd/capture.pcap on the host.
+        if "/rsdd-" in args[i + 1]:
+            try:
+                with open(args[i + 1], "wb") as f: f.write(PCAP_MAGIC)
+            except Exception: pass
         break
 sl = float(os.environ.get("DUMPCAP_SLEEP", "0"))
 if sl: time.sleep(sl)
@@ -60,6 +80,27 @@ sys.exit(int(os.environ.get("DUMPCAP_EXIT", "0")))
 
 def _shim(tmp: Path) -> str:
     fd = tmp / "dumpcap"; fd.write_text(_SHIM); fd.chmod(0o755)
+    return str(tmp) + ":" + os.environ.get("PATH", "")
+
+# Startup-free blocking shim for RED8 (#2092). The client wall deadline (duration + grace) starts at spawn, so a
+# Python shim whose interpreter startup is slowed by machine load could be SIGTERMed before it wrote the pcap.
+# This /bin/sh shim writes the pcap magic with a builtin printf, then exec's a sleep far beyond any budget: the
+# timeout path is always taken and the case never races interpreter startup.
+_SHIM_BLOCK = """\
+#!/bin/sh
+if [ "$1" = "-D" ]; then echo "1. eth0 (Ethernet)"; echo "2. lo (Loopback)"; exit 0; fi
+prev=
+for a in "$@"; do
+  if [ "$prev" = "-w" ]; then
+    case "$a" in */rsdd-*) printf '\\324\\303\\262\\241\\002\\000\\004\\000\\000\\000\\000\\000\\000\\000\\000\\000\\377\\377\\000\\000\\001\\000\\000\\000' > "$a" ;; esac
+  fi
+  prev=$a
+done
+exec sleep 60
+"""
+
+def _shim_block(tmp: Path) -> str:
+    fd = tmp / "dumpcap"; fd.write_text(_SHIM_BLOCK); fd.chmod(0o755)
     return str(tmp) + ":" + os.environ.get("PATH", "")
 
 Path("/tmp/rsdd").mkdir(exist_ok=True)  # verify_rsdd_root requires a real dir
@@ -133,6 +174,7 @@ with tempfile.TemporaryDirectory() as td:
              "--output", str(tmp/"out"), "--allow-live-capture"],
             capture_output=True, text=True, env=env)
         assert r.returncode == 2, f"rc={r.returncode}"
+        assert "RSDD_CAPTURE_IFACES env var is not set" in r.stderr, f"unset-env message missing: {r.stderr[:200]}"
         ok("RED5: RSDD_CAPTURE_IFACES unset → fail-closed GateError exit 2")
     except Exception as e: nok("RED5", str(e))
 
@@ -170,17 +212,17 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── RED8: wall-timeout → SIGTERM, partial pcap recorded, outcome=timeout-partial
 with tempfile.TemporaryDirectory() as td:
-    tmp = Path(td); p = _shim(tmp)
+    tmp = Path(td); p = _shim_block(tmp)
     try:
         r = cli("plan", "--interface", "eth0", "--output", str(tmp/"out"),
                 "--allow-live-capture", "--duration-seconds", "1",
-                xe={"PATH": p, "RSDD_LIVE_CAPTURE_EXECUTOR": "", "RSDD_CAPTURE_IFACES": "eth0",
-                    "DUMPCAP_SLEEP": "10"})
+                xe={"PATH": p, "RSDD_LIVE_CAPTURE_EXECUTOR": "", "RSDD_CAPTURE_IFACES": "eth0"})
         assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:300]}"
         res = json.loads(r.stdout)
         assert res.get("outcome") == "timeout-partial", f"outcome={res.get('outcome')}"
         of = res.get("output_files", []); pcap = res.get("pcap_path", "")
         assert of, f"output_files empty: {of}"
+        assert any(f.get("path") == pcap for f in of), f"planned pcap not recorded: pcap={pcap} files={of}"
         ok("RED8: wall-timeout → SIGTERM, outcome=timeout-partial, pcap recorded")
     except Exception as e: nok("RED8", str(e))
 
@@ -221,13 +263,18 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── REAP_1: _reap reaped sleep-30 subprocess within grace period ──────────────
 import subprocess as _sp
+_proc = None
 try:
-    _proc = _sp.Popen(["sleep", "30"])
+    _proc = _sp.Popen(["sleep", "30"], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
     m._reap(_proc)
     assert _proc.poll() is not None, f"process still alive after _reap: poll={_proc.poll()}"
     ok("REAP_1: _reap reaped sleep-30 within grace period")
 except AttributeError as e: nok("REAP_1", f"_reap not found: {e}")
 except Exception as e: nok("REAP_1", str(e))
+finally:
+    # Kill only the exact spawned handle: a _reap mutant must not leave a 30 s orphan behind.
+    if _proc is not None and _proc.poll() is None:
+        _proc.kill(); _proc.wait(timeout=5)
 
 # ── FILESIZE_1: _filesize_kb exact formula (kB) + cap engagement ──────────────
 try:
@@ -244,3 +291,36 @@ except Exception as e: nok("FILESIZE_1", str(e))
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT" "$PLAN"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT" "$PLAN")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "lib/capture_exec.py"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-gate-allow capture_plan.py 'run_gate_epilogue(CAP_LIVE_CAPTURE, args.allow_live_capture, plan' 'run_gate_epilogue(CAP_LIVE_CAPTURE, True, plan' 'FAIL  RED1: rc='
+tt teeth-iface-allowlist lib/capture_exec.py 'if iface not in allowed:' 'if False:' 'FAIL  RED4: rc='
+tt teeth-iface-unset lib/capture_exec.py '    if not raw:' '    if False:' 'FAIL  RED5: unset-env message missing'
+tt teeth-w-rewrite lib/capture_exec.py 'exec_argv[w_idx + 1] = pcap_path' 'pass' 'FAIL  RED7: -w not rewritten'
+tt teeth-filesize-formula lib/capture_exec.py 'raw = (24 + packet_count * (snaplen + 16)) // 1000 + 1' 'raw = (24 + packet_count * (snaplen + 16)) // 1024 + 1' 'FAIL  FILESIZE_1: expected 152'
+tt teeth-filesize-ceiling lib/capture_exec.py 'return min(raw, _FILESIZE_KB_MAX)' 'return raw' 'FAIL  FILESIZE_1: expected 524288'
+
+tt teeth-filesize-delta lib/capture_exec.py 'argv_deltas.append({"transform": "add-filesize-cap", "value": filesize_arg})' 'pass' 'FAIL  CRIT2: missing'
+tt teeth-timeout-outcome lib/capture_exec.py '                timed_out = True' '                timed_out = False' 'FAIL  RED8: outcome=success'
+tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

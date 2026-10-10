@@ -4452,6 +4452,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth T1707: pre-mutation privacy scrub --"
   # t1707 <tag> <mode> <sed-expr>: build the mutant IN the sandbox (mutant_chain refuses a dead stage, an
   # identical/empty/broken/live-tree mutant), run the same fixture 86 uses, and require the mutant to
@@ -4459,8 +4460,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1707() {
     local tag="$1" mode="$2" expr="$3" mb row bite=0 why=""
     mb="$(mkbox "teeth-1707-$tag")"; mk_gh_stub "$mb" nomatch
-    mutant_chain "T1707-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
-      || { fail=$((fail+1)); return 1; }
+    mutant_chain_or_count fail "T1707-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
+      || return 1
     case "$mode" in
       dry)    run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$LEAK_ROW")"
               grep -q 'bob\|a@b.io\|abc123' <<<"$OUT" && bite=1; why="raw private data in the dry-run" ;;
@@ -4506,6 +4507,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth T1705: outcome triad + read-back --"
   # t1705 <tag> <stub-mode> <view-mode> <bite-rx|rc=N> <sed-expr>: build the mutant in the sandbox (mutant_chain
   # refuses a dead stage), run ONE row under --apply and require the mutant to show the regression the 87
@@ -4513,8 +4515,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1705() {
     local tag="$1" smode="$2" vmode="$3" bite="$4" expr="$5" mb ok=0
     mb="$(mkbox "teeth-1705-$tag")"; mk_gh_stub "$mb" "$smode" "" exists "$vmode"
-    mutant_chain "T1705-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
-      || { fail=$((fail+1)); return 1; }
+    mutant_chain_or_count fail "T1705-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$expr" \
+      || return 1
     run "$mb" "$(mk_retro "$mb" target-foo r.md '<!-- review-status: pending -->' "$ONE_ROW")" --apply
     case "$bite" in
       rc=*) [ "$RC" = "${bite#rc=}" ] && ok=1 ;;
@@ -4871,6 +4873,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth T1708: occurrence comment --"
   # tocc <tag> <scenario> <sed-expr>: build the mutant in the sandbox (mutant_chain refuses a dead stage), run the
   # 88 scenario the guard belongs to, and require the mutant to show the regression that case pins.
@@ -4902,8 +4905,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       scrub)     printf '%s\n' 'scrub_issue_text() { sed "s/carries this exact delta/carries SCRUBBED/"; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh" ;;
       markerscrub) printf '%s\n' 'scrub_issue_text() { sed "s/occurrence/OCC/"; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$mb/research-sdd/toolbelt/lib/scrub-issue-text.sh" ;;
     esac
-    mutant_chain "T1708-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
-      || { fail=$((fail+1)); return 1; }
+    mutant_chain_or_count fail "T1708-$tag" "$SUT" "$mb/research-sdd/toolbelt/stage-retro-issues.sh" "$@" \
+      || return 1
     if [ "$sc" = "escapes" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" '| 1 | fix "quoted" <tag> here | CLAUDE.md | B1 | fix | HIGH |')"
     elif [ "$sc" = "samerun" ] || [ "$sc" = "unkcreate" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC2")"
     elif [ "$sc" = "budget" ] || [ "$sc" = "budgetfail" ]; then rt="$(mk_retro "$mb" target-foo r.md "$PEND" "$OCC3")"
@@ -5046,6 +5049,7 @@ else no "T1768-spaced-empty" "out=[${out:0:300}]"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth T1768: JSON escape --"
   # tjs <tag> <case-tag> <sed-stage>...: build the mutant, run the one case that pins the stage, and require it to fail.
   tjs() {
@@ -5072,12 +5076,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tjs fastpath-wide  quote   '/STAGE_RETRO_ISSUES_JSE_FAST$/s/\[.*\]/[\\\\]/'
   # the separator guard is not in the title table: pin it on the spaced-empty list directly
   mb="$(mktemp -d "${TMPDIR:-/tmp}/t1768.XXXXXX")"
-  if mutant_chain "T1768-sep-off" "$SUT" "$mb/sut.sh" '/STAGE_RETRO_ISSUES_JSE_SEP$/s/then _sep=""; fi/then :; fi/'; then
+  if mutant_chain_or_count fail "T1768-sep-off" "$SUT" "$mb/sut.sh" '/STAGE_RETRO_ISSUES_JSE_SEP$/s/then _sep=""; fi/then :; fi/'; then
     # captured first, not piped into grep -q: an early-exiting consumer under pipefail reads as a failed producer
     sepout="$(T1768_SUT="$mb/sut.sh" t1768_run '[ ]' 'into spaced empty')"
     if grep -q '\[ *,' <<<"$sepout"; then ok "T1768-sep-off teeth: mutant emits a leading comma" "()"
     else no "T1768-sep-off teeth: mutant must emit a leading comma" "case is THEATER"; fi
-  else fail=$((fail+1)); fi
+  fi
   rm -rf "$mb"
 fi
 

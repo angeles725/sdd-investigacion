@@ -113,7 +113,7 @@ no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # (MK_SYNTAX default); SUT mutants of render-profile.sh keep the bash syntax check (MK_SYNTAX=bash).
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
 
 PROVE_TEETH=0
 [ "${1:-}" = "--prove-teeth" ] && PROVE_TEETH=1
@@ -144,8 +144,8 @@ make_kit() {
 # EXPR, each of which must change ORIG on its own): a refusal prints its own FAIL line and is counted here.
 mk_sed_from() {
   local orig="$1" label="$2" out="$3"; shift 3
-  MUTANT_SYNTAX="${MK_SYNTAX:-none}" mutant_chain "$label" "$orig" "$out" "$@" && return 0
-  fail=$((fail+1)); return 1
+  MUTANT_SYNTAX="${MK_SYNTAX:-none}" mutant_chain_or_count fail "$label" "$orig" "$out" "$@" && return 0
+  return 1
 }
 
 run_renderer() {

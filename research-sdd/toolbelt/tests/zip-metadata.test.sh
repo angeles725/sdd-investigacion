@@ -90,12 +90,12 @@ else no "root refusal"; fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth-traversal: set safety.traversal=False; expect metadata-contract assertion to go red --"
   mutant_py="$ROOT/zip_metadata.MUTANT.py"
   # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
-  MUTANT_SYNTAX=none mutant_chain "teeth-traversal" "$HERE/../zip_metadata.py" "$mutant_py" \
-    's/"traversal": "\.\." in parts,/"traversal": False,/' || fail=$((fail+1))
+  MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-traversal" "$HERE/../zip_metadata.py" "$mutant_py" \
+    's/"traversal": "\.\." in parts,/"traversal": False,/'
   if [ ! -f "$mutant_py" ]; then
     :  # refusal already counted above
   elif ! grep -qF '"traversal": False, "backslash"' "$mutant_py"; then
