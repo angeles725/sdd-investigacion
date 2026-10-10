@@ -27,9 +27,10 @@ _OUTPUT_CAP: int = _dc._OUTPUT_CAP
 SCHEMA_VERSION: str = "emba-run.v1"
 
 
-def _preflight(plan: dict[str, Any]) -> None:
+def _preflight(plan: dict[str, Any]) -> str:
     """Defense-in-depth preflight (gate-authorization.v1 rule 4). GateError → exit 2.
-    (a) docker binary; (b) structural argv guard; (c) TOCTOU firmware hash; (e) /tmp/rsdd.
+    (a) docker binary; (b) structural argv guard; (c) TOCTOU firmware hash; (e) rsdd root.
+    Returns the verified rsdd root ($RSDD_VM_ROOT|/tmp/rsdd).
     Step (d) image+RepoDigest is handled by _dc.resolve_digest in evaluate().
     Thin composition: generic checks delegated to docker_common; name kept here so
     the test suite can call m._preflight() directly on this module.
@@ -45,8 +46,8 @@ def _preflight(plan: dict[str, Any]) -> None:
     _dc.forbid_privileged(argv)
     # (c) TOCTOU: re-hash firmware; mismatch → refuse
     _dc.verify_firmware_identity(plan)
-    # (e) /tmp/rsdd must be a real non-symlink directory
-    _dc.verify_rsdd_root()
+    # (e) rsdd root ($RSDD_VM_ROOT|/tmp/rsdd) real dir
+    return _dc.ensure_rsdd_root()
 
 
 def _docker_kill(name: str) -> None:
@@ -71,7 +72,7 @@ class LiveDockerExecutor:
         (proc.kill() first, then best-effort _docker_kill). Three sanctioned transforms:
         (1) digest substitution, (2) --name injection, (3) output-subdir per-run isolation.
         """
-        _preflight(plan)
+        rsdd_root = _preflight(plan)
         planned_argv: list[str] = list(plan["planned_argv"])
         image_tag: str = plan["image"]["tag"]
         wall_seconds: int = int(plan["resource_limits"]["wall_seconds"])
@@ -97,7 +98,7 @@ class LiveDockerExecutor:
         # subdir is anchored to the verified fd; no symlink race between preflight
         # step (e) and mkdir.
         run_uuid = container_name[len("rsdd-"):]  # reuse UUID for container correlation
-        run_dir_host = _dc.make_run_subdir(run_uuid)
+        run_dir_host = _dc.make_run_subdir(run_uuid, rsdd_root)
         old_mount = "/tmp/rsdd:/tmp/rsdd"
         new_mount = f"{run_dir_host}:/tmp/rsdd"
         exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]

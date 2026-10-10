@@ -490,7 +490,7 @@ def _tooth_run(name, plan_flags, mod, cls):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
             for _i in (1, 2):
-                before = set(_g.glob("/tmp/rsdd/rsdd-*"))
+                before = set(_g.glob((os.environ.get("RSDD_VM_ROOT") or "/tmp/rsdd") + "/rsdd-*"))
                 r = cli("plan", *plan_flags(elf), "--output", str(tmp / f"out{_i}"), "--allow-exec",
                         xe={"PATH": p, "RSDD_EXEC_EXECUTOR": "", "TOOTH_UUID": _uid})
                 try: sl = json.loads(r.stdout).get("serial_log", "")
@@ -652,6 +652,8 @@ mutant_vm_core_teeth() {
 #                                          the bitten case (e.g. `FAIL  PC6: reaper killed by own killpg \(rc=-15\)`),
 #                                          never just a label: a label-only BAD_HAS cannot tell a real bite from
 #                                          a mutant that merely broke the case.
+#                                          `--no-tb` prints the same set without the bare `Traceback` token, for suites whose
+#                                          bitten mutants legitimately print an AssertionError traceback.
 #   mutant_py_stage HERE DEST              copy HERE/../lib/*.py to DEST/lib/ and HERE/../*.py to DEST/ (the
 #                                          plan modules import lib/ through sys.path); rc 1 when no lib module
 #                                          was copied. ONLY *.py files at those two levels are staged: non-.py data
@@ -670,7 +672,12 @@ mutant_vm_core_teeth() {
 #                                          neither run matches CRASH_RE (default mutant_py_crash_strict; pass a
 #                                          narrower one when the suite legitimately prints an exception name).
 #                                          Prints PASS/FAIL; rc 0/1. The caller counts, as with mutant_tooth.
-mutant_py_crash_strict() { printf '%s' 'Traceback|ImportError|ModuleNotFoundError|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand|not supported between|list index out of range|missing [0-9]+ required|NoneType'; }
+# shellcheck disable=SC2120  # --no-tb is passed by the suites that source this lib, not from within it
+mutant_py_crash_strict() {
+  local _tb='Traceback|'
+  [ "${1:-}" = "--no-tb" ] && _tb=""
+  printf '%s' "${_tb}ImportError|ModuleNotFoundError|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand|not supported between|list index out of range|missing [0-9]+ required|NoneType"
+}
 
 mutant_py_stage() {
   local here="$1" dest="$2"

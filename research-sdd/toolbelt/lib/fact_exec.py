@@ -510,8 +510,8 @@ class LiveFactExecutor:
         _dc.assert_network_policy(planned_argv, "forbid")
         # No --privileged anywhere in planned argv
         _dc.forbid_privileged(planned_argv)
-        # /tmp/rsdd must be a real non-symlink directory
-        _dc.verify_rsdd_root()
+        # rsdd root ($RSDD_VM_ROOT|/tmp/rsdd) real dir
+        rsdd_root = _dc.ensure_rsdd_root()
 
         # ── Resolve 3 image digests (local inspect, NO pull) ──────────────────
         frontend_digest, frontend_ref = _dc.resolve_digest(frontend_tag)
@@ -527,7 +527,7 @@ class LiveFactExecutor:
         run_uuid_full = uuid.uuid4().hex
         run_uuid8     = run_uuid_full[:8]
         project_name  = f"fact-{run_uuid8}"
-        run_dir_host  = _dc.make_run_subdir(run_uuid_full)
+        run_dir_host  = _dc.make_run_subdir(run_uuid_full, rsdd_root)
 
         # ── T1: write compose override file pinning images + internal network ──
         override_path = _write_compose_override(

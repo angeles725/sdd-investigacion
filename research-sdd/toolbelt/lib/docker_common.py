@@ -175,6 +175,41 @@ def output_files(output_dir: Path) -> list[dict[str, Any]]:
 _DEFAULT_RSDD_ROOT: str = "/tmp/rsdd"
 
 
+def rsdd_root() -> str:
+    """Host run-dir root: $RSDD_VM_ROOT (explicit override, used by test suite sandboxes), else /tmp/rsdd.
+
+    Deliberately NOT derived from ambient TMPDIR: live behaviour only changes on an explicit override (#2061, #2090).
+    """
+    return os.environ.get("RSDD_VM_ROOT") or _DEFAULT_RSDD_ROOT
+
+
+def ensure_rsdd_root() -> str:
+    """Resolve rsdd_root(), verify it and return it.
+
+    The default /tmp/rsdd is only verified (a real non-symlink directory). An explicit $RSDD_VM_ROOT override must
+    be absolute; it is created 0700 when missing and must then be a real directory owned by the effective user
+    and not group/world-writable (GateError otherwise).
+    """
+    root = rsdd_root()
+    if root == _DEFAULT_RSDD_ROOT:
+        verify_rsdd_root(root)
+        return root
+    if not os.path.isabs(root):
+        raise GateError(f"$RSDD_VM_ROOT must be an absolute path: {root!r}")
+    try:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        raise GateError(f"$RSDD_VM_ROOT {root} cannot be created: {exc}") from exc
+    verify_rsdd_root(root)  # override root
+    try:
+        st = os.lstat(root)
+    except OSError as exc:
+        raise GateError(f"$RSDD_VM_ROOT {root} inaccessible: {exc}") from exc
+    if st.st_uid != os.geteuid() or st.st_mode & 0o022:
+        raise GateError(f"$RSDD_VM_ROOT {root} must be owned by the current user and not group/world-writable")
+    return root
+
+
 def verify_rsdd_root(root: str = _DEFAULT_RSDD_ROOT) -> None:
     """{root} must exist as a real (non-symlink) directory; GateError otherwise."""
     try:
