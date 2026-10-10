@@ -80,7 +80,8 @@ else no "non-pcap rejection"; fi
 
 # T6: negative — symlink input is rejected (identity() uses O_NOFOLLOW)
 ln -s "$ROOT/fixture.pcap" "$ROOT/link.pcap"
-if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>/dev/null; then
+if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>"$ROOT/link.err" \
+   && grep -q 'corroborate-pcap: not a pcap' "$ROOT/link.err"; then
   ok "symlink input is rejected by O_NOFOLLOW identity check"
 else no "symlink input rejection"; fi
 
@@ -117,7 +118,9 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re || exit 2
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
   _builds_failed=0; _LIBEXPR=""
-  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError"
+  _CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
+  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
+  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates corroborate_pcap.py; a non-empty _LIBEXPR also
   # mutates a private copy of lib/adapter_core.py with that expression.
   _tooth() {
@@ -138,7 +141,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   _t "cp-nondeterministic: evidence gains a random nonce" "FAIL  determinism" \
     's/"capinfos": {"argv": capinfos_cmd,/"capinfos": {"nonce": os.urandom(8).hex(), "argv": capinfos_cmd,/'
-  _t "cp-net-open: --unshare-net dropped from the sandbox argv" "FAIL  isolation markers in argv" \
+  _t "cp-net-open: --unshare-net dropped from the sandbox argv" "AssertionError: --unshare-net missing from argv" \
     's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
   _LIBEXPR='s/ | getattr(os, "O_NOFOLLOW", 0)//'
   _t "cp-follow-symlink: O_NOFOLLOW removed from every open on the input path" "FAIL  symlink input rejection" \
@@ -146,6 +149,17 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _LIBEXPR=""
   _t "cp-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
     's/^        refuse_privileged_execution()$/        pass/'
+  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
+  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
+  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
+  _ctl_out="$(_tooth "cp-ctl-nameerror: sandbox misspelled (NameError)" "FAIL  isolation markers in argv" \
+    's/prefix = sandbox(bwrap, env)/prefix = sandboxX(bwrap, env)/' 2>&1)"; _ctl_rc=$?
+  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
+     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
+    echo "  PASS  cp-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
+  else
+    echo "  FAIL  cp-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
+  fi
   rm -rf "$_MUT"
 fi
 
