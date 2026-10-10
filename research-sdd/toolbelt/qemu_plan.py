@@ -5,7 +5,7 @@ no subprocess spawned, no target emulated. Live exec gated behind --allow-exec.
 See gate-authorization.v1.md and qemu-plan.v1.md.
 """
 from __future__ import annotations
-import argparse, hashlib, os, stat, struct, sys
+import argparse, os, struct, sys
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ _HERE = Path(__file__).parent; _LIB = _HERE / "lib"
 for _p in (str(_LIB), str(_HERE)):
     if _p not in sys.path: sys.path.insert(0, _p)
 
-from adapter_core import AdapterError, write as _write  # noqa: E402
+from adapter_core import AdapterError, read_single_fd, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
 from gate import CAP_EXEC                                                       # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
@@ -56,47 +56,18 @@ def _elf_arch(hdr: bytes) -> str:
 def _read_target(path: Path, max_bytes: int | None) -> tuple[str, int, str]:
     """Open the target ONCE (O_NOFOLLOW) and derive arch, size and sha256 from that single fd.
 
-    Returns (arch, size, "sha256:<hex>"). The ELF header is read from the fd, then the fd is rewound and
-    hashed, so arch and sha256 always describe the same open file; an fstat taken at open and again after
-    hashing (dev/ino/mode/size/mtime/ctime) refuses a target mutated in place (#2069). AdapterError /
-    QemuPlanError on any fault.
+    Returns (arch, size, "sha256:<hex>"). Delegates to adapter_core.read_single_fd (#2088): the ELF header
+    seeds the digest, so arch and sha256 describe the same bytes; an fstat at open and after hashing refuses
+    a target mutated in place (#2069). The header is parsed BEFORE the regular-file check (early_head) and
+    open/header-read OSErrors are reported as "cannot read ELF header: ..." (QemuPlanError), keeping the
+    pre-existing messages. A writerless FIFO blocks in os.open before fstat (flags are unchanged).
     """
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
-    try:
-        try:
-            before = os.fstat(fd)
-            hdr = os.read(fd, _ELF_MIN)
-        except OSError as exc:
-            raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
-        arch = _elf_arch(hdr)  # header parsed before the regular-file check: keeps the pre-existing error messages and FIFO/char-device behaviour identical
-        if not stat.S_ISREG(before.st_mode):
-            raise AdapterError(f"not a regular file: {path}")
-        if max_bytes is not None and before.st_size > max_bytes:
-            raise AdapterError("input exceeds max-input-bytes")
-        try:
-            # Seed the digest with the header bytes already read: header and hash cover the same bytes by
-            # construction (no rewind / re-read); the fstat recheck below is the second line of defence.
-            digest = hashlib.sha256(); digest.update(hdr); total = len(hdr); chunk_size = 1024 * 1024
-            if max_bytes is not None and total > max_bytes:
-                raise AdapterError("input exceeds max-input-bytes")
-            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
-                total += len(chunk)
-                if max_bytes is not None and total > max_bytes:
-                    raise AdapterError("input exceeds max-input-bytes")
-                digest.update(chunk)
-            after = os.fstat(fd)
-        except OSError as exc:
-            raise AdapterError(f"I/O error reading file: {path}") from exc
-        fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
-        if fields(before) != fields(after) or total != before.st_size:
-            raise AdapterError(f"file changed while hashing: {path}")
-        return arch, total, "sha256:" + digest.hexdigest()
-    finally:
-        os.close(fd)
+    hdr, total, sha, _ = read_single_fd(
+        path, max_bytes, _ELF_MIN,
+        open_error=lambda exc: QemuPlanError(f"cannot read ELF header: {exc}"),
+        early_head=_elf_arch,  # raises QemuPlanError on a bad header; result recomputed below
+    )
+    return _elf_arch(hdr), total, sha
 
 
 def build_plan(target: Path, mode: str, arch: str, caps: dict[str, int], *,

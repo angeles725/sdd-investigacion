@@ -30,7 +30,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # ---------------------------------------------------------------------------
 # Known-private Linux filesystem types (whitelist, fail-closed).
@@ -92,30 +92,67 @@ canonical = canonical_bytes
 # File identity
 # ---------------------------------------------------------------------------
 
-def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
-    """Open *path* with O_NOFOLLOW, hash it, and return (resolved, size, sha256).
+def read_single_fd(
+    path: Path,
+    max_bytes: int | None = None,
+    head_len: int = 0,
+    *,
+    open_error: Callable[[OSError], Exception] | None = None,
+    early_head: Callable[[bytes], None] | None = None,
+    resolve: bool = False,
+) -> tuple[bytes, int, str, Path | None]:
+    """Shared single-fd read+hash core (#2088): open *path* ONCE, derive everything from that fd.
 
-    Raises AdapterError on:
-    - symlinks (O_NOFOLLOW)
-    - non-regular files
-    - TOCTOU change (pre/post-read fstat mismatch)
-    - size exceeding max_bytes
+    Returns ``(head, size, "sha256:<hex>", resolved)``. ``head`` is the first *head_len* bytes; it seeds the
+    digest, so a sniffed header and the hash cover the same bytes by construction. ``resolved`` is the
+    ``/proc/self/fd`` path when *resolve* is true, else None. The fd is opened ``O_RDONLY|O_CLOEXEC|O_NOFOLLOW``;
+    an fstat at open and another after hashing (dev/ino/mode/size/mtime/ctime) refuse a target mutated in place.
+
+    FIFO caveat: the open flags are unchanged, so ``os.open`` blocks on a writerless FIFO BEFORE any fstat can
+    refuse it. Without early_head, only a non-regular file that the open actually reaches (directory, char device, connected FIFO)
+    is refused, after fstat, with "not a regular file".
+
+    Raises AdapterError: "cannot open regular non-symlink file" (open failed, e.g. symlink), "not a regular
+    file", "input exceeds max-input-bytes" (declared size or bytes read over the cap), "file changed while
+    hashing", "I/O error reading file".
+
+    Callers with their own error vocabulary: *open_error* maps the OSError of the open itself to the exception
+    to raise. *early_head* (needs *open_error*) is called with the header BEFORE the regular-file check, and
+    OSErrors from the fstat/header read are mapped through *open_error* too; it may raise to reject the header.
     """
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if early_head is not None and open_error is None:
+        raise ValueError("early_head requires open_error")
     try:
         fd = os.open(path, flags)
     except OSError as exc:
+        if open_error is not None:
+            raise open_error(exc) from exc
         raise AdapterError(f"cannot open regular non-symlink file: {path}") from exc
     try:
-        before = os.fstat(fd)
+        head = b""
+        if early_head is not None:
+            try:
+                before = os.fstat(fd)
+                head = os.read(fd, head_len)
+            except OSError as exc:
+                raise open_error(exc) from exc  # type: ignore[misc]
+            early_head(head)
+        else:
+            before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode):
             raise AdapterError(f"not a regular file: {path}")
         if max_bytes is not None and before.st_size > max_bytes:
             raise AdapterError("input exceeds max-input-bytes")
-        resolved = Path(f"/proc/self/fd/{fd}").resolve()
+        if early_head is None and head_len:
+            head = os.read(fd, head_len)
+        resolved = Path(f"/proc/self/fd/{fd}").resolve() if resolve else None
         digest = hashlib.sha256()
-        total = 0
+        digest.update(head)
+        total = len(head)
         chunk_size = 1024 * 1024
+        if max_bytes is not None and total > max_bytes:
+            raise AdapterError("input exceeds max-input-bytes")
         while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
             total += len(chunk)
             if max_bytes is not None and total > max_bytes:
@@ -125,13 +162,25 @@ def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
         fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
         if fields(before) != fields(after) or total != before.st_size:
             raise AdapterError(f"file changed while hashing: {path}")
-        return resolved, total, "sha256:" + digest.hexdigest()
+        return head, total, "sha256:" + digest.hexdigest(), resolved
     except AdapterError:
         raise
     except OSError as exc:
         raise AdapterError(f"I/O error reading file: {path}") from exc
     finally:
         os.close(fd)
+
+
+def identity(path: Path, max_bytes: int | None = None) -> tuple[Path, int, str]:
+    """Open *path* with O_NOFOLLOW, hash it, and return (resolved, size, sha256).
+
+    Delegates to :func:`read_single_fd`. Raises AdapterError on symlinks (O_NOFOLLOW), non-regular files,
+    TOCTOU change (pre/post-read fstat mismatch) and size exceeding max_bytes. A writerless FIFO blocks in
+    ``os.open`` before fstat can refuse it (see read_single_fd).
+    """
+    _, total, sha, resolved = read_single_fd(path, max_bytes, resolve=True)
+    assert resolved is not None
+    return resolved, total, sha
 
 
 # ---------------------------------------------------------------------------

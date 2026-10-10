@@ -10,7 +10,7 @@ All helpers are behavior-preserving extractions: identical logic, no functional 
 Dependency direction: plan_common → gate → adapter_core (never the reverse).
 """
 from __future__ import annotations
-import hashlib, json, os, re, stat, sys
+import json, re, sys
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -18,7 +18,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from adapter_core import AdapterError                                        # noqa: E402
+from adapter_core import AdapterError, read_single_fd                                    # noqa: E402
 from gate import execute_or_plan, EXIT_AUTH_REQUIRED, EXIT_ERROR, GateError  # noqa: E402
 
 # Re-export key symbols so callers can import them from here.
@@ -66,43 +66,13 @@ class PlanOnlyExecutor:
 def read_target_once(path: Path, max_bytes: int | None, head_len: int = 20) -> tuple[bytes, int, str]:
     """Open *path* ONCE (O_NOFOLLOW); return (head, size, "sha256:<hex>") all derived from that single fd (#2077).
 
-    The first *head_len* bytes are read from the fd and seed the digest, so the sniffed header and the hash
-    cover the same bytes by construction; an fstat at open and another after hashing
-    (dev/ino/mode/size/mtime/ctime) refuses a target mutated in place. Same AdapterError messages as
-    adapter_core.identity. Like adapter_core.identity, os.open blocks on a writerless FIFO; any non-regular file that is reached is
-    refused after fstat, before the header is read.
+    Thin wrapper over adapter_core.read_single_fd (#2088): the first *head_len* bytes seed the digest, an fstat
+    at open and another after hashing refuse a target mutated in place, and the AdapterError messages are
+    identical to adapter_core.identity. FIFO caveat: os.open (O_RDONLY) blocks on a writerless FIFO before
+    fstat; any non-regular file that is reached is refused after fstat, before the header is read.
     """
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise AdapterError(f"cannot open regular non-symlink file: {path}") from exc
-    try:
-        before = os.fstat(fd)
-        if not stat.S_ISREG(before.st_mode):
-            raise AdapterError(f"not a regular file: {path}")
-        if max_bytes is not None and before.st_size > max_bytes:
-            raise AdapterError("input exceeds max-input-bytes")
-        head = os.read(fd, head_len)
-        digest = hashlib.sha256(); digest.update(head); total = len(head); chunk_size = 1024 * 1024
-        if max_bytes is not None and total > max_bytes:
-            raise AdapterError("input exceeds max-input-bytes")
-        while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):
-            total += len(chunk)
-            if max_bytes is not None and total > max_bytes:
-                raise AdapterError("input exceeds max-input-bytes")
-            digest.update(chunk)
-        after = os.fstat(fd)
-        fields = lambda x: (x.st_dev, x.st_ino, x.st_mode, x.st_size, x.st_mtime_ns, x.st_ctime_ns)
-        if fields(before) != fields(after) or total != before.st_size:
-            raise AdapterError(f"file changed while hashing: {path}")
-        return head, total, "sha256:" + digest.hexdigest()
-    except AdapterError:
-        raise
-    except OSError as exc:
-        raise AdapterError(f"I/O error reading file: {path}") from exc
-    finally:
-        os.close(fd)
+    head, total, sha, _ = read_single_fd(path, max_bytes, head_len)
+    return head, total, sha
 
 
 def select_executor(allow_live: bool, schema_version: str) -> PlanOnlyExecutor | None:
