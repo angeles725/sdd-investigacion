@@ -390,7 +390,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   echo "-- teeth: mutation controls (walk-phase MemoryError guard, write-all loop, zero-write exit) --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_or_count mutant_py_replace mutant_tooth mutant_crash_re || exit 2
+  mutant_bootstrap mutant_or_count mutant_py_replace mutant_chain mutant_tooth mutant_crash_re || exit 2
   _KD_REAL="$HERE/../lib/kaitai_driver.py"
   _MUT="$(mktemp -d)"
   _builds_failed=0
@@ -425,6 +425,15 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _t "kd-m6-no-zero-branch: if _n == 0 branch deleted (hang)" "FAIL  T3:" \
     mutant_py_replace "kd-m6-no-zero-branch" "$_KD_REAL" \
     $'            if _n == 0:\n                return 1  # cannot make progress; broken fd\n' ''
+  # T3 temp dir (kit issue #2098): the suite itself is the SUT. The mutant deletes the bash-side
+  # `rm -rf "$_T3DIR"` (HERE pinned so the staged copy still finds lib/), and the sandbox-empty assertion must go RED.
+  _SUITE_SELF="$HERE/kaitai-driver-walk-memcap.test.sh"
+  _d="$_MUT/kd-t3-leak"; mkdir -p "$_d"
+  if mutant_or_count _builds_failed mutant_chain "kd-t3-leak" "$_SUITE_SELF" "$_d/suite.test.sh" \
+       '/^rm -rf "\$_T3DIR"$/d' "s|^HERE=.*|HERE=\"$HERE\"|" \
+     && mutant_tooth "kd-t3-leak: T3 temp-dir removal deleted: sandbox-empty assertion goes RED" 0 1 "$_d/suite.test.sh" \
+       --orig "$_SUITE_SELF" --bad-has "FAIL  sandbox: suite left entries" --bad-lacks "$_CRASH" -- bash @SUT@; then
+    pass=$((pass+1)); else fail=$((fail+1)); fi
   # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
   # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
   # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
