@@ -19,7 +19,19 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DETECT="$HERE/../detect-tools.sh"
 [ -f "$DETECT" ] || { echo "FATAL: script under test not found: $DETECT" >&2; exit 2; }
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+ORIG_TMPDIR="${TMPDIR:-/tmp}"
+ROOT="$(mktemp -d)"
+trap 'rm -f "$ORIG_TMPDIR"/rsdd-td-leak-"${ROOT##*/}"-*; rm -rf "$ROOT"' EXIT
+# Containment (#2085): files left in $TMPDIR by this suite on a CI runner (identified cause: the dotnet-hosted
+# ilspycmd and pwsh probes leaving clr-debug-pipe-*; fixed by DOTNET_EnableDiagnostics=0 on those probes and
+# pinned by the dipe cases below) must not reach the caller's TMPDIR. Children get TOOL_TMP, a
+# subdir of ROOT removed by the EXIT trap above. It is report-only: the end of the suite prints
+# "INFO detect-tools probe TMPDIR residue: N - [names]" for what is left in TOOL_TMP, so the next CI run
+# names the culprit instead of the containment hiding it. Mutants are built under ROOT (MUTANT_TMPROOT).
+TOOL_TMP="$ROOT/tool-tmp"
+mkdir -p "$TOOL_TMP" || { echo "FATAL: cannot create $TOOL_TMP" >&2; exit 2; }
+export TMPDIR="$TOOL_TMP" MUTANT_TMPROOT="$ROOT"
+TD_TOKEN="${ROOT##*/}"
 pass=0; fail=0; degraded=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -969,6 +981,97 @@ else
   no "z_guard hermetic PATH at probe time" "guard log empty (probe never ran)"
 fi
 
+# tmpdir-contained (#2085): a probed tool that writes into $TMPDIR must land under the suite's sandbox,
+# never in the caller's TMPDIR. The fake objdump drops a file in whatever TMPDIR the SUT passes down.
+BIN_TD="$ROOT/bin-td"; mkdir -p "$BIN_TD"
+mkexec "$BIN_TD/objdump" ': > "${TMPDIR:-/tmp}/rsdd-td-leak-${RSDD_TD_TOKEN}-$$"
+exit 0'
+# tmpdir_leak_run <TMPDIR value>: SUT run with the leaking fake tool; prints how many marker files the
+# fake dropped directly in the caller's TMPDIR ($ORIG_TMPDIR). rc 2 if that dir is absent.
+tmpdir_leak_run() {
+  [ -d "$ORIG_TMPDIR" ] || return 2
+  find "$ORIG_TMPDIR" -maxdepth 1 -name "rsdd-td-leak-$TD_TOKEN-*" -delete
+  TMPDIR="$1" RSDD_TD_TOKEN="$TD_TOKEN" RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 \
+    PATH="$BIN_TD:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$DETECT" --cache "$ROOT/cache-td.txt" --quiet >/dev/null 2>&1 || true
+  find "$ORIG_TMPDIR" -maxdepth 1 -name "rsdd-td-leak-$TD_TOKEN-*" | wc -l
+}
+_td_n="$(tmpdir_leak_run "$TMPDIR")"; _td_rc=$?
+_td_in="$(find "$TMPDIR" -maxdepth 1 -name "rsdd-td-leak-$TD_TOKEN-*" | wc -l)"
+if [ "$_td_rc" -eq 0 ] && [ "$_td_n" -eq 0 ] && [ "$_td_in" -ge 1 ]; then
+  find "$TMPDIR" -maxdepth 1 -name "rsdd-td-leak-$TD_TOKEN-*" -delete   # the case's own markers are not residue
+  ok "tmpdir-contained: tool writes land under the suite sandbox, none in the caller TMPDIR" "(caller=$_td_n sandbox=$_td_in)"
+else
+  no "tmpdir-contained: tool writes must stay in the suite sandbox" "rc=$_td_rc caller=$_td_n sandbox=$_td_in"
+fi
+
+# dipe (#2085): dotnet-hosted probes (the ilspycmd runtime probe via rsdd_resolve_dotnet_root, and the pwsh
+# row) must run with DOTNET_EnableDiagnostics=0, scoped to the probe. The shims create their clr-debug-pipe-*
+# files UNLESS that variable is 0 and then exit 0 WITHOUT cleanup, so a diagnostics-ON probe leaves the
+# files regardless of timing (no reliance on the probe-timeout kill, issue #129 class). Exit 0 also makes
+# both rows report AVAILABLE, which the cases pin: a run that never reached the probes proves nothing (s7).
+RUNTIME_DIPE="$ROOT/runtime-dipe"; mkdir -p "$RUNTIME_DIPE/shared/Microsoft.NETCore.App"
+BIN_DIPE="$ROOT/bin-dipe"; DIPE_TMP="$ROOT/dipe-tmp"; mkdir -p "$DIPE_TMP"
+mkexec "$BIN_DIPE/ilspycmd" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-il-$$-in"; : > "$TMPDIR/clr-debug-pipe-il-$$-out"; }; exit 0'
+mkexec "$BIN_DIPE/pwsh" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-pwsh-$$-in"; : > "$TMPDIR/clr-debug-pipe-pwsh-$$-out"; }; exit 0'
+# dipe_run <detect-script> <pipe-name-prefix>: run with ambient diagnostics ON. Sets (no subshell) DIPE_RC =
+# detect's exit code, DIPE_N = pipes with that prefix left in DIPE_TMP, DIPE_REACHED = 1 iff the cache shows
+# both the ilspycmd and pwsh rows AVAILABLE (probes actually reached and passed).
+dipe_run() {
+  rm -rf "$DIPE_TMP" "$ROOT/cache-dipe.txt"; mkdir -p "$DIPE_TMP"
+  DIPE_RC=0
+  env -u DOTNET_ROOT -u DOTNET_EnableDiagnostics TMPDIR="$DIPE_TMP" \
+    RSDD_PROBE_TIMEOUT=5 RSDD_PYTHON_PROBE_TIMEOUT=5 RSDD_DOTNET_ROOT="$RUNTIME_DIPE" \
+    PATH="$BIN_DIPE:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$1" --cache "$ROOT/cache-dipe.txt" --quiet >/dev/null 2>&1 || DIPE_RC=$?
+  DIPE_N="$(find "$DIPE_TMP" -maxdepth 1 -name "clr-debug-pipe-$2*" | wc -l)"
+  DIPE_REACHED=0
+  if grep -qE '^  ilspycmd +AVAILABLE' "$ROOT/cache-dipe.txt" 2>/dev/null \
+     && grep -qE '^  pwsh +AVAILABLE' "$ROOT/cache-dipe.txt" 2>/dev/null; then DIPE_REACHED=1; fi
+}
+dipe_run "$DETECT" il-
+if [ "$DIPE_RC" -eq 0 ] && [ "$DIPE_REACHED" -eq 1 ] && [ "$DIPE_N" -eq 0 ]; then
+  ok "dipe: ilspycmd probe leaves no clr-debug-pipe-il-* in TMPDIR" "(rc=0 reached=1 pipes=$DIPE_N)"
+else
+  no "dipe: ilspycmd probe must leave no clr-debug-pipe-il-*" "rc=$DIPE_RC reached=$DIPE_REACHED pipes=$DIPE_N"
+fi
+dipe_run "$DETECT" pwsh-
+if [ "$DIPE_RC" -eq 0 ] && [ "$DIPE_REACHED" -eq 1 ] && [ "$DIPE_N" -eq 0 ]; then
+  ok "dipe-pwsh: pwsh probe leaves no clr-debug-pipe-pwsh-* in TMPDIR" "(rc=0 reached=1 pipes=$DIPE_N)"
+else
+  no "dipe-pwsh: pwsh probe must leave no clr-debug-pipe-pwsh-*" "rc=$DIPE_RC reached=$DIPE_REACHED pipes=$DIPE_N"
+fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-dipe-pwsh: mutant removes the pwsh row's env (subshell export) in a COPY of detect-tools.sh.
+  # The copy lives beside a symlink to the real lib/ so its `source $HERE/lib/tool-env.sh` resolves.
+  MUT_DIPW_DIR="$ROOT/mut-dipw"; mkdir -p "$MUT_DIPW_DIR"
+  ln -sfn "$HERE/../lib" "$MUT_DIPW_DIR/lib"
+  MUT_DIPW="$MUT_DIPW_DIR/detect-tools.sh"
+  if mutant_chain_or_count fail "teeth: detect-mut-dipw.sh" "$DETECT" "$MUT_DIPW" \
+    's/export DOTNET_EnableDiagnostics=0; //'; then
+    dipe_run "$MUT_DIPW" pwsh-
+    if [ "$DIPE_RC" -eq 0 ] && [ "$DIPE_REACHED" -eq 1 ] && [ "$DIPE_N" -gt 0 ]; then
+      ok "teeth-dipe-pwsh: env-stripped pwsh row leaves clr-debug-pipe-pwsh-* — dipe-pwsh bites" "(pipes=$DIPE_N)"
+    else
+      no "teeth-dipe-pwsh: mutant must leave clr-debug-pipe-pwsh-*" "rc=$DIPE_RC reached=$DIPE_REACHED pipes=$DIPE_N"
+    fi
+  fi
+  # teeth-dipe (targets test dipe): mutant strips DOTNET_EnableDiagnostics=0 from the dotnet probe in a COPY
+  # of lib/tool-env.sh (symlinked detect-tools.sh sources the copy) → the shim leaves pipes → dipe bites.
+  SHIM_DIPE="$ROOT/shim-dipe"
+  mkdir -p "$SHIM_DIPE/lib"
+  ln -sf "$DETECT" "$SHIM_DIPE/detect-tools.sh"
+  if mutant_chain_or_count fail "teeth: tool-env dipe mutant" "$HERE/../lib/tool-env.sh" \
+    "$SHIM_DIPE/lib/tool-env.sh" 's/DOTNET_EnableDiagnostics=0 //'; then
+    dipe_run "$SHIM_DIPE/detect-tools.sh" il-
+    if [ "$DIPE_RC" -eq 0 ] && [ "$DIPE_REACHED" -eq 1 ] && [ "$DIPE_N" -gt 0 ]; then
+      ok "teeth-dipe: diagnostics-env-stripped mutant leaves clr-debug-pipe-il-* — dipe bites" "(pipes=$DIPE_N)"
+    else
+      no "teeth-dipe: mutant must leave clr-debug-pipe-il-*" "rc=$DIPE_RC reached=$DIPE_REACHED pipes=$DIPE_N"
+    fi
+  fi
+fi
+
 # dotnet IPC leftovers (#1626): the real-PATH mutant below lets the SUT reach a REAL dotnet (ilspycmd smoke
 # probe). A dotnet killed by the probe timeout leaves clr-debug-pipe-* / dotnet-diagnostic-* files in $TMPDIR.
 # The run gets its own TMPDIR under $ROOT (removed by the EXIT trap above) and DOTNET_EnableDiagnostics=0
@@ -1068,6 +1171,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     no "teeth-guard: guard log empty for mutant run (probe never ran)" ""
   fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-tmpdir-contained: the containment removed (SUT handed the caller's own TMPDIR) must leak into it.
+  _tdm_n="$(tmpdir_leak_run "$ORIG_TMPDIR")"; _tdm_rc=$?
+  if [ "$_tdm_rc" -eq 0 ] && [ "$_tdm_n" -ge 1 ]; then
+    ok "teeth-tmpdir-contained: containment removed -> tool leaks into the caller TMPDIR - tmpdir-contained bites" "(leaked=$_tdm_n)"
+  else
+    no "teeth-tmpdir-contained: mutant did not leak" "rc=$_tdm_rc leaked=$_tdm_n"
+  fi
+  find "$ORIG_TMPDIR" -maxdepth 1 -name "rsdd-td-leak-$TD_TOKEN-*" -delete
+fi
+
+# Report-only residue (#2085): top-level entries left in TOOL_TMP that the suite itself did not create.
+if [ -d "$TOOL_TMP" ]; then
+  _res_names="$(cd "$TOOL_TMP" && find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | paste -sd, -)"
+  _res_n=0; [ -n "$_res_names" ] && _res_n="$(printf '%s\n' "$_res_names" | tr ',' '\n' | wc -l)"
+  printf 'INFO detect-tools probe TMPDIR residue: %s - [%s]\n' "$_res_n" "$_res_names"
+else
+  printf 'INFO detect-tools probe TMPDIR residue: DEGRADED - %s absent; could not verify\n' "$TOOL_TMP"
 fi
 
 printf 'degraded: %d\n' "$degraded"

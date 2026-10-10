@@ -487,6 +487,103 @@ for p in adapters:
 PY
 then ok "convention: all adapters call guard (live AST Call) before dispatch in main()"; else no "adapter guard convention (AST)"; fi
 
+# 9. read_single_fd: the shared single-fd core (#2088). _rsf_cases SUT prints one PASS/FAIL line per case so
+#    the SAME cases run against the real SUT and against every mutant (--prove-teeth).
+_rsf_cases() {
+python3 - "$1" "$ROOT" <<'PY'
+import hashlib, importlib.util, os, pathlib, sys, tempfile, unittest.mock
+s = importlib.util.spec_from_file_location('ac', sys.argv[1]); ac = importlib.util.module_from_spec(s); s.loader.exec_module(ac)
+def case(name):
+    def deco(fn):
+        try: fn(); print(f"  PASS  {name}")
+        except BaseException as e: print(f"  FAIL  {name}: {type(e).__name__}: {str(e)[:160]}")
+        return fn
+    return deco
+def msg(fn):
+    try: fn(); return "accepted"
+    except ac.AdapterError as e: return str(e)
+
+@case("RSF1: head seeds digest; head/size/sha256/resolved match the file")
+def _():
+    with tempfile.TemporaryDirectory() as td:
+        f = pathlib.Path(td)/"a.bin"; data = bytes(range(200)); f.write_bytes(data)
+        head, size, sha, res = ac.read_single_fd(f, None, 20, resolve=True)
+        assert head == data[:20] and size == 200 and sha == "sha256:" + hashlib.sha256(data).hexdigest(), (head, size, sha)
+        assert res == f.resolve(), res
+        h0, s0, sha0, r0 = ac.read_single_fd(f, 1000)
+        assert h0 == b"" and s0 == 200 and sha0 == sha and r0 is None
+
+@case("RSF2: in-place mutation after the header read -> 'file changed while hashing'")
+def _():
+    with tempfile.TemporaryDirectory() as td:
+        f = pathlib.Path(td)/"a.bin"; f.write_bytes(b"\x7fELF" + b"A"*64); ino = os.stat(f).st_ino
+        real = os.read; fired = []
+        def mut(fd, n):
+            if not fired and os.fstat(fd).st_ino == ino:
+                fired.append(1)
+                with open(f, "ab") as fh: fh.write(b"tail")
+            return real(fd, n)
+        with unittest.mock.patch("os.read", mut):
+            got = msg(lambda: ac.read_single_fd(f, None, 20))
+        assert fired and got.startswith("file changed while hashing"), (fired, got)
+
+@case("RSF3: same-size overwrite after the header read -> refused, or head and sha256 from the same bytes")
+def _():
+    with tempfile.TemporaryDirectory() as td:
+        f = pathlib.Path(td)/"a.bin"; a = b"\x7fELF" + b"A"*64; f.write_bytes(a); ino = os.stat(f).st_ino
+        real = os.read; fired = []
+        def over(fd, n):
+            r = real(fd, n)
+            if not fired and os.fstat(fd).st_ino == ino:
+                fired.append(1)
+                with open(f, "r+b") as fh: fh.write(b"\x7fELF" + b"B"*8)
+            return r
+        with unittest.mock.patch("os.read", over):
+            try: head, _, sha, _r = ac.read_single_fd(f, None, 20); got = (head, sha)
+            except ac.AdapterError: got = None
+        assert fired
+        if got is not None:
+            assert got[0] == a[:20] and got[1] == "sha256:" + hashlib.sha256(a).hexdigest(), got
+
+@case("RSF4: symlink / directory / over-cap refused with identity's exact messages; identity delegates")
+def _():
+    with tempfile.TemporaryDirectory() as td:
+        R = pathlib.Path(td); t = R/"t.bin"; t.write_bytes(b"A"*64); ln = R/"ln"; ln.symlink_to(t); d = R/"d"; d.mkdir()
+        assert msg(lambda: ac.read_single_fd(ln, None)) == f"cannot open regular non-symlink file: {ln}"
+        assert msg(lambda: ac.read_single_fd(d, None)) == f"not a regular file: {d}"
+        assert msg(lambda: ac.read_single_fd(t, 8)) == "input exceeds max-input-bytes"
+        assert ac.read_single_fd(t, 64)[1] == 64   # a file exactly at the cap is accepted
+        assert msg(lambda: ac.identity(ln)) == f"cannot open regular non-symlink file: {ln}"
+        assert ac.identity(t)[1:] == (64, "sha256:" + hashlib.sha256(b"A"*64).hexdigest())
+
+@case("RSF5: early_head runs before the regular-file check; open_error maps open/header-read OSErrors")
+def _():
+    class Mine(ac.AdapterError): ...
+    seen = []
+    with tempfile.TemporaryDirectory() as td:
+        R = pathlib.Path(td); t = R/"t.bin"; t.write_bytes(b"hdr" + b"A"*64); ln = R/"ln"; ln.symlink_to(t); d = R/"d"; d.mkdir()
+        oe = lambda exc: Mine(f"mine: {type(exc).__name__}")
+        try: ac.read_single_fd(ln, None, 3, open_error=oe, early_head=seen.append); raise AssertionError("symlink accepted")
+        except Mine: pass
+        try: ac.read_single_fd(d, None, 3, open_error=oe, early_head=seen.append); raise AssertionError("dir not mapped")
+        except Mine as e: assert "IsADirectoryError" in str(e), e   # header read fails BEFORE 'not a regular file'
+        def bad(h): raise Mine("bad header")
+        try: ac.read_single_fd(t, None, 3, open_error=oe, early_head=bad); raise AssertionError("bad header accepted")
+        except Mine as e: assert str(e) == "bad header"
+        h, size, sha, _r = ac.read_single_fd(t, None, 3, open_error=oe, early_head=seen.append)
+        assert seen[-1] == b"hdr" == h and size == 67
+        try: ac.read_single_fd(t, None, 3, early_head=seen.append); raise AssertionError("no ValueError")
+        except ValueError: pass
+print("RSF-DONE")
+PY
+}
+_rsf_out="$(_rsf_cases "$SUT")"; printf '%s\n' "$_rsf_out"
+pass=$((pass + $(grep -c '^  PASS  ' <<<"$_rsf_out"))); fail=$((fail + $(grep -c '^  FAIL  ' <<<"$_rsf_out")))
+# Silent-zero guard (#2088): the runner must have reached its end AND reported exactly 5 RSF cases.
+if ! grep -qx 'RSF-DONE' <<<"$_rsf_out" || [ "$(grep -cE '^  (PASS|FAIL)  RSF' <<<"$_rsf_out")" -ne 5 ]; then
+  echo "  FAIL  RSF: case runner did not report all 5 cases"; fail=$((fail + 1))
+fi
+
 # ─── Prove-teeth (--prove-teeth): verify the AST convention check is not theatre ───────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
   _PT_TMP="$ROOT/pt"
@@ -531,6 +628,27 @@ PYEOF
     if ! bout="$(_ac_mutant "$1" "$2" "$3" 2>&1)"; then no "$1: mutant not built -- $bout"; return; fi
     if python3 "$_PT_TMP/ast_check.py" "$3" 2>/dev/null; then ok "$4"; else no "$5"; fi
   }
+
+  # read_single_fd teeth (#2088): the shared core's guards must each be load-bearing. Mutants of adapter_core.py
+  # itself run the SAME _rsf_cases and must show the named FAIL line (and no crash).
+  # _rsf_tooth LABEL OLD NEW BAD_HAS
+  _rsf_tooth() {
+    local bout out
+    if ! bout="$(mutant_py_replace "$1" "$SUT" "$2" "$3" "$_PT_TMP/$1.py" 2>&1)"; then no "$1: mutant not built -- $bout"; return; fi
+    out="$(_rsf_cases "$_PT_TMP/$1.py" 2>&1)"
+    if grep -qF "FAIL  $4" <<<"$out" && ! grep -qE 'Traceback|SyntaxError|ImportError' <<<"$out"; then ok "$1: mutant caught ($4)"; else no "$1: mutant NOT caught -- $(head -c 200 <<<"$out")"; fi
+  }
+  _rsf_tooth teeth-rsf-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'RSF2'
+  _rsf_tooth teeth-rsf-seed-digest $'        digest = hashlib.sha256()\n        digest.update(head)\n        total = len(head)' $'        os.lseek(fd, 0, os.SEEK_SET); before = os.fstat(fd); digest = hashlib.sha256()\n        total = 0' 'RSF3'
+  _rsf_tooth teeth-rsf-nofollow 'getattr(os, "O_NOFOLLOW", 0)
+    if early_head' '0
+    if early_head' 'RSF4'
+  _rsf_tooth teeth-rsf-early-head-called $'            early_head(head)\n        else:' $'            pass\n        else:' 'RSF5'
+  _rsf_tooth teeth-rsf-cap-boundary 'before.st_size > max_bytes:
+            raise AdapterError("input exceeds max-input-bytes")
+        if early_head is None' 'before.st_size >= max_bytes:
+            raise AdapterError("input exceeds max-input-bytes")
+        if early_head is None' 'RSF4'
 
   # teeth-bypass1: comment mentions guard before dispatch — old textual test PASSED (bug)
   _ac_tooth teeth-bypass1 $'        # TODO: refuse_privileged_execution should be called here\n        if args.worker: return worker(args)' "$_PT_TMP/b1.py" \
