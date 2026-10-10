@@ -680,17 +680,17 @@ _t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV
   's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        pass/'
 _t "qe-receipt-id: vm_receipt_identity key renamed in the evidence" "FAIL  RED8: vm_receipt_identity missing" lib/vm_boot_core.py \
   's/ev\["vm_receipt_identity"\] = receipt_identity/ev["vm_receipt_id"] = receipt_identity/'
-_t "qe-pin-no-verify: exec no longer refuses a target whose identity differs from the plan (#2078)" "FAIL  PIN-REFUSE: swapped target was booted" lib/qemu_exec.py \
-  's/^    if not want or h.hexdigest() != want or (tgt.get("size") is not None and size != tgt\["size"\]):$/    if False:/'
-_t "qe-pin-bind-original: bwrap --ro-bind source stays the original path, not the verified copy (#2078)" "FAIL  PIN-BIND: qemu was handed swapped bytes" lib/qemu_exec.py \
-  's/out_argv = \[dest if (a == path and i > 0/out_argv = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
+_t "qe-pin-no-verify: exec no longer refuses a target whose identity differs from the plan (#2078)" "FAIL  PIN-REFUSE: swapped target was booted" lib/vm_pin.py \
+  's/^    if not want or h.hexdigest() != want or (want_size is not None and size != want_size):$/    if False:/'
+_t "qe-pin-bind-original: bwrap --ro-bind source stays the original path, not the verified copy (#2078)" "FAIL  PIN-BIND: qemu was handed swapped bytes" lib/vm_pin.py \
+  's/out = \[dest if (a == path and i > 0/out = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
 _t "qe-root-hardcoded: rsdd_root() ignores RSDD_VM_ROOT and returns /tmp/rsdd (#2061, #2090)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/docker_common.py \
   's/^    return os.environ.get("RSDD_VM_ROOT") or _DEFAULT_RSDD_ROOT$/    return _DEFAULT_RSDD_ROOT/'
 _t "qe-core-root-ignored: run_vm drops its root argument and uses the default /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/vm_boot_core.py \
   's/uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)/uuid.uuid4().hex)/'
 _t "qe-stage-leak: the private target copy dir is no longer removed after the run (#2078)" "FAIL  PIN-(REFUSE|BIND): stage dir leaked" lib/qemu_exec.py \
   's/^            shutil.rmtree(stage, ignore_errors=True)$/            pass/'
-_t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI-(twice|never): " lib/qemu_exec.py \
+_t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI-(twice|never): " lib/vm_pin.py \
   's/^    if n_sub != 1:$/    if False:/'
 # Control: a NameError mutant prints the targeted `FAIL  RED8` label too, so only the crash-message forms in
 # _CRASH can refuse it. The tooth machinery must REFUSE it (rc 1, crash-class text), not count it as a bite.

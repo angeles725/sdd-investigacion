@@ -9,7 +9,7 @@ The two executors import and call run_evaluate, passing only the values that
 genuinely differ: schema_version and plan_label (used in one diagnostic string).
 """
 from __future__ import annotations
-import hashlib, os, shutil, sys
+import hashlib, os, shutil, sys, tempfile
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,7 @@ if str(_HERE) not in sys.path:
 import docker_common as _dc    # noqa: E402
 import vm_boot_core as _vbc   # noqa: E402
 import vm_disk_policy as _vdp  # noqa: E402
+import vm_pin as _vp           # noqa: E402
 from gate import GateError     # noqa: E402
 
 # Sentinel value emitted by detonate_plan / trace_plan for the scratch disk path.
@@ -196,6 +197,9 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
 # Shared evaluate seam
 # ---------------------------------------------------------------------------
 
+_IDENT_KEY = {"detonate": "sample", "trace": "target"}
+
+
 def run_evaluate(
     plan: dict[str, Any],
     schema_version: str,
@@ -230,9 +234,14 @@ def run_evaluate(
     # run_dir and AFTER preflight, BEFORE the pre-snapshot and Popen.
     # argv_deltas is captured by the closure and injected into ev in Step 5.
     argv_deltas: list[dict[str, Any]] = []
+    # Plan identity (#2090): detonate records the sample under "sample", trace under "target".
+    if plan_label not in _IDENT_KEY:
+        raise GateError(f"unknown executor label {plan_label!r}; cannot locate the plan sample identity")
+    ident = plan.get(_IDENT_KEY[plan_label]) or {}
+    stage = tempfile.mkdtemp(prefix="rsdd-vm-sample-")  # private 0700, honours TMPDIR
 
     def pre_boot(run_dir: str, exec_argv: list[str]) -> list[str]:
-        """Create scratch.img in run_vm's run_dir; substitute sentinel in exec_argv."""
+        """Pin the sample to the planned identity; create scratch.img in run_vm's run_dir; substitute sentinel."""
         scratch_path = f"{run_dir}/scratch.img"
         # Create fresh zeroed scratch disk (O_NOFOLLOW, fail-closed).
         try:
@@ -260,6 +269,21 @@ def run_evaluate(
                 f"{plan_label} plan must include the scratch sentinel drive"
             )
 
+        # Pin the sample (#2090): fail closed when the plan records no identity.
+        spath, sha = ident.get("path", ""), ident.get("sha256")
+        if not spath or not sha:
+            raise GateError(f"{plan_label} plan records no sample path/sha256; refusing to boot")
+        bound = [new_argv[i + 1] for i in range(len(new_argv) - 2)
+                 if new_argv[i] == "--ro-bind" and new_argv[i + 2] == "/input/sample"]
+        if bound != [spath]:
+            raise GateError(
+                f"{plan_label} plan --ro-bind source for /input/sample {bound!r} "
+                f"is not the planned sample {spath!r}; refusing to boot"
+            )
+        dest = _vp.pin_file(spath, sha, ident.get("size"), stage, f"{plan_label} sample", "boot",
+                            name="sample")
+        new_argv = _vp.rebind_source(new_argv, spath, dest)
+
         # Re-check disk policy with real run_dir scope.
         _vdp.check_disk_policy(new_argv, run_dir=run_dir)
         return new_argv
@@ -274,10 +298,13 @@ def run_evaluate(
     # Step 4 — delegate to the shared boot/reap/receipt engine.
     # run_vm owns the single run_dir; pre_boot writes scratch.img into it so
     # output_files(run_dir) returns [scratch.img, serial.log] → outputs[] coherent.
-    ev = _vbc.run_vm(
-        plan, preflight=_thin_preflight,
-        snapshot_hook=snapshot_hook, pre_boot=pre_boot,
-    )
+    try:
+        ev = _vbc.run_vm(
+            plan, preflight=_thin_preflight,
+            snapshot_hook=snapshot_hook, pre_boot=pre_boot,
+        )
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
 
     # Step 5 — inject executor-specific fields.
     ev["schema_version"] = schema_version

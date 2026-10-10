@@ -122,8 +122,120 @@ exec(os.environ["RSDD_TOOTH_PY"], globals())
 # Shared fixtures (_X64, _BWRAP, _elf, _SCRATCH_PATH, _GOOD_ARGV) live in tests/lib/mutant.sh
 # (mutant_vm_fixtures_py_src) and run here, in this suite's globals.
 exec(os.environ["RSDD_FIXTURES_PY"], globals())
+# ── PIN fixtures (#2090): plan once, then swap the sample before / during exec ───────
+# _pin_probe(kind) runs ONE scenario against the SUT on sys.path and returns a dict:
+#   verdict "good" | "bad" | "error:<why>", leaked = stage dirs left under the sandboxed TMPDIR, detail.
+# The plain cases below assert on it; `--tooth pin-<kind>` prints it as typed TOOTH_PIN_* lines so the
+# bash --prove-teeth section can compare the real SUT against staged mutants of lib/vm_pin.py and
+# lib/vm_exec_common.py.
+_PIN_SWAP_BWRAP = """\
+#!/usr/bin/env python3
+import hashlib, os, sys
+args = sys.argv[1:]
+sep = args.index("--"); pre = args[:sep]; cmd = args[sep+1:]
+src = next(pre[i + 1] for i in range(len(pre) - 2) if pre[i] == "--ro-bind" and pre[i + 2] == "/input/sample")
+sw = os.environ.get("SWAP_PATH", "")
+if sw:  # simulate an attacker swapping the planned path AFTER exec's check
+    tmpf = sw + ".evil"; open(tmpf, "wb").write(b"EVIL-" * 64); os.replace(tmpf, sw)
+open(os.environ["BIND_REC"], "w").write(hashlib.sha256(open(src, "rb").read()).hexdigest())
+os.execvp(cmd[0], cmd)
+"""
+
+def _pin_probe(kind):
+    import glob as _glob, importlib as _il, shutil as _sh
+    from gate import GateError as _GE
+    td = tempfile.mkdtemp(prefix="pin-case-"); sbx = tempfile.mkdtemp(prefix="pin-sbx-")
+    saved = {k: os.environ.get(k) for k in ("TMPDIR", "PATH", "SWAP_PATH", "BIND_REC", "QEMU_SHIM_RECORD")}
+    runs_before = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+    out = {"verdict": "bad", "leaked": [], "detail": ""}
+    try:
+        tmp = Path(td); p = _shims(tmp); elf = _elf(tmp); rec = tmp / "calls.json"; brec = tmp / "bind.sha"
+        cli("plan", *["--target", str(elf), "--tracer", "strace"], "--output", str(tmp / "out"), xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        plan = json.loads((tmp / "out" / "trace-plan.v1.json").read_text())
+        path = plan["target"]["path"]
+        env = {"PATH": p, "TMPDIR": sbx, "QEMU_SHIM_RECORD": str(rec)}
+        if kind == "bind":
+            (tmp / "bwrap").write_text(_PIN_SWAP_BWRAP); (tmp / "bwrap").chmod(0o755)
+            env.update(SWAP_PATH=str(elf), BIND_REC=str(brec))
+        if kind == "refuse":
+            elf.write_bytes(elf.read_bytes()[:-1] + b"\x01")  # same size, different bytes
+        if kind == "nopath":
+            plan.pop("target")
+        if kind == "multi":
+            a = plan["planned_argv"]; s = a.index("--")
+            plan["planned_argv"] = a[:s] + ["--ro-bind", path, "/second"] + a[s:]
+        os.environ.update(env); tempfile.tempdir = None
+        m = _il.import_module("trace_exec")
+        res = err = None
+        try: res = getattr(m, "TraceVmExecutor")(tmp / "out").evaluate(plan)
+        except _GE as e: err = str(e)
+        out["leaked"] = sorted(_glob.glob(os.path.join(sbx, "rsdd-vm-sample-*")))
+        calls = json.loads(rec.read_text()) if rec.exists() else []
+        if kind == "refuse":
+            good = err is not None and "changed since plan" in err and calls == []
+            out["detail"] = f"err={err!r} calls={calls}"
+        elif kind == "bind":
+            planned_hex = plan["target"]["sha256"].removeprefix("sha256:")
+            got = brec.read_text() if brec.exists() else ""
+            swapped = elf.read_bytes().startswith(b"EVIL-")
+            good = err is None and bool(res) and res.get("executed") is True and swapped and got == planned_hex
+            out["detail"] = f"err={err!r} swapped={swapped} bind sha {got} != planned {planned_hex}"
+        elif kind == "nopath":
+            good = err is not None and "records no sample path" in err
+            out["detail"] = f"err={err!r}"
+        else:  # multi
+            good = err is not None and "exactly one --ro-bind" in err
+            out["detail"] = f"err={err!r}"
+        out["verdict"] = "good" if good else "bad"
+    except Exception as e:
+        out["verdict"] = f"error:{type(e).__name__}:{e}"
+    finally:
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+        tempfile.tempdir = None
+        for d in set(_glob.glob("/tmp/rsdd/rsdd-*")) - runs_before: _sh.rmtree(d, ignore_errors=True)
+        _sh.rmtree(td, ignore_errors=True); _sh.rmtree(sbx, ignore_errors=True)
+    return out
+
+def _pin_tooth(name):
+    kind = name.removeprefix("pin-")
+    if kind == "leak":
+        rs = [_pin_probe("refuse"), _pin_probe("bind")]
+        print("TOOTH_PIN_LEAK=" + ("bad" if any(r["leaked"] for r in rs) else "good"))
+    else:
+        print(f"TOOTH_PIN_{kind.upper()}=" + _pin_probe(kind)["verdict"])
+
+if len(sys.argv) > 4 and sys.argv[3] == "--tooth" and sys.argv[4].startswith("pin-"):
+    _pin_tooth(sys.argv[4]); sys.exit(0)
+
 if len(sys.argv) > 4 and sys.argv[3] == "--tooth":
     _tooth_run(sys.argv[4], lambda elf: ["--target", str(elf), "--tracer", "strace"], "trace_exec", "TraceVmExecutor"); sys.exit(0)
+
+# ── PIN-REFUSE (#2090): sample swapped between plan and exec → refusal, qemu never spawned ──
+_r_refuse = _pin_probe("refuse")
+if _r_refuse["verdict"] == "good": ok("PIN-REFUSE: swap between plan and exec → GateError 'changed since plan', qemu never spawned")
+else: nok("PIN-REFUSE", f"{_r_refuse['verdict']} {_r_refuse['detail']}")
+
+# ── PIN-BIND (#2090): a swap AFTER exec's check cannot reach qemu (bind source is the verified copy) ──
+_r_bind = _pin_probe("bind")
+if _r_bind["verdict"] == "good": ok("PIN-BIND: bwrap /input/sample bind source holds the planned bytes even after the path is swapped")
+else: nok("PIN-BIND", f"qemu was handed swapped bytes: {_r_bind['verdict']} {_r_bind['detail']}")
+
+# ── PIN-MULTI (#2090): a plan binding the sample twice is refused, not half-pinned ──
+_r_multi = _pin_probe("multi")
+if _r_multi["verdict"] == "good": ok("PIN-MULTI: sample bound twice in planned_argv → GateError 'exactly one --ro-bind'")
+else: nok("PIN-MULTI", f"{_r_multi['verdict']} {_r_multi['detail']}")
+
+# ── PIN-NOPATH (#2090): a plan with no recorded sample identity is refused (fail closed), not booted unpinned ──
+_r_nopath = _pin_probe("nopath")
+if _r_nopath["verdict"] == "good": ok("PIN-NOPATH: plan without sample path/sha256 → GateError 'records no sample path', never booted")
+else: nok("PIN-NOPATH", f"{_r_nopath['verdict']} {_r_nopath['detail']}")
+
+# ── PIN-NOLEAK (#2090): the private sample copy dir is gone after both a refusal and a run ──
+_leaks = _r_refuse["leaked"] + _r_bind["leaked"]
+if not _leaks: ok("PIN-NOLEAK: no rsdd-vm-sample-* stage dir left after refusal or run")
+else: nok("PIN-NOLEAK", f"stage dir leaked: stage dir leaked {_leaks}")
 
 # ── TRACE-RED1: gate-closed (no --allow-exec) → exit 3, shim NEVER spawned ──────
 with tempfile.TemporaryDirectory() as td:
@@ -650,18 +762,19 @@ except Exception as e: nok("TRACE-RED-INV3-adversarial", str(e))
 # ── TRACE-RED-INV3-eval-seam: evaluate()-level adversarial -kernel not substituted (INV-3 seam) ──
 # Mutation proof: revert pre_boot call site to substring loop → -kernel wrongly rewritten → FAILS.
 with tempfile.TemporaryDirectory() as td:
-    tmp = Path(td); p = _shims(tmp)
+    tmp = Path(td); p = _shims(tmp); _sf = tmp / "s.bin"; _sf.write_bytes(b"SAMPLE" * 32)
     try:
         import trace_exec as _te2; from gate import GateError
         _TS = "/rsdd/scratch.img"
         _av3 = ["bwrap","--unshare-net","--unshare-pid","--cap-drop","ALL","--tmpfs","/tmp/rsdd","--dir","/tmp/rsdd/out",
-                "--bind",_TS,_TS,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind","/store/sample.bin","/input/sample","--",
+                "--bind",_TS,_TS,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind",str(_sf),"/input/sample","--",
                 "qemu-system-x86_64","-m","256","-smp","1","-accel","tcg","-nic","none","-nodefaults",
                 "-sandbox","on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
                 "-kernel",_TS,"-drive","file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
                 "-drive",f"file={_TS},snapshot=off,format=raw,if=virtio","-drive","file=/input/rootfs,snapshot=on,format=raw,if=virtio"]
         _old3 = os.environ.get("PATH",""); os.environ["PATH"] = p
-        try: _r3 = _te2.TraceVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av3})
+        try: _r3 = _te2.TraceVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av3,
+            "target":{"path":str(_sf),"sha256":"sha256:"+__import__("hashlib").sha256(_sf.read_bytes()).hexdigest(),"size":_sf.stat().st_size}})
         finally: os.environ["PATH"] = _old3
         _ea3 = _r3.get("exec_argv",[]); _ki3 = _ea3.index("-kernel") if "-kernel" in _ea3 else None
         assert _ki3 is not None and _ea3[_ki3+1]==_TS and any(_ea3[i]=="--bind" and _ea3[i+1]!=_TS for i in range(len(_ea3)-1)), f"INV-3 seam: -kernel={_ea3[_ki3+1] if _ki3 is not None else 'missing'!r} or --bind not substituted"
@@ -920,6 +1033,43 @@ fi
 # (tests/lib/mutant.sh, kit issue #1576); it reports through MVC_PASS / MVC_FAIL.
 mutant_vm_core_teeth trace "$HERE" "$0" "$SUT_EXEC" "$MUT"
 b_pass=$MVC_PASS; b_fail=$MVC_FAIL
+
+# ── PIN mutants (--prove-teeth, kit issue #2090) ──────────────────────────────────────────────
+# Real-SUT mutants of the shared pin (lib/vm_pin.py) and its call site (lib/vm_exec_common.py): each is staged
+# in a mini-tree and the focused `--tooth pin-<kind>` scenario must flip from =good to =bad on exactly its line.
+_pin_crash="$(mutant_vm_crash_re)"
+_pin_stage() {
+  mkdir -p "$MUT/$1/lib" && cp "$HERE/../lib/"*.py "$MUT/$1/lib/" && cp "$HERE/../"*.py "$MUT/$1/" \
+    && [ -f "$MUT/$1/lib/trace_exec.py" ] && [ -f "$MUT/$1/lib/vm_pin.py" ]
+}
+# _pin_t LABEL KIND FILE SED-EXPR...: FILE is lib/vm_pin.py or lib/vm_exec_common.py
+_pin_t() {
+  local label="$1" kind="$2" file="$3" up; shift 3; up="$(tr '[:lower:]' '[:upper:]' <<<"$kind")"
+  if ! _pin_stage "$label"; then echo "  FAIL  $label: staging the mini-tree failed"; b_fail=$((b_fail+1)); return; fi
+  if ! MUTANT_SYNTAX=none mutant_chain "$label" "$HERE/../$file" "$MUT/$label/$file" "$@"; then b_fail=$((b_fail+1)); return; fi
+  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$MUT/$label/$file"; then
+    echo "  FAIL  $label: mutant does not compile"; b_fail=$((b_fail+1)); return
+  fi
+  if mutant_tooth "$label" 0 0 "$MUT/$label/lib/trace_exec.py" --orig "$SUT_EXEC" \
+      --good-has "^TOOTH_PIN_${up}=good\$" --good-lacks "$_pin_crash" \
+      --bad-has "^TOOTH_PIN_${up}=bad\$" --bad-lacks "$_pin_crash" -- bash "$0" --tooth "pin-$kind" @SUT@; then
+    b_pass=$((b_pass+1))
+  else
+    b_fail=$((b_fail+1))
+  fi
+}
+_pin_t teeth-pin-no-verify refuse lib/vm_pin.py \
+  's/^    if not want or h.hexdigest() != want or (want_size is not None and size != want_size):$/    if False:/'
+_pin_t teeth-pin-bind-original bind lib/vm_pin.py \
+  's/out = \[dest if (a == path and i > 0/out = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
+_pin_t teeth-pin-multi-bind multi lib/vm_pin.py \
+  's/^    if n_sub != 1:$/    if False:/'
+_pin_t teeth-pin-nopath-skip nopath lib/vm_exec_common.py \
+  's/^        if not spath or not sha:$/        if False:/'
+_pin_t teeth-pin-keys-swapped bind lib/vm_exec_common.py \
+  's/^_IDENT_KEY = {"detonate": "sample", "trace": "target"}$/_IDENT_KEY = {"detonate": "target", "trace": "sample"}/'
+_pin_t teeth-pin-stage-leak leak lib/vm_exec_common.py \
+  's/^        shutil.rmtree(stage, ignore_errors=True)$/        pass/'
 
 echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
 [ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
