@@ -8,7 +8,7 @@ JSON. Plus two Gradle build-environment gotchas that stop a Niagara module build
 **Evidence base.** Original Tridium javadoc source (not decompiled), under
 `/home/cristian/modules/Prototipos/modulos/organized/docSource/docSource-doc/extracted/` (abbrev. `EXT/`),
 plus the official devguide (`niagara-help/devguide-clean/bog.txt`). `[CERT-doc]` = official doc §; `[CERT]` =
-framework source file:line; `[INFER]` = derived. First captured in the chihuahua MX60 investigation chain
+framework source file:line; `[INFER]` = derived; `[CERT-live]` = observed on a live host, preserved capture. First captured in the chihuahua MX60 investigation chain
 (2026-08-16); see Engram `research/niagara/framework/bog-export-import`.
 
 **Read-only over the subject.** These are the supported APIs; nothing here mutates a live station by itself.
@@ -301,10 +301,11 @@ only; never credentials (SECRETS DISCIPLINE).
 - **How to cite:** preserve the launcher `.cmd`, the session log and the stderr capture of the station connect
   under `sources/probes/` and cite them `[CERT-live]` (the FOXS 4911 evidence is `plugin-st-stderr.txt`).
 
-Evidence: kit issue #1931 (retro 2026-10-06 reflow-bypass-bench item 5; `wb-session.log`, `plugin-st-stderr.txt`).
+- **GUI launch over SSH:** a plain SSH-started GUI app is invisible on the console; `WINDOWS-SSH-PROBES.md` §7
+  "GUI apps over SSH" explains WHY the scheduled-task launch above is needed. For `wb`, keep the table's
+  `/RL HIGHEST` and the variable-clearing launcher `.cmd`.
 
-- **GUI launch over SSH:** a plain SSH-started `wb` is invisible on the console; for the generic
-  console-session launch pattern see `WINDOWS-SSH-PROBES.md` §7 "GUI apps over SSH".
+Evidence: kit issue #1931 (retro 2026-10-06 reflow-bypass-bench item 5; `wb-session.log`, `plugin-st-stderr.txt`).
 
 ## 10. Bench baseline — environment and user-home sweep before any functional work `[#2050]`
 
@@ -315,7 +316,8 @@ the run's capture (structure only; no credentials):
    Machine and User scope (variable names are case-insensitive on Windows; list every spelling found).
 2. **Daemon:** record the Niagara daemon service `StartName` and the user home it resolves
    (`plat.exe` details, the `User Home:` line).
-3. **Workbench:** record the WB home (`nre -version`; print `niagara.home` per §7).
+3. **Workbench:** record the WB *user* home (`nre -version`). Also print `niagara.home` (install home, §7)
+   so you know which install answered; never compare that against the daemon user home.
 4. **State whether the daemon home and the WB home differ.** The answer decides which §11 state the
    bench is in.
 
@@ -339,13 +341,15 @@ whether the daemon home and the WB home differ (compare them with the §10 sweep
 | 2. Split homes | daemon home != WB home | tools visible |
 | 3. Split done unsafely | daemon home changed without seeding | daemon and/or client failures (below) |
 
+State 3 is the failure mode of the split routes below.
+
 **Ways to split safely** (any of them, then seed the new home):
 - **Service-scoped `Environment`** (`REG_MULTI_SZ` at `HKLM\SYSTEM\CurrentControlSet\Services\<svc>\Environment`):
   overrides machine env for that service ONLY, so WB keeps the machine/user value. Observed: the service
   started with daemon home `systemprofile\Niagara4.13` while machine env still pointed WB at the flat home
   `[CERT-live]`. This complements `REMOTE-POWERSHELL.md` §8 (a LocalSystem service never sees user-scope
-  variables) and the §7 SCM staleness caveat: restart the service after changing the key.
-- **Machine variable:** moves daemon AND WB together unless the WB shell overrides it; it also re-creates
+  variables) and the §7 SCM staleness caveat: restart the service after changing the key `[INFER]`.
+- **Machine variable:** moves daemon AND WB together unless the WB shell overrides it `[INFER]`; it also re-creates
   the state-1/version-switch hazards of §10.
 - **Seeding:** whichever route changes the daemon home, copy into the new home `etc/nre.properties`
   (the agent file), `etc/credentials` and the security keyring from the working home first.
@@ -364,7 +368,8 @@ and brand homes) makes the platform connect die CLIENT-side in `BPassword.getVal
 **Restart trap `[CERT-live]`.** `net stop Niagara` can return while the old `niagarad.exe` survives and
 still holds `:5011`; the next `net start` then fails with `4294967295`. After every stop, check
 `tasklist /FI "IMAGENAME eq niagarad.exe"` and the port listing (`netstat -ano | findstr :5011`), and
-`taskkill /F /PID <pid>` the survivor BEFORE `net start`. Observed: a PID survived a "successful" stop
+`taskkill /F /PID <pid>` the survivor BEFORE `net start` (suggested commands; the exact ones used are not
+recorded in #2081). Observed: a PID survived a "successful" stop
 and start failed until it was killed. The analogous case for another service is the `schtasks /End` note in
 `DEPLOY-WINDOWS-MINIPC.md` (Gotchas): the stop verb returning is not proof the process is gone.
 

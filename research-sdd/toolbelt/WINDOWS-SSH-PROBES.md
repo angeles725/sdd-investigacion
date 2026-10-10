@@ -244,7 +244,7 @@ For the related shell-side trap where `ssh` consumes the stdin of a `while read`
 
 ### GUI apps over SSH
 
-A GUI app started from an SSH session runs in the SSH session (a non-interactive window station), so it
+A GUI app started from an SSH session runs in the SSH session, so it
 is invisible on the console even though the process exists. To make it visible, create a scheduled task
 that runs interactively in the console session, then run it, with the console user logged on:
 
@@ -257,7 +257,8 @@ schtasks /delete /tn <TaskName> /f
 
 Observed `[CERT-live]`: a Workbench process launched this way (task `WBCopierTest`) ran in Console
 session 1. The exact argument list used is not recorded in kit #2082, hence `[unverified]` above.
-Verify the session number rather than trusting task status. See also NIAGARA-N4-FRAMEWORK.md §9.
+Verify the session number rather than trusting task status. For Workbench, use the
+NIAGARA-N4-FRAMEWORK §9 recipe, not this bare form. See also NIAGARA-N4-FRAMEWORK.md §9.
 (Kit #2082.)
 
 ---
