@@ -7207,6 +7207,7 @@ if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")"; then no "T-1350-B1: B1 must not 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
   mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
   # b13_tooth <name> <sed-script> <fixture-builder: heading> <hdr> <want-good> <rows...> — OR stderr mode when want-good is "ERR:<pattern>"
@@ -7338,7 +7339,7 @@ RUNEOF
   _t1637_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
   t1637_t() { # <label> <fixture-dir> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash "$TMP/t1637-run.sh" @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   t1637_fx="$TMP/t1637-teeth"; b13_fix "$t1637_fx" "## Gap-backlog" "$B13H4" '| high | g1 | web | pending |' '| low | g2 | web | ✅ B1 |'; b13_decl "$t1637_fx" 3 2
@@ -7444,7 +7445,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _t1154_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
   t1154_t() { # <label> <fixture> <runner-kind: report|sync> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" kind="$3"; shift 3
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "/# CM-LABEL-ANCHOR\$/s/=.*/='coverage metric'  # CM-LABEL-ANCHOR/" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "/# CM-LABEL-ANCHOR\$/s/=.*/='coverage metric'  # CM-LABEL-ANCHOR/" || return 0
     if [ "$kind" = report ]; then
       if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
     else
@@ -7454,9 +7455,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   t1154_t T1154-REPORT "$t1154_a" report --good-has 'coverage metric : <none>' --bad-has 'coverage metric : 2/5' --bad-lacks "$_t1154_crash"
   t1154_t T1154-SYNC "$t1154_a" sync --good-has 'known_gaps: 0$' --bad-has 'known_gaps: 5$' --bad-lacks "$_t1154_crash"
   t1154_t T1154-ORDER "$t1154_b" report --good-has 'coverage metric : 3/7' --bad-has 'coverage metric : 9/9' --bad-lacks "$_t1154_crash"
-  mutant_chain T1154-BLANK "$SUT" "$TMP/status.T1154-BLANK.MUTANT.sh" 's/ \&\& \[ "\${_cr_nlab:-0}" -eq 0 \]//' || fail=$((fail+1))
+  mutant_chain_or_count fail T1154-BLANK "$SUT" "$TMP/status.T1154-BLANK.MUTANT.sh" 's/ \&\& \[ "\${_cr_nlab:-0}" -eq 0 \]//'
   if mutant_tooth T1154-BLANK 0 0 "$TMP/status.T1154-BLANK.MUTANT.sh" --good-lacks "unrecognised coverage label" --bad-has 'unrecognised coverage label' -- bash @SUT@ "$t1154_a"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-  mutant_chain T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/' || fail=$((fail+1))
+  mutant_chain_or_count fail T1154-WARN "$SUT" "$TMP/status.T1154-WARN.MUTANT.sh" '/# CM-UNRECOGNISED-LABEL$/s/head -1/head -0/'
   if mutant_tooth T1154-WARN 0 0 "$TMP/status.T1154-WARN.MUTANT.sh" --good-has 'unrecognised coverage label' --bad-lacks "unrecognised coverage label|$_t1154_crash" -- bash @SUT@ "$t1154_h"; then pass=$((pass+1)); else fail=$((fail+1)); fi
 fi
 
@@ -7504,7 +7505,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _t1150_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
   t1150_t() { # <label> <mode> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" mode="$2" expr="$3"; shift 3
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" 1 "$1" "$TMP/status.$lbl.MUTANT.sh" "${@:2}" -- bash "$TMP/t1150-run.sh" @SUT@ "$mode" "$t1150_fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   # absent lib: without the -f guard the 'cannot find helper' message is gone (the declare -F guard still fails closed with the OTHER message)
@@ -7620,7 +7621,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _t1152_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
   t1152_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" 0 0 "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx"; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   t1152_t T1152-NEXT "$t1152_fresh" '/# DOC-NEXT-BRANCH$/s/\[ "\$_doc_mode" = 1 \]/false/' --good-has 'BOOTSTRAP \| seed the ## Outline' --bad-has 'exhausted \(0\)' --bad-lacks "$_t1152_crash"
@@ -7751,7 +7752,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _t1706_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
   t1706_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
     if mutant_tooth "$lbl" "${T1706_GOOD_RC:-0}" "${T1706_BAD_RC:-0}" "$TMP/status.$lbl.MUTANT.sh" "$@" -- bash @SUT@ "$fx" --next --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }
   t1706_t T1706-NEXT-MAP "$TMP/et-next" '/# ET-NEXT-MAP$/s/return-token: next: /return-token: next-entry: /' --good-has 'return-token: next: reconstruct' --bad-has 'return-token: next-entry: ' --bad-lacks "$_t1706_crash"
@@ -7763,8 +7764,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # same double with one mutation; both are built with mutant_chain from the real SUT (each stage must change it alone).
   t1726_t() { # <label> <fixture> <sed-expr> <good-rc> <bad-rc> <extra --next args or ""> <mutant_tooth match args...>
     local lbl="$1" fx="$2" expr="$3" grc="$4" brc="$5" xa="$6"; shift 6
-    mutant_chain "$lbl-good" "$SUT" "$TMP/status.$lbl.GOOD.sh" "$ET_INJECT" || { fail=$((fail+1)); return; }
-    mutant_chain "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$ET_INJECT" "$expr" || { fail=$((fail+1)); return; }
+    mutant_chain_or_count fail "$lbl-good" "$SUT" "$TMP/status.$lbl.GOOD.sh" "$ET_INJECT" || return 0
+    mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$ET_INJECT" "$expr" || return 0
     # shellcheck disable=SC2086 # $xa is a deliberate word-split list of extra flags (empty or "--focus b")
     if mutant_tooth "$lbl" "$grc" "$brc" "$TMP/status.$lbl.MUTANT.sh" --orig "$TMP/status.$lbl.GOOD.sh" "$@" -- bash @SUT@ "$fx" --next $xa --emit-token; then pass=$((pass+1)); else fail=$((fail+1)); fi
   }

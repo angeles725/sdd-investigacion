@@ -30,7 +30,11 @@ _session_id=$(printf '%s' "$_hook_stdin" | jq -r '.session_id // empty' 2>/dev/n
 #     This is an accepted tradeoff: fixing it would require extra state (e.g. a session-start
 #     timestamp or a monotonically-increasing counter) to tell "resume" apart from "reuse",
 #     which is out of scope here. Not currently known to happen in practice.
-_hook_target="$(cd "$(dirname "$0")/../.." && pwd)"
+# Target root from the hook's OWN path (kit #1675/#2042): BASH_SOURCE, never $0 - $0 has no slash when bash finds the
+# script through PATH, so a $0-derived dirname would resolve from the caller's cwd. Symlinks are deliberately NOT
+# followed (unlike the toolbelt's _RSDD_SELF block): the target is where the hook is INSTALLED, so a link placed in
+# <target>/.claude/hooks must resolve to that target, not to the kit file it points at.
+_hook_target="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [ -n "$_session_id" ]; then
   _rsdd_file="$_hook_target/.claude/.rsdd-session-${_session_id}"
   if [ ! -s "$_rsdd_file" ]; then

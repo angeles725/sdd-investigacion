@@ -1964,14 +1964,14 @@ done
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   MUT="$(mktemp -d)"
   # mutant copies of the SUT live flat in $MUT and resolve lib/ beside themselves (kit #1659: scripts-manifest.sh)
   ln -s "$HERE/../lib" "$MUT/lib"
   # mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (the shared mutant_chain
   # refuses a dead stage); a refusal is counted as a failure here, the helper never touches the counters.
   mk_sed(){
-    mutant_chain "$1" "$SUT" "$2" "${@:3}" || { fail=$((fail+1)); return 1; }
+    mutant_chain_or_count fail "$1" "$SUT" "$2" "${@:3}" || return 1
   }
   # tooth LABEL GOOD_RC BAD_RC MUTANT [--good-has RE] [--good-lacks RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
   # Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line): '@SUT@' is replaced by
@@ -2608,26 +2608,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # kit #1742 (item 3): a non-extension entry swapped into _vb_tlds (`so` for the last entry) is reported by the overlap invariant
   _vb_fx="$HERE/fixtures/verify-block/exts-invariants.sh"; _vb_exp="$HERE/fixtures/verify-block/exts-expected-set.txt"
-  if mutant_chain "teeth-1742-tlds" "$SUT" "$MUT/np28.sh" 's/^cc\(.\)$/so\1/'; then
+  if mutant_chain_or_count fail "teeth-1742-tlds" "$SUT" "$MUT/np28.sh" 's/^cc\(.\)$/so\1/'; then
     tooth "teeth-1742-tlds" 0 0 "$MUT/np28.sh" --good-has 'EXTS tlds-subset' --good-lacks 'TLD-NOT-EXT' \
       --bad-has 'EXTS TLD-NOT-EXT: so' --bad-lacks 'EXTS tlds-subset' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
-  else fail=$((fail+1)); fi
+  fi
   # kit #1742 (round 2): the reverse direction — an overlap entry (`tf`) removed from _vb_tlds is reported as missing
-  if mutant_chain "teeth-1742-tlds-complete" "$SUT" "$MUT/np31.sh" '/^_vb_tlds=/,/^cc/{/^tf$/d}'; then
+  if mutant_chain_or_count fail "teeth-1742-tlds-complete" "$SUT" "$MUT/np31.sh" '/^_vb_tlds=/,/^cc/{/^tf$/d}'; then
     tooth "teeth-1742-tlds-complete" 0 0 "$MUT/np31.sh" --good-has 'EXTS tlds-complete' --good-lacks 'TLD-MISSING' \
       --bad-has 'EXTS TLD-MISSING: tf' --bad-lacks 'EXTS tlds-complete' -- bash "$_vb_fx" @SUT@ "$_vb_exp"
-  else fail=$((fail+1)); fi
+  fi
   # kit #1742 (item 1): the set-preserved check fails closed. The mutants are of the FIXTURE (--orig), run against the
   # real SUT: without the existence test a missing expected set is no longer UNREADABLE-EXPECTED; without the diff
   # status test a diff that exits 2 with empty stdout reads `set-preserved` again (the original fail-open).
-  if mutant_chain "teeth-1742-exp-exists" "$_vb_fx" "$MUT/fx1.sh" 's/if \[ ! -f "\$expected" \] || \[ ! -r "\$expected" \]; then/if false; then/'; then
+  if mutant_chain_or_count fail "teeth-1742-exp-exists" "$_vb_fx" "$MUT/fx1.sh" 's/if \[ ! -f "\$expected" \] || \[ ! -r "\$expected" \]; then/if false; then/'; then
     tooth "teeth-1742-exp-exists" 0 0 "$MUT/fx1.sh" --orig "$_vb_fx" --good-has 'EXTS UNREADABLE-EXPECTED' --good-lacks 'set-preserved' \
       --bad-lacks 'EXTS UNREADABLE-EXPECTED' --bad-has 'EXTS DIFF-ERROR' --bad-lacks 'EXTS set-preserved' -- bash @SUT@ "$SUT" "$TMP/no-such-expected-set.txt"
-  else fail=$((fail+1)); fi
-  if mutant_chain "teeth-1742-diff-rc" "$_vb_fx" "$MUT/fx2.sh" 's/if \[ "\$drc" -ge 2 \]; then/if false; then/'; then
+  fi
+  if mutant_chain_or_count fail "teeth-1742-diff-rc" "$_vb_fx" "$MUT/fx2.sh" 's/if \[ "\$drc" -ge 2 \]; then/if false; then/'; then
     tooth "teeth-1742-diff-rc" 0 0 "$MUT/fx2.sh" --orig "$_vb_fx" --good-has 'EXTS DIFF-ERROR' --good-lacks 'set-preserved' \
       --bad-has 'EXTS set-preserved' --bad-lacks 'EXTS DIFF-ERROR' -- env "PATH=$TMP/stub-diff:$PATH" bash @SUT@ "$SUT" "$_vb_exp"
-  else fail=$((fail+1)); fi
+  fi
   if mk_sed "teeth-973-method" "$MUT/np2.sh" '/_vb_m=\$((_vb_m-1))/s/_vb_m-1/_vb_m-0/'; then
     tooth "teeth-973-method" 0 0 "$MUT/np2.sh" --good-has 'INFO +0 file citations' --good-lacks 'resolved 0 of' \
       --bad-has 'resolved 0 of 1' --bad-lacks 'INFO +0 file citations' -- bash @SUT@ "$TMP/n973-methodonly.md"

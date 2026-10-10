@@ -297,10 +297,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant of the SUT must flip a specific verdict --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   _BASH_CRASH="$(mutant_crash_re bash)" || exit 2
   MUT="$(mktemp -d)"
-  mk(){ mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mk(){ mutant_chain_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A: binary rule neutered → built-in binary artifacts pass.
   mk "A binary" "$SUT" "$MUT/a.sh" 's/\*\.class|\*\.jar|\*\.dll|\*\.so|\*\.so\.\[0-9\]\*|\*\.exe)/*.zzznomatch)/' \
