@@ -399,6 +399,7 @@ tt teeth-input-cap '_read_target(target, args.max_input_bytes)' '_read_target(ta
 # The single-fd core (fstat recheck, digest seeding, O_NOFOLLOW) is owned and mutation-tested by adapter-core.test.sh
 # (teeth-rsf-*). Here: qemu_plan must stay a single-open delegate and keep its header-first error precedence.
 tt teeth-single-open 'return _elf_arch(hdr), total, sha' 'return _elf_arch(hdr), total, read_single_fd(path, max_bytes)[2]' 'FAIL  T_TOCTOU1: single-open-consistent-identity'
+tt teeth-open-error 'QemuPlanError(f"cannot read ELF header: {exc}")' 'QemuPlanError(str(exc))' 'FAIL  T11: symlink-target-clean-error'
 tt teeth-early-head 'early_head=_elf_arch,' 'early_head=None,' 'FAIL  T11b: directory-target-header-first'
 tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
 

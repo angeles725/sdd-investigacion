@@ -574,10 +574,15 @@ def _():
         assert seen[-1] == b"hdr" == h and size == 67
         try: ac.read_single_fd(t, None, 3, early_head=seen.append); raise AssertionError("no ValueError")
         except ValueError: pass
+print("RSF-DONE")
 PY
 }
 _rsf_out="$(_rsf_cases "$SUT")"; printf '%s\n' "$_rsf_out"
 pass=$((pass + $(grep -c '^  PASS  ' <<<"$_rsf_out"))); fail=$((fail + $(grep -c '^  FAIL  ' <<<"$_rsf_out")))
+# Silent-zero guard (#2088): the runner must have reached its end AND reported exactly 5 RSF cases.
+if ! grep -qx 'RSF-DONE' <<<"$_rsf_out" || [ "$(grep -cE '^  (PASS|FAIL)  RSF' <<<"$_rsf_out")" -ne 5 ]; then
+  echo "  FAIL  RSF: case runner did not report all 5 cases"; fail=$((fail + 1))
+fi
 
 # ─── Prove-teeth (--prove-teeth): verify the AST convention check is not theatre ───────────────
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -638,7 +643,7 @@ PYEOF
   _rsf_tooth teeth-rsf-nofollow 'getattr(os, "O_NOFOLLOW", 0)
     if early_head' '0
     if early_head' 'RSF4'
-  _rsf_tooth teeth-rsf-early-head-order $'            early_head(head)\n        else:' $'            pass\n        else:' 'RSF5'
+  _rsf_tooth teeth-rsf-early-head-called $'            early_head(head)\n        else:' $'            pass\n        else:' 'RSF5'
   _rsf_tooth teeth-rsf-cap-boundary 'before.st_size > max_bytes:
             raise AdapterError("input exceeds max-input-bytes")
         if early_head is None' 'before.st_size >= max_bytes:

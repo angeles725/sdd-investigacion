@@ -109,7 +109,7 @@ def read_single_fd(
     an fstat at open and another after hashing (dev/ino/mode/size/mtime/ctime) refuse a target mutated in place.
 
     FIFO caveat: the open flags are unchanged, so ``os.open`` blocks on a writerless FIFO BEFORE any fstat can
-    refuse it. Only a non-regular file that the open actually reaches (directory, char device, connected FIFO)
+    refuse it. Without early_head, only a non-regular file that the open actually reaches (directory, char device, connected FIFO)
     is refused, after fstat, with "not a regular file".
 
     Raises AdapterError: "cannot open regular non-symlink file" (open failed, e.g. symlink), "not a regular
