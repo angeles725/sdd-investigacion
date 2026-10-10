@@ -63,9 +63,8 @@ def _check_argv(argv: list[str]) -> None:
 
 
 def _rsdd_root() -> str:
-    """Host isolation root: $TMPDIR/rsdd when TMPDIR is set, else docker_common's /tmp/rsdd (#2061)."""
-    tmp = os.environ.get("TMPDIR", "")
-    return os.path.join(tmp, "rsdd") if tmp else _dc._DEFAULT_RSDD_ROOT
+    """Host run-dir root: $RSDD_VM_ROOT (explicit override, used by the test suite sandbox), else /tmp/rsdd (#2061)."""
+    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT
 
 
 def _pin_target(plan: dict[str, Any], argv: list[str], stage: str) -> list[str]:
@@ -84,9 +83,16 @@ def _pin_target(plan: dict[str, Any], argv: list[str], stage: str) -> list[str]:
         raise GateError(f"kernel/target cannot be opened without following symlinks: {exc}") from exc
     dest = os.path.join(stage, "target")
     h = hashlib.sha256(); size = 0
+
+    def _changed(detail: str) -> GateError:
+        return GateError(f"kernel/target changed since plan ({detail}); refusing to boot {path!r}")
+
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
             raise GateError(f"kernel/target is not a regular file: {path!r}")
+        if tgt.get("size") is not None and st.st_size != tgt["size"]:
+            raise _changed(f"size {st.st_size} != planned {tgt['size']}")
         out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o400)
         try:
             while True:
@@ -103,12 +109,13 @@ def _pin_target(plan: dict[str, Any], argv: list[str], stage: str) -> list[str]:
         os.close(fd)
     want = str(tgt.get("sha256", "")).removeprefix("sha256:")
     if not want or h.hexdigest() != want or (tgt.get("size") is not None and size != tgt["size"]):
-        raise GateError(
-            f"kernel/target changed since plan (identity mismatch: sha256 {h.hexdigest()}, size {size}); "
-            f"refusing to boot {path!r}"
-        )
-    return [dest if (a == path and i > 0 and argv[i - 1] == "--ro-bind") else a
-            for i, a in enumerate(argv)]
+        raise _changed(f"identity mismatch: sha256 {h.hexdigest()}, size {size}")
+    out_argv = [dest if (a == path and i > 0 and argv[i - 1] == "--ro-bind") else a
+                for i, a in enumerate(argv)]
+    n_sub = sum(1 for a, b in zip(argv, out_argv) if a != b)
+    if n_sub != 1:
+        raise GateError(f"expected exactly one --ro-bind source {path!r} in planned_argv, found {n_sub}")
+    return out_argv
 
 
 def _preflight(plan: dict[str, Any]) -> None:
