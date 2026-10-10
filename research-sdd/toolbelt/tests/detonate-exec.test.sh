@@ -157,6 +157,8 @@ def _pin_probe(kind):
             env.update(SWAP_PATH=str(elf), BIND_REC=str(brec))
         if kind == "refuse":
             elf.write_bytes(elf.read_bytes()[:-1] + b"\x01")  # same size, different bytes
+        if kind == "nopath":
+            plan.pop("sample")
         if kind == "multi":
             a = plan["planned_argv"]; s = a.index("--")
             plan["planned_argv"] = a[:s] + ["--ro-bind", path, "/second"] + a[s:]
@@ -176,6 +178,9 @@ def _pin_probe(kind):
             swapped = elf.read_bytes().startswith(b"EVIL-")
             good = err is None and bool(res) and res.get("executed") is True and swapped and got == planned_hex
             out["detail"] = f"err={err!r} swapped={swapped} bind sha {got} != planned {planned_hex}"
+        elif kind == "nopath":
+            good = err is not None and "records no sample path" in err
+            out["detail"] = f"err={err!r}"
         else:  # multi
             good = err is not None and "exactly one --ro-bind" in err
             out["detail"] = f"err={err!r}"
@@ -219,6 +224,11 @@ else: nok("PIN-BIND", f"qemu was handed swapped bytes: {_r_bind['verdict']} {_r_
 _r_multi = _pin_probe("multi")
 if _r_multi["verdict"] == "good": ok("PIN-MULTI: sample bound twice in planned_argv → GateError 'exactly one --ro-bind'")
 else: nok("PIN-MULTI", f"{_r_multi['verdict']} {_r_multi['detail']}")
+
+# ── PIN-NOPATH (#2090): a plan with no recorded sample identity is refused (fail closed), not booted unpinned ──
+_r_nopath = _pin_probe("nopath")
+if _r_nopath["verdict"] == "good": ok("PIN-NOPATH: plan without sample path/sha256 → GateError 'records no sample path', never booted")
+else: nok("PIN-NOPATH", f"{_r_nopath['verdict']} {_r_nopath['detail']}")
 
 # ── PIN-NOLEAK (#2090): the private sample copy dir is gone after both a refusal and a run ──
 _leaks = _r_refuse["leaked"] + _r_bind["leaked"]
@@ -786,17 +796,18 @@ except Exception as e: nok("RED-INV3-nonfile-key", str(e))
 # ── RED-INV3-eval-seam: evaluate()-level adversarial -kernel not substituted (INV-3 seam) ──
 # Mutation proof: revert pre_boot call site to substring loop → -kernel wrongly rewritten → FAILS.
 with tempfile.TemporaryDirectory() as td:
-    tmp = Path(td); p = _shims(tmp)
+    tmp = Path(td); p = _shims(tmp); _sf = tmp / "s.bin"; _sf.write_bytes(b"SAMPLE" * 32)
     try:
         import detonate_exec as _de2; from gate import GateError
         _av2 = ["bwrap","--unshare-net","--unshare-pid","--cap-drop","ALL","--tmpfs","/tmp/rsdd","--dir","/tmp/rsdd/out",
-                "--bind",_SENT3,_SENT3,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind","/store/sample.bin","/input/sample","--",
+                "--bind",_SENT3,_SENT3,"--ro-bind","/store/rootfs.img","/input/rootfs","--ro-bind",str(_sf),"/input/sample","--",
                 "qemu-system-x86_64","-m","256","-smp","1","-accel","tcg","-nic","none","-nodefaults",
                 "-sandbox","on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
                 "-kernel",_SENT3,"-drive","file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio",
                 "-drive",f"file={_SENT3},snapshot=off,format=raw,if=virtio","-drive","file=/input/rootfs,snapshot=on,format=raw,if=virtio"]
         _old2 = os.environ.get("PATH",""); os.environ["PATH"] = p
-        try: _r2 = _de2.DetonateVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av2})
+        try: _r2 = _de2.DetonateVmExecutor(tmp/"out").evaluate({"qemu_binary":"qemu-system-x86_64","planned_argv":_av2,
+            "sample":{"path":str(_sf),"sha256":"sha256:"+__import__("hashlib").sha256(_sf.read_bytes()).hexdigest(),"size":_sf.stat().st_size}})
         finally: os.environ["PATH"] = _old2
         _ea2 = _r2.get("exec_argv",[]); _ki2 = _ea2.index("-kernel") if "-kernel" in _ea2 else None
         assert _ki2 is not None and _ea2[_ki2+1]==_SENT3 and any(_ea2[i]=="--bind" and _ea2[i+1]!=_SENT3 for i in range(len(_ea2)-1)), f"INV-3 seam: -kernel={_ea2[_ki2+1] if _ki2 is not None else 'missing'!r} or --bind not substituted"
@@ -1100,6 +1111,10 @@ _pin_t teeth-pin-bind-original bind lib/vm_pin.py \
   's/out = \[dest if (a == path and i > 0/out = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
 _pin_t teeth-pin-multi-bind multi lib/vm_pin.py \
   's/^    if n_sub != 1:$/    if False:/'
+_pin_t teeth-pin-nopath-skip nopath lib/vm_exec_common.py \
+  's/^        if not spath or not sha:$/        if False:/'
+_pin_t teeth-pin-keys-swapped bind lib/vm_exec_common.py \
+  's/^_IDENT_KEY = {"detonate": "sample", "trace": "target"}$/_IDENT_KEY = {"detonate": "target", "trace": "sample"}/'
 _pin_t teeth-pin-stage-leak leak lib/vm_exec_common.py \
   's/^        shutil.rmtree(stage, ignore_errors=True)$/        pass/'
 

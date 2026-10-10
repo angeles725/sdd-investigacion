@@ -197,6 +197,9 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
 # Shared evaluate seam
 # ---------------------------------------------------------------------------
 
+_IDENT_KEY = {"detonate": "sample", "trace": "target"}
+
+
 def run_evaluate(
     plan: dict[str, Any],
     schema_version: str,
@@ -232,16 +235,13 @@ def run_evaluate(
     # argv_deltas is captured by the closure and injected into ev in Step 5.
     argv_deltas: list[dict[str, Any]] = []
     # Plan identity (#2090): detonate records the sample under "sample", trace under "target".
-    ident = (plan.get("sample") if plan_label == "detonate" else plan.get("target")) or {}
+    if plan_label not in _IDENT_KEY:
+        raise GateError(f"unknown executor label {plan_label!r}; cannot locate the plan sample identity")
+    ident = plan.get(_IDENT_KEY[plan_label]) or {}
     stage = tempfile.mkdtemp(prefix="rsdd-vm-sample-")  # private 0700, honours TMPDIR
 
     def pre_boot(run_dir: str, exec_argv: list[str]) -> list[str]:
         """Pin the sample to the planned identity; create scratch.img in run_vm's run_dir; substitute sentinel."""
-        spath = ident.get("path", "")
-        if spath:
-            dest = _vp.pin_file(spath, ident.get("sha256"), ident.get("size"), stage,
-                                f"{plan_label} sample", "boot")
-            exec_argv = _vp.rebind_source(exec_argv, spath, dest)
         scratch_path = f"{run_dir}/scratch.img"
         # Create fresh zeroed scratch disk (O_NOFOLLOW, fail-closed).
         try:
@@ -268,6 +268,21 @@ def run_evaluate(
                 f"scratch sentinel {_SCRATCH_SENTINEL!r} not found in planned_argv; "
                 f"{plan_label} plan must include the scratch sentinel drive"
             )
+
+        # Pin the sample (#2090): fail closed when the plan records no identity.
+        spath, sha = ident.get("path", ""), ident.get("sha256")
+        if not spath or not sha:
+            raise GateError(f"{plan_label} plan records no sample path/sha256; refusing to boot")
+        bound = [new_argv[i + 1] for i in range(len(new_argv) - 2)
+                 if new_argv[i] == "--ro-bind" and new_argv[i + 2] == "/input/sample"]
+        if bound != [spath]:
+            raise GateError(
+                f"{plan_label} plan --ro-bind source for /input/sample {bound!r} "
+                f"is not the planned sample {spath!r}; refusing to boot"
+            )
+        dest = _vp.pin_file(spath, sha, ident.get("size"), stage, f"{plan_label} sample", "boot",
+                            name="sample")
+        new_argv = _vp.rebind_source(new_argv, spath, dest)
 
         # Re-check disk policy with real run_dir scope.
         _vdp.check_disk_policy(new_argv, run_dir=run_dir)
