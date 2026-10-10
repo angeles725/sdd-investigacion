@@ -69,7 +69,8 @@ def read_target_once(path: Path, max_bytes: int | None, head_len: int = 20) -> t
     The first *head_len* bytes are read from the fd and seed the digest, so the sniffed header and the hash
     cover the same bytes by construction; an fstat at open and another after hashing
     (dev/ino/mode/size/mtime/ctime) refuses a target mutated in place. Same AdapterError messages as
-    adapter_core.identity. The regular-file check precedes the header read, so a FIFO is refused, not read.
+    adapter_core.identity. Like adapter_core.identity, os.open blocks on a writerless FIFO; any non-regular file that is reached is
+    refused after fstat, before the header is read.
     """
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:

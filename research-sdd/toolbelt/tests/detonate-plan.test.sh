@@ -603,12 +603,12 @@ with tempfile.TemporaryDirectory() as td:
     try:
         with unittest.mock.patch("os.open", swap_open):
             rc = m.plan_detonate(m._parser(["plan","--sample",str(tgt),"--output",str(out)]))
-        assert rc in (2, 3), f"unexpected rc {rc}"
-        if rc == 3:
+        assert rc == 3, f"unexpected rc {rc}"
+        if True:
             p = json.loads((out/"detonate-plan.v1.json").read_text())
             want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
             assert p["arch"] == "arm" and p["sample"]["sha256"] == want, \
-                f"plan describes different files: arch={p["arch"]} sha256={p["sample"]["sha256"]} (arm bytes hash {want})"
+                f"plan describes different files: arch={p['arch']} sha256={p['sample']['sha256']} (arm bytes hash {want})"
         assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
         ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
     except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))

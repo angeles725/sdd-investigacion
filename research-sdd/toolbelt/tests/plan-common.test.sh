@@ -282,6 +282,18 @@ with tempfile.TemporaryDirectory() as td:
         ok("PC-RTO3: same-size overwrite after the header read -> refused or head/sha from the same bytes")
     except Exception as e: nok("PC-RTO3: header-hash-agreement", str(e))
 
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(b"\x7fELF" + b"A"*64); ln = R/"ln"; ln.symlink_to(t); d = R/"d"; d.mkdir()
+    def refusal(p, cap):
+        try: m.read_target_once(p, cap); return "accepted"
+        except m.AdapterError as exc: return str(exc)
+    try:
+        assert refusal(ln, None) == f"cannot open regular non-symlink file: {ln}", refusal(ln, None)
+        assert refusal(d, None) == f"not a regular file: {d}", refusal(d, None)
+        assert refusal(t, 8) == "input exceeds max-input-bytes", refusal(t, 8)
+        ok("PC-RTO4: symlink / directory / over-cap refused with identity's exact messages")
+    except Exception as e: nok("PC-RTO4: refusal-messages", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
