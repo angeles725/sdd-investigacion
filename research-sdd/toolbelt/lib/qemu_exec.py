@@ -63,11 +63,6 @@ def _check_argv(argv: list[str]) -> None:
             raise GateError(f"planned_argv {tok} value {nxt!r} violates containment")
 
 
-def _rsdd_root() -> str:
-    """Host run-dir root: $RSDD_VM_ROOT (explicit override, used by the test suite sandbox), else /tmp/rsdd (#2061)."""
-    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT
-
-
 def _pin_target(plan: dict[str, Any], argv: list[str], stage: str) -> list[str]:
     """Bind exec to the planned identity (#2078): pin the target via vm_pin (open once, hash the copy,
     refuse on mismatch) and point the bwrap --ro-bind source at the private copy."""
@@ -105,10 +100,7 @@ def _preflight(plan: dict[str, Any]) -> None:
             raise GateError(f"kernel/target is a symlink (rejected: TOCTOU): {tgt!r}")
         if not stat.S_ISREG(st.st_mode):
             raise GateError(f"kernel/target is not a regular file: {tgt!r}")
-    root = _rsdd_root()
-    if root != _dc._DEFAULT_RSDD_ROOT:
-        os.makedirs(root, mode=0o700, exist_ok=True)
-    _dc.verify_rsdd_root(root)
+    _dc.ensure_rsdd_root()
 
 
 class LiveQemuBootExecutor:
@@ -129,7 +121,7 @@ class LiveQemuBootExecutor:
             return _vbc.run_vm(
                 plan, preflight=_preflight, snapshot_hook=None,
                 pre_boot=lambda run_dir, argv: _pin_target(plan, argv, stage),
-                root=_rsdd_root(),
+                root=_dc.rsdd_root(),
             )
         finally:
             shutil.rmtree(stage, ignore_errors=True)
