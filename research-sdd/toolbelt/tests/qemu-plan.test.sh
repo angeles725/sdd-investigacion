@@ -142,6 +142,16 @@ with tempfile.TemporaryDirectory() as td:
         ok("T11: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
     except Exception as e: nok("T11: symlink-target-clean-error", str(e))
 
+# ── T11b: directory target → header-first precedence keeps "cannot read ELF header" (not "not a regular file") ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); d = R/"d"; d.mkdir(); out = R/"out"
+    try:
+        r = cli("plan","--target",str(d),"--mode","qemu-user","--output",str(out))
+        assert r.returncode == 2 and "Traceback" not in r.stderr, f"rc={r.returncode} {r.stderr[:200]}"
+        assert "cannot read ELF header" in r.stderr and "not a regular file" not in r.stderr, r.stderr[:200]
+        ok("T11b: directory target → exit 2 with the header-first 'cannot read ELF header' message")
+    except Exception as e: nok("T11b: directory-target-header-first", str(e))
+
 # ── T12: same input → identical plan identity (determinism) ──────────────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"d.elf"; tgt.write_bytes(_ARM); out1 = R/"r1"; out2 = R/"r2"
@@ -303,12 +313,11 @@ with tempfile.TemporaryDirectory() as td:
     try:
         with unittest.mock.patch("os.open", swap_open):
             rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
-        assert rc in (2, 3), f"unexpected rc {rc}"
-        if rc == 3:
-            p = json.loads((out/"qemu-plan.v1.json").read_text())
-            want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
-            assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
-                f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
+        assert rc == 3, f"unexpected rc {rc} (single-open read of the original bytes must succeed with rc 3)"
+        p = json.loads((out/"qemu-plan.v1.json").read_text())
+        want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+        assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+            f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
         assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
         ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
     except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))
@@ -387,11 +396,10 @@ tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sand
 tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
 tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
 tt teeth-input-cap '_read_target(target, args.max_input_bytes)' '_read_target(target, None)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
-tt teeth-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  T_TOCTOU2: mutation-mid-read-refused: in-place mutation mid-read accepted'
-tt teeth-single-open 'os.read(fd, _ELF_MIN)' 'os.read(fd, _ELF_MIN); os.close(fd); fd = os.open(path, flags)' 'FAIL  T_TOCTOU1: single-open-consistent-identity: target opened 2 times'
-# Rewind-and-reread plus a neutralised fstat recheck (which would otherwise mask it): header/hash agreement must hold by construction.
-tt teeth-seed-digest $'            digest = hashlib.sha256(); digest.update(hdr); total = len(hdr); chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = os.fstat(fd)' $'            os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = before' 'FAIL  T_TOCTOU3: header-hash-agreement: header/hash disagree'
-tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
+# The single-fd core (fstat recheck, digest seeding, O_NOFOLLOW) is owned and mutation-tested by adapter-core.test.sh
+# (teeth-rsf-*). Here: qemu_plan must stay a single-open delegate and keep its header-first error precedence.
+tt teeth-single-open 'return _elf_arch(hdr), total, sha' 'return _elf_arch(hdr), total, read_single_fd(path, max_bytes)[2]' 'FAIL  T_TOCTOU1: single-open-consistent-identity'
+tt teeth-early-head 'early_head=_elf_arch,' 'early_head=None,' 'FAIL  T11b: directory-target-header-first'
 tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="

@@ -324,7 +324,9 @@ tt teeth-PC-6b $'if result.get("outcome") == "authorization-required":\n        
 tt teeth-PC-7 'except (AdapterError, OSError) as exc:' 'except OSError as exc:' 'FAIL  PC-7: run_adapter_main AdapterError: disk-full-test'
 tt teeth-PC-10 'except (AdapterError, OSError) as exc:' 'except BaseException as exc:' 'FAIL  PC-10: run_adapter_main KeyboardInterrupt: KeyboardInterrupt was NOT re-raised'
 
-tt teeth-rto-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  PC-RTO2: mutation-mid-read-refused'
-tt teeth-rto-seed-digest 'digest = hashlib.sha256(); digest.update(head); total = len(head)' 'os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; before = os.fstat(fd)' 'FAIL  PC-RTO3: header-hash-agreement'
+# The shared core's fstat recheck / digest seeding are mutation-tested in adapter-core.test.sh (teeth-rsf-*);
+# here read_target_once must keep delegating with its head_len (PC-RTO1/3 read the head back).
+tt teeth-rto-head-len 'read_single_fd(path, max_bytes, head_len)' 'read_single_fd(path, max_bytes, 0)' 'FAIL  PC-RTO1: head-size-sha-match'
+tt teeth-rto-cap 'read_single_fd(path, max_bytes, head_len)' 'read_single_fd(path, None, head_len)' 'FAIL  PC-RTO4: refusal-messages'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
