@@ -267,9 +267,9 @@ _rsdd_dotnet_probe() {
   [ -d "$root/shared/Microsoft.NETCore.App" ] || return 1
   timeout_bin="$(command -v timeout 2>/dev/null || true)"
   if [ -x "${timeout_bin:-}" ]; then
-    DOTNET_ROOT="$root" "$timeout_bin" "${RSDD_PROBE_TIMEOUT:-10}" "$ilspy" --version >/dev/null 2>&1
+    DOTNET_EnableDiagnostics=0 DOTNET_ROOT="$root" "$timeout_bin" "${RSDD_PROBE_TIMEOUT:-10}" "$ilspy" --version >/dev/null 2>&1
   else
-    DOTNET_ROOT="$root" "$ilspy" --version >/dev/null 2>&1
+    DOTNET_EnableDiagnostics=0 DOTNET_ROOT="$root" "$ilspy" --version >/dev/null 2>&1
   fi
 }
 

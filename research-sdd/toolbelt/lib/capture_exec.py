@@ -4,7 +4,8 @@ Spawns dumpcap (Wireshark's privilege-separated capture engine) into a per-run
 subdir under /tmp/rsdd. Honours the planned_argv from capture_plan.py; only
 two argv transforms: (1) -w rewrite to per-run subdir, (2) -a filesize: cap
 addition. Bounded by: dumpcap -c/-a duration:, the added -a filesize:, and an
-independent client-side wall deadline (duration + grace).
+independent client-side wall deadline (duration + grace, counted from the pcap file
+appearing, with a hard ceiling of startup budget + duration + grace from spawn).
 
 RESIDUAL RISKS: root/CAP_NET_RAW operator prerequisite (setcap cap_net_raw+ep,
 never sudo); shared-host capture observes other tenants' traffic (RSDD_CAPTURE_IFACES
@@ -30,7 +31,9 @@ from capture_analyze import analyze_pcap  # C2: offline pcap corroboration hando
 from gate import GateError
 
 SCHEMA_VERSION: str = "capture-run.v1"
-_WALL_GRACE_S: int = 5      # client wall = plan duration + this grace
+_WALL_GRACE_S: int = 5      # client wall = plan duration + this grace, counted from capture start
+_STARTUP_BUDGET_S: int = 30  # max wait for capture (pcap file appears); ceiling = this + duration + grace
+_POLL_S: float = 0.1        # wait-poll interval while watching for capture start
 _SIGTERM_GRACE_S: int = 5   # wait between SIGTERM and SIGKILL
 _FILESIZE_KB_MAX: int = 524288  # 512 MiB hard ceiling (forward-compatible)
 
@@ -177,7 +180,7 @@ class LiveCaptureExecutor:
         exec_argv += ["-a", filesize_arg]
         argv_deltas.append({"transform": "add-filesize-cap", "value": filesize_arg})
 
-        wall_deadline = duration_s + _WALL_GRACE_S
+        wall_len = duration_s + _WALL_GRACE_S
 
         # Bounded streaming drain: one daemon thread per pipe.
         raw_out: list[bytes] = [b""]
@@ -196,10 +199,25 @@ class LiveCaptureExecutor:
                 target=_dc.drain_pipe, args=(proc.stderr, _dc.OUTPUT_CAP, raw_err), daemon=True)
             t_out.start()
             t_err.start()
-            try:
-                exit_code = proc.wait(timeout=wall_deadline)
-            except subprocess.TimeoutExpired:
-                timed_out = True
+            # dumpcap's -a duration: counts from capture start, not spawn: start the client wall at the
+            # capture (the pcap file appears); a dumpcap that never starts is still
+            # killed by the spawn-based ceiling (startup budget + duration + grace).
+            ceiling = t0 + _STARTUP_BUDGET_S + wall_len
+            started: float | None = None
+            while True:
+                try:
+                    exit_code = proc.wait(timeout=_POLL_S)
+                    break
+                except subprocess.TimeoutExpired:
+                    pass
+                now = time.monotonic()
+                if started is None and os.path.exists(pcap_path):
+                    started = now
+                deadline = ceiling if started is None else min(ceiling, started + wall_len)
+                if now >= deadline:
+                    timed_out = True
+                    break
+            if timed_out:
                 # SIGTERM first — dumpcap flushes a valid partial pcap on SIGTERM.
                 try: proc.send_signal(signal.SIGTERM)
                 except Exception: pass
