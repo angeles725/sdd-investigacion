@@ -1004,6 +1004,46 @@ else
   no "tmpdir-contained: tool writes must stay in the suite sandbox" "rc=$_td_rc caller=$_td_n sandbox=$_td_in"
 fi
 
+# dipe (#2085): the ilspycmd usability probe (rsdd_resolve_dotnet_root) is killed by the probe timeout; a
+# dotnet-hosted ilspycmd then leaves clr-debug-pipe-* in $TMPDIR. The probe must run with
+# DOTNET_EnableDiagnostics=0 (scoped to the probe, not exported). The shim creates the pipes UNLESS that
+# variable is 0, then sleeps past the 0.1 s timeout. Pipes are counted in a private TMPDIR.
+RUNTIME_DIPE="$ROOT/runtime-dipe"; mkdir -p "$RUNTIME_DIPE/shared/Microsoft.NETCore.App"
+BIN_DIPE="$ROOT/bin-dipe"; DIPE_TMP="$ROOT/dipe-tmp"; mkdir -p "$DIPE_TMP"
+mkexec "$BIN_DIPE/ilspycmd" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-$$-in"; : > "$TMPDIR/clr-debug-pipe-$$-out"; }; exec sleep 5'
+mkexec "$BIN_DIPE/dotnet" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-$$-in"; : > "$TMPDIR/clr-debug-pipe-$$-out"; }; exec sleep 5'
+# dipe_run <detect-script>: run the probe with ambient diagnostics ON; print the pipe count left in DIPE_TMP.
+dipe_run() {
+  rm -rf "$DIPE_TMP"; mkdir -p "$DIPE_TMP"
+  env -u DOTNET_ROOT -u DOTNET_EnableDiagnostics TMPDIR="$DIPE_TMP" \
+    RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 RSDD_DOTNET_ROOT="$RUNTIME_DIPE" \
+    PATH="$BIN_DIPE:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
+    bash "$1" --cache "$ROOT/cache-dipe.txt" --quiet >/dev/null 2>&1 || true
+  find "$DIPE_TMP" -maxdepth 1 -name 'clr-debug-pipe-*' | wc -l
+}
+_dipe_n="$(dipe_run "$DETECT")"; _dipe_rc=$?
+if [ "$_dipe_rc" -eq 0 ] && [ "$_dipe_n" -eq 0 ]; then
+  ok "dipe: timed-out ilspycmd probe leaves no clr-debug-pipe-* in TMPDIR" "(pipes=$_dipe_n)"
+else
+  no "dipe: timed-out ilspycmd probe must leave no clr-debug-pipe-*" "rc=$_dipe_rc pipes=$_dipe_n"
+fi
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-dipe (targets test dipe): mutant strips DOTNET_EnableDiagnostics=0 from the dotnet probe in a COPY
+  # of lib/tool-env.sh (symlinked detect-tools.sh sources the copy) → the shim leaves pipes → dipe bites.
+  SHIM_DIPE="$ROOT/shim-dipe"
+  mkdir -p "$SHIM_DIPE/lib"
+  ln -sf "$DETECT" "$SHIM_DIPE/detect-tools.sh"
+  if mutant_chain_or_count fail "teeth: tool-env dipe mutant" "$HERE/../lib/tool-env.sh" \
+    "$SHIM_DIPE/lib/tool-env.sh" 's/DOTNET_EnableDiagnostics=0 //'; then
+    _mdipe_n="$(dipe_run "$SHIM_DIPE/detect-tools.sh")"
+    if [ "$_mdipe_n" -gt 0 ]; then
+      ok "teeth-dipe: diagnostics-env-stripped mutant leaves clr-debug-pipe-* — dipe bites" "(pipes=$_mdipe_n)"
+    else
+      no "teeth-dipe: mutant must leave clr-debug-pipe-*" "(pipes=$_mdipe_n)"
+    fi
+  fi
+fi
+
 # dotnet IPC leftovers (#1626): the real-PATH mutant below lets the SUT reach a REAL dotnet (ilspycmd smoke
 # probe). A dotnet killed by the probe timeout leaves clr-debug-pipe-* / dotnet-diagnostic-* files in $TMPDIR.
 # The run gets its own TMPDIR under $ROOT (removed by the EXIT trap above) and DOTNET_EnableDiagnostics=0
