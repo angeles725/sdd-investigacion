@@ -275,6 +275,9 @@ own right, independent of whatever else is found on the box. [#1599][#1600]
 
 Evidence: B1215 §1215.1-§1215.4.
 
+**Credential-file caution `[#2109]`:** a bench-seeded password file is not necessarily the platform
+daemon credential; see §11 "Credentials".
+
 **Cross-reference (deferred):** this defensive note belongs conceptually under METHODOLOGY.md §12
 (SECRETS DISCIPLINE) alongside the live-install credential-handling guidance already there;
 METHODOLOGY.md is owned by another writer in this chain, so the cross-link from §12 to this
@@ -292,7 +295,7 @@ only; never credentials (SECRETS DISCIPLINE).
 |---|---|
 | Workbench (`wb`) launch | Start it through a scheduled task: `schtasks ... /RU <interactive user> /IT /RL HIGHEST`, running a launcher `.cmd` that CLEARS the rival-posture machine environment variables per process. Without the clear, the N4 JVM dies before boot. |
 | Station (fox) | URI `foxs://<host>:4911` (TLS) — evidenced in the incident run (`plugin-st-stderr.txt`: FOXS 4911). The issue reports UDP 1911 as discovery-only on that host `[unverified]`. |
-| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. |
+| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. Update `[#2104]`: on one 4.13 install the platform daemon answered on 3011 (insecure) and 5011 (TLS) `[CERT-live]`, matching the audit defaults; the "N5 3011 platformssl" half of the #1931 wording remains `[unverified]`. Still record the live ports per run. |
 
 - **Unverified here:** the exact `schtasks` argument list and the names of the cleared variables are not in the
   issue text; copy them from the run's own `wb-session.log` / launcher `.cmd` rather than from this table.
@@ -352,7 +355,23 @@ State 3 is the failure mode of the split routes below.
 - **Machine variable:** moves daemon AND WB together unless the WB shell overrides it `[INFER]`; it also re-creates
   the state-1/version-switch hazards of §10.
 - **Seeding:** whichever route changes the daemon home, copy into the new home `etc/nre.properties`
-  (the agent file), `etc/credentials` and the security keyring from the working home first.
+  (the agent file), `etc/credentials` and the security keyring from the working home first. Copy the
+  keystore TOGETHER with the keyring `[#2105]`: a `security\` copied without a keystore makes niagarad
+  generate a recovery placeholder certificate (`O=ForRecoveryPurposes, CN=Niagara4`, validity starting at
+  seeding time) `[CERT-live]`. Detect it with a trust-all JSSE probe that dumps the peer certificate, or from
+  the boot WARNING "using default TLS server certificate 'default'". Either seed keystore and keyring
+  together, or accept the placeholder and approve it once per client home (it triggers the approval dialog
+  of the §12 hang playbook). Restoring the real keystore later requires re-seeding credentials, because the
+  credential store is bound to the same keyring `[CERT-live]`.
+- **Autostart `[#2107]`:** station Autostart flags live in the daemon's app registry,
+  `<daemon home>\registry\registry.db` (plus a `.chk`). Copying `stations\` into a new daemon home does NOT
+  carry them: flags default to false and no station starts at boot. Plan one Application Director pass to
+  re-flag stations `[CERT-live]`. Before flagging two stations, see §12 "Station port collisions".
+- **Credentials `[#2109]`:** a bench-seeded password file is not necessarily the platform daemon
+  credential; on one bench it was rejected instantly on the insecure port. The real credential lives only
+  in the home's `etc\credentials\credentials.xml`, decryptable only with the matching `.km` `[CERT-live]`.
+  Scripted platform auth must supply the real password separately or drive the GUI. Never record the
+  password in a capture, only its structure (SECRETS DISCIPLINE).
 
 **Measured failures when the daemon home changed without seeding** `[CERT-live]`: the daemon logged
 `failed to daemonize process, exiting` and the service exited 1067; and credential decryption threw a
@@ -376,6 +395,54 @@ and start failed until it was killed. The analogous case for another service is 
 Source: niagara-research retros 2026-10-09 (station-copier goal drift) and 2026-10-10 (MSI1 4.13 WB
 home / keyring). Corpus-local ladder labels are intentionally not reproduced; the rules above stand alone.
 
+## 12. Daemon and station diagnostics `[#2103][#2104][#2106][#2108]`
+
+Non-interactive (SSH) diagnosis of a Windows N4 daemon and its stations. Structure only; no credentials.
+
+### Where niagarad logs `[#2103]`
+
+niagarad writes to the **Windows Application Event Log**, source `Niagara`, one event per log line, raw
+text in `<EventData><Data>` `[CERT-live]`. Extract with:
+
+```
+wevtutil qe Application /f:xml /q:"*[System[Provider[@Name='Niagara']]]"
+```
+
+The text format prints `N/A` for the message, so use XML. EventID 1 = INFO, 2 = WARNING, 3 = SEVERE.
+"No `.log` files anywhere" does not mean the logs were lost: check `logging.properties` for a
+`FileHandler` first; a ConsoleHandler-only service is not silent. Observed: a boot timeline (SEVERE bind
+failure on :3011, then a clean boot) was rebuilt entirely from event data with zero `.log` files in any home.
+
+### Platform-session hang playbook `[#2104]`
+
+A client session to the TLS platform port (:5011) whose certificate is not yet exempt hangs forever with
+zero server-side log `[CERT-live]`: `CoreClientTrustManager` + `WbExemptionApprover` open a modal Swing
+dialog (`BExemptionPromptDialog` / `BExemptionChangedDialog`) that a headless SSH CLI cannot answer
+(an instance of `WINDOWS-SSH-PROBES.md` §7 "GUI apps over SSH"). Observed: `plat.exe` ESTABLISHED to 5011 for
+over 5 minutes with no daemon events, while the insecure port failed instantly; a JSSE handshake to 5011
+completed in ~100 ms and failed only PKIX validation. Playbook:
+
+1. **Liveness and credentials on the insecure port:** `plat details -h:ip:127.0.0.1 -p:3011` answers in
+   milliseconds; an auth failure there also proves the daemon is alive.
+2. **Jetty liveness:** `curl -k https://127.0.0.1:5011/platformInfo`; a fast 403 means jetty is alive.
+3. **Approve the certificate once in the GUI**, launched via the §9 `schtasks /it` recipe (not repeated here).
+
+### Process inventory `[#2106]`
+
+Supervisor stations run as native `station.exe` (the boot log says `Launching Niagara Runtime Environment`),
+not `java.exe` `[CERT-live]`. A liveness grep for "java" misses running stations. Check `station.exe` or
+`netstat -ano` on the station's web and fox ports. The command line carries `-daemonspawn:<token>` and the
+parent is niagarad. (Different topic from the §7 direct `station.exe <name>` module-load launch.)
+
+### Station port collisions `[#2108]`
+
+Stations copied from the same mold share default ports (web 443, FOXS 4911) `[CERT-live]`. The second one
+fails to bind and retries every 5 s (`BWebServer Scheduling restart`) while the station itself reports
+Started. Run one live station per mold copy, or change the `webService` / `foxService` ports before enabling
+Autostart on both (§11 Autostart). Diagnose from the station console log: a `BindException` through
+`sun.nio.ch.Net.bind0`, repeated `Failed to bind to 0.0.0.0:443` and `FOXS failed to bind [4911]`; confirm
+the holder with `netstat -ano`.
+
 ---
 
 ## Self-verify
@@ -392,5 +459,13 @@ home / keyring). Corpus-local ladder labels are intentionally not reproduced; th
 | 8 | Gradle 7.6 daemon ≠ toolchain; JAVA_HOME sets daemon JVM (Java 8) | `[CERT]` | worked case; installations.paths = toolchain |
 | 9 | findProjects() 2 layouts; scope as exclude; no exclude API | `[CERT]` | settings.gradle.kts:118-131,126-131 |
 | 10 | Bump only for frozen-slot structure change, not code-only | `[CERT-doc]` | BUILD_WORKFLOW.md:343,365 |
+| 11 | niagarad logs to the Application Event Log, source `Niagara`; EventID 1/2/3 = INFO/WARNING/SEVERE; XML format required | `[CERT-live]` | #2103; boot timeline rebuilt from EventData |
+| 12 | Untrusted-cert session to :5011 hangs (modal approval dialog); 3011 insecure answers in ms; 403 on `/platformInfo` = jetty alive | `[CERT-live]` | #2104; established 5011 session with no daemon events, JSSE handshake ~100 ms |
+| 13 | Supervisor stations run as native `station.exe` with `-daemonspawn:`, not `java.exe` | `[CERT-live]` | #2106; process listing and port listing |
+| 14 | Same-mold stations collide on web 443 / FOXS 4911; second retries every 5 s while "Started" | `[CERT-live]` | #2108; station console log BindException |
+| 15 | Seeding `security\` without a keystore yields a placeholder cert; credential store bound to keyring | `[CERT-live]` | #2105; peer-cert dump, seeding-time validity |
+| 16 | Autostart flags live in `registry\registry.db`, not carried by copying `stations\` | `[CERT-live]` | #2107; no autostart at boot until re-flagged, `registry.db` appeared on flagging |
+| 17 | Bench-seeded password file is not the platform daemon credential; real one only in `etc\credentials\credentials.xml` | `[CERT-live]` | #2109; instant auth rejection on 3011 |
+| 18 | Platform ports 3011 insecure / 5011 TLS on one 4.13 install | `[CERT-live]` | #2104 (updates §9 `[unverified]`) |
 
-**Tally:** 9 `[CERT]/[CERT-doc]`, 1 mixed with `[INFER]` (claim 2, auto-start). No unmarked claims.
+**Tally:** 9 `[CERT]/[CERT-doc]`, 1 mixed with `[INFER]` (claim 2, auto-start), 8 `[CERT-live]` (claims 11-18). No unmarked claims.
