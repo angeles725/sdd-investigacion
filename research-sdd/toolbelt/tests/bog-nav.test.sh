@@ -643,7 +643,8 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 # Shared helper (kit issue #1299): sourced ONLY on this branch, each function we call is checked.
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || { echo "FATAL: cannot source lib/mutant.sh" >&2; exit 2; }
-mutant_bootstrap mutant_chain mutant_tooth || exit 2
+mutant_bootstrap mutant_chain mutant_tooth mutant_crash_re || exit 2
+CRASH_RE="$(mutant_crash_re bash py)" || exit 2
 
 SUT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ORIG_PY="$SUT_DIR/bog_nav.py"
@@ -747,7 +748,7 @@ fi
 # unchanged and mutant_chain refuses it.
 if mut_build "M5 zip-read guard narrowed" M5 '/^        except Exception as exc:$/{N;/\n            try:$/{N;/\n                zf\.close()$/s/except Exception as exc:/except (zipfile.BadZipFile,) as exc:  # MUTANT-M5/;};}'; then
   qt "M5 zip-read guard narrowed" 1 1 --good-has '^JSON=present$' --bad-has '^JSON=absent$' \
-    --bad-lacks 'integer expression expected|syntax error|unbound variable|ImportError|ModuleNotFoundError' \
+    --bad-lacks "$CRASH_RE" \
     -- "$FIXTURES/corrupt_deflate.bog" none 5
 fi
 

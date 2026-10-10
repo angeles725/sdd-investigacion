@@ -18,7 +18,7 @@ _HERE = Path(__file__).parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from adapter_core import AdapterError                                        # noqa: E402
+from adapter_core import AdapterError, read_single_fd                                    # noqa: E402
 from gate import execute_or_plan, EXIT_AUTH_REQUIRED, EXIT_ERROR, GateError  # noqa: E402
 
 # Re-export key symbols so callers can import them from here.
@@ -28,6 +28,7 @@ __all__ = [
     "make_dry_run_det_spec",
     "run_gate_epilogue",
     "run_adapter_main",
+    "read_target_once",
     "reject_mount_delimiters",
     "validate_token",
     "add_max_input_bytes_arg",
@@ -60,6 +61,18 @@ class PlanOnlyExecutor:
             "outputs": [],
             "limitations": ["outputs-unknown-until-live-run"],
         }
+
+
+def read_target_once(path: Path, max_bytes: int | None, head_len: int = 20) -> tuple[bytes, int, str]:
+    """Open *path* ONCE (O_NOFOLLOW); return (head, size, "sha256:<hex>") all derived from that single fd (#2077).
+
+    Thin wrapper over adapter_core.read_single_fd (#2088): the first *head_len* bytes seed the digest, an fstat
+    at open and another after hashing refuse a target mutated in place, and the AdapterError messages are
+    identical to adapter_core.identity. FIFO caveat: os.open (O_RDONLY) blocks on a writerless FIFO before
+    fstat; any non-regular file that is reached is refused after fstat, before the header is read.
+    """
+    head, total, sha, _ = read_single_fd(path, max_bytes, head_len)
+    return head, total, sha
 
 
 def select_executor(allow_live: bool, schema_version: str) -> PlanOnlyExecutor | None:

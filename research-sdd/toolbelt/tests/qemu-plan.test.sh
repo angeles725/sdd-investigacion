@@ -136,10 +136,21 @@ with tempfile.TemporaryDirectory() as td:
     link = R/"l.elf"; link.symlink_to(real); out = R/"out"
     try:
         r = cli("plan","--target",str(link),"--mode","qemu-user","--output",str(out))
-        assert r.returncode == 2 and "Traceback" not in r.stderr
+        assert r.returncode == 2 and "Traceback" not in r.stderr, \
+            f"arch reader did not refuse the symlink: rc={r.returncode} {r.stderr[:200]}"
         assert "cannot read ELF header" in r.stderr, f"arch reader did not refuse the symlink: {r.stderr[:200]}"
         ok("T11: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
     except Exception as e: nok("T11: symlink-target-clean-error", str(e))
+
+# ── T11b: directory target → header-first precedence keeps "cannot read ELF header" (not "not a regular file") ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); d = R/"d"; d.mkdir(); out = R/"out"
+    try:
+        r = cli("plan","--target",str(d),"--mode","qemu-user","--output",str(out))
+        assert r.returncode == 2 and "Traceback" not in r.stderr, f"rc={r.returncode} {r.stderr[:200]}"
+        assert "cannot read ELF header" in r.stderr and "not a regular file" not in r.stderr, r.stderr[:200]
+        ok("T11b: directory target → exit 2 with the header-first 'cannot read ELF header' message")
+    except Exception as e: nok("T11b: directory-target-header-first", str(e))
 
 # ── T12: same input → identical plan identity (determinism) ──────────────────
 with tempfile.TemporaryDirectory() as td:
@@ -285,6 +296,76 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CONTAIN6: containment flags absent in qemu-user plan (system-only)")
     except Exception as e: nok("T_CONTAIN6: user-mode-no-contain-flags", str(e))
 
+# ── T_TOCTOU1: target swapped between header read and hashing (#2069) ────────
+# The wrapper swaps the target file the moment a SECOND open of it is attempted. Single-open code never
+# triggers the swap; two-open code sees file B at the hash and describes two different files.
+import hashlib
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    a_bytes = _ARM + b'A'*64; b_bytes = _X64 + b'B'*64
+    tgt.write_bytes(a_bytes); alt = R/"alt.elf"; alt.write_bytes(b_bytes)
+    real_open = os.open; opens = []
+    def swap_open(p, *a, **k):
+        if str(p) == str(tgt):
+            opens.append(1)
+            if len(opens) == 2: os.replace(alt, tgt)
+        return real_open(p, *a, **k)
+    try:
+        with unittest.mock.patch("os.open", swap_open):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert rc == 3, f"unexpected rc {rc} (single-open read of the original bytes must succeed with rc 3)"
+        p = json.loads((out/"qemu-plan.v1.json").read_text())
+        want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+        assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+            f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
+        assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
+        ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
+    except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))
+
+# ── T_TOCTOU2: target mutated in place after the header read → refused ───────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    tgt.write_bytes(_ARM + b'A'*64)
+    ino = os.stat(tgt).st_ino; real_read = os.read; fired = []
+    def mut_read(fd, n):
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(tgt, "ab") as fh: fh.write(b'tail')
+        return real_read(fd, n)
+    try:
+        with unittest.mock.patch("os.read", mut_read):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert fired, "mutation hook never fired (target not read via os.read)"
+        assert rc == 2, f"in-place mutation mid-read accepted: rc={rc}"
+        assert not (out/"qemu-plan.v1.json").exists(), "plan written for a mutated target"
+        ok("T_TOCTOU2: in-place mutation between header read and hash → refused (exit 2)")
+    except Exception as e: nok("T_TOCTOU2: mutation-mid-read-refused", str(e))
+
+# ── T_TOCTOU3: same-size header overwrite between header read and hashing → arch/sha agree or refused ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    a_bytes = _ARM + b'A'*64
+    tgt.write_bytes(a_bytes)
+    ino = os.stat(tgt).st_ino; real_read = os.read; fired = []
+    def over_read(fd, n):
+        r = real_read(fd, n)
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(tgt, "r+b") as fh: fh.write(_X64)   # same size: header now says x86_64
+        return r
+    try:
+        with unittest.mock.patch("os.read", over_read):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert fired, "overwrite hook never fired"
+        assert rc in (2, 3), f"unexpected rc {rc}"
+        if rc == 3:
+            p = json.loads((out/"qemu-plan.v1.json").read_text())
+            want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+            assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+                f"header/hash disagree: arch={p['arch']} sha256={p['target']['sha256']} (original bytes hash {want})"
+        ok("T_TOCTOU3: same-size header overwrite mid-read → refused or arch/sha256 from the same bytes")
+    except Exception as e: nok("T_TOCTOU3: header-hash-agreement", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -314,8 +395,12 @@ tt teeth-nodefaults '"-nodefaults",' '"-nographic",' 'FAIL  T_CONTAIN2: -nodefau
 tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sandbox-on-present: -sandbox not 'on"
 tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
 tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
-tt teeth-input-cap '_file_identity(target, max_bytes=args.max_input_bytes)' '_file_identity(target)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
-tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
+tt teeth-input-cap '_read_target(target, args.max_input_bytes)' '_read_target(target, None)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
+# The single-fd core (fstat recheck, digest seeding, O_NOFOLLOW) is owned and mutation-tested by adapter-core.test.sh
+# (teeth-rsf-*). Here: qemu_plan must stay a single-open delegate and keep its header-first error precedence.
+tt teeth-single-open 'return _elf_arch(hdr), total, sha' 'return _elf_arch(hdr), total, read_single_fd(path, max_bytes)[2]' 'FAIL  T_TOCTOU1: single-open-consistent-identity'
+tt teeth-open-error 'QemuPlanError(f"cannot read ELF header: {exc}")' 'QemuPlanError(str(exc))' 'FAIL  T11: symlink-target-clean-error'
+tt teeth-early-head 'early_head=_elf_arch,' 'early_head=None,' 'FAIL  T11b: directory-target-header-first'
 tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
 
 echo "== $pass passed · $fail failed =="

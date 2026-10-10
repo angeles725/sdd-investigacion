@@ -13,7 +13,7 @@ _HERE = Path(__file__).parent; _LIB = _HERE / "lib"
 for _p in (str(_LIB), str(_HERE)):
     if _p not in sys.path: sys.path.insert(0, _p)
 
-from adapter_core import AdapterError, identity as _file_identity, write as _write  # noqa: E402
+from adapter_core import AdapterError, read_single_fd, write as _write  # noqa: E402
 from adapter_helpers import assert_safe_bind_root, BindScopeError              # noqa: E402
 from gate import CAP_EXEC                                                       # noqa: E402
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
@@ -36,15 +36,8 @@ _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 
 class QemuPlanError(AdapterError): ...
 
 
-def _read_elf_arch(path: Path) -> str:
-    """Read e_machine (raw bytes, O_NOFOLLOW) → qemu arch suffix; QemuPlanError on any fault."""
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(path, flags)
-        try: hdr = os.read(fd, _ELF_MIN)
-        finally: os.close(fd)
-    except OSError as exc:
-        raise QemuPlanError(f"cannot read ELF header: {exc}") from exc
+def _elf_arch(hdr: bytes) -> str:
+    """Parse e_machine from an ELF header prefix → qemu arch suffix; QemuPlanError on any fault."""
     if len(hdr) < _ELF_MIN:
         raise QemuPlanError(f"file too short for ELF header: {len(hdr)} < {_ELF_MIN} bytes")
     if hdr[:4] != _ELF_MAGIC:
@@ -58,6 +51,23 @@ def _read_elf_arch(path: Path) -> str:
     if arch is None:
         raise QemuPlanError(f"unsupported e_machine=0x{e_machine:04x}: not in qemu arch mapping")
     return arch
+
+
+def _read_target(path: Path, max_bytes: int | None) -> tuple[str, int, str]:
+    """Open the target ONCE (O_NOFOLLOW) and derive arch, size and sha256 from that single fd.
+
+    Returns (arch, size, "sha256:<hex>"). Delegates to adapter_core.read_single_fd (#2088): the ELF header
+    seeds the digest, so arch and sha256 describe the same bytes; an fstat at open and after hashing refuses
+    a target mutated in place (#2069). The header is parsed BEFORE the regular-file check (early_head) and
+    open/header-read OSErrors are reported as "cannot read ELF header: ..." (QemuPlanError), keeping the
+    pre-existing messages. A writerless FIFO blocks in os.open before fstat (flags are unchanged).
+    """
+    hdr, total, sha, _ = read_single_fd(
+        path, max_bytes, _ELF_MIN,
+        open_error=lambda exc: QemuPlanError(f"cannot read ELF header: {exc}"),
+        early_head=_elf_arch,  # raises QemuPlanError on a bad header; result recomputed below
+    )
+    return _elf_arch(hdr), total, sha
 
 
 def build_plan(target: Path, mode: str, arch: str, caps: dict[str, int], *,
@@ -111,9 +121,7 @@ def plan_qemu(args: Any) -> int:
     except BindScopeError as exc:
         print(f"qemu-plan: unsafe output path: {exc}", file=sys.stderr); return 2
     target = Path(args.target)
-    try: arch = _read_elf_arch(target)
-    except QemuPlanError as exc: print(f"qemu-plan: {exc}", file=sys.stderr); return 2
-    try: _, input_size, input_sha = _file_identity(target, max_bytes=args.max_input_bytes)
+    try: arch, input_size, input_sha = _read_target(target, args.max_input_bytes)
     except AdapterError as exc: print(f"qemu-plan: {exc}", file=sys.stderr); return 2
     caps = {"cpu_seconds": args.cpu_seconds, "mem_bytes": args.max_mem_bytes,
             "wall_seconds": args.wall_seconds, "output_bytes": args.max_output_bytes}

@@ -185,13 +185,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # removed by the single EXIT trap above) next to a staged stub lib/tool-env.sh, never beside the SUT.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count mutant_crash_re || exit 2
   # A refused build counts ONE failure here and its tooth is never run.
   mk(){ mutant_chain_or_count fail "$@" || return 1; }
   mkb(){ mutant_built_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # Crash signatures: a mutant that dies this way must never read as a bite.
-  CRASH_RE='integer expression expected|syntax error|unbound variable|Traceback|ImportError|command not found'
+  CRASH_RE="$(mutant_crash_re bash py cmd)" || exit 2
   # _nn_stage DIR LIB — stage a stub lib/tool-env.sh beside a mutant SUT (it sources $HERE/lib/tool-env.sh
   # relative to $0) and verify it; a failure is counted once here and the caller skips the build + tooth.
   _nn_stage() {
