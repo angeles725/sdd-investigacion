@@ -24,13 +24,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   TEETH_COUNTS="$MUT/py-counts"
 fi
 RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT" "$PLAN" <<'PY'
-import importlib.util, json, os, signal, struct, subprocess, sys, tempfile, time, unittest.mock
+import atexit, hashlib, importlib.util, json, os, shutil, signal, struct, subprocess, sys, tempfile, time, unittest.mock
 from pathlib import Path
+
+# #2061: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it, and TMPDIR, at a
+# suite-private sandbox so no run dir lands in /tmp/rsdd (invisible to run-all's TMPDIR leftovers check).
+_SBX = tempfile.mkdtemp(prefix="qe-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+_SBX_ROOT = os.path.join(_SBX, "rsdd")
+os.environ["TMPDIR"] = _SBX; tempfile.tempdir = None
+os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+_GLOBAL_ROOT = Path("/tmp/rsdd")
+def _global_names() -> set:
+    try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
+    except OSError: return set()
+_global_before = _global_names()
 
 sut_path = Path(sys.argv[1]); plan_path = Path(sys.argv[2])
 sys.path.insert(0, str(sut_path.parent))
 sp = importlib.util.spec_from_file_location("qemu_exec", sut_path)
 m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+
+# Run-dir IDENTITY: every run dir this suite produces is recorded (in-process via a recorder around
+# make_run_subdir, CLI runs via their serial_log), so the global-root guard fails on and removes
+# only dirs this suite made -- never another suite's, whatever files they hold.
+_produced = set()
+_orig_mrs = m._dc.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs(*a, **k); _produced.add(r); return r
+m._dc.make_run_subdir = _rec_mrs
 
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
@@ -38,8 +60,11 @@ def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" i
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(plan_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    try: _produced.add(str(Path(json.loads(r.stdout)["serial_log"]).parent))
+    except Exception: pass
+    return r
 
 # ELF header: x86_64 little-endian (e_machine=62=0x3e)
 _X64 = b'\x7fELF\x02\x01\x01' + b'\x00'*9 + b'\x02\x00\x3e\x00'
@@ -87,8 +112,6 @@ def _shims(tmp: Path) -> str:
 
 def _elf(tmp: Path) -> Path:
     p = tmp / "t.elf"; p.write_bytes(_X64); return p
-
-Path("/tmp/rsdd").mkdir(exist_ok=True)
 
 # ── RED1: allow=False → exit 3 (auth-required), shim never invoked ───────────
 with tempfile.TemporaryDirectory() as td:
@@ -384,10 +407,12 @@ with tempfile.TemporaryDirectory() as td:
 #
 # Mutation proof: reverting only the fix (restoring the 3-line window) makes
 # this test RED again, because the injection fires outside the try/finally.
-import vm_boot_core as _vbc
+import inspect, vm_boot_core as _vbc
+# pre-#2061 run_vm has no root kwarg (then the suite must still run to completion to show REDs)
+_ROOT_KW = {"root": _SBX_ROOT} if "root" in inspect.signature(_vbc.run_vm).parameters else {}
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td)
-    Path("/tmp/rsdd").mkdir(exist_ok=True)
+    Path(_SBX_ROOT).mkdir(exist_ok=True)
     # Fake qemu: sleeps until killed; produces no output other than running.
     qemu_bin = tmp / "fake-qemu-inv5"
     qemu_bin.write_text(
@@ -420,8 +445,8 @@ with tempfile.TemporaryDirectory() as td:
     with unittest.mock.patch.object(subprocess, "Popen", _capturing_popen), \
          unittest.mock.patch.object(time, "monotonic", _raising_monotonic):
         try:
-            _vbc.run_vm(plan, preflight=lambda p: None)
-        except RuntimeError as e:
+            _vbc.run_vm(plan, preflight=lambda p: None, **_ROOT_KW)
+        except Exception as e:  # a run_vm root regression must fail this case, not crash the suite
             caught_exc[0] = e
     try:
         assert caught_exc[0] is not None and "injected-popen-window" in str(caught_exc[0]), \
@@ -448,6 +473,118 @@ with tempfile.TemporaryDirectory() as td:
             except OSError: pass
             try: _p.wait(5)
             except Exception: pass
+
+# ── RSDD-TMP-ROUTE (#2061): run dirs honour TMPDIR, never the hard-coded /tmp/rsdd ──
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    try:
+        r = cli("plan", "--target", str(elf), "--mode", "qemu-system",
+                "--output", str(tmp/"out"), "--allow-exec",
+                xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+        assert "/tmp/rsdd/rsdd-" not in r.stdout and "/tmp/rsdd" not in r.stderr, \
+            "RSDD-TMP-NOLEAK: new entries under /tmp/rsdd (run dir or error names the global root)"
+        assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:200]}"
+        sl = json.loads(r.stdout)["serial_log"]
+        assert sl.startswith(_SBX_ROOT + os.sep), f"run dir outside $RSDD_VM_ROOT sandbox: {sl}"
+        ok("RSDD-TMP-ROUTE: run dir created under $RSDD_VM_ROOT (sandbox), not /tmp/rsdd")
+    except Exception as e: nok("RSDD-TMP-ROUTE", str(e))
+
+# ── PIN fixtures (#2078): plan once, then swap the target before / during exec ────────
+_BWRAP_SWAP = """\
+#!/usr/bin/env python3
+import hashlib, os, sys
+args = sys.argv[1:]
+sep = args.index("--"); pre = args[:sep]; cmd = args[sep+1:]
+src = pre[pre.index("--ro-bind") + 1]
+sw = os.environ.get("SWAP_PATH", "")
+if sw:  # simulate an attacker swapping the planned path AFTER exec's check
+    tmpf = sw + ".evil"; open(tmpf, "wb").write(b"EVIL-" * 64); os.replace(tmpf, sw)
+open(os.environ["BIND_REC"], "w").write(hashlib.sha256(open(src, "rb").read()).hexdigest())
+os.execvp(cmd[0], cmd)
+"""
+
+def _planned(tmp: Path, p: str, elf: Path) -> dict:
+    cli("plan", "--target", str(elf), "--mode", "qemu-system", "--output", str(tmp/"out"),
+        xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
+    return json.loads((tmp/"out"/"qemu-plan.v1.json").read_text())
+
+def _with_env(updates: dict, fn):
+    saved = {k: os.environ.get(k) for k in updates}
+    os.environ.update(updates)
+    try: return fn()
+    finally:
+        for k, v in saved.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+
+# ── PIN-REFUSE (#2078): target swapped between plan and exec → refusal, qemu never spawned ──
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp); rec = tmp / "calls.json"
+    try:
+        plan = _planned(tmp, p, elf)
+        elf.write_bytes(elf.read_bytes()[:-1] + b"\x01")  # same size, different bytes
+        try:
+            _with_env({"PATH": p, "QEMU_SHIM_RECORD": str(rec)},
+                      lambda: m.LiveQemuBootExecutor(tmp/"out").evaluate(plan))
+            nok("PIN-REFUSE: swapped target was booted (no GateError)")
+        except GateError as e:
+            calls = json.loads(rec.read_text()) if rec.exists() else []
+            assert "changed since plan" in str(e), f"unexpected message: {e}"
+            assert calls == [], f"qemu spawned despite mismatch: {calls}"
+            assert not list(Path(_SBX).glob("rsdd-qemu-target-*")), "stage dir leaked after refusal"
+            ok("PIN-REFUSE: swap between plan and exec → GateError 'changed since plan', qemu never spawned")
+    except Exception as e: nok("PIN-REFUSE", str(e))
+
+# ── PIN-BIND (#2078): a swap AFTER exec's check cannot reach qemu (bind source is the verified copy) ──
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+    (tmp/"bwrap").write_text(_BWRAP_SWAP); (tmp/"bwrap").chmod(0o755)
+    brec = tmp / "bind.sha"
+    try:
+        plan = _planned(tmp, p, elf)
+        res = _with_env({"PATH": p, "SWAP_PATH": str(elf), "BIND_REC": str(brec)},
+                        lambda: m.LiveQemuBootExecutor(tmp/"out").evaluate(plan))
+        assert res.get("executed") is True, f"not executed: {res}"
+        planned_hex = plan["target"]["sha256"].removeprefix("sha256:")
+        got = brec.read_text()
+        assert elf.read_bytes().startswith(b"EVIL-"), "fixture: swap did not happen"
+        assert got == planned_hex, f"qemu was handed swapped bytes: bind sha {got} != planned {planned_hex}"
+        assert not list(Path(_SBX).glob("rsdd-qemu-target-*")), "stage dir leaked after run"
+        ok("PIN-BIND: bwrap bind source holds the planned bytes even after the path is swapped")
+    except Exception as e: nok("PIN-BIND", str(e))
+
+# ── PIN-MULTI (#2078): a plan binding the target twice, or never, is refused, not half-pinned ──
+for _mlabel, _mutate in [
+    ("twice", lambda a, t: a[:a.index("--")] + ["--ro-bind", t, "/second"] + a[a.index("--"):]),
+    ("never", lambda a, t: (lambda i: a[:i] + a[i + 3:])(next(j for j, x in enumerate(a) if x == "--ro-bind" and a[j + 1] == t))),
+]:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
+        try:
+            plan = _planned(tmp, p, elf)
+            plan["planned_argv"] = _mutate(plan["planned_argv"], plan["target"]["path"])
+            try:
+                _with_env({"PATH": p}, lambda: m.LiveQemuBootExecutor(tmp/"out").evaluate(plan))
+                nok(f"PIN-MULTI-{_mlabel}: plan with the target bound {_mlabel} was accepted")
+            except GateError as e:
+                assert "exactly one --ro-bind" in str(e), f"unexpected message: {e}"
+                ok(f"PIN-MULTI-{_mlabel}: target bound {_mlabel} in planned_argv → GateError 'exactly one --ro-bind'")
+        except Exception as e: nok(f"PIN-MULTI-{_mlabel}", str(e))
+
+# ── RSDD-TMP-NOLEAK (#2061): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), not by file content. Other new rsdd-* entries are someone
+# else's (a concurrent suite): reported as INFO, never failed on or deleted.
+# Known limitation: a cli() child that creates its run dir and raises after Popen never prints serial_log,
+# so that dir is not recorded and surfaces only as INFO; a wrong root is still detected by RSDD-TMP-ROUTE.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("RSDD-TMP-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced
+        shutil.rmtree(_p, ignore_errors=True)
+else:
+    ok("RSDD-TMP-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
 
 _counts = os.environ.get("RSDD_TEETH_COUNTS", "")
 if _counts:
@@ -476,7 +613,7 @@ py_p=0; py_f=0
 if [ -r "$TEETH_COUNTS" ] && read -r py_p py_f <"$TEETH_COUNTS" && [[ "$py_p" =~ ^[0-9]+$ && "$py_f" =~ ^[0-9]+$ ]]; then :; else
   echo "  FAIL  teeth: python section left no counts file [$TEETH_COUNTS]"; py_p=0; py_f=1
 fi
-echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity) --"
+echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity, target pinning, RSDD_VM_ROOT) --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 mutant_bootstrap mutant_chain_or_count mutant_crash_re || exit 2
@@ -543,6 +680,18 @@ _t "qe-no-reap: run_vm teardown no longer reaps the process tree" "FAIL  RED-INV
   's/^        _pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=True)$/        pass/'
 _t "qe-receipt-id: vm_receipt_identity key renamed in the evidence" "FAIL  RED8: vm_receipt_identity missing" lib/vm_boot_core.py \
   's/ev\["vm_receipt_identity"\] = receipt_identity/ev["vm_receipt_id"] = receipt_identity/'
+_t "qe-pin-no-verify: exec no longer refuses a target whose identity differs from the plan (#2078)" "FAIL  PIN-REFUSE: swapped target was booted" lib/qemu_exec.py \
+  's/^    if not want or h.hexdigest() != want or (tgt.get("size") is not None and size != tgt\["size"\]):$/    if False:/'
+_t "qe-pin-bind-original: bwrap --ro-bind source stays the original path, not the verified copy (#2078)" "FAIL  PIN-BIND: qemu was handed swapped bytes" lib/qemu_exec.py \
+  's/out_argv = \[dest if (a == path and i > 0/out_argv = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
+_t "qe-root-hardcoded: _rsdd_root ignores RSDD_VM_ROOT and returns /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/qemu_exec.py \
+  's/^    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT$/    return _dc._DEFAULT_RSDD_ROOT/'
+_t "qe-core-root-ignored: run_vm drops its root argument and uses the default /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/vm_boot_core.py \
+  's/uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)/uuid.uuid4().hex)/'
+_t "qe-stage-leak: the private target copy dir is no longer removed after the run (#2078)" "FAIL  PIN-(REFUSE|BIND): stage dir leaked" lib/qemu_exec.py \
+  's/^            shutil.rmtree(stage, ignore_errors=True)$/            pass/'
+_t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI-(twice|never): " lib/qemu_exec.py \
+  's/^    if n_sub != 1:$/    if False:/'
 # Control: a NameError mutant prints the targeted `FAIL  RED8` label too, so only the crash-message forms in
 # _CRASH can refuse it. The tooth machinery must REFUSE it (rc 1, crash-class text), not count it as a bite.
 _ctl_out="$(_tooth "qe-ctl-nameerror: receipt_identity misspelled (NameError)" "FAIL  RED8" lib/vm_boot_core.py \

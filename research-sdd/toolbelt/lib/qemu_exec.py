@@ -7,7 +7,7 @@ NEVER in plan_common.select_executor. RSDD_EXEC_EXECUTOR env stub wins (gate.py:
 Boot engine extracted to vm_boot_core.py (D0 refactor); evaluate() delegates there.
 """
 from __future__ import annotations
-import shutil, stat, sys
+import hashlib, os, shutil, stat, sys, tempfile
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,62 @@ def _check_argv(argv: list[str]) -> None:
             raise GateError(f"planned_argv {tok} value {nxt!r} violates containment")
 
 
+def _rsdd_root() -> str:
+    """Host run-dir root: $RSDD_VM_ROOT (explicit override, used by the test suite sandbox), else /tmp/rsdd (#2061)."""
+    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT
+
+
+def _pin_target(plan: dict[str, Any], argv: list[str], stage: str) -> list[str]:
+    """Bind exec to the planned identity (#2078): open the target ONCE (O_NOFOLLOW), fstat it,
+    copy those exact bytes into the private *stage* dir while hashing, refuse unless sha256/size
+    equal the plan's, and point the bwrap --ro-bind source at the private copy so a path swap
+    after this check cannot reach qemu."""
+    tgt = plan.get("target") or {}
+    path = tgt.get("path", "")
+    if not path:
+        return argv
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise GateError(f"kernel/target cannot be opened without following symlinks: {exc}") from exc
+    dest = os.path.join(stage, "target")
+    h = hashlib.sha256(); size = 0
+
+    def _changed(detail: str) -> GateError:
+        return GateError(f"kernel/target changed since plan ({detail}); refusing to boot {path!r}")
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise GateError(f"kernel/target is not a regular file: {path!r}")
+        if tgt.get("size") is not None and st.st_size != tgt["size"]:
+            raise _changed(f"size {st.st_size} != planned {tgt['size']}")
+        out = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o400)
+        try:
+            while True:
+                chunk = os.read(fd, 1 << 16)
+                if not chunk:
+                    break
+                h.update(chunk); size += len(chunk)
+                view = memoryview(chunk)
+                while view:
+                    view = view[os.write(out, view):]
+        finally:
+            os.close(out)
+    finally:
+        os.close(fd)
+    want = str(tgt.get("sha256", "")).removeprefix("sha256:")
+    if not want or h.hexdigest() != want or (tgt.get("size") is not None and size != tgt["size"]):
+        raise _changed(f"identity mismatch: sha256 {h.hexdigest()}, size {size}")
+    out_argv = [dest if (a == path and i > 0 and argv[i - 1] == "--ro-bind") else a
+                for i, a in enumerate(argv)]
+    n_sub = sum(1 for a, b in zip(argv, out_argv) if a != b)
+    if n_sub != 1:
+        raise GateError(f"expected exactly one --ro-bind source {path!r} in planned_argv, found {n_sub}")
+    return out_argv
+
+
 def _preflight(plan: dict[str, Any]) -> None:
     """Defense-in-depth preflight. GateError → exit 2 on any violation."""
     if plan.get("mode") == "qemu-user":
@@ -88,7 +144,10 @@ def _preflight(plan: dict[str, Any]) -> None:
             raise GateError(f"kernel/target is a symlink (rejected: TOCTOU): {tgt!r}")
         if not stat.S_ISREG(st.st_mode):
             raise GateError(f"kernel/target is not a regular file: {tgt!r}")
-    _dc.verify_rsdd_root()
+    root = _rsdd_root()
+    if root != _dc._DEFAULT_RSDD_ROOT:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+    _dc.verify_rsdd_root(root)
 
 
 class LiveQemuBootExecutor:
@@ -104,4 +163,12 @@ class LiveQemuBootExecutor:
         Wall-timeout → labeled outcome 'timeout-killed'; process-TREE reaped via killpg.
         Delegates to vm_boot_core.run_vm with snapshot_hook=None (V1b: snapshots stay null).
         """
-        return _vbc.run_vm(plan, preflight=_preflight, snapshot_hook=None)
+        stage = tempfile.mkdtemp(prefix="rsdd-qemu-target-")  # private 0700, honours TMPDIR
+        try:
+            return _vbc.run_vm(
+                plan, preflight=_preflight, snapshot_hook=None,
+                pre_boot=lambda run_dir, argv: _pin_target(plan, argv, stage),
+                root=_rsdd_root(),
+            )
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
