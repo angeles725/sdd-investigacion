@@ -164,22 +164,31 @@ _good_argv = [
     "-sandbox", "on,obsolete=deny",
     "-nographic", "-no-reboot", "-snapshot",
 ]
-for label, bad_argv in [
-    ("-net user",    _good_argv + ["-net", "user"]),
-    ("-netdev",      _good_argv + ["-netdev", "user"]),
-    ("-virtfs",      _good_argv + ["-virtfs", "local,path=/tmp"]),
-    ("-enable-kvm",  _good_argv + ["-enable-kvm"]),
-    ("-device vfio", _good_argv + ["-device", "vfio-pci"]),
-]:
-    plan = {"mode": "qemu-system", "planned_argv": bad_argv,
-            "qemu_binary": "qemu-system-x86_64", "target": {}}
-    flag = label.split()[0]  # "-net", "-netdev", "-virtfs", "-enable-kvm", "-device"
+# PATH shim injected in-process: _preflight resolves the qemu binary AFTER the forbidden-flag scan, so
+# on a host without qemu-system-* (CI) an unshimmed case raises a binary-not-found GateError instead.
+with tempfile.TemporaryDirectory() as _r5_td:
+    _r5_tmp = Path(_r5_td); _shims(_r5_tmp)
+    _r5_saved = os.environ.get("PATH", "")
+    os.environ["PATH"] = str(_r5_tmp) + ":" + _r5_saved
     try:
-        m._preflight(plan); nok(f"RED5-{label}: expected GateError")
-    except GateError as e:
-        if flag in str(e): ok(f"RED5-{label}: bad flag → GateError naming {flag!r}")
-        else: nok(f"RED5-{label}: GateError but msg omits {flag!r}: {e}")
-    except Exception as e: nok(f"RED5-{label}", str(e))
+        for label, bad_argv in [
+            ("-net user",    _good_argv + ["-net", "user"]),
+            ("-netdev",      _good_argv + ["-netdev", "user"]),
+            ("-virtfs",      _good_argv + ["-virtfs", "local,path=/tmp"]),
+            ("-enable-kvm",  _good_argv + ["-enable-kvm"]),
+            ("-device vfio", _good_argv + ["-device", "vfio-pci"]),
+        ]:
+            plan = {"mode": "qemu-system", "planned_argv": bad_argv,
+                    "qemu_binary": "qemu-system-x86_64", "target": {}}
+            flag = label.split()[0]  # "-net", "-netdev", "-virtfs", "-enable-kvm", "-device"
+            try:
+                m._preflight(plan); nok(f"RED5-{label}: expected GateError")
+            except GateError as e:
+                if flag in str(e): ok(f"RED5-{label}: bad flag → GateError naming {flag!r}")
+                else: nok(f"RED5-{label}: GateError but msg omits {flag!r}: {e}")
+            except Exception as e: nok(f"RED5-{label}", str(e))
+    finally:
+        os.environ["PATH"] = _r5_saved
 
 # ── RED-NEW: scanner enforcement — duplicates and new-class flags ──────────────
 # These 6 cases MUST reach nok() against current code (first-occurrence-only
