@@ -4,12 +4,18 @@
 # All docker/network calls are offline (fake shim + loopback ThreadingHTTPServer).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../lib/fact_exec.py"
+SUT="$HERE/../lib/fact_exec.py"; REL="lib/fact_exec.py"
 FACT="$HERE/../fact_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  FACT="$(dirname "$SUT")/../fact_plan.py"   # the CLI cases must import the SAME staged lib/ the mutant lives in
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -f "$FACT" ] || { echo "FATAL: fact_plan.py not found: $FACT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" "$FACT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import hashlib, http.server, importlib.util, json, os, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
@@ -332,9 +338,13 @@ with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); fw, _ = _fw(tmp); p = _shim(tmp)
     try:
         r = cli("plan", "--firmware", str(fw), "--output", str(tmp/"out"),
-                "--allow-docker", "--rest-base-url", "http://10.0.0.1:9100",
+                "--allow-docker", "--rest-base-url", "http://0.0.0.0:9100",
+                "--wall-seconds", "3",   # bounds the run if the loopback guard is ever removed (mutant): it fails at the readiness poll, never hangs
                 xe={"PATH": p, "RSDD_DOCKER_EXECUTOR": ""})
+        # 0.0.0.0 is not loopback (the guard refuses it) yet the kernel routes it to the local host (`ip route get 0.0.0.0` -> dev lo),
+        # so even a mutant run that skips the guard sends nothing off-host. The reason text pins the guard itself, not a later failure.
         assert r.returncode == 2, f"rc={r.returncode}"
+        assert "is not loopback" in r.stderr, "refusal must come from the loopback guard (reason text missing)"
         ok("NON-LOOPBACK: non-loopback URL → exit 2 (refused)")
     except Exception as e: nok("NON-LOOPBACK", str(e))
 
@@ -543,6 +553,145 @@ with tempfile.TemporaryDirectory() as td:
     finally:
         srv.shutdown()
 
+# ── Post-up containment (canned `docker inspect` / `compose ps -q` via the shim) ─
+# The container's Image is the frontend config ID the shim resolves to a known digest, so only the
+# mount / container-count checks can reject these runs. Each must exit 2 AND tear the project down.
+def _containment(label, why, extra_env, reason, mounts=None, inspect_json=None):
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); fw, _ = _fw(tmp); rec = tmp/"c.json"; p = _shim(tmp)
+        srv = _http_server(); port = srv.server_address[1]
+        env = {"PATH": p, "RSDD_DOCKER_EXECUTOR": "", "DOCKER_SHIM_RECORD": str(rec), **extra_env}
+        if mounts is not None:
+            env["DOCKER_CONTAINER_INSPECT_JSON"] = json.dumps([{
+                "Id": "sha256:" + "a"*64, "Image": "sha256:" + "a"*64,
+                "Config": {"Image": "fkiecad/fact_frontend:latest"}, "Mounts": mounts,
+                "NetworkSettings": {"Networks": {"bridge": {"IPAddress": "172.20.0.2"}}}}])
+        if inspect_json is not None: env["DOCKER_CONTAINER_INSPECT_JSON"] = inspect_json
+        try:
+            r = cli("plan", "--firmware", str(fw), "--output", str(tmp/"out"),
+                    "--allow-docker", "--rest-base-url", f"http://127.0.0.1:{port}", xe=env)
+            calls = json.loads(rec.read_text()) if rec.exists() else []
+            down_calls = [c for c in calls if c and c[0] == "compose" and "down" in c]
+            assert r.returncode == 2, f"rc={r.returncode} (expected 2; {why} absent)"
+            assert down_calls, f"no 'compose down' in shim record: {calls}"
+            # the rejection must come from THIS check: another check failing later would also exit 2
+            assert reason in r.stderr, f"stderr lacks the expected reason {reason!r} ({why} absent)"
+            ok(f"{label}: {why} → exit 2 + down called")
+        except Exception as e: nok(label, str(e))
+        finally: srv.shutdown()
+
+_containment("T-MOUNT-BIND", "unexpected host bind mount rejected",
+             {}, "unexpected bind mount", mounts=[{"Type": "bind", "Source": "/etc"}])
+_containment("T-MOUNT-VOL", "volume not scoped to the project rejected",
+             {}, "not scoped to project", mounts=[{"Type": "volume", "Name": "someone-elses-volume"}])
+_containment("T-NO-CIDS", "empty `compose ps -q` (no containers) rejected",
+             {"DOCKER_PS_OUTPUT": ""}, "no containers running")
+# The shim writes DOCKER_CONTAINER_INSPECT_JSON verbatim, so malformed replies can be fixtured too.
+_containment("T-INSPECT-BADJSON", "docker inspect reply that is not JSON rejected",
+             {}, "docker inspect returned invalid JSON", inspect_json="this is not json")
+_containment("T-INSPECT-EMPTY", "empty docker inspect list rejected",
+             {}, "docker inspect empty", inspect_json="[]")
+_containment("T-INSPECT-NOIMAGE", "container with no Image field rejected",
+             {}, "has no Image field", inspect_json=json.dumps([{"Id": "x", "Mounts": []}]))
+
+# ── TOCTOU-symlink: a symlink at the firmware path must be refused (O_NOFOLLOW) ──
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    content = b"REAL-FIRMWARE" + b"\x00" * 16
+    real = tmp / "real.bin"; real.write_bytes(content)
+    link = tmp / "link.bin"; link.symlink_to(real)
+    plan = {"firmware": {"path": str(link), "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+                         "size": len(content)}}
+    try:
+        from gate import GateError
+        m._read_firmware_toctou(plan)
+        nok("TOCTOU-symlink: expected GateError for symlink firmware")
+    except GateError as exc:
+        if "cannot open" in str(exc): ok("TOCTOU-symlink: symlink firmware → GateError (O_NOFOLLOW)")
+        else: nok("TOCTOU-symlink", f"wrong GateError: {exc}")
+    except Exception as e: nok("TOCTOU-symlink", str(e))
+
+# ── TOCTOU-overflow: file larger than the declared size must be refused ───────
+# The recorded sha is of the first declared+1 bytes, so ONLY the overflow check can reject
+# (without it the truncated read would hash clean and be accepted).
+with tempfile.TemporaryDirectory() as td:
+    tmp = Path(td)
+    content = b"OVERSIZE-FIRMWARE" + b"\x00" * 83
+    fw_path = tmp / "fw.bin"; fw_path.write_bytes(content)
+    declared = 10
+    plan = {"firmware": {"path": str(fw_path),
+                         "sha256": "sha256:" + hashlib.sha256(content[:declared + 1]).hexdigest(),
+                         "size": declared}}
+    try:
+        from gate import GateError
+        m._read_firmware_toctou(plan)
+        nok("TOCTOU-overflow: expected GateError for oversize firmware")
+    except GateError as exc:
+        if "exceeds declared size" in str(exc): ok("TOCTOU-overflow: oversize firmware → GateError (declared-size overflow)")
+        else: nok("TOCTOU-overflow", f"wrong GateError: {exc}")
+    except Exception as e: nok("TOCTOU-overflow", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT" "$FACT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT" "$FACT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+# The teardown lives in ONE `finally`; each mutant skips `compose down` only for the failure the named case provokes
+# (matched on the GateError text), so each FLAGSHIP-DOWN case is bitten by its own mutant, not by a shared one.
+DN='        _compose_down(exec_argv_base)'
+dn() { printf '        if %s not in str(sys.exc_info()[1]): _compose_down(exec_argv_base)' "$1"; }
+tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOWN1: no 'compose down' in shim record on up-fail"
+tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
+tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
+tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
+# The failure itself must also be detected (exit 2), not just cleaned up.
+tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
+tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'
+tt teeth-analysis-finished 'if astatus.get("is_finished") or astatus.get("finished"):' 'if True:' 'FAIL  FLAGSHIP-DOWN3: rc=0'
+tt teeth-toctou-sha 'if actual_sha != fw_sha256:' 'if False:' 'FAIL  TOCTOU: expected GateError on mismatch'
+tt teeth-digest-membership 'if not img_digests.intersection(resolved_digests):' 'if False:' 'FAIL  T-B: rc=0 \(expected 2; digest membership'
+tt teeth-network-internal 'if net_info[0].get("Internal") is not True:' 'if False:' 'FAIL  T-B2: rc=0 \(expected 2; network internal'
+tt teeth-analysis-cap-check 'if exceeded:' 'if False:' 'FAIL  T-A2: GateError must mention cap'
+tt teeth-bounded-limit 'limit = cap + 1' 'limit = cap' 'FAIL  T-A2: GateError must mention cap'
+# A 1 KiB cap makes the client hang up on the stub's 200 KiB body, so the stub's server thread prints a BrokenPipeError Traceback: that is
+# stub noise, not a SUT crash. This one tooth therefore uses the strict filter MINUS the Traceback header; BAD_HAS pins the case's own text.
+CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+tt teeth-analysis-cap-const '= 64 * 1024 * 1024' '= 1024' 'FAIL  T-A1: GateError \(false-timeout in RED\): FACT analysis response exceeds 1024-byte cap' "$CRASH_NOTB"
+tt teeth-mount-bind 'if not (src == fw_path or src.startswith(run_dir_host)):' 'if False:' 'FAIL  T-MOUNT-BIND: rc=0 \(expected 2; unexpected host bind mount'
+tt teeth-mount-volume 'if vol_name and not vol_name.startswith(project_name):' 'if False:' 'FAIL  T-MOUNT-VOL: rc=0 \(expected 2; volume not scoped'
+tt teeth-no-containers 'if not cids:' 'if False:' 'FAIL  T-NO-CIDS: rc=0 \(expected 2; empty'
+tt teeth-toctou-nofollow '| getattr(os, "O_NOFOLLOW", 0)' '' 'FAIL  TOCTOU-symlink: expected GateError for symlink firmware'
+tt teeth-toctou-overflow 'if extra:' 'if False:' 'FAIL  TOCTOU-overflow: expected GateError for oversize firmware'
+# The guard mutant is bitten by the direct UNIT-loopback case AND by the CLI case: the CLI case uses http://0.0.0.0:9100, which the guard
+# refuses (not loopback) but the kernel routes to the local host (`ip route get 0.0.0.0` -> dev lo), so even the mutant run sends nothing
+# off-host, and it asserts the guard's own "is not loopback" text, so a later failure (exit 2 at the readiness poll) cannot stand in for it.
+tt teeth-loopback-guard 'if host not in _LOOPBACK_HOSTS:' 'if False:' 'FAIL  UNIT-loopback: expected GateError'
+tt teeth-loopback-guard-cli 'if host not in _LOOPBACK_HOSTS:' 'if False:' 'FAIL  NON-LOOPBACK: refusal must come from the loopback guard'
+tt teeth-inspect-badjson 'info = _json.loads(insp_r.stdout)' 'info = _json.loads(insp_r.stdout) if insp_r.stdout.lstrip().startswith("[") else [{"Image": "sha256:" + "a" * 64, "Mounts": []}]' 'FAIL  T-INSPECT-BADJSON: rc=0 \(expected 2; docker inspect reply that is not JSON'
+tt teeth-inspect-empty 'if not info or not isinstance(info, list):' 'if False:' 'FAIL  T-INSPECT-EMPTY: '
+tt teeth-inspect-noimage 'if not image_id:' 'if False:' 'FAIL  T-INSPECT-NOIMAGE: stderr lacks the expected reason'
+# Not mutated (real reason): the docker-inspect TIMEOUT branches and the empty-RepoDigests check. The shim has no mode that makes a
+# subprocess time out or that returns an image with RepoDigests absent while still resolving the pre-up digests, so no fixture can reach
+# them yet; they need a new shim mode and are left for a follow-up.
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
