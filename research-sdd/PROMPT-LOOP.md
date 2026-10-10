@@ -1101,7 +1101,7 @@ Always read first, in this order:
          RESEARCH-STATE label.
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
-  SITUATIONAL: this whole mode is entered ONLY when invoked as `document`. Read `$KIT/PROMPT-LOOP-APPENDIX.md#document-cycle` in FULL before the first step of a document run: it holds the operative contract (PREFLIGHT and steps 1-7). References elsewhere to "PROMPT-LOOP's DOCUMENT CYCLE step N" mean that section.
+  SITUATIONAL: this whole mode is entered ONLY when invoked as `document`. Read `$KIT/PROMPT-LOOP-APPENDIX.md#document-cycle` in FULL before the first step of a document run: it holds the operative contract (PREFLIGHT and steps 1-7). References elsewhere to "PROMPT-LOOP's DOCUMENT CYCLE step N" mean that section. Step 5 also carries the SUCCESS-CAPTURE RECIPE gate: an operator-confirmed success is not captured until the corpus holds a replication recipe for a different machine of the same class.
 
 HARD RULES:
   - MEMORY IS A MIRROR, NEVER A SUBSTITUTE. Every project/decision finding saved to memory (engram)
@@ -1288,6 +1288,7 @@ HARD RULES:
     (Distinct from the "ScheduleWakeup for autonomous mode only" rule above — that governs WHEN to
     use it; this governs how many.)
   - INSTANT CAPTURE — SITUATIONAL: a kit defect, capability idea, algorithm, formula or process insight surfaces mid-loop (save it with `mem_save` BEFORE the loop continues): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
+  - OBJECTIVE-LOCK — SITUATIONAL: the operator has stated an explicit objective for the run (every iteration states one line mapping its action to it; side-defects become typed sub-tasks, fixed only as incident handling): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
   - Preserve all external evidence in sources/ before citing it.
   - Corpus language: ENGLISH by default. EXCEPTION: if TARGETS.md marks this target with a
     user-approved language override (currently: logosoft, hilton-bms → Spanish, for continuity of mature

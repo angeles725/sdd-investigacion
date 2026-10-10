@@ -776,6 +776,16 @@ Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a 
     processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
     before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
     PID is the driver-owned process before killing.
+  - OBJECTIVE-LOCK. When the operator states an explicit objective for the run, EVERY iteration opens
+    with one line mapping the current action to that objective (`Objective: <objective> -> <this action>`).
+    An action that cannot be mapped is off-objective and is not taken. Side-defects found en route
+    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks in the ODD task
+    file (`templates/odd-task.template.md` carries an `Objective line:` field for this) and are fixed
+    only as incident handling, bounded to what unblocks the objective; they never become the de-facto
+    objective. Violation signature (observed): four consecutive theory pivots (profile -> env var ->
+    daemonize -> portal), each consuming multiple tool batches, while the objective line went unstated
+    and the objective itself never appeared as a tracked task line. Two pivots without an objective
+    line is the tripwire: stop, state the objective, and re-map the next action to it.
 
 ## steps4-7-special-cases
 
@@ -1024,6 +1034,14 @@ Trigger: the run was invoked as `document` (CAPTURE mode). Kit issue #1003 (slic
      session re-discovered Ghidra setup from scratch when `toolbelt/GHIDRA-MCP.md` already documented it but
      Engram carried no pointer — the mirror is what prevents that. A documented item with NO Engram pointer
      is NOT done.
+     SUCCESS-CAPTURE RECIPE (mirror gate): an operator-confirmed success ("it works now", a fix the
+     operator verified in chat) is NOT captured until the corpus holds a REPLICATION RECIPE valid for a
+     DIFFERENT machine of the same class: the mechanism (why it worked), the exact steps, and the state
+     preconditions (what must already be true on the machine). A one-line success statement in a session
+     summary without the mechanism counts as LOST CAPABILITY: if the mechanism was not derived, the
+     capture is incomplete and the derivation becomes the next gap. (Observed: a bench fix confirmed by
+     the operator after a reboot was noted as one line; two days later it could not be reapplied from the
+     record, and the mechanism was derived from bytecode only afterwards.)
   6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
      `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
      deliverables are PROPOSED via the §18 retro TOOLS section and land in `$KIT/toolbelt/` only after
