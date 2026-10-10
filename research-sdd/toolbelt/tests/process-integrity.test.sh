@@ -26,7 +26,7 @@
 #     distinct check it enforces is built from the staged copy (lib/mutant.sh), and each mutant is run
 #     through the hidden `--teeth-child <path>` mode (same fixtures, checker taken from <path>; exit 2
 #     on a non-file path, prints `TEETH-CHILD: SUT=<path>`). A tooth passes only when the matching
-#     RED fixture stops being caught (its named FAIL line), with no Traceback/ImportError crash.
+#     RED fixture stops being caught (its named FAIL line), with no crash signature (class names AND str(e) message forms, mutant_py_crash_strict).
 #
 # STRICT TDD: RED fixture tests appear before the GREEN test; each RED fixture
 # must be rejected with the expected error fragment; GREEN must pass.
@@ -661,11 +661,11 @@ fi
 
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_py_replace mutant_tooth mutant_or_count mutant_crash_re mutant_cleanup_register || exit 2
+mutant_bootstrap mutant_py_replace mutant_tooth mutant_or_count mutant_py_crash_strict mutant_cleanup_register || exit 2
 SELF="$HERE/$(basename "$0")"
 MUT="$(mktemp -d)" || exit 2
 mutant_cleanup_register "$MUT" || exit 2
-CRASH_RE="$(mutant_crash_re py)" || exit 2
+CRASH_RE="$(mutant_py_crash_strict)" || exit 2
 mkdir -p "$MUT/src" "$MUT/mut" || exit 2
 STAGED="$MUT/src/checker.py"
 printf '%s\n' "$CHECKER_PY" > "$STAGED"
