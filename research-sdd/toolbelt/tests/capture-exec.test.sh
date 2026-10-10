@@ -82,6 +82,27 @@ def _shim(tmp: Path) -> str:
     fd = tmp / "dumpcap"; fd.write_text(_SHIM); fd.chmod(0o755)
     return str(tmp) + ":" + os.environ.get("PATH", "")
 
+# Startup-free blocking shim for RED8 (#2092). The client wall deadline (duration + grace) starts at spawn, so a
+# Python shim whose interpreter startup is slowed by machine load could be SIGTERMed before it wrote the pcap.
+# This /bin/sh shim writes the pcap magic with a builtin printf, then exec's a sleep far beyond any budget: the
+# timeout path is always taken and the case never races interpreter startup.
+_SHIM_BLOCK = """\
+#!/bin/sh
+if [ "$1" = "-D" ]; then echo "1. eth0 (Ethernet)"; exit 0; fi
+prev=
+for a in "$@"; do
+  if [ "$prev" = "-w" ]; then
+    case "$a" in */rsdd-*) printf '\\324\\303\\262\\241\\002\\000\\004\\000\\000\\000\\000\\000\\000\\000\\000\\000\\377\\377\\000\\000\\001\\000\\000\\000' > "$a" ;; esac
+  fi
+  prev=$a
+done
+exec sleep 600
+"""
+
+def _shim_block(tmp: Path) -> str:
+    fd = tmp / "dumpcap"; fd.write_text(_SHIM_BLOCK); fd.chmod(0o755)
+    return str(tmp) + ":" + os.environ.get("PATH", "")
+
 Path("/tmp/rsdd").mkdir(exist_ok=True)  # verify_rsdd_root requires a real dir
 
 # ── RED1: allow=False → exit 3 (auth-required), dumpcap NEVER spawned ─────────
@@ -191,12 +212,11 @@ with tempfile.TemporaryDirectory() as td:
 
 # ── RED8: wall-timeout → SIGTERM, partial pcap recorded, outcome=timeout-partial
 with tempfile.TemporaryDirectory() as td:
-    tmp = Path(td); p = _shim(tmp)
+    tmp = Path(td); p = _shim_block(tmp)
     try:
         r = cli("plan", "--interface", "eth0", "--output", str(tmp/"out"),
                 "--allow-live-capture", "--duration-seconds", "1",
-                xe={"PATH": p, "RSDD_LIVE_CAPTURE_EXECUTOR": "", "RSDD_CAPTURE_IFACES": "eth0",
-                    "DUMPCAP_SLEEP": "10"})
+                xe={"PATH": p, "RSDD_LIVE_CAPTURE_EXECUTOR": "", "RSDD_CAPTURE_IFACES": "eth0"})
         assert r.returncode == 0, f"rc={r.returncode}\n{r.stderr[:300]}"
         res = json.loads(r.stdout)
         assert res.get("outcome") == "timeout-partial", f"outcome={res.get('outcome')}"
@@ -299,6 +319,7 @@ tt teeth-filesize-formula lib/capture_exec.py 'raw = (24 + packet_count * (snapl
 tt teeth-filesize-ceiling lib/capture_exec.py 'return min(raw, _FILESIZE_KB_MAX)' 'return raw' 'FAIL  FILESIZE_1: expected 524288'
 
 tt teeth-filesize-delta lib/capture_exec.py 'argv_deltas.append({"transform": "add-filesize-cap", "value": filesize_arg})' 'pass' 'FAIL  CRIT2: missing'
+tt teeth-timeout-outcome lib/capture_exec.py '                timed_out = True' '                timed_out = False' 'FAIL  RED8: outcome=success'
 tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
