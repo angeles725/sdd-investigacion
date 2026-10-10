@@ -50,7 +50,10 @@ jobs:
     # (main included) — a cancelled gate proves nothing. Runtime budget tracked separately.
     # 20 -> 35 (2026-10-02, #1437): successful runs took 14-20 min and 5 of 13 runs were cancelled
     # at the 20-minute cap, including PR #1435 at 20:17 while the same head passed in 14:00.
-    timeout-minutes: 35
+    # 35 -> 50 (2026-10-10, #2114): after the #2053 teeth campaign, successful -j 4 runs took 25-34 min
+    # and 7 of the last ~40 runs were cancelled at exactly 35:00 (e.g. PR #2100, twice). Durable fix
+    # (sharding across runners) is tracked in #2114.
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v5
