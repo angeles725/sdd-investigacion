@@ -550,6 +550,12 @@ No open invariants remain.
         "## Registry\n\n_No entries yet._\n\n## Open invariants map\n\nNone.\n")
     assert_fails_with("RED10-unparseable", fix10, "unparseable")
 
+    # RED15 — registry path exists but cannot be read: a DIRECTORY at the registry path (exists() is True, read_text
+    # raises IsADirectoryError for every uid, unlike a mode-000 file which root can still read)
+    fix15 = Path(td) / "fix15-registry-is-a-dir.md"
+    fix15.mkdir()
+    assert_fails_with("RED15-unreadable-registry", fix15, "cannot read registry")
+
     # RED11 — enforced entry with no test files in Asserted-by (prose only)
     fix11 = write_fixture(td, "fix11.md", """\
 ## Registry
@@ -707,9 +713,10 @@ tooth_py REQ4-map-unknown-id 'errors.append(f"open-map references non-existent i
 # Final guard: without it the REQ3/REQ4 errors are collected but the checker returns (True, []) -> every REQ3/REQ4 fixture (RED04-RED09, RED11, RED12) passes.
 tooth_py FINAL-guard $'    if errors:\n        return False, errors\n    return True, []' '    return True, []' "  FAIL  RED04-missing-testfile: $PASSED"
 tooth_py REQ4-map-enforced $'elif entry_map[mid][\'status\'] != \'pending\':' 'elif False:' "  FAIL  RED07-enforced-in-map: $PASSED"
+# The read-error branch: with it turned into a pass the unreadable registry (a directory, RED15) is accepted.
+tooth_py REQ1-read-error 'return False, [f"cannot read registry: {exc}"]' 'return True, []' "  FAIL  RED15-unreadable-registry: $PASSED"
 # Not mutated, on purpose: (1) the REQ2 early `if errors: return` guard - with it off, the REQ3 loop still runs on the same
-# entries and no RED fixture's expected fragment depends on the early exit (equivalent mutant for these fixtures); (2) the
-# `except Exception -> "cannot read registry"` branch - no fixture makes the registry exist but be unreadable (follow-up issue).
+# entries and no RED fixture's expected fragment depends on the early exit (equivalent mutant for these fixtures).
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
