@@ -454,6 +454,34 @@ with tempfile.TemporaryDirectory() as td:
         ok("TP-EMPTY-QEMU-ROOT: empty --qemu-root → exit 2 with explicit rejection (issue #98 item 4)")
     except Exception as e: nok("TP-EMPTY-QEMU-ROOT", str(e))
 
+# ── T_TOCTOU1: target swapped between header sniff and hashing (#2077) ──────────
+# The wrapper swaps the file the moment a SECOND open of it is attempted. Single-open code never triggers
+# the swap; two-open code sees file B at the hash and describes two different files.
+import hashlib, struct
+_ARM = b"\x7fELF\x01\x01\x01" + b"\x00"*11 + struct.pack("<H", 40)
+_X64 = b"\x7fELF\x01\x01\x01" + b"\x00"*11 + struct.pack("<H", 62)
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; out = R/"out"
+    a_bytes = _ARM + b"A"*64; b_bytes = _X64 + b"B"*64
+    tgt.write_bytes(a_bytes); alt = R/"alt.bin"; alt.write_bytes(b_bytes)
+    real_open = os.open; opens = []
+    def swap_open(p, *a, **k):
+        if str(p) == str(tgt):
+            opens.append(1)
+            if len(opens) == 2: os.replace(alt, tgt)
+        return real_open(p, *a, **k)
+    try:
+        with unittest.mock.patch("os.open", swap_open):
+            rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out)]))
+        assert rc == 3, f"unexpected rc {rc}"
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+        assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+            f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
+        assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
+        ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
+    except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -493,5 +521,6 @@ tt teeth-host-writable '"host_writable": _SCRATCH_SENTINEL,' '"host_writable": "
 tt teeth-rt-ro-bind '["--ro-bind", qemu_root, _RT_TREE_DEST]' '["--bind", qemu_root, _RT_TREE_DEST]' 'FAIL  TP-RTMOUNT-RO: runtime tree bind must be --ro-bind: '
 tt teeth-empty-qemu-root 'if qemu_root == "":' 'if False:' 'FAIL  TP-EMPTY-QEMU-ROOT: expected exit 2 for empty --qemu-root'
 
+tt teeth-single-open 'read_target_once(target, args.max_input_bytes)' '(lambda _h: (_h[0], *read_target_once(target, args.max_input_bytes)[1:]))(read_target_once(target, args.max_input_bytes))' 'FAIL  T_TOCTOU1: single-open-consistent-identity'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
