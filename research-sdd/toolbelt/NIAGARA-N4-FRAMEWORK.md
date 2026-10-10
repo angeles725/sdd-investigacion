@@ -8,7 +8,7 @@ JSON. Plus two Gradle build-environment gotchas that stop a Niagara module build
 **Evidence base.** Original Tridium javadoc source (not decompiled), under
 `/home/cristian/modules/Prototipos/modulos/organized/docSource/docSource-doc/extracted/` (abbrev. `EXT/`),
 plus the official devguide (`niagara-help/devguide-clean/bog.txt`). `[CERT-doc]` = official doc §; `[CERT]` =
-framework source file:line; `[INFER]` = derived. First captured in the chihuahua MX60 investigation chain
+framework source file:line; `[INFER]` = derived; `[CERT-live]` = observed on a live host, preserved capture. First captured in the chihuahua MX60 investigation chain
 (2026-08-16); see Engram `research/niagara/framework/bog-export-import`.
 
 **Read-only over the subject.** These are the supported APIs; nothing here mutates a live station by itself.
@@ -301,7 +301,80 @@ only; never credentials (SECRETS DISCIPLINE).
 - **How to cite:** preserve the launcher `.cmd`, the session log and the stderr capture of the station connect
   under `sources/probes/` and cite them `[CERT-live]` (the FOXS 4911 evidence is `plugin-st-stderr.txt`).
 
+- **GUI launch over SSH:** a plain SSH-started GUI app is invisible on the console; `WINDOWS-SSH-PROBES.md` §7
+  "GUI apps over SSH" explains WHY the scheduled-task launch above is needed. For `wb`, keep the table's
+  `/RL HIGHEST` and the variable-clearing launcher `.cmd`.
+
 Evidence: kit issue #1931 (retro 2026-10-06 reflow-bypass-bench item 5; `wb-session.log`, `plugin-st-stderr.txt`).
+
+## 10. Bench baseline — environment and user-home sweep before any functional work `[#2050]`
+
+On a NEW Niagara bench, run this sweep first, before any functional probe, and record the result in
+the run's capture (structure only; no credentials):
+
+1. **Enumerate** `niagara_home`, `niagara_user_home`, `NIAGARA_USER_HOME` and `NIAGARA_HOME` at BOTH
+   Machine and User scope (variable names are case-insensitive on Windows; list every spelling found).
+2. **Daemon:** record the Niagara daemon service `StartName` and the user home it resolves
+   (`plat.exe` details, the `User Home:` line).
+3. **Workbench:** record the WB *user* home (`nre -version`). Also print `niagara.home` (install home, §7)
+   so you know which install answered; never compare that against the daemon user home.
+4. **State whether the daemon home and the WB home differ.** The answer decides which §11 state the
+   bench is in.
+
+Why first: installer-baked machine variables silently unify the daemon and WB homes (§11 state 1) and
+hijack version switching. Machine-scope `NIAGARA_HOME` and user-scope shadowing are covered in §7 and
+`REMOTE-POWERSHELL.md` §8; do not restate them here, just include both scopes in the enumeration.
+
+Evidence `[CERT-live]` (niagara-research retro 2026-10-09, kit #2050): on one bench a machine-scope
+`NIAGARA_USER_HOME=Niagara4.13` caused BOTH the Station Copier suppression and the version-switch 1067
+crash; a second bench's probe found zero such variables. Treat that as two data points, not a rule
+about every installer.
+
+## 11. Daemon / Workbench user-home split `[#2051][#2079][#2080][#2081]`
+
+For same-machine daemon + WB installs, whether the Station Copier / copy tools appear depends on
+whether the daemon home and the WB home differ (compare them with the §10 sweep).
+
+| State | Condition | Effect |
+|---|---|---|
+| 1. Shared home | daemon home == WB home | Station Copier / copy tools hidden BY DESIGN; not a defect |
+| 2. Split homes | daemon home != WB home | tools visible |
+| 3. Split done unsafely | daemon home changed without seeding | daemon and/or client failures (below) |
+
+State 3 is the failure mode of the split routes below.
+
+**Ways to split safely** (any of them, then seed the new home):
+- **Service-scoped `Environment`** (`REG_MULTI_SZ` at `HKLM\SYSTEM\CurrentControlSet\Services\<svc>\Environment`):
+  overrides machine env for that service ONLY, so WB keeps the machine/user value. Observed: the service
+  started with daemon home `systemprofile\Niagara4.13` while machine env still pointed WB at the flat home
+  `[CERT-live]`. This complements `REMOTE-POWERSHELL.md` §8 (a LocalSystem service never sees user-scope
+  variables) and the §7 SCM staleness caveat: restart the service after changing the key `[INFER]`.
+- **Machine variable:** moves daemon AND WB together unless the WB shell overrides it `[INFER]`; it also re-creates
+  the state-1/version-switch hazards of §10.
+- **Seeding:** whichever route changes the daemon home, copy into the new home `etc/nre.properties`
+  (the agent file), `etc/credentials` and the security keyring from the working home first.
+
+**Measured failures when the daemon home changed without seeding** `[CERT-live]`: the daemon logged
+`failed to daemonize process, exiting` and the service exited 1067; and credential decryption threw a
+`SecurityException` in `BPassword.getValue`.
+
+**OEM brand-home rule `[CERT-live]`.** With `NIAGARA_USER_HOME` absent, an OEM WB resolves the BRAND home
+`%USERPROFILE%\Niagara4.13\<brand>\` (installer-baked layout), not the flat `%USERPROFILE%\Niagara4.13`.
+Do not assume the flat layout when designing a "model laptop" baseline; test the absent-variable case.
+The credential store and keyring are per-home, so a mismatched `.km` (observed: different md5 for the flat
+and brand homes) makes the platform connect die CLIENT-side in `BPassword.getValue` (via
+`BasicAuthenticator.setAuthorization` and `BDaemonSession.getConnection`); the daemon never sees the request.
+
+**Restart trap `[CERT-live]`.** `net stop Niagara` can return while the old `niagarad.exe` survives and
+still holds `:5011`; the next `net start` then fails with `4294967295`. After every stop, check
+`tasklist /FI "IMAGENAME eq niagarad.exe"` and the port listing (`netstat -ano | findstr :5011`), and
+`taskkill /F /PID <pid>` the survivor BEFORE `net start` (suggested commands; the exact ones used are not
+recorded in #2081). Observed: a PID survived a "successful" stop
+and start failed until it was killed. The analogous case for another service is the `schtasks /End` note in
+`DEPLOY-WINDOWS-MINIPC.md` (Gotchas): the stop verb returning is not proof the process is gone.
+
+Source: niagara-research retros 2026-10-09 (station-copier goal drift) and 2026-10-10 (MSI1 4.13 WB
+home / keyring). Corpus-local ladder labels are intentionally not reproduced; the rules above stand alone.
 
 ---
 
