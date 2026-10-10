@@ -57,7 +57,7 @@ import docker_common as _dc_rec
 _orig_mrs_rec = _dc_rec.make_run_subdir
 def _rec_mrs(*a, **k):
     r = _orig_mrs_rec(*a, **k); _produced.add(r); return r
-_dc_rec.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded from the paths in their output
+_dc_rec.make_run_subdir = _rec_mrs   # in-process runs; CLI children: successful ones only (their serial_log); a failed child's run dir is reported by the INFO line, not NOLEAK
 
 passed = 0; failed = 0
 def ok(n):  global passed; passed += 1; print(f"  PASS  {n}")
@@ -218,7 +218,7 @@ def _pin_probe(kind):
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
         tempfile.tempdir = None
-        for d in (set(_glob.glob(_SBX_ROOT + "/rsdd-*")) - runs_before) | {x for x in _produced if x.startswith("/tmp/rsdd/")}:
+        for d in (set(_glob.glob(_SBX_ROOT + "/rsdd-*")) - runs_before) | {x for x in _produced if x.startswith("/tmp/rsdd/") and os.path.basename(x) not in _global_before}:
             _sh.rmtree(d, ignore_errors=True)
         _sh.rmtree(td, ignore_errors=True); _sh.rmtree(sbx, ignore_errors=True)
     return out
@@ -1088,7 +1088,8 @@ if PROVE_TEETH:
 _leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
 if _leaked:
     nok("DETONATE-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
-    for _p in _leaked:  # remove ONLY the dirs this suite produced
+    for _p in _leaked:  # remove ONLY the dirs this suite produced (never one that pre-existed)
+        if os.path.basename(_p) in _global_before: continue
         shutil.rmtree(_p, ignore_errors=True)
 else:
     ok("DETONATE-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
@@ -1165,6 +1166,8 @@ _pin_t teeth-pin-stage-leak leak lib/vm_exec_common.py \
 # #2101: routing the run dir through rsdd_root() — run_vm loses its root= and falls back to /tmp/rsdd.
 _pin_t teeth-root-hardcoded root lib/vm_exec_common.py \
   's/^            root=_dc.rsdd_root(),$/            root=None,/'
+_pin_t teeth-thin-verify root lib/vm_exec_common.py \
+  's/^    _dc.ensure_rsdd_root()$/    _dc.verify_rsdd_root()/'
 
 echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
 [ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
