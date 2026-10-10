@@ -2,10 +2,15 @@
 # qemu-plan.test.sh — RED-first contract tests for qemu-plan.v1 (U-V10 / item 10)
 # Written BEFORE qemu_plan.py; suite exits 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../qemu_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../qemu_plan.py"; REL="qemu_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -131,7 +136,9 @@ with tempfile.TemporaryDirectory() as td:
     link = R/"l.elf"; link.symlink_to(real); out = R/"out"
     try:
         r = cli("plan","--target",str(link),"--mode","qemu-user","--output",str(out))
-        assert r.returncode == 2 and "Traceback" not in r.stderr
+        assert r.returncode == 2 and "Traceback" not in r.stderr, \
+            f"arch reader did not refuse the symlink: rc={r.returncode} {r.stderr[:200]}"
+        assert "cannot read ELF header" in r.stderr, f"arch reader did not refuse the symlink: {r.stderr[:200]}"
         ok("T11: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
     except Exception as e: nok("T11: symlink-target-clean-error", str(e))
 
@@ -167,6 +174,17 @@ with tempfile.TemporaryDirectory() as td:
         assert r.returncode == 2, f"got {r.returncode}"
         ok("T14: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T14: bind-path-safety", str(e))
+
+# ── T14b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir(); tgt = R/"t.elf"; tgt.write_bytes(_ARM)
+    try:
+        r = cli("plan","--target",str(tgt),"--mode","qemu-user","--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T14b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T14b: bind-scope-home-belt", str(e))
 
 
 # ── T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback ──
@@ -268,6 +286,113 @@ with tempfile.TemporaryDirectory() as td:
         ok("T_CONTAIN6: containment flags absent in qemu-user plan (system-only)")
     except Exception as e: nok("T_CONTAIN6: user-mode-no-contain-flags", str(e))
 
+# ── T_TOCTOU1: target swapped between header read and hashing (#2069) ────────
+# The wrapper swaps the target file the moment a SECOND open of it is attempted. Single-open code never
+# triggers the swap; two-open code sees file B at the hash and describes two different files.
+import hashlib
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    a_bytes = _ARM + b'A'*64; b_bytes = _X64 + b'B'*64
+    tgt.write_bytes(a_bytes); alt = R/"alt.elf"; alt.write_bytes(b_bytes)
+    real_open = os.open; opens = []
+    def swap_open(p, *a, **k):
+        if str(p) == str(tgt):
+            opens.append(1)
+            if len(opens) == 2: os.replace(alt, tgt)
+        return real_open(p, *a, **k)
+    try:
+        with unittest.mock.patch("os.open", swap_open):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert rc in (2, 3), f"unexpected rc {rc}"
+        if rc == 3:
+            p = json.loads((out/"qemu-plan.v1.json").read_text())
+            want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+            assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+                f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
+        assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
+        ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
+    except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))
+
+# ── T_TOCTOU2: target mutated in place after the header read → refused ───────
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    tgt.write_bytes(_ARM + b'A'*64)
+    ino = os.stat(tgt).st_ino; real_read = os.read; fired = []
+    def mut_read(fd, n):
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(tgt, "ab") as fh: fh.write(b'tail')
+        return real_read(fd, n)
+    try:
+        with unittest.mock.patch("os.read", mut_read):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert fired, "mutation hook never fired (target not read via os.read)"
+        assert rc == 2, f"in-place mutation mid-read accepted: rc={rc}"
+        assert not (out/"qemu-plan.v1.json").exists(), "plan written for a mutated target"
+        ok("T_TOCTOU2: in-place mutation between header read and hash → refused (exit 2)")
+    except Exception as e: nok("T_TOCTOU2: mutation-mid-read-refused", str(e))
+
+# ── T_TOCTOU3: same-size header overwrite between header read and hashing → arch/sha agree or refused ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.elf"; out = R/"out"
+    a_bytes = _ARM + b'A'*64
+    tgt.write_bytes(a_bytes)
+    ino = os.stat(tgt).st_ino; real_read = os.read; fired = []
+    def over_read(fd, n):
+        r = real_read(fd, n)
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(tgt, "r+b") as fh: fh.write(_X64)   # same size: header now says x86_64
+        return r
+    try:
+        with unittest.mock.patch("os.read", over_read):
+            rc = m.plan_qemu(m._parser(["plan","--target",str(tgt),"--mode","qemu-user","--output",str(out)]))
+        assert fired, "overwrite hook never fired"
+        assert rc in (2, 3), f"unexpected rc {rc}"
+        if rc == 3:
+            p = json.loads((out/"qemu-plan.v1.json").read_text())
+            want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+            assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+                f"header/hash disagree: arch={p['arch']} sha256={p['target']['sha256']} (original bytes hash {want})"
+        ok("T_TOCTOU3: same-size header overwrite mid-read → refused or arch/sha256 from the same bytes")
+    except Exception as e: nok("T_TOCTOU3: header-hash-agreement", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-nic '"-nic", "none",' '"-nic", "user",' 'FAIL  T_CONTAIN1: -nic-none-present: -nic none missing from argv'
+tt teeth-nodefaults '"-nodefaults",' '"-nographic",' 'FAIL  T_CONTAIN2: -nodefaults-present: -nodefaults missing from argv'
+tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sandbox-on-present: -sandbox not 'on"
+tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
+tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
+tt teeth-input-cap '_read_target(target, args.max_input_bytes)' '_read_target(target, None)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
+tt teeth-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  T_TOCTOU2: mutation-mid-read-refused: in-place mutation mid-read accepted'
+tt teeth-single-open 'os.read(fd, _ELF_MIN)' 'os.read(fd, _ELF_MIN); os.close(fd); fd = os.open(path, flags)' 'FAIL  T_TOCTOU1: single-open-consistent-identity: target opened 2 times'
+# Rewind-and-reread plus a neutralised fstat recheck (which would otherwise mask it): header/hash agreement must hold by construction.
+tt teeth-seed-digest $'            digest = hashlib.sha256(); digest.update(hdr); total = len(hdr); chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = os.fstat(fd)' $'            os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; chunk_size = 1024 * 1024\n            if max_bytes is not None and total > max_bytes:\n                raise AdapterError("input exceeds max-input-bytes")\n            while chunk := os.read(fd, chunk_size if max_bytes is None else min(chunk_size, max_bytes - total + 1)):\n                total += len(chunk)\n                if max_bytes is not None and total > max_bytes:\n                    raise AdapterError("input exceeds max-input-bytes")\n                digest.update(chunk)\n            after = before' 'FAIL  T_TOCTOU3: header-hash-agreement: header/hash disagree'
+tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

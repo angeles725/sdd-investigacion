@@ -67,7 +67,7 @@ _vr_teeth_init() {
   [ -z "$_VR_TEETH_READY" ] || return 0
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_built mutant_tooth || exit 2
+  mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
   # Output of a crashed shell: an unexpected bad-side rc 1 must never read as a bite.
   VR_CRASH="$(mutant_crash_re bash py)" || exit 2
   [ -n "$VR_CRASH" ] || { echo "FATAL: VR_CRASH is empty after _vr_teeth_init" >&2; exit 2; }
@@ -77,7 +77,7 @@ _vr_teeth_init() {
 vr_mut() {
   local label="$1" kit="$2"
   shift 2
-  mutant_chain "$label" "$SUT" "$kit/toolbelt/verify-registry-mut.sh" "$@" || { fail=$((fail+1)); return 1; }
+  mutant_chain_or_count fail "$label" "$SUT" "$kit/toolbelt/verify-registry-mut.sh" "$@" || return 1
 }
 # vr_run LABEL KIT GOOD_RC BAD_RC [mutant_tooth opts] [-- ARGV...] : original (kit copy) vs mutant,
 # both with their EXACT exit codes; ARGV defaults to `bash @SUT@` (the SUT takes no arguments).
@@ -1543,7 +1543,7 @@ VRT2STRIPPED
     # 'return 1' to 'return 0', so rc 0 is the only valid evidence (a '|| msg-differs' escape hatch was
     # a false positive, #923-B). The no-arg stub message must be present on the good side.
     _vrtna_mut="$ROOT/vrtna-mut-$$.sh"
-    if mutant_chain "teeth VR-T-noarg mutant" "$_vrt2_stub" "$_vrtna_mut" '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/'; then
+    if mutant_chain_or_count fail "teeth VR-T-noarg mutant" "$_vrt2_stub" "$_vrtna_mut" '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/'; then
       for _vrtna_fn in target_paths_all target_paths_pairs; do
         if mutant_tooth "teeth VR-T-noarg mutant: 'return 0' stub breaks parity for $_vrtna_fn → mutation has teeth" 1 0 "$_vrtna_mut" \
              --orig "$_vrt2_stub" --good-has 'called with no argument' --bad-lacks 'called with no argument' \
@@ -1553,8 +1553,6 @@ VRT2STRIPPED
           fail=$((fail+1))
         fi
       done
-    else
-      fail=$((fail+1))
     fi
     rm -f "$_vrtna_mut"
   else

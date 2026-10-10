@@ -2,10 +2,15 @@
 # detonate-plan.test.sh — RED-first contract tests for detonate-plan.v1 (U-V11 / item 11)
 # Written BEFORE detonate_plan.py; suite exits 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../detonate_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../detonate_plan.py"; REL="detonate_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -582,3 +587,40 @@ with tempfile.TemporaryDirectory() as td:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+B='FAIL  T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt: '
+tt teeth-scratch-after-tmpfs '"--cap-drop", "ALL",' '"--cap-drop", "ALL", "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,' 'FAIL  T4c: scratch-bind-after-tmpfs: .*must come AFTER'
+tt teeth-tmpfs-dropped '"--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",' '"--dir", "/tmp/rsdd/out",' 'FAIL  T4c: scratch-bind-after-tmpfs: --tmpfs missing from planned_argv'
+tt teeth-unshare-ipc '"--unshare-ipc", ' '' "${B}--unshare-ipc missing from bwrap prefix"
+tt teeth-accel-tcg '"-accel", "tcg",' '"-accel", "kvm",' "${B}-accel tcg missing from planned_argv"
+tt teeth-nic-none '"-nic", "none",' '"-nic", "user",' "${B}-nic none missing from planned_argv"
+tt teeth-smp-one '"-smp", "1",' '"-smp", "2",' "${B}-smp 1 missing from planned_argv"
+tt teeth-nodefaults '"-nodefaults",' '"-nodefaults-off",' "${B}-nodefaults missing from planned_argv"
+tt teeth-sandbox-on '"on,obsolete=deny,' '"off,obsolete=deny,' "${B}-sandbox on,... value missing from planned_argv"
+tt teeth-sample-readonly 'file=/input/sample,readonly=on,snapshot=off' 'file=/input/sample,snapshot=off' 'FAIL  T_DIS3: sample-drive-readonly: sample drive missing readonly=on'
+tt teeth-sample-snapshot-off 'file=/input/sample,readonly=on,snapshot=off' 'file=/input/sample,readonly=on,snapshot=on' 'FAIL  T_DIS3: sample-drive-readonly: sample drive missing snapshot=off'
+tt teeth-rt-ro-bind '["--ro-bind", qemu_root, _RT_TREE_DEST]' '["--bind", qemu_root, _RT_TREE_DEST]' 'FAIL  T-RTMOUNT-RO: runtime tree bind must be --ro-bind, not --bind'
+tt teeth-empty-qemu-root 'if qemu_root == "":' 'if False:' 'FAIL  T-EMPTY-QEMU-ROOT: expected exit 2 for empty --qemu-root'
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

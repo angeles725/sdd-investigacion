@@ -104,8 +104,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain || exit 2
-  mk_mut(){ rm -f -- "$3"; mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
+  CRASH_RE="$(mutant_crash_re bash cmd)" || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
   echo "-- teeth: hook must go red when silence is broken --"
 
   # Each tooth resets the hook copy (rm here, write_stub restores the pristine SUT) and is skipped when its
@@ -159,7 +160,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$mutant_vtch_b" "$TMP/verify-tool-catalog-hook.sh"
     out_vtch8m="$(PATH="$_stub_vtch8:$PATH" bash "$TMP/verify-tool-catalog-hook.sh" 2>&1)"; MRC_B=$?
     # The mutant still prints the Summary-derived notice; only the extraction-failure notice must vanish, and it must not crash.
-    if [ "$MRC_B" = 0 ] && ! <<<"$out_vtch8m" grep -qiE 'WARN-line extraction failed|grep exit|syntax error|command not found'; then
+    if [ "$MRC_B" = 0 ] && ! <<<"$out_vtch8m" grep -qiE "WARN-line extraction failed|grep exit|$CRASH_RE"; then
       ok "teeth B: rc-zeroed mutant passes silently — extraction guard has teeth"
     else
       no "teeth B: mutant rc=$MRC_B out=[$out_vtch8m] — want rc 0 and no extraction-failure notice (still emitted, or crashed)"

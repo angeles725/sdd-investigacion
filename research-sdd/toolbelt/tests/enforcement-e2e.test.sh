@@ -391,7 +391,8 @@ echo "-- TEETH: mutation controls --"
 
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain || exit 2
+mutant_bootstrap mutant_chain mutant_crash_re || exit 2
+_E2E_CRASH="$(mutant_crash_re bash cmd)|unexpected EOF" || exit 2
 # A refused mutant (dead stage, identical, empty, syntax-broken, live-tree) must not be run: the
 # R3/R5/R7 assertions pass on "nothing happened", so an absent mutant would read as a bite.
 mk_or_stop() {
@@ -533,7 +534,7 @@ _r5t_pass=1
 # gate ran. The mutant must run to the same exit code and stdout as the real gate (R5 above) with no
 # shell-crash text on stderr, so the missing seeder call is the only difference.
 _r5t_crash=0
-grep -qE 'syntax error|command not found|unbound variable|unexpected' "$_r5t_errf" && _r5t_crash=1
+grep -qE "$_E2E_CRASH" "$_r5t_errf" && _r5t_crash=1
 # The mutant must also have taken the target branch (retro-conforming), not retro-gate's no-verifier
 # branch, which likewise exits 0 with empty stdout and no seeder call.
 _r5t_branch=0
@@ -563,7 +564,7 @@ _r7t_has_ghprobe_warn=0
 # ran. The mutant must run to the same exit code and stdout as the real gate (R7 above) with no
 # shell-crash text on stderr, so the missing gh-auth WARN is the only difference.
 _r7t_crash=0
-<<<"$_r7t_stderr" grep -qE 'syntax error|command not found|unbound variable|unexpected' && _r7t_crash=1
+<<<"$_r7t_stderr" grep -qE "$_E2E_CRASH" && _r7t_crash=1
 # Target branch (retro-conforming, not no-verifier) and the stub seeder having run prove the gate got
 # past the verifier and reached the seeding step the gh probe guards.
 _r7t_branch=0
