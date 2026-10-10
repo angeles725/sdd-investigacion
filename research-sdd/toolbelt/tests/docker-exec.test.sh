@@ -26,13 +26,30 @@ fi
 [ -f "$EMBA" ] || { echo "FATAL: emba_plan.py not found: $EMBA" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 IFS= read -r -d '' PY_SRC <<'PY'
-import hashlib, importlib.util, json, os, subprocess, sys, tempfile
+import atexit, hashlib, importlib.util, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
+
+# #2090: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it at a suite-private sandbox so no
+# run dir lands in /tmp/rsdd, and attribute run dirs BY IDENTITY (_produced) for the DOCKER-NOLEAK guard at the end.
+_SBX = tempfile.mkdtemp(prefix="de-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+_SBX_ROOT = os.path.join(_SBX, "rsdd")
+os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+_GLOBAL_ROOT = Path("/tmp/rsdd")
+def _global_names() -> set:
+    try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
+    except OSError: return set()
+_global_before = _global_names()
+_produced = set()
 
 sut_path = Path(sys.argv[1]); emba_path = Path(sys.argv[2])
 sys.path.insert(0, str(sut_path.parent))   # lib/ — gate, adapter_core, plan_common
 sp = importlib.util.spec_from_file_location("docker_exec", sut_path)
 m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+_orig_mrs = m._dc.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs(*a, **k); _produced.add(r); return r
+m._dc.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded from the paths in their output
 
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
@@ -40,8 +57,10 @@ def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" i
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(emba_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(emba_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
+    return r
 
 # Fake docker shim — records calls to DOCKER_SHIM_RECORD.
 # image inspect → JSON with RepoDigests (DOCKER_INSPECT_EXIT to force failure).
@@ -118,7 +137,7 @@ with tempfile.TemporaryDirectory() as td:
         assert "--name" in ea and ea[ea.index("--name")+1].startswith("rsdd-")
         assert len(dl)==3 and dl[0]["transform"]=="image-digest" and dl[1]["transform"]=="inject-name"
         assert dl[2]["transform"]=="output-subdir", f"third delta wrong: {dl[2]}"
-        assert any("/tmp/rsdd/rsdd-" in tok for tok in ea), f"no per-run mount in exec_argv: {ea}"
+        assert any(tok.startswith(_SBX_ROOT + "/rsdd-") for tok in ea), f"no per-run mount under the sandbox root in exec_argv: {ea}"
         assert "/tmp/rsdd:/tmp/rsdd" not in ea, "stale shared mount still in exec_argv"
         assert res.get("image_digest","").startswith("sha256:") and res.get("exit_code")==0
         assert "stdout_truncated" in res and "stderr_truncated" in res
@@ -199,7 +218,7 @@ with tempfile.TemporaryDirectory() as td:
         ea=res.get("exec_argv",[]); dl=res.get("argv_deltas",[])
         assert len(dl)==3 and dl[2]["transform"]=="output-subdir", f"argv_deltas={dl}"
         mounts=[tok for tok in ea if "/tmp/rsdd" in tok]
-        assert any("/tmp/rsdd/rsdd-" in mv for mv in mounts), f"no per-run mount: {mounts}"
+        assert any(mv.startswith(_SBX_ROOT + "/rsdd-") for mv in mounts), f"no per-run mount under the sandbox root: {mounts}"
         assert "/tmp/rsdd:/tmp/rsdd" not in ea, "stale shared mount"
         of=res.get("output_files",[])
         assert any("emba-result.txt" in f.get("path","") and "/rsdd-" in f.get("path","")
@@ -246,6 +265,19 @@ with tempfile.TemporaryDirectory() as td:
             except Exception as e: nok(f"G-unit-{label}", str(e))
     finally: os.environ["PATH"]=_old_path
 
+# ── DOCKER-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
+# (a concurrent suite): INFO only, never failed on or deleted.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("DOCKER-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced
+        shutil.rmtree(_p, ignore_errors=True)
+else:
+    ok("DOCKER-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -274,7 +306,8 @@ tt teeth-gate-allow emba_plan.py 'run_gate_epilogue(CAP_DOCKER, args.allow_docke
 tt teeth-timeout-kill lib/docker_exec.py '_docker_kill(container_name)   # then best-effort container cleanup' 'pass' 'FAIL  G-timeout: rc=2 cmds='
 tt teeth-output-cap lib/docker_exec.py 'stdout, stdout_trunc = _dc.cap(raw_out[0])' 'stdout, stdout_trunc = raw_out[0].decode(errors="replace"), False' 'FAIL  CRIT1: large-stdout-cap: stdout_truncated=False'
 tt teeth-exit-126 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 127)' 'FAIL  CRIT3-126: rc=0'
-tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount in exec_argv'
+tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, _dc.rsdd_root())' '_dc.make_run_subdir(run_uuid)' 'FAIL  DOCKER-NOLEAK: new entries under /tmp/rsdd'
+tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount under the sandbox root in exec_argv'
 
 tt teeth-exit-125 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (126, 127)' 'FAIL  G-failure-125: rc=0'
 tt teeth-exit-127 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 126)' 'FAIL  CRIT3-127: rc=0'

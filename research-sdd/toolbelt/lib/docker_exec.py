@@ -46,7 +46,7 @@ def _preflight(plan: dict[str, Any]) -> None:
     # (c) TOCTOU: re-hash firmware; mismatch → refuse
     _dc.verify_firmware_identity(plan)
     # (e) /tmp/rsdd must be a real non-symlink directory
-    _dc.verify_rsdd_root()
+    _dc.ensure_rsdd_root()
 
 
 def _docker_kill(name: str) -> None:
@@ -97,7 +97,7 @@ class LiveDockerExecutor:
         # subdir is anchored to the verified fd; no symlink race between preflight
         # step (e) and mkdir.
         run_uuid = container_name[len("rsdd-"):]  # reuse UUID for container correlation
-        run_dir_host = _dc.make_run_subdir(run_uuid)
+        run_dir_host = _dc.make_run_subdir(run_uuid, _dc.rsdd_root())
         old_mount = "/tmp/rsdd:/tmp/rsdd"
         new_mount = f"{run_dir_host}:/tmp/rsdd"
         exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]

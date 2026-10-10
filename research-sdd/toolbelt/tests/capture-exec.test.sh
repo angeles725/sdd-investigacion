@@ -26,13 +26,30 @@ fi
 [ -f "$PLAN" ] || { echo "FATAL: capture_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 IFS= read -r -d '' PY_SRC <<'PY'
-import importlib.util, json, os, subprocess, struct, sys, tempfile
+import atexit, importlib.util, json, os, re, shutil, subprocess, struct, sys, tempfile
 from pathlib import Path
+
+# #2090: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it at a suite-private sandbox so no
+# run dir lands in /tmp/rsdd, and attribute run dirs BY IDENTITY (_produced) for the CAP-NOLEAK guard at the end.
+_SBX = tempfile.mkdtemp(prefix="ce-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+_SBX_ROOT = os.path.join(_SBX, "rsdd")
+os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+_GLOBAL_ROOT = Path("/tmp/rsdd")
+def _global_names() -> set:
+    try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
+    except OSError: return set()
+_global_before = _global_names()
+_produced = set()
 
 sut_path = Path(sys.argv[1]); plan_path = Path(sys.argv[2])
 sys.path.insert(0, str(sut_path.parent))   # lib/ — gate, docker_common, adapter_core
 sp = importlib.util.spec_from_file_location("capture_exec", sut_path)
 m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+_orig_mrs = m._dc.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs(*a, **k); _produced.add(r); return r
+m._dc.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded from the paths in their output
 
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
@@ -40,8 +57,10 @@ def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" i
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(plan_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
+    return r
 
 # Fake dumpcap shim: -D → canned interface list (DUMPCAP_D_EXIT controls failure).
 # Capture mode: write valid pcap magic to -w path, record argv to DUMPCAP_RECORD,
@@ -231,7 +250,7 @@ with tempfile.TemporaryDirectory() as td:
         try: w_val = ea[ea.index("-w") + 1]
         except (ValueError, IndexError): raise AssertionError(f"-w not found: {ea}")
         assert w_val != "/tmp/rsdd/capture.pcap", f"-w not rewritten: {w_val}"
-        assert "/tmp/rsdd/rsdd-" in w_val, f"-w not in per-run subdir: {w_val}"
+        assert w_val.startswith(_SBX_ROOT + "/rsdd-"), f"-w not in per-run subdir under the sandbox root: {w_val}"
         dl = res.get("argv_deltas", [])
         assert any(d.get("transform") == "output-path" for d in dl), f"no output-path delta: {dl}"
         ok("RED7: -w rewritten to per-run subdir, output-path delta recorded")
@@ -351,6 +370,19 @@ try:
 except AttributeError as e: nok("FILESIZE_1", f"_filesize_kb not found: {e}")
 except Exception as e: nok("FILESIZE_1", str(e))
 
+# ── CAP-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
+# (a concurrent suite): INFO only, never failed on or deleted.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("CAP-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced
+        shutil.rmtree(_p, ignore_errors=True)
+else:
+    ok("CAP-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -387,6 +419,7 @@ tt teeth-timeout-outcome lib/capture_exec.py '                timed_out = True' 
 tt teeth-capture-clock lib/capture_exec.py '_STARTUP_BUDGET_S: int = 30 ' '_STARTUP_BUDGET_S: int = 0 ' 'FAIL  CLOCK1: outcome=timeout-partial'
 tt teeth-capture-wall lib/capture_exec.py 'min(ceiling, started + wall_len)' 'ceiling' 'FAIL  RED8: per-capture wall did not bite'
 tt teeth-capture-ceiling lib/capture_exec.py 'deadline = ceiling if started is None' 'deadline = float("inf") if started is None' 'FAIL  CLOCK2:'
+tt teeth-root-hardcoded lib/capture_exec.py '_dc.make_run_subdir(run_uuid, _dc.rsdd_root())' '_dc.make_run_subdir(run_uuid)' 'FAIL  CAP-NOLEAK: new entries under /tmp/rsdd'
 tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

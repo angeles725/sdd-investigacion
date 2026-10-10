@@ -175,6 +175,23 @@ def output_files(output_dir: Path) -> list[dict[str, Any]]:
 _DEFAULT_RSDD_ROOT: str = "/tmp/rsdd"
 
 
+def rsdd_root() -> str:
+    """Host run-dir root: $RSDD_VM_ROOT (explicit override, used by test suite sandboxes), else /tmp/rsdd.
+
+    Deliberately NOT derived from ambient TMPDIR: live behaviour only changes on an explicit override (#2061, #2090).
+    """
+    return os.environ.get("RSDD_VM_ROOT") or _DEFAULT_RSDD_ROOT
+
+
+def ensure_rsdd_root() -> str:
+    """Resolve rsdd_root(), create it (0700) only when it is an explicit override, verify it, return it."""
+    root = rsdd_root()
+    if root != _DEFAULT_RSDD_ROOT:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+    verify_rsdd_root(root)
+    return root
+
+
 def verify_rsdd_root(root: str = _DEFAULT_RSDD_ROOT) -> None:
     """{root} must exist as a real (non-symlink) directory; GateError otherwise."""
     try:

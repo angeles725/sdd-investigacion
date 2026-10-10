@@ -128,7 +128,7 @@ def _preflight(plan: dict[str, Any]) -> None:
     argv = plan.get("planned_argv", [])
     validate_plan_argv(argv)                          # (b) structural — ensures list[str] before iface extract
     check_iface_allowlist(_extract_iface(argv))       # (c) allowlist
-    _dc.verify_rsdd_root()                            # (d) /tmp/rsdd real dir
+    _dc.ensure_rsdd_root()                            # (d) /tmp/rsdd real dir
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ class LiveCaptureExecutor:
 
         # Per-run output subdir (O_NOFOLLOW fd-anchored — closes pcap -w symlink TOCTOU).
         run_uuid = uuid.uuid4().hex
-        run_dir = _dc.make_run_subdir(run_uuid)
+        run_dir = _dc.make_run_subdir(run_uuid, _dc.rsdd_root())
         pcap_path = f"{run_dir}/capture.pcap"
 
         # Transform 1: rewrite -w to per-run subdir.
