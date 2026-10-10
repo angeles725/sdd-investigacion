@@ -210,6 +210,7 @@ Always read first, in this order:
       intent and is NOT an exhaustion signal. Declare the focus type as "EVIDENCE-grounded
       DESIGN/APPLIED" in the focus header so the distinction is visible at sweep time. (Small/
       incipient single-artifact targets: skip — the artifact is the angle.)
+  b3. Live Niagara install: run the bench baseline (the Bench baseline section of `toolbelt/NIAGARA-N4-FRAMEWORK.md`) before functional work, after the LIVE-SESSION ACCESS RECIPE capture.
   c. SCAFFOLD (mechanical — replaces the old by-hand mkdir/copy/git-init steps):
      `$KIT/toolbelt/research-sdd-init.sh $TARGET [--corpus auto|nested|flat] [--prefix <slug>] --engram-project <TARGETS.md name>`. It resolves
      $CORPUS (METHODOLOGY §15) and creates INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md ·
@@ -1101,7 +1102,7 @@ Always read first, in this order:
          RESEARCH-STATE label.
 
 == DOCUMENT CYCLE (CAPTURE mode — entered ONLY when invoked as `document`; the OUTLINE-driven twin of NORMAL CYCLE) ==
-  SITUATIONAL: this whole mode is entered ONLY when invoked as `document`. Read `$KIT/PROMPT-LOOP-APPENDIX.md#document-cycle` in FULL before the first step of a document run: it holds the operative contract (PREFLIGHT and steps 1-7). References elsewhere to "PROMPT-LOOP's DOCUMENT CYCLE step N" mean that section.
+  SITUATIONAL: this whole mode is entered ONLY when invoked as `document`. Read `$KIT/PROMPT-LOOP-APPENDIX.md#document-cycle` in FULL before the first step of a document run: it holds the operative contract (PREFLIGHT and steps 1-7). References elsewhere to "PROMPT-LOOP's DOCUMENT CYCLE step N" mean that section. Step 5 also holds the SUCCESS-CAPTURE RECIPE gate.
 
 HARD RULES:
   - MEMORY IS A MIRROR, NEVER A SUBSTITUTE. Every project/decision finding saved to memory (engram)
@@ -1299,6 +1300,7 @@ HARD RULES:
     whose blocks are non-uniformly searchable. [Evidence: logosoft B1–B65 Spanish → B66–B77
     English, recorded only in a RESEARCH-STATE prose note, leaving rg/grep across blocks unreliable.]
   - PKILL -F WRAPPER-SHELL MATCH — SITUATIONAL: you are about to kill, pgrep or stop a process, or report a job stopped (incl. VERIFY KILL BEFORE REPORTING, OPERATOR-SESSION SAFETY): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
+  - OBJECTIVE-LOCK — SITUATIONAL: the operator has stated an explicit objective, and while it holds every iteration states one line mapping its action to it (side-defects become `## Gap-backlog` rows whose Gap cell starts with `side-defect:`, Priority `deferred`, fixed only as incident handling): read `$KIT/PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics` in full.
 RETURN CONTRACT (per-iteration CHECKPOINT — NOT a terminal hand-off; keep looping per LOOP CONTINUATION):
   retro: not-due | written <retros/<file>> · verify-retro: PASS   ← mandatory on the FINAL return of a run (see RETRO CHECKPOINT)
   SHAPE: one-line checkpoint, then CONTINUE. The per-iteration report is a brief checkpoint followed

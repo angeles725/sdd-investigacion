@@ -717,7 +717,7 @@ Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md 
 
 ## hard-rules-loop-mechanics
 
-Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order. ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
+Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order (OBJECTIVE-LOCK added later, kit #2047). ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
 
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
@@ -776,6 +776,17 @@ Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a 
     processes (a live capture proxy, a running REPL) that happen to match the pattern. Obtain the PID
     before spawning and retain it; if it was not captured at spawn, verify with `pgrep` and confirm the
     PID is the driver-owned process before killing.
+  - OBJECTIVE-LOCK. When the operator states an explicit objective for the run, EVERY iteration opens
+    with one line mapping the current action to that objective (`Objective: <objective> -> <this action>`).
+    An action that cannot be mapped is off-objective and is not taken. Side-defects found en route
+    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks: a `## Gap-backlog` row in
+    the target's RESEARCH-STATE whose Gap cell starts with `side-defect:` (Status keeps the METHODOLOGY
+    §8b leading token; Priority `deferred`, so it never yields NEXT and stays out of `investigable_open`;
+    ODD task files are kit-maintenance only), fixed
+    only as incident handling, bounded to what unblocks the objective; they never become the de-facto
+    objective. Violation signature (observed): four consecutive theory pivots (profile -> env var ->
+    daemonize -> portal), each consuming multiple tool batches, while the objective line went unstated
+    and the objective itself never appeared as a tracked task line.
 
 ## steps4-7-special-cases
 
@@ -1024,6 +1035,14 @@ Trigger: the run was invoked as `document` (CAPTURE mode). Kit issue #1003 (slic
      session re-discovered Ghidra setup from scratch when `toolbelt/GHIDRA-MCP.md` already documented it but
      Engram carried no pointer — the mirror is what prevents that. A documented item with NO Engram pointer
      is NOT done.
+     SUCCESS-CAPTURE RECIPE (mirror gate): an operator-confirmed success ("it works now", a fix the
+     operator verified in chat) is NOT captured until the corpus holds a REPLICATION RECIPE valid for a
+     DIFFERENT machine of the same class: the mechanism (why it worked), the exact steps, and the state
+     preconditions (what must already be true on the machine). A one-line success statement in a session
+     summary without the mechanism counts as LOST CAPABILITY: if the mechanism was not derived, the
+     capture is incomplete and the derivation becomes the next gap. (Observed: a bench fix confirmed by
+     the operator after a reboot was noted as one line; two days later it could not be reapplied from the
+     record, and the mechanism was derived from bytecode only afterwards.)
   6. PRODUCE THE DELIVERABLE: besides the cited blocks, write the human-readable product —
      `HOWTO-<x>.md` / `SETUP-<x>.md` / `RUNBOOK.md` (subject deliverables under `$CORPUS`; toolchain
      deliverables are PROPOSED via the §18 retro TOOLS section and land in `$KIT/toolbelt/` only after
