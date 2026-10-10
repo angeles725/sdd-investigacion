@@ -16,14 +16,31 @@ fi
 [ -f "$FACT" ] || { echo "FATAL: fact_plan.py not found: $FACT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 IFS= read -r -d '' PY_SRC <<'PY'
-import hashlib, http.server, importlib.util, json, os, subprocess, sys, tempfile, threading, time
+import atexit, hashlib, http.server, importlib.util, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from pathlib import Path
+
+# #2090: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it at a suite-private sandbox so no
+# run dir lands in /tmp/rsdd, and attribute run dirs BY IDENTITY (_produced) for the FACT-NOLEAK guard at the end.
+_SBX = tempfile.mkdtemp(prefix="fe-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+_SBX_ROOT = os.path.join(_SBX, "rsdd")
+os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+_GLOBAL_ROOT = Path("/tmp/rsdd")
+def _global_names() -> set:
+    try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
+    except OSError: return set()
+_global_before = _global_names()
+_produced = set()
 
 sut_path  = Path(sys.argv[1])
 fact_path = Path(sys.argv[2])
 sys.path.insert(0, str(sut_path.parent))   # lib/ — gate, adapter_core, docker_common
 sp = importlib.util.spec_from_file_location("fact_exec", sut_path)
 m  = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
+_orig_mrs = m._dc.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs(*a, **k); _produced.add(r); return r
+m._dc.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded from the paths in their output
 
 passed = 0; failed = 0
 def ok(n):      global passed; passed += 1; print(f"  PASS  {n}")
@@ -32,8 +49,10 @@ def nok(n, r=""):global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(fact_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(fact_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
+    return r
 
 # ---------------------------------------------------------------------------
 # Fake docker shim — records argv to DOCKER_SHIM_RECORD.
@@ -631,6 +650,19 @@ with tempfile.TemporaryDirectory() as td:
         else: nok("TOCTOU-overflow", f"wrong GateError: {exc}")
     except Exception as e: nok("TOCTOU-overflow", str(e))
 
+# ── FACT-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
+# (a concurrent suite): INFO only, never failed on or deleted.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("FACT-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced
+        shutil.rmtree(_p, ignore_errors=True)
+else:
+    ok("FACT-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -663,6 +695,7 @@ tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOW
 tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
 tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
 tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
+tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full)' 'FAIL  FACT-NOLEAK: new entries under /tmp/rsdd'
 # The failure itself must also be detected (exit 2), not just cleaned up.
 tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
 tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'

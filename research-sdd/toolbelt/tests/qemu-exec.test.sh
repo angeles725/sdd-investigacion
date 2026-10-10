@@ -684,8 +684,8 @@ _t "qe-pin-no-verify: exec no longer refuses a target whose identity differs fro
   's/^    if not want or h.hexdigest() != want or (want_size is not None and size != want_size):$/    if False:/'
 _t "qe-pin-bind-original: bwrap --ro-bind source stays the original path, not the verified copy (#2078)" "FAIL  PIN-BIND: qemu was handed swapped bytes" lib/vm_pin.py \
   's/out = \[dest if (a == path and i > 0/out = [dest if (False and i > 0/' 's/^    if n_sub != 1:$/    if False:/'
-_t "qe-root-hardcoded: _rsdd_root ignores RSDD_VM_ROOT and returns /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/qemu_exec.py \
-  's/^    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT$/    return _dc._DEFAULT_RSDD_ROOT/'
+_t "qe-root-hardcoded: rsdd_root() ignores RSDD_VM_ROOT and returns /tmp/rsdd (#2061, #2090)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/docker_common.py \
+  's/^    return os.environ.get("RSDD_VM_ROOT") or _DEFAULT_RSDD_ROOT$/    return _DEFAULT_RSDD_ROOT/'
 _t "qe-core-root-ignored: run_vm drops its root argument and uses the default /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/vm_boot_core.py \
   's/uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)/uuid.uuid4().hex)/'
 _t "qe-stage-leak: the private target copy dir is no longer removed after the run (#2078)" "FAIL  PIN-(REFUSE|BIND): stage dir leaked" lib/qemu_exec.py \
