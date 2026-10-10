@@ -779,8 +779,10 @@ Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a 
   - OBJECTIVE-LOCK. When the operator states an explicit objective for the run, EVERY iteration opens
     with one line mapping the current action to that objective (`Objective: <objective> -> <this action>`).
     An action that cannot be mapped is off-objective and is not taken. Side-defects found en route
-    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks: a backlog row in
-    the target's RESEARCH-STATE prefixed `side-defect:` (ODD task files are kit-maintenance only), fixed
+    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks: a `## Gap-backlog` row in
+    the target's RESEARCH-STATE whose Gap cell starts with `side-defect:` (Status keeps the METHODOLOGY
+    §8b leading token; Priority `deferred`, so it never yields NEXT and stays out of `investigable_open`;
+    ODD task files are kit-maintenance only), fixed
     only as incident handling, bounded to what unblocks the objective; they never become the de-facto
     objective. Violation signature (observed): four consecutive theory pivots (profile -> env var ->
     daemonize -> portal), each consuming multiple tool batches, while the objective line went unstated
