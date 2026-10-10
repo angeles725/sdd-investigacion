@@ -280,7 +280,7 @@ daemon credential; see §11 "Credentials".
 
 **Cross-reference (deferred):** this defensive note belongs conceptually under METHODOLOGY.md §12
 (SECRETS DISCIPLINE) alongside the live-install credential-handling guidance already there;
-METHODOLOGY.md is owned by another writer in this chain, so the cross-link from §12 to this
+METHODOLOGY.md is owned by another writer in this chain, so the cross-link from METHODOLOGY.md §12 to this
 section should be added when that file is next touched.
 
 
@@ -295,7 +295,7 @@ only; never credentials (SECRETS DISCIPLINE).
 |---|---|
 | Workbench (`wb`) launch | Start it through a scheduled task: `schtasks ... /RU <interactive user> /IT /RL HIGHEST`, running a launcher `.cmd` that CLEARS the rival-posture machine environment variables per process. Without the clear, the N4 JVM dies before boot. |
 | Station (fox) | URI `foxs://<host>:4911` (TLS) — evidenced in the incident run (`plugin-st-stderr.txt`: FOXS 4911). The issue reports UDP 1911 as discovery-only on that host `[unverified]`. |
-| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. Update `[#2104]`: on one 4.13 install the platform daemon answered on 3011 (insecure) and 5011 (TLS) `[CERT-live]`, matching the audit defaults; the "N5 3011 platformssl" half of the #1931 wording remains `[unverified]`. Still record the live ports per run. |
+| Platform | Reported in kit #1931 as "N4 1911 / N5 3011 platformssl" `[unverified]` (the "N4 1911" half was not observed as a platform port; 1911 matches the fox default) — this CONFLICTS with the kit's audit defaults (`niagara-audit.v1.md` SEC-09/SEC-14: fox 1911 and platform 3011 plaintext; foxs 4911 and platformssl 5011 TLS). Do not copy either set as fact: read the live host's actual ports (station/platform config or a port listing) and record them, with their source, in the run's capture. Update `[#2104]`: on one 4.13 install the platform daemon answered on 3011 (insecure) and 5011 (TLS) `[CERT-live]`, matching the audit defaults; the "N5 3011 platformssl" half of the #1931 wording remains `[unverified]`. Still record the live ports per run. |
 
 - **Unverified here:** the exact `schtasks` argument list and the names of the cleared variables are not in the
   issue text; copy them from the run's own `wb-session.log` / launcher `.cmd` rather than from this table.
@@ -361,8 +361,8 @@ State 3 is the failure mode of the split routes below.
   seeding time) `[CERT-live]`. Detect it with a trust-all JSSE probe that dumps the peer certificate, or from
   the boot WARNING "using default TLS server certificate 'default'". Either seed keystore and keyring
   together, or accept the placeholder and approve it once per client home (it triggers the approval dialog
-  of the §12 hang playbook). Restoring the real keystore later requires re-seeding credentials, because the
-  credential store is bound to the same keyring `[CERT-live]`.
+  of the §12 hang playbook `[INFER]`). Restoring the real keystore later requires re-seeding credentials, because the
+  credential store is bound to the same keyring `[INFER]`.
 - **Autostart `[#2107]`:** station Autostart flags live in the daemon's app registry,
   `<daemon home>\registry\registry.db` (plus a `.chk`). Copying `stations\` into a new daemon home does NOT
   carry them: flags default to false and no station starts at boot. Plan one Application Director pass to
@@ -393,7 +393,7 @@ and start failed until it was killed. The analogous case for another service is 
 `DEPLOY-WINDOWS-MINIPC.md` (Gotchas): the stop verb returning is not proof the process is gone.
 
 Source: niagara-research retros 2026-10-09 (station-copier goal drift) and 2026-10-10 (MSI1 4.13 WB
-home / keyring). Corpus-local ladder labels are intentionally not reproduced; the rules above stand alone.
+home / keyring; platform-hang diagnostics, kit #2105/#2107/#2109). Corpus-local ladder labels are intentionally not reproduced; the rules above stand alone.
 
 ## 12. Daemon and station diagnostics `[#2103][#2104][#2106][#2108]`
 
@@ -423,8 +423,8 @@ over 5 minutes with no daemon events, while the insecure port failed instantly; 
 completed in ~100 ms and failed only PKIX validation. Playbook:
 
 1. **Liveness and credentials on the insecure port:** `plat details -h:ip:127.0.0.1 -p:3011` answers in
-   milliseconds; an auth failure there also proves the daemon is alive.
-2. **Jetty liveness:** `curl -k https://127.0.0.1:5011/platformInfo`; a fast 403 means jetty is alive.
+   milliseconds and tests the credential; even an auth failure proves the daemon is alive `[INFER]`.
+2. **Jetty liveness:** `curl -k https://127.0.0.1:5011/platformInfo`; a fast 403 means jetty is alive `[unverified]` (no 403 observation recorded in #2104).
 3. **Approve the certificate once in the GUI**, launched via the §9 `schtasks /it` recipe (not repeated here).
 
 ### Process inventory `[#2106]`
@@ -460,10 +460,10 @@ the holder with `netstat -ano`.
 | 9 | findProjects() 2 layouts; scope as exclude; no exclude API | `[CERT]` | settings.gradle.kts:118-131,126-131 |
 | 10 | Bump only for frozen-slot structure change, not code-only | `[CERT-doc]` | BUILD_WORKFLOW.md:343,365 |
 | 11 | niagarad logs to the Application Event Log, source `Niagara`; EventID 1/2/3 = INFO/WARNING/SEVERE; XML format required | `[CERT-live]` | #2103; boot timeline rebuilt from EventData |
-| 12 | Untrusted-cert session to :5011 hangs (modal approval dialog); 3011 insecure answers in ms; 403 on `/platformInfo` = jetty alive | `[CERT-live]` | #2104; established 5011 session with no daemon events, JSSE handshake ~100 ms |
+| 12 | Untrusted-cert session to :5011 hangs (modal approval dialog); 3011 insecure answers in ms; 403 on `/platformInfo` = jetty alive `[unverified]` | `[CERT-live]` | #2104; established 5011 session with no daemon events, JSSE handshake ~100 ms |
 | 13 | Supervisor stations run as native `station.exe` with `-daemonspawn:`, not `java.exe` | `[CERT-live]` | #2106; process listing and port listing |
 | 14 | Same-mold stations collide on web 443 / FOXS 4911; second retries every 5 s while "Started" | `[CERT-live]` | #2108; station console log BindException |
-| 15 | Seeding `security\` without a keystore yields a placeholder cert; credential store bound to keyring | `[CERT-live]` | #2105; peer-cert dump, seeding-time validity |
+| 15 | Seeding `security\` without a keystore yields a placeholder cert; credential store bound to keyring (the latter and the dialog trigger `[INFER]`) | `[CERT-live]`/`[INFER]` | #2105; peer-cert dump, seeding-time validity |
 | 16 | Autostart flags live in `registry\registry.db`, not carried by copying `stations\` | `[CERT-live]` | #2107; no autostart at boot until re-flagged, `registry.db` appeared on flagging |
 | 17 | Bench-seeded password file is not the platform daemon credential; real one only in `etc\credentials\credentials.xml` | `[CERT-live]` | #2109; instant auth rejection on 3011 |
 | 18 | Platform ports 3011 insecure / 5011 TLS on one 4.13 install | `[CERT-live]` | #2104 (updates §9 `[unverified]`) |
