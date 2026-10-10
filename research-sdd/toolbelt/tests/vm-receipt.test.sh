@@ -151,7 +151,7 @@ echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mu
 if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 # This suite reports a bite as an uncaught AssertionError (it has no nok()), so the Traceback header is the expected signal:
 # the crash filter is the strict one MINUS Traceback, and every BAD_HAS pins the AssertionError message text.
-CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+CRASH_NOTB="$(mutant_py_crash_strict --no-tb)"
 tt teeth-digest-mismatch 'if actual_size != rec["size"] or actual_sha != rec["sha256"]:' 'if False:' 'AssertionError: verify_receipt must fail closed on artifact digest mismatch' "$CRASH_NOTB"
 tt teeth-dotdot 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if Path(p).is_absolute():' "AssertionError: _artifacts must reject dotdot path '../escape'" "$CRASH_NOTB"
 tt teeth-absolute 'if Path(p).is_absolute() or ".." in Path(p).parts:' 'if ".." in Path(p).parts:' 'AssertionError: _artifacts must reject absolute artifact path' "$CRASH_NOTB"

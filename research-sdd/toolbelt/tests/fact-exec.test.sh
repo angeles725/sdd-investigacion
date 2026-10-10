@@ -707,7 +707,7 @@ tt teeth-analysis-cap-check 'if exceeded:' 'if False:' 'FAIL  T-A2: GateError mu
 tt teeth-bounded-limit 'limit = cap + 1' 'limit = cap' 'FAIL  T-A2: GateError must mention cap'
 # A 1 KiB cap makes the client hang up on the stub's 200 KiB body, so the stub's server thread prints a BrokenPipeError Traceback: that is
 # stub noise, not a SUT crash. This one tooth therefore uses the strict filter MINUS the Traceback header; BAD_HAS pins the case's own text.
-CRASH_NOTB="$(mutant_py_crash_strict | sed 's/^Traceback|//')"
+CRASH_NOTB="$(mutant_py_crash_strict --no-tb)"
 tt teeth-analysis-cap-const '= 64 * 1024 * 1024' '= 1024' 'FAIL  T-A1: GateError \(false-timeout in RED\): FACT analysis response exceeds 1024-byte cap' "$CRASH_NOTB"
 tt teeth-mount-bind 'if not (src == fw_path or src.startswith(run_dir_host)):' 'if False:' 'FAIL  T-MOUNT-BIND: rc=0 \(expected 2; unexpected host bind mount'
 tt teeth-mount-volume 'if vol_name and not vol_name.startswith(project_name):' 'if False:' 'FAIL  T-MOUNT-VOL: rc=0 \(expected 2; volume not scoped'
