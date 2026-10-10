@@ -236,6 +236,64 @@ try:
     ok("PC-11: run_gate_epilogue passes plan_written=True to execute_or_plan")
 except Exception as e: nok("PC-11: run_gate_epilogue plan_written=True", str(e))
 
+# ── PC-RTO: read_target_once derives head, size and sha256 from ONE fd (#2077) ──
+import hashlib
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; data = b"\x7fELF" + bytes(range(60)) * 3; t.write_bytes(data)
+    try:
+        head, size, sha = m.read_target_once(t, None)
+        assert head == data[:20] and size == len(data) and sha == "sha256:" + hashlib.sha256(data).hexdigest(), (head, size, sha)
+        ok("PC-RTO1: head/size/sha256 match the file")
+    except Exception as e: nok("PC-RTO1: head-size-sha-match", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(b"\x7fELF" + b"A"*64)
+    ino = os.stat(t).st_ino; real_read = os.read; fired = []
+    def mut_read(fd, n):
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(t, "ab") as fh: fh.write(b"tail")
+        return real_read(fd, n)
+    try:
+        with unittest.mock.patch("os.read", mut_read):
+            try: m.read_target_once(t, None); got = "accepted"
+            except m.AdapterError as exc: got = str(exc)
+        assert fired, "mutation hook never fired"
+        assert got.startswith("file changed while hashing"), f"in-place mutation mid-read: {got}"
+        ok("PC-RTO2: in-place mutation after the header read -> refused")
+    except Exception as e: nok("PC-RTO2: mutation-mid-read-refused", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; a = b"\x7fELF" + b"A"*64; t.write_bytes(a)
+    ino = os.stat(t).st_ino; real_read = os.read; fired = []
+    def over_read(fd, n):
+        r = real_read(fd, n)
+        if not fired and os.fstat(fd).st_ino == ino:
+            fired.append(1)
+            with open(t, "r+b") as fh: fh.write(b"\x7fELF" + b"B"*8)   # same size, header bytes rewritten
+        return r
+    try:
+        with unittest.mock.patch("os.read", over_read):
+            try: head, _, sha = m.read_target_once(t, None); got = (head, sha)
+            except m.AdapterError: got = None
+        assert fired, "overwrite hook never fired"
+        if got is not None:
+            assert got[0] == a[:20] and got[1] == "sha256:" + hashlib.sha256(a).hexdigest(), f"header/hash disagree: {got}"
+        ok("PC-RTO3: same-size overwrite after the header read -> refused or head/sha from the same bytes")
+    except Exception as e: nok("PC-RTO3: header-hash-agreement", str(e))
+
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); t = R/"t.bin"; t.write_bytes(b"\x7fELF" + b"A"*64); ln = R/"ln"; ln.symlink_to(t); d = R/"d"; d.mkdir()
+    def refusal(p, cap):
+        try: m.read_target_once(p, cap); return "accepted"
+        except m.AdapterError as exc: return str(exc)
+    try:
+        assert refusal(ln, None) == f"cannot open regular non-symlink file: {ln}", refusal(ln, None)
+        assert refusal(d, None) == f"not a regular file: {d}", refusal(d, None)
+        assert refusal(t, 8) == "input exceeds max-input-bytes", refusal(t, 8)
+        ok("PC-RTO4: symlink / directory / over-cap refused with identity's exact messages")
+    except Exception as e: nok("PC-RTO4: refusal-messages", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -266,5 +324,7 @@ tt teeth-PC-6b $'if result.get("outcome") == "authorization-required":\n        
 tt teeth-PC-7 'except (AdapterError, OSError) as exc:' 'except OSError as exc:' 'FAIL  PC-7: run_adapter_main AdapterError: disk-full-test'
 tt teeth-PC-10 'except (AdapterError, OSError) as exc:' 'except BaseException as exc:' 'FAIL  PC-10: run_adapter_main KeyboardInterrupt: KeyboardInterrupt was NOT re-raised'
 
+tt teeth-rto-fstat-recheck 'if fields(before) != fields(after) or total != before.st_size:' 'if False:' 'FAIL  PC-RTO2: mutation-mid-read-refused'
+tt teeth-rto-seed-digest 'digest = hashlib.sha256(); digest.update(head); total = len(head)' 'os.lseek(fd, 0, os.SEEK_SET); digest = hashlib.sha256(); total = 0; before = os.fstat(fd)' 'FAIL  PC-RTO3: header-hash-agreement'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

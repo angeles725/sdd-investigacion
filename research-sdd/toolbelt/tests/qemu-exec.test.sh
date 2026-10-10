@@ -687,7 +687,7 @@ _t "qe-pin-bind-original: bwrap --ro-bind source stays the original path, not th
 _t "qe-root-hardcoded: _rsdd_root ignores RSDD_VM_ROOT and returns /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/qemu_exec.py \
   's/^    return os.environ.get("RSDD_VM_ROOT") or _dc._DEFAULT_RSDD_ROOT$/    return _dc._DEFAULT_RSDD_ROOT/'
 _t "qe-core-root-ignored: run_vm drops its root argument and uses the default /tmp/rsdd (#2061)" "FAIL  RSDD-TMP-ROUTE: RSDD-TMP-NOLEAK: new entries under /tmp/rsdd" lib/vm_boot_core.py \
-  's/else _dc.make_run_subdir(uuid.uuid4().hex, root))/else _dc.make_run_subdir(uuid.uuid4().hex))/'
+  's/uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)/uuid.uuid4().hex)/'
 _t "qe-stage-leak: the private target copy dir is no longer removed after the run (#2078)" "FAIL  PIN-(REFUSE|BIND): stage dir leaked" lib/qemu_exec.py \
   's/^            shutil.rmtree(stage, ignore_errors=True)$/            pass/'
 _t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI-(twice|never): " lib/vm_pin.py \

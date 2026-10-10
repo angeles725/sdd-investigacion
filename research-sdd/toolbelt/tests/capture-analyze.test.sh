@@ -3,15 +3,32 @@
 # RED: exits 2 (SUT not found) before lib/capture_analyze.py exists.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../lib/capture_analyze.py"
-CE="$HERE/../lib/capture_exec.py"
-PLAN="$HERE/../capture_plan.py"
-[ -f "$SUT" ]  || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-[ -f "$CE" ]   || { echo "FATAL: capture_exec.py not found: $CE" >&2; exit 2; }
+ROOT="$HERE/.."
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  ARG="${2:-}"
+  [ -f "$ARG" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$ARG]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$ARG"
+  case "$ARG" in */lib/*) ROOT="$(cd "$(dirname "$ARG")/.." && pwd)" ;; *) ROOT="$(cd "$(dirname "$ARG")" && pwd)" ;; esac
+fi
+SUT="$ROOT/lib/capture_analyze.py"
+CE="$ROOT/lib/capture_exec.py"
+PLAN="$ROOT/capture_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # the mutated file replaces its own slot; every other slot stays in the staged tree
+  case "$ARG" in
+    */lib/*) case "$(basename "$ARG")" in
+      capture_analyze.py) SUT="$ARG" ;;
+      capture_exec.py) CE="$ARG" ;;
+    esac ;;
+    *) case "$(basename "$ARG")" in
+      capture_plan.py) PLAN="$ARG" ;;
+    esac ;;
+  esac
+fi
+[ -f "$SUT" ] || { echo "FATAL: capture_analyze.py not found: $SUT" >&2; exit 2; }
+[ -f "$CE" ] || { echo "FATAL: capture_exec.py not found: $CE" >&2; exit 2; }
 [ -f "$PLAN" ] || { echo "FATAL: capture_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-
-python3 - "$SUT" "$CE" "$PLAN" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, struct, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -248,3 +265,31 @@ with tempfile.TemporaryDirectory() as td:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT" "$CE" "$PLAN"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT" "$CE" "$PLAN")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "lib/capture_analyze.py"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-exit-code lib/capture_analyze.py '"exit_code":      exit_code,' '"exit_code":      0,' 'FAIL  T-FIRST-FAILS: corr exit=0'
+tt teeth-timed-out lib/capture_analyze.py '            timed_out = True' '            timed_out = False' 'FAIL  T-TIMEOUT: a.0..timed_out=False'
+tt teeth-empty-pcap lib/capture_analyze.py 'p.stat().st_size == 0' 'p.stat().st_size < 0' 'FAIL  T-EMPTY: attempted=True'
+tt teeth-gate-allow capture_plan.py 'run_gate_epilogue(CAP_LIVE_CAPTURE, args.allow_live_capture, plan' 'run_gate_epilogue(CAP_LIVE_CAPTURE, True, plan' 'FAIL  T-GATE: rc='
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]

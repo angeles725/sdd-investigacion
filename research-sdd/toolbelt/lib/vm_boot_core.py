@@ -86,8 +86,7 @@ def run_vm(
     qbin = resolve_qbin(plan, exec_argv)
 
     # Per-run subdir (O_NOFOLLOW fd-anchored) — the SINGLE run_dir for this call.
-    run_dir = (_dc.make_run_subdir(uuid.uuid4().hex) if root is None
-               else _dc.make_run_subdir(uuid.uuid4().hex, root))
+    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)
     serial_log = f"{run_dir}/serial.log"
     argv_deltas: list[dict[str, Any]] = []
 

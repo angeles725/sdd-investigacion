@@ -610,7 +610,7 @@ mutant_vm_core_teeth() {
     echo "  FAIL  teeth-staging-control: staging the clean mini-tree failed"; MVC_FAIL=$((MVC_FAIL+1))
   fi
   # mutant 1 — run_dir identity: run_vm hands out a caller-chosen (reusable) run_dir identity.
-  if _mvc_build teeth-mut-red11 red11 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    run_dir = _dc.make_run_subdir(__import__("os").environ.get("TOOTH_UUID") or uuid.uuid4().hex)|'; then
+  if _mvc_build teeth-mut-red11 red11 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)$|    run_dir = _dc.make_run_subdir(__import__("os").environ.get("TOOTH_UUID") or uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)|'; then
     _mvc_tt teeth-mut-red11 0 0 "$mut/red11/lib/${ex}_exec.py" --orig "$sut_exec" \
       --good-has '^TOOTH_RED11=fresh$' --good-lacks "$crash" \
       --bad-has '^TOOTH_RED11=preexisting$' --bad-lacks "$crash" -- bash "$self" --tooth red11 @SUT@
@@ -622,7 +622,7 @@ mutant_vm_core_teeth() {
       --bad-has '^TOOTH_INV5=leaked$' --bad-lacks "$crash" -- bash "$self" --tooth inv5 @SUT@
   fi
   # mutant 3 — single allocation: run_vm allocates a second, orphaned run_dir.
-  if _mvc_build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)$|    _dc.make_run_subdir(uuid.uuid4().hex)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)|'; then
+  if _mvc_build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)$|    _dc.make_run_subdir(uuid.uuid4().hex)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)|'; then
     _mvc_tt teeth-mut-alloc 0 0 "$mut/alloc/lib/${ex}_exec.py" --orig "$sut_exec" \
       --good-has '^TOOTH_ALLOC=1$' --good-lacks "$crash" \
       --bad-has '^TOOTH_ALLOC=2$' --bad-lacks "$crash" -- bash "$self" --tooth alloc @SUT@
