@@ -75,8 +75,9 @@ def run_vm(
         and are hashed by snapshot_hook.  When ``None``, exec_argv is unchanged.
     root:
         Optional host isolation root under which the per-run subdir is created.
-        ``None`` keeps docker_common's default (/tmp/rsdd), byte-identical for
-        the detonate/trace callers.
+        ``None`` keeps docker_common's default (/tmp/rsdd). Every in-tree caller
+        (qemu, detonate, trace) passes ``docker_common.rsdd_root()`` ($RSDD_VM_ROOT,
+        default /tmp/rsdd), so live behaviour is unchanged while it is unset.
     """
     preflight(plan)
     exec_argv: list[str] = list(plan["planned_argv"])

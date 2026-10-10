@@ -140,7 +140,7 @@ def _preflight(plan: dict[str, Any]) -> None:
 
     Validates: (a) planned_argv is list[str]; (b) per-drive containment policy;
     (c) x86_64 gate + host SRC check (R6) when runtime-tree bind present, else
-        qemu binary on PATH; (d) /tmp/rsdd is a real directory.
+        qemu binary on PATH; (d) the rsdd root ($RSDD_VM_ROOT|/tmp/rsdd) is a real directory.
     """
     argv = plan.get("planned_argv")
     if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
@@ -171,7 +171,7 @@ def _preflight(plan: dict[str, Any]) -> None:
                 f"qemu binary {qbin!r} not found on PATH; "
                 "install qemu-system and retry"
             )
-    _dc.verify_rsdd_root()
+    _dc.ensure_rsdd_root()
 
 
 def _thin_preflight(plan: dict[str, Any]) -> None:
@@ -190,7 +190,7 @@ def _thin_preflight(plan: dict[str, Any]) -> None:
             raise GateError(
                 f"qemu binary {qbin!r} not found on PATH (disappeared since preflight)"
             )
-    _dc.verify_rsdd_root()
+    _dc.ensure_rsdd_root()
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +301,7 @@ def run_evaluate(
     try:
         ev = _vbc.run_vm(
             plan, preflight=_thin_preflight,
+            root=_dc.rsdd_root(),
             snapshot_hook=snapshot_hook, pre_boot=pre_boot,
         )
     finally:

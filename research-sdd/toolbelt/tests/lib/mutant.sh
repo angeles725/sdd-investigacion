@@ -490,7 +490,7 @@ def _tooth_run(name, plan_flags, mod, cls):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
             for _i in (1, 2):
-                before = set(_g.glob("/tmp/rsdd/rsdd-*"))
+                before = set(_g.glob((os.environ.get("RSDD_VM_ROOT") or "/tmp/rsdd") + "/rsdd-*"))
                 r = cli("plan", *plan_flags(elf), "--output", str(tmp / f"out{_i}"), "--allow-exec",
                         xe={"PATH": p, "RSDD_EXEC_EXECUTOR": "", "TOOTH_UUID": _uid})
                 try: sl = json.loads(r.stdout).get("serial_log", "")

@@ -34,6 +34,20 @@ fi
 RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" RSDD_FIXTURES_PY="$(mutant_vm_fixtures_py_src)" RSDD_TEETH_COUNTS="$TEETH_COUNTS" python3 - "$SUT_EXEC" "$SUT_PLAN" "${1:-}" "${2:-}" <<'PY'
 import json, os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
+import atexit, shutil
+
+# #2101: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it at a suite-private sandbox so no
+# run dir lands in /tmp/rsdd, and attribute run dirs BY IDENTITY (_produced) for the TRACE-NOLEAK guard at the end.
+_SBX = tempfile.mkdtemp(prefix="te-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+_SBX_ROOT = os.path.join(_SBX, "rsdd")
+os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+_GLOBAL_ROOT = Path("/tmp/rsdd")
+def _global_names() -> set:
+    try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
+    except OSError: return set()
+_global_before = _global_names()
+_produced = set()
 
 sut_exec_path = Path(sys.argv[1])
 plan_path     = Path(sys.argv[2])
@@ -41,6 +55,11 @@ PROVE_TEETH   = len(sys.argv) > 3 and sys.argv[3] == "--prove-teeth"
 
 sys.path.insert(0, str(sut_exec_path.parent))
 sys.path.insert(0, str(sut_exec_path.parent.parent))
+import docker_common as _dc_rec
+_orig_mrs_rec = _dc_rec.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs_rec(*a, **k); _produced.add(r); return r
+_dc_rec.make_run_subdir = _rec_mrs   # in-process runs; CLI children: successful ones only (their serial_log); a failed child's run dir is reported by the INFO line, not NOLEAK
 
 passed = 0; failed = 0
 def ok(n):      global passed; passed += 1; print(f"  PASS  {n}")
@@ -49,8 +68,11 @@ def nok(n, r=""):  global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" 
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(plan_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    try: _produced.add(str(Path(json.loads(r.stdout)["serial_log"]).parent))
+    except Exception: pass
+    return r
 
 # Fake qemu shim for trace (containment-identical to detonate shim):
 # - records argv (QEMU_SHIM_RECORD)
@@ -109,7 +131,7 @@ def _shims(tmp: Path) -> str:
         p = tmp / name; p.write_text(body); p.chmod(0o755)
     return str(tmp) + ":" + os.environ.get("PATH", "")
 
-Path("/tmp/rsdd").mkdir(exist_ok=True)
+# (#2101) the suite no longer creates the global /tmp/rsdd: run dirs live in the $RSDD_VM_ROOT sandbox.
 
 # ── Tooth scenarios (--tooth <name> <sut_exec>) ────────────────────────────────
 # Focused re-runs of the RED11 / INV5-earlyfail / single-allocation base scenarios against
@@ -146,7 +168,7 @@ def _pin_probe(kind):
     from gate import GateError as _GE
     td = tempfile.mkdtemp(prefix="pin-case-"); sbx = tempfile.mkdtemp(prefix="pin-sbx-")
     saved = {k: os.environ.get(k) for k in ("TMPDIR", "PATH", "SWAP_PATH", "BIND_REC", "QEMU_SHIM_RECORD")}
-    runs_before = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+    runs_before = set(_glob.glob(_SBX_ROOT + "/rsdd-*"))
     out = {"verdict": "bad", "leaked": [], "detail": ""}
     try:
         tmp = Path(td); p = _shims(tmp); elf = _elf(tmp); rec = tmp / "calls.json"; brec = tmp / "bind.sha"
@@ -183,6 +205,10 @@ def _pin_probe(kind):
         elif kind == "nopath":
             good = err is not None and "records no sample path" in err
             out["detail"] = f"err={err!r}"
+        elif kind == "root":
+            sl = str((res or {}).get("serial_log", ""))
+            good = err is None and sl.startswith(_SBX_ROOT + os.sep)
+            out["detail"] = f"err={err!r} serial_log={sl!r} (want under {_SBX_ROOT})"
         else:  # multi
             good = err is not None and "exactly one --ro-bind" in err
             out["detail"] = f"err={err!r}"
@@ -194,7 +220,8 @@ def _pin_probe(kind):
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
         tempfile.tempdir = None
-        for d in set(_glob.glob("/tmp/rsdd/rsdd-*")) - runs_before: _sh.rmtree(d, ignore_errors=True)
+        for d in (set(_glob.glob(_SBX_ROOT + "/rsdd-*")) - runs_before) | {x for x in _produced if x.startswith("/tmp/rsdd/") and os.path.basename(x) not in _global_before}:
+            _sh.rmtree(d, ignore_errors=True)
         _sh.rmtree(td, ignore_errors=True); _sh.rmtree(sbx, ignore_errors=True)
     return out
 
@@ -231,6 +258,11 @@ else: nok("PIN-MULTI", f"{_r_multi['verdict']} {_r_multi['detail']}")
 _r_nopath = _pin_probe("nopath")
 if _r_nopath["verdict"] == "good": ok("PIN-NOPATH: plan without sample path/sha256 → GateError 'records no sample path', never booted")
 else: nok("PIN-NOPATH", f"{_r_nopath['verdict']} {_r_nopath['detail']}")
+
+# ── ROOT-ROUTE (#2101): the run dir is created under $RSDD_VM_ROOT, not the hard-coded /tmp/rsdd ──
+_r_root = _pin_probe("root")
+if _r_root["verdict"] == "good": ok("ROOT-ROUTE: run dir created under $RSDD_VM_ROOT (sandbox), not /tmp/rsdd")
+else: nok("ROOT-ROUTE", f"{_r_root['verdict']} {_r_root['detail']}")
 
 # ── PIN-NOLEAK (#2090): the private sample copy dir is gone after both a refusal and a run ──
 _leaks = _r_refuse["leaked"] + _r_bind["leaked"]
@@ -440,8 +472,8 @@ with tempfile.TemporaryDirectory() as td:
             m2 = _re.search(r"file=([^,]+)", s)
             assert m2, f"no file= in scratch spec: {s}"
             sp = m2.group(1)
-            assert sp.startswith("/tmp/rsdd/"), \
-                f"scratch path not under /tmp/rsdd: {sp!r}"
+            assert sp.startswith(_SBX_ROOT + "/"), \
+                f"scratch path not under $RSDD_VM_ROOT sandbox: {sp!r}"
         deltas = res.get("argv_deltas", [])
         assert deltas, "argv_deltas empty — substitution not recorded"
         assert any(sentinel in str(d) for d in deltas), \
@@ -577,7 +609,7 @@ import glob as _glob
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
     try:
-        before = set(_glob.glob("/tmp/rsdd/rsdd-*"))
+        before = set(_glob.glob(_SBX_ROOT + "/rsdd-*"))
         r = cli("plan", "--target", str(elf), "--tracer", "strace",
                 "--output", str(tmp / "out"), "--allow-exec",
                 xe={"PATH": p, "RSDD_EXEC_EXECUTOR": ""})
@@ -586,14 +618,14 @@ with tempfile.TemporaryDirectory() as td:
         serial_log = res.get("serial_log", "")
         assert serial_log, "serial_log missing from result — cannot identify run_dir"
         our_run_dir = str(Path(serial_log).parent)
-        assert our_run_dir.startswith("/tmp/rsdd/rsdd-"), (
-            f"run_dir not under /tmp/rsdd/rsdd-: {our_run_dir!r}"
+        assert our_run_dir.startswith(_SBX_ROOT + "/rsdd-"), (
+            f"run_dir not under $RSDD_VM_ROOT sandbox: {our_run_dir!r}"
         )
         assert our_run_dir not in before, (
             f"run_dir was pre-existing, not freshly created: {our_run_dir!r}"
         )
         assert Path(our_run_dir).exists(), (
-            f"run_dir missing from /tmp/rsdd after evaluate(): {our_run_dir!r}"
+            f"run_dir missing from the sandbox root after evaluate(): {our_run_dir!r}"
         )
         ok("TRACE-RED11: exactly 1 run_dir per evaluate() (single-run_dir seam)")
     except Exception as e: nok("TRACE-RED11", str(e))
@@ -1003,6 +1035,20 @@ if PROVE_TEETH:
                 nok("teeth-INV5-double-alloc", "len==1 did NOT fire on double allocation — no teeth")
         except Exception as e: nok("teeth-INV5-double-alloc", str(e))
 
+# ── TRACE-NOLEAK (#2101): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
+# (a concurrent suite): INFO only, never failed on or deleted.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("TRACE-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced (never one that pre-existed)
+        if os.path.basename(_p) in _global_before: continue
+        shutil.rmtree(_p, ignore_errors=True)
+else:
+    ok("TRACE-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+
 _counts = os.environ.get("RSDD_TEETH_COUNTS", "")
 if _counts:
     # --prove-teeth: the bash section adds its mutant results and prints the one final line.
@@ -1070,6 +1116,11 @@ _pin_t teeth-pin-keys-swapped bind lib/vm_exec_common.py \
   's/^_IDENT_KEY = {"detonate": "sample", "trace": "target"}$/_IDENT_KEY = {"detonate": "target", "trace": "sample"}/'
 _pin_t teeth-pin-stage-leak leak lib/vm_exec_common.py \
   's/^        shutil.rmtree(stage, ignore_errors=True)$/        pass/'
+# #2101: routing the run dir through rsdd_root() — run_vm loses its root= and falls back to /tmp/rsdd.
+_pin_t teeth-root-hardcoded root lib/vm_exec_common.py \
+  's/^            root=_dc.rsdd_root(),$/            root=None,/'
+_pin_t teeth-thin-verify root lib/vm_exec_common.py \
+  's/^    _dc.ensure_rsdd_root()$/    _dc.verify_rsdd_root()/'
 
 echo "== $((py_p + b_pass)) passed · $((py_f + b_fail)) failed =="
 [ "$py_rc" -eq 0 ] && [ "$b_fail" -eq 0 ] || exit 1
