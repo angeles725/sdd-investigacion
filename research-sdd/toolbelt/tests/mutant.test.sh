@@ -556,7 +556,7 @@ VM="$TMP/vm"; mkdir -p "$VM/tests" "$VM/lib" "$VM/pystub"
 cat > "$VM/lib/vm_boot_core.py" <<'PY'
 import uuid
 def run_vm():
-    run_dir = _dc.make_run_subdir(uuid.uuid4().hex)
+    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)
     try:
         boot()
     except BaseException:
