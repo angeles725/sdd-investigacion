@@ -672,6 +672,7 @@ mutant_vm_core_teeth() {
 #                                          neither run matches CRASH_RE (default mutant_py_crash_strict; pass a
 #                                          narrower one when the suite legitimately prints an exception name).
 #                                          Prints PASS/FAIL; rc 0/1. The caller counts, as with mutant_tooth.
+# shellcheck disable=SC2120  # --no-tb is passed by the suites that source this lib, not from within it
 mutant_py_crash_strict() {
   local _tb='Traceback|'
   [ "${1:-}" = "--no-tb" ] && _tb=""
