@@ -242,6 +242,24 @@ For the related shell-side trap where `ssh` consumes the stdin of a `while read`
 `REMOTE-POWERSHELL.md §4.4`. Evidence: niagara-research B1216 §1216.3 (probe
 `nre-ssh-hang-pattern.ps1`). (Kit #2029.)
 
+### GUI apps over SSH
+
+A GUI app started from an SSH session runs in the SSH session (a non-interactive window station), so it
+is invisible on the console even though the process exists. To make it visible, create a scheduled task
+that runs interactively in the console session, then run it, with the console user logged on:
+
+```
+schtasks /create /tn <TaskName> /tr "<path\to\app.exe> <args>" /sc once /st 00:00 /ru <console-user> /it /f   [unverified: exact flags]
+schtasks /run /tn <TaskName>
+tasklist /v /fi "IMAGENAME eq <app.exe>"    # Session# should be the console session (often 1), not the SSH one
+schtasks /delete /tn <TaskName> /f
+```
+
+Observed `[CERT-live]`: a Workbench process launched this way (task `WBCopierTest`) ran in Console
+session 1. The exact argument list used is not recorded in kit #2082, hence `[unverified]` above.
+Verify the session number rather than trusting task status. See also NIAGARA-N4-FRAMEWORK.md §9.
+(Kit #2082.)
+
 ---
 
 ## 8. Redfish probe traps (LOW)
@@ -271,6 +289,7 @@ a .45 EL2P PDU was read successfully over `http://` after `https://` rejected th
 | 10 | Windows-native binary writing to UNC path (`\\wsl.localhost\...`) | Error 67 or silent output loss | Stage under `/mnt/c/...`; use `cmd.exe /c` for invocation |
 | 11 | HTTPS Redfish TLS handshake failure (older PDU/BMC firmware) | Endpoint appears unreachable even with permissive cert callback | Retry the same path over plain HTTP |
 | 12 | Vendor `.exe` (e.g. `nre.exe`) launched directly over non-interactive SSH | Hangs indefinitely, no error (about 2 s locally) | `Start-Job { cmd /c "... < NUL > out 2> err" }` + `Wait-Job -Timeout`; read the files (§7) |
+| 13 | GUI app launched over SSH | Runs in the SSH session; invisible on the console | `schtasks /create ... /it` + `/run` with the console user logged on (§7) |
 
 ---
 
