@@ -88,7 +88,7 @@ def _shim(tmp: Path) -> str:
 # timeout path is always taken and the case never races interpreter startup.
 _SHIM_BLOCK = """\
 #!/bin/sh
-if [ "$1" = "-D" ]; then echo "1. eth0 (Ethernet)"; exit 0; fi
+if [ "$1" = "-D" ]; then echo "1. eth0 (Ethernet)"; echo "2. lo (Loopback)"; exit 0; fi
 prev=
 for a in "$@"; do
   if [ "$prev" = "-w" ]; then
@@ -96,7 +96,7 @@ for a in "$@"; do
   fi
   prev=$a
 done
-exec sleep 600
+exec sleep 60
 """
 
 def _shim_block(tmp: Path) -> str:
@@ -222,6 +222,7 @@ with tempfile.TemporaryDirectory() as td:
         assert res.get("outcome") == "timeout-partial", f"outcome={res.get('outcome')}"
         of = res.get("output_files", []); pcap = res.get("pcap_path", "")
         assert of, f"output_files empty: {of}"
+        assert any(f.get("path") == pcap for f in of), f"planned pcap not recorded: pcap={pcap} files={of}"
         ok("RED8: wall-timeout → SIGTERM, outcome=timeout-partial, pcap recorded")
     except Exception as e: nok("RED8", str(e))
 
