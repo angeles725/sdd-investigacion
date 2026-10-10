@@ -2,10 +2,15 @@
 # qemu-plan.test.sh — RED-first contract tests for qemu-plan.v1 (U-V10 / item 10)
 # Written BEFORE qemu_plan.py; suite exits 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../qemu_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../qemu_plan.py"; REL="qemu_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -132,6 +137,7 @@ with tempfile.TemporaryDirectory() as td:
     try:
         r = cli("plan","--target",str(link),"--mode","qemu-user","--output",str(out))
         assert r.returncode == 2 and "Traceback" not in r.stderr
+        assert "cannot read ELF header" in r.stderr, f"arch reader did not refuse the symlink: {r.stderr[:200]}"
         ok("T11: symlink target → exit 2, no traceback (O_NOFOLLOW guard)")
     except Exception as e: nok("T11: symlink-target-clean-error", str(e))
 
@@ -167,6 +173,17 @@ with tempfile.TemporaryDirectory() as td:
         assert r.returncode == 2, f"got {r.returncode}"
         ok("T14: output under /home → exit 2 (bind-scope guard)")
     except Exception as e: nok("T14: bind-path-safety", str(e))
+
+# ── T14b: output == $HOME (belt rule) → exit 2, nothing written (safe fixture: HOME is a temp dir) ──
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); h = R/"h"; h.mkdir(); tgt = R/"t.elf"; tgt.write_bytes(_ARM)
+    try:
+        r = cli("plan","--target",str(tgt),"--mode","qemu-user","--output",str(h), xe={"HOME": str(h)})
+        assert r.returncode == 2, f"got {r.returncode}"
+        assert "real home directory" in r.stderr, f"stderr: {r.stderr[:200]}"
+        assert not list(h.iterdir()), f"files written under HOME: {[p.name for p in h.iterdir()]}"
+        ok("T14b: output == $HOME → exit 2, nothing written (bind-scope belt)")
+    except Exception as e: nok("T14b: bind-scope-home-belt", str(e))
 
 
 # ── T_CAP1: --max-input-bytes below target size → exit 2, clean error, no traceback ──
@@ -271,3 +288,35 @@ with tempfile.TemporaryDirectory() as td:
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-nic '"-nic", "none",' '"-nic", "user",' 'FAIL  T_CONTAIN1: -nic-none-present: -nic none missing from argv'
+tt teeth-nodefaults '"-nodefaults",' '"-nographic",' 'FAIL  T_CONTAIN2: -nodefaults-present: -nodefaults missing from argv'
+tt teeth-sandbox '"-sandbox", "on,' '"-sandbox", "off,' "FAIL  T_CONTAIN3: -sandbox-on-present: -sandbox not 'on"
+tt teeth-smp '"-smp", "1",' '"-smp", "x",' 'FAIL  T_CONTAIN4: -smp-present: -smp value not a digit'
+tt teeth-accel '"-accel", "tcg",' '"-accel", "kvm",' "FAIL  T_CONTAIN5: -accel-tcg-present: -accel value is 'kvm'"
+tt teeth-input-cap '_file_identity(target, max_bytes=args.max_input_bytes)' '_file_identity(target)' 'FAIL  T_CAP1: cap-below-target-size: got 3'
+tt teeth-arch-nofollow 'getattr(os, "O_NOFOLLOW", 0)' '0' 'FAIL  T11: symlink-target-clean-error: arch reader did not refuse the symlink'
+tt teeth-bind-scope 'assert_safe_bind_root(Path(os.path.realpath(output_dir)))' 'pass' 'FAIL  T14b: bind-scope-home-belt: got 3'
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
