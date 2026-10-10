@@ -2,10 +2,15 @@
 # trace-plan.test.sh — RED-first contract tests for trace-plan.v1 (U-V9 / item 9)
 # Written BEFORE trace_plan.py; suite exits 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../trace_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../trace_plan.py"; REL="trace_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import importlib.util, json, os, subprocess, sys, tempfile, types, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -115,6 +120,28 @@ with tempfile.TemporaryDirectory() as td:
         ok("T5: ltrace → qemu-system+disk plan; tracer in kernel cmdline (D3 rebuild)")
     except Exception as e: nok("T5: ltrace-plan-argv-vm-disk-form", str(e))
 
+# ── T5c: bwrap namespace flags + qemu inner belt (mirror of detonate-plan T5c) ─
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
+    try:
+        rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out)]))
+        assert rc == 3
+        argv5c = json.loads((out/"trace-plan.v1.json").read_text())["planned_argv"]
+        assert "--unshare-ipc" in argv5c, "--unshare-ipc missing from bwrap prefix"
+        assert "--unshare-uts" in argv5c, "--unshare-uts missing from bwrap prefix"
+        assert "--unshare-cgroup" in argv5c, "--unshare-cgroup missing from bwrap prefix"
+        assert "-accel" in argv5c and argv5c[argv5c.index("-accel")+1] == "tcg", \
+            "-accel tcg missing from planned_argv"
+        assert "-nic" in argv5c and argv5c[argv5c.index("-nic")+1] == "none", \
+            "-nic none missing from planned_argv"
+        assert "-smp" in argv5c and argv5c[argv5c.index("-smp")+1] == "1", \
+            "-smp 1 missing from planned_argv"
+        assert "-nodefaults" in argv5c, "-nodefaults missing from planned_argv"
+        assert any(a.startswith("on,") for a in argv5c), \
+            "-sandbox on,... value missing from planned_argv"
+        ok("T5c: bwrap --unshare-ipc/uts/cgroup present; qemu inner belt: -accel tcg, -nic none, -smp 1, -nodefaults, -sandbox on")
+    except Exception as e: nok("T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt", str(e))
+
 # ── T6: gdb-batch → qemu-system+disk plan (D3 rebuild) ──────────────────────
 with tempfile.TemporaryDirectory() as td:
     R = Path(td); tgt = R/"t.bin"; tgt.write_bytes(_BIN); out = R/"out"
@@ -140,9 +167,18 @@ with tempfile.TemporaryDirectory() as td:
         # Bypass argparse by using a direct namespace (CLI would catch this via choices).
         args = types.SimpleNamespace(target=str(tgt), output=str(out), tracer="evil-tracer",
                                      allow_exec=False, cpu_seconds=30, max_mem_bytes=256<<20,
-                                     wall_seconds=60, max_output_bytes=128<<20)
-        rc = m.plan_trace(args)
+                                     wall_seconds=60, max_output_bytes=128<<20,
+                                     # complete namespace: with the guard removed the run must reach build_plan, not crash on a missing attribute
+                                     max_input_bytes=None, kernel="/rsdd/vmlinuz", rootfs="/rsdd/rootfs.img")
+        import contextlib, io
+        _err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(_err): rc = m.plan_trace(args)
+        finally:
+            print(_err.getvalue(), end="", file=sys.stderr)   # keep the plain output byte-identical, even if plan_trace raises
         assert rc == 2, f"expected 2, got {rc}"
+        # build_plan's KeyError handler also returns 2, so the exit code alone cannot show the tracer guard fired
+        assert "unsupported tracer" in _err.getvalue(), f"tracer guard message missing: {_err.getvalue()[:120]!r}"
         ok("T7: unsupported tracer → exit 2, clean error (no traceback from plan_trace)")
     except Exception as e: nok("T7: unsupported-tracer-clean-error", str(e))
 
@@ -418,6 +454,73 @@ with tempfile.TemporaryDirectory() as td:
         ok("TP-EMPTY-QEMU-ROOT: empty --qemu-root → exit 2 with explicit rejection (issue #98 item 4)")
     except Exception as e: nok("TP-EMPTY-QEMU-ROOT", str(e))
 
+# ── T_TOCTOU1: target swapped between header sniff and hashing (#2077) ──────────
+# The wrapper swaps the file the moment a SECOND open of it is attempted. Single-open code never triggers
+# the swap; two-open code sees file B at the hash and describes two different files.
+import hashlib, struct
+_ARM = b"\x7fELF\x01\x01\x01" + b"\x00"*11 + struct.pack("<H", 40)
+_X64 = b"\x7fELF\x01\x01\x01" + b"\x00"*11 + struct.pack("<H", 62)
+with tempfile.TemporaryDirectory() as td:
+    R = Path(td); tgt = R/"t.bin"; out = R/"out"
+    a_bytes = _ARM + b"A"*64; b_bytes = _X64 + b"B"*64
+    tgt.write_bytes(a_bytes); alt = R/"alt.bin"; alt.write_bytes(b_bytes)
+    real_open = os.open; opens = []
+    def swap_open(p, *a, **k):
+        if str(p) == str(tgt):
+            opens.append(1)
+            if len(opens) == 2: os.replace(alt, tgt)
+        return real_open(p, *a, **k)
+    try:
+        with unittest.mock.patch("os.open", swap_open):
+            rc = m.plan_trace(m._parser(["plan","--target",str(tgt),"--tracer","strace","--output",str(out)]))
+        assert rc == 3, f"unexpected rc {rc}"
+        p = json.loads((out/"trace-plan.v1.json").read_text())
+        want = "sha256:" + hashlib.sha256(a_bytes).hexdigest()
+        assert p["arch"] == "arm" and p["target"]["sha256"] == want, \
+            f"plan describes different files: arch={p['arch']} sha256={p['target']['sha256']} (arm bytes hash {want})"
+        assert len(opens) == 1, f"target opened {len(opens)} times, expected exactly one open"
+        ok("T_TOCTOU1: target opened once; arch and sha256 describe the same bytes")
+    except Exception as e: nok("T_TOCTOU1: single-open-consistent-identity", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+B='FAIL  T5c: bwrap-ns-ipc-uts-cgroup-and-inner-belt: '
+tt teeth-unshare-ipc '"--unshare-ipc", ' '' "${B}--unshare-ipc missing from bwrap prefix"
+tt teeth-accel-tcg '"-accel", "tcg",' '"-accel", "kvm",' "${B}-accel tcg missing from planned_argv"
+tt teeth-nic-none '"-nic", "none",' '"-nic", "user",' "${B}-nic none missing from planned_argv"
+tt teeth-smp-one '"-smp", "1",' '"-smp", "2",' "${B}-smp 1 missing from planned_argv"
+tt teeth-nodefaults '"-nodefaults",' '"-nodefaults-off",' "${B}-nodefaults missing from planned_argv"
+tt teeth-sandbox-on '"on,obsolete=deny,' '"off,obsolete=deny,' "${B}-sandbox on,... value missing from planned_argv"
+tt teeth-sample-readonly 'file=/input/sample,readonly=on,snapshot=off' 'file=/input/sample,snapshot=off' 'FAIL  T4: strace-plan-argv-vm-disk-form: sample readonly drive missing'
+tt teeth-tracer-guard 'if args.tracer not in _VALID_TRACERS:' 'if False:' 'FAIL  T7: unsupported-tracer-clean-error: tracer guard message missing'
+tt teeth-scratch-after-tmpfs '"--cap-drop", "ALL",' '"--cap-drop", "ALL", "--bind", _SCRATCH_SENTINEL, _SCRATCH_SENTINEL,' 'FAIL  T-scratch-bind: scratch-bind-after-tmpfs: --bind at [0-9]+ must come AFTER'
+tt teeth-tmpfs-dropped '"--tmpfs", "/tmp/rsdd", "--dir", "/tmp/rsdd/out",' '"--dir", "/tmp/rsdd/out",' 'FAIL  T-scratch-bind: scratch-bind-after-tmpfs: --tmpfs missing from planned_argv'
+tt teeth-host-writable '"host_writable": _SCRATCH_SENTINEL,' '"host_writable": "none",' 'FAIL  T-scratch-bind: scratch-bind-after-tmpfs: host_writable .none. must equal'
+tt teeth-rt-ro-bind '["--ro-bind", qemu_root, _RT_TREE_DEST]' '["--bind", qemu_root, _RT_TREE_DEST]' 'FAIL  TP-RTMOUNT-RO: runtime tree bind must be --ro-bind: '
+tt teeth-empty-qemu-root 'if qemu_root == "":' 'if False:' 'FAIL  TP-EMPTY-QEMU-ROOT: expected exit 2 for empty --qemu-root'
+
+tt teeth-single-open 'read_target_once(target, args.max_input_bytes)' '(lambda _h: (_h[0], *read_target_once(target, args.max_input_bytes)[1:]))(read_target_once(target, args.max_input_bytes))' 'FAIL  T_TOCTOU1: single-open-consistent-identity'
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
