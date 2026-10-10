@@ -2,10 +2,15 @@
 # vm-determinism.test.sh — RED-first contract tests for vm-determinism.v1 (U-F2 / item 12)
 # Written BEFORE lib/vm_plan.py; all cases fail with exit 2 ("SUT not found") until GREEN.
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/vm_plan.py"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/vm_plan.py"; REL="lib/vm_plan.py"
+if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
+  SUT="${2:-}"
+  [ -f "$SUT" ] || { echo "FATAL: --teeth-child needs an existing SUT file, got [$SUT]" >&2; exit 2; }
+  echo "TEETH-CHILD: SUT=$SUT"
+fi
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
-python3 - "$SUT" <<'PY'
+IFS= read -r -d '' PY_SRC <<'PY'
 import copy, hashlib, importlib.util, json, re, subprocess, sys, tempfile, unittest.mock
 from pathlib import Path
 sut = Path(sys.argv[1])
@@ -101,7 +106,10 @@ with tempfile.TemporaryDirectory() as tmp:
         m.verify_determinism(det, rpath); ok("verify_determinism passes with real receipt")
     except Exception as e: nok("verify_determinism real receipt", str(e))
     try:
-        bad = copy.deepcopy(det); bad["receipt_identity"] = FAKE
+        # a VALID record (passes validate_determinism) that names a different receipt, so only verify_determinism's identity check can reject it
+        bad = m.build_determinism({**det_spec, "receipt_identity": FAKE,
+                                   "reproducible": {"basis": "identity-match", "replicate_identity": FAKE}})
+        m.validate_determinism(bad)
         try: m.verify_determinism(bad, rpath); nok("verify should fail for wrong receipt_identity")
         except m.VmDeterminismError: ok("verify_determinism fails closed on wrong receipt_identity")
     except Exception as e: nok("verify wrong receipt_identity", str(e))
@@ -147,3 +155,32 @@ except Exception as e: nok("no live execution", str(e))
 if failed: print(f"\n== {passed} passed · {failed} failed =="); sys.exit(1)
 print(f"\n== {passed} passed · 0 failed ==")
 PY
+if [ "${1:-}" != "--prove-teeth" ]; then python3 -c "$PY_SRC" "$SUT"; exit $?; fi
+
+# ── MUTATION TEETH (--prove-teeth) ─────────────────────────────────────────────
+# Plain run first: its case lines are kept, its aggregate is replaced by ONE combined aggregate at the end
+# (run-all.sh reads the LAST `== N passed · N failed ==` line).
+py_out="$(python3 -c "$PY_SRC" "$SUT")"; py_rc=$?
+printf '%s\n' "$py_out" | grep -v '^== [0-9]* passed'
+pass="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\1/p' | tail -1)"
+fail="$(printf '%s\n' "$py_out" | sed -n 's/^== \([0-9]*\) passed · \([0-9]*\) failed ==$/\2/p' | tail -1)"
+if [ -z "$pass" ] || [ -z "$fail" ]; then
+  echo "  FAIL  plain run: no aggregate line (rc=$py_rc) - the suite did not report; teeth would prove nothing"; pass=0; fail=1
+fi
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+SELF="$HERE/$(basename "$0")"
+MUT="$(mktemp -d)" || exit 2
+mutant_cleanup_register "$MUT" || exit 2
+tt() { if mutant_py_tooth "$1" "$HERE" "$SELF" "$MUT" "$REL" "${@:2}"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
+echo "-- teeth: each guarded behaviour must be load-bearing (staged tree, one mutant per check) --"
+if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "$REL"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+tt teeth-clock-mode 'and clock.get("mode") == "pinned"' 'and True' "FAIL  condition clock.mode=host: basis must be 'identity-match'"
+tt teeth-seed-null 'and seed is not None' 'and True' "FAIL  condition seed=null: basis must be 'identity-match'"
+tt teeth-replicate-id 'and rid is not None and repid is not None and rid == repid)' 'and rid is not None and repid is not None)' "FAIL  condition replicate_id!=rid: basis must be 'identity-match'"
+tt teeth-lc-contradiction 'if actual_lc[k] != stored_lc[k]:' 'if False:' 'FAIL  verify should fail on lc contradiction'
+tt teeth-receipt-identity 'if actual_id != record["receipt_identity"]:' 'if False:' 'FAIL  verify should fail for wrong receipt_identity'
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
