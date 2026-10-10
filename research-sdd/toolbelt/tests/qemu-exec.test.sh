@@ -45,14 +45,26 @@ sys.path.insert(0, str(sut_path.parent))
 sp = importlib.util.spec_from_file_location("qemu_exec", sut_path)
 m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
 
+# Run-dir IDENTITY: every run dir this suite produces is recorded (in-process via a recorder around
+# make_run_subdir, CLI runs via their serial_log), so the global-root guard fails on and removes
+# only dirs this suite made -- never another suite's, whatever files they hold.
+_produced = set()
+_orig_mrs = m._dc.make_run_subdir
+def _rec_mrs(*a, **k):
+    r = _orig_mrs(*a, **k); _produced.add(r); return r
+m._dc.make_run_subdir = _rec_mrs
+
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
 def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if r else ""))
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
-                          capture_output=True, text=True, env=e)
+    r = subprocess.run([sys.executable, str(plan_path), *map(str, a)],
+                       capture_output=True, text=True, env=e)
+    try: _produced.add(str(Path(json.loads(r.stdout)["serial_log"]).parent))
+    except Exception: pass
+    return r
 
 # ELF header: x86_64 little-endian (e_machine=62=0x3e)
 _X64 = b'\x7fELF\x02\x01\x01' + b'\x00'*9 + b'\x02\x00\x3e\x00'
@@ -541,31 +553,36 @@ with tempfile.TemporaryDirectory() as td:
         ok("PIN-BIND: bwrap bind source holds the planned bytes even after the path is swapped")
     except Exception as e: nok("PIN-BIND", str(e))
 
-# ── PIN-MULTI (#2078): a plan binding the target twice (or never) is refused, not half-pinned ──
-with tempfile.TemporaryDirectory() as td:
-    tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
-    try:
-        plan = _planned(tmp, p, elf)
-        sep = plan["planned_argv"].index("--")
-        plan["planned_argv"][sep:sep] = ["--ro-bind", plan["target"]["path"], "/second"]
+# ── PIN-MULTI (#2078): a plan binding the target twice, or never, is refused, not half-pinned ──
+for _mlabel, _mutate in [
+    ("twice", lambda a, t: a[:a.index("--")] + ["--ro-bind", t, "/second"] + a[a.index("--"):]),
+    ("never", lambda a, t: (lambda i: a[:i] + a[i + 3:])(next(j for j, x in enumerate(a) if x == "--ro-bind" and a[j + 1] == t))),
+]:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td); p = _shims(tmp); elf = _elf(tmp)
         try:
-            _with_env({"PATH": p}, lambda: m.LiveQemuBootExecutor(tmp/"out").evaluate(plan))
-            nok("PIN-MULTI: duplicate --ro-bind of the target was accepted")
-        except GateError as e:
-            assert "exactly one --ro-bind" in str(e), f"unexpected message: {e}"
-            ok("PIN-MULTI: target bound twice in planned_argv → GateError 'exactly one --ro-bind'")
-    except Exception as e: nok("PIN-MULTI", str(e))
+            plan = _planned(tmp, p, elf)
+            plan["planned_argv"] = _mutate(plan["planned_argv"], plan["target"]["path"])
+            try:
+                _with_env({"PATH": p}, lambda: m.LiveQemuBootExecutor(tmp/"out").evaluate(plan))
+                nok(f"PIN-MULTI-{_mlabel}: plan with the target bound {_mlabel} was accepted")
+            except GateError as e:
+                assert "exactly one --ro-bind" in str(e), f"unexpected message: {e}"
+                ok(f"PIN-MULTI-{_mlabel}: target bound {_mlabel} in planned_argv → GateError 'exactly one --ro-bind'")
+        except Exception as e: nok(f"PIN-MULTI-{_mlabel}", str(e))
 
-# ── RSDD-TMP-NOLEAK (#2061): the suite created no new rsdd-* entries under the global /tmp/rsdd ──
-# Only entries carrying this suite's fingerprint (a serial.log) are attributed to it, so a concurrent
-# suite's run dirs under the shared /tmp/rsdd neither fail nor get removed by this guard.
-_new = {n for n in _global_names() - _global_before if (_GLOBAL_ROOT / n / "serial.log").exists()}
-if _new:
-    nok("RSDD-TMP-NOLEAK: new entries under /tmp/rsdd", f"{len(_new)} e.g. {sorted(_new)[:2]}")
-    for _n in _new:  # remove ONLY the entries this run created
-        shutil.rmtree(_GLOBAL_ROOT / _n, ignore_errors=True)
+# ── RSDD-TMP-NOLEAK (#2061): no run dir THIS suite produced landed under the global /tmp/rsdd ──
+# Attribution is by identity (_produced), not by file content. Other new rsdd-* entries are someone
+# else's (a concurrent suite): reported as INFO, never failed on or deleted.
+_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+if _leaked:
+    nok("RSDD-TMP-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    for _p in _leaked:  # remove ONLY the dirs this suite produced
+        shutil.rmtree(_p, ignore_errors=True)
 else:
-    ok("RSDD-TMP-NOLEAK: no new entries under /tmp/rsdd")
+    ok("RSDD-TMP-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+_other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
 
 _counts = os.environ.get("RSDD_TEETH_COUNTS", "")
 if _counts:
@@ -671,7 +688,7 @@ _t "qe-core-root-ignored: run_vm drops its root argument and uses the default /t
   's/else _dc.make_run_subdir(uuid.uuid4().hex, root))/else _dc.make_run_subdir(uuid.uuid4().hex))/'
 _t "qe-stage-leak: the private target copy dir is no longer removed after the run (#2078)" "FAIL  PIN-(REFUSE|BIND): stage dir leaked" lib/qemu_exec.py \
   's/^            shutil.rmtree(stage, ignore_errors=True)$/            pass/'
-_t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI: " lib/qemu_exec.py \
+_t "qe-pin-multi-bind: the exactly-one --ro-bind substitution guard is removed (#2078)" "FAIL  PIN-MULTI-(twice|never): " lib/qemu_exec.py \
   's/^    if n_sub != 1:$/    if False:/'
 # Control: a NameError mutant prints the targeted `FAIL  RED8` label too, so only the crash-message forms in
 # _CRASH can refuse it. The tooth machinery must REFUSE it (rc 1, crash-class text), not count it as a bite.
