@@ -7207,7 +7207,7 @@ if grep -q "$EXCESS_WARN" <<<"$(b13_err "$d")"; then no "T-1350-B1: B1 must not 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
+  mutant_bootstrap mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
   mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
   for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
   # b13_tooth <name> <sed-script> <fixture-builder: heading> <hdr> <want-good> <rows...> — OR stderr mode when want-good is "ERR:<pattern>"
@@ -7336,7 +7336,7 @@ bash "$1" "$w" --sync-state 2>&1
 grep -E '^(known_gaps|gaps_closed):' "$w/RESEARCH-STATE.md"
 rm -rf "$w"
 RUNEOF
-  _t1637_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  _t1637_crash="$(mutant_crash_re bash py)" || exit 2
   t1637_t() { # <label> <fixture-dir> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
@@ -7442,7 +7442,7 @@ grep -qF 'unrecognised coverage label' <<<"$_t1154_err" \
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1154: widening the label anchor back to the bare phrase must turn T-1154a/b red --"
-  _t1154_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  _t1154_crash="$(mutant_crash_re bash py)" || exit 2
   t1154_t() { # <label> <fixture> <runner-kind: report|sync> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" kind="$3"; shift 3
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "/# CM-LABEL-ANCHOR\$/s/=.*/='coverage metric'  # CM-LABEL-ANCHOR/" || return 0
@@ -7502,7 +7502,7 @@ else no "T-1150-2c control: intact lib: rc=$_t1150_rc out=[$(head -c 300 <<<"$_t
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1150-2: dropping either helper check changes the failure; the report-header guard needs the control --"
-  _t1150_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  _t1150_crash="$(mutant_crash_re bash py)" || exit 2
   t1150_t() { # <label> <mode> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" mode="$2" expr="$3"; shift 3
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
@@ -7618,7 +7618,7 @@ grep -qF '  next step       : STOP | outline fully covered (1/1)' <<<"$_t1152_ou
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1152: each document-mode branch is load-bearing --"
-  _t1152_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  _t1152_crash="$(mutant_crash_re bash py)" || exit 2
   t1152_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
@@ -7749,7 +7749,7 @@ esac
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-T-1706: each --emit-token mapping and guard is load-bearing --"
-  _t1706_crash='integer expression expected|syntax error|unbound variable|Traceback|ImportError|ModuleNotFoundError'
+  _t1706_crash="$(mutant_crash_re bash py)" || exit 2
   t1706_t() { # <label> <fixture> <sed-expr> <mutant_tooth good/bad args...>
     local lbl="$1" fx="$2" expr="$3"; shift 3
     mutant_chain_or_count fail "$lbl" "$SUT" "$TMP/status.$lbl.MUTANT.sh" "$expr" || return 0
