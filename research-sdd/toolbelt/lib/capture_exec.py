@@ -4,8 +4,8 @@ Spawns dumpcap (Wireshark's privilege-separated capture engine) into a per-run
 subdir under /tmp/rsdd. Honours the planned_argv from capture_plan.py; only
 two argv transforms: (1) -w rewrite to per-run subdir, (2) -a filesize: cap
 addition. Bounded by: dumpcap -c/-a duration:, the added -a filesize:, and an
-independent client-side wall deadline (duration + grace, counted from the first sign of
-capture, with a hard ceiling of startup budget + duration + grace from spawn).
+independent client-side wall deadline (duration + grace, counted from the pcap file
+appearing, with a hard ceiling of startup budget + duration + grace from spawn).
 
 RESIDUAL RISKS: root/CAP_NET_RAW operator prerequisite (setcap cap_net_raw+ep,
 never sudo); shared-host capture observes other tenants' traffic (RSDD_CAPTURE_IFACES
@@ -32,7 +32,7 @@ from gate import GateError
 
 SCHEMA_VERSION: str = "capture-run.v1"
 _WALL_GRACE_S: int = 5      # client wall = plan duration + this grace, counted from capture start
-_STARTUP_BUDGET_S: int = 30  # max wait for first sign of capture (pcap file / output); ceiling = this + duration + grace
+_STARTUP_BUDGET_S: int = 30  # max wait for capture (pcap file appears); ceiling = this + duration + grace
 _POLL_S: float = 0.1        # wait-poll interval while watching for capture start
 _SIGTERM_GRACE_S: int = 5   # wait between SIGTERM and SIGKILL
 _FILESIZE_KB_MAX: int = 524288  # 512 MiB hard ceiling (forward-compatible)
@@ -200,7 +200,7 @@ class LiveCaptureExecutor:
             t_out.start()
             t_err.start()
             # dumpcap's -a duration: counts from capture start, not spawn: start the client wall at the
-            # first sign of capture (pcap file or any output); a dumpcap that never starts is still
+            # capture (the pcap file appears); a dumpcap that never starts is still
             # killed by the spawn-based ceiling (startup budget + duration + grace).
             ceiling = t0 + _STARTUP_BUDGET_S + wall_len
             started: float | None = None
@@ -211,7 +211,7 @@ class LiveCaptureExecutor:
                 except subprocess.TimeoutExpired:
                     pass
                 now = time.monotonic()
-                if started is None and (os.path.exists(pcap_path) or raw_out[0] or raw_err[0]):
+                if started is None and os.path.exists(pcap_path):
                     started = now
                 deadline = ceiling if started is None else min(ceiling, started + wall_len)
                 if now >= deadline:

@@ -82,7 +82,7 @@ def _shim(tmp: Path) -> str:
     fd = tmp / "dumpcap"; fd.write_text(_SHIM); fd.chmod(0o755)
     return str(tmp) + ":" + os.environ.get("PATH", "")
 
-# Startup-free blocking shim for RED8 (#2092). The client wall deadline (duration + grace) starts at spawn, so a
+# Startup-free blocking shim for RED8 (#2092). Before #2095 the client wall deadline (duration + grace) started at spawn, so a
 # Python shim whose interpreter startup is slowed by machine load could be SIGTERMed before it wrote the pcap.
 # This /bin/sh shim writes the pcap magic with a builtin printf, then exec's a sleep far beyond any budget: the
 # timeout path is always taken and the case never races interpreter startup.
@@ -250,6 +250,7 @@ with tempfile.TemporaryDirectory() as td:
         of = res.get("output_files", []); pcap = res.get("pcap_path", "")
         assert of, f"output_files empty: {of}"
         assert any(f.get("path") == pcap for f in of), f"planned pcap not recorded: pcap={pcap} files={of}"
+        assert res.get("duration_s", 999) < 20, f"per-capture wall did not bite: duration_s={res.get('duration_s')}"
         ok("RED8: wall-timeout → SIGTERM, outcome=timeout-partial, pcap recorded")
     except Exception as e: nok("RED8", str(e))
 
@@ -384,6 +385,8 @@ tt teeth-filesize-ceiling lib/capture_exec.py 'return min(raw, _FILESIZE_KB_MAX)
 tt teeth-filesize-delta lib/capture_exec.py 'argv_deltas.append({"transform": "add-filesize-cap", "value": filesize_arg})' 'pass' 'FAIL  CRIT2: missing'
 tt teeth-timeout-outcome lib/capture_exec.py '                timed_out = True' '                timed_out = False' 'FAIL  RED8: outcome=success'
 tt teeth-capture-clock lib/capture_exec.py '_STARTUP_BUDGET_S: int = 30 ' '_STARTUP_BUDGET_S: int = 0 ' 'FAIL  CLOCK1: outcome=timeout-partial'
+tt teeth-capture-wall lib/capture_exec.py 'min(ceiling, started + wall_len)' 'ceiling' 'FAIL  RED8: per-capture wall did not bite'
+tt teeth-capture-ceiling lib/capture_exec.py 'deadline = ceiling if started is None' 'deadline = float("inf") if started is None' 'FAIL  CLOCK2:'
 tt teeth-reap lib/capture_exec.py '_pc.reap_process_tree(proc, grace_s=_SIGTERM_GRACE_S, use_group=False)' 'pass' 'FAIL  REAP_1: process still alive after _reap'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
