@@ -118,8 +118,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_py_crash_strict || exit 2
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
   _builds_failed=0; _LIBEXPR=""
-  # Strict set minus the bare Traceback token: a bitten mutant legitimately prints an AssertionError traceback.
-  _CRASH="$(mutant_py_crash_strict)"; _CRASH="${_CRASH#Traceback|}"
+  _CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
   # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
   # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates corroborate_pcap.py; a non-empty _LIBEXPR also

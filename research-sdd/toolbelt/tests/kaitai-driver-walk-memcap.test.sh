@@ -397,8 +397,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _KD_REAL="$HERE/../lib/kaitai_driver.py"
   _MUT="$(mktemp -d)"
   _builds_failed=0
-  # Strict set minus the bare Traceback token: a bitten mutant legitimately prints an AssertionError traceback.
-  _CRASH="$(mutant_py_crash_strict)"; _CRASH="${_CRASH#Traceback|}"
+  _CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
   # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
   # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   # _tooth_kd LABEL BAD_CASE_LABEL BUILD_CMD... : BUILD_CMD gets the mutant OUT path appended.

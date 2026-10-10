@@ -163,8 +163,8 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   _FC_REAL="$TOOLBELT/firmware_carve.py"
   _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"; rm -f "$ROOT-parent-link"' EXIT
   _builds_failed=0
-  # Strict set minus the bare Traceback token: a bitten mutant legitimately prints an AssertionError traceback.
-  _CRASH_ALL="$(mutant_py_crash_strict)"; _CRASH_ALL="${_CRASH_ALL#Traceback|}"; _CRASH="$_CRASH_ALL"
+  _CRASH_ALL="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
+  _CRASH="$_CRASH_ALL"
   # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
   # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
   _tooth_fc() { # LABEL BAD_CASE_LABEL SED_EXPR...
@@ -210,6 +210,7 @@ if [[ "${1:-}" == "--prove-teeth" ]]; then
   # patterns stay specific: the case's own FAIL label / exact assertion text.
   # Carve-out kept minimal: only the AttributeError class and its "has no attribute" message form are dropped.
   _CRASH="${_CRASH_ALL/|AttributeError/}"; _CRASH="${_CRASH/|has no attribute/}"
+  [[ "$_CRASH" != *AttributeError* && "$_CRASH" != *"has no attribute"* ]] || { echo "FATAL: AttributeError carve-out did not remove its tokens from _CRASH"; exit 2; }
   _t "fc-root-worker: root guard removed from main() and worker()" "expected exit 2 for root|'root or set-id' in stderr" \
     's/^        refuse_privileged_execution()$/        pass/' 's/^    refuse_privileged_execution()  #.*/    pass/'
   _t "fc-self-guard: worker() self-guard removed" "AssertionError: guard was not first: got AttributeError" \

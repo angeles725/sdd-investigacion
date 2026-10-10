@@ -833,6 +833,9 @@ mmiss=""; for c in "name 'x' is not defined" "No module named 'x'" "cannot impor
 if [ -z "$mmiss" ]; then ok "py crash_strict: matches the str(e) message forms (class dropped by nok(label, str(e)))"; else no "py crash_strict message forms miss:$mmiss"; fi
 miss=""; for c in Traceback ImportError ModuleNotFoundError SyntaxError IndentationError NameError AttributeError TypeError KeyError UnboundLocalError; do grep -qE "$res" <<<"$c" || miss="$miss $c"; done
 if [ -z "$miss" ]; then ok "py crash_strict: matches every named exception class"; else no "py crash_strict misses:$miss"; fi
+resnt="$(bash -c '. "$1"; mutant_py_crash_strict --no-tb' _ "$LIB")"
+ntmiss=""; for c in ImportError ModuleNotFoundError SyntaxError IndentationError NameError AttributeError TypeError KeyError UnboundLocalError "name 'x' is not defined" "No module named 'x'" "cannot import name 'y'" "object has no attribute 'z'" "'NoneType' object is not callable" "takes 1 positional argument" "unexpected keyword argument 'k'" "invalid syntax" "referenced before assignment" "unsupported operand" "not supported between" "list index out of range" "missing 2 required"; do grep -qE "$resnt" <<<"$c" || ntmiss="$ntmiss [$c]"; done
+if [ -z "$ntmiss" ] && ! grep -qE "$resnt" <<<"Traceback (most recent call last):"; then ok "py crash_strict --no-tb: drops only the bare Traceback token, keeps every class and message form"; else no "py crash_strict --no-tb (miss:$ntmiss)"; fi
 
 # --- teeth: mutate the HELPER (built with the helper) and require the specific case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -1049,6 +1052,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "py tooth dead anchor"
   teeth_case pybadhas 's/\[ -n "\$bad" \] ||/true ||/' \
     "py tooth empty BAD_HAS"
+  teeth_case pynotb 's/\[ "\${1:-}" = "--no-tb" \] \&\& _tb=""/:/' \
+    "py crash_strict --no-tb"
   teeth_case pycrashdef "s/crash=\"\\\$(mutant_py_crash_strict)\"/crash='NEVER_MATCHES_xyz'/" \
     "py tooth strict crash filter"
   teeth_case pyrc 's/mutant_tooth "\$label" 0 1 "\$mut\/\$label\/\$rel"/mutant_tooth "$label" 0 0 "$mut\/$label\/$rel"/' \
