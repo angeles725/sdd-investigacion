@@ -1012,14 +1012,15 @@ RUNTIME_DIPE="$ROOT/runtime-dipe"; mkdir -p "$RUNTIME_DIPE/shared/Microsoft.NETC
 BIN_DIPE="$ROOT/bin-dipe"; DIPE_TMP="$ROOT/dipe-tmp"; mkdir -p "$DIPE_TMP"
 mkexec "$BIN_DIPE/ilspycmd" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-$$-in"; : > "$TMPDIR/clr-debug-pipe-$$-out"; }; exec sleep 5'
 mkexec "$BIN_DIPE/dotnet" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-$$-in"; : > "$TMPDIR/clr-debug-pipe-$$-out"; }; exec sleep 5'
-# dipe_run <detect-script>: run the probe with ambient diagnostics ON; print the pipe count left in DIPE_TMP.
+mkexec "$BIN_DIPE/pwsh" '[ "${DOTNET_EnableDiagnostics:-}" = 0 ] || { : > "$TMPDIR/clr-debug-pipe-pwsh-$$-in"; : > "$TMPDIR/clr-debug-pipe-pwsh-$$-out"; }; exec sleep 5'
+# dipe_run <detect-script> [pipe-name-prefix]: run the probe with ambient diagnostics ON; print the pipe count left in DIPE_TMP.
 dipe_run() {
   rm -rf "$DIPE_TMP"; mkdir -p "$DIPE_TMP"
   env -u DOTNET_ROOT -u DOTNET_EnableDiagnostics TMPDIR="$DIPE_TMP" \
     RSDD_PROBE_TIMEOUT=0.1 RSDD_PYTHON_PROBE_TIMEOUT=0.1 RSDD_DOTNET_ROOT="$RUNTIME_DIPE" \
     PATH="$BIN_DIPE:/usr/bin:/bin" HOME="$FAKE_HOME" RSDD_BREW_PREFIX="$FAKE_BREW" \
     bash "$1" --cache "$ROOT/cache-dipe.txt" --quiet >/dev/null 2>&1 || true
-  find "$DIPE_TMP" -maxdepth 1 -name 'clr-debug-pipe-*' | wc -l
+  find "$DIPE_TMP" -maxdepth 1 -name "clr-debug-pipe-${2:-}*" | wc -l
 }
 _dipe_n="$(dipe_run "$DETECT")"; _dipe_rc=$?
 if [ "$_dipe_rc" -eq 0 ] && [ "$_dipe_n" -eq 0 ]; then
@@ -1027,7 +1028,27 @@ if [ "$_dipe_rc" -eq 0 ] && [ "$_dipe_n" -eq 0 ]; then
 else
   no "dipe: timed-out ilspycmd probe must leave no clr-debug-pipe-*" "rc=$_dipe_rc pipes=$_dipe_n"
 fi
+_dipw_n="$(dipe_run "$DETECT" pwsh-)"; _dipw_rc=$?
+if [ "$_dipw_rc" -eq 0 ] && [ "$_dipw_n" -eq 0 ]; then
+  ok "dipe-pwsh: timed-out pwsh probe leaves no clr-debug-pipe-pwsh-* in TMPDIR" "(pipes=$_dipw_n)"
+else
+  no "dipe-pwsh: timed-out pwsh probe must leave no clr-debug-pipe-pwsh-*" "rc=$_dipw_rc pipes=$_dipw_n"
+fi
 if [ "${1:-}" = "--prove-teeth" ]; then
+  # teeth-dipe-pwsh: mutant removes the pwsh row's env (subshell export) in a COPY of detect-tools.sh.
+  # The copy lives beside a symlink to the real lib/ so its `source $HERE/lib/tool-env.sh` resolves.
+  MUT_DIPW_DIR="$ROOT/mut-dipw"; mkdir -p "$MUT_DIPW_DIR"
+  ln -sfn "$HERE/../lib" "$MUT_DIPW_DIR/lib"
+  MUT_DIPW="$MUT_DIPW_DIR/detect-tools.sh"
+  if mutant_chain_or_count fail "teeth: detect-mut-dipw.sh" "$DETECT" "$MUT_DIPW" \
+    's/export DOTNET_EnableDiagnostics=0; //'; then
+    _mdipw_n="$(dipe_run "$MUT_DIPW" pwsh-)"
+    if [ "$_mdipw_n" -gt 0 ]; then
+      ok "teeth-dipe-pwsh: env-stripped pwsh row leaves clr-debug-pipe-pwsh-* — dipe-pwsh bites" "(pipes=$_mdipw_n)"
+    else
+      no "teeth-dipe-pwsh: mutant must leave clr-debug-pipe-pwsh-*" "(pipes=$_mdipw_n)"
+    fi
+  fi
   # teeth-dipe (targets test dipe): mutant strips DOTNET_EnableDiagnostics=0 from the dotnet probe in a COPY
   # of lib/tool-env.sh (symlinked detect-tools.sh sources the copy) → the shim leaves pipes → dipe bites.
   SHIM_DIPE="$ROOT/shim-dipe"

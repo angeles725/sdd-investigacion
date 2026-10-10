@@ -256,7 +256,8 @@ report() {
     fi
   }
   _detect_ilspycmd
-  row "pwsh" pwsh --version "${BREW:+$BREW/bin/pwsh}"
+  # pwsh is dotnet-hosted: a probe killed by the timeout leaves clr-debug-pipe-* in TMPDIR (#2085). The subshell scopes the env to this row only.
+  ( export DOTNET_EnableDiagnostics=0; row "pwsh" pwsh --version "${BREW:+$BREW/bin/pwsh}" )
   echo ""
   echo "[ firmware ]"
   # binwalk: corroborate_firmware.py selects RSDD_BINWALK (explicit absolute path) or the PATH-selected
