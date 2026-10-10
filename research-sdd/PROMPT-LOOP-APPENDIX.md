@@ -717,7 +717,7 @@ Trigger: a step 3 (INVESTIGATE) special case listed below fires; PROMPT-LOOP.md 
 
 ## hard-rules-loop-mechanics
 
-Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order. ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
+Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a one-line pointer per rule naming its trigger. Kit issue #1003 (slice 5) moved these rules here verbatim in their original relative order (OBJECTIVE-LOCK added later, kit #2047). ONE block per iteration, RESUME (incl. BLOCK PLAN RESUME, pinned by the block-plan suite), LOOP CONTINUATION, RESCHEDULE CADENCE, WAKEUP GUARD, preserve-in-sources/ and corpus language stayed in core: they fire on most iterations or govern continuation. Read the rule whose trigger fired, in full. Positional references inside the rules below ("above", "below") refer to PROMPT-LOOP.md HARD RULES, not to this file.
 
   - RE-MEASURE GROUND-TRUTH, never inherit it. When entering a DYNAMIC/hardware phase (or any new
     live measurement), re-measure ground-truth identifiers — checksums, versions, IPs, build ids —
@@ -779,13 +779,12 @@ Trigger: one of the HARD RULES below fires; PROMPT-LOOP.md's HARD RULES leave a 
   - OBJECTIVE-LOCK. When the operator states an explicit objective for the run, EVERY iteration opens
     with one line mapping the current action to that objective (`Objective: <objective> -> <this action>`).
     An action that cannot be mapped is off-objective and is not taken. Side-defects found en route
-    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks in the ODD task
-    file (`templates/odd-task.template.md` carries an `Objective line:` field for this) and are fixed
+    (a license conflict, a daemonize failure, a version switch) become typed sub-tasks: a backlog row in
+    the target's RESEARCH-STATE prefixed `side-defect:` (ODD task files are kit-maintenance only), fixed
     only as incident handling, bounded to what unblocks the objective; they never become the de-facto
     objective. Violation signature (observed): four consecutive theory pivots (profile -> env var ->
     daemonize -> portal), each consuming multiple tool batches, while the objective line went unstated
-    and the objective itself never appeared as a tracked task line. Two pivots without an objective
-    line is the tripwire: stop, state the objective, and re-map the next action to it.
+    and the objective itself never appeared as a tracked task line.
 
 ## steps4-7-special-cases
 

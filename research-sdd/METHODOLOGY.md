@@ -858,7 +858,7 @@ Source: niagara-research/retros/2026-09-20-module-hardening-investigable-phase-r
 
 - **Prefer source over jar for INTENT and CONFIG claims when source is available.** When the gap is about INTENT (over-permission, dead code, configuration) and the source repo is accessible, prefer source files over the packaged jar — source shows whether declarations are real implementation or scaffold, whether annotations are populated or empty boilerplate, and whether config is active or vestigial. A jar can carry structure the source abandoned. A finding that reverses when source is consulted is a §14-grade false claim.
 
-**UI-absence is a registry/agent question before an environment question.** When a UI element (tool, view, menu, wizard step) is absent, decompile first: the first action is the module's `module.xml` agent declaration (agent `<on>` type, permissions) and the nav-factory / view-resolution path in the subject's own jars, where the gate is usually readable in minutes. Only then theorize about profile, environment or install state. The gate claim must rest on `javap -c -p` bytecode, not decompiled syntax (§5, `toolbelt/java-decompile-fidelity.v1.md`). Observed: a gate readable in one jar on day one produced an environment theory instead, and was re-derived from scratch two days later.
+**UI-absence is a registry/agent question before an environment question.** When a UI element (tool, view, menu, wizard step) is absent, inspect the subject's own registry/agent declarations first (Niagara: `module.xml` agent `<on>` type, permissions), then decompile the nav-factory / view-resolution path in its own jars, where the gate is usually readable in minutes. Only then theorize about profile, environment or install state. The gate claim must rest on `javap -c -p` bytecode, not decompiled syntax (§5, `toolbelt/java-decompile-fidelity.v1.md`). Observed: a gate readable in one jar on day one produced an environment theory instead, and was re-derived from scratch two days later.
 
 ## 7. State and memory (hybrid)
 
@@ -931,7 +931,7 @@ under a `/tmp/.../scratchpad` path and nearly vanished with the session. If it i
 later, it goes into the corpus (or `sources/`, per §5) in the same iteration it is produced — do not defer
 the rescue to close-out. A RESULT that depends on an artifact is preserved the same way, with its reproduction recipe (§5 "Preserved-probe convention", kit #1207).
 
-**Success capture needs a recipe.** An operator-confirmed success is not "captured" until the corpus holds a replication recipe for a different machine of the same class (mechanism, exact steps, state preconditions); a success statement without the mechanism counts as lost capability. Gate detail: PROMPT-LOOP-APPENDIX `#document-cycle` step 5.
+**Success capture needs a recipe.** An operator-confirmed success is not "captured" until the corpus holds a replication recipe for a different machine of the same class (mechanism, exact steps, state preconditions); a success statement without the mechanism counts as lost capability. Gate detail: PROMPT-LOOP-APPENDIX `#document-cycle` step 5. Enforced as a gate only in DOCUMENT CYCLE step 5; in a NORMAL CYCLE run it is doctrine without a gate.
 
 ## 7b. State-envelope instruments (situational)
 

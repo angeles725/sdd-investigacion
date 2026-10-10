@@ -10,7 +10,6 @@ this template itself, not the task documents copied from it.
 
 ## Objective
 <one or two sentences: the outcome and why it matters>
-Objective line: <when the operator stated an explicit objective, copy it verbatim; each task's Route/Evidence maps back to it, and side-defects become typed sub-tasks (OBJECTIVE-LOCK)>
 
 ## Authorized scope
 <what the maintainer authorized: commit / push / PR / merge; what stays hand-edited>
