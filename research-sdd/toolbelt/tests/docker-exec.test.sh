@@ -339,7 +339,12 @@ tt teeth-timeout-kill lib/docker_exec.py '_docker_kill(container_name)   # then 
 tt teeth-output-cap lib/docker_exec.py 'stdout, stdout_trunc = _dc.cap(raw_out[0])' 'stdout, stdout_trunc = raw_out[0].decode(errors="replace"), False' 'FAIL  CRIT1: large-stdout-cap: stdout_truncated=False'
 tt teeth-exit-126 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 127)' 'FAIL  CRIT3-126: rc=0'
 tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, rsdd_root)' '_dc.make_run_subdir(run_uuid)' 'FAIL  DOCKER-NOLEAK: new entries under /tmp/rsdd'
+# verify_rsdd_root is defense-in-depth here: on Linux the lstat mode check already rejects a symlink (mode 0777),
+# so this mutant also blinds the later lstat to prove the verify call itself is load-bearing.
 tt teeth-root-noverify lib/docker_common.py 'verify_rsdd_root(root)  # override root' 'os.lstat = os.stat  # verify deleted; also blind the later lstat so the mode check cannot back it up' 'FAIL  ROOT-SYMLINK'
+# The foreign-owner case is untestable unprivileged; this mutant instead makes the current user look foreign,
+# proving the uid comparison is wired (a constant-False comparison would leave ROOT-MISSING green).
+tt teeth-root-uid lib/docker_common.py 'st.st_uid != os.geteuid() or st.st_mode' 'st.st_uid != os.geteuid() + 1 or st.st_mode' 'FAIL  ROOT-MISSING'
 tt teeth-root-nomode lib/docker_common.py 'if st.st_uid != os.geteuid() or st.st_mode & 0o022:' 'if False:' 'FAIL  ROOT-MODE'
 tt teeth-root-noabs lib/docker_common.py 'if not os.path.isabs(root):' 'if False:' 'FAIL  ROOT-RELATIVE'
 tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount under the sandbox root in exec_argv'

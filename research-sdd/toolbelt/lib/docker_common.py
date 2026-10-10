@@ -201,7 +201,10 @@ def ensure_rsdd_root() -> str:
     except OSError as exc:
         raise GateError(f"$RSDD_VM_ROOT {root} cannot be created: {exc}") from exc
     verify_rsdd_root(root)  # override root
-    st = os.lstat(root)
+    try:
+        st = os.lstat(root)
+    except OSError as exc:
+        raise GateError(f"$RSDD_VM_ROOT {root} inaccessible: {exc}") from exc
     if st.st_uid != os.geteuid() or st.st_mode & 0o022:
         raise GateError(f"$RSDD_VM_ROOT {root} must be owned by the current user and not group/world-writable")
     return root
