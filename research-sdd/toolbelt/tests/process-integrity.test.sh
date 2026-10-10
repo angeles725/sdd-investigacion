@@ -690,7 +690,7 @@ tooth_py() {
   local name="$1" old="$2" new="$3" bad="$4" m="$MUT/mut/$1.py"
   mutant_or_count fail mutant_py_replace "teeth $name" "$STAGED" "$old" "$new" "$m" || return 1
   if mutant_tooth "teeth $name" 0 1 "$m" --orig "$STAGED" --good-has 'PASS  GREEN-real-registry' \
-       --bad-has "$bad" --bad-lacks "$CRASH_RE" -- bash "$SELF" --teeth-child @SUT@; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
+       --good-lacks "$CRASH_RE" --bad-has "$bad" --bad-lacks "$CRASH_RE" -- bash "$SELF" --teeth-child @SUT@; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
 }
 WRONG='check failed but wrong message'
 PASSED='check PASSED but expected FAIL'
@@ -715,6 +715,18 @@ tooth_py FINAL-guard $'    if errors:\n        return False, errors\n    return 
 tooth_py REQ4-map-enforced $'elif entry_map[mid][\'status\'] != \'pending\':' 'elif False:' "  FAIL  RED07-enforced-in-map: $PASSED"
 # The read-error branch: with it turned into a pass the unreadable registry (a directory, RED15) is accepted.
 tooth_py REQ1-read-error 'return False, [f"cannot read registry: {exc}"]' 'return True, []' "  FAIL  RED15-unreadable-registry: $PASSED"
+# Control (kit issue #2066): a mutant whose only crash evidence is a str(e) message must be REFUSED as theater, never counted as a bite.
+# Real end-to-end run: read_text replaced by an undefined name -> "cannot read registry: name 'undefined_x' is not defined".
+ctl_m="$MUT/mut/ctl-nameerror.py"
+if mutant_or_count fail mutant_py_replace "teeth ctl-nameerror" "$STAGED" "text = reg_path.read_text(encoding='utf-8')" "text = undefined_x" "$ctl_m"; then
+  ctl_t="$(mutant_tooth "teeth ctl-nameerror" 0 1 "$ctl_m" --orig "$STAGED" --good-has 'PASS  GREEN-real-registry' \
+    --bad-has '  FAIL  GREEN-real-registry' --bad-lacks "$CRASH_RE" -- bash "$SELF" --teeth-child @SUT@ 2>&1)"; ctl_trc=$?
+  if [ "$ctl_trc" -ne 0 ] && grep -qF 'mutant output still matches' <<<"$ctl_t" && grep -qE "$CRASH_RE" <<<"name 'zzz_undefined' is not defined"; then
+    echo "  PASS  teeth ctl-nameerror: a NameError-as-str(e) mutant is refused by the crash filter (message form matched)"; pass=$((pass + 1))
+  else
+    echo "  FAIL  teeth ctl-nameerror: NameError mutant was not refused (rc=$ctl_trc): $(tr '\n' ' ' <<<"$ctl_t" | head -c 200)"; fail=$((fail + 1))
+  fi
+fi
 # Not mutated, on purpose: (1) the REQ2 early `if errors: return` guard - with it off, the REQ3 loop still runs on the same
 # entries and no RED fixture's expected fragment depends on the early exit (equivalent mutant for these fixtures).
 
