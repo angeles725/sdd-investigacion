@@ -888,7 +888,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
           if (prev != "") {
             hl = tolower(prev)
-            hl = rg_esc_pipes(hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: an odd backslash run escapes the pipe (kit issues #2118 #2135)
+            hl = rg_esc_pipes(hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
             sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
             hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
             for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -901,7 +901,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|/) {
           prev = $0
           line = $0
-          line = rg_esc_pipes(line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: an odd backslash run escapes the pipe (kit issues #2118 #2135)
+          line = rg_esc_pipes(line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
           sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
           n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
           for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
@@ -916,6 +916,9 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
     while IFS=$'\037' read -r _id _dl _rest; do
       _id="${_id#"${_id%%[![:space:]]*}"}"; _id="${_id%"${_id##*[![:space:]]}"}"
       [ -n "$_id" ] || continue
+      # RETRO_GRAMMAR_ROW_TITLES_ID_SAFE (kit issue #2135): an id the seeder types unclassifiable (id-not-signature-safe) is
+      # never a title row, so a re-proposal check never points at an unstageable row.
+      retro_grammar_id_signature_safe "$_id" || continue
       _dl="$(printf '%s' "$_dl" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//')"
       _dl="${_dl#"${_dl%%[![:space:]]*}"}"; _dl="${_dl%"${_dl##*[![:space:]]}"}"
       printf '%s\037%s\n' "$_id" "$_dl"

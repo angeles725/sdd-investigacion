@@ -2887,6 +2887,7 @@ c49_verdict() {
   grep -qF 'unclassifiable: row 1\|k of double-backslash-pipe.md has a pipe in its id (id-contains-pipe)' <<<"$OUT" || { echo "MISSING id-contains-pipe for row 1"; return 1; }
   grep -qF 'unclassifiable: row 7\\|z of double-backslash-pipe.md has a pipe in its id (id-contains-pipe)' <<<"$OUT" || { echo "MISSING id-contains-pipe for row 7"; return 1; }
   grep -qF 'unclassifiable: row 6\ of double-backslash-pipe.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)' <<<"$OUT" || { echo "MISSING id-not-signature-safe for row 6"; return 1; }
+  grep -qF 'unclassifiable: row 8 x of double-backslash-pipe.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)' <<<"$OUT" || { echo "MISSING id-not-signature-safe for row 8 x"; return 1; }
   local k; for k in 2 3 4 5; do grep -q "^tracked: row $k " <<<"$OUT" || { echo "MISSING tracked: row $k"; return 1; }; done
   ! grep -q '^untracked:' <<<"$OUT" || { echo "UNEXPECTED untracked"; return 1; }
 }
@@ -2929,6 +2930,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   c49_tooth any-off        'MISSING id-contains-pipe for row 1' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/'
   c49_tooth call-site-off  'MISSING id-contains-pipe for row 1' sut '/RECONCILE_ISSUES_ESCAPED_PIPE/s/rg_esc_pipes(line)/line/'
+  c49_tooth id-trimmed-off 'MISSING id-not-signature-safe for row 8 x' sut 's/flushp(); pend = tid/flushp(); pend = rid/'
   c49_tooth id-safe-off    'MISSING id-not-signature-safe for row 6' sut 's/if ! retro_grammar_id_signature_safe "\$_rln"; then/if false; then/'
   c49_tooth id-safe-lib-off 'MISSING id-not-signature-safe for row 6' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
   m50="$ROOT/m50.sh"

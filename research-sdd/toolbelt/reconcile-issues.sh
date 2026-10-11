@@ -789,14 +789,17 @@ audit_retro() {
       if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
       if (in_sec && /^\|/) {
         line = $0
-        line = rg_esc_pipes(line)   # RECONCILE_ISSUES_ESCAPED_PIPE: an odd backslash run escapes the pipe (kit issues #2118 #2135)
+        line = rg_esc_pipes(line)   # RECONCILE_ISSUES_ESCAPED_PIPE: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
         sub(/^\|[[:space:]]*/, "", line)
         sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
         n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
         for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
         rid = f[1]; gsub(/[[:space:]]/, "", rid)
         if (rg_table_id_skip(rid)) next   # RECONCILE_ISSUES_ID_RULE
-        flushp(); pend = rid
+        # RECONCILE_ISSUES_ID_TRIMMED (kit issue #2135): emit the cell trimmed at the ends only, exactly like the seeder, so
+        # `D 1` is the same unsafe id in both tools (the whitespace-free copy above is only for the id-skip rule).
+        tid = f[1]; sub(/^[[:space:]]+/, "", tid); sub(/[[:space:]]+$/, "", tid)
+        flushp(); pend = tid
         next
       }
       if (in_sec) flushp()

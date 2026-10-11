@@ -170,7 +170,7 @@ c_escaped_pipe() {
 # row), a MIDDLE cell, the LAST cell, and a backslash-only id (`6\`) that is not signature-safe.
 c_double_backslash() {
   local b; b="$(mkbox "dbs$1")" || return 1; run "$b" double-backslash-pipe.md; MSG=""
-  count 4; req 'unclassifiable-items: 3 (retro-level=0 row-level=3)'
+  count 4; req 'unclassifiable-items: 4 (retro-level=0 row-level=4)'
   req 'planned-issue: Middle cell ends in a path C:\| still one cell'; req '**Evidence:** EVA2'; req '**Target:** `b.sh`'
   req 'planned-issue: Last cell title ends in C:\|'
   req 'planned-issue: Odd run C:\\| stays in one cell'; req '**Evidence:** EVA4'; req '**Target:** `d.sh`'
@@ -181,6 +181,8 @@ c_double_backslash() {
   req 'double-backslash-pipe.md:8 | 1\\|k: First cell with a\\| b pipe, long enough'
   req 'double-backslash-pipe.md:16 | 6\: Backslash id title'
   req 'double-backslash-pipe.md:17 | 7\\\|z: Odd first a\\\| b pipe, long enough'
+  req 'unclassifiable-row: row 8 x has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)'
+  req 'double-backslash-pipe.md:18 | 8 x: Spaced id title long enough'
   forbid 'no usable title'; forbid 'double-backslash-pipe.md · 1'; forbid 'double-backslash-pipe.md · 6'; verdict
 }
 
@@ -243,8 +245,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_double_backslash dbs-hdr-off        'PLANNED: ' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/'
   tooth c_double_backslash dbs-locator-cell-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/STAGE_RETRO_ISSUES_ROW_LINE_CELL/s/rg_esc_pipes(\$0)/\$0/'
   tooth c_double_backslash dbs-locator-delta-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/u = rg_esc_pipes/s/rg_esc_pipes(\$0)/\$0/'
-  tooth c_double_backslash dbs-id-safe-off    'PLANNED: 5 != 4' sut 's/if ! retro_grammar_id_signature_safe "\$_rid"; then/if false; then/'
-  tooth c_double_backslash dbs-id-safe-lib-off 'PLANNED: 5 != 4' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
+  tooth c_double_backslash dbs-id-safe-off    'PLANNED: 6 != 4' sut 's/if ! retro_grammar_id_signature_safe "\$_rid"; then/if false; then/'
+  tooth c_double_backslash dbs-id-safe-lib-off 'PLANNED: 6 != 4' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
   tooth c_escpipe_guard   escpipe-guard-off   'RC 0 != 1' sut 's/\[ -n "\${_RG_AWK_ESCPIPE_FN:-}" \]/true/'
   echo "-- prove-teeth done --"
 fi

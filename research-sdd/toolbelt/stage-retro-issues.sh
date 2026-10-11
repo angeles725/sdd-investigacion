@@ -730,7 +730,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
       pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
-        hl = rg_esc_pipes(hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issues #2118 #2135): an odd backslash run escapes the pipe
+        hl = rg_esc_pipes(hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issues #2118 #2135): any `\|` is an escaped pipe (GFM)
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
         hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
         for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -1634,7 +1634,7 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     continue
   fi
   # STAGE_RETRO_ISSUES_ID_SIGNATURE_SAFE (kit issue #2135): any other character outside [A-Za-z0-9_-] (a backslash left
-  # by a `\\|` cell break, a dot, markup) cannot round-trip through the signature either: unclassifiable, never staged.
+  # by a `6\ |` cell, a dot, markup) cannot round-trip through the signature either: unclassifiable, never staged.
   if ! retro_grammar_id_signature_safe "$_rid"; then
     echo "unclassifiable-row: row $_rid has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review, no issue staged" >&2
     unclassifiable=$((unclassifiable+1))

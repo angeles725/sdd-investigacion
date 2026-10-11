@@ -15,3 +15,4 @@
 | 5 | k | Table B title long enough | EVB5 | `e.sh` | feature | LOW |
 | 6\ | k | Backslash id title long enough | EVB6 | `f.sh` | feature | LOW |
 | 7\\\|z | k | Odd first a\\\| b pipe, long enough | EVB7 | `g.sh` | feature | LOW |
+| 8 x | k | Spaced id title long enough | EVB8 | `h.sh` | feature | LOW |
