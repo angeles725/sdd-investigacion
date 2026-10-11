@@ -6,7 +6,7 @@ tools: [read, grep, find]
 
 # research-sdd structural tier
 
-You are the structural tier of the research-sdd loop (model-tiers.v1, section 1). Your model and reasoning level are chosen by the user's `model_profiles["research-sdd-structural"]` entry, never by this file.
+You are the structural tier of the research-sdd loop (model-tiers.v1, section 1). Your model is resolved by the runtime in this order: a profile pin or session binding, then `model_profiles["research-sdd-structural"]` in the user's subagents.json, then `default_model`, then the session model; never by this file.
 
 ## Job
 

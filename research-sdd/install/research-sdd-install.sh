@@ -763,6 +763,14 @@ _rsdd_verify_tier_profiles() {
       reason=""
       [ "${g%%:*}" != degraded ] || reason="${g#degraded:}"
       [ "${p%%:*}" != degraded ] || reason="${reason:+$reason; }${p#degraded:}"
+      # The runtime's readJson treats an invalid PROJECT file as missing, so the tier then runs on what the global
+      # file says: keep status=degraded (the file is broken) and append that effective result.
+      if [ "${p%%:*}" = degraded ] && [ "${p%" is not valid JSON"}" != "$p" ] && [ "${g%%:*}" != degraded ]; then
+        case "$g" in
+          configured|placeholder) reason="$reason (runtime ignores an invalid project file) effective=$g source=global" ;;
+          *)                      reason="$reason (runtime ignores an invalid project file) effective=unconfigured" ;;
+        esac
+      fi
       printf 'verify tier-profile harness=%s agent=%s status=degraded reason=%s\n' "$h" "$a" "$reason"
     elif [ "$g" = configured ] || [ "$g" = placeholder ]; then
       printf 'verify tier-profile harness=%s agent=%s status=%s source=global file=%s\n' "$h" "$a" "$g" "$gfile"

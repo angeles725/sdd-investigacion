@@ -204,6 +204,13 @@ printf '{ not json\n' > "$GJ"; printf '{"model_profiles":{"research-sdd-reasonin
 tp "$vw"
 { tlq research-sdd-mechanical 'status=degraded reason=.*not valid JSON' && tlq research-sdd-reasoning 'status=configured source=project' && [ "$VRC" = 0 ]; } \
   && ok "verify: unreadable global JSON -> degraded for the agents it could not settle, a readable project profile still counts, exit 0" || no "verify degraded :: $(grep tier-profile <<<"$VOUT" | tr '\n' '|') rc=$VRC"
+# An invalid PROJECT file is treated as missing by the runtime: still degraded, plus the effective result.
+printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/real"},"research-sdd-structural":{"model":"<a>/<b>"}}}\n' > "$GJ"; printf '{ nope\n' > "$PJ"
+tp "$vw"
+{ tlq research-sdd-mechanical 'status=degraded reason=.*not valid JSON (runtime ignores an invalid project file) effective=configured source=global' \
+  && tlq research-sdd-structural 'status=degraded .*effective=placeholder source=global' \
+  && tlq research-sdd-reasoning 'status=degraded .*effective=unconfigured' && [ "$VRC" = 0 ]; } \
+  && ok "verify: invalid PROJECT JSON stays degraded and appends the effective result from the global file (runtime ignores the project file)" || no "verify degraded-project :: $(grep '^verify tier-profile ' <<<"$VOUT" | tr '\n' '|')"
 printf '[1,2]\n' > "$GJ"; rm -f "$PJ"
 tp "$vw"
 tlq research-sdd-mechanical 'status=unconfigured' && ok "verify: valid JSON without model_profiles object -> unconfigured (not degraded)" || no "verify non-object JSON :: $(tl research-sdd-mechanical)"
@@ -333,6 +340,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
           verify-placeholder-proj) printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/real"}}}\n' > "$g"
                                   mkdir -p "$mw/.pi"; printf '{"model_profiles":{"research-sdd-mechanical":{"model":"<provider>/<m>"}}}\n' > "$mw/.pi/subagents.json" ;;
           verify-degraded)        printf '{ nope\n' > "$g" ;;
+          verify-degraded-proj)   printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/real"}}}\n' > "$g"; mkdir -p "$mw/.pi"; printf '{ nope\n' > "$mw/.pi/subagents.json" ;;
           verify-project)         mkdir -p "$mw/.pi"; printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/m"}}}\n' > "$mw/.pi/subagents.json" ;;
           verify-jq)              printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/m"},"research-sdd-structural":{"model":"<a>/<b>"}}}\n' > "$g"; pth="$NOPY" ;;
           verify-notool)          printf '{"model_profiles":{"research-sdd-mechanical":{"model":"p/m"}}}\n' > "$g"; pth="$NOJSON" ;;
@@ -345,6 +353,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
           verify-placeholder-proj) grep -q 'agent=research-sdd-mechanical status=placeholder source=project' <<<"$mo" || res=1 ;;
           verify-project)          grep -q 'agent=research-sdd-mechanical status=configured source=project' <<<"$mo" || res=1 ;;
           verify-degraded)         grep -q 'agent=research-sdd-mechanical status=degraded' <<<"$mo" || res=1 ;;
+          verify-degraded-proj)    grep -q 'agent=research-sdd-mechanical status=degraded reason=.*effective=configured source=global' <<<"$mo" || res=1 ;;
           verify-jq)               { grep -q 'agent=research-sdd-mechanical status=configured source=global' <<<"$mo" && grep -q 'agent=research-sdd-structural status=placeholder source=global' <<<"$mo" && grep -q '^verify harness=pi status=match' <<<"$mo"; } || res=1 ;;
           verify-notool)           { grep -q 'agent=research-sdd-mechanical status=degraded reason=no JSON tool' <<<"$mo" && grep -q '^verify harness=pi status=match' <<<"$mo"; } || res=1 ;;
         esac
@@ -353,7 +362,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     return "$res"
   }
   # Baseline: every check HOLDS on the unmutated temp-kit installers, so a red mutant is red because of the mutation.
-  CHECKS="deploy snippet edge4 verify-unconf verify-conf verify-placeholder-glob verify-placeholder-proj verify-degraded verify-project"
+  CHECKS="deploy snippet edge4 verify-unconf verify-conf verify-placeholder-glob verify-placeholder-proj verify-degraded verify-degraded-proj verify-project"
   [ "$HAVE_JQ" = 1 ] && CHECKS="$CHECKS verify-jq"
   CHECKS="$CHECKS verify-notool"
   for chk in $CHECKS; do
@@ -382,6 +391,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mtooth verify-never-configured  "$INST" verify-conf "s/$PYCFG/    print(\"unconfigured\")/"
   mtooth verify-placeholder-ok    "$INST" verify-placeholder-glob "s/$PYCFG/    print(\"configured\")/"
   mtooth verify-bad-json-silent   "$INST" verify-degraded 's/invalid) echo "degraded:\$f is not valid JSON" ;;/invalid) echo unconfigured ;;/'
+  mtooth verify-degraded-no-effective "$INST" verify-degraded-proj 's/ effective=$g source=global//'
   mtooth verify-project-ignored   "$INST" verify-project 's|pfile="\$PWD/.pi/subagents.json"|pfile="/nonexistent/.pi/subagents.json"|'
   mtooth verify-moves-exit-code   "$INST" verify-unconf 's/^      _rsdd_verify_tier_profiles "\$h" "\$home"/      degraded=1; &/'
   # precedence: swapping which file feeds g and p, or letting the project win only when "configured", must go red.
