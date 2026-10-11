@@ -1,0 +1,4 @@
+{"hooks":{"SessionStart":[
+ {"matcher":"startup","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/ok5000.sh"},{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/failer.sh"}]},
+ {"matcher":"compact","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/ok9000.sh"}]}
+]}}

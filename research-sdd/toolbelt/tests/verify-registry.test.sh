@@ -3531,13 +3531,25 @@ run "$kit"
 if [ "$RC" = 0 ] && ! grep -q 'SessionStart' <<<"$OUT"; then
   ok "2129b default (opt-in off) → hooks are NOT run, no budget finding" "(exit $RC)"
 else no "2129b default run must not execute hooks" "exit=$RC out=[$OUT]"; fi
+# 2129d/2129g drive the registry with a STUB budget script that prints the script's documented lines, so the
+# registry's reading of "state: degraded" and "status=timed-out" is asserted in every environment (no bwrap needed).
+stub2129() { # <kit> <body-lines...> : replace verify-session-budget.sh with a stub printing the given lines
+  local f="$1/toolbelt/verify-session-budget.sh"; shift
+  { printf '#!/usr/bin/env bash\n'; local l; for l in "$@"; do printf 'printf "%%s\\n" %q\n' "$l"; done; } > "$f"
+}
 mk2129 c2129d
-printf '#!/usr/bin/env bash\ncat >/dev/null; exit 3\n' > "$tgt/.claude/hooks/big.sh"
+stub2129 "$kit" 'hook[1] chars=n/a status=degraded(exit 1) cmd=x' 'aggregate: 0 chars (budget < 8000) OK (partial: 1 degraded in startup) worst-source=startup' 'state: degraded (1 of 1 hook runs could not be measured; 0 timed-out)'
 OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
 if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — at least one SessionStart hook could not be measured' <<<"$OUT" \
    && ! grep -q 'more than 10,000' <<<"$OUT"; then
-  ok "2129d a failing SessionStart hook -> state: degraded from the script's own output -> degraded WARN" "(exit $RC)"
+  ok "2129d stub budget output with 'state: degraded' -> degraded WARN" "(exit $RC)"
 else no "2129d degraded state path" "exit=$RC out=[$OUT]"; fi
+mk2129 c2129g
+stub2129 "$kit" 'hook[1] chars=0 status=timed-out(hook timeout 10s) cmd=x' 'aggregate: 0 chars (budget < 8000) OK worst-source=startup' 'state: ok (1 hook runs, 0 truncated, 1 timed-out)'
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — a SessionStart hook outlives its own configured timeout' <<<"$OUT"; then
+  ok "2129g a hook that always times out (state: ok, 1 timed-out) -> session-budget-timed-out WARN" "(exit $RC)"
+else no "2129g timed-out finding" "exit=$RC out=[$OUT]"; fi
 mk2129 c2129e
 printf '#!/usr/bin/env bash\necho "verify-session-budget: crashed" >&2\nexit 2\n' > "$kit/toolbelt/verify-session-budget.sh"
 OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
@@ -3581,6 +3593,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-2129b" "$kit" "s/if ! grep -q '^state:' <<<\"\$_vr_sb\"; then/if false; then/"; then
     vr_run "teeth-2129b: no-state guard removed -> the crash is silent" "$kit" 0 0 \
       --good-has "produced no 'state:' line" --bad-lacks "produced no 'state:' line" \
+      -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
+  fi
+  echo "-- teeth-2129c: the registry must read 'state: degraded' and 'status=timed-out' from the budget script --"
+  mk2129 teeth-2129c
+  stub2129 "$kit" 'hook[1] chars=n/a status=degraded(exit 1) cmd=x' 'aggregate: 0 chars (budget < 8000) OK (partial: 1 degraded in startup) worst-source=startup' 'state: degraded (1 of 1 hook runs could not be measured; 0 timed-out)'
+  if vr_mut "teeth-2129c" "$kit" "s/elif grep -q '^state: degraded' <<<\"\$_vr_sb\"; then/elif false; then/"; then
+    vr_run "teeth-2129c: state-degraded branch removed -> the partial figures read as clean" "$kit" 0 0 \
+      --good-has 'at least one SessionStart hook could not be measured' --bad-lacks 'at least one SessionStart hook could not be measured' \
+      -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
+  fi
+  mk2129 teeth-2129d
+  stub2129 "$kit" 'hook[1] chars=0 status=timed-out(hook timeout 10s) cmd=x' 'aggregate: 0 chars (budget < 8000) OK worst-source=startup' 'state: ok (1 hook runs, 0 truncated, 1 timed-out)'
+  if vr_mut "teeth-2129d" "$kit" "s/if grep -q 'status=timed-out' <<<\"\$_vr_sb\"; then/if false; then/"; then
+    vr_run "teeth-2129d: timed-out branch removed -> an always-timing-out hook is silent" "$kit" 0 0 \
+      --good-has 'outlives its own configured timeout' --bad-lacks 'outlives its own configured timeout' \
       -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
   fi
 fi

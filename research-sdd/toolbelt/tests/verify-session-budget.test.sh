@@ -7,7 +7,8 @@
 # that cannot start, no UTF-8 locale, incomplete sandbox copy), sandbox containment (no write to $HOME or
 # /tmp, no network, no agent-socket variables) and that the target is byte-identical after the run.
 # Sandbox-dependent cases need a USABLE unprivileged bwrap (probed once with `bwrap --ro-bind / / true`);
-# without it they print a typed `  SKIP  ... (no usable bwrap)` line and are NOT counted as passed or failed.
+# without it each assertion prints ONE typed `  SKIP  ... (no usable bwrap)` line and is NOT counted as passed or failed.
+# Containment is nevertheless ALWAYS asserted: a recording bwrap shim (first on PATH) checks the exact argv.
 # Usage: verify-session-budget.test.sh [--prove-teeth]
 # Exit: 0 all held · 1 regression · 2 harness error
 
@@ -17,9 +18,10 @@ SUT="$HERE/../verify-session-budget.sh"
 FIXSRC="$HERE/fixtures/verify-session-budget"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 pass=0; fail=0; skipped=0
-ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
-no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
-sk() { printf '  SKIP  %s (no usable bwrap)\n' "$1"; skipped=$((skipped+1)); }
+SKIPMODE=0   # 1 inside the sandbox-dependent section when bwrap is unusable: every assertion becomes ONE typed SKIP line
+sk() { local l="${1%%$'\n'*}"; l="${l%%: \[*}"; printf '  SKIP  %s (no usable bwrap)\n' "$l"; skipped=$((skipped+1)); }
+ok() { if [ "$SKIPMODE" = 1 ]; then sk "$1"; else printf '  PASS  %s\n' "$1"; pass=$((pass+1)); fi; }
+no() { if [ "$SKIPMODE" = 1 ]; then sk "$1"; else printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); fi; }
 echo "== verify-session-budget.test.sh =="
 
 [ -f "$SUT" ] || { no "0 SUT not found: $SUT"; echo "== $pass passed · $fail failed =="; exit 1; }
@@ -48,6 +50,41 @@ mkbin() {
     p="$(type -P "$t")" || continue
     ln -sf "$p" "$d/$t"
   done
+}
+
+# shim_cases <SUT> <FIX> : bwrap is replaced by a shim that records its argv and runs nothing; every required
+# containment flag must be on EVERY run invocation. Runs where bwrap itself cannot (CI images without user namespaces).
+shim_cases() {
+  local S="$1" FIX="$2" SH="$TMP/shim-bin" LOG="$TMP/shim.log" T miss i n rd="$TMP/shim-recs"
+  rm -rf "$SH" "$rd"; mkdir -p "$SH" "$rd"; : > "$LOG"
+  printf '#!/bin/sh\nif [ "$*" = "--ro-bind / / true" ]; then exit 0; fi\ncat >/dev/null\n{ for a in "$@"; do printf "%%s\\n" "$a"; done; echo "--END--"; } >> "$RSDD_SHIM_LOG"\nexit 0\n' > "$SH/bwrap"
+  chmod +x "$SH/bwrap"
+  T="$(cd "$FIX/mixed" && pwd -P)"
+  OUT="$(PATH="$SH:$PATH" RSDD_SHIM_LOG="$LOG" RSDD_BUDGET_HOOK_TIMEOUT=10 "$BASH_BIN" "$S" "$FIX/mixed" 2>&1)"; RC=$?
+  awk -v dir="$rd" 'BEGIN{n=1} /^--END--$/{n++; next} {print > (dir "/rec." n)}' "$LOG"
+  n="$(find "$rd" -name 'rec.*' | wc -l | tr -d ' ')"
+  [ "$n" = 4 ] && ok "40 the shim saw one bwrap run per hook (4); zero runs would fail closed" || no "40 expected 4 recorded bwrap runs, saw $n: [$OUT]"
+  miss=""
+  for ((i=1; i<=n; i++)); do miss="$miss$(shim_missing "$rd/rec.$i" "$T")"; done
+  [ -z "$miss" ] && [ "$n" -gt 0 ] && ok "41 every bwrap run carries the full containment argv (ro-bind /, .claude copy bind, unshare pid/net/ipc, new-session, die-with-parent, unsetenv x5)" \
+    || no "41 containment argv incomplete, missing:$miss"
+}
+
+# shim_missing <record-file> <target> : prints " name" for each required argument absent from one recorded argv.
+shim_missing() {
+  local rec=() i out="" nm found=0
+  mapfile -t rec < "$1"
+  [ "${#rec[@]}" -gt 0 ] || { printf ' empty-record'; return; }
+  seq_in() { local want=("$@") a b ok; for ((a=0; a<=${#rec[@]}-${#want[@]}; a++)); do ok=1; for ((b=0; b<${#want[@]}; b++)); do [ "${rec[a+b]}" = "${want[b]}" ] || { ok=0; break; }; done; [ "$ok" = 1 ] && return 0; done; return 1; }
+  seq_in --ro-bind / / || out="$out ro-bind-root"
+  for nm in --unshare-pid --unshare-net --unshare-ipc --new-session --die-with-parent; do seq_in "$nm" || out="$out $nm"; done
+  for nm in SSH_AUTH_SOCK SSH_AGENT_PID GPG_AGENT_INFO DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR; do seq_in --unsetenv "$nm" || out="$out unsetenv-$nm"; done
+  seq_in --setenv CLAUDE_PROJECT_DIR "$2" || out="$out setenv-CLAUDE_PROJECT_DIR"
+  for ((i=0; i<${#rec[@]}-2; i++)); do
+    if [ "${rec[i]}" = --bind ] && [ "${rec[i+2]}" = "$2/.claude" ] && [ "${rec[i+1]}" != "${rec[i+2]}" ]; then found=1; fi
+  done
+  [ "$found" = 1 ] || out="$out dotclaude-copy-bind"
+  printf '%s' "$out"
 }
 
 check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the fixtures (a mutant may leak writes)
@@ -81,10 +118,10 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
   has "$OUT" 'status=degraded\(no-sandbox: bwrap cannot start: bwrap: No permissions' && ! has "$OUT" 'degraded\(exit 1\)' \
     && ok "26 bwrap present but cannot start -> degraded(no-sandbox: <reason>), not degraded(exit 1)" || no "26 unusable-bwrap wrong: [$OUT]"
 
-  if [ "$BW_OK" != 1 ]; then
-    sk "27-60 sandbox cases (per-hook numbers, TRUNCATED, matchers, newline, timeouts, containment, copy, locale)"
-    return
-  fi
+  # --- containment argv, asserted in EVERY environment through a recording bwrap shim -------------------------------
+  shim_cases "$S" "$FIX"
+
+  SKIPMODE=0; [ "$BW_OK" = 1 ] || SKIPMODE=1
 
   # --- mixed: per-hook numbers, TRUNCATED, JSON, no mutation -------------------------------------------------
   snap "$FIX/mixed" > "$TMP/before"
@@ -123,7 +160,23 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
   [ "$(block "$OUT" startup | grep -c '^hook\[')" = 1 ] && has "$OUT" 'aggregate\[startup\]: 10 chars' && ok "30 a command with embedded newlines is one hook (10 chars)" || no "30 newline command split: [$(block "$OUT" startup)]"
   # --- the hook's own timeout --------------------------------------------------------------------------------------
   run "$S" "$FIX/timeouts"
-  has "$OUT" 'hook\[1\] chars=0 status=timed-out\(hook timeout 1s\)' && has "$OUT" 'state: ok' && ok "31 a hook outliving its own timeout counts 0 with a typed timed-out note" || no "31 own-timeout wrong: [$OUT]"
+  has "$OUT" 'hook\[1\] chars=0 status=timed-out\(hook timeout 1s\)' && has "$OUT" 'state: ok \(1 hook runs, 0 truncated, 1 timed-out\)' && ok "31 a hook outliving its own timeout counts 0, typed timed-out note, counted on the state line" || no "31 own-timeout wrong: [$OUT]"
+  # --- Claude Code's documented matcher rule + the fork source ------------------------------------------------------
+  run "$S" "$FIX/matchers"
+  has "$OUT" 'aggregate\[startup\]: 500 chars' && has "$OUT" 'aggregate\[resume\]: 300 chars' && has "$OUT" 'aggregate\[fork\]: 50 chars' \
+    && ok "42 regex '^start' (unanchored) and list 'startup, resume' (comma, spaces) select startup/resume; exact 'fork' selects fork" || no "42 matcher rule wrong: [$OUT]"
+  has "$OUT" 'source clear: \(no matching' && has "$OUT" 'source compact: \(no matching' && ! has "$OUT" 'exact7000|chars=7000' \
+    && ok "43 exact 'start' does NOT match 'startup' (its 7000-char hook never runs)" || no "43 exact-vs-prefix wrong: [$OUT]"
+  # --- degraded in ANY source marks the final aggregate partial; capped commands are not re-run ----------------------
+  run "$S" "$FIX/partialmix"
+  has "$OUT" 'aggregate: 9000 chars .*OVER BUDGET \(partial: 1 degraded in startup\) worst-source=compact' \
+    && ok "44 the final aggregate is partial even when the WORST source is clean (names the degraded source)" || no "44 partial marker wrong: [$OUT]"
+  HOOK_TO=1 run "$S" "$FIX/capped"
+  [ "$(grep -c 'not re-run' <<<"$OUT")" = 4 ] && has "$OUT" 'aggregate\[startup\].*partial' && has "$OUT" 'partial: 5 degraded in startup,resume,clear,compact,fork' \
+    && ok "45 a command that hit the script cap is run once; later sources say 'not re-run'" || no "45 cap re-run wrong: [$OUT]"
+  # --- every source gets a pristine sandbox copy ------------------------------------------------------------------------
+  run "$S" "$FIX/fresh"
+  [ "$(grep -c 'chars=5 status=ok' <<<"$OUT")" = 5 ] && ok "46 each of the five sources sees a fresh .claude copy (order-independent)" || no "46 sandbox state leaked between sources: [$OUT]"
   # --- characters, not bytes -----------------------------------------------------------------------------------------
   run "$S" "$FIX/utf8"
   has "$OUT" 'hook\[1\] chars=3 status=ok' && ok "32 three accented characters count as 3 (code points)" || no "32 utf8 wrong: [$OUT]"
@@ -149,6 +202,7 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
   has "$OUT" 'hook\[2\] chars=1 status=ok' && ok "36 only the loopback interface is visible (no network)" || no "36 network namespace not isolated: [$OUT]"
   has "$OUT" 'hook\[3\] chars=0 status=ok' && ok "37 SSH_AUTH_SOCK / SSH_AGENT_PID / DBUS variables are not inherited" || no "37 agent variables leaked: [$OUT]"
   rm -f "$ESC"
+  SKIPMODE=0
 }
 
 check_suite "$SUT"
@@ -179,10 +233,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth sb "hook-own timeout reported degraded" 's/H_LINE="timed-out(hook timeout \${decl}s)"; H_KIND=zero/H_LINE="degraded(hook-timeout)"; H_KIND=deg/'
   tooth sb "sandbox bind dropped (hooks write to the real target)" 's/--bind "\$_sb_dotclaude" "\$target\/.claude"/--bind "$target\/.claude" "$target\/.claude"/'
   tooth sb "json systemMessage ignored" 's/(\.systemMessage \/\/ "")/("")/'
-  tooth sb "root filesystem writable (--ro-bind / / -> --bind / /)" 's/bwrap --ro-bind \/ \/ --dev/bwrap --bind \/ \/ --dev/'
-  tooth sb "network namespace not unshared" 's/ --unshare-net//'
-  tooth sb "SSH_AUTH_SOCK inherited" 's/--unsetenv SSH_AUTH_SOCK //'
-  tooth sb "matcher ignored (every entry counts for every source)" 's/(\$src | test("^(?:" + \$m + ")\$"))/true/'
+  tooth any "root filesystem writable (--ro-bind / / -> --bind / /)" 's/bwrap --ro-bind \/ \/ --dev/bwrap --bind \/ \/ --dev/'
+  tooth any "network namespace not unshared" 's/ --unshare-net//'
+  tooth any "SSH_AUTH_SOCK inherited" 's/--unsetenv SSH_AUTH_SOCK //'
+  tooth any "SSH_AGENT_PID inherited" 's/ --unsetenv SSH_AGENT_PID//'
+  tooth any "GPG_AGENT_INFO inherited" 's/ --unsetenv GPG_AGENT_INFO//'
+  tooth any "DBUS_SESSION_BUS_ADDRESS inherited" 's/--unsetenv DBUS_SESSION_BUS_ADDRESS //'
+  tooth any "XDG_RUNTIME_DIR inherited" 's/ --unsetenv XDG_RUNTIME_DIR//'
+  tooth any "IPC namespace shared" 's/ --unshare-ipc//'
+  tooth any "controlling terminal inherited (--new-session dropped)" 's/ --new-session//'
+  tooth any "sandbox outlives the parent (--die-with-parent dropped)" 's/ --die-with-parent//'
+  tooth any "PID namespace shared" 's/--unshare-pid //'
+  tooth any ".claude copy bind replaced by the live target" 's/--bind "\$_sb_dotclaude" "\$target\/.claude"/--bind "$target\/.claude" "$target\/.claude"/'
+  tooth sb "exact matcher treated as prefix" 's/elif (\$m | test("\^\[A-Za-z0-9_ ,|-\]+\$")) then/elif false then/'
+  tooth sb "fork source dropped" 's/^sources="startup resume clear compact fork"/sources="startup resume clear compact"/'
+  tooth sb "final aggregate never partial" 's/&& partial=" (partial: \$ndeg_all degraded in \$degsrcs)"/\&\& partial=""/'
+  tooth sb "capped command re-run in every source" 's/if \[ "\$c" = "\$cmd" \]; then H_LINE=/if false; then H_LINE=/'
+  tooth sb "sandbox copy made once, not per source" 's/^  prep_sandbox$/  [ -n "${_prepped:-}" ] || prep_sandbox; _prepped=1/'
+  tooth sb "timed-out hooks not counted" 's/\[ "\$H_KIND" = zero \] \&\& nto_all=\$((nto_all+1))/:/'
+  tooth sb "matcher ignored (every entry counts for every source)" 's/select(mm((\.matcher \/\/ "" | tostring); \$src))/select(true)/'
+  tooth sb "regex matcher anchored (^start no longer matches startup)" 's/else (\$s | test(\$m)) end;/else (\$s | test("^(?:" + \$m + ")\$")) end;/'
   tooth sb "dedupe removed" 's/\[ "\$dup" = 1 \] && continue/:/'
   tooth sb "records split on newline instead of NUL" 's/"\\u0000"/"\\n"/'
   tooth sb "copy failure ignored" 's/|| copy_fail=.*$/|| true/'
@@ -194,5 +264,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 echo "== $pass passed · $fail failed =="
-[ "$skipped" -eq 0 ] || echo "($skipped sandbox-dependent case group(s) skipped: no usable bwrap)"
+[ "$skipped" -eq 0 ] || echo "($skipped sandbox-dependent case(s) skipped: no usable bwrap)"
 [ "$fail" -eq 0 ] || exit 1

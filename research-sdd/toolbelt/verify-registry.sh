@@ -329,6 +329,9 @@ for p in $paths; do
       if grep -q 'status=TRUNCATED' <<<"$_vr_sb"; then
         _vr_finding session-budget-truncated WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook emits more than 10,000 characters, so Claude Code truncates it to a path plus a 2,000-char preview Claude is not told to read; shrink or split the hook (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
       fi
+      if grep -q 'status=timed-out' <<<"$_vr_sb"; then  # SESSION-BUDGET-TIMED-OUT
+        _vr_finding session-budget-timed-out WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook outlives its own configured timeout, so Claude Code kills it and it contributes nothing (the budget numbers do not show this); fix or raise the hook's timeout (run verify-session-budget.sh ${p} for the hook; propose-never-apply)."
+      fi
       if grep -q 'OVER BUDGET' <<<"$_vr_sb"; then
         _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (worst session source: $(sed -n 's/^aggregate: .* worst-source=//p' <<<"$_vr_sb"); run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
       fi
