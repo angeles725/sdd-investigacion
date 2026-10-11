@@ -592,10 +592,10 @@ fi
 # =============================================================================
 x1_section() { awk '/^## Harness crosswalk[[:space:]]*$/{f=1;next} f&&/^## /{exit} f' "$1"; }
 x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
-  x1_section "$1" | grep -F -e "$2" | grep -qF -e "$3"
+  grep -qF -e "$3" <<<"$(x1_section "$1" | grep -F -e "$2")"
 }
 # One function per check id, so each tooth can name the exact check it must turn red.
-X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model model-dispatch claude-dir stop)
+X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model model-dispatch model-chain claude-dir stop)
 x1_check() {  # ID FILE
   local f="$2"
   case "$1" in
@@ -608,8 +608,9 @@ x1_check() {  # ID FILE
     agent)             x1_row "$f" 'Agent tool' 'subagent_run' ;;
     model)             x1_row "$f" 'haiku' "model_profiles['research-sdd-<T>']" ;;
     model-dispatch)    x1_row "$f" 'haiku' 'subagent_run agent=research-sdd-<T>' ;;
+    model-chain)       x1_row "$f" 'haiku' 'profile pin or session binding' && x1_row "$f" 'haiku' 'runs on `default_model` when set' && x1_row "$f" 'haiku' 'spawned literally' ;;
     claude-dir)        x1_row "$f" '.claude/' 'harness-neutral' ;;
-    stop)              x1_section "$f" | grep -qF 'STOP teardown (harness-neutral)' ;;
+    stop)              grep -qF 'STOP teardown (harness-neutral)' <<<"$(x1_section "$f")" ;;
     *) return 2 ;;
   esac
 }
@@ -618,7 +619,7 @@ x1_holds() {
   for id in "${X1_IDS[@]}"; do x1_check "$id" "$1" || return 1; done
 }
 # X2: each pointer in its OWN section (a whole-file grep stays green when one of two pointers is deleted).
-x2_howto() { awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1" | grep -qF 'Harness crosswalk'; }
+x2_howto() { grep -qF 'Harness crosswalk' <<<"$(awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1")"; }
 x2_stop()  { grep -qF 'disarm per the Harness crosswalk' "$1"; }
 x2_holds() { x2_howto "$1" && x2_stop "$1"; }
 for name in "${PROFILE_NAMES[@]}"; do
@@ -1145,6 +1146,7 @@ PYEOF
   x1_tooth agent              '/^| Agent tool.*subagent_run/d'
   x1_tooth model              's/model_profiles\['"'"'research-sdd-<T>'"'"'\]/GONE/g'
   x1_tooth model-dispatch     's/subagent_run agent=research-sdd-<T>/GONE/g'
+  x1_tooth model-chain        's/profile pin or session binding/GONE/'
   x1_tooth claude-dir         '/^| `\.claude\/` state directory/d'
   x1_tooth stop               '/^STOP teardown (harness-neutral)/d'
   # X2: one mutant per pointer; the OTHER pointer must stay green (proves each is asserted on its own).

@@ -76,7 +76,7 @@ for h in pi gentle-shell; do
   home="$TMP/l-$h"; mkdir -p "$home"; _inst "$SUT" "$home" "$h"
   if _launcher_check "$SUT" "$home" "$h" "$KITROOT_P"; then ok "L1 ($h): launcher carries the checkout line, the rule (no retro markers) and absolute script paths"
   else no "L1 ($h): launcher requirement failed: $LC_WHY :: $(_launcher "$home" "$h" | grep -n 'Kit\|toolbelt' | head -4 | tr '\n' '|')"; fi
-  _launcher "$home" "$h" | grep -q '^Kit path: ~/.*research-sdd/profile/general$' && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
+  grep -q '^Kit path: ~/.*research-sdd/profile/general$' <<<"$(_launcher "$home" "$h")" && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
     || no "L3 ($h): 'Kit path:' no longer the profile copy"
 done
 
@@ -168,7 +168,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$m" "$MKI/adapters.sh"; mkdir -p "$th"
     if [ "${4:-}" = claude ]; then
       _inst "$MKI/research-sdd-install.sh" "$th" claude
-      if _launcher "$th" claude | grep -q 'Kit checkout:'; then ok "teeth: $1 → claude launcher gains the line, L4 bites"
+      if grep -q 'Kit checkout:' <<<"$(_launcher "$th" claude)"; then ok "teeth: $1 → claude launcher gains the line, L4 bites"
       else no "teeth: $1 → claude launcher unchanged, L4 is THEATER"; fi
     else
       _inst "$MKI/research-sdd-install.sh" "$th" pi

@@ -50,15 +50,17 @@ harness=gentle-shell
   INSTALL {HOME}/.gentle-shell/agent/agents/research-sdd-mechanical.md (read-only agent definition)
   INSTALL {HOME}/.gentle-shell/agent/agents/research-sdd-reasoning.md (read-only agent definition)
   INSTALL {HOME}/.gentle-shell/agent/agents/research-sdd-structural.md (read-only agent definition)
-  model profiles: NOT written (model selection is user-owned). Merge this snippet into your project's .pi/subagents.json
-  (or the global {HOME}/.gentle-shell/agent/subagents.json), replace every <placeholder>, and keep the effort levels or change them:
-  profiles| {
-  profiles|   "model_profiles": {
-  profiles|     "research-sdd-mechanical": { "model": "<provider>/<lowest-cost-model>", "effort": "low" },
-  profiles|     "research-sdd-structural": { "model": "<provider>/<mid-cost-model>", "effort": "medium" },
-  profiles|     "research-sdd-reasoning": { "model": "<provider>/<strongest-model>", "effort": "high" }
-  profiles|   }
-  profiles| }
-  Dispatch a tier with subagent_run agent=research-sdd-<tier>; --verify reports whether each tier agent has a profile.
+  model profiles: NOT written (model selection is user-owned). Merge the JSON block below into your project's .pi/subagents.json
+  (or the global {HOME}/.gentle-shell/agent/subagents.json); if it already has a model_profiles object, add these three keys to it. Replace every <placeholder> first:
+--- model_profiles snippet: begin ---
+{
+  "model_profiles": {
+    "research-sdd-mechanical": { "model": "<provider>/<lowest-cost-model>", "effort": "low" },
+    "research-sdd-structural": { "model": "<provider>/<mid-cost-model>", "effort": "medium" },
+    "research-sdd-reasoning": { "model": "<provider>/<strongest-model>", "effort": "high" }
+  }
+}
+--- model_profiles snippet: end ---
+  A model left as a <placeholder> is spawned literally (--verify reports status=placeholder). Dispatch a tier with subagent_run agent=research-sdd-<tier>.
   INSTALL {HOME}/.gentle-shell/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
   slash_commands=true
