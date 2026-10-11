@@ -540,3 +540,68 @@ if ! declare -F hook_stop_launch_state >/dev/null 2>&1; then
     return 0
   }
 fi
+
+# --- WIRED-HOOK EXECUTE-BIT state (kit issue #2141) ------------------------------------------------
+#   hook_wired_exec_report <target-dir>
+#     Reads <target-dir>/.claude/settings.json (project file only, like the Stop predicate above) and,
+#     for EVERY wired `"command"` (any event), resolves the command's FIRST word to a file:
+#       - the word is quote-aware; `${CLAUDE_PROJECT_DIR}` / `$CLAUDE_PROJECT_DIR` expand to <target-dir>,
+#         `$HOME` / `~/` to $HOME; a relative path that contains a `/` is taken from <target-dir>
+#       - a bare command name (no `/`), an unresolved variable / glob / backtick, an `NAME=value`
+#         prefix make NO claim and print nothing. An interpreter run (`bash <path>`, `/bin/sh <path>`) is not
+#         a finding by construction: only the FIRST word is checked, and the script is an argument
+#     and prints one line per finding on stdout, tab separated:
+#       not-executable<TAB><path>   the file exists but lacks the execute bit (Claude Code exits 126)
+#       missing<TAB><path>          the path names no file
+#     Read-only: it never touches the target. Always returns 0 (absent/unreadable settings print
+#     nothing — "no wired command seen" is the Stop predicate's absent-settings / unreadable territory).
+#     Parsing is grep/sed over the JSON text (no jq dependency, so the human report works without it);
+#     a command whose JSON string uses escapes other than \" and \\ is not unescaped further.
+if ! declare -F hook_wired_exec_report >/dev/null 2>&1; then
+  hook_wired_exec_report() {
+    local target="$1" settings cmd w p rest q
+    settings="$target/.claude/settings.json"
+    [ -f "$settings" ] && [ -r "$settings" ] || return 0
+    while IFS= read -r cmd; do
+      cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+      [ -n "$cmd" ] || continue
+      # first word, quote-aware (a quoted span may sit anywhere in the word, e.g. "$DIR"/x.sh)
+      w=""; q=""; rest="$cmd"
+      while [ -n "$rest" ]; do
+        p="${rest:0:1}"; rest="${rest:1}"
+        if [ -z "$q" ]; then
+          case "$p" in
+            ' '|$'\t') break ;;
+            '"'|"'") q="$p"; w="$w$p" ;;
+            *) w="$w$p" ;;
+          esac
+        else
+          [ "$p" = "$q" ] && q=""
+          w="$w$p"
+        fi
+      done
+      [ -z "$q" ] || continue                       # unterminated quote: cannot split reliably
+      case "$w" in *=*) case "${w%%=*}" in *[!A-Za-z0-9_]*|'') ;; *) continue ;; esac ;; esac   # NAME=value prefix
+      case "$w" in *\'*) continue ;; esac            # single-quoted: the shell would not expand it
+      w="${w//\"/}"
+      case "$w" in
+        '${CLAUDE_PROJECT_DIR}'/*) w="$target/${w#'${CLAUDE_PROJECT_DIR}'/}" ;;
+        '$CLAUDE_PROJECT_DIR'/*) w="$target/${w#'$CLAUDE_PROJECT_DIR'/}" ;;
+        '${HOME}'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'${HOME}'/}" ;;
+        '$HOME'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'$HOME'/}" ;;
+        '~'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'~'/}" ;;
+      esac
+      case "$w" in *'$'*|*'`'*|*'*'*|*'?'*|*'\'*|'~'*) continue ;; esac
+      case "$w" in */*) ;; *) continue ;; esac       # bare command name: resolved via PATH, no claim
+      case "$w" in /*) ;; *) w="$target/$w" ;; esac
+      if [ -d "$w" ]; then continue
+      elif [ -e "$w" ]; then
+        if [ ! -x "$w" ]; then printf 'not-executable\t%s\n' "$w"; fi   # WIRED-EXEC-BIT-TEST
+      else
+        printf 'missing\t%s\n' "$w"                  # absent, or a dangling symlink
+      fi
+    done < <(grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' "$settings" 2>/dev/null \
+             | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"//; s/"$//; s/\\"/"/g; s/\\\\/\\/g')
+    return 0
+  }
+fi

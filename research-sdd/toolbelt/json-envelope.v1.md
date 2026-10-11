@@ -108,6 +108,8 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `hook-registered-no-sessions` | row claims `hook yes`; the Stop hook is registered with a loadable script, but no retained Claude Code transcript exists for a session launched from exactly the target directory, so it is not known to have loaded |
 | `hook-unregistered-stale` | row carries `hook file yes / unregistered` but the Stop hook IS registered with a loadable script |
 | `hook-no-sessions-stale` | row carries `registered-no-sessions` but the hook is no longer registered with a loadable script, or a retained transcript now exists |
+| `wired-hook-not-executable` | a command wired in the target's `.claude/settings.json` (any event) names a script that exists but lacks the execute bit, so Claude Code exits 126 and the hook never loads; not raised when the command runs through an interpreter (`bash <path>`) (kit issue #2141) |
+| `wired-hook-missing` | a command wired in the target's `.claude/settings.json` names a script path that does not exist (kit issue #2141) |
 | `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
 | `nc-no-count` | `nc` row without a claimed `N md` count |
 | `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |

@@ -502,7 +502,7 @@ nshist() { mkdir -p "$1"; if [ -n "${3:-}" ]; then mkdir -p "$1/${2//[^A-Za-z0-9
 # nsrow <kit> <target> <cell> : one-row TARGETS.md.
 nsrow() { { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'; printf '| 1 | targetA | mature (%s) | `%s` |\n' "$3" "$2"; } > "$1/TARGETS.md"; }
 # nsfix <name> : kit + target with a registered, EXISTING hook script; echoes nothing, sets kit/tgt.
-nsfix() { kit="$(mkkit "$1")"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"; : > "$tgt/.claude/hooks/retro-gate-stop.sh"; wire_hook_abs "$tgt" "\$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh"; }
+nsfix() { kit="$(mkkit "$1")"; tgt="$kit/targetA"; mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"; : > "$tgt/.claude/hooks/retro-gate-stop.sh"; chmod +x "$tgt/.claude/hooks/retro-gate-stop.sh"; wire_hook_abs "$tgt" "\$CLAUDE_PROJECT_DIR/.claude/hooks/retro-gate-stop.sh"; }
 
 # 3ns1 — 'hook yes' + registered + script exists + history root readable but no transcript for the target.
 nsfix c3ns1; hist="$ROOT/h-ns1"; nshist "$hist" "$tgt"; nsrow "$kit" "$tgt" '3 md / git yes / hook yes'; nsrun "$hist" "$kit"

@@ -160,6 +160,7 @@ if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_h
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
 declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
 declare -F hook_stop_launch_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_launch_state" >&2; exit 1; }
+declare -F hook_wired_exec_report >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_wired_exec_report" >&2; exit 1; }
 unset _vr_hw_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -462,6 +463,24 @@ for p in $paths; do
       attention=$((attention + 1))
      fi
     fi
+  fi
+
+  # WIRED-HOOK EXECUTE BIT (kit issue #2141): independent of any row claim, every hook command wired in
+  # <target>/.claude/settings.json whose first word is a file path must be runnable as a bare command.
+  # A mode-644 script exits 126 under Claude Code, so its protocol card / guard never loads. Read-only,
+  # WARN-only (propose-never-apply); lib/hook-wiring.sh hook_wired_exec_report decides what is a claim.
+  if [ -d "$p/.claude" ]; then
+    while IFS=$'\t' read -r _vr_we_kind _vr_we_path; do
+      [ -n "$_vr_we_kind" ] || continue
+      if [ "$_vr_we_kind" = "not-executable" ]; then
+        _vr_finding wired-hook-not-executable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-not-executable: ${_vr_we_path} is registered in ${p}/.claude/settings.json as a bare command but has no execute bit, so Claude Code exits 126 and the hook never loads; chmod +x it or wire it as 'bash <path>' (propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ]; then
+        _vr_finding wired-hook-missing WARN "$(basename "$p")" "$(basename "$p") — wired-hook-missing: ${_vr_we_path} is registered in ${p}/.claude/settings.json but no such file exists, so the hook can never run; restore it or remove the registration (propose-never-apply)."
+      else
+        continue
+      fi
+      attention=$((attention + 1))
+    done < <(hook_wired_exec_report "$p")  # WIRED-EXEC-CALLSITE
   fi
 
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
