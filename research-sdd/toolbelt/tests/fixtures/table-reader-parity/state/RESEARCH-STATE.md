@@ -2,7 +2,7 @@
 next_session_queue: B3-G1, B3-G2, B3-G3, B3-G4, B3-G5, B3-G6, B3-G7, B3-G8, B3-G9
 <!-- Fixture for table-reader-parity.test.sh (kit #2148): `\|`, `\\|`, `\\\|` are each ONE escaped pipe in GFM.
      The 5-column deferred rows (B3-G7..9) count toward known_gaps but not deferred_open (that counter reads
-     4-cell rows only), so verify-state.sh prints a known_gaps-vs-sum WARN on this fixture: expected, not a defect. -->
+     4-cell rows only), so verify-state.sh prints a known_gaps-vs-sum WARN on this fixture: expected on this fixture; tracked in #2162. -->
 
 <!-- research-state.v1 -->
 schema: research-state.v1

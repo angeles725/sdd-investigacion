@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# table-reader-parity.test.sh — every markdown-table READER in the toolbelt applies the SAME escape rule (kit issue #2148).
+# table-reader-parity.test.sh — the RESEARCH-STATE.md table readers listed below apply the SAME escape rule (kit issue #2148).
 #
 # THE RULE (verified by rendering through GitHub: POST /markdown, mode gfm): ANY `\|` inside a table cell is an
 # escaped pipe, regardless of the backslashes before it. `| x\\| y | z |` renders ONE cell, `x| y`; `| m\\\| n |`
@@ -11,8 +11,9 @@
 #   research-sdd-status.sh   backlog rows, deferred rows, Iteration-history Block column and New-gaps column,
 #                            open-deferred rows of the --queue reader, document-cycle Outline rows
 #   lib/gap-rows.sh          gap_rows_parse
-# Out of scope (not table readers of the state file): the §18 delta-table parsers and append-iteration-row.sh
-# (kit PR #2147 owns them).
+# NOT covered here: the §18 delta-table parsers and append-iteration-row.sh (a writer that also reads the
+# Iteration-history table; kit PR #2147 aligns them), and the readers still on a bare-pipe split
+# (count_open_contra, the FOCUSES readers, migrate-backlogs.sh, verify-sources.sh) tracked in #2161.
 #
 # --prove-teeth builds one mutant per reader call site (the escape step removed, i.e. the pre-GFM no-escape split)
 # and requires the probe that watches THAT site to turn red.
@@ -40,7 +41,7 @@ EXP_INV=6; EXP_DEF=3; EXP_BLOCKS=9; EXP_KNOWN=15
 
 # probes <tree> : run every reader of <tree> over the shared fixture and set PR_<name>=ok|<detail> (one global per probe).
 declare -A PR=()
-PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue gr_rows"
+PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue st_hdr gr_rows"
 probes() {
   local t="$1" d out err rc
   # --- verify-state.sh ---
@@ -69,6 +70,9 @@ probes() {
   # --- research-sdd-status.sh queue reader: its open-deferred rows (awk -F'|' field walk) ---
   out="$(bash "$t/research-sdd-status.sh" "$FX/state" --next --queue 2>&1)"
   if grep -qF '(9 ids: 3 done, 6 deferred, 0 blocked, 0 in-progress, 0 unknown)' <<<"$out"; then PR[st_queue]=ok; else PR[st_queue]="$(grep 'queue-' <<<"$out" | head -2 | tr '\n' '~')"; fi
+  # --- research-sdd-status.sh iter_gaps_rows col_none path: the printed header carries no raw mask byte ---
+  out="$(bash "$t/research-sdd-status.sh" "$FX/nogaps" 2>/dev/null | grep 'saturation')"
+  if [ "$out" = "  saturation      : no New-gaps column (header:  It | Fo|cus | Block )" ]; then PR[st_hdr]=ok; else PR[st_hdr]="$(printf '%s' "$out" | od -c | head -3 | tr '\n' '~')"; fi
   # --- lib/gap-rows.sh ---
   out="$(bash -c '. "$1/lib/gap-rows.sh"; gap_rows_parse "$2"' _ "$t" "$FX/state/RESEARCH-STATE.md" 2>&1)"
   local want
@@ -87,6 +91,7 @@ declare -A DESC=(
   [st_blocks]="research-sdd-status.sh Iteration-history Block column: --sync-state attributes 9 blocks"
   [st_iter]="research-sdd-status.sh Iteration-history New-gaps column: all 9 rows readable (none unreadable, 3 new gaps in the last 3)"
   [st_queue]="research-sdd-status.sh --queue reader: the 9 queued rows (6 deferred incl. a 5-column table, 3 closed) are all recognised, none unknown"
+  [st_hdr]="research-sdd-status.sh iter_gaps_rows: a header with an escaped pipe prints on the no-New-gaps-column line with the pipe restored (no raw mask byte)"
   [st_outline]="research-sdd-status.sh Outline rows: 9/9 covered with escapes in the middle and last cells"
   [gr_rows]="lib/gap-rows.sh gap_rows_parse: 15 ROW records, cell text unescaped by exactly one backslash-pipe"
 )
@@ -127,7 +132,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth st-blockcol   research-sdd-status.sh 'gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL' '$0=$0  # GFM-EP-BLOCKCOL' st_blocks
   tooth st-iter       research-sdd-status.sh 'gsub(/\\\|/,"\001",l)  # GFM-EP-ITER' 'l=l  # GFM-EP-ITER' st_iter
   tooth st-queue      research-sdd-status.sh 'ib { gsub(/\\\|/,"\001"); ' 'ib { ' st_queue
-  tooth st-outline   research-sdd-status.sh 'gsub(/\\\|/, "\001", line)' 'line=line' st_outline
+  tooth st-hdr        research-sdd-status.sh 'gsub(/\001/,"|",l); print "col_none' 'print "col_none' st_hdr
+  tooth st-outline  research-sdd-status.sh 'gsub(/\\\|/, "\001", line)' 'line=line' st_outline
   tooth gr-rows       lib/gap-rows.sh 'gsub(/\\\|/,"\001",t); ' '' gr_rows
 fi
 

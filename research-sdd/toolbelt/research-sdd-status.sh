@@ -340,7 +340,7 @@ iter_gaps_rows() {
       if (!have_header) {                                    # first non-separator table row = header
         have_header=1
         for(k=1;k<=n;k++){ if(tolower(a[k]) ~ /new gaps|nuevos gaps/){ ngcol=k; break } }
-        if (ngcol==0){ print "col_none\t" l; exit }
+        if (ngcol==0){ gsub(/\001/,"|",l); print "col_none\t" l; exit }  # GFM-EP-HDR-RESTORE (#2148): no raw mask byte reaches the output
         next
       }
       seq++
