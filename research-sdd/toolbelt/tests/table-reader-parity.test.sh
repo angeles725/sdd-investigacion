@@ -116,7 +116,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the copy: the named probe must fail. The literal is cut with bash, not sed, so no regex escaping can misapply it.
   tooth() {
     local name="$1" file="$2" old="$3" new="$4" watch="$5" t="$TMP/mut-$1" s v
-    mkdir -p "$t/lib"; cp "$TOOLBELT"/*.sh "$t/"; cp "$TOOLBELT"/lib/* "$t/lib/"
+    mkdir -p "$t/lib"; cp "$TOOLBELT"/*.sh "$t/"; cp -r "$TOOLBELT"/lib/. "$t/lib/"
     s="$(cat "$TOOLBELT/$file"; printf x)"; s="${s%x}"
     case "$s" in *"$old"*) ;; *) no "teeth $name: literal not found in $file — the call site moved"; return ;; esac
     printf '%s' "${s/"$old"/"$new"}" > "$t/$file"
@@ -138,5 +138,5 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 echo
-echo "table-reader-parity: $pass passed, $fail failed"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
