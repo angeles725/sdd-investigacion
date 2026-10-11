@@ -29,8 +29,14 @@ fi
 [ -f "$PLAN" ] || { echo "FATAL: capture_plan.py not found: $PLAN" >&2; exit 2; }
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not found" >&2; exit 2; }
 IFS= read -r -d '' PY_SRC <<'PY'
-import importlib.util, json, os, struct, subprocess, sys, tempfile
+import atexit, importlib.util, json, os, shutil, struct, subprocess, sys, tempfile
 from pathlib import Path
+
+# #2164: the SUT's host run-dir root is $RSDD_VM_ROOT (default /tmp/rsdd). Point it at a suite-private sandbox so no
+# run dir is left in the global /tmp/rsdd (invisible to run-all's TMPDIR and kit-tree checks).
+_SBX = tempfile.mkdtemp(prefix="ca-sbx-")
+atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
+os.environ["RSDD_VM_ROOT"] = os.path.join(_SBX, "rsdd")
 
 sut_path, ce_path, plan_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
 sys.path.insert(0, str(sut_path.parent))  # lib/ on path for gate, docker_common, etc.
@@ -121,7 +127,7 @@ def cli(*a, xe: dict | None = None):
     return subprocess.run([sys.executable, str(plan_path), *map(str, a)],
                           capture_output=True, text=True, env=e)
 
-Path("/tmp/rsdd").mkdir(exist_ok=True)
+Path(os.environ["RSDD_VM_ROOT"]).mkdir(mode=0o700, exist_ok=True)   # sandbox root (#2164); verify_rsdd_root needs a real dir
 
 # ── T-STATIC: no in-process import of analyzers in capture_exec or capture_analyze ──
 try:
