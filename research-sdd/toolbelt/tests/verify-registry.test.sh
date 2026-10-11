@@ -3525,7 +3525,7 @@ mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionS
   cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
   nsrow "$kit" "$tgt" '3 md / git yes'
 }
-# The sandbox-dependent cases (2129a, 2129d) need a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP.
+# The sandbox-dependent case 2129a needs a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP (FAIL under RSDD_REQUIRE_BWRAP=1). 2129d uses a stub budget script and needs no bwrap.
 _vr2129_bw="$(vr_bw_gate)"
 # Gate self-test (kit issue #2138): a failing bwrap shim first on PATH makes bwrap unusable; the probe-only
 # self-invocation must report fail (exit 1) with RSDD_REQUIRE_BWRAP=1 and skip (exit 0) without it.
