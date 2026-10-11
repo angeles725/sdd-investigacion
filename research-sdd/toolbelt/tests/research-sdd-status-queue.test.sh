@@ -288,7 +288,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     nq "$MUT" "$TMP/q-NONE" --queue
     ! grep -q 'queue-empty' <<<"$err" && ok "teeth S: case-sensitive none -> 2q has teeth" || no "teeth S: still queue-empty [$err]"; fi
   # T: open-deferred scan not limited to Gap-backlog sections -> 2v goes red
-  if mutate T 's/^      ib { pr=tolower/      { pr=tolower/'; then
+  if mutate T 's/^      ib { gsub/      { gsub/'; then
     nq "$MUT" "$TMP/q-oob" --queue
     ! grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth T: deferred row outside the backlog read -> 2v has teeth" || no "teeth T: still unknown [$err]"; fi
   # U: 5-column open deferred rows dropped -> 2t goes red

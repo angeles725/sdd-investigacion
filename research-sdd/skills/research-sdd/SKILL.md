@@ -47,6 +47,12 @@ unexecuted routes are `[INFER]`/proposed), and rewrite any bare "no" you find, y
 The toolbelt scripts resolve their OWN location internally, so `$KIT` is only needed to FIND the docs and
 invoke the scripts; nothing downstream re-hardcodes this path.
 
+**Prompts vs. state.** When `Kit path:` is a rendered profile copy (pi, gentle-shell: `.../research-sdd/profile/<profile>`)
+and the launcher also carries a `Kit checkout:` line, read the prompts (`METHODOLOGY.md`, `PROMPT-LOOP.md`, this skill)
+from `Kit path:`, but send everything mutable to the checkout: registry and ledger edits (`TARGETS.md`,
+`BREAKTHROUGHS.md`, `INSTALLED-TOOLS.md`) and every `toolbelt/` run. Without that line, derive the
+checkout with `readlink -f "$KIT/toolbelt/.."`. Never write into the profile copy: those edits never reach the kit.
+
 ## Arguments
 
 `/research-sdd <target-or-path> [focus] [new|continue]` — OR free-form: a path plus a natural-language
@@ -240,6 +246,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    `/loop /research-sdd <target> a fondo`; the re-fire depends on the agent calling ScheduleWakeup
    at the ~60s floor. FALLBACK: if the dynamic run halts after a single block or the harness has no
    ScheduleWakeup, use fixed-interval: `/loop 5m /research-sdd <target> a fondo`.
+   Harness with neither `/loop` nor ScheduleWakeup (e.g. gentle-shell / pi): see the Harness crosswalk below.
 
 **Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
 record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran
@@ -278,6 +285,19 @@ This table applies to heavy and continue modes only — quick and light modes ne
 Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when the operator asked to review between blocks (orchestrated mode) — that spawns a rogue autonomous loop alongside the operator.
 
 Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback. For stall detection, the instrument reads `last_iteration_ts` in RESEARCH-STATE (METHODOLOGY §8c) — an operator who sees no new block commit for > 15 min can relaunch with the `/loop 5m` fallback while that instrument is pending.
+
+## Harness crosswalk
+
+The doctrine is written in Claude Code terms. On a harness without those primitives (gentle-shell / pi), use the equivalent below; the rules that name the Claude term (RETURN CONTRACT, STOP, TOOL-BEFORE-AGENT) still apply unchanged.
+
+| Claude Code term | gentle-shell / pi equivalent |
+|---|---|
+| ScheduleWakeup, `/loop`, `/loop 5m`, CronList/CronDelete | No re-invoker is built in. Pick the first available: (a) the `research-sdd-hooks` extension that `research-sdd-install.sh` deploys on pi and gentle-shell (kit issue #2123) re-prompts via `agent_before_settle` returning `{entries, continue}` only to deliver its own retro / return-token gate blocks, once each; it is not a general re-invoker and schedules no wake-up, so skip to (b); (b) if the session's tool list has `bash_background` / `monitor`: a command whose exit notifies the idle agent with its exit code; (c) continue in-turn, or end the turn on the RETURN CONTRACT `next:` token (unattended with no driver, this ends the loop: the operator must re-invoke `/research-sdd`). |
+| Agent tool; Explore / Plan / general-purpose subagent types | `subagent_run` (`agent`, `task`, `mode` task or background) plus `subagent_status/result/continue/cancel`. Named agents: `gentle-ai-explore`, `gentle-ai-worker`, `gentle-ai-verify`; never reuse the shipped `gentle-ai-*` / `review-*` names for kit agents. Use `mode: task` under `pi -p` (background is rejected). Children see `subagent_*` only when gentle-agents is enabled: if absent, record `blocked-on-tool`, do not improvise. |
+| `model: haiku`, `sonnet`, `opus` | None map, and `subagent_run` has no model parameter. Until #2124 lands the model is per agent (`model_profiles[<agent>]` in `subagents.json` -> agent frontmatter `model` -> `default_model` -> session model): choose the agent whose configured model matches the tier (mechanical / structural / reasoning, `toolbelt/model-tiers.v1.md`); tier-named profiles arrive with #2124. |
+| `.claude/` state directory (e.g. retro-gate state under `$TARGET/.claude`) | Just a directory name: harness-neutral, keep it as is on every harness. |
+
+STOP teardown (harness-neutral): at campaign STOP disarm whatever re-invoker you armed (Cron job, extension re-prompt, or a `bash_background`/`monitor` job if the tool list has them; nothing to disarm for (c)); if the harness gives no way to disarm, tell the operator. A re-fire that finds STOP already met ends idempotently.
 
 ## Boundaries
 

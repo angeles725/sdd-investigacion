@@ -20,18 +20,20 @@
 #   --home        the home dir whose config roots are targeted (default: $HOME)
 #   --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
 #   --force-skill when a deployed file this installer manages has diverged (the skill, the slash-command
-#                 prompt template, AND the shipped read-only agent definitions under <config_root>/agents/),
+#                 prompt template, the pi extension under <config_root>/extensions/, AND the shipped read-only
+#                 agent definitions under <config_root>/agents/),
 #                 back it up as <file>.local-backup and overwrite it with the kit source
 #   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
 #   --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
 #                 this installer manages for each harness (the deployed SKILL.md, the slash-command prompt
-#                 template, the claude read-only agent definitions, the marked research-sdd launcher block inside the shared prompt file, and the
+#                 template, the pi extension (pi + gentle-shell), the claude read-only agent definitions, the marked research-sdd launcher block inside the shared prompt file, and the
 #                 regular files of a rendered profile) and compare it with the bundle digest the last
 #                 successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
 #                 ONE typed line per harness and writes NOTHING (no temp files, no state):
 #                 The comparison set is the recorded members PLUS the kit's CURRENT agent definitions (#1761), so a
-#                 pre-#1714 record shows undeployed agents as drift (missing), never match.
+#                 pre-#1714 record shows undeployed agents as drift (missing), never match; the same holds for the
+#                 pi extension (#2123) on pi and gentle-shell.
 #                   verify harness=<h> status=match bundle_sha256=<hex> files=<n>
 #                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
 #                   verify harness=<h> status=absent (not installed)
@@ -54,7 +56,7 @@
 #
 #   --uninstall   remove what this installer deployed (kit issue #1033). DRY-RUN BY DEFAULT: it lists what it
 #                 would remove and changes nothing; removal happens only with --yes. Only artifacts the installer
-#                 can PROVE it wrote are removed: a skill / slash-command template / agent definition whose sha256
+#                 can PROVE it wrote are removed: a skill / slash-command template / pi extension / agent definition whose sha256
 #                 still equals its install marker, the marked launcher block inside the shared prompt file (its
 #                 hash must equal the bundle record; the user's other lines are kept), a rendered profile dir that
 #                 holds exactly the recorded files, then the state files and the emptied installer directories.
@@ -81,8 +83,11 @@
 #
 # pi / gentle-shell (Pi, and Pi with an isolated agent dir): the skill lands under <agent-dir>/skills/
 # and a slash-command prompt template under <agent-dir>/prompts/research-sdd.md, so /research-sdd works
-# (the template follows the same hand-edit protection as the skill). Pi has no session-start hook, so
-# the manual sweep block is documented in <agent-dir>/AGENTS.md; the kit registers no MCP servers.
+# (the template follows the same hand-edit protection as the skill). Pi has no settings.json hooks, so the
+# kit deploys the extension research-sdd-hooks.ts to <agent-dir>/extensions/ (kit issue #2123: SessionStart
+# sweeps + drift check injected into the model context, the retro / return-token gates on a completed
+# settle, the pkill guard on bash tool calls; same hand-edit protection); the manual sweep block stays
+# documented in <agent-dir>/AGENTS.md as the fallback; the kit registers no MCP servers.
 #
 # Idempotent: re-running is a clean update, never a duplicate. markdown-sections splices a marked
 # block into a SHARED prompt file, preserving all surrounding user content (including the harness's
@@ -218,8 +223,8 @@ _rsdd_splice_file() {
 # rendered profile tree instead of the kit source (kit issue #993 WU2); defaults to $KIT so every
 # other caller/strategy keeps today's behaviour untouched.
 _surface__markdown_sections() {
-  local harness="$1" home="$2" file="$3" dry="$4" kit="${5:-$KIT}" section
-  section="$(rsdd_render_section "$harness" "$home" "$kit")" || return 2
+  local harness="$1" home="$2" file="$3" dry="$4" kit="${5:-$KIT}" checkout="${6:-}" section
+  section="$(rsdd_render_section "$harness" "$home" "$kit" "$checkout")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
@@ -661,6 +666,9 @@ _rsdd_install_members() {
   pf="$(rsdd_field "$h" prompt_file "$home")"
   printf '%s\n' "${skill#"$root"/}" "${pf#"$root"/}$_RSDD_SECTION_SUFFIX"
   [ -z "$tmpl" ] || printf '%s\n' "${tmpl#"$root"/}"
+  local ext
+  ext="$(rsdd_field "$h" extension_hooks_path "$home")"
+  [ -z "$ext" ] || printf '%s\n' "${ext#"$root"/}"
   # Capture the names AND the rc first: a process substitution would swallow rc=1 (agent source dir
   # missing/empty) and hand callers a member list silently lacking the agents (CLAUDE.md §7).
   local an names
@@ -750,12 +758,13 @@ _rsdd_verify_kit() {
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
   local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
-  local nfiles drift_names kept_names rec_calc installed=0 mrc
+  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp co_root co_link co_probe co_dead ext ext_src
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   skill="$(rsdd_field "$h" skill_path "$home")"
   tmpl="$(rsdd_field "$h" prompt_template_path "$home")"
   pf="$(rsdd_field "$h" prompt_file "$home")"
+  ext="$(rsdd_field "$h" extension_hooks_path "$home")"
 
   if ! _rsdd_have_sha256; then
     printf 'verify harness=%s status=degraded reason=no sha256 tool (sha256sum, shasum and python3 all absent)\n' "$h"
@@ -764,6 +773,7 @@ _rsdd_verify_one() {
   if [ ! -e "$state" ]; then
     [ -e "$skill" ] && installed=1
     [ -n "$tmpl" ] && [ -e "$tmpl" ] && installed=1
+    [ -n "$ext" ] && [ -e "$ext" ] && installed=1
     _rsdd_section_text "$pf" >/dev/null && installed=1
     if [ "$installed" = 1 ]; then
       printf 'verify harness=%s status=degraded reason=installed files present but no bundle record (%s) — re-run the installer to record one\n' "$h" "$state"
@@ -793,13 +803,22 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=the kit has no readable agent definitions to compare against (%s)\n' "$h" "$KIT/$(rsdd_field "$h" agents_src_relkit)"
     return 2
   fi
+  if [ -n "$ext" ]; then
+    ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
+    if [ ! -r "$ext_src" ]; then
+      printf 'verify harness=%s status=degraded reason=the kit has no readable pi extension source to compare against (%s)\n' "$h" "$ext_src"
+      return 2
+    fi
+  fi
   mrc=0
   # Comparison set = recorded members UNION the kit's CURRENT agent set (kit issue #1761): a record written
   # before #1714 has no agents/ members, and comparing only against it would call a bundle with no
   # deployed agent definitions a match. An unrecorded kit agent hashes MISSING (or is "extra" if present).
+  # The pi extension (kit issue #2123) is unioned the same way: a record written before it reports it (missing).
   rec_paths="$(printf '%s\n' "$rec_manifest" | awk -F'\t' '{print $2}')"
   cur_set="$(
     printf '%s\n' "$rec_paths"
+    [ -z "$ext" ] || printf '%s\n' "${ext#"$root"/}"
     while IFS= read -r an; do
       [ -z "$an" ] || printf 'agents/%s\n' "$an"
     done <<<"$kit_agents"
@@ -822,13 +841,64 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=match bundle_sha256=%s files=%s\n' "$h" "$cur_digest" "$nfiles"
     return 0
   fi
-  drift_names="$(awk -F'\t' '
+  drift_lines="$(awk -F'\t' '
     NR==FNR { rec[$2]=$1; next }
     { cur[$2]=$1 }
     END {
       for (p in rec) { if (!(p in cur) || cur[p]=="MISSING") print p " (missing)"; else if (cur[p]!=rec[p]) print p " (modified)" }
       for (p in cur) if (!(p in rec)) print p (cur[p]=="MISSING" ? " (missing)" : " (extra)")
-    }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort | paste -sd, -)"
+    }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort)"
+  # A REGULAR file inside the rendered profile that is named like a top-level kit entry is a kit file
+  # (TARGETS.md, BREAKTHROUGHS.md, ...) that a session or write tool wrote INTO the profile copy, replacing
+  # the symlink to the checkout (kit issue #2120): name it and the checkout file to reconcile into. Never
+  # moved or deleted (TARGETS.md is human-owned, CLAUDE.md §8); the drift status and exit code are unchanged.
+  # Annotation text carries no comma: the list is comma-joined below.
+  # The reconcile target comes from the INSTALL, not from the running kit: --verify may run from another
+  # checkout or a worktree. A surviving symlink in the render dir (toolbelt first) points into the checkout
+  # the render was completed against; with none left the target is stated as unknown, never guessed.
+  co_root=""
+  if [ "$profile" != "claude" ]; then
+    for co_probe in toolbelt BREAKTHROUGHS.md TARGETS.md METHODOLOGY.md PROMPT-LOOP.md templates; do
+      co_link="$root/research-sdd/profile/$profile/$co_probe"
+      if [ -L "$co_link" ]; then
+        co_root="$(readlink "$co_link")" && co_root="$(dirname "$co_root")" || co_root=""
+        [ -z "$co_root" ] || break
+      fi
+    done
+  fi
+  # A surviving symlink whose checkout no longer exists is a dangling target, not a usable one.
+  co_dead=""
+  if [ -n "$co_root" ] && [ ! -d "$co_root" ]; then co_dead="$co_root"; co_root=""; fi
+  kit_disp="$co_root"
+  # shellcheck disable=SC2088  # literal display tilde, not an expansion
+  if [ -n "$co_root" ] && [ "${co_root#"$home/"}" != "$co_root" ]; then kit_disp="~/${co_root#"$home/"}"; fi
+  drift_names=""
+  while IFS= read -r dl; do
+    [ -n "$dl" ] || continue
+    ann=""
+    if [ "$profile" != "claude" ] && [ "${dl%% (extra)}" != "$dl" ]; then
+      arel="${dl%% (extra)}"
+      arel="${arel#research-sdd/profile/"$profile"/}"
+      if [ "$arel" != "${dl%% (extra)}" ] && [[ "$arel" != */* ]] && [ -f "${co_root:-$KIT}/$arel" ]; then
+        if [ "$arel" = "TARGETS.md" ]; then
+          ann="registry edits written into the rendered profile"
+        else
+          ann="kit file written into the rendered profile"
+        fi
+        if [ -n "$kit_disp" ]; then
+          ann=" (extra: $ann — reconcile them into $kit_disp/$arel by hand)"
+        else
+          if [ -n "$co_dead" ]; then
+            ann=" (extra: $ann — reconcile target unknown: the render dir's kit symlinks point at a removed checkout $co_dead)"
+          else
+            ann=" (extra: $ann — reconcile target unknown: no surviving kit symlink in the render dir)"
+          fi
+        fi
+        dl="${dl%% (extra)}$ann"
+      fi
+    fi
+    drift_names="${drift_names:+$drift_names,}$dl"
+  done <<<"$drift_lines"
   if [ -z "$drift_names" ]; then
     printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
     return 2
@@ -1065,6 +1135,11 @@ uninstall_one() {
   tmpl="$(rsdd_field "$h" prompt_template_path "$home")"
   [ -z "$tmpl" ] || _rsdd_u_artifact "$tmpl" "$root/research-sdd/.installed-template-state" "slash-command prompt template" "$apply"
 
+  # The pi extension (kit issue #2123): removed only when its sha256 still equals the one the installer recorded.
+  local ext
+  ext="$(rsdd_field "$h" extension_hooks_path "$home")"
+  [ -z "$ext" ] || _rsdd_u_artifact "$ext" "$root/research-sdd/.installed-extension-state" "pi extension (session hooks)" "$apply"
+
   # Agent definitions: the kit's CURRENT names plus every name an install marker records, de-duplicated.
   names="$(_rsdd_agent_names "$h" 2>/dev/null)" || names=""
   for m in "$root"/research-sdd/.installed-agent-*-state; do
@@ -1205,7 +1280,7 @@ install_one() {
     if ! declare -F "$dispatch" >/dev/null; then
       echo "research-sdd-install: [$h] no surfacing strategy '$strategy'" >&2; return 2
     fi
-    if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
+    if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section" "$KIT"; then
       echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
     fi
   fi
@@ -1257,6 +1332,23 @@ install_one() {
     fi
   fi
 
+  # 2d. pi extension (kit issue #2123): pi + gentle-shell only (the adapter field is empty elsewhere). The kit's
+  #     research-sdd-hooks.ts is deployed to <config_root>/extensions/ through the SAME divergence-checked
+  #     helpers as the skill: a hand-edited copy is kept with a typed WARNING, --force-skill backs it up first,
+  #     an unmodified older copy is a managed (silent) update. Its marker is .installed-extension-state with the
+  #     constant profile "extension", so profile switches never touch it.
+  local ext_dest ext_src="" ext_marker
+  ext_dest="$(rsdd_field "$h" extension_hooks_path "$home")"
+  if [ -n "$ext_dest" ]; then
+    ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
+    ext_marker="$config_root/research-sdd/.installed-extension-state"
+    if [ "$dry" = 1 ]; then
+      _rsdd_dry_skill_plan "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$ext_marker" "extension" || rc=1
+    else
+      _rsdd_deploy_skill "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$h" "$ext_marker" "extension" "$config_root" || rc=1
+    fi
+  fi
+
   # 3. record the bundle digest (kit issue #1702) — only when the run succeeded. A kept hand-edit is
   #    recorded with the SOURCE sha this run meant to deploy plus a `kept-hand-edit=<rel>` line, so it is
   #    never the baseline: --verify keeps reporting it as drift (and names it) until it is restored.
@@ -1269,6 +1361,10 @@ install_one() {
     if [ -n "$template_dest" ] && ! cmp -s "$tmpl_src" "$template_dest"; then
       ksha="$(_rsdd_sha256_file "$tmpl_src")" || ksha=""
       kept="${kept:+$kept$'\n'}${template_dest#"$config_root"/}"$'\t'"$ksha"
+    fi
+    if [ -n "$ext_dest" ] && ! cmp -s "$ext_src" "$ext_dest"; then
+      ksha="$(_rsdd_sha256_file "$ext_src")" || ksha=""
+      kept="${kept:+$kept$'\n'}${ext_dest#"$config_root"/}"$'\t'"$ksha"
     fi
     while IFS= read -r an; do
       [ -n "$an" ] || continue

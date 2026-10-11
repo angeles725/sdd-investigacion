@@ -621,8 +621,11 @@ mutant_vm_core_teeth() {
       --good-has '^TOOTH_INV5=reaped$' --good-lacks "$crash" \
       --bad-has '^TOOTH_INV5=leaked$' --bad-lacks "$crash" -- bash "$self" --tooth inv5 @SUT@
   fi
-  # mutant 3 — single allocation: run_vm allocates a second, orphaned run_dir.
-  if _mvc_build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)$|    _dc.make_run_subdir(uuid.uuid4().hex)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)|'; then
+  # mutant 3 — single allocation: run_vm allocates a second, orphaned run_dir. The extra call MUST reuse the
+  # same root as the real one: a bare make_run_subdir(uuid) falls back to the hardcoded /tmp/rsdd, which does not
+  # exist on a fresh CI runner unless an earlier suite happened to create it (kit issue #2114: the tooth failed
+  # only in a shard that did not run such a suite first).
+  if _mvc_build teeth-mut-alloc alloc 's|^    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)$|    _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)\n    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)|'; then
     _mvc_tt teeth-mut-alloc 0 0 "$mut/alloc/lib/${ex}_exec.py" --orig "$sut_exec" \
       --good-has '^TOOTH_ALLOC=1$' --good-lacks "$crash" \
       --bad-has '^TOOTH_ALLOC=2$' --bad-lacks "$crash" -- bash "$self" --tooth alloc @SUT@

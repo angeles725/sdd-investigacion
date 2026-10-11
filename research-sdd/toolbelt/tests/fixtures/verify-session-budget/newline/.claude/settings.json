@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cat >/dev/null\nprintf hello\nprintf world"}]}]}}
