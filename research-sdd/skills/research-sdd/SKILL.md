@@ -246,6 +246,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    `/loop /research-sdd <target> a fondo`; the re-fire depends on the agent calling ScheduleWakeup
    at the ~60s floor. FALLBACK: if the dynamic run halts after a single block or the harness has no
    ScheduleWakeup, use fixed-interval: `/loop 5m /research-sdd <target> a fondo`.
+   Harness without `/loop` or ScheduleWakeup: see the Harness crosswalk below.
 
 **Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
 record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran
@@ -284,6 +285,19 @@ This table applies to heavy and continue modes only — quick and light modes ne
 Before launching in unattended mode, check whether a re-invoker is already active (arrived via `/loop`, or a wakeup/cron is armed). If one is active, proceed directly without a nested launch. Do not issue ScheduleWakeup when the operator asked to review between blocks (orchestrated mode) — that spawns a rogue autonomous loop alongside the operator.
 
 Dynamic is recommended for unattended runs; fixed-interval is the deterministic fallback. For stall detection, the instrument reads `last_iteration_ts` in RESEARCH-STATE (METHODOLOGY §8c) — an operator who sees no new block commit for > 15 min can relaunch with the `/loop 5m` fallback while that instrument is pending.
+
+## Harness crosswalk
+
+The doctrine is written in Claude Code terms. On a harness without those primitives (gentle-shell / pi), use the equivalent below; the rules that name the Claude term (RETURN CONTRACT, STOP, TOOL-BEFORE-AGENT) still apply unchanged.
+
+| Claude Code term | gentle-shell / pi equivalent |
+|---|---|
+| ScheduleWakeup, `/loop`, `/loop 5m`, CronList/CronDelete (no re-invoker is built in) | Pick the first available: (a) a research-sdd extension re-prompting on `agent_settled` (kit #2123); (b) `bash_background` / `monitor`, whose command exit notifies the idle agent; (c) continue in-turn, or end the turn on the RETURN CONTRACT `next:` token for the driver to re-invoke. |
+| Agent tool; Explore / Plan / general-purpose subagent types | `subagent_run` (`agent`, `task`, `mode` task or background) plus `subagent_status/result/continue/cancel`. Named agents: `gentle-ai-explore`, `gentle-ai-worker`, `gentle-ai-verify`; never reuse the shipped `gentle-ai-*` / `review-*` names for kit agents. Use `mode: task` under `pi -p` (background is rejected). Children see `subagent_*` only when gentle-agents is enabled: if absent, record `blocked-on-tool`, do not improvise. |
+| `model: haiku`, `sonnet`, `opus` | Do not map (refs are `provider/id`). Name the abstract tier (mechanical / structural / reasoning, `toolbelt/model-tiers.v1.md`); `subagents.json` `model_profiles` resolves it. |
+| `.claude/` state directory (e.g. retro-gate state under `$TARGET/.claude`) | Just a directory name: harness-neutral, keep it as is on every harness. |
+
+STOP teardown (harness-neutral): at campaign STOP disarm whatever re-invoker you armed (Cron job, extension re-prompt, `bash_background`/`monitor` job; nothing to disarm for (c)); if the harness gives no way to disarm, tell the operator. A re-fire that finds STOP already met ends idempotently.
 
 ## Boundaries
 

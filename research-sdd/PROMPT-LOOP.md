@@ -27,6 +27,8 @@ state from disk, so running it N times advances the corpus without stepping on i
    inside an already-running `/loop` invocation of either mode — in dynamic mode the `/loop` runtime
    + ScheduleWakeup IS the re-invoker. Do not launch when a cron/wakeup is already armed; check and
    proceed directly if one is active.
+   NO `/loop`, ScheduleWakeup, Cron* or Agent tool (gentle-shell / pi)? Use the equivalents in SKILL.md's
+   "Harness crosswalk" (continuation, `subagent_run`, tier profiles, `.claude/` dir note); the STOP TEARDOWN rule holds.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.
    **Fixed-interval caveat:** under `/loop <N>m`, the harness cron continues re-firing even after STOP
@@ -1257,7 +1259,7 @@ HARD RULES:
         under a fixed-interval `/loop`, the harness cron keeps re-firing — token drain. Disarm the
         re-invoker as part of the campaign STOP declaration: use CronList to find the cron job whose
         prompt is this loop, then CronDelete to remove it. If the harness offers no such tool, tell
-        the operator explicitly to cancel the loop. A re-fire that finds campaign STOP already met
+        the operator explicitly to cancel the loop. (Without Cron tools, disarm per the Harness crosswalk.) A re-fire that finds campaign STOP already met
         disarms and ends (idempotent).
     (2) DYNAMIC self-paced (`/loop` with no interval, or plain self-paced in session): the re-fire
         depends on the agent calling ScheduleWakeup. The runtime ends the turn when the agent emits

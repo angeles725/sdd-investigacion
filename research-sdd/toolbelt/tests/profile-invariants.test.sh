@@ -581,6 +581,43 @@ else
   no "Q4/general: PROMPT-LOOP.md HOT-CORE cadence is MISSING the #989 'once per context' semantic — contradicts SKILL.md's hotcore-cadence in the same render"
 fi
 
+# =============================================================================
+# X1/X2 — kit issue #2122: the harness crosswalk. gentle-shell/pi has no
+# ScheduleWakeup, /loop, Cron* or Agent tool, so every rendered profile must
+# carry a "Harness crosswalk" section in SKILL.md mapping each Claude-Code
+# primitive to its pi equivalent (row-level, not just a heading), and the
+# rendered PROMPT-LOOP.md must point at it. Asserted on EVERY profile: the
+# crosswalk is plain harness-neutral doctrine, never a slot.
+# x1_holds / x2_holds are the only place the logic lives (teeth call them).
+# =============================================================================
+x1_section() { awk '/^## Harness crosswalk[[:space:]]*$/{f=1;next} f&&/^## /{exit} f' "$1"; }
+x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
+  x1_section "$1" | grep -F -e "$2" | grep -qF -e "$3"
+}
+x1_holds() {
+  local f="$1" sec
+  sec="$(x1_section "$f")"; [ -n "$sec" ] || return 1
+  x1_row "$f" 'ScheduleWakeup' 'agent_settled' || return 1
+  x1_row "$f" 'ScheduleWakeup' 'bash_background' || return 1
+  x1_row "$f" 'Agent tool' 'subagent_run' || return 1
+  x1_row "$f" 'haiku' 'model_profiles' || return 1
+  x1_row "$f" '.claude/' 'harness-neutral' || return 1
+  grep -qF 'STOP teardown' <<<"$sec"
+}
+x2_holds() { grep -qF 'Harness crosswalk' "$1"; }
+for name in "${PROFILE_NAMES[@]}"; do
+  if x1_holds "${OUTDIR[$name]}/skills/research-sdd/SKILL.md"; then
+    ok "X1/$name: SKILL.md carries the Harness crosswalk with the ScheduleWakeup/Agent/tier/.claude rows and the STOP teardown rule"
+  else
+    no "X1/$name: SKILL.md Harness crosswalk section missing or incomplete (#2122)"
+  fi
+  if x2_holds "${OUTDIR[$name]}/PROMPT-LOOP.md"; then
+    ok "X2/$name: PROMPT-LOOP.md points at the Harness crosswalk"
+  else
+    no "X2/$name: PROMPT-LOOP.md does not reference the Harness crosswalk (#2122)"
+  fi
+done
+
 # ===========================================================================
 # --prove-teeth: mutants on COPIES of the profile file / sources / renderer,
 # via RSDD_KIT_DIR pointing at a copied kit — every mutant is re-rendered
@@ -1056,6 +1093,27 @@ PYEOF
     fi
   else
     no "teeth-q4-cadence-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  good_rc "x1_holds general" 0 x1_holds "$GENERAL_SKILL"
+  good_rc "x2_holds general" 0 x2_holds "$GENERAL_LOOP"
+  echo "-- teeth: T-x1-crosswalk-rows (kit issue #2122: drop the Agent->subagent_run row, and separately the PROMPT-LOOP pointer, from a copied kit's sources; render general; x1_holds/x2_holds — the REAL logic — must go RED) --"
+  kitX1="$TMP/kitX1"
+  make_kit "$kitX1"
+  if require_anchor "$kitX1/skills/research-sdd/SKILL.md" 'subagent_run' && require_anchor "$kitX1/PROMPT-LOOP.md" 'Harness crosswalk'; then
+    mk_sed_from "$SKILL" "teeth-x1-drop-agent-row" "$kitX1/skills/research-sdd/SKILL.md" '/Agent tool.*subagent_run/d'
+    mk_sed_from "$PROMPTLOOP" "teeth-x2-drop-pointer" "$kitX1/PROMPT-LOOP.md" 's/Harness crosswalk/Harness map/g'
+    outX1="$TMP/outX1"
+    if RSDD_KIT_DIR="$kitX1" "$RENDERER" general "$outX1" >/dev/null 2>&1; then
+      if x1_holds "$outX1/skills/research-sdd/SKILL.md"; then no "teeth-x1: x1_holds still PASSES with the Agent row deleted — no teeth"
+      else ok "teeth-x1: x1_holds goes RED when the Agent->subagent_run row is deleted"; fi
+      if x2_holds "$outX1/PROMPT-LOOP.md"; then no "teeth-x2: x2_holds still PASSES with the pointer renamed — no teeth"
+      else ok "teeth-x2: x2_holds goes RED when PROMPT-LOOP no longer names the crosswalk"; fi
+    else
+      no "teeth-x1: mutant kit failed to render — cannot prove teeth"
+    fi
+  else
+    no "teeth-x1: mutation anchor not found — cannot prove teeth"
   fi
 
   echo "-- teeth: T-vanished-anchor (a mutation anchor that does not exist must FAIL, not be silently skipped) --"
