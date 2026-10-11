@@ -402,17 +402,18 @@ if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   [ -z "$HOUT" ] && ok "K9b: a dir deeper inside an unrelated repo is silent at SessionStart (never that repo's status)" || no "K9b: deep dir leaked; out=[$HOUT]"
   run_kit "$KF/k25/deep/er" RESEARCH_SDD_KIT_STALE_VERBOSE=1
   grep -q 'kit-stale status=degraded reason=kit dir sits inside an unrelated repo' <<<"$HOUT" && ok "K9c: --verbose names the unrelated-repo state" || no "K9c: unrelated repo not typed under verbose; out=[$HOUT]"
-  # Never fetched (no FETCH_HEAD): the clone time (.git/config mtime) is the age, NOT the upstream tip's commit date.
+  # Never fetched (no FETCH_HEAD): the age criterion is skipped (commit count only); neither the upstream tip's commit date nor .git/config counts.
   KQ="$KF/kquiet"; KG init -q --bare "$KF/kquiet.git"; KG clone -q "$KF/kquiet.git" "$KF/kquiet.seed" 2>/dev/null; echo q >"$KF/kquiet.seed/f"; KG -C "$KF/kquiet.seed" add f
   GIT_AUTHOR_DATE='2020-01-01T00:00:00' GIT_COMMITTER_DATE='2020-01-01T00:00:00' KG -C "$KF/kquiet.seed" commit -q -m old; KG -C "$KF/kquiet.seed" push -q origin HEAD:main 2>/dev/null
   KG clone -q -b main "$KF/kquiet.git" "$KQ" 2>/dev/null; rm -f "$KQ/.git/FETCH_HEAD"
   run_kit "$KQ"
-  [ -z "$HOUT" ] && ok "K13: fresh never-fetched clone of a quiet (2020) upstream → silent (age = clone time, not the tip's commit date)" || no "K13: quiet upstream read as stale; out=[$HOUT]"
+  [ -z "$HOUT" ] && ok "K13: never-fetched clone of a quiet (2020) upstream, 0 behind → silent (no FETCH_HEAD: age skipped, not the tip's commit date)" || no "K13: quiet upstream read as stale; out=[$HOUT]"
   if touch -d '10 days ago' "$KQ/.git/config" 2>/dev/null; then
     run_kit "$KQ"
-    grep -q 'fetch_age=10d' <<<"$HOUT" && ok "K13b: never-fetched clone made 10 days ago → stale by clone age" || no "K13b: clone age not used; out=[$HOUT]"
-    touch "$KQ/.git/config"   # back to a fresh clone for the teeth
+    [ -z "$HOUT" ] && ok "K13b: never-fetched clone whose .git/config is 10 days old → still silent (config mtime is not an age source: any git config write resets it)" || no "K13b: config mtime used as age; out=[$HOUT]"
   fi
+  run_kit "$KQ" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+  grep -q 'kit-stale status=degraded reason=no FETCH_HEAD (never fetched): age criterion skipped' <<<"$HOUT" && ok "K13c: --verbose says the age criterion was skipped (count only)" || no "K13c: skipped age not typed under verbose; out=[$HOUT]"
   # No @{upstream} but origin/main exists: the advice cannot be `pull` (it fails without an upstream).
   mk_kit kfb 3 && KG -C "$KF/kfb" branch --unset-upstream
   run_kit "$KF/kfb" RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2
@@ -434,13 +435,28 @@ if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   HANG="$ROOT/hang"; mkdir -p "$HANG"; printf '#!/bin/sh\nexec sleep 20\n' >"$HANG/git"; chmod +x "$HANG/git"
   if command -v timeout >/dev/null 2>&1; then
     _s=$SECONDS; run_kit "$KF/k25" PATH="$HANG:$PATH"; _e=$((SECONDS - _s))
-    if [ "$_e" -le 12 ]; then ok "K16: a hanging git is cut off (${_e}s): the stale check is bounded, output silent"
-    else no "K16: hanging git held the hook ${_e}s"; fi
+    if [ "$_e" -le 7 ] && grep -q 'kit status=behind' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K16: a hanging git is cut off by ONE 3 s bound (${_e}s): state unknown, install's behind line is kept"
+    else no "K16: hanging git not bounded/kept (${_e}s); out=[$HOUT]"; fi
     _s=$SECONDS
     HOUT="$(env PATH="$HANG:$PATH" RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$KF/k25" STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; _e=$((SECONDS - _s))
     if [ "$_e" -le 5 ] && grep -q 'timed out' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K17: install --verify timed out → the stale check is skipped (no extra git, ${_e}s)"
     else no "K17: stale check ran after a verify timeout (${_e}s); out=[$HOUT]"; fi
   else printf '  SKIP  K16/K17: no timeout binary on PATH\n'; fi
+  # A failed `rev-parse --git-path FETCH_HEAD` must not become "$kd/" (always fresh): unknown, install's behind line kept.
+  REALGIT="$(command -v git)"; GPF="$ROOT/gpfail"; mkdir -p "$GPF"
+  printf '#!/bin/sh\ncase "$*" in *--git-path*) exit 1 ;; esac\nexec %s "$@"\n' "$REALGIT" >"$GPF/git"; chmod +x "$GPF/git"
+  run_kit "$KF/k3" PATH="$GPF:$PATH"
+  if grep -q 'kit status=behind' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K19: git-path lookup failing → state unknown, install's behind line kept (not read as a fresh fetch)"
+  else no "K19: failed git-path read as fresh; out=[$HOUT]"; fi
+  run_kit "$KF/k3" PATH="$GPF:$PATH" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+  grep -q 'reason=could not locate FETCH_HEAD' <<<"$HOUT" && ok "K19b: --verbose types the failed git-path lookup" || no "K19b: git-path failure not typed; out=[$HOUT]"
+  # A non-zero install --verify exit is never silenced by the dedupe (its only typed line was the behind line).
+  run_kit "$KF/k3" STUB_VERIFY_RC=1
+  grep -q 'exited 1 with no typed line' <<<"$HOUT" && ok "K20: install --verify exit 1 with only a behind line → the exit is still reported after the dedupe" || no "K20: non-zero verify exit silenced; out=[$HOUT]"
+  # No timeout binary: the stale check is skipped and install's own behind line still shows.
+  run_kit "$KF/k25" RESEARCH_SDD_NO_TIMEOUT_BIN=1
+  if grep -q 'kit status=behind' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K21: no timeout binary → stale check skipped, install's behind line still shows"
+  else no "K21: no-timeout path wrong; out=[$HOUT]"; fi
   # Unreadable fetch age: the count still governs; verbose says the age was not judged.
   NOSTAT="$ROOT/nostat"; mkdir -p "$NOSTAT"; printf '#!/bin/sh\nexit 1\n' >"$NOSTAT/stat"; chmod +x "$NOSTAT/stat"
   run_kit "$KF/k25" PATH="$NOSTAT:$PATH"
@@ -618,7 +634,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-has 'fetch_age=10d' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_K0[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   else printf '  SKIP  teeth KB: no aged FETCH_HEAD fixture (touch -d unsupported)\n'; fi
   # KC: the width handling cuts the whole line -> a long kit path chops the fix command (cut the prose, never the command).
-  _kt KC m-kc.sh 's/^    kline="\$khead\${ktail:0:room}"$/    kline="$(printf "%s" "$khead$ktail" | cut -c1-200)"/' "teeth: whole-line cut -> a long kit path chops the fix command" \
+  _kt KC m-kc.sh 's/^    printf .line=%s\\n. "\$khead\${ktail:0:room}"$/    printf "line=%s\\n" "$(printf "%s" "$khead$ktail" | cut -c1-200)"/' "teeth: whole-line cut -> a long kit path chops the fix command" \
     --good-has 'x pull --ff-only' --bad-lacks "$_CRASH|x pull --ff-only" -- "$_ENV" "${_KLG[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   # KD: dedupe dead -> install's behind line (any behind > 0) leaks below the threshold.
   _kt KD m-kd.sh 's/^        "verify kit status=behind"\*) ;;   # SENTINEL-KIT-STALE-DEDUPE$/        "verify kit status=NEVER"*) ;;/' "teeth: install's behind line kept below the threshold -> our threshold never governs" \
@@ -634,7 +650,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_KNR[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _kt KI m-ki.sh 's/ \&\& \[ "\$vrc" -ne 124 \]//' "teeth: stale check also runs after install --verify timed out -> a likely git stall is hit twice" \
     --good-has 'timed out' --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "STUB_VERIFY_SLEEP=5" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _kt KL m-kl.sh 's/ft="\$(_rk_mtime "\$cf")"/ft="$(timeout 1 git -C "$kd" log -1 --format=%ct "$ref" 2>\/dev\/null)"/' "teeth: never-fetched clone aged by the upstream tip's commit date -> a quiet upstream reads stale forever" \
+  _kt KL m-kl.sh 's/^  ft=""; \[ ! -f "\$fh" \] || ft="\$(_rk_mtime "\$fh")"$/  ft="$(_rk_mtime "$kd\/.git\/config")"/' "teeth: .git/config mtime used as the fetch age -> a config write (or an old clone) reads as a stale fetch" \
     --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_KQ[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _kt KM m-km.sh 's/if \[ "\$kfb" = 1 \]; then cmd=/if false; then cmd=/' "teeth: origin/main fallback advises pull -> it fails on a branch without upstream" \
     --good-has 'merge --ff-only origin/main' --bad-lacks "$_CRASH|merge --ff-only" -- "$_ENV" "${_KFB[@]}" "RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2" "$BASH_BIN" "$SB/decode.sh" @SUT@
@@ -650,9 +666,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _kv KV4 m-kv4.sh "cannot read the age" "cannot read the age of the last fetch" "${_K3[@]}" "PATH=$NOSTAT:$PATH"
   mkdir -p "$ROOT/gitless2"; for _t in bash env grep awk cut head tr cat mktemp rm dirname readlink sleep jq date stat sed basename timeout; do _p="$(command -v "$_t" 2>/dev/null)"; [ -z "$_p" ] || ln -sf "$_p" "$ROOT/gitless2/$_t"; done
   _kv KV5 m-kv5.sh "git not found" "git not found" "${_KNR[@]}" "PATH=$ROOT/gitless2"
-  # KH: the git calls are unbounded -> a hanging git holds the session start.
+  _kv KV6 m-kv6.sh "no FETCH_HEAD (never fetched)" "no FETCH_HEAD" "${_KQ[@]}"
+  _kv KV7 m-kv7.sh "could not locate FETCH_HEAD" "could not locate FETCH_HEAD" "${_K3[@]}" "PATH=$GPF:$PATH"
+  # KP: a failed git-path lookup is not checked -> "$kd/" (always fresh) is read as the fetch time and install's behind line is dropped.
+  _kt KP m-kp.sh 's/^  if ! fh="\$(git -C "\$kd" rev-parse --git-path FETCH_HEAD 2>\/dev\/null)" || \[ -z "\$fh" \]; then .*$/  if false; then/' "teeth: failed git-path lookup unchecked -> a fresh directory mtime hides install's behind line" \
+    --good-has 'status=behind' --bad-lacks "$_CRASH|status=behind" -- "$_ENV" "${_K3[@]}" "PATH=$GPF:$PATH" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KR: the post-dedupe exit check is gone -> a non-zero install --verify exit with only a behind line is silenced.
+  _kt KR m-kr.sh '/SENTINEL-KIT-STALE-RC$/d' "teeth: non-zero verify exit silenced by the dedupe" \
+    --good-has 'exited 1 with no typed line' --bad-lacks "$_CRASH|exited 1" -- "$_ENV" "${_K3[@]}" "STUB_VERIFY_RC=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KT: NO_TIMEOUT_BIN ignored -> the check would run unbounded-capable paths; with it the stale line must not appear.
+  _kt KT m-kt.sh 's/if \[ -n "\${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" \] || ! command -v timeout/if ! command -v timeout/' "teeth: NO_TIMEOUT_BIN ignored -> the stale check runs where the seam says there is no timeout" \
+    --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KH: the git work is unbounded -> a hanging git holds the session start.
   if command -v timeout >/dev/null 2>&1; then
-  _kt KH m-kh.sh 's/top="\$(timeout 1 git /top="$(git /' "teeth: unbounded git -> a hanging git holds the session start" \
+  _kt KH m-kh.sh 's/ timeout 3 "\${BASH:-bash}" -c / "${BASH:-bash}" -c /' "teeth: unbounded git work -> a hanging git holds the session start" \
     --good-has '^fast$' --bad-has '^slow$' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "PATH=$HANG:$PATH" \
     "$BASH_BIN" -c 's=$SECONDS; bash "$1" "$2" >/dev/null 2>&1; if [ $((SECONDS - s)) -ge 15 ]; then echo slow; else echo fast; fi' _ "$SB/decode.sh" @SUT@
   fi

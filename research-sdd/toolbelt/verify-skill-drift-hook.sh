@@ -6,6 +6,7 @@
 # research-sdd-install.sh --verify (kit issue #1702 bundle digest + kit-checkout staleness).
 # SILENT when all installed harnesses are in-sync / absent AND --verify has nothing to flag (exit 0); a kit whose staleness cannot be
 # measured (degraded: tarball, no upstream, git missing) is silent too - it cannot be cleared at session start (RESEARCH_SDD_KIT_STALE_VERBOSE=1 shows it).
+# Without a `timeout` binary (stock macOS, RESEARCH_SDD_NO_TIMEOUT_BIN=1) the kit-staleness check is skipped (install's own behind line still shows).
 # Emits additionalContext JSON via jq otherwise. Read-only. Wired from .claude/settings.json.
 #
 # Budget (openspec/specs/kit-session-cost/spec.md: SessionStart output < 8,000 chars total): the
@@ -157,17 +158,59 @@ fi
 # RESEARCH_SDD_KIT_STALE_MAX_COMMITS (default 20) or the last fetch is older than RESEARCH_SDD_KIT_STALE_MAX_DAYS (default 7).
 # Own thresholds govern: install --verify's `kit status=behind` line (printed for ANY behind > 0) is dropped when this check measured the
 # kit (stale or within thresholds), except a `diverged` one, which stays (a fast-forward is not possible) and replaces the stale line.
-# LOCAL refs only - no fetch in a SessionStart hook - so the count may understate. Every git call runs under `timeout 1`; without a
-# `timeout` binary, or after install --verify itself timed out (likely the same stall), the check is skipped: it must never hold the
-# session start. UNMEASURABLE (git missing, not a checkout, no upstream, git stalled, unreadable fetch age) stays SILENT at SessionStart,
-# like install --verify's own `kit status=degraded` (un-clearable there); RESEARCH_SDD_KIT_STALE_VERBOSE=1 prints it as a typed
-# `verify kit-stale status=degraded reason=...` line. A bad threshold env value is announced (note line), never silently replaced.
+# LOCAL refs only - no fetch in a SessionStart hook - so the count may understate. ALL the git work runs in ONE child under a single
+# `timeout 3` (a process group, so a stalled git dies with it): the worst case is install's bound plus 3 s, never per-call. Without a
+# `timeout` binary (stock macOS, RESEARCH_SDD_NO_TIMEOUT_BIN=1) or without mktemp the check is skipped, and after install --verify
+# itself timed out (likely the same stall) it is not run: it must never hold the session start. A timed-out or failed measurement leaves
+# the state UNKNOWN, so install's own behind line is kept. UNMEASURABLE (git missing, not a checkout, no upstream, git stalled) stays
+# SILENT at SessionStart, like install --verify's own `kit status=degraded` (un-clearable there); RESEARCH_SDD_KIT_STALE_VERBOSE=1
+# prints it as a typed `verify kit-stale status=degraded reason=...` line. Age comes from the FETCH_HEAD mtime only; without a readable
+# one (never fetched; .git/config is NOT used: any `git config` write resets it) the age criterion is skipped and the commit count alone
+# governs. A bad threshold env value is announced (note line), never silently replaced.
 # RESEARCH_SDD_KIT_STALE_CHECK=off opts out; RESEARCH_SDD_KIT_DIR overrides the kit dir.
 kstate=""; kline=""; knote=""; kdeg=""   # SENTINEL-KIT-STALE
-_rk_deg() { [ -z "${RESEARCH_SDD_KIT_STALE_VERBOSE:-}" ] || kdeg="verify kit-stale status=degraded reason=$1"; return 0; }   # SENTINEL-KIT-STALE-VERBOSE
+_rk_deg() { printf 'deg=%s\n' "$1"; return 0; }
 _rk_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+# _rk_measure — runs in the bounded child ($RSDD_KDIR $RSDD_KMAX $RSDD_KDAYS in the environment); prints state=/line=/deg= records.
+_rk_measure() {
+  local kdir="$RSDD_KDIR" kmax="$RSDD_KMAX" kdays="$RSDD_KDAYS" top kd t ref n fh ft now age="" disp cmd khead ktail room kfb=0
+  command -v git >/dev/null 2>&1 || { _rk_deg "git not found; cannot tell whether the kit is behind its upstream"; return 0; }   # SENTINEL-KIT-STALE-NOGIT
+  top="$(git -C "$kdir" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  [ -n "$top" ] || { _rk_deg "kit dir is not a git checkout (tarball install?)"; return 0; }
+  kd="$(cd -P "$kdir" 2>/dev/null && pwd -P)"; t="$(cd -P "$top" 2>/dev/null && pwd -P)"
+  if [ -z "$kd" ] || [ -z "$t" ] || { [ "$t" != "$kd" ] && [ "$t" != "$(dirname "$kd")" ]; }; then
+    _rk_deg "kit dir sits inside an unrelated repo; its upstream is not the kit's"; return 0
+  fi
+  if ref="$(git -C "$kd" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$ref" ]; then :
+  elif git -C "$kd" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then ref="origin/main"; kfb=1
+  else _rk_deg "no upstream ref (no @{upstream}, no origin/main); cannot tell whether the kit is behind"; return 0; fi
+  if ! n="$(git -C "$kd" rev-list --count "HEAD..$ref" 2>/dev/null)" || ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    _rk_deg "could not count commits behind $ref"; return 0
+  fi
+  # A failed git-path lookup must not turn into "$kd/" (always present, always fresh): the whole measurement is then unknown.
+  if ! fh="$(git -C "$kd" rev-parse --git-path FETCH_HEAD 2>/dev/null)" || [ -z "$fh" ]; then   # SENTINEL-KIT-STALE-GITPATH
+    _rk_deg "could not locate FETCH_HEAD (git rev-parse --git-path failed)"; return 0
+  fi
+  case "$fh" in /*) ;; *) fh="$kd/$fh" ;; esac
+  ft=""; [ ! -f "$fh" ] || ft="$(_rk_mtime "$fh")"
+  now="$(date +%s 2>/dev/null)"
+  if [[ "$ft" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]]; then age=$(( (now - ft) / 86400 )); [ "$age" -ge 0 ] || age=0
+  elif [ ! -f "$fh" ]; then _rk_deg "no FETCH_HEAD (never fetched): age criterion skipped, judged by commit count only (behind=$n of max $kmax)"
+  else _rk_deg "cannot read the age of the last fetch; judged by commit count only (behind=$n of max $kmax)"; fi
+  printf 'state=ok\n'
+  if [ "$n" -gt "$kmax" ] || { [ -n "$age" ] && [ "$age" -gt "$kdays" ]; }; then   # SENTINEL-KIT-STALE-THRESHOLD
+    printf 'state=stale\n'
+    disp="$kd"; case "$kd" in "$HOME"/*) disp="~${kd#"$HOME"}" ;; esac
+    if [ "$kfb" = 1 ]; then cmd="git -C $disp fetch && git -C $disp merge --ff-only $ref"; else cmd="git -C $disp pull --ff-only"; fi   # no @{upstream}: pull would fail
+    khead="verify kit-stale status=stale fix (no live session): $cmd"   # the command comes first and is never cut
+    ktail="; behind=$n (max $kmax) fetch_age=${age:-?}d (max ${kdays}d); local refs, may understate"
+    room=$((200 - ${#khead})); [ "$room" -ge 0 ] || room=0   # SENTINEL-KIT-STALE-WIDTH
+    printf 'line=%s\n' "$khead${ktail:0:room}"
+  fi
+  return 0
+}
 _rsdd_kit_stale() {
-  local kdir="${RESEARCH_SDD_KIT_DIR:-$here/..}" kmax="20" kdays="7" top kd t ref n fh ft cf now age="" disp cmd khead ktail room kfb=0 v
+  local kdir="${RESEARCH_SDD_KIT_DIR:-$here/..}" kmax="20" kdays="7" v kf krc rec
   kstate="unknown"; kline=""; knote=""; kdeg=""
   # Thresholds are validated BEFORE any arithmetic ($(( )) would evaluate a subscript); an invalid value is announced and replaced.
   if [ -n "${RESEARCH_SDD_KIT_STALE_MAX_COMMITS+x}" ]; then
@@ -182,42 +225,27 @@ _rsdd_kit_stale() {
       *) kdays="$((10#$RESEARCH_SDD_KIT_STALE_MAX_DAYS))" ;;
     esac
   fi
-  command -v git >/dev/null 2>&1 || { _rk_deg "git not found; cannot tell whether the kit is behind its upstream"; return 0; }   # SENTINEL-KIT-STALE-NOGIT
-  if [ -n "${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" ] || ! command -v timeout >/dev/null 2>&1; then _rk_deg "no timeout binary: git calls would be unbounded, check skipped"; return 0; fi
-  top="$(timeout 1 git -C "$kdir" rev-parse --show-toplevel 2>/dev/null)" || top=""   # SENTINEL-KIT-STALE-TIMEOUT
-  [ -n "$top" ] || { _rk_deg "kit dir is not a git checkout (tarball install?) or git did not answer within 1s"; return 0; }
-  kd="$(cd -P "$kdir" 2>/dev/null && pwd -P)"; t="$(cd -P "$top" 2>/dev/null && pwd -P)"
-  if [ -z "$kd" ] || [ -z "$t" ] || { [ "$t" != "$kd" ] && [ "$t" != "$(dirname "$kd")" ]; }; then
-    _rk_deg "kit dir sits inside an unrelated repo; its upstream is not the kit's"; return 0
-  fi
-  if ref="$(timeout 1 git -C "$kd" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$ref" ]; then :
-  elif timeout 1 git -C "$kd" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then ref="origin/main"; kfb=1
-  else _rk_deg "no upstream ref (no @{upstream}, no origin/main); cannot tell whether the kit is behind"; return 0; fi
-  if ! n="$(timeout 1 git -C "$kd" rev-list --count "HEAD..$ref" 2>/dev/null)" || ! [[ "$n" =~ ^[0-9]+$ ]]; then
-    _rk_deg "could not count commits behind $ref"; return 0
-  fi
-  # Age of the last fetch: FETCH_HEAD mtime. A clone that was never fetched has no FETCH_HEAD: its .git/config mtime is the clone time
-  # (never the upstream tip's commit date: a quiet upstream would read "stale" forever). Unreadable -> the age criterion is skipped.
-  fh="$(timeout 1 git -C "$kd" rev-parse --git-path FETCH_HEAD 2>/dev/null)"; case "$fh" in /*) ;; *) fh="$kd/$fh" ;; esac
-  ft=""
-  if [ -e "$fh" ]; then ft="$(_rk_mtime "$fh")"
+  if [ -n "${RESEARCH_SDD_NO_TIMEOUT_BIN:-}" ] || ! command -v timeout >/dev/null 2>&1; then v="no timeout binary: git calls would be unbounded, check skipped"
+  elif ! kf="$(mktemp 2>/dev/null)" || [ -z "$kf" ]; then v="no mktemp: check skipped"
   else
-    cf="$(timeout 1 git -C "$kd" rev-parse --git-path config 2>/dev/null)"; case "$cf" in /*) ;; *) cf="$kd/$cf" ;; esac
-    [ ! -e "$cf" ] || ft="$(_rk_mtime "$cf")"
+    # ONE overall bound for every git call. Output goes to a file, never a command substitution: a stalled grandchild would hold a pipe.
+    RSDD_KDIR="$kdir" RSDD_KMAX="$kmax" RSDD_KDAYS="$kdays" timeout 3 "${BASH:-bash}" -c "$(declare -f _rk_deg _rk_mtime _rk_measure); _rk_measure" </dev/null >"$kf" 2>/dev/null; krc=$?   # SENTINEL-KIT-STALE-TIMEOUT
+    v=""
+    if [ "$krc" -eq 124 ]; then v="git did not answer within 3s (check abandoned)"
+    elif [ "$krc" -ne 0 ]; then v="stale check exited $krc"
+    else
+      while IFS= read -r rec; do
+        case "$rec" in
+          state=*) kstate="${rec#state=}" ;;
+          line=*) kline="${rec#line=}" ;;
+          deg=*) v="${rec#deg=}" ;;
+        esac
+      done <"$kf"
+    fi
+    rm -f "$kf"
+    [ "$krc" -eq 0 ] || kstate="unknown"
   fi
-  now="$(date +%s 2>/dev/null)"
-  if [[ "$ft" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]]; then age=$(( (now - ft) / 86400 )); [ "$age" -ge 0 ] || age=0
-  else _rk_deg "cannot read the age of the last fetch; judged by commit count only (behind=$n of max $kmax)"; fi
-  kstate="ok"
-  if [ "$n" -gt "$kmax" ] || { [ -n "$age" ] && [ "$age" -gt "$kdays" ]; }; then   # SENTINEL-KIT-STALE-THRESHOLD
-    kstate="stale"
-    disp="$kd"; case "$kd" in "$HOME"/*) disp="~${kd#"$HOME"}" ;; esac
-    if [ "$kfb" = 1 ]; then cmd="git -C $disp fetch && git -C $disp merge --ff-only $ref"; else cmd="git -C $disp pull --ff-only"; fi   # no @{upstream}: pull would fail
-    khead="verify kit-stale status=stale fix (no live session): $cmd"   # the command comes first and is never cut
-    ktail="; behind=$n (max $kmax) fetch_age=${age:-?}d (max ${kdays}d); local refs, may understate"
-    room=$((200 - ${#khead})); [ "$room" -ge 0 ] || room=0   # SENTINEL-KIT-STALE-WIDTH
-    kline="$khead${ktail:0:room}"
-  fi
+  [ -z "${RESEARCH_SDD_KIT_STALE_VERBOSE:-}" ] || [ -z "$v" ] || kdeg="verify kit-stale status=degraded reason=$v"   # SENTINEL-KIT-STALE-VERBOSE
   return 0
 }
 if [ "${RESEARCH_SDD_KIT_STALE_CHECK:-}" != "off" ] && [ "$vrc" -ne 124 ] && [ -z "$extra_skip" ]; then   # SENTINEL-KIT-STALE-SKIP-TIMEOUT
@@ -236,12 +264,15 @@ if [ "${RESEARCH_SDD_KIT_STALE_CHECK:-}" != "off" ] && [ "$vrc" -ne 124 ] && [ -
     done <<<"$extra"
     extra="$kkeep"
     [ "$kdiv" = 0 ] || kline=""
+    # A non-zero install --verify exit must never be silenced by the dedupe (its only typed line may have been the behind line).
+    if [ -z "$extra" ] && [ "$vrc" -ne 0 ]; then extra="verify: install --verify exited $vrc with no typed line"; fi   # SENTINEL-KIT-STALE-RC
   fi
   for kl in "$knote" "$kline" "$kdeg"; do
     [ -z "$kl" ] || extra="${extra:+$extra
 }$kl"
   done
 fi
+
 [ "$rc" -eq 0 ] && [ -z "$extra" ] && exit 0   # all in-sync / all absent, nothing to flag → stay completely silent
 
 case "$rc" in
