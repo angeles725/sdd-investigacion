@@ -2081,33 +2081,43 @@ _vrun "$vh" claude
   && ok "V8: user edits outside the research-sdd marked block stay match (only the managed block is digested)" \
   || no "V8: user edits outside the block caused a non-match (rc=$VRC) :: $(_vline claude)"
 
-# V9 — single-file bundle (list edge): a hand-written record with ONE member matches, then drifts.
-# Runs on the pi harness with the pi EXTENSION as the one member on purpose: since #1761 --verify unions
-# the kit's current agent set into the comparison for harnesses that ship agents (claude), and since #2123
-# it unions the extension the same way for pi / gentle-shell — so a one-member record only matches when that
-# member IS the whole shipped set. pi ships no agents and exactly one extension (both guarded below, so a
-# future pi agent set or a second pi member fails loudly here).
+# V9 — hand-written record equal to the harness's WHOLE shipped set matches, then drifts at the LAST sorted member.
+# Runs on pi because --verify unions the kit's current agent set (#1761) and the extension (#2123) into the
+# comparison, so a hand-written record only matches when it names every member the harness ships. Since #2124 pi
+# ships the three tier agents plus the extension (4 members, no profile/skill/prompt in this record); the
+# single-member list edge is no longer reachable on any harness (guarded below, so a future change fails loudly).
 _v9_pi_agents="$(bash -c '. "$1"; rsdd_field pi agents_src_relkit /H' _ "$HERE/../adapters.sh")"
 _v9_cl_agents="$(bash -c '. "$1"; rsdd_field claude agents_src_relkit /H' _ "$HERE/../adapters.sh")"
 _v9_pi_ext="$(bash -c '. "$1"; rsdd_field pi extension_hooks_path /H' _ "$HERE/../adapters.sh")"
-# Positive control: claude must report its agent source, so an empty pi value means "none", not "lookup broken".
-[ -n "$_v9_cl_agents" ] && [ -z "$_v9_pi_agents" ] && [ "$_v9_pi_ext" = "/H/.pi/agent/extensions/research-sdd-hooks.ts" ] \
-  && ok "V9 precondition: pi ships no agent definitions (claude does: $_v9_cl_agents) and exactly one extension" \
-  || no "V9 precondition failed: pi agents=[$_v9_pi_agents] claude agents=[$_v9_cl_agents] pi extension=[$_v9_pi_ext] — move V9 to a harness without agents and extension"
-vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/extensions" "$vh/.pi/agent/research-sdd"
+_v9_names="$(find "$KITROOT/$_v9_pi_agents" -maxdepth 1 -name '*.md' 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ')"
+[ -n "$_v9_cl_agents" ] && [ "$_v9_pi_agents" = "agents/pi" ] && [ "$_v9_pi_ext" = "/H/.pi/agent/extensions/research-sdd-hooks.ts" ] \
+  && [ "$_v9_names" = "research-sdd-mechanical.md research-sdd-reasoning.md research-sdd-structural.md " ] \
+  && ok "V9 precondition: pi ships exactly the three tier agents (claude: $_v9_cl_agents) and one extension = 4 members" \
+  || no "V9 precondition failed: pi agents=[$_v9_pi_agents] names=[$_v9_names] claude agents=[$_v9_cl_agents] pi extension=[$_v9_pi_ext]"
+vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/extensions" "$vh/.pi/agent/agents" "$vh/.pi/agent/research-sdd"
 printf 'only file\n' > "$vh/.pi/agent/extensions/research-sdd-hooks.ts"
+_v9_rec=""; _v9_man=""
+for _n in research-sdd-mechanical research-sdd-reasoning research-sdd-structural; do
+  cp "$KITROOT/agents/pi/$_n.md" "$vh/.pi/agent/agents/$_n.md"
+  _s="$(sha256sum "$vh/.pi/agent/agents/$_n.md" | awk '{print $1}')"
+  _v9_man="$_v9_man$(printf '%s\t%s\n' "$_s" "agents/$_n.md")"$'\n'
+  _v9_rec="$_v9_rec$(printf 'file=%s  %s\n' "$_s" "agents/$_n.md")"$'\n'
+done
 _s1="$(sha256sum "$vh/.pi/agent/extensions/research-sdd-hooks.ts" | awk '{print $1}')"
-_b1="$(printf '%s\t%s\n' "$_s1" 'extensions/research-sdd-hooks.ts' | sha256sum | awk '{print $1}')"
-printf 'bundle_sha256=%s\nprofile=pi\nfile=%s  %s\n' "$_b1" "$_s1" 'extensions/research-sdd-hooks.ts' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
+_v9_man="$_v9_man$(printf '%s\t%s\n' "$_s1" 'extensions/research-sdd-hooks.ts')"$'\n'
+_v9_rec="$_v9_rec$(printf 'file=%s  %s\n' "$_s1" 'extensions/research-sdd-hooks.ts')"$'\n'
+_b1="$(printf '%s' "$_v9_man" | sha256sum | awk '{print $1}')"
+printf 'bundle_sha256=%s\nprofile=pi\n%s' "$_b1" "$_v9_rec" > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
 _vrun "$vh" pi
-[ "$VRC" = 0 ] && _vhas pi 'status=match .*files=1( |$)' \
-  && ok "V9: single-file recorded bundle → match (files=1), exit 0" \
-  || no "V9: single-file bundle not matched (rc=$VRC) :: $(_vline pi)"
+[ "$VRC" = 0 ] && _vhas pi 'status=match .*files=4( |$)' \
+  && ok "V9: a record equal to the whole shipped set (4 members) → match (files=4), exit 0" \
+  || no "V9: whole-set bundle not matched (rc=$VRC) :: $(_vline pi)"
 printf 'changed\n' > "$vh/.pi/agent/extensions/research-sdd-hooks.ts"
 _vrun "$vh" pi
 [ "$VRC" = 1 ] && _vhas pi 'status=drift.*extensions/research-sdd-hooks.ts' \
-  && ok "V9: single-file bundle drifts when that one file changes, exit 1" \
-  || no "V9: single-file drift missed (rc=$VRC) :: $(_vline pi)"
+  && ok "V9: the last sorted member drifting is named, exit 1" \
+  || no "V9: last-member drift missed (rc=$VRC) :: $(_vline pi)"
+
 
 # V10 — degraded: no sha256 tool reachable → typed degraded, exit 2 (never a silent match/absent).
 vh="$TMP/v10-home"; mkdir -p "$vh"; _vinst "$vh" claude
@@ -2649,8 +2659,11 @@ else no "agents: --verify passed or mis-typed with the agent source missing (rc=
 for hh in pi gentle-shell; do
   home="$TMP/agents-$hh"
   bash "$SUT" --home "$home" --harness "$hh" >/dev/null 2>&1
-  if [ ! -e "$home/.pi/agent/agents" ] && [ ! -e "$home/.gentle-shell/agent/agents" ]; then ok "agents: harness $hh deploys no agent definitions"
-  else no "agents: harness $hh unexpectedly got an agents dir"; fi
+  # pi / gentle-shell ship the three TIER agents (kit issue #2124), never the Claude reviewer definitions.
+  _adir="$home/.pi/agent/agents"; [ "$hh" = gentle-shell ] && _adir="$home/.gentle-shell/agent/agents"
+  _got="$(find "$_adir" -maxdepth 1 -name '*.md' 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort | tr '\n' ' ')"
+  if [ "$_got" = "research-sdd-mechanical.md research-sdd-reasoning.md research-sdd-structural.md " ]; then ok "agents: harness $hh deploys exactly the three tier agents (none of the Claude reviewer definitions)"
+  else no "agents: harness $hh deployed [$_got]"; fi
 done
 
 home="$TMP/agents-dry"

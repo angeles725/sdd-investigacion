@@ -595,7 +595,7 @@ x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
   x1_section "$1" | grep -F -e "$2" | grep -qF -e "$3"
 }
 # One function per check id, so each tooth can name the exact check it must turn red.
-X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model claude-dir stop)
+X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model model-dispatch claude-dir stop)
 x1_check() {  # ID FILE
   local f="$2"
   case "$1" in
@@ -606,7 +606,8 @@ x1_check() {  # ID FILE
     rung-b-conditional) x1_row "$f" 'ScheduleWakeup' "if the session's tool list has" ;;
     rung-c)            x1_row "$f" 'ScheduleWakeup' 'the operator must re-invoke' ;;
     agent)             x1_row "$f" 'Agent tool' 'subagent_run' ;;
-    model)             x1_row "$f" 'haiku' 'model_profiles[<agent>]' && x1_row "$f" 'haiku' 'choose the agent whose configured model matches the tier' ;;
+    model)             x1_row "$f" 'haiku' "model_profiles['research-sdd-<T>']" ;;
+    model-dispatch)    x1_row "$f" 'haiku' 'subagent_run agent=research-sdd-<T>' ;;
     claude-dir)        x1_row "$f" '.claude/' 'harness-neutral' ;;
     stop)              x1_section "$f" | grep -qF 'STOP teardown (harness-neutral)' ;;
     *) return 2 ;;
@@ -1142,7 +1143,8 @@ PYEOF
   x1_tooth rung-b-conditional "s/if the session's tool list has/GONE/"
   x1_tooth rung-c             's/the operator must re-invoke/GONE/'
   x1_tooth agent              '/^| Agent tool.*subagent_run/d'
-  x1_tooth model              's/model_profiles\[<agent>\]/GONE/g'
+  x1_tooth model              's/model_profiles\['"'"'research-sdd-<T>'"'"'\]/GONE/g'
+  x1_tooth model-dispatch     's/subagent_run agent=research-sdd-<T>/GONE/g'
   x1_tooth claude-dir         '/^| `\.claude\/` state directory/d'
   x1_tooth stop               '/^STOP teardown (harness-neutral)/d'
   # X2: one mutant per pointer; the OTHER pointer must stay green (proves each is asserted on its own).
