@@ -2079,26 +2079,30 @@ _vrun "$vh" claude
   || no "V8: user edits outside the block caused a non-match (rc=$VRC) :: $(_vline claude)"
 
 # V9 — single-file bundle (list edge): a hand-written record with ONE member matches, then drifts.
-# Runs on the pi harness on purpose: since #1761 --verify unions the kit's current agent set into
-# the comparison for harnesses that ship agents (claude), so a one-member claude record would
-# (correctly) drift. pi ships no agents — guarded below so a future pi agent set fails loudly here.
+# Runs on the pi harness with the pi EXTENSION as the one member on purpose: since #1761 --verify unions
+# the kit's current agent set into the comparison for harnesses that ship agents (claude), and since #2123
+# it unions the extension the same way for pi / gentle-shell — so a one-member record only matches when that
+# member IS the whole shipped set. pi ships no agents and exactly one extension (both guarded below, so a
+# future pi agent set or a second pi member fails loudly here).
 _v9_pi_agents="$(bash -c '. "$1"; rsdd_field pi agents_src_relkit /H' _ "$HERE/../adapters.sh")"
 _v9_cl_agents="$(bash -c '. "$1"; rsdd_field claude agents_src_relkit /H' _ "$HERE/../adapters.sh")"
+_v9_pi_ext="$(bash -c '. "$1"; rsdd_field pi extension_hooks_path /H' _ "$HERE/../adapters.sh")"
 # Positive control: claude must report its agent source, so an empty pi value means "none", not "lookup broken".
-[ -n "$_v9_cl_agents" ] && [ -z "$_v9_pi_agents" ] && ok "V9 precondition: pi ships no agent definitions (claude does: $_v9_cl_agents)" \
-  || no "V9 precondition failed: pi agents=[$_v9_pi_agents] claude agents=[$_v9_cl_agents] — move V9 to a harness without agents"
-vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/skills/research-sdd" "$vh/.pi/agent/research-sdd"
-printf 'only file\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
-_s1="$(sha256sum "$vh/.pi/agent/skills/research-sdd/SKILL.md" | awk '{print $1}')"
-_b1="$(printf '%s\t%s\n' "$_s1" 'skills/research-sdd/SKILL.md' | sha256sum | awk '{print $1}')"
-printf 'bundle_sha256=%s\nprofile=pi\nfile=%s  %s\n' "$_b1" "$_s1" 'skills/research-sdd/SKILL.md' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
+[ -n "$_v9_cl_agents" ] && [ -z "$_v9_pi_agents" ] && [ "$_v9_pi_ext" = "/H/.pi/agent/extensions/research-sdd-hooks.ts" ] \
+  && ok "V9 precondition: pi ships no agent definitions (claude does: $_v9_cl_agents) and exactly one extension" \
+  || no "V9 precondition failed: pi agents=[$_v9_pi_agents] claude agents=[$_v9_cl_agents] pi extension=[$_v9_pi_ext] — move V9 to a harness without agents and extension"
+vh="$TMP/v9-home"; mkdir -p "$vh/.pi/agent/extensions" "$vh/.pi/agent/research-sdd"
+printf 'only file\n' > "$vh/.pi/agent/extensions/research-sdd-hooks.ts"
+_s1="$(sha256sum "$vh/.pi/agent/extensions/research-sdd-hooks.ts" | awk '{print $1}')"
+_b1="$(printf '%s\t%s\n' "$_s1" 'extensions/research-sdd-hooks.ts' | sha256sum | awk '{print $1}')"
+printf 'bundle_sha256=%s\nprofile=pi\nfile=%s  %s\n' "$_b1" "$_s1" 'extensions/research-sdd-hooks.ts' > "$vh/.pi/agent/research-sdd/.installed-bundle-state"
 _vrun "$vh" pi
 [ "$VRC" = 0 ] && _vhas pi 'status=match .*files=1( |$)' \
   && ok "V9: single-file recorded bundle → match (files=1), exit 0" \
   || no "V9: single-file bundle not matched (rc=$VRC) :: $(_vline pi)"
-printf 'changed\n' > "$vh/.pi/agent/skills/research-sdd/SKILL.md"
+printf 'changed\n' > "$vh/.pi/agent/extensions/research-sdd-hooks.ts"
 _vrun "$vh" pi
-[ "$VRC" = 1 ] && _vhas pi 'status=drift.*skills/research-sdd/SKILL.md' \
+[ "$VRC" = 1 ] && _vhas pi 'status=drift.*extensions/research-sdd-hooks.ts' \
   && ok "V9: single-file bundle drifts when that one file changes, exit 1" \
   || no "V9: single-file drift missed (rc=$VRC) :: $(_vline pi)"
 
@@ -2704,6 +2708,175 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   home="$TMP/agents-m3"; bash "$M_NOMEM" --home "$home" --harness claude >/dev/null 2>&1
   if ! grep -q '^file=.*  agents/' "$home/.claude/research-sdd/.installed-bundle-state" 2>/dev/null; then ok "teeth: no-member mutant drops the definitions from the bundle record → the --verify coverage check has teeth"
   else no "teeth: no-member mutant still recorded the definitions — the bundle check is THEATER"; fi
+fi
+
+# =====================================================================================================
+# pi extension (kit issue #2123): research-sdd/install/pi/research-sdd-hooks.ts is deployed to
+# <config_root>/extensions/research-sdd-hooks.ts on pi and gentle-shell ONLY (capability column
+# supports_extension_hooks). It is a bundle member (--verify covers it), follows the skill's hand-edit
+# protection, and --uninstall removes it only when its sha256 still equals the recorded one.
+echo "-- #2123: pi extension (session hooks) --"
+EXT_SRC="$KITROOT/install/pi/research-sdd-hooks.ts"
+EXT_REL="extensions/research-sdd-hooks.ts"
+
+# Adapter invariants: the capability bool, the source relpath and the shipped file must agree, both ways.
+# (A subshell: sourcing adapters.sh must not leak its tables and functions into the rest of this suite.)
+ext_bad="$(
+  . "$KITROOT/install/adapters.sh"
+  for h in $RESEARCH_SDD_HARNESSES; do
+    cap="$(rsdd_field "$h" supports_extension_hooks)"; rel="$(rsdd_field "$h" extension_hooks_src_relkit)"
+    dst="$(rsdd_field "$h" extension_hooks_path "$TMP/inv-home")"
+    if [ "$cap" = true ]; then
+      { [ -n "$rel" ] && [ -f "$KITROOT/$rel" ]; } || printf ' %s:capability-true-without-source' "$h"
+      [ "${dst##*/}" = "research-sdd-hooks.ts" ] || printf ' %s:path-not-research-sdd-hooks.ts' "$h"
+      case "${dst##*/}" in review-*|jd-*|gentle-ai-*) printf ' %s:reserved-name' "$h" ;; esac
+    else
+      { [ -z "$rel" ] && [ -z "$dst" ]; } || printf ' %s:source-without-capability' "$h"
+    fi
+  done
+  [ "$(rsdd_field pi supports_extension_hooks)" = true ] || printf ' pi:not-true'
+  [ "$(rsdd_field gentle-shell supports_extension_hooks)" = true ] || printf ' gentle-shell:not-true'
+  [ "$(rsdd_field claude supports_extension_hooks)" = false ] || printf ' claude:not-false'
+)"
+if [ -z "$ext_bad" ]; then
+  ok "extension: capability column is true for pi + gentle-shell only, each backed by an existing source under a kit-unique name"
+else no "extension: adapter invariants broken:$ext_bad"; fi
+
+for hh in pi gentle-shell; do
+  home="$TMP/ext-$hh"
+  case "$hh" in pi) root="$home/.pi/agent" ;; *) root="$home/.gentle-shell/agent" ;; esac
+  bash "$SUT" --home "$home" --harness "$hh" >/dev/null 2>&1; rc_e=$?
+  if [ "$rc_e" = 0 ] && cmp -s "$EXT_SRC" "$root/$EXT_REL"; then ok "extension: $hh apply deploys research-sdd-hooks.ts byte-identical into <agent dir>/extensions/"
+  else no "extension: $hh apply did not deploy the extension (rc=$rc_e)"; fi
+  if grep -q "^file=.*  $EXT_REL\$" "$root/research-sdd/.installed-bundle-state" && [ -f "$root/research-sdd/.installed-extension-state" ]; then
+    ok "extension: $hh records it as a bundle member plus its own install marker"
+  else no "extension: $hh bundle record / marker lacks the extension"; fi
+  ver_e="$(bash "$SUT" --verify --home "$home" --harness "$hh" 2>&1)"
+  if grep -q "harness=$hh status=match" <<<"$ver_e"; then ok "extension: $hh --verify matches after install"
+  else no "extension: $hh --verify after install: $ver_e"; fi
+
+  before_e="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+  out_e2="$(bash "$SUT" --home "$home" --harness "$hh" 2>&1)"; rc_e2=$?
+  after_e="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+  if [ "$rc_e2" = 0 ] && [ "$before_e" = "$after_e" ] && ! grep -q 'research-sdd-install: WARNING' <<<"$out_e2"; then ok "extension: $hh re-apply is idempotent (no byte change, no WARNING)"
+  else no "extension: $hh re-apply changed files or warned (rc=$rc_e2)"; fi
+
+  printf '%s\n' '// tampered' >> "$root/$EXT_REL"
+  ver_et="$(bash "$SUT" --verify --home "$home" --harness "$hh" 2>&1)"; rc_et=$?
+  if [ "$rc_et" = 1 ] && grep -q "status=drift drifted=$EXT_REL (modified)" <<<"$ver_et"; then ok "extension: $hh --verify names a tampered extension as drift"
+  else no "extension: $hh --verify missed the tamper (rc=$rc_et): $ver_et"; fi
+  rm -f "$root/$EXT_REL"
+  ver_em="$(bash "$SUT" --verify --home "$home" --harness "$hh" 2>&1)"
+  if grep -q "status=drift drifted=$EXT_REL (missing)" <<<"$ver_em"; then ok "extension: $hh --verify names a deleted extension as drift (missing)"
+  else no "extension: $hh --verify missed the deleted extension: $ver_em"; fi
+done
+
+home="$TMP/ext-claude"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1
+if [ ! -e "$home/.claude/extensions" ] && ! grep -q 'extensions/' "$home/.claude/research-sdd/.installed-bundle-state"; then ok "extension: claude gets no extension and no bundle member (settings.json hooks cover it)"
+else no "extension: claude unexpectedly received the pi extension"; fi
+
+# A hand-edited extension is kept with a typed WARNING, recorded as a kept-hand-edit, and --force-skill backs it up.
+home="$TMP/ext-collide"; mkdir -p "$home/.pi/agent/extensions"
+printf '// my own extension\n' > "$home/.pi/agent/extensions/research-sdd-hooks.ts"
+out_c="$(bash "$SUT" --home "$home" --harness pi 2>&1)"; rc_c=$?
+if [ "$(cat "$home/.pi/agent/extensions/research-sdd-hooks.ts")" = "// my own extension" ] && grep -q 'WARNING.*research-sdd-hooks\.ts.*diverged.*kept' <<<"$out_c"; then
+  ok "extension: a differing same-named user file is kept with a typed WARNING (rc=$rc_c)"
+else no "extension: user-file collision mishandled (rc=$rc_c): $out_c"; fi
+ver_k="$(bash "$SUT" --verify --home "$home" --harness pi 2>&1)"
+if grep -q "drifted=$EXT_REL (modified) kept-hand-edit=$EXT_REL" <<<"$ver_k"; then ok "extension: --verify reports the kept hand-edit as drift naming the cause"
+else no "extension: kept hand-edit not reported: $ver_k"; fi
+bash "$SUT" --home "$home" --harness pi --force-skill >/dev/null 2>&1
+if cmp -s "$EXT_SRC" "$home/.pi/agent/extensions/research-sdd-hooks.ts" && [ "$(cat "$home/.pi/agent/extensions/research-sdd-hooks.ts.local-backup")" = "// my own extension" ]; then
+  ok "extension: --force-skill backs the hand-edit up as .local-backup and redeploys the kit source"
+else no "extension: --force-skill did not back up and redeploy"; fi
+
+# A bundle record written BEFORE #2123 has no extension member: it must not verify as match.
+home="$TMP/ext-prerecord"
+bash "$SUT" --home "$home" --harness pi >/dev/null 2>&1
+st_e="$home/.pi/agent/research-sdd/.installed-bundle-state"
+grep -v "^file=.*  $EXT_REL\$" "$st_e" > "$st_e.new"
+dg_e="$(awk 'index($0,"file=")==1 { rest=substr($0,6); i=index(rest,"  "); printf "%s\t%s\n", substr(rest,1,i-1), substr(rest,i+2) }' "$st_e.new" | sha256sum | awk '{print $1}')"
+sed -i "s/^bundle_sha256=.*/bundle_sha256=$dg_e/" "$st_e.new" && mv "$st_e.new" "$st_e"
+rm -f "$home/.pi/agent/$EXT_REL"
+ver_p="$(bash "$SUT" --verify --home "$home" --harness pi 2>&1)"; rc_p=$?
+if [ "$rc_p" = 1 ] && grep -q "status=drift drifted=$EXT_REL (missing)" <<<"$ver_p" && ! grep -q 'status=match' <<<"$ver_p"; then
+  ok "extension: a pre-#2123 bundle record reports the missing extension as typed drift, not match"
+else no "extension: pre-#2123 record verified without the extension (rc=$rc_p): $ver_p"; fi
+
+# A kit without the extension source: install fails loudly, --verify is degraded, never match.
+NE="$TMP/kit-noext"; mkdir -p "$NE/install"
+for _f in "$KITROOT/install"/*; do
+  case "$_f" in "$KITROOT/install/tests"|"$KITROOT/install/pi") continue ;; esac
+  cp -R "$_f" "$NE/install/"
+done
+for _f in "$KITROOT"/*; do
+  [ -e "$_f" ] || continue
+  [ "$_f" = "$KITROOT/install" ] && continue
+  ln -s "$_f" "$NE/$(basename "$_f")"
+done
+out_ne="$(bash "$NE/install/research-sdd-install.sh" --home "$TMP/ext-nokit" --harness pi 2>&1)"; rc_ne=$?
+if [ "$rc_ne" != 0 ] && grep -q 'source SKILL not found' <<<"$out_ne"; then ok "extension: a kit without the extension source fails the install loudly (rc=$rc_ne)"
+else no "extension: kit without the extension source did not fail the install (rc=$rc_ne): $out_ne"; fi
+bash "$SUT" --home "$TMP/ext-pi-installed" --harness pi >/dev/null 2>&1
+ver_ne="$(bash "$NE/install/research-sdd-install.sh" --verify --home "$TMP/ext-pi-installed" --harness pi 2>&1)"; rc_vne=$?
+if [ "$rc_vne" = 2 ] && grep -q 'harness=pi status=degraded reason=.*pi extension source' <<<"$ver_ne"; then ok "extension: --verify against a kit without the extension source is degraded (exit 2), never match"
+else no "extension: --verify passed or mis-typed with the extension source missing (rc=$rc_vne): $ver_ne"; fi
+
+home="$TMP/ext-dry"
+out_d="$(bash "$SUT" --dry-run --home "$home" --harness pi 2>&1)"
+if grep -q "INSTALL .*/extensions/research-sdd-hooks\.ts (pi extension: session hooks)" <<<"$out_d" && [ ! -e "$home/.pi" ]; then ok "extension: dry-run plans the extension and writes nothing"
+else no "extension: dry-run plan lacks the extension line or wrote files"; fi
+
+# --uninstall removes the unmodified extension and its marker, keeps a modified one.
+home="$TMP/ext-un"; bash "$SUT" --home "$home" --harness gentle-shell >/dev/null 2>&1
+uo="$(HOME="$TMP/ext-un-fakehome" bash "$SUT" --uninstall --yes --home "$home" --harness gentle-shell 2>&1)"
+if [ ! -e "$home/.gentle-shell/agent/$EXT_REL" ] && [ ! -e "$home/.gentle-shell/agent/research-sdd/.installed-extension-state" ] \
+   && grep -q "removed  .*research-sdd-hooks\.ts  \[pi extension (session hooks)\]" <<<"$uo"; then ok "extension: --uninstall removes the unmodified extension and its marker"
+else no "extension: --uninstall left the extension or did not report it: $uo"; fi
+home="$TMP/ext-un2"; bash "$SUT" --home "$home" --harness gentle-shell >/dev/null 2>&1
+printf '%s\n' '// mine' >> "$home/.gentle-shell/agent/$EXT_REL"
+uo2="$(HOME="$TMP/ext-un-fakehome" bash "$SUT" --uninstall --yes --home "$home" --harness gentle-shell 2>&1)"
+if [ -f "$home/.gentle-shell/agent/$EXT_REL" ] && grep -q "kept (modified)  .*research-sdd-hooks\.ts" <<<"$uo2"; then ok "extension: --uninstall keeps a modified extension with a typed reason"
+else no "extension: --uninstall removed or ignored a modified extension: $uo2"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: installer mutants must break the extension deploy / bundle / verify assertions --"
+  M_XD="$MKI/research-sdd-install.MUTANT-ext-nodeploy.$$.sh"
+  mutant_sed "$SUT" "$M_XD" 's/_rsdd_deploy_skill "\$ext_src" "\$ext_dest"/true "$ext_src" "$ext_dest"/' \
+    || no "teeth: extension no-deploy mutant could not be built"
+  home="$TMP/ext-m1"; bash "$M_XD" --home "$home" --harness pi >/dev/null 2>&1
+  if [ ! -f "$home/.pi/agent/$EXT_REL" ]; then ok "teeth: no-deploy mutant leaves no extension → the deploy check has teeth"
+  else no "teeth: no-deploy mutant still deployed the extension — the deploy check is THEATER"; fi
+
+  M_XM="$MKI/research-sdd-install.MUTANT-ext-nomember.$$.sh"
+  mutant_sed "$SUT" "$M_XM" 's/^  \[ -z "\$ext" \] || printf .*$/  true/' \
+    || no "teeth: extension no-member mutant could not be built"
+  home="$TMP/ext-m2"; bash "$M_XM" --home "$home" --harness pi >/dev/null 2>&1
+  if ! grep -q "^file=.*  $EXT_REL\$" "$home/.pi/agent/research-sdd/.installed-bundle-state" 2>/dev/null; then ok "teeth: no-member mutant drops the extension from the bundle record → the --verify coverage has teeth"
+  else no "teeth: no-member mutant still recorded the extension — the bundle check is THEATER"; fi
+
+  M_XU="$MKI/research-sdd-install.MUTANT-ext-nounion.$$.sh"
+  mutant_sed "$SUT" "$M_XU" 's/^    \[ -z "\$ext" \] || printf .*$/    true/' \
+    || no "teeth: extension no-union mutant could not be built"
+  ver_mu="$(bash "$M_XU" --verify --home "$TMP/ext-prerecord" --harness pi 2>&1)"
+  if grep -q 'harness=pi status=match' <<<"$ver_mu"; then ok "teeth: comparing only the recorded manifest reports match for a pre-#2123 record → the current-set union has teeth"
+  else no "teeth: dropping the extension from the current set did not change the verdict — the pre-#2123 check is THEATER"; fi
+
+  M_XV="$NE/install/research-sdd-install.MUTANT-ext-nosrccheck.$$.sh"
+  mutant_sed "$SUT" "$M_XV" 's/if \[ ! -r "\$ext_src" \]; then/if false; then/' \
+    || no "teeth: extension no-source-check mutant could not be built"
+  ver_mv="$(bash "$M_XV" --verify --home "$TMP/ext-pi-installed" --harness pi 2>&1)"
+  if grep -q 'harness=pi status=match' <<<"$ver_mv" || ! grep -q 'status=degraded' <<<"$ver_mv"; then ok "teeth: without the source check --verify no longer reports degraded → the check has teeth"
+  else no "teeth: removing the extension-source check did not change the verdict — the degraded check is THEATER"; fi
+
+  M_XR="$MKI/research-sdd-install.MUTANT-ext-nouninstall.$$.sh"
+  mutant_sed "$SUT" "$M_XR" 's/^  \[ -z "\$ext" \] || _rsdd_u_artifact .*$/  true/' \
+    || no "teeth: extension no-uninstall mutant could not be built"
+  home="$TMP/ext-m3"; bash "$SUT" --home "$home" --harness pi >/dev/null 2>&1
+  HOME="$TMP/ext-un-fakehome" bash "$M_XR" --uninstall --yes --home "$home" --harness pi >/dev/null 2>&1
+  if [ -f "$home/.pi/agent/$EXT_REL" ]; then ok "teeth: no-uninstall mutant leaves the extension behind → the uninstall check has teeth"
+  else no "teeth: no-uninstall mutant still removed the extension — the uninstall check is THEATER"; fi
 fi
 
 # =====================================================================================================

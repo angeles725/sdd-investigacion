@@ -7,7 +7,7 @@
 #   WHERE — path methods : config_root · skills_dir · skill_path · prompt_file
 #   HOW   — strategy enum : prompt_strategy  (markdown-sections — splice a marked block, preserving
 #                            surrounding user content; dispatch stays open for future strategies)
-#   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc
+#   WHAT  — capability bools : supports_slash_commands · needs_manual_sweep_doc · supports_extension_hooks
 #
 # Every path is derived from a passed-in $home, so NOTHING hardcodes ~/.claude vs ~/.pi — the same
 # table renders a plan for any home (that is what lets --dry-run --home <tmp> drive golden tests).
@@ -72,6 +72,21 @@ declare -A _RSDD_PROMPT_TEMPLATE_REL=(
   [pi]="prompts/research-sdd.md"
   [gentle-shell]="prompts/research-sdd.md"
 )
+# WHAT + WHERE: does the harness load pi extensions, so the kit can run its SessionStart sweeps, the retro gate and
+# the pkill guard as an extension (kit issue #2123)? `true` is only valid when _RSDD_EXTENSION_SRC_RELKIT names the
+# source file (the install suite enforces both directions). pi and gentle-shell load <agent dir>/extensions/*.ts;
+# claude wires the same behavior through settings.json hooks, so it gets no extension.
+declare -A _RSDD_SUPPORTS_EXTENSION_HOOKS=(
+  [claude]="false"
+  [pi]="true"
+  [gentle-shell]="true"
+)
+# WHERE: the extension source file, as a path RELATIVE TO the kit root; deployed to
+# <config_root>/extensions/research-sdd-hooks.ts. The name is kit-unique (never review-*, jd-*, gentle-ai-*).
+declare -A _RSDD_EXTENSION_SRC_RELKIT=(
+  [pi]="install/pi/research-sdd-hooks.ts"
+  [gentle-shell]="install/pi/research-sdd-hooks.ts"
+)
 # WHERE: the skill source file, as a path RELATIVE TO the kit root. Every harness
 # (claude, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
 # Note: OpenCode support was dropped on 2026-09-23 (#954); codex and reasonix on 2026-10-03 (#1471).
@@ -122,6 +137,11 @@ rsdd_field() {
     prompt_template_path)
       plug="${_RSDD_PROMPT_TEMPLATE_REL[$harness]:-}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/$plug"; else printf '\n'; fi ;;
+    supports_extension_hooks) printf '%s\n' "${_RSDD_SUPPORTS_EXTENSION_HOOKS[$harness]}" ;;
+    extension_hooks_src_relkit) printf '%s\n' "${_RSDD_EXTENSION_SRC_RELKIT[$harness]:-}" ;;
+    extension_hooks_path)
+      plug="${_RSDD_EXTENSION_SRC_RELKIT[$harness]:-}"
+      if [ -n "$plug" ]; then printf '%s\n' "$root/extensions/research-sdd-hooks.ts"; else printf '\n'; fi ;;
     agents_dir)       printf '%s\n' "$root/agents" ;;
     agents_src_relkit) printf '%s\n' "${_RSDD_AGENTS_SRC_RELKIT[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;

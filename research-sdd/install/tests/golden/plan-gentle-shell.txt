@@ -44,4 +44,5 @@ harness=gentle-shell
   | (if it is empty, ask which target to investigate):
   | 
   | $ARGUMENTS
+  INSTALL {HOME}/.gentle-shell/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
   slash_commands=true
