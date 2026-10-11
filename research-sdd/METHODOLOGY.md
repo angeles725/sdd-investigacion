@@ -3562,6 +3562,11 @@ judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a 
    become "codify Y".
 4. **Writes the proposal** to `$TARGET/retros/<date>-<focus>.md` (from `$KIT/templates/retro.template.md`)
    and mirrors it to engram `research/<target>/retro`, and SURFACES it in the return contract.
+   Use the template's §18 delta table from the FIRST write (or copy the latest applied retro as the format
+   exemplar): the `| ID | Delta | Target | Evidence | Priority |` table is a machine contract parsed by
+   `stage-retro-issues.sh`, not a style choice. A retro first written as free prose is non-stageable and has to be
+   rewritten, which doubles the work and leaves the session's only record unstageable meanwhile (kit issue #2110).
+   The staging dry-run below is the acceptance test of the retro's format: run it before committing the retro.
 
    **Open each delta's issue at proposal time (backlog-first).** Immediately after writing the retro, run
    `$KIT/toolbelt/stage-retro-issues.sh <retro>` — dry-run first to preview the planned issues, then `--apply`
