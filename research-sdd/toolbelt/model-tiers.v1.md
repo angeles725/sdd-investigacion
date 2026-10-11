@@ -46,7 +46,7 @@ indicative only: the actual model is always user-configured outside this repo.
 | **structural** | `model: 'sonnet'` (default for most sweeps) | mid-cost model, medium reasoning level |
 | **reasoning** | Inline on driver; or `model: 'opus'` only if delegation is truly required | strongest model, high reasoning level |
 
-On gentle-shell / pi, `haiku`/`sonnet`/`opus` do not map: name the tier and let `subagents.json` `model_profiles` resolve it (see the Harness crosswalk in `skills/research-sdd/SKILL.md`).
+On gentle-shell / pi, `haiku`/`sonnet`/`opus` do not map and `subagent_run` has no model parameter. Until #2124 lands the model is per agent (`model_profiles[<agent>]` -> agent frontmatter `model` -> `default_model` -> session): choose the agent whose configured model matches the tier; tier-named profiles arrive with #2124 (see the Harness crosswalk in `skills/research-sdd/SKILL.md`).
 
 **Fallback rule (all harnesses)**: when the recommended tier is unavailable, substitute
 one tier down and note it in the report.  This rule is stated in PROMPT-LOOP.md (NORMAL CYCLE

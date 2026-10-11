@@ -292,12 +292,12 @@ The doctrine is written in Claude Code terms. On a harness without those primiti
 
 | Claude Code term | gentle-shell / pi equivalent |
 |---|---|
-| ScheduleWakeup, `/loop`, `/loop 5m`, CronList/CronDelete (no re-invoker is built in) | Pick the first available: (a) a research-sdd extension re-prompting on `agent_settled` (kit #2123); (b) `bash_background` / `monitor`, whose command exit notifies the idle agent; (c) continue in-turn, or end the turn on the RETURN CONTRACT `next:` token for the driver to re-invoke. |
+| ScheduleWakeup, `/loop`, `/loop 5m`, CronList/CronDelete | No re-invoker is built in. Pick the first available: (a) until #2123 lands: not installed, skip to (b); once installed, a research-sdd extension re-prompts via `agent_before_settle` returning `{entries, continue}`, or `pi.sendMessage(..., {deliverAs: "steer", triggerTurn: true})`; (b) if the session's tool list has `bash_background` / `monitor`: a command whose exit notifies the idle agent with its exit code; (c) continue in-turn, or end the turn on the RETURN CONTRACT `next:` token (unattended with no driver, this ends the loop: the operator must re-invoke `/research-sdd`). |
 | Agent tool; Explore / Plan / general-purpose subagent types | `subagent_run` (`agent`, `task`, `mode` task or background) plus `subagent_status/result/continue/cancel`. Named agents: `gentle-ai-explore`, `gentle-ai-worker`, `gentle-ai-verify`; never reuse the shipped `gentle-ai-*` / `review-*` names for kit agents. Use `mode: task` under `pi -p` (background is rejected). Children see `subagent_*` only when gentle-agents is enabled: if absent, record `blocked-on-tool`, do not improvise. |
-| `model: haiku`, `sonnet`, `opus` | Do not map (refs are `provider/id`). Name the abstract tier (mechanical / structural / reasoning, `toolbelt/model-tiers.v1.md`); `subagents.json` `model_profiles` resolves it. |
+| `model: haiku`, `sonnet`, `opus` | None map, and `subagent_run` has no model parameter. Until #2124 lands the model is per agent (`model_profiles[<agent>]` in `subagents.json` -> agent frontmatter `model` -> `default_model` -> session model): choose the agent whose configured model matches the tier (mechanical / structural / reasoning, `toolbelt/model-tiers.v1.md`); tier-named profiles arrive with #2124. |
 | `.claude/` state directory (e.g. retro-gate state under `$TARGET/.claude`) | Just a directory name: harness-neutral, keep it as is on every harness. |
 
-STOP teardown (harness-neutral): at campaign STOP disarm whatever re-invoker you armed (Cron job, extension re-prompt, `bash_background`/`monitor` job; nothing to disarm for (c)); if the harness gives no way to disarm, tell the operator. A re-fire that finds STOP already met ends idempotently.
+STOP teardown (harness-neutral): at campaign STOP disarm whatever re-invoker you armed (Cron job, extension re-prompt, or a `bash_background`/`monitor` job if the tool list has them; nothing to disarm for (c)); if the harness gives no way to disarm, tell the operator. A re-fire that finds STOP already met ends idempotently.
 
 ## Boundaries
 
