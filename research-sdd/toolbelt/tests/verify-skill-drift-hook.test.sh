@@ -2,7 +2,9 @@
 # verify-skill-drift-hook.test.sh — the install --verify half of the SessionStart hook (W1).
 #
 # The hook calls research-sdd-install.sh --verify and surfaces ONLY findings (status=drift|degraded|
-# behind), capped at 4 lines x 170 chars so the SessionStart budget (kit-session-cost spec) holds.
+# behind), capped at 4 degraded/behind lines x 170 chars plus, per drifted harness, a header, 3 entries x 280 chars,
+# a `(+N more ...)` line and a kept-hand-edit line (worst case ~1,150 chars per harness, 3 harnesses) so the
+# SessionStart budget (kit-session-cost spec, < 8,000 chars total across hooks) holds.
 # The SKILL.md-drift half is pinned by verify-skill-drift.test.sh; here the drift script is a stub.
 #
 # TEETH (--prove-teeth): every mutant is a temp copy built by tests/lib/mutant.sh.
@@ -13,6 +15,7 @@
 #   E  unrunnable-silent       the not-executable branch removed → a missing install script is mislabelled
 #   F  kit-degraded-admitted   regex admits `kit status=degraded` → every tarball/no-upstream kit warns each session
 #   G  timeout-removed         the `timeout` wrapper removed → a hung install --verify hangs session start
+#   I-L drift caps            drift entry width / per-harness entry count / `(+N more)` line / annotated-first order
 #   H  watchdog-no-kill        the pure-bash fallback never kills the hung run → no 'timed out' (no-timeout-binary path)
 #   J  watchdog-137-as-timeout the watchdog sentinel replaced by "any rc>=128" -> a real exit 137 reads as 'timed out'
 #   K  timeout-pipe-capture    the timeout path captured via command substitution -> a stalled grandchild defeats the bound
@@ -293,6 +296,36 @@ HOUT2="$(STUB_DRIFT_RC=1 STUB_DRIFT_OUT='verify-skill-drift: diverged harness=cl
 if grep -q 'diverged harness=claude' <<<"$HOUT2" && grep -q 'status=behind' <<<"$HOUT2"; then ok "H10: SKILL.md drift and kit staleness are reported together"
 else no "H10: combined report lost a half; out=[$HOUT2]"; fi
 
+ANNOT='verify harness=gentle-shell status=drift drifted=research-sdd/profile/general/BREAKTHROUGHS.md (extra: kit file written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/BREAKTHROUGHS.md by hand),research-sdd/profile/general/TARGETS.md (extra: registry edits written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/TARGETS.md by hand)'
+run_hook 0 1 "$ANNOT"
+nd="$(grep -c '^  - research-sdd/profile/general/' <<<"$HOUT")"
+if [ "$nd" = 2 ] && grep -q 'research-sdd-kit/research-sdd/BREAKTHROUGHS.md by hand' <<<"$HOUT" && grep -q 'research-sdd-kit/research-sdd/TARGETS.md by hand' <<<"$HOUT"; then
+  ok "H11: a drift line lists each drifted member on its own line and both reconcile paths stay visible (kit issue #2120)"
+else no "H11: annotated drift entries truncated or merged (entries=$nd) out=[$HOUT]"; fi
+[ "${#HOUT}" -lt 1200 ] && ok "H12: annotated drift output stays inside the SessionStart headroom (${#HOUT} chars)" || no "H12: annotated drift output too large (${#HOUT} chars)"
+
+# H13 — per-harness caps on the drift report (kit issue #2120 review): 2 harnesses, 8-9 entries of ~400 chars.
+_pad="$(printf '%0360d' 0)"
+_ents1=""; _ents2=""
+for _i in 1 2 3 4 5 6 7 8; do
+  _ents1="${_ents1:+$_ents1,}research-sdd/profile/general/a$_i-$_pad.md (extra)"
+  _ents2="${_ents2:+$_ents2,}research-sdd/profile/general/b$_i-$_pad.md (extra)"
+done
+_ents2="$_ents2,research-sdd/profile/general/TARGETS.md (extra: registry edits written into the rendered profile — reconcile them into /k/TARGETS.md by hand)"
+CAPS="verify harness=pi status=drift drifted=$_ents1"$'\n'"verify harness=gentle-shell status=drift drifted=$_ents2 kept-hand-edit=research-sdd/profile/general/k1.md,research-sdd/profile/general/k2.md"
+run_hook 0 1 "$CAPS"
+c_hdr="$(grep -cE '^verify harness=(pi|gentle-shell) status=drift$' <<<"$HOUT")"
+c_ent="$(grep -c '^  - ' <<<"$HOUT")"
+c_wid="$(grep '^  - ' <<<"$HOUT" | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')"
+c_more="$(grep -cE '^  \(\+[0-9]+ more' <<<"$HOUT")"
+c_ann="$(grep -c 'TARGETS.md (extra: registry edits' <<<"$HOUT")"
+c_kept="$(grep -c '^  kept-hand-edit: ' <<<"$HOUT")"
+c_fake="$(grep -c '^  - research-sdd/profile/general/k2.md' <<<"$HOUT")"
+if [ "$c_hdr" = 2 ] && [ "$c_ent" = 6 ] && [ "$c_wid" -le 284 ] && [ "$c_more" = 2 ] && [ "$c_ann" = 1 ] && [ "$c_kept" = 1 ] && [ "$c_fake" = 0 ]; then
+  ok "H13: per-harness caps — both headers kept, 3 entries x <=280 chars each, a (+N more) line per cut harness, annotated entry never dropped, kept-hand-edit not split"
+else no "H13: caps wrong (headers=$c_hdr entries=$c_ent maxw=$c_wid more=$c_more annotated=$c_ann kept=$c_kept fake=$c_fake)"; fi
+[ "${#HOUT}" -lt 3600 ] && ok "H14: worst-case drift output stays under the documented budget (${#HOUT} chars)" || no "H14: drift output over budget (${#HOUT} chars)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook mutants (lib/mutant.sh) --"
   # shellcheck source=lib/mutant.sh
@@ -314,6 +347,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "C" "$SUT" "$MB/m-c.sh" 's/ | cut -c1-170//' \
     && _tt "teeth: width cap removed → over-long findings pass through" 0 0 "$MB/m-c.sh" \
        --good-lacks '0{250}' --bad-has '0{250}' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=2" "STUB_VERIFY_OUT=$LONG" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mkcap() { # <letter> <desc> <sed-expr> <shell-snippet reading $HOUT-like lines on stdin> <good regex>
+    local L="$1"
+    _mk "$L" "$SUT" "$MB/m-$L.sh" "$3" \
+      && _tt "teeth: $2 (#2120)" 0 0 "$MB/m-$L.sh" --good-has "$5" --bad-lacks "$_CRASH|$5" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=1" "STUB_VERIFY_OUT=$CAPS" \
+         "$BASH_BIN" -c 'bash "$1" "$2" | '"$4"'; exit 0' _ "$SB/decode.sh" @SUT@
+  }
+  _mkcap I "entry width cap removed → a ~400-char entry passes through whole" 's/return length(s) > l ? substr(s, 1, l) : s/return s/' \
+    "awk '/^  - /{ if (length(\$0) > m) m = length(\$0) } END { print (m > 290) ? \"long\" : \"short\" }'" '^short$'
+  _mkcap J "entry count cap removed → every entry of a harness is printed" 's/if (shown < n) {/if (1) {/' \
+    "grep -c '^  - '" '^6$'
+  _mkcap K "(+N more) line removed → truncation is silent" '/SENTINEL-DRIFT-MORE/d' \
+    "grep -cE '^  \\(\\+[0-9]+ more'" '^2$'
+  _mkcap L "annotated-first ordering reversed → the regular-file TARGETS.md entry is dropped behind plain ones" 's/if ((pass == 1) != ann) continue/if ((pass == 1) == ann) continue/' \
+    "grep -c 'TARGETS.md (extra: registry edits'" '^1$'
   _mk "D" "$SUT" "$MB/m-d.sh" 's/if \[ -z "\$extra" \] \&\& \[ "\$vrc" -ne 0 \]; then/if false; then/' \
     && _tt "teeth: exit-code fallback removed → a crashing --verify is silent" 0 0 "$MB/m-d.sh" \
        --good-has 'exited 2 with no typed line' --bad-lacks "$_CRASH|exited 2" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=2" "$BASH_BIN" "$SB/decode.sh" @SUT@

@@ -77,9 +77,11 @@ extract_claude() {
 
 extract_manual() {
   local f="${1:-$PI_GOLDEN}"
-  grep -oE '`toolbelt/[^`]+\.sh`' "$f" \
+  # Both forms: claude's relative `toolbelt/x.sh` and the absolute `<checkout>/toolbelt/x.sh` that the
+  # pi / gentle-shell launcher uses since kit issue #2120 (a bare path does not resolve from a target's cwd).
+  grep -oE '`([^` ]*/)?toolbelt/[^`]+\.sh`' "$f" \
     | tr -d '`' \
-    | sed 's|^toolbelt/||' \
+    | sed 's|^.*toolbelt/||' \
     | sed 's/\.sh$//' \
     | grep -v '^sweep-all$' \
     | sort
@@ -147,7 +149,7 @@ done
 # sweep-all.sh is NOT a canonical sweep member (excluded from extract_manual above); it is
 # the U-A20 aggregator shim that runs the canonical scripts in one command. The Pi
 # section should reference it as the single recommended manual command.
-grep -q '`toolbelt/sweep-all.sh`' "$PI_GOLDEN" \
+grep -qE '`([^` ]*/)?toolbelt/sweep-all.sh`' "$PI_GOLDEN" \
   && ok "pi: sweep-all.sh aggregator referenced in plan-pi.txt (single recommended command)" \
   || no "pi: sweep-all.sh NOT referenced in plan-pi.txt (expected as single recommended command)"
 
@@ -182,7 +184,7 @@ for _pig in $_pig_list; do
     printf '    claude: %s\n' "$(echo "$CLAUDE_SET" | tr '\n' ' ')"
     printf '    %s : %s\n' "$_pig" "$(echo "$_pis" | tr '\n' ' ')"
   fi
-  grep -q '`toolbelt/sweep-all.sh`' "$_pif" \
+  grep -qE '`([^` ]*/)?toolbelt/sweep-all.sh`' "$_pif" \
     && ok "$_pig: sweep-all.sh aggregator referenced in plan-$_pig.txt" \
     || no "$_pig: sweep-all.sh NOT referenced in plan-$_pig.txt"
 done
@@ -240,7 +242,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Teeth B: rename sweep-retros.sh → sweep-MUTANT.sh in a temp copy of the Pi golden
   mutant_pi=""
   if ! MUTANT_SYNTAX=none mutant_chain "teeth B: Pi golden mutant build" "$PI_GOLDEN" "$TMP/plan-pi-mutant.txt" \
-      's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
+      's|`\([^` ]*/\)\{0,1\}toolbelt/sweep-retros\.sh`|`\1toolbelt/sweep-MUTANT.sh`|'; then
     no "teeth B: could not build Pi golden mutant (anchor drifted or refused by lib/mutant.sh)"
   elif mutant_pi="$(extract_manual "$TMP/plan-pi-mutant.txt")"; \
        expect_b="$(printf '%s\n' "$PI_SET" | sed 's/^sweep-retros$/sweep-MUTANT/' | sort)"; \
@@ -277,7 +279,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant_gs=""
   if ! MUTANT_SYNTAX=none mutant_chain "teeth D: gentle-shell golden mutant build" \
       "$REPO/research-sdd/install/tests/golden/plan-gentle-shell.txt" "$TMP/plan-gs-mutant.txt" \
-      's|`toolbelt/sweep-retros\.sh`|`toolbelt/sweep-MUTANT.sh`|'; then
+      's|`\([^` ]*/\)\{0,1\}toolbelt/sweep-retros\.sh`|`\1toolbelt/sweep-MUTANT.sh`|'; then
     no "teeth D: could not build gentle-shell golden mutant (anchor drifted or refused by lib/mutant.sh)"
   elif mutant_gs="$(extract_manual "$TMP/plan-gs-mutant.txt")"; \
        expect_d="$(printf '%s\n' "$CLAUDE_SET" | sed 's/^sweep-retros$/sweep-MUTANT/' | sort)"; \
@@ -285,6 +287,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     ok "teeth D: renaming sweep-retros in the gentle-shell golden detected as drift vs Claude (set differs by exactly the rename)"
   else
     no "teeth D: mutant gentle-shell golden NOT caught, or the divergence is not exactly the rename — gentle-shell parity check is theater (got: $(printf '%s' "$mutant_gs" | tr '\n' ' '))"
+  fi
+
+  # Teeth E (kit issue #2120): the pi / gentle-shell launcher lists ABSOLUTE `<checkout>/toolbelt/x.sh`
+  # paths. A mutant extractor that only knows the bare `toolbelt/x.sh` form must lose the whole Pi set,
+  # proving the absolute-form recognition is what keeps parity (and the goldens are not vacuously empty).
+  if ! mutant_chain "teeth E: relative-only extractor mutant build" "$HERE/harness-sweep-parity.test.sh" \
+      "$TMP/hsp-mutant-e.sh" 's|(\[^` \]\*/)?toolbelt/\[|toolbelt/[|'; then
+    no "teeth E: could not build relative-only extractor mutant (anchor drifted or refused by lib/mutant.sh)"
+  else
+    sed -n '/^extract_manual() {/,/^}/p' "$TMP/hsp-mutant-e.sh" > "$TMP/hsp-mutant-e-fn.sh"
+    mutant_abs="$(bash -c '. "$1"; extract_manual "$2"' _ "$TMP/hsp-mutant-e-fn.sh" "$PI_GOLDEN" 2>/dev/null)"
+    if [ -z "$mutant_abs" ] && [ -n "$PI_SET" ]; then
+      ok "teeth E: a relative-only extractor sees none of the absolute launcher paths (absolute-form recognition has teeth)"
+    else
+      no "teeth E: relative-only extractor still parsed the Pi golden — the absolute form is not exercised (got: $(printf '%s' "$mutant_abs" | tr '\n' ' '))"
+    fi
   fi
 fi
 
