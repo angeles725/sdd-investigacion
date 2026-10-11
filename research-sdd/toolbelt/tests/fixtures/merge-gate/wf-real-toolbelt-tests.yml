@@ -24,6 +24,7 @@ on:
       - "research-sdd/PROMPT-LOOP-APPENDIX.md"
       - "research-sdd/skills/**"
       - "research-sdd/profiles/**"
+      - "research-sdd/agents/**"
   pull_request:
     paths:
       - "research-sdd/toolbelt/**"
@@ -37,6 +38,7 @@ on:
       - "research-sdd/PROMPT-LOOP-APPENDIX.md"
       - "research-sdd/skills/**"
       - "research-sdd/profiles/**"
+      - "research-sdd/agents/**"
 
 env:
   # Number of shards of the toolbelt gate (kit issue #2114). MUST equal the length of the matrix
