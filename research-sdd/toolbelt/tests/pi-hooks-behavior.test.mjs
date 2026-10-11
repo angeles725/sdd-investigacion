@@ -553,6 +553,68 @@ if (!haveJq) {
   restoreEnv();
 }
 
+// ---- 17. run() resolves even when a session-escaping grandchild holds the pipes open --------------------------------
+if (spawnSync('setsid', ['--version']).status !== 0) {
+  sk('setsid not available: the pipe-holding grandchild cases were not run');
+} else {
+  const pidFile = join(TMP, 'escaped.pid');
+  const killEscaped = () => { try { process.kill(Number(readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone */ } };
+  {
+    // timeout: the group kill cannot reach the setsid child, which keeps stdout open
+    const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
+    const t = Date.now();
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '600', RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
+    const dt = Date.now() - t;
+    killEscaped();
+    check('a timed-out script whose escaped grandchild holds the pipes still resolves within timeout + grace', /sweep-tools-hook\] degraded: timed out/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    restoreEnv();
+  }
+  {
+    // normal exit: the script finished and printed its finding, but a setsid child still holds the pipes
+    const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\nexit 0\n`;
+    const t = Date.now();
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
+    const dt = Date.now() - t;
+    killEscaped();
+    check('a script that exits but leaves a pipe-holding grandchild resolves after a short grace with the output so far', /FINDING-sweep-tools-hook/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    restoreEnv();
+  }
+  {
+    // the same through the settle gate: a hung gate with an escaped holder must not stall the end of the turn
+    const gateHolder = `#!/usr/bin/env bash\ncat >/dev/null\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
+    const { kit } = makeKit();
+    write(join(kit, 'toolbelt', 'retro-gate.sh'), gateHolder, true);
+    setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_PI_GATE_TIMEOUT_MS: '600' });
+    const pi = makePi(); (await loadFactory())(pi);
+    const ctx = makeCtx(makeTarget(), 'sess-hold', [assistant('x')]);
+    await fire(pi, 'session_start', { type: 'session_start', reason: 'startup' }, ctx);
+    const t = Date.now();
+    const r = await fire(pi, 'agent_before_settle', settleEvent(), ctx);
+    const dt = Date.now() - t;
+    killEscaped();
+    check('the settle gate returns (typed timeout notice) even when an escaped grandchild holds its pipes', dt < 6000 && /retro gate DEGRADED: timed out/.test(JSON.stringify(r ?? {})), `dt=${dt} ${JSON.stringify(r)}`);
+    restoreEnv();
+  }
+}
+
+// ---- 18. a guard "ask" becomes a confirmation when a UI can ask ------------------------------------------------------
+{
+  const ask = `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"ASK-REASON"}}'\n`;
+  const s = await boot({ kitOpts: { pkillBody: ask } });
+  const call = { type: 'tool_call', toolName: 'bash', toolCallId: 'c', input: { command: 'pkill -f x' } };
+  const asked = [];
+  const uiCtx = (answer) => ({ ...s.ctx, hasUI: true, ui: { notify() {}, confirm: async (title, msg) => { asked.push([title, msg]); return answer; } } });
+  const yes = await fire(s.pi, 'tool_call', call, uiCtx(true));
+  check('with a UI, a guard "ask" the user confirms lets the command through', yes === undefined && asked.length === 1 && /ASK-REASON/.test(asked[0][1]), JSON.stringify(yes));
+  const no_ = await fire(s.pi, 'tool_call', call, uiCtx(false));
+  check('with a UI, a declined confirmation blocks with the guard reason', no_?.block === true && /ASK-REASON/.test(no_.reason ?? ''), JSON.stringify(no_));
+  const noUi = await fire(s.pi, 'tool_call', call, s.ctx);
+  check('without a UI the "ask" stays a block', noUi?.block === true && asked.length === 2, JSON.stringify(noUi));
+  restoreEnv();
+}
+
 restoreEnv();
 console.log(`\n${pass} passed, ${fail} failed, ${skip} skipped (${Date.now() - t0} ms)`);
 process.exit(fail > 0 ? 1 : 0);

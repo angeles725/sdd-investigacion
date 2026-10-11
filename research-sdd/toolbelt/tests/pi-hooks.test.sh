@@ -42,7 +42,7 @@ checks() {
   { [ -n "$guard_line" ] && [ -n "$first_on" ] && [ "$guard_line" -lt "$first_on" ]; } || echo "child-guard-first"
   grep -q 'event\.outcome !== "completed" || event\.continue' "$f" || echo "settle-gated-on-outcome-and-continue"
   { grep -q 'sections\[SECTION_KEY\] = text' "$f" && ! grep -qE '(let|var) [a-zA-Z]*[iI]njected|[iI]njected = true' <<<"$code" && ! grep -q 'notify(' <<<"$code"; } || echo "context-injected-every-run-not-notified"
-  { grep -q 'setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)' "$f" && grep -q 'process\.kill(-(child\.pid as number), "SIGKILL")' "$f" && grep -q 'detached: true' "$f"; } || echo "run-has-timeout-killing-the-process-group"
+  { grep -q 'setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, o\.timeoutMs)' "$f" && grep -q 'process\.kill(-(child\.pid as number), "SIGKILL")' "$f" && grep -q 'detached: true' "$f"; } || echo "run-has-timeout-killing-the-process-group"
   n_run="$(grep -c 'await run(' "$f")"; n_run_t="$(grep 'await run(' "$f" | grep -c 'timeoutMs')"
   { [ "$n_run" -ge 5 ] && [ "$n_run" = "$n_run_t" ]; } || echo "every-call-bounded-by-timeout ($n_run_t of $n_run)"
   ! grep -nE '/home/|/Users/|investigacion|niagara' <<<"$code" >/dev/null || echo "no-hardcoded-path"
@@ -119,7 +119,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth outcome-gate-removed  struct   settle-gated-on-outcome-and-continue 's/event\.outcome !== "completed" || event\.continue/false/'
   tooth injection-notified    struct   context-injected-every-run-not-notified 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;/ctx.ui.notify(text);/'
   tooth injected-flag         struct   context-injected-every-run-not-notified 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;/event.systemPromptOptions.sections[SECTION_KEY] = text; cur.injected = true;/' 's/^interface HookState {/let injected = false;\ninterface HookState {/'
-  tooth run-without-timeout   struct   run-has-timeout-killing-the-process-group 's/setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); }, 600000)/'
+  tooth run-without-timeout   struct   run-has-timeout-killing-the-process-group 's/setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, 600000)/'
   tooth call-without-timeout  struct   every-call-bounded-by-timeout 's/{ cwd: st\.target, timeoutMs }/{ cwd: st.target }/'
   tooth hardcoded-path        struct   no-hardcoded-path 's|^const SECTION_KEY = |const KIT_HARD = "/home/cristian/investigacion"; const SECTION_KEY = |'
   tooth module-state          struct   no-module-level-mutable-state 's|^const SECTION_KEY = |let retroBlockedOnce = false; const SECTION_KEY = |'
@@ -138,7 +138,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # behavior-only mutants: invariants a grep cannot see
   tooth child-guard-behavior  behavior - 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
   tooth outcome-gate-behavior behavior - 's/event\.outcome !== "completed" || event\.continue/false/'
-  tooth timeout-behavior      behavior - 's/setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); }, 600000)/'
+  tooth timeout-behavior      behavior - 's/setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, 600000)/'
   tooth group-kill-behavior   behavior - 's/process\.kill(-(child\.pid as number), "SIGKILL")/process.kill(child.pid as number, "SIGKILL")/'
   tooth entries-behavior      behavior - 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
   tooth gate-exit-ignored     behavior - 's/if (r\.code !== 0) {$/if (false) {/'
@@ -153,6 +153,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth failure-not-surfaced  behavior - 's/try { ctx?\.ui?\.notify?\.(msg, "error"); } catch { \/\* no UI in this mode \*\/ }//' 's/if (st\.surface\.length < 3) st\.surface\.push(msg);//'
   tooth first-run-blocks      behavior - 's/envMs("RSDD_PI_SWEEP_WAIT_MS", 3000)/600000/'
   tooth monitor-unguarded     behavior - 's/new Set(\["bash", "bash_background", "monitor"\])/new Set(["bash"])/'
+  tooth no-forced-resolve     behavior - 's/FORCE_RESOLVE_MS = 500;/FORCE_RESOLVE_MS = 600000;/'
+  tooth ask-always-blocks     behavior - 's/verdict\.permissionDecision === "ask" \&\& ctx?\.hasUI/false \&\& ctx?.hasUI/'
   tooth inject-once           behavior - 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;.*$/if (!st.noticed.has("inj")) { st.noticed.add("inj"); event.systemPromptOptions.sections[SECTION_KEY] = text; }/'
   tooth block-once-removed    behavior - 's/cur\.retroBlocked = true;//'
   tooth token-block-once      behavior - 's/cur\.tokenBlocked = true;//'

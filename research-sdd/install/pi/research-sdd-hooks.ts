@@ -50,6 +50,7 @@ const MAX_NOTICES = 5;
 const MAX_NOTICE_CHARS = 300;
 const MAX_REASON_CHARS = 4000;
 const MAX_OUTPUT_CHARS = 4 * 1024 * 1024;
+const FORCE_RESOLVE_MS = 500; // grace after a kill / an exit before run() resolves without waiting for the pipes to close
 
 interface RunResult { code: number | null; signal: string; stdout: string; stderr: string; timedOut: boolean; error: string }
 interface KitResolution { kit: string; tried: string[] }
@@ -90,9 +91,17 @@ function run(file: string, args: string[], o: { cwd?: string; input?: string; ti
       const cap = (cur: string, chunk: Buffer) => (cur.length < MAX_OUTPUT_CHARS ? cur + chunk.toString("utf8") : cur);
       child.stdout?.on("data", (c: Buffer) => { stdout = cap(stdout, c); });
       child.stderr?.on("data", (c: Buffer) => { stderr = cap(stderr, c); });
+      // A grandchild that escaped the group (setsid, a daemonizing tool) can hold stdout/stderr open forever, and then
+      // 'close' never fires. So run() also resolves FORCE_RESOLVE_MS after the child's 'exit' or after the timeout kill,
+      // with the output collected so far, and drops the pipes.
+      const forceFinish = (r: Partial<RunResult>) => {
+        const t = setTimeout(() => { child.stdout?.destroy(); child.stderr?.destroy(); finish(r); }, FORCE_RESOLVE_MS);
+        t.unref?.();
+      };
       child.on("error", (e: NodeJS.ErrnoException) => finish({ error: String(e.code ?? e.message) }));
+      child.on("exit", (code: number | null, signal: string | null) => forceFinish({ code, signal: signal ?? "" }));
       child.on("close", (code: number | null, signal: string | null) => finish({ code, signal: signal ?? "" }));
-      timer = setTimeout(() => { timedOut = true; killGroup(); }, o.timeoutMs);
+      timer = setTimeout(() => { timedOut = true; killGroup(); forceFinish({}); }, o.timeoutMs);
       child.stdin?.on("error", () => {});
       child.stdin?.end(o.input ?? "");
     } catch (e) {
@@ -403,7 +412,7 @@ export default function (pi: ExtensionAPI) {
     }, ctx);
   });
 
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
     if (!SHELL_TOOLS.has(event.toolName)) return undefined;
     const command = (event.input as { command?: unknown } | null)?.command;
     if (typeof command !== "string" || !/pkill|pgrep/.test(command)) return undefined;
@@ -419,7 +428,13 @@ export default function (pi: ExtensionAPI) {
       if (!out) return undefined; // the guard's allow is "exit 0, no stdout"
       const verdict = JSON.parse(out)?.hookSpecificOutput;
       if (verdict && (verdict.permissionDecision === "deny" || verdict.permissionDecision === "ask")) {
-        return { block: true, reason: String(verdict.permissionDecisionReason ?? "pkill-guard refused this command").slice(0, MAX_REASON_CHARS) };
+        const reason = String(verdict.permissionDecisionReason ?? "pkill-guard refused this command").slice(0, MAX_REASON_CHARS);
+        // The guard's "ask" (degraded: it could not inspect the command) is a confirmation when a UI can ask; otherwise a block.
+        if (verdict.permissionDecision === "ask" && ctx?.hasUI && typeof ctx.ui?.confirm === "function") {
+          const yes = await ctx.ui.confirm("pkill-guard", reason);
+          if (yes === true) return undefined;
+        }
+        return { block: true, reason };
       }
       return degraded("unrecognised guard output");
     } catch (e) {
