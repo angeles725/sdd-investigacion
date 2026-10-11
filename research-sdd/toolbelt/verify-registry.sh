@@ -330,10 +330,12 @@ for p in $paths; do
         _vr_finding session-budget-truncated WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook emits more than 10,000 characters, so Claude Code truncates it to a path plus a 2,000-char preview Claude is not told to read; shrink or split the hook (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
       fi
       if grep -q 'OVER BUDGET' <<<"$_vr_sb"; then
-        _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+        _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (worst session source: $(sed -n 's/^aggregate: .* worst-source=//p' <<<"$_vr_sb"); run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
       fi
-      if grep -q '^state: degraded' <<<"$_vr_sb"; then
-        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — at least one SessionStart hook could not be measured (timeout, non-zero exit, unresolvable or no sandbox); the figures are partial, not zero (run verify-session-budget.sh ${p})."
+      if ! grep -q '^state:' <<<"$_vr_sb"; then  # SESSION-BUDGET-NO-STATE
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — the SessionStart budget check produced no 'state:' line (crashed, was killed or exited early), so nothing was measured; this is a degraded result, not a clean one (run verify-session-budget.sh ${p})."
+      elif grep -q '^state: degraded' <<<"$_vr_sb"; then
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — at least one SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no usable sandbox or locale); the figures are partial, not zero (run verify-session-budget.sh ${p})."
       fi
     fi
   fi

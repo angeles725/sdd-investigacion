@@ -1,0 +1,7 @@
+{"hooks":{"SessionStart":[
+ {"matcher":"startup|resume|clear","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh"}]},
+ {"matcher":"compact","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/b9000.sh"}]},
+ {"matcher":"resume","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/c5000.sh"}]},
+ {"hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh"}]},
+ {"matcher":"startup","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh"}]}
+]}}
