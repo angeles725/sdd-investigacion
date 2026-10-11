@@ -581,6 +581,62 @@ else
   no "Q4/general: PROMPT-LOOP.md HOT-CORE cadence is MISSING the #989 'once per context' semantic — contradicts SKILL.md's hotcore-cadence in the same render"
 fi
 
+# =============================================================================
+# X1/X2 — kit issue #2122: the harness crosswalk. gentle-shell/pi has no
+# ScheduleWakeup, /loop, Cron* or Agent tool, so every rendered profile must
+# carry a "Harness crosswalk" section in SKILL.md mapping each Claude-Code
+# primitive to its pi equivalent (row-level, not just a heading), and the
+# rendered PROMPT-LOOP.md must point at it. Asserted on EVERY profile: the
+# crosswalk is plain harness-neutral doctrine, never a slot.
+# x1_check / x2_howto / x2_stop are the only place the logic lives (teeth call them).
+# =============================================================================
+x1_section() { awk '/^## Harness crosswalk[[:space:]]*$/{f=1;next} f&&/^## /{exit} f' "$1"; }
+x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
+  grep -qF -e "$3" <<<"$(x1_section "$1" | grep -F -e "$2")"
+}
+# One function per check id, so each tooth can name the exact check it must turn red.
+X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model-per-agent model-choose claude-dir stop)
+x1_check() {  # ID FILE
+  local f="$2"
+  case "$1" in
+    section)           [ -n "$(x1_section "$f")" ] ;;
+    rung-a)            x1_row "$f" 'ScheduleWakeup' 'agent_before_settle' ;;
+    rung-a-conditional) x1_row "$f" 'ScheduleWakeup' 'until #2123 lands: not installed, skip to (b)' ;;
+    rung-b)            x1_row "$f" 'ScheduleWakeup' 'bash_background' ;;
+    rung-b-conditional) x1_row "$f" 'ScheduleWakeup' "if the session's tool list has" ;;
+    rung-c)            x1_row "$f" 'ScheduleWakeup' 'the operator must re-invoke' ;;
+    agent)             x1_row "$f" 'Agent tool' 'subagent_run' ;;
+    model-per-agent)   x1_row "$f" 'haiku' 'model_profiles[<agent>]' ;;
+    model-choose)      x1_row "$f" 'haiku' 'choose the agent whose configured model matches the tier' ;;
+    claude-dir)        x1_row "$f" '.claude/' 'harness-neutral' ;;
+    stop)              grep -qF 'STOP teardown (harness-neutral)' <<<"$(x1_section "$f")" ;;
+    *) return 2 ;;
+  esac
+}
+# X2: each pointer in its OWN section (a whole-file grep stays green when one of two pointers is deleted).
+x2_howto() { grep -qF 'Harness crosswalk' <<<"$(awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1")"; }
+# x2_stop: scoped to the LOOP CONTINUATION case-1 text (from 'Teardown runs at campaign STOP' up to case (2)).
+x2_stop()  { grep -qF 'disarm per the Harness crosswalk' <<<"$(awk '/Teardown runs at campaign STOP/{f=1} f&&/^    \(2\) DYNAMIC self-paced/{exit} f' "$1")"; }
+for name in "${PROFILE_NAMES[@]}"; do
+  for id in "${X1_IDS[@]}"; do
+    if x1_check "$id" "${OUTDIR[$name]}/skills/research-sdd/SKILL.md"; then
+      ok "X1/$name/$id: SKILL.md Harness crosswalk check holds"
+    else
+      no "X1/$name/$id: SKILL.md Harness crosswalk check VIOLATED (#2122)"
+    fi
+  done
+  if x2_howto "${OUTDIR[$name]}/PROMPT-LOOP.md"; then
+    ok "X2/$name/how-to-use: PROMPT-LOOP.md How-to-use section points at the Harness crosswalk"
+  else
+    no "X2/$name/how-to-use: PROMPT-LOOP.md How-to-use pointer missing (#2122)"
+  fi
+  if x2_stop "${OUTDIR[$name]}/PROMPT-LOOP.md"; then
+    ok "X2/$name/stop-teardown: PROMPT-LOOP.md STOP TEARDOWN rule points at the Harness crosswalk"
+  else
+    no "X2/$name/stop-teardown: PROMPT-LOOP.md STOP TEARDOWN pointer missing (#2122)"
+  fi
+done
+
 # ===========================================================================
 # --prove-teeth: mutants on COPIES of the profile file / sources / renderer,
 # via RSDD_KIT_DIR pointing at a copied kit — every mutant is re-rendered
@@ -1056,6 +1112,65 @@ PYEOF
     fi
   else
     no "teeth-q4-cadence-regression: mutation anchor not found — cannot prove teeth"
+  fi
+
+  echo "-- teeth: T-x-crosswalk (kit issue #2122: one deletion mutant per X1 check and per X2 pointer, built on a copied kit's sources, rendered through the REAL renderer; the NAMED check must go RED) --"
+  # x1_tooth ID SED_EXPR — mutate SKILL.md source with one sed, render general, the named check must fail
+  x1_tooth() {
+    local id="$1" expr="$2" kit="$TMP/kitX1-$1" out="$TMP/outX1-$1"
+    make_kit "$kit"
+    mk_sed_from "$SKILL" "teeth-x1-$id" "$kit/skills/research-sdd/SKILL.md" "$expr" || return 0
+    if ! RSDD_KIT_DIR="$kit" "$RENDERER" general "$out" >/dev/null 2>&1; then
+      no "teeth-x1-$id: mutant kit failed to render — cannot prove teeth"; return 0
+    fi
+    if x1_check "$id" "$out/skills/research-sdd/SKILL.md"; then
+      no "teeth-x1-$id: x1_check $id still PASSES on the mutant — no teeth"
+    else
+      ok "teeth-x1-$id: x1_check $id goes RED on the mutant"
+    fi
+    # Right reason: every OTHER check must stay green (only the heading mutant legitimately reddens all).
+    if [ "$id" != section ]; then
+      local other bad=""
+      for other in "${X1_IDS[@]}"; do
+        [ "$other" = "$id" ] && continue
+        x1_check "$other" "$out/skills/research-sdd/SKILL.md" || bad="$bad $other"
+      done
+      if [ -z "$bad" ]; then ok "teeth-x1-$id: every other X1 check stays green (the mutant bites only its own check)"
+      else no "teeth-x1-$id: other X1 checks went red too:$bad — the mutant is not isolated"; fi
+    fi
+  }
+  for id in "${X1_IDS[@]}"; do good_rc "x1_check $id general" 0 x1_check "$id" "$GENERAL_SKILL"; done
+  good_rc "x2_howto general" 0 x2_howto "$GENERAL_LOOP"
+  good_rc "x2_stop general"  0 x2_stop "$GENERAL_LOOP"
+  x1_tooth section            's/^## Harness crosswalk$/## Harness map/'
+  x1_tooth rung-a             's/agent_before_settle/GONE/g'
+  x1_tooth rung-a-conditional 's/until #2123 lands: not installed, skip to (b)/GONE/'
+  x1_tooth rung-b             's/bash_background/GONE/g'
+  x1_tooth rung-b-conditional "s/if the session's tool list has/GONE/"
+  x1_tooth rung-c             's/the operator must re-invoke/GONE/'
+  x1_tooth agent              '/^| Agent tool.*subagent_run/d'
+  x1_tooth model-per-agent    's/model_profiles\[<agent>\]/GONE/g'
+  x1_tooth model-choose       's/choose the agent whose configured model matches the tier/GONE/'
+  x1_tooth claude-dir         '/^| `\.claude\/` state directory/d'
+  x1_tooth stop               '/^STOP teardown (harness-neutral)/d'
+  # X2: one mutant per pointer; the OTHER pointer must stay green (proves each is asserted on its own).
+  kitX2a="$TMP/kitX2a"; make_kit "$kitX2a"
+  if mk_sed_from "$PROMPTLOOP" "teeth-x2-howto" "$kitX2a/PROMPT-LOOP.md" '/^   "Harness crosswalk" (continuation/d'; then
+    if RSDD_KIT_DIR="$kitX2a" "$RENDERER" general "$TMP/outX2a" >/dev/null 2>&1; then
+      if x2_howto "$TMP/outX2a/PROMPT-LOOP.md"; then no "teeth-x2-howto: x2_howto still PASSES with the How-to-use pointer deleted — no teeth"
+      else ok "teeth-x2-howto: x2_howto goes RED when only the How-to-use pointer is deleted"; fi
+      if x2_stop "$TMP/outX2a/PROMPT-LOOP.md"; then ok "teeth-x2-howto: the STOP TEARDOWN pointer stays green (pointers asserted separately)"
+      else no "teeth-x2-howto: STOP TEARDOWN pointer went red for the wrong reason"; fi
+    else no "teeth-x2-howto: mutant kit failed to render — cannot prove teeth"; fi
+  fi
+  kitX2b="$TMP/kitX2b"; make_kit "$kitX2b"
+  if mk_sed_from "$PROMPTLOOP" "teeth-x2-stop" "$kitX2b/PROMPT-LOOP.md" 's/ (Without Cron tools, disarm per the Harness crosswalk.)//'; then
+    if RSDD_KIT_DIR="$kitX2b" "$RENDERER" general "$TMP/outX2b" >/dev/null 2>&1; then
+      if x2_stop "$TMP/outX2b/PROMPT-LOOP.md"; then no "teeth-x2-stop: x2_stop still PASSES with the STOP TEARDOWN pointer deleted — no teeth"
+      else ok "teeth-x2-stop: x2_stop goes RED when only the STOP TEARDOWN pointer is deleted"; fi
+      if x2_howto "$TMP/outX2b/PROMPT-LOOP.md"; then ok "teeth-x2-stop: the How-to-use pointer stays green (pointers asserted separately)"
+      else no "teeth-x2-stop: How-to-use pointer went red for the wrong reason"; fi
+    else no "teeth-x2-stop: mutant kit failed to render — cannot prove teeth"; fi
   fi
 
   echo "-- teeth: T-vanished-anchor (a mutation anchor that does not exist must FAIL, not be silently skipped) --"
