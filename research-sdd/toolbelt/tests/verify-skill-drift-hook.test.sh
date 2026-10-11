@@ -293,6 +293,14 @@ HOUT2="$(STUB_DRIFT_RC=1 STUB_DRIFT_OUT='verify-skill-drift: diverged harness=cl
 if grep -q 'diverged harness=claude' <<<"$HOUT2" && grep -q 'status=behind' <<<"$HOUT2"; then ok "H10: SKILL.md drift and kit staleness are reported together"
 else no "H10: combined report lost a half; out=[$HOUT2]"; fi
 
+ANNOT='verify harness=gentle-shell status=drift drifted=research-sdd/profile/general/BREAKTHROUGHS.md (extra: kit file written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/BREAKTHROUGHS.md by hand),research-sdd/profile/general/TARGETS.md (extra: registry edits written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/TARGETS.md by hand)'
+run_hook 0 1 "$ANNOT"
+nd="$(grep -c '^  - research-sdd/profile/general/' <<<"$HOUT")"
+if [ "$nd" = 2 ] && grep -q 'research-sdd-kit/research-sdd/BREAKTHROUGHS.md by hand' <<<"$HOUT" && grep -q 'research-sdd-kit/research-sdd/TARGETS.md by hand' <<<"$HOUT"; then
+  ok "H11: a drift line lists each drifted member on its own line and both reconcile paths stay visible (kit issue #2120)"
+else no "H11: annotated drift entries truncated or merged (entries=$nd) out=[$HOUT]"; fi
+[ "${#HOUT}" -lt 1200 ] && ok "H12: annotated drift output stays inside the SessionStart headroom (${#HOUT} chars)" || no "H12: annotated drift output too large (${#HOUT} chars)"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook mutants (lib/mutant.sh) --"
   # shellcheck source=lib/mutant.sh
@@ -314,6 +322,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _mk "C" "$SUT" "$MB/m-c.sh" 's/ | cut -c1-170//' \
     && _tt "teeth: width cap removed → over-long findings pass through" 0 0 "$MB/m-c.sh" \
        --good-lacks '0{250}' --bad-has '0{250}' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=2" "STUB_VERIFY_OUT=$LONG" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "I" "$SUT" "$MB/m-i.sh" 's/cut -c1-280/cut -c1-60/' \
+    && _tt "teeth: drift entry width cap shrunk to the old scale → the reconcile path is cut off (#2120)" 0 0 "$MB/m-i.sh" \
+       --good-has 'TARGETS.md by hand' --bad-lacks "$_CRASH|TARGETS.md by hand" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=1" "STUB_VERIFY_OUT=$ANNOT" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _mk "J" "$SUT" "$MB/m-j.sh" 's|s/,\\(|s/;\\(|' \
+    && _tt "teeth: per-entry split removed → a second drifted member is cut off the single line (#2120)" 0 0 "$MB/m-j.sh" \
+       --good-has 'TARGETS.md by hand' --bad-lacks "$_CRASH|TARGETS.md by hand" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=1" "STUB_VERIFY_OUT=$ANNOT" "$BASH_BIN" "$SB/decode.sh" @SUT@
   _mk "D" "$SUT" "$MB/m-d.sh" 's/if \[ -z "\$extra" \] \&\& \[ "\$vrc" -ne 0 \]; then/if false; then/' \
     && _tt "teeth: exit-code fallback removed → a crashing --verify is silent" 0 0 "$MB/m-d.sh" \
        --good-has 'exited 2 with no typed line' --bad-lacks "$_CRASH|exited 2" -- "$_ENV" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_RC=2" "$BASH_BIN" "$SB/decode.sh" @SUT@

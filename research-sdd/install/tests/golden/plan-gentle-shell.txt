@@ -12,7 +12,7 @@ harness=gentle-shell
   | Kit path: ~/.gentle-shell/agent/research-sdd/profile/general
   | Kit checkout: {KIT}
   | Read the prompts from Kit path; registry/ledger edits (TARGETS.md, BREAKTHROUGHS.md,
-  | INSTALLED-TOOLS.md, retro markers) and toolbelt runs go to Kit checkout, never the profile copy.
+  | INSTALLED-TOOLS.md) and toolbelt runs go to Kit checkout, never the profile copy.
   | 
   | MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta
   | auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.
