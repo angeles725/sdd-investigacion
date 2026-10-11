@@ -750,7 +750,7 @@ _rsdd_verify_kit() {
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
   local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
-  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp co_root co_link co_probe
+  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp co_root co_link co_probe co_dead
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   skill="$(rsdd_field "$h" skill_path "$home")"
@@ -847,6 +847,9 @@ _rsdd_verify_one() {
       fi
     done
   fi
+  # A surviving symlink whose checkout no longer exists is a dangling target, not a usable one.
+  co_dead=""
+  if [ -n "$co_root" ] && [ ! -d "$co_root" ]; then co_dead="$co_root"; co_root=""; fi
   kit_disp="$co_root"
   # shellcheck disable=SC2088  # literal display tilde, not an expansion
   if [ -n "$co_root" ] && [ "${co_root#"$home/"}" != "$co_root" ]; then kit_disp="~/${co_root#"$home/"}"; fi
@@ -866,7 +869,11 @@ _rsdd_verify_one() {
         if [ -n "$kit_disp" ]; then
           ann=" (extra: $ann — reconcile them into $kit_disp/$arel by hand)"
         else
-          ann=" (extra: $ann — reconcile target unknown: no surviving kit symlink in the render dir)"
+          if [ -n "$co_dead" ]; then
+            ann=" (extra: $ann — reconcile target unknown: the render dir's kit symlinks point at a removed checkout $co_dead)"
+          else
+            ann=" (extra: $ann — reconcile target unknown: no surviving kit symlink in the render dir)"
+          fi
         fi
         dl="${dl%% (extra)}$ann"
       fi
