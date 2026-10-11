@@ -185,6 +185,7 @@ A writer that adds or edits any `.sh` file also runs the repo-wide lint suites
 focused suites: these lints scan the shell tree (toolbelt, lib, install; `pipefail-sigpipe-lint` also
 `tests/`), so any new or edited script, test or not, can fail them while its own suite is green (the full
 gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
+Whenever a script emits or changes a typed state, it also runs `reason-codes.test.sh`: a new emitter of `absent-input`, `empty-input` or similar must be listed in `research-sdd/toolbelt/reason-codes.v1.md`, or that suite fails "real registry input rows vs real toolbelt" (PR #2140 full gate, 2026-10-11).
 
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
 register.
