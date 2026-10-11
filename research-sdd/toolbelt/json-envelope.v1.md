@@ -108,6 +108,9 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `hook-registered-no-sessions` | row claims `hook yes`; the Stop hook is registered with a loadable script, but no retained Claude Code transcript exists for a session launched from exactly the target directory, so it is not known to have loaded |
 | `hook-unregistered-stale` | row carries `hook file yes / unregistered` but the Stop hook IS registered with a loadable script |
 | `hook-no-sessions-stale` | row carries `registered-no-sessions` but the hook is no longer registered with a loadable script, or a retained transcript now exists |
+| `session-budget-truncated` | opt-in (`RSDD_REGISTRY_SESSION_BUDGET=1`): a wired SessionStart hook emits more than 10,000 characters, so Claude Code truncates it (kit #2129) |
+| `session-budget-over` | opt-in: the SessionStart hooks together reach the 8,000-character kit budget (kit #2129) |
+| `session-budget-degraded` | opt-in: a SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no sandbox) or `verify-session-budget.sh` is missing; the figures are partial, not zero (kit #2129) |
 | `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
 | `nc-no-count` | `nc` row without a claimed `N md` count |
 | `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |

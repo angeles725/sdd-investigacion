@@ -3510,6 +3510,30 @@ else
   no "1818c nc-contradiction names the ROOT file" "exit=$RC out=[$OUT]"
 fi
 
+# 2129 — SessionStart budget WARNs (opt-in RSDD_REGISTRY_SESSION_BUDGET=1; the check RUNS hooks).
+mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionStart hook
+  kit="$(mkkit "$1")"; tgt="$kit/targetB"; mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"
+  printf '#!/usr/bin/env bash\ncat >/dev/null; head -c 10500 /dev/zero | tr "\\0" x\n' > "$tgt/.claude/hooks/big.sh"; chmod +x "$tgt/.claude/hooks/big.sh"
+  printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/big.sh"}]}]}}\n' > "$tgt/.claude/settings.json"
+  cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
+  nsrow "$kit" "$tgt" '3 md / git yes'
+}
+mk2129 c2129a
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — a SessionStart hook emits more than 10,000 characters' <<<"$OUT" \
+   && grep -qE 'WARN[[:space:]]+targetB — SessionStart hooks total 10500 characters, over the kit' <<<"$OUT"; then
+  ok "2129a opt-in + 10,500-char SessionStart hook → truncation and over-budget WARNs" "(exit $RC)"
+else no "2129a opt-in budget WARNs" "exit=$RC out=[$OUT]"; fi
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'SessionStart' <<<"$OUT"; then
+  ok "2129b default (opt-in off) → hooks are NOT run, no budget finding" "(exit $RC)"
+else no "2129b default run must not execute hooks" "exit=$RC out=[$OUT]"; fi
+rm -f "$kit/toolbelt/verify-session-budget.sh"
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — SessionStart budget check could not run' <<<"$OUT"; then
+  ok "2129c opt-in with the budget script missing → degraded WARN, not a silent zero" "(exit $RC)"
+else no "2129c missing budget script → degraded" "exit=$RC out=[$OUT]"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   _vr_teeth_init
   echo "-- teeth-1818a: restore the lexical pick at the corpus-resolve site; the root-pref fixtures must go red --"
@@ -3527,6 +3551,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-1818c" "$kit" 's#^    _nc_state="\$(resolve_state_file "\$p")".*$#    _nc_state="$(find "$p" -maxdepth 3 -name "RESEARCH-STATE*.md" -not -name "*.template.md" -not -path "*/.git/*" 2>/dev/null | sort | head -1)"#'; then
     vr_run "teeth-1818c: lexical-pick mutant names the focus file a/RESEARCH-STATE-x.md" "$kit" 0 0 \
       --good-has 'found at .*/b/RESEARCH-STATE\.md' --bad-has 'found at .*/a/RESEARCH-STATE-x\.md'
+  fi
+  echo "-- teeth-2129: make the SessionStart budget check default-on (it RUNS hooks, so it must stay opt-in) --"
+  mk2129 teeth-2129
+  if vr_mut "teeth-2129" "$kit" 's/RSDD_REGISTRY_SESSION_BUDGET:-0}" = 1/RSDD_REGISTRY_SESSION_BUDGET:-1}" = 1/'; then
+    vr_run "teeth-2129: default-on mutant executes the hook and WARNs without the opt-in" "$kit" 0 0 \
+      --good-lacks 'SessionStart' --bad-has 'a SessionStart hook emits more than 10,000 characters'
   fi
 fi
 
