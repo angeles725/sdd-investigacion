@@ -209,6 +209,16 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
 
 check_suite "$SUT"
 
+# Gate self-test (kit issue #2138): re-run this suite with a failing bwrap shim first on PATH. With RSDD_REQUIRE_BWRAP=1
+# it must print the typed FAIL line and exit 1; without the flag it must SKIP and exit 0.
+if [ -z "${RSDD_SB_SELFTEST:-}" ]; then
+  SHB="$TMP/shim-bw"; mkdir -p "$SHB"; printf '#!/bin/sh\nexit 1\n' > "$SHB/bwrap"; chmod +x "$SHB/bwrap"
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=1 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  FAIL  0 RSDD_REQUIRE_BWRAP=1' && [ "$RCR" = 1 ] && ok "42 gate: RSDD_REQUIRE_BWRAP=1 + unusable bwrap -> typed FAIL, exit 1" || no "42 require-flag gate: rc=$RCR"
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=0 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  SKIP  ' && ! has "$OUTR" '  FAIL  ' && [ "$RCR" = 0 ] && ok "43 gate: unusable bwrap without the flag -> SKIP, exit 0" || no "43 skip path: rc=$RCR"
+fi
+
 # ---- Teeth ------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
