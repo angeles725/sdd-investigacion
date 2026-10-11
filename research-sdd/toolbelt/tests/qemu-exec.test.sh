@@ -619,7 +619,7 @@ echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags
 mutant_bootstrap mutant_chain_or_count mutant_py_crash_strict || exit 2
 TOOLBELT="$(dirname "$HERE")"
 b_pass=0; b_fail=0; _builds_failed=0
-_CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
+_CRASH="$(mutant_py_crash_strict --no-tb)"  # superset of the pre-#2113 inline set (adds the strict TypeError/IndexError/NoneType forms); like it, no Traceback
 # One UNMUTATED staged-tree control run (proves the staging; it must reproduce the python section's own
 # result), then each mutant is run ONCE and compared against it: rc != 0, the targeted FAIL text present,
 # no crash-class output. (mutant_tooth would re-run the original against the live tree for every mutant.)
