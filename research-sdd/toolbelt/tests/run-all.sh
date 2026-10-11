@@ -16,6 +16,23 @@
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
+#                [--shard I/N [--shard-manifest PATH]] | --list-suites
+#
+#   --shard I/N      Opt-in CI sharding (kit issue #2114): run only shard I of N (1 <= I <= N <= 32). The
+#                    FULL discovered list of BOTH corpora is sorted by repo-relative path (LC_ALL=C) and
+#                    suite number k (0-based) belongs to shard (k mod N) + 1, a disjoint cover of the list
+#                    for every N. Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
+#                    (#1126/#1144) still apply to the FULL list. The aggregate gains one
+#                    `Shard: I/N — K of T suites` line; K = 0 (N > T) is reported as EMPTY SHARD and exits 1
+#                    (zero coverage is never a pass). Without the flag nothing changes. Also `--shard=I/N`.
+#   --shard-manifest PATH
+#                    Requires --shard. Writes PATH (also `--shard-manifest=PATH`): a header line
+#                    `# shard I/N suites=K exit=RC` then one `<repo-relative suite path> <PASS|FAIL|SKIP>`
+#                    line per suite this shard ran. shard-join.sh consumes the N manifests and proves the
+#                    union covers every suite exactly once, all green.
+#   --list-suites    Print the full discovered suite list (repo-relative, LC_ALL=C sorted), one per line,
+#                    and exit (1 when the install corpus is absent). The single discovery source for
+#                    shard-join.sh.
 #
 #   --lane <name>    Passthrough (kit issue #1821): exports RSDD_TEST_LANE=<name> to every suite so the
 #                    lane-aware ones (lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
@@ -236,7 +253,33 @@ KEEP_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--shard I/N [--shard-manifest PATH]] | --list-suites"
+MAX_SHARDS=32
+SHARD_I=""
+SHARD_N=""
+SHARD_MANIFEST=""
+LIST_SUITES=""
+_parse_shard() {  # <value> — sets SHARD_I/SHARD_N or exits 2 (before any suite runs)
+  # SENTINEL-SHARD-VALIDATE
+  if [[ ! "$1" =~ ^[0-9]{1,3}/[0-9]{1,3}$ ]]; then
+    echo "invalid --shard value '$1': need I/N with integers 1 <= I <= N <= $MAX_SHARDS; $USAGE" >&2
+    exit 2
+  fi
+  local _i="${1%/*}" _n="${1#*/}"
+  _i=$((10#$_i)); _n=$((10#$_n))
+  if [[ "$_n" -lt 1 || "$_n" -gt "$MAX_SHARDS" || "$_i" -lt 1 || "$_i" -gt "$_n" ]]; then
+    echo "invalid --shard value '$1': need 1 <= I <= N <= $MAX_SHARDS; $USAGE" >&2
+    exit 2
+  fi
+  SHARD_I="$_i"; SHARD_N="$_n"
+}
+_parse_shard_manifest() {  # <path> — sets SHARD_MANIFEST or exits 2
+  if [[ -z "$1" ]]; then
+    echo "--shard-manifest needs a PATH; $USAGE" >&2
+    exit 2
+  fi
+  SHARD_MANIFEST="$1"
+}
 LANE_ARG=""
 _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
   local v="$1" lib="$SCRIPT_DIR/../lib/test-lane.sh"
@@ -293,6 +336,23 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
     --lane=*)
       _parse_lane "${_a#--lane=}"
       ;;
+    --shard)
+      _ai=$((_ai + 1))
+      _parse_shard "${_args[$_ai]-}"
+      ;;
+    --shard=*)
+      _parse_shard "${_a#--shard=}"
+      ;;
+    --shard-manifest)
+      _ai=$((_ai + 1))
+      _parse_shard_manifest "${_args[$_ai]-}"
+      ;;
+    --shard-manifest=*)
+      _parse_shard_manifest "${_a#--shard-manifest=}"
+      ;;
+    --list-suites)
+      LIST_SUITES=1
+      ;;
     -j|--jobs)
       _ai=$((_ai + 1))
       _parse_jobs "${_args[$_ai]-}"
@@ -311,6 +371,14 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
   esac
   _ai=$((_ai + 1))
 done
+if [[ -n "$SHARD_MANIFEST" && -z "$SHARD_N" ]]; then
+  echo "--shard-manifest needs --shard I/N (a manifest of an unsharded run would claim a shard it never was); $USAGE" >&2
+  exit 2
+fi
+if [[ -n "$LIST_SUITES" && -n "$SHARD_N" ]]; then
+  echo "--list-suites lists the FULL discovered set and cannot be combined with --shard; $USAGE" >&2
+  exit 2
+fi
 
 # --- Discover suites deterministically ------------------------------------
 shopt -s nullglob
@@ -338,9 +406,12 @@ fi
 
 # Merge and sort for deterministic order.
 all_suites=()
+declare -A suite_rel=()   # absolute suite path -> repo-relative path (shard key, manifest identity; kit issue #2114)
 # SENTINEL-CORPUS-MERGE
 for f in "${sh_suites[@]}" "${mjs_suites[@]}" "${install_sh_suites[@]}" "${install_mjs_suites[@]}"; do
   all_suites+=("$f")
+  if [[ "$f" == "$SCRIPT_DIR"/* ]]; then suite_rel["$f"]="research-sdd/toolbelt/tests/${f##*/}"
+  else suite_rel["$f"]="research-sdd/install/tests/${f##*/}"; fi
 done
 
 if [[ ${#all_suites[@]} -eq 0 ]]; then
@@ -354,6 +425,38 @@ fi
 # "research-sdd/toolbelt/..." suites lexically. Harmless — still fully deterministic — but the
 # install corpus now runs FIRST, not interleaved by suite name).
 mapfile -t all_suites < <(printf '%s\n' "${all_suites[@]}" | sort)
+
+# --- --list-suites / --shard (kit issue #2114) -------------------------------------------------
+# Both operate on the FULL discovered list above; the empty-list gate has already run on it and
+# INSTALL_TESTS_DEGRADED (checked at exit) is untouched by the selection.
+total_suites=${#all_suites[@]}
+if [[ -n "$LIST_SUITES" || -n "$SHARD_N" ]]; then
+  declare -A _rel_abs=()
+  for f in "${all_suites[@]}"; do _rel_abs["${suite_rel[$f]}"]="$f"; done
+  if [[ ${#_rel_abs[@]} -ne ${#all_suites[@]} ]]; then
+    echo "run-all.sh: ${#all_suites[@]} suite(s) discovered but only ${#_rel_abs[@]} distinct repo-relative path(s); refusing to shard/list an ambiguous set" >&2
+    exit 1
+  fi
+  mapfile -t _sorted_rels < <(printf '%s\n' "${!_rel_abs[@]}" | LC_ALL=C sort)
+fi
+if [[ -n "$LIST_SUITES" ]]; then
+  printf '%s\n' "${_sorted_rels[@]}"
+  [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] || exit 1
+  exit 0
+fi
+if [[ -n "$SHARD_N" ]]; then
+  declare -A _shard_pick=()
+  for ((_si = 0; _si < ${#_sorted_rels[@]}; _si++)); do
+    # SENTINEL-SHARD-ASSIGN
+    if (( _si % SHARD_N == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sorted_rels[$_si]}]}"]=1; fi
+  done
+  _shard_suites=()
+  for f in "${all_suites[@]}"; do
+    [[ "${_shard_pick[$f]+set}" == set ]] && _shard_suites+=("$f")
+  done
+  all_suites=("${_shard_suites[@]+"${_shard_suites[@]}"}")
+fi
+suite_results=()   # "<repo-relative path> <PASS|FAIL|SKIP>" per suite actually run (shard manifest)
 
 # --- Summary line matcher -------------------------------------------------
 # Exact format printed by every suite (separator is U+00B7 MIDDLE DOT):
@@ -688,6 +791,8 @@ if [[ "$JOBS" -gt 1 ]]; then
     echo "run-all.sh: DEGRADED — $PARALLEL_DEGRADED_REASON" >&2
   fi
 fi
+# An empty shard (kit issue #2114) has nothing to batch; `parallel ::: <nothing>` would read stdin.
+[[ ${#all_suites[@]} -gt 0 ]] || JOBS_ACTIVE=""
 if [[ -n "$JOBS_ACTIVE" ]]; then
   PAR_DIR="$(mktemp -d)"; _par_dir_created=1
   cat > "$PAR_DIR/run1.sh" <<'WORKER'
@@ -876,8 +981,10 @@ for suite in "${all_suites[@]}"; do
   #        no summary     — output is non-empty but has no summary-like line at all
   #   4. ZERO CASES: exit 0 with a parsed 0/0 summary is failed as no coverage.
   #   5. Normal pass/fail by exit code.
+  _res=FAIL
   if [[ "$rc" -eq 0 ]] && grep -q '^SKIP:' "$tmp_out"; then
     suites_skipped+=("$base")
+    _res=SKIP
   elif [[ "$rc" -eq 2 ]]; then
     failed_suites+=("$base (HARNESS ERROR, exit 2)")
   elif [[ -z "$parsed_line" ]]; then
@@ -894,6 +1001,7 @@ for suite in "${all_suites[@]}"; do
     case "$rc" in
       0)
         suites_ok=$((suites_ok + 1))
+        _res=PASS   # SENTINEL-SHARD-RESULT-PASS
         ;;
       *)
         failed_suites+=("$base (exit $rc)")
@@ -901,6 +1009,7 @@ for suite in "${all_suites[@]}"; do
     esac
   fi
 
+  suite_results+=("${suite_rel[$suite]} $_res")
   echo
 done
 
@@ -918,6 +1027,14 @@ else
 fi
 if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
+fi
+if [[ -n "$SHARD_N" ]]; then
+  echo "Shard: $SHARD_I/$SHARD_N — ${#all_suites[@]} of $total_suites suites"
+  if [[ ${#all_suites[@]} -eq 0 ]]; then
+    # SENTINEL-SHARD-EMPTY
+    echo "Shard: EMPTY SHARD — $SHARD_I/$SHARD_N selected 0 of $total_suites suites (N exceeds the suite count); nothing ran, so this shard is not a pass"
+  fi
+  [[ -z "$SHARD_MANIFEST" ]] || echo "Shard manifest: $SHARD_MANIFEST"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
   echo "Parallel: -j $JOBS — a leak found by the batch snapshot is attributed by a serial re-run bounded to the candidate suites whose run window contained the leaked path's mtime (the suites whose recorded window matched — typically at most -j N, never the whole corpus; per-suite timeout RUN_ALL_ATTRIBUTION_TIMEOUT, default 600s); unattributed leaks keep the batch label plus a typed Attribution line"
@@ -1100,24 +1217,34 @@ echo "==============================================================="
 
 # Exit 0 only if no suite failed AND at least one suite actually passed.
 # A fully-skipped run (suites_ok == 0) exits 1 — zero test coverage is not "all green".
+# The verdict is computed into final_rc (not exited inline) so a shard manifest can record it: a
+# shard that failed on hermeticity/teeth with every suite PASS must not read as green at the join.
+final_rc=1
 if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
+  final_rc=0
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
   if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
-    exit 1
+    final_rc=1
   fi
   # SENTINEL-REQUIRE-TEETH-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && [[ ${#sh_no_teeth[@]} -gt 0 ]]; then
-    exit 1
+    final_rc=1
   fi
   # SENTINEL-TEETH-HELPER-EXIT
   if [[ -n "$REQUIRE_TEETH" ]] && { [[ ${#_unwaived[@]} -gt 0 ]] || [[ ${#_stale[@]} -gt 0 ]] \
      || [[ ${#_wv_invalid[@]} -gt 0 ]] || [[ "$_wv_state" == "unreadable" ]]; }; then
-    exit 1
+    final_rc=1
   fi
-  exit 0
-else
-  exit 1
 fi
+# SENTINEL-SHARD-MANIFEST-WRITE
+if [[ -n "$SHARD_MANIFEST" ]]; then
+  {
+    printf '# shard %s/%s suites=%s exit=%s\n' "$SHARD_I" "$SHARD_N" "${#all_suites[@]}" "$final_rc"
+    [[ ${#suite_results[@]} -eq 0 ]] || printf '%s\n' "${suite_results[@]}"
+  } > "$SHARD_MANIFEST.tmp.$$" && mv "$SHARD_MANIFEST.tmp.$$" "$SHARD_MANIFEST" \
+    || { rm -f "$SHARD_MANIFEST.tmp.$$"; echo "run-all.sh: could not write the shard manifest '$SHARD_MANIFEST'" >&2; exit 1; }
+fi
+exit "$final_rc"
