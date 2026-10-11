@@ -32,10 +32,13 @@ mktree(){
   cp "$SUT" "$root/toolbelt/tests/run-all.sh"
   for ((i = 1; i <= $2; i++)); do mkfix "$root/toolbelt/tests/t$(printf %02d "$i").test.sh" 0; done
   for ((i = 1; i <= $3; i++)); do mkfix "$root/install/tests/i$(printf %02d "$i").test.sh" 0; done
+  # one node suite per corpus so the .test.mjs discovery/shard path is exercised too
+  printf 'console.log("== 1 passed %s 0 failed ==");\n' "$MID" > "$root/toolbelt/tests/n01.test.mjs"
+  printf 'console.log("== 1 passed %s 0 failed ==");\n' "$MID" > "$root/install/tests/n02.test.mjs"
   printf '%s' "$root/toolbelt/tests"
 }
 # expected_list <tooldir> — independent oracle of the full repo-relative list (find, not the SUT)
-expected_list(){ local r="${1%/research-sdd/toolbelt/tests}"; (cd "$r" && find research-sdd/toolbelt/tests research-sdd/install/tests -name '*.test.sh' | LC_ALL=C sort); }
+expected_list(){ local r="${1%/research-sdd/toolbelt/tests}"; (cd "$r" && find research-sdd/toolbelt/tests research-sdd/install/tests \( -name '*.test.sh' -o -name '*.test.mjs' \) | LC_ALL=C sort); }
 # shard_run <tooldir> <I/N> [extra...] — runs one shard; manifest $d/m.I-N, output $d/out.I-N
 shard_run(){ local d="$1" sh="$2"; shift 2; bash "$d/run-all.sh" --shard "$sh" --shard-manifest "$d/../../../aux/m.${sh/\//-}" "$@" >"$d/../../../aux/out.${sh/\//-}" 2>&1; }
 manifest_suites(){ grep -v '^#' "$1" | awk '{print $1}'; }
@@ -82,9 +85,14 @@ bash "$d4/run-all.sh" --list-suites --shard 1/2 >/dev/null 2>&1; [ $? -eq 2 ] ||
 bash "$d4/run-all.sh" --shard=1/2 --shard-manifest="$d4/eq.m" >/dev/null 2>&1; rc=$?; { [ $rc -eq 0 ] && [ -f "$d4/eq.m" ]; } || bad="$bad [= forms rc=$rc]"
 [ -z "$bad" ] && ok "invalid --shard / --shard-manifest usage exits 2 before any suite runs; --opt=value forms work" || no "arg validation:$bad"
 
+# 4b — --require-teeth with --shard is refused (exit 2, nothing runs): the waiver gate needs the whole corpus
+o="$(bash "$d4/run-all.sh" --shard 1/2 --require-teeth 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'cannot be combined with --shard' <<<"$o" && ! grep -qF 'AGGREGATE' <<<"$o"; then ok "--require-teeth + --shard exits 2 before any suite runs"
+else no "require-teeth+shard rc=$rc"; fi
+
 # 5 — empty shard (N > T) is reported distinctly, exits 1, writes a zero-suite manifest
 d5="$(mktree empty 1 1)"; shard_run "$d5" 7/9; rc=$?
-if [ "$rc" -eq 1 ] && grep -qF 'EMPTY SHARD' "$d5/../../../aux/out.7-9" && grep -qxF 'Shard: 7/9 — 0 of 2 suites' "$d5/../../../aux/out.7-9" \
+if [ "$rc" -eq 1 ] && grep -qF 'EMPTY SHARD' "$d5/../../../aux/out.7-9" && grep -qxF 'Shard: 7/9 — 0 of 4 suites' "$d5/../../../aux/out.7-9" \
    && head -1 "$d5/../../../aux/m.7-9" | grep -qxF '# shard 7/9 suites=0 exit=1' && [ "$(grep -vc '^#' "$d5/../../../aux/m.7-9")" = 0 ]; then
   ok "empty shard: distinct EMPTY SHARD report, exit 1, zero-suite manifest"
 else no "empty shard wrong: rc=$rc $(grep -E '^Shard' "$d5/../../../aux/out.7-9" | tr '\n' '|')"; fi
@@ -95,7 +103,7 @@ printf '#!/usr/bin/env bash\necho "SKIP: x"\necho "== 0 passed %s 0 failed =="\n
 shard_run "$d6" 1/1; rc=$?
 if [ "$rc" -eq 1 ] && grep -qxF 'research-sdd/toolbelt/tests/t02.test.sh FAIL' "$d6/../../../aux/m.1-1" \
    && grep -qxF 'research-sdd/toolbelt/tests/t03.test.sh SKIP' "$d6/../../../aux/m.1-1" && grep -qxF 'research-sdd/toolbelt/tests/t01.test.sh PASS' "$d6/../../../aux/m.1-1" \
-   && head -1 "$d6/../../../aux/m.1-1" | grep -qxF '# shard 1/1 suites=4 exit=1'; then ok "manifest records PASS/FAIL/SKIP per suite and the shard exit code"
+   && head -1 "$d6/../../../aux/m.1-1" | grep -qxF '# shard 1/1 suites=6 exit=1'; then ok "manifest records PASS/FAIL/SKIP per suite and the shard exit code"
 else no "manifest results wrong: rc=$rc $(tr '\n' '|' < "$d6/../../../aux/m.1-1")"; fi
 
 # 7 — corpus gates still apply to the FULL list: an ABSENT install corpus fails even when the shard passes
@@ -108,7 +116,7 @@ bash "$d7b/run-all.sh" --shard 1/2 >/dev/null 2>&1; [ $? -eq 1 ] && ok "no suite
 
 # 8 — without --shard nothing new appears
 d8="$(mktree plain 2 1)"; o="$(bash "$d8/run-all.sh" 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && ! grep -qE '^Shard' <<<"$o" && grep -qx 'Suites run:    3' <<<"$o"; then ok "no --shard: no Shard line, all suites run"
+if [ "$rc" -eq 0 ] && ! grep -qE '^Shard' <<<"$o" && grep -qx 'Suites run:    5' <<<"$o"; then ok "no --shard: no Shard line, all suites run"
 else no "unsharded run changed: rc=$rc"; fi
 
 # 9 — --list-suites prints the full sorted list and runs nothing
@@ -156,6 +164,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dm="$(mktree mut-empty 1 1)"; cp "$w/run-all.sh" "$dm/run-all.sh"; shard_run "$dm" 7/9
     if ! grep -qF 'EMPTY SHARD' "$dm/../../../aux/out.7-9"; then ok "teeth-empty: mutant loses the distinct report -> the empty-shard case has real teeth"; else no "teeth-empty: still reported (THEATER)"; fi
+  fi
+  echo "-- teeth: drop the --require-teeth/--shard refusal; the combination must then be accepted --"
+  w="$TMP/teeth-reqteeth"; mkdir -p "$w"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/if \[\[ -n "\$REQUIRE_TEETH" \&\& -n "\$SHARD_N" \]\]; then/if false; then/' 2>"$w/err"; then no "teeth-reqteeth: no mutant: $(cat "$w/err")"
+  else
+    dm="$(mktree mut-reqteeth 2 1)"; cp "$w/run-all.sh" "$dm/run-all.sh"; bash "$dm/run-all.sh" --shard 1/2 --require-teeth >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" -ne 2 ]; then ok "teeth-reqteeth: refusal-less mutant accepts the combination -> the case has real teeth"; else no "teeth-reqteeth: mutant still refused (THEATER)"; fi
   fi
   echo "-- teeth: manifest result defaults to PASS; a failing suite must then read PASS --"
   w="$TMP/teeth-result"; mkdir -p "$w"

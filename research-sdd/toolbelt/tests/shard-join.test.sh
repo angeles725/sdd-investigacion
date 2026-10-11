@@ -81,6 +81,10 @@ join --expected "$TMP/exp" "$TMP/m1" "$TMP/badline"; { [ "$RC" -eq 1 ] && grep -
 printf '# shard 3/2 suites=0 exit=0\n' > "$TMP/badidx"
 join --expected "$TMP/exp" "$TMP/m1" "$TMP/badidx"; { [ "$RC" -eq 1 ] && grep -qF 'outside 1..2' <<<"$OUT"; } && ok "shard index outside 1..N is CORRUPT" || no "badidx rc=$RC out=$OUT"
 
+# 5b — no readable manifest at all: NO VALID MANIFEST (no shard count is known), never a pass
+join --expected "$TMP/exp" "$TMP/trunc" "$TMP/nohdr"
+if [ "$RC" -eq 1 ] && grep -qF 'JOIN: NO VALID MANIFEST' <<<"$OUT"; then ok "only corrupt manifests: NO VALID MANIFEST, exit 1"; else no "no valid rc=$RC out=$OUT"; fi
+
 # 6 — shard-set mismatches: missing shard, duplicate shard, N disagreement, --shards disagreement
 mf "$TMP/m1" 1/3 0 "$A" PASS; mf "$TMP/m2" 2/3 0 "$B" PASS "$C" PASS "$D" PASS
 join --expected "$TMP/exp" "$TMP/m1" "$TMP/m2"
@@ -129,6 +133,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mf "$TMP/s1" 1/2 0 "$A" PASS "$C" PASS; mf "$TMP/s2" 1/2 0 "$B" PASS "$D" PASS   # shard 1 twice, 2 absent, full coverage
   mf "$TMP/z1" 1/1 0                                                                # zero-suite manifest
   : > "$TMP/exp-empty"
+  mf "$TMP/k1" 1/2 0 "$A" PASS "$C" SKIP                                           # a SKIP result
+  mf "$TMP/c1" 1/3 0 "$A" PASS; mf "$TMP/c2" 2/3 0 "$B" PASS "$C" PASS "$D" PASS   # 3 shards declared, 2 manifests
+  mf "$TMP/u1" 1/2 0 "$A" PASS "$C" PASS "research-sdd/toolbelt/tests/ghost.test.sh" PASS # a suite nobody expects
   # tooth <label> <sed-expr> <finding-regex> <expected-file> <manifests...>
   # The mutant (one detector removed) must make the NAMED finding disappear from the output of an
   # input that the unmutated SUT flags with it; the finding, not the exit code, because several
@@ -147,6 +154,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth absent 's/add "ABSENT manifest: .*continue; fi/continue; fi/' 'ABSENT manifest' "$TMP/exp" "$TMP/g1" "$TMP/nope-a"
   tooth shardset 's/case "\${shard_seen\[\$_i\]:-0}" in/case x in/' 'MISSING SHARD|DUPLICATE SHARD' "$TMP/exp" "$TMP/s1" "$TMP/s2"
   tooth corrupt 's/if \[\[ -n "\$bad" \]\]; then add "CORRUPT manifest: .\$m. \$bad"; continue; fi/if [[ -n "$bad" ]]; then continue; fi/' 'CORRUPT manifest' "$TMP/exp" "$TMP/g1" "$TMP/trunc"
+  tooth unexpected 's/add "UNEXPECTED SUITE: \$s is not in the expected list"/:/' 'UNEXPECTED SUITE' "$TMP/exp" "$TMP/u1" "$TMP/g2"
+  tooth manifestcount 's/add "SHARD COUNT MISMATCH: \$n_expect shard(s) expected but [^"]*"/:/' 'shard\(s\) expected but' "$TMP/exp" "$TMP/c1" "$TMP/c2"
+  tooth shardsflag 's/"\$h_n" != "\$want_shards"/"$h_n" == "x$want_shards"/' 'but --shards 3 was expected' "$TMP/exp" --shards 3 "$TMP/g1" "$TMP/g2"
+  tooth novalid 's/add "NO VALID MANIFEST[^"]*"/:/' 'NO VALID MANIFEST' "$TMP/exp" "$TMP/trunc" "$TMP/nohdr"
+  tooth strictskip 's/\[\[ -z "\$strict_skip" \]\] || add "SKIPPED SUITE/true || add "SKIPPED SUITE/' 'SKIPPED SUITE' "$TMP/exp" --strict-skip "$TMP/k1" "$TMP/g2"
   tooth emptyexp 's/add "EXPECTED LIST EMPTY: zero suites expected, which cannot be a pass"/:/' 'EXPECTED LIST EMPTY' "$TMP/exp-empty" "$TMP/z1"
 fi
 

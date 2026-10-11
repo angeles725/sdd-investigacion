@@ -30,6 +30,7 @@
 #                    `# shard I/N suites=K exit=RC` then one `<repo-relative suite path> <PASS|FAIL|SKIP>`
 #                    line per suite this shard ran. shard-join.sh consumes the N manifests and proves the
 #                    union covers every suite exactly once, all green.
+#                    Not combinable with --require-teeth (exit 2): the waiver gate needs the whole corpus.
 #   --list-suites    Print the full discovered suite list (repo-relative, LC_ALL=C sorted), one per line,
 #                    and exit (1 when the install corpus is absent). The single discovery source for
 #                    shard-join.sh.
@@ -373,6 +374,11 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
 done
 if [[ -n "$SHARD_MANIFEST" && -z "$SHARD_N" ]]; then
   echo "--shard-manifest needs --shard I/N (a manifest of an unsharded run would claim a shard it never was); $USAGE" >&2
+  exit 2
+fi
+# SENTINEL-SHARD-REQUIRE-TEETH-REFUSE
+if [[ -n "$REQUIRE_TEETH" && -n "$SHARD_N" ]]; then
+  echo "--require-teeth cannot be combined with --shard: the teeth-helper waiver gate judges the whole corpus, so a shard would report waivers for suites in other shards as stale and fail; run --require-teeth unsharded; $USAGE" >&2
   exit 2
 fi
 if [[ -n "$LIST_SUITES" && -n "$SHARD_N" ]]; then

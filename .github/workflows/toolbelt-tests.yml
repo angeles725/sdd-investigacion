@@ -49,11 +49,10 @@ jobs:
     # over ~40 runs, 7 cancelled at 35:00; raised to 50 in #2115 as a stop-gap). The gate now runs as
     # a matrix of SHARD_COUNT shards, each `run-all.sh --shard I/N` (a deterministic round-robin slice of the
     # full sorted suite list across BOTH corpora), and the `toolbelt-tests` job below joins them.
-    # Measured: ~25-34 min serial-equivalent at -j 4 over the whole list, so 4 shards are ~7-9 min of
-    # suite time each plus ~1-2 min setup. timeout-minutes 25 leaves ~2.5x headroom per shard and a
+    # Measured before sharding: the whole list took 25-34 min of wall time at -j 4 on one runner, so
+    # each of 4 shards should take ~7-9 min of suite time plus ~1-2 min setup. timeout-minutes 25 leaves ~2.5x headroom per shard and a
     # cancelled shard fails the join (needs.result != success), so a timeout can never read as green.
     # History of the single-job cap: 12 -> 20 (2026-10-01) -> 35 (2026-10-02, #1437) -> 50 (2026-10-10, #2114/#2115).
-    name: toolbelt-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -110,6 +109,8 @@ jobs:
         with:
           name: shard-manifest-${{ matrix.shard }}
           path: ${{ runner.temp }}/manifest/manifest.txt
+          # A re-run of failed jobs uploads the same artifact name again; replace, do not fail.
+          overwrite: true
           if-no-files-found: error
           retention-days: 7
 
@@ -120,33 +121,42 @@ jobs:
     # (`gh api .../branches/main/protection` -> 404 "Branch not protected"; `.../rulesets` -> []),
     # so nothing server-side pins the name today, but merge-gate does and so does the PR history.
     # if: always() so a failed/cancelled shard produces a RED join instead of a skipped one (a
-    # skipped required check can read as passing); the first step turns any non-success shard result
-    # into a failure. Anti-silent-zero (CLAUDE.md section 7): shard-join.sh exits 0 only when every
-    # suite of the full list ran exactly once, in a complete set of green shards.
+    # skipped required check can read as passing). The checkout, download and join steps run first
+    # (download and join with if: always()) so every finding is printed even when a shard failed;
+    # the LAST step then fails the job on any non-success shard result. Anti-silent-zero
+    # (CLAUDE.md section 7): shard-join.sh exits 0 only when every suite of the full list ran exactly
+    # once, in a complete set of green shards.
+    # NOTE: the shard job above deliberately has NO `name:` line: merge-gate.sh's workflow parser
+    # treats any job `name:` containing `${{` as unparseable and then refuses every doc-only PR with
+    # ci_missing. GitHub names matrix jobs `toolbelt-shard (1)` by itself.
     needs: toolbelt-shard
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every shard job green
-        run: |
-          if [ "${{ needs.toolbelt-shard.result }}" != "success" ]; then
-            echo "::error::toolbelt-shard result is '${{ needs.toolbelt-shard.result }}' (need success for every shard)"
-            exit 1
-          fi
-
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Download shard manifests
+        if: always()
         uses: actions/download-artifact@v4
         with:
           pattern: shard-manifest-*
           path: manifests
 
       - name: Join - every suite ran exactly once and passed
+        if: always()
         # The glob matches nothing if no artifact arrived -> shard-join.sh reports ABSENT (never a pass).
         run: bash research-sdd/toolbelt/tests/shard-join.sh --shards "$SHARD_COUNT" manifests/shard-manifest-*/manifest.txt
+
+      - name: Require every shard job green
+        # Last on purpose: the join output above is printed first. A cancelled/failed shard is red here.
+        if: always()
+        run: |
+          if [ "${{ needs.toolbelt-shard.result }}" != "success" ]; then
+            echo "::error::toolbelt-shard result is '${{ needs.toolbelt-shard.result }}' (need success for every shard)"
+            exit 1
+          fi
 
   shellcheck:
     runs-on: ubuntu-latest
