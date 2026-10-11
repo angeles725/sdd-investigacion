@@ -84,7 +84,7 @@ HAVE_TS=0
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.features.typescript ? 1 : 0' 2>/dev/null)" = 1 ]; then HAVE_TS=1; fi
 if [ "$HAVE_TS" = 1 ]; then
   beh_out="$(node "$BEHAVIOR" 2>&1)"; beh_rc=$?
-  beh_sum="$(grep -E '^[0-9]+ passed' <<<"$beh_out" | tail -1)"
+  beh_sum="$(grep -E '^== [0-9]+ passed · [0-9]+ failed ==$' <<<"$beh_out" | tail -1)"
   if [ "$beh_rc" = 0 ] && [ -n "$beh_sum" ]; then ok "behavior: pi-hooks-behavior.test.mjs against the real extension ($beh_sum)"
   else no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';')"; fi
 elif [ "${RSDD_REQUIRE_NODE_TS:-}" = 1 ]; then

@@ -621,5 +621,6 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
 }
 
 restoreEnv();
-console.log(`\n${pass} passed, ${fail} failed, ${skip} skipped (${Date.now() - t0} ms)`);
+console.log(`\nskipped: ${skip} (${Date.now() - t0} ms)`);
+console.log(`== ${pass} passed · ${fail} failed ==`);
 process.exit(fail > 0 ? 1 : 0);
