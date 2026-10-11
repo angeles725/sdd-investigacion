@@ -497,6 +497,14 @@ else
   _got="$(retro_grammar_row_titles "$ROOT/rowtitles-entry.md" | tr '\037\n' '|,')"
   [ "$_got" = "D4|entry form delta title,D5|second entry form delta," ] \
     && ok "T55 entry form (### D<N> — title) yields the entry titles" "($_got)" || no "T55 entry-form titles" "got=[$_got]"
+  # T56 (kit issue #2118): GFM-escaped pipes are cell text. The header cell `Kind \| tag` must not shift the title
+  # column; the middle row quotes a table header; the last row has two cells; the `E\|1` id row (pipe in an ID) is
+  # unclassifiable (typed by stage/reconcile) and never a title row.
+  _EPF="$HERE/fixtures/stage-retro-issues/escaped-pipe.md"
+  _EP_GOOD='2|Middle cell quotes the header `| ID | Delta | Target | Evidence | Priority |` verbatim,3|Last cell escaped pipe delta, long enough,4|Only|two|cells here, no target,'
+  _got="$(retro_grammar_row_titles "$_EPF" | tr '\037\n' '|,')"
+  [ "$_got" = "$_EP_GOOD" ] \
+    && ok "T56 escaped pipes: header/middle/last cells intact, pipe-in-id row skipped" "(${_got:0:60}…)" || no "T56 escaped-pipe row titles" "got=[$_got]"
 fi
 
 echo ""
@@ -718,6 +726,7 @@ else
     # Build mirror tree so copies resolve HERE/../lib/ → real lib — Blocker 2 fix.
     _sf_mirror="$ROOT/sf-mirror"
     mkdir -p "$_sf_mirror/tests"
+    ln -s "$HERE/fixtures"           "$_sf_mirror/tests/fixtures"   # T56 reads fixtures/stage-retro-issues/escaped-pipe.md
     ln -s "$HERE/../lib"             "$_sf_mirror/lib"
     ln -s "$HERE/../sweep-retros.sh" "$_sf_mirror/sweep-retros.sh"
     ln -s "$HERE/../verify-retro.sh" "$_sf_mirror/verify-retro.sh"
@@ -895,6 +904,10 @@ rt_mutant() {
 }
 rt_mutant T1 's/(proposed change|proposed delta|proposal/(NEVERMATCH|proposed delta|proposal/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
 rt_mutant T2 '/sed -E .s\/\^\\\*\\\*/s/.*/      _dl="$_dl"/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
+# T56 teeth (kit issue #2118): each patched copy has its own marker, so each mutant bites only its own line.
+rt_mutant E1 '/RETRO_GRAMMAR_ESCAPED_PIPE_ROW/s/gsub(\/\\\\\\|\/, SENT/gsub(\/NEVERMATCHES\/, SENT/' "$_EPF" "$_EP_GOOD"
+rt_mutant E2 '/RETRO_GRAMMAR_ESCAPED_PIPE_HDR/s/gsub(\/\\\\\\|\/, SENT/gsub(\/NEVERMATCHES\/, SENT/' "$_EPF" "$_EP_GOOD"
+rt_mutant E3 '/RETRO_GRAMMAR_ID_PIPE/s/if (index(rid, "|")) next/if (0) next/' "$_EPF" "$_EP_GOOD"
 rt_mutant T3 's/\[ -n "\$_rows" \] || _rows="\$(retro_grammar_entry_rows/: || _rows="$(retro_grammar_entry_rows/' "$ROOT/rowtitles-entry.md" "D4|entry form delta title,D5|second entry form delta,"
 
 echo ""
