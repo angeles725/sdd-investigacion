@@ -2864,9 +2864,56 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     elif ! grep -qF -- "$want" <<<"$why"; then no "48 teeth $label: broke for the WRONG reason" "wanted [$want] got [$why]"
     else ok "48 teeth $label: mutant breaks case 48 with [$want]" "()"; fi
   }
-  c48_tooth escaped-pipe-off 'MISSING id-contains-pipe line' '/RECONCILE_ISSUES_ESCAPED_PIPE/s/gsub(\/\\\\\\|\/, SENT/gsub(\/NEVERMATCHES\/, SENT/'
+  c48_tooth escaped-pipe-off 'MISSING id-contains-pipe line' '/RECONCILE_ISSUES_ESCAPED_PIPE/s/rg_esc_pipes(line)/line/'
   c48_tooth id-pipe-off      'MISSING id-contains-pipe line' 's/if \[\[ "\$_rln" == \*.|.\* \]\]; then$/if false; then/'
 fi
+
+# 49 - backslash runs before a pipe (kit issue #2135): an ODD run escapes the pipe, an EVEN run (`\\|`) is a real
+# column break. The first-cell break gives the row id `1\\`; rows 2-4 keep their ids. Reconcile must read the same
+# four ids the seeder stages: rows 2-4 are tracked, none is unclassifiable, and row 1 is parsed as `1\\` (it stays
+# untracked here only because the issue-signature id grammar [A-Za-z0-9_-] cannot carry a backslash - a limit that
+# predates #2135 and applies to any id with a character outside that set; before this fix it was a pipe-in-id row).
+# c49 <reconcile-issues.sh to run> <retro-grammar.sh to run> <label> -> sets OUT/RC.
+c49() {
+  local sut="$1" lib="$2" b r s='Source retro: target-foo/retros/double-backslash-pipe.md'
+  b="$(mkbox "case-49-$3")"; mk_gh_stub "$b" nomatch
+  [ "$sut" = "$SUT" ] || cp "$sut" "$b/research-sdd/toolbelt/reconcile-issues.sh"
+  [ "$lib" = "$RETRO_GRAMMAR_LIB" ] || cp "$lib" "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
+  r="$b/rh/target-foo/retros/double-backslash-pipe.md"; cp "$HERE/fixtures/stage-retro-issues/double-backslash-pipe.md" "$r"
+  { printf '%s · %s\n\x1e\n' "$s" '1\\'; printf '%s · %s\n\x1e\n' "$s" 2; printf '%s · %s\n\x1e\n' "$s" 3; printf '%s · %s\n' "$s" 4; } > "$b/cache49.txt"
+  run "$b" --issues-cache "$b/cache49.txt" "$r"
+}
+c49_verdict() {
+  [ "$RC" = 0 ] || { echo "RC $RC"; return 1; }
+  ! grep -q '^unclassifiable:' <<<"$OUT" || { echo "UNEXPECTED unclassifiable"; return 1; }
+  local k; for k in 2 3 4; do grep -q "^tracked: row $k " <<<"$OUT" || { echo "MISSING tracked: row $k"; return 1; }; done
+  grep -qF 'row 1\\ ' <<<"$OUT" || { echo "MISSING row 1 parsed as id 1 plus two backslashes"; return 1; }
+  ! grep -q '^untracked: row [234] ' <<<"$OUT" || { echo "UNEXPECTED untracked"; return 1; }
+}
+c49 "$SUT" "$RETRO_GRAMMAR_LIB" good
+if why="$(c49_verdict)"; then ok "49 backslash runs: even run = column break (row ids 1\\\\ 2 3 4; rows 2-4 tracked)" "()"
+else no "49 double-backslash ids" "$why | out=[${OUT:0:500}]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth 49 (kit issue #2135): the shared parity rule bites (the call site is pinned by case 48) --"
+  # c49_tooth <label> <wanted-failure-text> <sut|lib> <sed-expr>
+  c49_tooth() {
+    local label="$1" want="$2" where="$3" expr="$4" m="$ROOT/m49-$1.sh" why
+    if [ "$where" = lib ]; then
+      if ! mutant_sed "$RETRO_GRAMMAR_LIB" "$m" -e "$expr"; then no "49 teeth $label: build mutant" "mutant_sed refused"; return; fi
+      c49 "$SUT" "$m" "m-$label"
+    else
+      if ! mutant_sed "$SUT" "$m" -e "$expr"; then no "49 teeth $label: build mutant" "mutant_sed refused"; return; fi
+      c49 "$m" "$RETRO_GRAMMAR_LIB" "m-$label"
+    fi
+    if why="$(c49_verdict)"; then no "49 teeth $label: mutant must break case 49" "THEATER"
+    elif ! grep -qF -- "$want" <<<"$why"; then no "49 teeth $label: broke for the WRONG reason" "wanted [$want] got [$why]"
+    else ok "49 teeth $label: mutant breaks case 49 with [$want]" "()"; fi
+  }
+  c49_tooth parity-any-run 'UNEXPECTED unclassifiable' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_PARITY/s/run % 2 == 1/run > 0/'
+fi
+
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"

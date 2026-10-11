@@ -765,7 +765,7 @@ audit_retro() {
   # --- Parse all delta row-ids from the retro (the same table rules as stage-retro-issues.sh: the row-id skip
   # rule is rg_table_id_skip in lib/retro-grammar.sh, one definition for both tools)
   local _all_row_ids _alt_dups
-  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk "$_RG_AWK_ID_FN"'
+  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk "$_RG_AWK_ID_FN$_RG_AWK_ESCPIPE_FN"'
     function flushp() { if (pend != "") { print pend; pend = "" } }
     BEGIN { in_sec=0; SENT = sprintf("%c", 1) }
     {
@@ -784,7 +784,7 @@ audit_retro() {
       if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
       if (in_sec && /^\|/) {
         line = $0
-        gsub(/\\\|/, SENT, line)   # RECONCILE_ISSUES_ESCAPED_PIPE: escaped pipe is cell text (kit issue #2118)
+        line = rg_esc_pipes(line)   # RECONCILE_ISSUES_ESCAPED_PIPE: an odd backslash run escapes the pipe (kit issues #2118 #2135)
         sub(/^\|[[:space:]]*/, "", line)
         sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
         n = split(line, f, /[[:space:]]*\|[[:space:]]*/)

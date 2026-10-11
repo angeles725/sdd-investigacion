@@ -107,6 +107,27 @@ function rg_table_id_skip(rid) {
 }
 '
 
+# ─── Backslash-run rule for a pipe inside a §18 table cell (kit issues #2118, #2135) ──────────────────────────
+# rg_esc_pipes(s): GFM tables extension - a pipe is escaped (cell text) by an ODD run of backslashes directly before it
+# (`\|`, `\\\|`); an EVEN run (`\\|`) is a real column break whose backslashes are literal (`\\` is an escaped
+# backslash). Returns <s> with every escaped pipe replaced by SENT (the escaping backslash dropped); the caller splits
+# on the remaining pipes and turns SENT back into `|` per cell. The caller defines SENT in BEGIN (a control char).
+# ONE definition for retro-grammar.sh's row_titles, stage-retro-issues.sh and reconcile-issues.sh, and the same rule
+# append-iteration-row.sh applies to its cell counter.
+_RG_AWK_ESCPIPE_FN='
+function rg_esc_pipes(s,    out, i, n, c, run) {
+  out = ""; run = 0; n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (c == "\\") { run++; out = out c; continue }
+    if (c == "|" && run % 2 == 1) out = substr(out, 1, length(out) - 1) SENT   # RETRO_GRAMMAR_ESCAPED_PIPE_PARITY
+    else out = out c
+    run = 0
+  }
+  return out
+}
+'
+
 # ─── retro_grammar_defenced <file> ───────────────────────────────────────────
 # Prints the file WITHOUT its fenced code blocks (kit issues #1356 item 1, #1369 b): a
 # `### D99 —` entry, a `**Priority**` field or a `## Proposed kit deltas` heading written inside a
@@ -846,7 +867,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
   retro_grammar_row_titles() {
     local f="${1:-}" _rows _id _dl _rest
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
+    _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_ESCPIPE_FN"'
       BEGIN { in_sec = 0; SENT = sprintf("%c", 1) }
       {
         low = tolower($0)
@@ -859,7 +880,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
           if (prev != "") {
             hl = tolower(prev)
-            gsub(/\\\|/, SENT, hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: escaped pipe is cell text (kit issue #2118)
+            hl = rg_esc_pipes(hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: an odd backslash run escapes the pipe (kit issues #2118 #2135)
             sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
             hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
             for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -872,7 +893,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|/) {
           prev = $0
           line = $0
-          gsub(/\\\|/, SENT, line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: escaped pipe is cell text (kit issue #2118)
+          line = rg_esc_pipes(line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: an odd backslash run escapes the pipe (kit issues #2118 #2135)
           sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
           n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
           for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])

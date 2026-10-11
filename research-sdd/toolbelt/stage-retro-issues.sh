@@ -618,13 +618,13 @@ _unc_line_of() {
 # no such row or more than one (a wrong line number is worse than none).
 _unc_row_line() {
   local _l=""
-  [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk '
+  [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk "$_RG_AWK_ESCPIPE_FN"'
     BEGIN { SENT = sprintf("%c", 1) }
     /^[[:space:]]*\|/ {
       # STAGE_RETRO_ISSUES_ROW_LINE_PIPE (kit issue #2118): cut the first cell on UNESCAPED pipes only, and match the
       # delta against the unescaped text, exactly as the row parser does.
-      c = $0; gsub(/\\\|/, SENT, c); sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c); gsub(SENT, "|", c)
-      u = $0; gsub(/\\\|/, "|", u)
+      c = rg_esc_pipes($0); sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c); gsub(SENT, "|", c)   # STAGE_RETRO_ISSUES_ROW_LINE_CELL
+      u = rg_esc_pipes($0); gsub(SENT, "|", u)
       if (c == ENVIRON["_R"] && index(u, ENVIRON["_D"]) > 0) { n++; if (n == 1) first = NR }
     }
     END { if (n == 1) print first }' "$retro")"
@@ -699,7 +699,7 @@ retro_file="$retro"
 if [ -z "$_unc_early" ]; then
 retro_basename="$(basename "$retro")"
 
-_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_ID_FN"'
+_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_ID_FN$_RG_AWK_ESCPIPE_FN"'
   # pend: the last data row, held back one line so a header row (the row directly above a separator) is dropped
   # by position and never becomes a delta (STAGE_RETRO_ISSUES_HEADER_DROP).
   function flushp() { if (pend != "") { print pend; pend = "" } }
@@ -724,7 +724,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
       pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
-        gsub(/\\\|/, SENT, hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issue #2118): a GFM-escaped pipe is cell text
+        hl = rg_esc_pipes(hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issues #2118 #2135): an odd backslash run escapes the pipe
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
         hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
         for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -757,7 +757,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
     if (in_sec && /^\|/) {
       prev = $0
       line = $0
-      gsub(/\\\|/, SENT, line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW
+      line = rg_esc_pipes(line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW
       sub(/^\|[[:space:]]*/, "", line)
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
