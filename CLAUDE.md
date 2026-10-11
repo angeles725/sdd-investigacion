@@ -180,9 +180,10 @@ neither conditional coverage nor run-to-run variability could be confirmed or ex
 careful measurements disagree on is not one a hand-written snapshot can promise to track. Doctrine
 holds invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
 
-A writer that adds or edits `*.test.sh` files also runs the repo-wide lint suites
+A writer that adds or edits any `.sh` file also runs the repo-wide lint suites
 (`pipefail-sigpipe-lint.test.sh`, `lint-substitution.test.sh`, `self-dir-idiom.test.sh`) in addition to its
-focused suites: they scan every suite, so a new test can fail them while its own suite is green (the full
+focused suites: these lints scan the shell tree (toolbelt, lib, install; `pipefail-sigpipe-lint` also
+`tests/`), so any new or edited script, test or not, can fail them while its own suite is green (the full
 gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
 
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
@@ -320,11 +321,13 @@ the headline. The fix is not to make the instrument guess; deltas are prose and 
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
 
-**Measure what the consumer receives, not the raw stream.** A size or count that gates a consumer
-(a hook budget, a parser's input) is taken on the form the consumer actually gets — for a SessionStart
-hook, the decoded `additionalContext`, not the JSON-escaped stdout. The two differ (the #2128
-correction measured a raw figure a few hundred characters above the decoded one; illustrative, not an
-assertion literal), and a budget claim made on the wrong one is wrong in one direction or the other.
+**Measure what the consumer receives: characters of the decoded text, not bytes and not the raw stream.**
+A size that gates a consumer (a hook budget, a parser's input) is counted on the form the consumer
+actually gets — for a SessionStart hook, the characters of the decoded `additionalContext`. UTF-8 byte
+counts of non-ASCII text (accents, box characters) over-report, and the raw JSON stdout over-reports
+slightly (escapes add a few hundred characters). Incident #2128: decoded 9,514 / 9,578 characters, raw
+JSON stdout 9,796 / 9,822 characters, UTF-8 bytes of the decoded text 11,494 / 12,368 (incident figures,
+not assertion literals).
 
 **Two samples with different scopes need two names.** A single label over two populations is
 unfalsifiable. `research-sdd-status.sh` printed one `forms:` sample sourced from the sorted window (numbered and structural rows)
@@ -345,8 +348,8 @@ issue #128.
 
 **A change to an id or signature validity rule is accepted only on a dry-run diff over ALL retros**
 (or all corpora the rule reads), not over the subset containing the character that triggered the change.
-The #2147 escape fix was checked on the 18 retros with the triggering character; the full dry-run
-differed on 190, which surfaced #2150.
+The #2147 escape fix was checked on the 18 retros with the triggering character; the dry-run over all
+190 retros surfaced one changed retro (niagara, ids `Δ1`–`Δ4`), which became #2150.
 
 **Check markup and format semantics against the authoritative renderer before encoding a parser rule,**
 and cite the observed render in the code comment. For GFM table cells, any backslash-pipe is an escaped

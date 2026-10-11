@@ -3567,7 +3567,7 @@ judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a 
    exemplar): the `| ID | Delta | Target | Evidence | Priority |` table is a machine contract parsed by
    `stage-retro-issues.sh`, not a style choice. A retro first written as free prose is non-stageable and has to be
    rewritten, which doubles the work and leaves the session's only record unstageable meanwhile (kit issue #2110).
-   Delta ids must be ASCII signature-safe (`[A-Za-z0-9_-]`): no Greek letters such as `Δ`, no markdown emphasis.
+   Delta ids must be ASCII signature-safe: an alphanumeric first character then `[A-Za-z0-9_-]*` (`^[A-Za-z0-9][A-Za-z0-9_-]*$`, as `lib/retro-grammar.sh` parses it): no Greek letters such as `Δ`, no markdown emphasis.
    Reconcile reads ids back with that grammar, so any other id can never be tracked; PR #2147 is typing it `id-not-signature-safe` in stage (kit #2153).
    The staging dry-run below is the acceptance test of the retro's format: run it before committing the retro.
 

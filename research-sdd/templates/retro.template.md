@@ -43,7 +43,7 @@ covers_through: B<n>
 > Each delta: the concrete change · the target file/section · evidence · priority.
 >
 > **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
-> delta. The **first column (ID) is free-form but must be ASCII signature-safe (`[A-Za-z0-9_-]`; no Greek letters like `Δ`, no markdown emphasis)** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> delta. The **first column (ID) is any label matching `^[A-Za-z0-9][A-Za-z0-9_-]*$`** (ASCII, alphanumeric first character; no Greek letters like `Δ`, no markdown emphasis) — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
 > equally (reconcile reads ids back with that grammar, so any other id can never be tracked; PR #2147 is typing it `id-not-signature-safe` in stage); any non-separator table row is one delta. The counter skips the header row and every
 > `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
 > triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
