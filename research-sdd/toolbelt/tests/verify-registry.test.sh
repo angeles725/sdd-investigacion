@@ -3510,6 +3510,59 @@ else
   no "1818c nc-contradiction names the ROOT file" "exit=$RC out=[$OUT]"
 fi
 
+# 2129 — SessionStart budget WARNs (opt-in RSDD_REGISTRY_SESSION_BUDGET=1; the check RUNS hooks).
+mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionStart hook
+  kit="$(mkkit "$1")"; tgt="$kit/targetB"; mkcorpus "$tgt" 3 "a"; mkdir -p "$tgt/.claude/hooks"
+  printf '#!/usr/bin/env bash\ncat >/dev/null; head -c 10500 /dev/zero | tr "\\0" x\n' > "$tgt/.claude/hooks/big.sh"; chmod +x "$tgt/.claude/hooks/big.sh"
+  printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/big.sh"}]}]}}\n' > "$tgt/.claude/settings.json"
+  cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
+  nsrow "$kit" "$tgt" '3 md / git yes'
+}
+# The sandbox-dependent cases (2129a, 2129d) need a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP.
+_vr2129_bw=0; command -v bwrap >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1 && _vr2129_bw=1
+mk2129 c2129a
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$_vr2129_bw" != 1 ]; then printf '  SKIP  2129a opt-in budget WARNs (no usable bwrap)\n'
+elif [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — a SessionStart hook emits more than 10,000 characters' <<<"$OUT" \
+   && grep -qE 'WARN[[:space:]]+targetB — SessionStart hooks total 10500 characters, over the kit.*worst session source: startup' <<<"$OUT"; then
+  ok "2129a opt-in + 10,500-char SessionStart hook → truncation and over-budget WARNs" "(exit $RC)"
+else no "2129a opt-in budget WARNs" "exit=$RC out=[$OUT]"; fi
+run "$kit"
+if [ "$RC" = 0 ] && ! grep -q 'SessionStart' <<<"$OUT"; then
+  ok "2129b default (opt-in off) → hooks are NOT run, no budget finding" "(exit $RC)"
+else no "2129b default run must not execute hooks" "exit=$RC out=[$OUT]"; fi
+# 2129d/2129g drive the registry with a STUB budget script that prints the script's documented lines, so the
+# registry's reading of "state: degraded" and "status=timed-out" is asserted in every environment (no bwrap needed).
+stub2129() { # <kit> <body-lines...> : replace verify-session-budget.sh with a stub printing the given lines
+  local f="$1/toolbelt/verify-session-budget.sh"; shift
+  { printf '#!/usr/bin/env bash\n'; local l; for l in "$@"; do printf 'printf "%%s\\n" %q\n' "$l"; done; } > "$f"
+}
+mk2129 c2129d
+stub2129 "$kit" 'hook[1] chars=n/a status=degraded(exit 1) cmd=x' 'aggregate: 0 chars (budget < 8000) OK (partial: 1 degraded in startup) worst-source=startup' 'state: degraded (1 of 1 hook runs could not be measured; 0 timed-out)'
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — at least one SessionStart hook could not be measured' <<<"$OUT" \
+   && ! grep -q 'more than 10,000' <<<"$OUT"; then
+  ok "2129d stub budget output with 'state: degraded' -> degraded WARN" "(exit $RC)"
+else no "2129d degraded state path" "exit=$RC out=[$OUT]"; fi
+mk2129 c2129g
+stub2129 "$kit" 'hook[1] chars=0 status=timed-out(hook timeout 10s) cmd=x' 'aggregate: 0 chars (budget < 8000) OK worst-source=startup' 'state: ok (1 hook runs, 0 truncated, 1 timed-out)'
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — a SessionStart hook outlives its own configured timeout' <<<"$OUT"; then
+  ok "2129g a hook that always times out (state: ok, 1 timed-out) -> session-budget-timed-out WARN" "(exit $RC)"
+else no "2129g timed-out finding" "exit=$RC out=[$OUT]"; fi
+mk2129 c2129e
+printf '#!/usr/bin/env bash\necho "verify-session-budget: crashed" >&2\nexit 2\n' > "$kit/toolbelt/verify-session-budget.sh"
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetB — the SessionStart budget check produced no 'state:' line" <<<"$OUT"; then
+  ok "2129e budget script crashed (no state: line) -> degraded WARN, not silence" "(exit $RC)"
+else no "2129e missing state line -> degraded" "exit=$RC out=[$OUT]"; fi
+mk2129 c2129f
+rm -f "$kit/toolbelt/verify-session-budget.sh"
+OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — SessionStart budget check could not run' <<<"$OUT"; then
+  ok "2129c opt-in with the budget script missing → degraded WARN, not a silent zero" "(exit $RC)"
+else no "2129c missing budget script → degraded" "exit=$RC out=[$OUT]"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   _vr_teeth_init
   echo "-- teeth-1818a: restore the lexical pick at the corpus-resolve site; the root-pref fixtures must go red --"
@@ -3527,6 +3580,35 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if vr_mut "teeth-1818c" "$kit" 's#^    _nc_state="\$(resolve_state_file "\$p")".*$#    _nc_state="$(find "$p" -maxdepth 3 -name "RESEARCH-STATE*.md" -not -name "*.template.md" -not -path "*/.git/*" 2>/dev/null | sort | head -1)"#'; then
     vr_run "teeth-1818c: lexical-pick mutant names the focus file a/RESEARCH-STATE-x.md" "$kit" 0 0 \
       --good-has 'found at .*/b/RESEARCH-STATE\.md' --bad-has 'found at .*/a/RESEARCH-STATE-x\.md'
+  fi
+  echo "-- teeth-2129: make the SessionStart budget check default-on (it RUNS hooks, so it must stay opt-in) --"
+  mk2129 teeth-2129
+  if vr_mut "teeth-2129" "$kit" 's/RSDD_REGISTRY_SESSION_BUDGET:-0}" = 1/RSDD_REGISTRY_SESSION_BUDGET:-1}" = 1/'; then
+    vr_run "teeth-2129: default-on mutant executes the hook and WARNs without the opt-in" "$kit" 0 0 \
+      --good-lacks 'SessionStart' --bad-has 'SessionStart'
+  fi
+  echo "-- teeth-2129b: a budget script that crashes (no state: line) must still be reported --"
+  mk2129 teeth-2129b
+  printf '#!/usr/bin/env bash\necho crashed >&2\nexit 2\n' > "$kit/toolbelt/verify-session-budget.sh"
+  if vr_mut "teeth-2129b" "$kit" "s/if ! grep -q '^state:' <<<\"\$_vr_sb\"; then/if false; then/"; then
+    vr_run "teeth-2129b: no-state guard removed -> the crash is silent" "$kit" 0 0 \
+      --good-has "produced no 'state:' line" --bad-lacks "produced no 'state:' line" \
+      -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
+  fi
+  echo "-- teeth-2129c: the registry must read 'state: degraded' and 'status=timed-out' from the budget script --"
+  mk2129 teeth-2129c
+  stub2129 "$kit" 'hook[1] chars=n/a status=degraded(exit 1) cmd=x' 'aggregate: 0 chars (budget < 8000) OK (partial: 1 degraded in startup) worst-source=startup' 'state: degraded (1 of 1 hook runs could not be measured; 0 timed-out)'
+  if vr_mut "teeth-2129c" "$kit" "s/elif grep -q '^state: degraded' <<<\"\$_vr_sb\"; then/elif false; then/"; then
+    vr_run "teeth-2129c: state-degraded branch removed -> the partial figures read as clean" "$kit" 0 0 \
+      --good-has 'at least one SessionStart hook could not be measured' --bad-lacks 'at least one SessionStart hook could not be measured' \
+      -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
+  fi
+  mk2129 teeth-2129d
+  stub2129 "$kit" 'hook[1] chars=0 status=timed-out(hook timeout 10s) cmd=x' 'aggregate: 0 chars (budget < 8000) OK worst-source=startup' 'state: ok (1 hook runs, 0 truncated, 1 timed-out)'
+  if vr_mut "teeth-2129d" "$kit" "s/if grep -q 'status=timed-out' <<<\"\$_vr_sb\"; then/if false; then/"; then
+    vr_run "teeth-2129d: timed-out branch removed -> an always-timing-out hook is silent" "$kit" 0 0 \
+      --good-has 'outlives its own configured timeout' --bad-lacks 'outlives its own configured timeout' \
+      -- env RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" @SUT@
   fi
 fi
 
