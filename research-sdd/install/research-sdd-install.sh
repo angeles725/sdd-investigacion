@@ -218,8 +218,8 @@ _rsdd_splice_file() {
 # rendered profile tree instead of the kit source (kit issue #993 WU2); defaults to $KIT so every
 # other caller/strategy keeps today's behaviour untouched.
 _surface__markdown_sections() {
-  local harness="$1" home="$2" file="$3" dry="$4" kit="${5:-$KIT}" section
-  section="$(rsdd_render_section "$harness" "$home" "$kit")" || return 2
+  local harness="$1" home="$2" file="$3" dry="$4" kit="${5:-$KIT}" checkout="${6:-}" section
+  section="$(rsdd_render_section "$harness" "$home" "$kit" "$checkout")" || return 2
   _rsdd_splice_file "$file" "$dry" \
     '<!-- research-sdd:start -->' '<!-- research-sdd:end -->' \
     'markdown-sections: marker <!-- research-sdd:start/end -->' "$section"
@@ -750,7 +750,7 @@ _rsdd_verify_kit() {
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
   local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
-  local nfiles drift_names kept_names rec_calc installed=0 mrc
+  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp co_root co_link co_probe co_dead
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   skill="$(rsdd_field "$h" skill_path "$home")"
@@ -822,13 +822,64 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=match bundle_sha256=%s files=%s\n' "$h" "$cur_digest" "$nfiles"
     return 0
   fi
-  drift_names="$(awk -F'\t' '
+  drift_lines="$(awk -F'\t' '
     NR==FNR { rec[$2]=$1; next }
     { cur[$2]=$1 }
     END {
       for (p in rec) { if (!(p in cur) || cur[p]=="MISSING") print p " (missing)"; else if (cur[p]!=rec[p]) print p " (modified)" }
       for (p in cur) if (!(p in rec)) print p (cur[p]=="MISSING" ? " (missing)" : " (extra)")
-    }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort | paste -sd, -)"
+    }' <(printf '%s\n' "$rec_manifest") <(printf '%s\n' "$cur_manifest") | LC_ALL=C sort)"
+  # A REGULAR file inside the rendered profile that is named like a top-level kit entry is a kit file
+  # (TARGETS.md, BREAKTHROUGHS.md, ...) that a session or write tool wrote INTO the profile copy, replacing
+  # the symlink to the checkout (kit issue #2120): name it and the checkout file to reconcile into. Never
+  # moved or deleted (TARGETS.md is human-owned, CLAUDE.md §8); the drift status and exit code are unchanged.
+  # Annotation text carries no comma: the list is comma-joined below.
+  # The reconcile target comes from the INSTALL, not from the running kit: --verify may run from another
+  # checkout or a worktree. A surviving symlink in the render dir (toolbelt first) points into the checkout
+  # the render was completed against; with none left the target is stated as unknown, never guessed.
+  co_root=""
+  if [ "$profile" != "claude" ]; then
+    for co_probe in toolbelt BREAKTHROUGHS.md TARGETS.md METHODOLOGY.md PROMPT-LOOP.md templates; do
+      co_link="$root/research-sdd/profile/$profile/$co_probe"
+      if [ -L "$co_link" ]; then
+        co_root="$(readlink "$co_link")" && co_root="$(dirname "$co_root")" || co_root=""
+        [ -z "$co_root" ] || break
+      fi
+    done
+  fi
+  # A surviving symlink whose checkout no longer exists is a dangling target, not a usable one.
+  co_dead=""
+  if [ -n "$co_root" ] && [ ! -d "$co_root" ]; then co_dead="$co_root"; co_root=""; fi
+  kit_disp="$co_root"
+  # shellcheck disable=SC2088  # literal display tilde, not an expansion
+  if [ -n "$co_root" ] && [ "${co_root#"$home/"}" != "$co_root" ]; then kit_disp="~/${co_root#"$home/"}"; fi
+  drift_names=""
+  while IFS= read -r dl; do
+    [ -n "$dl" ] || continue
+    ann=""
+    if [ "$profile" != "claude" ] && [ "${dl%% (extra)}" != "$dl" ]; then
+      arel="${dl%% (extra)}"
+      arel="${arel#research-sdd/profile/"$profile"/}"
+      if [ "$arel" != "${dl%% (extra)}" ] && [[ "$arel" != */* ]] && [ -f "${co_root:-$KIT}/$arel" ]; then
+        if [ "$arel" = "TARGETS.md" ]; then
+          ann="registry edits written into the rendered profile"
+        else
+          ann="kit file written into the rendered profile"
+        fi
+        if [ -n "$kit_disp" ]; then
+          ann=" (extra: $ann — reconcile them into $kit_disp/$arel by hand)"
+        else
+          if [ -n "$co_dead" ]; then
+            ann=" (extra: $ann — reconcile target unknown: the render dir's kit symlinks point at a removed checkout $co_dead)"
+          else
+            ann=" (extra: $ann — reconcile target unknown: no surviving kit symlink in the render dir)"
+          fi
+        fi
+        dl="${dl%% (extra)}$ann"
+      fi
+    fi
+    drift_names="${drift_names:+$drift_names,}$dl"
+  done <<<"$drift_lines"
   if [ -z "$drift_names" ]; then
     printf 'verify harness=%s status=degraded reason=digest differs from the record but no member differs (inconsistent record)\n' "$h"
     return 2
@@ -1205,7 +1256,7 @@ install_one() {
     if ! declare -F "$dispatch" >/dev/null; then
       echo "research-sdd-install: [$h] no surfacing strategy '$strategy'" >&2; return 2
     fi
-    if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section"; then
+    if ! "$dispatch" "$h" "$home" "$prompt_file" "$dry" "$kit_for_section" "$KIT"; then
       echo "research-sdd-install: [$h] surfacing launcher failed ($prompt_file)" >&2; rc=1
     fi
   fi

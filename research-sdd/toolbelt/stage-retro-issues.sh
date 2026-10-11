@@ -452,6 +452,12 @@ declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_id_signature_safe >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_id_signature_safe" >&2; exit 1; }
+# STAGE_RETRO_ISSUES_ESCPIPE_GUARD: the awk text of rg_esc_pipes is a variable, not a function; an empty one would make awk fail
+# (or, worse, parse rows with the escaped pipe unhandled), so it is checked like a function.
+[ -n "${_RG_AWK_ESCPIPE_FN:-}" ] \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define _RG_AWK_ESCPIPE_FN" >&2; exit 1; }
 
 # STAGE_RETRO_ISSUES_SCRUB_LIB (kit issue #1707): the pre-mutation privacy scrub. Fail-closed like every
 # other helper: without it nothing is planned or written — never an unscrubbed dry-run.
@@ -618,13 +624,13 @@ _unc_line_of() {
 # no such row or more than one (a wrong line number is worse than none).
 _unc_row_line() {
   local _l=""
-  [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk '
+  [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk "$_RG_AWK_ESCPIPE_FN"'
     BEGIN { SENT = sprintf("%c", 1) }
     /^[[:space:]]*\|/ {
       # STAGE_RETRO_ISSUES_ROW_LINE_PIPE (kit issue #2118): cut the first cell on UNESCAPED pipes only, and match the
       # delta against the unescaped text, exactly as the row parser does.
-      c = $0; gsub(/\\\|/, SENT, c); sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c); gsub(SENT, "|", c)
-      u = $0; gsub(/\\\|/, "|", u)
+      c = rg_esc_pipes($0); sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c); gsub(SENT, "|", c)   # STAGE_RETRO_ISSUES_ROW_LINE_CELL
+      u = rg_esc_pipes($0); gsub(SENT, "|", u)
       if (c == ENVIRON["_R"] && index(u, ENVIRON["_D"]) > 0) { n++; if (n == 1) first = NR }
     }
     END { if (n == 1) print first }' "$retro")"
@@ -699,7 +705,7 @@ retro_file="$retro"
 if [ -z "$_unc_early" ]; then
 retro_basename="$(basename "$retro")"
 
-_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_ID_FN"'
+_rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_ID_FN$_RG_AWK_ESCPIPE_FN"'
   # pend: the last data row, held back one line so a header row (the row directly above a separator) is dropped
   # by position and never becomes a delta (STAGE_RETRO_ISSUES_HEADER_DROP).
   function flushp() { if (pend != "") { print pend; pend = "" } }
@@ -724,7 +730,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
       pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
-        gsub(/\\\|/, SENT, hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issue #2118): a GFM-escaped pipe is cell text
+        hl = rg_esc_pipes(hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issues #2118 #2135): any `\|` is an escaped pipe (GFM)
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
         hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
         for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -757,7 +763,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
     if (in_sec && /^\|/) {
       prev = $0
       line = $0
-      gsub(/\\\|/, SENT, line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW
+      line = rg_esc_pipes(line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW
       sub(/^\|[[:space:]]*/, "", line)
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
@@ -1625,6 +1631,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     echo "unclassifiable-row: row $_rid has a pipe in its id (id-contains-pipe) — needs manual review, no issue staged" >&2
     unclassifiable=$((unclassifiable+1))
     _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "id-contains-pipe"
+    continue
+  fi
+  # STAGE_RETRO_ISSUES_ID_SIGNATURE_SAFE (kit issue #2135): any other character outside [A-Za-z0-9_-] (a backslash left
+  # by a `6\ |` cell, a dot, markup) cannot round-trip through the signature either: unclassifiable, never staged.
+  if ! retro_grammar_id_signature_safe "$_rid"; then
+    echo "unclassifiable-row: row $_rid has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review, no issue staged" >&2
+    unclassifiable=$((unclassifiable+1))
+    _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "id-not-signature-safe"
     continue
   fi
 
