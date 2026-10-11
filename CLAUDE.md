@@ -181,6 +181,13 @@ neither conditional coverage nor run-to-run variability could be confirmed or ex
 careful measurements disagree on is not one a hand-written snapshot can promise to track. Doctrine
 holds invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
 
+A writer that adds or edits any `.sh` file also runs the repo-wide lint suites
+(`pipefail-sigpipe-lint.test.sh`, `lint-substitution.test.sh`, `self-dir-idiom.test.sh`) in addition to its
+focused suites: these lints scan the shell tree (toolbelt, lib, install; `pipefail-sigpipe-lint` also
+`tests/`), so any new or edited script, test or not, can fail them while its own suite is green (the full
+gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
+Whenever a script emits or changes a typed state, it also runs `reason-codes.test.sh`: a new emitter of `absent-input`, `empty-input` or similar must be listed in `research-sdd/toolbelt/reason-codes.v1.md`, or that suite fails "real registry input rows vs real toolbelt" (PR #2140 full gate, 2026-10-11).
+
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
 register.
 
@@ -316,6 +323,14 @@ the headline. The fix is not to make the instrument guess; deltas are prose and 
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
 
+**Measure what the consumer receives: characters of the decoded text, not bytes and not the raw stream.**
+A size that gates a consumer (a hook budget, a parser's input) is counted on the form the consumer
+actually gets — for a SessionStart hook, the characters of the decoded `additionalContext`. UTF-8 byte
+counts of non-ASCII text (accents, box characters) over-report, and the raw JSON stdout over-reports
+slightly (escapes add a few hundred characters). Incident #2128: decoded 9,514 / 9,578 characters, raw
+JSON stdout 9,796 / 9,822 characters, UTF-8 bytes of the decoded text 11,494 / 12,368 (incident figures,
+not assertion literals).
+
 **Two samples with different scopes need two names.** A single label over two populations is
 unfalsifiable. `research-sdd-status.sh` printed one `forms:` sample sourced from the sorted window (numbered and structural rows)
 while the sibling reading counted numbered rows only — the same label, two populations,
@@ -332,6 +347,16 @@ a clean file, one reported `unrecog=0` over six real parser gaps, one misdetecte
 and turned off the P6 anti-silent-zero WARN on all of them. Shellcheck, the full suite and
 `--prove-teeth` passed every time. That PR was closed rather than merged; its measurements are in
 issue #128.
+
+**A change to an id or signature validity rule is accepted only on a dry-run diff over ALL retros**
+(or all corpora the rule reads), not over the subset containing the character that triggered the change.
+The #2147 escape fix was checked on the 18 retros with the triggering character; the dry-run over all
+190 retros surfaced one changed retro (niagara, ids `Δ1`–`Δ4`), which became #2150.
+
+**Check markup and format semantics against the authoritative renderer before encoding a parser rule,**
+and cite the observed render in the code comment. For GFM table cells, any backslash-pipe is an escaped
+pipe — verified with `gh api -X POST /markdown -f mode=gfm` (PR #2147) — not only the forms the author
+had seen in fixtures.
 
 **Test the list edges, not just the middle.** A validator that walks a list needs its interesting case
 in FIRST, MIDDLE and LAST position, plus the single-element case. `verify-registry.sh` fed its token
@@ -379,6 +404,8 @@ Conversation with the user may be in any language. That language never leaks int
 - **Never push** unless the user explicitly asks.
 - Conventional commits only (`feat`, `fix`, `test`, `docs`, `refactor`, …).
 - No AI attribution and no `Co-Authored-By` trailers in commit messages.
+- Issues an orchestrator opens for pre-authorized kit work carry the `status:approved` label at creation;
+  otherwise `merge-gate` refuses on the issue-label CI check even after a green gate (PR #2127).
 
 ---
 
