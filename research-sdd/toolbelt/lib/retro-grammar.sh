@@ -847,7 +847,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
     local f="${1:-}" _rows _id _dl _rest
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
     _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
-      BEGIN { in_sec = 0 }
+      BEGIN { in_sec = 0; SENT = sprintf("%c", 1) }
       {
         low = tolower($0)
         if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ || low ~ /^## proposed delta/ ||
@@ -859,8 +859,10 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
           if (prev != "") {
             hl = tolower(prev)
+            gsub(/\\\|/, SENT, hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: escaped pipe is cell text (kit issue #2118)
             sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
             hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
+            for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
             ct = 0
             for (k = 2; k <= hn; k++)
               if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
@@ -870,9 +872,12 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|/) {
           prev = $0
           line = $0
+          gsub(/\\\|/, SENT, line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: escaped pipe is cell text (kit issue #2118)
           sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
           n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+          for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
           rid = f[1]; gsub(/[[:space:]]/, "", rid)
+          if (index(rid, "|")) next   # RETRO_GRAMMAR_ID_PIPE: a pipe in an id is unclassifiable (stage/reconcile type it), never a title row
           if (rid ~ /^[-:]+$/) next
           if (rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/) next
           printf "%s\037%s\n", f[1], (ct ? f[ct] : (n >= 2 ? f[2] : ""))
