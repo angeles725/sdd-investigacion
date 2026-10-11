@@ -126,7 +126,7 @@ JAR archive validation inside `rsdd_probe_java_jar()`.
 
 **Job 1 — `toolbelt-shard`** (matrix of 4 shards, 25 min timeout each):
 1. Check out repo
-2. Set up Node.js 20 (via `setup-node`)
+2. Set up Node.js 24 (via `setup-node`; >= 22.18 for native type stripping) and install `bubblewrap` (unprivileged user namespaces enabled; `RSDD_REQUIRE_BWRAP=1` / `RSDD_REQUIRE_NODE_TS=1` make the dependent suites FAIL instead of SKIP)
 3. Sanity-check `python3 --version` (`python3`, `bash`, `git` are preinstalled)
 4. Install GNU parallel (`run-all.sh -j` needs it)
 5. Run `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 --shard I/4 --shard-manifest ...`

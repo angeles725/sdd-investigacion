@@ -30,6 +30,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP"
 BW_OK=0
 if command -v bwrap >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1; then BW_OK=1; fi
+# Kit issue #2138: CI sets RSDD_REQUIRE_BWRAP=1 so an unusable bwrap FAILS instead of silently skipping the sandbox cases.
+if [ "$BW_OK" != 1 ] && [ "${RSDD_REQUIRE_BWRAP:-}" = 1 ]; then no "0 RSDD_REQUIRE_BWRAP=1 but no usable unprivileged bwrap (sandbox cases would SKIP)"; fi
 [ "$BW_OK" = 1 ] || echo "  NOTE  no usable unprivileged bwrap here: sandbox-dependent cases are SKIPPED, not passed"
 
 snap() { ( cd "$1" && find . -printf '%p %y %s %T@\n' | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum ) ; }

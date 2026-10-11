@@ -599,11 +599,22 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   # kit issue #2114 review: the frozen fixture must BE the live workflow, or these cases test a stale shape (a matrix job
   # `name: ... ${{ matrix.x }}` made the live file unparseable here while the stale fixture stayed green).
   REAL_WF="$HERE/../../../.github/workflows/toolbelt-tests.yml"
-  if [ -f "$REAL_WF" ] && cmp -s "$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml" "$REAL_WF"; then ok "fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml"
-  else no "fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)"; fi
-  # the drift check has teeth: a one-line change to a copy must be detected by the same comparison
-  { cat "$REAL_WF"; echo "# drift"; } > "$ROOT/drift-wf.yml"
-  if cmp -s "$ROOT/drift-wf.yml" "$REAL_WF"; then no "drift control: modified copy compared equal"; else ok "drift control: a modified copy compares different"; fi
+  # wf_state <fixture> <live>: same | drifted | absent (kit issue #2136). A missing file is its own state, never "drifted".
+  wf_state() { if [ ! -f "$1" ] || [ ! -f "$2" ]; then echo absent; elif cmp -s "$1" "$2"; then echo same; else echo drifted; fi; }
+  WF_FIX="$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml"
+  case "$(wf_state "$WF_FIX" "$REAL_WF")" in
+    same) ok "fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml";;
+    absent) no "fixture or workflow absent: $WF_FIX / $REAL_WF (not a drift - restore the missing file)";;
+    *) no "fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)";;
+  esac
+  # negative controls, each built from the FIXTURE (always present when this runs) so they cannot pass for the wrong reason
+  { cat "$WF_FIX"; echo "# drift"; } > "$ROOT/drift-wf.yml"
+  [ "$(wf_state "$ROOT/drift-wf.yml" "$WF_FIX")" = drifted ] && ok "drift control: a modified copy reports drifted" || no "drift control: modified copy not reported drifted"
+  [ "$(wf_state "$WF_FIX" "$ROOT/no-such-workflow.yml")" = absent ] && ok "drift control: a missing workflow file reports absent, not drifted" || no "drift control: missing file not reported absent"
+  [ "$(wf_state "$WF_FIX" "$WF_FIX")" = same ] && ok "drift control: identical files report same" || no "drift control: identical files not reported same"
+  # tooth: collapsing the absent branch into drifted (the pre-#2136 behaviour) must be caught by the absent control
+  eval "$(declare -f wf_state | sed 's/^wf_state/wf_state_mut/; s/echo absent/echo drifted/')"
+  [ "$(wf_state_mut "$WF_FIX" "$ROOT/no-such-workflow.yml")" != absent ] && ok "drift tooth: mutant without the absent branch is detected by the absent control" || no "drift tooth: mutant survived the absent control"
   runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
   expect "CI path filter: real workflow copy, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
   mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/profiles/p.md"
