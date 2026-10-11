@@ -724,6 +724,7 @@ or string match declares which input forms it recognises (quote style, case, whi
 the corpus itself, that no used form is missed — or the block declares the count PARTIAL. Quote styles are the worked example:
 a single-quote-only `t='…'` match found 1,389 typed elements where the both-quote census found 3,545 (n5 B24 §14, B31 §31.1).
 A low count is not "looked and found little" until the matcher is shown to see every form. (kit #1191; mirrors CLAUDE.md §7, false-negative direction)
+The same applies to a parser rule for a markup or format: check its semantics against the authoritative renderer (e.g. GFM via `gh api -X POST /markdown -f mode=gfm`) and cite the observed render, not the forms seen in fixtures (kit #2151).
 **Negative existence by full-table read.** To claim "X is absent", read the WHOLE table (the full import
 table, the full symbol list, the whole-corpus grep over every tree shape above) and report the table size
 beside the zero, rather than one negative grep; this is the method behind the §3 symmetric-opening marker.
@@ -3566,6 +3567,8 @@ judgment, not the driver's own rationalizations). **Precedence (kit #1991):** a 
    exemplar): the `| ID | Delta | Target | Evidence | Priority |` table is a machine contract parsed by
    `stage-retro-issues.sh`, not a style choice. A retro first written as free prose is non-stageable and has to be
    rewritten, which doubles the work and leaves the session's only record unstageable meanwhile (kit issue #2110).
+   Delta ids must be ASCII signature-safe (`[A-Za-z0-9_-]`): no Greek letters such as `Δ`, no markdown emphasis.
+   Reconcile reads ids back with that grammar, so any other id can never be tracked; PR #2147 is typing it `id-not-signature-safe` in stage (kit #2153).
    The staging dry-run below is the acceptance test of the retro's format: run it before committing the retro.
 
    **Open each delta's issue at proposal time (backlog-first).** Immediately after writing the retro, run

@@ -180,6 +180,11 @@ neither conditional coverage nor run-to-run variability could be confirmed or ex
 careful measurements disagree on is not one a hand-written snapshot can promise to track. Doctrine
 holds invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
 
+A writer that adds or edits `*.test.sh` files also runs the repo-wide lint suites
+(`pipefail-sigpipe-lint.test.sh`, `lint-substitution.test.sh`, `self-dir-idiom.test.sh`) in addition to its
+focused suites: they scan every suite, so a new test can fail them while its own suite is green (the full
+gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
+
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
 register.
 
@@ -315,6 +320,12 @@ the headline. The fix is not to make the instrument guess; deltas are prose and 
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
 
+**Measure what the consumer receives, not the raw stream.** A size or count that gates a consumer
+(a hook budget, a parser's input) is taken on the form the consumer actually gets — for a SessionStart
+hook, the decoded `additionalContext`, not the JSON-escaped stdout. The two differ (the #2128
+correction measured a raw figure a few hundred characters above the decoded one; illustrative, not an
+assertion literal), and a budget claim made on the wrong one is wrong in one direction or the other.
+
 **Two samples with different scopes need two names.** A single label over two populations is
 unfalsifiable. `research-sdd-status.sh` printed one `forms:` sample sourced from the sorted window (numbered and structural rows)
 while the sibling reading counted numbered rows only — the same label, two populations,
@@ -331,6 +342,16 @@ a clean file, one reported `unrecog=0` over six real parser gaps, one misdetecte
 and turned off the P6 anti-silent-zero WARN on all of them. Shellcheck, the full suite and
 `--prove-teeth` passed every time. That PR was closed rather than merged; its measurements are in
 issue #128.
+
+**A change to an id or signature validity rule is accepted only on a dry-run diff over ALL retros**
+(or all corpora the rule reads), not over the subset containing the character that triggered the change.
+The #2147 escape fix was checked on the 18 retros with the triggering character; the full dry-run
+differed on 190, which surfaced #2150.
+
+**Check markup and format semantics against the authoritative renderer before encoding a parser rule,**
+and cite the observed render in the code comment. For GFM table cells, any backslash-pipe is an escaped
+pipe — verified with `gh api -X POST /markdown -f mode=gfm` (PR #2147) — not only the forms the author
+had seen in fixtures.
 
 **Test the list edges, not just the middle.** A validator that walks a list needs its interesting case
 in FIRST, MIDDLE and LAST position, plus the single-element case. `verify-registry.sh` fed its token
@@ -378,6 +399,8 @@ Conversation with the user may be in any language. That language never leaks int
 - **Never push** unless the user explicitly asks.
 - Conventional commits only (`feat`, `fix`, `test`, `docs`, `refactor`, …).
 - No AI attribution and no `Co-Authored-By` trailers in commit messages.
+- Issues an orchestrator opens for pre-authorized kit work carry the `status:approved` label at creation;
+  otherwise `merge-gate` refuses on the issue-label CI check even after a green gate (PR #2127).
 
 ---
 
