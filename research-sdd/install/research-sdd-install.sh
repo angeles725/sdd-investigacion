@@ -1474,6 +1474,23 @@ install_one() {
     fi
   fi
 
+  # 2d. pi extension (kit issue #2123): pi + gentle-shell only (the adapter field is empty elsewhere). The kit's
+  #     research-sdd-hooks.ts is deployed to <config_root>/extensions/ through the SAME divergence-checked
+  #     helpers as the skill: a hand-edited copy is kept with a typed WARNING, --force-skill backs it up first,
+  #     an unmodified older copy is a managed (silent) update. Its marker is .installed-extension-state with the
+  #     constant profile "extension", so profile switches never touch it.
+  local ext_dest ext_src="" ext_marker
+  ext_dest="$(rsdd_field "$h" extension_hooks_path "$home")"
+  if [ -n "$ext_dest" ]; then
+    ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
+    ext_marker="$config_root/research-sdd/.installed-extension-state"
+    if [ "$dry" = 1 ]; then
+      _rsdd_dry_skill_plan "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$ext_marker" "extension" || rc=1
+    else
+      _rsdd_deploy_skill "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$h" "$ext_marker" "extension" "$config_root" || rc=1
+    fi
+  fi
+
   # 3. record the bundle digest (kit issue #1702) — only when the run succeeded. A kept hand-edit is
   #    recorded with the SOURCE sha this run meant to deploy plus a `kept-hand-edit=<rel>` line, so it is
   #    never the baseline: --verify keeps reporting it as drift (and names it) until it is restored.
