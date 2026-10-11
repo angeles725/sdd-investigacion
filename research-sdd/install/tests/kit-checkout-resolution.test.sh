@@ -53,35 +53,47 @@ _launcher() {
   [ -f "$f" ] && sed -n '/research-sdd:start/,/research-sdd:end/p' "$f"
 }
 
-# L1/L2 — pi and gentle-shell launchers name the checkout and use absolute script paths.
+
+# _launcher_check <installer> <home> <harness> <expected-checkout> — 0 iff the installed pi / gentle-shell
+# launcher carries everything #2120 requires: the exact 'Kit checkout:' line, the rule sentence (without the
+# retro markers, which live in <target>/retros/ and never touch the kit), and ABSOLUTE script paths only.
+# Sets LC_WHY to the first failed requirement.
+_launcher_check() {
+  local blk
+  LC_WHY=""
+  blk="$(_launcher "$2" "$3")"
+  grep -qxF "Kit checkout: $4" <<<"$blk" || { LC_WHY="no exact 'Kit checkout: $4' line"; return 1; }
+  grep -q 'registry/ledger edits' <<<"$blk" && grep -q 'toolbelt runs go to Kit checkout, never the profile copy' <<<"$blk" \
+    || { LC_WHY="no registry/ledger-to-checkout rule sentence"; return 1; }
+  ! grep -qi 'retro markers' <<<"$blk" || { LC_WHY="rule sentence names retro markers (they live in the target, not the kit)"; return 1; }
+  grep -qF "\`$4/toolbelt/sweep-all.sh\`" <<<"$blk" && grep -qF "$4/toolbelt/stage-retro-issues.sh <retro> --apply" <<<"$blk" \
+    && ! grep -qE '`toolbelt/' <<<"$blk" || { LC_WHY="script paths not all absolute"; return 1; }
+  return 0
+}
+
+# L1..L3 — pi and gentle-shell launchers name the checkout and use absolute script paths.
 for h in pi gentle-shell; do
   home="$TMP/l-$h"; mkdir -p "$home"; _inst "$SUT" "$home" "$h"
-  blk="$(_launcher "$home" "$h")"
-  if grep -qxF "Kit checkout: $KITROOT_P" <<<"$blk"; then ok "L1 ($h): launcher carries 'Kit checkout: <real kit root>'"
-  else no "L1 ($h): launcher lacks the exact 'Kit checkout: $KITROOT_P' line :: $(grep -n 'Kit' <<<"$blk" | tr '\n' '|')"; fi
-  if grep -q 'registry/ledger edits' <<<"$blk" && grep -q 'never the profile copy' <<<"$blk"; then ok "L1 ($h): launcher states the state-goes-to-checkout rule"
-  else no "L1 ($h): launcher lacks the registry/ledger-to-checkout sentence"; fi
-  if grep -qF "\`$KITROOT_P/toolbelt/sweep-all.sh\`" <<<"$blk" && grep -qF "$KITROOT_P/toolbelt/stage-retro-issues.sh <retro> --apply" <<<"$blk" \
-     && ! grep -qE '`toolbelt/' <<<"$blk"; then ok "L2 ($h): sweep/retro scripts are absolute paths into the checkout, no bare toolbelt/ left"
-  else no "L2 ($h): script paths are not all absolute :: $(grep -n 'toolbelt/' <<<"$blk" | head -3 | tr '\n' '|')"; fi
-  grep -q '^Kit path: ~/.*research-sdd/profile/general$' <<<"$blk" && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
+  if _launcher_check "$SUT" "$home" "$h" "$KITROOT_P"; then ok "L1 ($h): launcher carries the checkout line, the rule (no retro markers) and absolute script paths"
+  else no "L1 ($h): launcher requirement failed: $LC_WHY :: $(_launcher "$home" "$h" | grep -n 'Kit\|toolbelt' | head -4 | tr '\n' '|')"; fi
+  _launcher "$home" "$h" | grep -q '^Kit path: ~/.*research-sdd/profile/general$' && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
     || no "L3 ($h): 'Kit path:' no longer the profile copy"
 done
 
-# L4 — claude: Kit path is the checkout already; no extra line, no scripts block (byte-identical).
+# L4 — claude: Kit path is the checkout already; no extra line (byte-identical launcher).
 home="$TMP/l-claude"; mkdir -p "$home"; _inst "$SUT" "$home" claude
 blk="$(_launcher "$home" claude)"
 if ! grep -q 'Kit checkout:' <<<"$blk" && grep -qF "Kit path: $KITROOT_P" <<<"$blk"; then ok "L4: claude launcher has no 'Kit checkout:' line (Kit path is already the checkout)"
 else no "L4: claude launcher changed :: $(grep -n 'Kit' <<<"$blk" | tr '\n' '|')"; fi
 
-# L5 — the renderer emits the line only when the render dir differs from the checkout.
+# L5 — the renderer emits the line only when the render dir differs from the checkout; tilde under home.
 r_same="$(bash -c '. "$1"; rsdd_render_section pi /h /h/kit /h/kit' _ "$HERE/../adapters.sh" 2>&1)"
 r_diff="$(bash -c '. "$1"; rsdd_render_section pi /h /h/rendered /h/kit' _ "$HERE/../adapters.sh" 2>&1)"
 if ! grep -q 'Kit checkout:' <<<"$r_same" && grep -qxF 'Kit checkout: ~/kit' <<<"$r_diff" && grep -qF '`~/kit/toolbelt/sweep-all.sh`' <<<"$r_diff"; then
   ok "L5: renderer emits 'Kit checkout:' (tilde-relative) only when render dir != checkout"
 else no "L5: renderer gating wrong :: same=[$(grep -c 'Kit checkout' <<<"$r_same")] diff=[$(grep 'Kit checkout' <<<"$r_diff")]"; fi
 
-# V1..V4 — verify names a regular file where the bundle expects a symlink to the checkout.
+# V — verify names a regular file where the bundle expects a symlink to the checkout.
 _vrun() { VOUT="$(bash "${3:-$SUT}" --verify --home "$1" --harness "$2" 2>&1)"; VRC=$?; }
 _vline() { awk -v p="verify harness=$1 " 'index($0,p)==1' <<<"$VOUT"; }
 for h in pi gentle-shell; do
@@ -108,47 +120,112 @@ for h in pi gentle-shell; do
   else no "V4 ($h): TARGETS.md was touched by --verify"; fi
 done
 
+# V5 — the reconcile target is the INSTALLED checkout (readlink of a surviving render-dir symlink), not the
+# kit the verify happens to run from (a worktree, a second clone). Verify with the temp-copy installer, whose
+# own kit root is $MK, against a render completed by the real SUT.
+home="$TMP/v5"; mkdir -p "$home"; _inst "$SUT" "$home" pi
+rd5="$home/.pi/agent/research-sdd/profile/general"
+rm -f "$rd5/TARGETS.md"; printf 'x\n' > "$rd5/TARGETS.md"
+_vrun "$home" pi "$MKI/research-sdd-install.sh"; l="$(_vline pi)"
+if [[ "$l" == *"reconcile them into $KITROOT_P/TARGETS.md by hand)"* ]] && [[ "$l" != *"$MK"* ]]; then ok "V5: verify run from a different kit still names the INSTALLED checkout"
+else no "V5: reconcile target follows the running kit, not the install :: $l"; fi
+
+# V6 — no surviving kit symlink in the render dir → the target is stated as unknown, never guessed.
+home="$TMP/v6"; mkdir -p "$home"; _inst "$SUT" "$home" pi
+rd6="$home/.pi/agent/research-sdd/profile/general"
+find "$rd6" -mindepth 1 -maxdepth 1 -type l -exec rm -f {} +
+printf 'x\n' > "$rd6/TARGETS.md"
+_vrun "$home" pi; l="$(_vline pi)"
+if [[ "$l" == *"TARGETS.md (extra: registry edits written into the rendered profile — reconcile target unknown"* ]]; then ok "V6: no surviving symlink → 'reconcile target unknown' (no guess)"
+else no "V6: unknown target not stated :: $l"; fi
+
+# V7 — a regular FILE named like a kit DIRECTORY (toolbelt/) gets no reconcile-into-a-file advice.
+home="$TMP/v7"; mkdir -p "$home"; _inst "$SUT" "$home" pi
+rd7="$home/.pi/agent/research-sdd/profile/general"
+rm -f "$rd7/toolbelt"; printf 'x\n' > "$rd7/toolbelt"
+_vrun "$home" pi; l="$(_vline pi)"
+if [[ "$l" == *"profile/general/toolbelt (extra)"* ]] && [[ "$l" != *"toolbelt (extra:"* ]]; then ok "V7: a file shadowing the kit's toolbelt/ directory keeps the plain '(extra)' form"
+else no "V7: directory-named stray got file advice :: $l"; fi
+
+# V8 — a checkout under the home directory is displayed tilde-relative. The temp installer's kit ($MK) sits
+# under $TMP, so install and verify with --home $TMP.
+home="$TMP"; _inst "$MKI/research-sdd-install.sh" "$home" pi
+rd8="$home/.pi/agent/research-sdd/profile/general"
+rm -f "$rd8/TARGETS.md"; printf 'x\n' > "$rd8/TARGETS.md"
+_vrun "$home" pi "$MKI/research-sdd-install.sh"; l="$(_vline pi)"
+if [[ "$l" == *"reconcile them into ~/mkkit/TARGETS.md by hand)"* ]]; then ok "V8: a checkout under the home directory is shown as ~/..."
+else no "V8: tilde display missing :: $l"; fi
+rm -rf "$home/.pi"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
-  # T1: launcher without the Kit checkout line.
-  M1="$MKI/adapters.MUTANT-nocheckout.$$.sh"
-  if mutant_sed "$HERE/../adapters.sh" "$M1" '/printf.*Kit checkout: /d'; then
-    out="$(bash -c '. "$1"; rsdd_render_section pi /h /h/rendered /h/kit' _ "$M1" 2>&1)"
-    grep -q 'Kit checkout:' <<<"$out" && no "teeth: checkout-line-less mutant still renders it — L1/L5 THEATER" \
-      || ok "teeth: dropping the printf removes 'Kit checkout:' → L1/L5 bite"
-  else no "teeth: T1 mutant could not be built"; fi
-  # T2: scripts keep the bare relative path.
-  M2="$MKI/adapters.MUTANT-relpaths.$$.sh"
-  if mutant_sed "$HERE/../adapters.sh" "$M2" 's|\\`\$tb/|\\`toolbelt/|g'; then
-    out="$(bash -c '. "$1"; rsdd_render_section pi /h /h/rendered /h/kit' _ "$M2" 2>&1)"
-    grep -qF '`toolbelt/sweep-all.sh`' <<<"$out" && ok "teeth: relative-path mutant renders bare toolbelt/ → L2 bites" \
-      || no "teeth: relative-path mutant still renders absolute paths — L2 THEATER"
-  else no "teeth: T2 mutant could not be built"; fi
-  # T3: gating removed — claude-shaped call (render == checkout) must not emit the line.
-  M3="$MKI/adapters.MUTANT-ungated.$$.sh"
-  if mutant_sed "$HERE/../adapters.sh" "$M3" 's/\[ "\$checkout" != "\$kit" \]/true/'; then
-    out="$(bash -c '. "$1"; rsdd_render_section pi /h /h/kit /h/kit' _ "$M3" 2>&1)"
-    grep -q 'Kit checkout:' <<<"$out" && ok "teeth: ungated mutant emits the line for render==checkout → L5 bites" \
-      || no "teeth: ungated mutant still silent — L5 THEATER"
-  else no "teeth: T3 mutant could not be built"; fi
-  # T4: verify without the annotation.
-  M4="$MKI/research-sdd-install.MUTANT-noannot.$$.sh"
-  if mutant_chain "teeth: T4" "$SUT" "$M4" 's/\[ -e "\$KIT\/\$arel" \]/false/'; then
-    home="$TMP/t4"; mkdir -p "$home"; _inst "$M4" "$home" pi
-    rm -f "$home/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'r\n' > "$home/.pi/agent/research-sdd/profile/general/TARGETS.md"
-    _vrun "$home" pi "$M4"
-    [[ "$(_vline pi)" == *"TARGETS.md (extra)"* ]] && ok "teeth: annotation-less mutant reports plain '(extra)' → V1 bites" \
-      || no "teeth: annotation-less mutant still annotates — V1 THEATER :: $(_vline pi)"
-  else no "teeth: T4 mutant could not be built"; fi
-  # T5: annotation applied to every extra file (no kit-entry check) → V3 bites.
-  M5="$MKI/research-sdd-install.MUTANT-annotall.$$.sh"
-  if mutant_chain "teeth: T5" "$SUT" "$M5" 's/\[ -e "\$KIT\/\$arel" \]/true/'; then
-    home="$TMP/t5"; mkdir -p "$home"; _inst "$M5" "$home" pi
-    printf 'x\n' > "$home/.pi/agent/research-sdd/profile/general/EXTRA-FILE.md"
-    _vrun "$home" pi "$M5"
-    [[ "$(_vline pi)" == *"EXTRA-FILE.md (extra)"* ]] && no "teeth: unguarded mutant still plain for a stray file — V3 THEATER" \
-      || ok "teeth: unguarded mutant annotates a stray non-kit file → V3 bites"
-  else no "teeth: T5 mutant could not be built"; fi
+  # An adapters mutant is swapped into the temp install copy (the installer sources adapters.sh by its own
+  # dir), a REAL pi install runs through it, and the SAME _launcher_check as L1 must reject the result.
+  _swap_check() { # <label> <sed-expr> <expected: pass|fail> [claude]
+    local m="$TMP/adapters.mut.sh" bak="$TMP/adapters.orig.sh" th="$TMP/t-$RANDOM"
+    cp "$MKI/adapters.sh" "$bak"
+    if ! mutant_sed "$HERE/../adapters.sh" "$m" "$2"; then no "teeth: $1 mutant could not be built"; return; fi
+    cp "$m" "$MKI/adapters.sh"; mkdir -p "$th"
+    if [ "${4:-}" = claude ]; then
+      _inst "$MKI/research-sdd-install.sh" "$th" claude
+      if _launcher "$th" claude | grep -q 'Kit checkout:'; then ok "teeth: $1 → claude launcher gains the line, L4 bites"
+      else no "teeth: $1 → claude launcher unchanged, L4 is THEATER"; fi
+    else
+      _inst "$MKI/research-sdd-install.sh" "$th" pi
+      if _launcher_check "$MKI/research-sdd-install.sh" "$th" pi "$MK"; then no "teeth: $1 → install still passes L1, THEATER"
+      else ok "teeth: $1 → L1 rejects the installed launcher ($LC_WHY)"; fi
+    fi
+    cp "$bak" "$MKI/adapters.sh"
+  }
+  _swap_check "T1 checkout line dropped" '/printf.*Kit checkout: /d' fail
+  _swap_check "T2 relative script paths" 's|\\`\$tb/|\\`toolbelt/|g' fail
+  _swap_check "T3 gating removed" 's/\[ "\$checkout" != "\$kit" \]/true/' fail claude
+  _swap_check "T6 rule sentence dropped" '/Read the prompts from Kit path/d;/INSTALLED-TOOLS.md) and toolbelt runs/d' fail
+  _swap_check "T7 retro markers back in the rule" 's/INSTALLED-TOOLS.md) and/INSTALLED-TOOLS.md, retro markers) and/' fail
+
+  _swap_inst() { # <label> <sed-expr> <home> <check-fn-name>; builds a verify mutant, returns its line in $l
+    local m="$MKI/research-sdd-install.MUT-$$.sh"
+    mutant_sed "$SUT" "$m" "$2" || { no "teeth: $1 mutant could not be built"; return 1; }
+    cp "$m" "$MKI/research-sdd-install.mut.sh"; rm -f "$m"
+  }
+  # T4: annotation guard always false → plain (extra) for the kit files (V1 bites).
+  if _swap_inst "T4 no annotation" 's/\[ -f "\${co_root:-\$KIT}\/\$arel" \]/false/'; then
+    th="$TMP/t4"; mkdir -p "$th"; _inst "$SUT" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"TARGETS.md (extra)"* ]] && ok "teeth: T4 guard false → plain '(extra)' → V1 bites" || no "teeth: T4 still annotates — V1 THEATER"
+  fi
+  # T5: guard always true → a stray non-kit file is annotated (V3 bites).
+  if _swap_inst "T5 annotate all" 's/\[ -f "\${co_root:-\$KIT}\/\$arel" \]/true/'; then
+    th="$TMP/t5"; mkdir -p "$th"; _inst "$SUT" "$th" pi; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/EXTRA-FILE.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"EXTRA-FILE.md (extra)"* ]] && no "teeth: T5 still plain for a stray file — V3 THEATER" || ok "teeth: T5 annotates a non-kit stray file → V3 bites"
+  fi
+  # T8: -f weakened to -e → a file shadowing the kit's toolbelt/ dir gets file advice (V7 bites).
+  if _swap_inst "T8 -e instead of -f" 's/\[ -f "\${co_root:-\$KIT}\/\$arel" \]/[ -e "${co_root:-$KIT}\/$arel" ]/'; then
+    th="$TMP/t8"; mkdir -p "$th"; _inst "$SUT" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/toolbelt"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/toolbelt"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"toolbelt (extra:"* ]] && ok "teeth: T8 -e admits a directory-named stray → V7 bites" || no "teeth: T8 still plain — V7 THEATER :: $(_vline pi)"
+  fi
+  # T9: target taken from the RUNNING kit again (the pre-review bug) → V5 bites.
+  if _swap_inst "T9 running kit" 's/^  kit_disp="\$co_root"$/  kit_disp="$KIT"; co_root="$KIT"/'; then
+    th="$TMP/t9"; mkdir -p "$th"; _inst "$SUT" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"$MK/TARGETS.md"* ]] && ok "teeth: T9 running-kit mutant names the wrong kit → V5 bites" || no "teeth: T9 still names the install — V5 THEATER :: $(_vline pi)"
+  fi
+  # T10: unknown target guessed from the running kit → V6 bites.
+  if _swap_inst "T10 guess" 's/if \[ -n "\$kit_disp" \]; then/if true; then/'; then
+    th="$TMP/t10"; mkdir -p "$th"; _inst "$SUT" "$th" pi; find "$th/.pi/agent/research-sdd/profile/general" -mindepth 1 -maxdepth 1 -type l -exec rm -f {} +
+    printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"reconcile target unknown"* ]] && no "teeth: T10 still says unknown — V6 THEATER" || ok "teeth: T10 prints a path with no known checkout → V6 bites"
+  fi
+  # T11: tilde branch removed → V8 bites.
+  if _swap_inst "T11 no tilde" 's/if \[ -n "\$co_root" \] \&\& \[ "\${co_root#"\$home\/"}" != "\$co_root" \]; then/if false; then/'; then
+    th="$TMP"; _inst "$MKI/research-sdd-install.sh" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"~/mkkit"* ]] && no "teeth: T11 still shows ~ — V8 THEATER" || ok "teeth: T11 no tilde branch → V8 bites"
+    rm -rf "$th/.pi"
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

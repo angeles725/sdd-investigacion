@@ -750,7 +750,7 @@ _rsdd_verify_kit() {
 # 1 drift, 2 degraded. Never writes anything (no mktemp, no state): hashing is pipes only.
 _rsdd_verify_one() {
   local h="$1" home="$2" root state skill tmpl pf profile rec_digest rec_manifest cur_manifest cur_digest
-  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp
+  local nfiles drift_names kept_names rec_calc installed=0 mrc drift_lines dl ann arel kit_disp co_root co_link co_probe
   root="$(rsdd_field "$h" config_root "$home")"
   state="$root/research-sdd/.installed-bundle-state"
   skill="$(rsdd_field "$h" skill_path "$home")"
@@ -834,9 +834,22 @@ _rsdd_verify_one() {
   # the symlink to the checkout (kit issue #2120): name it and the checkout file to reconcile into. Never
   # moved or deleted (TARGETS.md is human-owned, CLAUDE.md §8); the drift status and exit code are unchanged.
   # Annotation text carries no comma: the list is comma-joined below.
-  kit_disp="$KIT"
+  # The reconcile target comes from the INSTALL, not from the running kit: --verify may run from another
+  # checkout or a worktree. A surviving symlink in the render dir (toolbelt first) points into the checkout
+  # the render was completed against; with none left the target is stated as unknown, never guessed.
+  co_root=""
+  if [ "$profile" != "claude" ]; then
+    for co_probe in toolbelt BREAKTHROUGHS.md TARGETS.md METHODOLOGY.md PROMPT-LOOP.md templates; do
+      co_link="$root/research-sdd/profile/$profile/$co_probe"
+      if [ -L "$co_link" ]; then
+        co_root="$(readlink "$co_link")" && co_root="$(dirname "$co_root")" || co_root=""
+        [ -z "$co_root" ] || break
+      fi
+    done
+  fi
+  kit_disp="$co_root"
   # shellcheck disable=SC2088  # literal display tilde, not an expansion
-  [ "${KIT#"$home/"}" = "$KIT" ] || kit_disp="~/${KIT#"$home/"}"
+  if [ -n "$co_root" ] && [ "${co_root#"$home/"}" != "$co_root" ]; then kit_disp="~/${co_root#"$home/"}"; fi
   drift_names=""
   while IFS= read -r dl; do
     [ -n "$dl" ] || continue
@@ -844,13 +857,17 @@ _rsdd_verify_one() {
     if [ "$profile" != "claude" ] && [ "${dl%% (extra)}" != "$dl" ]; then
       arel="${dl%% (extra)}"
       arel="${arel#research-sdd/profile/"$profile"/}"
-      if [ "$arel" != "${dl%% (extra)}" ] && [[ "$arel" != */* ]] && [ -e "$KIT/$arel" ]; then
+      if [ "$arel" != "${dl%% (extra)}" ] && [[ "$arel" != */* ]] && [ -f "${co_root:-$KIT}/$arel" ]; then
         if [ "$arel" = "TARGETS.md" ]; then
           ann="registry edits written into the rendered profile"
         else
           ann="kit file written into the rendered profile"
         fi
-        ann=" (extra: $ann — reconcile them into $kit_disp/$arel by hand)"
+        if [ -n "$kit_disp" ]; then
+          ann=" (extra: $ann — reconcile them into $kit_disp/$arel by hand)"
+        else
+          ann=" (extra: $ann — reconcile target unknown: no surviving kit symlink in the render dir)"
+        fi
         dl="${dl%% (extra)}$ann"
       fi
     fi

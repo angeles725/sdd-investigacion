@@ -102,7 +102,12 @@ if [ -x "$vcmd" ]; then
   # Only findings: harness drift / degraded and kit behind. match, absent, current stay silent; a kit
   # `degraded` (tarball install, no upstream) is un-clearable at session start, so it stays visible only
   # in `research-sdd-install.sh --verify` itself (SENTINEL-KIT-BEHIND-ONLY).
-  extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=(drift|degraded)|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=degraded|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  # Drift lines list every drifted member on ONE line, and an annotated entry carries the path to reconcile
+  # into (kit issue #2120): print one entry per line so the path survives, with its own bounded cap.
+  vdrift="$(printf '%s\n' "$vout" | grep -E '^verify harness=[^ ]+ status=drift ' | sed -e 's/ drifted=/\n  - /' -e 's/,\([^ ]\)/\n  - \1/g' | cut -c1-280 | head -6)" # SENTINEL-DRIFT-CAP
+  [ -z "$vdrift" ] || extra="$vdrift${extra:+
+$extra}"
   # Anti-silent-zero: a failing --verify that printed no typed finding must still be surfaced.
   if [ -n "${extra_skip:-}" ]; then
     extra="verify: install --verify skipped: no timeout available (no timeout binary, no mktemp)"

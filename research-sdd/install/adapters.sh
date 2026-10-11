@@ -251,7 +251,7 @@ rsdd_render_section() {
   if [ -n "$checkout_rel" ]; then
     printf '%s\n' "Kit checkout: $checkout_rel"
     printf '%s\n' 'Read the prompts from Kit path; registry/ledger edits (TARGETS.md, BREAKTHROUGHS.md,'
-    printf '%s\n' 'INSTALLED-TOOLS.md, retro markers) and toolbelt runs go to Kit checkout, never the profile copy.'
+    printf '%s\n' 'INSTALLED-TOOLS.md) and toolbelt runs go to Kit checkout, never the profile copy.'
   fi
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
