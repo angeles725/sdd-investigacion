@@ -11,6 +11,8 @@
 # install --verify part contributes at most 4 degraded/behind lines of at most 170 chars each (SENTINEL-VERIFY-CAP)
 # plus, per drifted harness (3 at most), a header, 3 entries of at most 280 chars, a `(+N more ...)` line and a
 # kept-hand-edit line of at most 160 chars: worst case ~1,150 chars per harness, ~3,450 for three (SENTINEL-DRIFT-CAP).
+# The kit-staleness check (kit issue #2130) adds exactly ONE more line of at most 200 chars, stale or degraded
+# (SENTINEL-KIT-STALE-WIDTH), so the worst case is ~3,650 chars.
 # $RESEARCH_SDD_INSTALL_VERIFY_CMD overrides the install --verify command (test seam).
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
@@ -145,6 +147,52 @@ $extra}"
 }$vnote"
 else
   extra="verify: install --verify could not run (not executable: ${vcmd##*/})"
+fi
+
+# Kit staleness (kit issue #2130): the kit this hook runs from is a mutable shared checkout that silently falls behind origin/main,
+# and the shared checkout is deliberately not auto-updated while research sessions run. ONE typed line when it is behind its
+# upstream by more than RESEARCH_SDD_KIT_STALE_MAX_COMMITS (default 20) or the last fetch is older than
+# RESEARCH_SDD_KIT_STALE_MAX_DAYS (default 7); ONE typed `degraded` line when that cannot be measured (never silent, never a fake 0).
+# LOCAL refs only - no fetch in a SessionStart hook - so the count may understate. Skipped when install --verify already printed
+# `kit status=behind` (the same fact). RESEARCH_SDD_KIT_STALE_CHECK=off opts out; RESEARCH_SDD_KIT_DIR overrides the kit dir.
+_rsdd_kit_stale() {   # SENTINEL-KIT-STALE
+  local kdir="${RESEARCH_SDD_KIT_DIR:-$here/..}" kmax kdays top kd t ref n fh ft now age=""
+  kmax="${RESEARCH_SDD_KIT_STALE_MAX_COMMITS:-20}"; kdays="${RESEARCH_SDD_KIT_STALE_MAX_DAYS:-7}"
+  case "$kmax" in ''|*[!0-9]*|???????*) kmax=20 ;; esac   # validated before any arithmetic: $(( )) would evaluate a subscript (SENTINEL-KIT-STALE-VALIDATE)
+  case "$kdays" in ''|*[!0-9]*|???????*) kdays=7 ;; esac
+  kmax=$((10#$kmax)); kdays=$((10#$kdays))
+  if ! command -v git >/dev/null 2>&1; then printf 'verify kit-stale status=degraded reason=git not found; cannot tell whether the kit is behind its upstream\n'; return 0; fi
+  if ! top="$(git -C "$kdir" rev-parse --show-toplevel 2>/dev/null)" || [ -z "$top" ]; then
+    printf 'verify kit-stale status=degraded reason=kit dir is not a git checkout (tarball install?); cannot tell whether it is behind\n'; return 0
+  fi
+  kd="$(cd -P "$kdir" 2>/dev/null && pwd -P)"; t="$(cd -P "$top" 2>/dev/null && pwd -P)"
+  if [ -z "$kd" ] || [ -z "$t" ] || { [ "$t" != "$kd" ] && [ "$t" != "$(dirname "$kd")" ]; }; then
+    printf 'verify kit-stale status=degraded reason=kit dir sits inside an unrelated repo; its upstream is not the kit'"'"'s\n'; return 0
+  fi
+  if ref="$(git -C "$kd" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)" && [ -n "$ref" ]; then :
+  elif git -C "$kd" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then ref="origin/main"
+  else printf 'verify kit-stale status=degraded reason=no upstream ref (no @{upstream}, no origin/main); cannot tell whether the kit is behind\n'; return 0; fi
+  if ! n="$(git -C "$kd" rev-list --count "HEAD..$ref" 2>/dev/null)" || ! [[ "$n" =~ ^[0-9]+$ ]]; then
+    printf 'verify kit-stale status=degraded reason=could not count commits behind %s\n' "$ref"; return 0
+  fi
+  # Age of the last fetch: FETCH_HEAD mtime (GNU stat -c, BSD stat -f); a never-fetched clone falls back to the upstream tip's commit time.
+  fh="$(git -C "$kd" rev-parse --git-path FETCH_HEAD 2>/dev/null)"; case "$fh" in /*) ;; *) fh="$kd/$fh" ;; esac
+  ft=""; if [ -e "$fh" ]; then ft="$(stat -c %Y "$fh" 2>/dev/null || stat -f %m "$fh" 2>/dev/null)"; else ft="$(git -C "$kd" log -1 --format=%ct "$ref" 2>/dev/null)"; fi
+  now="$(date +%s 2>/dev/null)"
+  if [[ "$ft" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]]; then age=$(( (now - ft) / 86400 )); [ "$age" -ge 0 ] || age=0; fi
+  if [ -z "$age" ] && [ "$n" -le "$kmax" ]; then   # the count passed but the age is unreadable: say so rather than report a clean zero
+    printf 'verify kit-stale status=degraded reason=cannot read the age of the last fetch (behind=%s of max %s)\n' "$n" "$kmax"; return 0
+  fi
+  if [ "$n" -gt "$kmax" ] || { [ -n "$age" ] && [ "$age" -gt "$kdays" ]; }; then   # SENTINEL-KIT-STALE-THRESHOLD
+    printf 'verify kit-stale status=stale behind=%s (max %s) fetch_age=%sd (max %sd) local refs, may understate; when no research session runs: git -C %s pull --ff-only\n' \
+      "$n" "$kmax" "${age:-?}" "$kdays" "$kd" | cut -c1-200   # SENTINEL-KIT-STALE-WIDTH
+  fi
+  return 0
+}
+if [ "${RESEARCH_SDD_KIT_STALE_CHECK:-}" != "off" ] && [[ "$extra" != "verify kit status=behind"* && "$extra" != *$'\n'"verify kit status=behind"* ]]; then  # SENTINEL-KIT-STALE-DEDUPE
+  kstale="$(_rsdd_kit_stale)"
+  [ -z "$kstale" ] || extra="${extra:+$extra
+}$kstale"
 fi
 
 [ "$rc" -eq 0 ] && [ -z "$extra" ] && exit 0   # all in-sync / all absent, nothing to flag → stay completely silent
