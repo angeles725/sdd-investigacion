@@ -347,6 +347,9 @@ _rsdd_stage_hook() {
   _RSDD_STAGE="$(mktemp -d)" || { _RSDD_STAGE=""; echo "FATAL: could not create a staging directory for the hook (nothing written; check TMPDIR)" >&2; exit 2; }
   cp "$TPL/hook-sessionstart.sh" "$_RSDD_STAGE/hook" || { echo "FATAL: could not stage $TPL/hook-sessionstart.sh (nothing written)" >&2; exit 2; }
   _rsdd_fill_hook "$_RSDD_STAGE/hook" || exit 2
+  # kit issue #2141: the staged copy is what gets installed (mode carried by _rsdd_install_noclobber), so +x here makes the hook
+  # executable whatever mode the template checkout carries — and leaves the install step's own mode-carrying checks (#1845) intact.
+  chmod +x "$_RSDD_STAGE/hook" || { echo "FATAL: could not make the staged hook executable (nothing written)" >&2; exit 2; }   # WIRED-SS-CHMOD-WIRE
 }
 
 # kit issue #1914 review: copy <ref>'s permission bits onto <dest> on GNU AND BSD userlands. GNU `chmod --reference` first; else the
@@ -520,10 +523,22 @@ _rsdd_merge_settings() {
   ' <<<"$base"
 }
 
+# kit issue #2141: a hook that already EXISTS is never rewritten (hand-adapted hooks are not modified), but one without the
+# execute bit is inert once wired (Claude Code runs the bare command and gets exit 126), so report it by name. Args: <hook-path>.
+_rsdd_warn_hook_noexec() {
+  [ ! -e "$1" ] || [ -x "$1" ] || echo "WARN: $1 is not executable — the hook cannot run until you chmod +x it (left untouched: hand-adapted hooks are never modified)." >&2
+}
+# kit issue #2141: the kit's own scripts are wired as bare commands too (Stop return-token gate, SessionStart drift hook); a kit
+# checkout that lost its +x bits (zip export, non-POSIX mount) would register commands that exit 126. Args: <kit-script-path>.
+_rsdd_warn_kit_script_noexec() {
+  [ ! -e "$1" ] || [ -x "$1" ] || echo "WARN: kit script $1 is not executable — the hook wired to it cannot run until the kit checkout restores its execute bit (chmod +x it)." >&2
+}
+
 # kit issue #1732: ONE reporting block for the gate's status, shared by the wire-only repair and scaffold --wire paths
 # (they carried two hand-copied renderings). Args: <merge-output-json> <settings-path>.
 _rsdd_report_gate() {
   local out="$1" settings="$2" _old
+  _rsdd_warn_kit_script_noexec "$_RSDD_GATE_PATH"
   if [ "$(jq -r '.repaired | length' <<<"$out")" != 0 ]; then
     jq -r '.repaired[] | ltrimstr("\"") | rtrimstr("\"")' <<<"$out" | while IFS= read -r _old; do
       echo "  wired  : Stop return-token gate repaired (stale path $_old) in $settings"
@@ -553,6 +568,7 @@ _rsdd_report_gate() {
 # Args: <settings-path>. rc 1 = could not read/merge/install (the caller must not report success).
 _rsdd_wire_drift() {
   local settings="$1" base c p quoted have=0 add=true drop='[]' others="" tmp rep=""
+  _rsdd_warn_kit_script_noexec "$_RSDD_DRIFT_PATH"
   # ADVISORY (RDD round 1): a failure here is a typed WARN on stdout + rc 1, never fatal for the core wire (the caller keeps going).
   local w="  WARN   : drift hook not registered:"
   # RSDD_TEST_DRIFT_FAIL is a test seam only: it forces this failure path (the real ones need a broken filesystem).
@@ -990,6 +1006,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     mkdir -p "$target/.claude/hooks"
     if [ -e "$_wo_stop" ]; then
       echo "kept: $_wo_stop"
+      _rsdd_warn_hook_noexec "$_wo_stop"
     else
       cp "$TPL/hook-stop-retro-gate.sh" "$_wo_stop"
       _rsdd_render_hook "$_wo_stop"
@@ -998,6 +1015,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     fi
     if [ -e "$_wo_ss" ]; then
       echo "kept: $_wo_ss"
+      _rsdd_warn_hook_noexec "$_wo_ss"
     else
       # kit issue #1860: the hook existed at staging time and is gone now (nothing staged): stage it now, never `cp` from an empty path.
       [ -n "$_RSDD_STAGE" ] || _rsdd_stage_hook
@@ -1006,6 +1024,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
         echo "created: $_wo_ss"
       else
         echo "kept: $_wo_ss"
+        _rsdd_warn_hook_noexec "$_wo_ss"
       fi
     fi
     # kit issue #1860: explicit success-path cleanup of the staging dir (the trap stays the fallback for failures and signals).
@@ -1183,9 +1202,11 @@ cpf "$_state_tpl"                     "$corpus/RESEARCH-STATE.md"
 cpf "$TPL/SOURCES.template.md"        "$corpus/sources/SOURCES.md"
 if [ "$_rsdd_keep_hook" = 0 ]; then
 cpf "$TPL/hook-sessionstart.sh"       "$target/.claude/hooks/research-protocol.sh"
+chmod +x "$target/.claude/hooks/research-protocol.sh"   # WIRED-SS-CHMOD-SCAFFOLD (kit issue #2141: never depend on the template's mode; before the fill so the fill's own mode carry-over stays testable)
 _rsdd_fill_hook "$target/.claude/hooks/research-protocol.sh"   # kit issue #1845: fill --subject/--prefix; a failed fill is a typed FATAL and the ERR trap rolls the scaffold back
 else
   echo "kept: $target/.claude/hooks/research-protocol.sh (existing hook, not overwritten — stale? re-run with --force)"
+  _rsdd_warn_hook_noexec "$target/.claude/hooks/research-protocol.sh"
 fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
 # kit issue #1903: make the target Engram-writable. Engram reads <target>/.engram/config.json (project_name); without it
