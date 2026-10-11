@@ -63,4 +63,5 @@ harness=pi
 --- model_profiles snippet: end ---
   A model left as a <placeholder> is spawned literally (--verify reports status=placeholder). Dispatch a tier with subagent_run agent=research-sdd-<tier>.
   INSTALL {HOME}/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
+  INSTALL {HOME}/.pi/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
   slash_commands=true
