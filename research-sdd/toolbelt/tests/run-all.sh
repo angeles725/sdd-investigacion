@@ -44,7 +44,9 @@
 #   --require-clean-tmp  Exit 1 when any suite left entries in its per-suite TMPDIR (kit issue
 #                    #1277). Every run creates ONE temp root (under the caller's TMPDIR, else /tmp),
 #                    exports TMPDIR to a fresh subdir of it for each suite, removes the root on exit,
-#                    and reports `TMPDIR leftovers: N — [suite: count]` (N = total entries). Without
+#                    and reports `TMPDIR leftovers: N — [suite: count]` (N = total entries; entries a
+#                    suite newly created in the default host root /tmp/rsdd, which no TMPDIR covers,
+#                    are counted too and read `suite: count (in /tmp/rsdd)` — kit issue #2164). Without
 #                    the flag the line is report-only; a root that could not be created or scanned is
 #                    reported as DEGRADED (and fails under the flag), never as a confident 0.
 #
@@ -560,6 +562,45 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
   tmp_leftover_total=$((tmp_leftover_total + _n))
 }
 
+# --- Default rsdd root (kit issue #2164) ---------------------------------------------------------
+# The VM/Docker tools fall back to the literal host root /tmp/rsdd when $RSDD_VM_ROOT is unset
+# (docker_common._DEFAULT_RSDD_ROOT; deliberately not derived from TMPDIR). That path is neither
+# under a suite's per-suite TMPDIR nor under research-sdd/, so a suite writing there was invisible
+# to every other check. Snapshot its entry names around each suite and report NEW entries in the
+# same `TMPDIR leftovers` line. Absent root = empty (production hosts may not have it); a root that
+# exists but cannot be scanned is a scan failure, never a confident 0 (§7). A pre-existing entry
+# (e.g. a developer's own /tmp/rsdd) is never blamed: only names new since the previous snapshot.
+# RUN_ALL_DEFAULT_RSDD_ROOT exists for run-all.test.sh only (fixtures must not touch the real /tmp/rsdd).
+# SENTINEL-RSDD-DEFAULT-ROOT
+RSDD_DEFAULT_ROOT="${RUN_ALL_DEFAULT_RSDD_ROOT:-/tmp/rsdd}"
+declare -A _rsdd_prev=() _rsdd_cur=()
+_rsdd_scan() {   # _rsdd_scan — fills _rsdd_cur with the root's entry names; rc 1 = scan failed
+  _rsdd_cur=()
+  [[ -e "$RSDD_DEFAULT_ROOT" || -L "$RSDD_DEFAULT_ROOT" ]] || return 0
+  local _rs_list _rs_name
+  _rs_list="$(mktemp)" || return 1
+  if ! find -H "$RSDD_DEFAULT_ROOT" -mindepth 1 -maxdepth 1 -print0 > "$_rs_list" 2>/dev/null; then rm -f "$_rs_list"; return 1; fi
+  while IFS= read -r -d '' _rs_name; do _rsdd_cur["$_rs_name"]=1; done < "$_rs_list"
+  rm -f "$_rs_list"
+  return 0
+}
+_rsdd_base_failed=""
+_rsdd_snapshot() {   # baseline before the first suite / the -j batch
+  if _rsdd_scan; then _rsdd_prev=(); local _k; for _k in "${!_rsdd_cur[@]}"; do _rsdd_prev["$_k"]=1; done
+  else _rsdd_prev=(); _rsdd_base_failed=1; tmp_scan_failed+=("baseline (default rsdd root $RSDD_DEFAULT_ROOT)"); fi
+}
+_check_rsdd_default_root() {   # _check_rsdd_default_root <suite basename | batch label>
+  local _k _n=0
+  [[ -z "$_rsdd_base_failed" ]] || return 0   # no trustworthy baseline: already reported as a scan failure
+  if ! _rsdd_scan; then tmp_scan_failed+=("$1 (default rsdd root $RSDD_DEFAULT_ROOT)"); return 0; fi
+  for _k in "${!_rsdd_cur[@]}"; do [[ "${_rsdd_prev[$_k]+set}" == "set" ]] || _n=$((_n + 1)); done
+  # Roll forward so a later suite is not re-blamed for this one's entries.
+  _rsdd_prev=(); for _k in "${!_rsdd_cur[@]}"; do _rsdd_prev["$_k"]=1; done
+  [[ "$_n" -gt 0 ]] || return 0
+  tmp_leftovers+=("$1: $_n (in $RSDD_DEFAULT_ROOT)")
+  tmp_leftover_total=$((tmp_leftover_total + _n))
+}
+
 # Per-suite hermeticity checks, as functions so the -j batch path can run them ONCE after the
 # whole parallel batch (labelled) while the serial path runs them after every suite (by suite name).
 _check_cwd_hermeticity() {
@@ -799,6 +840,7 @@ if [[ "$JOBS" -gt 1 ]]; then
 fi
 # An empty shard (kit issue #2114) has nothing to batch; `parallel ::: <nothing>` would read stdin.
 [[ ${#all_suites[@]} -gt 0 ]] || JOBS_ACTIVE=""
+_rsdd_snapshot
 if [[ -n "$JOBS_ACTIVE" ]]; then
   PAR_DIR="$(mktemp -d)"; _par_dir_created=1
   cat > "$PAR_DIR/run1.sh" <<'WORKER'
@@ -839,6 +881,7 @@ WORKER
   _hv_before=${#hermeticity_violations[@]}; _kv_before=${#kit_tree_violations[@]}
   _check_cwd_hermeticity "$PARALLEL_LABEL"
   _check_kit_tree_hermeticity "$PARALLEL_LABEL"
+  _check_rsdd_default_root "$PARALLEL_LABEL"
   _attribute_batch_leaks "$_hv_before" "$_kv_before"
 fi
 
@@ -885,6 +928,7 @@ for suite in "${all_suites[@]}"; do
   if [[ -z "$JOBS_ACTIVE" ]]; then
     _check_cwd_hermeticity "$base"
     _check_kit_tree_hermeticity "$base"
+    _check_rsdd_default_root "$base"
   fi
   # After the suite (serial) or the whole batch (-j: its subdir is its own either way).
   _check_tmp_leftovers "$base" "$suite_idx"
