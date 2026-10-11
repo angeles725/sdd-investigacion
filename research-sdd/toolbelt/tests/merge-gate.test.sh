@@ -595,6 +595,34 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
   expect "CI path filter: real workflow copy, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
   expect "CI path filter: real workflow copy names the real file and 2 files" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
+  expect "CI path filter: real workflow copy, docs-only diff -> toolbelt-tests also skipped by path filter, never 'cannot parse' (job-name expressions would make it unknown)" 0 '^merge-gate: note: required check toolbelt-tests skipped by path filter'
+  # kit issue #2114 review: the frozen fixture must BE the live workflow, or these cases test a stale shape (a matrix job
+  # `name: ... ${{ matrix.x }}` made the live file unparseable here while the stale fixture stayed green).
+  REAL_WF="$HERE/../../../.github/workflows/toolbelt-tests.yml"
+  # wf_state <fixture> <live>: same | drifted | absent (kit issue #2136). A missing file is its own state, never "drifted".
+  wf_state() { if [ ! -f "$1" ] || [ ! -f "$2" ]; then echo absent; elif cmp -s "$1" "$2"; then echo same; else echo drifted; fi; }
+  WF_FIX="$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml"
+  # wf_verdict maps the state to the case verdict; the arms are what the teeth below mutate
+  wf_verdict() { case "$(wf_state "$1" "$2")" in same) echo PASS;; absent) echo FAIL-absent;; *) echo FAIL-drifted;; esac; }
+  case "$(wf_verdict "$WF_FIX" "$REAL_WF")" in
+    PASS) ok "fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml";;
+    FAIL-absent) no "fixture or workflow absent: $WF_FIX / $REAL_WF (not a drift - restore the missing file)";;
+    *) no "fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)";;
+  esac
+  # negative controls, each built from the FIXTURE (always present when this runs) so they cannot pass for the wrong reason
+  { cat "$WF_FIX"; echo "# drift"; } > "$ROOT/drift-wf.yml"
+  [ "$(wf_state "$ROOT/drift-wf.yml" "$WF_FIX")" = drifted ] && ok "drift control: a modified copy reports drifted" || no "drift control: modified copy not reported drifted"
+  [ "$(wf_state "$WF_FIX" "$ROOT/no-such-workflow.yml")" = absent ] && ok "drift control: a missing workflow file reports absent, not drifted" || no "drift control: missing file not reported absent"
+  [ "$(wf_state "$WF_FIX" "$WF_FIX")" = same ] && ok "drift control: identical files report same" || no "drift control: identical files not reported same"
+  # tooth: collapsing the absent branch into drifted (the pre-#2136 behaviour) must be caught by the absent control
+  eval "$(declare -f wf_state | sed 's/^wf_state/wf_state_mut/; s/echo absent/echo drifted/')"
+  [ "$(wf_state_mut "$WF_FIX" "$ROOT/no-such-workflow.yml")" != absent ] && ok "drift tooth: mutant without the absent branch is detected by the absent control" || no "drift tooth: mutant survived the absent control"
+  # teeth on the verdict arms: absent->PASS and drifted->PASS (a missing/stale fixture reading green) must be caught by the controls
+  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_a/; s/FAIL-absent/PASS/')"
+  [ "$(wf_verdict_a "$WF_FIX" "$ROOT/no-such-workflow.yml")" != FAIL-absent ] && ok "drift tooth: verdict arm absent->PASS is detected by the absent control" || no "drift tooth: absent->PASS survived"
+  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_d/; s/FAIL-drifted/PASS/')"
+  [ "$(wf_verdict_d "$ROOT/drift-wf.yml" "$WF_FIX")" != FAIL-drifted ] && ok "drift tooth: verdict arm drifted->PASS is detected by the drift control" || no "drift tooth: drifted->PASS survived"
+  [ "$(wf_verdict "$ROOT/drift-wf.yml" "$WF_FIX")" = FAIL-drifted ] && [ "$(wf_verdict "$WF_FIX" "$ROOT/no-such-workflow.yml")" = FAIL-absent ] && [ "$(wf_verdict "$WF_FIX" "$WF_FIX")" = PASS ] && ok "drift verdict: drifted/absent/same map to FAIL-drifted/FAIL-absent/PASS" || no "drift verdict arms wrong"
   runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
   expect "CI path filter: real workflow copy, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
   mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/profiles/p.md"

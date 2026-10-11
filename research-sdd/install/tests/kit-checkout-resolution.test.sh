@@ -76,7 +76,7 @@ for h in pi gentle-shell; do
   home="$TMP/l-$h"; mkdir -p "$home"; _inst "$SUT" "$home" "$h"
   if _launcher_check "$SUT" "$home" "$h" "$KITROOT_P"; then ok "L1 ($h): launcher carries the checkout line, the rule (no retro markers) and absolute script paths"
   else no "L1 ($h): launcher requirement failed: $LC_WHY :: $(_launcher "$home" "$h" | grep -n 'Kit\|toolbelt' | head -4 | tr '\n' '|')"; fi
-  grep -q '^Kit path: ~/.*research-sdd/profile/general$' <<<"$(_launcher "$home" "$h")" && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
+  _l3=$(_launcher "$home" "$h"); grep -q '^Kit path: ~/.*research-sdd/profile/general$' <<<"$_l3" && ok "L3 ($h): 'Kit path:' still points at the rendered profile (prompts)" \
     || no "L3 ($h): 'Kit path:' no longer the profile copy"
 done
 
@@ -149,13 +149,25 @@ else no "V7: directory-named stray got file advice :: $l"; fi
 
 # V8 — a checkout under the home directory is displayed tilde-relative. The temp installer's kit ($MK) sits
 # under $TMP, so install and verify with --home $TMP.
-home="$TMP"; _inst "$MKI/research-sdd-install.sh" "$home" pi
+home="$(cd -P "$TMP" && pwd -P)"; _inst "$MKI/research-sdd-install.sh" "$home" pi
 rd8="$home/.pi/agent/research-sdd/profile/general"
 rm -f "$rd8/TARGETS.md"; printf 'x\n' > "$rd8/TARGETS.md"
 _vrun "$home" pi "$MKI/research-sdd-install.sh"; l="$(_vline pi)"
 if [[ "$l" == *"reconcile them into ~/mkkit/TARGETS.md by hand)"* ]]; then ok "V8: a checkout under the home directory is shown as ~/..."
 else no "V8: tilde display missing :: $l"; fi
 rm -rf "$home/.pi"
+
+# V9 — the surviving symlinks point at a REMOVED checkout: say so (with the dangling path), never a plain (extra).
+home="$TMP/v9"; mkdir -p "$home"; _inst "$SUT" "$home" pi
+rd9="$home/.pi/agent/research-sdd/profile/general"
+for _l in "$rd9"/*; do
+  [ -L "$_l" ] || continue
+  ln -sfn "$TMP/gone-kit/$(basename "$_l")" "$_l"
+done
+rm -f "$rd9/TARGETS.md"; printf 'x\n' > "$rd9/TARGETS.md"
+_vrun "$home" pi; l="$(_vline pi)"
+if [[ "$l" == *"TARGETS.md (extra: registry edits written into the rendered profile — reconcile target unknown: the render dir's kit symlinks point at a removed checkout $TMP/gone-kit"* ]]; then ok "V9: symlinks into a removed checkout → 'reconcile target unknown' naming the dangling path"
+else no "V9: dangling checkout not reported :: $l"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
@@ -168,7 +180,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     cp "$m" "$MKI/adapters.sh"; mkdir -p "$th"
     if [ "${4:-}" = claude ]; then
       _inst "$MKI/research-sdd-install.sh" "$th" claude
-      if grep -q 'Kit checkout:' <<<"$(_launcher "$th" claude)"; then ok "teeth: $1 → claude launcher gains the line, L4 bites"
+      _l4=$(_launcher "$th" claude); if grep -q 'Kit checkout:' <<<"$_l4"; then ok "teeth: $1 → claude launcher gains the line, L4 bites"
       else no "teeth: $1 → claude launcher unchanged, L4 is THEATER"; fi
     else
       _inst "$MKI/research-sdd-install.sh" "$th" pi
@@ -219,9 +231,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
     [[ "$(_vline pi)" == *"reconcile target unknown"* ]] && no "teeth: T10 still says unknown — V6 THEATER" || ok "teeth: T10 prints a path with no known checkout → V6 bites"
   fi
+  # T12: the dangling-checkout test removed → V9 bites.
+  if _swap_inst "T12 no dangling check" 's/if \[ -n "\$co_root" \] \&\& \[ ! -d "\$co_root" \]; then/if false; then/'; then
+    th="$TMP/t12"; mkdir -p "$th"; _inst "$SUT" "$th" pi; rd12="$th/.pi/agent/research-sdd/profile/general"
+    for _l in "$rd12"/*; do [ -L "$_l" ] && ln -sfn "$TMP/gone-kit/$(basename "$_l")" "$_l"; done
+    rm -f "$rd12/TARGETS.md"; printf 'x\n' > "$rd12/TARGETS.md"
+    _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
+    [[ "$(_vline pi)" == *"removed checkout"* ]] && no "teeth: T12 still reports the dangling checkout — V9 THEATER" || ok "teeth: T12 no -d check → plain (extra) for a dangling checkout → V9 bites"
+  fi
   # T11: tilde branch removed → V8 bites.
   if _swap_inst "T11 no tilde" 's/if \[ -n "\$co_root" \] \&\& \[ "\${co_root#"\$home\/"}" != "\$co_root" \]; then/if false; then/'; then
-    th="$TMP"; _inst "$MKI/research-sdd-install.sh" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
+    th="$(cd -P "$TMP" && pwd -P)"; _inst "$MKI/research-sdd-install.sh" "$th" pi; rm -f "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"; printf 'x\n' > "$th/.pi/agent/research-sdd/profile/general/TARGETS.md"
     _vrun "$th" pi "$MKI/research-sdd-install.mut.sh"
     [[ "$(_vline pi)" == *"~/mkkit"* ]] && no "teeth: T11 still shows ~ — V8 THEATER" || ok "teeth: T11 no tilde branch → V8 bites"
     rm -rf "$th/.pi"

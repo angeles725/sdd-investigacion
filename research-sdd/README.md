@@ -253,9 +253,12 @@ not count as failures; an all-skipped run still exits 1 so it cannot read as "al
 `--prove-teeth` is forwarded only to the shell suites.
 
 CI ([`.github/workflows/toolbelt-tests.yml`](../.github/workflows/toolbelt-tests.yml)) runs on any change
-under `research-sdd/toolbelt/**`. It has two jobs:
+under `research-sdd/toolbelt/**`. The gate is sharded (kit issue #2114), so it has three kinds of job:
 
-- **toolbelt-tests** — `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` (Node 20, python3 sanity check).
+- **toolbelt-shard** (matrix of 4) — each shard runs `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 --shard I/4 --shard-manifest ...`
+  (Node 24, python3 sanity check, bubblewrap with user namespaces enabled, GNU parallel) and uploads its manifest.
+- **toolbelt-tests** — the join job (keeps the name merge-gate requires): `shard-join.sh` proves every suite ran
+  exactly once and passed across a complete set of green shards.
 - **shellcheck** — `shellcheck -S warning` over every `research-sdd/toolbelt/**/*.sh`.
 
 ---

@@ -1,0 +1,6 @@
+{"hooks":{"SessionStart":[
+ {"matcher":"^start","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/regex200.sh"}]},
+ {"matcher":"startup, resume","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/list300.sh"}]},
+ {"matcher":"start","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/exact7000.sh"}]},
+ {"matcher":"fork","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/fork50.sh"}]}
+]}}

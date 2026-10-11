@@ -108,6 +108,10 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `hook-registered-no-sessions` | row claims `hook yes`; the Stop hook is registered with a loadable script, but no retained Claude Code transcript exists for a session launched from exactly the target directory, so it is not known to have loaded |
 | `hook-unregistered-stale` | row carries `hook file yes / unregistered` but the Stop hook IS registered with a loadable script |
 | `hook-no-sessions-stale` | row carries `registered-no-sessions` but the hook is no longer registered with a loadable script, or a retained transcript now exists |
+| `session-budget-truncated` | opt-in (`RSDD_REGISTRY_SESSION_BUDGET=1`): a wired SessionStart hook emits more than 10,000 characters, so Claude Code truncates it (kit #2129) |
+| `session-budget-over` | opt-in: the SessionStart hooks together reach the 8,000-character kit budget (kit #2129) |
+| `session-budget-timed-out` | opt-in: a SessionStart hook outlives its own `timeout` field, so Claude Code kills it and it contributes nothing (kit #2129) |
+| `session-budget-degraded` | opt-in: a SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no sandbox) or `verify-session-budget.sh` is missing; the figures are partial, not zero (kit #2129) |
 | `nc-contradiction` | `nc` row but a `RESEARCH-STATE.md` exists |
 | `nc-no-count` | `nc` row without a claimed `N md` count |
 | `count-drift` | claimed `N md` differs from the on-disk count beyond the tolerance (corpus and `nc` rows) |
@@ -125,6 +129,9 @@ without its `WARN  `/`INFO  ` prefix. There is one item per human `WARN`/`INFO` 
 | `oversized-row` | a `TARGETS.md` master cell longer than `RSDD_ROW_MAXLEN` |
 | `kit-not-registered` | the kit repo is not in its own `TARGETS.md` |
 | `absent-target` | `INFO`: a registered target directory is absent on disk, not checked |
+| `wired-hook-not-executable` | a command wired under the `hooks` key of the target's `.claude/settings.json` runs a script DIRECTLY, the script exists, and it lacks the execute bit, so Claude Code exits 126 and the hook never loads. Asserted only for the exact shapes `<path> [args]`, `exec\|nohup\|command <path>`, `timeout <N[smh]> <path>` and `NAME=value <path>`, where the first word contains `/` (kit issue #2141) |
+| `wired-hook-missing` | the script path of one of those exact shapes, or of an interpreter run `bash\|sh\|zsh\|python\|python3\|node\|perl <absolute-path>` (optionally via `env <interp>`, the word after the interpreter not starting with `-`), names no file. A Stop retro-gate script that `hook-registered-never-loaded` already reported (same target, event `Stop`, path containing `retro-gate`) is not repeated (kit issue #2141) |
+| `wired-hook-unverifiable` | a wired command with a command word that is NOT one of the shapes above, or the settings file itself: an interpreter followed by any option (`-c`, `-lc`, `-r`, `-I`, `--eval`), `env`/`nice`/`timeout` with options, a wrapper followed by an option, a relative script for an interpreter, a quoted interpreter word, `cd ...` or any command followed by an operator before a path command, a bare command name with arguments, a backslash, an unterminated quote, a `~` the shell would not expand, an unresolved variable or glob, an unreadable or invalid settings file, or no `jq` (text-match fallback). Whether the hook can run was not determined; the message names the command head and the reason. A bare command name that is the entire command stays silent (kit issue #2141) |
 
 The envelope reports the findings of the default report, nothing wider: `ok` with `counts.targets_absent > 0`
 is a partial reconcile, visible in `counts`, not in `reason`. The aggregate hint lines of the human report

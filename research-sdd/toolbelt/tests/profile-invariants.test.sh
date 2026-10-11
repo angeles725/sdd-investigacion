@@ -588,7 +588,7 @@ fi
 # primitive to its pi equivalent (row-level, not just a heading), and the
 # rendered PROMPT-LOOP.md must point at it. Asserted on EVERY profile: the
 # crosswalk is plain harness-neutral doctrine, never a slot.
-# x1_holds / x2_holds are the only place the logic lives (teeth call them).
+# x1_check / x2_howto / x2_stop are the only place the logic lives (teeth call them).
 # =============================================================================
 x1_section() { awk '/^## Harness crosswalk[[:space:]]*$/{f=1;next} f&&/^## /{exit} f' "$1"; }
 x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
@@ -614,14 +614,10 @@ x1_check() {  # ID FILE
     *) return 2 ;;
   esac
 }
-x1_holds() {
-  local id
-  for id in "${X1_IDS[@]}"; do x1_check "$id" "$1" || return 1; done
-}
 # X2: each pointer in its OWN section (a whole-file grep stays green when one of two pointers is deleted).
 x2_howto() { grep -qF 'Harness crosswalk' <<<"$(awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1")"; }
-x2_stop()  { grep -qF 'disarm per the Harness crosswalk' "$1"; }
-x2_holds() { x2_howto "$1" && x2_stop "$1"; }
+# x2_stop: scoped to the LOOP CONTINUATION case-1 text (from 'Teardown runs at campaign STOP' up to case (2)).
+x2_stop()  { grep -qF 'disarm per the Harness crosswalk' <<<"$(awk '/Teardown runs at campaign STOP/{f=1} f&&/^    \(2\) DYNAMIC self-paced/{exit} f' "$1")"; }
 for name in "${PROFILE_NAMES[@]}"; do
   for id in "${X1_IDS[@]}"; do
     if x1_check "$id" "${OUTDIR[$name]}/skills/research-sdd/SKILL.md"; then
@@ -1132,6 +1128,16 @@ PYEOF
       no "teeth-x1-$id: x1_check $id still PASSES on the mutant — no teeth"
     else
       ok "teeth-x1-$id: x1_check $id goes RED on the mutant"
+    fi
+    # Right reason: every OTHER check must stay green (only the heading mutant legitimately reddens all).
+    if [ "$id" != section ]; then
+      local other bad=""
+      for other in "${X1_IDS[@]}"; do
+        [ "$other" = "$id" ] && continue
+        x1_check "$other" "$out/skills/research-sdd/SKILL.md" || bad="$bad $other"
+      done
+      if [ -z "$bad" ]; then ok "teeth-x1-$id: every other X1 check stays green (the mutant bites only its own check)"
+      else no "teeth-x1-$id: other X1 checks went red too:$bad — the mutant is not isolated"; fi
     fi
   }
   for id in "${X1_IDS[@]}"; do good_rc "x1_check $id general" 0 x1_check "$id" "$GENERAL_SKILL"; done

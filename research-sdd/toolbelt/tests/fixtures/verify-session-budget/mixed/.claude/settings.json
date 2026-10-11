@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/plain500.sh"},{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/plain10500.sh"},{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/json500.sh"},{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/writer.sh"}]}]}}

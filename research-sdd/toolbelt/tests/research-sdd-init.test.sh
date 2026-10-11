@@ -2164,6 +2164,9 @@ if command -v jq >/dev/null 2>&1; then
   bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-b.out" 2>&1
   cmp -s "$TMP/1787-a.before" "$d/.claude/settings.json" && ok "K1787-b re-run leaves settings.json byte-identical" || no "K1787-b settings.json changed on a re-run"
   assert_grep "K1787-b2 re-run reports already wired" "SessionStart stale-KIT drift hook already wired" "$TMP/1787-b.out"
+  # kit issue #2130: the wire output names the kit path the hooks pin and says staleness is reported by the drift hook.
+  assert_grep "K2130-a scaffold --wire names the pinned kit path" "hooks pin the kit at $_k87_k (shared checkout); the SessionStart drift hook warns when it is behind its upstream" "$TMP/1787-a.out"
+  assert_grep "K2130-b wire-only re-run names the pinned kit path" "hooks pin the kit at $_k87_k (shared checkout)" "$TMP/1787-b.out"
   # (c) a user's SessionStart hook is preserved; a STALE absolute drift path is repaired; a still-existing OTHER form is kept untouched.
   d="$TMP/1787-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/verify-skill-drift-hook.sh\""},{"type":"command","command":"/x/other.sh"}]}]}}' > "$d/.claude/settings.json"
@@ -4895,6 +4898,11 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     d="$TMP/k04m-wr"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k04 wr/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && ok "teeth M-1804-WIRE: no plan line from --wire repair without the call — K1804-c/e have teeth" || no "teeth M-1804-WIRE: line present under the mutant — K1804-c/e are THEATER"
   else no "teeth M-1804-WIRE: could not build mutant"; fi
+  # M-2130-PIN: the wire output no longer names the pinned kit path (both the scaffold+wire and the wire-only call sites).
+  if _k87_mb "k2130 pin" '/^      _rsdd_pin_note$/d'; then
+    d="$TMP/k2130m"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k2130 pin/toolbelt/init.sh" "$d" --wire >"$TMP/k2130m.out" 2>&1
+    grep -qF 'hooks pin the kit at' "$TMP/k2130m.out" && no "teeth M-2130-PIN: pin note still printed under the mutant — K2130-a/b are THEATER" || ok "teeth M-2130-PIN: without the call the pin note is gone — K2130-a/b have teeth"
+  else no "teeth M-2130-PIN: could not build mutant"; fi
   fi
 fi
 

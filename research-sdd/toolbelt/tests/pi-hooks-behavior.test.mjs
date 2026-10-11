@@ -7,7 +7,8 @@
 //
 // Loading the .ts needs Node's built-in type stripping (process.features.typescript, Node >= 22.10 /
 // 23.6). Without it the suite prints a typed `SKIP:` line and exits 0 (run-all counts it as skipped,
-// never as passed) — the structural suite pi-hooks.test.sh still covers the source on every Node.
+// never as passed) — the structural suite pi-hooks.test.sh still covers the source on every Node. With
+// RSDD_REQUIRE_NODE_TS=1 (set by the CI shard jobs) the missing capability is a typed FAIL (exit 1) instead.
 // Mirrors every defect class of niagara-research's hand-written extension (kit issue #2128).
 
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, readFileSync, existsSync, rmSync,
@@ -32,6 +33,10 @@ console.log('== pi-hooks-behavior.test.mjs ==');
 if (!existsSync(SRC)) {
   console.error('FATAL: extension under test missing: ' + SRC);
   process.exit(2);
+}
+if (!process.features.typescript && process.env.RSDD_REQUIRE_NODE_TS === '1') {
+  console.log('  FAIL  RSDD_REQUIRE_NODE_TS=1 but Node ' + process.version + ' has no built-in TypeScript type stripping: the extension handlers were not executed (typed refusal, not a skip)');
+  process.exit(1);
 }
 if (!process.features.typescript) {
   console.log('SKIP: this Node (' + process.version + ') has no built-in TypeScript type stripping; the handlers were not executed');
@@ -616,5 +621,6 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
 }
 
 restoreEnv();
-console.log(`\n${pass} passed, ${fail} failed, ${skip} skipped (${Date.now() - t0} ms)`);
+console.log(`\nskipped: ${skip} (${Date.now() - t0} ms)`);
+console.log(`== ${pass} passed · ${fail} failed ==`);
 process.exit(fail > 0 ? 1 : 0);

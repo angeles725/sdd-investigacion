@@ -171,7 +171,7 @@ fi
 
 # ── (6) The provider-issued token ────────────────────────────────────────────
 _status="$SELF_DIR/research-sdd-status.sh"
-# Keep well under Claude Code's default per-hook budget (currently 60s): a slow status run must
+# Keep well under Claude Code's per-hook timeout (command hooks default to 600 s; 30 s on UserPromptSubmit): a slow status run must
 # return a typed degraded allow, never let the hook runner kill us mid-write. Override with
 # RETURN_TOKEN_GATE_TIMEOUT_SECS. When `timeout` is absent (e.g. stock macOS), we degrade rather
 # than run the status call unbounded.

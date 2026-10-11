@@ -25,6 +25,8 @@
 #       --json adds: 3 = degraded (jq missing / too old); an all-absent registry is an absent-input
 #       envelope (rc 0) and a registry with no usable path is rc 1 (the default mode keeps exit 1 / exit 0).
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
+#      RSDD_REGISTRY_SESSION_BUDGET=1 — opt-in (it RUNS each target's SessionStart hooks, sandboxed): WARN on a hook
+#      over Claude Code's 10,000-char cap or hooks over the 8,000-char kit budget (verify-session-budget.sh, #2129).
 set -uo pipefail
 
 # --json (opt-in, json-envelope.v1.md). Parsed and probed BEFORE anything else so a missing jq is a
@@ -160,6 +162,7 @@ if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_h
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
 declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
 declare -F hook_stop_launch_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_launch_state" >&2; exit 1; }
+declare -F hook_wired_exec_report >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_wired_exec_report" >&2; exit 1; }
 unset _vr_hw_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -315,6 +318,32 @@ for p in $paths; do
     done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
   fi
 
+  # SESSIONSTART BUDGET (kit issue #2129), OPT-IN: RSDD_REGISTRY_SESSION_BUDGET=1 executes the target's
+  # wired SessionStart hooks (sandboxed, read-only toward the target — see verify-session-budget.sh) and
+  # WARNs when a hook's output is over Claude Code's 10,000-char cap (silently truncated) or the aggregate
+  # is over the 8,000-char kit budget. Off by default: it RUNS hooks, which costs seconds per target.
+  if [ "${RSDD_REGISTRY_SESSION_BUDGET:-0}" = 1 ] && [ -f "$p/.claude/settings.json" ]; then  # SESSION-BUDGET-CHECK
+    if [ ! -f "$_RSDD_SELF/verify-session-budget.sh" ]; then
+      _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — SessionStart budget check could not run: verify-session-budget.sh is missing beside verify-registry.sh (a degraded measurement, not a zero)."
+    else
+      _vr_sb="$(bash "$_RSDD_SELF/verify-session-budget.sh" "$p" 2>&1)"
+      if grep -q 'status=TRUNCATED' <<<"$_vr_sb"; then
+        _vr_finding session-budget-truncated WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook emits more than 10,000 characters, so Claude Code truncates it to a path plus a 2,000-char preview Claude is not told to read; shrink or split the hook (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if grep -q 'status=timed-out' <<<"$_vr_sb"; then  # SESSION-BUDGET-TIMED-OUT
+        _vr_finding session-budget-timed-out WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook outlives its own configured timeout, so Claude Code kills it and it contributes nothing (the budget numbers do not show this); fix or raise the hook's timeout (run verify-session-budget.sh ${p} for the hook; propose-never-apply)."
+      fi
+      if grep -q 'OVER BUDGET' <<<"$_vr_sb"; then
+        _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (worst session source: $(sed -n 's/^aggregate: .* worst-source=//p' <<<"$_vr_sb"); run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if ! grep -q '^state:' <<<"$_vr_sb"; then  # SESSION-BUDGET-NO-STATE
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — the SessionStart budget check produced no 'state:' line (crashed, was killed or exited early), so nothing was measured; this is a degraded result, not a clean one (run verify-session-budget.sh ${p})."
+      elif grep -q '^state: degraded' <<<"$_vr_sb"; then
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — at least one SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no usable sandbox or locale); the figures are partial, not zero (run verify-session-budget.sh ${p})."
+      fi
+    fi
+  fi
+
   # HOOK-WIRING RECONCILIATION (kit issue #1108): a row whose maturity cell claims 'hook yes'
   # (the SPECIFIC claim that the hook "will fire" per the TARGETS.md legend — distinct from
   # 'hook no', 'hook deferred', or 'hook file yes / unregistered', none of which assert active
@@ -342,6 +371,7 @@ for p in $paths; do
   # The maintainer decides which directory to register — this tool cannot (kit issue #1134). Three.js
   # (TARGETS.md row 13) no longer claims 'hook yes' post-#1133, so this branch has zero effect on
   # the real fleet today; it exists for the NEXT row that does.
+  _vr_nl_emitted=0   # set below when hook-registered-never-loaded fires for this target (the wired-hook-missing block skips the duplicate, kit issue #2141)
   _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
@@ -358,6 +388,7 @@ for p in $paths; do
       attention=$((attention + 1))
     fi
     if [ "$_vr_script_state" = "missing" ]; then  # HOOK-NEVER-LOADED-CHECK
+      _vr_nl_emitted=1
       _vr_finding hook-registered-never-loaded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json but EVERY registered retro-gate command names a script that does not exist (one present entry would let it load), so the hook can never load (registered-never-loaded; checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected; executable bit and launch directory are not checked); restore the script or refresh the row (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
@@ -462,6 +493,28 @@ for p in $paths; do
       attention=$((attention + 1))
      fi
     fi
+  fi
+
+  # WIRED-HOOK EXECUTE BIT (kit issue #2141): independent of any row claim, every hook command wired in
+  # <target>/.claude/settings.json whose first word is a file path must be runnable as a bare command.
+  # A mode-644 script exits 126 under Claude Code, so its protocol card / guard never loads. Read-only,
+  # WARN-only (propose-never-apply); lib/hook-wiring.sh hook_wired_exec_report decides what is a claim.
+  if [ -d "$p/.claude" ]; then
+    while IFS=$'\t' read -r _vr_we_kind _vr_we_path _vr_we_x3; do
+      [ -n "$_vr_we_kind" ] || continue
+      if [ "$_vr_we_kind" = "unverifiable" ]; then
+        _vr_finding wired-hook-unverifiable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-unverifiable: ${_vr_we_path} (${_vr_we_x3}); whether this wired hook can run was NOT determined (checked path only: ${p}/.claude/settings.json; propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ] && [ "$_vr_nl_emitted" = 1 ] && [ "$_vr_we_x3" = "Stop" ] && [[ "$_vr_we_path" == *retro-gate* ]]; then
+        continue   # already reported as hook-registered-never-loaded for this target: do not double count
+      elif [ "$_vr_we_kind" = "not-executable" ]; then
+        _vr_finding wired-hook-not-executable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-not-executable: ${_vr_we_path} is registered in ${p}/.claude/settings.json as a bare command but has no execute bit, so Claude Code exits 126 and the hook never loads; chmod +x it or wire it as 'bash <path>' (propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ]; then
+        _vr_finding wired-hook-missing WARN "$(basename "$p")" "$(basename "$p") — wired-hook-missing: ${_vr_we_path} is registered in ${p}/.claude/settings.json but no such file exists, so the hook can never run; restore it or remove the registration (propose-never-apply)."
+      else
+        continue
+      fi
+      attention=$((attention + 1))
+    done < <(hook_wired_exec_report "$p")  # WIRED-EXEC-CALLSITE
   fi
 
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so

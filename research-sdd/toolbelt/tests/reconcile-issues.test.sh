@@ -2813,10 +2813,12 @@ mk_retro "$PAR_BOX" target-foo 2026-01-01-p1.md "<!-- review-status: pending -->
 {
   printf '<!-- review-status: pending -->\n# r\n\n## Proposed kit deltas\n\n### D4 — entry form delta title\n\n**Evidence**: B9\n\n### D5 — second entry form delta\n\n**Evidence**: B9\n'
 } > "$PAR_BOX/rh/target-foo/retros/2026-01-03-p3.md"
+# p4: GFM-escaped pipes in header/ID/middle/last cells (kit issue #2118) - the seeder and the shared helper must agree
+cp "$HERE/fixtures/stage-retro-issues/escaped-pipe.md" "$PAR_BOX/rh/target-foo/retros/2026-01-04-p4.md"
 # par_check <retro-grammar.sh to take the title parser from> -> 0 when stage and the shared helper agree on every fixture
 par_check() {
   local lib="$1" f st rt n=0
-  for f in "$PAR_BOX"/rh/target-foo/retros/2026-01-0[123]-p[123].md; do
+  for f in "$PAR_BOX"/rh/target-foo/retros/2026-01-0[1234]-p[1234].md; do
     st="$(PATH="$PAR_BOX/bin:$PATH" "$BASH_BIN" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh" "$f" 2>/dev/null | sed -n 's/^planned-issue: //p')"
     # shellcheck disable=SC1090
     rt="$( . "$lib"; retro_grammar_row_titles "$f" | awk -F'\037' '{ print $2 }' )"
@@ -2824,10 +2826,120 @@ par_check() {
     [ "$st" = "$rt" ] || { printf 'par_check: MISMATCH %s\n stage=[%s]\n recon=[%s]\n' "$f" "$st" "$rt" >&2; return 1; }
     n=$((n+1))
   done
-  [ "$n" = 3 ]
+  [ "$n" = 4 ]
 }
-if par_check "$RETRO_GRAMMAR_LIB"; then ok "47 shared row titles == stage-retro-issues planned titles (table, bold, header-named, entry form)" "()"
+if par_check "$RETRO_GRAMMAR_LIB"; then ok "47 shared row titles == stage-retro-issues planned titles (table, bold, header-named, entry form, escaped pipes)" "()"
 else no "47 stage/reconcile title parity" "drift between retro_grammar_row_titles and the seeder's title extraction"; fi
+
+# 48 - GFM-escaped pipes (kit issue #2118): reconcile reads the same row ids the seeder staged. Rows 2-4 are tracked
+# (an open issue carries their signature); the `E\|1` row (a pipe in the id) is typed unclassifiable the way the seeder
+# types it, never reported untracked. c48 <sut-path> -> sets OUT/RC.
+c48() {
+  local sut="$1" b r
+  b="$(mkbox "case-48-$2")"; mk_gh_stub "$b" nomatch
+  [ "$sut" = "$SUT" ] || cp "$sut" "$b/research-sdd/toolbelt/reconcile-issues.sh"
+  r="$b/rh/target-foo/retros/escaped-pipe.md"; cp "$HERE/fixtures/stage-retro-issues/escaped-pipe.md" "$r"
+  printf 'Source retro: target-foo/retros/escaped-pipe.md · 2\n\x1e\nSource retro: target-foo/retros/escaped-pipe.md · 3\n\x1e\nSource retro: target-foo/retros/escaped-pipe.md · 4\n' > "$b/cache48.txt"
+  run "$b" --issues-cache "$b/cache48.txt" "$r"
+}
+c48_verdict() {
+  [ "$RC" = 0 ] || { echo "RC $RC"; return 1; }
+  grep -q '^unclassifiable: row E|1 of escaped-pipe.md has a pipe in its id (id-contains-pipe)' <<<"$OUT" || { echo "MISSING id-contains-pipe line"; return 1; }
+  local k; for k in 2 3 4; do grep -q "^tracked: row $k " <<<"$OUT" || { echo "MISSING tracked: row $k"; return 1; }; done
+  ! grep -q '^untracked:' <<<"$OUT" || { echo "UNEXPECTED untracked"; return 1; }
+}
+c48 "$SUT" good
+if why="$(c48_verdict)"; then ok "48 escaped pipes: rows 2-4 tracked, pipe-in-id row typed unclassifiable (id-contains-pipe)" "()"
+else no "48 escaped-pipe ids" "$why | out=[${OUT:0:500}]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth 48 (kit issue #2118): each patched reconcile line has its own marker --"
+  # c48_tooth <label> <wanted-failure-text> <sed-expr>
+  c48_tooth() {
+    local label="$1" want="$2" expr="$3" m="$ROOT/m48-$1.sh" why
+    if ! mutant_sed "$SUT" "$m" -e "$expr"; then no "48 teeth $label: build mutant" "mutant_sed refused"; return; fi
+    c48 "$m" "m-$label"
+    if why="$(c48_verdict)"; then no "48 teeth $label: mutant must break case 48" "THEATER"
+    elif ! grep -qF -- "$want" <<<"$why"; then no "48 teeth $label: broke for the WRONG reason" "wanted [$want] got [$why]"
+    else ok "48 teeth $label: mutant breaks case 48 with [$want]" "()"; fi
+  }
+  c48_tooth escaped-pipe-off 'MISSING id-contains-pipe line' '/RECONCILE_ISSUES_ESCAPED_PIPE/s/rg_esc_pipes(line)/line/'
+  c48_tooth id-pipe-off      'MISSING id-contains-pipe line' 's/if \[\[ "\$_rln" == \*.|.\* \]\]; then$/if false; then/'
+fi
+
+# 49 - backslash runs before a pipe (kit issue #2135). GFM treats ANY `\|` as an escaped pipe (GitHub POST /markdown), so an
+# even run (`\\|`) is not a column break: row 1 (`1\\|k`) and row 7 (`7\\\|z`) hold a pipe in their id (id-contains-pipe)
+# and row 6 (`6\`) an id that cannot round-trip through the issue signature (id-not-signature-safe); rows 2-5 are tracked
+# (even/odd runs in the header, a middle cell and the last cell do not shift anything). Same typing as the seeder.
+# c49 <reconcile-issues.sh to run> <retro-grammar.sh to run> <label> -> sets OUT/RC.
+c49() {
+  local sut="$1" lib="$2" b r s='Source retro: target-foo/retros/double-backslash-pipe.md'
+  b="$(mkbox "case-49-$3")"; mk_gh_stub "$b" nomatch
+  [ "$sut" = "$SUT" ] || cp "$sut" "$b/research-sdd/toolbelt/reconcile-issues.sh"
+  [ "$lib" = "$RETRO_GRAMMAR_LIB" ] || cp "$lib" "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
+  r="$b/rh/target-foo/retros/double-backslash-pipe.md"; cp "$HERE/fixtures/stage-retro-issues/double-backslash-pipe.md" "$r"
+  { for k in 2 3 4; do printf '%s · %s\n\x1e\n' "$s" "$k"; done; printf '%s · %s\n' "$s" 5; } > "$b/cache49.txt"
+  run "$b" --issues-cache "$b/cache49.txt" "$r"
+}
+c49_verdict() {
+  [ "$RC" = 0 ] || { echo "RC $RC"; return 1; }
+  grep -qF 'unclassifiable: row 1\|k of double-backslash-pipe.md has a pipe in its id (id-contains-pipe)' <<<"$OUT" || { echo "MISSING id-contains-pipe for row 1"; return 1; }
+  grep -qF 'unclassifiable: row 7\\|z of double-backslash-pipe.md has a pipe in its id (id-contains-pipe)' <<<"$OUT" || { echo "MISSING id-contains-pipe for row 7"; return 1; }
+  grep -qF 'unclassifiable: row 6\ of double-backslash-pipe.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)' <<<"$OUT" || { echo "MISSING id-not-signature-safe for row 6"; return 1; }
+  grep -qF 'unclassifiable: row 8 x of double-backslash-pipe.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)' <<<"$OUT" || { echo "MISSING id-not-signature-safe for row 8 x"; return 1; }
+  local k; for k in 2 3 4 5; do grep -q "^tracked: row $k " <<<"$OUT" || { echo "MISSING tracked: row $k"; return 1; }; done
+  ! grep -q '^untracked:' <<<"$OUT" || { echo "UNEXPECTED untracked"; return 1; }
+}
+c49 "$SUT" "$RETRO_GRAMMAR_LIB" good
+if why="$(c49_verdict)"; then ok "49 backslash runs: any \\| is an escaped pipe; pipe/backslash ids unclassifiable, rows 2-5 tracked" "()"
+else no "49 double-backslash ids" "$why | out=[${OUT:0:500}]"; fi
+
+# 50 - RECONCILE_ISSUES_ESCPIPE_GUARD (kit issue #2135): the awk text of rg_esc_pipes is a variable, so `declare -F` cannot
+# see it; a lib that does not define it must stop reconcile fail-closed (exit 1, named).
+c50() {
+  local sut="$1" b m="$ROOT/lib50-$2.sh"
+  b="$(mkbox "case-50-$2")"; mk_gh_stub "$b" nomatch
+  sed 's/^_RG_AWK_ESCPIPE_FN=/_RG_AWK_ESCPIPE_FN_RENAMED=/' "$RETRO_GRAMMAR_LIB" > "$m"
+  cp "$m" "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
+  [ "$sut" = "$SUT" ] || cp "$sut" "$b/research-sdd/toolbelt/reconcile-issues.sh"
+  cp "$HERE/fixtures/stage-retro-issues/double-backslash-pipe.md" "$b/rh/target-foo/retros/double-backslash-pipe.md"
+  run "$b" --issues-cache "$b/none.txt" "$b/rh/target-foo/retros/double-backslash-pipe.md"
+}
+c50_verdict() { [ "$RC" = 1 ] && grep -qF 'failed to define _RG_AWK_ESCPIPE_FN' <<<"$OUT" || { echo "RC $RC without the named guard message"; return 1; }; }
+c50 "$SUT" good
+if why="$(c50_verdict)"; then ok "50 a lib without _RG_AWK_ESCPIPE_FN stops reconcile fail-closed (exit 1, named)" "()"
+else no "50 escpipe guard" "$why | out=[${OUT:0:300}]"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  . "$HERE/lib/mutant.sh"
+  echo "-- teeth 49/50 (kit issue #2135): the shared rule, each reconcile call site and the guard --"
+  # c49_tooth <label> <wanted-failure-text> <sut|lib> <sed-expr>
+  c49_tooth() {
+    local label="$1" want="$2" where="$3" expr="$4" m="$ROOT/m49-$1.sh" why
+    if [ "$where" = lib ]; then
+      if ! mutant_sed "$RETRO_GRAMMAR_LIB" "$m" -e "$expr"; then no "49 teeth $label: build mutant" "mutant_sed refused"; return; fi
+      c49 "$SUT" "$m" "m-$label"
+    else
+      if ! mutant_sed "$SUT" "$m" -e "$expr"; then no "49 teeth $label: build mutant" "mutant_sed refused"; return; fi
+      c49 "$m" "$RETRO_GRAMMAR_LIB" "m-$label"
+    fi
+    if why="$(c49_verdict)"; then no "49 teeth $label: mutant must break case 49" "THEATER"
+    elif ! grep -qF -- "$want" <<<"$why"; then no "49 teeth $label: broke for the WRONG reason" "wanted [$want] got [$why]"
+    else ok "49 teeth $label: mutant breaks case 49 with [$want]" "()"; fi
+  }
+  c49_tooth any-off        'MISSING id-contains-pipe for row 1' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/'
+  c49_tooth call-site-off  'MISSING id-contains-pipe for row 1' sut '/RECONCILE_ISSUES_ESCAPED_PIPE/s/rg_esc_pipes(line)/line/'
+  c49_tooth id-trimmed-off 'MISSING id-not-signature-safe for row 8 x' sut 's/flushp(); pend = tid/flushp(); pend = rid/'
+  c49_tooth id-safe-off    'MISSING id-not-signature-safe for row 6' sut 's/if ! retro_grammar_id_signature_safe "\$_rln"; then/if false; then/'
+  c49_tooth id-safe-lib-off 'MISSING id-not-signature-safe for row 6' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
+  m50="$ROOT/m50.sh"
+  if mutant_sed "$SUT" "$m50" -e 's/\[ -n "\${_RG_AWK_ESCPIPE_FN:-}" \]/true/'; then
+    c50 "$m50" m50
+    if why="$(c50_verdict)"; then no "50 teeth guard-off: mutant must break case 50" "THEATER"
+    else ok "50 teeth guard-off: mutant breaks case 50 with [$why]" "()"; fi
+  else no "50 teeth guard-off: build mutant" "mutant_sed refused"; fi
+fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth T1492: shipped-open reason --"

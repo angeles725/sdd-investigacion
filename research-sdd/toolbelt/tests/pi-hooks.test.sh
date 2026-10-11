@@ -84,11 +84,41 @@ HAVE_TS=0
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.features.typescript ? 1 : 0' 2>/dev/null)" = 1 ]; then HAVE_TS=1; fi
 if [ "$HAVE_TS" = 1 ]; then
   beh_out="$(node "$BEHAVIOR" 2>&1)"; beh_rc=$?
-  beh_sum="$(grep -E '^[0-9]+ passed' <<<"$beh_out" | tail -1)"
+  beh_sum="$(grep -E '^== [0-9]+ passed · [0-9]+ failed ==$' <<<"$beh_out" | tail -1)"
   if [ "$beh_rc" = 0 ] && [ -n "$beh_sum" ]; then ok "behavior: pi-hooks-behavior.test.mjs against the real extension ($beh_sum)"
   else no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';')"; fi
+elif [ "${RSDD_REQUIRE_NODE_TS:-}" = 1 ]; then
+  no "behavior: RSDD_REQUIRE_NODE_TS=1 but this Node ($(node --version 2>/dev/null || echo 'node absent')) has no built-in TypeScript type stripping: the extension handlers were not executed (typed refusal, not a skip)"
 else
   sk "behavior: this Node has no built-in TypeScript type stripping ($(node --version 2>/dev/null || echo 'node absent')); the handlers were not executed here"
+fi
+
+# --- self-invocation: RSDD_REQUIRE_NODE_TS turns the missing capability from SKIP into a typed FAIL ----------------
+# A fake `node` that reports no type stripping goes first on PATH; this suite runs itself against it. A child run
+# (RSDD_PI_HOOKS_SELFTEST=1) never recurses.
+if [ "${RSDD_PI_HOOKS_SELFTEST:-}" != 1 ]; then
+  SHIM="$TMP/shim"; mkdir -p "$SHIM"
+  printf '#!/usr/bin/env bash\ncase "$*" in *typescript*) echo 0 ;; *--version*) echo v20.0.0 ;; esac\nexit 0\n' > "$SHIM/node"
+  chmod +x "$SHIM/node"
+  st_out="$(PATH="$SHIM:$PATH" RSDD_PI_HOOKS_SELFTEST=1 RSDD_REQUIRE_NODE_TS=1 bash "${BASH_SOURCE[0]}" 2>&1)"; st_rc=$?
+  if [ "$st_rc" = 1 ] && grep -q '^  FAIL  behavior: RSDD_REQUIRE_NODE_TS=1 but this Node (v20.0.0)' <<<"$st_out" && grep -qE '^== [0-9]+ passed · [1-9][0-9]* failed ==$' <<<"$st_out"; then
+    ok "require-node-ts: flag set + a Node without type stripping -> typed FAIL line, exit 1"
+  else no "require-node-ts: flag set did not fail typed (rc=$st_rc): $(tail -3 <<<"$st_out" | tr '\n' ';')"; fi
+  st_out="$(PATH="$SHIM:$PATH" RSDD_PI_HOOKS_SELFTEST=1 RSDD_REQUIRE_NODE_TS='' bash "${BASH_SOURCE[0]}" 2>&1)"; st_rc=$?
+  if [ "$st_rc" = 0 ] && grep -q '^  SKIP  behavior: this Node has no built-in TypeScript type stripping' <<<"$st_out"; then
+    ok "require-node-ts: flag unset + a Node without type stripping -> SKIP, exit 0"
+  else no "require-node-ts: flag unset did not skip (rc=$st_rc): $(tail -3 <<<"$st_out" | tr '\n' ';')"; fi
+  if [ "$HAVE_TS" = 1 ]; then
+    # the behavior suite itself, run on this Node with type stripping switched off
+    m_out="$(RSDD_REQUIRE_NODE_TS=1 node --no-experimental-strip-types "$BEHAVIOR" 2>&1)"; m_rc=$?
+    if [ "$m_rc" = 1 ] && grep -q '^  FAIL  RSDD_REQUIRE_NODE_TS=1 but Node' <<<"$m_out"; then ok "require-node-ts: the .mjs suite fails typed when the flag is set and stripping is off"
+    else no "require-node-ts: the .mjs suite did not fail typed (rc=$m_rc): $(tail -2 <<<"$m_out" | tr '\n' ';')"; fi
+    m_out="$(RSDD_REQUIRE_NODE_TS='' node --no-experimental-strip-types "$BEHAVIOR" 2>&1)"; m_rc=$?
+    if [ "$m_rc" = 0 ] && grep -q '^SKIP: this Node' <<<"$m_out"; then ok "require-node-ts: the .mjs suite still SKIPs when the flag is unset"
+    else no "require-node-ts: the .mjs suite did not skip (rc=$m_rc)"; fi
+  else
+    sk "require-node-ts: the .mjs self-invocation needs a Node with type stripping to switch it off"
+  fi
 fi
 
 # --- teeth -----------------------------------------------------------------------------------------------
@@ -169,5 +199,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth ask-not-blocked       behavior - 's/verdict\.permissionDecision === "deny" || verdict\.permissionDecision === "ask"/verdict.permissionDecision === "deny"/'
 fi
 
-echo "== $pass passed · $fail failed · $skipped skipped =="
+echo "skipped: $skipped"
+echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
