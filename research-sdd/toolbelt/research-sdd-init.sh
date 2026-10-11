@@ -143,6 +143,9 @@ _RSDD_GATE_CMD="\"$_RSDD_GATE_PATH\""
 # needs no cwd or env, is silent when nothing is stale and always exits 0, so it cannot block a session start.
 _RSDD_DRIFT_PATH="$KIT/toolbelt/verify-skill-drift-hook.sh"
 _RSDD_DRIFT_CMD="\"$_RSDD_DRIFT_PATH\""
+# kit issue #2130: the wired hooks pin THIS kit path, a mutable shared checkout that is deliberately not auto-updated while research
+# sessions run, so it can silently fall behind origin/main. The drift hook reports that staleness at SessionStart (local refs only).
+_rsdd_pin_note() { printf '  note   : hooks pin the kit at %s (shared checkout); the SessionStart drift hook warns when it is behind its upstream - update it only when no research session runs\n' "$KIT"; }
 
 # Shared corpus-marker predicate (kit issue #1108): single source of truth with
 # verify-registry.sh's registered-path marker check — see lib/corpus-markers.sh for why.
@@ -1048,6 +1051,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       _wo_has_pk="$(jq -r '.has_pk' <<<"$_wo_merge_out")"
       _rsdd_report_gate "$_wo_merge_out" "$_wo_settings"
       printf '%s\n' "$_wo_drift_out"
+      _rsdd_pin_note
       if [ "$_wo_has_pk" = "true" ]; then
         echo "  wired  : PreToolUse pkill-guard hook already wired in $_wo_settings"
       else
@@ -1369,6 +1373,7 @@ if [ "$wire" = 1 ]; then
       _wire_has_pk="$(jq -r '.has_pk' <<<"$_wire_merge_out")"
       _rsdd_report_gate "$_wire_merge_out" "$_settings"
       printf '%s\n' "$_wire_drift_out"
+      _rsdd_pin_note
       if [ "$_wire_has_pk" = "true" ]; then
         echo "  wired  : PreToolUse pkill-guard hook already wired in $_settings"
       else

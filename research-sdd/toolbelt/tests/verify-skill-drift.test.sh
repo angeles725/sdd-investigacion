@@ -24,6 +24,7 @@
 # Exit: 0 = all held · 1 = regression
 
 set -uo pipefail
+export RESEARCH_SDD_KIT_STALE_CHECK=off   # kit issue #2130: the patched hook copies run from a non-git temp dir; the stale-kit line has its own suite (verify-skill-drift-hook.test.sh)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-skill-drift.sh"
 HOOK_SUT="$HERE/../verify-skill-drift-hook.sh"
