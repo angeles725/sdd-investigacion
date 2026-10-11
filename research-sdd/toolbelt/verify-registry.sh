@@ -472,11 +472,11 @@ for p in $paths; do
   # A mode-644 script exits 126 under Claude Code, so its protocol card / guard never loads. Read-only,
   # WARN-only (propose-never-apply); lib/hook-wiring.sh hook_wired_exec_report decides what is a claim.
   if [ -d "$p/.claude" ]; then
-    while IFS=$'\t' read -r _vr_we_kind _vr_we_path _vr_we_reason; do
+    while IFS=$'\t' read -r _vr_we_kind _vr_we_path _vr_we_x3; do
       [ -n "$_vr_we_kind" ] || continue
       if [ "$_vr_we_kind" = "unverifiable" ]; then
-        _vr_finding wired-hook-unverifiable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-unverifiable: ${_vr_we_path} (${_vr_we_reason}); whether this wired hook can run was NOT determined (checked path only: ${p}/.claude/settings.json; propose-never-apply)."
-      elif [ "$_vr_we_kind" = "missing" ] && [ "$_vr_nl_emitted" = 1 ] && [[ "$_vr_we_path" == *retro-gate* ]]; then
+        _vr_finding wired-hook-unverifiable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-unverifiable: ${_vr_we_path} (${_vr_we_x3}); whether this wired hook can run was NOT determined (checked path only: ${p}/.claude/settings.json; propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ] && [ "$_vr_nl_emitted" = 1 ] && [ "$_vr_we_x3" = "Stop" ] && [[ "$_vr_we_path" == *retro-gate* ]]; then
         continue   # already reported as hook-registered-never-loaded for this target: do not double count
       elif [ "$_vr_we_kind" = "not-executable" ]; then
         _vr_finding wired-hook-not-executable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-not-executable: ${_vr_we_path} is registered in ${p}/.claude/settings.json as a bare command but has no execute bit, so Claude Code exits 126 and the hook never loads; chmod +x it or wire it as 'bash <path>' (propose-never-apply)."
