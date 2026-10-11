@@ -107,6 +107,35 @@ function rg_table_id_skip(rid) {
 }
 '
 
+# ─── Escaped pipe inside a §18 table cell (kit issues #2118, #2135) ───────────────────────────────────────────
+# rg_esc_pipes(s): GFM treats ANY `\|` as an escaped pipe (cell text), whatever backslashes precede that backslash.
+# Evidence, GitHub POST /markdown (mode gfm), 2026-10-11: `| x\\| y | z |` renders ONE cell `x| y` then `z`;
+# `| p\| q | r |` renders `p| q`, `r`; `| m\\\| n | o |` renders `m\| n`, `o`. The renderer unescapes `\|` to `|` first and
+# the usual inline backslash escapes (`\\` -> `\`) apply afterwards, so an even run is NOT a column break. Returns <s>
+# with every `\|` replaced by SENT (that backslash dropped, any earlier backslashes kept); the caller splits on the
+# remaining pipes and turns SENT back into `|` per cell. The caller defines SENT in BEGIN (a control char).
+# ONE definition for retro-grammar.sh's row_titles, stage-retro-issues.sh and reconcile-issues.sh.
+_RG_AWK_ESCPIPE_FN='
+function rg_esc_pipes(s) {
+  gsub(/\\\|/, SENT, s)   # RETRO_GRAMMAR_ESCAPED_PIPE_ANY
+  return s
+}
+'
+
+# retro_grammar_id_signature_safe <id>: 0 when <id> only holds [A-Za-z0-9_-] (non-empty). The seeder writes the id into
+# the `Source retro: <retro> · <id>` signature and reconcile reads it back with `^[A-Za-z0-9_-]+`, so any other
+# character (a backslash, a pipe, a dot ...) cannot round-trip: the row would be staged again on every run and reported
+# untracked forever. Both tools type such a row unclassifiable (`id-not-signature-safe`) and never stage it (kit issue
+# #2135). Explicit character list on purpose: a bracket range is locale-dependent in a bash `case`.
+if ! typeset -f retro_grammar_id_signature_safe >/dev/null 2>&1; then
+  retro_grammar_id_signature_safe() {
+    case "${1:-}" in
+      ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;   # RETRO_GRAMMAR_ID_SIGNATURE_SAFE
+    esac
+    return 0
+  }
+fi
+
 # ─── retro_grammar_defenced <file> ───────────────────────────────────────────
 # Prints the file WITHOUT its fenced code blocks (kit issues #1356 item 1, #1369 b): a
 # `### D99 —` entry, a `**Priority**` field or a `## Proposed kit deltas` heading written inside a
@@ -846,7 +875,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
   retro_grammar_row_titles() {
     local f="${1:-}" _rows _id _dl _rest
     [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || return 1
-    _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk '
+    _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$f" | awk "$_RG_AWK_ESCPIPE_FN"'
       BEGIN { in_sec = 0; SENT = sprintf("%c", 1) }
       {
         low = tolower($0)
@@ -859,7 +888,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) {
           if (prev != "") {
             hl = tolower(prev)
-            gsub(/\\\|/, SENT, hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: escaped pipe is cell text (kit issue #2118)
+            hl = rg_esc_pipes(hl)   # RETRO_GRAMMAR_ESCAPED_PIPE_HDR: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
             sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
             hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
             for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -872,7 +901,7 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
         if (in_sec && /^\|/) {
           prev = $0
           line = $0
-          gsub(/\\\|/, SENT, line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: escaped pipe is cell text (kit issue #2118)
+          line = rg_esc_pipes(line)   # RETRO_GRAMMAR_ESCAPED_PIPE_ROW: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
           sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
           n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
           for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
@@ -887,6 +916,9 @@ if ! typeset -f retro_grammar_row_titles >/dev/null 2>&1; then
     while IFS=$'\037' read -r _id _dl _rest; do
       _id="${_id#"${_id%%[![:space:]]*}"}"; _id="${_id%"${_id##*[![:space:]]}"}"
       [ -n "$_id" ] || continue
+      # RETRO_GRAMMAR_ROW_TITLES_ID_SAFE (kit issue #2135): an id the seeder types unclassifiable (id-not-signature-safe) is
+      # never a title row, so a re-proposal check never points at an unstageable row.
+      retro_grammar_id_signature_safe "$_id" || continue
       _dl="$(printf '%s' "$_dl" | sed -E 's/^\*\*([^*]+)\*\*.*/\1/;t;s/^\*\*//;s/\*\*$//')"
       _dl="${_dl#"${_dl%%[![:space:]]*}"}"; _dl="${_dl%"${_dl##*[![:space:]]}"}"
       printf '%s\037%s\n' "$_id" "$_dl"

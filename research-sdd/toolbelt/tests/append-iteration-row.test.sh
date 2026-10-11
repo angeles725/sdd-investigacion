@@ -209,10 +209,14 @@ run "$F2" "$NEW"; { [ "$RC" = 12 ] && etyped UNCLOSED-FENCE; } && ok "unclosed f
 F2="$(printf '## Iteration history\n\n%s\n%s\n%s\n\n%s\ntail\n' "$HDR" "$SEP" "$R1" "$FENCE" | mkf ftail)"
 run "$F2" "$NEW"; { [ "$RC" = 0 ] && grep -qxF "+$NEW" <<<"$OUT"; } && ok "an unclosed fence AFTER the table does not block the append" || no "tail fence" "(rc=$RC $ERR)"
 
-# ---- #1793: trailing-backslash handling agrees with the cell counter ------------------------------
+# ---- #1793/#2135: trailing-backslash handling agrees with the cell counter (GFM: any `\|` is an escaped pipe) -----
 F="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf esc)"
 run "$F" '| 2 | d | g | B2 | no | a \\|'
-{ [ "$RC" = 0 ] && grep -qxF '+| 2 | d | g | B2 | no | a \\|' <<<"$OUT"; } && ok "row ending in an escaped backslash then a real pipe is complete (no extra pipe)" || no "escaped backslash end" "(rc=$RC $OUT $ERR)"
+{ [ "$RC" = 0 ] && grep -qxF '+| 2 | d | g | B2 | no | a \\| |' <<<"$OUT"; } && ok "row ending in \\| : the pipe is escaped under GFM, a closing pipe is added" || no "even run end" "(rc=$RC $OUT $ERR)"
+run "$F" '2 | d | g | B2 | no | a\'
+grep -qxF '+| 2 | d | g | B2 | no | a\ |' <<<"$OUT" && ok "last cell ending in a backslash: the closing pipe is padded with a space" || no "trailing backslash pad" "(rc=$RC $OUT)"
+run "$F" '| 2 | d | g | B2 | no | x\\| y |'
+{ [ "$RC" = 0 ] && grep -qxF '+| 2 | d | g | B2 | no | x\\| y |' <<<"$OUT"; } && ok "interior \\| is one escaped-pipe cell (6 cells, GFM)" || no "interior even run" "(rc=$RC $OUT $ERR)"
 run "$F" '2 | d | g | B2 | no | a \|'
 grep -qxF '+| 2 | d | g | B2 | no | a \| |' <<<"$OUT" && ok "row ending in an escaped pipe still gets its closing pipe" || no "escaped pipe end" "(rc=$RC $OUT)"
 run "$F" '2 | d | g | B2 | no | a \\\|'
@@ -310,8 +314,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt "unclosed-fence error removed" 's/if (hc == 0 \&\& infence \&\& hid)/if (0)/' 12 4 -- "$BASH_BIN" @SUT@ "$FU" "$NEW"
   FT="$(printf '~~~\n```\n## Iteration history\n~~~\n## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf tft)"
   mt "fence close ignores the fence character" 's/c == fch \&\& FN >= fn/FN >= fn/' 0 12 -- "$BASH_BIN" @SUT@ "$FT" "$NEW"
-  mt "closing-pipe rule ignores backslash parity" 's/nb % 2 == 1/nb > 0/' 0 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | a \\|'
-  mt "closing-pipe rule drops the escaped-pipe case" 's/ || nb % 2 == 1//' 0 0 \
+  mt "cell counter pairs backslashes (even run = break)" '/AIR_ANY_BACKSLASH_PIPE_ESCAPES/s/prev = ch/prev = (prev == "\\\\" \&\& ch == "\\\\") ? "" : ch/' 0 7 -- "$BASH_BIN" @SUT@ "$W" '| 2 | d | g | B2 | no | x\\| y |'
+  mt "closing-pipe rule drops the escaped-pipe case" 's/ || esc_end//' 0 0 \
     --good-has 'a \\\| \|$' --bad-lacks 'a \\\| \|$' -- "$BASH_BIN" @SUT@ "$W" '2 | d | g | B2 | no | a \|'
   HLW="$(printf '## Iteration history\n\n%s\n%s\n%s\n' "$HDR" "$SEP" "$R1" | mkf thl)"; ln "$HLW" "$HLW.link"
   FN2="$(printf '## Iteration history\n\n%s\n%s\n%s\n%s\n' '```' "$HDR" "$SEP" "$R1" | mkf tfn)"
