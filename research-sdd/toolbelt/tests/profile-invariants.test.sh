@@ -592,7 +592,7 @@ fi
 # =============================================================================
 x1_section() { awk '/^## Harness crosswalk[[:space:]]*$/{f=1;next} f&&/^## /{exit} f' "$1"; }
 x1_row() {  # FILE PAT_A PAT_B — one crosswalk line carries BOTH fixed strings
-  x1_section "$1" | grep -F -e "$2" | grep -qF -e "$3"
+  grep -qF -e "$3" <<<"$(x1_section "$1" | grep -F -e "$2")"
 }
 # One function per check id, so each tooth can name the exact check it must turn red.
 X1_IDS=(section rung-a rung-a-conditional rung-b rung-b-conditional rung-c agent model-per-agent model-choose claude-dir stop)
@@ -609,14 +609,14 @@ x1_check() {  # ID FILE
     model-per-agent)   x1_row "$f" 'haiku' 'model_profiles[<agent>]' ;;
     model-choose)      x1_row "$f" 'haiku' 'choose the agent whose configured model matches the tier' ;;
     claude-dir)        x1_row "$f" '.claude/' 'harness-neutral' ;;
-    stop)              x1_section "$f" | grep -qF 'STOP teardown (harness-neutral)' ;;
+    stop)              grep -qF 'STOP teardown (harness-neutral)' <<<"$(x1_section "$f")" ;;
     *) return 2 ;;
   esac
 }
 # X2: each pointer in its OWN section (a whole-file grep stays green when one of two pointers is deleted).
-x2_howto() { awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1" | grep -qF 'Harness crosswalk'; }
+x2_howto() { grep -qF 'Harness crosswalk' <<<"$(awk '/^## How to use it/{f=1;next} f&&/^## /{exit} f' "$1")"; }
 # x2_stop: scoped to the LOOP CONTINUATION case-1 text (from 'Teardown runs at campaign STOP' up to case (2)).
-x2_stop()  { awk '/Teardown runs at campaign STOP/{f=1} f&&/^    \(2\) DYNAMIC self-paced/{exit} f' "$1" | grep -qF 'disarm per the Harness crosswalk'; }
+x2_stop()  { grep -qF 'disarm per the Harness crosswalk' <<<"$(awk '/Teardown runs at campaign STOP/{f=1} f&&/^    \(2\) DYNAMIC self-paced/{exit} f' "$1")"; }
 for name in "${PROFILE_NAMES[@]}"; do
   for id in "${X1_IDS[@]}"; do
     if x1_check "$id" "${OUTDIR[$name]}/skills/research-sdd/SKILL.md"; then
