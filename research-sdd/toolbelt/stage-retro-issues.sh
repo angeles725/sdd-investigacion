@@ -452,6 +452,12 @@ declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_id_signature_safe >/dev/null 2>&1 \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define retro_grammar_id_signature_safe" >&2; exit 1; }
+# STAGE_RETRO_ISSUES_ESCPIPE_GUARD: the awk text of rg_esc_pipes is a variable, not a function; an empty one would make awk fail
+# (or, worse, parse rows with the escaped pipe unhandled), so it is checked like a function.
+[ -n "${_RG_AWK_ESCPIPE_FN:-}" ] \
+  || { echo "stage-retro-issues: helper lib/retro-grammar.sh failed to define _RG_AWK_ESCPIPE_FN" >&2; exit 1; }
 
 # STAGE_RETRO_ISSUES_SCRUB_LIB (kit issue #1707): the pre-mutation privacy scrub. Fail-closed like every
 # other helper: without it nothing is planned or written — never an unscrubbed dry-run.
@@ -1625,6 +1631,14 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
     echo "unclassifiable-row: row $_rid has a pipe in its id (id-contains-pipe) — needs manual review, no issue staged" >&2
     unclassifiable=$((unclassifiable+1))
     _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "id-contains-pipe"
+    continue
+  fi
+  # STAGE_RETRO_ISSUES_ID_SIGNATURE_SAFE (kit issue #2135): any other character outside [A-Za-z0-9_-] (a backslash left
+  # by a `\\|` cell break, a dot, markup) cannot round-trip through the signature either: unclassifiable, never staged.
+  if ! retro_grammar_id_signature_safe "$_rid"; then
+    echo "unclassifiable-row: row $_rid has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review, no issue staged" >&2
+    unclassifiable=$((unclassifiable+1))
+    _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "id-not-signature-safe"
     continue
   fi
 

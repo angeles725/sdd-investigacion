@@ -164,21 +164,39 @@ c_escaped_pipe() {
   forbid '**Target:** ID'; forbid '**Evidence:** Delta'; forbid 'priority:high'; verdict
 }
 
-# Backslash runs before a pipe (kit issue #2135, GFM tables extension): an ODD run escapes the pipe (cell text), an
-# EVEN run (`\\|`) is a real column break whose backslashes stay literal. The fixture puts an even run in the header
-# (it shifts the title column, so a merged header cell reads the wrong columns), the FIRST, MIDDLE and LAST cell of a
-# row, and an odd run (`\\\|`) that must stay one cell.
+# Backslash runs before a pipe (kit issue #2135). GFM treats ANY `\|` as an escaped pipe (GitHub POST /markdown: `x\\| y`
+# renders ONE cell `x| y`), so an even run is not a column break. The fixture has an EVEN run (`\\|`) and an ODD run
+# (`\\\|`) at every call site: the header (two tables), the FIRST cell (an id holding a pipe, plus the locator of its table
+# row), a MIDDLE cell, the LAST cell, and a backslash-only id (`6\`) that is not signature-safe.
 c_double_backslash() {
   local b; b="$(mkbox "dbs$1")" || return 1; run "$b" double-backslash-pipe.md; MSG=""
-  count 4; forbid 'unclassifiable-row'; forbid 'no usable title'
-  req 'planned-issue: First cell break, title long enough'; req 'double-backslash-pipe.md · 1\\'
-  req '**Evidence:** EVFIRST'; req '**Target:** `a.sh`'
-  req 'planned-issue: Middle cell ends in a path C:\\'; req '**Evidence:** EVMIDDLE'; req '**Target:** `b.sh`'
-  req 'planned-issue: Last cell title ends in C:\\'
-  req 'planned-issue: Odd run C:\\| stays in one cell'; req '**Evidence:** EVODD'; req '**Target:** `d.sh`'; verdict
+  count 4; req 'unclassifiable-items: 3 (retro-level=0 row-level=3)'
+  req 'planned-issue: Middle cell ends in a path C:\| still one cell'; req '**Evidence:** EVA2'; req '**Target:** `b.sh`'
+  req 'planned-issue: Last cell title ends in C:\|'
+  req 'planned-issue: Odd run C:\\| stays in one cell'; req '**Evidence:** EVA4'; req '**Target:** `d.sh`'
+  req 'planned-issue: Table B title long enough'; req '**Evidence:** EVB5'; req '**Target:** `e.sh`'
+  req 'unclassifiable-row: row 1\|k has a pipe in its id (id-contains-pipe)'
+  req 'unclassifiable-row: row 7\\|z has a pipe in its id (id-contains-pipe)'
+  req 'unclassifiable-row: row 6\ has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe)'
+  req 'double-backslash-pipe.md:8 | 1\\|k: First cell with a\\| b pipe, long enough'
+  req 'double-backslash-pipe.md:16 | 6\: Backslash id title'
+  req 'double-backslash-pipe.md:17 | 7\\\|z: Odd first a\\\| b pipe, long enough'
+  forbid 'no usable title'; forbid 'double-backslash-pipe.md · 1'; forbid 'double-backslash-pipe.md · 6'; verdict
 }
 
-CHECKS="c_escaped_pipe c_double_backslash c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
+# STAGE_RETRO_ISSUES_ESCPIPE_GUARD (kit issue #2135): the awk text of rg_esc_pipes is a variable, so `declare -F` cannot see
+# it. A lib that does not define it must stop the seeder fail-closed (exit 1, named), never run with the escaped pipe unhandled.
+c_escpipe_guard() {
+  local b; MUTLIB=('s/^_RG_AWK_ESCPIPE_FN=/_RG_AWK_ESCPIPE_FN_RENAMED=/')
+  b="$(mkbox "guard$1")" || return 1
+  MUTLIB=()
+  run "$b" double-backslash-pipe.md; MSG=""
+  [ "$RC" = 1 ] || MSG="RC $RC != 1"
+  req 'failed to define _RG_AWK_ESCPIPE_FN'
+  if [ -z "$MSG" ]; then return 0; fi; echo "$MSG | out=[${OUT:0:300}]"; return 1
+}
+
+CHECKS="c_escaped_pipe c_double_backslash c_escpipe_guard c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -216,12 +234,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_titles        cut-splits-utf8   'INVALID UTF-8'    lib '/ALT_CUT_BACKOFF/s/.*/        k = k/'
   tooth c_escaped_pipe  escaped-pipe-row-off  'PLANNED: 2 != 3' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/'
   tooth c_escaped_pipe  escaped-pipe-hdr-off  'PLANNED: 0 != 3' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/'
-  tooth c_escaped_pipe  id-pipe-off           'PLANNED: 4 != 3' sut 's/if \[\[ "\$_rid" == \*.|.\* \]\]; then$/if false; then/'
+  tooth c_escaped_pipe  id-pipe-off           'MISSING: unclassifiable-row: row E|1 has a pipe in its id' sut 's/if \[\[ "\$_rid" == \*.|.\* \]\]; then$/if false; then/'
   tooth c_escaped_pipe  row-line-index-off    'MISSING: escaped-pipe.md:8 | E' sut 's/index(u, ENVIRON/index($0, ENVIRON/'
   tooth c_escaped_pipe  row-line-cell-off     'MISSING: escaped-pipe.md:8 | E' sut '/STAGE_RETRO_ISSUES_ROW_LINE_CELL/s/rg_esc_pipes(\$0)/\$0/'
-  # kit issue #2135: the shared parity rule (lib) and each stage call site against the backslash-run fixture.
-  tooth c_double_backslash dbs-parity-any-run 'PLANNED: 0 != 4' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_PARITY/s/run % 2 == 1/run > 0/'
-  tooth c_double_backslash dbs-row-off        'MISSING: planned-issue: Odd run C:' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/'
+  # kit issue #2135: the shared rule (lib) and every stage call site, each against the even/odd-run fixture.
+  tooth c_double_backslash dbs-lib-any-off    'PLANNED: 2 != 4' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/'
+  tooth c_double_backslash dbs-row-off        'MISSING: planned-issue: Middle cell ends in a path' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/'
+  tooth c_double_backslash dbs-hdr-off        'PLANNED: ' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/'
+  tooth c_double_backslash dbs-locator-cell-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/STAGE_RETRO_ISSUES_ROW_LINE_CELL/s/rg_esc_pipes(\$0)/\$0/'
+  tooth c_double_backslash dbs-locator-delta-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/u = rg_esc_pipes/s/rg_esc_pipes(\$0)/\$0/'
+  tooth c_double_backslash dbs-id-safe-off    'PLANNED: 5 != 4' sut 's/if ! retro_grammar_id_signature_safe "\$_rid"; then/if false; then/'
+  tooth c_double_backslash dbs-id-safe-lib-off 'PLANNED: 5 != 4' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
+  tooth c_escpipe_guard   escpipe-guard-off   'RC 0 != 1' sut 's/\[ -n "\${_RG_AWK_ESCPIPE_FN:-}" \]/true/'
   echo "-- prove-teeth done --"
 fi
 

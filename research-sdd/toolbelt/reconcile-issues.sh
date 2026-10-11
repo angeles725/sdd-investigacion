@@ -184,6 +184,11 @@ declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
 declare -F retro_grammar_defenced >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_id_signature_safe >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_id_signature_safe" >&2; exit 1; }
+# RECONCILE_ISSUES_ESCPIPE_GUARD: the awk text of rg_esc_pipes is a variable, not a function; checked like one.
+[ -n "${_RG_AWK_ESCPIPE_FN:-}" ] \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define _RG_AWK_ESCPIPE_FN" >&2; exit 1; }
 declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
   || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
 declare -F retro_grammar_unrec_headings >/dev/null 2>&1 \
@@ -854,6 +859,11 @@ audit_retro() {
       # signature, so the seeder types the row unclassifiable and never stages it; typed the same way here.
       if [[ "$_rln" == *'|'* ]]; then
         echo "unclassifiable: row $_rln of $retro_basename has a pipe in its id (id-contains-pipe) — needs manual review" >&2
+        continue
+      fi
+      # RECONCILE_ISSUES_ID_SIGNATURE_SAFE (kit issue #2135): same typing as the seeder for any id outside [A-Za-z0-9_-].
+      if ! retro_grammar_id_signature_safe "$_rln"; then
+        echo "unclassifiable: row $_rln of $retro_basename has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review" >&2
         continue
       fi
       if [ "$is_partial" -eq 1 ]; then

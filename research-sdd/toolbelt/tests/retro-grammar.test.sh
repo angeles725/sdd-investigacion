@@ -505,14 +505,21 @@ else
   _got="$(retro_grammar_row_titles "$_EPF" | tr '\037\n' '|,')"
   [ "$_got" = "$_EP_GOOD" ] \
     && ok "T56 escaped pipes: header/middle/last cells intact, pipe-in-id row skipped" "(${_got:0:60}…)" || no "T56 escaped-pipe row titles" "got=[$_got]"
-  # T57 (kit issue #2135): an EVEN run of backslashes before a pipe (`\\|`) is a real column break whose backslashes stay
-  # literal; an ODD run (`\\\|`) escapes the pipe. The header `Kind\\| Proposed change` is two cells, so the title is
-  # column 3; row 1 breaks right after its id (`1\\`), row 2 in the middle, row 3 at the end; row 4 is an odd run.
+  # T57 (kit issue #2135): GFM treats ANY `\|` as an escaped pipe, so an even run (`\\|`) is NOT a column break
+  # (GitHub POST /markdown: `x\\| y` renders one cell `x| y`). Both table headers (`Kind\\| tag`, `Kind\\\| tag`) are one
+  # cell, so the title column is 3; rows 1 and 7 hold a pipe in their id (skipped, typed by stage/reconcile); row 2 has a
+  # middle even run, row 3 a last-cell even run, row 4 a middle odd run; row 6's id `6\` is listed (the id-safety typing is
+  # stage/reconcile's, T58).
   _DBF="$HERE/fixtures/stage-retro-issues/double-backslash-pipe.md"
-  _DB_GOOD='1\\|First cell break, title long enough,2|Middle cell ends in a path C:\\,3|Last cell title ends in C:\\,4|Odd run C:\\| stays in one cell,'
+  _DB_GOOD='2|Middle cell ends in a path C:\| still one cell,3|Last cell title ends in C:\|,4|Odd run C:\\| stays in one cell,5|Table B title long enough,6\|Backslash id title long enough,'
   _got="$(retro_grammar_row_titles "$_DBF" | tr '\037\n' '|,')"
   [ "$_got" = "$_DB_GOOD" ] \
-    && ok "T57 backslash runs: even run = column break, odd run = escaped pipe" "(${_got:0:60}…)" || no "T57 double-backslash row titles" "got=[$_got]"
+    && ok "T57 backslash runs: any \\| is an escaped pipe, even and odd runs, header/first/middle/last cells" "(${_got:0:60}…)" || no "T57 double-backslash row titles" "got=[$_got]"
+  # T58 (kit issue #2135): retro_grammar_id_signature_safe - only [A-Za-z0-9_-] round-trips through the issue signature.
+  _t58=""
+  for _id in D1 A-1 x_2 B12 SPKI-A; do retro_grammar_id_signature_safe "$_id" || _t58="$_t58 safe:$_id"; done
+  for _id in '' '1\' 'a|b' 'D.1' '**D1**' 'é1' 'D 1' '1\\'; do retro_grammar_id_signature_safe "$_id" && _t58="$_t58 unsafe:$_id"; done
+  [ -z "$_t58" ] && ok "T58 id signature-safety: [A-Za-z0-9_-]+ passes, backslash/pipe/dot/markup/accent/empty fail" "()" || no "T58 id signature-safe" "wrong:$_t58"
 fi
 
 echo ""
@@ -916,9 +923,16 @@ rt_mutant T2 '/sed -E .s\/\^\\\*\\\*/s/.*/      _dl="$_dl"/' "$ROOT/rowtitles-ta
 rt_mutant E1 '/RETRO_GRAMMAR_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/' "$_EPF" "$_EP_GOOD"
 rt_mutant E2 '/RETRO_GRAMMAR_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/' "$_EPF" "$_EP_GOOD"
 rt_mutant E3 '/RETRO_GRAMMAR_ID_PIPE/s/if (index(rid, "|")) next/if (0) next/' "$_EPF" "$_EP_GOOD"
-# T57 teeth (kit issue #2135): the shared parity rule and the row call site, against the backslash-run fixture.
-rt_mutant E4 '/RETRO_GRAMMAR_ESCAPED_PIPE_PARITY/s/run % 2 == 1/run > 0/' "$_DBF" "$_DB_GOOD"
+# T57 teeth (kit issue #2135): the shared rule and each row_titles call site, against the backslash-run fixture.
+rt_mutant E4 '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/' "$_DBF" "$_DB_GOOD"
 rt_mutant E5 '/RETRO_GRAMMAR_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/' "$_DBF" "$_DB_GOOD"
+rt_mutant E6 '/RETRO_GRAMMAR_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/' "$_DBF" "$_DB_GOOD"
+# T58 tooth: a safe-check that accepts everything must flip the T58 verdicts.
+_m58="$ROOT/t58-mut.sh"
+if mutant_sed "$RG_LIB" "$_m58" -e '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'; then
+  _g58="$("$BASH_BIN" -c '. "$1"; retro_grammar_id_signature_safe "1\\"; echo $?' _ "$_m58" 2>/dev/null)"
+  [ "$_g58" = 0 ] && ok "T1811-E7 teeth: an accept-all id-safety mutant lets the backslash id through → T58 has teeth" "()" || no "T1811-E7 teeth" "THEATER: got=[$_g58]"
+else no "T1811-E7: build mutant" "mutant_sed refused"; fi
 rt_mutant T3 's/\[ -n "\$_rows" \] || _rows="\$(retro_grammar_entry_rows/: || _rows="$(retro_grammar_entry_rows/' "$ROOT/rowtitles-entry.md" "D4|entry form delta title,D5|second entry form delta,"
 
 echo ""

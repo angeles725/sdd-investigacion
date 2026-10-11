@@ -107,26 +107,34 @@ function rg_table_id_skip(rid) {
 }
 '
 
-# ─── Backslash-run rule for a pipe inside a §18 table cell (kit issues #2118, #2135) ──────────────────────────
-# rg_esc_pipes(s): GFM tables extension - a pipe is escaped (cell text) by an ODD run of backslashes directly before it
-# (`\|`, `\\\|`); an EVEN run (`\\|`) is a real column break whose backslashes are literal (`\\` is an escaped
-# backslash). Returns <s> with every escaped pipe replaced by SENT (the escaping backslash dropped); the caller splits
-# on the remaining pipes and turns SENT back into `|` per cell. The caller defines SENT in BEGIN (a control char).
-# ONE definition for retro-grammar.sh's row_titles, stage-retro-issues.sh and reconcile-issues.sh, and the same rule
-# append-iteration-row.sh applies to its cell counter.
+# ─── Escaped pipe inside a §18 table cell (kit issues #2118, #2135) ───────────────────────────────────────────
+# rg_esc_pipes(s): GFM treats ANY `\|` as an escaped pipe (cell text), whatever backslashes precede that backslash.
+# Evidence, GitHub POST /markdown (mode gfm), 2026-10-11: `| x\\| y | z |` renders ONE cell `x| y` then `z`;
+# `| p\| q | r |` renders `p| q`, `r`; `| m\\\| n | o |` renders `m\| n`, `o`. The renderer unescapes `\|` to `|` first and
+# the usual inline backslash escapes (`\\` -> `\`) apply afterwards, so an even run is NOT a column break. Returns <s>
+# with every `\|` replaced by SENT (that backslash dropped, any earlier backslashes kept); the caller splits on the
+# remaining pipes and turns SENT back into `|` per cell. The caller defines SENT in BEGIN (a control char).
+# ONE definition for retro-grammar.sh's row_titles, stage-retro-issues.sh and reconcile-issues.sh.
 _RG_AWK_ESCPIPE_FN='
-function rg_esc_pipes(s,    out, i, n, c, run) {
-  out = ""; run = 0; n = length(s)
-  for (i = 1; i <= n; i++) {
-    c = substr(s, i, 1)
-    if (c == "\\") { run++; out = out c; continue }
-    if (c == "|" && run % 2 == 1) out = substr(out, 1, length(out) - 1) SENT   # RETRO_GRAMMAR_ESCAPED_PIPE_PARITY
-    else out = out c
-    run = 0
-  }
-  return out
+function rg_esc_pipes(s) {
+  gsub(/\\\|/, SENT, s)   # RETRO_GRAMMAR_ESCAPED_PIPE_ANY
+  return s
 }
 '
+
+# retro_grammar_id_signature_safe <id>: 0 when <id> only holds [A-Za-z0-9_-] (non-empty). The seeder writes the id into
+# the `Source retro: <retro> · <id>` signature and reconcile reads it back with `^[A-Za-z0-9_-]+`, so any other
+# character (a backslash, a pipe, a dot ...) cannot round-trip: the row would be staged again on every run and reported
+# untracked forever. Both tools type such a row unclassifiable (`id-not-signature-safe`) and never stage it (kit issue
+# #2135). Explicit character list on purpose: a bracket range is locale-dependent in a bash `case`.
+if ! typeset -f retro_grammar_id_signature_safe >/dev/null 2>&1; then
+  retro_grammar_id_signature_safe() {
+    case "${1:-}" in
+      ''|*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-]*) return 1 ;;   # RETRO_GRAMMAR_ID_SIGNATURE_SAFE
+    esac
+    return 0
+  }
+fi
 
 # ─── retro_grammar_defenced <file> ───────────────────────────────────────────
 # Prints the file WITHOUT its fenced code blocks (kit issues #1356 item 1, #1369 b): a
