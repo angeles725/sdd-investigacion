@@ -41,6 +41,7 @@ mktree(){
 expected_list(){ local r="${1%/research-sdd/toolbelt/tests}"; (cd "$r" && find research-sdd/toolbelt/tests research-sdd/install/tests \( -name '*.test.sh' -o -name '*.test.mjs' \) | LC_ALL=C sort); }
 # shard_run <tooldir> <I/N> [extra...] — runs one shard; manifest $d/m.I-N, output $d/out.I-N
 shard_run(){ local d="$1" sh="$2"; shift 2; bash "$d/run-all.sh" --shard "$sh" --shard-manifest "$d/../../../aux/m.${sh/\//-}" "$@" >"$d/../../../aux/out.${sh/\//-}" 2>&1; }
+hdr_of(){ head -n 1 "$1"; }   # captured by callers (here-string), never piped into grep -q (pipefail SIGPIPE)
 manifest_suites(){ grep -v '^#' "$1" | awk '{print $1}'; }
 
 # 1 — partition is a disjoint cover for several N (N=1, middle, N=T, N>T)
@@ -66,8 +67,8 @@ grep -qxF "$mid" <(manifest_suites "$d/../../../aux/m.1-3") || bad="$bad [4th su
 
 # 3 — Shard line, manifest header and result lines
 out="$(cat "$d/../../../aux/out.2-3")"; k="$(manifest_suites "$d/../../../aux/m.2-3" | wc -l)"
-if grep -qxF "Shard: 2/3 — $k of $T suites" <<<"$out" && head -1 "$d/../../../aux/m.2-3" | grep -qxF "# shard 2/3 suites=$k exit=0" \
-   && [ "$(grep -vc '^#' "$d/../../../aux/m.2-3")" = "$k" ] && ! grep -v '^#' "$d/../../../aux/m.2-3" | grep -qvE ' PASS$'; then
+if grep -qxF "Shard: 2/3 — $k of $T suites" <<<"$out" && grep -qxF "# shard 2/3 suites=$k exit=0" <<<"$(hdr_of "$d/../../../aux/m.2-3")" \
+   && [ "$(grep -vc '^#' "$d/../../../aux/m.2-3")" = "$k" ] && [ "$(grep -v '^#' "$d/../../../aux/m.2-3" | grep -cvE ' PASS$')" = 0 ]; then
   ok "aggregate: 'Shard: I/N — K of T suites' line and manifest header/lines present"
 else no "shard line/manifest wrong: $(grep '^Shard' <<<"$out" | tr '\n' '|') hdr=$(head -1 "$d/../../../aux/m.2-3")"; fi
 
@@ -93,7 +94,7 @@ else no "require-teeth+shard rc=$rc"; fi
 # 5 — empty shard (N > T) is reported distinctly, exits 1, writes a zero-suite manifest
 d5="$(mktree empty 1 1)"; shard_run "$d5" 7/9; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF 'EMPTY SHARD' "$d5/../../../aux/out.7-9" && grep -qxF 'Shard: 7/9 — 0 of 4 suites' "$d5/../../../aux/out.7-9" \
-   && head -1 "$d5/../../../aux/m.7-9" | grep -qxF '# shard 7/9 suites=0 exit=1' && [ "$(grep -vc '^#' "$d5/../../../aux/m.7-9")" = 0 ]; then
+   && grep -qxF '# shard 7/9 suites=0 exit=1' <<<"$(hdr_of "$d5/../../../aux/m.7-9")" && [ "$(grep -vc '^#' "$d5/../../../aux/m.7-9")" = 0 ]; then
   ok "empty shard: distinct EMPTY SHARD report, exit 1, zero-suite manifest"
 else no "empty shard wrong: rc=$rc $(grep -E '^Shard' "$d5/../../../aux/out.7-9" | tr '\n' '|')"; fi
 
@@ -103,7 +104,7 @@ printf '#!/usr/bin/env bash\necho "SKIP: x"\necho "== 0 passed %s 0 failed =="\n
 shard_run "$d6" 1/1; rc=$?
 if [ "$rc" -eq 1 ] && grep -qxF 'research-sdd/toolbelt/tests/t02.test.sh FAIL' "$d6/../../../aux/m.1-1" \
    && grep -qxF 'research-sdd/toolbelt/tests/t03.test.sh SKIP' "$d6/../../../aux/m.1-1" && grep -qxF 'research-sdd/toolbelt/tests/t01.test.sh PASS' "$d6/../../../aux/m.1-1" \
-   && head -1 "$d6/../../../aux/m.1-1" | grep -qxF '# shard 1/1 suites=6 exit=1'; then ok "manifest records PASS/FAIL/SKIP per suite and the shard exit code"
+   && grep -qxF '# shard 1/1 suites=6 exit=1' <<<"$(hdr_of "$d6/../../../aux/m.1-1")"; then ok "manifest records PASS/FAIL/SKIP per suite and the shard exit code"
 else no "manifest results wrong: rc=$rc $(tr '\n' '|' < "$d6/../../../aux/m.1-1")"; fi
 
 # 7 — corpus gates still apply to the FULL list: an ABSENT install corpus fails even when the shard passes
@@ -127,7 +128,8 @@ bash "$d7/run-all.sh" --list-suites >/dev/null 2>&1; [ $? -eq 1 ] && ok "--list-
 # 10 — combines with --prove-teeth and -j 2 (when GNU parallel is usable)
 d10="$(mktree combo 2 1)"; shard_run "$d10" 1/2 --prove-teeth; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'Suites without teeth' "$d10/../../../aux/out.1-2"; then ok "--shard combines with --prove-teeth"; else no "shard+prove-teeth rc=$rc"; fi
-if parallel --version 2>/dev/null | grep -q 'GNU parallel'; then
+_pv="$(parallel --version 2>/dev/null)"
+if grep -q 'GNU parallel' <<<"$_pv"; then
   shard_run "$d10" 2/2 -j 2; rc=$?
   if [ "$rc" -eq 0 ] && grep -qE '^Parallel: -j 2' "$d10/../../../aux/out.2-2" && grep -qE '^Shard: 2/2' "$d10/../../../aux/out.2-2"; then ok "--shard combines with -j 2"; else no "shard+jobs rc=$rc"; fi
   shard_run "$d5" 7/9 -j 2; rc=$?
@@ -184,7 +186,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if ! mutant_sed "$SUT" "$w/run-all.sh" 's/"\${#all_suites\[@\]}" "\$final_rc"/"${#all_suites[@]}" 0/' 2>"$w/err"; then no "teeth-exit: no mutant: $(cat "$w/err")"
   else
     dm="$(mktree mut-exit 2 1)"; cp "$w/run-all.sh" "$dm/run-all.sh"; mkfix "$dm/t02.test.sh" 1; shard_run "$dm" 1/1
-    if head -1 "$dm/../../../aux/m.1-1" | grep -qF 'exit=0'; then ok "teeth-exit: mutant records exit=0 for a failing shard -> the header case has real teeth"; else no "teeth-exit: header still exit=1 (THEATER)"; fi
+    if grep -qF 'exit=0' <<<"$(hdr_of "$dm/../../../aux/m.1-1")"; then ok "teeth-exit: mutant records exit=0 for a failing shard -> the header case has real teeth"; else no "teeth-exit: header still exit=1 (THEATER)"; fi
   fi
 fi
 

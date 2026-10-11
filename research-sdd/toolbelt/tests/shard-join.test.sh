@@ -140,11 +140,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant (one detector removed) must make the NAMED finding disappear from the output of an
   # input that the unmutated SUT flags with it; the finding, not the exit code, because several
   # detectors overlap on one input (e.g. an absent manifest also shows as a missing shard).
-  tooth(){ local lbl="$1" expr="$2" pat="$3" ef="$4" w="$TMP/t-$1" gout; shift 4; mkdir -p "$w"
+  tooth(){ local lbl="$1" expr="$2" pat="$3" ef="$4" w="$TMP/t-$1" gout mout; shift 4; mkdir -p "$w"
     gout="$(bash "$SUT" --expected "$ef" "$@" 2>&1)"
     if ! grep -qE -- "$pat" <<<"$gout"; then no "teeth-$lbl: the unmutated SUT does not emit /$pat/ on this input — the tooth cannot discriminate"; return; fi
     if ! mutant_sed "$SUT" "$w/shard-join.sh" "$expr" 2>"$w/err"; then no "teeth-$lbl: no mutant: $(cat "$w/err")"; return; fi
-    if ! bash "$w/shard-join.sh" --expected "$ef" "$@" 2>&1 | grep -qE -- "$pat"; then ok "teeth-$lbl: mutant loses the /$pat/ finding -> the case has real teeth"
+    mout="$(bash "$w/shard-join.sh" --expected "$ef" "$@" 2>&1)"
+    if ! grep -qE -- "$pat" <<<"$mout"; then ok "teeth-$lbl: mutant loses the /$pat/ finding -> the case has real teeth"
     else no "teeth-$lbl: mutant still reports it (THEATER)"; fi; }
   echo "-- teeth: each detector removed in turn; its named finding must then vanish --"
   tooth missing 's/add "MISSING SUITE: \$s ran in no shard"/:/' 'MISSING SUITE' "$TMP/exp" "$TMP/x1" "$TMP/x2"
