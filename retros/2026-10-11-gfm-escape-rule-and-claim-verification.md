@@ -1,4 +1,4 @@
-<!-- review-status: pending -->
+<!-- review-status: applied 2026-10-11 · kit 31be9603 -->
 <!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
 # Retro — sdd-investigacion (the kit itself) · GFM escape rule, corpus-wide id validity, claim verification · 2026-10-11 · Research-SDD self-retrospective
 
