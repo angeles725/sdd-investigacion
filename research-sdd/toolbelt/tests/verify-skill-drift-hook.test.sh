@@ -330,7 +330,8 @@ else no "H13: caps wrong (headers=$c_hdr entries=$c_ent maxw=$c_wid more=$c_more
 
 # ---- kit issue #2130: the hook warns when the kit checkout it runs from is behind its upstream ----
 # Fixture kits are real git repos (a local bare "origin" plus a clone) built under $ROOT; the hook measures LOCAL refs only.
-# The suite default is the opt-out seam (the sandbox is not a git checkout); K-cases switch it back on per call.
+# The suite default is the opt-out seam (the sandbox is not a git checkout); K-cases switch it back on per call. The install --verify
+# stub prints a `kit status=behind` line whenever the fixture is behind (like the real install does for ANY behind > 0).
 KG() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c init.defaultBranch=main "$@"; }
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 KF="$ROOT/kfix"; mkdir -p "$KF"
@@ -339,42 +340,48 @@ mk_origin() {   # <name> <commits> — bare origin + seed clone with <commits> c
   local i; for i in $(seq "$2"); do echo "$i" >"$KF/$1.seed/f"; KG -C "$KF/$1.seed" add f; KG -C "$KF/$1.seed" commit -q -m "c$i"; done
   KG -C "$KF/$1.seed" push -q origin HEAD:main 2>/dev/null
 }
-mk_kit() {      # <name> <n> — a kit clone, then <n> more upstream commits fetched into it (so it is <n> behind)
+mk_kit() {      # <name> <n> [dest] — a kit clone (at dest, default $KF/name), then <n> more upstream commits fetched into it (<n> behind)
+  local dest="${3:-$KF/$1}"
   mk_origin "$1" 1 || return 1
-  KG clone -q -b main "$KF/$1.git" "$KF/$1" 2>/dev/null || return 1
+  mkdir -p "$(dirname "$dest")"; KG clone -q -b main "$KF/$1.git" "$dest" 2>/dev/null || return 1
   local i; for i in $(seq "$2"); do echo "u$i" >"$KF/$1.seed/g"; KG -C "$KF/$1.seed" add g; KG -C "$KF/$1.seed" commit -q -m "u$i"; done
-  [ "$2" -eq 0 ] || { KG -C "$KF/$1.seed" push -q origin HEAD:main 2>/dev/null; KG -C "$KF/$1" fetch -q origin 2>/dev/null; }
+  [ "$2" -eq 0 ] || { KG -C "$KF/$1.seed" push -q origin HEAD:main 2>/dev/null; KG -C "$dest" fetch -q origin 2>/dev/null; }
   return 0
 }
-# run_kit <kit-dir> [VAR=value ...] — hook with the staleness check ON against <kit-dir>; sets HOUT/HRC (stub verify = MATCH).
+# run_kit <kit-dir> [VAR=value ...] — hook with the staleness check ON against <kit-dir>; sets HOUT/HRC.
+# The stub verify output is MATCH, plus an install-style behind line when the fixture is behind (RK_STUB overrides it whole).
 run_kit() {
-  local d="$1"; shift
-  HOUT="$(env RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$d" "$@" STUB_VERIFY_OUT="$MATCH" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; HRC=$?
+  local d="$1" nb stub; shift
+  stub="$MATCH"
+  nb="$(git -C "$d" rev-list --count 'HEAD..@{upstream}' 2>/dev/null)" || nb=0
+  [ "${nb:-0}" -le 0 ] || stub="$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=$nb (local ref, no fetch — may understate) fix: git -C $d pull --ff-only"
+  HOUT="$(env RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$d" "$@" STUB_VERIFY_OUT="${RK_STUB:-$stub}" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; HRC=$?
 }
+kdisp() { local p; p="$(cd -P "$1" && pwd -P)"; case "$p" in "$HOME"/*) p="~${p#"$HOME"}";; esac; printf '%s' "$p"; }
 echo "-- hook: stale kit checkout (#2130) --"
 if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   run_kit "$KF/k0"
   [ "$HRC" = 0 ] && [ -z "$HOUT" ] && ok "K1: kit current + fresh fetch → completely silent" || no "K1: expected silent; rc=$HRC out=[$HOUT]"
   run_kit "$KF/k3"
-  [ -z "$HOUT" ] && ok "K2: 3 commits behind (default max 20), fresh fetch → silent" || no "K2: warned below the threshold; out=[$HOUT]"
+  [ -z "$HOUT" ] && ok "K2: 3 commits behind (install prints its behind line, default max 20) → silent: our threshold governs, install's behind line is dropped" || no "K2: install's behind line leaked below the threshold; out=[$HOUT]"
   run_kit "$KF/k25"
   KL="$(grep 'kit-stale' <<<"$HOUT")"
-  if [ "$(grep -c 'kit-stale' <<<"$HOUT")" = 1 ] && grep -q 'status=stale' <<<"$KL" && grep -q 'behind=25' <<<"$KL" && grep -q 'pull --ff-only' <<<"$KL" && grep -q 'may understate' <<<"$KL" && grep -q 'WARN' <<<"$HOUT"; then ok "K3: 25 commits behind → ONE typed line naming the count, the controlled update step and 'may understate'"
+  if [ "$(grep -c 'kit-stale' <<<"$HOUT")" = 1 ] && [[ "$KL" == "verify kit-stale status=stale fix"* ]] && grep -q 'behind=25' <<<"$KL" && grep -q 'pull --ff-only' <<<"$KL" && grep -q 'may understate' <<<"$KL" && grep -q 'WARN' <<<"$HOUT" && ! grep -q 'kit status=behind' <<<"$HOUT"; then ok "K3: 25 behind → ONE typed line (fix command first, count, 'may understate'); install's duplicate behind line is gone"
   else no "K3: stale line wrong; out=[$HOUT]"; fi
-  [ -n "$KL" ] && [ "${#KL}" -le 200 ] && ok "K3b: the stale line is within the 200-char SessionStart budget (${#KL})" || no "K3b: stale line over budget (${#KL}): $KL"
-  grep -qF "git -C $(cd -P "$KF/k25" && pwd -P) pull --ff-only" <<<"$KL" && ok "K3c: the update step names the resolved kit path" || no "K3c: update step lacks the kit path; line=[$KL]"
+  [ -n "$KL" ] && [ "${#KL}" -le 200 ] && ok "K3b: the stale line is within the 200-char SessionStart budget (${#KL})" || no "K3b: stale line missing/over budget (${#KL}): $KL"
+  grep -qF "git -C $(kdisp "$KF/k25") pull --ff-only" <<<"$KL" && ok "K3c: the update step names the resolved kit path (~/-relative under HOME)" || no "K3c: update step lacks the kit path; line=[$KL]"
   run_kit "$KF/k3" RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2
   grep -q 'behind=3' <<<"$HOUT" && ok "K4: RESEARCH_SDD_KIT_STALE_MAX_COMMITS lowers the threshold" || no "K4: env threshold ignored; out=[$HOUT]"
   PWN="$ROOT/k-pwned"; rm -f "$PWN"
   run_kit "$KF/k25" 'RESEARCH_SDD_KIT_STALE_MAX_COMMITS=a[$(touch '"$PWN"')]' 'RESEARCH_SDD_KIT_STALE_MAX_DAYS=1x'
-  if [ ! -e "$PWN" ] && grep -q 'behind=25' <<<"$HOUT"; then ok "K5: a non-numeric threshold falls back to the default and is never evaluated"
-  else no "K5: threshold env unsafe/ignored (pwned=$([ -e "$PWN" ] && echo yes || echo no)); out=[$HOUT]"; fi
+  if [ ! -e "$PWN" ] && grep -q 'behind=25' <<<"$HOUT" && grep -q "invalid RESEARCH_SDD_KIT_STALE_MAX_COMMITS='" <<<"$HOUT" && grep -q "invalid RESEARCH_SDD_KIT_STALE_MAX_DAYS='1x', using 7" <<<"$HOUT"; then ok "K5: a non-numeric threshold is ANNOUNCED, falls back to the default and is never evaluated"
+  else no "K5: threshold env unsafe/silent (pwned=$([ -e "$PWN" ] && echo yes || echo no)); out=[$HOUT]"; fi
   run_kit "$KF/k25" RESEARCH_SDD_KIT_STALE_CHECK=off
-  [ -z "$HOUT" ] && ok "K6: RESEARCH_SDD_KIT_STALE_CHECK=off is an explicit opt-out" || no "K6: opt-out ignored; out=[$HOUT]"
-  # An install --verify 'kit status=behind' line already reports it: no second kit line.
-  HOUT="$(env RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$KF/k25" STUB_VERIFY_OUT="$BEHIND" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"
-  if grep -q 'status=behind' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K7: an install --verify behind line suppresses the duplicate stale line"
-  else no "K7: duplicate kit lines; out=[$HOUT]"; fi
+  grep -q 'kit-stale' <<<"$HOUT" && no "K6: opt-out ignored; out=[$HOUT]" || ok "K6: RESEARCH_SDD_KIT_STALE_CHECK=off is an explicit opt-out (install's own behind line is left alone)"
+  # A diverged install line stays (a fast-forward is impossible) and replaces our stale line.
+  RK_STUB="$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=25 ahead=2 (diverged: local commits, a fast-forward is not possible — reconcile by hand; local ref, no fetch)" run_kit "$KF/k25"
+  if grep -q 'diverged' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K7: install's diverged behind line is kept and our stale line is not added"
+  else no "K7: diverged handling wrong; out=[$HOUT]"; fi
   # Stale fetch: current with its upstream but FETCH_HEAD is 10 days old.
   KFH="$(git -C "$KF/k0" rev-parse --git-path FETCH_HEAD)"; case "$KFH" in /*) ;; *) KFH="$KF/k0/$KFH";; esac
   [ -f "$KFH" ] || : >"$KFH"
@@ -391,22 +398,77 @@ if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   run_kit "$KF/k25/research-sdd"
   grep -q 'behind=25' <<<"$HOUT" && ok "K9: kit dir one level below the repo root is measured against that repo" || no "K9: nested kit dir not measured; out=[$HOUT]"
   mkdir -p "$KF/k25/deep/er"
-  run_kit "$KF/k25/deep/er"
-  grep -q 'status=degraded' <<<"$HOUT" && ok "K9b: a dir deeper inside an unrelated repo is degraded, not that repo's status" || no "K9b: deep dir not degraded; out=[$HOUT]"
+  RK_STUB="$MATCH" run_kit "$KF/k25/deep/er"
+  [ -z "$HOUT" ] && ok "K9b: a dir deeper inside an unrelated repo is silent at SessionStart (never that repo's status)" || no "K9b: deep dir leaked; out=[$HOUT]"
+  run_kit "$KF/k25/deep/er" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+  grep -q 'kit-stale status=degraded reason=kit dir sits inside an unrelated repo' <<<"$HOUT" && ok "K9c: --verbose names the unrelated-repo state" || no "K9c: unrelated repo not typed under verbose; out=[$HOUT]"
+  # Never fetched (no FETCH_HEAD): the clone time (.git/config mtime) is the age, NOT the upstream tip's commit date.
+  KQ="$KF/kquiet"; KG init -q --bare "$KF/kquiet.git"; KG clone -q "$KF/kquiet.git" "$KF/kquiet.seed" 2>/dev/null; echo q >"$KF/kquiet.seed/f"; KG -C "$KF/kquiet.seed" add f
+  GIT_AUTHOR_DATE='2020-01-01T00:00:00' GIT_COMMITTER_DATE='2020-01-01T00:00:00' KG -C "$KF/kquiet.seed" commit -q -m old; KG -C "$KF/kquiet.seed" push -q origin HEAD:main 2>/dev/null
+  KG clone -q -b main "$KF/kquiet.git" "$KQ" 2>/dev/null; rm -f "$KQ/.git/FETCH_HEAD"
+  run_kit "$KQ"
+  [ -z "$HOUT" ] && ok "K13: fresh never-fetched clone of a quiet (2020) upstream → silent (age = clone time, not the tip's commit date)" || no "K13: quiet upstream read as stale; out=[$HOUT]"
+  if touch -d '10 days ago' "$KQ/.git/config" 2>/dev/null; then
+    run_kit "$KQ"
+    grep -q 'fetch_age=10d' <<<"$HOUT" && ok "K13b: never-fetched clone made 10 days ago → stale by clone age" || no "K13b: clone age not used; out=[$HOUT]"
+    touch "$KQ/.git/config"   # back to a fresh clone for the teeth
+  fi
+  # No @{upstream} but origin/main exists: the advice cannot be `pull` (it fails without an upstream).
+  mk_kit kfb 3 && KG -C "$KF/kfb" branch --unset-upstream
+  run_kit "$KF/kfb" RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2
+  if grep -q 'fetch && git -C .* merge --ff-only origin/main' <<<"$HOUT" && ! grep -q 'pull --ff-only' <<<"$HOUT"; then ok "K14: origin/main fallback advises fetch + merge --ff-only, not pull"
+  else no "K14: fallback advice wrong; out=[$HOUT]"; fi
+  # Width: a real-like kit path (~/investigacion/sdd-investigacion/research-sdd) keeps command AND 'may understate' inside 200 chars.
+  HF="$KF/homefix"; mk_kit khome 25 "$HF/investigacion/sdd-investigacion" && mkdir -p "$HF/investigacion/sdd-investigacion/research-sdd"
+  run_kit "$HF/investigacion/sdd-investigacion/research-sdd" HOME="$HF"
+  KL="$(grep 'kit-stale' <<<"$HOUT")"
+  if [ "${#KL}" -le 200 ] && grep -qF 'git -C ~/investigacion/sdd-investigacion/research-sdd pull --ff-only' <<<"$KL" && grep -q 'may understate' <<<"$KL"; then ok "K15: real-like path → '~/'-relative command intact, 'may understate' kept, ${#KL} chars"
+  else no "K15: real-like path line wrong (${#KL}): [$KL]"; fi
+  # A very long path: the prose is cut, the command never is.
+  KLONG="k25-$(printf 'x%.0s' $(seq 150))"
+  if mk_kit "$KLONG" 25; then
+    run_kit "$KF/$KLONG"
+    grep -qF "pull --ff-only" <<<"$HOUT" && grep -qF "$KLONG pull --ff-only" <<<"$HOUT" && ok "K15b: a very long kit path keeps the full fix command (only the prose is cut)" || no "K15b: command chopped; out=[$HOUT]"
+  else no "K15b: could not build the long-path fixture"; fi
+  # Bounded: a git that hangs must not hold the session start; and after install --verify timed out the check is not run at all.
+  HANG="$ROOT/hang"; mkdir -p "$HANG"; printf '#!/bin/sh\nexec sleep 20\n' >"$HANG/git"; chmod +x "$HANG/git"
+  if command -v timeout >/dev/null 2>&1; then
+    _s=$SECONDS; run_kit "$KF/k25" PATH="$HANG:$PATH"; _e=$((SECONDS - _s))
+    if [ "$_e" -le 12 ]; then ok "K16: a hanging git is cut off (${_e}s): the stale check is bounded, output silent"
+    else no "K16: hanging git held the hook ${_e}s"; fi
+    _s=$SECONDS
+    HOUT="$(env PATH="$HANG:$PATH" RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$KF/k25" STUB_VERIFY_SLEEP=5 RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1 RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; _e=$((SECONDS - _s))
+    if [ "$_e" -le 5 ] && grep -q 'timed out' <<<"$HOUT" && ! grep -q 'kit-stale' <<<"$HOUT"; then ok "K17: install --verify timed out → the stale check is skipped (no extra git, ${_e}s)"
+    else no "K17: stale check ran after a verify timeout (${_e}s); out=[$HOUT]"; fi
+  else printf '  SKIP  K16/K17: no timeout binary on PATH\n'; fi
+  # Unreadable fetch age: the count still governs; verbose says the age was not judged.
+  NOSTAT="$ROOT/nostat"; mkdir -p "$NOSTAT"; printf '#!/bin/sh\nexit 1\n' >"$NOSTAT/stat"; chmod +x "$NOSTAT/stat"
+  run_kit "$KF/k25" PATH="$NOSTAT:$PATH"
+  grep -q 'behind=25' <<<"$HOUT" && grep -q 'fetch_age=?d' <<<"$HOUT" && ok "K18: unreadable fetch age → count still governs, fetch_age=?" || no "K18: unreadable age mishandled; out=[$HOUT]"
+  run_kit "$KF/k3" PATH="$NOSTAT:$PATH"
+  [ -z "$HOUT" ] && ok "K18b: unreadable age + count within threshold → silent at SessionStart" || no "K18b: leaked; out=[$HOUT]"
+  run_kit "$KF/k3" PATH="$NOSTAT:$PATH" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+  grep -q 'kit-stale status=degraded reason=cannot read the age of the last fetch' <<<"$HOUT" && ok "K18c: --verbose types the unreadable-age state" || no "K18c: unreadable age not typed; out=[$HOUT]"
 else no "K0: could not build fixture kits (git clone/push failed)"; fi
-# Degraded states: one short typed line, never silent, never a fake 0.
+# Unmeasurable: SILENT at SessionStart (un-clearable there, like install's own kit degraded); typed one-liner under VERBOSE.
 KG init -q "$KF/norem" && echo x >"$KF/norem/f" && KG -C "$KF/norem" add f && KG -C "$KF/norem" commit -q -m c
 run_kit "$KF/norem"
+[ -z "$HOUT" ] && ok "K10: no upstream → silent at SessionStart (rule: kit degraded is not a session-start finding)" || no "K10: degraded leaked; out=[$HOUT]"
+run_kit "$KF/norem" RESEARCH_SDD_KIT_STALE_VERBOSE=1
 KD="$(grep 'kit-stale' <<<"$HOUT")"
-if grep -q 'status=degraded' <<<"$KD" && grep -q 'no upstream' <<<"$KD" && [ "$(grep -c 'kit-stale' <<<"$HOUT")" = 1 ] && [ "${#KD}" -le 200 ]; then ok "K10: no upstream → one typed degraded line"
-else no "K10: no-upstream not typed; out=[$HOUT]"; fi
+if grep -q 'status=degraded' <<<"$KD" && grep -q 'no upstream' <<<"$KD" && [ "$(grep -c 'kit-stale' <<<"$HOUT")" = 1 ] && [ "${#KD}" -le 200 ]; then ok "K10b: VERBOSE → one typed degraded line (no upstream)"
+else no "K10b: no-upstream not typed under verbose; out=[$HOUT]"; fi
 mkdir -p "$KF/plain"
 run_kit "$KF/plain"
-grep -q 'kit-stale status=degraded.*not a git checkout' <<<"$HOUT" && ok "K11: not a git checkout → typed degraded" || no "K11: non-repo not typed; out=[$HOUT]"
+[ -z "$HOUT" ] && ok "K11: not a git checkout → silent at SessionStart" || no "K11: leaked; out=[$HOUT]"
+run_kit "$KF/plain" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+grep -q 'kit-stale status=degraded.*not a git checkout' <<<"$HOUT" && ok "K11b: VERBOSE → typed degraded (not a git checkout)" || no "K11b: non-repo not typed; out=[$HOUT]"
 GITLESS="$ROOT/gitless"; mkdir -p "$GITLESS"
-for _t in bash env grep awk cut head tr cat mktemp rm dirname readlink sleep jq date stat sed basename; do _p="$(command -v "$_t" 2>/dev/null)"; [ -z "$_p" ] || ln -sf "$_p" "$GITLESS/$_t"; done
+for _t in bash env grep awk cut head tr cat mktemp rm dirname readlink sleep jq date stat sed basename timeout; do _p="$(command -v "$_t" 2>/dev/null)"; [ -z "$_p" ] || ln -sf "$_p" "$GITLESS/$_t"; done
 run_kit "$KF/norem" PATH="$GITLESS"
-grep -q 'kit-stale status=degraded.*git not found' <<<"$HOUT" && ok "K12: git absent → typed degraded (not silent)" || no "K12: git-absent not typed; out=[$HOUT]"
+[ -z "$HOUT" ] && ok "K12: git absent → silent at SessionStart" || no "K12: leaked; out=[$HOUT]"
+run_kit "$KF/norem" PATH="$GITLESS" RESEARCH_SDD_KIT_STALE_VERBOSE=1
+grep -q 'kit-stale status=degraded.*git not found' <<<"$HOUT" && ok "K12b: VERBOSE → typed degraded (git absent)" || no "K12b: git-absent not typed; out=[$HOUT]"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: hook mutants (lib/mutant.sh) --"
@@ -538,35 +600,62 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        --good-has '^fractional$' --bad-has '^integer$' --bad-lacks "$_CRASH" -- "$_ENV" "SLEEPLOG=$ROOT/sleep-v.log" "PATH=$SHIMD:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=3" "STUB_VERIFY_SLEEP=0.3" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" \
        "$BASH_BIN" -c ': >"$SLEEPLOG"; bash "$1" >/dev/null 2>&1; if grep -qx 1 "$SLEEPLOG"; then echo integer; else echo fractional; fi' _ @SUT@
   fi
-  # ---- kit issue #2130: stale-kit line teeth (fixture kits k0/k25/norem/plain built by the K-cases above) ----
-  _KE() { printf '%s\n' "RESEARCH_SDD_KIT_STALE_CHECK=" "RESEARCH_SDD_KIT_DIR=$1" "STUB_VERIFY_OUT=$MATCH" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh"; }
-  mapfile -t _K25 < <(_KE "$KF/k25"); mapfile -t _K0 < <(_KE "$KF/k0"); mapfile -t _KPL < <(_KE "$KF/plain")
-  _mk "KA" "$SUT" "$MB/m-ka.sh" 's/"\$n" -gt "\$kmax" \]/"$n" -gt 99999999 ]/' \
-    && _tt "teeth: commit threshold unreachable -> a kit 25 commits behind is silent" 0 0 "$MB/m-ka.sh" \
-       --good-has 'kit-stale status=stale' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_K25[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # ---- kit issue #2130: stale-kit line teeth (fixture kits built by the K-cases above) ----
+  _KE() { printf '%s\0' "RESEARCH_SDD_KIT_STALE_CHECK=" "RESEARCH_SDD_KIT_DIR=$1" "STUB_VERIFY_OUT=${2:-$MATCH}" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh"; }
+  _KB() { printf '%s' "$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=$1 (local ref, no fetch — may understate) fix: git -C /k pull --ff-only"; }
+  mapfile -d '' -t _K25 < <(_KE "$KF/k25" "$(_KB 25)"); mapfile -d '' -t _K3 < <(_KE "$KF/k3" "$(_KB 3)"); mapfile -d '' -t _K0 < <(_KE "$KF/k0")
+  mapfile -d '' -t _KNR < <(_KE "$KF/norem"); mapfile -d '' -t _KPL < <(_KE "$KF/plain"); mapfile -d '' -t _KDP < <(_KE "$KF/k25/deep/er")
+  mapfile -d '' -t _KQ < <(_KE "$KQ"); mapfile -d '' -t _KFB < <(_KE "$KF/kfb"); mapfile -d '' -t _KLG < <(_KE "$KF/$KLONG" "$(_KB 25)")
+  mapfile -d '' -t _KDV < <(_KE "$KF/k25" "$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=25 ahead=2 (diverged: local commits, a fast-forward is not possible — reconcile by hand; local ref, no fetch)")
+  _kt() {   # <label> <mutant-name> <sed-expr> <description> <tooth-args...> — build the mutant, then run the tooth
+    local lab="$1" mn="$2" ex="$3" desc="$4"; shift 4
+    _mk "$lab" "$SUT" "$MB/$mn" "$ex" && _tt "$desc" 0 0 "$MB/$mn" "$@"
+  }
+  _kt KA m-ka.sh 's/"\$n" -gt "\$kmax" \]/"$n" -gt 99999999 ]/' "teeth: commit threshold unreachable -> a kit 25 commits behind is silent" \
+    --good-has 'kit-stale status=stale' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_K25[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   if [ "${KAGED:-}" = 1 ]; then
-  _mk "KB" "$SUT" "$MB/m-kb.sh" 's/\[ "\$age" -gt "\$kdays" \]/false/' \
-    && _tt "teeth: age check dropped -> a kit whose last fetch is 10 days old is silent" 0 0 "$MB/m-kb.sh" \
-       --good-has 'fetch_age=10d' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_K0[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KB m-kb.sh 's/\[ "\$age" -gt "\$kdays" \]/false/' "teeth: age check dropped -> a kit whose last fetch is 10 days old is silent" \
+    --good-has 'fetch_age=10d' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_K0[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
   else printf '  SKIP  teeth KB: no aged FETCH_HEAD fixture (touch -d unsupported)\n'; fi
-  _mk "KC" "$SUT" "$MB/m-kc.sh" "s/^    printf 'verify kit-stale status=degraded reason=kit dir is not a git checkout.*\$/    return 0/" \
-    && _tt "teeth: not-a-repo degraded line removed -> an unmeasurable kit is silent" 0 0 "$MB/m-kc.sh" \
-       --good-has 'kit-stale status=degraded' --bad-lacks "$_CRASH|kit-stale" -- "$_ENV" "${_KPL[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  KLONG="k25-$(printf 'x%.0s' $(seq 150))"; mk_kit "$KLONG" 25 || true
-  mapfile -t _KLG < <(_KE "$KF/$KLONG")
-  _mk "KD" "$SUT" "$MB/m-kd.sh" 's/ | cut -c1-200   # SENTINEL-KIT-STALE-WIDTH//' \
-    && _tt "teeth: width cap removed -> a long kit path overruns the 200-char line budget" 0 0 "$MB/m-kd.sh" \
-       --good-has '^ok$' --bad-has '^long$' --bad-lacks "$_CRASH" -- "$_ENV" "${_KLG[@]}" \
-       "$BASH_BIN" -c 'bash "$1" "$2" | grep kit-stale | awk "{ print (length(\$0) > 200) ? \"long\" : \"ok\" }"' _ "$SB/decode.sh" @SUT@
-  _mk "KE" "$SUT" "$MB/m-ke.sh" 's/ \&\& \[\[ "\$extra" != "verify kit status=behind"\* \&\& .*; then  # SENTINEL-KIT-STALE-DEDUPE/; then  # SENTINEL-KIT-STALE-DEDUPE/' \
-    && _tt "teeth: dedupe removed -> an install --verify behind line AND a stale line both print" 0 0 "$MB/m-ke.sh" \
-       --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "RESEARCH_SDD_KIT_STALE_CHECK=" "RESEARCH_SDD_KIT_DIR=$KF/k25" "STUB_VERIFY_OUT=$BEHIND" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "KF" "$SUT" "$MB/m-kf.sh" 's/\[ "\${RESEARCH_SDD_KIT_STALE_CHECK:-}" != "off" \] \&\& //' \
-    && _tt "teeth: opt-out ignored -> RESEARCH_SDD_KIT_STALE_CHECK=off still warns" 0 0 "$MB/m-kf.sh" \
-       --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "RESEARCH_SDD_KIT_STALE_CHECK=off" "$BASH_BIN" "$SB/decode.sh" @SUT@
-  _mk "KG" "$SUT" "$MB/m-kg.sh" 's/^  case "\$kmax" in .*$/  :/' \
-    && _tt "teeth: threshold unvalidated -> a garbage RESEARCH_SDD_KIT_STALE_MAX_COMMITS breaks the check instead of falling back" 0 0 "$MB/m-kg.sh" \
-       --good-has 'behind=25' --bad-lacks "$_CRASH|behind=25" -- "$_ENV" "${_K25[@]}" "RESEARCH_SDD_KIT_STALE_MAX_COMMITS=x1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KC: the width handling cuts the whole line -> a long kit path chops the fix command (cut the prose, never the command).
+  _kt KC m-kc.sh 's/^    kline="\$khead\${ktail:0:room}"$/    kline="$(printf "%s" "$khead$ktail" | cut -c1-200)"/' "teeth: whole-line cut -> a long kit path chops the fix command" \
+    --good-has 'x pull --ff-only' --bad-lacks "$_CRASH|x pull --ff-only" -- "$_ENV" "${_KLG[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KD: dedupe dead -> install's behind line (any behind > 0) leaks below the threshold.
+  _kt KD m-kd.sh 's/^        "verify kit status=behind"\*) ;;   # SENTINEL-KIT-STALE-DEDUPE$/        "verify kit status=NEVER"*) ;;/' "teeth: install's behind line kept below the threshold -> our threshold never governs" \
+    --good-lacks 'status=behind' --bad-has 'status=behind' --bad-lacks "$_CRASH" -- "$_ENV" "${_K3[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # KE: the diverged line is not recognised -> it is dropped and a pull-based stale line replaces it.
+  _kt KE m-ke.sh 's/kdiv=1; kkeep=/kkeep=/' "teeth: diverged install line dropped -> the stale line advises a pull that cannot fast-forward" \
+    --good-has 'diverged' --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_KDV[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KF m-kf.sh 's/\[ "\${RESEARCH_SDD_KIT_STALE_CHECK:-}" != "off" \] \&\& //' "teeth: opt-out ignored -> RESEARCH_SDD_KIT_STALE_CHECK=off still warns" \
+    --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "RESEARCH_SDD_KIT_STALE_CHECK=off" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KG m-kg.sh "0,/''|\\*\\[!0-9\\]\\*|???????\\*) v=/s//__never__) v=/" "teeth: threshold unvalidated -> a garbage RESEARCH_SDD_KIT_STALE_MAX_COMMITS is evaluated instead of announced" \
+    --good-has "invalid RESEARCH_SDD_KIT_STALE_MAX_COMMITS='x1'" --bad-lacks "$_CRASH|invalid RESEARCH" -- "$_ENV" "${_K25[@]}" "RESEARCH_SDD_KIT_STALE_MAX_COMMITS=x1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KJ m-kj.sh 's/\[ -z "\${RESEARCH_SDD_KIT_STALE_VERBOSE:-}" \] || //' "teeth: verbose gate removed -> an unmeasurable kit warns at every session start" \
+    --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_KNR[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KI m-ki.sh 's/ \&\& \[ "\$vrc" -ne 124 \]//' "teeth: stale check also runs after install --verify timed out -> a likely git stall is hit twice" \
+    --good-has 'timed out' --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "STUB_VERIFY_SLEEP=5" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KL m-kl.sh 's/ft="\$(_rk_mtime "\$cf")"/ft="$(timeout 1 git -C "$kd" log -1 --format=%ct "$ref" 2>\/dev\/null)"/' "teeth: never-fetched clone aged by the upstream tip's commit date -> a quiet upstream reads stale forever" \
+    --good-lacks 'kit-stale' --bad-has 'kit-stale' --bad-lacks "$_CRASH" -- "$_ENV" "${_KQ[@]}" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  _kt KM m-km.sh 's/if \[ "\$kfb" = 1 \]; then cmd=/if false; then cmd=/' "teeth: origin/main fallback advises pull -> it fails on a branch without upstream" \
+    --good-has 'merge --ff-only origin/main' --bad-lacks "$_CRASH|merge --ff-only" -- "$_ENV" "${_KFB[@]}" "RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  # Verbose degraded branches: each reason is typed, and removing one makes that unmeasurable state silent under --verbose.
+  _kv() {   # <label> <mutant-name> <reason-anchor> <good-regex> <env...> — neutralise `_rk_deg "<anchor>..."` on its line
+    local lab="$1" mn="$2" anc="$3" gre="$4"; shift 4
+    _kt "$lab" "$mn" "/_rk_deg \"$anc/s/_rk_deg /: /" "teeth: degraded reason '$anc...' dropped -> that unmeasurable state is silent even under --verbose" \
+      --good-has "$gre" --bad-lacks "$_CRASH|$gre" -- "$_ENV" "$@" "RESEARCH_SDD_KIT_STALE_VERBOSE=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
+  }
+  _kv KV1 m-kv1.sh "no upstream ref" "no upstream ref" "${_KNR[@]}"
+  _kv KV2 m-kv2.sh "kit dir is not a git checkout" "not a git checkout" "${_KPL[@]}"
+  _kv KV3 m-kv3.sh "kit dir sits inside an unrelated repo" "unrelated repo" "${_KDP[@]}"
+  _kv KV4 m-kv4.sh "cannot read the age" "cannot read the age of the last fetch" "${_K3[@]}" "PATH=$NOSTAT:$PATH"
+  mkdir -p "$ROOT/gitless2"; for _t in bash env grep awk cut head tr cat mktemp rm dirname readlink sleep jq date stat sed basename timeout; do _p="$(command -v "$_t" 2>/dev/null)"; [ -z "$_p" ] || ln -sf "$_p" "$ROOT/gitless2/$_t"; done
+  _kv KV5 m-kv5.sh "git not found" "git not found" "${_KNR[@]}" "PATH=$ROOT/gitless2"
+  # KH: the git calls are unbounded -> a hanging git holds the session start.
+  if command -v timeout >/dev/null 2>&1; then
+  _kt KH m-kh.sh 's/top="\$(timeout 1 git /top="$(git /' "teeth: unbounded git -> a hanging git holds the session start" \
+    --good-has '^fast$' --bad-has '^slow$' --bad-lacks "$_CRASH" -- "$_ENV" "${_K25[@]}" "PATH=$HANG:$PATH" \
+    "$BASH_BIN" -c 's=$SECONDS; bash "$1" "$2" >/dev/null 2>&1; if [ $((SECONDS - s)) -ge 15 ]; then echo slow; else echo fast; fi' _ "$SB/decode.sh" @SUT@
+  fi
   _mk "I" "$SUT" "$MB/m-i.sh" 's/^    extra_skip=1 /    : /' \
     && _tt "teeth: skip branch unreported → with no timeout and no mktemp the hook says nothing" 0 0 "$MB/m-i.sh" \
        --good-has 'skipped: no timeout available' --bad-lacks "$_CRASH|skipped" -- "$_ENV" "PATH=$NOMK" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "STUB_VERIFY_SLEEP=1" "$BASH_BIN" "$SB/decode.sh" @SUT@
