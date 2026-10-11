@@ -601,7 +601,7 @@ x1_check() {  # ID FILE
   case "$1" in
     section)           [ -n "$(x1_section "$f")" ] ;;
     rung-a)            x1_row "$f" 'ScheduleWakeup' 'agent_before_settle' ;;
-    rung-a-conditional) x1_row "$f" 'ScheduleWakeup' 'until #2123 lands: not installed, skip to (b)' ;;
+    rung-a-conditional) x1_row "$f" 'ScheduleWakeup' 'it is not a general re-invoker' ;;
     rung-b)            x1_row "$f" 'ScheduleWakeup' 'bash_background' ;;
     rung-b-conditional) x1_row "$f" 'ScheduleWakeup' "if the session's tool list has" ;;
     rung-c)            x1_row "$f" 'ScheduleWakeup' 'the operator must re-invoke' ;;
@@ -1144,7 +1144,7 @@ PYEOF
   good_rc "x2_stop general"  0 x2_stop "$GENERAL_LOOP"
   x1_tooth section            's/^## Harness crosswalk$/## Harness map/'
   x1_tooth rung-a             's/agent_before_settle/GONE/g'
-  x1_tooth rung-a-conditional 's/until #2123 lands: not installed, skip to (b)/GONE/'
+  x1_tooth rung-a-conditional 's/it is not a general re-invoker/GONE/'
   x1_tooth rung-b             's/bash_background/GONE/g'
   x1_tooth rung-b-conditional "s/if the session's tool list has/GONE/"
   x1_tooth rung-c             's/the operator must re-invoke/GONE/'

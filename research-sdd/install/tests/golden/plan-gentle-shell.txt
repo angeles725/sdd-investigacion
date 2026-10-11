@@ -14,11 +14,13 @@ harness=gentle-shell
   | Read the prompts from Kit path; registry/ledger edits (TARGETS.md, BREAKTHROUGHS.md,
   | INSTALLED-TOOLS.md) and toolbelt runs go to Kit checkout, never the profile copy.
   | 
-  | MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta
-  | auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.
+  | Session hooks: the research-sdd-hooks extension (installed with this launcher) runs the session-start
+  | sweeps and the skill-drift check and injects their output into your context (system prompt section
+  | `research-sdd-session`), and it gates the end of a turn with the retro and return-token gates (a block
+  | comes back once as a message to act on). While that section is present do NOT re-run the sweeps by hand.
   | 
-  | Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at
-  | session start; all read-only, degrade to silence on failure):
+  | Session-start sweep FALLBACK (only when that section is absent, says DEGRADED, or says the sweeps
+  | are still pending after your first reply): run MANUALLY; all read-only, degrade to silence on failure:
   |   Single command (recommended): `{KIT}/toolbelt/sweep-all.sh`
   |   Individual scripts (canonical; sweep-all.sh runs these in sequence):
   |   - `{KIT}/toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals
@@ -30,8 +32,9 @@ harness=gentle-shell
   |   - `{KIT}/toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry
   |   - `{KIT}/toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source
   | 
-  | Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is
-  | not over until the retro exists. Once it is written, seed its deltas by hand:
+  | Session-end retro (MANDATORY — the extension blocks a finished run ONCE when the retro is missing, and
+  | says so when it could not check): the run is not over until the retro exists. Once it is written,
+  | seed its deltas by hand:
   |   `{KIT}/toolbelt/stage-retro-issues.sh <retro> --apply`
   | <!-- research-sdd:end -->
   INSTALL {HOME}/.gentle-shell/agent/prompts/research-sdd.md (slash-command prompt template)
@@ -44,4 +47,5 @@ harness=gentle-shell
   | (if it is empty, ask which target to investigate):
   | 
   | $ARGUMENTS
+  INSTALL {HOME}/.gentle-shell/agent/extensions/research-sdd-hooks.ts (pi extension: session hooks)
   slash_commands=true
