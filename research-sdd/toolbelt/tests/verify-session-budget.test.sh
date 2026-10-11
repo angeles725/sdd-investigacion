@@ -30,6 +30,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP"
 BW_OK=0
 if command -v bwrap >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1; then BW_OK=1; fi
+# Kit issue #2138: CI sets RSDD_REQUIRE_BWRAP=1 so an unusable bwrap FAILS instead of silently skipping the sandbox cases.
+if [ "$BW_OK" != 1 ] && [ "${RSDD_REQUIRE_BWRAP:-}" = 1 ]; then no "0 RSDD_REQUIRE_BWRAP=1 but no usable unprivileged bwrap (sandbox cases would SKIP)"; fi
 [ "$BW_OK" = 1 ] || echo "  NOTE  no usable unprivileged bwrap here: sandbox-dependent cases are SKIPPED, not passed"
 
 snap() { ( cd "$1" && find . -printf '%p %y %s %T@\n' | LC_ALL=C sort; find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum ) ; }
@@ -206,6 +208,16 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
 }
 
 check_suite "$SUT"
+
+# Gate self-test (kit issue #2138): re-run this suite with a failing bwrap shim first on PATH. With RSDD_REQUIRE_BWRAP=1
+# it must print the typed FAIL line and exit 1; without the flag it must SKIP and exit 0.
+if [ -z "${RSDD_SB_SELFTEST:-}" ]; then
+  SHB="$TMP/shim-bw"; mkdir -p "$SHB"; printf '#!/bin/sh\nexit 1\n' > "$SHB/bwrap"; chmod +x "$SHB/bwrap"
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=1 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  FAIL  0 RSDD_REQUIRE_BWRAP=1' && [ "$RCR" = 1 ] && ok "42 gate: RSDD_REQUIRE_BWRAP=1 + unusable bwrap -> typed FAIL, exit 1" || no "42 require-flag gate: rc=$RCR"
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=0 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  SKIP  ' && ! has "$OUTR" '  FAIL  ' && [ "$RCR" = 0 ] && ok "43 gate: unusable bwrap without the flag -> SKIP, exit 0" || no "43 skip path: rc=$RCR"
+fi
 
 # ---- Teeth ------------------------------------------------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then

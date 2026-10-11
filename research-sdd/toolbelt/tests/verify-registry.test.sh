@@ -50,6 +50,13 @@ export RSDD_CLAUDE_PROJECTS_DIR
 pass=0; fail=0
 ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+# vr_bw_gate: usable | skip | fail (kit issue #2138). `fail` = RSDD_REQUIRE_BWRAP=1 but bwrap/timeout unusable.
+vr_bw_gate() {
+  if command -v bwrap >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1; then echo usable
+  elif [ "${RSDD_REQUIRE_BWRAP:-}" = 1 ]; then echo fail; else echo skip; fi
+}
+# Probe-only self-invocation (see the 2129a gate self-test): print the gate state and exit before any case runs.
+if [ -n "${VR_BW_GATE_PROBE:-}" ]; then _g="$(vr_bw_gate)"; echo "gate=$_g"; [ "$_g" = fail ] && exit 1; exit 0; fi
 
 # ---- mutation controls on lib/mutant.sh (kit issue #1299 item 1) --------------------------------
 # lib/mutant.sh is sourced ONLY on the --prove-teeth path: every TEETH block below starts with
@@ -3518,11 +3525,19 @@ mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionS
   cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
   nsrow "$kit" "$tgt" '3 md / git yes'
 }
-# The sandbox-dependent cases (2129a, 2129d) need a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP.
-_vr2129_bw=0; command -v bwrap >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1 && _vr2129_bw=1
+# The sandbox-dependent case 2129a needs a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP (FAIL under RSDD_REQUIRE_BWRAP=1). 2129d uses a stub budget script and needs no bwrap.
+_vr2129_bw="$(vr_bw_gate)"
+# Gate self-test (kit issue #2138): a failing bwrap shim first on PATH makes bwrap unusable; the probe-only
+# self-invocation must report fail (exit 1) with RSDD_REQUIRE_BWRAP=1 and skip (exit 0) without it.
+_vr_shim="$ROOT/vr-shim-bw"; mkdir -p "$_vr_shim"; printf '#!/bin/sh\nexit 1\n' > "$_vr_shim/bwrap"; chmod +x "$_vr_shim/bwrap"
+_o="$(PATH="$_vr_shim:$PATH" VR_BW_GATE_PROBE=1 RSDD_REQUIRE_BWRAP=1 "$BASH_BIN" "$HERE/verify-registry.test.sh" 2>&1)"; _rc=$?
+if [ "$_rc" = 1 ] && [ "$_o" = "gate=fail" ]; then ok "2129 gate: unusable bwrap + RSDD_REQUIRE_BWRAP=1 -> fail, exit 1"; else no "2129 gate require-flag" "rc=$_rc out=[$_o]"; fi
+_o="$(PATH="$_vr_shim:$PATH" VR_BW_GATE_PROBE=1 RSDD_REQUIRE_BWRAP=0 "$BASH_BIN" "$HERE/verify-registry.test.sh" 2>&1)"; _rc=$?
+if [ "$_rc" = 0 ] && [ "$_o" = "gate=skip" ]; then ok "2129 gate: unusable bwrap without the flag -> skip, exit 0"; else no "2129 gate skip path" "rc=$_rc out=[$_o]"; fi
 mk2129 c2129a
 OUT="$(RSDD_REGISTRY_SESSION_BUDGET=1 "$BASH_BIN" "$kit/toolbelt/verify-registry.sh" 2>&1)"; RC=$?
-if [ "$_vr2129_bw" != 1 ]; then printf '  SKIP  2129a opt-in budget WARNs (no usable bwrap)\n'
+if [ "$_vr2129_bw" = fail ]; then no "2129a RSDD_REQUIRE_BWRAP=1 but no usable bwrap/timeout (case would SKIP)"
+elif [ "$_vr2129_bw" != usable ]; then printf '  SKIP  2129a opt-in budget WARNs (no usable bwrap)\n'
 elif [ "$RC" = 0 ] && grep -qE 'WARN[[:space:]]+targetB — a SessionStart hook emits more than 10,000 characters' <<<"$OUT" \
    && grep -qE 'WARN[[:space:]]+targetB — SessionStart hooks total 10500 characters, over the kit.*worst session source: startup' <<<"$OUT"; then
   ok "2129a opt-in + 10,500-char SessionStart hook → truncation and over-budget WARNs" "(exit $RC)"

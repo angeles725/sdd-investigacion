@@ -1,3 +1,4 @@
+# Every edit to this file MUST refresh research-sdd/toolbelt/tests/fixtures/merge-gate/wf-real-toolbelt-tests.yml in the same commit (cp it over; byte-equality test in merge-gate.test.sh).
 name: toolbelt tests
 
 on:
@@ -60,6 +61,13 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
+    env:
+      # Kit issue #2138 / CLAUDE.md section 7: a suite whose prerequisite is missing must FAIL in CI, never
+      # print a typed SKIP that reads as coverage. Suites honouring these flags fail instead of skipping:
+      # verify-session-budget.test.sh (RSDD_REQUIRE_BWRAP) and the pi-hooks behavior suite (RSDD_REQUIRE_NODE_TS,
+      # honoured once PR #2137 lands).
+      RSDD_REQUIRE_BWRAP: "1"
+      RSDD_REQUIRE_NODE_TS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -74,7 +82,21 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          # >= 22.18 so `process.features.typescript` (native type stripping, kit issue #2138) is on without a flag;
+          # 24 is the current LTS line.
+          node-version: "24"
+
+      - name: Install bubblewrap and enable unprivileged user namespaces
+        # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE
+        # unprivileged bwrap, or they SKIP. ubuntu-24.04 restricts unprivileged user namespaces through
+        # AppArmor (kernel.apparmor_restrict_unprivileged_userns=1), so lift that restriction on this
+        # ephemeral runner (documented Ubuntu adjustment; the sysctl is absent on older kernels -> ignored),
+        # then prove bwrap works with the same probe the suites use.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+          bwrap --ro-bind / / true || { echo "::error::bubblewrap cannot create an unprivileged sandbox on this runner"; exit 1; }
 
       - name: Sanity-check python3
         run: python3 --version
