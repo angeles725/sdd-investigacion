@@ -595,6 +595,15 @@ suite() { # suite <sut> — the whole behavioural suite, reusable against mutant
   runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
   expect "CI path filter: real workflow copy, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
   expect "CI path filter: real workflow copy names the real file and 2 files" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
+  expect "CI path filter: real workflow copy, docs-only diff -> toolbelt-tests also skipped by path filter, never 'cannot parse' (job-name expressions would make it unknown)" 0 '^merge-gate: note: required check toolbelt-tests skipped by path filter'
+  # kit issue #2114 review: the frozen fixture must BE the live workflow, or these cases test a stale shape (a matrix job
+  # `name: ... ${{ matrix.x }}` made the live file unparseable here while the stale fixture stayed green).
+  REAL_WF="$HERE/../../../.github/workflows/toolbelt-tests.yml"
+  if [ -f "$REAL_WF" ] && cmp -s "$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml" "$REAL_WF"; then ok "fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml"
+  else no "fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)"; fi
+  # the drift check has teeth: a one-line change to a copy must be detected by the same comparison
+  { cat "$REAL_WF"; echo "# drift"; } > "$ROOT/drift-wf.yml"
+  if cmp -s "$ROOT/drift-wf.yml" "$REAL_WF"; then no "drift control: modified copy compared equal"; else ok "drift control: a modified copy compares different"; fi
   runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
   expect "CI path filter: real workflow copy, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
   mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/profiles/p.md"

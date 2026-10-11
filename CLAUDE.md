@@ -167,6 +167,7 @@ broken code is — doc-lane #2.
 | Mutation | `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth` | All mutation controls go red |
 | Parallel (opt-in) | `bash research-sdd/toolbelt/tests/run-all.sh -j N` (N ≤ 6) | Same aggregate as serial plus one `Parallel:` line; hermeticity guards snapshot once around the batch, and a leak found there triggers a serial re-run bounded to the candidate suites whose recorded run window contained the leaked path's mtime (the suites whose recorded window matched — typically at most `N`, never the whole corpus; per-suite timeout `RUN_ALL_ATTRIBUTION_TIMEOUT`, default 600 s; a value that is not a positive integer yields a typed `Attribution:` line and the default; a `date` without `%N` falls back to whole-second run windows with a 1 s match tolerance), blaming the one whose re-run changes the path's mtime or content hash; anything unattributable (a removal, no matching window, no usable `stat`) keeps the typed batch label plus a typed `Attribution:` line saying why, and still fails the run. A clean `-j` run and the serial path are untouched. No usable GNU parallel → typed `DEGRADED` + serial, and the line names the concrete cause (not on PATH / not GNU parallel / `--version` fails). Serial stays the reference for the quiet-tree gate (§3) |
 | Lane (opt-in) | `bash research-sdd/toolbelt/tests/run-all.sh --lane <fast\|slow\|all>` | Exports `RSDD_TEST_LANE` to every suite (kit issue #1821) so the lane-aware suites (`lib/test-lane.sh`: fast = fixture-cached, slow = real tool, all = both) run that lane; also accepts `--lane=<name>` and combines with `--prove-teeth` and `-j N`. The value is validated by the lib's own `rsdd_lane`, and a missing or unknown value (or an absent lib) exits 2 before any suite runs. The aggregate prints one `Lane: <name>` line after the corpus lines. Without the flag the caller's ambient `RSDD_TEST_LANE` is left untouched (anchored by `# SENTINEL-LANE-EXPORT`) |
+| Shard (opt-in, CI) | `bash research-sdd/toolbelt/tests/run-all.sh --shard I/N [--shard-manifest PATH]` + `bash research-sdd/toolbelt/tests/shard-join.sh --shards N MANIFEST...` | Kit issue #2114: CI runs the gate as a matrix of N shards because the single job reached its cap. `--shard I/N` (N ≤ 32; invalid → exit 2 before any suite runs; also `--shard=I/N`) sorts the FULL list of BOTH corpora by repo-relative path (`LC_ALL=C`) and runs the suites whose 0-based position mod N is I−1 — a disjoint cover for every N (anchored by `# SENTINEL-SHARD-ASSIGN`, validation by `# SENTINEL-SHARD-VALIDATE`). Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate (#1126/#1144) stay over the FULL list. The aggregate prints `Shard: I/N — K of T suites`; K = 0 (N > T) prints `EMPTY SHARD`, exits 1 and is never a pass (`# SENTINEL-SHARD-EMPTY`). `--shard-manifest` writes `# shard I/N suites=K exit=RC` then `<repo-relative suite> <PASS\|FAIL\|SKIP>` per suite (`# SENTINEL-SHARD-MANIFEST-WRITE`; the header carries the shard's own exit code, so a shard failed by a hermeticity/teeth gate with every suite PASS still fails the join). `run-all.sh --list-suites` prints the full list (the join's single discovery source). `shard-join.sh` exits 0 only when every suite ran exactly once, passed, in a complete set of green shards; it names missing, duplicated, failed and unexpected suites, missing/duplicate shards, and absent/corrupt manifests (typed `JOIN:` findings, exit 1; usage → 2; `--strict-skip` also fails a SKIP). `--shard` with `--require-teeth` is refused (exit 2 before any suite runs, `# SENTINEL-SHARD-REQUIRE-TEETH-REFUSE`): the waiver gate judges the whole corpus and would report other shards' waivers as stale; run `--require-teeth` unsharded. Without `--shard` the runner is unchanged, and the local quiet-tree gate stays the unsharded run. In `.github/workflows/toolbelt-tests.yml` the join job keeps the name `toolbelt-tests` (what `merge-gate.sh` requires by default) |
 | Teeth coverage | `bash research-sdd/toolbelt/tests/run-all.sh --require-teeth` | Exit 0 only when every `*.test.sh` suite runs mutation controls. Implies `--prove-teeth`; the aggregate prints, in this order and each on its own line, `Suites without teeth: N — [names]`, `(vocabulary check: a "teeth" case with no real mutant is a review item)`, `Suites n/a for teeth (node): N`, then — only when non-empty — `Suites with teeth but no banner: N — [names]`, then (always, an explicit `0 — []` when empty) `Suites with teeth not using lib/mutant.sh: N — [names]` (the teeth suites that never source `tests/lib/mutant.sh`, so their mutants carry none of its refusals: empty, byte-identical, syntax-broken, live-tree or symlink OUT — kit issue #943; the printed line is anchored in `run-all.sh` by `# SENTINEL-TEETH-HELPER-REPORT`, the detection by `# SENTINEL-TEETH-HELPER-LINT`); under `--prove-teeth` alone that line is report-only. Under `--require-teeth` it is a gate (kit issue #1299 item 4): four more lines follow it, in this order — `Suites with teeth not using lib/mutant.sh and not waived`, `Waived teeth-helper suites`, `Stale teeth-helper waivers` and `Invalid teeth-helper waiver lines` — and an unwaived suite, a stale waiver or an invalid line in `research-sdd/toolbelt/tests/teeth-helper-waivers.txt` (`<suite> <reason>` per line) exits 1. One further line, `Ambiguous teeth-helper suite names (both corpora): N — [names]` (kit PR #1569), follows those four: a hand-rolled suite basename present in BOTH corpora, so one waiver line could not be scoped to one file. It is report-only on its own (an unwaived ambiguous suite already fails via "not waived"); a waiver line naming an ambiguous basename is an Invalid line and fails. A waiver is debt to delete when the suite migrates, never a pass. The earlier `Suites without teeth` line is anchored in `run-all.sh` by the `# SENTINEL-NO-TEETH-BANNER` comment — cite the search term, never the line number, §8). Opt-in (kit issue #426): the default gate stays green while the 21 forensics/VM suites listed there have no mutants — run it to see the debt, not to hide it |
 
 **No suite or case counts are recorded here, deliberately.** For the current numbers, run the gate. Its
@@ -179,6 +180,13 @@ reported 1,871. The cause was not established, and no per-suite log survived fro
 neither conditional coverage nor run-to-run variability could be confirmed or excluded. A figure that
 careful measurements disagree on is not one a hand-written snapshot can promise to track. Doctrine
 holds invariants and authoritative commands; live telemetry belongs to the instrument that produces it.
+
+A writer that adds or edits any `.sh` file also runs the repo-wide lint suites
+(`pipefail-sigpipe-lint.test.sh`, `lint-substitution.test.sh`, `self-dir-idiom.test.sh`) in addition to its
+focused suites: these lints scan the shell tree (toolbelt, lib, install; `pipefail-sigpipe-lint` also
+`tests/`), so any new or edited script, test or not, can fail them while its own suite is green (the full
+gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
+Whenever a script emits or changes a typed state, it also runs `reason-codes.test.sh`: a new emitter of `absent-input`, `empty-input` or similar must be listed in `research-sdd/toolbelt/reason-codes.v1.md`, or that suite fails "real registry input rows vs real toolbelt" (PR #2140 full gate, 2026-10-11).
 
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
 register.
@@ -315,6 +323,14 @@ the headline. The fix is not to make the instrument guess; deltas are prose and 
 to stop implying otherwise: say what the number tracks, and flag what would have to be verified by hand
 before trusting it as work.
 
+**Measure what the consumer receives: characters of the decoded text, not bytes and not the raw stream.**
+A size that gates a consumer (a hook budget, a parser's input) is counted on the form the consumer
+actually gets — for a SessionStart hook, the characters of the decoded `additionalContext`. UTF-8 byte
+counts of non-ASCII text (accents, box characters) over-report, and the raw JSON stdout over-reports
+slightly (escapes add a few hundred characters). Incident #2128: decoded 9,514 / 9,578 characters, raw
+JSON stdout 9,796 / 9,822 characters, UTF-8 bytes of the decoded text 11,494 / 12,368 (incident figures,
+not assertion literals).
+
 **Two samples with different scopes need two names.** A single label over two populations is
 unfalsifiable. `research-sdd-status.sh` printed one `forms:` sample sourced from the sorted window (numbered and structural rows)
 while the sibling reading counted numbered rows only — the same label, two populations,
@@ -331,6 +347,16 @@ a clean file, one reported `unrecog=0` over six real parser gaps, one misdetecte
 and turned off the P6 anti-silent-zero WARN on all of them. Shellcheck, the full suite and
 `--prove-teeth` passed every time. That PR was closed rather than merged; its measurements are in
 issue #128.
+
+**A change to an id or signature validity rule is accepted only on a dry-run diff over ALL retros**
+(or all corpora the rule reads), not over the subset containing the character that triggered the change.
+The #2147 escape fix was checked on the 18 retros with the triggering character; the dry-run over all
+190 retros surfaced one changed retro (niagara, ids `Δ1`–`Δ4`), which became #2150.
+
+**Check markup and format semantics against the authoritative renderer before encoding a parser rule,**
+and cite the observed render in the code comment. For GFM table cells, any backslash-pipe is an escaped
+pipe — verified with `gh api -X POST /markdown -f mode=gfm` (PR #2147) — not only the forms the author
+had seen in fixtures.
 
 **Test the list edges, not just the middle.** A validator that walks a list needs its interesting case
 in FIRST, MIDDLE and LAST position, plus the single-element case. `verify-registry.sh` fed its token
@@ -378,6 +404,8 @@ Conversation with the user may be in any language. That language never leaks int
 - **Never push** unless the user explicitly asks.
 - Conventional commits only (`feat`, `fix`, `test`, `docs`, `refactor`, …).
 - No AI attribution and no `Co-Authored-By` trailers in commit messages.
+- Issues an orchestrator opens for pre-authorized kit work carry the `status:approved` label at creation;
+  otherwise `merge-gate` refuses on the issue-label CI check even after a green gate (PR #2127).
 
 ---
 

@@ -121,17 +121,22 @@ JAR archive validation inside `rsdd_probe_java_jar()`.
 
 ## What CI Actually Installs
 
-`.github/workflows/toolbelt-tests.yml` defines two jobs running on
-`ubuntu-latest`:
+`.github/workflows/toolbelt-tests.yml` defines three kinds of job running on
+`ubuntu-latest` (the gate is sharded, kit issue #2114):
 
-**Job 1 — `toolbelt-tests`** (10 min timeout):
+**Job 1 — `toolbelt-shard`** (matrix of 4 shards, 25 min timeout each):
 1. Check out repo
 2. Set up Node.js 20 (via `setup-node`)
 3. Sanity-check `python3 --version` (`python3`, `bash`, `git` are preinstalled)
-4. Run `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth`
-5. Run `bash research-sdd/install/tests/research-sdd-install.test.sh --prove-teeth`
+4. Install GNU parallel (`run-all.sh -j` needs it)
+5. Run `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 --shard I/4 --shard-manifest ...`
+   (this includes the `research-sdd/install/tests` corpus; there is no separate install step)
+6. Upload the shard manifest as an artifact
 
-**Job 2 — `shellcheck`** (5 min timeout):
+**Job 2 — `toolbelt-tests`** (the join, 5 min timeout; keeps the name `merge-gate.sh` requires):
+download the manifests, run `shard-join.sh --shards 4`, then fail if any shard job was not green.
+
+**Job 3 — `shellcheck`** (5 min timeout):
 1. Check out repo
 2. Run `shellcheck -S warning` across all `*.sh` files in `research-sdd/toolbelt/` and `research-sdd/install/`
 

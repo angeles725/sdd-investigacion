@@ -396,6 +396,7 @@ derive_deferred() {
   awk '
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
+      gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED (#2148): any `\|` is an escaped pipe, never a separator
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       if (tolower(a[1])!="deferred") next
@@ -469,6 +470,7 @@ _derive_attributed_sg() {
       BEGIN { blockcol=0 }
       /\|/ {
         gsub(/\r$/, "")
+        gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL (#2148): any `\|` is an escaped pipe, never a separator
         n = split($0, a, "|")
         if (!blockcol) {
           for (i=1; i<=n; i++) { v=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",v); if (tolower(v)=="block") blockcol=i }

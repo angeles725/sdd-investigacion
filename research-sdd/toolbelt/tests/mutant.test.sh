@@ -1062,5 +1062,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "py tooth wrong label"
 fi
 
+# Kit issue #2114 regression: the shared VM alloc mutant must not allocate its orphan run_dir under the hardcoded default
+# /tmp/rsdd (absent on a fresh runner -> GateError -> TOOTH_ALLOC=error, THEATER only in some shard orders).
+_alloc_line="$(grep -F 'teeth-mut-alloc alloc' "$LIB")"
+_bare_re='_dc\.make_run_subdir\(uuid\.uuid4\(\)\.hex\)'
+if [ -n "$_alloc_line" ] && ! grep -qE "$_bare_re" <<<"$_alloc_line"; then ok "vm alloc mutant allocates its orphan under the caller's root, not the hardcoded /tmp/rsdd"
+else no "vm alloc mutant still calls make_run_subdir(uuid) with the default root (fresh-runner fragile)"; fi
+if grep -qE "$_bare_re" <<<"s|x|    _dc.make_run_subdir(uuid.uuid4().hex)\\n|"; then ok "alloc-root guard control: the bare-default form is detected"; else no "alloc-root guard control: bare form not detected"; fi
+
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

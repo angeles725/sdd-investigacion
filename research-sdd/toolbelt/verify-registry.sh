@@ -162,6 +162,7 @@ if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_h
 declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
 declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
 declare -F hook_stop_launch_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_launch_state" >&2; exit 1; }
+declare -F hook_wired_exec_report >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_wired_exec_report" >&2; exit 1; }
 unset _vr_hw_lib
 
 if [ ! -f "$TARGETS_MD" ]; then
@@ -370,6 +371,7 @@ for p in $paths; do
   # The maintainer decides which directory to register — this tool cannot (kit issue #1134). Three.js
   # (TARGETS.md row 13) no longer claims 'hook yes' post-#1133, so this branch has zero effect on
   # the real fleet today; it exists for the NEXT row that does.
+  _vr_nl_emitted=0   # set below when hook-registered-never-loaded fires for this target (the wired-hook-missing block skips the duplicate, kit issue #2141)
   _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
   if [ -n "$_vr_hook_claim" ]; then
     _vr_hook_state="$(hook_stop_wiring_state "$p")"
@@ -386,6 +388,7 @@ for p in $paths; do
       attention=$((attention + 1))
     fi
     if [ "$_vr_script_state" = "missing" ]; then  # HOOK-NEVER-LOADED-CHECK
+      _vr_nl_emitted=1
       _vr_finding hook-registered-never-loaded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json but EVERY registered retro-gate command names a script that does not exist (one present entry would let it load), so the hook can never load (registered-never-loaded; checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected; executable bit and launch directory are not checked); restore the script or refresh the row (propose-never-apply)."
       attention=$((attention + 1))
     elif [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
@@ -490,6 +493,28 @@ for p in $paths; do
       attention=$((attention + 1))
      fi
     fi
+  fi
+
+  # WIRED-HOOK EXECUTE BIT (kit issue #2141): independent of any row claim, every hook command wired in
+  # <target>/.claude/settings.json whose first word is a file path must be runnable as a bare command.
+  # A mode-644 script exits 126 under Claude Code, so its protocol card / guard never loads. Read-only,
+  # WARN-only (propose-never-apply); lib/hook-wiring.sh hook_wired_exec_report decides what is a claim.
+  if [ -d "$p/.claude" ]; then
+    while IFS=$'\t' read -r _vr_we_kind _vr_we_path _vr_we_x3; do
+      [ -n "$_vr_we_kind" ] || continue
+      if [ "$_vr_we_kind" = "unverifiable" ]; then
+        _vr_finding wired-hook-unverifiable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-unverifiable: ${_vr_we_path} (${_vr_we_x3}); whether this wired hook can run was NOT determined (checked path only: ${p}/.claude/settings.json; propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ] && [ "$_vr_nl_emitted" = 1 ] && [ "$_vr_we_x3" = "Stop" ] && [[ "$_vr_we_path" == *retro-gate* ]]; then
+        continue   # already reported as hook-registered-never-loaded for this target: do not double count
+      elif [ "$_vr_we_kind" = "not-executable" ]; then
+        _vr_finding wired-hook-not-executable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-not-executable: ${_vr_we_path} is registered in ${p}/.claude/settings.json as a bare command but has no execute bit, so Claude Code exits 126 and the hook never loads; chmod +x it or wire it as 'bash <path>' (propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ]; then
+        _vr_finding wired-hook-missing WARN "$(basename "$p")" "$(basename "$p") — wired-hook-missing: ${_vr_we_path} is registered in ${p}/.claude/settings.json but no such file exists, so the hook can never run; restore it or remove the registration (propose-never-apply)."
+      else
+        continue
+      fi
+      attention=$((attention + 1))
+    done < <(hook_wired_exec_report "$p")  # WIRED-EXEC-CALLSITE
   fi
 
   # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
