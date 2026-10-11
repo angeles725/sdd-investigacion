@@ -15,6 +15,8 @@ SUT="${RUN_ALL_SHARD_SUT:-$HERE/run-all.sh}"
 . "$HERE/lib/mutant.sh"
 mutant_bootstrap mutant_sed mutant_chain || exit 2
 TMP="$(mktemp -d)"
+# run-all.sh scans the default rsdd root (#2164); keep this suite's runs off the real /tmp/rsdd.
+export RUN_ALL_DEFAULT_RSDD_ROOT="$TMP/default-rsdd-private"
 trap 'rm -rf "$TMP"' EXIT
 MID='·'
 pass=0; fail=0
