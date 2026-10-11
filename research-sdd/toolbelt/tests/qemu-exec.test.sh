@@ -616,10 +616,10 @@ fi
 echo "-- teeth: mutation controls (qemu-user refusal, -snapshot, forbidden flags, sandbox value, shell=True, killpg, reap, receipt identity, target pinning, RSDD_VM_ROOT) --"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain_or_count mutant_crash_re || exit 2
+mutant_bootstrap mutant_chain_or_count mutant_py_crash_strict || exit 2
 TOOLBELT="$(dirname "$HERE")"
 b_pass=0; b_fail=0; _builds_failed=0
-_CRASH="$(mutant_crash_re imp)|SyntaxError|IndentationError|NameError|AttributeError|TypeError|KeyError|UnboundLocalError|is not defined|No module named|cannot import name|has no attribute|object is not (callable|subscriptable|iterable)|positional argument|unexpected keyword argument|invalid syntax|referenced before assignment|unsupported operand"
+_CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
 # One UNMUTATED staged-tree control run (proves the staging; it must reproduce the python section's own
 # result), then each mutant is run ONCE and compared against it: rc != 0, the targeted FAIL text present,
 # no crash-class output. (mutant_tooth would re-run the original against the live tree for every mutant.)
