@@ -26,11 +26,21 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# The suites that drive the run-dir allocator (make_run_subdir via docker_common / vm_boot_core).
-SUITES=(capture-analyze capture-exec docker-exec fact-exec detonate-exec trace-exec qemu-exec)
+# Only capture-analyze: it is the suite with PROOF that the allocator runs against the default root (its pre-fix
+# state leaves a run dir; see the mutant tooth below). The other run-dir suites (capture-exec, docker-exec, fact-exec,
+# detonate-exec, trace-exec, qemu-exec) already set RSDD_VM_ROOT and carry their own *-NOLEAK guard, and a preflight
+# failure inside the namespace would read as entries=0 for them without proving anything.
+SUITES=(capture-analyze)
 
+# RSDD_REQUIRE_UNSHARE=1 (opt-in) turns the missing-unshare SKIP into a typed FAIL, so a CI lane that is meant to
+# have user namespaces cannot silently lose this guard. Unset, a host without `unshare -rm` is a typed SKIP.
 echo "== run-all-default-root.test.sh =="
 if ! command -v unshare >/dev/null 2>&1 || ! unshare -rm true >/dev/null 2>&1; then
+  if [ "${RSDD_REQUIRE_UNSHARE:-}" = 1 ]; then
+    echo "  FAIL  unshare -rm unavailable but RSDD_REQUIRE_UNSHARE=1: the empty-/tmp measurement cannot run"
+    echo "== 0 passed $MID 1 failed =="
+    exit 1
+  fi
   echo "SKIP: default-root leak tests (unshare -rm unavailable: cannot get an empty /tmp without touching the real one)"
   echo "== 0 passed $MID 0 failed =="
   exit 0
@@ -77,18 +87,31 @@ for s in "${SUITES[@]}"; do
   judge "default-root-clean $s"
 done
 
+# RSDD_REQUIRE_UNSHARE paths, exercised with a PATH shim whose `unshare` always fails (no recursion into real runs).
+mkdir -p "$TMP/noshare"
+printf '#!/bin/sh\nexit 1\n' > "$TMP/noshare/unshare"; chmod +x "$TMP/noshare/unshare"
+rs_out="$(PATH="$TMP/noshare:$PATH" RSDD_REQUIRE_UNSHARE='' bash "$0" 2>&1)"; rs_rc=$?
+if [ "$rs_rc" -eq 0 ] && grep -qx 'SKIP: default-root leak tests.*' <<<"$rs_out"; then ok "require-unshare-off: without the opt-in a host lacking unshare -rm is a typed SKIP (exit 0)"
+else no "require-unshare-off: rc=$rs_rc :: $rs_out"; fi
+rs_out="$(PATH="$TMP/noshare:$PATH" RSDD_REQUIRE_UNSHARE=1 bash "$0" 2>&1)"; rs_rc=$?
+if [ "$rs_rc" -eq 1 ] && grep -qF 'RSDD_REQUIRE_UNSHARE=1' <<<"$rs_out" && ! grep -q '^SKIP:' <<<"$rs_out"; then ok "require-unshare-on: RSDD_REQUIRE_UNSHARE=1 turns the missing-unshare SKIP into a typed FAIL (exit 1)"
+else no "require-unshare-on: rc=$rs_rc :: $rs_out"; fi
+
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Mount point for the mutant tree: the work tree lives under the real /tmp, which the empty tmpfs hides.
+  # Mount point for the fixture/mutant trees: they live under the real /tmp, which the empty tmpfs hides.
   MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
 
-  echo "-- teeth: a fixture suite that leaves a run dir in the default root must be flagged --"
-  if [ -z "$MNT" ]; then echo "SKIP: fixture teeth (no /mnt, /media, /srv or /opt mount point for the fixture tree)"; fi
-  mkdir -p "$TMP/fix"
-  { printf '#!/usr/bin/env bash\n'
-    printf 'mkdir -p /tmp/rsdd && mkdir /tmp/rsdd/rsdd-leaked-run\n'
-    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
-  } > "$TMP/fix/leaky.test.sh"
-  if [ -n "$MNT" ]; then
+  # The "-- teeth:" banners are printed ONLY where a mutant really runs: run-all --require-teeth counts banners
+  # as teeth. Skips use the indented per-test form so a suite whose real cases passed is not classed as SKIPPED.
+  if [ -z "$MNT" ]; then
+    printf '  SKIP  %s\n' "fixture + capture-analyze teeth (no /mnt, /media, /srv or /opt mount point for the work tree)"
+  else
+    echo "-- teeth: a fixture suite that leaves a run dir in the default root must be flagged --"
+    mkdir -p "$TMP/fix"
+    { printf '#!/usr/bin/env bash\n'
+      printf 'mkdir -p /tmp/rsdd && mkdir /tmp/rsdd/rsdd-leaked-run\n'
+      printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+    } > "$TMP/fix/leaky.test.sh"
     run_in_empty_tmp "$TMP/fix" "$MNT" "$MNT" "$MNT/leaky.test.sh"
     case "$RESULT" in *"ran=1 entries=1") ok "teeth-leak-detect: a leaking fixture reads entries=1 → the empty-/tmp measurement sees a default-root leak" ;;
       *) no "teeth-leak-detect: the leaking fixture was NOT flagged ($RESULT) — the harness cannot see a leak (THEATER)" ;; esac
@@ -99,12 +122,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     RESULT_BEFORE="$fail"; judge "silent-fixture" >/dev/null
     if [ "$fail" -gt "$RESULT_BEFORE" ]; then fail=$((fail-1)); ok "teeth-silent-zero: a suite with no summary line is rejected, not counted as clean"
     else no "teeth-silent-zero: a silent suite was accepted as clean (THEATER)"; fi
-  fi
 
-  echo "-- teeth: capture-analyze pointed back at the global /tmp/rsdd (its pre-#2164 state) must be flagged --"
-  if [ -z "$MNT" ]; then
-    echo "SKIP: teeth-capture-analyze-global (no /mnt, /media, /srv or /opt mount point for the mutant tree)"
-  else
+    echo "-- teeth: capture-analyze pointed back at the global /tmp/rsdd (its pre-#2164 state) must be flagged --"
     T="$TMP/mut"; mkdir -p "$T/tests"
     ln -s "$HERE/../lib" "$T/lib"; ln -s "$HERE/../capture_plan.py" "$T/capture_plan.py"
     if ! mutant_sed "$HERE/capture-analyze.test.sh" "$T/tests/capture-analyze.test.sh" \
@@ -116,6 +135,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         *"ran=1 entries="*) ok "teeth-capture-analyze-global: the pre-fix suite leaves entries in /tmp/rsdd → the regression test has real teeth ($RESULT)" ;;
         *) no "teeth-capture-analyze-global: the mutant did not run to a summary ($RESULT)" ;; esac
     fi
+  fi
+
+  echo "-- teeth: drop the RSDD_REQUIRE_UNSHARE branch; the opt-in must then NOT fail (case require-unshare-on) --"
+  if ! mutant_sed "$HERE/run-all-default-root.test.sh" "$TMP/ru-mutant.sh" 's/\[ "\${RSDD_REQUIRE_UNSHARE:-}" = 1 \]/false/' 2>"$TMP/mutant.err"; then
+    no "teeth-require-unshare: could not build a valid mutant: $(cat "$TMP/mutant.err")"
+  else
+    PATH="$TMP/noshare:$PATH" RSDD_REQUIRE_UNSHARE=1 bash "$TMP/ru-mutant.sh" >/dev/null 2>&1; ru_rc=$?
+    if [ "$ru_rc" -eq 0 ]; then ok "teeth-require-unshare: opt-in-less mutant still SKIPs (exit 0) → the typed FAIL has real teeth"
+    else no "teeth-require-unshare: mutant still fails (rc=$ru_rc) — mutation not exercised (THEATER)"; fi
   fi
 fi
 

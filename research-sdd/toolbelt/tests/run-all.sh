@@ -590,15 +590,23 @@ _rsdd_snapshot() {   # baseline before the first suite / the -j batch
   else _rsdd_prev=(); _rsdd_base_failed=1; tmp_scan_failed+=("baseline (default rsdd root $RSDD_DEFAULT_ROOT)"); fi
 }
 _check_rsdd_default_root() {   # _check_rsdd_default_root <suite basename | batch label>
-  local _k _n=0
+  # Names-only diff: CREATED and REMOVED entries are reported; an entry whose content changes under the
+  # same name is not seen.
+  local _k _n=0 _r=0
   [[ -z "$_rsdd_base_failed" ]] || return 0   # no trustworthy baseline: already reported as a scan failure
   if ! _rsdd_scan; then tmp_scan_failed+=("$1 (default rsdd root $RSDD_DEFAULT_ROOT)"); return 0; fi
   for _k in "${!_rsdd_cur[@]}"; do [[ "${_rsdd_prev[$_k]+set}" == "set" ]] || _n=$((_n + 1)); done
+  for _k in "${!_rsdd_prev[@]}"; do [[ "${_rsdd_cur[$_k]+set}" == "set" ]] || _r=$((_r + 1)); done
   # Roll forward so a later suite is not re-blamed for this one's entries.
   _rsdd_prev=(); for _k in "${!_rsdd_cur[@]}"; do _rsdd_prev["$_k"]=1; done
-  [[ "$_n" -gt 0 ]] || return 0
-  tmp_leftovers+=("$1: $_n (in $RSDD_DEFAULT_ROOT)")
-  tmp_leftover_total=$((tmp_leftover_total + _n))
+  if [[ "$_n" -gt 0 ]]; then
+    tmp_leftovers+=("$1: $_n (in $RSDD_DEFAULT_ROOT)")
+    tmp_leftover_total=$((tmp_leftover_total + _n))
+  fi
+  if [[ "$_r" -gt 0 ]]; then
+    tmp_leftovers+=("$1: removed $_r (in $RSDD_DEFAULT_ROOT)")
+    tmp_leftover_total=$((tmp_leftover_total + _r))
+  fi
 }
 
 # Per-suite hermeticity checks, as functions so the -j batch path can run them ONCE after the
@@ -881,7 +889,8 @@ WORKER
   _hv_before=${#hermeticity_violations[@]}; _kv_before=${#kit_tree_violations[@]}
   _check_cwd_hermeticity "$PARALLEL_LABEL"
   _check_kit_tree_hermeticity "$PARALLEL_LABEL"
-  _check_rsdd_default_root "$PARALLEL_LABEL"
+  # Own label: PARALLEL_LABEL points at an 'Attribution:' line that is never printed for this check.
+  _check_rsdd_default_root "-j batch (default rsdd root: per-suite attribution not attempted)"
   _attribute_batch_leaks "$_hv_before" "$_kv_before"
 fi
 

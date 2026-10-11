@@ -20,6 +20,10 @@ SUT="$HERE/run-all.sh"   # the runner lives NEXT TO this test, not one dir up
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 TMP="$(mktemp -d)"
+# Every copy of run-all.sh run below scans the default rsdd root (kit issue #2164). Point it at a private, ABSENT
+# dir for the whole suite so no case reads the real /tmp/rsdd (live sessions write there; it may be 0700 and
+# owned by someone else). Cases that exercise the check set their own root.
+export RUN_ALL_DEFAULT_RSDD_ROOT="$TMP/default-rsdd-private"
 # Files a case chmods to 000: registered here so the EXIT trap restores them even when the case dies
 # before its own restore line (a leftover 000 file would otherwise break cleanup and later runs).
 LOCKED_FILES=()
@@ -1469,6 +1473,13 @@ w="$(newdir c38r3)"; tmpfix_clean "$w/a.test.sh"; rm -rf "$_c38rr"
 out="$(TMPDIR="$_c38root" RUN_ALL_DEFAULT_RSDD_ROOT="$_c38rr" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$out"; then ok "rsdd-default-root-clean: a run that never touches the root reports 0 and passes --require-clean-tmp"
 else no "rsdd-default-root-clean failed: rc=$rc :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
+# 38r5 — a suite that REMOVES an entry it did not create (names-only diff) is named too: `removed n`.
+w="$(newdir c38r5)"; _c38rr="$TMP/c38r5-rsdd"; rm -rf "$_c38rr"; mkdir -p "$_c38rr"; : > "$_c38rr/theirs"
+{ printf '#!/usr/bin/env bash\nrm -f "$RUN_ALL_DEFAULT_RSDD_ROOT/theirs"\necho "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/a-rm.test.sh"
+out="$(TMPDIR="$_c38root" RUN_ALL_DEFAULT_RSDD_ROOT="$_c38rr" bash "$w/run-all.sh" --require-clean-tmp 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qF "TMPDIR leftovers: 1 — [a-rm.test.sh: removed 1 (in $_c38rr)]" <<<"$out"; then
+  ok "rsdd-default-root-removed: a suite deleting a pre-existing entry is named (removed n) and fails --require-clean-tmp"
+else no "rsdd-default-root-removed failed: rc=$rc :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
 # 38r4 — a root that EXISTS but cannot be scanned is a typed scan failure, never a confident 0.
 if [ "$(id -u)" -eq 0 ]; then
   printf '  SKIP  %s (root ignores permission bits)\n' "rsdd-default-root-unreadable"
@@ -1486,7 +1497,8 @@ if [ "$have_gnu_parallel" -eq 1 ]; then
   rsddfix_leak "$w/a-rsdd.test.sh" 2; tmpfix_clean "$w/b-clean.test.sh"
   out="$(TMPDIR="$_c38root" RUN_ALL_DEFAULT_RSDD_ROOT="$_c38rr" bash "$w/run-all.sh" -j 2 2>&1)"; rc=$?
   _c38rj_line="$(grep -F 'TMPDIR leftovers: 2 — ' <<<"$out")"
-  if [ "$rc" -eq 0 ] && grep -qF -- "-j batch" <<<"$_c38rj_line" && grep -qF "(in $_c38rr)" <<<"$_c38rj_line"; then
+  if [ "$rc" -eq 0 ] && grep -qF -- "-j batch (default rsdd root: per-suite attribution not attempted)" <<<"$_c38rj_line" \
+     && ! grep -qF 'offender unattributed' <<<"$_c38rj_line" && grep -qF "(in $_c38rr)" <<<"$_c38rj_line"; then
     ok "-j rsdd-default-root: a leak into the default root is counted once for the batch under -j"
   else no "-j rsdd-default-root failed: rc=$rc :: $(grep -F 'TMPDIR leftovers' <<<"$out")"; fi
 else skip_j "-j rsdd-default-root"; fi
@@ -2571,11 +2583,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rsm_run(){ _tr="$TMP/$1-calltmp"; mkdir -p "$_tr"; shift; mout="$(TMPDIR="$_tr" RUN_ALL_DEFAULT_RSDD_ROOT="$_rsr" bash "$w/run-all.sh" "$@" 2>&1)"; _trc=$?; }
 
   echo "-- teeth: never fold default-root entries into the leftovers; a leaking suite must vanish (case 38r) --"
-  if rsm_mut teeth-rsdd-count 's/^  \[\[ "\$_n" -gt 0 \]\] || return 0$/  return 0/'; then
+  if rsm_mut teeth-rsdd-count 's/^  if \[\[ "\$_n" -gt 0 \]\]; then$/  if false; then/'; then
     _rsr="$TMP/teeth-rsdd-count-rsdd"; rm -rf "$_rsr"; rsddfix_leak "$w/a-rsdd.test.sh" 2
     rsm_run teeth-rsdd-count
     if grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout"; then ok "teeth-rsdd-count: count-less mutant reports 0 for a suite leaking into the default root → the check has real teeth"
     else no "teeth-rsdd-count: mutant still reports the leak — mutation not exercised (THEATER) :: $(grep -F 'TMPDIR leftovers' <<<"$mout")"; fi
+  fi
+  echo "-- teeth: do not report removals; a suite deleting a pre-existing entry must then read clean (case 38r5) --"
+  if rsm_mut teeth-rsdd-removed 's/^  if \[\[ "\$_r" -gt 0 \]\]; then$/  if false; then/'; then
+    _rsr="$TMP/teeth-rsdd-removed-rsdd"; rm -rf "$_rsr"; mkdir -p "$_rsr"; : > "$_rsr/theirs"
+    { printf '#!/usr/bin/env bash\nrm -f "$RUN_ALL_DEFAULT_RSDD_ROOT/theirs"\necho "== 1 passed %s 0 failed =="\n' "$MID"; } > "$w/a-rm.test.sh"
+    rsm_run teeth-rsdd-removed --require-clean-tmp
+    if [ "$_trc" -eq 0 ] && grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout"; then ok "teeth-rsdd-removed: removal-blind mutant reads clean → the removed-entry report has real teeth"
+    else no "teeth-rsdd-removed: mutant still reports the removal (rc=$_trc) — mutation not exercised (THEATER)"; fi
   fi
   echo "-- teeth: skip the per-suite check; the leak must vanish (case 38r wiring) --"
   if rsm_mut teeth-rsdd-wire '/^    _check_rsdd_default_root "\$base"$/d'; then
@@ -2609,7 +2629,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   if [ "$have_gnu_parallel" -eq 1 ]; then
     echo "-- teeth: skip the batch check under -j; the leak must vanish (case 38rj) --"
-    if rsm_mut teeth-rsdd-jwire '/^  _check_rsdd_default_root "\$PARALLEL_LABEL"$/d'; then
+    if rsm_mut teeth-rsdd-jwire '/^  _check_rsdd_default_root "-j batch (default rsdd root/d'; then
       _rsr="$TMP/teeth-rsdd-jwire-rsdd"; rm -rf "$_rsr"; rsddfix_leak "$w/a-rsdd.test.sh" 2; tmpfix_clean "$w/b-clean.test.sh"
       rsm_run teeth-rsdd-jwire -j 2
       if grep -qF 'TMPDIR leftovers: 0 — []' <<<"$mout"; then ok "teeth-rsdd-jwire: batch-check-less mutant misses a -j leak → the -j wiring has real teeth"
