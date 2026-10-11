@@ -784,7 +784,7 @@ audit_retro() {
       if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
       if (in_sec && /^\|/) {
         line = $0
-        gsub(/\\\|/, SENT, line)   # escaped pipe is cell text (kit issue #2118)
+        gsub(/\\\|/, SENT, line)   # RECONCILE_ISSUES_ESCAPED_PIPE: escaped pipe is cell text (kit issue #2118)
         sub(/^\|[[:space:]]*/, "", line)
         sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
         n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
@@ -850,6 +850,12 @@ audit_retro() {
   if [ "$_has_open_rows" -eq 1 ]; then
     while IFS= read -r _rln; do
       [ -z "$_rln" ] && continue
+      # RECONCILE_ISSUES_ID_PIPE (kit issue #2118): a pipe in a row id cannot round-trip through the issue
+      # signature, so the seeder types the row unclassifiable and never stages it; typed the same way here.
+      if [[ "$_rln" == *'|'* ]]; then
+        echo "unclassifiable: row $_rln of $retro_basename has a pipe in its id (id-contains-pipe) — needs manual review" >&2
+        continue
+      fi
       if [ "$is_partial" -eq 1 ]; then
         # Skip rows in the shipped set, and rows the marker resolves as DISMISSED (kit issue #1944)
         if grep -qxF "$_rln" <<<"$shipped_ids"; then

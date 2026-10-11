@@ -619,9 +619,13 @@ _unc_line_of() {
 _unc_row_line() {
   local _l=""
   [ -n "$1" ] && [ -n "$2" ] && _l="$(_R="$1" _D="$2" LC_ALL=C awk '
+    BEGIN { SENT = sprintf("%c", 1) }
     /^[[:space:]]*\|/ {
-      c = $0; sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c)
-      if (c == ENVIRON["_R"] && index($0, ENVIRON["_D"]) > 0) { n++; if (n == 1) first = NR }
+      # STAGE_RETRO_ISSUES_ROW_LINE_PIPE (kit issue #2118): cut the first cell on UNESCAPED pipes only, and match the
+      # delta against the unescaped text, exactly as the row parser does.
+      c = $0; gsub(/\\\|/, SENT, c); sub(/^[[:space:]]*\|[[:space:]]*/, "", c); sub(/[[:space:]]*\|.*$/, "", c); gsub(SENT, "|", c)
+      u = $0; gsub(/\\\|/, "|", u)
+      if (c == ENVIRON["_R"] && index(u, ENVIRON["_D"]) > 0) { n++; if (n == 1) first = NR }
     }
     END { if (n == 1) print first }' "$retro")"
   printf '%s' "${_l:-?}"
@@ -720,7 +724,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
       pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
-        gsub(/\\\|/, SENT, hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE (kit issue #2118): a GFM-escaped pipe is cell text
+        gsub(/\\\|/, SENT, hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR (kit issue #2118): a GFM-escaped pipe is cell text
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
         hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
         for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
@@ -753,7 +757,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
     if (in_sec && /^\|/) {
       prev = $0
       line = $0
-      gsub(/\\\|/, SENT, line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE
+      gsub(/\\\|/, SENT, line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW
       sub(/^\|[[:space:]]*/, "", line)
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
@@ -1614,6 +1618,15 @@ while IFS=$'\037' read -r _rid _delta _target_cell _evidence _type_cell _priorit
   _type_cell="$(printf '%s' "$_type_cell" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   _priority_cell="$(printf '%s' "$_priority_cell" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   [ -z "$_rid" ] && continue
+
+  # STAGE_RETRO_ISSUES_ID_PIPE (kit issue #2118): an id holding a pipe (after unescape) cannot round-trip through the
+  # `Source retro: … · <id>` signature that reconcile reads back, so it is typed unclassifiable, never staged.
+  if [[ "$_rid" == *'|'* ]]; then
+    echo "unclassifiable-row: row $_rid has a pipe in its id (id-contains-pipe) — needs manual review, no issue staged" >&2
+    unclassifiable=$((unclassifiable+1))
+    _unc_add row "$(_unc_row_line "$_rid" "$_delta")" "$_rid: ${_delta:0:60}" "id-contains-pipe"
+    continue
+  fi
 
   # Skip shipped rows for PARTIAL applied retros; all rows open otherwise.
   # (Fully applied/dismissed without PARTIAL already exited above.)
