@@ -332,8 +332,9 @@ iter_gaps_rows() {
     index($0,"<!--")>0 || index($0,"-->")>0 { next }        # skip HTML comments (may embed pipes)
     { l=trim($0)
       if (l !~ /\|/) next
+      gsub(/\\\|/,"\001",l)  # GFM-EP-ITER (#2148): any `\|` is an escaped pipe, never a separator
       sub(/^\|/,"",l); sub(/\|$/,"",l)
-      n=split(l,a,"|"); for(k=1;k<=n;k++) a[k]=trim(a[k])
+      n=split(l,a,"|"); for(k=1;k<=n;k++) { a[k]=trim(a[k]); gsub(/\001/,"|",a[k]) }
       issep=1; for(k=1;k<=n;k++){ if(a[k] !~ /^:?-+:?$/){issep=0;break} }
       if (issep) next                                        # markdown "---" separator row
       if (!have_header) {                                    # first non-separator table row = header
@@ -510,6 +511,7 @@ count_deferred() {
   awk '
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
+      gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED (#2148): any `\|` is an escaped pipe, never a separator
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       if (tolower(a[1])!="deferred") next
@@ -669,11 +671,12 @@ queue_next() {
   # keeps its own backlog_rows call and output.
   # Open deferred rows: only inside a `## Gap-backlog` section, 4- or 5-column rows (a bolded `**deferred**` priority is a STALE backlog, so never reaches here).
   rows="$(backlog_rows 1)"$'\n'"$(awk -F'|' '/^## /{ ib = ($0 ~ /^## Gap-backlog( \([^)]+\))?$/); next }
-      ib { pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || (NF!=6 && NF!=7)) next
+      ib { gsub(/\\\|/,"\001"); pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || (NF!=6 && NF!=7)) next
       gi=(NF==7) ? 4 : 3; si=NF-1; g=$gi; s=tolower($si); gsub(/^[ \t]+|[ \t]+$/,"",g); gsub(/^[ \t]+|[ \t]+$/,"",s)
       if (NF==7) { g=$3; gsub(/^[ \t]+|[ \t]+$/,"",g) }
       gsub(/^\*\*/,"",s)
       if (index(g,"~~") || index(s,"~~") || index(s,"✅")) next
+      gsub(/\001/,"|",g); gsub(/\001/,"|",s)  # GFM-ESCAPED-PIPE (#2148): any `\|` is an escaped pipe, never a separator
       print "deferred-open\t" g "\t" s }' "$state")"
   for id in "${ids[@]}"; do
     n=$((n+1)); found=0; cls=""; nmatch=0
@@ -838,6 +841,7 @@ count_attributed_sg() {
       BEGIN { blockcol=0 }
       /\|/ {
         gsub(/\r$/, "")
+        gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL (#2148): any `\|` is an escaped pipe, never a separator
         n = split($0, a, "|")
         if (!blockcol) {
           for (i=1; i<=n; i++) { v=a[i]; gsub(/^[ \t]+|[ \t]+$/,"",v); if (tolower(v)=="block") blockcol=i }
