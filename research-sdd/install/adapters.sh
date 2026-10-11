@@ -200,7 +200,7 @@ rsdd_resolve_profile() {
   fi
 }
 
-# rsdd_render_section <harness> [home] [kit] — the single launcher body, wrapped in idempotency markers.
+# rsdd_render_section <harness> [home] [kit] [checkout] — the single launcher body, wrapped in idempotency markers.
 # Identical across harnesses EXCEPT the manual-sweep fallback, which is appended only where the table
 # says the harness has no automated sweep. The launcher TEXT itself is not forked per harness.
 #
@@ -208,8 +208,14 @@ rsdd_resolve_profile() {
 # machine-independent display), else as an absolute path. MUST NOT be empty: an empty kit path is an
 # operational failure (§7 anti-silent-zero) — the function fails loudly so the installer propagates
 # the error rather than silently injecting an unusable 'Kit path: ' line.
+#
+# [checkout] is the authoritative kit checkout (kit issue #2120). When a non-default profile makes <kit> the
+# RENDERED profile copy, prompts are read from <kit> but registry/ledger edits and toolbelt runs belong in
+# the checkout, so the block adds a 'Kit checkout:' line plus one rule sentence and lists the manual-sweep
+# scripts by absolute path (a bare toolbelt/... does not resolve from a target's cwd). Omitted or equal to
+# <kit> (claude: Kit path IS the checkout) = byte-identical to the pre-#2120 output.
 rsdd_render_section() {
-  local harness="$1" home="${2:-$HOME}" kit="${3:-}" skill_path needs_sweep
+  local harness="$1" home="${2:-$HOME}" kit="${3:-}" checkout="${4:-}" skill_path needs_sweep
   if [ -z "$kit" ]; then
     printf 'rsdd_render_section: kit path must not be empty\n' >&2
     return 2
@@ -225,6 +231,16 @@ rsdd_render_section() {
   else
     kit_rel="$kit"
   fi
+  local tb="toolbelt" checkout_rel=""
+  if [ -n "$checkout" ] && [ "$checkout" != "$kit" ]; then
+    if [ "${checkout#"$home/"}" != "$checkout" ]; then
+      # shellcheck disable=SC2088
+      checkout_rel='~/'"${checkout#"$home/"}"
+    else
+      checkout_rel="$checkout"
+    fi
+    tb="$checkout_rel/toolbelt"
+  fi
   printf '%s\n' '<!-- research-sdd:start -->'
   printf '%s\n' '## Research-SDD'
   printf '%s\n' ''
@@ -232,6 +248,11 @@ rsdd_render_section() {
   printf '%s\n' 'single source of truth is the kit (`$RESEARCH_SDD_KIT`, else the default checkout).'
   printf '%s\n' "Skill file: $skill_path"
   printf '%s\n' "Kit path: $kit_rel"
+  if [ -n "$checkout_rel" ]; then
+    printf '%s\n' "Kit checkout: $checkout_rel"
+    printf '%s\n' 'Read the prompts from Kit path; registry/ledger edits (TARGETS.md, BREAKTHROUGHS.md,'
+    printf '%s\n' 'INSTALLED-TOOLS.md) and toolbelt runs go to Kit checkout, never the profile copy.'
+  fi
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
     printf '%s\n' 'MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta'
@@ -239,20 +260,20 @@ rsdd_render_section() {
     printf '%s\n' ''
     printf '%s\n' 'Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at'
     printf '%s\n' 'session start; all read-only, degrade to silence on failure):'
-    printf '%s\n' '  Single command (recommended): `toolbelt/sweep-all.sh`'
+    printf '%s\n' "  Single command (recommended): \`$tb/sweep-all.sh\`"
     printf '%s\n' '  Individual scripts (canonical; sweep-all.sh runs these in sequence):'
-    printf '%s\n' '  - `toolbelt/sweep-retros.sh`        — pending section 18 self-retrospective proposals'
-    printf '%s\n' '  - `toolbelt/sweep-audits.sh`        — pending section 13 audit reports'
-    printf '%s\n' '  - `toolbelt/sweep-breakthroughs.sh` — unindexed/drifted section 22 breakthrough ledger entries'
-    printf '%s\n' '  - `toolbelt/verify-registry.sh`     — TARGETS.md master-table drift'
-    printf '%s\n' '  - `toolbelt/verify-kit-clean.sh`    — kit dirty / unpushed warning'
-    printf '%s\n' '  - `toolbelt/sweep-tools.sh`         — unrecorded tools across all targets'
-    printf '%s\n' '  - `toolbelt/verify-tool-catalog.sh` — installed tools missing a capability-catalog entry'
-    printf '%s\n' '  - `toolbelt/verify-skill-drift.sh`  — deployed SKILL.md(s) diverged from kit source'
+    printf '%s\n' "  - \`$tb/sweep-retros.sh\`        — pending section 18 self-retrospective proposals"
+    printf '%s\n' "  - \`$tb/sweep-audits.sh\`        — pending section 13 audit reports"
+    printf '%s\n' "  - \`$tb/sweep-breakthroughs.sh\` — unindexed/drifted section 22 breakthrough ledger entries"
+    printf '%s\n' "  - \`$tb/verify-registry.sh\`     — TARGETS.md master-table drift"
+    printf '%s\n' "  - \`$tb/verify-kit-clean.sh\`    — kit dirty / unpushed warning"
+    printf '%s\n' "  - \`$tb/sweep-tools.sh\`         — unrecorded tools across all targets"
+    printf '%s\n' "  - \`$tb/verify-tool-catalog.sh\` — installed tools missing a capability-catalog entry"
+    printf '%s\n' "  - \`$tb/verify-skill-drift.sh\`  — deployed SKILL.md(s) diverged from kit source"
     printf '%s\n' ''
     printf '%s\n' 'Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is'
     printf '%s\n' 'not over until the retro exists. Once it is written, seed its deltas by hand:'
-    printf '%s\n' '  `toolbelt/stage-retro-issues.sh <retro> --apply`'
+    printf '%s\n' "  \`$tb/stage-retro-issues.sh <retro> --apply\`"
   fi
   printf '%s\n' '<!-- research-sdd:end -->'
 }

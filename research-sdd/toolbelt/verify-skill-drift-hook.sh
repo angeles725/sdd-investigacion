@@ -8,7 +8,9 @@
 # Emits additionalContext JSON via jq otherwise. Read-only. Wired from .claude/settings.json.
 #
 # Budget (openspec/specs/kit-session-cost/spec.md: SessionStart output < 8,000 chars total): the
-# install --verify part contributes at most 4 typed lines of at most 170 chars each (SENTINEL-VERIFY-CAP).
+# install --verify part contributes at most 4 degraded/behind lines of at most 170 chars each (SENTINEL-VERIFY-CAP)
+# plus, per drifted harness (3 at most), a header, 3 entries of at most 280 chars, a `(+N more ...)` line and a
+# kept-hand-edit line of at most 160 chars: worst case ~1,150 chars per harness, ~3,450 for three (SENTINEL-DRIFT-CAP).
 # $RESEARCH_SDD_INSTALL_VERIFY_CMD overrides the install --verify command (test seam).
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
@@ -102,7 +104,34 @@ if [ -x "$vcmd" ]; then
   # Only findings: harness drift / degraded and kit behind. match, absent, current stay silent; a kit
   # `degraded` (tarball install, no upstream) is un-clearable at session start, so it stays visible only
   # in `research-sdd-install.sh --verify` itself (SENTINEL-KIT-BEHIND-ONLY).
-  extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=(drift|degraded)|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  extra="$(printf '%s\n' "$vout" | grep -E '^verify (harness=[^ ]+ status=degraded|kit status=behind)' | cut -c1-170 | head -4)" # SENTINEL-VERIFY-CAP
+  # Drift lines list every drifted member on ONE line, and an annotated entry carries the path to reconcile
+  # into (kit issue #2120). Per harness: a header, then at most 3 entries of at most 280 chars (annotated
+  # `(extra: ...)` entries first, so a regular-file TARGETS.md/BREAKTHROUGHS.md is never the one dropped),
+  # then an explicit `(+N more ...)` line when entries were cut (no silent truncation), then the kept hand-edit
+  # list on its own line. Only the `drifted=` field is split into entries; awk, not GNU-only sed `\n`.
+  vdrift="$(printf '%s\n' "$vout" | grep -E '^verify harness=[^ ]+ status=drift ' | awk -v n=3 -v w=280 -v kw=160 '
+    function clip(s, l) { return length(s) > l ? substr(s, 1, l) : s }   # SENTINEL-DRIFT-WIDTH
+    {
+      line = $0; kept = ""
+      k = index(line, " kept-hand-edit=")
+      if (k > 0) { kept = substr(line, k + 16); line = substr(line, 1, k - 1) }
+      d = index(line, " drifted=")
+      if (d == 0) { print clip(line, w); next }
+      print substr(line, 1, d - 1)
+      m = split(substr(line, d + 9), e, ",")
+      shown = 0
+      for (pass = 1; pass <= 2; pass++)
+        for (i = 1; i <= m; i++) {
+          ann = (index(e[i], "(extra: ") > 0)
+          if ((pass == 1) != ann) continue
+          if (shown < n) { print "  - " clip(e[i], w); shown++ }   # SENTINEL-DRIFT-COUNT
+        }
+      if (m > shown) print "  (+" (m - shown) " more - run research-sdd-install.sh --verify for the full list)"   # SENTINEL-DRIFT-MORE
+      if (kept != "") print "  kept-hand-edit: " clip(kept, kw)
+    }')"
+  [ -z "$vdrift" ] || extra="$vdrift${extra:+
+$extra}"
   # Anti-silent-zero: a failing --verify that printed no typed finding must still be surfaced.
   if [ -n "${extra_skip:-}" ]; then
     extra="verify: install --verify skipped: no timeout available (no timeout binary, no mktemp)"

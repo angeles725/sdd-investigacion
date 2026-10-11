@@ -25,6 +25,8 @@
 #       --json adds: 3 = degraded (jq missing / too old); an all-absent registry is an absent-input
 #       envelope (rc 0) and a registry with no usable path is rc 1 (the default mode keeps exit 1 / exit 0).
 # Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
+#      RSDD_REGISTRY_SESSION_BUDGET=1 — opt-in (it RUNS each target's SessionStart hooks, sandboxed): WARN on a hook
+#      over Claude Code's 10,000-char cap or hooks over the 8,000-char kit budget (verify-session-budget.sh, #2129).
 set -uo pipefail
 
 # --json (opt-in, json-envelope.v1.md). Parsed and probed BEFORE anything else so a missing jq is a
@@ -314,6 +316,32 @@ for p in $paths; do
       _vr_finding nonconform-field WARN "$(basename "$p")" "$(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
       unresolved=$((unresolved + 1))
     done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
+  fi
+
+  # SESSIONSTART BUDGET (kit issue #2129), OPT-IN: RSDD_REGISTRY_SESSION_BUDGET=1 executes the target's
+  # wired SessionStart hooks (sandboxed, read-only toward the target — see verify-session-budget.sh) and
+  # WARNs when a hook's output is over Claude Code's 10,000-char cap (silently truncated) or the aggregate
+  # is over the 8,000-char kit budget. Off by default: it RUNS hooks, which costs seconds per target.
+  if [ "${RSDD_REGISTRY_SESSION_BUDGET:-0}" = 1 ] && [ -f "$p/.claude/settings.json" ]; then  # SESSION-BUDGET-CHECK
+    if [ ! -f "$_RSDD_SELF/verify-session-budget.sh" ]; then
+      _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — SessionStart budget check could not run: verify-session-budget.sh is missing beside verify-registry.sh (a degraded measurement, not a zero)."
+    else
+      _vr_sb="$(bash "$_RSDD_SELF/verify-session-budget.sh" "$p" 2>&1)"
+      if grep -q 'status=TRUNCATED' <<<"$_vr_sb"; then
+        _vr_finding session-budget-truncated WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook emits more than 10,000 characters, so Claude Code truncates it to a path plus a 2,000-char preview Claude is not told to read; shrink or split the hook (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if grep -q 'status=timed-out' <<<"$_vr_sb"; then  # SESSION-BUDGET-TIMED-OUT
+        _vr_finding session-budget-timed-out WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook outlives its own configured timeout, so Claude Code kills it and it contributes nothing (the budget numbers do not show this); fix or raise the hook's timeout (run verify-session-budget.sh ${p} for the hook; propose-never-apply)."
+      fi
+      if grep -q 'OVER BUDGET' <<<"$_vr_sb"; then
+        _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (worst session source: $(sed -n 's/^aggregate: .* worst-source=//p' <<<"$_vr_sb"); run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if ! grep -q '^state:' <<<"$_vr_sb"; then  # SESSION-BUDGET-NO-STATE
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — the SessionStart budget check produced no 'state:' line (crashed, was killed or exited early), so nothing was measured; this is a degraded result, not a clean one (run verify-session-budget.sh ${p})."
+      elif grep -q '^state: degraded' <<<"$_vr_sb"; then
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — at least one SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no usable sandbox or locale); the figures are partial, not zero (run verify-session-budget.sh ${p})."
+      fi
+    fi
   fi
 
   # HOOK-WIRING RECONCILIATION (kit issue #1108): a row whose maturity cell claims 'hook yes'
