@@ -541,67 +541,171 @@ if ! declare -F hook_stop_launch_state >/dev/null 2>&1; then
   }
 fi
 
-# --- WIRED-HOOK EXECUTE-BIT state (kit issue #2141) ------------------------------------------------
+# --- WIRED-HOOK EXECUTE-BIT state (kit issue #2141) -----------------------------------------------
 #   hook_wired_exec_report <target-dir>
 #     Reads <target-dir>/.claude/settings.json (project file only, like the Stop predicate above) and,
-#     for EVERY wired `"command"` (any event), resolves the command's FIRST word to a file:
-#       - the word is quote-aware; `${CLAUDE_PROJECT_DIR}` / `$CLAUDE_PROJECT_DIR` expand to <target-dir>,
-#         `$HOME` / `~/` to $HOME; a relative path that contains a `/` is taken from <target-dir>
-#       - a bare command name (no `/`), an unresolved variable / glob / backtick, an `NAME=value`
-#         prefix make NO claim and print nothing. An interpreter run (`bash <path>`, `/bin/sh <path>`) is not
-#         a finding by construction: only the FIRST word is checked, and the script is an argument
-#     and prints one line per finding on stdout, tab separated:
-#       not-executable<TAB><path>   the file exists but lacks the execute bit (Claude Code exits 126)
-#       missing<TAB><path>          the path names no file
-#     Read-only: it never touches the target. Always returns 0 (absent/unreadable settings print
-#     nothing — "no wired command seen" is the Stop predicate's absent-settings / unreadable territory).
-#     Parsing is grep/sed over the JSON text (no jq dependency, so the human report works without it);
-#     a command whose JSON string uses escapes other than \" and \\ is not unescaped further.
+#     for every command wired under its top-level "hooks" key (any event; statusLine / mcpServers
+#     commands are not hooks and are not read), resolves the script the command runs and prints one
+#     tab-separated line per finding on stdout:
+#       not-executable<TAB><path>              the script is run as a bare command, exists, and lacks +x
+#                                              (Claude Code exits 126, so the hook never loads)
+#       missing<TAB><path>                     the script path names no file
+#       unverifiable<TAB><head><TAB><reason>   the command could not be resolved to a script, or the
+#                                              file could not be read: said out loud, never a silent
+#                                              "all fine" (CLAUDE.md section 7)
+#     WHAT IS RESOLVED. The first simple command only: the word list ends at the first unquoted
+#     `; & | < > ( )` (so `x.sh;echo`, `x.sh&&true`, `x.sh|tee`, `x.sh>log` resolve to `x.sh`). Leading
+#     NAME=value words and the wrappers exec / nohup / command / env / nice / timeout are skipped to
+#     reach the real command. An interpreter first word (bash sh dash zsh ksh python python3 node perl
+#     ruby) makes its first non-option argument the script, which only has to EXIST (an interpreter run
+#     needs no +x); every other first word is run directly, so the file must exist AND be executable.
+#     A bare command name (no `/`, e.g. `jq`) is resolved through PATH and makes no claim.
+#     Path forms: `${CLAUDE_PROJECT_DIR}` / `$CLAUDE_PROJECT_DIR` expand to <target-dir>; `$HOME`,
+#     `${HOME}` and an UNQUOTED leading `~/` to $HOME; a relative path containing `/` is taken from
+#     <target-dir>. Typed unverifiable reasons: unterminated quote, backslash escape, `-c`/`-m`
+#     interpreter payload, no command word, single-quoted or double-quoted `~` (the shell would not
+#     expand it), an unresolved variable / glob / backtick, a `~user` form, a relative script name for
+#     an interpreter (resolved against the launch directory), an unreadable or invalid settings file.
+#     With jq the commands are read from the parsed JSON (a value on the next line is fine). Without
+#     jq the fallback is a text match over every "command" key (so it may read a non-hook command and
+#     misses a value on the next line) and says so with one unverifiable line per settings file.
+#     Read-only: it never touches the target. An ABSENT settings.json prints nothing (nothing wired).
+#     Always returns 0.
 if ! declare -F hook_wired_exec_report >/dev/null 2>&1; then
-  hook_wired_exec_report() {
-    local target="$1" settings cmd w p rest q
-    settings="$target/.claude/settings.json"
-    [ -f "$settings" ] && [ -r "$settings" ] || return 0
-    while IFS= read -r cmd; do
-      cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-      [ -n "$cmd" ] || continue
-      # first word, quote-aware (a quoted span may sit anywhere in the word, e.g. "$DIR"/x.sh)
-      w=""; q=""; rest="$cmd"
-      while [ -n "$rest" ]; do
-        p="${rest:0:1}"; rest="${rest:1}"
-        if [ -z "$q" ]; then
-          case "$p" in
-            ' '|$'\t') break ;;
-            '"'|"'") q="$p"; w="$w$p" ;;
-            *) w="$w$p" ;;
-          esac
-        else
-          [ "$p" = "$q" ] && q=""
-          w="$w$p"
-        fi
-      done
-      [ -z "$q" ] || continue                       # unterminated quote: cannot split reliably
-      case "$w" in *=*) case "${w%%=*}" in *[!A-Za-z0-9_]*|'') ;; *) continue ;; esac ;; esac   # NAME=value prefix
-      case "$w" in *\'*) continue ;; esac            # single-quoted: the shell would not expand it
-      w="${w//\"/}"
-      case "$w" in
-        '${CLAUDE_PROJECT_DIR}'/*) w="$target/${w#'${CLAUDE_PROJECT_DIR}'/}" ;;
-        '$CLAUDE_PROJECT_DIR'/*) w="$target/${w#'$CLAUDE_PROJECT_DIR'/}" ;;
-        '${HOME}'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'${HOME}'/}" ;;
-        '$HOME'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'$HOME'/}" ;;
-        '~'/*) [ -n "${HOME:-}" ] || continue; w="$HOME/${w#'~'/}" ;;
-      esac
-      case "$w" in *'$'*|*'`'*|*'*'*|*'?'*|*'\'*|'~'*) continue ;; esac
-      case "$w" in */*) ;; *) continue ;; esac       # bare command name: resolved via PATH, no claim
-      case "$w" in /*) ;; *) w="$target/$w" ;; esac
-      if [ -d "$w" ]; then continue
-      elif [ -e "$w" ]; then
-        if [ ! -x "$w" ]; then printf 'not-executable\t%s\n' "$w"; fi   # WIRED-EXEC-BIT-TEST
+  # _hw_split_cmd <command> : sets HW_WORDS (quote-aware first simple command) and HW_SPLIT_ERR; rc 1 = unsplittable.
+  _hw_split_cmd() {
+    local s="$1" i=0 n c q="" w="" has=0
+    HW_WORDS=(); HW_SPLIT_ERR=""
+    n=${#s}
+    while [ "$i" -lt "$n" ]; do
+      c="${s:i:1}"
+      if [ -n "$q" ]; then
+        w+="$c"; has=1
+        [ "$c" != "$q" ] || q=""
       else
-        printf 'missing\t%s\n' "$w"                  # absent, or a dangling symlink
+        case "$c" in
+          ' '|$'\t') if [ "$has" = 1 ]; then HW_WORDS+=("$w"); w=""; has=0; fi ;;
+          ';'|'&'|'|'|'<'|'>'|'('|')') break ;;   # HW-OPERATOR-STOP
+          '"'|"'") q="$c"; w+="$c"; has=1 ;;
+          '\') HW_SPLIT_ERR="backslash escape in the command"; return 1 ;;
+          *) w+="$c"; has=1 ;;
+        esac
       fi
-    done < <(grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' "$settings" 2>/dev/null \
-             | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"//; s/"$//; s/\\"/"/g; s/\\\\/\\/g')
+      i=$((i + 1))
+    done
+    [ -z "$q" ] || { HW_SPLIT_ERR="unterminated quote in the command"; return 1; }
+    if [ "$has" = 1 ]; then HW_WORDS+=("$w"); fi
+    return 0
+  }
+  # _hw_check_command <target> <command> : prints the findings for ONE wired command.
+  _hw_check_command() {
+    local target="$1" cmd="$2" head i=0 j n w base arg raw mode=direct
+    cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+    [ -n "$cmd" ] || return 0
+    head="${cmd:0:60}"; head="${head//$'\t'/ }"
+    if ! _hw_split_cmd "$cmd"; then printf 'unverifiable\t%s\t%s\n' "$head" "$HW_SPLIT_ERR"; return 0; fi
+    n=${#HW_WORDS[@]}
+    if [ "$n" -eq 0 ]; then printf 'unverifiable\t%s\t%s\n' "$head" "no command word before the first shell operator"; return 0; fi
+    while [ "$i" -lt "$n" ]; do
+      w="${HW_WORDS[$i]}"; base="${w##*/}"
+      case "$w" in
+        [A-Za-z_]*=*) case "${w%%=*}" in *[!A-Za-z0-9_]*) break ;; esac; i=$((i + 1)); continue ;;   # HW-NAMEVAL
+      esac
+      case "$base" in
+        exec|nohup|command) i=$((i + 1)) ;;   # HW-WRAP-EXEC
+        env)   # HW-WRAP-ENV
+          i=$((i + 1))
+          while [ "$i" -lt "$n" ]; do
+            case "${HW_WORDS[$i]}" in
+              -u|-C|-S) i=$((i + 2)) ;;
+              -*|[A-Za-z_]*=*) i=$((i + 1)) ;;
+              *) break ;;
+            esac
+          done ;;
+        nice)   # HW-WRAP-NICE
+          i=$((i + 1))
+          if [ "$i" -lt "$n" ]; then
+            case "${HW_WORDS[$i]}" in -n) i=$((i + 2)) ;; -*) i=$((i + 1)) ;; esac
+          fi ;;
+        timeout)   # HW-WRAP-TIMEOUT
+          i=$((i + 1))
+          while [ "$i" -lt "$n" ]; do
+            case "${HW_WORDS[$i]}" in
+              -s|-k|--signal|--kill-after) i=$((i + 2)) ;;
+              -*) i=$((i + 1)) ;;
+              *) break ;;
+            esac
+          done
+          i=$((i + 1)) ;;   # the DURATION word
+        *) break ;;
+      esac
+    done
+    if [ "$i" -ge "$n" ]; then printf 'unverifiable\t%s\t%s\n' "$head" "no command word after the exec/env/nice/timeout prefix"; return 0; fi
+    w="${HW_WORDS[$i]}"; base="${w##*/}"
+    arg="$w"
+    case "$base" in
+      bash|sh|dash|zsh|ksh|python|python3|node|perl|ruby)
+        mode=interp; j=$((i + 1))   # HW-INTERP
+        while [ "$j" -lt "$n" ]; do
+          case "${HW_WORDS[$j]}" in
+            -c|-m|-e) printf 'unverifiable\t%s\t%s\n' "$head" "interpreter ${HW_WORDS[$j]} payload is re-parsed by the interpreter"; return 0 ;;
+            -*) j=$((j + 1)) ;;
+            *) break ;;
+          esac
+        done
+        if [ "$j" -ge "$n" ]; then printf 'unverifiable\t%s\t%s\n' "$head" "interpreter without a script argument"; return 0; fi
+        arg="${HW_WORDS[$j]}" ;;
+    esac
+    raw="$arg"
+    case "$raw" in
+      *\'*) case "$raw" in *'$'*|*'~'*) printf 'unverifiable\t%s\t%s\n' "$head" "single-quoted word: the shell would not expand it"; return 0 ;; esac ;;   # HW-SQUOTE
+      '"~'*) printf 'unverifiable\t%s\t%s\n' "$head" "~ inside double quotes: the shell would not expand it"; return 0 ;;   # HW-DQ-TILDE
+    esac
+    arg="${raw//\"/}"; arg="${arg//\'/}"
+    case "$arg" in
+      '${CLAUDE_PROJECT_DIR}'/*) arg="$target/${arg#'${CLAUDE_PROJECT_DIR}'/}" ;;
+      '$CLAUDE_PROJECT_DIR'/*) arg="$target/${arg#'$CLAUDE_PROJECT_DIR'/}" ;;
+      '${HOME}'/*) if [ -n "${HOME:-}" ]; then arg="$HOME/${arg#'${HOME}'/}"; fi ;;   # HW-HOME-BRACE
+      '$HOME'/*) if [ -n "${HOME:-}" ]; then arg="$HOME/${arg#'$HOME'/}"; fi ;;   # HW-HOME-PLAIN
+      '~'/*) if [ -n "${HOME:-}" ]; then arg="$HOME/${arg#'~'/}"; fi ;;   # HW-HOME-TILDE
+    esac
+    case "$arg" in
+      *'$'*|*'`'*|*'*'*|*'?'*|*'['*) printf 'unverifiable\t%s\t%s\n' "$head" "unresolved variable, glob or substitution in the command path"; return 0 ;;
+      '~'*) printf 'unverifiable\t%s\t%s\n' "$head" "~ form that cannot be expanded here"; return 0 ;;
+    esac
+    case "$arg" in
+      */*) ;;
+      *) if [ "$mode" = interp ]; then printf 'unverifiable\t%s\t%s\n' "$head" "relative script name resolved against the launch directory"; fi   # HW-BARE
+         return 0 ;;   # a bare command name is resolved through PATH: no claim
+    esac
+    case "$arg" in /*) ;; *) arg="$target/$arg" ;; esac
+    if [ -d "$arg" ]; then return 0   # HW-DIRSKIP
+    elif [ -e "$arg" ]; then
+      if [ "$mode" = direct ] && [ ! -x "$arg" ]; then printf 'not-executable\t%s\n' "$arg"; fi   # WIRED-EXEC-BIT-TEST
+    else
+      printf 'missing\t%s\n' "$arg"                  # absent, or a dangling symlink
+    fi
+    return 0
+  }
+  hook_wired_exec_report() {
+    local target="$1" settings cmds raw rc cmd
+    settings="$target/.claude/settings.json"
+    [ -e "$settings" ] || [ -L "$settings" ] || return 0
+    if [ ! -f "$settings" ] || [ ! -r "$settings" ]; then
+      printf 'unverifiable\t%s\t%s\n' "$settings" "settings.json is not a readable file"; return 0
+    fi
+    if command -v jq >/dev/null 2>&1; then
+      cmds="$(jq -r '(.hooks? // {}) | objects | .[] | arrays | .[] | objects | .hooks | arrays | .[] | objects | .command | strings | gsub("\n"; " ")' "$settings" 2>/dev/null)" \
+        || { printf 'unverifiable\t%s\t%s\n' "$settings" "settings.json is not valid JSON (or jq failed)"; return 0; }
+    else
+      printf 'unverifiable\t%s\t%s\n' "$settings" "jq not on PATH: commands read by text match over every \"command\" key (may include non-hook commands, misses a value on the next line)"   # HW-NOJQ-NOTE
+      raw="$(grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' "$settings" 2>/dev/null)"; rc=$?
+      if [ "$rc" -gt 1 ]; then printf 'unverifiable\t%s\t%s\n' "$settings" "grep failed (rc $rc) reading settings.json"; return 0; fi
+      cmds="$(printf '%s\n' "$raw" | sed -E 's/^"command"[[:space:]]*:[[:space:]]*"//; s/"$//; s/\\"/"/g; s/\\\\/\\/g')"
+    fi
+    while IFS= read -r cmd; do
+      _hw_check_command "$target" "$cmd"
+    done < <(printf '%s\n' "$cmds")
     return 0
   }
 fi

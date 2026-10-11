@@ -71,6 +71,14 @@ case_kit_script_warns() {  # <kit> : a kit script wired as a bare command (gate,
   grep -qF "WARN: kit script $1/toolbelt/return-token-gate.sh is not executable" "$d.out" \
     && grep -qF "WARN: kit script $1/toolbelt/verify-skill-drift-hook.sh is not executable" "$d.out"
 }
+case_exec_kept_silent() {  # <kit> : EXECUTABLE existing hooks (and executable kit scripts) draw no not-executable WARN
+  local d="$TMP/es-$RANDOM" h
+  mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
+  for h in "$H_SS" "$H_STOP" "$H_PK"; do printf '#!/usr/bin/env bash\nexit 0\n' > "$d/$h"; chmod 755 "$d/$h"; done
+  chmod 755 "$1/toolbelt/return-token-gate.sh" "$1/toolbelt/verify-skill-drift-hook.sh"
+  bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1
+  grep -qF 'kept: ' "$d.out" && ! grep -qF 'is not executable' "$d.out"
+}
 
 echo "== research-sdd-init-hook-exec.test.sh =="
 K="$(mkkit k1)"
@@ -79,6 +87,7 @@ case_wire_create "$K"       && ok "2 --wire repair creates all three hooks execu
 case_rewire_warns "$K"      && ok "3 --wire over existing non-executable hooks WARNs on each, rewrites none" || no "3 re-wire must report non-executable hooks"
 case_scaffold_keep_warns "$K" && ok "4 kept non-executable SessionStart hook is reported on the scaffold path" || no "4 kept hook must be reported"
 case_kit_script_warns "$K"  && ok "5 non-executable kit scripts wired as bare commands (gate, drift hook) are reported" || no "5 kit script noexec must be reported"
+case_exec_kept_silent "$K" && ok "6 executable kept hooks and kit scripts draw no not-executable WARN" || no "6 executable hooks must not warn"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -96,6 +105,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   steeth WIRE-SS-CHMOD case_wire_create '/# WIRED-SS-CHMOD-WIRE/d'
   steeth WIRE-STOP-CHMOD case_wire_create 's/^      chmod +x "\$_wo_stop"$/      :/'
   steeth KEPT-WARN-DROPPED case_rewire_warns 's/is not executable — the hook cannot run/is fine — the hook cannot run/'
+  steeth WARN-ALWAYS case_exec_kept_silent 's/\[ -x "\$1" \] ||/false ||/'
   steeth KIT-GATE-WARN-DROPPED case_kit_script_warns 's/^  _rsdd_warn_kit_script_noexec "\$_RSDD_GATE_PATH"$/  :/'
   steeth KIT-DRIFT-WARN-DROPPED case_kit_script_warns 's/^  _rsdd_warn_kit_script_noexec "\$_RSDD_DRIFT_PATH"$/  :/'
   steeth SCAFFOLD-KEPT-WARN-DROPPED case_scaffold_keep_warns 's/is not executable — the hook cannot run/is fine — the hook cannot run/'
