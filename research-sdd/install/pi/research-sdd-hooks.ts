@@ -5,28 +5,34 @@
 // session what the Claude wiring gives a research target:
 //
 //   SessionStart  -> session_start        the eight compact sweep hooks (toolbelt/*-hook.sh, one of which is the
-//                                         skill-drift + `research-sdd-install.sh --verify` hook) run in the background;
+//                                         skill-drift + `research-sdd-install.sh --verify` hook) start in the background;
 //                                         the session-start git sha the retro gate keys on is recorded.
-//   (context)     -> before_agent_start   the stored sweep/drift output is injected into the MODEL's system prompt
-//                                         sections on EVERY run (pi rebuilds the sections per run), bounded < 8,000 chars.
+//   (context)     -> before_agent_start   the sweep/drift output is injected into the MODEL's system prompt sections
+//                                         on EVERY run (pi rebuilds the sections per run). The first run waits at most
+//                                         RSDD_PI_SWEEP_WAIT_MS (3 s) for the sweeps; if they are not done it injects a
+//                                         typed "pending" line and the next run picks the result up. The final injected
+//                                         string is capped under the 8,000-char SessionStart budget.
 //   Stop          -> agent_before_settle  retro-gate.sh, then return-token-gate.sh; ONLY when outcome === "completed"
-//                                         and no continuation is queued; a block is returned once as {entries, continue:true}.
-//   PreToolUse    -> tool_call            bash commands that mention pkill/pgrep go through the kit's pkill-guard script.
+//                                         and no continuation is queued; a block is returned once as {entries, continue:true}
+//                                         appended to the entries other extensions already put on the event.
+//   PreToolUse    -> tool_call            bash / bash_background / monitor commands that mention pkill/pgrep go through the
+//                                         kit's pkill-guard script; anything but a well-formed allow is a block.
 //
 // Rules this file keeps (each one is a defect of the hand-written niagara-research extension, kit issue #2128):
 //   - child sessions (GENTLE_PI_AGENTS_CHILD=1) register nothing;
 //   - the session id, TARGET, kit and every block-once flag are recomputed on EVERY session_start, never at module load;
 //   - TARGET is ctx.cwd and the kit is resolved at run time (RESEARCH_SDD_KIT, the launcher's `Kit checkout:` / `Kit path:`
 //     line, the render dir's toolbelt symlink) — no path is baked in;
-//   - every external call has a timeout, and a missing script / unresolvable kit / empty transcript yields a typed
-//     `degraded` line in the context (or a notice entry), never a silent allow (CLAUDE.md section 7);
-//   - a handler that throws never breaks the session.
+//   - every external call has a timeout that kills its whole process group; a missing script / unresolvable kit / failing
+//     or crashing gate / empty transcript yields a typed `degraded` line (context or settle entry), never a silent allow
+//     (CLAUDE.md section 7);
+//   - a handler that throws never breaks the session, and the failure is surfaced (ctx.ui.notify + the next settle entries).
 //
 // Opt-out: RSDD_PI_HOOKS=0|off|false. Timeouts: RSDD_PI_SWEEP_TIMEOUT_MS (45000), RSDD_PI_GATE_TIMEOUT_MS (120000).
 // Erasable TypeScript only (no enums / parameter properties), so Node's type stripping can run it headlessly.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -37,14 +43,20 @@ const SWEEP_HOOKS = [
   "verify-kit-clean-hook", "sweep-tools-hook", "verify-tool-catalog-hook", "verify-skill-drift-hook",
 ];
 const DRIFT_HOOK = "verify-skill-drift-hook";
-const MAX_CONTEXT_CHARS = 7500; // openspec/specs/kit-session-cost/spec.md: SessionStart output < 8,000 chars in total
+const SHELL_TOOLS = new Set(["bash", "bash_background", "monitor"]); // tools whose `command` input runs in a shell
+const MAX_CONTEXT_CHARS = 7500; // the sweep text alone
+const MAX_INJECT_CHARS = 7900; // the FINAL injected string (sweep + notices); openspec kit-session-cost: < 8,000 chars
+const MAX_NOTICES = 5;
+const MAX_NOTICE_CHARS = 300;
 const MAX_REASON_CHARS = 4000;
+const MAX_OUTPUT_CHARS = 4 * 1024 * 1024;
 
-interface RunResult { code: number | null; stdout: string; stderr: string; timedOut: boolean; error: string }
+interface RunResult { code: number | null; signal: string; stdout: string; stderr: string; timedOut: boolean; error: string }
 interface KitResolution { kit: string; tried: string[] }
 interface HookState {
-  sid: string; target: string; home: string; kit: string; tried: string[]; corpus: boolean;
-  startup: Promise<string>; notices: string[]; noticed: Set<string>; retroBlocked: boolean; tokenBlocked: boolean;
+  sid: string; target: string; home: string; kit: string; tried: string[]; corpus: boolean; startedAt: string;
+  startup: Promise<string>; sweepText: string | null; notices: string[]; surface: string[]; noticed: Set<string>;
+  retroBlocked: boolean; tokenBlocked: boolean;
 }
 
 function envMs(name: string, dflt: number): number {
@@ -52,23 +64,39 @@ function envMs(name: string, dflt: number): number {
   return Number.isFinite(n) && n >= 1 ? n : dflt;
 }
 
-// Async on purpose (a sync exec would freeze the pi TUI) and bounded: resolves, never rejects.
+const tailOf = (s: string): string => s.trim().split("\n").slice(-2).join(" | ").slice(0, 240);
+
+// Async on purpose (a sync exec would freeze the pi TUI) and bounded: resolves, never rejects. The child is spawned as
+// its own process group (execFile does not honour `detached`), and a timeout kills the WHOLE group, so a grandchild the
+// script spawned cannot outlive it.
 function run(file: string, args: string[], o: { cwd?: string; input?: string; timeoutMs: number }): Promise<RunResult> {
   return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stdout = "";
+    let stderr = "";
+    const finish = (r: Partial<RunResult>) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve({ code: null, signal: "", stdout, stderr, timedOut, error: "", ...r });
+    };
     try {
-      const child = execFile(file, args, { cwd: o.cwd, timeout: o.timeoutMs, killSignal: "SIGKILL", maxBuffer: 4 * 1024 * 1024, encoding: "utf8" },
-        (err, stdout, stderr) => {
-          const e = err as { code?: unknown; killed?: boolean } | null;
-          resolve({
-            code: e ? (typeof e.code === "number" ? e.code : null) : 0,
-            stdout: String(stdout ?? ""), stderr: String(stderr ?? ""),
-            timedOut: !!e?.killed, error: e && typeof e.code === "string" ? e.code : "",
-          });
-        });
+      const child = spawn(file, args, { cwd: o.cwd, detached: true, stdio: ["pipe", "pipe", "pipe"] });
+      const killGroup = () => {
+        try { process.kill(-(child.pid as number), "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+      };
+      const cap = (cur: string, chunk: Buffer) => (cur.length < MAX_OUTPUT_CHARS ? cur + chunk.toString("utf8") : cur);
+      child.stdout?.on("data", (c: Buffer) => { stdout = cap(stdout, c); });
+      child.stderr?.on("data", (c: Buffer) => { stderr = cap(stderr, c); });
+      child.on("error", (e: NodeJS.ErrnoException) => finish({ error: String(e.code ?? e.message) }));
+      child.on("close", (code: number | null, signal: string | null) => finish({ code, signal: signal ?? "" }));
+      timer = setTimeout(() => { timedOut = true; killGroup(); }, o.timeoutMs);
       child.stdin?.on("error", () => {});
       child.stdin?.end(o.input ?? "");
     } catch (e) {
-      resolve({ code: null, stdout: "", stderr: "", timedOut: false, error: String(e) });
+      finish({ error: String(e) });
     }
   });
 }
@@ -127,8 +155,15 @@ function isCorpus(target: string): boolean {
 const harnessOf = (home: string): string => (home.includes(".gentle-shell") ? "gentle-shell" : "pi");
 
 function degradedKitText(st: HookState): string {
-  return `Research-SDD session hooks DEGRADED: the kit is not resolvable (tried: ${st.tried.join("; ") || "nothing"}), so the session sweeps, ` +
+  const shown = st.tried.slice(0, 4).map((t) => t.slice(0, 120));
+  const more = st.tried.length > shown.length ? `; +${st.tried.length - shown.length} more` : "";
+  return `Research-SDD session hooks DEGRADED: the kit is not resolvable (tried: ${shown.join("; ") || "nothing"}${more}), so the session sweeps, ` +
     `the retro gate and the pkill guard did NOT run. Fix: re-run the installer, e.g. bash <kit checkout>/install/research-sdd-install.sh --harness ${harnessOf(st.home)}.`;
+}
+
+// Notices are short typed lines shown in the context; the list is capped, and so is each line.
+function pushNotice(st: HookState, msg: string): void {
+  if (st.notices.length < MAX_NOTICES) st.notices.push(msg.slice(0, MAX_NOTICE_CHARS));
 }
 
 function additionalContextOf(out: string): string {
@@ -153,7 +188,7 @@ async function collectStartup(st: HookState): Promise<string> {
     if (r.timedOut) return { name, degraded: `timed out after ${Math.round(timeoutMs / 1000)}s`, text: "" };
     if (r.error) return { name, degraded: `could not run (${r.error})`, text: "" };
     const text = additionalContextOf(r.stdout) || additionalContextOf(r.stderr);
-    if (r.code !== 0) return { name, degraded: `exit ${r.code}`, text };
+    if (r.code !== 0) return { name, degraded: r.signal ? `killed by ${r.signal}` : `exit ${r.code}`, text };
     return { name, degraded: "", text };
   }));
   const bad = results.filter((r) => r.degraded);
@@ -183,13 +218,22 @@ async function collectStartup(st: HookState): Promise<string> {
   return out;
 }
 
+// The FINAL string handed to the model: notices first-class (they are short and typed), the sweep cut to what is left.
+function finalContext(sweep: string, notices: string[]): string {
+  const marker = "\n[truncated: SessionStart budget — run the kit's toolbelt/sweep-all.sh for the full report]";
+  const noticeText = notices.map((n) => n.slice(0, MAX_NOTICE_CHARS)).slice(0, MAX_NOTICES).join("\n");
+  const room = MAX_INJECT_CHARS - (noticeText ? noticeText.length + 1 : 0);
+  const body = sweep.length > room ? sweep.slice(0, Math.max(0, room - marker.length)) + marker : sweep;
+  return [body, noticeText].filter(Boolean).join("\n");
+}
+
 async function recordSessionSha(st: HookState): Promise<void> {
   const file = join(st.target, ".claude", `.rsdd-session-${st.sid}`);
   try { if (existsSync(file) && statSync(file).size > 0) return; } catch { /* fall through and rewrite */ }
   const r = await run("git", ["-C", st.target, "rev-parse", "HEAD"], { timeoutMs: 5000 });
   const sha = r.stdout.trim();
   if (!/^[0-9a-f]{40,64}$/.test(sha)) {
-    st.notices.push("Research-SDD retro gate: no session-start git sha could be recorded (not a git checkout?); it will use its mtime fallback (degraded).");
+    pushNotice(st, "Research-SDD retro gate: no session-start git sha could be recorded (not a git checkout?); it will use its mtime fallback (degraded).");
     return;
   }
   mkdirSync(dirname(file), { recursive: true });
@@ -208,6 +252,23 @@ function parseBlock(out: string): string | null {
   }
 }
 
+// A gate run is a block, a typed degraded notice, or a clean allow. A non-zero exit, a signal, a timeout or a spawn
+// failure without block JSON is NEVER a quiet allow, and a degraded allow the script reports on stderr is surfaced too.
+function gateVerdict(label: string, r: RunResult, ms: number): { block?: string; notice?: string } {
+  const block = parseBlock(r.stdout);
+  if (block) return { block };
+  const unchecked = `the ${label.includes("retro") ? "retro" : "continuation token"} was NOT checked`;
+  if (r.timedOut) return { notice: `Research-SDD ${label} DEGRADED: timed out after ${Math.round(ms / 1000)}s; ${unchecked}.` };
+  if (r.error) return { notice: `Research-SDD ${label} DEGRADED: could not run (${r.error}); ${unchecked}.` };
+  if (r.code !== 0) {
+    return { notice: `Research-SDD ${label} DEGRADED: ${r.signal ? `killed by ${r.signal}` : `exit ${r.code}`} without a verdict` +
+      `${tailOf(r.stderr) ? ` (${tailOf(r.stderr)})` : ""}; ${unchecked}.` };
+  }
+  const deg = r.stderr.split("\n").find((l) => /branch=degraded/.test(l));
+  if (deg) return { notice: `Research-SDD ${label} ran degraded: ${deg.trim().slice(0, 200)}` };
+  return {};
+}
+
 const textOf = (content: unknown): string => {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -215,24 +276,32 @@ const textOf = (content: unknown): string => {
 };
 
 // Pi's session file is not Claude-shaped, and return-token-gate.sh parses `{"type":"assistant","message":{"content":[...]}}`
-// lines — so the last assistant text is handed over in that shape in a private temp file. null = nothing to hand over.
-function writeTranscript(sid: string, ctx: any, event: any): string | null {
+// lines — so the last assistant text is handed over in that shape. The file lives in a fresh 0700 directory (mkdtemp, an
+// unpredictable name) and is created exclusively (flag "wx", mode 0600), so a pre-planted path or symlink is never followed.
+// The caller removes the directory in a finally. null = nothing to hand over (and nothing was created).
+function writeTranscript(ctx: any, event: any): { dir: string; file: string } | null {
   let msgs: any[] = [];
   try { msgs = (ctx?.sessionManager?.getBranch?.() ?? []).map((e: any) => e?.message ?? e); } catch { msgs = []; }
   if (!msgs.length) msgs = event?.context?.contextMessages ?? [];
   let last = "";
   for (const m of msgs) if (m?.role === "assistant") last = textOf(m.content) || last;
   if (!last) return null;
-  const file = join(tmpdir(), `rsdd-pi-transcript-${sid}-${process.pid}.jsonl`);
-  writeFileSync(file, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: last }] } }) + "\n", { mode: 0o600 });
-  return file;
+  const dir = mkdtempSync(join(tmpdir(), "rsdd-pi-transcript-"));
+  const file = join(dir, "transcript.jsonl");
+  try {
+    writeFileSync(file, JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: last }] } }) + "\n", { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+  return { dir, file };
 }
 
 const entry = (content: string) => ({ type: "custom_message" as const, customType: NOTICE_TYPE, content, display: true });
 
 function freshState(): HookState {
-  return { sid: "", target: "", home: "", kit: "", tried: [], corpus: false, startup: Promise.resolve(""), notices: [], noticed: new Set(),
-    retroBlocked: false, tokenBlocked: false };
+  return { sid: "", target: "", home: "", kit: "", tried: [], corpus: false, startedAt: "", startup: Promise.resolve(""), sweepText: null,
+    notices: [], surface: [], noticed: new Set(), retroBlocked: false, tokenBlocked: false };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -240,9 +309,15 @@ export default function (pi: ExtensionAPI) {
   if (/^(0|off|false|no)$/i.test(process.env.RSDD_PI_HOOKS ?? "")) return;
 
   let st = freshState();
-  const note = (msg: string) => { if (st.notices.length < 5) st.notices.push(msg); };
-  const guard = async <T,>(name: string, fn: () => Promise<T>): Promise<T | undefined> => {
-    try { return await fn(); } catch (e) { note(`Research-SDD hooks DEGRADED: ${name} failed (${String((e as Error)?.message ?? e).slice(0, 200)}).`); return undefined; }
+  // A failing handler never breaks the session, but the failure is VISIBLE: ctx.ui.notify now, the next settle's entries later.
+  const guard = async <T,>(name: string, fn: () => Promise<T>, ctx?: any): Promise<T | undefined> => {
+    try { return await fn(); } catch (e) {
+      const msg = `Research-SDD hooks DEGRADED: ${name} failed (${String((e as Error)?.message ?? e).slice(0, 200)}).`;
+      pushNotice(st, msg);
+      if (st.surface.length < 3) st.surface.push(msg);
+      try { ctx?.ui?.notify?.(msg, "error"); } catch { /* no UI in this mode */ }
+      return undefined;
+    }
   };
   const noticeOnce = (key: string, msg: string) => {
     if (st.noticed.has(key)) return [];
@@ -256,72 +331,80 @@ export default function (pi: ExtensionAPI) {
       try { sid = safeId(ctx.sessionManager.getSessionId()); } catch { /* fall back below */ }
       if (!sid) sid = safeId(`pi-${Date.now()}-${process.pid}`);
       const next = freshState(); // session id, kit, flags: recomputed on EVERY session_start (never at module load)
-      next.sid = sid; next.target = ctx.cwd || process.cwd(); next.home = agentHome();
+      next.sid = sid; next.target = ctx.cwd || process.cwd(); next.home = agentHome(); next.startedAt = new Date().toISOString();
       const res = resolveKit(next.home);
       next.kit = res.kit; next.tried = res.tried; next.corpus = isCorpus(next.target);
       st = next;
-      st.startup = collectStartup(st).catch((e) => `Research-SDD session sweep DEGRADED: ${String(e).slice(0, 200)}`);
-      if (st.corpus) await recordSessionSha(st);
-    });
+      const cur = st;
+      cur.startup = collectStartup(cur).catch((e) => `Research-SDD session sweep DEGRADED: ${String(e).slice(0, 200)}`);
+      cur.startup.then((t) => { cur.sweepText = t; });
+      if (cur.corpus) await recordSessionSha(cur);
+    }, ctx);
   });
 
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
     await guard("before_agent_start", async () => {
       const cur = st;
-      const wait = envMs("RSDD_PI_SWEEP_TIMEOUT_MS", 45000) + 5000;
-      const sweep = await withTimeout(cur.startup, wait, "Research-SDD session sweep DEGRADED: still running after the timeout; its output is not in this context.");
-      const text = [sweep, ...cur.notices].filter(Boolean).join("\n");
+      let sweep = cur.sweepText;
+      if (sweep === null) {
+        sweep = await withTimeout<string | null>(cur.startup, envMs("RSDD_PI_SWEEP_WAIT_MS", 3000), null);
+        if (sweep === null) sweep = `research-sdd: session-start sweeps pending (started ${cur.startedAt}); their output is injected on a later run.`;
+      }
+      const text = finalContext(sweep, cur.notices);
       if (!text) return;
       if (!event?.systemPromptOptions?.sections) throw new Error("event.systemPromptOptions.sections missing");
       event.systemPromptOptions.sections[SECTION_KEY] = text; // every run: pi rebuilds the sections per run
-    });
+    }, ctx);
   });
 
   pi.on("agent_before_settle", async (event, ctx) => {
     return guard("agent_before_settle", async () => {
       if (event.outcome !== "completed" || event.continue) return undefined; // Stop-equivalent: only a real, final completion
       const cur = st;
-      if (!cur.corpus) return undefined; // the gates are per research target (Claude wires them per target)
-      if (!cur.kit) {
-        const e = noticeOnce("kit", degradedKitText(cur));
-        return e.length ? { entries: e } : undefined;
-      }
+      // pi REPLACES the entries with the handler's return, so every return carries the entries already on the event.
+      const base = Array.isArray(event.entries) ? event.entries : [];
+      const mine: Array<ReturnType<typeof entry>> = cur.surface.splice(0).map(entry);
+      const done = (cont: boolean) => (mine.length || cont ? { entries: [...base, ...mine], ...(cont ? { continue: true } : {}) } : undefined);
+      if (!cur.corpus) return done(false); // the gates are per research target (Claude wires them per target)
+      if (!cur.kit) { mine.push(...noticeOnce("kit", degradedKitText(cur))); return done(false); }
       const gateMs = envMs("RSDD_PI_GATE_TIMEOUT_MS", 120000);
-      const notices: ReturnType<typeof entry>[] = [];
       const hookJson = (extra: object) => JSON.stringify({ session_id: cur.sid, cwd: cur.target, stop_hook_active: false, ...extra });
 
       if (!cur.retroBlocked) {
         const script = join(cur.kit, "toolbelt", "retro-gate.sh");
-        if (!existsSync(script)) notices.push(...noticeOnce("retro-missing", `Research-SDD retro gate DEGRADED: script missing at ${script}; the retro was NOT checked.`));
+        if (!existsSync(script)) mine.push(...noticeOnce("retro-missing", `Research-SDD retro gate DEGRADED: script missing at ${script}; the retro was NOT checked.`));
         else {
           const r = await run("bash", [script, cur.target], { cwd: cur.target, input: hookJson({}), timeoutMs: gateMs });
-          const reason = parseBlock(r.stdout);
-          if (reason) { cur.retroBlocked = true; return { entries: [entry(reason)], continue: true }; }
-          if (r.timedOut || r.error) notices.push(...noticeOnce("retro-run", `Research-SDD retro gate DEGRADED: ${r.timedOut ? `timed out after ${Math.round(gateMs / 1000)}s` : `could not run (${r.error})`}; the retro was NOT checked.`));
+          const v = gateVerdict("retro gate", r, gateMs);
+          if (v.block) { cur.retroBlocked = true; mine.push(entry(v.block)); return done(true); }
+          if (v.notice) mine.push(...noticeOnce("retro-run", v.notice));
         }
       }
 
       if (!cur.tokenBlocked) {
         const script = join(cur.kit, "toolbelt", "return-token-gate.sh");
-        let transcript: string | null = null;
-        try { transcript = writeTranscript(cur.sid, ctx, event); } catch { transcript = null; }
-        if (!existsSync(script)) notices.push(...noticeOnce("token-missing", `Research-SDD return-token gate DEGRADED: script missing at ${script}; the continuation token was NOT checked.`));
-        else if (!transcript) notices.push(...noticeOnce("token-transcript", "Research-SDD return-token gate skipped (degraded): pi exposed no assistant text to check the continuation token against."));
+        if (!existsSync(script)) mine.push(...noticeOnce("token-missing", `Research-SDD return-token gate DEGRADED: script missing at ${script}; the continuation token was NOT checked.`));
         else {
+          let tr: { dir: string; file: string } | null = null;
           try {
-            const r = await run("bash", [script, cur.target], { cwd: cur.target, input: hookJson({ transcript_path: transcript }), timeoutMs: Math.min(gateMs, 40000) });
-            const reason = parseBlock(r.stdout);
-            if (reason) { cur.tokenBlocked = true; return { entries: [entry(reason)], continue: true }; }
-            if (r.timedOut || r.error) notices.push(...noticeOnce("token-run", `Research-SDD return-token gate DEGRADED: ${r.timedOut ? "timed out" : `could not run (${r.error})`}; the continuation token was NOT checked.`));
-          } finally { try { unlinkSync(transcript); } catch { /* already gone */ } }
+            tr = writeTranscript(ctx, event);
+            if (!tr) mine.push(...noticeOnce("token-transcript", "Research-SDD return-token gate skipped (degraded): pi exposed no assistant text to check the continuation token against."));
+            else {
+              const ms = Math.min(gateMs, 40000);
+              const r = await run("bash", [script, cur.target], { cwd: cur.target, input: hookJson({ transcript_path: tr.file }), timeoutMs: ms });
+              const v = gateVerdict("return-token gate", r, ms);
+              if (v.block) { cur.tokenBlocked = true; mine.push(entry(v.block)); return done(true); }
+              if (v.notice) mine.push(...noticeOnce("token-run", v.notice));
+            }
+          } finally { if (tr) rmSync(tr.dir, { recursive: true, force: true }); }
         }
       }
-      return notices.length ? { entries: notices } : undefined;
-    });
+      return done(false);
+    }, ctx);
   });
 
   pi.on("tool_call", async (event) => {
-    if (event.toolName !== "bash") return undefined;
+    if (!SHELL_TOOLS.has(event.toolName)) return undefined;
     const command = (event.input as { command?: unknown } | null)?.command;
     if (typeof command !== "string" || !/pkill|pgrep/.test(command)) return undefined;
     const cur = st;
@@ -331,11 +414,14 @@ export default function (pi: ExtensionAPI) {
       if (!script || !existsSync(script)) return degraded(cur.kit ? `script missing at ${script}` : "kit not resolvable");
       const r = await run("bash", [script], { cwd: cur.target || undefined, input: JSON.stringify({ tool_name: "Bash", tool_input: { command }, cwd: cur.target }), timeoutMs: 5000 });
       if (r.timedOut || r.error) return degraded(r.timedOut ? "timed out" : r.error);
-      const out = JSON.parse(r.stdout.trim() || "null")?.hookSpecificOutput;
-      if (out && (out.permissionDecision === "deny" || out.permissionDecision === "ask")) {
-        return { block: true, reason: String(out.permissionDecisionReason ?? "pkill-guard refused this command").slice(0, MAX_REASON_CHARS) };
+      if (r.code !== 0) return degraded(`${r.signal ? `killed by ${r.signal}` : `exit ${r.code}`}${tailOf(r.stderr) ? `: ${tailOf(r.stderr)}` : ""}`);
+      const out = r.stdout.trim();
+      if (!out) return undefined; // the guard's allow is "exit 0, no stdout"
+      const verdict = JSON.parse(out)?.hookSpecificOutput;
+      if (verdict && (verdict.permissionDecision === "deny" || verdict.permissionDecision === "ask")) {
+        return { block: true, reason: String(verdict.permissionDecisionReason ?? "pkill-guard refused this command").slice(0, MAX_REASON_CHARS) };
       }
-      return undefined;
+      return degraded("unrecognised guard output");
     } catch (e) {
       return degraded(String((e as Error)?.message ?? e).slice(0, 120));
     }

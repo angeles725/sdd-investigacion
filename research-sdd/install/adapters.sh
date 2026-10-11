@@ -57,8 +57,10 @@ declare -A _RSDD_SUPPORTS_SLASH=(
 )
 # WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, pi/gentle-shell=none — Pi has no SessionStart hook for the kit to wire; OpenCode
-# dropped #954; codex and reasonix dropped #1471)
+# (claude=hook, pi/gentle-shell=none — Pi has no settings.json hook for the kit to wire; OpenCode
+# dropped #954; codex and reasonix dropped #1471). Where supports_extension_hooks is also true (pi,
+# gentle-shell: the research-sdd-hooks extension runs the sweeps and gates the settle, kit issue #2123)
+# the launcher says so and keeps the manual steps only as the fallback for an absent/degraded extension.
 declare -A _RSDD_NEEDS_SWEEP=(
   [claude]="false"
   [pi]="true"
@@ -235,13 +237,14 @@ rsdd_resolve_profile() {
 # scripts by absolute path (a bare toolbelt/... does not resolve from a target's cwd). Omitted or equal to
 # <kit> (claude: Kit path IS the checkout) = byte-identical to the pre-#2120 output.
 rsdd_render_section() {
-  local harness="$1" home="${2:-$HOME}" kit="${3:-}" checkout="${4:-}" skill_path needs_sweep
+  local harness="$1" home="${2:-$HOME}" kit="${3:-}" checkout="${4:-}" skill_path needs_sweep ext_hooks
   if [ -z "$kit" ]; then
     printf 'rsdd_render_section: kit path must not be empty\n' >&2
     return 2
   fi
   skill_path="$(rsdd_field "$harness" skill_path "$home")"
   needs_sweep="$(rsdd_field "$harness" needs_manual_sweep_doc "$home")"
+  ext_hooks="$(rsdd_field "$harness" supports_extension_hooks "$home")"
   # Emit the kit path as ~/... when it lives under $home; else as the absolute path.
   # The leading ~ is a LITERAL display character for the human reading the prompt — not a shell expansion.
   local kit_rel
@@ -275,11 +278,21 @@ rsdd_render_section() {
   fi
   if [ "$needs_sweep" = "true" ]; then
     printf '%s\n' ''
-    printf '%s\n' 'MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta'
-    printf '%s\n' 'auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.'
-    printf '%s\n' ''
-    printf '%s\n' 'Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at'
-    printf '%s\n' 'session start; all read-only, degrade to silence on failure):'
+    if [ "$ext_hooks" = "true" ]; then
+      printf '%s\n' 'Session hooks: the research-sdd-hooks extension (installed with this launcher) runs the session-start'
+      printf '%s\n' 'sweeps and the skill-drift check and injects their output into your context (system prompt section'
+      printf '%s\n' '`research-sdd-session`), and it gates the end of a turn with the retro and return-token gates (a block'
+      printf '%s\n' 'comes back once as a message to act on). While that section is present do NOT re-run the sweeps by hand.'
+      printf '%s\n' ''
+      printf '%s\n' 'Session-start sweep FALLBACK (only when that section is absent, says DEGRADED, or says the sweeps'
+      printf '%s\n' 'are still pending after your first reply): run MANUALLY; all read-only, degrade to silence on failure:'
+    else
+      printf '%s\n' 'MANDATORY session steps — this harness has no hooks: sweeps, the retro gate and delta'
+      printf '%s\n' 'auto-seeding are enforced by Claude Code only (kit issue #1110), so YOU run them by hand.'
+      printf '%s\n' ''
+      printf '%s\n' 'Session-start sweep (MANDATORY — this harness fires NO pre-turn hook; run MANUALLY at'
+      printf '%s\n' 'session start; all read-only, degrade to silence on failure):'
+    fi
     printf '%s\n' "  Single command (recommended): \`$tb/sweep-all.sh\`"
     printf '%s\n' '  Individual scripts (canonical; sweep-all.sh runs these in sequence):'
     printf '%s\n' "  - \`$tb/sweep-retros.sh\`        — pending section 18 self-retrospective proposals"
@@ -291,8 +304,14 @@ rsdd_render_section() {
     printf '%s\n' "  - \`$tb/verify-tool-catalog.sh\` — installed tools missing a capability-catalog entry"
     printf '%s\n' "  - \`$tb/verify-skill-drift.sh\`  — deployed SKILL.md(s) diverged from kit source"
     printf '%s\n' ''
-    printf '%s\n' 'Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is'
-    printf '%s\n' 'not over until the retro exists. Once it is written, seed its deltas by hand:'
+    if [ "$ext_hooks" = "true" ]; then
+      printf '%s\n' 'Session-end retro (MANDATORY — the extension blocks a finished run ONCE when the retro is missing, and'
+      printf '%s\n' 'says so when it could not check): the run is not over until the retro exists. Once it is written,'
+      printf '%s\n' 'seed its deltas by hand:'
+    else
+      printf '%s\n' 'Session-end retro (MANDATORY — there is no Stop hook here, so nothing blocks you): the run is'
+      printf '%s\n' 'not over until the retro exists. Once it is written, seed its deltas by hand:'
+    fi
     printf '%s\n' "  \`$tb/stage-retro-issues.sh <retro> --apply\`"
   fi
   printf '%s\n' '<!-- research-sdd:end -->'

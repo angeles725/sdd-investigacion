@@ -42,7 +42,7 @@ checks() {
   { [ -n "$guard_line" ] && [ -n "$first_on" ] && [ "$guard_line" -lt "$first_on" ]; } || echo "child-guard-first"
   grep -q 'event\.outcome !== "completed" || event\.continue' "$f" || echo "settle-gated-on-outcome-and-continue"
   { grep -q 'sections\[SECTION_KEY\] = text' "$f" && ! grep -qE '(let|var) [a-zA-Z]*[iI]njected|[iI]njected = true' <<<"$code" && ! grep -q 'notify(' <<<"$code"; } || echo "context-injected-every-run-not-notified"
-  grep -q 'timeout: o\.timeoutMs' "$f" || echo "run-has-timeout"
+  { grep -q 'setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)' "$f" && grep -q 'process\.kill(-(child\.pid as number), "SIGKILL")' "$f" && grep -q 'detached: true' "$f"; } || echo "run-has-timeout-killing-the-process-group"
   n_run="$(grep -c 'await run(' "$f")"; n_run_t="$(grep 'await run(' "$f" | grep -c 'timeoutMs')"
   { [ "$n_run" -ge 5 ] && [ "$n_run" = "$n_run_t" ]; } || echo "every-call-bounded-by-timeout ($n_run_t of $n_run)"
   ! grep -nE '/home/|/Users/|investigacion|niagara' <<<"$code" >/dev/null || echo "no-hardcoded-path"
@@ -51,11 +51,14 @@ checks() {
     grep -q "pi\\.on(\"$s\"" "$f" || echo "registers-$s"
   done
   ! grep -nE '(^|[;{}] *)(export )?(const )?enum |^\s*(export )?namespace |constructor\s*\([^)]*(private|public|readonly)' <<<"$code" >/dev/null || echo "erasable-typescript-only"
-  { grep -q 'transcript_path: transcript' "$f" && grep -q 'return-token-gate\.sh' "$f"; } || echo "transcript-handed-to-return-token-gate"
+  { grep -q 'transcript_path: tr\.file' "$f" && grep -q 'return-token-gate\.sh' "$f"; } || echo "transcript-handed-to-return-token-gate"
   grep -q 'hook-pretool-pkill-guard\.sh' "$f" || echo "pkill-delegated-to-kit-script"
-  { grep -qE 'MAX_CONTEXT_CHARS = [0-9]+;' "$f" && [ "$(grep -oE 'MAX_CONTEXT_CHARS = [0-9]+' "$f" | grep -oE '[0-9]+')" -lt 8000 ]; } || echo "context-budget-under-8000"
+  { grep -q '"bash_background"' "$f" && grep -q '"monitor"' "$f" && grep -q 'SHELL_TOOLS\.has(event\.toolName)' "$f"; } || echo "pkill-covers-every-shell-tool"
+  grep -q 'entries: \[\.\.\.base, \.\.\.mine\]' "$f" || echo "settle-keeps-other-extensions-entries"
+  { grep -q 'mkdtempSync(' "$f" && grep -q 'flag: "wx"' "$f"; } || echo "transcript-private-and-exclusive"
+  { grep -qE 'MAX_INJECT_CHARS = [0-9]+;' "$f" && [ "$(grep -oE 'MAX_INJECT_CHARS = [0-9]+' "$f" | grep -oE '[0-9]+')" -lt 8000 ]; } || echo "context-budget-under-8000"
   grep -q 'const next = freshState();' "$f" || echo "state-recomputed-every-session-start"
-  grep -q 'if (!cur.corpus) return undefined;' "$f" || echo "gates-only-on-corpus-target"
+  grep -q 'if (!cur\.corpus) return done(false);' "$f" || echo "gates-only-on-corpus-target"
   # sweep-all.sh's scripts (X.sh) <-> this file's SWEEP_HOOKS (X-hook.sh), both directions, each wrapper present
   hooks_src="$(grep -oE '"[a-z-]+-hook"' "$f" | tr -d '"' | LC_ALL=C sort -u)"
   hooks_all="$(grep -oE '\$TOOLBELT/[a-z-]+\.sh' "$KIT/toolbelt/sweep-all.sh" | sed 's|.*/||; s|\.sh$|-hook|' | LC_ALL=C sort -u)"
@@ -116,31 +119,52 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth outcome-gate-removed  struct   settle-gated-on-outcome-and-continue 's/event\.outcome !== "completed" || event\.continue/false/'
   tooth injection-notified    struct   context-injected-every-run-not-notified 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;/ctx.ui.notify(text);/'
   tooth injected-flag         struct   context-injected-every-run-not-notified 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;/event.systemPromptOptions.sections[SECTION_KEY] = text; cur.injected = true;/' 's/^interface HookState {/let injected = false;\ninterface HookState {/'
-  tooth run-without-timeout   struct   run-has-timeout 's/timeout: o\.timeoutMs/timeout: 0/'
+  tooth run-without-timeout   struct   run-has-timeout-killing-the-process-group 's/setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); }, 600000)/'
   tooth call-without-timeout  struct   every-call-bounded-by-timeout 's/{ cwd: st\.target, timeoutMs }/{ cwd: st.target }/'
   tooth hardcoded-path        struct   no-hardcoded-path 's|^const SECTION_KEY = |const KIT_HARD = "/home/cristian/investigacion"; const SECTION_KEY = |'
   tooth module-state          struct   no-module-level-mutable-state 's|^const SECTION_KEY = |let retroBlockedOnce = false; const SECTION_KEY = |'
   tooth settle-unregistered   struct   registers-agent_before_settle 's/pi\.on("agent_before_settle"/pi.on("agent_settled"/'
   tooth enum-introduced       struct   erasable-typescript-only 's|^const SECTION_KEY = |enum Mode { A } const SECTION_KEY = |'
-  tooth transcript-dropped    struct   transcript-handed-to-return-token-gate 's/transcript_path: transcript/transcript_pathX: transcript/'
+  tooth transcript-dropped    struct   transcript-handed-to-return-token-gate 's/transcript_path: tr\.file/transcript_pathX: tr.file/'
   tooth pkill-inline          struct   pkill-delegated-to-kit-script 's/hook-pretool-pkill-guard\.sh/inline-guard.sh/'
-  tooth budget-raised         struct   context-budget-under-8000 's/MAX_CONTEXT_CHARS = 7500/MAX_CONTEXT_CHARS = 9000/'
+  tooth budget-raised         struct   context-budget-under-8000 's/MAX_INJECT_CHARS = 7900/MAX_INJECT_CHARS = 9000/'
   tooth state-kept            struct   state-recomputed-every-session-start 's/const next = freshState();/const next = st;/'
-  tooth corpus-gate-removed   struct   gates-only-on-corpus-target 's/if (!cur\.corpus) return undefined;//'
+  tooth corpus-gate-removed   struct   gates-only-on-corpus-target 's/if (!cur\.corpus) return done(false);//'
   tooth sweep-hook-dropped    struct   sweep-list-matches-sweep-all 's/"sweep-tools-hook", //'
+  tooth group-kill-dropped    struct   run-has-timeout-killing-the-process-group 's/detached: true/detached: false/'
+  tooth entries-replaced      struct   settle-keeps-other-extensions-entries 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
+  tooth shell-tools-narrowed  struct   pkill-covers-every-shell-tool 's/SHELL_TOOLS\.has(event\.toolName)/event.toolName === "bash"/'
+  tooth transcript-predictable struct  transcript-private-and-exclusive 's/flag: "wx"/flag: "w"/'
   # behavior-only mutants: invariants a grep cannot see
+  tooth child-guard-behavior  behavior - 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
+  tooth outcome-gate-behavior behavior - 's/event\.outcome !== "completed" || event\.continue/false/'
+  tooth timeout-behavior      behavior - 's/setTimeout(() => { timedOut = true; killGroup(); }, o\.timeoutMs)/setTimeout(() => { timedOut = true; killGroup(); }, 600000)/'
+  tooth group-kill-behavior   behavior - 's/process\.kill(-(child\.pid as number), "SIGKILL")/process.kill(child.pid as number, "SIGKILL")/'
+  tooth entries-behavior      behavior - 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
+  tooth gate-exit-ignored     behavior - 's/if (r\.code !== 0) {$/if (false) {/'
+  tooth gate-stderr-ignored   behavior - 's/const deg = r\.stderr\.split("\\n")\.find((l) => \/branch=degraded\/\.test(l));/const deg = "";/'
+  tooth guard-crash-allowed   behavior - 's/if (r\.code !== 0) return degraded(/if (false) return degraded(/'
+  tooth guard-unknown-allowed behavior - 's/return degraded("unrecognised guard output");/return undefined;/'
+  tooth missing-script-unnoticed behavior - 's/if (!existsSync(script)) mine\.push(\.\.\.noticeOnce("token-missing"/if (false) mine.push(...noticeOnce("token-missing"/'
+  tooth transcript-not-removed behavior - 's/} finally { if (tr) rmSync(tr\.dir, { recursive: true, force: true }); }/} finally { void 0; }/'
+  tooth final-cap-removed     behavior - 's/const body = sweep\.length > room ?/const body = false ?/'
+  tooth notice-cap-removed    behavior - 's/if (st\.notices\.length < MAX_NOTICES) st\.notices\.push(msg\.slice(0, MAX_NOTICE_CHARS));/st.notices.push(msg);/' 's/\.slice(0, MAX_NOTICES)\.join/.join/'
+  tooth tried-unbounded       behavior - 's/const shown = st\.tried\.slice(0, 4)/const shown = st.tried.slice(0, 400)/'
+  tooth failure-not-surfaced  behavior - 's/try { ctx?\.ui?\.notify?\.(msg, "error"); } catch { \/\* no UI in this mode \*\/ }//' 's/if (st\.surface\.length < 3) st\.surface\.push(msg);//'
+  tooth first-run-blocks      behavior - 's/envMs("RSDD_PI_SWEEP_WAIT_MS", 3000)/600000/'
+  tooth monitor-unguarded     behavior - 's/new Set(\["bash", "bash_background", "monitor"\])/new Set(["bash"])/'
   tooth inject-once           behavior - 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;.*$/if (!st.noticed.has("inj")) { st.noticed.add("inj"); event.systemPromptOptions.sections[SECTION_KEY] = text; }/'
   tooth block-once-removed    behavior - 's/cur\.retroBlocked = true;//'
   tooth token-block-once      behavior - 's/cur\.tokenBlocked = true;//'
   tooth silent-missing-script behavior - 's/degraded: `script missing at \${script}`/degraded: ""/'
-  tooth no-truncation         behavior - 's/total > budget \&\& body\.length > slice/false/' 's/if (out\.length > MAX_CONTEXT_CHARS)/if (false)/'
+  tooth no-truncation         behavior - 's/total > budget \&\& body\.length > slice/false/' 's/if (out\.length > MAX_CONTEXT_CHARS)/if (false)/' 's/const body = sweep\.length > room ?/const body = false ?/'
   tooth silent-no-kit         behavior - 's/if (!st\.kit) return degradedKitText(st);/if (!st.kit) return "";/'
-  tooth handler-rethrows      behavior - 's/catch (e) { note(`Research-SDD hooks DEGRADED: \${name} failed/catch (e) { throw e; note(`Research-SDD hooks DEGRADED: ${name} failed/'
-  tooth pkill-fails-open      behavior - 's/if (!script || !existsSync(script)) return degraded(/if (false) return degraded(/'
+  tooth handler-rethrows      behavior - 's/^      const msg = `Research-SDD hooks DEGRADED: \${name} failed/      throw e; const msg = `Research-SDD hooks DEGRADED: ${name} failed/'
+  tooth pkill-fails-open      behavior - 's/if (!script || !existsSync(script)) return degraded(/if (false) return degraded(/' 's/if (r\.code !== 0) return degraded(/if (false) return degraded(/'
   tooth sha-overwritten       behavior - 's/try { if (existsSync(file) \&\& statSync(file)\.size > 0) return; } catch { \/\* fall through and rewrite \*\/ }//'
   tooth no-launcher-lookup    behavior - 's/for (const key of \["Kit checkout", "Kit path"\])/for (const key of [])/'
-  tooth token-no-notice       behavior - 's/notices\.push(\.\.\.noticeOnce("token-transcript",[^;]*;/void 0;/'
-  tooth ask-not-blocked       behavior - 's/out\.permissionDecision === "deny" || out\.permissionDecision === "ask"/out.permissionDecision === "deny"/'
+  tooth token-no-notice       behavior - 's/mine\.push(\.\.\.noticeOnce("token-transcript",[^;]*;/void 0;/'
+  tooth ask-not-blocked       behavior - 's/verdict\.permissionDecision === "deny" || verdict\.permissionDecision === "ask"/verdict.permissionDecision === "deny"/'
 fi
 
 echo "== $pass passed · $fail failed · $skipped skipped =="

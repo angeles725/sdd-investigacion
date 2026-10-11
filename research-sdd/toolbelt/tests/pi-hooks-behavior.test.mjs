@@ -40,6 +40,8 @@ if (!process.features.typescript) {
 
 const TMP = mkdtempSync(join(tmpdir(), 'rsdd-pi-hooks-'));
 process.on('exit', () => { try { rmSync(TMP, { recursive: true, force: true }); } catch { /* best effort */ } });
+const PRIVATE_TMP = join(TMP, 'private-tmp'); mkdirSync(PRIVATE_TMP, { recursive: true });
+process.env.TMPDIR = PRIVATE_TMP; // os.tmpdir() reads it on every call: the extension's temp files land here
 
 const HOOKS = ['sweep-retros-hook', 'sweep-audits-hook', 'sweep-breakthroughs-hook', 'verify-registry-hook',
   'verify-kit-clean-hook', 'sweep-tools-hook', 'verify-tool-catalog-hook', 'verify-skill-drift-hook'];
@@ -48,6 +50,10 @@ const haveJq = spawnSync('jq', ['--version']).status === 0;
 let seq = 0;
 const fresh = (label) => { const d = join(TMP, `${label}-${++seq}`); mkdirSync(d, { recursive: true }); return d; };
 const write = (p, body, exec = false) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, body); if (exec) chmodSync(p, 0o755); };
+
+// Gate stub tail: optional stderr text, an exit code, or a self-SIGKILL, all driven by env (RSDD_TEST_<P>_ERR / _EXIT).
+const gateTail = (P) => `if [ -n "\${RSDD_TEST_${P}_ERR:-}" ]; then printf '%s\n' "$RSDD_TEST_${P}_ERR" >&2; fi\n` +
+  `if [ "\${RSDD_TEST_${P}_EXIT:-}" = kill9 ]; then kill -9 $$; fi\nexit "\${RSDD_TEST_${P}_EXIT:-0}"\n`;
 
 // A stub kit: every sweep hook prints a JSON additionalContext envelope naming itself; retro-gate and
 // return-token-gate log their argv + stdin to $LOG and print $RETRO_OUT / $TOKEN_OUT (default: allow).
@@ -61,13 +67,13 @@ function makeKit(opts = {}) {
     write(join(kit, 'toolbelt', h + '.sh'), body, true);
   }
   const gate = (name, envVar) => `#!/usr/bin/env bash\n{ printf 'GATE ${name} argv=%s\\n' "$*"; printf 'STDIN %s\\n' "$(cat)"; } >> "${log}"\n` +
-    `if [ -n "\${${envVar}:-}" ]; then printf '%s' "\$${envVar}"; fi\nexit 0\n`;
+    `if [ -n "\${${envVar}:-}" ]; then printf '%s' "\$${envVar}"; fi\n` + gateTail(envVar.includes('RETRO') ? 'RETRO' : 'TOKEN');
   write(join(kit, 'toolbelt', 'retro-gate.sh'), gate('retro', 'RSDD_TEST_RETRO_OUT'), true);
   write(join(kit, 'toolbelt', 'return-token-gate.sh'),
     `#!/usr/bin/env bash\nin="$(cat)"\n{ printf 'GATE token argv=%s\\n' "$*"; printf 'STDIN %s\\n' "$in"; } >> "${log}"\n` +
     `tp="$(printf '%s' "$in" | sed -n 's/.*"transcript_path":"\\([^"]*\\)".*/\\1/p')"\n` +
     `[ -n "$tp" ] && [ -r "$tp" ] && printf 'TRANSCRIPT %s\\n' "$(cat "$tp")" >> "${log}"\n` +
-    `if [ -n "\${RSDD_TEST_TOKEN_OUT:-}" ]; then printf '%s' "$RSDD_TEST_TOKEN_OUT"; fi\nexit 0\n`, true);
+    `if [ -n "\${RSDD_TEST_TOKEN_OUT:-}" ]; then printf '%s' "$RSDD_TEST_TOKEN_OUT"; fi\n` + gateTail('TOKEN'), true);
   if (opts.pkillBody) {
     write(join(kit, 'templates', 'hook-pretool-pkill-guard.sh'), opts.pkillBody, true);
   } else if (!opts.noPkillGuard && haveJq) {
@@ -105,7 +111,8 @@ function makeTarget(corpus = true, git = false) {
 }
 
 const ENV_KEYS = ['GENTLE_PI_AGENTS_CHILD', 'GENTLE_PI_AGENT_HOME', 'PI_CODING_AGENT_DIR', 'RESEARCH_SDD_KIT', 'RSDD_PI_HOOKS',
-  'RSDD_PI_SWEEP_TIMEOUT_MS', 'RSDD_PI_GATE_TIMEOUT_MS', 'RSDD_TEST_RETRO_OUT', 'RSDD_TEST_TOKEN_OUT'];
+  'RSDD_PI_SWEEP_TIMEOUT_MS', 'RSDD_PI_GATE_TIMEOUT_MS', 'RSDD_PI_SWEEP_WAIT_MS', 'RSDD_TEST_RETRO_OUT', 'RSDD_TEST_TOKEN_OUT',
+  'RSDD_TEST_RETRO_ERR', 'RSDD_TEST_RETRO_EXIT', 'RSDD_TEST_TOKEN_ERR', 'RSDD_TEST_TOKEN_EXIT'];
 const SAVED = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const setEnv = (o) => {
   for (const k of ENV_KEYS) delete process.env[k];
@@ -127,8 +134,9 @@ const fire = async (pi, ev, event, ctx) => {
 };
 function makeCtx(cwd, sid, messages = []) {
   const entries = messages.map((m, i) => ({ type: 'message', id: 'e' + i, message: m }));
+  const notified = [];
   return {
-    cwd, hasUI: false, ui: { notify() {} },
+    cwd, hasUI: false, ui: { notify(msg, level) { notified.push([level, msg]); } }, notified,
     sessionManager: {
       getSessionId: () => sid, getSessionFile: () => join(cwd, 'session-' + sid + '.jsonl'),
       getBranch: () => entries, getEntries: () => entries,
@@ -137,7 +145,9 @@ function makeCtx(cwd, sid, messages = []) {
 }
 const assistant = (text) => ({ role: 'assistant', content: [{ type: 'text', text }] });
 const user = (text) => ({ role: 'user', content: text });
-const settleEvent = (extra = {}) => ({ type: 'agent_before_settle', outcome: 'completed', continue: false, entries: [], context: {}, ...extra });
+const OTHER = { type: 'custom_message', customType: 'other-extension', content: 'OTHER-EXT-ENTRY', display: true };
+const settleEvent = (extra = {}) => ({ type: 'agent_before_settle', outcome: 'completed', continue: false, entries: [OTHER], context: {}, ...extra });
+const hasOther = (r) => Array.isArray(r?.entries) && r.entries.some((e) => e?.customType === 'other-extension');
 const readLog = (log) => (existsSync(log) ? readFileSync(log, 'utf8') : '');
 const sectionOf = (ev) => Object.values(ev.systemPromptOptions.sections).join('\n');
 const startEvent = () => ({ type: 'before_agent_start', prompt: 'hi', systemPrompt: '', systemPromptOptions: { sections: {} } });
@@ -272,9 +282,10 @@ const t0 = Date.now();
 {
   const s = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
   const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
-  const e = r?.entries?.[0];
+  const e = r?.entries?.find((x) => x?.customType === 'research-sdd-hooks');
   check('retro-gate block becomes a custom_message entry with continue:true (really re-prompts)',
     r?.continue === true && e?.type === 'custom_message' && /RETRO-REQUIRED/.test(String(e?.content)) && e?.display === true, JSON.stringify(r));
+  check('pi replaces entries with the handler return, so the returned list keeps the entries already on the event', hasOther(r), JSON.stringify(r));
   const log = readLog(s.log);
   check('retro-gate receives the target (from ctx.cwd) and a hook JSON with session_id',
     log.includes('GATE retro argv=' + s.target) && log.includes('"session_id":"sess-A"') && log.includes('"stop_hook_active":false'), log.slice(0, 300));
@@ -384,6 +395,161 @@ if (!haveJq) {
     await fire(s.pi, 'tool_call', { type: 'tool_call', toolName: 'bash', toolCallId: 'c', input: null }, bad);
   } catch { threw = true; }
   check('handlers swallow their own failures (throwing session manager, missing systemPromptOptions, null input)', !threw);
+  restoreEnv();
+}
+
+// ---- 10. gates never fail open: a crash / signal / degraded allow is a typed notice with a stderr tail -------------
+{
+  const s = await boot({ env: { RSDD_TEST_RETRO_EXIT: '3', RSDD_TEST_RETRO_ERR: 'retro-gate: boom while reading the corpus' } });
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  const txt = JSON.stringify(r?.entries ?? []);
+  check('a retro gate that exits non-zero without a verdict yields a typed degraded entry quoting stderr, never a silent allow',
+    /retro gate DEGRADED: exit 3/.test(txt) && /boom while reading the corpus/.test(txt) && r?.continue !== true && hasOther(r), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_RETRO_EXIT: 'kill9' } });
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('a retro gate killed by a signal is reported as degraded (code null is not an allow)', /retro gate DEGRADED: killed by SIGKILL/.test(JSON.stringify(r ?? {})), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_TOKEN_EXIT: '9', RSDD_TEST_TOKEN_ERR: 'return-token-gate: jq exploded' } });
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('a crashing return-token gate yields a typed degraded entry with the stderr tail', /return-token gate DEGRADED: exit 9/.test(JSON.stringify(r ?? {})) && /jq exploded/.test(JSON.stringify(r ?? {})), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_TOKEN_ERR: 'return-token-gate: state=allow branch=degraded (transcript unreadable)' } });
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('a degraded allow the gate reports on stderr is surfaced, not discarded', /ran degraded: .*branch=degraded/.test(JSON.stringify(r ?? {})), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  const r2 = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('the entries of other extensions survive every return, with or without our own entries', r2 === undefined || hasOther(r2), JSON.stringify(r2));
+  restoreEnv();
+}
+
+// ---- 11. the pkill guard fails closed on anything but a well-formed allow ------------------------------------------
+{
+  const crash = `#!/usr/bin/env bash\ncat >/dev/null\necho 'jq: command not found' >&2\nexit 5\n`;
+  const s = await boot({ kitOpts: { pkillBody: crash } });
+  const r = await fire(s.pi, 'tool_call', { type: 'tool_call', toolName: 'bash', toolCallId: 'c', input: { command: 'pkill -f x' } }, s.ctx);
+  check('a crashing pkill guard (non-zero exit, empty stdout) blocks with a typed degraded reason', r?.block === true && /DEGRADED \(exit 5/.test(r.reason ?? ''), JSON.stringify(r));
+  restoreEnv();
+  const weird = `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' '{"hookSpecificOutput":{"permissionDecision":"allow-ish"}}'\n`;
+  const s2 = await boot({ kitOpts: { pkillBody: weird } });
+  const r2 = await fire(s2.pi, 'tool_call', { type: 'tool_call', toolName: 'bash', toolCallId: 'c', input: { command: 'pkill -f x' } }, s2.ctx);
+  check('an unrecognised pkill guard answer blocks (only an empty exit-0 answer is an allow)', r2?.block === true && /unrecognised guard output/.test(r2.reason ?? ''), JSON.stringify(r2));
+  restoreEnv();
+  const allow = `#!/usr/bin/env bash\ncat >/dev/null\nexit 0\n`;
+  const s3 = await boot({ kitOpts: { pkillBody: allow } });
+  const r3 = await fire(s3.pi, 'tool_call', { type: 'tool_call', toolName: 'bash', toolCallId: 'c', input: { command: 'pkill -f x' } }, s3.ctx);
+  check('a well-formed allow (exit 0, no stdout) lets the command through', r3 === undefined, JSON.stringify(r3));
+  restoreEnv();
+}
+{
+  const deny = `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"DENY-REASON"}}'\n`;
+  const s = await boot({ kitOpts: { pkillBody: deny } });
+  for (const toolName of ['bash', 'bash_background', 'monitor']) {
+    const r = await fire(s.pi, 'tool_call', { type: 'tool_call', toolName, toolCallId: 'c', input: { command: 'pkill -f x' } }, s.ctx);
+    check(`the pkill guard covers the ${toolName} shell tool`, r?.block === true && /DENY-REASON/.test(r.reason ?? ''), JSON.stringify(r));
+  }
+  restoreEnv();
+}
+
+// ---- 12. the transcript temp file never leaks --------------------------------------------------------------------------
+{
+  const before = readdirSync(PRIVATE_TMP).filter((f) => f.startsWith('rsdd-pi-transcript-')).length;
+  const s = await boot({ kitOpts: { missingToken: true } });
+  rmSync(join(s.kit, 'toolbelt', 'return-token-gate.sh'));
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  const left = readdirSync(PRIVATE_TMP).filter((f) => f.startsWith('rsdd-pi-transcript-')).length;
+  check('with the return-token script missing no transcript is written at all (typed notice instead)', left === before && /return-token gate DEGRADED: script missing/.test(JSON.stringify(r ?? {})), `left=${left} ${JSON.stringify(r)}`);
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_TOKEN_EXIT: '9' } });
+  await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  const left = readdirSync(PRIVATE_TMP).filter((f) => f.startsWith('rsdd-pi-transcript-'));
+  check('the transcript directory is removed even when the gate crashed', left.length === 0, left.join(','));
+  restoreEnv();
+}
+{
+  const s = await boot({ env: { RSDD_TEST_TOKEN_OUT: BLOCK_JSON } });
+  await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  const log = readLog(s.log);
+  const m = log.match(/"transcript_path":"([^"]+)"/);
+  check('the transcript lives in an unpredictable mkdtemp directory, not at a fixed name', !!m && /rsdd-pi-transcript-[A-Za-z0-9]{6}\/transcript\.jsonl$/.test(m[1]), m?.[1]);
+  restoreEnv();
+}
+
+// ---- 13. timeouts kill the whole process group ------------------------------------------------------------------------
+{
+  const pidFile = join(TMP, 'grandchild.pid');
+  const body = `#!/usr/bin/env bash\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
+  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '700' } });
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  await new Promise((r) => setTimeout(r, 300));
+  const pid = Number(readFileSync(pidFile, 'utf8').trim());
+  let alive = true;
+  try { process.kill(pid, 0); } catch { alive = false; }
+  if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* cleanup */ } }
+  check('a timed-out script takes its grandchildren with it (process group kill)', !alive, 'grandchild ' + pid + ' still running');
+  restoreEnv();
+}
+
+// ---- 14. the injected context is capped as a whole ---------------------------------------------------------------------
+{
+  const big = {};
+  for (const h of HOOKS) big[h] = `#!/usr/bin/env bash\nhead -c 7000 /dev/zero | tr '\\0' 'x'\necho\n`;
+  const s = await boot({ kitOpts: { hookBody: big } });
+  const longFail = () => ({ type: 'before_agent_start', prompt: '', systemPrompt: '', systemPromptOptions: { get sections() { throw new Error('E'.repeat(500)); } } });
+  for (let i = 0; i < 12; i++) await fire(s.pi, 'before_agent_start', longFail(), s.ctx); // each failure adds a long notice
+  const ev = startEvent();
+  await fire(s.pi, 'before_agent_start', ev, s.ctx);
+  const txt = sectionOf(ev);
+  check('sweep + notices together stay under 8,000 chars, with the notices kept and a truncation marker', txt.length < 8000 && /EEEEEEEEEE/.test(txt) && /truncated/.test(txt), 'length ' + txt.length);
+  const noticeLines = txt.split('\n').filter((l) => /^Research-SDD hooks DEGRADED/.test(l)).length;
+  check('the notice list is capped at five lines', noticeLines <= 5 && noticeLines >= 1, 'lines ' + noticeLines);
+  restoreEnv();
+}
+{
+  const agent = fresh('agent-many');
+  for (let i = 0; i < 30; i++) mkdirSync(join(agent, 'research-sdd', 'profile', 'p' + i), { recursive: true });
+  setEnv({ GENTLE_PI_AGENT_HOME: agent });
+  const pi = makePi(); (await loadFactory())(pi);
+  const ctx = makeCtx(makeTarget(), 'sess-many');
+  await fire(pi, 'session_start', { type: 'session_start', reason: 'startup' }, ctx);
+  const ev = startEvent(); await fire(pi, 'before_agent_start', ev, ctx);
+  check('the unresolvable-kit notice bounds its "tried" list (30 candidates, a few shown plus a count)', sectionOf(ev).length < 1500 && /\+\d+ more/.test(sectionOf(ev)), 'length ' + sectionOf(ev).length);
+  restoreEnv();
+}
+
+// ---- 15. a failing injection is surfaced, not only noted --------------------------------------------------------------
+{
+  const s = await boot();
+  await fire(s.pi, 'before_agent_start', { type: 'before_agent_start', prompt: '', systemPrompt: '' }, s.ctx); // pi API changed: no sections
+  check('a failed injection calls ctx.ui.notify with an error', s.ctx.notified.some(([lvl, m]) => lvl === 'error' && /before_agent_start failed/.test(m)), JSON.stringify(s.ctx.notified));
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('and appears in the next settle entries (alongside the other extensions\' entries)', /before_agent_start failed/.test(JSON.stringify(r ?? {})) && hasOther(r), JSON.stringify(r));
+  restoreEnv();
+}
+
+// ---- 16. the first prompt is not held hostage by slow sweeps ------------------------------------------------------------
+{
+  const slow = { 'sweep-tools-hook': `#!/usr/bin/env bash\nsleep 1.5\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\n` };
+  const s = await boot({ kitOpts: { hookBody: slow }, env: { RSDD_PI_SWEEP_WAIT_MS: '150' } });
+  const t = Date.now();
+  const ev1 = startEvent(); await fire(s.pi, 'before_agent_start', ev1, s.ctx);
+  const dt = Date.now() - t;
+  check('slow sweeps: the first run waits only the short bound and injects a typed pending line', dt < 1200 && /sweeps pending \(started \d{4}-/.test(sectionOf(ev1)) && !/FINDING/.test(sectionOf(ev1)), `dt=${dt} ${sectionOf(ev1).slice(0, 160)}`);
+  await new Promise((r) => setTimeout(r, 1900));
+  const ev2 = startEvent(); await fire(s.pi, 'before_agent_start', ev2, s.ctx);
+  check('the next run injects the finished sweeps (no pending line)', /FINDING-sweep-tools-hook/.test(sectionOf(ev2)) && !/pending/.test(sectionOf(ev2)), sectionOf(ev2).slice(0, 160));
   restoreEnv();
 }
 

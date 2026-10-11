@@ -204,20 +204,23 @@ if grep -q 'sweep-retros.sh' "$cx" && grep -q 'verify-registry.sh' "$cx"; then o
 else no "pi sweep-fallback doc missing in $cx"; fi
 grep -q 'sweep-retros.sh' "$cl" && no "claude section wrongly carries sweep fallback (has a hook)" || ok "claude section omits sweep fallback (hook fires instead)"
 
-# 8b — kit issue #1110: pi + gentle-shell get MANDATORY session-start and session-end steps (they have no
-#      hooks), and the text says enforcement is Claude-only; claude (hooked) carries none of it.
+# 8b — kit issue #1110: pi + gentle-shell get MANDATORY session-start and session-end steps; since #2123 the
+#      research-sdd-hooks extension owns the sweeps and the gates, so the text names it, keeps the manual steps
+#      as the FALLBACK and no longer says "no hooks"; claude (hooked) carries none of it.
 for pair in "pi:.pi/agent" "gentle-shell:.gentle-shell/agent"; do
   h8="${pair%%:*}"; pf8="$home/${pair#*:}/AGENTS.md"
   if grep -q 'MANDATORY' "$pf8" && grep -qF 'toolbelt/sweep-all.sh' "$pf8" \
      && grep -qF 'toolbelt/stage-retro-issues.sh <retro> --apply' "$pf8" \
-     && grep -q 'Claude Code only' "$pf8"; then ok "$h8 AGENTS.md carries mandatory session-start + session-end steps (Claude-only enforcement stated)"
+     && grep -q 'research-sdd-hooks extension' "$pf8" && grep -q 'FALLBACK' "$pf8" \
+     && ! grep -q 'Claude Code only' "$pf8" && ! grep -q 'has no hooks' "$pf8" && ! grep -q 'nothing blocks you' "$pf8"; then
+    ok "$h8 AGENTS.md names the extension (#2123) as the sweep/gate owner, keeps the manual steps as FALLBACK, and no longer claims there are no hooks"
   else no "$h8 AGENTS.md lacks mandatory session-start/session-end steps (#1110) in $pf8"; fi
 done
 grep -q 'stage-retro-issues.sh' "$cl" && no "claude section wrongly carries manual session-end step (Stop hook fires)" || ok "claude section omits manual session-end step"
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: pi/gentle-shell mandatory session-end step (kit issue #1110) --"
   MSE="$MKI/adapters.MUTANT-SESSIONEND.$$.sh"
-  if mutant_chain "teeth: SESSIONEND" "$HERE/../adapters.sh" "$MSE" '/Session-end retro (MANDATORY/,/stage-retro-issues.sh <retro> --apply/d'; then
+  if mutant_chain "teeth: SESSIONEND" "$HERE/../adapters.sh" "$MSE" '/stage-retro-issues.sh <retro> --apply/d'; then
     out_se="$(bash -c '. "$1"; rsdd_render_section pi /h /h/kit' _ "$MSE" 2>&1)"
     <<<"$out_se" grep -q 'stage-retro-issues.sh' \
       && no "teeth: session-end-less mutant still renders the step — check is THEATER" \
