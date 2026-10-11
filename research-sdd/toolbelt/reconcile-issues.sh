@@ -767,7 +767,7 @@ audit_retro() {
   local _all_row_ids _alt_dups
   _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk "$_RG_AWK_ID_FN"'
     function flushp() { if (pend != "") { print pend; pend = "" } }
-    BEGIN { in_sec=0 }
+    BEGIN { in_sec=0; SENT = sprintf("%c", 1) }
     {
       low = tolower($0)
       if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
@@ -784,9 +784,11 @@ audit_retro() {
       if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
       if (in_sec && /^\|/) {
         line = $0
+        gsub(/\\\|/, SENT, line)   # escaped pipe is cell text (kit issue #2118)
         sub(/^\|[[:space:]]*/, "", line)
         sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
         n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+        for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
         rid = f[1]; gsub(/[[:space:]]/, "", rid)
         if (rg_table_id_skip(rid)) next   # RECONCILE_ISSUES_ID_RULE
         flushp(); pend = rid

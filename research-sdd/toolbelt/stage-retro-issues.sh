@@ -699,7 +699,7 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
   # pend: the last data row, held back one line so a header row (the row directly above a separator) is dropped
   # by position and never becomes a delta (STAGE_RETRO_ISSUES_HEADER_DROP).
   function flushp() { if (pend != "") { print pend; pend = "" } }
-  BEGIN { in_sec=0 }
+  BEGIN { in_sec=0; SENT = sprintf("%c", 1) }
   {
     low = tolower($0)
     if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
@@ -720,8 +720,10 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
       pend = ""   # STAGE_RETRO_ISSUES_HEADER_DROP
       if (prev != "") {
         hl = tolower(prev)
+        gsub(/\\\|/, SENT, hl)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE (kit issue #2118): a GFM-escaped pipe is cell text
         sub(/^\|[[:space:]]*/, "", hl); sub(/[[:space:]]*\|[[:space:]]*$/, "", hl)
         hn = split(hl, h, /[[:space:]]*\|[[:space:]]*/)
+        for (k = 1; k <= hn; k++) gsub(SENT, "|", h[k])
         ct = cg = ce = cy = cp = 0
         for (k = 2; k <= hn; k++) {
           if (!ct && h[k] ~ /^(proposed change|proposed delta|proposal|title|delta|gist|change|rule \/ change|delta propuesto)/) ct = k
@@ -751,9 +753,11 @@ _rows="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_file" | awk "$_RG_AWK_
     if (in_sec && /^\|/) {
       prev = $0
       line = $0
+      gsub(/\\\|/, SENT, line)   # STAGE_RETRO_ISSUES_ESCAPED_PIPE
       sub(/^\|[[:space:]]*/, "", line)
       sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
       n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+      for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
       rid = f[1]; gsub(/[[:space:]]/, "", rid)
       if (rg_table_id_skip(rid)) next   # STAGE_RETRO_ISSUES_LETTERED_ID (shared rule, lib/retro-grammar.sh)
       flushp()

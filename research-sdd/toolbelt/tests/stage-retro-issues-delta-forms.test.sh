@@ -150,7 +150,18 @@ c_unrec_list_failed() {
   count 2; req 'unclassifiable-items: 1'; req 'retro-level=1'; verdict
 }
 
-CHECKS="c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
+# GFM-escaped pipes inside cells (kit issue #2118): header cell, FIRST data cell, MIDDLE cell (quotes the header),
+# LAST cell and a two-cell row. The escaped pipe is cell text, never a column break; it is rendered unescaped (`|`),
+# and the renderer re-escapes it only where a markdown table needs it, so a round trip never double-escapes.
+c_escaped_pipe() {
+  local b; b="$(mkbox "ep$1")" || return 1; run "$b" escaped-pipe.md; MSG=""
+  count 4; req 'escaped-pipe.md · E|1'; req '**Target:** `a.sh`'; req '**Evidence:** EVFIRST'
+  req 'Middle cell quotes the header `| ID | Delta | Target | Evidence | Priority |` verbatim'; req '**Target:** `b.sh`'; req '**Evidence:** EVMIDDLE'
+  req '**Evidence:** EVLAST'; req 'planned-issue: Only|two|cells here, no target'
+  forbid '\'; forbid 'priority:high'; forbid 'unclassifiable-row'; req 'unclassifiable-items: 0'; verdict
+}
+
+CHECKS="c_escaped_pipe c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -186,6 +197,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth c_dup_ids       dup-check-off     'PLANNED: 4 != 0'  sut 's/^    if \[ -n "\$_dups" \]; then$/    if false; then/'
   tooth c_header_hyphen header-drop-off   'PLANNED: 2 != 1'  sut '/STAGE_RETRO_ISSUES_HEADER_DROP/s/pend = ""/pend = pend/'
   tooth c_titles        cut-splits-utf8   'INVALID UTF-8'    lib '/ALT_CUT_BACKOFF/s/.*/        k = k/'
+  tooth c_escaped_pipe  escaped-pipe-off  'PLANNED: 2 != 4' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE/s/gsub(\/\\\\\\|\/, SENT/gsub(\/NEVERMATCHES\/, SENT/'
   echo "-- prove-teeth done --"
 fi
 
