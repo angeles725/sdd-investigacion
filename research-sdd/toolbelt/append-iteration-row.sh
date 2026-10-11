@@ -70,7 +70,7 @@ function cells(s,   i, n, ch, prev) {
   for (i = 1; i <= length(s); i++) {
     ch = substr(s, i, 1)
     if (ch == "|" && prev != "\\") { if (i < length(s)) n++ }
-    prev = (prev == "\\" && ch == "\\") ? "" : ch
+    prev = ch   # AIR_ANY_BACKSLASH_PIPE_ESCAPES: GFM drops the backslash of ANY `\|`, whatever precedes it (kit issue #2135)
   }
   return n
 }
@@ -136,9 +136,11 @@ END {
   if (ES[last]) { print "append-iteration-row: ERROR: MALFORMED-TABLE last table row at line " last " opens an HTML comment that closes on a later line; a row appended after it would be hidden" > "/dev/stderr"; exit 6 }
   row = ENVIRON["AIR_ROW"]; sub(/^[ \t]+/, "", row); sub(/[ \t]+$/, "", row)
   if (substr(row, 1, 1) != "|") row = "| " row
-  # closing pipe: missing, or present but escaped (an ODD run of backslashes before it, same rule as cells())
-  nb = 0; while (length(row) - 1 - nb >= 1 && substr(row, length(row) - 1 - nb, 1) == "\\") nb++
-  if (substr(row, length(row), 1) != "|" || nb % 2 == 1) row = row " |"
+  # closing pipe: missing, or present but escaped. GFM treats ANY backslash directly before a pipe as an escape
+  # (`a\\|` renders `a|`, verified against GitHub POST /markdown), the same rule as cells(). The pipe is appended after
+  # a space, so a last cell ending in a backslash (`a\`) renders as `a\`, never as an escaped separator.
+  esc_end = (length(row) >= 2 && substr(row, length(row) - 1, 1) == "\\")
+  if (substr(row, length(row), 1) != "|" || esc_end) row = row " |"
   want = cells(V[hdr]); got = cells(row)
   if (want != got) { print "append-iteration-row: ERROR: CELL-COUNT-MISMATCH row has " got " cell(s), the table header has " want > "/dev/stderr"; exit 7 }
   for (i = 1; i <= last; i++) print L[i]

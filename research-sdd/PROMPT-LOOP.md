@@ -27,7 +27,7 @@ state from disk, so running it N times advances the corpus without stepping on i
    inside an already-running `/loop` invocation of either mode — in dynamic mode the `/loop` runtime
    + ScheduleWakeup IS the re-invoker. Do not launch when a cron/wakeup is already armed; check and
    proceed directly if one is active.
-   NO `/loop`, ScheduleWakeup, Cron* or Agent tool (gentle-shell / pi)? Use the equivalents in SKILL.md's
+   A harness with none of `/loop`, ScheduleWakeup, Cron* or the Agent tool (gentle-shell / pi)? Use the equivalents in SKILL.md's
    "Harness crosswalk" (continuation, `subagent_run`, per-agent models, `.claude/` dir note); the STOP TEARDOWN rule holds.
 3. The loop stops on its own ONLY when the stopping criterion fires (read-only-investigable exhausted, or
    backlog empty 2× in a row) — see [`METHODOLOGY.md`](METHODOLOGY.md) §8. Until then it keeps iterating.

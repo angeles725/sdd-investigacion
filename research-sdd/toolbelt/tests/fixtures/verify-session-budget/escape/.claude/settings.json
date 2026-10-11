@@ -1,0 +1,4 @@
+{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[
+ {"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/writes.sh"},
+ {"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/net.sh"},
+ {"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/envs.sh"}]}]}}

@@ -246,7 +246,7 @@ answer directly (quick) or run a scoped Explore and return the map (light) — d
    `/loop /research-sdd <target> a fondo`; the re-fire depends on the agent calling ScheduleWakeup
    at the ~60s floor. FALLBACK: if the dynamic run halts after a single block or the harness has no
    ScheduleWakeup, use fixed-interval: `/loop 5m /research-sdd <target> a fondo`.
-   Harness without `/loop` or ScheduleWakeup: see the Harness crosswalk below.
+   Harness with neither `/loop` nor ScheduleWakeup (e.g. gentle-shell / pi): see the Harness crosswalk below.
 
 **Walls & evidence (never a silent skip).** A wall is a MISSING CAPABILITY, not an absent answer:
 record a TYPED state — `blocked-on-tool` (name the exact capability), `unavailable` (the instrument ran

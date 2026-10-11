@@ -497,6 +497,29 @@ else
   _got="$(retro_grammar_row_titles "$ROOT/rowtitles-entry.md" | tr '\037\n' '|,')"
   [ "$_got" = "D4|entry form delta title,D5|second entry form delta," ] \
     && ok "T55 entry form (### D<N> — title) yields the entry titles" "($_got)" || no "T55 entry-form titles" "got=[$_got]"
+  # T56 (kit issue #2118): GFM-escaped pipes are cell text. The header cell `Kind \| tag` must not shift the title
+  # column; the middle row quotes a table header; the last row has two cells; the `E\|1` id row (pipe in an ID) is
+  # unclassifiable (typed by stage/reconcile) and never a title row.
+  _EPF="$HERE/fixtures/stage-retro-issues/escaped-pipe.md"
+  _EP_GOOD='2|Middle cell quotes the header `| ID | Delta | Target | Evidence | Priority |` verbatim,3|Last cell escaped pipe delta, long enough,4|Only|two|cells here, no target,'
+  _got="$(retro_grammar_row_titles "$_EPF" | tr '\037\n' '|,')"
+  [ "$_got" = "$_EP_GOOD" ] \
+    && ok "T56 escaped pipes: header/middle/last cells intact, pipe-in-id row skipped" "(${_got:0:60}…)" || no "T56 escaped-pipe row titles" "got=[$_got]"
+  # T57 (kit issue #2135): GFM treats ANY `\|` as an escaped pipe, so an even run (`\\|`) is NOT a column break
+  # (GitHub POST /markdown: `x\\| y` renders one cell `x| y`). Both table headers (`Kind\\| tag`, `Kind\\\| tag`) are one
+  # cell, so the title column is 3; rows 1 and 7 hold a pipe in their id (skipped, typed by stage/reconcile); row 2 has a
+  # middle even run, row 3 a last-cell even run, row 4 a middle odd run; row 6's id `6\` is listed (the id-safety typing is
+  # stage/reconcile's, T58); row 6 (`6\`) and row 8 (`8 x`) are signature-unsafe ids, so they are dropped here too.
+  _DBF="$HERE/fixtures/stage-retro-issues/double-backslash-pipe.md"
+  _DB_GOOD='2|Middle cell ends in a path C:\| still one cell,3|Last cell title ends in C:\|,4|Odd run C:\\| stays in one cell,5|Table B title long enough,'
+  _got="$(retro_grammar_row_titles "$_DBF" | tr '\037\n' '|,')"
+  [ "$_got" = "$_DB_GOOD" ] \
+    && ok "T57 backslash runs: any \\| is an escaped pipe, even and odd runs, header/first/middle/last cells" "(${_got:0:60}…)" || no "T57 double-backslash row titles" "got=[$_got]"
+  # T58 (kit issue #2135): retro_grammar_id_signature_safe - only [A-Za-z0-9_-] round-trips through the issue signature.
+  _t58=""
+  for _id in D1 A-1 x_2 B12 SPKI-A; do retro_grammar_id_signature_safe "$_id" || _t58="$_t58 safe:$_id"; done
+  for _id in '' '1\' 'a|b' 'D.1' '**D1**' 'é1' 'D 1' '1\\'; do retro_grammar_id_signature_safe "$_id" && _t58="$_t58 unsafe:$_id"; done
+  [ -z "$_t58" ] && ok "T58 id signature-safety: [A-Za-z0-9_-]+ passes, backslash/pipe/dot/markup/accent/empty fail" "()" || no "T58 id signature-safe" "wrong:$_t58"
 fi
 
 echo ""
@@ -718,6 +741,7 @@ else
     # Build mirror tree so copies resolve HERE/../lib/ → real lib — Blocker 2 fix.
     _sf_mirror="$ROOT/sf-mirror"
     mkdir -p "$_sf_mirror/tests"
+    ln -s "$HERE/fixtures"           "$_sf_mirror/tests/fixtures"   # T56 reads fixtures/stage-retro-issues/escaped-pipe.md
     ln -s "$HERE/../lib"             "$_sf_mirror/lib"
     ln -s "$HERE/../sweep-retros.sh" "$_sf_mirror/sweep-retros.sh"
     ln -s "$HERE/../verify-retro.sh" "$_sf_mirror/verify-retro.sh"
@@ -895,6 +919,21 @@ rt_mutant() {
 }
 rt_mutant T1 's/(proposed change|proposed delta|proposal/(NEVERMATCH|proposed delta|proposal/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
 rt_mutant T2 '/sed -E .s\/\^\\\*\\\*/s/.*/      _dl="$_dl"/' "$ROOT/rowtitles-table.md" "3|header named column title,4|second bold header title,5|bold,"
+# T56 teeth (kit issue #2118): each patched copy has its own marker, so each mutant bites only its own line.
+rt_mutant E1 '/RETRO_GRAMMAR_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/' "$_EPF" "$_EP_GOOD"
+rt_mutant E2 '/RETRO_GRAMMAR_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/' "$_EPF" "$_EP_GOOD"
+rt_mutant E3 '/RETRO_GRAMMAR_ID_PIPE/s/if (index(rid, "|")) next/if (0) next/;s/retro_grammar_id_signature_safe "\$_id" || continue/:/' "$_EPF" "$_EP_GOOD"
+# T57 teeth (kit issue #2135): the shared rule and each row_titles call site, against the backslash-run fixture.
+rt_mutant E4 '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/' "$_DBF" "$_DB_GOOD"
+rt_mutant E5 '/RETRO_GRAMMAR_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/' "$_DBF" "$_DB_GOOD"
+rt_mutant E8 's/retro_grammar_id_signature_safe "\$_id" || continue/:/' "$_DBF" "$_DB_GOOD"
+rt_mutant E6 '/RETRO_GRAMMAR_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/' "$_DBF" "$_DB_GOOD"
+# T58 tooth: a safe-check that accepts everything must flip the T58 verdicts.
+_m58="$ROOT/t58-mut.sh"
+if mutant_sed "$RG_LIB" "$_m58" -e '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'; then
+  _g58="$("$BASH_BIN" -c '. "$1"; retro_grammar_id_signature_safe "1\\"; echo $?' _ "$_m58" 2>/dev/null)"
+  [ "$_g58" = 0 ] && ok "T1811-E7 teeth: an accept-all id-safety mutant lets the backslash id through → T58 has teeth" "()" || no "T1811-E7 teeth" "THEATER: got=[$_g58]"
+else no "T1811-E7: build mutant" "mutant_sed refused"; fi
 rt_mutant T3 's/\[ -n "\$_rows" \] || _rows="\$(retro_grammar_entry_rows/: || _rows="$(retro_grammar_entry_rows/' "$ROOT/rowtitles-entry.md" "D4|entry form delta title,D5|second entry form delta,"
 
 echo ""
