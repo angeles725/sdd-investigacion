@@ -47,6 +47,12 @@ unexecuted routes are `[INFER]`/proposed), and rewrite any bare "no" you find, y
 The toolbelt scripts resolve their OWN location internally, so `$KIT` is only needed to FIND the docs and
 invoke the scripts; nothing downstream re-hardcodes this path.
 
+**Prompts vs. state.** When `Kit path:` is a rendered profile copy (pi, gentle-shell: `.../research-sdd/profile/<profile>`)
+and the launcher also carries a `Kit checkout:` line, read the prompts (`METHODOLOGY.md`, `PROMPT-LOOP.md`, this skill)
+from `Kit path:`, but send everything mutable to the checkout: registry and ledger edits (`TARGETS.md`,
+`BREAKTHROUGHS.md`, `INSTALLED-TOOLS.md`) and every `toolbelt/` run. Without that line, derive the
+checkout with `readlink -f "$KIT/toolbelt/.."`. Never write into the profile copy: those edits never reach the kit.
+
 ## Arguments
 
 `/research-sdd <target-or-path> [focus] [new|continue]` — OR free-form: a path plus a natural-language

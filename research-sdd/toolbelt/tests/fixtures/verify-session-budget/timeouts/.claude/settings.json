@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh","timeout":1}]}]}}
