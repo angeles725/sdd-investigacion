@@ -70,3 +70,4 @@ suite-impact uses eval on built text inside its fixture suites (the audit detect
 run-all-default-root runs suites by a computed $HERE/$name.test.sh path
 run-all runs suites by a computed $HERE/$name.test.sh path
 shard-join runs suites by a computed $HERE/$name.test.sh path
+kit-flake-hunt runs suites by a computed $HERE/$name.test.sh path
