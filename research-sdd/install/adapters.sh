@@ -142,7 +142,15 @@ rsdd_field() {
   local harness="$1" field="$2" home="${3:-${HOME:-}}"
   local rel="${_RSDD_CONFIG_ROOT_REL[$harness]:-}"
   if [ -z "$rel" ]; then echo "rsdd_field: unknown harness '$harness'" >&2; return 2; fi
-  local root="$home/$rel" plug
+  local root="$home/$rel" plug override
+  # pi honours GENTLE_PI_AGENT_HOME, then PI_CODING_AGENT_DIR, then ~/.pi/agent (the research-sdd-hooks extension
+  # resolves its agent home the same way, kit issue #2139). Applies to the pi harness only, and only when <home> is
+  # the invoking user's own $HOME: an explicit `--home <dir>` redirects the whole config root and wins, and
+  # gentle-shell keeps its isolated agent home.
+  if [ "$harness" = pi ] && [ "$home" = "${HOME:-}" ]; then
+    override="${GENTLE_PI_AGENT_HOME:-${PI_CODING_AGENT_DIR:-}}"
+    if [ -n "$override" ]; then root="${override%/}"; fi
+  fi
   case "$field" in
     config_root)             printf '%s\n' "$root" ;;
     skills_dir)              printf '%s\n' "$root/skills" ;;

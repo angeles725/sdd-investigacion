@@ -80,6 +80,47 @@ else no "structural: parity extraction saw $n_all scripts / $n_src wrappers"; fi
 # the extension file must not carry a name the gentle-ai bundle owns
 case "$(basename "$SUT")" in review-*|jd-*|gentle-ai-*) no "structural: extension file name collides with a reserved prefix" ;; *) ok "structural: file name is kit-unique (research-sdd-hooks.ts)" ;; esac
 
+# --- installer agent home (kit issue #2139 item 2) -----------------------------------------------------
+# pi honours GENTLE_PI_AGENT_HOME, then PI_CODING_AGENT_DIR, then ~/.pi/agent; the extension resolves its agent home that
+# way, so the installer must deploy to the same place or the skill, prompts and extension land where pi does not load them.
+ADAPTERS="$KIT/install/adapters.sh"
+INSTALLER="$KIT/install/research-sdd-install.sh"
+# home_checks ADAPTERS-FILE — one LABEL per FAILED expectation of rsdd_field config_root (silent = all hold).
+home_checks() {
+  local f="$1" h="$TMP/hc-home"
+  mkdir -p "$h"
+  r() {
+    (
+      set +u; export HOME="$h"; unset GENTLE_PI_AGENT_HOME PI_CODING_AGENT_DIR
+      for kv in "${@:3}"; do export "${kv?}"; done
+      # shellcheck source=/dev/null
+      . "$f" || exit 9
+      rsdd_field "$1" config_root "${2:-$h}"
+    )
+  }
+  [ "$(r pi "$h")" = "$h/.pi/agent" ] || echo "home-default-unchanged"
+  [ "$(r pi "$h" PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/pi-dir" ] || echo "home-pi-coding-agent-dir"
+  [ "$(r pi "$h" GENTLE_PI_AGENT_HOME=/x/g PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/g" ] || echo "home-gentle-pi-agent-home-first"
+  [ "$(r pi "$h" GENTLE_PI_AGENT_HOME= PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/pi-dir" ] || echo "home-empty-gentle-falls-through"
+  [ "$(r pi "$h" PI_CODING_AGENT_DIR=/x/pi-dir/)" = "/x/pi-dir" ] || echo "home-trailing-slash-trimmed"
+  [ "$(r gentle-shell "$h" PI_CODING_AGENT_DIR=/x/pi-dir GENTLE_PI_AGENT_HOME=/x/g)" = "$h/.gentle-shell/agent" ] || echo "home-gentle-shell-isolated"
+  [ "$(r claude "$h" PI_CODING_AGENT_DIR=/x/pi-dir)" = "$h/.claude" ] || echo "home-claude-untouched"
+  [ "$(r pi "$TMP/other" PI_CODING_AGENT_DIR=/x/pi-dir)" = "$TMP/other/.pi/agent" ] || echo "home-explicit-home-wins"
+}
+out="$(home_checks "$ADAPTERS")"
+if [ -z "$out" ]; then ok "installer home: pi resolves GENTLE_PI_AGENT_HOME -> PI_CODING_AGENT_DIR -> ~/.pi/agent; gentle-shell, claude and an explicit home are unaffected"
+else no "installer home: $(printf '%s' "$out" | tr '\n' ';')"; fi
+# the extension and the installer must agree on the order
+if grep -q 'process\.env\.GENTLE_PI_AGENT_HOME || process\.env\.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent")' "$SUT"; then
+  ok "installer home: the extension's agentHome() uses the same order the installer does"
+else no "installer home: the extension's agentHome() order changed - keep it equal to rsdd_field's"; fi
+# end to end through the real installer (dry run): the plan names the custom agent home
+e2e_home="$TMP/e2e-home"; mkdir -p "$e2e_home"
+e2e="$(HOME="$e2e_home" PI_CODING_AGENT_DIR="$TMP/custom-pi" bash "$INSTALLER" --harness pi --dry-run 2>&1)"
+if grep -q "INSTALL  *$TMP/custom-pi/skills/research-sdd/SKILL.md" <<<"$e2e" && ! grep -q "$e2e_home/.pi/agent" <<<"$e2e"; then
+  ok "installer home: a dry-run pi install under PI_CODING_AGENT_DIR targets that directory only"
+else no "installer home: dry-run did not target PI_CODING_AGENT_DIR: $(grep -m2 -E 'INSTALL|SPLICE' <<<"$e2e" | tr '\n' ';')"; fi
+
 # --- behavior (needs Node's built-in TypeScript type stripping) -----------------------------------------
 HAVE_TS=0
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.features.typescript ? 1 : 0' 2>/dev/null)" = 1 ]; then HAVE_TS=1; fi
@@ -170,6 +211,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth entries-replaced      struct   settle-keeps-other-extensions-entries 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
   tooth shell-tools-narrowed  struct   pkill-covers-every-shell-tool 's/SHELL_TOOLS\.has(event\.toolName)/event.toolName === "bash"/'
   tooth transcript-predictable struct  transcript-private-and-exclusive 's/flag: "wx"/flag: "w"/'
+  # installer-home mutants (adapters.sh): home_checks must name the label that broke
+  htooth() {
+    local name="$1" expect="$2" r; shift 2
+    local a=() e; for e in "$@"; do a+=(-e "$e"); done
+    if ! MUTANT_SYNTAX=none mutant_sed "$ADAPTERS" "$M/$name.sh" "${a[@]}" >/dev/null 2>&1; then no "teeth $name: mutant could not be built (pattern absent / refused)"; return; fi
+    r="$(home_checks "$M/$name.sh")"
+    if grep -q "^$expect" <<<"$r"; then ok "teeth $name: installer-home check '$expect' goes red"
+    else no "teeth $name: expected installer-home label '$expect', got [$(printf '%s' "$r" | tr '\n' ';')] - THEATER"; fi
+  }
+  htooth home-override-dropped  home-pi-coding-agent-dir     's/if \[ "\$harness" = pi \] \&\& \[ "\$home" = "\${HOME:-}" \]; then/if false; then/'
+  htooth home-order-swapped     home-gentle-pi-agent-home-first 's/override="\${GENTLE_PI_AGENT_HOME:-\${PI_CODING_AGENT_DIR:-}}"/override="${PI_CODING_AGENT_DIR:-${GENTLE_PI_AGENT_HOME:-}}"/'
+  htooth home-leaks-to-gentle   home-gentle-shell-isolated   's/if \[ "\$harness" = pi \] \&\& \[ "\$home" = "\${HOME:-}" \]; then/if [ "$harness" != claude ] \&\& [ "$home" = "${HOME:-}" ]; then/'
+  htooth home-ignores-explicit  home-explicit-home-wins      's/ \&\& \[ "\$home" = "\${HOME:-}" \]; then/; then/'
+  htooth home-slash-kept        home-trailing-slash-trimmed  's/root="\${override%\/}"/root="$override"/'
   # behavior-only mutants: invariants a grep cannot see
   tooth child-guard-behavior  behavior - 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
   tooth outcome-gate-behavior behavior - 's/event\.outcome !== "completed" || event\.continue/false/'
@@ -191,6 +246,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-forced-resolve     behavior - 's/FORCE_RESOLVE_MS = 500;/FORCE_RESOLVE_MS = 600000;/'
   tooth ask-always-blocks     behavior - 's/verdict\.permissionDecision === "ask" \&\& ctx?\.hasUI/false \&\& ctx?.hasUI/'
   tooth inject-once           behavior - 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;.*$/if (!st.noticed.has("inj")) { st.noticed.add("inj"); event.systemPromptOptions.sections[SECTION_KEY] = text; }/'
+  tooth corpus-late-ignored   behavior - 's/if (cur\.corpus || !cur\.target || !isCorpus(cur\.target)) return;/return;/'
   tooth block-once-removed    behavior - 's/cur\.retroBlocked = true;//'
   tooth token-block-once      behavior - 's/cur\.tokenBlocked = true;//'
   tooth silent-missing-script behavior - 's/degraded: `script missing at \${script}`/degraded: ""/'

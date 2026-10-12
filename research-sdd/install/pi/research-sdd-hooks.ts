@@ -238,6 +238,15 @@ function finalContext(sweep: string, notices: string[]): string {
   return [body, noticeText].filter(Boolean).join("\n");
 }
 
+// A corpus can appear after session_start (research-sdd-init creates RESEARCH-STATE.md during the session). The flag
+// decided once at session_start would leave the settle gates dead for that session (kit issue #2139), so every
+// before_agent_start / settle re-checks with one readdir and, when the corpus has appeared, records the sha from then on.
+async function adoptCorpus(cur: HookState): Promise<void> {
+  if (cur.corpus || !cur.target || !isCorpus(cur.target)) return;
+  cur.corpus = true;
+  await recordSessionSha(cur);
+}
+
 async function recordSessionSha(st: HookState): Promise<void> {
   const file = join(st.target, ".claude", `.rsdd-session-${st.sid}`);
   try { if (existsSync(file) && statSync(file).size > 0) return; } catch { /* fall through and rewrite */ }
@@ -368,6 +377,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     await guard("before_agent_start", async () => {
       const cur = st;
+      await adoptCorpus(cur);
       let sweep = cur.sweepText;
       if (sweep === null) {
         sweep = await withTimeout<string | null>(cur.startup, envMs("RSDD_PI_SWEEP_WAIT_MS", 3000), null);
@@ -383,6 +393,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_before_settle", async (event, ctx) => {
     return guard("agent_before_settle", async () => {
       const cur = st;
+      await adoptCorpus(cur);
       // Print mode (-p) writes ONLY the text of the final message, and only when that message is an assistant message: an
       // appended entry or a re-prompt replaces the answer already given with an empty stdout and rc 0 (kit issue #2177).
       // So there nothing is appended or continued, and the gates do NOT run at all: a gate that ran would write its

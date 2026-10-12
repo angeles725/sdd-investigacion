@@ -132,7 +132,7 @@ function makeTarget(corpus = true, git = false) {
   if (corpus) write(join(t, 'RESEARCH-STATE.md'), '# state\n');
   if (git) {
     const g = (...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
-    g('init', '-q'); g('add', '-A'); g('commit', '-q', '-m', 'init');
+    g('init', '-q'); g('add', '-A'); g('commit', '-q', '--allow-empty', '-m', 'init');
   }
   return t;
 }
@@ -690,6 +690,32 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   const ui = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
   const u = await captureStderr(() => fire(ui.pi, 'agent_before_settle', settleEvent(), { ...ui.ctx, mode: 'tui' }));
   check('a non-print mode still gets the entry and the continuation, with nothing on stderr', u.result?.continue === true && !/RETRO-REQUIRED|NOT evaluated/.test(u.stderr), JSON.stringify([u.result, u.stderr]));
+  restoreEnv();
+}
+
+// ---- 20. a corpus created mid-session is gated from then on (#2139 item 1) ----------------------------------------------
+// research-sdd-init can create RESEARCH-STATE.md during the session; the corpus flag decided once at session_start would
+// leave the settle gates dead and no session sha recorded, with no notice.
+{
+  const s = await boot({ corpus: false, git: true, sid: 'sess-late', env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const shaFile = join(s.target, '.claude', '.rsdd-session-sess-late');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  check('before the corpus exists: no sha file and no gate (unchanged)', !existsSync(shaFile) && !/GATE/.test(readLog(s.log)));
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  const head = spawnSync('git', ['-C', s.target, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  check('a corpus that appears mid-session gets its session sha recorded at the next run', existsSync(shaFile) && readFileSync(shaFile, 'utf8').trim() === head && head.length === 40);
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('and the settle gate runs for it', r?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(r)) && /GATE retro/.test(readLog(s.log)), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  // created after the last before_agent_start: the settle itself re-evaluates
+  const s = await boot({ corpus: false, git: true, sid: 'sess-late2', env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('a corpus created during the run is gated at that very settle, with its sha recorded',
+    r?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(r)) && existsSync(join(s.target, '.claude', '.rsdd-session-sess-late2')), JSON.stringify(r));
   restoreEnv();
 }
 
