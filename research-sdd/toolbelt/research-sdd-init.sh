@@ -55,12 +55,16 @@
 #           EXISTING corpus, never implicit scaffolding of a marker-less target) · --scaffold given
 #           without --wire is a usage error (exit 2): it has no effect on its own.
 #
-# --portable (kit issue #2175): installs templates/hook-kit-run.sh create-only as <target>/tools/hooks/kit-run.sh and writes/prints
-#           settings.json commands with no absolute path: the return-token gate, drift hook and pkill guard run through that
-#           runner (bash "$CLAUDE_PROJECT_DIR"/tools/hooks/kit-run.sh toolbelt/<tool>.sh), the per-target hooks via
-#           "$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh. Default (no flag): unchanged, absolute kit paths. Also: the Stop retro gate goes through the
-#           runner (no per-target retro-gate-stop.sh / pkill-guard.sh copy), .gitignore tracks settings.json + research-protocol.sh
-#           (a blanket `.claude/` line is WARNed about, never rewritten), and existing absolute entries are rewritten, not duplicated.
+# PORTABLE wiring (kit issues #2175, #2183) is the DEFAULT for every scaffold / --wire run: installs templates/hook-kit-run.sh create-only as
+#           <target>/tools/hooks/kit-run.sh and writes/prints settings.json commands with no absolute path: the return-token gate,
+#           drift hook and pkill guard run through that runner (bash "$CLAUDE_PROJECT_DIR"/tools/hooks/kit-run.sh toolbelt/<tool>.sh),
+#           the per-target SessionStart hook via "$CLAUDE_PROJECT_DIR"/.claude/hooks/research-protocol.sh. The Stop retro gate goes through the
+#           runner too (no per-target retro-gate-stop.sh / pkill-guard.sh copy), .gitignore tracks settings.json + research-protocol.sh
+#           (a blanket `.claude/` line is WARNed about, never rewritten), so a fresh `git clone` of the target has working hooks, and
+#           existing absolute entries are rewritten, not duplicated (two old entries that rewrite to the same command collapse to one).
+#           --absolute opts out (the pre-#2183 wiring: absolute kit/target paths, per-target hook copies, `.claude/` ignored); --portable is
+#           accepted as an explicit no-op spelling of the default; both together is exit 2. PROPOSE-NEVER-APPLY: a target that is not
+#           re-run through init/--wire is never touched.
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
@@ -166,7 +170,7 @@ if [ ! -f "$_ri_cm_lib" ]; then echo "research-sdd-init: cannot find helper $_ri
 declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helper $_ri_cm_lib failed to define corpus_has_marker" >&2; exit 1; }
 unset _ri_cm_lib
 
-target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0; engram_project=""; engram_project_given=0; portable=0
+target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0; engram_project=""; engram_project_given=0; portable=1; portable_given=0; absolute_given=0   # kit issue #2183: portable is the DEFAULT; --absolute opts out
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
@@ -176,25 +180,28 @@ while [ $# -gt 0 ]; do
     --force)    force=1; shift;;
     --wire)    wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
-    --portable) portable=1; shift;;   # kit issue #2175: wire kit-owned hooks through the tracked tools/hooks/kit-run.sh resolver (no absolute path)
+    --portable) portable=1; portable_given=1; shift;;   # kit issues #2175/#2183: the default since #2183, kept as an explicit no-op spelling (tools/hooks/kit-run.sh resolver, no absolute path)
+    --absolute) portable=0; absolute_given=1; shift;;   # kit issue #2183: opt out of the portable default - absolute kit/target paths in settings.json, per-target hook copies (the pre-#2183 wiring)
     --scaffold) scaffold=1; shift;;   # kit issue #1047: explicit opt-in to scaffold+wire in one call
     --document) document=1; shift;;   # kit issue #1114: seed the DOCUMENT CYCLE (outline-driven) RESEARCH-STATE variant
     -*)         echo "unknown flag: $1" >&2; exit 2;;
     *)          target="$1"; shift;;
   esac
 done
-[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject \"<phrase>\"] [--engram-project <name>] [--force] [--wire] [--no-wire] [--scaffold] [--document]" >&2; echo "       a new target is made Engram-writable (.engram/config.json, create-only); init cannot call MCP, so the AGENT must call mem_session_start(directory=<target>) before the first section-20 mirror (kit issue #1903)" >&2; exit 2; }
+[ -n "$target" ] && [ -d "$target" ] || { echo "usage: research-sdd-init.sh <target-dir> [--corpus auto|nested|flat] [--prefix <slug>] [--subject \"<phrase>\"] [--engram-project <name>] [--force] [--wire] [--no-wire] [--scaffold] [--document] [--portable|--absolute]" >&2; echo "       a new target is made Engram-writable (.engram/config.json, create-only); init cannot call MCP, so the AGENT must call mem_session_start(directory=<target>) before the first section-20 mirror (kit issue #1903)" >&2; exit 2; }
 # kit issue #1903: --engram-project is the registered TARGETS.md name written verbatim as project_name; a malformed value is a typed usage error before any write.
 if [ "$engram_project_given" = 1 ] && ! [[ "$engram_project" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
   echo "usage: --engram-project value '$engram_project' must match [a-z0-9][a-z0-9._-]* (the TARGETS.md target name)" >&2; exit 2
 fi
+# kit issue #2183: the two spellings are opposites; asking for both is a usage error before any write.
+[ "$portable_given" = 1 ] && [ "$absolute_given" = 1 ] && { echo "usage: --portable and --absolute are mutually exclusive (portable is the default; --absolute opts out of it)" >&2; exit 2; }
 # kit issue #1047: --scaffold has no effect on its own — it only opts a marker-less target INTO
 # scaffolding when paired with --wire. Reject rather than silently ignore, so a typo (or a
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
 [ "$scaffold" = 1 ] && [ "$wire" = 0 ] && { echo "usage: --scaffold requires --wire (it only opts a marker-less target into scaffold+wire; pass --scaffold --wire, or drop --scaffold for the ordinary print-only scaffold)" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
 # kit issue #2175: the COMMAND strings written into settings.json (the hook FILES below keep their $target paths).
-# Default: absolute paths, as before. --portable: nothing absolute - the per-target hooks use "$CLAUDE_PROJECT_DIR", the kit-owned
+# Default (kit issue #2183) = portable: nothing absolute; --absolute keeps absolute paths, as before. Portable: the per-target hooks use "$CLAUDE_PROJECT_DIR", the kit-owned
 # ones (return-token gate, drift hook, pkill guard) go through the target's tools/hooks/kit-run.sh, which resolves the kit at run time.
 _C_STOP="$target/.claude/hooks/retro-gate-stop.sh"; _C_SS="$target/.claude/hooks/research-protocol.sh"; _C_PK="$target/.claude/hooks/pkill-guard.sh"
 _RSDD_RUNNER_REL="tools/hooks/kit-run.sh"
@@ -239,6 +246,20 @@ _rsdd_migrate_base() {
     if ((.hooks // null) | type) == "object" then
       .hooks |= with_entries(.value |= (if type == "array" then map(if (type == "object" and ((.hooks // null) | type) == "array")
         then .hooks |= map(if (type == "object" and ((.command // null) | type) == "string") then .command |= fix else . end) else . end) else . end))
+      # kit issue #2183: two old entries can rewrite to the SAME portable command (an absolute and a $CLAUDE_PROJECT_DIR entry of the one
+      # pkill guard): keep the first (per event + matcher) of each rewritten-to command, drop the later copies, remove an entry left empty.
+      | ([$sn, $ssn, $pkn, $gate, $drift]) as $mine
+      | def dedup: reduce .[] as $e ({seen: [], out: []};
+          if ($e | type) == "object" and (($e.hooks // null) | type) == "array" then
+            ($e.matcher // "") as $m
+            | (reduce $e.hooks[] as $h ({seen: .seen, keep: []};
+                if ($h | type) == "object" and (($h.command // null) | type) == "string" and ($mine | any(. == $h.command)) then
+                  (if (.seen | any(. == [$m, $h.command])) then . else (.seen += [[$m, $h.command]]) | (.keep += [$h]) end)
+                else .keep += [$h] end)) as $r
+            | .seen = $r.seen
+            | if ($r.keep | length) == 0 and ($e.hooks | length) > 0 then . else .out += [($e | .hooks = $r.keep)] end
+          else .out += [$e] end) | .out;
+        if ((.hooks // null) | type) == "object" then .hooks |= with_entries(.value |= (if type == "array" then dedup else . end)) else . end
     else . end' <<<"$1"
 }
 # Apply the migration to the settings JSON held in the variable named by $1 (--portable only); prints a typed `migrated:` line when it changed anything.
