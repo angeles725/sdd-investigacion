@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kit-wait-merge.sh [--base-ref REF] <worktree> <pr>
+# kit-wait-merge.sh [--base-ref REF] [--expect-head SHA] <worktree> <pr>
 #
 # Kit-maintenance tool (kit issue #2212): wait for the PR's CI checks, then run `merge-gate.sh --merge` and
 # confirm the PR is MERGED. gh calls run inside <worktree> (the repo is derived from it).
@@ -18,6 +18,8 @@
 #   17  ci-failed       a CI check failed (the failing lines are printed)
 #   18  merge-degraded  merge-gate stayed degraded (rc 3) through every try
 #   19  not-merged      refused (review_due, head_mismatch, ...) or still not MERGED after the tries
+#   33  merged-out-of-band  --expect-head SHA was given and the PR is MERGED at a different head (not the gated one)
+# --expect-head SHA (kit issue #2213): after MERGED, read headRefOid + mergeCommit and require headRefOid == SHA.
 set -u
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
@@ -29,10 +31,11 @@ KIT_TOOL=kit-wait-merge
 # shellcheck source=kit-maint-common.sh
 . "$_RSDD_SELF/kit-maint-common.sh" || { echo "kit-wait-merge: degraded: kit-maint-common.sh unavailable" >&2; exit 3; }
 
-base=origin/main
+base=origin/main expect_head=
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-ref) [ $# -ge 2 ] || kit_fail 2 usage "--base-ref needs a value"; base="$2"; shift 2 ;;
+    --expect-head) [ $# -ge 2 ] || kit_fail 2 usage "--expect-head needs a value"; expect_head="$2"; shift 2 ;;
     -h|--help) awk 'NR > 1 && /^[^#]/ { exit } NR > 1 { print }' "${BASH_SOURCE[0]}"; exit 0 ;;
     --) shift; break ;;
     -*) kit_fail 2 usage "unknown option $1" ;;
@@ -67,7 +70,18 @@ for ((i = 1; i <= tries; i++)); do
   mgout="$(bash "$mg" --cwd "$wt" --base-ref "$base" --merge "$pr" 2>&1)"; mrc=$?
   printf '%s\n' "$mgout" | tail -5
   st="$(kit_retry 3 gh pr view "$pr" --json state -q .state)"
-  if [ "$st" = MERGED ]; then kit_say "merged: #$pr"; exit 0; fi
+  if [ "$st" = MERGED ]; then
+    if [ -n "$expect_head" ]; then
+      # MERGED is only the train's merge when GitHub merged the head that was gated (kit issue #2213 S1)
+      info="$(kit_retry 3 gh pr view "$pr" --json headRefOid,mergeCommit -q '.headRefOid + " " + (.mergeCommit.oid // "")')"
+      [ -n "$info" ] || kit_fail 18 merge-degraded "#$pr is MERGED but its head and merge commit could not be read"
+      if [ "${info%% *}" != "$expect_head" ]; then
+        kit_fail 33 merged-out-of-band "#$pr is MERGED at head ${info%% *}, not the gated head $expect_head"
+      fi
+      kit_say "merged: #$pr (merge commit ${info#* })"; exit 0
+    fi
+    kit_say "merged: #$pr"; exit 0
+  fi
   if [ "$mrc" -eq 3 ]; then last=degraded
   elif [ "$mrc" -eq 0 ] || grep -q 'refuse: ci_pending' <<<"$mgout"; then last=pending
   else last=refused; break

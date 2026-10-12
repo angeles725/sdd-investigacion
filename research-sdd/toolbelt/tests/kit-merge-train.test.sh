@@ -37,27 +37,45 @@ mk_case() {
   mkdir -p "$CASE/bin" "$CASE/state"
   local t p
   for t in bash env cat grep sed awk sleep date mkdir rm cut tail head dirname readlink basename mktemp tr sort wc touch ls \
-           uniq tee ln find python3 cp mv chmod true false sh git jq flock; do
+           uniq tee ln find python3 cp mv chmod true false sh git jq flock timeout; do
     p="$(command -v "$t")" && [ -n "$p" ] && ln -sf "$p" "$CASE/bin/$t"
   done
   cat > "$CASE/bin/gh" <<'E'
 #!/usr/bin/env bash
 echo "gh $*" >> "$CASE/calls.log"
 case "$*" in
-  "pr view "*"--json state,isDraft,headRefOid") cat "$CASE/pr-$3.json" ;;
+  "pr view "*"--json state,isDraft,headRefOid,baseRefName") cat "$CASE/pr-$3.json" ;;
   "pr view "*"--json state -q .state") if [ -e "$CASE/merged-$3" ]; then echo MERGED; else echo OPEN; fi ;;
-  "pr checks "*) echo "all checks pass"; exit 0 ;;
+  "pr view "*"--json headRefOid,mergeCommit -q "*)
+    if [ -e "$CASE/oob-$3" ]; then echo "$(cat "$CASE/oob-$3") mc$3"; else echo "$(cat "$CASE/head-$3") mc$3"; fi ;;
+  "pr checks "*) if [ -e "$CASE/ci-fail-$3" ]; then echo "lint fail"; exit 1; fi; echo "all checks pass"; exit 0 ;;
   *) exit 1 ;;
 esac
 E
+  # merge-gate shim: a real squash onto origin/main (via the $CASE/sq clone) so main actually moves
   cat > "$CASE/merge-gate.sh" <<'E'
 #!/usr/bin/env bash
 while [ $# -gt 0 ]; do case "$1" in --cwd) cwd="$2"; shift 2 ;; --merge) pr="$2"; shift 2 ;; *) shift ;; esac; done
 echo "MERGE $pr head=$(git -C "$cwd" rev-parse HEAD)" >> "$CASE/calls.log"
+if [ -e "$CASE/mg-degrade-$pr" ]; then echo "merge-gate: degraded: simulated"; exit 3; fi
 if [ -e "$CASE/mg-fail-$pr" ]; then echo "merge-gate: refuse: review_due (high_risk)"; exit 1; fi
+sq="$CASE/sq"
+git -C "$sq" fetch -q origin "refs/pull/$pr/head" && git -C "$sq" checkout -q -B main origin/main || exit 1
+[ -e "$CASE/mg-race-$pr" ] && bash "$CASE/push-extra.sh" "race-$pr"
+git -C "$sq" fetch -q origin && git -C "$sq" checkout -q -B main origin/main
+git -C "$sq" merge --squash "$(cat "$CASE/head-$pr")" >/dev/null || exit 1
+[ -e "$CASE/mg-tweak-$pr" ] && echo tweak > "$sq/tweak.txt"
+git -C "$sq" add -A && git -C "$sq" commit -q -m "squash #$pr" && git -C "$sq" push -q origin HEAD:main || exit 1
 touch "$CASE/merged-$pr"; echo "merge-gate: allow (merged)"
 E
-  chmod +x "$CASE/bin/gh" "$CASE/merge-gate.sh"
+  cat > "$CASE/push-extra.sh" <<'E'
+#!/usr/bin/env bash
+# another actor lands a commit on origin/main
+sq="$CASE/sq"
+git -C "$sq" fetch -q origin && git -C "$sq" checkout -q -B main origin/main
+echo "$1" > "$sq/extra-$1.txt"; git -C "$sq" add -A && git -C "$sq" commit -q -m "extra $1" && git -C "$sq" push -q origin HEAD:main
+E
+  chmod +x "$CASE/bin/gh" "$CASE/merge-gate.sh" "$CASE/push-extra.sh"
   : > "$CASE/calls.log"
   git init -q --bare -b main "$CASE/origin.git" || return 2
   git init -q -b main "$CASE/repo" || return 2
@@ -66,6 +84,8 @@ E
   printf 'base\n' > "$CASE/repo/base.txt"; printf 'base\n' > "$CASE/repo/shared.txt"
   git -C "$CASE/repo" add . && git -C "$CASE/repo" commit -q -m base && git -C "$CASE/repo" push -q origin main || return 2
   git -C "$CASE/repo" fetch -q origin
+  git clone -q "$CASE/origin.git" "$CASE/sq" || return 2
+  git -C "$CASE/sq" config user.name t; git -C "$CASE/sq" config user.email t@example.com
 }
 # mkpr N [FILE [CONTENT]] — a PR head branched from the CURRENT origin/main, pushed to refs/pull/N/head
 mkpr() {
@@ -75,7 +95,7 @@ mkpr() {
   git -C "$CASE/repo" add . && git -C "$CASE/repo" commit -q -m "pr $n"
   git -C "$CASE/repo" push -q origin "HEAD:refs/pull/$n/head"
   sha="$(git -C "$CASE/repo" rev-parse HEAD)"; echo "$sha" > "$CASE/head-$n"
-  printf '{"state":"OPEN","isDraft":false,"headRefOid":"%s"}\n' "$sha" > "$CASE/pr-$n.json"
+  printf '{"state":"OPEN","isDraft":false,"headRefOid":"%s","baseRefName":"main"}\n' "$sha" > "$CASE/pr-$n.json"
   git -C "$CASE/repo" checkout -q main
 }
 pins() { local n; for n in "$@"; do printf -- '--rdd-ok\n%s=%s\n' "$n" "$(cut -c1-12 "$CASE/head-$n")"; done; }
@@ -106,6 +126,17 @@ run_train() {
     mgfail-first) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-fail-1" ;;
     mgfail-mid) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-fail-2" ;;
     mgfail-last) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-fail-3" ;;
+    cifail-mid) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/ci-fail-2" ;;
+    mgdegrade) mkpr 1; mkpr 2; prs=(1 2); touch "$CASE/mg-degrade-1" ;;
+    base-moved|base-moved-gate) mkpr 1; mkpr 2; prs=(1 2) ;;
+    main-raced) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-race-2" ;;
+    tree-mismatch) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-tweak-3" ;;
+    tree-mismatch-prefix) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); touch "$CASE/mg-tweak-1" "$CASE/mg-fail-2" ;;
+    stacked) mkpr 1; mkpr 2; prs=(1 2) ;;
+    oob) mkpr 1; mkpr 2; mkpr 3; prs=(1 2 3); echo deadbeefdeadbeef > "$CASE/oob-2" ;;
+    term) mkpr 1; mkpr 2; prs=(1 2) ;;
+    bisect-locktimeout) mkpr 1; mkpr 2 bad.txt; mkpr 3; prs=(1 2 3); extra=(--bisect) ;;
+    merge-error) mkpr 1; mkpr 2; prs=(1 2); printf '#!/bin/sh\nexit 1\n' > "$CASE/repo/.git/hooks/pre-merge-commit"; chmod +x "$CASE/repo/.git/hooks/pre-merge-commit" ;;
     dry) mkpr 1; mkpr 2; prs=(1 2); extra=(--dry-run) ;;
     nojq|nogh|noflock) mkpr 1; prs=(1); rm -f "$CASE/bin/${name#no}" ;;
     nofetch) mkpr 1; prs=(1); rm -rf "$CASE/origin.git" ;;
@@ -126,19 +157,28 @@ run_train() {
     head-moved) sed -i 's/"headRefOid":"[0-9a-f]*"/"headRefOid":"'"$(git -C "$CASE/repo" rev-parse origin/main)"'"/' "$CASE/pr-2.json"
       pinargs=(--rdd-ok "1=$(cut -c1-12 "$CASE/head-1")" --rdd-ok "2=$(git -C "$CASE/repo" rev-parse origin/main | cut -c1-12)") ;;
   esac
-  local -a gate=(--gate-cmd "$GATE")
-  [ "$name" = usage-serial-cmd ] && gate=(--gate-cmd "$GATE")
+  case "$name" in
+    stacked) sed -i 's/"baseRefName":"main"/"baseRefName":"feat\/other"/' "$CASE/pr-2.json" ;;
+  esac
+  local g="$GATE"; local -a wrap=()
+  case "$name" in
+    base-moved-gate) g="bash \"\$CASE/push-extra.sh\" gate-race; $GATE" ;;
+    term) g='sleep 30'; wrap=(timeout --preserve-status -s TERM 4) ;;
+    bisect-locktimeout) g='[ -e "$CASE/ran" ] || { touch "$CASE/ran"; sleep 6 & }; '"$GATE" ;;
+  esac
+  local -a gate=(--gate-cmd "$g")
   [ "$name" = usage-state-in-repo ] || extra=(--state-dir "$CASE/state" "${extra[@]}")
   OUT="$(cd "$CASE" && env PATH="$CASE/bin" HOME="$CASE" CASE="$CASE" KIT_RETRY_SLEEP=0 KIT_POLL_SLEEP=0 KIT_MERGE_SLEEP=0 \
-         KIT_MERGE_TRIES=1 KIT_MERGE_GATE="$CASE/merge-gate.sh" \
-         bash "$STAGE/kit-merge-train.sh" --repo "$CASE/repo" "${gate[@]}" "${extra[@]}" ${pinargs[@]+"${pinargs[@]}"} ${prs[@]+"${prs[@]}"} 2>&1)"
+         KIT_MERGE_TRIES=1 KIT_GATE_LOCK_TIMEOUT=2 KIT_MERGE_GATE="$CASE/merge-gate.sh" \
+         ${wrap[@]+"${wrap[@]}"} bash "$STAGE/kit-merge-train.sh" --repo "$CASE/repo" "${gate[@]}" "${extra[@]}" ${pinargs[@]+"${pinargs[@]}"} ${prs[@]+"${prs[@]}"} 2>&1)"
   RC=$?
   CALLS="$(cat "$CASE/calls.log")"
   local rcpt; rcpt="$(ls "$CASE"/state/train-*.json 2>/dev/null | head -1)"
-  SUMMARY="receipt: $( [ -n "$rcpt" ] && jq -c '{state, culprit, gate_rc: .gate.rc, prs: [.prs[] | "\(.pr)=\(.status)"]}' "$rcpt" || echo none )
+  SUMMARY="receipt: $( [ -n "$rcpt" ] && jq -c '{state, culprit, gate_rc: .gate.rc, gate_log: (.gate.log | split("/") | last), prs: [.prs[] | "\(.pr)=\(.status)"]}' "$rcpt" || echo none )
 remote-heads: $(git -C "$CASE/origin.git" for-each-ref --format='%(refname)' 'refs/heads/' | tr '\n' ' ')
 local-branches: $(git -C "$CASE/repo" for-each-ref --format='%(refname:short)' 'refs/heads/train/*' | tr '\n' ' ')
-worktrees-left: $(ls "$CASE/repo-worktrees" 2>/dev/null | tr '\n' ' ')"
+worktrees-left: $(ls "$CASE/repo-worktrees" 2>/dev/null | tr '\n' ' ')
+train-refs: $(git -C "$CASE/repo" for-each-ref --format='%(refname)' 'refs/train/' | tr '\n' ' ')"
 }
 nth_count() { grep -cE -- "$1" <<<"$CALLS"; }
 merges() { grep '^MERGE' <<<"$CALLS" | awk '{print $2}' | tr '\n' ' '; }
@@ -166,7 +206,7 @@ gline="$(grep '^GATE' <<<"$CALLS")"
 if [[ "$gline" == *'pr-1.txt pr-2.txt pr-3.txt'* ]]; then ok "happy: the gate saw all three PRs combined in the train worktree"; else no "happy gate files [$gline]"; fi
 if [ "$(rj .state)" = merged ] && [ "$(rj '.prs | map(.status) | join(",")')" = merged,merged,merged ] \
    && [ "$(rj .gate.rc)" = 0 ] && [ "$(rj .train_sha)" = "$(awk '/^GATE/ {print $2}' <<<"$CALLS")" ] \
-   && [ "$(rj .base_sha)" = "$(git -C "$CASE/repo" rev-parse origin/main)" ] \
+   && [ "$(rj .base_sha)" = "$(git -C "$CASE/repo" rev-parse origin/main~3)" ] \
    && [[ "$(rj .gate.log)" == "$CASE"/state/gate-train-*.log ]] && [ -f "$(rj .gate.log)" ]; then
   ok "happy: the receipt names state, base/train sha (= the gated head), gate rc + existing log, all PRs merged"
 else no "happy receipt: $(cat "$CASE"/state/train-*.json 2>/dev/null | tr -d '\n')"; fi
@@ -175,6 +215,8 @@ if [[ "$SUMMARY" == *'remote-heads: refs/heads/main '* ]] && [[ "$SUMMARY" != *'
   ok "happy: the train branch was never pushed and the local train branch is gone"
 else no "happy branches: $SUMMARY"; fi
 if [[ "$SUMMARY" == *'worktrees-left: '$'\n'* || "$SUMMARY" == *'worktrees-left: ' ]]; then ok "happy: every train worktree was removed"; else no "happy worktrees: $SUMMARY"; fi
+if [[ "$SUMMARY" == *'train-refs: ' ]] && [[ "$CALLS" != *FETCH_HEAD* ]]; then ok "happy: PR heads were fetched into refs/train/<ts>/<pr> and those refs are removed afterwards"; else no "happy train refs: $SUMMARY"; fi
+if [[ "$OUT" == *'merged: all 3 PRs merged after one gate'* ]] && [[ "$(rj '[.prs[] | select(.status == "merged")] | length')" = 3 ]]; then ok "happy: the final line counts only PRs actually merged"; else no "happy final line [$OUT]"; fi
 if [[ "$CASE/repo-worktrees" == "$TMP"/* ]] && [ -d "$CASE/repo-worktrees" ]; then ok "worktrees live in the sibling <repo>-worktrees dir"; else no "worktree root missing"; fi
 
 # ---- conflicts drop one PR, the rest continue (middle, last, first, all) ----
@@ -240,6 +282,56 @@ run_train mgfail-last
 if [ "$RC" = 19 ] && [ "$(merges)" = '1 2 3 ' ] && [ "$(rj '.prs | map(.status) | join(",")')" = merged,merged,pending ]; then ok "merge failure on the LAST PR: 1 and 2 merged, 3 pending"
 else no "mgfail-last rc=$RC merges=[$(merges)]"; fi
 
+# ---- B1: main may move during the gate, and the squashes must reproduce the train tree ----
+run_train base-moved-gate
+if [ "$RC" = 30 ] && [[ "$OUT" == *'kit-merge-train: base-moved'* ]] && [ -z "$(merges)" ] && [ "$(rj .state)" = base-moved ]; then
+  ok "main moved during the gate: base-moved (rc 30), nothing merged, typed in the receipt"
+else no "base-moved rc=$RC merges=[$(merges)] out=[$OUT]"; fi
+run_train main-raced
+if [ "$RC" = 31 ] && [[ "$OUT" == *'kit-merge-train: main-raced'* ]] && [ "$(merges)" = '1 2 ' ] \
+   && [ "$(rj '.prs | map(.status) | join(",")')" = merged,merged,pending ]; then
+  ok "another commit landed before #2's squash: main-raced (rc 31), #2 recorded merged, #3 never attempted"
+else no "main-raced rc=$RC merges=[$(merges)] summary=[$SUMMARY] out=[$OUT]"; fi
+run_train tree-mismatch
+if [ "$RC" = 32 ] && [[ "$OUT" == *'kit-merge-train: tree-mismatch'* ]] && [ "$(merges)" = '1 2 3 ' ] && [ "$(rj .state)" = tree-mismatch ]; then
+  ok "a squash whose tree differs from the train tree: tree-mismatch (rc 32)"
+else no "tree-mismatch rc=$RC out=[$OUT]"; fi
+run_train tree-mismatch-prefix
+if [ "$RC" = 32 ] && [[ "$OUT" == *'kit-merge-train: tree-mismatch'* ]] && [ "$(merges)" = '1 2 ' ]; then
+  ok "a train that stopped early is compared against the base+merged-prefix tree (tree-mismatch on a tweaked squash)"
+else no "tree-mismatch-prefix rc=$RC out=[$OUT]"; fi
+# ---- B2: a stacked PR (base is not the train base branch) ----
+run_train stacked
+if [ "$RC" = 27 ] && [[ "$OUT" == *'train-refused #2: base-not-main'* ]] && [ "$(merges)" = '1 ' ]; then ok "a PR stacked on another branch is refused (base-not-main)"
+else no "stacked rc=$RC out=[$OUT]"; fi
+# ---- S1: MERGED with a head other than the gated one ----
+run_train oob
+if [ "$RC" = 33 ] && [[ "$OUT" == *'kit-merge-train: merged-out-of-band'* ]] && [ "$(merges)" = '1 2 ' ] \
+   && [ "$(rj '.prs | map(.status) | join(",")')" = merged,out-of-band,pending ]; then
+  ok "MERGED with a different head: merged-out-of-band (rc 33), never recorded as train-merged, #3 pending"
+else no "oob rc=$RC merges=[$(merges)] summary=[$SUMMARY] out=[$OUT]"; fi
+# ---- S2: INT/TERM cleans up and writes the receipt ----
+run_train term
+if [ "$RC" = 29 ] && [[ "$OUT" == *'train-error: interrupted'* ]] && [[ "$SUMMARY" == *'worktrees-left: '$'\n'* ]] \
+   && [[ "$SUMMARY" == *'local-branches: '$'\n'* ]] && [[ "$SUMMARY" == *'train-refs: ' ]] && [ "$(rj .state)" = train-error ]; then
+  ok "SIGTERM mid-gate: train-error interrupted (rc 29), worktrees, branch and train refs removed, receipt written"
+else no "term rc=$RC summary=[$SUMMARY] out=[$OUT]"; fi
+# ---- S4: a lock timeout during bisect does not hide the red full gate ----
+run_train bisect-locktimeout
+if [ "$RC" = 26 ] && [[ "$OUT" == *'kit-merge-train: train-gate-failed'* ]] && [[ "$OUT" == *'bisect-incomplete: gate-lock-timeout'* ]] \
+   && [ "$(rj .gate.rc)" = 1 ] && [[ "$(rj .gate.log)" == */gate-train-2*[0-9].log ]] && [ "$(rj .culprit)" = null ]; then
+  ok "gate lock timeout during bisect: train-gate-failed with bisect-incomplete, the full gate's rc and log kept"
+else no "bisect-locktimeout rc=$RC gate=$(rj .gate.rc) log=$(rj .gate.log) out=[$OUT]"; fi
+# ---- S3: stop-state mapping, the non-conflict merge failure ----
+run_train cifail-mid
+if [ "$RC" = 17 ] && [[ "$OUT" == *'kit-merge-train: ci-failed'* ]] && [ "$(merges)" = '1 ' ]; then ok "a CI failure stops the train as ci-failed (rc 17)"; else no "cifail-mid rc=$RC merges=[$(merges)] out=[$OUT]"; fi
+run_train mgdegrade
+if [ "$RC" = 18 ] && [[ "$OUT" == *'kit-merge-train: merge-degraded'* ]]; then ok "a degraded merge-gate stops the train as merge-degraded (rc 18)"; else no "mgdegrade rc=$RC out=[$OUT]"; fi
+run_train merge-error
+if [ "$RC" = 29 ] && [[ "$OUT" == *'kit-merge-train: train-error: merging #1 failed without a conflict'* ]] && [ -z "$(merges)" ]; then
+  ok "a merge that fails WITHOUT unmerged paths is train-error (rc 29), not a conflict drop"
+else no "merge-error rc=$RC out=[$OUT]"; fi
+
 # ---- dry-run, degraded, fetch failure, usage ----
 run_train dry
 if [ "$RC" = 0 ] && [[ "$OUT" == *'kit-merge-train: plan:'* ]] && [ -z "$CALLS" ] && [ ! -e "$CASE/repo-worktrees" ] \
@@ -284,10 +376,27 @@ tooth "draft check dropped" $T 's/then why=draft/then why=/' 27 0 draft --good-l
 tooth "merge conflict not aborted" $T 's/^    git -C "\$wt" merge --abort >\/dev\/null 2>&1$/    true/' 27 27 conflict-mid --good-has "^MERGE 3" --bad-lacks "^MERGE 3"
 tooth "train branch pushed" $T 's/^started=1; made_wts+=("\$wt")$/started=1; made_wts+=("$wt"); git -C "$repo" push -q "$remote" "$branch"/' 0 0 happy --good-lacks 'refs/heads/train' --bad-has 'refs/heads/train'
 tooth "worktrees not removed" $T 's/worktree remove --force "\$w"/worktree list/' 0 0 happy --good-lacks 'worktrees-left: train' --bad-has 'worktrees-left: train'
-tooth "bisect direction inverted" $T 's/then lo=\$mid; else hi=\$mid; fi/then hi=$mid; else lo=$mid; fi/' 26 26 bisect-mid --good-has 'culprit #3' --bad-lacks 'culprit #3'
+tooth "bisect direction inverted" $T 's/0) lo=\$mid ;;/0) hi=$mid ;;/;s/\*) hi=\$mid ;; esac/*) lo=$mid ;; esac/' 26 26 bisect-mid --good-has 'culprit #3' --bad-lacks 'culprit #3'
 tooth "train does not stop at the first failure" $T 's/^  if \[ -n "\$stopped" \]; then p_status/  if false; then p_status/' 19 19 mgfail-mid --good-lacks '^MERGE 3' --bad-has '^MERGE 3'
 tooth "dry-run guard removed" $T 's/^if \[ "\$dry_run" = 1 \]; then$/if false; then/' 0 0 dry --good-lacks '^gh ' --bad-has '^gh '
-tooth "duplicate PR check removed" $T 's/^\[ "\$(printf .*uniq -d.*$/true/' 2 0 usage-dup --bad-has 'kit-merge-train: merged'
+tooth "duplicate PR check removed" $T 's/^\[ "\$(printf .*uniq -d.*$/true/' 2 31 usage-dup --bad-lacks "kit-merge-train: usage"
+W=kit-wait-merge.sh
+tooth "head-moved check dropped" $T 's/then why=head-moved/then why=/' 27 33 head-moved --good-lacks "^MERGE 2" --bad-has "merged-out-of-band"
+tooth "partial exit always 0" $T 's/finish 27 train-partial/finish 0 train-partial/' 27 0 conflict-mid --bad-has 'train-partial'
+tooth "non-conflict merge failure treated as conflict" $T 's/^  elif \[ -n "\$(git -C "\$wt" ls-files -u)" \]; then$/  elif true; then/' 29 28 merge-error --bad-has 'train-empty'
+tooth "ci-failed state mislabelled" $T 's/17) st=ci-failed ;;/17) st=not-merged ;;/' 17 17 cifail-mid --good-has 'kit-merge-train: ci-failed' --bad-lacks 'kit-merge-train: ci-failed'
+tooth "merge-degraded state mislabelled" $T 's/18) st=merge-degraded ;;/18) st=other ;;/' 18 18 mgdegrade --good-has 'kit-merge-train: merge-degraded' --bad-lacks 'kit-merge-train: merge-degraded'
+tooth "default stop state mislabelled" $T 's/\*) st=not-merged; stop_rc=19 ;;/*) st=other ;;/' 19 19 mgfail-mid --good-has 'kit-merge-train: not-merged' --bad-lacks 'kit-merge-train: not-merged'
+tooth "base-moved check dropped" $T 's/^\[ "\$cur" = "\$base_sha" \] || finish 30/true || finish 30/' 30 31 base-moved-gate --bad-has 'main-raced'
+tooth "main-raced check dropped" $T 's/if \[ "\$(git -C "\$repo" rev-parse "\$base^" 2>\/dev\/null)" != "\$exp_tip" \]; then/if false; then/' 31 32 main-raced --bad-has 'tree-mismatch'
+tooth "tree comparison dropped" $T 's/^  \[ "\$got" = "\$want" \] || finish 32/  true || finish 32/' 32 0 tree-mismatch --bad-lacks 'tree-mismatch'
+tooth "prefix tree not rebuilt" $T 's/if \[ "\${#merged_ok\[@\]}" -eq "\${#merged\[@\]}" \]; then/if true; then/' 19 32 mgfail-mid --bad-has 'tree-mismatch'
+tooth "stacked-PR base check dropped" $T 's/then why="base-not-\$base_branch"/then why=/' 27 0 stacked --good-lacks '^MERGE 2' --bad-has '^MERGE 2'
+tooth "out-of-band head check dropped" $W 's/\[ "\${info%% \*}" != "\$expect_head" \]/false/' 33 0 oob --good-lacks 'merged: all' --bad-has '^MERGE 3'
+tooth "interrupt trap removed" $T "s/^trap 'finish 29 train-error \"interrupted\"' INT TERM\$/true/" 29 143 term --bad-lacks 'interrupted'
+tooth "bisect lock timeout read as red" $T 's/22) incomplete=gate-lock-timeout; break ;;/22) hi=$mid ;;/' 26 26 bisect-locktimeout --good-has 'bisect-incomplete' --bad-lacks 'bisect-incomplete'
+tooth "full gate log not restored after bisect" $T 's/^    gate_rc="\$final_gate_rc" gate_log="\$final_gate_log"$/    true/' 26 26 bisect-locktimeout --good-lacks 'gate-train-[0-9-]*-bisect' --bad-has 'gate-train-[0-9-]*-bisect'
+tooth "train refs not removed" $T 's/^  for p in "\${prs\[@\]}"; do git -C "\$repo" update-ref -d .*; done$/  true/' 0 0 happy --good-lacks 'train-refs: refs/train' --bad-has 'train-refs: refs/train'
 tooth "dependency probe blind" $C 's/command -v "\$d" >\/dev\/null 2>&1 ||/true ||/' 3 28 nojq --bad-lacks 'degraded: missing'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

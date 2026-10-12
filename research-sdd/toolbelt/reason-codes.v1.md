@@ -245,7 +245,15 @@ They are listed here so a reader of this registry finds every typed state the sc
   | `train-gate-failed` | 26 | read the printed gate log; re-run with `--bisect` to name the first PR whose inclusion turns it red; nothing was merged |
   | `train-partial` | 27 | everything left in the train merged; fix the refused / conflicting PRs listed in the receipt and train them again |
   | `train-empty` | 28 | no PR survived the checks and merges; read the `train-refused` / `train-conflict` lines |
-  | `train-error` | 29 | read the git or gate error above (not a conflict), fix by hand, then re-run |
+  | `train-error` | 29 | read the git or gate error above (not a conflict, or the run was interrupted), fix by hand, then re-run |
+  | `base-moved` | 30 | the base branch moved during the gate; nothing was merged; re-run the train on the new base |
+  | `main-raced` | 31 | a commit landed on the base between two merges (the merged PRs are `merged` in the receipt, the rest `pending`); inspect main, then re-train the rest |
+  | `tree-mismatch` | 32 | the tree on the base differs from the train tree (or the base+merged-prefix tree); inspect main before anything else is merged |
+  | `merged-out-of-band` | 33 | GitHub shows the PR MERGED at a head other than the gated one (`kit-wait-merge.sh --expect-head`); inspect it, the train stopped and the PR is `out-of-band` in the receipt |
+
+  Also: `base-not-<branch>` (a per-PR refusal: the PR does not target the train's base branch, e.g. a stacked PR) and
+  `bisect-incomplete: gate-lock-timeout` (a `train-gate-failed` whose `--bisect` could not finish; the receipt keeps the
+  full gate's rc and log).
 
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 
