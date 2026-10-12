@@ -35,6 +35,8 @@ _SBX = tempfile.mkdtemp(prefix="de-sbx-")
 atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
 _SBX_ROOT = os.path.join(_SBX, "rsdd")
 os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+# #2186: the guard never reads its watch target from the environment. A leak is ANY produced run dir outside the sandbox root
+# (_SBX_ROOT); _GLOBAL_ROOT is only the host default root scanned for INFO lines about other suites' entries.
 _GLOBAL_ROOT = Path("/tmp/rsdd")
 def _global_names() -> set:
     try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
@@ -300,15 +302,15 @@ _root_case("ROOT-MODE: group-writable override root -> GateError", _s_mode, True
 # ── DOCKER-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
 # Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
 # (a concurrent suite): INFO only, never failed on or deleted.
-_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+_leaked = sorted(p for p in _produced if not p.startswith(_SBX_ROOT + os.sep))
 if _leaked:
-    nok("DOCKER-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    nok(f"DOCKER-NOLEAK: new entries outside the sandbox {_SBX_ROOT}", f"{len(_leaked)} e.g. {_leaked[:2]}")
     for _p in _leaked:  # remove ONLY the dirs this suite produced
         shutil.rmtree(_p, ignore_errors=True)
 else:
-    ok("DOCKER-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+    ok(f"DOCKER-NOLEAK: no run dir produced by this suite outside its sandbox {_SBX_ROOT}")
 _other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
-if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under {_GLOBAL_ROOT} (not this suite's; left alone)")
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
@@ -338,7 +340,10 @@ tt teeth-gate-allow emba_plan.py 'run_gate_epilogue(CAP_DOCKER, args.allow_docke
 tt teeth-timeout-kill lib/docker_exec.py '_docker_kill(container_name)   # then best-effort container cleanup' 'pass' 'FAIL  G-timeout: rc=2 cmds='
 tt teeth-output-cap lib/docker_exec.py 'stdout, stdout_trunc = _dc.cap(raw_out[0])' 'stdout, stdout_trunc = raw_out[0].decode(errors="replace"), False' 'FAIL  CRIT1: large-stdout-cap: stdout_truncated=False'
 tt teeth-exit-126 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (125, 127)' 'FAIL  CRIT3-126: rc=0'
-tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, rsdd_root)' '_dc.make_run_subdir(run_uuid)' 'FAIL  DOCKER-NOLEAK: new entries under /tmp/rsdd'
+# The mutant allocates outside the sandbox (the default root). Only this mutant line reads DE_GLOBAL_ROOT, to put that allocation in a private
+# dir (#2186): DOCKER-NOLEAK still flags it (produced outside _SBX_ROOT) but the run dirs never reach the host's /tmp/rsdd.
+mkdir -m 700 "$MUT/global-root" || exit 2
+DE_GLOBAL_ROOT="$MUT/global-root" tt teeth-root-hardcoded lib/docker_exec.py '_dc.make_run_subdir(run_uuid, rsdd_root)' '_dc.make_run_subdir(run_uuid, _dc.os.environ.get("DE_GLOBAL_ROOT") or _dc._DEFAULT_RSDD_ROOT)' 'FAIL  DOCKER-NOLEAK: new entries outside the sandbox '
 # verify_rsdd_root is defense-in-depth here: on Linux the lstat mode check already rejects a symlink (mode 0777),
 # so this mutant also blinds the later lstat to prove the verify call itself is load-bearing.
 tt teeth-root-noverify lib/docker_common.py 'verify_rsdd_root(root)  # override root' 'os.lstat = os.stat  # verify deleted; also blind the later lstat so the mode check cannot back it up' 'FAIL  ROOT-SYMLINK'
