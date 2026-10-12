@@ -2,7 +2,7 @@
 # hook-kit-run.sh <kit-relative-script> [args...] — run a research-sdd kit script with the kit resolved at RUN time (kit #2175).
 #
 # WHY: a tracked .claude/settings.json that names the kit by absolute path (/home/<user>/...) breaks on every other machine, in
-# a worktree and in a fresh clone. research-sdd-init.sh --portable copies THIS file to <target>/tools/hooks/kit-run.sh (tracked)
+# a worktree and in a fresh clone. research-sdd-init.sh (portable wiring, the default since kit #2183; --absolute opts out) copies THIS file to <target>/tools/hooks/kit-run.sh (tracked)
 # and wires the kit-owned hooks as:  bash "$CLAUDE_PROJECT_DIR"/tools/hooks/kit-run.sh toolbelt/<tool>.sh [args...]
 #
 # Kit resolution order (first candidate with a toolbelt/ directory wins):

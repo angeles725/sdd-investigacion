@@ -14,6 +14,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-init.sh"
+# kit issue #2183: portable wiring is the init default; this suite pins the legacy absolute wiring (default coverage: hook-kit-run / hook-exec / enforcement-e2e).
+export RSDD_INIT_WIRING=absolute
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0

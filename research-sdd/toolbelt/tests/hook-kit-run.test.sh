@@ -4,10 +4,10 @@
 #   (A) templates/hook-kit-run.sh — the run-time kit resolver a target carries as tools/hooks/kit-run.sh: resolution order
 #       ($RESEARCH_SDD_KIT > launcher `Kit checkout:`/`Kit path:` lines > default checkout), stdin/exit passthrough, typed
 #       DEGRADED exit 1 when unresolved, and the PreToolUse pkill guard failing CLOSED (permissionDecision "ask").
-#   (B) research-sdd-init.sh --portable — installs the resolver into the target's tracked tree and wires the kit-owned hooks
+#   (B) research-sdd-init.sh portable wiring (the DEFAULT since kit issue #2183; --portable is an explicit no-op spelling, --absolute opts out) — installs the resolver into the target's tracked tree and wires the kit-owned hooks
 #       (Stop return-token gate, SessionStart drift hook, PreToolUse pkill guard) through it with "$CLAUDE_PROJECT_DIR", so the
 #       generated settings.json carries no absolute path; a fresh-clone simulation (settings.json + tools/ only) runs them.
-#       Without --portable the wiring is unchanged (absolute kit paths).
+#       With --absolute the wiring is the pre-#2183 one (absolute kit paths, per-target hook copies).
 #
 # Usage: hook-kit-run.test.sh [--prove-teeth]      Exit: 0 held · 1 regression · 2 harness error.
 
@@ -112,7 +112,7 @@ case_launcher_backtick() { # a backtick-quoted launcher value (markdown) resolve
   [ "$(run_kit "$sut" "$h" -- toolbelt/probe.sh 2>/dev/null)" = "stub-ran:probe.sh:" ]
 }
 
-# ---- (B) init --portable ----
+# ---- (B) init portable wiring (default) ----
 # mkkit <name> [<init-sut>] : a private kit copy so the SUT's KIT path is a tmp path we can grep for.
 mkkit() {
   local k="$TMP/$1" sut="${2:-$SUT_INIT}"
@@ -123,9 +123,13 @@ mkkit() {
   cp -R "$HERE/../../templates" "$k/templates"
   printf '%s' "$k"
 }
-scaffold_portable() {   # <kit> <target> : scaffold + wire --portable
+scaffold_portable() {   # <kit> <target> : scaffold + wire with NO wiring flag - portable is the default (kit issue #2183)
   mkdir -p "$2"
-  bash "$1/toolbelt/research-sdd-init.sh" "$2" --corpus flat --prefix t --subject "kit run" --scaffold --wire --portable >"$2.out" 2>&1
+  bash "$1/toolbelt/research-sdd-init.sh" "$2" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$2.out" 2>&1
+}
+scaffold_absolute() {   # <kit> <target> : the explicit opt-out (the pre-#2183 wiring)
+  mkdir -p "$2"
+  bash "$1/toolbelt/research-sdd-init.sh" "$2" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$2.out" 2>&1
 }
 case_no_abs_paths() {   # generated settings.json carries no absolute path, no kit path, no target path
   local kit="$1" d="$TMP/np-$RANDOM"
@@ -139,7 +143,7 @@ case_no_abs_paths() {   # generated settings.json carries no absolute path, no k
     jq -e '[.hooks.Stop[].hooks[].command] | any(. == "bash \"$CLAUDE_PROJECT_DIR\"/tools/hooks/kit-run.sh toolbelt/retro-gate.sh \"$CLAUDE_PROJECT_DIR\"")' "$d/.claude/settings.json" >/dev/null &&
     jq -e '[.hooks.SessionStart[].hooks[].command] | any(. == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/research-protocol.sh")' "$d/.claude/settings.json" >/dev/null
 }
-case_no_percopy() {     # --portable creates no per-target retro-gate-stop.sh / pkill-guard.sh (both run through kit-run.sh)
+case_no_percopy() {     # the portable wiring creates no per-target retro-gate-stop.sh / pkill-guard.sh (both run through kit-run.sh)
   local kit="$1" d="$TMP/pc-$RANDOM"
   scaffold_portable "$kit" "$d" || return 1
   [ ! -e "$d/.claude/hooks/retro-gate-stop.sh" ] && [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && [ -x "$d/.claude/hooks/research-protocol.sh" ]
@@ -181,32 +185,42 @@ case_pkill_unresolved_wired() {   # the WIRED pkill command fails closed when no
   out="$(printf '{"tool_input":{"command":"pkill -f x"}}' | env -i PATH="$PATH" HOME="$h" CLAUDE_PROJECT_DIR="$d" bash -c "$cmd" 2>/dev/null)"
   [ "$(jq -r '.hookSpecificOutput.permissionDecision' <<<"$out")" = ask ]
 }
-case_idempotent() {     # re-running --wire --portable adds no second copy of any hook
+case_idempotent() {     # re-running --wire adds no second copy of any hook
   local kit="$1" d="$TMP/id-$RANDOM" before after
   scaffold_portable "$kit" "$d" || return 1
   before="$(cksum < "$d/.claude/settings.json")"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out2" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out2" 2>&1 || return 1
   after="$(cksum < "$d/.claude/settings.json")"
   [ "$before" = "$after" ] && [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$d/.claude/settings.json")" = 2 ]
 }
-case_default_unchanged() {   # without --portable the kit-owned hooks keep their absolute kit path and no runner is installed
-  local kit="$1" d="$TMP/du-$RANDOM"; mkdir -p "$d"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out" 2>&1 || return 1
-  grep -qF "$kit/toolbelt/return-token-gate.sh" "$d/.claude/settings.json" && [ ! -e "$d/tools/hooks/kit-run.sh" ]
+case_absolute_optout() {   # --absolute keeps the pre-#2183 wiring: absolute kit path, per-target copies, no runner installed
+  local kit="$1" d="$TMP/du-$RANDOM"
+  scaffold_absolute "$kit" "$d" || return 1
+  grep -qF "$kit/toolbelt/return-token-gate.sh" "$d/.claude/settings.json" && [ ! -e "$d/tools/hooks/kit-run.sh" ] &&
+    [ -x "$d/.claude/hooks/pkill-guard.sh" ] && [ -x "$d/.claude/hooks/retro-gate-stop.sh" ]
 }
-case_wire_only_installs() {  # --wire --portable on an existing corpus installs the runner create-only
+case_portable_alias() {   # the explicit --portable spelling is the default: byte-identical settings.json; --portable with --absolute is a usage error (exit 2, nothing written)
+  local kit="$1" d="$TMP/pa-$RANDOM" e="$TMP/pa2-$RANDOM" f="$TMP/pa3-$RANDOM" rc=0
+  scaffold_portable "$kit" "$d" || return 1
+  mkdir -p "$e" "$f"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$e" --corpus flat --prefix t --subject "kit run" --scaffold --wire --portable >"$e.out" 2>&1 || return 1
+  [ "$(sed "s|$e|<T>|g" "$e/.claude/settings.json")" = "$(sed "s|$d|<T>|g" "$d/.claude/settings.json")" ] || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$f" --corpus flat --prefix t --subject "kit run" --scaffold --wire --portable --absolute >"$f.out" 2>&1 || rc=$?
+  [ "$rc" = 2 ] && grep -q 'mutually exclusive' "$f.out" && [ -z "$(ls -A "$f")" ]
+}
+case_wire_only_installs() {  # --wire on an existing corpus installs the runner create-only
   local kit="$1" d="$TMP/wi-$RANDOM"; mkdir -p "$d/tools/hooks"; : > "$d/INDEX.md"
   printf '#!/usr/bin/env bash\n# hand-adapted\n' > "$d/tools/hooks/kit-run.sh"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
   grep -q 'hand-adapted' "$d/tools/hooks/kit-run.sh" && grep -qF 'kept: ' "$d.out" && ! grep -qE '/home/|'"$kit" "$d/.claude/settings.json"
 }
 
-case_migration() {      # --wire --portable over a target wired the DEFAULT way: absolute entries are REPLACED, never duplicated
+case_migration() {      # --wire over a target wired with --absolute: the absolute entries are REPLACED, never duplicated
   local kit="$1" d="$TMP/mg-$RANDOM" st="" n
   mkdir -p "$d"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$d.out0" 2>&1 || return 1
   grep -qF "$d/.claude/hooks/pkill-guard.sh" "$d/.claude/settings.json" || return 1   # precondition: really the old absolute wiring
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
   st="$d/.claude/settings.json"
   ! grep -qE '/home/|'"$kit"'|'"$d" "$st" || return 1
   [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$st")" = 2 ] && [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
@@ -214,15 +228,15 @@ case_migration() {      # --wire --portable over a target wired the DEFAULT way:
   grep -q 'migrated:' "$d.out" || return 1
   grep -q 'gitignore: WARN .*UNTRACKED' "$d.out" || return 1   # the default scaffold wrote a blanket .claude/ line: kept, and named
   jq -e '[.hooks.Stop[].hooks[].command] | any(contains("kit-run.sh toolbelt/retro-gate.sh"))' "$st" >/dev/null || return 1
-  n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out2" 2>&1 || return 1   # and the migration is itself idempotent
+  n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out2" 2>&1 || return 1   # and the migration is itself idempotent
   [ "$n" = "$(cksum < "$st")" ]
 }
 case_migration_adapted() {  # a HAND-ADAPTED per-target pkill guard is kept (portable form of the same file), not swapped for the kit's
   local kit="$1" d="$TMP/ma-$RANDOM" st
   mkdir -p "$d"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$d.out0" 2>&1 || return 1
   printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
   st="$d/.claude/settings.json"
   [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
     jq -e '.hooks.PreToolUse[0].hooks[0].command == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pkill-guard.sh"' "$st" >/dev/null && ! grep -qF "$d" "$st"
@@ -230,9 +244,9 @@ case_migration_adapted() {  # a HAND-ADAPTED per-target pkill guard is kept (por
 case_migration_stop_edited() {  # an EDITED per-target retro-gate-stop.sh is kept wired (typed note), never silently swapped for the kit's gate
   local kit="$1" d="$TMP/ms-$RANDOM" st before
   mkdir -p "$d"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$d.out0" 2>&1 || return 1
   printf '# hand-adapted\n' >> "$d/.claude/hooks/retro-gate-stop.sh"; before="$(cksum < "$d/.claude/hooks/retro-gate-stop.sh")"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
   st="$d/.claude/settings.json"
   [ "$before" = "$(cksum < "$d/.claude/hooks/retro-gate-stop.sh")" ] || return 1
   [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$st")" = 2 ] &&
@@ -260,15 +274,124 @@ case_gitignore_blanket_variants() {  # every spelling of a blanket .claude ignor
     grep -qxF "$v" "$d/.gitignore" || return 1
   done
 }
-case_portable_messages() {  # --portable never claims a per-target pkill-guard hook nor tells the user to `git add --force` settings
+case_portable_messages() {  # the portable wiring never claims a per-target pkill-guard hook nor tells the user to `git add --force` settings
   local kit="$1" d="$TMP/pm-$RANDOM"; mkdir -p "$d"; git -C "$d" init -q >/dev/null 2>&1 || return 1   # an ALREADY-git target prints the git hint
   scaffold_portable "$kit" "$d" || return 1
   ! grep -q 'created: .*pkill-guard hook' "$d.out" && ! grep -q 'git add --force' "$d.out" && grep -q 'ALREADY under git' "$d.out"
 }
-case_default_bytes() {  # without --portable the generated settings.json is byte-identical to origin/main's (frozen fixture, paths normalised)
-  local kit="$1" d="$TMP/db-$RANDOM"; mkdir -p "$d"
-  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out" 2>&1 || return 1
+case_default_bytes() {  # --absolute: the generated settings.json is byte-identical to the pre-#2183 fixture (paths normalised)
+  local kit="$1" d="$TMP/db-$RANDOM"
+  scaffold_absolute "$kit" "$d" || return 1
   sed "s|$kit|<KIT>|g; s|$d|<TARGET>|g" "$d/.claude/settings.json" | cmp -s - "$HERE/fixtures/hook-kit-run/default-settings.expected.json"
+}
+case_portable_bytes() {  # the DEFAULT settings.json is byte-identical to the frozen portable fixture (nothing target- or kit-specific to normalise)
+  local kit="$1" d="$TMP/pb-$RANDOM"
+  scaffold_portable "$kit" "$d" || return 1
+  cmp -s "$d/.claude/settings.json" "$HERE/fixtures/hook-kit-run/portable-settings.expected.json"
+}
+case_migration_dedup() {  # two old entries of the one pkill guard (absolute + $CLAUDE_PROJECT_DIR form) collapse to ONE portable entry, idempotently
+  local kit="$1" d="$TMP/md-$RANDOM" st n
+  scaffold_absolute "$kit" "$d" || return 1
+  st="$d/.claude/settings.json"
+  jq '.hooks.PreToolUse += [{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pkill-guard.sh"}]}]' "$st" > "$d/s.json" && cp "$d/s.json" "$st" || return 1
+  [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 2 ] || return 1   # precondition: the duplicate really is there
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] && [ "$(jq '[.hooks.PreToolUse[]] | length' "$st")" = 1 ] &&
+    jq -e '.hooks.PreToolUse[0].hooks[0].command | contains("kit-run.sh templates/hook-pretool-pkill-guard.sh")' "$st" >/dev/null || return 1
+  n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out2" 2>&1 || return 1
+  [ "$n" = "$(cksum < "$st")" ]
+}
+
+mkcorpus_abs() {   # <kit> <dir> : an --absolute-wired target (the pre-#2183 wiring a default --wire then migrates)
+  mkdir -p "$2"
+  bash "$1/toolbelt/research-sdd-init.sh" "$2" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$2.out0" 2>&1
+}
+setcmd() {   # <settings> <event> <script-name> <new-command> : point the entry whose command mentions <script-name> at <new-command>
+  jq --arg ev "$2" --arg n "$3" --arg c "$4" '(.hooks[$ev][].hooks[] | select(.command | contains($n)) | .command) = $c' "$1" > "$1.tmp" && cp "$1.tmp" "$1"
+}
+case_foreign_untouched() {   # W1: an absolute gate/drift path OUTSIDE the kit is never rewritten to kit-run: left as-is and named in a typed note
+  local kit="$1" d="$TMP/fu-$RANDOM" st n
+  mkcorpus_abs "$kit" "$d" || return 1; st="$d/.claude/settings.json"
+  mkdir -p "$d/otherkit"; printf '#!/bin/sh\nexit 0\n' > "$d/otherkit/return-token-gate.sh"; chmod +x "$d/otherkit/return-token-gate.sh"
+  setcmd "$st" Stop return-token-gate.sh "\"$d/otherkit/return-token-gate.sh\"" || return 1       # a WORKING gate of another checkout
+  setcmd "$st" SessionStart verify-skill-drift-hook.sh "/opt/x/verify-skill-drift-hook.sh" || return 1   # a missing one
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  jq -e --arg g "\"$d/otherkit/return-token-gate.sh\"" '[.hooks.Stop[].hooks[].command] | index($g) != null' "$st" >/dev/null || return 1   # kept, byte for byte
+  ! jq -e '[.hooks.Stop[].hooks[].command] | any(contains("kit-run.sh toolbelt/return-token-gate.sh"))' "$st" >/dev/null || return 1   # and no second gate added next to it
+  grep -qF "note   : left $d/otherkit/return-token-gate.sh untouched" "$d.out" || return 1
+  grep -qF "note   : left /opt/x/verify-skill-drift-hook.sh untouched" "$d.out" || return 1
+  n="$(jq '[.hooks.SessionStart[].hooks[].command | select(contains("verify-skill-drift-hook.sh"))] | length' "$st")"
+  [ "$n" = 1 ] && jq -e '[.hooks.SessionStart[].hooks[].command] | any(. == "bash \"$CLAUDE_PROJECT_DIR\"/tools/hooks/kit-run.sh toolbelt/verify-skill-drift-hook.sh")' "$st" >/dev/null   # the missing one is pruned as stale and replaced
+}
+case_stale_prune() {   # default path: stale (missing) absolute gate + drift entries are pruned and replaced by ONE portable entry each, idempotently
+  local kit="$1" d="$TMP/sp-$RANDOM" st n
+  mkcorpus_abs "$kit" "$d" || return 1; st="$d/.claude/settings.json"
+  setcmd "$st" Stop return-token-gate.sh "\"/gone/kit/toolbelt/return-token-gate.sh\"" || return 1
+  setcmd "$st" SessionStart verify-skill-drift-hook.sh "\"/gone/kit/toolbelt/verify-skill-drift-hook.sh\"" || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  ! grep -qF /gone/ "$st" || return 1
+  [ "$(jq '[.hooks.Stop[].hooks[].command | select(contains("return-token-gate.sh"))] | length' "$st")" = 1 ] &&
+    [ "$(jq '[.hooks.SessionStart[].hooks[].command | select(contains("verify-skill-drift-hook.sh"))] | length' "$st")" = 1 ] &&
+    jq -e '[.hooks.Stop[].hooks[].command] | any(. == "bash \"$CLAUDE_PROJECT_DIR\"/tools/hooks/kit-run.sh toolbelt/return-token-gate.sh")' "$st" >/dev/null || return 1
+  grep -q 'return-token gate repaired (stale path /gone/kit/toolbelt/return-token-gate.sh)' "$d.out" || return 1
+  n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out2" 2>&1 || return 1
+  [ "$n" = "$(cksum < "$st")" ]
+}
+case_bare_spaced_kit() {   # default path: a BARE (unquoted) gate path with whitespace under this kit word-splits; it is rewritten to the portable gate, not kept as an "other form"
+  local kit="$1" d="$TMP/bs-$RANDOM" sk st
+  sk="$(mkkit "k sp $RANDOM" "$kit/toolbelt/research-sdd-init.sh")" || return 1
+  mkcorpus_abs "$sk" "$d" || return 1; st="$d/.claude/settings.json"
+  setcmd "$st" Stop return-token-gate.sh "$sk/toolbelt/return-token-gate.sh" || return 1
+  bash "$sk/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  [ "$(jq '[.hooks.Stop[].hooks[].command | select(contains("return-token-gate.sh"))] | length' "$st")" = 1 ] &&
+    jq -e '[.hooks.Stop[].hooks[].command] | any(. == "bash \"$CLAUDE_PROJECT_DIR\"/tools/hooks/kit-run.sh toolbelt/return-token-gate.sh")' "$st" >/dev/null && ! grep -qF "$sk" "$st"
+}
+case_dedup_timeout() {   # W2: the duplicate collapse keys on timeout too - an identical twin is dropped, a twin with another timeout is kept
+  local kit="$1" d="$TMP/dt-$RANDOM" st
+  mkcorpus_abs "$kit" "$d" || return 1; st="$d/.claude/settings.json"
+  jq --arg c "\"$kit/toolbelt/verify-skill-drift-hook.sh\"" '.hooks.SessionStart += [{"matcher":"","hooks":[{"type":"command","command":$c,"timeout":15}]},{"matcher":"","hooks":[{"type":"command","command":$c,"timeout":30}]}]' "$st" > "$st.tmp" && cp "$st.tmp" "$st" || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  [ "$(jq '[.hooks.SessionStart[].hooks[] | select(.command | contains("verify-skill-drift-hook.sh")) | .timeout] | sort | join(",")' "$st")" = '"15,30"' ] &&
+    grep -q 'migrated: 1 duplicate hook entry collapsed' "$d.out"
+}
+case_settings_edges() {   # default path: a non-empty invalid settings.json is refused (exit 4, nothing written, bytes kept); a zero-byte one is read as {} and wired portably
+  local kit="$1" d="$TMP/se-$RANDOM" e="$TMP/se2-$RANDOM" rc=0
+  mkdir -p "$d/.claude" "$e/.claude"; : > "$d/INDEX.md"; : > "$e/INDEX.md"
+  printf '{ not json' > "$d/.claude/settings.json"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(cat "$d/.claude/settings.json")" = '{ not json' ] && [ ! -e "$d/tools/hooks/kit-run.sh" ] && [ ! -e "$d/.claude/hooks" ] || return 1
+  : > "$e/.claude/settings.json"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$e" --wire >"$e.out" 2>&1 || return 1
+  jq -e '[.hooks.Stop[].hooks[].command] | any(contains("kit-run.sh toolbelt/retro-gate.sh"))' "$e/.claude/settings.json" >/dev/null && [ -x "$e/tools/hooks/kit-run.sh" ]
+}
+case_migration_notes() {   # N1/N2: the migration reports a rewrite (naming --absolute), and names the now-unused unmodified per-target hooks without deleting them
+  local kit="$1" d="$TMP/mn-$RANDOM" e="$TMP/mn2-$RANDOM"
+  mkcorpus_abs "$kit" "$d" || return 1
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1 || return 1
+  grep -q 'migrated: existing absolute hook entries rewritten to the portable form .*--absolute' "$d.out" || return 1
+  ! grep -q 'duplicate hook entr' "$d.out" || return 1   # a pure rewrite is not reported as a collapse
+  grep -qF "note   : unused per-target $d/.claude/hooks/retro-gate-stop.sh" "$d.out" && grep -qF "note   : unused per-target $d/.claude/hooks/pkill-guard.sh" "$d.out" || return 1
+  [ -f "$d/.claude/hooks/retro-gate-stop.sh" ] && [ -f "$d/.claude/hooks/pkill-guard.sh" ] || return 1   # reported, never deleted (propose-never-apply)
+  mkcorpus_abs "$kit" "$e" || return 1   # a hand-adapted guard stays wired, so it is NOT reported as unused
+  printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$e/.claude/hooks/pkill-guard.sh"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$e" --wire >"$e.out" 2>&1 || return 1
+  ! grep -qF "unused per-target $e/.claude/hooks/pkill-guard.sh" "$e.out"
+}
+
+case_env_wiring() {   # RSDD_INIT_WIRING picks the default; --absolute / --portable override it; an invalid value is exit 2 with nothing written; unset = portable
+  local kit="$1" a="$TMP/ew1-$RANDOM" b="$TMP/ew2-$RANDOM" c="$TMP/ew3-$RANDOM" x="$TMP/ew4-$RANDOM" u="$TMP/ew5-$RANDOM" rc=0 init
+  init="$kit/toolbelt/research-sdd-init.sh"
+  mkdir -p "$a" "$b" "$c" "$x" "$u"
+  RSDD_INIT_WIRING=absolute bash "$init" "$a" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$a.out" 2>&1 || return 1
+  grep -qF "$kit/toolbelt/return-token-gate.sh" "$a/.claude/settings.json" && [ ! -e "$a/tools/hooks/kit-run.sh" ] || return 1
+  RSDD_INIT_WIRING=absolute bash "$init" "$b" --corpus flat --prefix t --subject "kit run" --scaffold --wire --portable >"$b.out" 2>&1 || return 1
+  [ -x "$b/tools/hooks/kit-run.sh" ] && ! grep -qF "$kit" "$b/.claude/settings.json" || return 1
+  RSDD_INIT_WIRING=portable bash "$init" "$c" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$c.out" 2>&1 || return 1
+  grep -qF "$kit/toolbelt/return-token-gate.sh" "$c/.claude/settings.json" || return 1
+  RSDD_INIT_WIRING=bogus bash "$init" "$x" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$x.out" 2>&1 || rc=$?
+  [ "$rc" = 2 ] && grep -q "RSDD_INIT_WIRING must be 'absolute' or 'portable' (got 'bogus')" "$x.out" && [ -z "$(ls -A "$x")" ] || return 1
+  env -u RSDD_INIT_WIRING bash "$init" "$u" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$u.out" 2>&1 || return 1
+  [ -x "$u/tools/hooks/kit-run.sh" ] && ! grep -qF "$kit" "$u/.claude/settings.json"
 }
 
 K="$(mkkit k0)"
@@ -281,22 +404,32 @@ case_env_beats_launcher "$SUT_RUN" && ok "6 the env var wins over a launcher lin
 case_unresolved "$SUT_RUN"       && ok "7 unresolved kit -> typed DEGRADED, exit 1" || no "7 unresolved must be a typed DEGRADED"
 case_missing_script "$SUT_RUN"   && ok "8 missing kit script -> typed DEGRADED, exit 1" || no "8 missing script"
 case_pkill_closed "$SUT_RUN"     && ok "9 pkill guard fails CLOSED (ask) on pkill/pgrep, passes other commands" || no "9 pkill guard must fail closed"
-case_no_abs_paths "$K"           && ok "10 --portable settings.json has no absolute/kit/target path and wires all three hooks through kit-run.sh" || no "10 portable wiring"
+case_no_abs_paths "$K"           && ok "10 default settings.json has no absolute/kit/target path and wires all three hooks through kit-run.sh" || no "10 portable wiring"
 case_fresh_clone "$K"            && ok "11 fresh clone (settings.json + tools/ only) runs every kit-owned hook command" || no "11 fresh clone"
 case_pkill_unresolved_wired "$K" && ok "12 wired pkill command fails closed when no kit resolves" || no "12 wired pkill closed"
-case_idempotent "$K"             && ok "13 --wire --portable is idempotent (no duplicate hooks)" || no "13 idempotency"
-case_default_unchanged "$K"      && ok "14 without --portable: absolute kit path, no runner installed" || no "14 default must be unchanged"
-case_wire_only_installs "$K"     && ok "15 wire-only --portable keeps an existing kit-run.sh and wires portably" || no "15 wire-only"
-case_migration "$K"              && ok "16 --wire --portable over default (absolute) wiring REPLACES the entries: no duplicates, no absolute path, idempotent" || no "16 migration"
+case_idempotent "$K"             && ok "13 --wire is idempotent (no duplicate hooks)" || no "13 idempotency"
+case_absolute_optout "$K"        && ok "14 --absolute opts out: absolute kit path, per-target copies, no runner installed" || no "14 --absolute opt-out"
+case_wire_only_installs "$K"     && ok "15 wire-only keeps an existing kit-run.sh and wires portably" || no "15 wire-only"
+case_migration "$K"              && ok "16 --wire over --absolute wiring REPLACES the entries: no duplicates, no absolute path, idempotent" || no "16 migration"
 case_migration_adapted "$K"      && ok "17 a hand-adapted per-target pkill guard is migrated to its CLAUDE_PROJECT_DIR form, not replaced" || no "17 adapted migration"
-case_gitignore_tracked "$K"      && ok "18 --portable tracks settings.json + the SessionStart hook + the runner; the rest of .claude/ is ignored" || no "18 gitignore must track the wiring"
+case_gitignore_tracked "$K"      && ok "18 the default tracks settings.json + the SessionStart hook + the runner; the rest of .claude/ is ignored" || no "18 gitignore must track the wiring"
 case_gitignore_blanket_warns "$K" && ok "19 a pre-existing blanket .claude/ line is kept and WARNed about, never rewritten" || no "19 blanket gitignore line"
-case_no_percopy "$K"             && ok "20 --portable creates no per-target retro-gate-stop.sh / pkill-guard.sh" || no "20 per-target copies"
+case_no_percopy "$K"             && ok "20 the default creates no per-target retro-gate-stop.sh / pkill-guard.sh" || no "20 per-target copies"
 case_migration_stop_edited "$K"  && ok "25 an edited per-target retro-gate-stop.sh stays wired (typed note), like the pkill guard" || no "25 edited stop hook"
 case_gitignore_order "$K"        && ok "26 track rules are appended in order; an out-of-order .gitignore is WARNed (rules one per line), not edited" || no "26 gitignore order"
 case_gitignore_blanket_variants "$K" && ok "27 .claude/**, /.claude/*, /.claude/, .claude and trailing-space spellings all draw the WARN" || no "27 blanket variants"
-case_portable_messages "$K"      && ok "28 --portable prints no pkill-guard-hook claim and no 'git add --force' hint" || no "28 portable messages"
-case_default_bytes "$K"          && ok "21 default (no --portable) settings.json is byte-identical to the origin/main fixture" || no "21 default wiring must be unchanged"
+case_portable_messages "$K"      && ok "28 the default prints no pkill-guard-hook claim and no 'git add --force' hint" || no "28 portable messages"
+case_default_bytes "$K"          && ok "21 --absolute settings.json is byte-identical to the pre-#2183 fixture" || no "21 absolute wiring must be unchanged"
+case_portable_bytes "$K"         && ok "29 the DEFAULT (no flag) settings.json is byte-identical to the frozen portable fixture" || no "29 portable default bytes"
+case_portable_alias "$K"         && ok "30 --portable is a no-op spelling of the default; --portable with --absolute is exit 2, nothing written" || no "30 portable alias / conflict"
+case_migration_dedup "$K"        && ok "31 two old pkill-guard entries rewrite to ONE portable entry (no duplicate guard), idempotently" || no "31 duplicate pkill guard entry"
+case_foreign_untouched "$K"      && ok "32 an absolute gate/drift path outside the kit is not rewritten (typed note naming it); a missing one is pruned as stale" || no "32 foreign kit path"
+case_stale_prune "$K"            && ok "33 default path: stale gate + drift entries are pruned and replaced by one portable entry each, idempotently" || no "33 stale prune"
+case_bare_spaced_kit "$K"        && ok "34 default path: a bare gate path with whitespace under the kit is rewritten to the portable gate" || no "34 bare spaced kit path"
+case_dedup_timeout "$K"          && ok "35 the duplicate collapse keys on timeout: an identical twin is dropped, one with another timeout is kept" || no "35 dedup timeout"
+case_settings_edges "$K"         && ok "36 default path: invalid settings.json -> exit 4, nothing written; zero-byte -> read as {} and wired portably" || no "36 settings edges"
+case_migration_notes "$K"        && ok "37 migration notes: rewrite names --absolute; unmodified now-unused per-target hooks are reported, not deleted" || no "37 migration notes"
+case_env_wiring "$K"             && ok "38 RSDD_INIT_WIRING selects the default; flags override it; an invalid value is exit 2, nothing written; unset = portable" || no "38 env wiring"
 case_invalid_env "$SUT_RUN"      && ok "22 a set-but-invalid RESEARCH_SDD_KIT is reported (typed) then the next source resolves" || no "22 invalid env"
 case_rel_escape "$SUT_RUN"       && ok "23 an absolute or '..' script path is refused" || no "23 rel escape"
 case_launcher_backtick "$SUT_RUN" && ok "24 a backtick-quoted launcher value resolves" || no "24 backtick launcher"
@@ -335,6 +468,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rteeth REL-ESCAPE-ALLOWED case_rel_escape 's/^if \[\[ "\$rel" == \/\* .*$/:/'
   rteeth BACKTICK-KEPT case_launcher_backtick '/a launcher value may be backtick-quoted/d'
   rteeth PKILL-EXACT-PATH-ONLY case_pkill_closed 's/\[\[ "\$rel" == \*hook-pretool-pkill-guard.sh \]\]/[ "$rel" = "templates\/hook-pretool-pkill-guard.sh" ]/'
+  iteeth DEFAULT-NOT-PORTABLE case_no_abs_paths 's/^  ""|portable) portable=1;;/  ""|portable) portable=0;;/'
+  iteeth ABSOLUTE-FLAG-IGNORED case_absolute_optout 's/--absolute) portable=0; absolute_given=1;/--absolute) absolute_given=1;/'
+  iteeth PORTABLE-ABSOLUTE-ALLOWED case_portable_alias 's/^\[ "\$portable_given" = 1 \] \&\& \[ "\$absolute_given" = 1 \].*$/:/'
+  iteeth MIGRATION-NO-DEDUP case_migration_dedup 's/then \.hooks |= with_entries(\.value |= (if type == "array" then dedup else \. end))/then .hooks |= with_entries(.value |= (if type == "array" then . else . end))/'
+  iteeth FOREIGN-KIT-REWRITTEN case_foreign_untouched 's/(\$p | startswith(\$kit + "\/")) and //'
+  iteeth FOREIGN-NOTE-DROPPED case_foreign_untouched 's/note   : left \$f untouched/note   : kept \$f/'
+  iteeth STALE-NOT-PRUNED case_stale_prune 's/\[ -e "\$_gp" \] || { stale=/[ -e "$_gp" ] \&\& { stale=/'
+  iteeth BARE-SPACED-KEPT case_bare_spaced_kit 's/(\$p | endswith("\/" + \$f)) and /(\$p | endswith("\/" + $f)) and (($p | length) == ($p | gsub("[[:space:]]"; "") | length)) and /'
+  iteeth DEDUP-KEY-NO-TIMEOUT case_dedup_timeout 's/, (\$h.timeout \/\/ null)\]/]/g'
+  iteeth SETTINGS-VALIDATION-DROPPED case_settings_edges 's/^    if \[ -s "\$_wo_settings" \] \&\& ! jq -e /    if false \&\& ! jq -e /'
+  iteeth ORPHAN-NOTE-DROPPED case_migration_notes 's/note   : unused per-target/note   : used per-target/'
+  iteeth MIGRATED-HINT-DROPPED case_migration_notes 's/; pass --absolute to keep absolute paths//'
+  iteeth DEFAULT-PORTABLE-BYTES case_portable_bytes 's/^  _RSDD_DRIFT_CMD="\$_RSDD_RUN toolbelt\/verify-skill-drift-hook.sh"/  _RSDD_DRIFT_CMD="$_RSDD_RUN toolbelt\/verify-skill-drift-hook.sh --x"/'
+  iteeth ENV-WIRING-IGNORED case_env_wiring 's/^  absolute)    portable=0;;$/  absolute)    :;;/'
+  iteeth ENV-INVALID-ACCEPTED case_env_wiring 's/^  \*) echo "usage: RSDD_INIT_WIRING.*$/  *) :;;/'
   iteeth PORTABLE-STOP-ABSOLUTE case_no_abs_paths 's/^  _C_STOP=.*# PORTABLE-STOP.*$/  :/'
   iteeth PORTABLE-SS-ABSOLUTE case_no_abs_paths 's/^  _C_SS=.*# PORTABLE-SS$/  :/'
   iteeth PORTABLE-DRIFT-ABSOLUTE case_no_abs_paths 's/^  _RSDD_DRIFT_CMD=.*# PORTABLE-DRIFT$/  :/'
