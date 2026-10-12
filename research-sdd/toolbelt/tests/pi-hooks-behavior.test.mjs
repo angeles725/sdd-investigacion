@@ -623,8 +623,9 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
 // ---- 19. print mode (-p): the last assistant message IS the output, so the gate may not replace it (#2177) --------------
 // pi's print mode writes only the text of the final message when that message is an assistant message. A gate block
 // returned as {entries, continue:true} appends a custom message and re-prompts, so the answer already given is lost and
-// the continuation's last message usually carries no text: an empty stdout with rc 0. In print mode a block must surface
-// as a typed stderr notice and the settle must return nothing (no entry, no continue).
+// the continuation's last message usually carries no text: an empty stdout with rc 0. In print mode the gates do not run at
+// all (a gate that ran would write its block-once marker for a block the one-shot run cannot enforce, and an interactive
+// resume of the session would silently skip it): one typed stderr line, no entry, no continuation, no marker file.
 {
   const captureStderr = async (fn) => {
     const orig = process.stderr.write.bind(process.stderr);
@@ -633,20 +634,31 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
     try { return { result: await fn(), stderr: buf }; } finally { process.stderr.write = orig; }
   };
   const printCtx = (ctx) => ({ ...ctx, mode: 'print' });
-  const s = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const markers = (target) => { try { return readdirSync(join(target, '.claude')).filter((n) => /blocked/.test(n)); } catch { return []; } };
+  const both = { RSDD_TEST_RETRO_OUT: BLOCK_JSON, RSDD_TEST_TOKEN_OUT: JSON.stringify({ decision: 'block', reason: 'TOKEN-REQUIRED: copy next: foo' }) };
+  const s = await boot({ env: both });
   const { result: r, stderr } = await captureStderr(() => fire(s.pi, 'agent_before_settle', settleEvent(), printCtx(s.ctx)));
-  check('print mode: a retro-gate block returns no entries and no continuation (the answer stays the last message)', r === undefined, JSON.stringify(r));
-  check('print mode: the retro-gate block reason is surfaced on stderr, typed and marked not enforced',
-    /research-sdd-hooks/.test(stderr) && /RETRO-REQUIRED/.test(stderr) && /print mode/.test(stderr) && /NOT enforced/.test(stderr), JSON.stringify(stderr));
-  const tok = await boot({ env: { RSDD_TEST_TOKEN_OUT: JSON.stringify({ decision: 'block', reason: 'TOKEN-REQUIRED: copy next: foo' }) } });
-  const t = await captureStderr(() => fire(tok.pi, 'agent_before_settle', settleEvent(), printCtx(tok.ctx)));
-  check('print mode: a return-token block is a stderr notice, not a continuation', t.result === undefined && /TOKEN-REQUIRED/.test(t.stderr) && /NOT enforced/.test(t.stderr), JSON.stringify([t.result, t.stderr]));
-  const deg = await boot({ env: { RSDD_TEST_RETRO_EXIT: '3', RSDD_TEST_RETRO_ERR: 'retro-gate: boom' } });
-  const d = await captureStderr(() => fire(deg.pi, 'agent_before_settle', settleEvent(), printCtx(deg.ctx)));
-  check('print mode: a degraded gate is a stderr notice and appends no entry', d.result === undefined && /retro gate DEGRADED/.test(d.stderr), JSON.stringify([d.result, d.stderr]));
+  check('print mode: the settle returns no entries and no continuation (the answer stays the last message)', r === undefined, JSON.stringify(r));
+  check('print mode: neither gate runs (no GATE line in the stub kit log)', !/GATE/.test(readLog(s.log)), readLog(s.log).slice(0, 200));
+  check('print mode: no block-once marker file is left behind', markers(s.target).length === 0, JSON.stringify(markers(s.target)));
+  check('print mode: one typed stderr line says the gates were NOT evaluated',
+    /^research-sdd-hooks: retro\/return-token gates NOT evaluated in print mode/m.test(stderr) && !/RETRO-REQUIRED|TOKEN-REQUIRED/.test(stderr), JSON.stringify(stderr));
+  // a later interactive settle of the same session still gets the (never consumed) block
+  const later = await fire(s.pi, 'agent_before_settle', settleEvent(), { ...s.ctx, mode: 'tui' });
+  check('print mode does not consume the block-once flags: an interactive settle afterwards still blocks', later?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(later)), JSON.stringify(later));
+  const nc = await boot({ corpus: false, env: both });
+  const n = await captureStderr(() => fire(nc.pi, 'agent_before_settle', settleEvent(), printCtx(nc.ctx)));
+  check('print mode: a cwd that is not a research corpus prints nothing (no gates apply there)', n.result === undefined && n.stderr === '', JSON.stringify([n.result, n.stderr]));
+  // a failing handler is surfaced on stderr in print mode (ctx.ui.notify is a no-op there), and what is still pending is
+  // flushed at the settle even when the run did not complete
+  const h = await boot();
+  const g = await captureStderr(() => fire(h.pi, 'before_agent_start', { type: 'before_agent_start', systemPromptOptions: {} }, printCtx(h.ctx)));
+  check('print mode: a failing handler is a stderr notice at once, not a silent exit 0', /before_agent_start failed/.test(g.stderr), JSON.stringify(g.stderr));
+  const e = await captureStderr(() => fire(h.pi, 'agent_before_settle', settleEvent({ outcome: 'error' }), printCtx(h.ctx)));
+  check('print mode: the pending failure notice is flushed to stderr even when the run did not complete', /before_agent_start failed/.test(e.stderr) && e.result === undefined, JSON.stringify([e.result, e.stderr]));
   const ui = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
   const u = await captureStderr(() => fire(ui.pi, 'agent_before_settle', settleEvent(), { ...ui.ctx, mode: 'tui' }));
-  check('a non-print mode still gets the entry and the continuation, with nothing on stderr', u.result?.continue === true && !/RETRO-REQUIRED/.test(u.stderr), JSON.stringify([u.result, u.stderr]));
+  check('a non-print mode still gets the entry and the continuation, with nothing on stderr', u.result?.continue === true && !/RETRO-REQUIRED|NOT evaluated/.test(u.stderr), JSON.stringify([u.result, u.stderr]));
   restoreEnv();
 }
 

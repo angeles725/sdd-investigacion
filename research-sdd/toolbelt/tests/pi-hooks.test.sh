@@ -166,7 +166,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth entries-replaced      struct   settle-keeps-other-extensions-entries 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
   tooth shell-tools-narrowed  struct   pkill-covers-every-shell-tool 's/SHELL_TOOLS\.has(event\.toolName)/event.toolName === "bash"/'
   tooth transcript-predictable struct  transcript-private-and-exclusive 's/flag: "wx"/flag: "w"/'
-  tooth print-mode-blind      struct   settle-print-mode-aware 's/ctx?\.mode === "print"/ctx?.mode === "pr1nt"/'
   # behavior-only mutants: invariants a grep cannot see
   tooth child-guard-behavior  behavior - 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
   tooth outcome-gate-behavior behavior - 's/event\.outcome !== "completed" || event\.continue/false/'
@@ -199,9 +198,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-launcher-lookup    behavior - 's/for (const key of \["Kit checkout", "Kit path"\])/for (const key of [])/'
   tooth token-no-notice       behavior - 's/mine\.push(\.\.\.noticeOnce("token-transcript",[^;]*;/void 0;/'
   tooth ask-not-blocked       behavior - 's/verdict\.permissionDecision === "deny" || verdict\.permissionDecision === "ask"/verdict.permissionDecision === "deny"/'
-  tooth print-mode-continues  behavior - 's/^          return undefined;$/          return mine.length || cont ? { entries: [...base, ...mine], ...(cont ? { continue: true } : {}) } : undefined;/'
+  tooth print-mode-blind      behavior - 's/ctx?\.mode === "print"/ctx?.mode === "pr1nt"/'
+  tooth print-gates-run       behavior - 's/^      if (isPrint(ctx)) {$/      if (false) {/'
+  tooth print-guard-silent    behavior - 's/if (isPrint(ctx)) printNotice(msg);//'
+  tooth print-surface-dropped behavior - 's/for (const m of cur\.surface\.splice(0)) printNotice(m);//'
   tooth print-notice-silent   behavior - 's/try { process\.stderr\.write(`research-sdd-hooks: \${msg}\\n`); }/try { void msg; }/'
-  tooth print-block-unmarked  behavior - 's/if (cont) printNotice(/if (false) printNotice(/'
+  tooth print-not-evaluated-unsaid behavior - 's/printNotice("retro\/return-token gates NOT evaluated/void ("retro\/return-token gates NOT evaluated/'
 fi
 
 echo "skipped: $skipped"
