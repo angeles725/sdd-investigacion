@@ -429,6 +429,36 @@ run --repo "$D_ac" --audit
 run --repo "$D_nom" --audit
 { [ "$RC" = 2 ] && ehas 'manifest absent'; } && ok "--audit on a tree without the manifest -> degraded, exit 2" || no "audit absent manifest" "(rc=$RC $ERR)"
 
+# ---- --deps-all / --deps (kit issue #2201 part 2): the forward dependency set run-all.sh --cache keys on -----------------------
+TAB=$'\t'
+dep_has() { grep -qxF -- "DEP$TAB$PFX$1$TAB$2" <<<"$OUT"; }   # dep_has <suite basename> <repo-relative file>
+run --repo "$P" --deps-all
+{ [ "$RC" = 0 ] && dep_has aaa-first.test.sh $T/alpha.sh; } && ok "--deps-all: a literal-SUT reference is a dependency of its suite" || no "deps literal" "(rc=$RC $ERR)"
+{ dep_has d.test.sh $T/alpha2.sh && dep_has d.test.sh $T/lib/ll1.sh && dep_has d.test.sh $T/lib/ll2.sh; } && ok "--deps-all: the closure is transitive and a cycle (ll1 <-> ll2) terminates" || no "deps transitive/cycle"
+{ dep_has c.test.sh $T/wrap.sh && dep_has c.test.sh $T/gamma.py; } && ok "--deps-all: a two-hop chain (suite -> wrap.sh -> gamma.py) is fully listed" || no "deps two-hop"
+dep_has e.test.sh $TS/fixtures/e-data/x.txt && ok "--deps-all: a reached fixture dir contributes its files" || no "deps fixture dir"
+{ dep_has wsuite.test.sh $T/w1.sh && dep_has wsuite.test.sh $T/wide.sh; } && ok "--deps-all: a wide fan-out keeps every leaf (no size cut-off)" || no "deps fanout"
+! dep_has aaa-first.test.sh $T/beta.sh && ok "--deps-all: an unrelated production file is not a dependency" || no "deps unrelated leaked in"
+grep -qxF -- "BLIND$TAB${PFX}evalish.test.sh${TAB}manifest" <<<"$OUT" && ok "--deps-all: a blind-spot suite is named BLIND with its reason" || no "deps blind" "($(grep BLIND <<<"$OUT"))"
+! grep -q -- "^DEP$TAB${PFX}evalish.test.sh$TAB" <<<"$OUT" && ok "--deps-all: a BLIND suite lists no (misleading) DEP lines" || no "deps blind has DEP lines"
+grep -qE -- "^UNRESOLVED$TAB${PFX}lint-always.test.sh$TAB" <<<"$OUT" && ok "--deps-all: a suite that resolves no dependency is UNRESOLVED, never an empty confident set" || no "deps unresolved" "($(grep UNRESOLVED <<<"$OUT"))"
+nsu="$(git -C "$P" ls-files | grep -cE '^research-sdd/(toolbelt/tests|install/tests)/[^/]+\.test\.(sh|mjs)$')"
+ndep="$(grep -c "^DEP$TAB" <<<"$OUT")"
+grep -qxF -- "DEPS-SUMMARY$TAB$nsu$TAB$ndep" <<<"$OUT" && ok "--deps-all: the last line proves it looked (suites=$nsu, dep lines=$ndep)" || no "deps summary" "($(tail -1 <<<"$OUT"))"
+run --repo "$P" --deps "${PFX}d.test.sh"
+ndep1="$(grep -c "^DEP$TAB" <<<"$OUT")"
+{ [ "$RC" = 0 ] && dep_has d.test.sh $T/lib/ll2.sh && ! grep -q "aaa-first" <<<"$OUT" && grep -qxF -- "DEPS-SUMMARY${TAB}1$TAB$ndep1" <<<"$OUT"; } && ok "--deps <suite>: prints only that suite" || no "deps one suite" "(rc=$RC $OUT)"
+run --repo "$P" --deps "${PFX}nosuch.test.sh"
+{ [ "$RC" = 2 ] && ehas 'no such suite'; } && ok "--deps <unknown suite> -> degraded, exit 2 (never an empty confident answer)" || no "deps unknown suite" "(rc=$RC $ERR)"
+run --repo "$D_nom" --deps-all
+{ [ "$RC" = 2 ] && ehas 'manifest absent'; } && ok "--deps-all without the manifests -> degraded, exit 2" || no "deps absent manifest" "(rc=$RC $ERR)"
+run --repo "$P" --deps-all --head HEAD
+[ "$RC" = 2 ] && ok "--deps-all with --head is a usage error" || no "deps+head" "(rc=$RC)"
+run --repo "$P" --base base --format list; b1="$OUT"
+run --repo "$P" --deps-all >/dev/null
+run --repo "$P" --base base --format list
+[ "$OUT" = "$b1" ] && ok "--deps-all does not change selection (same --base answer before and after)" || no "selection changed"
+
 # =================================================================================================================
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth --"
@@ -517,6 +547,20 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     -- "$BASH_BIN" @SUT@ --repo "$D_ae" --audit
   mt "kit-copy detector removed from --audit" 1 0 's/then echo "kit-copy"; return; fi/then :; fi/' \
     -- "$BASH_BIN" @SUT@ --repo "$D_ak" --audit
+  mt "deps: closure stops at direct references" 0 0 's/for (j = 1; j <= fn\[cur\]; j++) { s = fwd/for (j = 1; j <= (cur == start ? fn[cur] : 0); j++) { s = fwd/' \
+    --good-has "$T/lib/ll2.sh" --bad-lacks "$T/lib/ll2.sh" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}d.test.sh"
+  mt "deps: fixture dir files dropped" 0 0 's/for (i = 1; i <= dn\[d\]; i++) { print "DEP/for (i = 1; i <= 0; i++) { print "DEP/' \
+    --good-has "fixtures/e-data/x.txt" --bad-lacks "fixtures/e-data/x.txt" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}e.test.sh"
+  mt "deps: blind suites not marked" 0 0 's/if grep -qxF -- "\$s" "\$TMP\/blind"; then printf/if false; then printf/' \
+    --good-has "manifest" --bad-lacks "manifest" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}evalish.test.sh"
+  mt "deps: unresolved suites not marked" 0 0 's/elif \[ "\$n" -eq 0 \]; then printf .UNRESOLVED/elif false; then printf '"'"'UNRESOLVED/' \
+    --good-has "UNRESOLVED" --bad-lacks "UNRESOLVED" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}lint-always.test.sh"
+  mt "deps: unknown --deps suite accepted" 2 2 's/|| degraded "no such suite: \$DEPS_WANT (give a repo-relative suite path)"/|| :/' \
+    --good-has 'no such suite' --bad-lacks 'no such suite' -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}nosuch.test.sh"
+  mt "deps: summary line dropped" 0 0 "s/^  printf 'DEPS-SUMMARY/  : printf 'DEPS-SUMMARY/" \
+    --good-has "DEPS-SUMMARY" --bad-lacks "DEPS-SUMMARY" -- "$BASH_BIN" @SUT@ --repo "$P" --deps-all
+  mt "deps: suites running suites lose their edge" 0 0 's/if (w in skn) for (i = 1; i <= skn\[w\]; i++) edge(src, "S:" sk\[w, i\])/;/' \
+    --good-has 'tests/b.test.sh' --bad-lacks 'tests/b.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_sr" --deps "${PFX}runner.test.sh"
   mt "audit ignores comment lines no more" 0 1 's/body="\$(grep -vE .\^\[\[:space:\]\]\*(#|\/\/). "\$f" 2>\/dev\/null)" || true/body="$(cat "$f")" || true/' \
     -- "$BASH_BIN" @SUT@ --repo "$D_ac" --audit
 fi

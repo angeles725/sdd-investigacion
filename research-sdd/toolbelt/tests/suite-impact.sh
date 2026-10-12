@@ -8,6 +8,7 @@
 # Usage: suite-impact.sh --base <ref> [--head <ref> | --worktree] [--format list|report] [--repo DIR]
 #                        [--manifest-dir DIR] [--tolerate-stale-manifest]
 #        suite-impact.sh --audit [--repo DIR] [--manifest-dir DIR]
+#        suite-impact.sh --deps-all | --deps <suite> [--repo DIR] [--manifest-dir DIR]
 #   Changed files = `git diff --name-status -M <base>...<head>` (head defaults to HEAD). --worktree diffs the
 #   merge-base of <base> and HEAD against the working tree and adds untracked files.
 #   --format list    one repo-relative suite path per line (what run-all will consume)
@@ -15,6 +16,13 @@
 #                    verdict and the selected list
 #   --audit          re-derive the blind-spot set from the corpus and report suites missing from
 #                    impact-blindspot.txt; also validates both manifests and lists unreachable production files
+#   --deps-all       (kit issue #2201 part 2, the key of run-all.sh --cache) print each suite's FORWARD dependency set
+#                    over the same word graph, on the working tree: tab-separated `DEP <suite> <file>` (a production
+#                    file, a fixture file of a reached fixture dir, or another suite it runs), `BLIND <suite> <reason>`
+#                    (listed in impact-blindspot.txt or flagged by the detector: its reach cannot be known),
+#                    `UNRESOLVED <suite> <reason>` (no dependency resolved at all), and a last
+#                    `DEPS-SUMMARY <suites> <dep-lines>`. --deps <suite> prints one suite (repo-relative path). It does not
+#                    change how a change is mapped to suites.
 #
 # Exit: 0 ok (selection printed, or FULL escalation printed) · 1 audit/manifest finding · 2 degraded or usage.
 # Typed degraded line on stderr: `degraded: suite-impact: <reason>`.
@@ -55,10 +63,10 @@ WIDE_THRESHOLD="${SUITE_IMPACT_WIDE_THRESHOLD-12}"   # validated below: a set-bu
 WIDE_NAMED="block-files.sh retro-status.sh retro-grammar.sh state-files.sh hook-emit.sh tool-env.sh target-paths.sh analysis_manifest.py gate.py adapter_core.py"
 
 degraded() { echo "degraded: $SELF_NAME: $*" >&2; exit 2; }
-usage() { echo "usage: $SELF_NAME.sh --base <ref> [--head <ref>|--worktree] [--format list|report] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] | --audit" >&2; exit 2; }
+usage() { echo "usage: $SELF_NAME.sh --base <ref> [--head <ref>|--worktree] [--format list|report] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] | --audit | --deps-all | --deps <suite>" >&2; exit 2; }
 
 # ---- args ------------------------------------------------------------------------------------------------
-BASE=""; HEAD_REF="HEAD"; HEAD_GIVEN=0; WORKTREE=0; FORMAT="report"; AUDIT=0; REPO_ARG="."; MANIFEST_DIR=""; TOLERATE=0
+BASE=""; HEAD_REF="HEAD"; HEAD_GIVEN=0; WORKTREE=0; FORMAT="report"; AUDIT=0; DEPS=0; DEPS_WANT=""; REPO_ARG="."; MANIFEST_DIR=""; TOLERATE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) [ $# -ge 2 ] || usage; BASE="$2"; shift 2 ;;
@@ -69,12 +77,14 @@ while [ $# -gt 0 ]; do
     --manifest-dir) [ $# -ge 2 ] || usage; MANIFEST_DIR="$2"; shift 2 ;;
     --tolerate-stale-manifest) TOLERATE=1; shift ;;
     --audit) AUDIT=1; shift ;;
+    --deps-all) DEPS=1; WORKTREE=1; shift ;;
+    --deps) [ $# -ge 2 ] || usage; DEPS=1; WORKTREE=1; DEPS_WANT="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "$SELF_NAME: unknown argument: $1" >&2; usage ;;
   esac
 done
 case "$FORMAT" in list|report) ;; *) echo "$SELF_NAME: --format must be list or report" >&2; usage ;; esac
-[ "$AUDIT" = 1 ] || [ -n "$BASE" ] || usage
+[ "$AUDIT" = 1 ] || [ "$DEPS" = 1 ] || [ -n "$BASE" ] || usage
 if [ "$WORKTREE" = 1 ] && [ "$HEAD_GIVEN" = 1 ]; then echo "$SELF_NAME: --worktree and --head are mutually exclusive" >&2; usage; fi
 case "$WIDE_THRESHOLD" in ''|*[!0-9]*|0|0[0-9]*) degraded "SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer, got: '$WIDE_THRESHOLD'" ;; esac
 # a relative --manifest-dir is resolved against the caller's cwd, before this script changes directory
@@ -298,6 +308,62 @@ if [ "$AUDIT" = 1 ]; then
   echo "Audit: production code files no suite reaches (change escalates to FULL): $orphans"
   [ "$missing" -eq 0 ] && [ "$MANIFEST_BAD" -eq 0 ] && exit 0
   exit 1
+fi
+# ---- forward dependency sets (kit issue #2201 part 2: the key of run-all.sh --cache) -------------------------------------
+# A separate, self-contained pass: it REUSES the word graph (the same AWK_GRAPH front half: lexing, edge rules, fixture
+# dirs) but replaces its END block with a forward walk, so no selection rule is touched. The reverse edges the graph
+# stores (target <- source) are inverted here; a suite's set is everything reachable from it, plus the fixture dir named
+# like the suite. Output is tab-separated and always ends with a DEPS-SUMMARY line (suites, DEP lines) so a caller can
+# tell "looked and found nothing" from "never looked" (CLAUDE.md section 7).
+AWK_DEPS_END='
+END {
+  for (t in rn) for (j = 1; j <= rn[t]; j++) { s = rsrc[t, j]; fwd[s, ++fn[s]] = t }
+  for (ff in fdir) { d = fdir[ff]; dfile[d, ++dn[d]] = ff }
+  for (f in kind) if (kind[f] == "S") {
+    if (WANT != "" && f != WANT) continue
+    delete vis; head = 1; tail = 0; start = "S:" f; queue[++tail] = start; vis[start] = 1; nd = 0
+    b = f; sub(/^.*\//, "", b); sub(/\.test\.(sh|mjs)$/, "", b)
+    if (b in dk) { queue[++tail] = "D:" b; vis["D:" b] = 1 }
+    while (head <= tail) {
+      cur = queue[head++]
+      if (cur != start) {
+        if (cur ~ /^D:/) { d = substr(cur, 3); for (i = 1; i <= dn[d]; i++) { print "DEP\t" f "\t" dfile[d, i]; nd++ } }
+        else { print "DEP\t" f "\t" substr(cur, 3); nd++ }
+      }
+      for (j = 1; j <= fn[cur]; j++) { s = fwd[cur, j]; if (!(s in vis)) { vis[s] = 1; queue[++tail] = s } }
+    }
+    print "COUNT\t" f "\t" nd
+  }
+}
+'
+if [ "$DEPS" = 1 ]; then
+  [ "$MANIFEST_BAD" -eq 0 ] || { echo "$SELF_NAME: $MANIFEST_BAD invalid manifest line(s); refusing to answer from a broken manifest" >&2; exit 1; }
+  if [ -n "$DEPS_WANT" ]; then
+    grep -qxF -- "$DEPS_WANT" "$TMP/suites" || degraded "no such suite: $DEPS_WANT (give a repo-relative suite path)"
+  fi
+  AWK_DEPS="${AWK_GRAPH%%END \{*}$AWK_DEPS_END"
+  [ "$AWK_DEPS" != "$AWK_GRAPH" ] || degraded "cannot derive the dependency pass from the graph program (no END block found)"
+  build_graph_input
+  content_files > "$TMP/cfiles"
+  [ -s "$TMP/cfiles" ] || degraded "no content files to analyse (could not look)"
+  # shellcheck disable=SC2046 # newline-separated paths without spaces (kit invariant)
+  awk -v WANT="$DEPS_WANT" "$AWK_DEPS" "$TMP/gin" $(cat "$TMP/cfiles") > "$TMP/dout" || degraded "awk dependency pass failed"
+  : > "$TMP/dblind"
+  while IFS=$'\t' read -r tag s n; do
+    [ "$tag" = COUNT ] || continue
+    c="$(detect_blind "$s")"
+    if grep -qxF -- "$s" "$TMP/blind"; then printf 'BLIND\t%s\tmanifest\n' "$s" >> "$TMP/dblind"
+    elif [ -n "$c" ]; then printf 'BLIND\t%s\tdetected:%s\n' "$s" "$c" >> "$TMP/dblind"
+    elif [ "$n" -eq 0 ]; then printf 'UNRESOLVED\t%s\tno dependency resolved from the suite text\n' "$s" >> "$TMP/dblind"
+    fi
+  done < "$TMP/dout"
+  # a blind or unresolved suite lists no DEP lines: a partial set must not read as a real one
+  awk -F'\t' 'FILENAME==ARGV[1]{skip[$2]=1; next} $1=="DEP" && !($2 in skip){print}' "$TMP/dblind" "$TMP/dout" | LC_ALL=C sort -u > "$TMP/dep_lines"
+  nsu="$(grep -c '^COUNT' "$TMP/dout")"
+  [ "$nsu" -gt 0 ] || degraded "dependency pass produced no suites (could not look)"
+  cat "$TMP/dep_lines"; LC_ALL=C sort "$TMP/dblind"
+  printf 'DEPS-SUMMARY\t%s\t%s\n' "$nsu" "$(grep -c . "$TMP/dep_lines")"
+  exit 0
 fi
 [ "$MANIFEST_BAD" -eq 0 ] || { echo "$SELF_NAME: $MANIFEST_BAD invalid manifest line(s); refusing to select from a broken manifest" >&2; exit 1; }
 
