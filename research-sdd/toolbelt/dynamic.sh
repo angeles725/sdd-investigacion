@@ -38,7 +38,8 @@ set -uo pipefail
 
 ts()        { date -u +%Y%m%dT%H%M%SZ; }
 have()      { command -v "$1" >/dev/null 2>&1 || [ -x "$1" ]; }
-sha256_of() { sha256sum -- "$1" | cut -d' ' -f1; }
+# #2190: STDIN, not a positional name — GNU sha256sum prefixes the digest with "\" when the file name holds one.
+sha256_of() { sha256sum < "$1" | cut -d' ' -f1; }
 
 # Reject a dash-leading value so mkdir/cp/tee/sha256sum can never misparse a
 # caller-supplied path as an option (belt to the `--` suspenders below).
