@@ -55,6 +55,7 @@ checks() {
   grep -q 'hook-pretool-pkill-guard\.sh' "$f" || echo "pkill-delegated-to-kit-script"
   { grep -q '"bash_background"' "$f" && grep -q '"monitor"' "$f" && grep -q 'SHELL_TOOLS\.has(event\.toolName)' "$f"; } || echo "pkill-covers-every-shell-tool"
   grep -q 'entries: \[\.\.\.base, \.\.\.mine\]' "$f" || echo "settle-keeps-other-extensions-entries"
+  grep -q 'ctx?\.mode === "print"' "$f" || echo "settle-print-mode-aware"
   { grep -q 'mkdtempSync(' "$f" && grep -q 'flag: "wx"' "$f"; } || echo "transcript-private-and-exclusive"
   { grep -qE 'MAX_INJECT_CHARS = [0-9]+;' "$f" && [ "$(grep -oE 'MAX_INJECT_CHARS = [0-9]+' "$f" | grep -oE '[0-9]+')" -lt 8000 ]; } || echo "context-budget-under-8000"
   grep -q 'const next = freshState();' "$f" || echo "state-recomputed-every-session-start"
@@ -197,6 +198,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-launcher-lookup    behavior - 's/for (const key of \["Kit checkout", "Kit path"\])/for (const key of [])/'
   tooth token-no-notice       behavior - 's/mine\.push(\.\.\.noticeOnce("token-transcript",[^;]*;/void 0;/'
   tooth ask-not-blocked       behavior - 's/verdict\.permissionDecision === "deny" || verdict\.permissionDecision === "ask"/verdict.permissionDecision === "deny"/'
+  tooth print-mode-blind      behavior - 's/ctx?\.mode === "print"/ctx?.mode === "pr1nt"/'
+  tooth print-gates-run       behavior - 's/^      if (isPrint(ctx)) {$/      if (false) {/'
+  tooth print-guard-silent    behavior - 's/if (isPrint(ctx)) printNotice(msg);//'
+  tooth print-surface-dropped behavior - 's/for (const m of cur\.surface\.splice(0)) printNotice(m);//'
+  tooth print-notice-silent   behavior - 's/try { process\.stderr\.write(`research-sdd-hooks: \${msg}\\n`); }/try { void msg; }/'
+  tooth print-not-evaluated-unsaid behavior - 's/printNotice("retro\/return-token gates NOT evaluated/void ("retro\/return-token gates NOT evaluated/'
 fi
 
 echo "skipped: $skipped"

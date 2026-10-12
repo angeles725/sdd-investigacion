@@ -14,7 +14,9 @@
 //                                         string is capped under the 8,000-char SessionStart budget.
 //   Stop          -> agent_before_settle  retro-gate.sh, then return-token-gate.sh; ONLY when outcome === "completed"
 //                                         and no continuation is queued; a block is returned once as {entries, continue:true}
-//                                         appended to the entries other extensions already put on the event.
+//                                         appended to the entries other extensions already put on the event. In print mode
+//                                         (-p) the final message is the output, so there a block is a stderr line instead
+//                                         (no entry, no continuation; kit issue #2177).
 //   PreToolUse    -> tool_call            bash / bash_background / monitor commands that mention pkill/pgrep go through the
 //                                         kit's pkill-guard script; anything but a well-formed allow is a block.
 //
@@ -306,6 +308,17 @@ function writeTranscript(ctx: any, event: any): { dir: string; file: string } | 
   return { dir, file };
 }
 
+// A typed one-line notice on stderr (print mode: stdout carries the answer only).
+function printNotice(msg: string): void {
+  try { process.stderr.write(`research-sdd-hooks: ${msg}\n`); } catch { /* stderr closed: nothing left to tell */ }
+}
+
+// ctx.mode is "print" for `pi -p`. NOTE: pi also defaults it to "print" when an SDK host never sets a mode
+// (agent-session.js / runner.js), so such a host takes this path too: it gets the stderr notices and no gate runs, which is
+// loud (the "NOT evaluated" line), not silent. -p/--print in process.argv is deliberately NOT required: pi has other
+// routes into print mode (a piped prompt, --mode text), and missing one would bring the empty-answer defect back.
+const isPrint = (ctx: any): boolean => ctx?.mode === "print";
+
 const entry = (content: string) => ({ type: "custom_message" as const, customType: NOTICE_TYPE, content, display: true });
 
 function freshState(): HookState {
@@ -325,6 +338,7 @@ export default function (pi: ExtensionAPI) {
       pushNotice(st, msg);
       if (st.surface.length < 3) st.surface.push(msg);
       try { ctx?.ui?.notify?.(msg, "error"); } catch { /* no UI in this mode */ }
+      if (isPrint(ctx)) printNotice(msg); // ui.notify is a no-op in print mode: stderr is the only channel
       return undefined;
     }
   };
@@ -368,8 +382,21 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_before_settle", async (event, ctx) => {
     return guard("agent_before_settle", async () => {
-      if (event.outcome !== "completed" || event.continue) return undefined; // Stop-equivalent: only a real, final completion
       const cur = st;
+      // Print mode (-p) writes ONLY the text of the final message, and only when that message is an assistant message: an
+      // appended entry or a re-prompt replaces the answer already given with an empty stdout and rc 0 (kit issue #2177).
+      // So there nothing is appended or continued, and the gates do NOT run at all: a gate that ran would write its
+      // block-once marker for a block the one-shot run cannot enforce, and resuming the session interactively would then
+      // silently skip that block. Everything pending is a typed stderr line instead (never a silent exit 0).
+      if (isPrint(ctx)) {
+        for (const m of cur.surface.splice(0)) printNotice(m);
+        if (event.outcome === "completed" && !event.continue && cur.corpus) {
+          if (!cur.kit) printNotice(degradedKitText(cur));
+          printNotice("retro/return-token gates NOT evaluated in print mode (run the session interactively to satisfy them).");
+        }
+        return undefined;
+      }
+      if (event.outcome !== "completed" || event.continue) return undefined; // Stop-equivalent: only a real, final completion
       // pi REPLACES the entries with the handler's return, so every return carries the entries already on the event.
       const base = Array.isArray(event.entries) ? event.entries : [];
       const mine: Array<ReturnType<typeof entry>> = cur.surface.splice(0).map(entry);
