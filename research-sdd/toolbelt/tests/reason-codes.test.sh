@@ -303,12 +303,12 @@ function mask(p,   i, n, ch, st, out, prev) {
 }'
 
 IC_REPORT=''
-# ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh. rc 0 clean · 1 findings · 2 degraded.
+# ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh (DIR/maint/ is a declared exclusion, counted in the report). rc 0 clean · 1 findings · 2 degraded.
 # Sets IC_REPORT to the coverage declaration (what was traversed, how each occurrence was classified).
 ic_check() {
   local reg="$1" dir="$2" rows p rel f ln tok cls txt w wf ws wr
   local c cl em ct i n nfiles=0 nocc=0 key lst row_i e
-  local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0
+  local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0 n_maint=0 n_maint_tok=0
   local -a codes=() classes=() emits=() files=() usedw=() wv=()
   local pairs=';' all='' n_uncl=0
   nfind=0; IC_REPORT=''
@@ -352,6 +352,17 @@ ic_check() {
     grep -qE '(absent-input|empty-input|unclassifiable|no-match)' "$p"; i=$?
     if [ "$i" -gt 1 ]; then printf 'DEGRADED: grep failed reading %s\n' "$p"; return 2; fi
     if [ "$i" -eq 0 ]; then n_py=$((n_py + 1)); fi
+  done
+  # toolbelt/maint/ is NOT scanned (declared exclusion, kit issue #2225 tracks the structure): maint tools emit
+  # run-level notes (e.g. kit-size-check.sh's empty-input), not registry rows, and scanning them would force
+  # registry churn. The coverage declaration below still says how many maint files exist and how many mention a
+  # token, so a maint tool that starts to look like a registry emitter is visible, not silently out of scope.
+  for p in "$dir"/maint/*.sh "$dir"/maint/*.py; do
+    [ -f "$p" ] || continue
+    n_maint=$((n_maint + 1))
+    grep -qE '(absent-input|empty-input|unclassifiable|no-match)' "$p"; i=$?
+    if [ "$i" -gt 1 ]; then printf 'DEGRADED: grep failed reading %s\n' "$p"; return 2; fi
+    if [ "$i" -eq 0 ]; then n_maint_tok=$((n_maint_tok + 1)); fi
   done
   if [ -z "$all" ]; then                                                     # TOOTH-IC-ZEROOCC
     printf 'DEGRADED: found zero input-state occurrences under %s (could not look)\n' "$dir"; return 2
@@ -422,7 +433,7 @@ ic_check() {
     done
   done
 
-  IC_REPORT="scanned $nfiles shell files (*.sh and lib/*.sh); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell)"
+  IC_REPORT="scanned $nfiles shell files (*.sh and lib/*.sh); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell); toolbelt/maint/ EXCLUDED by declaration (run-level notes, issue #2225): $n_maint file(s) present, $n_maint_tok mention a token"
   printf 'COVERAGE: %s\n' "$IC_REPORT"
   [ "$nfind" -eq 0 ]
 }
@@ -712,6 +723,12 @@ expect_ic() {
 mkifix i_good
 expect_ic "input scan: good fixture is clean (all forms recognised, non-emit classes skipped)" 0 i_good
 
+# toolbelt/maint/ is a declared exclusion: an input-class token in a maint script is NOT a finding, but the coverage line counts it.
+expect_ic "input scan: no maint/ directory is stated as 0 files present (declared exclusion)" 0 i_good 'toolbelt/maint/ EXCLUDED by declaration .*: 0 file\(s\) present, 0 mention a token'
+mkifix i_maint
+mkdir -p "$tmp/i_maint/tb/maint"; printf '%s\n' 'echo "empty-input: run-level note"' > "$tmp/i_maint/tb/maint/m.sh"
+expect_ic "input scan: a token in a maint/ script is excluded (rc 0) and counted (1 file present, 1 mentions a token)" 0 i_maint 'toolbelt/maint/ EXCLUDED by declaration .*: 1 file\(s\) present, 1 mention a token'
+
 mkifix i_unlisted
 edit "$tmp/i_unlisted/reg.md" '/`no-match`/d'
 expect_ic "input scan: emitted code with no registry row fails (unlisted)" 1 i_unlisted 'unlisted input-class code emitted: no-match'
@@ -865,6 +882,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # input-class scan teeth: the same helper, pointed at --check-input with the fixture's own (empty) waiver file
   ictooth() { RC_IC_WAIVERS_FILE="$tmp/$2/waivers.txt" TOOTH_MODE=--check-input TOOTH_SUB=tb tooth "$@"; }
   ictooth ic-unlisted    i_unlisted    1 0 '/# TOOTH-IC-UNLISTED/s/finding /: /'
+  # the maint/ exclusion is load-bearing: widen the scanned glob to maint/ and the maint token becomes a finding
+  ictooth ic-maint-excl  i_maint       0 1 's#for p in "\$dir"/\*\.sh "\$dir"/lib/\*\.sh; do#for p in "$dir"/*.sh "$dir"/lib/*.sh "$dir"/maint/*.sh; do#'
   ictooth ic-staleemit   i_staleemit   1 0 '/# TOOTH-IC-STALEEMIT/s/finding /: /'
   ictooth ic-emitter     i_emitter1    1 0 '/# TOOTH-IC-EMITTER/s/finding /: /'
   ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
