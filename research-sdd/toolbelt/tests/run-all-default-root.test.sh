@@ -26,8 +26,9 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# Only capture-analyze: it is the suite with PROOF that the allocator runs against the default root (its pre-fix
-# state leaves a run dir; see the mutant tooth below). The other run-dir suites (capture-exec, docker-exec, fact-exec,
+# Measured here: capture-analyze (plain run) and fact-exec (a trimmed --prove-teeth run, below). Both have PROOF that the
+# allocator runs against the default root: capture-analyze's pre-fix state leaves a run dir, and fact-exec's root-hardcoded
+# mutant allocates there by design (see the mutant teeth below). The other run-dir suites (capture-exec, docker-exec,
 # detonate-exec, trace-exec, qemu-exec) already set RSDD_VM_ROOT and carry their own *-NOLEAK guard, and a preflight
 # failure inside the namespace would read as entries=0 for them without proving anything.
 SUITES=(capture-analyze)
@@ -79,6 +80,8 @@ judge(){
     "result bind-failed"|"result mount-failed"|"result cd-failed"|"result scan-failed") no "$1: harness error: $RESULT"; return 1 ;;
   esac
   case "$RESULT" in *"ran=1"*) ;; *) no "$1: the suite never printed its summary line ($RESULT) — nothing was proven"; return 1 ;; esac
+  # judge <label> tooth: additionally require proof that the allocator ran (the suite's allocating mutant was caught).
+  if [ "${2:-}" = tooth ]; then case "$RESULT" in *"rc=0 ran=1 tooth=1"*) ;; *) no "$1: the allocating tooth did not pass with rc=0 ($RESULT) — nothing was proven"; return 1 ;; esac; fi
   case "$RESULT" in *"entries=0") ok "$1: left no entries in the default rsdd root ($RESULT)"; return 0 ;; esac
   no "$1: LEFT entries in the default rsdd root ($RESULT)"; return 1
 }
@@ -92,7 +95,10 @@ done
 # fact-exec (#2171): its --prove-teeth run leaves rsdd-<uuid> dirs in the default root when the `teeth-root-hardcoded` mutant
 # (which deliberately allocates there) is not redirected. The full teeth run takes ~25 min, so this runs a TRIMMED copy that
 # keeps only that one tooth. `tooth=1` is the proof the allocator ran: the mutant allocated a run dir and the suite caught it.
+# Measured cost of the trimmed run: ~77 s on top of a ~5 s plain suite, so it runs ONLY under --prove-teeth (the gate lane that already
+# runs every suite's mutation controls); the default lane stays fast.
 # The trimmed tree needs a bind mount point because the real /tmp (where $TMP lives) is hidden by the empty tmpfs.
+if [ "${1:-}" = "--prove-teeth" ]; then
 MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
 if [ -z "$MNT" ]; then
   printf '  SKIP  %s\n' "fact-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
@@ -108,12 +114,9 @@ else
   if ! fe_trim "$HERE/fact-exec.test.sh" "$FE"; then no "fact-exec: the root-hardcoded tooth is gone from fact-exec.test.sh (trim found nothing)"
   else
     run_in_empty_tmp "$FE" "$MNT" "$MNT/tests" "$MNT/tests/fact-exec.test.sh" --prove-teeth
-    case "$RESULT" in
-      *"ran=1 tooth=1 entries=0") ok "default-root-clean fact-exec --prove-teeth: the allocator ran (tooth caught) and left no entries ($RESULT)" ;;
-      *"tooth=0"*) no "default-root-clean fact-exec --prove-teeth: the root-hardcoded tooth did not pass - nothing proven ($RESULT)" ;;
-      *) no "default-root-clean fact-exec --prove-teeth: LEFT entries in the default rsdd root ($RESULT)" ;;
-    esac
+    judge "default-root-clean fact-exec --prove-teeth" tooth
   fi
+fi
 fi
 
 # RSDD_REQUIRE_UNSHARE paths, exercised with a PATH shim whose `unshare` always fails (no recursion into real runs).
