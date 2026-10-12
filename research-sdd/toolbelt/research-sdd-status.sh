@@ -2387,7 +2387,7 @@ campaign_status_block() {
 outline_rows() {
   section '## Outline' | awk '
     /^[[:space:]]*\|/ {
-      line = $0; gsub(/\\\|/, "\001", line)
+      line = $0; gsub(/\\\|/, "\001", line)  # GFM-EP-OUTLINE
       n = split(line, c, "|")
       for (i = 1; i <= n; i++) { gsub(/\001/, "|", c[i]); gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
       last = n; while (last > 2 && c[last] == "") last--

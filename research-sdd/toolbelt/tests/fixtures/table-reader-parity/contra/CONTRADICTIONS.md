@@ -1,7 +1,8 @@
 # Contradictions ledger
 <!-- Fixture for table-reader-parity.test.sh (kit #2161): `\|`, `\\|`, `\\\|` are each ONE escaped pipe in GFM.
      Open rows: C1-C5 (escapes before the STATUS cell, and in the last cell). C6/C7 are resolved: C7 would
-     read as open only if the bare-pipe split shifted its "open" claim cell into the STATUS slot. -->
+     read as open only if the bare-pipe split shifted its "open" claim cell into the STATUS slot. C8 carries the escape
+     inside the STATUS cell itself: that cell reads "open | later", which is not exactly "open", so it is not counted. -->
 
 | id | claim A | claim B | status | note |
 |---|---|---|---|---|
@@ -12,3 +13,4 @@
 | C5 | a | b | open | last\|esc |
 | C6 | a | b | resolved | x\|open |
 | C7 | p\|q | open | resolved | n |
+| C8 | a | b | open \| later | n |

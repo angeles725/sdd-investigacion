@@ -13,3 +13,4 @@
 | x\|y | n | stopped | RESEARCH-STATE-f6.md | l |
 | x\\|y | n | paused | RESEARCH-STATE-f7.md | l |
 | x\\\|y | n | planned | RESEARCH-STATE-f8.md | l |
+| f9 | n | stopped \| why | RESEARCH-STATE-f9.md | l |

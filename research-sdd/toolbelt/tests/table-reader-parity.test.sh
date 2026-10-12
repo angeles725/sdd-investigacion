@@ -11,15 +11,15 @@
 #   research-sdd-status.sh   backlog rows, deferred rows, Iteration-history Block column and New-gaps column,
 #                            open-deferred rows of the --queue reader, document-cycle Outline rows
 #   lib/gap-rows.sh          gap_rows_parse
-# Kit issue #2161 adds the readers that were still on a bare-pipe split:
+# Kit issues #2161 and #2178 add the readers that were still on a bare-pipe split:
 #   research-sdd-status.sh   count_open_contra (CONTRADICTIONS ledger, STATUS = 4th cell) and the FOCUSES.md
 #                            status reader _read_focuses_tok_uncached
 #   focus-partition-audit.sh FOCUSES.md row cells and the Research-State column
 #   migrate-backlogs.sh      FOCUSES.md status rewrite (cells/setcell/rebuild) and the document-focus lookup
-#   verify-sources.sh        the SOURCES.md registry column-count pre-check
+#   verify-sources.sh        every SOURCES.md reader: the column-count pre-check, LEVEL 4 citation cross-check, LEVEL 5
+#                            registered-path list, LEVEL 6 hash check, the D2 on-disk count and the empty-digest scan
 # NOT covered here: the §18 delta-table parsers and append-iteration-row.sh (a writer that also reads the
-# Iteration-history table; kit PR #2147 aligns them); the other bare-pipe readers inside verify-sources.sh
-# (citation, orphan, hash and empty-digest loops) and the backlog path of migrate-backlogs.sh, which reports an
+# Iteration-history table; kit PR #2147 aligns them) and the backlog path of migrate-backlogs.sh, which reports an
 # escaped-pipe row as MANUAL malformed-row on purpose.
 #
 # --prove-teeth builds one mutant per reader call site (the escape step removed, i.e. the pre-GFM no-escape split)
@@ -48,7 +48,7 @@ EXP_INV=6; EXP_DEF=3; EXP_BLOCKS=9; EXP_KNOWN=15
 
 # probes <tree> : run every reader of <tree> over the shared fixture and set PR_<name>=ok|<detail> (one global per probe).
 declare -A PR=()
-PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue st_hdr gr_rows st_contra st_foctok fpa_rows mb_status mb_doc vsrc_hdr"
+PROBES="vs_inv vs_def vs_blocks st_inv st_def st_blocks st_iter st_outline st_queue st_hdr gr_rows st_contra st_foctok fpa_rows mb_status mb_doc vsrc_hdr vsrc_l4 vsrc_l5 vsrc_l6 vsrc_d2 vsrc_ed"
 probes() {
   local t="$1" d out err rc
   # --- verify-state.sh ---
@@ -86,24 +86,35 @@ probes() {
   if [ "$out" = "  contradictions  : 5 open" ]; then PR[st_contra]=ok; else PR[st_contra]="${out:-<no contradictions line>}"; fi
   # --- research-sdd-status.sh _read_focuses_tok_uncached: the function is lifted out of the script and called per row ---
   sed -n '/^_read_focuses_tok_uncached()/,/^}/p' "$t/research-sdd-status.sh" > "$TMP/foctok.fn.sh"
-  out="$(bash -c '. "$1"; for k in f1 f2 f3 f4 f5 f6 f7 f8; do printf "%s=%s " "$k" "$(_read_focuses_tok_uncached "$2" "RESEARCH-STATE-$k.md" 2>/dev/null)"; done' _ "$TMP/foctok.fn.sh" "$FX/focuses/FOCUSES.md")"
-  if [ "$out" = "f1=stopped f2=paused f3=planned f4=document f5=active f6=stopped f7=paused f8=planned " ]; then PR[st_foctok]=ok; else PR[st_foctok]="$out"; fi
+  out="$(bash -c '. "$1"; for k in f1 f2 f3 f4 f5 f6 f7 f8 f9; do printf "%s=%s " "$k" "$(_read_focuses_tok_uncached "$2" "RESEARCH-STATE-$k.md" 2>/dev/null)"; done' _ "$TMP/foctok.fn.sh" "$FX/focuses/FOCUSES.md")"
+  if [ "$out" = "f1=stopped f2=paused f3=planned f4=document f5=active f6=stopped f7=paused f8=planned f9=stopped " ]; then PR[st_foctok]=ok; else PR[st_foctok]="$out"; fi
   # --- focus-partition-audit.sh: the Research-State column must still resolve its file after an escaped pipe ---
   d="$TMP/fpa.$RANDOM"; mkdir -p "$d"
-  for k in 1 2 3 4 5 6 7 8; do mkdir -p "$d/subj/zzUnit$k"; : > "$d/subj/zzUnit$k/A.java"; done
+  for k in 1 2 3 4 5 6 7 8 9; do mkdir -p "$d/subj/zzUnit$k"; : > "$d/subj/zzUnit$k/A.java"; done
   out="$(bash "$t/focus-partition-audit.sh" "$FX/focuses" --subject "$d/subj" 2>&1)"
-  if grep -qF 'FOCUSES.md rows: 8 classified, 0 unclassifiable' <<<"$out" && grep -qF 'unresolved RESEARCH-STATE references: 0' <<<"$out" && grep -qF 'units: 8/8 chartered' <<<"$out"; then PR[fpa_rows]=ok
+  if grep -qF 'FOCUSES.md rows: 9 classified, 0 unclassifiable' <<<"$out" && grep -qF 'unresolved RESEARCH-STATE references: 0' <<<"$out" && grep -qF 'units: 9/9 chartered' <<<"$out"; then PR[fpa_rows]=ok
   else PR[fpa_rows]="$(grep -E '^(FOCUSES.md rows|unresolved|units:|WARN)' <<<"$out" | head -3 | tr '\n' '~')"; fi
   # --- migrate-backlogs.sh: FOCUSES.md `closed`/`reabierto` rewrite touches the Status cell only; document focus gets no skeleton ---
   out="$(bash "$t/migrate-backlogs.sh" "$FX/migrate" 2>&1)"
   if grep -qF '+| m1 | n\|esc | stopped | RESEARCH-STATE-m1.md | l |' <<<"$out" && grep -qF '+| m2 | n\\|even | reopened | RESEARCH-STATE-m1.md | l |' <<<"$out" \
      && grep -qF '+| m3 | n\\\|triple | stopped | RESEARCH-STATE-m1.md | l\|esc |' <<<"$out" && grep -qF '+| x\|y | n | reopened | RESEARCH-STATE-m1.md | l |' <<<"$out" \
-     && grep -qF '+| x\\|y | n | stopped | RESEARCH-STATE-m1.md | l\\|even |' <<<"$out" && ! grep -q 'unknown-focus-status' <<<"$out"; then PR[mb_status]=ok
+     && grep -qF '+| x\\|y | n | stopped | RESEARCH-STATE-m1.md | l\\|even |' <<<"$out" && grep -qF '+| m4 | n | stopped \| why | RESEARCH-STATE-m1.md | l |' <<<"$out" && grep -qF '+| m5 | n | reopened | RESEARCH-STATE-m1.md | l\|' <<<"$out" && ! grep -q 'unknown-focus-status' <<<"$out"; then PR[mb_status]=ok
   else PR[mb_status]="$(grep -E '^(MANUAL|\+\|)' <<<"$out" | head -3 | tr '\n' '~')"; fi
   if ! grep -q 'empty-backlog-skeleton' <<<"$out" && ! grep -q '^PROPOSE d1' <<<"$out"; then PR[mb_doc]=ok; else PR[mb_doc]="$(grep -E 'empty-backlog-skeleton|^PROPOSE d1' <<<"$out" | head -2 | tr '\n' '~')"; fi
-  # --- verify-sources.sh: a well-formed 6-column registry row with escaped pipes draws no malformed-row WARN ---
-  out="$(bash "$t/verify-sources.sh" "$FX/sources" 2>&1)"
+  # --- verify-sources.sh: every SOURCES.md reader over one registry with escaped pipes in the File / Origin / last cells ---
+  # Snapshot files whose names carry a pipe are created here (a pipe in a committed file name is not portable).
+  d="$TMP/vsrc.$RANDOM"; mkdir -p "$d"; cp -r "$FX/sources/." "$d/"
+  printf 'snap\n' > "$d/sources/web-snapshots/w|esc.html"
+  out="$(bash "$t/verify-sources.sh" "$d" 2>&1)"
   if ! grep -q 'malformed row' <<<"$out"; then PR[vsrc_hdr]=ok; else PR[vsrc_hdr]="$(grep -c 'malformed row' <<<"$out") malformed-row WARN(s): $(grep -m1 'malformed row' <<<"$out" | cut -c1-120)"; fi
+  # LEVEL 4 must VALIDATE every escaped row: 14 claims cross-checked, and exactly the one uncited row (h|esc.pdf) reported.
+  if grep -qF 'cross-checked 14 registry→block citation claim(s)' <<<"$out" && [ "$(grep -c 'FABRICATED-CITE' <<<"$out")" = 1 ] && grep -qF "cites 'h|esc.pdf'" <<<"$out"; then PR[vsrc_l4]=ok
+  else PR[vsrc_l4]="$(grep -E 'cross-checked|FABRICATED-CITE' <<<"$out" | head -3 | cut -c1-110 | tr '\n' '~')"; fi
+  if ! grep -qE 'orphan-snapshot|uncited-snapshot' <<<"$out"; then PR[vsrc_l5]=ok; else PR[vsrc_l5]="$(grep -E 'orphan-snapshot|uncited-snapshot' <<<"$out" | head -2 | cut -c1-110 | tr '\n' '~')"; fi
+  if grep -qF -- '-- web-snapshot hashes: 2 verified · 0 unverifiable' <<<"$out" && grep -qF 'hash-mismatch: sources/web-snapshots/w5.html' <<<"$out"; then PR[vsrc_l6]=ok
+  else PR[vsrc_l6]="$(grep -E 'web-snapshot hashes|hash-mismatch|unverifiable-hash' <<<"$out" | head -3 | cut -c1-110 | tr '\n' '~')"; fi
+  if grep -qF -- '-- non-web-snapshot rows with on-disk files and hashes: 3 not hash-verified' <<<"$out"; then PR[vsrc_d2]=ok; else PR[vsrc_d2]="$(grep 'non-web-snapshot' <<<"$out" | head -1 | cut -c1-110)"; fi
+  if ! grep -q 'empty-digest' <<<"$out"; then PR[vsrc_ed]=ok; else PR[vsrc_ed]="$(grep -m1 'empty-digest' <<<"$out" | cut -c1-110)"; fi
   # --- lib/gap-rows.sh ---
   out="$(bash -c '. "$1/lib/gap-rows.sh"; gap_rows_parse "$2"' _ "$t" "$FX/state/RESEARCH-STATE.md" 2>&1)"
   local want
@@ -124,12 +135,17 @@ declare -A DESC=(
   [st_queue]="research-sdd-status.sh --queue reader: the 9 queued rows (6 deferred incl. a 5-column table, 3 closed) are all recognised, none unknown"
   [st_hdr]="research-sdd-status.sh iter_gaps_rows: a header with an escaped pipe prints on the no-New-gaps-column line with the pipe restored (no raw mask byte)"
   [st_outline]="research-sdd-status.sh Outline rows: 9/9 covered with escapes in the middle and last cells"
-  [st_contra]="research-sdd-status.sh count_open_contra: 5 open ledger rows counted, the resolved row whose claim cell says open is not (escapes before and after the STATUS cell)"
-  [st_foctok]="research-sdd-status.sh FOCUSES.md status reader: 8 rows read with the right status token (escapes in the first/middle/last cells)"
-  [fpa_rows]="focus-partition-audit.sh: 8 FOCUSES.md rows classified, every Research-State file resolved, 8/8 units chartered"
+  [st_contra]="research-sdd-status.sh count_open_contra: 5 open ledger rows counted; the resolved row whose claim cell says open and the row with an escape inside the STATUS cell are not"
+  [st_foctok]="research-sdd-status.sh FOCUSES.md status reader: 9 rows read with the right status token (escapes in the first/middle/last cells)"
+  [fpa_rows]="focus-partition-audit.sh: 9 FOCUSES.md rows classified, every Research-State file resolved, 9/9 units chartered"
   [mb_status]="migrate-backlogs.sh FOCUSES.md rewrite: closed/reabierto become stopped/reopened in the Status cell only, escape bytes kept"
   [mb_doc]="migrate-backlogs.sh document-focus lookup: a document focus whose row carries an escaped pipe gets no empty-backlog skeleton"
-  [vsrc_hdr]="verify-sources.sh registry pre-check: 9 well-formed 6-column rows with escapes in the first/middle/last cells draw no malformed-row WARN"
+  [vsrc_hdr]="verify-sources.sh registry pre-check: well-formed 6-column rows with escapes in the first/middle/last cells draw no malformed-row WARN"
+  [vsrc_l4]="verify-sources.sh LEVEL 4: all 14 escaped-pipe citation claims are cross-checked and only the genuinely uncited h|esc.pdf is FABRICATED-CITE"
+  [vsrc_l5]="verify-sources.sh LEVEL 5: web snapshots whose registered File cell holds an escaped pipe are matched (no orphan, no uncited)"
+  [vsrc_l6]="verify-sources.sh LEVEL 6: 2 snapshot hashes verified past an escaped Origin / File cell, the wrong hash of w5.html is a hash-mismatch"
+  [vsrc_d2]="verify-sources.sh D2 count: 3 non-web-snapshot rows with an escaped Origin cell before the sha256 cell are counted"
+  [vsrc_ed]="verify-sources.sh empty-digest scan: an escaped pipe in front of a digest-looking text does not make that text a bare digest cell"
   [gr_rows]="lib/gap-rows.sh gap_rows_parse: 15 ROW records, cell text unescaped by exactly one backslash-pipe"
 )
 for p in $PROBES; do
@@ -170,13 +186,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth st-iter       research-sdd-status.sh 'gsub(/\\\|/,"\001",l)  # GFM-EP-ITER' 'l=l  # GFM-EP-ITER' st_iter
   tooth st-queue      research-sdd-status.sh 'ib { gsub(/\\\|/,"\001"); ' 'ib { ' st_queue
   tooth st-hdr        research-sdd-status.sh 'gsub(/\001/,"|",l); print "col_none' 'print "col_none' st_hdr
-  tooth st-outline  research-sdd-status.sh 'gsub(/\\\|/, "\001", line)' 'line=line' st_outline
+  tooth st-outline    research-sdd-status.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-OUTLINE' 'line=line  # GFM-EP-OUTLINE' st_outline
   tooth st-contra     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-CONTRA' 'line=line  # GFM-EP-CONTRA' st_contra
   tooth st-foctok     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-FOCTOK' 'line=line  # GFM-EP-FOCTOK' st_foctok
   tooth fpa-rows      focus-partition-audit.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-FPA' 'line=line  # GFM-EP-FPA' fpa_rows
   tooth mb-cells      migrate-backlogs.sh 'gsub(/\\\|/, "\001", body)  # GFM-EP-MIG-CELLS' 'body=body  # GFM-EP-MIG-CELLS' mb_status
   tooth mb-doc        migrate-backlogs.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-MIG-DOC' 'line=line  # GFM-EP-MIG-DOC' mb_doc
   tooth vsrc-hdr      verify-sources.sh 'gsub(/\\\|/, "\001")  # GFM-EP-VSRC' '$0=$0  # GFM-EP-VSRC' vsrc_hdr
+  tooth vsrc-l4       verify-sources.sh '${_l4raw//\\\|/' '${_l4raw//ZZZZ/' vsrc_l4
+  tooth vsrc-l5       verify-sources.sh '/^\|/ { gsub(/\\\|/,"\001"); v=$2;' '/^\|/ { v=$2;' vsrc_l5
+  tooth vsrc-l6       verify-sources.sh '${_raw//\\\|/' '${_raw//ZZZZ/' vsrc_l6
+  tooth vsrc-d2       verify-sources.sh '${_d2raw//\\\|/' '${_d2raw//ZZZZ/' vsrc_d2
+  tooth vsrc-ed       verify-sources.sh 'gsub(/\\\|/, "\001")  # GFM-EP-ED' '$0=$0  # GFM-EP-ED' vsrc_ed
   tooth gr-rows       lib/gap-rows.sh 'gsub(/\\\|/,"\001",t); ' '' gr_rows
 fi
 
