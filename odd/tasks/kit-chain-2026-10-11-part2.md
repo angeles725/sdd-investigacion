@@ -30,8 +30,8 @@ RDD → merge.
 - [x] B3 stray gentle-shell TARGETS.md rows → proposal only (human-owned registry).
 - [x] C gentle-shell web installer: identify current install, verify kit (`research-sdd-install.sh --verify`, pi
       extension load, agent home, skill/prompt discovery); adapt the kit if the layout changed; report results.
-- [ ] K1 #2171 corroborate-ifc /tmp/rsdd leftovers.
-- [ ] K2 #2169 suite summary-line lint.
+- [x] K1 #2171 corroborate-ifc /tmp/rsdd leftovers.
+- [x] K2 #2169 suite summary-line lint.
 - [ ] K3 #2161 bare-pipe table readers; K4 #2162 deferred-row populations.
 - [ ] K5 gentle-shell follow-ups #2125 #2133 #2139 #2158; K6 #993 profiles eval.
 - [x] K7 session-start improvements: tool catalog drift (8 uncataloged tools), install --verify gentle-shell drift.
@@ -47,5 +47,14 @@ RDD → merge.
 - K7: tool catalog drift was a stale shared checkout (38/38 after pull); install drift fixed by the reinstall.
 - K2: PR #2176 Opus review (2 should-fix + 5 nits applied), RDD approved + acknowledged (4 lenses).
 
+- K2: #2176 merged (gate 209/209, 14,690 cases).
+- K1: #2171 premise false (corroborate-ifc never allocates); root cause fact-exec `teeth-root-hardcoded` mutant → #2180 merged (leftovers 15→4). Second source docker-exec mutant → #2186 / PR #2188 (pipeline; review: CLI-child allocations were invisible; snapshot limited to suite-owned roots to avoid -j cross-suite deletion).
+- #2177: pi print mode empty output (settle continuation; print mode prints only the last assistant message) → #2181 merged; live in niagara: answer + niagara card context on stdout, typed stderr notice, no block markers. Gentle-shell harness reinstalled from 583f2dee.
+- K3: #2161 + #2178 → PR #2179 (Opus blocker: masked pre-check hid rows other readers misread → all verify-sources readers fixed); pipeline. Follow-up #2182 (sha256sum backslash digest).
+- #2175 → PR #2184 (`--portable`, 2 Opus blockers fixed + re-check; RED executed by orchestrator); pipeline. Follow-up #2183.
+- K5a #2133 → PR #2185 (render-dir guard, record-sha check, launcher skip); pipeline.
+- #2174 → PR #2187 (verify-session-budget --harness pi|both; niagara pi aggregate 5,781 OK); fix round.
+- K5b #2158/#2125/#2139 writer running.
+
 ## Next step
-K2 gate+merge; K1 #2171, K3 #2161 writers; then #2177, K4 #2162, K5, K6.
+Drain pipeline (#2179 #2184 #2185 #2188), #2187 fixes → pipeline, K5b; then K4 #2162, #2182, #2183, K6 #993, final gate on main, close.
