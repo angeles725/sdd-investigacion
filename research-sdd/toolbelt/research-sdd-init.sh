@@ -232,11 +232,11 @@ _rsdd_migrate_base() {
   if _rsdd_stop_hook_edited; then sn_new='"$CLAUDE_PROJECT_DIR"/.claude/hooks/retro-gate-stop.sh'; fi   # PORTABLE-STOP-EDITED
   if [ -e "$hd/pkill-guard.sh" ] && ! cmp -s "$hd/pkill-guard.sh" "$TPL/hook-pretool-pkill-guard.sh"; then pk_new='"$CLAUDE_PROJECT_DIR"/.claude/hooks/pkill-guard.sh'; fi
   jq -c --arg sa "$hd/retro-gate-stop.sh" --arg ssa "$hd/research-protocol.sh" --arg pka "$hd/pkill-guard.sh" \
-    --arg sn "$sn_new" --arg ssn "$_C_SS" --arg pkn "$pk_new" --arg gate "$_RSDD_GATE_CMD" --arg drift "$_RSDD_DRIFT_CMD" '
+    --arg sn "$sn_new" --arg ssn "$_C_SS" --arg pkn "$pk_new" --arg gate "$_RSDD_GATE_CMD" --arg drift "$_RSDD_DRIFT_CMD" --arg kit "$KIT" '
     def forms($a; $r): [$a, ("\"" + $a + "\""), ("$CLAUDE_PROJECT_DIR/" + $r), ("\"$CLAUDE_PROJECT_DIR\"/" + $r), ("${CLAUDE_PROJECT_DIR}/" + $r), ("\"$CLAUDE_PROJECT_DIR/" + $r + "\"")];
     def unq: if (length >= 2 and startswith("\"") and endswith("\"")) then .[1:-1] else . end;
     def kitabs($f): . as $c | ($c | unq) as $p
-      | ($p | startswith("/")) and ($p | endswith("/" + $f)) and (($p | test("[\"$~`]")) | not) and (($c != $p) or (($p | test("\\s")) | not));
+      | ($p | startswith($kit + "/")) and ($p | endswith("/" + $f)) and (($p | test("[\"$~`]")) | not);   # a bare path with whitespace under this kit is unrunnable as written (word-splits): it is rewritten too (kit issue #2183)
     def fix: if IN(forms($sa; ".claude/hooks/retro-gate-stop.sh")[]) then $sn
       elif IN(forms($ssa; ".claude/hooks/research-protocol.sh")[]) then $ssn
       elif IN(forms($pka; ".claude/hooks/pkill-guard.sh")[]) then $pkn
@@ -247,14 +247,14 @@ _rsdd_migrate_base() {
       .hooks |= with_entries(.value |= (if type == "array" then map(if (type == "object" and ((.hooks // null) | type) == "array")
         then .hooks |= map(if (type == "object" and ((.command // null) | type) == "string") then .command |= fix else . end) else . end) else . end))
       # kit issue #2183: two old entries can rewrite to the SAME portable command (an absolute and a $CLAUDE_PROJECT_DIR entry of the one
-      # pkill guard): keep the first (per event + matcher) of each rewritten-to command, drop the later copies, remove an entry left empty.
+      # pkill guard): keep the first (per event + matcher + timeout) of each rewritten-to command, drop the later copies, remove an entry left empty.
       | ([$sn, $ssn, $pkn, $gate, $drift]) as $mine
       | def dedup: reduce .[] as $e ({seen: [], out: []};
           if ($e | type) == "object" and (($e.hooks // null) | type) == "array" then
             ($e.matcher // "") as $m
             | (reduce $e.hooks[] as $h ({seen: .seen, keep: []};
                 if ($h | type) == "object" and (($h.command // null) | type) == "string" and ($mine | any(. == $h.command)) then
-                  (if (.seen | any(. == [$m, $h.command])) then . else (.seen += [[$m, $h.command]]) | (.keep += [$h]) end)
+                  (if (.seen | any(. == [$m, $h.command, ($h.timeout // null)])) then . else (.seen += [[$m, $h.command, ($h.timeout // null)]]) | (.keep += [$h]) end)
                 else .keep += [$h] end)) as $r
             | .seen = $r.seen
             | if ($r.keep | length) == 0 and ($e.hooks | length) > 0 then . else .out += [($e | .hooks = $r.keep)] end
@@ -262,15 +262,40 @@ _rsdd_migrate_base() {
         if ((.hooks // null) | type) == "object" then .hooks |= with_entries(.value |= (if type == "array" then dedup else . end)) else . end
     else . end' <<<"$1"
 }
-# Apply the migration to the settings JSON held in the variable named by $1 (--portable only); prints a typed `migrated:` line when it changed anything.
+# Apply the migration to the settings JSON held in the variable named by $1 (portable only); prints typed `migrated:` / `note   :` lines.
+# kit issue #2183: the rewrite and the duplicate collapse are reported separately; an absolute gate / drift-hook entry that points OUTSIDE this
+# kit ($KIT) is another checkout's script and is never rewritten (named in a note); an unmodified per-target retro-gate-stop.sh / pkill-guard.sh the
+# portable wiring no longer references is reported, never deleted (propose-never-apply).
 _rsdd_apply_migration() {
   [ "$portable" = 1 ] || return 0
-  local -n _mb="$1"; local m c
+  local -n _mb="$1"; local m c nrew ndup foreign hd="$target/.claude/hooks" f pristine
   m="$(_rsdd_migrate_base "$_mb")" && c="$(jq -c . <<<"$_mb" 2>/dev/null)" || { echo "  WARN   : could not check settings.json for absolute hook entries to migrate (left as-is)"; return 0; }
-  [ "$m" = "$c" ] || { _mb="$m"; echo "  migrated: existing absolute hook entries rewritten to the portable form (no duplicates added)"; }
-  if _rsdd_stop_hook_edited; then
-    echo "  note   : kept edited $target/.claude/hooks/retro-gate-stop.sh as the Stop retro gate (hand-adapted, so not routed through kit-run); it is untracked under --portable, so a fresh clone loses that gate until you track it"
+  if [ "$m" != "$c" ]; then
+    nrew="$(jq -n --argjson a "$c" --argjson b "$m" '([$a | .. | .command? | strings] | unique) != ([$b | .. | .command? | strings] | unique)' 2>/dev/null)" || nrew=true
+    ndup="$(jq -n --argjson a "$c" --argjson b "$m" '([$a | .. | .command? | strings] | length) - ([$b | .. | .command? | strings] | length)' 2>/dev/null)" || ndup=0
+    _mb="$m"
+    [ "$nrew" != true ] || echo "  migrated: existing absolute hook entries rewritten to the portable form (tools/hooks/kit-run.sh; pass --absolute to keep absolute paths)"
+    [ "${ndup:-0}" -le 0 ] || echo "  migrated: $ndup duplicate hook entr$([ "$ndup" = 1 ] && echo y || echo ies) collapsed into the first one"
   fi
+  foreign="$(jq -r --arg kit "$KIT" '[.hooks // {} | to_entries[].value[]? | .hooks[]? | .command? | strings
+      | (if (length >= 2 and startswith("\"") and endswith("\"")) then .[1:-1] else . end) as $p
+      | select(($p | startswith("/")) and (($p | endswith("/return-token-gate.sh")) or ($p | endswith("/verify-skill-drift-hook.sh"))) and (($p | startswith($kit + "/")) | not)) | $p] | unique[]' <<<"$_mb" 2>/dev/null)" || foreign=""
+  while IFS= read -r f; do
+    [ -z "$f" ] || echo "  note   : left $f untouched - an absolute gate / drift-hook path outside this kit ($KIT) is another checkout's script, not rewritten to kit-run (a missing one is dropped as stale by the merge below; remove or replace a working one by hand)"
+  done <<<"$foreign"
+  if _rsdd_stop_hook_edited; then
+    echo "  note   : kept edited $target/.claude/hooks/retro-gate-stop.sh as the Stop retro gate (hand-adapted, so not routed through kit-run); it is untracked under the portable wiring, so a fresh clone loses that gate until you track it"
+  fi
+  for f in retro-gate-stop.sh pkill-guard.sh; do
+    [ -f "$hd/$f" ] || continue
+    pristine=0
+    case "$f" in
+      pkill-guard.sh) cmp -s "$hd/$f" "$TPL/hook-pretool-pkill-guard.sh" && pristine=1;;
+      *) _rsdd_stop_hook_edited || pristine=1;;
+    esac
+    [ "$pristine" = 1 ] || continue
+    grep -qF "/.claude/hooks/$f" <<<"$_mb" || echo "  note   : unused per-target $hd/$f (unmodified, no longer referenced by settings.json - the hook now runs through kit-run); left in place, delete it by hand if you want"
+  done
 }
 # kit issue #2175: --portable tracks .claude/settings.json (and the SessionStart hook) while the rest of .claude/ stays ignored. Appends the
 # five lines only when absent; a blanket `.claude/` line the user (or an earlier run) wrote is NEVER rewritten - it makes settings.json
