@@ -238,8 +238,10 @@ else
       # SENTINEL-ROW: table-row shape (leading pipe required; loosen to index($0,"|") to mutate)
       if ($0 !~ /^[ \t]*\|/) next
       line = $0
+      gsub(/\\\|/, "\001", line)  # GFM-EP-FPA (#2161): `\|` inside a cell is a literal pipe; restored after the split
       sub(/^\|/, "", line); sub(/\|$/, "", line)
       n = split(line, a, "|")
+      for (k = 1; k <= n; k++) gsub(/\001/, "|", a[k])
       issep = 1
       for (k = 1; k <= n; k++) { if (trim(a[k]) !~ /^:?-+:?$/) { issep = 0; break } }
       if (issep) next

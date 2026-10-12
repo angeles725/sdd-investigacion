@@ -25,6 +25,8 @@ _SBX = tempfile.mkdtemp(prefix="fe-sbx-")
 atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
 _SBX_ROOT = os.path.join(_SBX, "rsdd")
 os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
+# #2171: the guard never reads its watch target from the environment. A leak is ANY produced run dir outside the sandbox root
+# (_SBX_ROOT); _GLOBAL_ROOT is only the host default root scanned for INFO lines about other suites' entries.
 _GLOBAL_ROOT = Path("/tmp/rsdd")
 def _global_names() -> set:
     try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
@@ -433,7 +435,7 @@ with tempfile.TemporaryDirectory() as td:
     tmp = Path(td)
     custom_root = str(tmp)
     try:
-        result = _dc.make_run_subdir("testid", root=custom_root)
+        result = _orig_mrs("testid", root=custom_root)   # unrecorded: lives in a TemporaryDirectory this case removes itself
         expected = f"{custom_root}/rsdd-testid"
         assert result == expected, f"got {result!r}, want {expected!r}"
         assert Path(result).is_dir(), f"subdir not created: {result}"
@@ -653,15 +655,15 @@ with tempfile.TemporaryDirectory() as td:
 # ── FACT-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
 # Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
 # (a concurrent suite): INFO only, never failed on or deleted.
-_leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
+_leaked = sorted(p for p in _produced if not p.startswith(_SBX_ROOT + os.sep))
 if _leaked:
-    nok("FACT-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    nok(f"FACT-NOLEAK: new entries outside the sandbox {_SBX_ROOT}", f"{len(_leaked)} e.g. {_leaked[:2]}")
     for _p in _leaked:  # remove ONLY the dirs this suite produced
         shutil.rmtree(_p, ignore_errors=True)
 else:
-    ok("FACT-NOLEAK: no run dir produced by this suite under /tmp/rsdd")
+    ok(f"FACT-NOLEAK: no run dir produced by this suite outside its sandbox {_SBX_ROOT}")
 _other = _global_names() - _global_before - {os.path.basename(p) for p in _leaked}
-if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under /tmp/rsdd (not this suite's; left alone)")
+if _other: print(f"  INFO  {len(_other)} other new rsdd-* entries under {_GLOBAL_ROOT} (not this suite's; left alone)")
 
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
@@ -695,7 +697,10 @@ tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOW
 tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
 tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
 tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
-tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full)' 'FAIL  FACT-NOLEAK: new entries under /tmp/rsdd'
+# The mutant allocates outside the sandbox (the default root). Only this mutant line reads FE_GLOBAL_ROOT, to put that allocation in a private
+# dir (#2171): FACT-NOLEAK still flags it (produced outside _SBX_ROOT) but the run dirs never reach the host's /tmp/rsdd.
+mkdir -m 700 "$MUT/global-root" || exit 2
+FE_GLOBAL_ROOT="$MUT/global-root" tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full, os.environ.get("FE_GLOBAL_ROOT") or _dc._DEFAULT_RSDD_ROOT)' 'FAIL  FACT-NOLEAK: new entries outside the sandbox '
 # The failure itself must also be detected (exit 2), not just cleaned up.
 tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
 tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'

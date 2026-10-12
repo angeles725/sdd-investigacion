@@ -103,8 +103,9 @@ if [ -f "$sources_md" ]; then
   # heading that starts a fresh block (the fetch-doc.sh reg() pattern). In that case the "header
   # candidate" has sha256 in a data cell. This is unlikely but not impossible; if it occurs, the
   # data row is treated as a non-conforming registry header (schema WARN), not as a data row.
-  # Escaped pipes (\|) inside cells are not handled and would produce a false per-row WARN; no current
-  # fleet file uses them (verified fleet-wide). The L4/L6/D2 loops are NOT anchored here — they scan
+  # Escaped pipes (\|) inside cells are GFM literal pipes: this pre-check and every other SOURCES.md reader below
+  # (LEVEL 4, 5, 6, D2 and the empty-digest scan) mask them before the split and restore them in the cells (kit
+  # #2161 / #2178, markers GFM-EP-VSRC, -L4, -L5, -L6, -D2, -ED). The L4/L6/D2 loops are NOT anchored here — they scan
   # the full file to preserve coverage of rows appended after headings.
   # Code-fenced tables (inside ```...``` blocks) that contain a sha256 header cell will draw a
   # spurious schema WARN — the awk parser does not track fence state. No current fleet file does
@@ -115,6 +116,7 @@ if [ -f "$sources_md" ]; then
   awk -F'|' '
     BEGIN { in_blk=0; bk_nf=0; has_sha256=0; skip_rows=0 }
     /^\|/ {
+      gsub(/\\\|/, "\001")  # GFM-EP-VSRC (#2161): `\|` inside a cell is a literal pipe, not a separator (re-splits the fields)
       if ($2 ~ /^[- :]+$/) next
       if (!in_blk) {
         in_blk=1; bk_nf=NF; has_sha256=0; skip_rows=0
@@ -145,7 +147,10 @@ if [ -f "$sources_md" ]; then
   # citation). This is the content cross-check. Parses both `B60` and `[Block 21]`/`Bloque 7`; empty and
   # em-dash cells yield no block and are skipped. Positive miss ⇒ FAIL; unresolvable block name ⇒ WARN only.
   cited=0
-  while IFS='|' read -r _ fcell _ _ _ _ bcell _; do
+  while IFS= read -r _l4raw; do
+    _l4m=${_l4raw//\\\|/$'\001'}   # GFM-EP-L4 (#2178): mask `\|` so it is a literal pipe, not a separator
+    IFS='|' read -r _ fcell _ _ _ _ bcell _ <<< "$_l4m"
+    fcell=${fcell//$'\001'/|}; bcell=${bcell//$'\001'/|}   # restore the masked pipes in the cells
     file=${fcell//\`/}         # strip markdown code backticks so the basename greps cleanly
     # #1678 — trim LEADING/TRAILING blanks only (space AND tab: a tab-padded File cell must not spoof a
     # FABRICATED-CITE). INTERNAL blanks are part of a verbatim filename ("My File.pdf", "Program Files/x")
@@ -249,7 +254,8 @@ snaps=0
 # orphan (a false positive in a fail-closed, archive-blocking gate). Missing SOURCES.md ⇒ empty set ⇒ orphans.
 registered=""
 if [ -f "$sources_md" ]; then
-  registered="$(awk -F'|' '/^\|/ { v=$2; gsub(/[`[:blank:]]/,"",v); if (v!="" && v!="File" && v !~ /^[-:]+$/) print v }' "$sources_md")"
+  # GFM-EP-L5 (#2178): the awk below masks `\|` before reading the File cell ($2) and restores it in the key.
+  registered="$(awk -F'|' '/^\|/ { gsub(/\\\|/,"\001"); v=$2; gsub(/[`[:blank:]]/,"",v); gsub(/\001/,"|",v); if (v!="" && v!="File" && v !~ /^[-:]+$/) print v }' "$sources_md")"
   # #1228: the File cell may use the repo-root form `sources/web-snapshots/x` as well as the bare
   # `web-snapshots/x`; canonical key is relative to sources/, so strip ONE leading `sources/` (anchored).
   registered="$(sed 's#^sources/##' <<< "$registered")"   # SRCPFX-L5
@@ -327,8 +333,10 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
     # would no longer change the exit code. When extra pipes DO fall early, the misaligned cell
     # will not look like a hash and lands in the existing unverifiable-hash path — reported,
     # never silently passed — right beside the malformed-row WARN naming that line.
+    _raw=${_raw//\\\|/$'\001'}   # GFM-EP-L6 (#2178): mask `\|` before the pipe count and the split
     pipes="${_raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # L6-FIELD-GUARD
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_raw"
+    fcell=${fcell//$'\001'/|}; shacell=${shacell//$'\001'/|}
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     key="${key#sources/}"   # SRCPFX-L6 (#1228: accept the repo-root `sources/web-snapshots/x` form)
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
@@ -388,8 +396,10 @@ fi
 if [ -f "$sources_md" ]; then
   _nskip=0
   while IFS= read -r _d2raw; do
+    _d2raw=${_d2raw//\\\|/$'\001'}   # GFM-EP-D2 (#2178): mask `\|` before the pipe count and the split
     pipes="${_d2raw//[^|]/}"; [ "${#pipes}" -lt 7 ] && continue   # D2-FIELD-GUARD: same asymmetric rule as L6
     IFS='|' read -r _ fcell _ _ _ shacell _ <<< "$_d2raw"
+    fcell=${fcell//$'\001'/|}; shacell=${shacell//$'\001'/|}
     key=$(printf '%s' "$fcell" | tr -d '`[:blank:]')
     # #1483: the File cell may use the repo-root form `sources/<f>` as well as the bare `<f>`. Canonical key is
     # relative to sources/, so strip ONE leading `sources/` (anchored) — otherwise the path below resolves to
@@ -426,6 +436,7 @@ if [ -f "$sources_md" ]; then
             d["sha1"]="da39a3ee5e6b4b0d3255bfef95601890afd80709"
             d["md5"]="d41d8cd98f00b204e9800998ecf8427e" }   # EMPTY-DIGEST-TABLE
     /^\|/ {
+      gsub(/\\\|/, "\001")  # GFM-EP-ED (#2178): `\|` inside a cell is a literal pipe; a masked cell is never a bare digest
       scanned++   # a row with no closing pipe has a real last cell at $NF: scan 2..NF, not 2..NF-1
       for (i = 2; i <= NF; i++) {
         v = $i; gsub(/[`[:blank:]]/, "", v); v = tolower(v)
