@@ -1,0 +1,1 @@
+{"risk":"high","review_due":true,"review_due_reason":"high_risk","next_transition":{"command":"gentle-ai review status --cwd /x --contract gentle-ai.review-integration/v2 --agent claude-code --base-ref origin/main --committed-only --next-transition"}}

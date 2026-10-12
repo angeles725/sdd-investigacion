@@ -109,7 +109,8 @@ All three gates must pass on a quiet tree before requesting review:
 # Gate 1 — shellcheck (zero warnings; globstar required for full coverage)
 shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh
 
-# Gate 2 — full test suite (skipped ≠ passed; zero-coverage run exits 1)
+# Gate 2 — test suite, default core tier (skipped ≠ passed; zero-coverage run exits 1);
+# touching a SUT/lib an extras suite exercises? also run: ... run-all.sh --tier extras
 bash research-sdd/toolbelt/tests/run-all.sh
 
 # Gate 3 — mutation controls (every mutation control must go red)
@@ -119,7 +120,7 @@ bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
 Check each in the PR:
 ```markdown
 - [x] shellcheck: zero warnings
-- [x] run-all.sh: all suites pass
+- [x] run-all.sh: all suites of the default core tier pass (a change touching a SUT or lib exercised by an extras suite also ran `run-all.sh --tier extras`; see CLAUDE.md §5 Tier row)
 - [x] run-all.sh --prove-teeth: all mutation controls go red
 - [x] PR is within ~400 authored lines (or kit-chained-pr used)
 ```
