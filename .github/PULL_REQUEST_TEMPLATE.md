@@ -59,6 +59,17 @@ Closes #
 
 ---
 
+## RED Evidence
+
+<!-- REQUIRED when the PR changes production scripts (kit issue #2208; CLAUDE.md §4). The "Check RED Evidence" job parses this. -->
+<!-- Replace the line below with one line per proving case: the suite, the case name, and an excerpt of the FAILING output from running it against the pre-fix code. -->
+<!-- When RED genuinely cannot be executed, replace it with a single line `RED: n/a — <reason, at least 8 characters>`. Do not keep both. -->
+<!-- Unedited placeholders fail the check on purpose. -->
+
+RED: <suite>.test.sh <case-or-test-name> — <failing output excerpt>
+
+---
+
 ## Provenance
 
 <!-- REQUIRED (kit issue #1712): the commits and gate run the Test Plan claims were measured on. -->

@@ -246,6 +246,34 @@ $KA b")"; nkrun "$D"; { [ "$(grep -c '^name-kill ' <<<"$OUT")" = 2 ]; } && ok "t
 D_ren="$(newcase ren)"; ( cd "$D_ren" && git mv $T/beta.sh $T/beta2.sh && git commit -q -m rename )
 run --repo "$D_ren" "${BASE[@]}"; { [ "$RC" = 1 ] && hasre "^no-suite ${T}/beta2.sh "; } && ok "a renamed script is checked under its NEW path" || no "rename" "(rc=$RC $OUT)"
 
+# ---- live-repo wiring (kit issue #2208 follow-up): the pkill guard hook and the PR template RED line -------------
+REPO_ROOT="$(cd -P -- "$HERE/../../.." && pwd -P)"
+SETTINGS="$REPO_ROOT/.claude/settings.json"
+GUARD_REL="research-sdd/templates/hook-pretool-pkill-guard.sh"
+if command -v jq >/dev/null 2>&1 && [ -f "$SETTINGS" ]; then
+  gcmd="$(jq -r '[.hooks.PreToolUse[]? | select(.matcher == "Bash") | .hooks[]? | .command] | map(select(test("hook-pretool-pkill-guard[.]sh"))) | .[0] // empty' "$SETTINGS" 2>/dev/null)"
+  [ -n "$gcmd" ] && ok "kit .claude/settings.json wires the pkill guard under PreToolUse (Bash)" || no "pkill guard not wired in the kit settings.json"
+  case "$gcmd" in '"$CLAUDE_PROJECT_DIR/'"$GUARD_REL"'"') ok "the guard is wired in the portable \$CLAUDE_PROJECT_DIR form" ;; *) no "guard command is not the portable form" "($gcmd)" ;; esac
+  case "$gcmd" in */home/*|*/Users/*) no "absolute per-machine path in the guard command" ;; *) ok "no absolute per-machine path in the guard command" ;; esac
+  [ -x "$REPO_ROOT/$GUARD_REL" ] && ok "the wired guard script exists and is executable" || no "guard script missing or not executable"
+else
+  no "jq or the kit settings.json is missing (cannot check the guard wiring)"
+fi
+TEMPLATE="$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md"
+RED_JS="$REPO_ROOT/.github/scripts/parse-red-evidence.cjs"
+red_check() { # red_check BODY-FILE -> prints "ok" or "fail" for a PR that changes a production script
+  node -e 'const {checkRedEvidence}=require(process.argv[1]);const b=require("fs").readFileSync(process.argv[2],"utf8");process.stdout.write(checkRedEvidence(b,["research-sdd/toolbelt/foo.sh"]).ok?"ok":"fail")' "$RED_JS" "$1" 2>&1
+}
+if command -v node >/dev/null 2>&1 && [ -f "$TEMPLATE" ]; then
+  grep -qE '^RED:' "$TEMPLATE" && ok "the PR template carries a visible RED: line" || no "PR template has no visible RED: line"
+  grep -q 'RED: n/a' "$TEMPLATE" && ok "the PR template documents the RED: n/a alternative" || no "PR template does not mention RED: n/a"
+  [ "$(red_check "$TEMPLATE")" = fail ] && ok "the unedited template does NOT satisfy the RED check for a production change" || no "the unedited PR template satisfies the RED check"
+  sed -E 's/^RED:.*$/RED: foo.test.sh case one — expected 3 got 0/' "$TEMPLATE" > "$TMP/filled.md"
+  [ "$(red_check "$TMP/filled.md")" = ok ] && ok "replacing the template RED line with real evidence satisfies the check" || no "a filled template RED line does not satisfy the check" "$(red_check "$TMP/filled.md")"
+else
+  no "node or the PR template is missing (cannot check the RED line)"
+fi
+
 # ---- --worktree ---------------------------------------------------------------------------------------------------
 D="$(newcase wt)"; printf '# w\n' >> "$D/$T/alpha.sh"; printf '%s -f stray\n' "$PK" > "$D/$T/untracked.sh"
 run --repo "$D" "${BASE[@]}" --worktree
