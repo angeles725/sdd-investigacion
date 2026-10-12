@@ -84,7 +84,23 @@ probe() {   # probe CASE FILE
   rm -rf "$t"
 }
 
+# parity_scan KIT -> `<blocks> <bad> <bad names...>` over the declared corpus of KIT (a kit root holding toolbelt/ and
+# install/): toolbelt/*.sh, toolbelt/lib/*.sh, toolbelt/maint/*.sh (maint/ used to be outside this scan), install/*.sh.
+# A glob that matches nothing contributes 0 files (maint/ may legitimately be absent); the caller's >= floor is what
+# proves the scan looked (anti-silent-zero, CLAUDE.md section 7).
+parity_scan() {
+  local kit="$1" f nblk=0 nbad=0 badlist=""
+  for f in "$kit"/toolbelt/*.sh "$kit"/toolbelt/lib/*.sh "$kit"/toolbelt/maint/*.sh "$kit"/install/*.sh; do
+    [ -f "$f" ] || continue
+    grep -q '# RSDD-SELF-DIR' "$f" || continue
+    nblk=$((nblk + 1))
+    [ "$(block_of "$f")" = "$CANON" ] || { nbad=$((nbad + 1)); badlist="$badlist $(basename "$f")"; }
+  done
+  echo "$nblk $nbad$badlist"
+}
+
 if [ "${1:-}" = "--probe" ]; then probe "$2" "$3"; exit 0; fi
+if [ "${1:-}" = "--scan-parity" ]; then parity_scan "$2"; exit 0; fi
 
 pass=0; fail=0
 ok() { echo "  PASS  $1"; pass=$((pass + 1)); }
@@ -92,14 +108,22 @@ no() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 echo "== self-dir-idiom.test.sh =="
 
 # ---- parity: the canonical block everywhere --------------------------------
-nblk=0; nbad=0; badlist=""
-for f in "$TB"/*.sh "$TB"/lib/*.sh "$KITDIR"/install/*.sh; do
-  grep -q '# RSDD-SELF-DIR' "$f" || continue
-  nblk=$((nblk + 1))
-  [ "$(block_of "$f")" = "$CANON" ] || { nbad=$((nbad + 1)); badlist="$badlist $(basename "$f")"; }
-done
+read -r nblk nbad badlist <<<"$(parity_scan "$KITDIR")"
 if [ "$nblk" -ge 39 ] && [ "$nbad" -eq 0 ]; then ok "parity: $nblk scripts carry the canonical block byte-for-byte"
 else no "parity: $nblk scripts carry the marker (want >=39), $nbad differ:$badlist"; fi
+# maint/ is in the scan: a drifted idiom block in a maint/ script is caught (fixture kit: one good, one drifted).
+MF="$(mktemp -d)"
+mkdir -p "$MF/toolbelt/lib" "$MF/toolbelt/maint" "$MF/install"
+{ printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON"; } > "$MF/toolbelt/maint/good.sh"
+{ printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON" | sed 's/-lt 40/-lt 41/'; } > "$MF/toolbelt/maint/drift.sh"
+r="$(bash "$SELF" --scan-parity "$MF")"
+if [ "$r" = "2 1 drift.sh" ]; then ok "parity: a drifted idiom block under toolbelt/maint/ is flagged (2 carry the marker, drift.sh differs)"
+else no "parity: maint/ fixture scan got [$r], want [2 1 drift.sh]"; fi
+rm -rf "$MF/toolbelt/maint"
+r="$(bash "$SELF" --scan-parity "$MF")"
+if [ "$r" = "0 0" ]; then ok "parity: an absent maint/ directory contributes 0 files (stated, not an error)"
+else no "parity: absent maint/ fixture scan got [$r], want [0 0]"; fi
+rm -rf "$MF"
 if [ "$(block_of "$TB/tool-registry.md" 2>/dev/null)" = "$CANON" ]; then ok "parity: the tool-registry.md idiom section holds the canonical block"
 else no "parity: tool-registry.md idiom block differs from the canonical block"; fi
 
@@ -159,6 +183,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth help" "$MUT/help/research-sdd-install.sh" "$INST" 's#"\${BASH_SOURCE\[0\]}" | sed#"$SELF/$(basename "$0")" | sed#' \
     && tooth "teeth help: usage reads \$SELF/\$(basename \$0) -> --help via a renamed symlink is empty" 0 0 "$MUT/help/research-sdd-install.sh" \
          --orig "$INST" --good-has 'OK help' --bad-has 'BAD help' -- bash "$SELF" --probe help @SUT@
+  # maint/ dropped from the parity corpus -> the drifted maint/ script is no longer flagged
+  PMF="$(mktemp -d)"; mkdir -p "$PMF/toolbelt/maint" "$PMF/toolbelt/lib" "$PMF/install"
+  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON" | sed 's/-lt 40/-lt 41/'; } > "$PMF/toolbelt/maint/drift.sh"
+  mk_sed "teeth maint-scope" "$MUT/scope/self-dir-idiom.test.sh" "$SELF" 's# "\$kit"/toolbelt/maint/\*\.sh##' \
+    && tooth "teeth maint-scope: maint/ glob dropped -> drifted maint/ block unseen" 0 0 "$MUT/scope/self-dir-idiom.test.sh" \
+         --orig "$SELF" --good-has '^1 1 drift\.sh$' --bad-has '^0 0$' -- bash @SUT@ --scan-parity "$PMF"
+  rm -rf "$PMF"
   rm -rf "$MUT"
 fi
 
