@@ -214,9 +214,9 @@ D="$(nk pk $T/alpha.sh "echo start
 $PK -f myloop")"; D_nk1="$D"
 nkrun "$D"; { hasre "^name-kill ${T}/alpha.sh:3 " && [ "$RC" = 1 ]; } && ok "name kill is reported with file:LINE of the added line" || no "name-kill basic" "(rc=$RC $OUT)"
 D="$(nk ka $T/alpha.sh "$KA python3")"; nkrun "$D"; hasre "^name-kill ${T}/alpha.sh:" && ok "name-kill: second tool name" || no "killall" "($OUT)"
-D="$(nk k9 $T/alpha.sh "kill -9 -1")"; D_nk2="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill -9 -1 (every process)" || no "kill -9 -1" "($OUT)"
-D="$(nk px $T/alpha.sh 'pgrep -f loop | xargs kill')"; D_nk3="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: pgrep | xargs kill" || no "pgrep xargs" "($OUT)"
-D="$(nk sub $T/alpha.sh 'kill $(pgrep -f loop)')"; D_nk4="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill \$(pgrep ...)" || no "kill subst" "($OUT)"
+D="$(nk k9 $T/alpha.sh "kill -9 -1")"; D_nk2="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill -9 -1 (every process)" || no "kill -9 -1" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk px $T/alpha.sh 'pgrep -f loop | xargs kill')"; D_nk3="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: pgrep | xargs kill" || no "pgrep xargs" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk sub $T/alpha.sh 'kill $(pgrep -f loop)')"; D_nk4="$D"; nkrun "$D"; hasre "^name-kill " && ok "name-kill: kill \$(pgrep ...)" || no "kill subst" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk ok1 $T/alpha.sh "$PK -f x  # writer-check: allow-name-kill reaper owns this host")"; D_nk5="$D"; nkrun "$D"
 { ! hasre '^name-kill '; } && ok "the allow comment on the same line suppresses the finding" || no "allow comment" "($OUT)"
 D="$(nk cmt $T/alpha.sh "# cleanup; $PK -f loop")"; D_nk6="$D"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a comment-only line is not scanned" || no "comment line" "($OUT)"
@@ -229,11 +229,11 @@ D="$(newcase hunk2)"; { printf 'x1\nx2\nx3\nx4\nx5\nx6\nx7\nx8\nx9\nx10\n'; } > 
 { printf 'x1\nx2\nx3\nx4\nx5\nx6\nx7\nx8\n%s -x y\nx10\n' "$PK"; } > "$D/$T/hk.sh"; commit_all "$D"
 D_hunk="$D"; run --repo "$D" --base base2; hasre "^name-kill ${T}/hk.sh:9 " && ok "line number is right in a later hunk" || no "hunk line number" "($OUT)"
 D="$(nk tst $TS/a.test.sh "$PK -f loop")"; nkrun "$D"; hasre "^name-kill ${TS}/a.test.sh:" && ok "test files are scanned too" || no "tests scanned" "($OUT)"
-D="$(nk cp1 $T/alpha.sh 'make && pkill -f x')"; D_cp1="$D"; nkrun "$D"; hasre '^name-kill ' && ok "command position after &&" || no "cp &&" "($OUT)"
-D="$(nk cp2 $T/alpha.sh 'sudo -n killall python3')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after sudo -n" || no "cp sudo" "($OUT)"
-D="$(nk cp3 $T/alpha.sh 'FOO=1 /usr/bin/pkill -9 loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after VAR=x with an absolute path" || no "cp abs" "($OUT)"
-D="$(nk cp4 $T/alpha.sh 'timeout 5 pkill -f loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after timeout N" || no "cp timeout" "($OUT)"
-D="$(nk cp5 $T/alpha.sh 'x=$(pkill -f loop)')"; nkrun "$D"; hasre '^name-kill ' && ok "command position inside \$( )" || no "cp subst" "($OUT)"
+D="$(nk cp1 $T/alpha.sh 'make && pkill -f x')"; D_cp1="$D"; nkrun "$D"; hasre '^name-kill ' && ok "command position after &&" || no "cp &&" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk cp2 $T/alpha.sh 'sudo -n killall python3')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after sudo -n" || no "cp sudo" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk cp3 $T/alpha.sh 'FOO=1 /usr/bin/pkill -9 loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after VAR=x with an absolute path" || no "cp abs" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk cp4 $T/alpha.sh 'timeout 5 pkill -f loop')"; nkrun "$D"; hasre '^name-kill ' && ok "command position after timeout N" || no "cp timeout" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
+D="$(nk cp5 $T/alpha.sh 'x=$(pkill -f loop)')"; nkrun "$D"; hasre '^name-kill ' && ok "command position inside \$( )" || no "cp subst" "($OUT)"  # writer-check: allow-name-kill fixture text, never executed
 D="$(nk str1 $T/alpha.sh "grep -Eq '$PK|pgrep' file")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a grep pattern naming the tool is not a kill" || no "grep pattern" "($OUT)"
 D="$(nk str2 $T/alpha.sh 'echo "never use pkill -f on loops"')"; D_str2="$D"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "prose inside a quoted echo is not a kill" || no "echo prose" "($OUT)"
 D="$(nk str3 $T/alpha.sh "STDIN='{\"tool_input\":{\"command\":\"pkill -f foo\"}}'")"; nkrun "$D"; { ! hasre '^name-kill '; } && ok "a JSON fixture string naming the tool is not a kill" || no "json fixture" "($OUT)"
@@ -331,7 +331,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt "suite-impact failure ignored" 2 1 's/if \[ "\$irc" -ne 0 \]; then/if false; then/' \
     --good-has 'suite-impact.sh exited 2' --bad-lacks 'suite-impact.sh exited' -- env "KIT_WRITER_CHECK_IMPACT=$TMP/badimpact.sh" "$BASH_BIN" @SUT@ --repo "$TA" "${BASE[@]}"
   mt "name-kill pattern dead" 1 0 's/\[p\]kill|\[k\]illall/ZZZ/' -- "$BASH_BIN" @SUT@ --repo "$D_nk1" "${BASE[@]}" --teeth-log "$TMP/logs_ok"
-  mt "kill -9 -1 pattern dead" 1 0 's/\[k\]ill\[\[:space:\]\]+(-9/ZZ[[:space:]]+(-9/' -- "$BASH_BIN" @SUT@ --repo "$D_nk2" "${BASE[@]}" --teeth-log "$TMP/logs_ok"
+  mt "kill -9 -1 pattern dead" 1 0 's/\[k\]ill\[\[:space:\]\]+(-9/ZZ[[:space:]]+(-9/' -- "$BASH_BIN" @SUT@ --repo "$D_nk2" "${BASE[@]}" --teeth-log "$TMP/logs_ok"  # writer-check: allow-name-kill label text, never executed
   mt "pgrep-xargs pattern dead" 1 0 's/\[p\]grep\[^;\]\*\\|/ZZ/' -- "$BASH_BIN" @SUT@ --repo "$D_nk3" "${BASE[@]}" --teeth-log "$TMP/logs_ok"
   mt "kill-subst pattern dead" 1 0 's/\[k\]ill\[^;|\]\*/ZZ/' -- "$BASH_BIN" @SUT@ --repo "$D_nk4" "${BASE[@]}" --teeth-log "$TMP/logs_ok"
   mt "allow comment ignored" 0 1 's/if (line ~ \/writer-check:/if (0 \&\& line ~ \/writer-check:/' -- "$BASH_BIN" @SUT@ --repo "$D_nk5" "${BASE[@]}" --teeth-log "$TMP/logs_ok"

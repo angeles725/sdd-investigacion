@@ -124,6 +124,23 @@ Check each in the PR:
 - [x] PR is within ~400 authored lines (or kit-chained-pr used)
 ```
 
+**Writer checklist (CLAUDE.md §4, kit issue #2208)** — run before the full gate:
+
+```bash
+# 1. teeth logs for every suite the diff impacts, then the check (exit 0 required)
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree          # lists required suites
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --write-teeth-log DIR <suite>...       # --prove-teeth, bounded by timeout
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree --teeth-log DIR
+```
+
+- No name-based process kills in added code; kill a recorded PID (`# writer-check: allow-name-kill <reason>` for a justified exception).
+- A PR that changes production scripts carries an executed-RED line in its body, or the `Check RED Evidence` job fails:
+
+```markdown
+RED: foo.test.sh case-name — expected 3 got 0
+RED: n/a — <reason RED cannot be executed>
+```
+
 ### 6. Contributor Checklist
 
 ```markdown

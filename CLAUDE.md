@@ -156,6 +156,26 @@ the SUT bytes to the pre-fix state, run the new tests, and require each to fail 
 before fix" note in a commit message is not verified teeth; only executing the suite against the
 broken code is — doc-lane #2.
 
+**Writer checklist (kit issue #2208).** Three incident shapes recur when a writer is trusted to remember
+the rules: only the plain suite of an edited script was run, so mutants broke and only the full gate
+saw it (#2184); a name-based process kill was used on the writer's own load loops (#2199); RED was
+asserted but never executed (#2184). The checks below make each one mechanical, before the full gate:
+
+1. Run every suite the diff impacts with `--prove-teeth` and keep the logs:
+   `bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree` lists the
+   required suites; `... --write-teeth-log DIR <suite>...` runs them bounded by `timeout` and writes
+   the logs; `... --base origin/main --worktree --teeth-log DIR` must then exit 0 (exit 1 names each
+   `missing-teeth`, `no-suite` and `name-kill` finding; exit 2 means it could not look).
+2. Never kill processes by name (the usual name-matching kill tools, `kill -9 -1`, `pgrep | xargs kill`):
+   record the PID at spawn and kill that PID, and let `timeout` bound a runaway run. The check flags
+   added lines; a justified exception carries `# writer-check: allow-name-kill <reason>` on that line.
+3. Put the executed RED in the PR body as `RED: <suite> <case-or-test-name> — <failing output excerpt>`
+   (one line per proving case), or `RED: n/a — <reason>` when RED cannot be executed. The
+   `Check RED Evidence` job in `pr-check.yml` fails a PR that changes production scripts without one
+   (`.github/scripts/parse-red-evidence.cjs`).
+
+The check is evidence of a run, not a verdict: the quiet-tree gate in §5 remains the authority.
+
 ---
 
 ## 5. Quality Gates
