@@ -57,6 +57,11 @@ E
 #!/usr/bin/env bash
 while [ $# -gt 0 ]; do case "$1" in --cwd) cwd="$2"; shift 2 ;; --merge) pr="$2"; shift 2 ;; *) shift ;; esac; done
 echo "MERGE $pr head=$(git -C "$cwd" rev-parse HEAD)" >> "$CASE/calls.log"
+echo "CWD $pr $cwd" >> "$CASE/calls.log"
+# RDD authority is bound to the worktree where the review ran: allow only from the registered cwd, when one is registered
+if [ -e "$CASE/only-cwd-$pr" ] && [ "$(cd "$cwd" && pwd -P)" != "$(cat "$CASE/only-cwd-$pr")" ]; then
+  echo "merge-gate: refuse: review_due (high_risk) — review this exact head before merging"; exit 1
+fi
 if [ -e "$CASE/mg-degrade-$pr" ]; then echo "merge-gate: degraded: simulated"; exit 3; fi
 if [ -e "$CASE/mg-fail-$pr" ]; then echo "merge-gate: refuse: review_due (high_risk)"; exit 1; fi
 sq="$CASE/sq"
@@ -137,6 +142,17 @@ run_train() {
     term) mkpr 1; mkpr 2; prs=(1 2) ;;
     bisect-locktimeout) mkpr 1; mkpr 2 bad.txt; mkpr 3; prs=(1 2 3); extra=(--bisect) ;;
     merge-error) mkpr 1; mkpr 2; prs=(1 2); printf '#!/bin/sh\nexit 1\n' > "$CASE/repo/.git/hooks/pre-merge-commit"; chmod +x "$CASE/repo/.git/hooks/pre-merge-commit" ;;
+    pr-cwd|pr-cwd-wronghead|pr-cwd-foreign|pr-cwd-none) mkpr 1; mkpr 2; prs=(1 2)
+      git -C "$CASE/repo" worktree add -q --detach "$CASE/orig-1" "$(cat "$CASE/head-1")"
+      (cd "$CASE/orig-1" && pwd -P) > "$CASE/only-cwd-1"
+      case "$name" in
+        pr-cwd) extra=(--pr-cwd "1=$CASE/orig-1") ;;
+        pr-cwd-wronghead) git -C "$CASE/orig-1" checkout -q --detach "$(git -C "$CASE/repo" rev-parse origin/main)"; extra=(--pr-cwd "1=$CASE/orig-1") ;;
+        pr-cwd-foreign) git clone -q "$CASE/origin.git" "$CASE/foreign" && git -C "$CASE/foreign" checkout -q --detach "$(cat "$CASE/head-1")"
+          extra=(--pr-cwd "1=$CASE/foreign") ;;
+      esac ;;
+    usage-pr-cwd-unlisted) mkpr 1; prs=(1); extra=(--pr-cwd "9=$CASE/repo") ;;
+    usage-pr-cwd-malformed) mkpr 1; prs=(1); extra=(--pr-cwd "nodir") ;;
     dry) mkpr 1; mkpr 2; prs=(1 2); extra=(--dry-run) ;;
     nojq|nogh|noflock) mkpr 1; prs=(1); rm -f "$CASE/bin/${name#no}" ;;
     nofetch) mkpr 1; prs=(1); rm -rf "$CASE/origin.git" ;;
@@ -178,7 +194,8 @@ run_train() {
 remote-heads: $(git -C "$CASE/origin.git" for-each-ref --format='%(refname)' 'refs/heads/' | tr '\n' ' ')
 local-branches: $(git -C "$CASE/repo" for-each-ref --format='%(refname:short)' 'refs/heads/train/*' | tr '\n' ' ')
 worktrees-left: $(ls "$CASE/repo-worktrees" 2>/dev/null | tr '\n' ' ')
-train-refs: $(git -C "$CASE/repo" for-each-ref --format='%(refname)' 'refs/train/' | tr '\n' ' ')"
+train-refs: $(git -C "$CASE/repo" for-each-ref --format='%(refname)' 'refs/train/' | tr '\n' ' ')
+orig-wt: $([ -d "$CASE/orig-1" ] && echo kept || echo gone)"
 }
 nth_count() { grep -cE -- "$1" <<<"$CALLS"; }
 merges() { grep '^MERGE' <<<"$CALLS" | awk '{print $2}' | tr '\n' ' '; }
@@ -215,7 +232,7 @@ if [[ "$SUMMARY" == *'remote-heads: refs/heads/main '* ]] && [[ "$SUMMARY" != *'
   ok "happy: the train branch was never pushed and the local train branch is gone"
 else no "happy branches: $SUMMARY"; fi
 if [[ "$SUMMARY" == *'worktrees-left: '$'\n'* || "$SUMMARY" == *'worktrees-left: ' ]]; then ok "happy: every train worktree was removed"; else no "happy worktrees: $SUMMARY"; fi
-if [[ "$SUMMARY" == *'train-refs: ' ]] && [[ "$CALLS" != *FETCH_HEAD* ]]; then ok "happy: PR heads were fetched into refs/train/<ts>/<pr> and those refs are removed afterwards"; else no "happy train refs: $SUMMARY"; fi
+if [[ "$SUMMARY" == *'train-refs: '$'\n'* ]] && [[ "$CALLS" != *FETCH_HEAD* ]]; then ok "happy: PR heads were fetched into refs/train/<ts>/<pr> and those refs are removed afterwards"; else no "happy train refs: $SUMMARY"; fi
 if [[ "$OUT" == *'merged: all 3 PRs merged after one gate'* ]] && [[ "$(rj '[.prs[] | select(.status == "merged")] | length')" = 3 ]]; then ok "happy: the final line counts only PRs actually merged"; else no "happy final line [$OUT]"; fi
 if [[ "$CASE/repo-worktrees" == "$TMP"/* ]] && [ -d "$CASE/repo-worktrees" ]; then ok "worktrees live in the sibling <repo>-worktrees dir"; else no "worktree root missing"; fi
 
@@ -313,7 +330,7 @@ else no "oob rc=$RC merges=[$(merges)] summary=[$SUMMARY] out=[$OUT]"; fi
 # ---- S2: INT/TERM cleans up and writes the receipt ----
 run_train term
 if [ "$RC" = 29 ] && [[ "$OUT" == *'train-error: interrupted'* ]] && [[ "$SUMMARY" == *'worktrees-left: '$'\n'* ]] \
-   && [[ "$SUMMARY" == *'local-branches: '$'\n'* ]] && [[ "$SUMMARY" == *'train-refs: ' ]] && [ "$(rj .state)" = train-error ]; then
+   && [[ "$SUMMARY" == *'local-branches: '$'\n'* ]] && [[ "$SUMMARY" == *'train-refs: '$'\n'* ]] && [ "$(rj .state)" = train-error ]; then
   ok "SIGTERM mid-gate: train-error interrupted (rc 29), worktrees, branch and train refs removed, receipt written"
 else no "term rc=$RC summary=[$SUMMARY] out=[$OUT]"; fi
 # ---- S4: a lock timeout during bisect does not hide the red full gate ----
@@ -332,6 +349,22 @@ if [ "$RC" = 29 ] && [[ "$OUT" == *'kit-merge-train: train-error: merging #1 fai
   ok "a merge that fails WITHOUT unmerged paths is train-error (rc 29), not a conflict drop"
 else no "merge-error rc=$RC out=[$OUT]"; fi
 
+# ---- RDD authority is bound to the worktree where the review ran: --pr-cwd ----
+run_train pr-cwd
+c1="$(grep '^CWD 1 ' <<<"$CALLS" | cut -d' ' -f3-)"; c2="$(grep '^CWD 2 ' <<<"$CALLS" | cut -d' ' -f3-)"
+if [ "$RC" = 0 ] && [ "$(merges)" = '1 2 ' ] && [ "$c1" = "$CASE/orig-1" ] && [[ "$c2" == "$CASE/repo-worktrees/train-"*-pr2 ]] && [ -d "$CASE/orig-1" ]; then
+  ok "--pr-cwd: merge-gate for #1 runs in the PR's own RDD worktree (left in place); #2 keeps the train's detached worktree"
+else no "pr-cwd rc=$RC c1=[$c1] c2=[$c2] out=[$OUT]"; fi
+run_train pr-cwd-none
+if [ "$RC" = 19 ] && [[ "$OUT" == *'review_due'* ]] && [ "$(merges)" = '1 ' ]; then ok "without --pr-cwd the merge-gate runs in the train worktree and refuses review_due (documented behavior)"
+else no "pr-cwd-none rc=$RC out=[$OUT]"; fi
+run_train pr-cwd-wronghead
+if [ "$RC" = 27 ] && [[ "$OUT" == *'train-refused #1: pr-cwd-mismatch'* ]] && [ "$(merges)" = '2 ' ]; then ok "--pr-cwd whose HEAD is not the pinned head is refused (pr-cwd-mismatch)"
+else no "pr-cwd-wronghead rc=$RC out=[$OUT]"; fi
+run_train pr-cwd-foreign
+if [ "$RC" = 27 ] && [[ "$OUT" == *'train-refused #1: pr-cwd-mismatch'* ]] && [ "$(merges)" = '2 ' ]; then ok "--pr-cwd that is not a worktree of THIS repo is refused (pr-cwd-mismatch)"
+else no "pr-cwd-foreign rc=$RC out=[$OUT]"; fi
+
 # ---- dry-run, degraded, fetch failure, usage ----
 run_train dry
 if [ "$RC" = 0 ] && [[ "$OUT" == *'kit-merge-train: plan:'* ]] && [ -z "$CALLS" ] && [ ! -e "$CASE/repo-worktrees" ] \
@@ -344,7 +377,7 @@ for d in jq gh flock; do
 done
 run_train nofetch
 if [ "$RC" = 21 ] && [[ "$OUT" == *'kit-merge-train: fetch-failed'* ]]; then ok "an unreachable remote -> fetch-failed (rc 21)"; else no "nofetch rc=$RC out=[$OUT]"; fi
-for u in usage-none usage-nan usage-dup usage-state-in-repo usage-serial-cmd usage-badpin; do
+for u in usage-none usage-nan usage-dup usage-state-in-repo usage-serial-cmd usage-badpin usage-pr-cwd-unlisted usage-pr-cwd-malformed; do
   run_train $u
   if [ "$RC" = 2 ] && [[ "$OUT" == *'kit-merge-train: usage'* ]] && [ ! -e "$CASE/repo-worktrees" ]; then ok "$u -> rc 2 usage, nothing created"; else no "$u rc=$RC out=[$OUT]"; fi
 done
@@ -397,6 +430,10 @@ tooth "interrupt trap removed" $T "s/^trap 'finish 29 train-error \"interrupted\
 tooth "bisect lock timeout read as red" $T 's/22) incomplete=gate-lock-timeout; break ;;/22) hi=$mid ;;/' 26 26 bisect-locktimeout --good-has 'bisect-incomplete' --bad-lacks 'bisect-incomplete'
 tooth "full gate log not restored after bisect" $T 's/^    gate_rc="\$final_gate_rc" gate_log="\$final_gate_log"$/    true/' 26 26 bisect-locktimeout --good-lacks 'gate-train-[0-9-]*-bisect' --bad-has 'gate-train-[0-9-]*-bisect'
 tooth "train refs not removed" $T 's/^  for p in "\${prs\[@\]}"; do git -C "\$repo" update-ref -d .*; done$/  true/' 0 0 happy --good-lacks 'train-refs: refs/train' --bad-has 'train-refs: refs/train'
+tooth "pr-cwd HEAD check dropped" $T 's/^  \[ "\$(git -C "\$d" rev-parse HEAD 2>\/dev\/null)" = "\$2" \] || return 1$/  true/' 27 0 pr-cwd-wronghead --good-lacks '^MERGE 1' --bad-has '^MERGE 1'
+tooth "pr-cwd same-repo check dropped" $T 's/^  \[ -n "\$a" \] && \[ "\$a" = "\$b" \] || return 1$/  true/' 27 19 pr-cwd-foreign --bad-has 'review_due'
+tooth "pr-cwd ignored at merge time" $T 's/^  if \[ -n "\${pcwd\[\$p\]:-}" \]; then$/  if false; then/' 0 19 pr-cwd --bad-has 'review_due'
+tooth "RDD worktree removed after the merge" $T 's/^  \[ "\$own_wt" = 0 \] || git/  git/' 0 0 pr-cwd --good-has 'orig-wt: kept' --bad-has 'orig-wt: gone'
 tooth "dependency probe blind" $C 's/command -v "\$d" >\/dev\/null 2>&1 ||/true ||/' 3 28 nojq --bad-lacks 'degraded: missing'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

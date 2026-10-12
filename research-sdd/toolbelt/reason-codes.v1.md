@@ -251,7 +251,10 @@ They are listed here so a reader of this registry finds every typed state the sc
   | `tree-mismatch` | 32 | the tree on the base differs from the train tree (or the base+merged-prefix tree); inspect main before anything else is merged |
   | `merged-out-of-band` | 33 | GitHub shows the PR MERGED at a head other than the gated one (`kit-wait-merge.sh --expect-head`); inspect it, the train stopped and the PR is `out-of-band` in the receipt |
 
-  Also: `base-not-<branch>` (a per-PR refusal: the PR does not target the train's base branch, e.g. a stacked PR) and
+  Also: `pr-cwd-mismatch` (a per-PR refusal: the `--pr-cwd` directory is not a worktree of the repo, or its HEAD is not the
+  pinned head); without `--pr-cwd`, merge-gate in the train's own worktree typically stops the train at `not-merged`
+  with `refuse: review_due`, because RDD authority is bound to the worktree where the review ran;
+  `base-not-<branch>` (a per-PR refusal: the PR does not target the train's base branch, e.g. a stacked PR) and
   `bisect-incomplete: gate-lock-timeout` (a `train-gate-failed` whose `--bisect` could not finish; the receipt keeps the
   full gate's rc and log).
 

@@ -17,7 +17,14 @@
 #   --rdd-ok PR=SHA   (repeatable, REQUIRED for every PR) the head sha (7+ hex, prefix ok) the PR's RDD acknowledged.
 #                     The pin is explicit input, never inferred: a PR without a pin is refused `rdd-unconfirmed`, a pin
 #                     that is not the PR's current head is refused `rdd-head-mismatch`.
-#   --repo DIR        the kit checkout (default: the current directory); its sibling `<repo>-worktrees/` holds the train
+#   --pr-cwd PR=DIR   (repeatable) the worktree where PR's RDD ran. RDD authority is bound to the WORKTREE where the review
+#                     ran (stored in the shared git dir, matched by a worktree identity), not just to the head, so
+#                     merge-gate run from any other worktree at the same head refuses `review_due`. With --pr-cwd the
+#                     merge (kit-wait-merge / merge-gate) runs in DIR, which stays in place. DIR must be a worktree of
+#                     the repo whose HEAD is the pinned head, else the PR is refused `pr-cwd-mismatch`. A PR WITHOUT
+#                     --pr-cwd is merged from the train's own detached worktree at its head, where merge-gate will
+#                     likely refuse review_due (the train then stops there; the PRs after it stay pending).
+#   --repo DIR       the kit checkout (default: the current directory); its sibling `<repo>-worktrees/` holds the train
 #                     worktrees (never /tmp)
 #   --base-ref REF    the train base and merge-gate base (default origin/main); the remote is the part before `/`
 #   --state-dir DIR   receipt, gate log and gate lock; default ${XDG_STATE_HOME:-$HOME/.local/state}/research-sdd/pipeline;
@@ -64,7 +71,7 @@ KIT_TOOL=kit-merge-train
 . "$_RSDD_SELF/kit-maint-common.sh" || { echo "kit-merge-train: degraded: kit-maint-common.sh unavailable" >&2; exit 3; }
 
 repo=. base=origin/main state='' gate_cmd='' serial=0 bisect=0 dry_run=0
-declare -A pin=()
+declare -A pin=() pcwd=()
 prs=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,6 +80,10 @@ while [ $# -gt 0 ]; do
       case "$v" in ''|*[!0-9a-fA-F]*) kit_fail 2 usage "--rdd-ok SHA must be hex: $2" ;; esac
       [ "${#v}" -ge 7 ] && [ "$k=$v" = "$2" ] || kit_fail 2 usage "--rdd-ok wants PR=SHA with 7+ hex chars: $2"
       pin[$k]="$v"; shift 2 ;;
+    --pr-cwd) [ $# -ge 2 ] || kit_fail 2 usage "--pr-cwd needs PR=DIR"; k="${2%%=*}"; v="${2#*=}"
+      case "$k" in ''|*[!0-9]*) kit_fail 2 usage "--pr-cwd PR must be a number: $2" ;; esac
+      [ -n "$v" ] && [ "$k=$v" = "$2" ] || kit_fail 2 usage "--pr-cwd wants PR=DIR: $2"
+      pcwd[$k]="$v"; shift 2 ;;
     --repo) [ $# -ge 2 ] || kit_fail 2 usage "--repo needs a value"; repo="$2"; shift 2 ;;
     --base-ref) [ $# -ge 2 ] || kit_fail 2 usage "--base-ref needs a value"; base="$2"; shift 2 ;;
     --state-dir) [ $# -ge 2 ] || kit_fail 2 usage "--state-dir needs a value"; state="$2"; shift 2 ;;
@@ -92,6 +103,9 @@ for p in "${prs[@]}"; do
   case "$p" in ''|*[!0-9]*) kit_fail 2 usage "pr must be a number: $p" ;; esac
 done
 [ "$(printf '%s\n' "${prs[@]}" | sort | uniq -d | wc -l)" -eq 0 ] || kit_fail 2 usage "a PR is listed twice"
+for k in "${!pcwd[@]}"; do
+  case " ${prs[*]} " in *" $k "*) ;; *) kit_fail 2 usage "--pr-cwd names #$k, which is not in the batch" ;; esac
+done
 [ "$serial" -eq 0 ] || [ -z "$gate_cmd" ] || kit_fail 2 usage "--serial cannot be combined with --gate-cmd"
 case "$base" in */*) remote="${base%%/*}" ;; *) kit_fail 2 usage "--base-ref must be <remote>/<branch>: $base" ;; esac
 [ -d "$repo" ] || kit_fail 2 usage "repo is not a directory: $repo"
@@ -146,6 +160,18 @@ finish() { # CODE STATE MSG
 }
 trap 'finish 29 train-error "interrupted"' INT TERM
 
+# --pr-cwd PR=DIR: DIR must be a worktree of THIS repo (same common git dir) whose HEAD is the pinned head; it is
+# resolved to its physical path. RDD authority is bound to the worktree where the review ran (kit issue #2213).
+pr_cwd_ok() { # PR HEAD_SHA
+  local d="${pcwd[$1]}" a b
+  [ -d "$d" ] || return 1
+  a="$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  b="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$a" ] && [ "$a" = "$b" ] || return 1
+  [ "$(git -C "$d" rev-parse HEAD 2>/dev/null)" = "$2" ] || return 1
+  pcwd[$1]="$(CDPATH='' cd -- "$d" && pwd -P)"
+}
+
 kit_retry 3 git -C "$repo" fetch -q "$remote" || finish 21 fetch-failed "git fetch $remote still failing"
 base_sha="$(git -C "$repo" rev-parse "$base^{commit}" 2>/dev/null)" || finish 29 train-error "base ref $base does not resolve"
 base_branch="${base#*/}"
@@ -162,6 +188,7 @@ for p in "${prs[@]}"; do
   elif [ -z "$oid" ]; then why=no-head
   elif [ -z "${pin[$p]:-}" ]; then why=rdd-unconfirmed
   elif lo_oid="${oid,,}" && [ "${lo_oid#"${pin[$p],,}"}" = "$lo_oid" ]; then why=rdd-head-mismatch
+  elif [ -n "${pcwd[$p]:-}" ] && ! pr_cwd_ok "$p" "$oid"; then why=pr-cwd-mismatch
   elif ! kit_retry 3 git -C "$repo" fetch -q "$remote" "+refs/pull/$p/head:refs/train/$ts/$p" 2>/dev/null \
        || [ "$(git -C "$repo" rev-parse "refs/train/$ts/$p" 2>/dev/null)" != "$oid" ]; then why=head-moved
   fi
@@ -259,13 +286,18 @@ verify_tree() { # the tree on main must equal the tree of base + the PRs actuall
 stopped='' stop_rc=0 merged_ok=()
 for p in "${merged[@]}"; do
   if [ -n "$stopped" ]; then p_status[$p]=pending; p_reason[$p]="after #$stopped"; continue; fi
-  pw="$wtroot/train-$ts-pr$p"
-  if ! git -C "$repo" worktree add -q --detach "$pw" "${p_head[$p]}"; then
-    stopped=$p; stop_rc=29; p_status[$p]=pending; p_reason[$p]=worktree-failed; continue
+  own_wt=0
+  if [ -n "${pcwd[$p]:-}" ]; then
+    pw="${pcwd[$p]}"   # the worktree where this PR's RDD ran: left in place, never removed
+  else
+    pw="$wtroot/train-$ts-pr$p" own_wt=1
+    if ! git -C "$repo" worktree add -q --detach "$pw" "${p_head[$p]}"; then
+      stopped=$p; stop_rc=29; p_status[$p]=pending; p_reason[$p]=worktree-failed; continue
+    fi
+    made_wts+=("$pw")
   fi
-  made_wts+=("$pw")
   bash "$_RSDD_SELF/kit-wait-merge.sh" --base-ref "$base" --expect-head "${p_head[$p]}" "$pw" "$p"; mrc=$?
-  git -C "$repo" worktree remove --force "$pw" >/dev/null 2>&1
+  [ "$own_wt" = 0 ] || git -C "$repo" worktree remove --force "$pw" >/dev/null 2>&1
   case "$mrc" in
     0)
       p_status[$p]=merged; merged_ok+=("$p")
