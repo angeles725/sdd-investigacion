@@ -24,13 +24,18 @@ shift
 kit_resolve() {
   local cand f key line d
   local cands=("${RESEARCH_SDD_KIT:-}")
+  # A set-but-unusable $RESEARCH_SDD_KIT is reported (typed, stderr) before falling through, never silently skipped.
+  if [ -n "${RESEARCH_SDD_KIT:-}" ] && [ ! -d "$RESEARCH_SDD_KIT/toolbelt" ]; then
+    echo "kit-run: DEGRADED: RESEARCH_SDD_KIT=$RESEARCH_SDD_KIT invalid (no toolbelt/ directory); trying the launcher files and the default checkout" >&2
+  fi
   local files=()
   for d in "${GENTLE_PI_AGENT_HOME:-}" "${PI_CODING_AGENT_DIR:-}"; do [ -n "$d" ] && files+=("$d/AGENTS.md"); done
   files+=("$HOME/.gentle-shell/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.md" "$HOME/.claude/CLAUDE.md")
   for f in "${files[@]}"; do
     [ -f "$f" ] || continue
     for key in "Kit checkout" "Kit path"; do
-      line="$(sed -n "s/^${key}:[[:space:]]*\\(.*[^[:space:]]\\)[[:space:]]*\$/\\1/p" "$f" 2>/dev/null | head -1)" || line=""
+      line="$(sed -n "/^${key}:/{s/^${key}:[[:space:]]*\\(.*[^[:space:]]\\)[[:space:]]*\$/\\1/p;q;}" "$f" 2>/dev/null)" || line=""
+      line="${line//\`/}"   # a launcher value may be backtick-quoted in markdown
       [ -n "$line" ] && cands+=("${line/#\~/$HOME}")
     done
   done
@@ -42,7 +47,7 @@ kit_resolve() {
 }
 
 degraded() {
-  if [ "$rel" = "templates/hook-pretool-pkill-guard.sh" ]; then
+  if [[ "$rel" == *hook-pretool-pkill-guard.sh ]]; then
     local in; in="$(cat || true)"
     if printf '%s' "$in" | grep -Eq 'pkill|pgrep'; then
       if command -v jq >/dev/null 2>&1; then
@@ -58,6 +63,8 @@ degraded() {
   exit 1
 }
 
+# The script path is kit-relative: an absolute path or a `..` segment would escape the kit.
+if [[ "$rel" == /* || "/$rel/" == */../* ]]; then degraded "script path '$rel' must be kit-relative without '..'"; fi
 kit="$(kit_resolve)" || degraded "research-sdd kit not found (set RESEARCH_SDD_KIT)"
 [ -f "$kit/$rel" ] || degraded "$kit/$rel is missing"
 exec bash "$kit/$rel" "$@"

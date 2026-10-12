@@ -27,7 +27,7 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 stubkit() {
   mkdir -p "$1/toolbelt" "$1/templates"
   printf '#!/usr/bin/env bash\ncat >/dev/null\necho "stub-ran:$(basename "$0"):$*"\nexit "${STUB_RC:-0}"\n' > "$1/toolbelt/probe.sh"
-  cp "$1/toolbelt/probe.sh" "$1/toolbelt/return-token-gate.sh"; cp "$1/toolbelt/probe.sh" "$1/toolbelt/verify-skill-drift-hook.sh"
+  cp "$1/toolbelt/probe.sh" "$1/toolbelt/return-token-gate.sh"; cp "$1/toolbelt/probe.sh" "$1/toolbelt/verify-skill-drift-hook.sh"; cp "$1/toolbelt/probe.sh" "$1/toolbelt/retro-gate.sh"
   cp "$HERE/../../templates/hook-pretool-pkill-guard.sh" "$1/templates/"
 }
 # fakehome <dir> : an empty HOME so the host's launcher files and default checkout cannot answer.
@@ -88,7 +88,28 @@ case_pkill_closed() {      # unresolved kit: the pkill guard asks for a pkill co
   out="$(STDIN='{"tool_input":{"command":"pkill -f foo"}}' run_kit "$sut" "$h" -- templates/hook-pretool-pkill-guard.sh 2>/dev/null)"; rc=$?
   [ "$rc" = 0 ] && [ "$(jq -r '.hookSpecificOutput.permissionDecision' <<<"$out")" = ask ] || return 1
   out="$(STDIN='{"tool_input":{"command":"ls -la"}}' run_kit "$sut" "$h" -- templates/hook-pretool-pkill-guard.sh 2>/dev/null)"; rc=$?
-  [ "$rc" = 0 ] && [ -z "$out" ]
+  [ "$rc" = 0 ] && [ -z "$out" ] || return 1
+  out="$(STDIN='{"tool_input":{"command":"pgrep -f foo"}}' run_kit "$sut" "$h" -- research-sdd/templates/hook-pretool-pkill-guard.sh 2>/dev/null)"
+  [ "$(jq -r '.hookSpecificOutput.permissionDecision' <<<"$out")" = ask ]   # matched by suffix, not by one exact path
+}
+case_invalid_env() {       # a set-but-invalid $RESEARCH_SDD_KIT is reported (typed) and the next source still resolves
+  local sut="$1" h="$TMP/h-ie" k="$TMP/k-ie" out err rc; fakehome "$h"; mkdir -p "$h/.claude"; stubkit "$k"
+  printf 'Kit path: %s\n' "$k" > "$h/.claude/CLAUDE.md"
+  err="$(run_kit "$sut" "$h" RESEARCH_SDD_KIT="$TMP/nope-kit" -- toolbelt/probe.sh 2>&1 >/dev/null)"
+  out="$(run_kit "$sut" "$h" RESEARCH_SDD_KIT="$TMP/nope-kit" -- toolbelt/probe.sh 2>/dev/null)"; rc=$?
+  [ "$rc" = 0 ] && [ "$out" = "stub-ran:probe.sh:" ] && grep -q "kit-run: DEGRADED: RESEARCH_SDD_KIT=$TMP/nope-kit invalid" <<<"$err"
+}
+case_rel_escape() {        # an absolute or '..' script path is refused before anything runs
+  local sut="$1" k="$TMP/k-re" h="$TMP/h-re" err rc; stubkit "$k"; fakehome "$h"
+  err="$(run_kit "$sut" "$h" RESEARCH_SDD_KIT="$k" -- ../etc/x.sh 2>&1 >/dev/null)"; rc=$?
+  [ "$rc" = 1 ] && grep -q "must be kit-relative" <<<"$err" || return 1
+  err="$(run_kit "$sut" "$h" RESEARCH_SDD_KIT="$k" -- "$k/toolbelt/probe.sh" 2>&1 >/dev/null)"; rc=$?
+  [ "$rc" = 1 ] && grep -q "must be kit-relative" <<<"$err"
+}
+case_launcher_backtick() { # a backtick-quoted launcher value (markdown) resolves
+  local sut="$1" h="$TMP/h-bt"; fakehome "$h"; mkdir -p "$h/.claude" "$h/kits"; stubkit "$h/kits/k"
+  printf 'Kit path: `~/kits/k`\n' > "$h/.claude/CLAUDE.md"
+  [ "$(run_kit "$sut" "$h" -- toolbelt/probe.sh 2>/dev/null)" = "stub-ran:probe.sh:" ]
 }
 
 # ---- (B) init --portable ----
@@ -114,19 +135,45 @@ case_no_abs_paths() {   # generated settings.json carries no absolute path, no k
   jq -e '[.. | strings | select(startswith("/") or contains(" /"))] | length == 0' "$d/.claude/settings.json" >/dev/null || return 1
   grep -qF 'tools/hooks/kit-run.sh toolbelt/return-token-gate.sh' "$d/.claude/settings.json" &&
     grep -qF 'tools/hooks/kit-run.sh toolbelt/verify-skill-drift-hook.sh' "$d/.claude/settings.json" &&
-    grep -qF 'tools/hooks/kit-run.sh templates/hook-pretool-pkill-guard.sh' "$d/.claude/settings.json"
+    grep -qF 'tools/hooks/kit-run.sh templates/hook-pretool-pkill-guard.sh' "$d/.claude/settings.json" &&
+    jq -e '[.hooks.Stop[].hooks[].command] | any(. == "bash \"$CLAUDE_PROJECT_DIR\"/tools/hooks/kit-run.sh toolbelt/retro-gate.sh \"$CLAUDE_PROJECT_DIR\"")' "$d/.claude/settings.json" >/dev/null &&
+    jq -e '[.hooks.SessionStart[].hooks[].command] | any(. == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/research-protocol.sh")' "$d/.claude/settings.json" >/dev/null
 }
-case_fresh_clone() {    # a clone carrying ONLY settings.json + tools/ runs every kit-owned hook command
+case_no_percopy() {     # --portable creates no per-target retro-gate-stop.sh / pkill-guard.sh (both run through kit-run.sh)
+  local kit="$1" d="$TMP/pc-$RANDOM"
+  scaffold_portable "$kit" "$d" || return 1
+  [ ! -e "$d/.claude/hooks/retro-gate-stop.sh" ] && [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && [ -x "$d/.claude/hooks/research-protocol.sh" ]
+}
+case_gitignore_tracked() {  # settings.json, the SessionStart hook and the runner are TRACKED; the rest of .claude/ is ignored
+  local kit="$1" d="$TMP/gt-$RANDOM" tracked
+  scaffold_portable "$kit" "$d" || return 1
+  printf 'x\n' > "$d/.claude/session-sha"
+  git -C "$d" add -A >/dev/null 2>&1 || return 1
+  tracked="$(git -C "$d" ls-files)"
+  grep -qx '.claude/settings.json' <<<"$tracked" && grep -qx '.claude/hooks/research-protocol.sh' <<<"$tracked" &&
+    grep -qx 'tools/hooks/kit-run.sh' <<<"$tracked" && ! grep -qx '.claude/session-sha' <<<"$tracked" && ! grep -qxF '.claude/' "$d/.gitignore"
+}
+case_gitignore_blanket_warns() {  # a pre-existing blanket `.claude/` line is never rewritten: typed WARN, no track rules appended
+  local kit="$1" d="$TMP/gb-$RANDOM"; mkdir -p "$d"; printf 'node_modules/\n.claude/\n' > "$d/.gitignore"
+  scaffold_portable "$kit" "$d" || return 1
+  grep -q 'WARN .*UNTRACKED' "$d.out" && [ "$(grep -c '^\.claude/$' "$d/.gitignore")" = 1 ] && ! grep -qF '!.claude/settings.json' "$d/.gitignore"
+}
+case_fresh_clone() {    # a REAL git clone of the scaffolded target runs every wired hook command without absolute paths
   local kit="$1" d="$TMP/fc-$RANDOM" c="$TMP/fc-clone-$RANDOM" sk="$TMP/fc-stub-$RANDOM" h="$TMP/fc-home-$RANDOM" cmd n=0 out
   scaffold_portable "$kit" "$d" || return 1
-  mkdir -p "$c/.claude"; cp "$d/.claude/settings.json" "$c/.claude/"; cp -R "$d/tools" "$c/tools"
+  git -C "$d" add -A >/dev/null 2>&1 && git -C "$d" -c user.name=t -c user.email=t@t commit -qm scaffold >/dev/null 2>&1 || return 1
+  git clone -q "$d" "$c" >/dev/null 2>&1 || return 1
+  [ -f "$c/.claude/settings.json" ] || return 1
   stubkit "$sk"; fakehome "$h"
   while IFS= read -r cmd; do
     n=$((n+1))
-    out="$(printf '{"tool_input":{"command":"ls"}}' | env -i PATH="$PATH" HOME="$h" RESEARCH_SDD_KIT="$sk" CLAUDE_PROJECT_DIR="$c" bash -c "$cmd" 2>/dev/null)" || return 1
-    case "$cmd" in *pkill-guard*) [ -z "$out" ] || return 1;; *) grep -q '^stub-ran:' <<<"$out" || return 1;; esac
-  done < <(jq -r '.hooks | to_entries[] | .value[] | .hooks[] | .command | select(contains("kit-run.sh"))' "$c/.claude/settings.json")
-  [ "$n" = 3 ]
+    out="$(printf '{"source":"startup","tool_input":{"command":"ls"}}' | env -i PATH="$PATH" HOME="$h" RESEARCH_SDD_KIT="$sk" CLAUDE_PROJECT_DIR="$c" bash -c "$cmd" 2>/dev/null)" || return 1
+    case "$cmd" in
+      *pkill-guard*) [ -z "$out" ] || return 1;;
+      *kit-run.sh*) grep -q '^stub-ran:' <<<"$out" || return 1;;
+    esac
+  done < <(jq -r '.hooks | to_entries[] | .value[] | .hooks[] | .command' "$c/.claude/settings.json")
+  [ "$n" = 5 ]   # SessionStart hook + drift, Stop retro gate + return-token gate, PreToolUse pkill guard
 }
 case_pkill_unresolved_wired() {   # the WIRED pkill command fails closed when no kit resolves
   local kit="$1" d="$TMP/pu-$RANDOM" h="$TMP/pu-home-$RANDOM" cmd out; scaffold_portable "$kit" "$d" || return 1; fakehome "$h"
@@ -154,6 +201,36 @@ case_wire_only_installs() {  # --wire --portable on an existing corpus installs 
   grep -q 'hand-adapted' "$d/tools/hooks/kit-run.sh" && grep -qF 'kept: ' "$d.out" && ! grep -qE '/home/|'"$kit" "$d/.claude/settings.json"
 }
 
+case_migration() {      # --wire --portable over a target wired the DEFAULT way: absolute entries are REPLACED, never duplicated
+  local kit="$1" d="$TMP/mg-$RANDOM" st="" n
+  mkdir -p "$d"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  grep -qF "$d/.claude/hooks/pkill-guard.sh" "$d/.claude/settings.json" || return 1   # precondition: really the old absolute wiring
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  st="$d/.claude/settings.json"
+  ! grep -qE '/home/|'"$kit"'|'"$d" "$st" || return 1
+  [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$st")" = 2 ] && [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
+    [ "$(jq '[.hooks.SessionStart[].hooks[]] | length' "$st")" = 2 ] || return 1
+  grep -q 'migrated:' "$d.out" || return 1
+  n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out2" 2>&1 || return 1   # and the migration is itself idempotent
+  [ "$n" = "$(cksum < "$st")" ]
+}
+case_migration_adapted() {  # a HAND-ADAPTED per-target pkill guard is kept (portable form of the same file), not swapped for the kit's
+  local kit="$1" d="$TMP/ma-$RANDOM" st
+  mkdir -p "$d"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  st="$d/.claude/settings.json"
+  [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
+    jq -e '.hooks.PreToolUse[0].hooks[0].command == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pkill-guard.sh"' "$st" >/dev/null && ! grep -qF "$d" "$st"
+}
+case_default_bytes() {  # without --portable the generated settings.json is byte-identical to origin/main's (frozen fixture, paths normalised)
+  local kit="$1" d="$TMP/db-$RANDOM"; mkdir -p "$d"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out" 2>&1 || return 1
+  sed "s|$kit|<KIT>|g; s|$d|<TARGET>|g" "$d/.claude/settings.json" | cmp -s - "$HERE/fixtures/hook-kit-run/default-settings.expected.json"
+}
+
 K="$(mkkit k0)"
 case_env "$SUT_RUN"              && ok "1 \$RESEARCH_SDD_KIT resolves; args, stdin and exit code pass through" || no "1 env resolution / passthrough"
 case_launcher_claude "$SUT_RUN"  && ok "2 ~/.claude/CLAUDE.md 'Kit path:' line (leading ~) resolves" || no "2 CLAUDE.md launcher"
@@ -170,6 +247,15 @@ case_pkill_unresolved_wired "$K" && ok "12 wired pkill command fails closed when
 case_idempotent "$K"             && ok "13 --wire --portable is idempotent (no duplicate hooks)" || no "13 idempotency"
 case_default_unchanged "$K"      && ok "14 without --portable: absolute kit path, no runner installed" || no "14 default must be unchanged"
 case_wire_only_installs "$K"     && ok "15 wire-only --portable keeps an existing kit-run.sh and wires portably" || no "15 wire-only"
+case_migration "$K"              && ok "16 --wire --portable over default (absolute) wiring REPLACES the entries: no duplicates, no absolute path, idempotent" || no "16 migration"
+case_migration_adapted "$K"      && ok "17 a hand-adapted per-target pkill guard is migrated to its CLAUDE_PROJECT_DIR form, not replaced" || no "17 adapted migration"
+case_gitignore_tracked "$K"      && ok "18 --portable tracks settings.json + the SessionStart hook + the runner; the rest of .claude/ is ignored" || no "18 gitignore must track the wiring"
+case_gitignore_blanket_warns "$K" && ok "19 a pre-existing blanket .claude/ line is kept and WARNed about, never rewritten" || no "19 blanket gitignore line"
+case_no_percopy "$K"             && ok "20 --portable creates no per-target retro-gate-stop.sh / pkill-guard.sh" || no "20 per-target copies"
+case_default_bytes "$K"          && ok "21 default (no --portable) settings.json is byte-identical to the origin/main fixture" || no "21 default wiring must be unchanged"
+case_invalid_env "$SUT_RUN"      && ok "22 a set-but-invalid RESEARCH_SDD_KIT is reported (typed) then the next source resolves" || no "22 invalid env"
+case_rel_escape "$SUT_RUN"       && ok "23 an absolute or '..' script path is refused" || no "23 rel escape"
+case_launcher_backtick "$SUT_RUN" && ok "24 a backtick-quoted launcher value resolves" || no "24 backtick launcher"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -201,6 +287,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rteeth MISSING-SCRIPT-IGNORED case_missing_script 's/^\[ -f "\$kit\/\$rel" \] || degraded.*$/:/'
   rteeth PKILL-FAILS-OPEN case_pkill_closed 's/permissionDecision:"ask"/permissionDecision:"allow"/'
   rteeth PKILL-ASKS-ON-EVERYTHING case_pkill_closed 's/grep -Eq .pkill|pgrep./true/'
+  rteeth INVALID-ENV-SILENT case_invalid_env 's/^    echo "kit-run: DEGRADED: RESEARCH_SDD_KIT=.*$/    :/'
+  rteeth REL-ESCAPE-ALLOWED case_rel_escape 's/^if \[\[ "\$rel" == \/\* .*$/:/'
+  rteeth BACKTICK-KEPT case_launcher_backtick '/a launcher value may be backtick-quoted/d'
+  rteeth PKILL-EXACT-PATH-ONLY case_pkill_closed 's/\[\[ "\$rel" == \*hook-pretool-pkill-guard.sh \]\]/[ "$rel" = "templates\/hook-pretool-pkill-guard.sh" ]/'
+  iteeth PORTABLE-STOP-ABSOLUTE case_no_abs_paths 's/^  _C_STOP=.*# PORTABLE-STOP.*$/  :/'
+  iteeth PORTABLE-SS-ABSOLUTE case_no_abs_paths 's/^  _C_SS=.*# PORTABLE-SS$/  :/'
+  iteeth PORTABLE-DRIFT-ABSOLUTE case_no_abs_paths 's/^  _RSDD_DRIFT_CMD=.*# PORTABLE-DRIFT$/  :/'
+  iteeth PORTABLE-PK-WIRED-ABSOLUTE case_pkill_unresolved_wired 's/^  _C_PK=.*# PORTABLE-PK$/  :/'
+  iteeth RUNNER-OVERWRITTEN case_wire_only_installs 's/^  if \[ -e "\$dest" \]; then echo "kept: \$dest"; return 0; fi.*$/  :/'
+  iteeth DUPLICATE-PKILL-ENTRY case_idempotent 's/(if \$has_pk then/(if false then/'
+  iteeth MIGRATION-DROPPED case_migration '/# PORTABLE-MIGRATE$/d'
+  iteeth MIGRATION-ADAPTED-REPLACED case_migration_adapted 's/^  if \[ -e "\$hd\/pkill-guard.sh" \] && ! cmp -s.*$/  :/'
+  iteeth GITIGNORE-RULES-DROPPED case_gitignore_tracked 's/^  for l in "\${gwant\[@]}"; do .* # PORTABLE-GI$/  :/'
+  iteeth GITIGNORE-BLANKET-IGNORED case_gitignore_blanket_warns 's/if \[ -f "\$gi" \] && grep -qxE [^ ]* "\$gi" 2>\/dev\/null; then/if false; then/'
+  iteeth PERTARGET-COPIES-KEPT case_no_percopy 's/^if \[ "\$portable" != 1 \]; then   # --portable (kit #2175): both/if true; then   # both/'
+  iteeth DEFAULT-DRIFT-QUOTING case_default_bytes 's/^_RSDD_DRIFT_CMD=.*$/_RSDD_DRIFT_CMD="$_RSDD_DRIFT_PATH"/'
   iteeth PORTABLE-GATE-ABSOLUTE case_no_abs_paths 's/^  _RSDD_GATE_CMD=.*# PORTABLE-GATE$/:/'
   iteeth PORTABLE-RUNNER-NOT-INSTALLED case_fresh_clone '/# PORTABLE-INSTALL-RUNNER$/d'
   iteeth PORTABLE-PKILL-ABSOLUTE case_no_abs_paths 's/^  _C_PK=.*# PORTABLE-PK$/  :/'
