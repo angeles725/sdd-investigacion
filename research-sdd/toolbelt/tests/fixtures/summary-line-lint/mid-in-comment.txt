@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# MID='·'
+echo "== $pass passed $MID $fail failed =="
