@@ -63,7 +63,9 @@
 #           (a blanket `.claude/` line is WARNed about, never rewritten), so a fresh `git clone` of the target has working hooks, and
 #           existing absolute entries are rewritten, not duplicated (two old entries that rewrite to the same command collapse to one).
 #           --absolute opts out (the pre-#2183 wiring: absolute kit/target paths, per-target hook copies, `.claude/` ignored); --portable is
-#           accepted as an explicit no-op spelling of the default; both together is exit 2. PROPOSE-NEVER-APPLY: a target that is not
+#           accepted as an explicit no-op spelling of the default; both together is exit 2.
+#           RSDD_INIT_WIRING=absolute|portable (kit issue #2183) selects the DEFAULT for a run (unset or empty = portable); --absolute /
+#           --portable override it; any other value is a typed usage error (exit 2, nothing written). Suites that pin the legacy wiring export it once. PROPOSE-NEVER-APPLY: a target that is not
 #           re-run through init/--wire is never touched.
 #
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
@@ -171,6 +173,12 @@ declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helpe
 unset _ri_cm_lib
 
 target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0; engram_project=""; engram_project_given=0; portable=1; portable_given=0; absolute_given=0   # kit issue #2183: portable is the DEFAULT; --absolute opts out
+# kit issue #2183: RSDD_INIT_WIRING picks the default wiring (--absolute / --portable below override it); validated before anything is written.
+case "${RSDD_INIT_WIRING:-}" in
+  ""|portable) portable=1;;   # RSDD-INIT-WIRING-ENV
+  absolute)    portable=0;;
+  *) echo "usage: RSDD_INIT_WIRING must be 'absolute' or 'portable' (got '$RSDD_INIT_WIRING'); unset it for the portable default" >&2; exit 2;;
+esac
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;

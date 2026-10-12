@@ -378,6 +378,22 @@ case_migration_notes() {   # N1/N2: the migration reports a rewrite (naming --ab
   ! grep -qF "unused per-target $e/.claude/hooks/pkill-guard.sh" "$e.out"
 }
 
+case_env_wiring() {   # RSDD_INIT_WIRING picks the default; --absolute / --portable override it; an invalid value is exit 2 with nothing written; unset = portable
+  local kit="$1" a="$TMP/ew1-$RANDOM" b="$TMP/ew2-$RANDOM" c="$TMP/ew3-$RANDOM" x="$TMP/ew4-$RANDOM" u="$TMP/ew5-$RANDOM" rc=0 init
+  init="$kit/toolbelt/research-sdd-init.sh"
+  mkdir -p "$a" "$b" "$c" "$x" "$u"
+  RSDD_INIT_WIRING=absolute bash "$init" "$a" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$a.out" 2>&1 || return 1
+  grep -qF "$kit/toolbelt/return-token-gate.sh" "$a/.claude/settings.json" && [ ! -e "$a/tools/hooks/kit-run.sh" ] || return 1
+  RSDD_INIT_WIRING=absolute bash "$init" "$b" --corpus flat --prefix t --subject "kit run" --scaffold --wire --portable >"$b.out" 2>&1 || return 1
+  [ -x "$b/tools/hooks/kit-run.sh" ] && ! grep -qF "$kit" "$b/.claude/settings.json" || return 1
+  RSDD_INIT_WIRING=portable bash "$init" "$c" --corpus flat --prefix t --subject "kit run" --scaffold --wire --absolute >"$c.out" 2>&1 || return 1
+  grep -qF "$kit/toolbelt/return-token-gate.sh" "$c/.claude/settings.json" || return 1
+  RSDD_INIT_WIRING=bogus bash "$init" "$x" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$x.out" 2>&1 || rc=$?
+  [ "$rc" = 2 ] && grep -q "RSDD_INIT_WIRING must be 'absolute' or 'portable' (got 'bogus')" "$x.out" && [ -z "$(ls -A "$x")" ] || return 1
+  env -u RSDD_INIT_WIRING bash "$init" "$u" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$u.out" 2>&1 || return 1
+  [ -x "$u/tools/hooks/kit-run.sh" ] && ! grep -qF "$kit" "$u/.claude/settings.json"
+}
+
 K="$(mkkit k0)"
 case_env "$SUT_RUN"              && ok "1 \$RESEARCH_SDD_KIT resolves; args, stdin and exit code pass through" || no "1 env resolution / passthrough"
 case_launcher_claude "$SUT_RUN"  && ok "2 ~/.claude/CLAUDE.md 'Kit path:' line (leading ~) resolves" || no "2 CLAUDE.md launcher"
@@ -413,6 +429,7 @@ case_bare_spaced_kit "$K"        && ok "34 default path: a bare gate path with w
 case_dedup_timeout "$K"          && ok "35 the duplicate collapse keys on timeout: an identical twin is dropped, one with another timeout is kept" || no "35 dedup timeout"
 case_settings_edges "$K"         && ok "36 default path: invalid settings.json -> exit 4, nothing written; zero-byte -> read as {} and wired portably" || no "36 settings edges"
 case_migration_notes "$K"        && ok "37 migration notes: rewrite names --absolute; unmodified now-unused per-target hooks are reported, not deleted" || no "37 migration notes"
+case_env_wiring "$K"             && ok "38 RSDD_INIT_WIRING selects the default; flags override it; an invalid value is exit 2, nothing written; unset = portable" || no "38 env wiring"
 case_invalid_env "$SUT_RUN"      && ok "22 a set-but-invalid RESEARCH_SDD_KIT is reported (typed) then the next source resolves" || no "22 invalid env"
 case_rel_escape "$SUT_RUN"       && ok "23 an absolute or '..' script path is refused" || no "23 rel escape"
 case_launcher_backtick "$SUT_RUN" && ok "24 a backtick-quoted launcher value resolves" || no "24 backtick launcher"
@@ -451,7 +468,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rteeth REL-ESCAPE-ALLOWED case_rel_escape 's/^if \[\[ "\$rel" == \/\* .*$/:/'
   rteeth BACKTICK-KEPT case_launcher_backtick '/a launcher value may be backtick-quoted/d'
   rteeth PKILL-EXACT-PATH-ONLY case_pkill_closed 's/\[\[ "\$rel" == \*hook-pretool-pkill-guard.sh \]\]/[ "$rel" = "templates\/hook-pretool-pkill-guard.sh" ]/'
-  iteeth DEFAULT-NOT-PORTABLE case_no_abs_paths 's/portable=1; portable_given=0; absolute_given=0/portable=0; portable_given=0; absolute_given=0/'
+  iteeth DEFAULT-NOT-PORTABLE case_no_abs_paths 's/^  ""|portable) portable=1;;/  ""|portable) portable=0;;/'
   iteeth ABSOLUTE-FLAG-IGNORED case_absolute_optout 's/--absolute) portable=0; absolute_given=1;/--absolute) absolute_given=1;/'
   iteeth PORTABLE-ABSOLUTE-ALLOWED case_portable_alias 's/^\[ "\$portable_given" = 1 \] \&\& \[ "\$absolute_given" = 1 \].*$/:/'
   iteeth MIGRATION-NO-DEDUP case_migration_dedup 's/then \.hooks |= with_entries(\.value |= (if type == "array" then dedup else \. end))/then .hooks |= with_entries(.value |= (if type == "array" then . else . end))/'
@@ -464,6 +481,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   iteeth ORPHAN-NOTE-DROPPED case_migration_notes 's/note   : unused per-target/note   : used per-target/'
   iteeth MIGRATED-HINT-DROPPED case_migration_notes 's/; pass --absolute to keep absolute paths//'
   iteeth DEFAULT-PORTABLE-BYTES case_portable_bytes 's/^  _RSDD_DRIFT_CMD="\$_RSDD_RUN toolbelt\/verify-skill-drift-hook.sh"/  _RSDD_DRIFT_CMD="$_RSDD_RUN toolbelt\/verify-skill-drift-hook.sh --x"/'
+  iteeth ENV-WIRING-IGNORED case_env_wiring 's/^  absolute)    portable=0;;$/  absolute)    :;;/'
+  iteeth ENV-INVALID-ACCEPTED case_env_wiring 's/^  \*) echo "usage: RSDD_INIT_WIRING.*$/  *) :;;/'
   iteeth PORTABLE-STOP-ABSOLUTE case_no_abs_paths 's/^  _C_STOP=.*# PORTABLE-STOP.*$/  :/'
   iteeth PORTABLE-SS-ABSOLUTE case_no_abs_paths 's/^  _C_SS=.*# PORTABLE-SS$/  :/'
   iteeth PORTABLE-DRIFT-ABSOLUTE case_no_abs_paths 's/^  _RSDD_DRIFT_CMD=.*# PORTABLE-DRIFT$/  :/'

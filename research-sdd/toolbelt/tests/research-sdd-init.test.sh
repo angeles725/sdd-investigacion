@@ -14,6 +14,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-init.sh"
+# kit issue #2183: portable wiring is the init default; this suite pins the legacy absolute wiring (default coverage: hook-kit-run / hook-exec / enforcement-e2e).
+export RSDD_INIT_WIRING=absolute
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -39,7 +41,7 @@ _u7_nojq_path() {
   fi
   printf '%s' "$b"
 }
-assert_exit()   { local w="$1" l="$2"; shift 2; local g; bash "$SUT" --absolute "$@" >/dev/null 2>&1; g=$?; [ "$g" = "$w" ] && ok "$l (exit $g)" || no "$l — expected $w, got $g"; }
+assert_exit()   { local w="$1" l="$2"; shift 2; local g; bash "$SUT" "$@" >/dev/null 2>&1; g=$?; [ "$g" = "$w" ] && ok "$l (exit $g)" || no "$l — expected $w, got $g"; }
 assert_file()   { [ -f "$2" ] && ok "$1" || no "$1 (missing: $2)"; }
 assert_absent() { [ ! -e "$2" ] && ok "$1" || no "$1 (should NOT exist: $2)"; }
 assert_grep()   { grep -qF "$2" "$3" 2>/dev/null && ok "$1" || no "$1 (pattern '$2' not in $3)"; }
@@ -112,7 +114,7 @@ else
   ok "  document: RESEARCH-STATE.md must NOT carry the discovery-template's placeholder gap row"
 fi
 mkdir -p "$TMP/good-document-report"
-_doc_report="$(bash "$SUT" --absolute "$TMP/good-document-report" --corpus flat --document 2>&1)"
+_doc_report="$(bash "$SUT" "$TMP/good-document-report" --corpus flat --document 2>&1)"
 assert_grep "  document: init report names the document-cycle mode" "mode   : document-cycle scaffold" <(printf '%s' "$_doc_report")
 
 # GOOD 6b (kit issue #1114) — the JUDGMENT follow-ups tell a --document run to seed
@@ -162,7 +164,7 @@ fi
 # (derived from the directory name), is create-only (an existing config is kept byte-for-byte), and the report tells
 # the agent the one step init cannot do itself (mem_session_start — init cannot call MCP).
 d="$TMP/My Target_1"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-a.out" 2>&1
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-a.out" 2>&1
 assert_file "  engram: .engram/config.json created" "$d/.engram/config.json"
 assert_grep "  engram: project_name derived from the directory name" '"project_name": "my-target-1"' "$d/.engram/config.json"
 if command -v jq >/dev/null 2>&1; then
@@ -174,7 +176,7 @@ assert_grep "  engram: report says init cannot call MCP" "init cannot call MCP" 
 assert_grep "  engram: report orders it before the first section-20 mirror" "before the first" "$TMP/eng-a.out"
 # create-only: a hand-written config survives byte-for-byte and is reported kept
 d="$TMP/eng-keep"; mkdir -p "$d/.engram"; printf '{"project_name": "mine"}\n' > "$d/.engram/config.json"; cp "$d/.engram/config.json" "$TMP/eng-keep.before"
-bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-b.out" 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-b.out" 2>&1; _rc=$?
 { [ "$_rc" = 0 ] && cmp -s "$TMP/eng-keep.before" "$d/.engram/config.json"; } && ok "  engram: existing config.json kept byte-for-byte (exit 0)" || no "  engram: existing config.json was changed or the scaffold failed (exit $_rc)"
 assert_grep "  engram: existing config reported kept" "kept: $d/.engram/config.json" "$TMP/eng-b.out"
 # .engram/ is infra, not subject material: a target holding only it still auto-classifies FLAT (the scaffold's own config must not
@@ -184,67 +186,67 @@ assert_exit 0 "  engram: auto on a target holding only .engram/" "$d" --corpus a
 assert_file "  engram: only-.engram target scaffolds FLAT (root INDEX.md)" "$d/INDEX.md"
 # a dangling symlink at the config path is refused BEFORE any write (nothing scaffolded)
 d="$TMP/eng-dangle"; mkdir -p "$d/.engram"; ln -s "$d/nowhere" "$d/.engram/config.json"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && [ ! -e "$d/INDEX.md" ]; } && ok "  engram: dangling .engram/config.json symlink refused before any write (exit 2)" || no "  engram: dangling config symlink: exit $_rc / INDEX.md written"
 # a directory name with no usable character is a typed degraded state, never an empty project_name
 d="$TMP/___"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-c.out" 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-c.out" 2>&1; _rc=$?
 { [ "$_rc" = 0 ] && [ ! -e "$d/.engram/config.json" ] && grep -qF 'WARN: engram: could not derive a project_name' "$TMP/eng-c.out"; } && ok "  engram: underivable name -> typed WARN, no config, scaffold still succeeds" || no "  engram: underivable name: exit $_rc / config written / no degraded line"
 # --- T8 correction round 1 (Opus gate) ---------------------------------------------------------------------------------
 # (1) --engram-project <name>: the registered TARGETS.md name, written verbatim (the basename may differ from it)
 d="$TMP/_ESTANDAR-TUNELES"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat --engram-project tunnel-estandar >"$TMP/eng-p.out" 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat --engram-project tunnel-estandar >"$TMP/eng-p.out" 2>&1; _rc=$?
 { [ "$_rc" = 0 ] && grep -qF '"project_name": "tunnel-estandar"' "$d/.engram/config.json" 2>/dev/null; } && ok "  engram: --engram-project value written verbatim (exit 0)" || no "  engram: --engram-project not honoured (exit $_rc)"
 assert_grep "  engram: report names the --engram-project source" "from --engram-project" "$TMP/eng-p.out"
 # (1b) without the flag: the derived name is flagged as a MUST-match prominently
 mkdir -p "$TMP/Eng Derived"
-bash "$SUT" --absolute "$TMP/Eng Derived" --corpus flat >"$TMP/eng-q.out" 2>&1
+bash "$SUT" "$TMP/Eng Derived" --corpus flat >"$TMP/eng-q.out" 2>&1
 assert_grep "  engram: derived name carries the must-equal-TARGETS warning" "MUST equal the TARGETS.md name you pass as project:" "$TMP/eng-q.out"
 assert_grep "  engram: derived name warning names the derived value" "engram: project_name=eng-derived (derived from the directory name)" "$TMP/eng-q.out"
 # (1c) invalid values: typed usage error, exit 2, nothing written
 for _bad in 'Upper' '-lead' 'has space' '' 'a/b' '--wire'; do
   d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --engram-project "$_bad" >"$TMP/eng-bad.out" 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --engram-project "$_bad" >"$TMP/eng-bad.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out" && [ ! -e "$d/INDEX.md" ] && [ ! -e "$d/.engram" ]; } && ok "  engram: invalid --engram-project [$_bad]: typed usage error, exit 2, nothing written" || no "  engram: invalid --engram-project [$_bad]: exit $_rc"
 done
 d="$TMP/eng-bad"; rm -rf "$d"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat --engram-project >"$TMP/eng-bad.out" 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat --engram-project >"$TMP/eng-bad.out" 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && grep -qF 'usage: --engram-project' "$TMP/eng-bad.out"; } && ok "  engram: --engram-project as the last argument: typed usage error, exit 2" || no "  engram: --engram-project last arg: exit $_rc"
 # (3) rollback: an ERR after the config write removes the config (a pre-existing .engram/ dir is kept); no temp file is left
 _eng_bin="$TMP/eng-gitfail"; mkdir -p "$_eng_bin"
 printf '#!/bin/sh\ncase "$*" in *" init "*|"init "*) exit 1;; esac\nexec "%s" "$@"\n' "$(command -v git)" > "$_eng_bin/git"; chmod +x "$_eng_bin/git"
 d="$TMP/eng-rollback"; rm -rf "$d"; mkdir -p "$d/.engram"
-PATH="$_eng_bin:$PATH" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-r.out" 2>&1; _rc=$?
+PATH="$_eng_bin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-r.out" 2>&1; _rc=$?
 { [ "$_rc" != 0 ] && grep -qF 'rolling back' "$TMP/eng-r.out" && [ ! -e "$d/.engram/config.json" ] && [ -d "$d/.engram" ] && [ -z "$(find "$d/.engram" -mindepth 1 2>/dev/null)" ]; } && ok "  engram: ERR after the config write rolls the config back (pre-existing .engram/ kept, no temp left)" || no "  engram: rollback left $(find "$d/.engram" -mindepth 1 2>/dev/null | tr '\n' ' ') (exit $_rc)"
 # round 2 (1): an mv that fails WITHOUT creating the config is a typed FATAL (exit 2, rolled back), never `kept:`
 _eng_mvbin="$TMP/eng-mvfail"; mkdir -p "$_eng_mvbin"
 printf '#!/bin/sh\ncase "$*" in *config.json*) echo "mv: cannot move: Input/output error" >&2; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v mv)" > "$_eng_mvbin/mv"; chmod +x "$_eng_mvbin/mv"
 d="$TMP/eng-mvfail-t"; rm -rf "$d"; mkdir -p "$d"
-PATH="$_eng_mvbin:$PATH" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-mv.out" 2>&1; _rc=$?
+PATH="$_eng_mvbin:$PATH" bash "$SUT" "$d" --corpus flat >"$TMP/eng-mv.out" 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.engram/config.json" "$TMP/eng-mv.out" && ! grep -qF 'kept:' "$TMP/eng-mv.out"; } && ok "  engram: failing mv without a destination: typed FATAL, exit 2, not kept:" || no "  engram: failing mv: exit $_rc ($(grep -F engram "$TMP/eng-mv.out" | head -2 | tr '\n' ' '))"
 { [ ! -e "$d/.engram/config.json" ] && [ -z "$(find "$d/.engram" -name '.config.*' 2>/dev/null)" ] && [ ! -e "$d/INDEX.md" ]; } && ok "  engram: failing mv: no config, no temp, scaffold rolled back" || no "  engram: failing mv left files: $(find "$d" -mindepth 1 -not -path '*/.git*' 2>/dev/null | head -5 | tr '\n' ' ')"
 # round 2 (3): the config is world-readable like any checked-in file (mktemp makes 0600)
-d="$TMP/eng-mode"; rm -rf "$d"; mkdir -p "$d"; bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1
+d="$TMP/eng-mode"; rm -rf "$d"; mkdir -p "$d"; bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
 [ "$(_u7_mode "$d/.engram/config.json")" = 644 ] && ok "  engram: config.json mode is 644" || no "  engram: config.json mode is $(_u7_mode "$d/.engram/config.json") (want 644)"
 # round 2 (4): one label format in the report
 if grep -qF 'engram :' "$TMP/eng-q.out"; then no "  engram: report mixes 'engram :' and 'engram:' labels"; else ok "  engram: report uses the single 'engram:' label"; fi
 # (4) step 6 is conditional: in the underivable state it must not claim the config exists
 d="$TMP/___"; rm -rf "$d"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat >"$TMP/eng-u.out" 2>&1
+bash "$SUT" "$d" --corpus flat >"$TMP/eng-u.out" 2>&1
 if grep -qF 'config above makes the project known' "$TMP/eng-u.out"; then no "  engram: underivable report still claims the config makes the project known"; else ok "  engram: underivable report does not claim a config exists"; fi
 assert_grep "  engram: underivable step 6 says write the config by hand first" "write it by hand" "$TMP/eng-u.out"
 # (5) locale-independent derivation: a non-ASCII directory name derives identically under the C locale and a UTF-8 one
 d="$TMP/Ünï Tárget"; rm -rf "$d"; mkdir -p "$d"
-LC_ALL=C.UTF-8 bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1
+LC_ALL=C.UTF-8 bash "$SUT" "$d" --corpus flat >/dev/null 2>&1
 assert_grep "  engram: non-ASCII dir name derives byte-wise (C locale rules)" '"project_name": "n-t-rget"' "$d/.engram/config.json"
 # the usage text carries the same MCP caveat
-bash "$SUT" --absolute >/dev/null 2>"$TMP/eng-usage.err"
+bash "$SUT" >/dev/null 2>"$TMP/eng-usage.err"
 assert_grep "  engram: usage text names mem_session_start" "mem_session_start" "$TMP/eng-usage.err"
 
 # GOOD 7 (kit issue #1114) — omitting --document leaves the default scaffold UNCHANGED: no document-cycle
 # marker leaks into RESEARCH-STATE.md, and the init report never mentions document-cycle mode.
 d="$TMP/good-default-unchanged"; mkdir -p "$d"
-_default_report="$(bash "$SUT" --absolute "$d" --corpus flat 2>&1)"
+_default_report="$(bash "$SUT" "$d" --corpus flat 2>&1)"
 if grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" || grep -qF '## Outline' "$d/RESEARCH-STATE.md"; then
   no "  default: RESEARCH-STATE.md (no --document) must NOT carry document-cycle markers"
 else
@@ -292,7 +294,7 @@ fi
 # assertion's own predicate actually flips to 2. This is the fixture-level mutant for a template-content
 # fix; there is no script line to mutate here.
 d2="$TMP/good-document-midrun-labelcount-negctrl"; mkdir -p "$d2"
-bash "$SUT" --absolute "$d2" --corpus flat --document >/dev/null 2>&1; _nc_rc=$?
+bash "$SUT" "$d2" --corpus flat --document >/dev/null 2>&1; _nc_rc=$?
 sed -i 's/Keep it honest by hand; see the note below/Keep it honest by hand; see the "Coverage metric" note below/' "$d2/RESEARCH-STATE.md" 2>/dev/null
 # kit issue #1159 (3): d2 is a FRESH --document scaffold (not a mid-run corpus), and the failure branch says which step broke.
 if [ "$_nc_rc" != 0 ] || [ ! -f "$d2/RESEARCH-STATE.md" ]; then
@@ -338,7 +340,7 @@ fi
 # scripts, and confirms the WARN still fires. This proves GOOD 8's pass is not a script change that
 # suppressed the WARN outright; it depends on which LINE carries the ratio.
 d="$TMP/good-document-midrun-negctrl"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat --document >/dev/null 2>&1
+bash "$SUT" "$d" --corpus flat --document >/dev/null 2>&1
 sed -i 's/\*\*Coverage metric\*\*: .*/**Coverage metric**: 2 \/ 5 closed/' "$d/RESEARCH-STATE.md"
 assert_grep "  document mid-run negative control: Coverage metric misuse fixture applied (pre-check)" "**Coverage metric**: 2 / 5 closed" "$d/RESEARCH-STATE.md"
 bash "$HERE/../research-sdd-status.sh" "$d" --sync-state >/dev/null 2>&1
@@ -358,14 +360,14 @@ rm -f "$TMP/notpldoc/templates/RESEARCH-STATE-document.template.md"
 cp "$HERE/../lib/corpus-markers.sh" "$TMP/notpldoc/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/notpldoc/toolbelt/lib/"
 cp "$SUT" "$TMP/notpldoc/toolbelt/init.sh"
 d="$TMP/notpldoc-default"; mkdir -p "$d"
-bash "$TMP/notpldoc/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+bash "$TMP/notpldoc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
 if [ -f "$d/RESEARCH-STATE.md" ]; then
   ok "  notpldoc: default scaffold succeeds even when RESEARCH-STATE-document.template.md is absent"
 else
   no "  notpldoc: default scaffold succeeds even when RESEARCH-STATE-document.template.md is absent"
 fi
 d="$TMP/notpldoc-document"; mkdir -p "$d"
-_notpldoc_out="$(bash "$TMP/notpldoc/toolbelt/init.sh" --absolute "$d" --corpus flat --document 2>&1)"; _notpldoc_rc=$?
+_notpldoc_out="$(bash "$TMP/notpldoc/toolbelt/init.sh" "$d" --corpus flat --document 2>&1)"; _notpldoc_rc=$?
 if [ "$_notpldoc_rc" = 2 ] && grep -qF 'RESEARCH-STATE-document.template.md' <<<"$_notpldoc_out" && [ ! -e "$d/RESEARCH-STATE.md" ]; then
   ok "  notpldoc: --document FATALs (exit 2, no write) when RESEARCH-STATE-document.template.md is absent"
 else
@@ -398,9 +400,9 @@ _treesum() {
 # does not; run the mutant to see the counts, they are not recorded here.) The corpus is wired for real ONLY AFTER this check, so the
 # separate --force clobber proof further below still destroys a genuinely wired corpus.
 d="$TMP/wire-document-existing-corpus"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1   # UNWIRED existing corpus — see note above for why
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1   # UNWIRED existing corpus — see note above for why
 _wdr_before="$(_treesum "$d")"
-_wdr_out="$(bash "$SUT" --absolute "$d" --wire --document 2>&1)"; _wdr_rc=$?
+_wdr_out="$(bash "$SUT" "$d" --wire --document 2>&1)"; _wdr_rc=$?
 _wdr_after="$(_treesum "$d")"
 if [ "$_wdr_rc" = 2 ] && grep -qF 'usage: --document has no effect here' <<<"$_wdr_out"; then
   ok "  wire-document reject: --wire --document on an existing corpus exits 2 with a typed usage message"
@@ -425,7 +427,7 @@ assert_grep "  force-warning: rejection message names --force's real destructive
 # NOW wire the corpus for real (plain --wire, no --document) so the --force clobber proof below
 # destroys a genuinely WIRED, hand-adapted corpus, matching what the rejection message above warns
 # about — the manifest check above already ran against the unwired state and does not depend on this.
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+bash "$SUT" "$d" --wire >/dev/null 2>&1
 assert_file "  force-warning: fixture corpus is wired ahead of the --force clobber proof (pre-check)" "$d/.claude/settings.json"
 _wdrf_settings_before="$(cat "$d/.claude/settings.json" 2>/dev/null)"
 # --force still bypasses repair and re-scaffolds with --document honored (unchanged #1047 contract) —
@@ -436,7 +438,7 @@ _wdrf_settings_before="$(cat "$d/.claude/settings.json" 2>/dev/null)"
 # coincidentally match it.
 printf '\nHANDWORK_1114\n' >> "$d/INDEX.md"
 printf '\nHANDWORK_1114\n' >> "$d/.claude/hooks/research-protocol.sh"
-_wdrf_out="$(bash "$SUT" --absolute "$d" --wire --document --force 2>&1)"; _wdrf_rc=$?
+_wdrf_out="$(bash "$SUT" "$d" --wire --document --force 2>&1)"; _wdrf_rc=$?
 if [ "$_wdrf_rc" = 0 ] && grep -qF 'method: document-cycle' "$d/RESEARCH-STATE.md" 2>/dev/null; then
   ok "  wire-document reject: --wire --document --force still re-scaffolds with the document-cycle variant"
 else
@@ -487,7 +489,7 @@ assert_grep   "  dup: nested corpus untouched" "REAL NESTED CORPUS" "$d/corpus/I
 # BAD 4 (SILENT FAILURE) — read-only target → FATAL exit 2, tree left empty
 # Also pins that the SUT's own writability probe fired (not an incidental downstream mkdir failure).
 d="$TMP/bad-readonly"; mkdir -p "$d"; chmod 555 "$d"
-ro_stderr="$(bash "$SUT" --absolute "$d" --corpus flat 2>&1 1>/dev/null)"
+ro_stderr="$(bash "$SUT" "$d" --corpus flat 2>&1 1>/dev/null)"
 assert_exit 2 "BAD: read-only target fails loud (exit 2)" "$d" --corpus flat
 assert_absent "  readonly: no INDEX created" "$d/INDEX.md"
 grep -q "not writable" <<< "$ro_stderr" \
@@ -503,7 +505,7 @@ assert_exit 2 "BAD: nonexistent target dir" "$TMP/does-not-exist" --corpus flat
 mkdir -p "$TMP/nolib5b/toolbelt"; ln -sfn "$HERE/../../templates" "$TMP/nolib5b/templates"
 cp "$SUT" "$TMP/nolib5b/toolbelt/init.sh"
 d="$TMP/nolib5b-target"; mkdir -p "$d"
-_nolib5b_out="$(bash "$TMP/nolib5b/toolbelt/init.sh" --absolute "$d" --corpus flat 2>&1)"; _nolib5b_rc=$?
+_nolib5b_out="$(bash "$TMP/nolib5b/toolbelt/init.sh" "$d" --corpus flat 2>&1)"; _nolib5b_rc=$?
 if [ "$_nolib5b_rc" = 1 ] && grep -q 'cannot find helper' <<<"$_nolib5b_out" && [ ! -e "$d/RESEARCH-STATE.md" ]; then
   ok "BAD 5b: corpus-markers helper file absent → exit 1, 'cannot find helper', no write"
 else
@@ -517,7 +519,7 @@ cp "$SUT" "$TMP/brokenlib5c/toolbelt/init.sh"
 printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no corpus_has_marker\n' \
   > "$TMP/brokenlib5c/toolbelt/lib/corpus-markers.sh"
 d="$TMP/brokenlib5c-target"; mkdir -p "$d"
-_brokenlib5c_out="$(bash "$TMP/brokenlib5c/toolbelt/init.sh" --absolute "$d" --corpus flat 2>&1)"; _brokenlib5c_rc=$?
+_brokenlib5c_out="$(bash "$TMP/brokenlib5c/toolbelt/init.sh" "$d" --corpus flat 2>&1)"; _brokenlib5c_rc=$?
 if [ "$_brokenlib5c_rc" = 1 ] && grep -q 'failed to define corpus_has_marker' <<<"$_brokenlib5c_out" && [ ! -e "$d/RESEARCH-STATE.md" ]; then
   ok "BAD 5c: broken corpus-markers helper → exit 1, 'failed to define', no write"
 else
@@ -539,7 +541,7 @@ mkdir -p "$TMP/rbk/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/rbk/
 chmod 000 "$TMP/rbk-templates/RESEARCH-STATE.template.md"   # 2nd cp fails after INDEX is copied
 d="$TMP/rollback"; mkdir -p "$d"
 printf 'PRECIOUS\n' > "$d/PRECIOUS.md"    # pre-existing file this run did NOT create
-bash "$TMP/rbk/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1; rc=$?
+bash "$TMP/rbk/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; rc=$?
 [ "$rc" != 0 ] && ok "ROLLBACK: mid-scaffold failure exits non-zero (exit $rc)" || no "ROLLBACK: mid-scaffold failure exited 0"
 assert_absent "  rollback: partial INDEX.md removed" "$d/INDEX.md"
 assert_absent "  rollback: partial tools/ removed"   "$d/tools"
@@ -563,14 +565,14 @@ assert_exit 0 "--force re-scaffolds over existing" "$d" --corpus flat --force
 
 # --- Item 1: PROMPT-LOOP cross-references (stdout capture, no-prefix run) ---
 d="$TMP/xref"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat > "$TMP/xref.out" 2>/dev/null
+bash "$SUT" "$d" --corpus flat > "$TMP/xref.out" 2>/dev/null
 assert_grep "xref: step-1 has PROMPT-LOOP §b)" "PROMPT-LOOP §b)" "$TMP/xref.out"
 assert_grep "xref: step-3 has §e)" "§e)" "$TMP/xref.out"
 assert_grep "xref: step-4 has §c follow-up)" "§c follow-up)" "$TMP/xref.out"
 
 # --- Item 1: step-5 conditional transparency ---
 d="$TMP/nopfx"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat > "$TMP/nopfx.out" 2>/dev/null
+bash "$SUT" "$d" --corpus flat > "$TMP/nopfx.out" 2>/dev/null
 assert_grep "step-5 note present in no-prefix run" "no --prefix given" "$TMP/nopfx.out"
 if grep -qF "5. Block files use the prefix:" "$TMP/nopfx.out" 2>/dev/null; then
   no "step-5 absent in no-prefix run"
@@ -578,7 +580,7 @@ else
   ok "step-5 absent in no-prefix run"
 fi
 d="$TMP/pfx"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat --prefix foo > "$TMP/pfx.out" 2>/dev/null
+bash "$SUT" "$d" --corpus flat --prefix foo > "$TMP/pfx.out" 2>/dev/null
 assert_grep "step-5 present in prefix run" "5. Block files use the prefix: foo-blockN.md" "$TMP/pfx.out"
 if grep -qF "no --prefix given" "$TMP/pfx.out" 2>/dev/null; then
   no "no-prefix note absent in prefix run"
@@ -591,7 +593,7 @@ if ! command -v git >/dev/null 2>&1; then
   echo "  SKIP  already-git: git not on PATH"
 else
   d="$TMP/already-git"; mkdir -p "$d"; git -C "$d" init -q 2>/dev/null
-  bash "$SUT" --absolute "$d" --corpus flat > "$TMP/agit.out" 2>/dev/null
+  bash "$SUT" "$d" --corpus flat > "$TMP/agit.out" 2>/dev/null
   assert_grep "already-git: corpus files land untracked" "corpus files land untracked" "$TMP/agit.out"
   assert_grep "already-git: .claude/ hook is gitignored" ".claude/ hook is gitignored" "$TMP/agit.out"
   assert_grep "already-git: git add --force mentioned" "git add --force" "$TMP/agit.out"
@@ -599,13 +601,13 @@ fi
 
 # --- Item 3: NEXT next-step pointer and BOOTSTRAP mental model ---
 d="$TMP/nextstep"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat > "$TMP/nextstep.out" 2>/dev/null
+bash "$SUT" "$d" --corpus flat > "$TMP/nextstep.out" 2>/dev/null
 assert_grep "next-step: research-sdd-status.sh pointer" "research-sdd-status.sh" "$TMP/nextstep.out"
 assert_grep "next-step: BOOTSTRAP in next-step section" "BOOTSTRAP" "$TMP/nextstep.out"
 
 # --- Reframe: CONFIRM/THEN group markers and non-regressions ---
 d="$TMP/reframe"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat > "$TMP/reframe.out" 2>/dev/null
+bash "$SUT" "$d" --corpus flat > "$TMP/reframe.out" 2>/dev/null
 assert_grep "reframe: CONFIRM group header present" "CONFIRM these are done" "$TMP/reframe.out"
 assert_grep "reframe: THEN group header present" "THEN do next (post-scaffold)" "$TMP/reframe.out"
 assert_grep "reframe: item-1 consequence unchanged" "cannot see its retros/" "$TMP/reframe.out"
@@ -633,7 +635,7 @@ _en2a_has_jq=0; command -v jq >/dev/null 2>&1 && _en2a_has_jq=1
 # (a-default) no flag → settings.json NOT written, JSON block printed in stdout
 d="$TMP/en2a-a-default"; mkdir -p "$d"
 _ad_out="$TMP/en2a-a-default.out"
-bash "$SUT" --absolute "$d" --corpus flat > "$_ad_out" 2>/dev/null; _ad_rc=$?
+bash "$SUT" "$d" --corpus flat > "$_ad_out" 2>/dev/null; _ad_rc=$?
 [ "$_ad_rc" = 0 ] && ok "EN2a-(a-default) no-wire flag: exits 0" \
                   || no "EN2a-(a-default) no-wire flag: exits 0 (got $_ad_rc)"
 assert_absent "EN2a-(a-default) no-wire flag: settings.json NOT written" "$d/.claude/settings.json"
@@ -646,7 +648,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   # must not wire an unadapted SessionStart card, exactly like the wire-only repair path.
   d="$TMP/en2a-a-wire"; mkdir -p "$d"
   _aw_out="$TMP/en2a-a-wire.out"; _aw_err="$TMP/en2a-a-wire.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold > "$_aw_out" 2>"$_aw_err"
+  bash "$SUT" "$d" --corpus flat --wire --scaffold > "$_aw_out" 2>"$_aw_err"
   assert_file "EN2a-(a-wire) --scaffold --wire: settings.json created"               "$d/.claude/settings.json"
   if [ -f "$d/.claude/settings.json" ]; then
     assert_grep "EN2a-(a-wire) --scaffold --wire: Stop hook present"         "retro-gate-stop.sh"   "$d/.claude/settings.json"
@@ -665,7 +667,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   d="$TMP/en2a-b-wire"; mkdir -p "$d/.claude"
   printf '{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"echo pre"}]}]}}\n' \
     > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
   assert_grep "EN2a-(b-wire) --scaffold --wire merge: PreToolUse preserved" "PreToolUse"         "$d/.claude/settings.json"
   assert_grep "EN2a-(b-wire) --scaffold --wire merge: Stop hook merged"     "retro-gate-stop.sh" "$d/.claude/settings.json"
   if grep -qF "research-protocol.sh" "$d/.claude/settings.json"; then
@@ -680,12 +682,12 @@ if [ "$_en2a_has_jq" = 1 ]; then
   # The <SUBJECT> placeholder is stripped here (real adaptation, not just a marker append) —
   # kit issue #1038 makes SessionStart wiring conditional on the placeholder being gone.
   d="$TMP/en2a-f-wire-only"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
   printf '%s\n' 'SEEDED-RESEARCH-STATE' >> "$d/RESEARCH-STATE.md"
   sed -i 's/<SUBJECT>/the-real-subject/g' "$d/.claude/hooks/research-protocol.sh"
   printf '%s\n' '# ADAPTED-HOOK-MARKER' >> "$d/.claude/hooks/research-protocol.sh"
   _fo_out="$TMP/en2a-f.out"; _fo_err="$TMP/en2a-f.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_fo_out" 2>"$_fo_err"; _fo_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_fo_out" 2>"$_fo_err"; _fo_rc=$?
   [ "$_fo_rc" = 0 ] && ok "EN2a-(f-wire-only) wire-only on existing corpus: exits 0" \
                      || no "EN2a-(f-wire-only) wire-only on existing corpus: expected exit 0 (got $_fo_rc) — re-run refused?"
   assert_file   "EN2a-(f-wire-only) wire-only: settings.json written"       "$d/.claude/settings.json"
@@ -711,7 +713,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   d="$TMP/1038-g-repair"; mkdir -p "$d"
   printf 'INDEX\n' > "$d/INDEX.md"   # corpus marker only — no .claude/hooks/ at all
   _g_out="$TMP/1038-g.out"; _g_err="$TMP/1038-g.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_g_out" 2>"$_g_err"; _g_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_g_out" 2>"$_g_err"; _g_rc=$?
   [ "$_g_rc" = 0 ] && ok "1038-(g) repair on hookless corpus: exits 0" \
                     || no "1038-(g) repair on hookless corpus: expected exit 0 (got $_g_rc)"
   assert_file "1038-(g) repair: retro-gate-stop.sh created"   "$d/.claude/hooks/retro-gate-stop.sh"
@@ -753,7 +755,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   chmod +x "$d/.claude/hooks/retro-gate-stop.sh"
   _h_before="$(sha256sum "$d/.claude/hooks/retro-gate-stop.sh" | cut -d' ' -f1)"
   _h_out="$TMP/1038-h.out"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_h_out" 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire > "$_h_out" 2>/dev/null
   _h_after="$(sha256sum "$d/.claude/hooks/retro-gate-stop.sh" | cut -d' ' -f1)"
   [ "$_h_before" = "$_h_after" ] && ok "1038-(h) keep: hand-edited retro-gate-stop.sh is byte-identical after --wire" \
                                   || no "1038-(h) keep: hand-edited retro-gate-stop.sh was OVERWRITTEN"
@@ -764,7 +766,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf 'INDEX\n' > "$d/INDEX.md"
   sed 's/<SUBJECT>/the-real-subject/g' "$HERE/../../templates/hook-sessionstart.sh" \
     > "$d/.claude/hooks/research-protocol.sh"
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
   if [ -f "$d/.claude/settings.json" ]; then
     assert_grep "1038-(i) adapted: SessionStart hook wired"  "research-protocol.sh" "$d/.claude/settings.json"
     assert_grep "1038-(i) adapted: Stop hook wired"          "retro-gate-stop.sh"   "$d/.claude/settings.json"
@@ -778,9 +780,9 @@ if [ "$_en2a_has_jq" = 1 ]; then
   # (j) re-run is idempotent: no duplicate hook files, no duplicate settings entries, says "kept:".
   d="$TMP/1038-j-idem"; mkdir -p "$d"
   printf 'INDEX\n' > "$d/INDEX.md"
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
   _j_out2="$TMP/1038-j2.out"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_j_out2" 2>/dev/null; _j_rc2=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_j_out2" 2>/dev/null; _j_rc2=$?
   [ "$_j_rc2" = 0 ] && ok "1038-(j) idempotent: second --wire run exits 0" \
                      || no "1038-(j) idempotent: second --wire run exit $_j_rc2"
   assert_grep "1038-(j) idempotent: second run reports 'kept:' for retro-gate-stop.sh" \
@@ -805,7 +807,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
       d="$TMP/1038-k-nojq"; mkdir -p "$d"
       printf 'INDEX\n' > "$d/INDEX.md"
       _k_out="$TMP/1038-k.out"; _k_err="$TMP/1038-k.err"
-      PATH="$_1038k_pnojq" bash "$SUT" --absolute "$d" --corpus flat --wire > "$_k_out" 2>"$_k_err"; _k_rc=$?
+      PATH="$_1038k_pnojq" bash "$SUT" "$d" --corpus flat --wire > "$_k_out" 2>"$_k_err"; _k_rc=$?
       [ "$_k_rc" = 0 ] && ok "1038-(k) jq-absent: exits 0 (graceful)" \
                         || no "1038-(k) jq-absent: expected exit 0 (got $_k_rc)"
       grep -qF "degraded" "$_k_err" && ok "1038-(k) jq-absent: 'degraded' in stderr" \
@@ -849,7 +851,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     printf '#!/usr/bin/env bash\necho adapted, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/retro-gate-stop.sh"
     chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
-    bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null
+    bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
     _1040l_stop_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
     _1040l_ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
     [ "$_1040l_stop_n" = 1 ] && ok "1040-(l) [$_1040l_form]: Stop stays at exactly 1 entry (no duplicate)" \
@@ -873,8 +875,8 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf '#!/usr/bin/env bash\necho adapted\n' > "$d/.claude/hooks/research-protocol.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/retro-gate-stop.sh"
   chmod +x "$d/.claude/hooks/research-protocol.sh" "$d/.claude/hooks/retro-gate-stop.sh"
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: absolute-path form written
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null   # second run: must dedup against it
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: absolute-path form written
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # second run: must dedup against it
   _1040l_ctl_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)
   [ "$_1040l_ctl_n" = 1 ] && ok "1040-(l) control: absolute-path form still dedups (no regression)" \
                            || no "1040-(l) control: absolute-path SessionStart count=$_1040l_ctl_n (expected 1)"
@@ -886,7 +888,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf '{"hooks": {\n' > "$d/.claude/settings.json"
   _m_before_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
   _m_out="$TMP/1040-m.out"; _m_err="$TMP/1040-m.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_m_out" 2>"$_m_err"; _m_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_m_out" 2>"$_m_err"; _m_rc=$?
   [ "$_m_rc" != 0 ] && ok "1040-(m) malformed settings.json: exits non-zero (got $_m_rc)" \
                      || no "1040-(m) malformed settings.json: exited 0 (should refuse)"
   assert_absent "1040-(m) malformed settings.json: retro-gate-stop.sh NOT created"   "$d/.claude/hooks/retro-gate-stop.sh"
@@ -909,7 +911,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf 'INDEX\n' > "$d/INDEX.md"
   : > "$d/.claude/settings.json"
   _m1_out="$TMP/1040-m1.out"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_m1_out" 2>/dev/null; _m1_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_m1_out" 2>/dev/null; _m1_rc=$?
   [ "$_m1_rc" = 0 ] && ok "1040-(m1) empty settings.json: exits 0 (treated as {}, not refused)" \
                      || no "1040-(m1) empty settings.json: expected exit 0 (got $_m1_rc)"
   assert_file "1040-(m1) empty settings.json: retro-gate-stop.sh created" "$d/.claude/hooks/retro-gate-stop.sh"
@@ -922,7 +924,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf '[]' > "$d/.claude/settings.json"
   _m2_before_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
   _m2_out="$TMP/1040-m2.out"; _m2_err="$TMP/1040-m2.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_m2_out" 2>"$_m2_err"; _m2_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_m2_out" 2>"$_m2_err"; _m2_rc=$?
   [ "$_m2_rc" = 4 ] && ok "1040-(m2) top-level array: exits 4 (got $_m2_rc)" \
                      || no "1040-(m2) top-level array: expected exit 4 (got $_m2_rc)"
   assert_absent "1040-(m2) top-level array: retro-gate-stop.sh NOT created"   "$d/.claude/hooks/retro-gate-stop.sh"
@@ -940,7 +942,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf '{"hooks":"x"}' > "$d/.claude/settings.json"
   _m3_before_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
   _m3_out="$TMP/1040-m3.out"; _m3_err="$TMP/1040-m3.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_m3_out" 2>"$_m3_err"; _m3_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_m3_out" 2>"$_m3_err"; _m3_rc=$?
   [ "$_m3_rc" = 4 ] && ok "1040-(m3) .hooks not an object: exits 4 (got $_m3_rc)" \
                      || no "1040-(m3) .hooks not an object: expected exit 4 (got $_m3_rc)"
   assert_absent "1040-(m3) .hooks not an object: retro-gate-stop.sh NOT created"   "$d/.claude/hooks/retro-gate-stop.sh"
@@ -958,7 +960,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf 'INDEX\n' > "$d/INDEX.md"
   printf '{"hooks":{"Stop":"x"}}' > "$d/.claude/settings.json"
   _m4_out="$TMP/1040-m4.out"; _m4_err="$TMP/1040-m4.err"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_m4_out" 2>"$_m4_err"; _m4_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire > "$_m4_out" 2>"$_m4_err"; _m4_rc=$?
   [ "$_m4_rc" != 0 ] && ok "1040-(m4) merge-failure shape: exits non-zero (got $_m4_rc)" \
                       || no "1040-(m4) merge-failure shape: exited 0 (a merge failure must never report success)"
 
@@ -968,7 +970,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   printf 'INDEX\n' > "$d/INDEX.md"
   printf '{"hooks":{"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"echo pre"}]}]}}' \
     > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null; _mctl_rc=$?
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null; _mctl_rc=$?
   [ "$_mctl_rc" = 0 ] && ok "1040-(m-control) valid settings.json: exits 0 (not refused)" \
                        || no "1040-(m-control) valid settings.json: expected exit 0 (got $_mctl_rc)"
   assert_grep "1040-(m-control) valid settings.json: PreToolUse preserved" "PreToolUse" "$d/.claude/settings.json"
@@ -986,7 +988,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     printf '#!/usr/bin/env bash\n# SessionStart hook — Research-SDD protocol for <SUBJECT>.\n# header retained as-is by the adapter\necho adapted body, no live placeholder\n' \
       > "$d/.claude/hooks/research-protocol.sh"
     _n_out="$TMP/1040-n.out"; _n_err="$TMP/1040-n.err"
-    bash "$SUT" --absolute "$d" --corpus flat --wire > "$_n_out" 2>"$_n_err"
+    bash "$SUT" "$d" --corpus flat --wire > "$_n_out" 2>"$_n_err"
     if [ -f "$d/.claude/settings.json" ]; then
       assert_grep "1040-(n) comment-only <SUBJECT>: SessionStart still wired" "research-protocol.sh" "$d/.claude/settings.json"
     else
@@ -1001,9 +1003,9 @@ if [ "$_en2a_has_jq" = 1 ]; then
   if [ "$_en2a_has_jq" = 1 ]; then
     d="$TMP/1040-o-alreadywired"; mkdir -p "$d"
     printf 'INDEX\n' > "$d/INDEX.md"
-    bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: registers
+    bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null   # first run: registers
     _o_out2="$TMP/1040-o2.out"
-    bash "$SUT" --absolute "$d" --corpus flat --wire > "$_o_out2" 2>/dev/null   # second run: already there
+    bash "$SUT" "$d" --corpus flat --wire > "$_o_out2" 2>/dev/null   # second run: already there
     assert_grep "1040-(o) already-wired wording: Stop reported as already wired" "already wired" "$_o_out2"
     if grep -qF "Stop hook registered" "$_o_out2"; then
       no "1040-(o) already-wired wording: second run still says 'registered' for Stop (should say 'already wired')"
@@ -1022,7 +1024,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
     > "$d/.claude/hooks/research-protocol.sh"
   _p_before="$(sha256sum "$d/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
   _p_out="$TMP/1040-p.out"
-  bash "$SUT" --absolute "$d" --corpus flat --wire > "$_p_out" 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire > "$_p_out" 2>/dev/null
   _p_after="$(sha256sum "$d/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
   [ "$_p_before" = "$_p_after" ] && ok "1040-(p) keep: hand-edited research-protocol.sh is byte-identical after --wire" \
                                   || no "1040-(p) keep: hand-edited research-protocol.sh was OVERWRITTEN"
@@ -1035,7 +1037,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
   else
     d="$TMP/1040-q-pretty"; mkdir -p "$d"
     printf 'INDEX\n' > "$d/INDEX.md"
-    bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null
+    bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
     _q_lines=$(wc -l < "$d/.claude/settings.json" 2>/dev/null)
     [ "${_q_lines:-0}" -gt 1 ] 2>/dev/null && ok "1040-(q) pretty-print: settings.json is multi-line ($_q_lines lines)" \
                                             || no "1040-(q) pretty-print: settings.json is single-line or missing (lines=$_q_lines)"
@@ -1054,7 +1056,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
       d="$TMP/1040-r-nojq-absent-ss"; mkdir -p "$d"
       printf 'INDEX\n' > "$d/INDEX.md"   # no .claude/hooks/ at all — research-protocol.sh absent
       _r_out="$TMP/1040-r.out"; _r_err="$TMP/1040-r.err"
-      PATH="$_1040r_pnojq" bash "$SUT" --absolute "$d" --corpus flat --wire > "$_r_out" 2>"$_r_err"
+      PATH="$_1040r_pnojq" bash "$SUT" "$d" --corpus flat --wire > "$_r_out" 2>"$_r_err"
       if grep -qF 'research-protocol.sh\"' "$_r_out"; then
         no "1040-(r) jq-absent + absent ss hook: snippet WRONGLY offers SessionStart"
       else
@@ -1083,7 +1085,7 @@ if [ "$_en2a_has_jq" = 1 ]; then
       '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":$ac}]}]}}' \
       > "$d/.claude/settings.json"
     _s_out="$TMP/1040-s.out"
-    bash "$SUT" --absolute "$d" --corpus flat --wire > "$_s_out" 2>/dev/null
+    bash "$SUT" "$d" --corpus flat --wire > "$_s_out" 2>/dev/null
     assert_grep "1040-(s) skip-but-present: reports 'already wired', not 'NOT registered'" "already wired" "$_s_out"
     if grep -qF "NOT registered" "$_s_out"; then
       no "1040-(s) skip-but-present: wrongly says 'NOT registered' for an entry that IS present"
@@ -1099,8 +1101,8 @@ if [ "$_en2a_has_jq" = 1 ]; then
   # run is a plain --wire (the corpus now exists, so it takes the wire-only repair path) → no
   # duplicate Stop entry. SessionStart stays skipped both times: the hook is still unadapted.
   d="$TMP/en2a-d-wire"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
-  bash "$SUT" --absolute "$d" --corpus flat --wire >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
+  bash "$SUT" "$d" --corpus flat --wire >/dev/null 2>/dev/null
   _sc_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' \
     "$d/.claude/settings.json" 2>/dev/null)
   _ss_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' \
@@ -1116,7 +1118,7 @@ fi
 # (c) --no-wire → backward compat: settings.json NOT written, JSON block in stdout
 d="$TMP/en2a-c"; mkdir -p "$d"
 _nw_out="$TMP/en2a-c.out"
-bash "$SUT" --absolute "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
+bash "$SUT" "$d" --corpus flat --no-wire > "$_nw_out" 2>/dev/null; _nw_rc=$?
 [ "$_nw_rc" = 0 ] && ok 'EN2a-(c) --no-wire exits 0' || no "EN2a-(c) --no-wire exits 0 (got $_nw_rc)"
 assert_absent "EN2a-(c) --no-wire: settings.json NOT written" "$d/.claude/settings.json"
 assert_grep   'EN2a-(c) --no-wire: JSON block in stdout'      '"hooks"' "$_nw_out"
@@ -1134,7 +1136,7 @@ else
   else
     d="$TMP/en2a-e"; mkdir -p "$d"
     _e_out="$TMP/en2a-e.out"; _e_err="$TMP/en2a-e.err"
-    PATH="$_path_nojq" bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold > "$_e_out" 2>"$_e_err"
+    PATH="$_path_nojq" bash "$SUT" "$d" --corpus flat --wire --scaffold > "$_e_out" 2>"$_e_err"
     _e_rc=$?
     [ "$_e_rc" = 0 ] && ok "EN2a-(e) jq-absent + --wire: exits 0 (graceful)" \
                       || no "EN2a-(e) jq-absent + --wire: exits 0 (got $_e_rc)"
@@ -1179,7 +1181,7 @@ else
   no "1047-(a) in-project, no marker: cannot snapshot the tree — neither sha256sum nor cksum on PATH (test environment degraded; refusing to pass vacuously)"
 fi
 _1047a_out="$TMP/1047-a.out"; _1047a_err="$TMP/1047-a.err"
-bash "$SUT" --absolute "$d" --wire > "$_1047a_out" 2>"$_1047a_err"; _1047a_rc=$?
+bash "$SUT" "$d" --wire > "$_1047a_out" 2>"$_1047a_err"; _1047a_rc=$?
 [ "$_1047a_rc" = 5 ] && ok "1047-(a) in-project, no marker, --wire: exits 5 (got $_1047a_rc)" \
                        || no "1047-(a) in-project, no marker, --wire: expected exit 5 (got $_1047a_rc)"
 grep -qF "REFUSED" "$_1047a_err" && ok "1047-(a) in-project, no marker: typed REFUSED message in stderr" \
@@ -1206,7 +1208,7 @@ grep -qxF 'node_modules/' "$d/.gitignore" 2>/dev/null && ok "1047-(a) in-project
 # (b) EMPTY dir + --wire → same refusal (no "own files" to preserve, but still zero-mutation).
 d="$TMP/1047-b-empty"; mkdir -p "$d"
 _1047b_out="$TMP/1047-b.out"; _1047b_err="$TMP/1047-b.err"
-bash "$SUT" --absolute "$d" --wire > "$_1047b_out" 2>"$_1047b_err"; _1047b_rc=$?
+bash "$SUT" "$d" --wire > "$_1047b_out" 2>"$_1047b_err"; _1047b_rc=$?
 [ "$_1047b_rc" = 5 ] && ok "1047-(b) empty dir, --wire: exits 5 (got $_1047b_rc)" \
                        || no "1047-(b) empty dir, --wire: expected exit 5 (got $_1047b_rc)"
 _1047b_leftover="$(find "$d" -mindepth 1 2>/dev/null)"
@@ -1224,7 +1226,7 @@ else
   d="$TMP/1047-c-nested"; mkdir -p "$d/corpus"
   printf 'INDEX\n' > "$d/corpus/INDEX.md"
   _1047c_out="$TMP/1047-c.out"
-  bash "$SUT" --absolute "$d" --wire > "$_1047c_out" 2>/dev/null; _1047c_rc=$?
+  bash "$SUT" "$d" --wire > "$_1047c_out" 2>/dev/null; _1047c_rc=$?
   [ "$_1047c_rc" = 0 ] && ok "1047-(c) nested corpus/INDEX.md, --wire: exits 0 (wire-only repair, not refused)" \
                          || no "1047-(c) nested corpus/INDEX.md, --wire: expected exit 0 (got $_1047c_rc)"
   assert_file "1047-(c) nested corpus/INDEX.md, --wire: settings.json written" "$d/.claude/settings.json"
@@ -1242,7 +1244,7 @@ if [ "$_1047_has_jq" != 1 ]; then
 else
   d="$TMP/1047-d-scaffold-wire"; mkdir -p "$d"
   _1047d_out="$TMP/1047-d.out"; _1047d_err="$TMP/1047-d.err"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire > "$_1047d_out" 2>"$_1047d_err"; _1047d_rc=$?
+  bash "$SUT" "$d" --corpus flat --scaffold --wire > "$_1047d_out" 2>"$_1047d_err"; _1047d_rc=$?
   [ "$_1047d_rc" = 0 ] && ok "1047-(d) --scaffold --wire fresh target: exits 0" \
                          || no "1047-(d) --scaffold --wire fresh target: expected exit 0 (got $_1047d_rc)"
   assert_file "1047-(d) --scaffold --wire fresh target: corpus scaffolded (INDEX.md)" "$d/INDEX.md"
@@ -1277,7 +1279,7 @@ else
   no "1047-(e) --force --wire, no marker: cannot snapshot the tree — neither sha256sum nor cksum on PATH"
 fi
 _1047e_out="$TMP/1047e.out"; _1047e_err="$TMP/1047e.err"
-bash "$SUT" --absolute "$d" --force --wire > "$_1047e_out" 2>"$_1047e_err"; _1047e_rc=$?
+bash "$SUT" "$d" --force --wire > "$_1047e_out" 2>"$_1047e_err"; _1047e_rc=$?
 [ "$_1047e_rc" = 5 ] && ok "1047-(e) --force --wire, no marker: exits 5 (got $_1047e_rc)" \
                        || no "1047-(e) --force --wire, no marker: expected exit 5 (got $_1047e_rc)"
 grep -qF "REFUSED" "$_1047e_err" && ok "1047-(e) --force --wire, no marker: typed REFUSED message in stderr" \
@@ -1302,7 +1304,7 @@ else
   d="$TMP/1047f-force-existing"; mkdir -p "$d"
   printf 'SENTINEL\n' > "$d/INDEX.md"
   _1047f_out="$TMP/1047f.out"
-  bash "$SUT" --absolute "$d" --corpus flat --force --wire > "$_1047f_out" 2>/dev/null; _1047f_rc=$?
+  bash "$SUT" "$d" --corpus flat --force --wire > "$_1047f_out" 2>/dev/null; _1047f_rc=$?
   [ "$_1047f_rc" = 0 ] && ok "1047-(f) --force --wire, EXISTING corpus: exits 0 (unchanged contract)" \
                          || no "1047-(f) --force --wire, EXISTING corpus: expected exit 0 (got $_1047f_rc)"
   assert_file "1047-(f) --force --wire, EXISTING corpus: RESEARCH-STATE.md re-scaffolded" "$d/RESEARCH-STATE.md"
@@ -1322,7 +1324,7 @@ else
   d="$TMP/1047g-multifocus"; mkdir -p "$d"
   printf 'state\n' > "$d/RESEARCH-STATE-frontend.md"
   _1047g_out="$TMP/1047g.out"
-  bash "$SUT" --absolute "$d" --wire > "$_1047g_out" 2>/dev/null; _1047g_rc=$?
+  bash "$SUT" "$d" --wire > "$_1047g_out" 2>/dev/null; _1047g_rc=$?
   [ "$_1047g_rc" = 0 ] && ok "1047-(g) multi-focus-only corpus, --wire: exits 0 (wire-only repair, not refused)" \
                          || no "1047-(g) multi-focus-only corpus, --wire: expected exit 0 (got $_1047g_rc)"
   assert_file "1047-(g) multi-focus-only corpus, --wire: settings.json written" "$d/.claude/settings.json"
@@ -1334,7 +1336,7 @@ else
   d="$TMP/1047h-multifocus-scaffold"; mkdir -p "$d"
   printf 'state\n' > "$d/RESEARCH-STATE-backend.md"
   _1047h_out="$TMP/1047h.out"
-  bash "$SUT" --absolute "$d" --scaffold --wire > "$_1047h_out" 2>/dev/null; _1047h_rc=$?
+  bash "$SUT" "$d" --scaffold --wire > "$_1047h_out" 2>/dev/null; _1047h_rc=$?
   [ "$_1047h_rc" = 0 ] && ok "1047-(h) multi-focus-only corpus, --scaffold --wire: exits 0 (wire-only repair)" \
                          || no "1047-(h) multi-focus-only corpus, --scaffold --wire: expected exit 0 (got $_1047h_rc)"
   assert_absent "1047-(h) multi-focus-only corpus, --scaffold --wire: NO plain RESEARCH-STATE.md scaffolded" "$d/RESEARCH-STATE.md"
@@ -1345,7 +1347,7 @@ fi
 # (i) the refusal message lists EVERY recognized marker form, including RESEARCH-STATE-<focus>.md
 d="$TMP/1047i-message"; mkdir -p "$d"
 _1047i_err="$TMP/1047i.err"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>"$_1047i_err"
+bash "$SUT" "$d" --wire >/dev/null 2>"$_1047i_err"
 assert_grep "1047-(i) refusal message names INDEX.md"              "INDEX.md"               "$_1047i_err"
 assert_grep "1047-(i) refusal message names RESEARCH-STATE.md"     "RESEARCH-STATE.md"      "$_1047i_err"
 assert_grep "1047-(i) refusal message names RESEARCH-STATE-<focus>.md (multi-focus §16)" "RESEARCH-STATE-<focus>.md" "$_1047i_err"
@@ -1355,7 +1357,7 @@ assert_grep "1047-(i) refusal message names CATALOG.md"            "CATALOG.md" 
 echo "-- #1047 round 2: --scaffold without --wire is rejected --"
 d="$TMP/1047j-scaffold-only"; mkdir -p "$d"
 _1047j_out="$TMP/1047j.out"; _1047j_err="$TMP/1047j.err"
-bash "$SUT" --absolute "$d" --scaffold > "$_1047j_out" 2>"$_1047j_err"; _1047j_rc=$?
+bash "$SUT" "$d" --scaffold > "$_1047j_out" 2>"$_1047j_err"; _1047j_rc=$?
 [ "$_1047j_rc" = 2 ] && ok "1047-(j) --scaffold without --wire: exits 2 (usage error)" \
                        || no "1047-(j) --scaffold without --wire: expected exit 2 (got $_1047j_rc)"
 grep -qF -- "--scaffold requires --wire" "$_1047j_err" && ok "1047-(j) --scaffold without --wire: typed usage message in stderr" \
@@ -1364,14 +1366,14 @@ assert_absent "1047-(j) --scaffold without --wire: NO INDEX.md scaffolded (refus
 # --scaffold + --wire together remains valid (regression check against the new usage guard)
 d="$TMP/1047j-scaffold-wire-ok"; mkdir -p "$d"
 _1047jok_rc=""
-bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>/dev/null; _1047jok_rc=$?
+bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>/dev/null; _1047jok_rc=$?
 [ "$_1047jok_rc" = 0 ] && ok "1047-(j) --scaffold --wire together: still exits 0 (usage guard does not over-reject)" \
                         || no "1047-(j) --scaffold --wire together: expected exit 0 (got $_1047jok_rc)"
 
 # TPL — template wording: installed hook must NOT ask user which tool; must say to pick yourself
 echo "-- TPL: SessionStart hook template wording --"
 d="$TMP/tpl-wording"; mkdir -p "$d"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>/dev/null
+bash "$SUT" "$d" --corpus flat >/dev/null 2>/dev/null
 _tpl_hook="$d/.claude/hooks/research-protocol.sh"
 if [ -f "$_tpl_hook" ]; then
   if grep -qF "ask which toolbelt tool" "$_tpl_hook" 2>/dev/null; then
@@ -1415,7 +1417,7 @@ mkdir -p "$_ki_altkit/render/profile/general" "$_ki_altkit/newtarget"
 ln -s "$_ki_altkit/toolbelt" "$_ki_altkit/render/profile/general/toolbelt"
 # F1 completion (kit issue #993 WU2 + #1024 F1) symlinks templates/ into the render dir too.
 ln -sfn "$HERE/../../templates" "$_ki_altkit/render/profile/general/templates"
-_ki_out="$(bash "$_ki_altkit/render/profile/general/toolbelt/research-sdd-init.sh" --absolute \
+_ki_out="$(bash "$_ki_altkit/render/profile/general/toolbelt/research-sdd-init.sh" \
   "$_ki_altkit/newtarget" --corpus flat 2>&1)"
 if <<<"$_ki_out" grep -qF "$_ki_altkit/toolbelt/ensure-remote.sh" \
    && ! <<<"$_ki_out" grep -qF '/render/profile/general/'; then
@@ -1447,7 +1449,7 @@ fi
 # refusal leaves NO partial state (previously retro-gate-stop.sh was created, then cp refused).
 d="$TMP/k2w"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
 ln -s "$d/does-not-exist" "$d/.claude/hooks/research-protocol.sh"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _k2_rc=$?
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _k2_rc=$?
 [ "$_k2_rc" != 0 ] && ok "K1043-2 wire-only: dangling research-protocol.sh symlink refused (exit $_k2_rc)" \
   || no "K1043-2 wire-only: dangling symlink did not fail"
 assert_absent "K1043-2 wire-only: NO retro-gate-stop.sh left behind" "$d/.claude/hooks/retro-gate-stop.sh"
@@ -1456,7 +1458,7 @@ assert_absent "K1043-2 wire-only: NO settings.json written"         "$d/.claude/
   || no "K1043-2 wire-only: the user's symlink was removed"
 d="$TMP/k2s"; mkdir -p "$d/.claude/hooks"
 ln -s "$d/does-not-exist" "$d/.claude/hooks/research-protocol.sh"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1; _k2_rc=$?
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _k2_rc=$?
 [ "$_k2_rc" != 0 ] && ok "K1043-2 scaffold: dangling research-protocol.sh symlink refused (exit $_k2_rc)" \
   || no "K1043-2 scaffold: dangling symlink did not fail"
 assert_absent "K1043-2 scaffold: NO INDEX.md left behind" "$d/INDEX.md"
@@ -1468,7 +1470,7 @@ assert_absent "K1043-2 scaffold: NO retros/ left behind"  "$d/retros"
 # and --scaffold --wire on a marker-less target both go through the merge).
 d="$TMP/k3w"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
 printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+bash "$SUT" "$d" --wire >/dev/null 2>&1
 _k3_mode="$(_u7_mode "$d/.claude/settings.json")"
 [ "$_k3_mode" = 644 ] && ok "K1043-3 wire-only: settings.json mode preserved (644)" \
   || no "K1043-3 wire-only: settings.json mode became $_k3_mode"
@@ -1476,7 +1478,7 @@ grep -qF 'retro-gate-stop.sh' "$d/.claude/settings.json" && ok "K1043-3 wire-onl
 d="$TMP/k3l"; mkdir -p "$d/.claude" "$d/real"; : > "$d/INDEX.md"
 printf '{"permissions":{}}\n' > "$d/real/settings.json"; chmod 640 "$d/real/settings.json"
 ln -s "$d/real/settings.json" "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+bash "$SUT" "$d" --wire >/dev/null 2>&1
 [ -L "$d/.claude/settings.json" ] && ok "K1043-3 wire-only: symlinked settings.json is still a symlink" \
   || no "K1043-3 wire-only: symlink replaced by a regular file"
 grep -qF 'retro-gate-stop.sh' "$d/real/settings.json" && ok "K1043-3 wire-only: merge landed in the link target" \
@@ -1485,20 +1487,20 @@ grep -qF 'retro-gate-stop.sh' "$d/real/settings.json" && ok "K1043-3 wire-only: 
   || no "K1043-3 wire-only: link target mode became $(_u7_mode "$d/real/settings.json")"
 d="$TMP/k3s"; mkdir -p "$d/.claude"
 printf '{"permissions":{}}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
 [ "$(_u7_mode "$d/.claude/settings.json")" = 644 ] && ok "K1043-3 scaffold+wire: settings.json mode preserved (644)" \
   || no "K1043-3 scaffold+wire: settings.json mode became $(_u7_mode "$d/.claude/settings.json")"
 d="$TMP/k3sl"; mkdir -p "$d/.claude" "$d/real"
 printf '{"permissions":{}}\n' > "$d/real/settings.json"
 ln -s "$d/real/settings.json" "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+bash "$SUT" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
 { [ -L "$d/.claude/settings.json" ] && grep -qF 'retro-gate-stop.sh' "$d/real/settings.json"; } \
   && ok "K1043-3 scaffold+wire: merge written through the symlink" \
   || no "K1043-3 scaffold+wire: symlinked settings.json replaced or not updated"
 # dangling settings.json symlink: typed refusal, nothing written
 d="$TMP/k3d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
 ln -s "$d/nowhere/settings.json" "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _k3_rc=$?
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _k3_rc=$?
 [ "$_k3_rc" = 4 ] && ok "K1043-3 wire-only: dangling settings.json symlink refused (exit 4)" \
   || no "K1043-3 wire-only: dangling settings.json symlink exit $_k3_rc (want 4)"
 assert_absent "K1043-3 wire-only: dangling settings case wrote no hook file" "$d/.claude/hooks/retro-gate-stop.sh"
@@ -1517,7 +1519,7 @@ if [ -f /dev/stdout ] && [ ! -p /dev/stdout ]; then head -c 10 "\$1"; exit 1; fi
 exec "$_k4a_realcat" "\$@"
 SHIM
 chmod +x "$_k4a_shim/cat"
-( PATH="$_k4a_shim:$PATH" bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1 ); _k4a_rc=$?
+( PATH="$_k4a_shim:$PATH" bash "$SUT" "$d" --wire >/dev/null 2>&1 ); _k4a_rc=$?
 [ "$_k4a_rc" != 0 ] && ok "K1043-B atomic: failed write exits non-zero (exit $_k4a_rc)" || no "K1043-B atomic: failed write reported success"
 [ "$(sha256sum "$d/.claude/settings.json")" = "$_k4a_before" ] && ok "K1043-B atomic: original settings.json bytes survive a mid-write failure" \
   || no "K1043-B atomic: settings.json was truncated/modified ($(wc -c < "$d/.claude/settings.json") bytes)"
@@ -1527,30 +1529,30 @@ _k4a_tmp="$(find "$d/.claude" -maxdepth 1 -name '.settings.*' | wc -l)"
 # (2) dangling DIRECTORY symlinks (.claude, .claude/hooks) are refused pre-write, link survives.
 d="$TMP/k4b"; mkdir -p "$d/.claude"
 ln -s "$d/nowhere" "$d/.claude/hooks"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && [ -L "$d/.claude/hooks" ] && [ ! -e "$d/INDEX.md" ]; } \
   && ok "K1043-2 scaffold: dangling .claude/hooks symlink refused (exit 2), link survives, nothing created" \
   || no "K1043-2 scaffold: dangling .claude/hooks rc=$_rc link=$([ -L "$d/.claude/hooks" ] && echo kept || echo DELETED)"
 d="$TMP/k4c"; mkdir -p "$d"; ln -s "$d/nowhere" "$d/.claude"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && [ -L "$d/.claude" ]; } && ok "K1043-2 scaffold: dangling .claude symlink refused, link survives" \
   || no "K1043-2 scaffold: dangling .claude rc=$_rc link=$([ -L "$d/.claude" ] && echo kept || echo DELETED)"
 d="$TMP/k4d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _rc=$?
+bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
 { [ "$_rc" = 2 ] && [ -L "$d/.claude/hooks" ]; } && ok "K1043-2 wire-only: dangling .claude/hooks symlink refused, link survives" \
   || no "K1043-2 wire-only: dangling .claude/hooks rc=$_rc"
 
 # (3) newline in the target path: typed refusal up front, nothing written.
 d="$TMP/k4e/a
 b"; mkdir -p "$d"; : > "$d/INDEX.md"
-bash "$SUT" --absolute "$d" --wire >/dev/null 2>"$TMP/k4e.err"; _rc=$?
+bash "$SUT" "$d" --wire >/dev/null 2>"$TMP/k4e.err"; _rc=$?
 { [ "$_rc" = 2 ] && grep -q 'newline' "$TMP/k4e.err" && [ ! -e "$d/.claude" ]; } \
   && ok "K1043-3 newline: target path with a newline refused (exit 2, typed message, nothing written)" \
   || no "K1043-3 newline: rc=$_rc err=[$(cat "$TMP/k4e.err")] .claude=$([ -e "$d/.claude" ] && echo created || echo absent)"
 
 # (4) scaffold WITHOUT --wire does not care about a dangling settings.json symlink (exit-2/4 split stays narrow).
 d="$TMP/k4f"; mkdir -p "$d/.claude"; ln -s "$d/nowhere/s.json" "$d/.claude/settings.json"
-bash "$SUT" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+bash "$SUT" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
 [ "$_rc" = 0 ] && ok "K1043-4 scaffold w/o --wire: dangling settings.json symlink is not a precondition (exit 0)" \
   || no "K1043-4 scaffold w/o --wire: dangling settings.json refused (exit $_rc)"
 
@@ -1561,7 +1563,7 @@ if ! command -v jq >/dev/null 2>&1; then
 else
   # (a) plain scaffold: hook installed byte-identical + executable; snippet PROPOSES it; no settings write.
   d="$TMP/1496-a"; mkdir -p "$d"; _o="$TMP/1496-a.out"
-  bash "$SUT" --absolute "$d" --corpus flat >"$_o" 2>&1
+  bash "$SUT" "$d" --corpus flat >"$_o" 2>&1
   assert_file "K1496-a scaffold installs .claude/hooks/pkill-guard.sh" "$d/.claude/hooks/pkill-guard.sh"
   cmp -s "$_PKT" "$d/.claude/hooks/pkill-guard.sh" && ok "K1496-a installed hook is byte-identical to the template" \
     || no "K1496-a installed hook differs from (or is missing vs) the template"
@@ -1572,18 +1574,18 @@ else
 
   # (b) scaffold + wire: PreToolUse/Bash registered exactly once.
   d="$TMP/1496-b"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
   [ "$(jq -r --arg c "$d/.claude/hooks/pkill-guard.sh" '[.hooks.PreToolUse[]? | select(.matcher=="Bash") | .hooks[]? | select(.command==$c)] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
     && ok "K1496-b --scaffold --wire registers PreToolUse/Bash pkill-guard once" \
     || no "K1496-b --scaffold --wire did not register PreToolUse/Bash pkill-guard exactly once"
 
   # (c) wire-only repair on a corpus with NO guard: creates it, registers it; second run is idempotent.
   d="$TMP/1496-c"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1496-c1.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1496-c1.out" 2>&1
   assert_file "K1496-c wire-only repair creates the missing pkill-guard hook" "$d/.claude/hooks/pkill-guard.sh"
   assert_grep "K1496-c wire-only reports created" "created: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-c1.out"
   _c_sha="$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1496-c2.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1496-c2.out" 2>&1
   [ "$(sha256sum "$d/.claude/settings.json" | cut -d' ' -f1)" = "$_c_sha" ] && ok "K1496-c re-run leaves settings.json byte-identical (idempotent)" \
     || no "K1496-c re-run changed settings.json (not idempotent)"
   assert_grep "K1496-c re-run reports kept" "kept: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-c2.out"
@@ -1595,7 +1597,7 @@ else
   d="$TMP/1496-d"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
   printf '#!/usr/bin/env bash\n# MARK-1496-LOCAL\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
   _d_sha="$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1496-d.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1496-d.out" 2>&1
   [ "$(sha256sum "$d/.claude/hooks/pkill-guard.sh" | cut -d' ' -f1)" = "$_d_sha" ] && ok "K1496-d hand-adapted pkill-guard survives byte-for-byte" \
     || no "K1496-d hand-adapted pkill-guard was overwritten"
   assert_grep "K1496-d reports kept" "kept: $d/.claude/hooks/pkill-guard.sh" "$TMP/1496-d.out"
@@ -1603,14 +1605,14 @@ else
   # (e) already registered via $CLAUDE_PROJECT_DIR (whole-command-quoted form) is the SAME hook — not re-added.
   d="$TMP/1496-e"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json")" = "1" ] && ok "K1496-e CLAUDE_PROJECT_DIR-registered guard is deduped (not double-registered)" \
     || no "K1496-e CLAUDE_PROJECT_DIR-registered guard was registered a second time"
 
   # (f) an unrelated pre-existing PreToolUse entry is preserved alongside the new one.
   d="$TMP/1496-f"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"/x/mine.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(jq -r '[.hooks.PreToolUse[].hooks[].command] | sort | join(",")' "$d/.claude/settings.json")" = "$d/.claude/hooks/pkill-guard.sh,/x/mine.sh" ] \
     && ok "K1496-f existing unrelated PreToolUse entry preserved, guard appended" \
     || no "K1496-f merge lost or mangled the existing PreToolUse entry"
@@ -1621,7 +1623,7 @@ else
     echo "  SKIP  K1496-g: jq still reachable after dir exclusion"
   else
     d="$TMP/1496-g"; mkdir -p "$d"; : > "$d/INDEX.md"
-    PATH="$_g_pnojq" bash "$SUT" --absolute "$d" --wire >"$TMP/1496-g.out" 2>"$TMP/1496-g.err"
+    PATH="$_g_pnojq" bash "$SUT" "$d" --wire >"$TMP/1496-g.out" 2>"$TMP/1496-g.err"
     # #1509: prove the run reached the jq-absent branch (not died early for an unrelated PATH reason).
     assert_grep "K1496-g run reached the jq-absent degraded branch" "degraded: jq not found" "$TMP/1496-g.err"
     assert_grep "K1496-g jq-absent snippet carries the PreToolUse guard" "\"command\":\"$d/.claude/hooks/pkill-guard.sh\"" "$TMP/1496-g.out"
@@ -1630,7 +1632,7 @@ else
 
   # (h) dangling symlink at the guard path is refused BEFORE any write (wire-only).
   d="$TMP/1496-h"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks/pkill-guard.sh"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _rc=$?
+  bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
   [ "$_rc" = 2 ] && [ ! -e "$d/.claude/hooks/retro-gate-stop.sh" ] && [ ! -e "$d/.claude/settings.json" ] \
     && ok "K1496-h dangling pkill-guard symlink refused (exit 2), nothing else written" \
     || no "K1496-h dangling pkill-guard symlink: exit $_rc or partial write"
@@ -1643,7 +1645,7 @@ if command -v jq >/dev/null 2>&1; then
   # $CLAUDE_PROJECT_DIR form: neither is registered a second time.
   d="$TMP/1496-i"; mkdir -p "$d/.claude"
   printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
   [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
     && ok "K1496-i scaffold --wire dedups a non-canonical PreToolUse form" \
     || no "K1496-i scaffold --wire double-registered the pkill-guard"
@@ -1653,7 +1655,7 @@ if command -v jq >/dev/null 2>&1; then
   # (j) a kept hand-adapted guard that is not executable draws a WARN (wire-only).
   d="$TMP/1496-j"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"; chmod -x "$d/.claude/hooks/pkill-guard.sh"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1496-j.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1496-j.out" 2>&1
   assert_grep "K1496-j kept non-executable guard warns" "WARN: $d/.claude/hooks/pkill-guard.sh is not executable" "$TMP/1496-j.out"
   [ ! -x "$d/.claude/hooks/pkill-guard.sh" ] && ok "K1496-j kept guard left untouched (still not executable)" || no "K1496-j kept guard was modified"
 fi
@@ -1673,7 +1675,7 @@ if command -v jq >/dev/null 2>&1; then
     d="$TMP/1509-a-$_k9_mode"; mkdir -p "$d/.claude"
     [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
     printf '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; else bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
+    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
     [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "1" ] \
       && ok "K1509-a ($_k9_mode) guard under a non-Bash matcher is not counted as present; a Bash-covering entry is added" \
       || no "K1509-a ($_k9_mode) guard under matcher Edit was deduped - Bash is unguarded (covering entries: $(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh"))"
@@ -1686,7 +1688,7 @@ if command -v jq >/dev/null 2>&1; then
       d="$TMP/1509-c$_k9_i-$_k9_mode"; mkdir -p "$d/.claude"
       [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
       printf '{"hooks":{"PreToolUse":[{%s"hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$_k9_m" "$d" > "$d/.claude/settings.json"
-      if [ "$_k9_mode" = wireonly ]; then bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; else bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
+      if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; fi
       [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "1" ] \
         && ok "K1509-c ($_k9_mode, matcher [$_k9_m]) Bash-covering registration is deduped" \
         || no "K1509-c ($_k9_mode, matcher [$_k9_m]) Bash-covering registration was double-registered"
@@ -1697,14 +1699,14 @@ if command -v jq >/dev/null 2>&1; then
   for _k9_mode in wireonly scaffold; do
     d="$TMP/1509-c2-$_k9_mode"; mkdir -p "$d/.claude"; [ "$_k9_mode" = wireonly ] && : > "$d/INDEX.md"
     printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _k9_rc=$?; else bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?; fi
+    if [ "$_k9_mode" = wireonly ]; then bash "$SUT" "$d" --wire >/dev/null 2>&1; _k9_rc=$?; else bash "$SUT" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?; fi
     { [ "$_k9_rc" = 0 ] && [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "1" ] && [ "$(jq '[.hooks.PreToolUse[]] | length' "$d/.claude/settings.json" 2>/dev/null)" = "2" ]; } \
       && ok "K1550-c2 ($_k9_mode) invalid-regex matcher is not counted as covering Bash: guard appended, exit 0" \
       || no "K1550-c2 ($_k9_mode) invalid-regex matcher: exit $_k9_rc, Bash-covering count $(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")"
   done
   # (d) scaffold --wire reports each hook's state: fresh -> registered; already present -> already wired.
   d="$TMP/1509-d"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1509-d1.out" 2>&1
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d1.out" 2>&1
   assert_grep "K1509-d fresh scaffold --wire reports the guard as registered" "PreToolUse pkill-guard hook registered in" "$TMP/1509-d1.out"
   assert_grep "K1509-d fresh scaffold --wire reports Stop as registered" "Stop hook registered in" "$TMP/1509-d1.out"
   # (d2) kit issue #1550 R3-ss-report-branches-untested: the four SessionStart report branches of scaffold --wire.
@@ -1719,7 +1721,7 @@ if command -v jq >/dev/null 2>&1; then
     esac
     chmod +x "$d/.claude/hooks/research-protocol.sh"
     case "$_k9_ss" in adapted-absent) ;; *) _k9_ss_cmd "$d" > "$d/.claude/settings.json" ;; esac
-    bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1550-ss-$_k9_ss.out" 2>/dev/null
+    bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1550-ss-$_k9_ss.out" 2>/dev/null
     case "$_k9_ss" in
       skip-present)    assert_grep "K1550-ss skip + present: left as-is" "(left as-is" "$TMP/1550-ss-$_k9_ss.out" ;;
       adapted-absent)  assert_grep "K1550-ss adapted + absent: SessionStart registered" "wired  : SessionStart hook registered in" "$TMP/1550-ss-$_k9_ss.out" ;;
@@ -1728,7 +1730,7 @@ if command -v jq >/dev/null 2>&1; then
   done
   d="$TMP/1509-d3"; mkdir -p "$d/.claude"
   printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1509-d3.out" 2>&1
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-d3.out" 2>&1
   assert_grep "K1509-d scaffold --wire on an already-registered guard says already wired" "PreToolUse pkill-guard hook already wired" "$TMP/1509-d3.out"
   assert_grep "K1509-d scaffold --wire still registers the absent Stop hook" "Stop hook registered in" "$TMP/1509-d3.out"
   # (f) a merge FAILURE on the scaffold --wire path (settings.json whose .hooks is a string, so the
@@ -1736,7 +1738,7 @@ if command -v jq >/dev/null 2>&1; then
   # file + "refusing to report success", exit 4, settings.json byte-untouched, and no bare errexit abort.
   d="$TMP/1509-f"; mkdir -p "$d/.claude"
   printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1509-f.out" 2>"$TMP/1509-f.err"; _k9_rc=$?
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1509-f.out" 2>"$TMP/1509-f.err"; _k9_rc=$?
   [ "$_k9_rc" = 4 ] && ok "K1509-f scaffold --wire merge failure exits 4" || no "K1509-f scaffold --wire merge failure: exit $_k9_rc (want 4); stderr: $(tail -3 "$TMP/1509-f.err" | tr '\n' ' ')"
   assert_grep "K1509-f typed message on stderr" "degraded: jq failed on $d/.claude/settings.json — refusing to report success" "$TMP/1509-f.err"
   [ "$(cat "$d/.claude/settings.json")" = '{"hooks":"oops"}' ] && ok "K1509-f settings.json untouched on merge failure" || no "K1509-f settings.json was modified on merge failure"
@@ -1745,11 +1747,11 @@ if command -v jq >/dev/null 2>&1; then
   # jq-absent PATH is an ALLOWLIST of symlinks (not "PATH minus jq's dir", which also drops bash/coreutils
   # when jq lives in /usr/bin) and the run is asserted to have reached the degraded branch.
   d="$TMP/1509-e"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat >"$TMP/1509-e1.out" 2>&1
+  bash "$SUT" "$d" --corpus flat >"$TMP/1509-e1.out" 2>&1
   d2="$TMP/1509-e2"; mkdir -p "$d2"; : > "$d2/INDEX.md"
   # kit issue #1550 (R2-k1496g-inconsistent-nojq-fixture): the SAME allowlist PATH helper as K1496-g and every other jq-absent case.
   _k9_nojq="$(_u7_nojq_path)"
-  PATH="$_k9_nojq" bash "$SUT" --absolute "$d2" --wire >"$TMP/1509-e2.out" 2>"$TMP/1509-e2.err"
+  PATH="$_k9_nojq" bash "$SUT" "$d2" --wire >"$TMP/1509-e2.out" 2>"$TMP/1509-e2.err"
   assert_grep "K1509-e jq-absent (allowlist PATH) reaches the degraded branch" "degraded: jq not found" "$TMP/1509-e2.err"
   # SessionStart is legitimately omitted on the wire-only path (no adapted hook), so compare the
   # Stop + PreToolUse portion only (everything before the SessionStart key), target path normalised.
@@ -1791,7 +1793,7 @@ GHEOF
   }
   _k71_run() {  # <target> <vis> <rc> [init args…] → stdout+stderr in $TMP/k71.out, rc in K71_RC_OUT
     local d="$1" vis="$2" rc="$3"; shift 3
-    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71.gh.log" bash "$SUT" --absolute "$d" --corpus flat "$@" >"$TMP/k71.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71.gh.log" bash "$SUT" "$d" --corpus flat "$@" >"$TMP/k71.out" 2>&1
     K71_RC_OUT=$?
   }
 
@@ -1879,7 +1881,7 @@ GHEOF
   assert_absent "K1271-g unrecognised visibility: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
   # K1271-h gh absent from PATH → typed DEGRADED
   d="$(_k71_target h https://example.invalid/x.git)"
-  PATH="$K71_NOGH" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1; _k71_rc=$?
+  PATH="$K71_NOGH" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1; _k71_rc=$?
   { [ "$_k71_rc" = 0 ] && grep -qF 'vendor-leak: DEGRADED' "$TMP/k71.out" && grep -qF 'gh not found' "$TMP/k71.out"; } \
     && ok "K1271-h gh missing: typed DEGRADED (gh not found), scaffold exit 0" || no "K1271-h gh missing: rc=$_k71_rc"
   assert_absent "K1271-h gh missing: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
@@ -1902,33 +1904,33 @@ TOEOF
   chmod +x "$K71_TO/timeout"
   for _bad in 0 00 abc ""; do
     d="$(_k71_target "o-${_bad:-empty}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="$_bad" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="$_bad" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
     assert_grep "K1271-o RSDD_GH_TIMEOUT='$_bad': note about the invalid value" "RSDD_GH_TIMEOUT" "$TMP/k71.out"
     [ "$(head -1 "$TMP/k71.to.log")" = 20 ] && ok "K1271-o RSDD_GH_TIMEOUT='$_bad': bounded default 20 passed to timeout" || no "K1271-o RSDD_GH_TIMEOUT='$_bad': timeout got '$(head -1 "$TMP/k71.to.log")'"
   done
   d="$(_k71_target o-ok https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-  PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=7 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && ok "K1271-o valid RSDD_GH_TIMEOUT=7 honoured" || no "K1271-o valid RSDD_GH_TIMEOUT=7 not honoured"
   # K1566 R2: a positive integer with leading zeros is valid (decimal, not octal) — not rejected, not mis-parsed
   for _lz in 05:5 010:10 0020:20 0000000007:7; do
     d="$(_k71_target "lz-${_lz%%:*}" https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="${_lz%%:*}" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT="${_lz%%:*}" K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
     { [ "$(head -1 "$TMP/k71.to.log")" = "${_lz##*:}" ] && ! grep -qF 'not a positive integer' "$TMP/k71.out"; } \
       && ok "K1566 RSDD_GH_TIMEOUT=${_lz%%:*} → decimal ${_lz##*:}, no invalid-value note" || no "K1566 RSDD_GH_TIMEOUT=${_lz%%:*}: timeout got '$(head -1 "$TMP/k71.to.log")'"
   done
   else echo "  SKIP  K1271-i/o: GNU timeout not on PATH (the SUT then runs gh unbounded, announced)"; fi
   # K1271-p rc 125 (timeout itself failed) has its own wording; gh's first stderr line is surfaced on failure
   d="$(_k71_target p1 https://example.invalid/x.git)"
-  PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-p rc 125: own DEGRADED wording" "timeout could not run gh" "$TMP/k71.out"
   d="$(_k71_target p2 https://example.invalid/x.git)"
-  PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-p gh failure: first stderr line surfaced" "HTTP 401: bad credentials" "$TMP/k71.out"
   grep -qF 'second line' "$TMP/k71.out" && no "K1271-p only the FIRST stderr line is surfaced" || ok "K1271-p only the first stderr line is surfaced"
 
   # K1271-q the probed repo is the PUSH remote (origin), not whatever gh would pick; GH_REPO is neutralised
   d="$(_k71_target q1 https://example.invalid/pub.git)"; git -C "$d" remote add upstream https://example.invalid/priv.git; : > "$TMP/k71.gh.log"
-  PATH="$K71_BIN:$PATH" GH_REPO=someone/else K71_MAP="pub.git=PUBLIC;priv.git=PRIVATE" K71_VIS=PRIVATE K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_BIN:$PATH" GH_REPO=someone/else K71_MAP="pub.git=PUBLIC;priv.git=PRIVATE" K71_VIS=PRIVATE K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_file "K1271-q origin PUBLIC + upstream PRIVATE: PUBLIC wins (stub conf scaffolded)" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1271-q the typed line names the probed remote" "remote 'origin'" "$TMP/k71.out"
   assert_grep "K1271-q gh got the origin URL as its repo argument" "repo view https://example.invalid/pub.git" "$TMP/k71.gh.log"
@@ -1958,7 +1960,7 @@ TOEOF
   # K1271-j no `timeout` binary → still runs, says so (unbounded probe is announced, never silent)
   K71_NOTO="$TMP/k71noto"; mkdir -p "$K71_NOTO"; cp -P "$K71_NOGH"/* "$K71_NOTO"/; rm -f "$K71_NOTO/timeout"; cp "$K71_BIN/gh" "$K71_NOTO/gh"
   d="$(_k71_target j https://example.invalid/x.git)"
-  PATH="$K71_NOTO" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_NOTO" K71_VIS=PUBLIC K71_RC=0 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-j no timeout binary: announced" "timeout not found" "$TMP/k71.out"
   assert_file "K1271-j no timeout binary: probe still ran (PUBLIC scaffold)" "$d/.research-sdd/vendor-leak.conf"
 
@@ -1989,13 +1991,13 @@ exec "$K71_REALGIT" "\$@"
 GITEOF
   chmod +x "$K71_GIT/git"
   d="$(_k71_target l1)"
-  PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-l not a git repo: NO-REMOTE (not DEGRADED)" "vendor-leak: NO-REMOTE" "$TMP/k71.out"
   d="$(_k71_target l2)"
-  PATH="$K71_GIT:$K71_BIN:$PATH" K71_REMOTEFAIL=1 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_REMOTEFAIL=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-l git remote failing inside a repo: DEGRADED" "vendor-leak: DEGRADED could not list git remotes" "$TMP/k71.out"
   d="$(_k71_target l3)"
-  PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$SUT" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$SUT" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-l rev-parse failing inside a repo (dubious ownership): DEGRADED, not NO-REMOTE" "vendor-leak: DEGRADED git rev-parse failed" "$TMP/k71.out"
   assert_grep "K1271-l rev-parse failure surfaces git's reason" "dubious ownership" "$TMP/k71.out"
 
@@ -2010,7 +2012,7 @@ GITEOF
   cp "$HERE/../../templates/"* "$TMP/k71kit/templates/"; rm -f "$TMP/k71kit/templates/vendor-leak.conf.template"
   cp "$SUT" "$TMP/k71kit/toolbelt/init.sh"; chmod +x "$TMP/k71kit/toolbelt/init.sh"
   d="$(_k71_target n https://example.invalid/x.git)"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k71kit/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k71kit/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71.out" 2>&1
   assert_grep "K1271-n missing template: typed DEGRADED" "kit templates missing" "$TMP/k71.out"
   assert_absent "K1271-n missing template: no conf scaffolded" "$d/.research-sdd/vendor-leak.conf"
 fi
@@ -2023,56 +2025,56 @@ if command -v jq >/dev/null 2>&1; then
   _k32_n() { jq --arg c "$2" '[.hooks.Stop[]? | .hooks[]? | select(.command == $c)] | length' "$1" 2>/dev/null; }
   # (a) scaffold + wire registers the retro gate AND the return-token gate once each; reports it.
   d="$TMP/1732-a"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1732-a.out" 2>&1
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/1732-a.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$d/.claude/hooks/retro-gate-stop.sh")" = 1 ] \
     && ok "K1732-a --scaffold --wire registers the return-token gate and keeps the retro gate (once each)" \
     || no "K1732-a Stop registrations wrong: $(jq -c '.hooks.Stop' "$d/.claude/settings.json" 2>&1)"
   assert_grep "K1732-a reports the return-token gate registered" "Stop return-token gate registered" "$TMP/1732-a.out"
   # (b) a wire-only re-run is idempotent and says so.
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-b.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-b.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] && ok "K1732-b re-run does not duplicate the gate" || no "K1732-b gate registered $(_k32_n "$d/.claude/settings.json" "$_k32_gq") times after a re-run"
   assert_grep "K1732-b re-run reports already wired" "Stop return-token gate already wired" "$TMP/1732-b.out"
   # (c) wire-only repair preserves a hand-made Stop hook and adds the gate.
   d="$TMP/1732-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] \
     && ok "K1732-c wire-only keeps the existing Stop hook and adds the gate" || no "K1732-c Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json" 2>&1)"
   # (d) a gate registered from a kit path that NO LONGER EXISTS is stale: it is replaced by the current one and reported.
   d="$TMP/1732-d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/other/kit/toolbelt/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-d.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-d.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]?] | map(select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))) | length' "$d/.claude/settings.json")" = 1 ] \
     && ok "K1732-d a stale gate path is replaced by the current kit path (one entry)" || no "K1732-d Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   assert_grep "K1732-d reports the repair with the old path" "Stop return-token gate repaired (stale path /other/kit/toolbelt/return-token-gate.sh)" "$TMP/1732-d.out"
   # (d2) a gate at ANOTHER kit path that still exists is left alone (never rewritten behind the operator's back).
   d="$TMP/1732-d2"; mkdir -p "$d/.claude" "$TMP/otherkit"; : > "$d/INDEX.md"; printf '#!/bin/sh\n' > "$TMP/otherkit/return-token-gate.sh"
   printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"%s"}]}]}}' "$TMP/otherkit/return-token-gate.sh" > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-d2.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-d2.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$TMP/otherkit/return-token-gate.sh")" = 1 ] \
     && ok "K1732-d2 an existing gate at another path is kept as-is" || no "K1732-d2 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   assert_grep "K1732-d2 reports it as another form" "already wired (other form: $TMP/otherkit/return-token-gate.sh)" "$TMP/1732-d2.out"
   # (d3) a QUOTED registration of the current gate is the same hook (not duplicated); a QUOTED stale one is repaired.
   d="$TMP/1732-d3"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "\"$_k32_gate\"" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-d3.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-d3.out" 2>&1
   [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | endswith("return-token-gate.sh\"") or endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
     && ok "K1732-d3 a quoted current gate is not duplicated" || no "K1732-d3 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   d="$TMP/1732-d4"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/toolbelt/return-token-gate.sh\""}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-d4.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-d4.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] && ok "K1732-d4 a quoted stale gate is replaced by the current path" || no "K1732-d4 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   assert_grep "K1732-d4 reports the repair with the unquoted old path" "repaired (stale path /gone/kit/toolbelt/return-token-gate.sh)" "$TMP/1732-d4.out"
   # (d5) stale AND current both registered: the stale one is dropped, the current kept once.
   d="$TMP/1732-d5"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k32_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:"/gone/return-token-gate.sh"}]},{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
     && ok "K1732-d5 a stale gate next to the current one is dropped" || no "K1732-d5 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (d6) SEVERAL stale gate entries and no current one: exactly ONE current entry results; other hooks untouched.
   d="$TMP/1732-d6"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/gone/a/return-token-gate.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"\"/gone/b/return-token-gate.sh\""},{"type":"command","command":"/gone/c/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1732-d6.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1732-d6.out" 2>&1
   [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
     && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] \
     && ok "K1732-d6 three stale gate entries collapse to ONE current entry; a non-gate hook is untouched" || no "K1732-d6 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
@@ -2082,32 +2084,32 @@ if command -v jq >/dev/null 2>&1; then
   cp "$HERE/../lib/corpus-markers.sh" "$_k32_sp/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$_k32_sp/toolbelt/lib/"; ln -s "$HERE/../../templates" "$_k32_sp/templates"
   printf '#!/bin/sh\necho gate-ran\n' > "$_k32_sp/toolbelt/return-token-gate.sh"; chmod +x "$_k32_sp/toolbelt/return-token-gate.sh"
   d="$TMP/1732-f"; mkdir -p "$d"
-  bash "$_k32_sp/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1732-f.out" 2>&1
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >"$TMP/1732-f.out" 2>&1
   _k32_cmd="$(jq -r '[.hooks.Stop[]? | .hooks[]? | .command | select(contains("return-token-gate.sh"))] | first // empty' "$d/.claude/settings.json" 2>/dev/null)"
   [ "$(sh -c "$_k32_cmd" 2>&1)" = "gate-ran" ] && ok "K1732-f a kit path with a space: the registered gate command runs through the shell" || no "K1732-f registered command does not survive word-splitting: [$_k32_cmd]"
   d="$TMP/1732-f2"; mkdir -p "$d"
-  bash "$_k32_sp/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/1732-f2.out" 2>&1
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1732-f2.out" 2>&1
   assert_grep "K1732-f2 snippet carries the space path as an escaped JSON string" "\"command\":\"\\\"$_k32_sp/toolbelt/return-token-gate.sh\\\"\"" "$TMP/1732-f2.out"
   # (f3) kit issue #1757: a BARE (unquoted) registration of the current kit gate path that contains a space word-splits and
   # never runs, so it is NOT "already wired": it is rewritten to the quoted form (one entry, runnable), reported as requoted.
   _k57_gate="$_k32_sp/toolbelt/return-token-gate.sh"
   d="$TMP/1757-a"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k57_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$_k32_sp/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1757-a.out" 2>&1
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --wire >"$TMP/1757-a.out" 2>&1
   _k57_cmd="$(jq -r '[.hooks.Stop[]? | .hooks[]? | .command | select(contains("return-token-gate.sh"))] | first // empty' "$d/.claude/settings.json" 2>/dev/null)"
   [ "$(_k32_n "$d/.claude/settings.json" "\"$_k57_gate\"")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k57_gate")" = 0 ] \
     && ok "K1757-a a bare spaced current gate is rewritten to the quoted form (one entry, no bare leftover)" \
     || no "K1757-a Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   [ "$(sh -c "$_k57_cmd" 2>&1)" = "gate-ran" ] && ok "K1757-a2 the rewritten gate command runs through the shell" || no "K1757-a2 command does not run: [$_k57_cmd]"
   assert_grep "K1757-a3 the rewrite is reported as requoted (not stale, not 'already wired')" "Stop return-token gate requoted (unquoted path with whitespace $_k57_gate would word-split)" "$TMP/1757-a.out"
-  bash "$_k32_sp/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1757-b.out" 2>&1
+  bash "$_k32_sp/toolbelt/init.sh" "$d" --wire >"$TMP/1757-b.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "\"$_k57_gate\"")" = 1 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
     && ok "K1757-b a re-run after the rewrite keeps exactly one quoted gate" || no "K1757-b Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   assert_grep "K1757-b2 the re-run reports already wired" "Stop return-token gate already wired" "$TMP/1757-b.out"
   # (f4) control: a bare current gate WITHOUT whitespace is still a current form (runs fine): left byte-for-byte, no duplicate.
   d="$TMP/1757-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k32_gate" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/1757-c.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/1757-c.out" 2>&1
   [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gate")" = 1 ] && [ "$(_k32_n "$d/.claude/settings.json" "$_k32_gq")" = 0 ] \
     && ok "K1757-c a bare gate path without whitespace stays as-is (still a current form)" || no "K1757-c Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (g) a gate in ANY other working form is a registered gate: kept byte-for-byte, no second gate is added, and it is
@@ -2118,7 +2120,7 @@ if command -v jq >/dev/null 2>&1; then
       '$CLAUDE_PROJECT_DIR/tools/return-token-gate.sh' '"$CLAUDE_PROJECT_DIR"/tools/return-token-gate.sh' '~/kit/return-token-gate.sh'; do
     _k32_gi=$((_k32_gi + 1)); d="$TMP/1732-g$_k32_gi"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     jq -n --arg c "$_k32_form" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-    bash "$SUT" --absolute "$d" --wire >"$TMP/1732-g$_k32_gi.out" 2>&1
+    bash "$SUT" "$d" --wire >"$TMP/1732-g$_k32_gi.out" 2>&1
     if [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
        && [ "$(jq -r '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh")) | .command] | first' "$d/.claude/settings.json")" = "$_k32_form" ] \
        && grep -qF "already wired (other form: $_k32_form)" "$TMP/1732-g$_k32_gi.out"; then
@@ -2128,12 +2130,12 @@ if command -v jq >/dev/null 2>&1; then
   # (g2) a dead bare absolute gate next to a WORKING other-form gate: the dead one is repaired away, no second gate is added.
   d="$TMP/1732-g2"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/gone/return-token-gate.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"bash /x/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(jq -r '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh")) | .command] | join("|")' "$d/.claude/settings.json")" = "bash /x/return-token-gate.sh" ] \
     && ok "K1732-g2 a dead gate is dropped, the working other-form gate stays, no second gate" || no "K1732-g2 Stop: $(jq -c '.hooks.Stop' "$d/.claude/settings.json")"
   # (e) print-only scaffold: the proposed snippet carries the gate and no settings.json is written.
   d="$TMP/1732-e"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat >"$TMP/1732-e.out" 2>&1
+  bash "$SUT" "$d" --corpus flat >"$TMP/1732-e.out" 2>&1
   assert_grep "K1732-e printed snippet carries the return-token gate" "{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"\\\"$_k32_gate\\\"\"}]}" "$TMP/1732-e.out"
   assert_absent "K1732-e propose-never-apply: no settings.json without --wire" "$d/.claude/settings.json"
 fi
@@ -2153,7 +2155,7 @@ if command -v jq >/dev/null 2>&1; then
   _k87_k="$(_k87_kit "$TMP/1787 kit sp")"; _k87_dp="$_k87_k/toolbelt/verify-skill-drift-hook.sh"; _k87_dq="\"$_k87_dp\""
   # (a) scaffold --wire: registered once, double-quoted, runs through the shell; the live <SUBJECT> SessionStart skip does not block it.
   d="$TMP/1787-a"; mkdir -p "$d"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/1787-a.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >"$TMP/1787-a.out" 2>&1
   _k87_cmd="$(jq -r '[.hooks.SessionStart[]? | .hooks[]? | .command | select(contains("verify-skill-drift-hook.sh"))] | first // empty' "$d/.claude/settings.json" 2>/dev/null)"
   [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
     && ok "K1787-a scaffold --wire registers the drift hook once, double-quoted (spaced kit path)" || no "K1787-a SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json" 2>/dev/null)"
@@ -2161,7 +2163,7 @@ if command -v jq >/dev/null 2>&1; then
   assert_grep "K1787-a3 typed registered line" "SessionStart stale-KIT drift hook registered" "$TMP/1787-a.out"
   # (b) re-run (wire-only path): a no-op on the bytes, reported as already wired.
   cp "$d/.claude/settings.json" "$TMP/1787-a.before"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-b.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-b.out" 2>&1
   cmp -s "$TMP/1787-a.before" "$d/.claude/settings.json" && ok "K1787-b re-run leaves settings.json byte-identical" || no "K1787-b settings.json changed on a re-run"
   assert_grep "K1787-b2 re-run reports already wired" "SessionStart stale-KIT drift hook already wired" "$TMP/1787-b.out"
   # kit issue #2130: the wire output names the kit path the hooks pin and says staleness is reported by the drift hook.
@@ -2170,32 +2172,32 @@ if command -v jq >/dev/null 2>&1; then
   # (c) a user's SessionStart hook is preserved; a STALE absolute drift path is repaired; a still-existing OTHER form is kept untouched.
   d="$TMP/1787-c"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   printf '%s' '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"/x/mine.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/verify-skill-drift-hook.sh\""},{"type":"command","command":"/x/other.sh"}]}]}}' > "$d/.claude/settings.json"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-c.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-c.out" 2>&1
   [ "$(_k87_n "$d/.claude/settings.json" "/x/mine.sh")" = 1 ] && [ "$(_k87_n "$d/.claude/settings.json" "/x/other.sh")" = 1 ] \
     && [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
     && ok "K1787-c user hooks preserved, stale drift path replaced by exactly one current entry" || no "K1787-c SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
   assert_grep "K1787-c2 the repair is reported" "stale-KIT drift hook repaired (stale path /gone/kit/verify-skill-drift-hook.sh)" "$TMP/1787-c.out"
   d="$TMP/1787-c3"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "\$CLAUDE_PROJECT_DIR/kit/verify-skill-drift-hook.sh" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-c3.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-c3.out" 2>&1
   [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] && assert_grep "K1787-c3 a working registration in another form is kept, nothing is added next to it" "already wired (other form:" "$TMP/1787-c3.out" \
     || no "K1787-c3 duplicate next to another form: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
   # (d) a bare spaced current path word-splits: rewritten to the quoted form (one entry).
   d="$TMP/1787-d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k87_dp" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-d.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-d.out" 2>&1
   [ "$(_k87_n "$d/.claude/settings.json" "$_k87_dq")" = 1 ] && [ "$(_k87_all "$d/.claude/settings.json")" = 1 ] \
     && ok "K1787-d a bare spaced drift path is rewritten to the quoted form (one entry)" || no "K1787-d SessionStart: $(jq -c '.hooks.SessionStart' "$d/.claude/settings.json")"
   assert_grep "K1787-d2 reported as requoted" "stale-KIT drift hook requoted" "$TMP/1787-d.out"
   # (e) propose-never-apply: the plain run prints the drift entry and writes no settings.json.
   d="$TMP/1787-e"; mkdir -p "$d"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/1787-e.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --corpus flat >"$TMP/1787-e.out" 2>&1
   assert_grep "K1787-e snippet carries the drift hook" "verify-skill-drift-hook.sh" "$TMP/1787-e.out"
   assert_absent "K1787-e no settings.json without --wire" "$d/.claude/settings.json"
   # (f) RDD round 1: the drift pass is ADVISORY. A forced failure is a typed WARN, the exit code of the core wire is unchanged, and
   # the settings the main merge wrote stay intact (wire-only path).
   d="$TMP/1787-f"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
-  RSDD_TEST_DRIFT_FAIL=1 bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-f.out" 2>&1; _k87_rc=$?
+  RSDD_TEST_DRIFT_FAIL=1 bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-f.out" 2>&1; _k87_rc=$?
   [ "$_k87_rc" = 0 ] && ok "K1787-f a drift-pass failure leaves the core wire's exit code at 0" || no "K1787-f exit $_k87_rc (a drift failure must not be fatal)"
   assert_grep "K1787-f2 typed WARN" "WARN   : drift hook not registered:" "$TMP/1787-f.out"
   [ "$(_k87_all "$d/.claude/settings.json")" = 0 ] && [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json")" = 1 ] \
@@ -2204,7 +2206,7 @@ if command -v jq >/dev/null 2>&1; then
   # (g) RDD round 1: a stale entry dropped while a current one remains must not print an empty "other form".
   d="$TMP/1787-g"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
   jq -n --arg c "$_k87_dq" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-  bash "$_k87_k/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/1787-g.out" 2>&1
+  bash "$_k87_k/toolbelt/init.sh" "$d" --wire >"$TMP/1787-g.out" 2>&1
   assert_grep "K1787-g the stale drop is reported" "drift hook repaired (stale path /gone/kit/verify-skill-drift-hook.sh)" "$TMP/1787-g.out"
   if grep -qF "other form: )" "$TMP/1787-g.out" || ! grep -qF "drift hook already wired in" "$TMP/1787-g.out"; then no "K1787-g misleading outcome line: $(grep 'drift hook' "$TMP/1787-g.out" | tr '\n' '|')"
   else ok "K1787-g accurate outcome line (already wired, no empty other form)"; fi
@@ -2215,7 +2217,7 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   _k87_k="$(_k87_kit "$TMP/1271 kit sp")"; _kpp_init="$_k87_k/toolbelt/init.sh"
   _kpp_run() {  # <target> <vis> [init args…] — spaced kit, stubbed gh
     local d="$1" vis="$2"; shift 2
-    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC=0 bash "$_kpp_init" --absolute "$d" --corpus flat "$@" >"$TMP/kpp.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC=0 bash "$_kpp_init" "$d" --corpus flat "$@" >"$TMP/kpp.out" 2>&1
     return 0
   }
   # (a) PUBLIC, plain run: proposed, NOT written.
@@ -2287,13 +2289,13 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   _kpp_run "$d" PUBLIC --wire --scaffold
   [ -x "$d/myhooks/pre-push" ] && [ ! -e "$d/.git/hooks/pre-push" ] && ok "K1271-pp-g hook written under core.hooksPath" || no "K1271-pp-g wrong hook location"
   # (i) RDD round 1: a drift-pass failure on the scaffold path is a WARN and the vendor-leak / pre-push step still runs; exit unchanged.
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 RSDD_TEST_DRIFT_FAIL=1 bash "$_kpp_init" --absolute "$(_k71_target pp-i2 https://example.invalid/pub.git)" --corpus flat --wire --scaffold >"$TMP/kpp-i.out" 2>&1; _kpp_rc=$?
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 RSDD_TEST_DRIFT_FAIL=1 bash "$_kpp_init" "$(_k71_target pp-i2 https://example.invalid/pub.git)" --corpus flat --wire --scaffold >"$TMP/kpp-i.out" 2>&1; _kpp_rc=$?
   [ "$_kpp_rc" = 0 ] && ok "K1787-i scaffold --wire with a failing drift pass exits 0" || no "K1787-i exit $_kpp_rc"
   assert_grep "K1787-i typed WARN" "drift hook not registered:" "$TMP/kpp-i.out"
   [ -x "$TMP/k71-pp-i2/.git/hooks/pre-push" ] && ok "K1787-i the pre-push step still ran after the drift failure" || no "K1787-i pre-push hook missing (vendor-leak step skipped?)"
   # (h) a single quote in the kit path survives into the hook.
   _k87_q="$(_k87_kit "$TMP/1271 it's kit")"; d="$(_k71_target pp-h https://example.invalid/pub.git)"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" --absolute "$d" --corpus flat --wire --scaffold >"$TMP/kpp.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >"$TMP/kpp.out" 2>&1
   git init -q --bare "$TMP/kpp-h.bare" 2>/dev/null
   ( cd "$d" && git add -A && git -c user.email=t@t -c user.name=t commit -qm init >/dev/null 2>&1; git push "$TMP/kpp-h.bare" HEAD:refs/heads/x >"$TMP/kpp-q.out" 2>&1 ); _kpp_rc=$?
   [ "$_kpp_rc" = 0 ] && grep -qF "pushed file version" "$TMP/kpp-q.out" && ok "K1271-pp-h a kit path with a single quote still runs the guard on a push" || no "K1271-pp-h rc=$_kpp_rc ($(head -3 "$TMP/kpp-q.out"))"
@@ -2307,7 +2309,7 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   _k00_vl() { printf '%s %s %s' "$([ -e "$1/.research-sdd/vendor-leak.conf" ] && echo conf)" "$([ -e "$1/.github/workflows/vendor-leak.yml" ] && echo wf)" "$([ -e "$1/.git/hooks/pre-push" ] && echo hook)"; }
   # (a) PUBLIC: --wire on an existing corpus scaffolds the conf, writes the CI workflow and the pre-push hook.
   d="$(_k00_target a https://example.invalid/pub.git)"; : > "$TMP/k71.gh.log"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-a.out" 2>&1; _rc=$?
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" "$d" --wire >"$TMP/k00-a.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "K1800-a --wire on an existing PUBLIC corpus exits 0" || no "K1800-a exit $_rc"
   [ "$(_k00_vl "$d")" = "conf wf hook" ] && ok "K1800-a conf + CI workflow + pre-push hook written" || no "K1800-a wiring: [$(_k00_vl "$d")]"
   [ -x "$d/.git/hooks/pre-push" ] && ok "K1800-a pre-push hook is executable" || no "K1800-a pre-push hook not executable"
@@ -2317,14 +2319,14 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   assert_grep "K1800-a the corpus step still finishes (== done ==)" "== done ==" "$TMP/k00-a.out"
   # (b) PRIVATE first (typed, nothing written), then the repo goes PUBLIC and the same --wire now installs everything.
   d="$(_k00_target b https://example.invalid/priv.git)"
-  PATH="$K71_BIN:$PATH" K71_VIS=PRIVATE K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-b1.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PRIVATE K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-b1.out" 2>&1
   [ "$(_k00_vl "$d")" = "  " ] && ok "K1800-b PRIVATE: nothing vendor-leak written" || no "K1800-b PRIVATE wrote: [$(_k00_vl "$d")]"
   assert_grep "K1800-b PRIVATE typed line" "vendor-leak: PRIVATE" "$TMP/k00-b1.out"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-b2.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-b2.out" 2>&1
   [ "$(_k00_vl "$d")" = "conf wf hook" ] && ok "K1800-b PRIVATE -> PUBLIC: a later --wire installs conf + workflow + hook" || no "K1800-b after PUBLIC: [$(_k00_vl "$d")]"
   # (c) idempotent: a third run changes no byte and reports kept / already wired.
   cp "$d/.research-sdd/vendor-leak.conf" "$TMP/k00-c.conf"; cp "$d/.github/workflows/vendor-leak.yml" "$TMP/k00-c.wf"; cp "$d/.git/hooks/pre-push" "$TMP/k00-c.hook"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-c.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-c.out" 2>&1
   { cmp -s "$TMP/k00-c.conf" "$d/.research-sdd/vendor-leak.conf" && cmp -s "$TMP/k00-c.wf" "$d/.github/workflows/vendor-leak.yml" && cmp -s "$TMP/k00-c.hook" "$d/.git/hooks/pre-push"; } \
     && ok "K1800-c re-run leaves conf, workflow and hook byte-identical" || no "K1800-c a file changed on a re-run"
   assert_grep "K1800-c typed kept-existing line" "kept existing" "$TMP/k00-c.out"
@@ -2332,23 +2334,23 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
   # (d) user-modified / foreign files are never overwritten (propose instead): conf, workflow, foreign pre-push hook.
   d="$(_k00_target d https://example.invalid/pub.git)"; mkdir -p "$d/.research-sdd" "$d/.github/workflows" "$d/.git/hooks"
   printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"; printf 'hand-written\n' > "$d/.github/workflows/vendor-leak.yml"; printf '#!/bin/sh\necho mine\n' > "$d/.git/hooks/pre-push"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-d.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-d.out" 2>&1
   assert_grep "K1800-d user conf untouched" "prefix com.keepme" "$d/.research-sdd/vendor-leak.conf"
   assert_grep "K1800-d user workflow untouched" "hand-written" "$d/.github/workflows/vendor-leak.yml"
   { [ "$(wc -l < "$d/.git/hooks/pre-push")" = 2 ] && grep -qF 'echo mine' "$d/.git/hooks/pre-push"; } && ok "K1800-d foreign pre-push hook untouched" || no "K1800-d foreign hook modified"
   assert_grep "K1800-d typed foreign-hook skip with the line to add by hand" "pre-push guard skipped (foreign pre-push hook)" "$TMP/k00-d.out"
   # (e) visibility unknowable: typed DEGRADED (never a silent pass), nothing written, the wire itself still succeeds.
   d="$(_k00_target e https://example.invalid/pub.git)"
-  PATH="$K71_BIN:$PATH" K71_VIS='' K71_RC=1 K71_ERR="gh: not logged in" bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-e.out" 2>&1; _rc=$?
+  PATH="$K71_BIN:$PATH" K71_VIS='' K71_RC=1 K71_ERR="gh: not logged in" bash "$_kpp_init" "$d" --wire >"$TMP/k00-e.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "K1800-e gh failing: --wire still exits 0" || no "K1800-e exit $_rc"
   assert_grep "K1800-e typed DEGRADED" "vendor-leak: DEGRADED" "$TMP/k00-e.out"
   [ "$(_k00_vl "$d")" = "  " ] && ok "K1800-e DEGRADED: nothing written" || no "K1800-e DEGRADED wrote: [$(_k00_vl "$d")]"
   d="$(_k00_target e2 https://example.invalid/pub.git)"
-  PATH="$K71_NOGH" bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-e2.out" 2>&1
+  PATH="$K71_NOGH" bash "$_kpp_init" "$d" --wire >"$TMP/k00-e2.out" 2>&1
   assert_grep "K1800-e2 gh missing: typed DEGRADED" "vendor-leak: DEGRADED gh not found" "$TMP/k00-e2.out"
   # (f) no remote: typed NO-REMOTE, gh never asked.
   d="$(_k00_target f)"; : > "$TMP/k71.gh.log"
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-f.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71.gh.log" bash "$_kpp_init" "$d" --wire >"$TMP/k00-f.out" 2>&1
   assert_grep "K1800-f typed NO-REMOTE" "vendor-leak: NO-REMOTE" "$TMP/k00-f.out"
   [ ! -s "$TMP/k71.gh.log" ] && ok "K1800-f no gh call without a remote" || no "K1800-f gh was called"
   # (g) RDD: the "do this later" guidance is true for the path that printed it. On the wire path of an EXISTING corpus a plain run is
@@ -2359,19 +2361,19 @@ if command -v git >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [ -n "${K7
     if grep -qF 'a plain run scaffolds the conf' "$_f"; then no "K1800-g wire path ${_w##*:}: misleading 'a plain run scaffolds the conf'"; else ok "K1800-g wire path ${_w##*:}: no misleading plain-run advice"; fi
   done
   d="$TMP/k00-g-nogit"; mkdir -p "$d"; : > "$d/INDEX.md"   # existing corpus that is not a work tree at all
-  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-g.out" 2>&1
+  PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-g.out" 2>&1
   assert_grep "K1800-g wire path, not a work tree: typed NO-REMOTE" "vendor-leak: NO-REMOTE" "$TMP/k00-g.out"
   assert_grep "K1800-g wire path, not a work tree: advice is re-run with --wire" "re-run with --wire (a plain run on an existing corpus is refused)" "$TMP/k00-g.out"
-  d="$(_k71_target g-scaf)"; PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --corpus flat >"$TMP/k00-g2.out" 2>&1
+  d="$(_k71_target g-scaf)"; PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --corpus flat >"$TMP/k00-g2.out" 2>&1
   assert_grep "K1800-g scaffold path keeps 'a plain run scaffolds the conf'" "a plain run scaffolds the conf" "$TMP/k00-g2.out"
   # the mode is an explicit argument: a stray exported variable of the old name cannot flip the scaffold path's guidance
-  d="$(_k71_target g-env)"; _RSDD_WIREONLY=1 PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --corpus flat >"$TMP/k00-g3.out" 2>&1
+  d="$(_k71_target g-env)"; _RSDD_WIREONLY=1 PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --corpus flat >"$TMP/k00-g3.out" 2>&1
   assert_grep "K1800-g an exported _RSDD_WIREONLY does not flip the scaffold wording" "a plain run scaffolds the conf" "$TMP/k00-g3.out"
   # (h) RDD: with NO `timeout` binary the wire-repair probe is still bounded (bash watchdog); a stalled gh is the typed "timed out"
   # DEGRADED, the repair finishes and exits 0.
   _k00_noto="$TMP/k00noto"; mkdir -p "$_k00_noto"; cp -P "$K71_NOGH"/* "$_k00_noto"/; rm -f "$_k00_noto/timeout"; cp "$K71_BIN/gh" "$_k00_noto/gh"
   d="$(_k00_target h https://example.invalid/pub.git)"; _t0=$SECONDS
-  PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=8 K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" --absolute "$d" --wire >"$TMP/k00-h.out" 2>&1; _rc=$?
+  PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=8 K71_VIS=PUBLIC K71_RC=0 bash "$_kpp_init" "$d" --wire >"$TMP/k00-h.out" 2>&1; _rc=$?
   _el=$((SECONDS - _t0))
   [ "$_rc" = 0 ] && ok "K1800-h stalled gh without timeout: --wire repair exits 0" || no "K1800-h exit $_rc"
   [ "$_el" -lt 6 ] && ok "K1800-h the probe is bounded without timeout (${_el}s < 6s stall)" || no "K1800-h not bounded: ${_el}s"
@@ -2412,63 +2414,63 @@ _k04_cnt() { [ -f "$1" ] || { echo 0; return 0; }; grep -cxF '.research-sdd/plan
 _k04_inits="$(_k87_kit "$TMP/1804 kit sp")/toolbelt/init.sh"
 # (a) fresh scaffold: the line is present exactly once, next to the existing patterns; typed report line.
 d="$TMP/k04-a"; mkdir -p "$d"
-bash "$_k04_inits" --absolute "$d" --corpus flat >"$TMP/k04-a.out" 2>&1
+bash "$_k04_inits" "$d" --corpus flat >"$TMP/k04-a.out" 2>&1
 [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && ok "K1804-a fresh scaffold ignores .research-sdd/plan/ exactly once" || no "K1804-a count=$(_k04_cnt "$d/.gitignore") ($(tr '\n' '|' < "$d/.gitignore"))"
 assert_grep "K1804-a typed gitignore line" "gitignore: added .research-sdd/plan/" "$TMP/k04-a.out"
 # (b) scaffold into a target whose .gitignore already carries an equivalent pattern: no duplicate, typed already-ignored.
 d="$TMP/k04-b"; mkdir -p "$d"; printf 'node_modules/\n/.research-sdd/plan\n' > "$d/.gitignore"
-bash "$_k04_inits" --absolute "$d" --corpus flat >"$TMP/k04-b.out" 2>&1
+bash "$_k04_inits" "$d" --corpus flat >"$TMP/k04-b.out" 2>&1
 [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && grep -qxF '/.research-sdd/plan' "$d/.gitignore" && ok "K1804-b scaffold respects an equivalent pattern (no second line)" || no "K1804-b gitignore: $(tr '\n' '|' < "$d/.gitignore")"
 assert_grep "K1804-b typed already-ignored line" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-b.out"
 if command -v jq >/dev/null 2>&1; then
   # (c) --wire repair on an existing corpus whose .gitignore has no trailing newline: appended on its own line, user lines intact.
   d="$TMP/k04-c"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'node_modules/\n*.log' > "$d/.gitignore"
-  bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-c.out" 2>&1; _rc=$?
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-c.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "K1804-c --wire repair exits 0" || no "K1804-c exit $_rc"
   [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && grep -qxF '*.log' "$d/.gitignore" && grep -qxF 'node_modules/' "$d/.gitignore" \
     && ok "K1804-c --wire adds the line on its own row, user lines untouched" || no "K1804-c gitignore: $(tr '\n' '|' < "$d/.gitignore")"
   assert_grep "K1804-c typed gitignore line" "gitignore: added .research-sdd/plan/" "$TMP/k04-c.out"
   # (d) idempotent: a re-run is byte-identical and reports already ignored.
   cp "$d/.gitignore" "$TMP/k04-c.before"
-  bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-d.out" 2>&1
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-d.out" 2>&1
   cmp -s "$TMP/k04-c.before" "$d/.gitignore" && ok "K1804-d re-run leaves .gitignore byte-identical" || no "K1804-d .gitignore changed on a re-run"
   assert_grep "K1804-d typed already-ignored line" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-d.out"
   # (e) no .gitignore at all: --wire creates one with just the line.
   d="$TMP/k04-e"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$_k04_inits" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$_k04_inits" "$d" --wire >/dev/null 2>&1
   [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && ok "K1804-e --wire creates .gitignore with the plan line" || no "K1804-e no .gitignore line"
   # (f) equivalent spellings are respected (no append).
   for _pat in '/.research-sdd/plan/' '.research-sdd/plan' '.research-sdd/plan/*' '.research-sdd/plan/**'; do
     d="$TMP/k04-f"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'a\n%s\n' "$_pat" > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-f.before"
-    bash "$_k04_inits" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$_k04_inits" "$d" --wire >/dev/null 2>&1
     cmp -s "$TMP/k04-f.before" "$d/.gitignore" && ok "K1804-f equivalent pattern '$_pat' respected (file untouched)" || no "K1804-f '$_pat': .gitignore rewritten: $(tr '\n' '|' < "$d/.gitignore")"
   done
   # (g) a dangling-symlink .gitignore is a typed DEGRADED, never written through.
   d="$TMP/k04-g"; mkdir -p "$d"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.gitignore"
-  bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-g.out" 2>&1; _rc=$?
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-g.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ ! -e "$d/nowhere" ]; } && ok "K1804-g symlinked .gitignore not written through (exit 0)" || no "K1804-g rc=$_rc or wrote through the link"
   assert_grep "K1804-g typed DEGRADED" "gitignore: DEGRADED" "$TMP/k04-g.out"
   # (h) RDD: the LAST applicable rule wins (as in git). A negation AFTER the ignore re-includes the dir: typed NEGATED, never a false
   # "already ignored", nothing appended (propose-never-apply).
   d="$TMP/k04-h"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'a\n.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-h.before"
-  bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-h.out" 2>&1; _rc=$?
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-h.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && cmp -s "$TMP/k04-h.before" "$d/.gitignore"; } && ok "K1804-h a later negation: exit 0 and .gitignore untouched" || no "K1804-h rc=$_rc or file changed"
   assert_grep "K1804-h typed NEGATED naming the line" "gitignore: NEGATED line 3" "$TMP/k04-h.out"
   if grep -qF 'already ignored' "$TMP/k04-h.out"; then no "K1804-h false 'already ignored' despite the negation"; else ok "K1804-h no false 'already ignored'"; fi
   # (i) negation BEFORE the ignore: the ignore wins -> already ignored, untouched.
   d="$TMP/k04-i"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '!.research-sdd/plan/\n.research-sdd/plan/\n' > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-i.before"
-  bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-i.out" 2>&1
+  bash "$_k04_inits" "$d" --wire >"$TMP/k04-i.out" 2>&1
   cmp -s "$TMP/k04-i.before" "$d/.gitignore" && ok "K1804-i negation before the ignore: untouched" || no "K1804-i .gitignore changed"
   assert_grep "K1804-i typed already ignored (the ignore is last)" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-i.out"
   # (j) a negation of what lives INSIDE the parent after the ignore re-includes the plan; a negation of the parent dir itself does not.
   for _neg in '!.research-sdd/*' '!/.research-sdd/**'; do
     d="$TMP/k04-j"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n%s\n' "$_neg" > "$d/.gitignore"
-    bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-j.out" 2>&1
+    bash "$_k04_inits" "$d" --wire >"$TMP/k04-j.out" 2>&1
     assert_grep "K1804-j '$_neg' after the ignore: typed NEGATED" "gitignore: NEGATED line 2" "$TMP/k04-j.out"
   done
   for _neg in '!.research-sdd/' '!/.research-sdd' '!.research-sdd'; do
     d="$TMP/k04-j2"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n%s\n' "$_neg" > "$d/.gitignore"; cp "$d/.gitignore" "$TMP/k04-j2.before"
-    bash "$_k04_inits" --absolute "$d" --wire >"$TMP/k04-j2.out" 2>&1
+    bash "$_k04_inits" "$d" --wire >"$TMP/k04-j2.out" 2>&1
     assert_grep "K1804-j2 '$_neg' (the dir itself) leaves the plan ignored: already ignored" "gitignore: .research-sdd/plan/ already ignored" "$TMP/k04-j2.out"
     cmp -s "$TMP/k04-j2.before" "$d/.gitignore" && ok "K1804-j2 '$_neg': .gitignore untouched" || no "K1804-j2 '$_neg': .gitignore changed"
   done
@@ -2506,7 +2508,7 @@ if command -v jq >/dev/null 2>&1; then
   }
   # A. scaffold fills both flags; the primary-sources placeholder (no flag) stays
   d="$TMP/u7-a"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --subject "Acme router firmware" --prefix acme >"$TMP/u7-a.out" 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --subject "Acme router firmware" --prefix acme >"$TMP/u7-a.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-a scaffold --subject --prefix: exit 0" || no "U7-a scaffold --subject --prefix: exit $_rc"
   _h="$d/.claude/hooks/research-protocol.sh"
   grep -qxF 'RESEARCH PROTOCOL — Acme router firmware (Research-SDD)' "$_h" && ok "U7-a heading line filled" || no "U7-a heading line not filled"
@@ -2520,7 +2522,7 @@ if command -v jq >/dev/null 2>&1; then
   # B. hostile subjects: / & \ | $ ` quotes, leading dash
   for _hs in 'a/b & c\d' 'x|y $HOME `id` "q" '"'s'" '-rf \1 \n'; do
     d="$TMP/u7-b"; rm -rf "$d"; mkdir -p "$d"
-    bash "$SUT" --absolute "$d" --corpus flat --subject "$_hs" >"$TMP/u7-b.out" 2>&1; _rc=$?
+    bash "$SUT" "$d" --corpus flat --subject "$_hs" >"$TMP/u7-b.out" 2>&1; _rc=$?
     [ "$_rc" = 0 ] && ok "U7-b hostile subject [$_hs]: exit 0" || no "U7-b hostile subject [$_hs]: exit $_rc"
     grep -qxF "RESEARCH PROTOCOL — $_hs (Research-SDD)" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject rendered literally [$_hs]" || no "U7-b hostile subject mangled [$_hs]"
     grep -qF "READ-ONLY research of $_hs. Before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-b hostile subject literal on the 2nd line [$_hs]" || no "U7-b 2nd line mangled [$_hs]"
@@ -2531,14 +2533,14 @@ if command -v jq >/dev/null 2>&1; then
   # C. invalid values: exit 2, nothing written
   for _bad in "" "   " $'two\nlines' $'tab\there' $'cr\rhere' 'has <SUBJECT> in it' 'has <prefix> in it'; do
     d="$TMP/u7-c"; rm -rf "$d"; mkdir -p "$d"
-    bash "$SUT" --absolute "$d" --corpus flat --subject "$_bad" >"$TMP/u7-c.out" 2>&1; _rc=$?
+    bash "$SUT" "$d" --corpus flat --subject "$_bad" >"$TMP/u7-c.out" 2>&1; _rc=$?
     { [ "$_rc" = 2 ] && grep -qF 'usage: --subject' "$TMP/u7-c.out" && ! grep -qF 'unknown flag' "$TMP/u7-c.out"; } && ok "U7-c bad subject [$(printf '%q' "$_bad")]: typed usage error, exit 2" || no "U7-c bad subject [$(printf '%q' "$_bad")]: exit $_rc, no typed usage line (want 2 + 'usage: --subject')"
     [ -z "$(find "$d" -mindepth 1 -print -quit)" ] && ok "U7-c bad subject [$(printf '%q' "$_bad")]: nothing written" || no "U7-c bad subject wrote into the target"
   done
   d="$TMP/u7-c"; rm -rf "$d"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --subject >/dev/null 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --subject >/dev/null 2>&1; _rc=$?
   [ "$_rc" = 2 ] && ok "U7-c --subject as the last arg (no value): exit 2" || no "U7-c --subject without a value: exit $_rc"
-  bash "$SUT" --absolute "$d" --corpus flat --prefix $'a\nb' >/dev/null 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --prefix $'a\nb' >/dev/null 2>&1; _rc=$?
   [ "$_rc" = 2 ] && ok "U7-c multi-line --prefix: exit 2" || no "U7-c multi-line --prefix: exit $_rc"
 
   # D. guard enumerates every live placeholder — single / first / middle / last / combinations (--wire on an existing corpus)
@@ -2546,7 +2548,7 @@ if command -v jq >/dev/null 2>&1; then
     local lbl="$1" want="$2" ssw="$3"; shift 3
     local d="$TMP/u7-d" rc k ph
     _u7_wire_target "$d" "$@"
-    bash "$SUT" --absolute "$d" --wire >"$TMP/u7-d.out" 2>"$TMP/u7-d.err"; rc=$?
+    bash "$SUT" "$d" --wire >"$TMP/u7-d.out" 2>"$TMP/u7-d.err"; rc=$?
     [ "$rc" = 0 ] && ok "U7-d $lbl: exit 0" || no "U7-d $lbl: exit $rc"
     for k in S P X; do
       case "$k" in S) ph="$_U7_SUBJ";; P) ph="$_U7_PFX";; X) ph="$_U7_PATH";; esac
@@ -2565,44 +2567,44 @@ if command -v jq >/dev/null 2>&1; then
   _u7_case "all three"                     SPX no  S P X
   _u7_case "fully adapted (none)"          -   yes
   # the path WARN names the exact next step; the non-gating WARN states it does not block
-  _u7_wire_target "$TMP/u7-d" P X; bash "$SUT" --absolute "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
+  _u7_wire_target "$TMP/u7-d" P X; bash "$SUT" "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
   grep -qF 'no flag can fill it: edit the hook and list the real primary-source paths' "$TMP/u7-d.err" && ok "U7-d path WARN carries the exact next step" || no "U7-d path WARN lacks the next step"
   grep -qF 'SessionStart wiring is NOT blocked' "$TMP/u7-d.err" && ok "U7-d non-gating WARN states it does not block SessionStart" || no "U7-d non-gating WARN does not say it is non-blocking"
   # a placeholder only inside a COMMENT line never warns (the _u7_hook header already carries two)
-  _u7_wire_target "$TMP/u7-d"; bash "$SUT" --absolute "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
+  _u7_wire_target "$TMP/u7-d"; bash "$SUT" "$TMP/u7-d" --wire >/dev/null 2>"$TMP/u7-d.err"
   grep -qF 'placeholder' "$TMP/u7-d.err" && no "U7-d comment-only placeholders produced a WARN" || ok "U7-d comment-only placeholders: no WARN (already-adapted hook)"
   # scaffold --scaffold --wire with both flags: the fillable placeholders are gone -> SessionStart registered; the path WARN remains
   d="$TMP/u7-sw"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire --subject "Acme" --prefix ac >"$TMP/u7-sw.out" 2>"$TMP/u7-sw.err"; _rc=$?
+  bash "$SUT" "$d" --corpus flat --scaffold --wire --subject "Acme" --prefix ac >"$TMP/u7-sw.out" 2>"$TMP/u7-sw.err"; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-d scaffold+wire with --subject: exit 0" || no "U7-d scaffold+wire with --subject: exit $_rc"
   _u7_ss_wired "$d" && ok "U7-d scaffold+wire with --subject: SessionStart registered" || no "U7-d scaffold+wire with --subject: SessionStart not registered"
   grep -qF "$_U7_PATH placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-sw.err")" && ok "U7-d scaffold+wire: path placeholder still WARNs" || no "U7-d scaffold+wire: no WARN for the path placeholder"
   d="$TMP/u7-sw2"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/u7-sw2.out" 2>"$TMP/u7-sw2.err"
+  bash "$SUT" "$d" --corpus flat --scaffold --wire >"$TMP/u7-sw2.out" 2>"$TMP/u7-sw2.err"
   for _ph in "$_U7_SUBJ" "$_U7_PFX" "$_U7_PATH"; do grep -qF "$_ph" <<<"$(grep -F 'WARN:' "$TMP/u7-sw2.err")" && ok "U7-d scaffold+wire without flags: WARN names $_ph" || no "U7-d scaffold+wire without flags: no WARN naming $_ph"; done
 
   # E. existing hook: --subject/--prefix refuse (typed, nothing written) unless --force; an absent hook is created filled
   _u7_wire_target "$TMP/u7-e" S; cp "$TMP/u7-e/.claude/hooks/research-protocol.sh" "$TMP/u7-e.before"
-  bash "$SUT" --absolute "$TMP/u7-e" --wire --subject "Acme" >"$TMP/u7-e.out" 2>"$TMP/u7-e.err"; _rc=$?
+  bash "$SUT" "$TMP/u7-e" --wire --subject "Acme" >"$TMP/u7-e.out" 2>"$TMP/u7-e.err"; _rc=$?
   [ "$_rc" = 3 ] && ok "U7-e --wire --subject on an existing hook: refused (exit 3)" || no "U7-e existing hook: exit $_rc (want 3)"
   grep -qF 'REFUSED: --subject only fills' "$TMP/u7-e.err" && ok "U7-e typed REFUSED line" || no "U7-e no typed REFUSED line"
   cmp -s "$TMP/u7-e.before" "$TMP/u7-e/.claude/hooks/research-protocol.sh" && ok "U7-e existing hook byte-identical" || no "U7-e existing hook was modified"
   { [ ! -e "$TMP/u7-e/.claude/settings.json" ] && [ ! -e "$TMP/u7-e/.claude/hooks/retro-gate-stop.sh" ]; } && ok "U7-e refusal wrote nothing else (no settings.json, no stop hook)" || no "U7-e refusal still wrote files"
   # --prefix is also the block-prefix flag operators re-pass on re-wires: an existing hook is left byte-identical, with a typed note, exit 0
-  _u7_wire_target "$TMP/u7-e5" P X; bash "$SUT" --absolute "$TMP/u7-e5" --wire >/dev/null 2>&1   # first wire: already-wired target
+  _u7_wire_target "$TMP/u7-e5" P X; bash "$SUT" "$TMP/u7-e5" --wire >/dev/null 2>&1   # first wire: already-wired target
   cp "$TMP/u7-e5/.claude/hooks/research-protocol.sh" "$TMP/u7-e5.before"
-  bash "$SUT" --absolute "$TMP/u7-e5" --wire --prefix xx >"$TMP/u7-e5.out" 2>"$TMP/u7-e5.err"; _rc=$?
+  bash "$SUT" "$TMP/u7-e5" --wire --prefix xx >"$TMP/u7-e5.out" 2>"$TMP/u7-e5.err"; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-e re-wire --prefix on an already-wired target: exit 0" || no "U7-e re-wire --prefix: exit $_rc (want 0)"
   grep -qF "note: --prefix not applied to existing $TMP/u7-e5/.claude/hooks/research-protocol.sh (fill <prefix> by hand)" "$TMP/u7-e5.out" && ok "U7-e re-wire --prefix: typed note" || no "U7-e re-wire --prefix: no typed note"
   cmp -s "$TMP/u7-e5.before" "$TMP/u7-e5/.claude/hooks/research-protocol.sh" && ok "U7-e re-wire --prefix: hook byte-identical" || no "U7-e re-wire --prefix modified the hook"
   # a last-argument flag with no value is a typed usage error (exit 2), never a bare shift crash
   d="$TMP/u7-e6"; mkdir -p "$d"
-  bash "$SUT" --absolute "$d" --corpus flat --prefix >"$TMP/u7-e6.out" 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --prefix >"$TMP/u7-e6.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'usage: --prefix needs a value' "$TMP/u7-e6.out"; } && ok "U7-e --prefix as the last argument: typed usage error, exit 2" || no "U7-e --prefix last arg: exit $_rc"
   # the fill rewrites through a same-dir temp file: mode and every non-placeholder byte survive, and no temp file is left behind
   _u7_gen mode; chmod 755 "$TMP/u7g/mode/templates/hook-sessionstart.sh"
   d="$TMP/u7-e7"; rm -rf "$d"; mkdir -p "$d"
-  bash "$TMP/u7g/mode/toolbelt/init.sh" --absolute "$d" --corpus flat --subject "Acme" --prefix ac >/dev/null 2>&1; _rc=$?
+  bash "$TMP/u7g/mode/toolbelt/init.sh" "$d" --corpus flat --subject "Acme" --prefix ac >/dev/null 2>&1; _rc=$?
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-e fill preserves the template mode (755)" || no "U7-e fill changed the mode: $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
   [ "$(diff "$TMP/u7g/mode/templates/hook-sessionstart.sh" "$d/.claude/hooks/research-protocol.sh" | grep -c '^>')" = 3 ] && ok "U7-e fill changed exactly the 3 placeholder lines (every other byte preserved)" || no "U7-e fill touched other lines"
   [ -z "$(find "$d/.claude/hooks" -name '.hook.*')" ] && ok "U7-e fill left no temp file behind" || no "U7-e fill left a temp file"
@@ -2610,7 +2612,7 @@ if command -v jq >/dev/null 2>&1; then
   # H. a flag-looking value is never swallowed as the subject/prefix (`--subject --wire`): typed usage error, exit 2, nothing written
   for _fl in --subject --prefix; do
     d="$TMP/u7-h"; rm -rf "$d"; mkdir -p "$d"
-    bash "$SUT" --absolute "$d" --corpus flat "$_fl" --wire >"$TMP/u7-h.out" 2>&1; _rc=$?
+    bash "$SUT" "$d" --corpus flat "$_fl" --wire >"$TMP/u7-h.out" 2>&1; _rc=$?
     { [ "$_rc" = 2 ] && grep -qF "usage: $_fl value '--wire' starts with --" "$TMP/u7-h.out"; } && ok "U7-h $_fl --wire: typed usage error, exit 2" || no "U7-h $_fl --wire: exit $_rc, no typed usage line"
     [ -z "$(find "$d" -mindepth 1 -print -quit)" ] && ok "U7-h $_fl --wire: nothing written" || no "U7-h $_fl --wire: wrote into the target"
   done
@@ -2619,31 +2621,31 @@ if command -v jq >/dev/null 2>&1; then
   for _jf in "" "--scaffold --wire"; do
     d="$TMP/u7-j"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7-j.before"
     # shellcheck disable=SC2086
-    bash "$SUT" --absolute "$d" --corpus flat $_jf --subject Acme >"$TMP/u7-j.out" 2>&1; _rc=$?
+    bash "$SUT" "$d" --corpus flat $_jf --subject Acme >"$TMP/u7-j.out" 2>&1; _rc=$?
     { [ "$_rc" = 3 ] && grep -qF 'REFUSED: --subject only fills' "$TMP/u7-j.out"; } && ok "U7-j [$_jf] --subject on an existing hook, no corpus: REFUSED (exit 3)" || no "U7-j [$_jf] --subject: exit $_rc"
     cmp -s "$TMP/u7-j.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-j [$_jf] hook byte-identical" || no "U7-j [$_jf] hook overwritten"
     { [ ! -e "$d/INDEX.md" ] && [ ! -e "$d/retros" ] && [ ! -e "$d/.claude/settings.json" ]; } && ok "U7-j [$_jf] refusal wrote nothing" || no "U7-j [$_jf] refusal still scaffolded"
     rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S
     # shellcheck disable=SC2086
-    bash "$SUT" --absolute "$d" --corpus flat $_jf --prefix pp >"$TMP/u7-j.out" 2>&1; _rc=$?
+    bash "$SUT" "$d" --corpus flat $_jf --prefix pp >"$TMP/u7-j.out" 2>&1; _rc=$?
     { [ "$_rc" = 0 ] && grep -qF 'note: --prefix not applied to existing' "$TMP/u7-j.out" && [ -e "$d/INDEX.md" ]; } && ok "U7-j [$_jf] --prefix: note, corpus scaffolded (exit 0)" || no "U7-j [$_jf] --prefix: exit $_rc"
     cmp -s "$TMP/u7-j.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-j [$_jf] --prefix leaves the hook untouched" || no "U7-j [$_jf] --prefix overwrote the hook"
   done
   d="$TMP/u7-j"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S
-  bash "$SUT" --absolute "$d" --corpus flat --force --subject Acme >/dev/null 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat --force --subject Acme >/dev/null 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-j --force re-scaffolds the existing hook and fills it" || no "U7-j --force: exit $_rc / not filled"
 
   # K. a failed wire-only fill writes NOTHING (staged first): no Stop hook, settings.json intact, nothing left in TMPDIR; TERM cleans up
   d="$TMP/u7-k"; rm -rf "$d"; mkdir -p "$d/.claude" "$d/td"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7-k.settings"
   _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
-  TMPDIR="$d/td" PATH="$_u7_stub:$PATH" bash "$SUT" --absolute "$d" --wire --subject Acme >"$TMP/u7-k.out" 2>&1; _rc=$?
+  TMPDIR="$d/td" PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-k.out" 2>&1; _rc=$?
   [ "$_rc" = 2 ] && ok "U7-k wire-only fill failure: exit 2" || no "U7-k wire-only fill failure: exit $_rc"
   { [ ! -e "$d/.claude/hooks" ] && cmp -s "$TMP/u7-k.settings" "$d/.claude/settings.json"; } && ok "U7-k wire-only fill failure: no hooks dir created, settings.json intact" || no "U7-k wire-only fill failure left a half-wired state"
   [ -z "$(find "$d/td" -mindepth 1)" ] && ok "U7-k wire-only fill failure: staging dir and temp removed" || no "U7-k staging leftovers in TMPDIR"
   # TERM mid-fill: a sed stub stalls the fill's rewrite; the trap must remove the staging dir and exit 143
   _u7_slow="$TMP/u7-slow"; mkdir -p "$_u7_slow"; printf '#!/bin/sh\ncase "$2" in "/^[[:space:]]*#/!"*) sleep 3;; esac\nexec "%s" "$@"\n' "$(command -v sed)" > "$_u7_slow/sed"; chmod +x "$_u7_slow/sed"
   d="$TMP/u7-k2"; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"
-  TMPDIR="$d/td" PATH="$_u7_slow:$PATH" bash "$SUT" --absolute "$d" --wire --subject Acme >/dev/null 2>&1 &
+  TMPDIR="$d/td" PATH="$_u7_slow:$PATH" bash "$SUT" "$d" --wire --subject Acme >/dev/null 2>&1 &
   _kp=$!; sleep 1; kill -TERM "$_kp" 2>/dev/null; wait "$_kp" 2>/dev/null; _rc=$?
   [ "$_rc" = 143 ] && ok "U7-k TERM mid-fill: exit 143" || no "U7-k TERM mid-fill: exit $_rc"
   [ -z "$(find "$d/td" -mindepth 1)" ] && [ ! -e "$d/.claude" ] && ok "U7-k TERM mid-fill: no staging/temp left, nothing written" || no "U7-k TERM mid-fill left files"
@@ -2651,14 +2653,14 @@ if command -v jq >/dev/null 2>&1; then
   # L. kit issue #1860 follow-ups (staging TMPDIR, no-clobber install, empty stage, success cleanup, flagless keep)
   # L1. an unusable TMPDIR fails closed: typed FATAL, exit 2, nothing written
   d="$TMP/u7-l1"; rm -rf "$d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7-l1.settings"
-  TMPDIR="$d/no-such-tmpdir" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l1.out" 2>&1; _rc=$?
+  TMPDIR="$d/no-such-tmpdir" bash "$SUT" "$d" --wire >"$TMP/u7-l1.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not create a staging directory' "$TMP/u7-l1.out"; } && ok "U7-l1 unusable TMPDIR: typed FATAL, exit 2" || no "U7-l1 unusable TMPDIR: exit $_rc, no typed FATAL"
   { [ ! -e "$d/.claude/hooks" ] && cmp -s "$TMP/u7-l1.settings" "$d/.claude/settings.json"; } && ok "U7-l1 unusable TMPDIR: nothing written" || no "U7-l1 unusable TMPDIR left a half-wired state"
   # L2. a hook created AFTER the existence check is kept, never overwritten (the cp stub plants it at the install moment)
   _u7_race="$TMP/u7-race"; mkdir -p "$_u7_race"
   printf '#!/bin/sh\n[ "$1" = -p ] && { a1="$2"; a2="$3"; } || { a1="$1"; a2="$2"; }\ncase "$a1" in */hook) d="$(dirname "$a2")"; case "$a2" in */.claude/hooks/*) [ -e "$d/research-protocol.sh" ] || printf "HAND-ADAPTED\\n" > "$d/research-protocol.sh";; esac;; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_race/cp"; chmod +x "$_u7_race/cp"
   d="$TMP/u7-l2"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_race:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l2.out" 2>&1; _rc=$?
+  PATH="$_u7_race:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l2.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-l2 hook appearing after the check: exit 0" || no "U7-l2 race: exit $_rc"
   [ "$(cat "$d/.claude/hooks/research-protocol.sh" 2>/dev/null)" = "HAND-ADAPTED" ] && ok "U7-l2 hook appearing after the check: NOT overwritten" || no "U7-l2 race: the concurrently-created hook was overwritten"
   { grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l2.out" && ! grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l2.out"; } && ok "U7-l2 race: reported kept, not created" || no "U7-l2 race: wrong created/kept report"
@@ -2667,55 +2669,55 @@ if command -v jq >/dev/null 2>&1; then
   _u7_gone="$TMP/u7-gone"; mkdir -p "$_u7_gone"
   printf '#!/bin/sh\ncase "$1" in */hook-stop-retro-gate.sh) rm -f "$(dirname "$2")/research-protocol.sh";; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_gone/cp"; chmod +x "$_u7_gone/cp"
   _u7_wire_target "$TMP/u7-l3" S
-  PATH="$_u7_gone:$PATH" bash "$SUT" --absolute "$TMP/u7-l3" --wire >"$TMP/u7-l3.out" 2>&1; _rc=$?
+  PATH="$_u7_gone:$PATH" bash "$SUT" "$TMP/u7-l3" --wire >"$TMP/u7-l3.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ -s "$TMP/u7-l3/.claude/hooks/research-protocol.sh" ] && grep -qF "created: $TMP/u7-l3/.claude/hooks/research-protocol.sh" "$TMP/u7-l3.out"; } && ok "U7-l3 hook vanishing after an exists-at-start check: re-staged and created, exit 0" || no "U7-l3 vanished hook: exit $_rc ($(grep -F 'cp:' "$TMP/u7-l3.out" | head -1))"
   # L4. the staging dir is removed on the success path BEFORE the end of the run (a jq stub logs TMPDIR at every call; the last one must be empty)
   _u7_tl="$TMP/u7-tl"; mkdir -p "$_u7_tl"
   printf '#!/bin/sh\nfind "$TMPDIR" -mindepth 1 > "$TMPDIR/../u7-tl.last" 2>/dev/null\nexec "%s" "$@"\n' "$(command -v jq)" > "$_u7_tl/jq"; chmod +x "$_u7_tl/jq"
   d="$TMP/u7-l4"; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"; rm -f "$d/u7-tl.last"
-  TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1; _rc=$?
+  TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$SUT" "$d" --wire >/dev/null 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ -f "$d/u7-tl.last" ] && [ ! -s "$d/u7-tl.last" ]; } && ok "U7-l4 success path: staging dir already gone when the settings merge runs" || no "U7-l4 staging dir still present after the install (rc $_rc): $(head -2 "$d/u7-tl.last" 2>/dev/null | tr '\n' ' ')"
   # L6. a flagless scaffold over an existing hook (no corpus marker) keeps the hook, byte for byte
   d="$TMP/u7-l6"; rm -rf "$d"; mkdir -p "$d"; _u7_hook "$d/.claude/hooks/research-protocol.sh" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7-l6.before"
-  bash "$SUT" --absolute "$d" --corpus flat >"$TMP/u7-l6.out" 2>&1; _rc=$?
+  bash "$SUT" "$d" --corpus flat >"$TMP/u7-l6.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ -e "$d/INDEX.md" ]; } && ok "U7-l6 flagless scaffold over an existing hook: scaffold completes" || no "U7-l6 flagless scaffold: exit $_rc"
   cmp -s "$TMP/u7-l6.before" "$d/.claude/hooks/research-protocol.sh" && ok "U7-l6 flagless scaffold: existing hook byte-identical" || no "U7-l6 flagless scaffold OVERWROTE the existing hook"
   grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l6.out" && ok "U7-l6 flagless scaffold: typed 'kept:' line" || no "U7-l6 flagless scaffold: no kept: line"
   grep -qF "stale? re-run with --force" "$TMP/u7-l6.out" && ok "U7-l6 flagless scaffold: kept line names the --force escape" || no "U7-l6 flagless scaffold: kept line lacks the --force hint"
   # L7. the installed hook keeps the template mode (mktemp makes 0600; only the mode carry-over makes it 755)
   d="$TMP/u7-l7"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$SUT" --absolute "$d" --wire >/dev/null 2>&1
+  bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l7 wire-only creation: installed hook mode 755" || no "U7-l7 installed hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
   # L8. no hard links (ln stub fails with a non-EEXIST error): exclusive-create fallback installs the hook, mode carried
   _u7_noln="$TMP/u7-noln"; mkdir -p "$_u7_noln"; printf '#!/bin/sh\necho "ln: failed to create hard link: Operation not permitted" >&2\nexit 1\n' > "$_u7_noln/ln"; chmod +x "$_u7_noln/ln"
   d="$TMP/u7-l8"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_noln:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l8.out" 2>&1; _rc=$?
+  PATH="$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l8.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l8.out" && cmp -s "$HERE/../../templates/hook-sessionstart.sh" "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-l8 no hard links: fallback installs the full hook, reported created" || no "U7-l8 no-hard-link fallback: exit $_rc"
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l8 no hard links: fallback carries mode 755" || no "U7-l8 fallback mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
   [ -z "$(find "$d/.claude" -name '.hook.*')" ] && ok "U7-l8 no hard links: no temp file left" || no "U7-l8 fallback left a temp file"
   # L9. ln fails AND the fallback copy fails: typed FATAL (exit 2), no kept:, no hook, no temp file — never a silent kept/wired-to-nothing
   _u7_nocat="$TMP/u7-nocat"; mkdir -p "$_u7_nocat"; printf '#!/bin/sh\nexit 1\n' > "$_u7_nocat/cat"; chmod +x "$_u7_nocat/cat"
   d="$TMP/u7-l9"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l9.out" 2>&1; _rc=$?
+  PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l9.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9.out" && grep -qF 'Operation not permitted' "$TMP/u7-l9.out"; } && ok "U7-l9 ln + fallback fail: typed FATAL with the real ln error, exit 2" || no "U7-l9 exit $_rc / no typed FATAL"
   { ! grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9.out" && [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*')" ]; } && ok "U7-l9 ln + fallback fail: no kept:, no hook, no temp file" || no "U7-l9 left a hook/temp or printed kept:"
   # L9b. ln fails AND the exclusive create fails with nothing at dest (the ln stub makes the hooks dir read-only): typed FATAL, never `kept:`
   if [ "$(id -u)" = 0 ]; then echo "  SKIP  U7-l9b: running as root (a read-only dir does not stop root)"; else
     _u7_rodir="$TMP/u7-rodir"; mkdir -p "$_u7_rodir"; printf '#!/bin/sh\nchmod a-w "$(dirname "$2")"\necho "ln: failed: Operation not permitted" >&2\nexit 1\n' > "$_u7_rodir/ln"; chmod +x "$_u7_rodir/ln"
     d="$TMP/u7-l9b"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-    PATH="$_u7_rodir:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l9b.out" 2>&1; _rc=$?; chmod -R u+w "$d" 2>/dev/null
+    PATH="$_u7_rodir:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l9b.out" 2>&1; _rc=$?; chmod -R u+w "$d" 2>/dev/null
     { [ "$_rc" = 2 ] && grep -qF "FATAL: could not install $d/.claude/hooks/research-protocol.sh (ln: " "$TMP/u7-l9b.out" && ! grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l9b.out" && [ ! -e "$d/.claude/hooks/research-protocol.sh" ]; } && ok "U7-l9b ln + exclusive create fail, nothing at dest: typed FATAL, no kept:, exit 2" || no "U7-l9b exit $_rc: $(tail -2 "$TMP/u7-l9b.out" | tr '\n' ' ')"
   fi
   # L10. a DIRECTORY appearing at the hook path after the check: ln would drop the temp INSIDE it — must be kept, nothing left in it
   _u7_racedir="$TMP/u7-racedir"; mkdir -p "$_u7_racedir"
   printf '#!/bin/sh\n[ "$1" = -p ] && { a1="$2"; a2="$3"; } || { a1="$1"; a2="$2"; }\ncase "$a1" in */hook) d="$(dirname "$a2")"; case "$a2" in */.claude/hooks/*) [ -e "$d/research-protocol.sh" ] || mkdir "$d/research-protocol.sh";; esac;; esac\nexec "%s" "$@"\n' "$(command -v cp)" > "$_u7_racedir/cp"; chmod +x "$_u7_racedir/cp"
   d="$TMP/u7-l10"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_racedir:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l10.out" 2>&1; _rc=$?
+  PATH="$_u7_racedir:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l10.out" 2>&1; _rc=$?
   { grep -qF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l10.out" && ! grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l10.out"; } && ok "U7-l10 directory at the hook path: kept, not created" || no "U7-l10 directory race: wrong created/kept report (exit $_rc)"
   [ -z "$(find "$d/.claude/hooks/research-protocol.sh" -mindepth 1 2>/dev/null)" ] && ok "U7-l10 directory at the hook path: nothing dropped inside it" || no "U7-l10 a temp/hook was left inside the directory"
   # L11. an unusable TMPDIR at the settings.json merge (hook already present, so nothing is staged): typed FATAL exit 2, not a silent set -e exit
   _u7_wire_target "$TMP/u7-l11" X
-  TMPDIR="$TMP/u7-l11/none" bash "$SUT" --absolute "$TMP/u7-l11" --wire >"$TMP/u7-l11.out" 2>&1; _rc=$?
+  TMPDIR="$TMP/u7-l11/none" bash "$SUT" "$TMP/u7-l11" --wire >"$TMP/u7-l11.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not create a temp file for the settings.json merge' "$TMP/u7-l11.out"; } && ok "U7-l11 unusable TMPDIR at the settings merge: typed FATAL, exit 2" || no "U7-l11 settings-merge mktemp failure: exit $_rc, no typed FATAL"
 
   # L12. kit issue #1914 review (a): a signal between the exclusive create and the filled+chmod'd hook must not leave an
@@ -2724,54 +2726,54 @@ if command -v jq >/dev/null 2>&1; then
   _u7_chmodterm="$TMP/u7-chmodterm"; mkdir -p "$_u7_chmodterm"
   printf '#!/bin/sh\ncase "$1" in --reference=*) kill -TERM "$PPID"; sleep 1; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v chmod)" > "$_u7_chmodterm/chmod"; chmod +x "$_u7_chmodterm/chmod"
   d="$TMP/u7-l12"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l12.out" 2>&1; _rc=$?
+  PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l12.out" 2>&1; _rc=$?
   [ "$_rc" = 143 ] && ok "U7-l12 TERM between the exclusive create and the chmod: exit 143" || no "U7-l12 interrupted install: exit $_rc (want 143)"
   [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && ok "U7-l12 interrupted install: no empty/truncated hook left at the dest" || no "U7-l12 interrupted install LEFT $(wc -c < "$d/.claude/hooks/research-protocol.sh") bytes at the hook path"
   [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ] && ok "U7-l12 interrupted install: no temp file left" || no "U7-l12 interrupted install left a temp file"
-  bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l12b.out" 2>&1
+  bash "$SUT" "$d" --wire >"$TMP/u7-l12b.out" 2>&1
   { grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l12b.out" && [ -s "$d/.claude/hooks/research-protocol.sh" ]; } && ok "U7-l12 re-run after the interruption CREATES the hook (never kept: an empty file)" || no "U7-l12 re-run after the interruption: not created ($(grep -F research-protocol.sh "$TMP/u7-l12b.out" | head -1))"
   # L13. kit issue #1914 review (b): a chmod without --reference (BSD) on a GNU-stat userland still carries the mode — the
   # fallback must pick the stat dialect that exists, never feed GNU `stat -f` (filesystem status) to chmod
   _u7_noref="$TMP/u7-noref"; mkdir -p "$_u7_noref"
   printf '#!/bin/sh\ncase "$1" in --reference=*) echo "chmod: unrecognized option" >&2; exit 1;; esac\nexec "%s" "$@"\n' "$(command -v chmod)" > "$_u7_noref/chmod"; chmod +x "$_u7_noref/chmod"
   d="$TMP/u7-l13"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_noref:$_u7_noln:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l13.out" 2>&1; _rc=$?
+  PATH="$_u7_noref:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l13.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && grep -qF "created: $d/.claude/hooks/research-protocol.sh" "$TMP/u7-l13.out"; } && ok "U7-l13 chmod without --reference (GNU stat): fallback installs the hook, exit 0" || no "U7-l13 no-chmod--reference fallback: exit $_rc ($(grep -F FATAL "$TMP/u7-l13.out" | head -1))"
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l13 chmod without --reference: mode 755 carried" || no "U7-l13 mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
   # L14. the same on a BSD userland: `stat -c` is rejected, `stat -f %Lp` answers
   _u7_bsdstat="$TMP/u7-bsdstat"; mkdir -p "$_u7_bsdstat"
   printf '#!/bin/sh\ncase "$1" in -c) echo "stat: illegal option -- c" >&2; exit 1;; -f) [ "$2" = %%Lp ] && exec "%s" -c %%a "$3";; esac\nexec "%s" "$@"\n' "$(command -v stat)" "$(command -v stat)" > "$_u7_bsdstat/stat"; chmod +x "$_u7_bsdstat/stat"
   d="$TMP/u7-l14"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$SUT" --absolute "$d" --wire >"$TMP/u7-l14.out" 2>&1; _rc=$?
+  PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$SUT" "$d" --wire >"$TMP/u7-l14.out" 2>&1; _rc=$?
   { [ "$_rc" = 0 ] && [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ]; } && ok "U7-l14 BSD stat dialect: fallback carries mode 755, exit 0" || no "U7-l14 BSD stat fallback: exit $_rc, mode $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
 
   # I. failure paths of the fill: a failing mv (stubbed) is a typed FATAL with no temp file and no half-filled hook
   _u7_stub="$TMP/u7-stub"; mkdir -p "$_u7_stub"; printf '#!/bin/sh\nexit 1\n' > "$_u7_stub/mv"; chmod +x "$_u7_stub/mv"
   d="$TMP/u7-i"; rm -rf "$d"; mkdir -p "$d"
-  PATH="$_u7_stub:$PATH" bash "$SUT" --absolute "$d" --corpus flat --subject Acme >"$TMP/u7-i.out" 2>&1; _rc=$?
+  PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --corpus flat --subject Acme >"$TMP/u7-i.out" 2>&1; _rc=$?
   { [ "$_rc" != 0 ] && grep -qF 'FATAL: could not install the filled hook' "$TMP/u7-i.out"; } && ok "U7-i scaffold, mv fails: typed FATAL, non-zero (exit $_rc)" || no "U7-i scaffold, mv fails: exit $_rc, no typed FATAL"
   { [ ! -e "$d/.claude" ] && [ -z "$(find "$d" -name '.hook.*')" ]; } && ok "U7-i scaffold, mv fails: rolled back, no temp file" || no "U7-i scaffold, mv fails: left files behind"
   d="$TMP/u7-i2"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  PATH="$_u7_stub:$PATH" bash "$SUT" --absolute "$d" --wire --subject Acme >"$TMP/u7-i2.out" 2>&1; _rc=$?
+  PATH="$_u7_stub:$PATH" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-i2.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'FATAL: could not install the filled hook' "$TMP/u7-i2.out"; } && ok "U7-i wire-only, mv fails: typed FATAL, exit 2" || no "U7-i wire-only, mv fails: exit $_rc"
   { [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ]; } && ok "U7-i wire-only, mv fails: no hook, no temp file" || no "U7-i wire-only, mv fails: hook or temp file left"
   # one flag fillable and one not (template without <prefix>): nothing is half-filled
   _u7_gen nopfx; printf '%s\n' '#!/usr/bin/env bash' 'echo "research of <SUBJECT>"' > "$TMP/u7g/nopfx/templates/hook-sessionstart.sh"
   d="$TMP/u7-i3"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$TMP/u7g/nopfx/toolbelt/init.sh" --absolute "$d" --wire --subject Acme --prefix pp >"$TMP/u7-i3.out" 2>&1; _rc=$?
+  bash "$TMP/u7g/nopfx/toolbelt/init.sh" "$d" --wire --subject Acme --prefix pp >"$TMP/u7-i3.out" 2>&1; _rc=$?
   { [ "$_rc" = 2 ] && grep -qF 'carries no live <prefix> placeholder' "$TMP/u7-i3.out"; } && ok "U7-i template lacking <prefix>: typed FATAL, exit 2" || no "U7-i template lacking <prefix>: exit $_rc"
   { [ ! -e "$d/.claude/hooks/research-protocol.sh" ] && [ -z "$(find "$d/.claude" -name '.hook.*' 2>/dev/null)" ]; } && ok "U7-i template lacking <prefix>: no half-filled hook, no temp file" || no "U7-i template lacking <prefix>: partial hook or temp left"
   # an ADAPTED existing hook is refused the same way (never an overwrite)
   _u7_wire_target "$TMP/u7-e2"; cp "$TMP/u7-e2/.claude/hooks/research-protocol.sh" "$TMP/u7-e2.before"
-  bash "$SUT" --absolute "$TMP/u7-e2" --wire --subject "Acme" >/dev/null 2>&1; _rc=$?
+  bash "$SUT" "$TMP/u7-e2" --wire --subject "Acme" >/dev/null 2>&1; _rc=$?
   { [ "$_rc" = 3 ] && cmp -s "$TMP/u7-e2.before" "$TMP/u7-e2/.claude/hooks/research-protocol.sh"; } && ok "U7-e adapted hook + --subject: refused, bytes intact" || no "U7-e adapted hook: exit $_rc or bytes changed"
   # --force follows the script's --force semantics: re-scaffold, and the fresh hook is filled
-  bash "$SUT" --absolute "$TMP/u7-e" --corpus flat --wire --force --subject "Acme" --prefix ac >"$TMP/u7-e3.out" 2>&1; _rc=$?
+  bash "$SUT" "$TMP/u7-e" --corpus flat --wire --force --subject "Acme" --prefix ac >"$TMP/u7-e3.out" 2>&1; _rc=$?
   [ "$_rc" = 0 ] && ok "U7-e --force --subject: exit 0" || no "U7-e --force --subject: exit $_rc"
   grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$TMP/u7-e/.claude/hooks/research-protocol.sh" && ok "U7-e --force: hook re-created filled" || no "U7-e --force: hook not filled"
   # an absent hook on the wire-only path: created and filled, SessionStart registered
   d="$TMP/u7-e4"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$SUT" --absolute "$d" --wire --subject "Acme" --prefix ac >/dev/null 2>"$TMP/u7-e4.err"; _rc=$?
+  bash "$SUT" "$d" --wire --subject "Acme" --prefix ac >/dev/null 2>"$TMP/u7-e4.err"; _rc=$?
   { [ "$_rc" = 0 ] && grep -qxF 'RESEARCH PROTOCOL — Acme (Research-SDD)' "$d/.claude/hooks/research-protocol.sh"; } && ok "U7-e wire-only creating the hook: filled" || no "U7-e wire-only creating the hook: exit $_rc / not filled"
   _u7_ss_wired "$d" && ok "U7-e wire-only creating a filled hook: SessionStart registered" || no "U7-e SessionStart not registered after a filled create"
 
@@ -2782,7 +2784,7 @@ if command -v jq >/dev/null 2>&1; then
     echo "CTX='"; echo '  - <path to binaries/decompiled output/source code of the system under study>'
     echo 'first <prefix>-block*.md then <SUBJECT>'; echo 'again <SUBJECT> end'; echo "'"; } > "$TMP/u7g/old/templates/hook-sessionstart.sh"
   d="$TMP/u7-f"; rm -rf "$d"; mkdir -p "$d"
-  bash "$TMP/u7g/old/toolbelt/init.sh" --absolute "$d" --corpus flat --subject "S&1" --prefix pp --scaffold --wire >"$TMP/u7-f.out" 2>"$TMP/u7-f.err"; _rc=$?
+  bash "$TMP/u7g/old/toolbelt/init.sh" "$d" --corpus flat --subject "S&1" --prefix pp --scaffold --wire >"$TMP/u7-f.out" 2>"$TMP/u7-f.err"; _rc=$?
   _h="$d/.claude/hooks/research-protocol.sh"
   [ "$_rc" = 0 ] && ok "U7-f other template generation: exit 0" || no "U7-f other template generation: exit $_rc"
   { grep -qxF 'first pp-block*.md then S&1' "$_h" && grep -qxF 'again S&1 end' "$_h"; } && ok "U7-f placeholders filled wherever they sit (order/lines differ)" || no "U7-f other-generation fill wrong"
@@ -2791,7 +2793,7 @@ if command -v jq >/dev/null 2>&1; then
   # a template with NO live <SUBJECT> and --subject given: typed failure, never a silent no-op
   _u7_gen nosubj; printf '%s\n' '#!/usr/bin/env bash' 'echo adapted' > "$TMP/u7g/nosubj/templates/hook-sessionstart.sh"
   d="$TMP/u7-f2"; rm -rf "$d"; mkdir -p "$d"
-  bash "$TMP/u7g/nosubj/toolbelt/init.sh" --absolute "$d" --corpus flat --subject "Acme" >"$TMP/u7-f2.out" 2>&1; _rc=$?
+  bash "$TMP/u7g/nosubj/toolbelt/init.sh" "$d" --corpus flat --subject "Acme" >"$TMP/u7-f2.out" 2>&1; _rc=$?
   { [ "$_rc" != 0 ] && grep -qF 'carries no live <SUBJECT> placeholder' "$TMP/u7-f2.out"; } && ok "U7-f template without <SUBJECT> + --subject: typed FATAL, non-zero" || no "U7-f template without <SUBJECT>: exit $_rc, silent no-op"
   [ ! -e "$d/.claude" ] && ok "U7-f typed FATAL rolled the scaffold back" || no "U7-f scaffold left behind after the FATAL"
   # G. jq ABSENT (print-only fallback): the other live placeholders are still named; --subject on an absent hook says NOT applied
@@ -2800,11 +2802,11 @@ if command -v jq >/dev/null 2>&1; then
     echo "  SKIP  U7-g: jq still reachable on the private tool PATH"
   else
     _u7_wire_target "$TMP/u7-g" P X
-    PATH="$_u7_pnojq" bash "$SUT" --absolute "$TMP/u7-g" --wire >"$TMP/u7-g.out" 2>"$TMP/u7-g.err"; _rc=$?
+    PATH="$_u7_pnojq" bash "$SUT" "$TMP/u7-g" --wire >"$TMP/u7-g.out" 2>"$TMP/u7-g.err"; _rc=$?
     [ "$_rc" = 0 ] && ok "U7-g jq-absent: exit 0" || no "U7-g jq-absent: exit $_rc"
     for _ph in "$_U7_PFX" "$_U7_PATH"; do grep -qF "still contains the $_ph placeholder" <<<"$(grep -F 'WARN:' "$TMP/u7-g.err")" && ok "U7-g jq-absent: WARN names $_ph" || no "U7-g jq-absent: no WARN naming $_ph"; done
     d="$TMP/u7-g2"; mkdir -p "$d"; : > "$d/INDEX.md"
-    PATH="$_u7_pnojq" bash "$SUT" --absolute "$d" --wire --subject Acme >"$TMP/u7-g2.out" 2>"$TMP/u7-g2.err"; _rc=$?
+    PATH="$_u7_pnojq" bash "$SUT" "$d" --wire --subject Acme >"$TMP/u7-g2.out" 2>"$TMP/u7-g2.err"; _rc=$?
     grep -qF -- '--subject/--prefix NOT applied' "$TMP/u7-g2.err" && ok "U7-g jq-absent + --subject on an absent hook: typed NOT applied" || no "U7-g jq-absent: --subject silently dropped"
     [ ! -e "$d/.claude" ] && ok "U7-g jq-absent: nothing written" || no "U7-g jq-absent wrote files"
   fi
@@ -2834,7 +2836,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth: could not build mutant (guard line not found)"
     else
       d="$TMP/teeth"; mkdir -p "$d"; printf 'REAL HAND-CURATED GAPS\n' > "$d/RESEARCH-STATE.md"
-      bash "$mutant" --absolute "$d" --corpus flat >/dev/null 2>&1; mg=$?
+      bash "$mutant" "$d" --corpus flat >/dev/null 2>&1; mg=$?
       if [ "$mg" = 0 ] && ! grep -qF 'REAL HAND-CURATED GAPS' "$d/RESEARCH-STATE.md"; then
         ok "teeth: mutant clobbers curated state (exit 0, gone) → refuse tests have teeth (real lib wiring)"
       else
@@ -2852,7 +2854,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth: could not build tools-scaffold mutant (cpf line not found or not removed)"
   else
     dt="$TMP/tth"; mkdir -p "$dt"
-    bash "$tt_mutant" --absolute "$dt" --corpus flat >/dev/null 2>&1
+    bash "$tt_mutant" "$dt" --corpus flat >/dev/null 2>&1
     if [ ! -f "$dt/tools/README.md" ]; then
       ok "teeth: mutant skipped tools/README.md → tools-scaffold tests have teeth"
     else
@@ -2869,7 +2871,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M1: could not build mutant ((PROMPT-LOOP §b) still present after strip)"
   else
     dm1="$TMP/m1t"; mkdir -p "$dm1"
-    bash "$m1_mutant" --absolute "$dm1" --corpus flat > "$TMP/m1.out" 2>/dev/null
+    bash "$m1_mutant" "$dm1" --corpus flat > "$TMP/m1.out" 2>/dev/null
     if ! grep -qF "§b)" "$TMP/m1.out" 2>/dev/null; then
       ok "teeth M1: §b) absent after strip — step-1 cross-ref assertion has teeth"
     else
@@ -2886,7 +2888,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M2: could not build mutant (prefix-if line not found)"
   else
     dm2="$TMP/m2t"; mkdir -p "$dm2"
-    bash "$m2_mutant" --absolute "$dm2" --corpus flat > "$TMP/m2.out" 2>/dev/null
+    bash "$m2_mutant" "$dm2" --corpus flat > "$TMP/m2.out" 2>/dev/null
     if grep -qF "5. Block files use the prefix:" "$TMP/m2.out" 2>/dev/null; then
       ok "teeth M2: step-5 present in no-prefix mutant run — absent assertion has teeth"
     else
@@ -2906,7 +2908,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       echo "  SKIP  teeth M3: git not on PATH"
     else
       dm3="$TMP/m3t"; mkdir -p "$dm3"; git -C "$dm3" init -q 2>/dev/null
-      bash "$m3_mutant" --absolute "$dm3" --corpus flat > "$TMP/m3.out" 2>/dev/null
+      bash "$m3_mutant" "$dm3" --corpus flat > "$TMP/m3.out" 2>/dev/null
       if ! grep -qF "gitignored" "$TMP/m3.out" 2>/dev/null && ! grep -qF "git add --force" "$TMP/m3.out" 2>/dev/null; then
         ok "teeth M3: gitignored/--force absent in mutant output — already-git assertions have teeth"
       else
@@ -2924,7 +2926,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M4: could not build mutant (NEXT echo line not removed)"
   else
     dm4="$TMP/m4t"; mkdir -p "$dm4"
-    bash "$m4_mutant" --absolute "$dm4" --corpus flat > "$TMP/m4.out" 2>/dev/null
+    bash "$m4_mutant" "$dm4" --corpus flat > "$TMP/m4.out" 2>/dev/null
     if ! grep -qF "research-sdd-status.sh" "$TMP/m4.out" 2>/dev/null; then
       ok "teeth M4: research-sdd-status.sh absent in mutant output — next-step assertion has teeth"
     else
@@ -2941,7 +2943,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M5: could not build mutant (CONFIRM header line not removed)"
   else
     dm5="$TMP/m5t"; mkdir -p "$dm5"
-    bash "$m5_mutant" --absolute "$dm5" --corpus flat > "$TMP/m5.out" 2>/dev/null
+    bash "$m5_mutant" "$dm5" --corpus flat > "$TMP/m5.out" 2>/dev/null
     if ! grep -qF "CONFIRM these are done" "$TMP/m5.out" 2>/dev/null; then
       ok "teeth M5: CONFIRM header absent in mutant output — CONFIRM assertion has teeth"
     else
@@ -2958,7 +2960,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M6: could not build mutant (THEN header line not removed)"
   else
     dm6="$TMP/m6t"; mkdir -p "$dm6"
-    bash "$m6_mutant" --absolute "$dm6" --corpus flat > "$TMP/m6.out" 2>/dev/null
+    bash "$m6_mutant" "$dm6" --corpus flat > "$TMP/m6.out" 2>/dev/null
     if ! grep -qF "THEN do next (post-scaffold)" "$TMP/m6.out" 2>/dev/null; then
       ok "teeth M6: THEN header absent in mutant output — THEN assertion has teeth"
     else
@@ -2982,7 +2984,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ -n "$m7_cf_line" ] && [ -n "$m7_i2_line" ] && [ "$m7_cf_line" -gt "$m7_i2_line" ]; then
       ok "teeth M7: mutant has CONFIRM after item-2 in script (CONFIRM=$m7_cf_line item2=$m7_i2_line) — not a delete"
       dm7="$TMP/m7t"; mkdir -p "$dm7"
-      bash "$m7_mutant" --absolute "$dm7" --corpus flat > "$TMP/m7.out" 2>/dev/null
+      bash "$m7_mutant" "$dm7" --corpus flat > "$TMP/m7.out" 2>/dev/null
       m7_out_cf=$(grep -nF "CONFIRM these are done"     "$TMP/m7.out" | head -1 | cut -d: -f1)
       m7_out_i1=$(grep -nF "1. REGISTER the target row" "$TMP/m7.out" | head -1 | cut -d: -f1)
       if [ -n "$m7_out_cf" ] && [ -n "$m7_out_i1" ] && [ "$m7_out_cf" -gt "$m7_out_i1" ]; then
@@ -3008,7 +3010,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       dmw1="$TMP/mw1t"; mkdir -p "$dmw1"
       # #1691: the mutant skips the install step that removes its mktemp file; keep that file inside $TMP (trap-cleaned), not the caller TMPDIR.
-      TMPDIR="$TMP" bash "$mw1" --absolute "$dmw1" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
+      TMPDIR="$TMP" bash "$mw1" "$dmw1" --corpus flat --wire --scaffold >/dev/null 2>/dev/null
       if [ ! -f "$dmw1/.claude/settings.json" ]; then
         ok "teeth MW1: mutant → settings.json absent → wire test has teeth"
       else
@@ -3050,7 +3052,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW2: could not build mutant (wire guard line not found)"
     else
       dmw2="$TMP/mw2t"; mkdir -p "$dmw2"
-      bash "$mw2" --absolute "$dmw2" --corpus flat >/dev/null 2>/dev/null
+      bash "$mw2" "$dmw2" --corpus flat >/dev/null 2>/dev/null
       if [ -f "$dmw2/.claude/settings.json" ]; then
         ok "teeth MW2: mutant writes settings.json without --wire → default-no-write test has teeth"
       else
@@ -3076,7 +3078,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         no "teeth MW3: could not build mutant (degraded echo still present)"
       else
         dmw3="$TMP/mw3t"; mkdir -p "$dmw3"
-        PATH="$_mw3_pnojq" bash "$mw3" --absolute "$dmw3" --corpus flat --wire >/dev/null 2>"$TMP/mw3.err"
+        PATH="$_mw3_pnojq" bash "$mw3" "$dmw3" --corpus flat --wire >/dev/null 2>"$TMP/mw3.err"
         if ! grep -qF "degraded" "$TMP/mw3.err" 2>/dev/null; then
           ok "teeth MW3: degraded absent in mutant stderr → jq-absent stderr test has teeth"
         else
@@ -3099,9 +3101,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW5: could not build mutant (wire-only path still present after strip)"
     else
       dmw5="$TMP/mw5t"; mkdir -p "$dmw5"
-      bash "$mw5" --absolute "$dmw5" --corpus flat >/dev/null 2>/dev/null
+      bash "$mw5" "$dmw5" --corpus flat >/dev/null 2>/dev/null
       printf '%s\n' 'SEEDED' >> "$dmw5/RESEARCH-STATE.md"
-      bash "$mw5" --absolute "$dmw5" --corpus flat --wire >/dev/null 2>/dev/null; _mw5_rc=$?
+      bash "$mw5" "$dmw5" --corpus flat --wire >/dev/null 2>/dev/null; _mw5_rc=$?
       if [ "$_mw5_rc" = 3 ]; then
         ok "teeth MW5: mutant exits 3 on wire-only → (f) wire-only test has teeth"
       else
@@ -3128,7 +3130,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       mkdir -p "$dmw6/.claude/hooks"
       printf '#!/usr/bin/env bash\n# HAND-ADAPTED — do not clobber\nexit 0\n' > "$dmw6/.claude/hooks/retro-gate-stop.sh"
       _mw6_before="$(sha256sum "$dmw6/.claude/hooks/retro-gate-stop.sh" | cut -d' ' -f1)"
-      bash "$mw6" --absolute "$dmw6" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw6" "$dmw6" --corpus flat --wire >/dev/null 2>/dev/null
       _mw6_after="$(sha256sum "$dmw6/.claude/hooks/retro-gate-stop.sh" | cut -d' ' -f1)"
       if [ "$_mw6_before" != "$_mw6_after" ]; then
         ok "teeth MW6: mutant overwrote the hand-edited hook → 1038-(h) has teeth"
@@ -3164,7 +3166,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       dmw7="$TMP/mw7t"; mkdir -p "$dmw7"
       printf 'INDEX\n' > "$dmw7/INDEX.md"
-      bash "$mw7" --absolute "$dmw7" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw7" "$dmw7" --corpus flat --wire >/dev/null 2>/dev/null
       if [ -f "$dmw7/.claude/settings.json" ] && grep -qF "research-protocol.sh" "$dmw7/.claude/settings.json"; then
         ok "teeth MW7: mutant wires SessionStart despite <SUBJECT> → 1038-(g) placeholder guard has teeth"
       else
@@ -3187,7 +3189,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       dmw8="$TMP/mw8t"; mkdir -p "$dmw8"
       printf 'INDEX\n' > "$dmw8/INDEX.md"
-      bash "$mw8" --absolute "$dmw8" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw8" "$dmw8" --corpus flat --wire >/dev/null 2>/dev/null
       if [ ! -f "$dmw8/.claude/hooks/retro-gate-stop.sh" ]; then
         ok "teeth MW8: mutant skips retro-gate-stop.sh creation → 1038-(g) 'created' assertion has teeth"
       else
@@ -3223,7 +3225,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else
         dmw9="$TMP/mw9t"; mkdir -p "$dmw9"
         printf 'INDEX\n' > "$dmw9/INDEX.md"
-        PATH="$_mw9_pnojq" bash "$mw9" --absolute "$dmw9" --corpus flat --wire >/dev/null 2>/dev/null
+        PATH="$_mw9_pnojq" bash "$mw9" "$dmw9" --corpus flat --wire >/dev/null 2>/dev/null
         if [ -f "$dmw9/.claude/hooks/retro-gate-stop.sh" ]; then
           ok "teeth MW9: mutant creates hooks despite jq absent → 1038-(k) ordering assertion has teeth"
         else
@@ -3251,8 +3253,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       dmw10="$TMP/mw10t"; mkdir -p "$dmw10"
       printf 'INDEX\n' > "$dmw10/INDEX.md"
-      bash "$mw10" --absolute "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
-      bash "$mw10" --absolute "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw10" "$dmw10" --corpus flat --wire >/dev/null 2>/dev/null
       _mw10_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' "$dmw10/.claude/settings.json" 2>/dev/null)
       if [ "$_mw10_n" != 1 ]; then
         ok "teeth MW10: mutant duplicates Stop on re-run (count=$_mw10_n) → 1038-(j) idempotency assertion has teeth"
@@ -3280,7 +3282,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf 'INDEX\n' > "$dmw11/INDEX.md"
       printf '#!/usr/bin/env bash\n# HAND-ADAPTED — do not clobber\necho adapted\n' > "$dmw11/.claude/hooks/research-protocol.sh"
       _mw11_before="$(sha256sum "$dmw11/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
-      bash "$mw11" --absolute "$dmw11" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw11" "$dmw11" --corpus flat --wire >/dev/null 2>/dev/null
       _mw11_after="$(sha256sum "$dmw11/.claude/hooks/research-protocol.sh" | cut -d' ' -f1)"
       if [ "$_mw11_before" != "$_mw11_after" ]; then
         ok "teeth MW11: mutant overwrote the hand-edited ss hook → 1040-(p) has teeth"
@@ -3319,7 +3321,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         > "$dmw12/.claude/settings.json"
       printf '#!/usr/bin/env bash\necho adapted\n' > "$dmw12/.claude/hooks/research-protocol.sh"
       printf '#!/usr/bin/env bash\nexit 0\n' > "$dmw12/.claude/hooks/retro-gate-stop.sh"
-      bash "$mw12" --absolute "$dmw12" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw12" "$dmw12" --corpus flat --wire >/dev/null 2>/dev/null
       _mw12_n=$(jq '[.hooks.Stop // [] | .[] | .hooks // [] | .[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' "$dmw12/.claude/settings.json" 2>/dev/null)
       if [ "$_mw12_n" != 1 ]; then
         ok "teeth MW12(a): mutant duplicates the unquoted \$CLAUDE_PROJECT_DIR-form entry (count=$_mw12_n) → 1040-(l) has teeth"
@@ -3332,7 +3334,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       jq -n '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/research-protocol.sh\""}]}]}}' \
         > "$dmw12b/.claude/settings.json"
       printf '#!/usr/bin/env bash\necho adapted\n' > "$dmw12b/.claude/hooks/research-protocol.sh"
-      bash "$mw12" --absolute "$dmw12b" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw12" "$dmw12b" --corpus flat --wire >/dev/null 2>/dev/null
       _mw12b_n=$(jq '[.hooks.SessionStart // [] | .[] | .hooks // [] | .[] | select(.command | contains("verify-skill-drift-hook.sh") | not)] | length' "$dmw12b/.claude/settings.json" 2>/dev/null)
       if [ "$_mw12b_n" != 1 ]; then
         ok "teeth MW12(b): mutant duplicates the whole-quoted \$CLAUDE_PROJECT_DIR-form entry (count=$_mw12b_n) → 1040-(l) has teeth"
@@ -3363,7 +3365,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       dmw13="$TMP/mw13t"; mkdir -p "$dmw13/.claude"
       printf 'INDEX\n' > "$dmw13/INDEX.md"
       printf '{"hooks": {\n' > "$dmw13/.claude/settings.json"
-      bash "$mw13" --absolute "$dmw13" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw13" "$dmw13" --corpus flat --wire >/dev/null 2>/dev/null
       if [ -f "$dmw13/.claude/hooks/retro-gate-stop.sh" ]; then
         ok "teeth MW13: mutant creates hooks despite malformed settings.json → 1040-(m) pre-validation assertion has teeth"
       else
@@ -3396,7 +3398,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       dmw14="$TMP/mw14t"; mkdir -p "$dmw14/.claude"
       printf 'INDEX\n' > "$dmw14/INDEX.md"
       printf '[]' > "$dmw14/.claude/settings.json"
-      bash "$mw14" --absolute "$dmw14" --corpus flat --wire >/dev/null 2>/dev/null; _mw14_rc=$?
+      bash "$mw14" "$dmw14" --corpus flat --wire >/dev/null 2>/dev/null; _mw14_rc=$?
       if [ "$_mw14_rc" = 0 ] || [ -f "$dmw14/.claude/hooks/retro-gate-stop.sh" ]; then
         ok "teeth MW14: mutant no longer refuses a top-level array → 1040-(m2) assertion has teeth"
       else
@@ -3427,7 +3429,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       dmw15="$TMP/mw15t"; mkdir -p "$dmw15/.claude"
       printf 'INDEX\n' > "$dmw15/INDEX.md"
       printf '{"hooks":{"Stop":"x"}}' > "$dmw15/.claude/settings.json"
-      bash "$mw15" --absolute "$dmw15" --corpus flat --wire >/dev/null 2>/dev/null; _mw15_rc=$?
+      bash "$mw15" "$dmw15" --corpus flat --wire >/dev/null 2>/dev/null; _mw15_rc=$?
       if [ "$_mw15_rc" = 0 ]; then
         ok "teeth MW15: mutant reports exit 0 on a genuine merge failure → 1040-(m4) assertion has teeth"
       else
@@ -3457,7 +3459,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       dmw16="$TMP/mw16t"; mkdir -p "$dmw16"
       printf 'INDEX\n' > "$dmw16/INDEX.md"
-      bash "$mw16" --absolute "$dmw16" --corpus flat --wire >/dev/null 2>/dev/null
+      bash "$mw16" "$dmw16" --corpus flat --wire >/dev/null 2>/dev/null
       _mw16_lines=$(wc -l < "$dmw16/.claude/settings.json" 2>/dev/null)
       if [ "${_mw16_lines:-0}" -le 1 ] 2>/dev/null; then
         ok "teeth MW16: mutant writes single-line settings.json (lines=$_mw16_lines) → 1040-(q) has teeth"
@@ -3488,7 +3490,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         dmw17="$TMP/mw17t"; mkdir -p "$dmw17"
         printf 'INDEX\n' > "$dmw17/INDEX.md"
         _mw17_out="$TMP/mw17.out"
-        PATH="$_mw17_pnojq" bash "$mw17" --absolute "$dmw17" --corpus flat --wire > "$_mw17_out" 2>/dev/null
+        PATH="$_mw17_pnojq" bash "$mw17" "$dmw17" --corpus flat --wire > "$_mw17_out" 2>/dev/null
         if grep -qF '"SessionStart"' "$_mw17_out"; then
           ok "teeth MW17: mutant snippet wrongly offers SessionStart for an absent hook → 1040-(r) has teeth"
         else
@@ -3520,7 +3522,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
         '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":$ac}]}]}}' \
         > "$dmw18/.claude/settings.json"
       _mw18_out="$TMP/mw18.out"
-      bash "$mw18" --absolute "$dmw18" --corpus flat --wire > "$_mw18_out" 2>/dev/null
+      bash "$mw18" "$dmw18" --corpus flat --wire > "$_mw18_out" 2>/dev/null
       if grep -qF "NOT registered" "$_mw18_out"; then
         ok "teeth MW18: mutant wrongly says 'NOT registered' for an already-present entry → 1040-(s) has teeth"
       else
@@ -3542,7 +3544,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth MW19: could not build mutant (refusal if-condition not found)"
   else
     dmw19="$TMP/mw19t"; mkdir -p "$dmw19"
-    bash "$mw19" --absolute "$dmw19" --corpus flat --wire >/dev/null 2>/dev/null; _mw19_rc=$?
+    bash "$mw19" "$dmw19" --corpus flat --wire >/dev/null 2>/dev/null; _mw19_rc=$?
     if [ "$_mw19_rc" = 0 ] && [ -f "$dmw19/INDEX.md" ]; then
       ok "teeth MW19: mutant silently scaffolds on --wire alone (exit $_mw19_rc, INDEX.md created) → 1047-(a)/(b) has teeth"
     else
@@ -3564,7 +3566,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dmw20="$TMP/mw20t"; mkdir -p "$dmw20"
     printf 'own project file\n' > "$dmw20/app.py"
-    bash "$mw20" --absolute "$dmw20" --wire >/dev/null 2>/dev/null; _mw20_rc=$?
+    bash "$mw20" "$dmw20" --wire >/dev/null 2>/dev/null; _mw20_rc=$?
     if [ "$_mw20_rc" = 5 ] && [ -d "$dmw20/retros" ]; then
       ok "teeth MW20: mutant still refuses (exit 5) but wrote retros/ first → 1047-(a) snapshot assertion has teeth"
     else
@@ -3586,7 +3588,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth MW21: could not build mutant (scaffold+wire placeholder guard line not found)"
     else
       dmw21="$TMP/mw21t"; mkdir -p "$dmw21"
-      bash "$mw21" --absolute "$dmw21" --corpus flat --scaffold --wire >/dev/null 2>/dev/null
+      bash "$mw21" "$dmw21" --corpus flat --scaffold --wire >/dev/null 2>/dev/null
       if [ -f "$dmw21/.claude/settings.json" ] && grep -qF "research-protocol.sh" "$dmw21/.claude/settings.json"; then
         ok "teeth MW21: mutant wires SessionStart despite <SUBJECT> on scaffold+wire → 1047-(d) has teeth"
       else
@@ -3615,7 +3617,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dmw22="$TMP/mw22t"; mkdir -p "$dmw22"
     printf 'int main(){}\n' > "$dmw22/src.c"
-    bash "$mw22" --absolute "$dmw22" --force --wire >/dev/null 2>/dev/null; _mw22_rc=$?
+    bash "$mw22" "$dmw22" --force --wire >/dev/null 2>/dev/null; _mw22_rc=$?
     if [ "$_mw22_rc" != 5 ]; then
       ok "teeth MW22: mutant does NOT refuse --force --wire on a marker-less target (exit $_mw22_rc) → 1047-(e)/(f) has teeth"
     else
@@ -3642,7 +3644,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dmw23="$TMP/mw23t"; mkdir -p "$dmw23"
     printf 'state\n' > "$dmw23/RESEARCH-STATE-frontend.md"
-    bash "$mw23" --absolute "$dmw23" --wire >/dev/null 2>/dev/null; _mw23_rc=$?
+    bash "$mw23" "$dmw23" --wire >/dev/null 2>/dev/null; _mw23_rc=$?
     if [ "$_mw23_rc" = 5 ]; then
       ok "teeth MW23: mutant wrongly refuses a multi-focus-only corpus (exit 5) → 1047-(g) has teeth"
     else
@@ -3660,7 +3662,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth MW24: could not build mutant (usage-guard line not removed)"
   else
     dmw24="$TMP/mw24t"; mkdir -p "$dmw24"
-    bash "$mw24" --absolute "$dmw24" --scaffold >/dev/null 2>/dev/null; _mw24_rc=$?
+    bash "$mw24" "$dmw24" --scaffold >/dev/null 2>/dev/null; _mw24_rc=$?
     if [ "$_mw24_rc" != 2 ]; then
       ok "teeth MW24: mutant no longer rejects --scaffold without --wire (exit $_mw24_rc) → 1047-(j) has teeth"
     else
@@ -3684,7 +3686,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth MW4: could not build mutant (tool-registry.md still present in template after sed)"
   else
     dmw4="$TMP/mw4t"; mkdir -p "$dmw4"
-    bash "$mw4" --absolute "$dmw4" --corpus flat >/dev/null 2>/dev/null
+    bash "$mw4" "$dmw4" --corpus flat >/dev/null 2>/dev/null
     _mw4_hook="$dmw4/.claude/hooks/research-protocol.sh"
     if [ -f "$_mw4_hook" ] && ! grep -qF "tool-registry.md" "$_mw4_hook" 2>/dev/null; then
       ok "teeth MW4: tool-registry.md absent in mutant hook → TPL pointer assertion has teeth"
@@ -3718,7 +3720,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # as toolbelt/ — without it here the broken KIT fails earlier ("missing kit template"), a real
   # but different symptom of the identical bug; this mirrors the true render shape instead.
   ln -sfn "$HERE/../../templates" "$_ki_altkit_t/render/profile/general/templates"
-  _ki_out_t="$(bash "$_ki_altkit_t/render/profile/general/toolbelt/research-sdd-init.sh" --absolute \
+  _ki_out_t="$(bash "$_ki_altkit_t/render/profile/general/toolbelt/research-sdd-init.sh" \
     "$_ki_altkit_t/newtarget" --corpus flat 2>&1)"
   if <<<"$_ki_out_t" grep -qF '/render/profile/general/TARGETS.md'; then
     ok "teeth SYMLINK-TOOLBELT: reverted mutant leaks the render dir path again → -P fix has teeth"
@@ -3740,7 +3742,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M-DOC: could not build mutant (template-swap line not removed)"
   else
     dmdoc="$TMP/mdoct"; mkdir -p "$dmdoc"
-    bash "$mdoc_mutant" --absolute "$dmdoc" --corpus flat --document >/dev/null 2>&1; _mdoc_rc=$?
+    bash "$mdoc_mutant" "$dmdoc" --corpus flat --document >/dev/null 2>&1; _mdoc_rc=$?
     if [ "$_mdoc_rc" = 0 ] && [ -f "$dmdoc/RESEARCH-STATE.md" ]; then
       ok "teeth M-DOC (crash-safe): mutant ran to completion (exit 0, RESEARCH-STATE.md exists) — proof is not a crash"
       if grep -qF '<research question>' "$dmdoc/RESEARCH-STATE.md"; then
@@ -3775,7 +3777,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M-DOC-REPORT-1: could not build mutant (step-3 document-mode anchor not found)"
   else
     dmdocr1="$TMP/mdocr1t"; mkdir -p "$dmdocr1"
-    _mdocr1_out="$(bash "$mdocr1_mutant" --absolute "$dmdocr1" --corpus flat --document 2>&1)"
+    _mdocr1_out="$(bash "$mdocr1_mutant" "$dmdocr1" --corpus flat --document 2>&1)"
     if grep -qF 'SEED 5-15 real gaps' <<<"$_mdocr1_out"; then
       ok "teeth M-DOC-REPORT-1: mutant prints the discovery-mode SEED line under --document — GOOD 6b's absence assertion has teeth"
     else
@@ -3798,7 +3800,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M-DOC-REPORT-2: could not build mutant (NEXT-line document-mode anchor not found)"
   else
     dmdocr2="$TMP/mdocr2t"; mkdir -p "$dmdocr2"
-    _mdocr2_out="$(bash "$mdocr2_mutant" --absolute "$dmdocr2" --corpus flat --document 2>&1)"
+    _mdocr2_out="$(bash "$mdocr2_mutant" "$dmdocr2" --corpus flat --document 2>&1)"
     _mdocr2_ok=1
     if grep -qF 'GAP-CENTRIC' <<<"$_mdocr2_out"; then _mdocr2_ok=0; fi
     if ! grep -qF 'it reports BOOTSTRAP until the follow-ups above are done' <<<"$_mdocr2_out"; then _mdocr2_ok=0; fi
@@ -3823,7 +3825,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dmtplcond="$TMP/mtplcondt"; mkdir -p "$dmtplcond"
     _mtplcond_rc=0
-    bash "$mtplcond_mutant" --absolute "$dmtplcond" --corpus flat >/dev/null 2>&1 || _mtplcond_rc=$?
+    bash "$mtplcond_mutant" "$dmtplcond" --corpus flat >/dev/null 2>&1 || _mtplcond_rc=$?
     if [ "$_mtplcond_rc" != 0 ] && [ ! -f "$dmtplcond/RESEARCH-STATE.md" ]; then
       ok "teeth M-TPL-COND: mutant's default (non-document) scaffold now FATALs on a missing document template — GOOD 9's assertion has teeth"
     else
@@ -3845,9 +3847,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M-WIRE-DOC-REJECT: could not build mutant (rejection guard condition not found)"
   else
     dmwdr="$TMP/mwdrt"; mkdir -p "$dmwdr"
-    bash "$mwdr_mutant" --absolute "$dmwdr" --corpus flat >/dev/null 2>&1
+    bash "$mwdr_mutant" "$dmwdr" --corpus flat >/dev/null 2>&1
     _mwdr_rc=0
-    bash "$mwdr_mutant" --absolute "$dmwdr" --wire --document >/dev/null 2>&1 || _mwdr_rc=$?
+    bash "$mwdr_mutant" "$dmwdr" --wire --document >/dev/null 2>&1 || _mwdr_rc=$?
     if [ "$_mwdr_rc" = 0 ]; then
       ok "teeth M-WIRE-DOC-REJECT: mutant silently accepts --wire --document on an existing corpus (exit 0) — GOOD 10's rejection has teeth"
     else
@@ -3869,8 +3871,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth M-FORCE-WARNING: could not build mutant (destructive-scope sentence anchor not found)"
   else
     dmfw="$TMP/mfwt"; mkdir -p "$dmfw"
-    bash "$mfw_mutant" --absolute "$dmfw" --corpus flat >/dev/null 2>&1
-    _mfw_out="$(bash "$mfw_mutant" --absolute "$dmfw" --wire --document 2>&1)"
+    bash "$mfw_mutant" "$dmfw" --corpus flat >/dev/null 2>&1
+    _mfw_out="$(bash "$mfw_mutant" "$dmfw" --wire --document 2>&1)"
     if grep -qF 're-scaffold RESEARCH-STATE.md with the document-cycle variant' <<<"$_mfw_out"; then
       ok "teeth M-FORCE-WARNING: mutant's rejection message reverts to the misleading --force recommendation — GOOD 10's wording-pin assertion has teeth"
     else
@@ -3898,7 +3900,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # M-1043-ESC: the escaper becomes the identity → a path with & | \ is mangled again.
   if _k43_build esc -e 's|^_rsdd_sed_escape() .*|_rsdd_sed_escape() { printf "%s" "$1"; }|'; then
     d="$TMP/k43/esc-t/a&b|c\\d"; mkdir -p "$d"
-    bash "$TMP/k43/esc/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+    bash "$TMP/k43/esc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
     if [ "$_rc" != 0 ] || ! grep -qxF "TARGET=\"$d\" # replaced by research-sdd-init.sh: absolute path to this research target" "$d/.claude/hooks/retro-gate-stop.sh" 2>/dev/null; then
       ok "teeth M-1043-ESC: identity escaper mangles the path (rc=$_rc) — K1043-1 has teeth"
     else no "teeth M-1043-ESC: mutant still rendered the literal path — K1043-1 is THEATER"; fi
@@ -3907,7 +3909,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if _k43_build prewo -e 's|^    _rsdd_dangling_symlinks "\$target/.claude" .*|    true|'; then
     d="$TMP/k43/prewo-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
     ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
-    bash "$TMP/k43/prewo/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/prewo/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     if [ -e "$d/.claude/hooks/retro-gate-stop.sh" ]; then
       ok "teeth M-1043-PRE-WO: without the precheck a partial hook is left behind — K1043-2 wire-only has teeth"
     else no "teeth M-1043-PRE-WO: mutant left no partial state — K1043-2 wire-only is THEATER"; fi
@@ -3916,7 +3918,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if _k43_build presc -e '/^_rsdd_scaffold_paths=/,/README.md")$/{s|"\$target/.claude/hooks/research-protocol.sh"$|"$target/.claude/hooks/none-1"|;s|"\$target/.claude/hooks/retro-gate-stop.sh" |"$target/.claude/hooks/none-2" |}'; then
     d="$TMP/k43/presc-t"; mkdir -p "$d/.claude/hooks"
     ln -s "$d/nope" "$d/.claude/hooks/research-protocol.sh"
-    bash "$TMP/k43/presc/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    bash "$TMP/k43/presc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     if [ ! -L "$d/.claude/hooks/research-protocol.sh" ]; then
       ok "teeth M-1043-PRE-SC: without the precheck the rollback deletes the user's symlink — K1043-2 scaffold has teeth"
     else no "teeth M-1043-PRE-SC: link survived — K1043-2 scaffold is THEATER"; fi
@@ -3926,7 +3928,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/k43/mv-t"; mkdir -p "$d/.claude" "$d/real"; : > "$d/INDEX.md"
     printf '{}\n' > "$d/real/settings.json"; chmod 644 "$d/real/settings.json"
     ln -s "$d/real/settings.json" "$d/.claude/settings.json"
-    bash "$TMP/k43/mv/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/mv/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     if [ ! -L "$d/.claude/settings.json" ]; then
       ok "teeth M-1043-MV: renaming over the link path replaces the symlink — K1043-3 has teeth"
     else no "teeth M-1043-MV: symlink survived the mutant — K1043-3 is THEATER"; fi
@@ -3935,7 +3937,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if _k43_build mode -e 's|chmod --reference="\$real" "\$tmp2"|true|'; then
     d="$TMP/k43/mode-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '{}\n' > "$d/.claude/settings.json"; chmod 644 "$d/.claude/settings.json"
-    bash "$TMP/k43/mode/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/mode/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     if [ "$(_u7_mode "$d/.claude/settings.json")" = 600 ]; then
       ok "teeth M-1043-MODE: without the mode copy settings.json becomes 600 — mode assertion has teeth"
     else no "teeth M-1043-MODE: mode survived the mutant — THEATER"; fi
@@ -3945,7 +3947,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     d="$TMP/k43/inplace-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     python3 -c 'import json,sys; json.dump({"p":["x%d" % i for i in range(1500)]}, open(sys.argv[1],"w"))' "$d/.claude/settings.json"
     _k43_b="$(sha256sum "$d/.claude/settings.json")"
-    ( PATH="$_k4a_shim:$PATH" bash "$TMP/k43/inplace/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1 )
+    ( PATH="$_k4a_shim:$PATH" bash "$TMP/k43/inplace/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1 )
     if [ "$(sha256sum "$d/.claude/settings.json")" != "$_k43_b" ]; then
       ok "teeth M-1043-INPLACE: in-place write destroys the original on failure — K1043-B has teeth"
     else no "teeth M-1043-INPLACE: original survived — K1043-B is THEATER"; fi
@@ -3953,7 +3955,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # M-1043-PRE-DIR: dangling-directory entries dropped from the scaffold precheck → rollback deletes the link.
   if _k43_build predir -e 's|"\$target/.claude" "\$target/.claude/hooks" "\$target/.claude/hooks/research-protocol.sh"|"$target/.claude/hooks/research-protocol.sh"|'; then
     d="$TMP/k43/predir-t"; mkdir -p "$d/.claude"; ln -s "$d/nowhere" "$d/.claude/hooks"
-    bash "$TMP/k43/predir/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    bash "$TMP/k43/predir/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     if [ ! -L "$d/.claude/hooks" ]; then
       ok "teeth M-1043-PRE-DIR: without the dir entries the rollback deletes the user's .claude/hooks link — K1043-2 dir cases have teeth"
     else no "teeth M-1043-PRE-DIR: link survived — THEATER"; fi
@@ -3962,7 +3964,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if _k43_build nl -e 's|^case "\$target" in \*\$.\\n.\*) echo "FATAL: target path contains a newline.*$|true|'; then
     d="$TMP/k43/nl-t/a
 b"; mkdir -p "$d"; : > "$d/INDEX.md"
-    bash "$TMP/k43/nl/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1; _rc=$?
+    bash "$TMP/k43/nl/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; _rc=$?
     if [ "$_rc" != 2 ]; then
       ok "teeth M-1043-NL: without the guard a newline target is not refused (exit $_rc) — K1043-3 newline has teeth"
     else no "teeth M-1043-NL: still exit 2 — THEATER"; fi
@@ -3970,7 +3972,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1043-WIREGATE: settings.json precondition made unconditional → plain scaffold refuses (K1043-4 flips).
   if _k43_build wg -e 's|^\[ "\$wire" = 1 \] && _rsdd_scaffold_paths|true \&\& _rsdd_scaffold_paths|'; then
     d="$TMP/k43/wg-t"; mkdir -p "$d/.claude"; ln -s "$d/nowhere/s.json" "$d/.claude/settings.json"
-    bash "$TMP/k43/wg/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1; _rc=$?
+    bash "$TMP/k43/wg/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1; _rc=$?
     if [ "$_rc" = 2 ]; then
       ok "teeth M-1043-WIREGATE: unconditional settings precheck refuses a plain scaffold — K1043-4 has teeth"
     else no "teeth M-1043-WIREGATE: exit $_rc (want 2) — THEATER"; fi
@@ -3980,14 +3982,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1496-SCAFFOLD: the scaffold's cpf of the guard removed → no hook file on a plain scaffold.
   if _k43_build k96sc -e '/cpf "\$TPL\/hook-pretool-pkill-guard.sh"/d'; then
     d="$TMP/k43/k96sc-t"; mkdir -p "$d"
-    bash "$(_k96_inits k96sc)" --absolute "$d" --corpus flat >/dev/null 2>&1
+    bash "$(_k96_inits k96sc)" "$d" --corpus flat >/dev/null 2>&1
     [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && ok "teeth M-1496-SCAFFOLD: no cpf → no guard installed — K1496-a has teeth" \
       || no "teeth M-1496-SCAFFOLD: guard still installed — THEATER"
   else no "teeth M-1496-SCAFFOLD: could not build mutant"; fi
   # M-1496-WO-CREATE: wire-only repair never creates the guard.
   if _k43_build k96wc -e '/cp "\$TPL\/hook-pretool-pkill-guard.sh" "\$_wo_pk"/d'; then
     d="$TMP/k43/k96wc-t"; mkdir -p "$d"; : > "$d/INDEX.md"
-    bash "$(_k96_inits k96wc)" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$(_k96_inits k96wc)" "$d" --wire >/dev/null 2>&1
     [ ! -e "$d/.claude/hooks/pkill-guard.sh" ] && ok "teeth M-1496-WO-CREATE: no cp → repair leaves the guard absent — K1496-c has teeth" \
       || no "teeth M-1496-WO-CREATE: guard still created — THEATER"
   else no "teeth M-1496-WO-CREATE: could not build mutant"; fi
@@ -3995,14 +3997,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k96ow -e 's|^    elif \[ -e "\$_wo_pk" \]; then|    elif false; then|'; then
     d="$TMP/k43/k96ow-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
     printf '#!/usr/bin/env bash\n# MARK-1496-LOCAL\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
-    bash "$(_k96_inits k96ow)" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$(_k96_inits k96ow)" "$d" --wire >/dev/null 2>&1
     grep -qF 'MARK-1496-LOCAL' "$d/.claude/hooks/pkill-guard.sh" && no "teeth M-1496-OVERWRITE: adaptation survived — THEATER" \
       || ok "teeth M-1496-OVERWRITE: guard clobbered without the create-only test — K1496-d has teeth"
   else no "teeth M-1496-OVERWRITE: could not build mutant"; fi
   # M-1496-DEDUP: the already-registered detection always false → a second run double-registers.
   if _k43_build k96dd -e 's/(\$pk_cmds | any(. as \$c | (\$pk_variants | index(\$c)) != null)) as \$has_pk/false as $has_pk/'; then
     d="$TMP/k43/k96dd-t"; mkdir -p "$d"; : > "$d/INDEX.md"
-    bash "$(_k96_inits k96dd)" --absolute "$d" --wire >/dev/null 2>&1; bash "$(_k96_inits k96dd)" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$(_k96_inits k96dd)" "$d" --wire >/dev/null 2>&1; bash "$(_k96_inits k96dd)" "$d" --wire >/dev/null 2>&1
     [ "$(jq '.hooks.PreToolUse | length' "$d/.claude/settings.json" 2>/dev/null)" = "2" ] \
       && ok "teeth M-1496-DEDUP: without dedup a re-run double-registers — K1496-c/e have teeth" \
       || no "teeth M-1496-DEDUP: still one entry — THEATER"
@@ -4010,7 +4012,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1496-MATCHER: the Bash matcher is lost in every merge → registration no longer targets Bash.
   if _k43_build k96mt -e 's/"matcher":"Bash"/"matcher":"*"/g'; then
     d="$TMP/k43/k96mt-t"; mkdir -p "$d"
-    bash "$(_k96_inits k96mt)" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    bash "$(_k96_inits k96mt)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
     [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$d/.claude/settings.json" 2>/dev/null)" != "Bash" ] \
       && ok "teeth M-1496-MATCHER: matcher changed away from Bash — K1496-b has teeth" \
       || no "teeth M-1496-MATCHER: matcher still Bash — THEATER"
@@ -4019,7 +4021,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k99ma -e 's/map(select(covers_bash) | \.hooks/map(.hooks/'; then
     d="$TMP/k43/k99ma-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-    bash "$(_k96_inits k99ma)" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$(_k96_inits k99ma)" "$d" --wire >/dev/null 2>&1
     [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
       && ok "teeth M-1509-MATCHER-AGNOSTIC: matcher-blind dedup leaves Bash unguarded — K1509-a has teeth" \
       || no "teeth M-1509-MATCHER-AGNOSTIC: still registered a Bash entry — THEATER"
@@ -4028,7 +4030,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k99sr -e 's/"\$_wire_has_pk" = "true"/"$_wire_has_pk" = "never"/'; then
     d="$TMP/k43/k99sr-t"; mkdir -p "$d/.claude"
     printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}]}}' > "$d/.claude/settings.json"
-    bash "$(_k96_inits k99sr)" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/k99sr.out" 2>&1
+    bash "$(_k96_inits k99sr)" "$d" --corpus flat --scaffold --wire >"$TMP/k99sr.out" 2>&1
     grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k99sr.out" && no "teeth M-1509-SCAFFOLD-REPORT: still reports already wired — THEATER" \
       || ok "teeth M-1509-SCAFFOLD-REPORT: wrong report without the flag — K1509-d has teeth"
   else no "teeth M-1509-SCAFFOLD-REPORT: could not build mutant"; fi
@@ -4037,7 +4039,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k50ir -e 's/ catch false))/ catch true))/'; then
     d="$TMP/k43/k50ir-t"; mkdir -p "$d/.claude"
     printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-    bash "$(_k96_inits k50ir)" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/k50ir.out" 2>&1; _k9_rc=$?
+    bash "$(_k96_inits k50ir)" "$d" --corpus flat --scaffold --wire >"$TMP/k50ir.out" 2>&1; _k9_rc=$?
     { [ "$_k9_rc" = 0 ] && [ "$(_k9_nbash "$d/.claude/settings.json" "$d/.claude/hooks/pkill-guard.sh")" = "0" ] \
       && grep -qF "PreToolUse pkill-guard hook already wired" "$TMP/k50ir.out"; } \
       && ok "teeth M-1550-INVALID-REGEX: exit 0, Bash unguarded and the report says already wired — K1550-c2 has teeth" \
@@ -4048,7 +4050,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     d="$TMP/k43/k50sa-t"; mkdir -p "$d/.claude/hooks"
     printf '#!/usr/bin/env bash\necho adapted body, no live placeholder\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
     _k9_ss_cmd "$d" > "$d/.claude/settings.json"
-    bash "$(_k96_inits k50sa)" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/k50sa.out" 2>&1
+    bash "$(_k96_inits k50sa)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sa.out" 2>&1
     { grep -qF "wired  : SessionStart hook registered in" "$TMP/k50sa.out" && ! grep -qF "wired  : SessionStart hook already wired in" "$TMP/k50sa.out"; } \
       && ok "teeth M-1550-SS-ALREADY: the wrong 'registered' report appears and 'already wired' is gone — K1550-ss adapted+present has teeth" \
       || no "teeth M-1550-SS-ALREADY: expected the wrong 'registered' report — THEATER"
@@ -4059,7 +4061,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     d="$TMP/k43/k50sl-t"; mkdir -p "$d/.claude/hooks"
     printf '#!/usr/bin/env bash\necho <SUBJECT> is not adapted\n' > "$d/.claude/hooks/research-protocol.sh"; chmod +x "$d/.claude/hooks/research-protocol.sh"
     _k9_ss_cmd "$d" > "$d/.claude/settings.json"
-    bash "$(_k96_inits k50sl)" --absolute "$d" --corpus flat --scaffold --wire >"$TMP/k50sl.out" 2>&1
+    bash "$(_k96_inits k50sl)" "$d" --corpus flat --scaffold --wire >"$TMP/k50sl.out" 2>&1
     { grep -qF "(left alone" "$TMP/k50sl.out" && ! grep -qF "(left as-is" "$TMP/k50sl.out"; } \
       && ok "teeth M-1550-SS-LEFT-ASIS: the changed wording appears and the pinned one is gone — K1550-ss skip+present has teeth" \
       || no "teeth M-1550-SS-LEFT-ASIS: expected '(left alone' in place of '(left as-is' — THEATER"
@@ -4068,9 +4070,9 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # count cannot see that; the whole-wiring jq -S comparison must.
   if _k43_build k59fw -e 's/(\$pk_cmds | any(. as \$c | (\$pk_variants | index(\$c)) != null)) as \$has_pk/false as $has_pk/'; then
     d="$TMP/k43/k59fw-t"; mkdir -p "$d"
-    bash "$(_k96_inits k59fw)" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    bash "$(_k96_inits k59fw)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
     _k9_before="$(jq -S . "$d/.claude/settings.json" 2>/dev/null)"
-    bash "$(_k96_inits k59fw)" --absolute "$d" --wire --document --force >/dev/null 2>&1
+    bash "$(_k96_inits k59fw)" "$d" --wire --document --force >/dev/null 2>&1
     { [ -n "$_k9_before" ] && [ "$_k9_before" != "$(jq -S . "$d/.claude/settings.json" 2>/dev/null)" ]; } \
       && ok "teeth M-1159-FORCE-WIRING: a duplicated hook under --force changes the normalised settings.json — the whole-wiring comparison has teeth" \
       || no "teeth M-1159-FORCE-WIRING: settings.json unchanged under the mutant — THEATER"
@@ -4079,7 +4081,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k99mf -e 's/^if \[ "\${_wire_merge_failed:-0}" = 1 \]; then exit 4; fi$/:/'; then
     d="$TMP/k43/k99mf-t"; mkdir -p "$d/.claude"
     printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
-    bash "$(_k96_inits k99mf)" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?
+    bash "$(_k96_inits k99mf)" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1; _k9_rc=$?
     [ "$_k9_rc" != 4 ] && ok "teeth M-1509-MERGE-FAIL-EXIT: without the exit a merge failure is silent success (rc=$_k9_rc) — K1509-f has teeth" \
       || no "teeth M-1509-MERGE-FAIL-EXIT: still exit 4 — THEATER"
   else no "teeth M-1509-MERGE-FAIL-EXIT: could not build mutant"; fi
@@ -4087,21 +4089,21 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k99mm -e 's/refusing to report success (settings.json untouched/quietly continuing (settings.json untouched/'; then
     d="$TMP/k43/k99mm-t"; mkdir -p "$d/.claude"
     printf '%s' '{"hooks":"oops"}' > "$d/.claude/settings.json"
-    bash "$(_k96_inits k99mm)" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/k99mm.err"
+    bash "$(_k96_inits k99mm)" "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/k99mm.err"
     grep -qF "refusing to report success" "$TMP/k99mm.err" && no "teeth M-1509-MERGE-FAIL-MSG: message still present — THEATER" \
       || ok "teeth M-1509-MERGE-FAIL-MSG: typed message gone — K1509-f has teeth"
   else no "teeth M-1509-MERGE-FAIL-MSG: could not build mutant"; fi
   # M-1732-DEDUP: the gate dedup is removed -> a re-run registers it twice.
   if _k43_build k32dd -e '/as \$has_gate |$/s/.*/    false as $has_gate |/'; then
     d="$TMP/k43/k32dd-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
-    bash "$TMP/k43/k32dd/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k32dd/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32dd/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k32dd/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" = 2 ] \
       && ok "teeth M-1732-DEDUP: without the dedup a re-run double-registers — K1732-b has teeth" || no "teeth M-1732-DEDUP: still once under the mutant — K1732-b is THEATER"
   else no "teeth M-1732-DEDUP: could not build mutant"; fi
   # M-1732-ADD: the gate is never appended -> settings.json lacks it.
   if _k43_build k32add -e 's/if \$has_gate then \[\] else/if true then [] else/'; then
     d="$TMP/k43/k32add-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
-    bash "$TMP/k43/k32add/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32add/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     grep -qF 'return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null && no "teeth M-1732-ADD: gate still registered under the mutant — THEATER" \
       || ok "teeth M-1732-ADD: gate absent without the append — K1732-a/c have teeth"
   else no "teeth M-1732-ADD: could not build mutant"; fi
@@ -4109,7 +4111,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k32rp -e '/# RSDD-GATE-STALE$/s/\[ -e "\$_gp" \]/true/'; then
     d="$TMP/k43/k32rp-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/other/kit/toolbelt/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k32rp/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32rp/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     grep -qF '/other/kit/toolbelt/return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null \
       && ok "teeth M-1732-REPAIR: without stale detection the dead path survives — K1732-d has teeth" || no "teeth M-1732-REPAIR: stale path still repaired under the mutant — THEATER"
   else no "teeth M-1732-REPAIR: could not build mutant"; fi
@@ -4127,7 +4129,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k32mu -e 's/^    (if (\$drop | length) > 0 then$/    (if false then/'; then
     d="$TMP/k43/k32mu-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"/gone/a/return-token-gate.sh"}]},{"matcher":"","hooks":[{"type":"command","command":"/gone/b/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k32mu/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32mu/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" -gt 1 ] \
       && ok "teeth M-1732-MULTI: without the stale drop several gate entries remain — K1732-d6 has teeth" || no "teeth M-1732-MULTI: still one entry under the mutant — THEATER"
   else no "teeth M-1732-MULTI: could not build mutant"; fi
@@ -4135,7 +4137,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k32st -e '/# RSDD-GATE-STRICT$/s/\*) return 1 ;;/*) ;;/'; then
     d="$TMP/k43/k32st-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"./tools/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k32st/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32st/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     grep -qF './tools/return-token-gate.sh' "$d/.claude/settings.json" 2>/dev/null && no "teeth M-1732-STRICT: working hook survives under the mutant — THEATER" \
       || ok "teeth M-1732-STRICT: a loose classifier deletes a working relative-path hook — K1732-g has teeth"
   else no "teeth M-1732-STRICT: could not build mutant"; fi
@@ -4143,21 +4145,21 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k32ot -e 's/ or (\$others | length) > 0//'; then
     d="$TMP/k43/k32ot-t"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"./tools/return-token-gate.sh"}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k32ot/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k32ot/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(jq '[.hooks.Stop[]? | .hooks[]? | select(.command | contains("return-token-gate.sh"))] | length' "$d/.claude/settings.json" 2>/dev/null)" -gt 1 ] \
       && ok "teeth M-1732-OTHER: without counting other forms a second gate is added — K1732-g has teeth" || no "teeth M-1732-OTHER: still one gate under the mutant — THEATER"
   else no "teeth M-1732-OTHER: could not build mutant"; fi
   # M-1732-SNIPPET: the printed snippet drops the gate entry.
   if _k43_build k32sn -e 's/^  local gate_entry=.*/  local gate_entry=""/'; then
     d="$TMP/k43/k32sn-t"; mkdir -p "$d"
-    bash "$TMP/k43/k32sn/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k32sn.out" 2>&1
+    bash "$TMP/k43/k32sn/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k32sn.out" 2>&1
     grep -qF 'return-token-gate.sh' "$TMP/k32sn.out" && no "teeth M-1732-SNIPPET: gate still printed under the mutant — THEATER" \
       || ok "teeth M-1732-SNIPPET: gate missing from the snippet — K1732-e has teeth"
   else no "teeth M-1732-SNIPPET: could not build mutant"; fi
   # M-1496-WO-MERGE: wire-only merge no longer adds the PreToolUse entry.
   if _k43_build k96wm -e 's/(\.hooks\.PreToolUse = (if \$has_pk then/(.hooks.PreToolUse = (if true then/'; then
     d="$TMP/k43/k96wm-t"; mkdir -p "$d"; : > "$d/INDEX.md"
-    bash "$(_k96_inits k96wm)" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$(_k96_inits k96wm)" "$d" --wire >/dev/null 2>&1
     [ "$(jq '[.hooks.PreToolUse[]?] | length' "$d/.claude/settings.json" 2>/dev/null)" = "0" ] \
       && ok "teeth M-1496-WO-MERGE: wire-only merge adds no PreToolUse — K1496-c has teeth" \
       || no "teeth M-1496-WO-MERGE: entry still added — THEATER"
@@ -4165,14 +4167,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1496-SNIPPET: the printed (propose-never-apply) snippet drops the PreToolUse block.
   if _k43_build k96sn -e '/"PreToolUse": \[/d'; then
     d="$TMP/k43/k96sn-t"; mkdir -p "$d"
-    bash "$(_k96_inits k96sn)" --absolute "$d" --corpus flat >"$TMP/k96sn.out" 2>&1
+    bash "$(_k96_inits k96sn)" "$d" --corpus flat >"$TMP/k96sn.out" 2>&1
     grep -qF '"PreToolUse"' "$TMP/k96sn.out" && no "teeth M-1496-SNIPPET: snippet still has PreToolUse — THEATER" \
       || ok "teeth M-1496-SNIPPET: snippet lost PreToolUse — K1496-a snippet assertions have teeth"
   else no "teeth M-1496-SNIPPET: could not build mutant"; fi
   # M-1496-DANGLING: guard path dropped from the wire-only symlink precheck → partial write on a dangling link.
   if _k43_build k96dl -e 's|"\$_wo_stop" "\$_wo_ss" "\$_wo_pk" \|\| exit 2|"$_wo_stop" "$_wo_ss" \|\| exit 2|'; then
     d="$TMP/k43/k96dl-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.claude/hooks/pkill-guard.sh"
-    bash "$(_k96_inits k96dl)" --absolute "$d" --wire >/dev/null 2>&1; _rc=$?
+    bash "$(_k96_inits k96dl)" "$d" --wire >/dev/null 2>&1; _rc=$?
     [ "$_rc" != 2 ] && ok "teeth M-1496-DANGLING: unchecked dangling guard link is not refused (exit $_rc) — K1496-h has teeth" \
       || no "teeth M-1496-DANGLING: still exit 2 — THEATER"
   else no "teeth M-1496-DANGLING: could not build mutant"; fi
@@ -4180,7 +4182,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   _k96i_run() {  # <mutant-name> → runs the K1496-i fixture on that mutant, prints "pk stop" entry counts
     local d="$TMP/k43/$1-t"; mkdir -p "$d/.claude"
     printf '%s' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR/.claude/hooks/pkill-guard.sh\""}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/hooks/retro-gate-stop.sh"}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/$1/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    bash "$TMP/k43/$1/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
     printf '%s %s' "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$d/.claude/settings.json" 2>/dev/null)" "$(jq '[.hooks.Stop[].hooks[] | select(.command | rtrimstr("\"") | endswith("return-token-gate.sh") | not)] | length' "$d/.claude/settings.json" 2>/dev/null)"
   }
   # M-1496-SCAFFOLD-PK-REL: the scaffold path loses the guard's relative form → exact-string dedup again.
@@ -4197,7 +4199,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if _k43_build k96nx -e '/\[ -x "\$_wo_pk" \] || echo "WARN:/d'; then
     d="$TMP/k43/k96nx-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"; chmod -x "$d/.claude/hooks/pkill-guard.sh"
-    bash "$(_k96_inits k96nx)" --absolute "$d" --wire >"$TMP/k96nx.out" 2>&1
+    bash "$(_k96_inits k96nx)" "$d" --wire >"$TMP/k96nx.out" 2>&1
     grep -qF 'is not executable' "$TMP/k96nx.out" && no "teeth M-1496-NOEXEC-WARN: warning still present — THEATER" \
       || ok "teeth M-1496-NOEXEC-WARN: warning gone — K1496-j has teeth"
   else no "teeth M-1496-NOEXEC-WARN: could not build mutant"; fi
@@ -4210,13 +4212,13 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   _k71t() {  # <name> <target-suffix> <vis> <rc> <init-args…> — run mutant <name> against a fresh remote target
     local n="$1" sfx="$2" vis="$3" rc="$4"; shift 4
     local d; d="$(_k71_target "t-$sfx" https://example.invalid/x.git)"
-    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/$n/toolbelt/init.sh" --absolute "$d" --corpus flat "$@" >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS="$vis" K71_RC="$rc" K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/$n/toolbelt/init.sh" "$d" --corpus flat "$@" >"$TMP/k71t.out" 2>&1
     printf '%s' "$d"
   }
   # M-1271-OVERWRITE: the never-overwrite guard is removed → a hand-written conf is clobbered.
   if _k43_build k71ow -e 's|^  if \[ -e "\$conf" \] \|\| \[ -L "\$conf" \]; then$|  if false; then|'; then
     d="$(_k71_target t-ow https://example.invalid/x.git)"; mkdir -p "$d/.research-sdd"; printf 'prefix com.keepme\n' > "$d/.research-sdd/vendor-leak.conf"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71ow/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71ow/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     grep -qF 'prefix com.keepme' "$d/.research-sdd/vendor-leak.conf" && no "teeth M-1271-OVERWRITE: conf survived without the guard — K1271-c is THEATER" \
       || ok "teeth M-1271-OVERWRITE: conf clobbered without the guard — K1271-c has teeth"
   else no "teeth M-1271-OVERWRITE: could not build mutant"; fi
@@ -4249,14 +4251,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1271-NOGH-PROBE: the gh-missing probe is removed → the typed 'gh not found' message disappears.
   if _k43_buildlib k71ng -e 's#if ! command -v "\$ghbin" >/dev/null 2>&1; then GHV_STATE=GH_MISSING; return 1; fi#:#'; then
     d="$(_k71_target t-ng https://example.invalid/x.git)"
-    PATH="$K71_NOGH" bash "$TMP/k43/k71ng/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_NOGH" bash "$TMP/k43/k71ng/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'gh not found' "$TMP/k71t.out" && no "teeth M-1271-NOGH-PROBE: message survives — K1271-h is THEATER" \
       || ok "teeth M-1271-NOGH-PROBE: typed message gone without the probe — K1271-h has teeth"
   else no "teeth M-1271-NOGH-PROBE: could not build mutant"; fi
   # M-1271-NOREMOTE: the no-remote short-circuit is removed → gh is consulted with no remote.
   if _k43_build k71nr -e 's#^  if \[ -z "\$remotes" \]; then$#  if false; then#'; then
     : > "$TMP/k71t.gh.log"; d="$(_k71_target t-nr)"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71nr/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71nr/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'vendor-leak: NO-REMOTE' "$TMP/k71t.out" && no "teeth M-1271-NOREMOTE: typed NO-REMOTE survives — K1271-e is THEATER" \
       || ok "teeth M-1271-NOREMOTE: typed NO-REMOTE gone without the short-circuit — K1271-e has teeth"
   else no "teeth M-1271-NOREMOTE: could not build mutant"; fi
@@ -4264,14 +4266,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1271-TIMEOUT: the probe is no longer wrapped in `timeout` → a hanging gh is not cut off (stub sleeps 3s, limit 1s).
   if _k43_buildlib k71to -e 's#cmd=("\$bounder" "\$t" "\${cmd\[@\]}")#:#'; then
     d="$(_k71_target t-to https://example.invalid/x.git)"; : > "$TMP/k71t.out"
-    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=3 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71to/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=3 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71to/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-TIMEOUT: still timed out — K1271-i is THEATER" \
       || ok "teeth M-1271-TIMEOUT: hang not cut off without the wrapper — K1271-i has teeth"
   else no "teeth M-1271-TIMEOUT: could not build mutant"; fi
   # M-1271-TOVALID: RSDD_GH_TIMEOUT is passed through unvalidated → 0 reaches timeout (unbounded).
   if _k43_buildlib k71tv -e "s#^      ''|\*\[!0-9\]\*) t=0 ;;\$#      NEVERMATCH) t=0 ;;#" -e 's#\[ "\$((10\#\$t))" -eq 0 \]#false#'; then
     d="$(_k71_target t-tv https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71tv/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71tv/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1271-TOVALID: 0 reaches timeout without validation — K1271-o has teeth" \
       || no "teeth M-1271-TOVALID: timeout got '$(head -1 "$TMP/k71.to.log")' — K1271-o is THEATER"
   else no "teeth M-1271-TOVALID: could not build mutant"; fi
@@ -4279,14 +4281,14 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1271-RC125: rc 125 loses its own wording.
   if _k43_build k71r5 -e 's#^      if \[ "\$GHV_RC" = 125 \]; then$#      if false; then#'; then
     d="$(_k71_target t-r5 https://example.invalid/x.git)"
-    PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$TMP/k43/k71r5/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_RC=125 K71_VIS="" bash "$TMP/k43/k71r5/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'timeout could not run gh' "$TMP/k71t.out" && no "teeth M-1271-RC125: wording survives — THEATER" \
       || ok "teeth M-1271-RC125: wording gone — K1271-p has teeth"
   else no "teeth M-1271-RC125: could not build mutant"; fi
   # M-1271-STDERR: gh stderr is discarded again.
   if _k43_buildlib k71se -e 's#2>"\$err")" || rc=#2>/dev/null)" || rc=#'; then
     d="$(_k71_target t-se https://example.invalid/x.git)"
-    PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$TMP/k43/k71se/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_RC=1 K71_VIS="" K71_ERR="HTTP 401: bad credentials" bash "$TMP/k43/k71se/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'HTTP 401' "$TMP/k71t.out" && no "teeth M-1271-STDERR: stderr still surfaced — THEATER" \
       || ok "teeth M-1271-STDERR: stderr not surfaced when discarded — K1271-p has teeth"
   else no "teeth M-1271-STDERR: could not build mutant"; fi
@@ -4294,35 +4296,35 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   if ! command -v timeout >/dev/null 2>&1; then echo "  SKIP  teeth M-1271-RC124: GNU timeout not on PATH"
   elif _k43_buildlib k71r1 -e 's#\[ "\$rc" = 124 \]#[ "$rc" = 999 ]#'; then
     d="$(_k71_target t-r1 https://example.invalid/x.git)"
-    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=6 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71r1/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" RSDD_GH_TIMEOUT=1 K71_SLEEP=6 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71r1/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'gh timed out' "$TMP/k71t.out" && no "teeth M-1271-RC124: typed message survives — THEATER" \
       || ok "teeth M-1271-RC124: typed 'gh timed out' gone — K1271-i has teeth"
   else no "teeth M-1271-RC124: could not build mutant"; fi
   # M-1271-RPFAIL: every rev-parse failure is read as "not a repo" → dubious ownership hides as NO-REMOTE.
   if _k43_build k71rp -e 's#\*"not a git repository"\*) ;;   \# VL-NOTREPO#*) ;;   \# VL-NOTREPO#'; then
     d="$(_k71_target t-rp https://example.invalid/x.git)"
-    PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$TMP/k43/k71rp/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_GIT:$K71_BIN:$PATH" K71_DUBIOUS=1 bash "$TMP/k43/k71rp/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'DEGRADED git rev-parse failed' "$TMP/k71t.out" && no "teeth M-1271-RPFAIL: still DEGRADED — K1271-l3 is THEATER" \
       || ok "teeth M-1271-RPFAIL: dubious ownership no longer DEGRADED — K1271-l3 has teeth"
   else no "teeth M-1271-RPFAIL: could not build mutant"; fi
   # M-1271-NOPROMPT: GH_PROMPT_DISABLED is no longer exported to gh.
   if _k43_buildlib k71np -e 's#GH_PROMPT_DISABLED=1 "\${cmd#"${cmd#g'; then
     d="$(_k71_target t-np https://example.invalid/x.git)"; : > "$TMP/k71t.gh.log"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71np/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71np/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     grep -qF 'GH_PROMPT_DISABLED=1' "$TMP/k71t.gh.log" && no "teeth M-1271-NOPROMPT: still set — THEATER" \
       || ok "teeth M-1271-NOPROMPT: variable absent without the export — K1271-i has teeth"
   else no "teeth M-1271-NOPROMPT: could not build mutant"; fi
   # M-1271-WFDIR: the .github symlink guard is removed → the workflow is written through the link.
   if _k43_build k71wd -e 's#^    if \[ -L "\$gh_dir" \] .*#    if false; then bad_dir=""#'; then
     d="$(_k71_target t-wd https://example.invalid/x.git)"; mkdir -p "$TMP/k71-wd-out"; ln -s "$TMP/k71-wd-out" "$d/.github"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71wd/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71wd/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
     [ -e "$TMP/k71-wd-out/workflows/vendor-leak.yml" ] && ok "teeth M-1271-WFDIR: written through the symlink without the guard — K1271-k has teeth" \
       || no "teeth M-1271-WFDIR: nothing written under the mutant — K1271-k is THEATER"
   else no "teeth M-1271-WFDIR: could not build mutant"; fi
   # M-1271-NOTREPO: the not-a-work-tree check is removed → a non-repo is reported as DEGRADED, not NO-REMOTE.
   if _k43_build k71nt -e 's#^  if ! rp_err="\$(git -C "\$target" rev-parse --is-inside-work-tree 2>&1 >/dev/null)"; then$#  if false; then#'; then
     d="$(_k71_target t-nt)"
-    PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$TMP/k43/k71nt/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_GIT:$K71_BIN:$PATH" K71_NOTREPO=1 K71_REMOTEFAIL=1 bash "$TMP/k43/k71nt/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'vendor-leak: NO-REMOTE' "$TMP/k71t.out" && no "teeth M-1271-NOTREPO: NO-REMOTE survives — K1271-l is THEATER" \
       || ok "teeth M-1271-NOTREPO: non-repo misreported without the check — K1271-l has teeth"
   else no "teeth M-1271-NOTREPO: could not build mutant"; fi
@@ -4335,28 +4337,28 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1271-REPOARG: the repo argument is dropped → gh picks the repo itself (here: the default answer PRIVATE).
   if _k43_buildlib k71ra -e 's#repo view "\$repo" #repo view #'; then
     d="$(_k71_target t-ra https://example.invalid/pub.git)"; git -C "$d" remote add upstream https://example.invalid/priv.git
-    PATH="$K71_BIN:$PATH" K71_MAP="pub.git=PUBLIC;priv.git=PRIVATE" K71_VIS=PRIVATE K71_RC=0 bash "$TMP/k43/k71ra/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_MAP="pub.git=PUBLIC;priv.git=PRIVATE" K71_VIS=PRIVATE K71_RC=0 bash "$TMP/k43/k71ra/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ -e "$d/.research-sdd/vendor-leak.conf" ] && no "teeth M-1271-REPOARG: still scaffolded — K1271-q is THEATER" \
       || ok "teeth M-1271-REPOARG: wrong repo probed without the argument — K1271-q has teeth"
   else no "teeth M-1271-REPOARG: could not build mutant"; fi
   # M-1271-GHREPO: GH_REPO is no longer unset for the call.
   if _k43_buildlib k71gr -e 's#env -u GH_REPO #env #g'; then
     d="$(_k71_target t-gr https://example.invalid/pub.git)"; : > "$TMP/k71t.gh.log"
-    PATH="$K71_BIN:$PATH" GH_REPO=someone/else K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71gr/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" GH_REPO=someone/else K71_VIS=PUBLIC K71_RC=0 K71_LOG="$TMP/k71t.gh.log" bash "$TMP/k43/k71gr/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     grep -qF 'GH_REPO=unset' "$TMP/k71t.gh.log" && no "teeth M-1271-GHREPO: still unset — THEATER" \
       || ok "teeth M-1271-GHREPO: GH_REPO leaks into gh without the unset — K1271-q has teeth"
   else no "teeth M-1271-GHREPO: could not build mutant"; fi
   # M-1271-AMBIG: the ambiguity refusal is removed → an arbitrary remote is probed.
   if _k43_build k71am -e 's#^    \*) if \[ "\$(printf .*-gt 1 \]; then$#    *) if false; then#'; then
     d="$(_k71_target t-am)"; git -C "$d" remote add up1 https://example.invalid/a.git; git -C "$d" remote add up2 https://example.invalid/b.git
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71am/toolbelt/init.sh" --absolute "$d" --corpus flat >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71am/toolbelt/init.sh" "$d" --corpus flat >"$TMP/k71t.out" 2>&1
     grep -qF 'ambiguous remote' "$TMP/k71t.out" && no "teeth M-1271-AMBIG: refusal survives — THEATER" \
       || ok "teeth M-1271-AMBIG: no refusal without the branch — K1271-q has teeth"
   else no "teeth M-1271-AMBIG: could not build mutant"; fi
   # M-1566-SUBDIR: the top-level comparison is removed → a subdirectory target is probed and wired again.
   if _k43_build k66sd -e 's#^  if \[ "\$_vl_top" != "\$_vl_here" \]; then#  if false; then#'; then
     d="$(_k71_target t-sd https://example.invalid/pub.git)"; mkdir -p "$d/sub"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66sd/toolbelt/init.sh" --absolute "$d/sub" --corpus flat --scaffold --wire >"$TMP/k71t.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66sd/toolbelt/init.sh" "$d/sub" --corpus flat --scaffold --wire >"$TMP/k71t.out" 2>&1
     { [ -e "$d/sub/.github/workflows/vendor-leak.yml" ] && ! grep -qF 'vendor-leak: SUBDIR' "$TMP/k71t.out"; } \
       && ok "teeth M-1566-SUBDIR: subdirectory wired and no typed state without the comparison — K1566-R4 has teeth" \
       || no "teeth M-1566-SUBDIR: still guarded under the mutant — K1566-R4 is THEATER"
@@ -4364,19 +4366,19 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
   # M-1566-LZ: the leading-zero strip is removed → a long zero-padded value (0000000007) is over the length bound and falls back to 20.
   if command -v timeout >/dev/null 2>&1 && _k43_build k66lz -e 's#^    \*) gh_t="\${gh_t\#.*$#    *) : ;;#'; then
     d="$(_k71_target t-lz https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0000000007 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66lz/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=0000000007 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66lz/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(head -1 "$TMP/k71.to.log")" = 7 ] && no "teeth M-1566-LZ: still 7 without the strip — THEATER" || ok "teeth M-1566-LZ: 0000000007 not normalised (got '$(head -1 "$TMP/k71.to.log")') without the strip — K1566 timeout cases have teeth"
   else echo "  SKIP  teeth M-1566-LZ: no GNU timeout or mutant not buildable"; fi
   # M-1566-ZERO: the all-zero rejection is removed → 00 reaches timeout as 0 (unbounded).
   if command -v timeout >/dev/null 2>&1 && _k43_build k66z0 -e 's# || \[ "\$((10\#\$gh_t))" -eq 0 \]##'; then
     d="$(_k71_target t-z0 https://example.invalid/x.git)"; : > "$TMP/k71.to.log"
-    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=00 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66z0/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_TO:$K71_BIN:$PATH" RSDD_GH_TIMEOUT=00 K71_TOLOG="$TMP/k71.to.log" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k66z0/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(head -1 "$TMP/k71.to.log")" = 0 ] && ok "teeth M-1566-ZERO: 00 reaches timeout as 0 without the guard — K1271-o '00' has teeth" || no "teeth M-1566-ZERO: 00 still bounded under the mutant (got '$(head -1 "$TMP/k71.to.log")') — THEATER"
   else echo "  SKIP  teeth M-1566-ZERO: no GNU timeout or mutant not buildable"; fi
   # M-1271-CONFDIR: the .research-sdd symlink/non-directory guard is removed → written through the link.
   if _k43_build k71cd -e 's#^  elif \[ -L "\$target/.research-sdd" \] .*#  elif false; then :#'; then
     d="$(_k71_target t-cd https://example.invalid/x.git)"; mkdir -p "$TMP/k71-cd-out"; ln -s "$TMP/k71-cd-out" "$d/.research-sdd"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71cd/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k71cd/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ -e "$TMP/k71-cd-out/vendor-leak.conf" ] && ok "teeth M-1271-CONFDIR: written through the symlink without the guard — K1271-r has teeth" \
       || no "teeth M-1271-CONFDIR: nothing written under the mutant — K1271-r is THEATER"
   else no "teeth M-1271-CONFDIR: could not build mutant"; fi
@@ -4385,7 +4387,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     local n="$1" g="$TMP/k43/$1/toolbelt/return-token-gate.sh" t="$TMP/k57t-$1"
     printf '#!/bin/sh\necho gate-ran\n' > "$g"; chmod +x "$g"; mkdir -p "$t/.claude"; : > "$t/INDEX.md"
     jq -n --arg c "$g" '{hooks:{Stop:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$t/.claude/settings.json"
-    bash "$TMP/k43/$n/toolbelt/init.sh" --absolute "$t" --wire >/dev/null 2>&1
+    bash "$TMP/k43/$n/toolbelt/init.sh" "$t" --wire >/dev/null 2>&1
     printf '%s\n' "$t"
   }
   # M-1757-BARE: the single spaced_bare predicate is neutered -> the bare spaced path counts as current again and is the ONLY gate
@@ -4409,69 +4411,69 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
     _u7t_hookline() { grep -m1 "$1" "$2/.claude/hooks/research-protocol.sh" 2>/dev/null; }
     _u7t_warn() {  # <init> <hook keys> <placeholder>
       local d="$TMP/u7t/w" rc; _u7_wire_target "$d" $2
-      bash "$1" --absolute "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      bash "$1" "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
       echo "rc=$rc warned=$(grep -cF "still contains the $3 placeholder" "$TMP/u7t.err")"
     }
     _u7t_ss() {  # <init> <hook keys>
       local d="$TMP/u7t/s" rc; _u7_wire_target "$d" $2
-      bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc ss=$(_u7_ss_wired "$d" && echo 1 || echo 0)"
     }
     _u7t_fill() {  # <init> <grep anchor> <init args...>
       local i="$1" a="$2" d="$TMP/u7t/f" rc; shift 2; rm -rf "$d"; mkdir -p "$d"
-      bash "$i" --absolute "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
+      bash "$i" "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
       echo "rc=$rc line=[$(_u7t_hookline "$a" "$d")]"
     }
     _u7t_wfill() {  # <init> <grep anchor> — --wire --subject Acme on an existing corpus whose hook is ABSENT
       local d="$TMP/u7t/wf" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      bash "$1" --absolute "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
+      bash "$1" "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
       echo "rc=$rc line=[$(_u7t_hookline "$2" "$d")]"
     }
     _u7t_exist() {  # <init>
       local d="$TMP/u7t/e" rc; _u7_wire_target "$d" S; cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/e.before"
-      bash "$1" --absolute "$d" --wire --subject Acme >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      bash "$1" "$d" --wire --subject Acme >/dev/null 2>"$TMP/u7t.err"; rc=$?
       echo "rc=$rc refused=$(grep -cF 'REFUSED: --subject only fills' "$TMP/u7t.err") changed=$(cmp -s "$TMP/u7t/e.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
     }
     _u7t_prefix() {  # <init> — re-wire an already-wired target with --prefix: hook untouched, typed note, exit 0
-      local d="$TMP/u7t/p" rc; _u7_wire_target "$d" P X; bash "$1" --absolute "$d" --wire >/dev/null 2>&1
+      local d="$TMP/u7t/p" rc; _u7_wire_target "$d" P X; bash "$1" "$d" --wire >/dev/null 2>&1
       cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/p.before"
-      bash "$1" --absolute "$d" --wire --prefix xx >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --wire --prefix xx >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc note=$(grep -cF 'note: --prefix not applied' "$TMP/u7t.out") changed=$(cmp -s "$TMP/u7t/p.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1)"
     }
     _u7t_mode() {  # <init> — the fill must keep the template's mode (the mode kit's template is 755)
       local d="$TMP/u7t/m" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat --subject Acme >/dev/null 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat --subject Acme >/dev/null 2>&1; rc=$?
       echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
     }
     _u7t_exec() {  # <init> <subject> — the FILLED hook must execute and emit valid JSON carrying the literal subject
       local d="$TMP/u7t/x" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat --subject "$2" >/dev/null 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat --subject "$2" >/dev/null 2>&1; rc=$?
       echo "rc=$rc json=$(_u7_hook_json_ok "$d/.claude/hooks/research-protocol.sh" "$2" && echo 1 || echo 0)"
     }
     _u7t_abort() {  # <init> — wire-only fill failing (stub mv): exit 2, and NOTHING written: no hook, no Stop hook, settings.json intact, nothing left in TMPDIR
       local d="$TMP/u7t/a" rc; rm -rf "$d"; mkdir -p "$d/.claude" "$d/td"; : > "$d/INDEX.md"; printf '{"keep":1}\n' > "$d/.claude/settings.json"; cp "$d/.claude/settings.json" "$TMP/u7t/a.settings"
-      TMPDIR="$d/td" PATH="$TMP/u7-stub:$PATH" bash "$1" --absolute "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
+      TMPDIR="$d/td" PATH="$TMP/u7-stub:$PATH" bash "$1" "$d" --wire --subject Acme >/dev/null 2>&1; rc=$?
       echo "rc=$rc hook=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0) stop=$([ -e "$d/.claude/hooks/retro-gate-stop.sh" ] && echo 1 || echo 0) settings=$(cmp -s "$TMP/u7t/a.settings" "$d/.claude/settings.json" && echo 0 || echo 1) left=$(find "$d/td" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
     }
     _u7t_scaf() {  # <init> <flags...> — scaffold path onto a target holding a hand-adapted hook but NO corpus marker
       local i="$1" d="$TMP/u7t/sc" rc; shift; rm -rf "$d"; mkdir -p "$d/.claude/hooks"; _u7_hook "$d/.claude/hooks/research-protocol.sh"
       cp "$d/.claude/hooks/research-protocol.sh" "$TMP/u7t/sc.before"
-      bash "$i" --absolute "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
+      bash "$i" "$d" --corpus flat "$@" >/dev/null 2>&1; rc=$?
       echo "rc=$rc changed=$(cmp -s "$TMP/u7t/sc.before" "$d/.claude/hooks/research-protocol.sh" && echo 0 || echo 1) index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
     }
     _u7t_nosubj() {  # <init> — scaffold --subject against the kit whose hook template has NO live <SUBJECT>
       local d="$TMP/u7t/n" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat --subject Acme >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat --subject Acme >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc fatal=$(grep -cF 'carries no live <SUBJECT> placeholder' "$TMP/u7t.out")"
     }
     _u7t_swwarn() {  # <init> <placeholder> — scaffold+wire without flags: how often is the placeholder named
       local d="$TMP/u7t/sw" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      bash "$1" "$d" --corpus flat --scaffold --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
       echo "rc=$rc warned=$(grep -cF "still contains the $2 placeholder" "$TMP/u7t.err")"
     }
     _u7t_nojq() {  # <init> <placeholder> — print-only jq-absent fallback
       local d="$TMP/u7t/j" rc; _u7_wire_target "$d" P
-      PATH="$_u7_pnojq" bash "$1" --absolute "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
+      PATH="$_u7_pnojq" bash "$1" "$d" --wire >/dev/null 2>"$TMP/u7t.err"; rc=$?
       echo "rc=$rc warned=$(grep -cF "still contains the $2 placeholder" "$TMP/u7t.err")"
     }
     _u7t_good="$SUT"
@@ -4542,42 +4544,42 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     # kit issue #1860 runners + mutants: the no-clobber install, the empty-stage guard, the explicit success cleanup, the typed staging FATAL
     _u7t_race() {  # <init> — a hook planted at the install moment (cp stub): does it survive?
       local d="$TMP/u7t/race" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_race:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_race:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc hand=$([ "$(cat "$d/.claude/hooks/research-protocol.sh" 2>/dev/null)" = HAND-ADAPTED ] && echo 1 || echo 0)"
     }
     _u7t_gone() {  # <init> — the hook vanishes between the staging check and the install
       local d="$TMP/u7t/gone" rc; _u7_wire_target "$d" S
-      PATH="$_u7_gone:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_gone:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc created=$([ -s "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
     }
     _u7t_tl() {  # <init> — is the staging dir already gone when the settings merge (jq stub) runs?
       local d="$TMP/u7t/tl" rc; rm -rf "$d"; mkdir -p "$d/td"; : > "$d/INDEX.md"
-      TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      TMPDIR="$d/td" PATH="$_u7_tl:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc clean=$([ -f "$d/u7-tl.last" ] && [ ! -s "$d/u7-tl.last" ] && echo 1 || echo 0)"
     }
     _u7t_tmpd() {  # <init> — an unusable TMPDIR: which FATAL does the operator get?
       local d="$TMP/u7t/tmpd" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      TMPDIR="$d/none" bash "$1" --absolute "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      TMPDIR="$d/none" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc fatal=$(grep -cF 'FATAL: could not create a staging directory' "$TMP/u7t.out") wrote=$([ -e "$d/.claude" ] && echo 1 || echo 0)"
     }
     _u7t_noln() {  # <init> — ln unavailable (non-EEXIST failure): exclusive-create fallback
       local d="$TMP/u7t/noln" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_noln:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc created=$([ -s "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0) mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
     }
     _u7t_nolncat() {  # <init> — ln AND the fallback copy fail
       local d="$TMP/u7t/nolncat" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$1" --absolute "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      PATH="$_u7_nocat:$_u7_noln:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc fatal=$(grep -cF 'FATAL: could not install' "$TMP/u7t.out") exists=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
     }
     _u7t_modess() {  # <init> — mode of a wire-only-created hook
       local d="$TMP/u7t/modess"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      bash "$1" --absolute "$d" --wire >/dev/null 2>&1
+      bash "$1" "$d" --wire >/dev/null 2>&1
       echo "mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
     }
     _u7t_racedirr() {  # <init> — a directory appears at the hook path at the install moment
       local d="$TMP/u7t/racedir" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_racedir:$PATH" bash "$1" --absolute "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
+      PATH="$_u7_racedir:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc kept=$(grep -cF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7t.out") inside=$(find "$d/.claude/hooks/research-protocol.sh" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
     }
     _u7t NOCLOBBER 's/^  if err="\$(ln "\$tmp" "\$dest" 2>&1)"; then$/  if err="$(mv -f "$tmp" "$dest" 2>\&1)"; then/' 'rc=0 hand=1' 'rc=0 hand=0' _u7t_race
@@ -4588,7 +4590,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     if [ "$(id -u)" != 0 ]; then
       _u7t_ro() {  # <init> — ln fails, the hooks dir turns read-only: the exclusive create fails with nothing at dest
         local d="$TMP/u7t/ro" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-        PATH="$_u7_rodir:$PATH" bash "$1" --absolute "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?; chmod -R u+w "$d" 2>/dev/null
+        PATH="$_u7_rodir:$PATH" bash "$1" "$d" --wire >"$TMP/u7t.out" 2>&1; rc=$?; chmod -R u+w "$d" 2>/dev/null
         echo "rc=$rc kept=$(grep -cF "kept: $d/.claude/hooks/research-protocol.sh" "$TMP/u7t.out")"
       }
       _u7t NO-DEST-FATAL '/echo "FATAL: could not install \$dest (ln: \$err)"/s/.*/  rc=1/' 'rc=2 kept=0' 'rc=1 kept=1' _u7t_ro
@@ -4598,39 +4600,39 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     # kit issue #1914 review + #1903 + #1550 runners and mutants
     _u7t_term() {  # <init> — TERM between the exclusive create and the mode copy: is an owned dest left behind?
       local d="$TMP/u7t/term" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_chmodterm:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc left=$([ -e "$d/.claude/hooks/research-protocol.sh" ] && echo 1 || echo 0)"
     }
     _u7t_noref() {  # <init> — chmod without --reference on a GNU-stat userland, no hard links
       local d="$TMP/u7t/noref" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_noref:$_u7_noln:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_noref:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
     }
     _u7t_bsdstat() {  # <init> — the same with a BSD-only stat dialect
       local d="$TMP/u7t/bsdstat" rc; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
-      PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$1" --absolute "$d" --wire >/dev/null 2>&1; rc=$?
+      PATH="$_u7_bsdstat:$_u7_noref:$_u7_noln:$PATH" bash "$1" "$d" --wire >/dev/null 2>&1; rc=$?
       echo "rc=$rc mode=$(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
     }
     _u7t_eng() {  # <init> [preexisting-config] — scaffold a fresh target named EngT: is the Engram config written / kept?
       local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
       [ -n "${2:-}" ] && { mkdir -p "$d/.engram"; printf '{"project_name": "mine"}\n' > "$d/.engram/config.json"; }
-      bash "$1" --absolute "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc name=$(sed -n 's/.*"project_name": "\(.*\)".*/\1/p' "$d/.engram/config.json" 2>/dev/null) step=$(grep -cF 'init cannot call MCP' "$TMP/u7t.out")"
     }
     _u7t_engdangle() {  # <init> — a dangling symlink at .engram/config.json
       local d="$TMP/u7t/engd" rc; rm -rf "$d"; mkdir -p "$d/.engram"; ln -s "$d/nowhere" "$d/.engram/config.json"
-      bash "$1" --absolute "$d" --corpus flat >/dev/null 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat >/dev/null 2>&1; rc=$?
       echo "rc=$rc index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
     }
     _u7t_engauto() {  # <init> — a target holding only .engram/: flat or nested?
       local d="$TMP/u7t/enga"; rm -rf "$d"; mkdir -p "$d/.engram"; printf '{"project_name": "x"}\n' > "$d/.engram/config.json"
-      bash "$1" --absolute "$d" --corpus auto >/dev/null 2>&1
+      bash "$1" "$d" --corpus auto >/dev/null 2>&1
       echo "root=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0) nested=$([ -e "$d/corpus/INDEX.md" ] && echo 1 || echo 0)"
     }
     _u7t_badre() {  # <init> — a PreToolUse entry whose matcher is an invalid regex: is the guard still appended?
       local d="$TMP/u7t/badre"; rm -rf "$d"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
       printf '{"hooks":{"PreToolUse":[{"matcher":"(","hooks":[{"type":"command","command":"%s/.claude/hooks/pkill-guard.sh"}]}]}}' "$d" > "$d/.claude/settings.json"
-      bash "$1" --absolute "$d" --wire >/dev/null 2>&1
+      bash "$1" "$d" --wire >/dev/null 2>&1
       echo "entries=$(jq '[.hooks.PreToolUse[]] | length' "$d/.claude/settings.json" 2>/dev/null)"
     }
     _u7t OWNED-TRAP '/^  \[ -z "\$_RSDD_OWNED_DEST" \] || rm -f -- "\$_RSDD_OWNED_DEST"/d' 'rc=143 left=0' 'rc=143 left=1' _u7t_term
@@ -4640,40 +4642,40 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
     _u7t ENGRAM-CREATE-ONLY 's/^if \[ -e "\$_eng_cfg" \] || \[ -L "\$_eng_cfg" \]; then$/if false; then/;s/mv -n -- /mv -f -- /' 'rc=0 name=mine step=1' 'rc=0 name=engt step=1' _u7t_eng keep
     _u7t_engnone() {  # <init> — a directory name with no usable character: config written or typed WARN?
       local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0) warn=$(grep -cF 'WARN: engram: could not derive' "$TMP/u7t.out")"
     }
     _u7t ENGRAM-UNDERIVABLE 's/^  if \[ -z "\$_eng_name" \]; then$/  if false; then/' 'rc=0 cfg=0 warn=1' 'rc=0 cfg=1 warn=0' _u7t_engnone
     _u7t_engflag() {  # <init> <flag value> — --engram-project: written verbatim? invalid value refused?
       local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat --engram-project "$2" >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat --engram-project "$2" >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc name=$(sed -n 's/.*"project_name": "\(.*\)".*/\1/p' "$d/.engram/config.json" 2>/dev/null) index=$([ -e "$d/INDEX.md" ] && echo 1 || echo 0)"
     }
     _u7t_engroll() {  # <init> — ERR after the config write (git init fails) with a pre-existing .engram/: config rolled back?
       local d="$TMP/u7t/engr" rc; rm -rf "$d"; mkdir -p "$d/.engram"
-      PATH="$_eng_bin:$PATH" bash "$1" --absolute "$d" --corpus flat >/dev/null 2>&1; rc=$?
+      PATH="$_eng_bin:$PATH" bash "$1" "$d" --corpus flat >/dev/null 2>&1; rc=$?
       echo "rc=$rc cfg=$([ -e "$d/.engram/config.json" ] && echo 1 || echo 0)"
     }
     _u7t_engstep() {  # <init> — underivable state: does step 6 still claim the config exists?
       local d="$TMP/u7t/___" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc claims=$(grep -cF 'config above makes the project known' "$TMP/u7t.out")"
     }
     _u7t_engmust() {  # <init> — derived name: is the must-equal-TARGETS warning printed?
       local d="$TMP/u7t/EngT" rc; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc must=$(grep -cF 'MUST equal the TARGETS.md name you pass as project:' "$TMP/u7t.out")"
     }
     _u7t ENGRAM-FLAG-IGNORED 's/^  if \[ "\$engram_project_given" = 1 \]; then _eng_name=/  if false; then _eng_name=/' 'rc=0 name=custom-name index=1' 'rc=0 name=engt index=1' _u7t_engflag custom-name
     _u7t ENGRAM-FLAG-VALIDATE 's/^if \[ "\$engram_project_given" = 1 \] \&\& ! \[\[/if false \&\& ! [[/' 'rc=2 name= index=0' 'rc=0 name=Bad Name index=1' _u7t_engflag 'Bad Name'
     _u7t_engmv() {  # <init> — mv fails without creating the config: typed FATAL or a false kept:?
       local d="$TMP/u7t/engmv" rc; rm -rf "$d"; mkdir -p "$d"
-      PATH="$_eng_mvbin:$PATH" bash "$1" --absolute "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
+      PATH="$_eng_mvbin:$PATH" bash "$1" "$d" --corpus flat >"$TMP/u7t.out" 2>&1; rc=$?
       echo "rc=$rc fatal=$(grep -cF 'FATAL: could not install' "$TMP/u7t.out") kept=$(grep -cF 'kept:' "$TMP/u7t.out")"
     }
     _u7t_engmode() {  # <init> — mode of the written config
       local d="$TMP/u7t/engmo"; rm -rf "$d"; mkdir -p "$d"
-      bash "$1" --absolute "$d" --corpus flat >/dev/null 2>&1
+      bash "$1" "$d" --corpus flat >/dev/null 2>&1
       echo "mode=$(_u7_mode "$d/.engram/config.json")"
     }
     _u7t ENGRAM-MV-FATAL 's/^      else echo "FATAL: could not install \$_eng_cfg" >&2; rollback; exit 2; fi/      else _eng_state="kept"; fi/' 'rc=2 fatal=1 kept=0' 'rc=0 fatal=0 kept=1' _u7t_engmv
@@ -4713,31 +4715,31 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
   }
   _k87_mpub() {  # <name> <target> <vis> [init args…] — run the mutant against a stubbed-gh target
     local n="$1" t="$2" v="$3"; shift 3
-    PATH="$K71_BIN:$PATH" K71_VIS="$v" K71_RC=0 bash "$TMP/k43/$n/toolbelt/init.sh" --absolute "$t" --corpus flat "$@" >"$TMP/k87m.out" 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS="$v" K71_RC=0 bash "$TMP/k43/$n/toolbelt/init.sh" "$t" --corpus flat "$@" >"$TMP/k87m.out" 2>&1
   }
   # M-1787-ADD: the drift entry is never appended -> K1787-a finds no registration.
   if _k87_mb "k87 add" 's/| if \$add then \.hooks\.SessionStart/| if false then .hooks.SessionStart/'; then
-    d="$TMP/k87m-add"; mkdir -p "$d"; bash "$TMP/k43/k87 add/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    d="$TMP/k87m-add"; mkdir -p "$d"; bash "$TMP/k43/k87 add/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
     [ "$(_k87_all "$d/.claude/settings.json")" = 0 ] && ok "teeth M-1787-ADD: no drift entry without the append — K1787-a has teeth" || no "teeth M-1787-ADD: entry still registered under the mutant — K1787-a is THEATER"
   else no "teeth M-1787-ADD: could not build mutant"; fi
   # M-1787-IDEMP: the registered-or-other-form check is dead -> a re-run appends a duplicate.
   if _k87_mb "k87 idemp" 's/then add=false; fi$/then add=true; fi/'; then
-    d="$TMP/k87m-idemp"; mkdir -p "$d"; bash "$TMP/k43/k87 idemp/toolbelt/init.sh" --absolute "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
-    bash "$TMP/k43/k87 idemp/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    d="$TMP/k87m-idemp"; mkdir -p "$d"; bash "$TMP/k43/k87 idemp/toolbelt/init.sh" "$d" --corpus flat --scaffold --wire >/dev/null 2>&1
+    bash "$TMP/k43/k87 idemp/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k87_all "$d/.claude/settings.json")" = 2 ] && ok "teeth M-1787-IDEMP: a re-run duplicates the entry without the check — K1787-b has teeth" || no "teeth M-1787-IDEMP: no duplicate under the mutant — K1787-b is THEATER"
   else no "teeth M-1787-IDEMP: could not build mutant"; fi
   # M-1787-STALE: the stale predicate no longer matches -> a dead absolute drift path survives.
   if _k87_mb "k87 stale" '/RSDD-DRIFT-STALE/s/! -e "\$p" \]\]/-e "$p" ]]/;s/&& ! -e "\$p" \]\] \\$/\&\& -e "$p" ]] \\/'; then
     d="$TMP/k87m-stale"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     printf '%s' '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"/gone/kit/verify-skill-drift-hook.sh\""}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k87 stale/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k87 stale/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k87_n "$d/.claude/settings.json" '"/gone/kit/verify-skill-drift-hook.sh"')" = 1 ] && ok "teeth M-1787-STALE: dead path survives without the stale predicate — K1787-c has teeth" || no "teeth M-1787-STALE: dead path still dropped under the mutant — K1787-c is THEATER"
   else no "teeth M-1787-STALE: could not build mutant"; fi
   # M-1787-SPACED: the whitespace predicate is dead -> a bare spaced current path counts as registered and stays unrunnable.
   if _k87_mb "k87 spaced" '/RSDD-DRIFT-SPACED-BARE/s/\[\[ "\$c" == \*\[\[:space:\]\]\* \]\]/false/'; then
     d="$TMP/k87m-spaced"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     jq -n --arg c "$TMP/k43/k87 spaced/toolbelt/verify-skill-drift-hook.sh" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k87 spaced/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k87 spaced/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k87_n "$d/.claude/settings.json" "$TMP/k43/k87 spaced/toolbelt/verify-skill-drift-hook.sh")" = 1 ] && ok "teeth M-1787-SPACED: bare spaced path kept without the predicate — K1787-d has teeth" || no "teeth M-1787-SPACED: bare path still rewritten under the mutant — K1787-d is THEATER"
   else no "teeth M-1787-SPACED: could not build mutant"; fi
   # M-1271-FOREIGN: the ownership marker check is dead -> a foreign pre-push hook is overwritten.
@@ -4782,14 +4784,14 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
   # M-1787-FATAL: the drift pass is fatal again (exit 4) -> K1787-f has teeth.
   if _k87_mb "k87 fatal" 's/_wo_drift_out="\$(_rsdd_wire_drift "\$_wo_settings")" || :/_wo_drift_out="$(_rsdd_wire_drift "$_wo_settings")" || exit 4/'; then
     d="$TMP/k87m-fatal"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
-    RSDD_TEST_DRIFT_FAIL=1 bash "$TMP/k43/k87 fatal/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1; _m_rc=$?
+    RSDD_TEST_DRIFT_FAIL=1 bash "$TMP/k43/k87 fatal/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; _m_rc=$?
     [ "$_m_rc" = 4 ] && ok "teeth M-1787-FATAL: a drift failure turns fatal (exit 4) without the advisory handling — K1787-f has teeth" || no "teeth M-1787-FATAL: exit $_m_rc under the mutant — K1787-f is THEATER"
   else no "teeth M-1787-FATAL: could not build mutant"; fi
   # M-1787-MSG: the have=1 branch of the outcome line is dead -> the misleading empty "other form" returns.
   if _k87_mb "k87 msg" '/a stale\/requoted entry was dropped/,+2s/\[ "\$have" = 1 \]/false/'; then
     d="$TMP/k87m-msg"; mkdir -p "$d/.claude"; : > "$d/INDEX.md"
     jq -n --arg c "\"$TMP/k43/k87 msg/toolbelt/verify-skill-drift-hook.sh\"" '{hooks:{SessionStart:[{matcher:"",hooks:[{type:"command",command:"\"/gone/kit/verify-skill-drift-hook.sh\""},{type:"command",command:$c}]}]}}' > "$d/.claude/settings.json"
-    bash "$TMP/k43/k87 msg/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/k87m-msg.out" 2>&1
+    bash "$TMP/k43/k87 msg/toolbelt/init.sh" "$d" --wire >"$TMP/k87m-msg.out" 2>&1
     grep -qF "other form: )" "$TMP/k87m-msg.out" && ok "teeth M-1787-MSG: the empty other-form line returns without the have branch — K1787-g has teeth" || no "teeth M-1787-MSG: accurate line still printed under the mutant — K1787-g is THEATER"
   else no "teeth M-1787-MSG: could not build mutant"; fi
   # M-1271-PRIVATE: the PRIVATE early return is dead -> a PRIVATE remote gets the hook.
@@ -4801,7 +4803,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
   if _k87_mb "k71 quote" 's|^_rsdd_sq() .*|_rsdd_sq() { printf "'"'"'%s'"'"'" "$1"; }|'; then
     _k87_q="$(_k87_kit "$TMP/m1271 it's kit")"; mkdir -p "$_k87_q/toolbelt/lib"; cp "$TMP/k43/k71 quote/toolbelt/init.sh" "$_k87_q/toolbelt/init.sh"
     d="$(_k71_target m-quote https://example.invalid/pub.git)"
-    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" --absolute "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
+    PATH="$K71_BIN:$PATH" K71_VIS=PUBLIC K71_RC=0 bash "$_k87_q/toolbelt/init.sh" "$d" --corpus flat --wire --scaffold >/dev/null 2>&1
     ( cd "$d" && bash .git/hooks/pre-push >/dev/null 2>&1 ); _m_rc=$?
     [ "$_m_rc" != 0 ] && ok "teeth M-1271-QUOTE: the hook breaks on a quoted kit path without the escaper — K1271-pp-h has teeth" || no "teeth M-1271-QUOTE: hook still runs under the mutant — K1271-pp-h is THEATER"
   else no "teeth M-1271-QUOTE: could not build mutant"; fi
@@ -4830,7 +4832,7 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
   # M-1800-WD: the watchdog never kills gh -> with no timeout binary a stalled probe is unbounded again.
   if _k87_mbl "k00 wd" 's/& wait; _ghv_sig TERM "\$1" "\$3"$/\& wait; :/;s/_ghv_sig KILL "\$1" "\$3" )/: )/'; then
     d="$(_k00_target m-wd https://example.invalid/pub.git)"; _t0=$SECONDS
-    PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" --absolute "$d" --corpus flat --wire >/dev/null 2>&1
+    PATH="$_k00_noto" RSDD_GH_TIMEOUT=1 K71_SLEEP=4 K71_VIS=PUBLIC K71_RC=0 bash "$TMP/k43/k00 wd/toolbelt/init.sh" "$d" --corpus flat --wire >/dev/null 2>&1
     [ $((SECONDS - _t0)) -ge 4 ] && ok "teeth M-1800-WD: without the kill the stalled probe runs its full stall — K1800-h has teeth" || no "teeth M-1800-WD: still bounded under the mutant — K1800-h is THEATER"
   else no "teeth M-1800-WD: could not build mutant"; fi
   # ---- kit issue #1834 teeth: the watchdog SUCCESS path (K1834-i) ----
@@ -4855,52 +4857,52 @@ _rsdd_sed_escape() { printf "%s" "$1"; }' 'rc=0 json=1' 'rc=0 json=0' _u7t_exec 
   # M-1804-PARENT: `!.research-sdd/` (the dir itself) counts as re-including the plan -> a false NEGATED.
   if _k87_mb "k04 parent" "s#^        '\\.research-sdd/\\*'|#        '.research-sdd/'|'.research-sdd/*'|#"; then
     d="$TMP/k04m-parent"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/\n' > "$d/.gitignore"
-    bash "$TMP/k43/k04 parent/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/k04m-parent.out" 2>&1
+    bash "$TMP/k43/k04 parent/toolbelt/init.sh" "$d" --wire >"$TMP/k04m-parent.out" 2>&1
     grep -qF 'NEGATED' "$TMP/k04m-parent.out" && ok "teeth M-1804-PARENT: a dir-only negation is misreported as NEGATED without the narrowing — K1804-j2 has teeth" || no "teeth M-1804-PARENT: no false NEGATED under the mutant — K1804-j2 is THEATER"
   else no "teeth M-1804-PARENT: could not build mutant"; fi
   # M-1804-LAST: negations are not recognised (first match wins) -> a later negation yields a false "already ignored".
   if _k87_mb "k04 last" 's/if \[ "\$core" = "\$l" \]; then st=ignored; else st=negated; fi/st=ignored/'; then
     d="$TMP/k04m-last"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"
-    bash "$TMP/k43/k04 last/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/k04m-last.out" 2>&1
+    bash "$TMP/k43/k04 last/toolbelt/init.sh" "$d" --wire >"$TMP/k04m-last.out" 2>&1
     grep -qF 'already ignored' "$TMP/k04m-last.out" && ok "teeth M-1804-LAST: a later negation is reported as already ignored without last-wins — K1804-h has teeth" || no "teeth M-1804-LAST: NEGATED still reported under the mutant — K1804-h is THEATER"
   else no "teeth M-1804-LAST: could not build mutant"; fi
   # M-1804-NEG: the NEGATED stop is dead -> the plan line is appended after the user's negation (overriding it).
   if _k87_mb "k04 neg" '/RSDD-GI-NEG/s/return 0 ;;/;;/'; then
     d="$TMP/k04m-neg"; mkdir -p "$d"; : > "$d/INDEX.md"; printf '.research-sdd/plan/\n!.research-sdd/plan/\n' > "$d/.gitignore"
-    bash "$TMP/k43/k04 neg/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k04 neg/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(wc -l < "$d/.gitignore")" -gt 2 ] && ok "teeth M-1804-NEG: the user's negation is overridden without the stop — K1804-h has teeth" || no "teeth M-1804-NEG: file untouched under the mutant — K1804-h is THEATER"
   else no "teeth M-1804-NEG: could not build mutant"; fi
   # M-1804-DEDUP: the equivalent-pattern early return is dead -> a re-run appends a duplicate line.
   if _k87_mb "k04 dedup" '/^      ignored) echo/s/return 0 ;;/;;/'; then
     d="$TMP/k04m-dedup"; mkdir -p "$d"; : > "$d/INDEX.md"
-    bash "$TMP/k43/k04 dedup/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k04 dedup/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1; bash "$TMP/k43/k04 dedup/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 2 ] && ok "teeth M-1804-DEDUP: a re-run duplicates the line without the equivalence check — K1804-d/f have teeth" || no "teeth M-1804-DEDUP: no duplicate under the mutant — K1804-d/f are THEATER"
   else no "teeth M-1804-DEDUP: could not build mutant"; fi
   # M-1804-NEWLINE: the trailing-newline repair is gone -> the line fuses onto the user's last line.
   if _k87_mb "k04 nl" "s/ || printf '\\\\n' >> \"\\\$gi\"//"; then
     d="$TMP/k04m-nl"; mkdir -p "$d"; : > "$d/INDEX.md"; printf 'node_modules/\n*.log' > "$d/.gitignore"
-    bash "$TMP/k43/k04 nl/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k04 nl/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 1 ] && no "teeth M-1804-NEWLINE: plan line still on its own row under the mutant — K1804-c is THEATER" || ok "teeth M-1804-NEWLINE: without the newline repair the plan line is not added on its own row — K1804-c has teeth"
   else no "teeth M-1804-NEWLINE: could not build mutant"; fi
   # M-1804-SYMLINK: the symlink refusal is dead -> the append writes through a dangling link.
   if _k87_mb "k04 sym" 's/if \[ -L "\$gi" \] ||/if false ||/'; then
     d="$TMP/k04m-sym"; mkdir -p "$d"; : > "$d/INDEX.md"; ln -s "$d/nowhere" "$d/.gitignore"
-    bash "$TMP/k43/k04 sym/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    bash "$TMP/k43/k04 sym/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ -e "$d/nowhere" ] && ok "teeth M-1804-SYMLINK: the dangling link is written through without the refusal — K1804-g has teeth" || no "teeth M-1804-SYMLINK: nothing written through under the mutant — K1804-g is THEATER"
   else no "teeth M-1804-SYMLINK: could not build mutant"; fi
   # M-1804-SCAFFOLD: the scaffold path no longer calls the helper -> a fresh corpus ignores no plan dir.
   if _k87_mb "k04 sc" '/^_rsdd_gitignore_plan$/d'; then
-    d="$TMP/k04m-sc"; mkdir -p "$d"; bash "$TMP/k43/k04 sc/toolbelt/init.sh" --absolute "$d" --corpus flat >/dev/null 2>&1
+    d="$TMP/k04m-sc"; mkdir -p "$d"; bash "$TMP/k43/k04 sc/toolbelt/init.sh" "$d" --corpus flat >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && ok "teeth M-1804-SCAFFOLD: no plan line on a fresh scaffold without the call — K1804-a has teeth" || no "teeth M-1804-SCAFFOLD: line present under the mutant — K1804-a is THEATER"
   else no "teeth M-1804-SCAFFOLD: could not build mutant"; fi
   # M-1804-WIRE: the --wire repair path no longer calls the helper.
   if _k87_mb "k04 wr" '/^      _rsdd_gitignore_plan$/d'; then
-    d="$TMP/k04m-wr"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k04 wr/toolbelt/init.sh" --absolute "$d" --wire >/dev/null 2>&1
+    d="$TMP/k04m-wr"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k04 wr/toolbelt/init.sh" "$d" --wire >/dev/null 2>&1
     [ "$(_k04_cnt "$d/.gitignore")" = 0 ] && ok "teeth M-1804-WIRE: no plan line from --wire repair without the call — K1804-c/e have teeth" || no "teeth M-1804-WIRE: line present under the mutant — K1804-c/e are THEATER"
   else no "teeth M-1804-WIRE: could not build mutant"; fi
   # M-2130-PIN: the wire output no longer names the pinned kit path (both the scaffold+wire and the wire-only call sites).
   if _k87_mb "k2130 pin" '/^      _rsdd_pin_note$/d'; then
-    d="$TMP/k2130m"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k2130 pin/toolbelt/init.sh" --absolute "$d" --wire >"$TMP/k2130m.out" 2>&1
+    d="$TMP/k2130m"; mkdir -p "$d"; : > "$d/INDEX.md"; bash "$TMP/k43/k2130 pin/toolbelt/init.sh" "$d" --wire >"$TMP/k2130m.out" 2>&1
     grep -qF 'hooks pin the kit at' "$TMP/k2130m.out" && no "teeth M-2130-PIN: pin note still printed under the mutant — K2130-a/b are THEATER" || ok "teeth M-2130-PIN: without the call the pin note is gone — K2130-a/b have teeth"
   else no "teeth M-2130-PIN: could not build mutant"; fi
   fi
