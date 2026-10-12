@@ -87,7 +87,11 @@ if [ "$HAVE_TS" = 1 ]; then
   beh_out="$(node "$BEHAVIOR" 2>&1)"; beh_rc=$?
   beh_sum="$(grep -E '^== [0-9]+ passed · [0-9]+ failed ==$' <<<"$beh_out" | tail -1)"
   if [ "$beh_rc" = 0 ] && [ -n "$beh_sum" ]; then ok "behavior: pi-hooks-behavior.test.mjs against the real extension ($beh_sum)"
-  else no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';')"; fi
+  else
+    # name the failing case(s); a crash prints no FAIL line, so the output tail is always included (kit issue #2158: a
+    # failure whose case was never captured cannot be told from a load-sensitive one)
+    no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';') tail: $(tail -3 <<<"$beh_out" | cut -c1-200 | tr '\n' ';')"
+  fi
 elif [ "${RSDD_REQUIRE_NODE_TS:-}" = 1 ]; then
   no "behavior: RSDD_REQUIRE_NODE_TS=1 but this Node ($(node --version 2>/dev/null || echo 'node absent')) has no built-in TypeScript type stripping: the extension handlers were not executed (typed refusal, not a skip)"
 else
@@ -143,7 +147,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       if [ "$HAVE_TS" != 1 ]; then sk "teeth $name: needs Node type stripping to run the behavior suite on the mutant"; return; fi
       RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" >"$M/$name.out" 2>&1; r=$?
       if [ "$r" = 1 ] && grep -q '^  FAIL' "$M/$name.out"; then ok "teeth $name: behavior suite goes red ($(grep -m1 '^  FAIL' "$M/$name.out" | cut -c8-90))"
-      else no "teeth $name: behavior suite exit $r on the mutant — THEATER"; fi
+      else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$M/$name.out" | cut -c1-160 | tr '\n' ';'))"; fi
     fi
   }
   tooth child-guard-removed   struct   child-guard-first 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'

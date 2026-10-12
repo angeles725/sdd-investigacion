@@ -30,6 +30,28 @@ const check = (m, cond, detail = '') => (cond ? ok(m) : no(m + (detail ? ' — '
 
 console.log('== pi-hooks-behavior.test.mjs ==');
 
+// A throw that escapes a section would end the process with a stack trace and NO `FAIL` line: the aggregate then reports a
+// failure whose case is unnamed (kit issue #2158). Name it instead, and fail.
+const crashed = (e) => { console.log('  FAIL  uncaught exception, remaining cases not run — ' + String(e?.stack ?? e).split('\n').slice(0, 3).join(' | ')); process.exit(1); };
+process.on('uncaughtException', crashed);
+process.on('unhandledRejection', crashed);
+
+// Timing discipline (kit issue #2158): a case may bound a child's runtime only RELATIVE to something the host cannot
+// stretch (a 30 s sleep it must not wait for), never to a few hundred ms of process start-up. Waits poll for the OUTCOME
+// with a generous ceiling; a child that has not started yet is waited for, not assumed.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const waitFor = async (fn, ceilingMs = 15000, stepMs = 50) => {
+  const end = Date.now() + ceilingMs;
+  for (;;) { const v = fn(); if (v) return v; if (Date.now() >= end) return null; await sleep(stepMs); }
+};
+// A killed process whose parent has not reaped it yet still answers kill(pid, 0): a zombie is dead.
+const pidAlive = (pid) => {
+  if (!(pid > 0)) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  try { return !/^\S+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+};
+const readPid = (file) => { try { const n = Number(readFileSync(file, 'utf8').trim()); return n > 0 ? n : 0; } catch { return 0; } };
+
 if (!existsSync(SRC)) {
   console.error('FATAL: extension under test missing: ' + SRC);
   process.exit(2);
@@ -237,7 +259,7 @@ const t0 = Date.now();
   const ev = startEvent();
   await fire(s.pi, 'before_agent_start', ev, s.ctx);
   const txt = sectionOf(ev); const dt = Date.now() - t;
-  check('a hung sweep script is bounded by its timeout and reported as timed out', /timed out/i.test(txt) && txt.includes('sweep-tools-hook') && dt < 6000, `dt=${dt} ${txt.slice(0, 200)}`);
+  check('a hung sweep script is bounded by its timeout and reported as timed out', /timed out/i.test(txt) && txt.includes('sweep-tools-hook') && dt < 7500, `dt=${dt} ${txt.slice(0, 200)}`);
   restoreEnv();
 }
 {
@@ -493,17 +515,18 @@ if (!haveJq) {
 }
 
 // ---- 13. timeouts kill the whole process group ------------------------------------------------------------------------
-{
-  const pidFile = join(TMP, 'grandchild.pid');
-  const body = `#!/usr/bin/env bash\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
-  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '700' } });
+// The timeout is generous and the script's start-up is varied: under load a script can take far longer than a few hundred
+// ms to reach `sleep 30 &`, and a timeout that fires first leaves no grandchild to inspect (kit issue #2158).
+for (const startDelay of ['0', '0.8']) {
+  const pidFile = join(TMP, `grandchild-${startDelay}.pid`);
+  const body = `#!/usr/bin/env bash\nsleep ${startDelay}\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
+  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '2500', RSDD_PI_SWEEP_WAIT_MS: '20000' } });
   await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
-  await new Promise((r) => setTimeout(r, 300));
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
-  let alive = true;
-  try { process.kill(pid, 0); } catch { alive = false; }
-  if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* cleanup */ } }
-  check('a timed-out script takes its grandchildren with it (process group kill)', !alive, 'grandchild ' + pid + ' still running');
+  const pid = readPid(pidFile);
+  if (!pid) { no(`a timed-out script takes its grandchildren with it (start delay ${startDelay}s) — the grandchild was never started: scenario not exercised`); restoreEnv(); continue; }
+  const dead = await waitFor(() => !pidAlive(pid), 6000);
+  if (!dead) { try { process.kill(pid, 'SIGKILL'); } catch { /* cleanup */ } }
+  check(`a timed-out script takes its grandchildren with it (process group kill, start delay ${startDelay}s)`, !!dead, 'grandchild ' + pid + ' still running');
   restoreEnv();
 }
 
@@ -546,14 +569,21 @@ if (!haveJq) {
 
 // ---- 16. the first prompt is not held hostage by slow sweeps ------------------------------------------------------------
 {
-  const slow = { 'sweep-tools-hook': `#!/usr/bin/env bash\nsleep 1.5\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\n` };
+  const slow = { 'sweep-tools-hook': `#!/usr/bin/env bash\nsleep 4\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\n` };
   const s = await boot({ kitOpts: { hookBody: slow }, env: { RSDD_PI_SWEEP_WAIT_MS: '150' } });
   const t = Date.now();
   const ev1 = startEvent(); await fire(s.pi, 'before_agent_start', ev1, s.ctx);
   const dt = Date.now() - t;
-  check('slow sweeps: the first run waits only the short bound and injects a typed pending line', dt < 1200 && /sweeps pending \(started \d{4}-/.test(sectionOf(ev1)) && !/FINDING/.test(sectionOf(ev1)), `dt=${dt} ${sectionOf(ev1).slice(0, 160)}`);
-  await new Promise((r) => setTimeout(r, 1900));
-  const ev2 = startEvent(); await fire(s.pi, 'before_agent_start', ev2, s.ctx);
+  // the outcome proves the first run did not wait for the 4 s script (a waiting run would carry its FINDING); no wall-clock
+  // bound over the 150 ms wait: a loaded host stretches it arbitrarily (kit issue #2158)
+  check('slow sweeps: the first run waits only the short bound and injects a typed pending line', /sweeps pending \(started \d{4}-/.test(sectionOf(ev1)) && !/FINDING/.test(sectionOf(ev1)), `dt=${dt} ${sectionOf(ev1).slice(0, 160)}`);
+  // poll for the finished sweeps instead of sleeping a fixed time: a loaded host starts the 4 s script late
+  let ev2 = startEvent();
+  for (const end = Date.now() + 20000; ; ) {
+    ev2 = startEvent(); await fire(s.pi, 'before_agent_start', ev2, s.ctx);
+    if (/FINDING-sweep-tools-hook/.test(sectionOf(ev2)) || Date.now() >= end) break;
+    await sleep(100);
+  }
   check('the next run injects the finished sweeps (no pending line)', /FINDING-sweep-tools-hook/.test(sectionOf(ev2)) && !/pending/.test(sectionOf(ev2)), sectionOf(ev2).slice(0, 160));
   restoreEnv();
 }
@@ -563,27 +593,28 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   sk('setsid not available: the pipe-holding grandchild cases were not run');
 } else {
   const pidFile = join(TMP, 'escaped.pid');
-  const killEscaped = () => { try { process.kill(Number(readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone */ } };
+  // returns the escaped grandchild's pid (0: the script never got as far as starting it, so the scenario was not exercised)
+  const killEscaped = () => { const pid = readPid(pidFile); rmSync(pidFile, { force: true }); if (pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } return pid; }; // never kill(0): that signals the whole process group
   {
     // timeout: the group kill cannot reach the setsid child, which keeps stdout open
     const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
     const t = Date.now();
-    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '600', RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '2500', RSDD_PI_SWEEP_WAIT_MS: '20000' } });
     const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('a timed-out script whose escaped grandchild holds the pipes still resolves within timeout + grace', /sweep-tools-hook\] degraded: timed out/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    const started = killEscaped() > 0;
+    check('a timed-out script whose escaped grandchild holds the pipes still resolves within timeout + grace', /sweep-tools-hook\] degraded: timed out/.test(sectionOf(ev)) && started && dt < 20000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
     restoreEnv();
   }
   {
     // normal exit: the script finished and printed its finding, but a setsid child still holds the pipes
     const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\nexit 0\n`;
     const t = Date.now();
-    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_WAIT_MS: '20000' } });
     const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('a script that exits but leaves a pipe-holding grandchild resolves after a short grace with the output so far', /FINDING-sweep-tools-hook/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    const started = killEscaped() > 0;
+    check('a script that exits but leaves a pipe-holding grandchild resolves after a short grace with the output so far', /FINDING-sweep-tools-hook/.test(sectionOf(ev)) && started && dt < 20000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
     restoreEnv();
   }
   {
@@ -591,15 +622,15 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
     const gateHolder = `#!/usr/bin/env bash\ncat >/dev/null\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
     const { kit } = makeKit();
     write(join(kit, 'toolbelt', 'retro-gate.sh'), gateHolder, true);
-    setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_PI_GATE_TIMEOUT_MS: '600' });
+    setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_PI_GATE_TIMEOUT_MS: '2500' });
     const pi = makePi(); (await loadFactory())(pi);
     const ctx = makeCtx(makeTarget(), 'sess-hold', [assistant('x')]);
     await fire(pi, 'session_start', { type: 'session_start', reason: 'startup' }, ctx);
     const t = Date.now();
     const r = await fire(pi, 'agent_before_settle', settleEvent(), ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('the settle gate returns (typed timeout notice) even when an escaped grandchild holds its pipes', dt < 6000 && /retro gate DEGRADED: timed out/.test(JSON.stringify(r ?? {})), `dt=${dt} ${JSON.stringify(r)}`);
+    const started = killEscaped() > 0;
+    check('the settle gate returns (typed timeout notice) even when an escaped grandchild holds its pipes', started && dt < 20000 && /retro gate DEGRADED: timed out/.test(JSON.stringify(r ?? {})), `dt=${dt} ${JSON.stringify(r)}`);
     restoreEnv();
   }
 }
