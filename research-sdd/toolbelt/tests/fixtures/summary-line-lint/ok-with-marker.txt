@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# summary-lint: dynamic reason here
+echo "== $pass passed · $fail failed =="
