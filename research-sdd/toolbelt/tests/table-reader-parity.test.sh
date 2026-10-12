@@ -105,13 +105,14 @@ probes() {
   # Snapshot files whose names carry a pipe are created here (a pipe in a committed file name is not portable).
   d="$TMP/vsrc.$RANDOM"; mkdir -p "$d"; cp -r "$FX/sources/." "$d/"
   printf 'snap\n' > "$d/sources/web-snapshots/w|esc.html"
+  printf 'snap\n' > "$d/sources/web-snapshots/w\|even.html"; printf 'snap\n' > "$d/sources/web-snapshots/w\\\\|triple.html"   # backslash names: GNU sha256sum escapes them (#2182)
   out="$(bash "$t/verify-sources.sh" "$d" 2>&1)"
   if ! grep -q 'malformed row' <<<"$out"; then PR[vsrc_hdr]=ok; else PR[vsrc_hdr]="$(grep -c 'malformed row' <<<"$out") malformed-row WARN(s): $(grep -m1 'malformed row' <<<"$out" | cut -c1-120)"; fi
-  # LEVEL 4 must VALIDATE every escaped row: 14 claims cross-checked, and exactly the one uncited row (h|esc.pdf) reported.
-  if grep -qF 'cross-checked 14 registry→block citation claim(s)' <<<"$out" && [ "$(grep -c 'FABRICATED-CITE' <<<"$out")" = 1 ] && grep -qF "cites 'h|esc.pdf'" <<<"$out"; then PR[vsrc_l4]=ok
+  # LEVEL 4 must VALIDATE every escaped row: 16 claims cross-checked, and exactly the one uncited row (h|esc.pdf) reported.
+  if grep -qF 'cross-checked 16 registry→block citation claim(s)' <<<"$out" && [ "$(grep -c 'FABRICATED-CITE' <<<"$out")" = 1 ] && grep -qF "cites 'h|esc.pdf'" <<<"$out"; then PR[vsrc_l4]=ok
   else PR[vsrc_l4]="$(grep -E 'cross-checked|FABRICATED-CITE' <<<"$out" | head -3 | cut -c1-110 | tr '\n' '~')"; fi
   if ! grep -qE 'orphan-snapshot|uncited-snapshot' <<<"$out"; then PR[vsrc_l5]=ok; else PR[vsrc_l5]="$(grep -E 'orphan-snapshot|uncited-snapshot' <<<"$out" | head -2 | cut -c1-110 | tr '\n' '~')"; fi
-  if grep -qF -- '-- web-snapshot hashes: 2 verified · 0 unverifiable' <<<"$out" && grep -qF 'hash-mismatch: sources/web-snapshots/w5.html' <<<"$out"; then PR[vsrc_l6]=ok
+  if grep -qF -- '-- web-snapshot hashes: 4 verified · 0 unverifiable' <<<"$out" && grep -qF 'hash-mismatch: sources/web-snapshots/w5.html' <<<"$out"; then PR[vsrc_l6]=ok
   else PR[vsrc_l6]="$(grep -E 'web-snapshot hashes|hash-mismatch|unverifiable-hash' <<<"$out" | head -3 | cut -c1-110 | tr '\n' '~')"; fi
   if grep -qF -- '-- non-web-snapshot rows with on-disk files and hashes: 3 not hash-verified' <<<"$out"; then PR[vsrc_d2]=ok; else PR[vsrc_d2]="$(grep 'non-web-snapshot' <<<"$out" | head -1 | cut -c1-110)"; fi
   if ! grep -q 'empty-digest' <<<"$out"; then PR[vsrc_ed]=ok; else PR[vsrc_ed]="$(grep -m1 'empty-digest' <<<"$out" | cut -c1-110)"; fi
@@ -141,9 +142,9 @@ declare -A DESC=(
   [mb_status]="migrate-backlogs.sh FOCUSES.md rewrite: closed/reabierto become stopped/reopened in the Status cell only, escape bytes kept"
   [mb_doc]="migrate-backlogs.sh document-focus lookup: a document focus whose row carries an escaped pipe gets no empty-backlog skeleton"
   [vsrc_hdr]="verify-sources.sh registry pre-check: well-formed 6-column rows with escapes in the first/middle/last cells draw no malformed-row WARN"
-  [vsrc_l4]="verify-sources.sh LEVEL 4: all 14 escaped-pipe citation claims are cross-checked and only the genuinely uncited h|esc.pdf is FABRICATED-CITE"
+  [vsrc_l4]="verify-sources.sh LEVEL 4: all 16 escaped-pipe citation claims are cross-checked and only the genuinely uncited h|esc.pdf is FABRICATED-CITE"
   [vsrc_l5]="verify-sources.sh LEVEL 5: web snapshots whose registered File cell holds an escaped pipe are matched (no orphan, no uncited)"
-  [vsrc_l6]="verify-sources.sh LEVEL 6: 2 snapshot hashes verified past an escaped Origin / File cell, the wrong hash of w5.html is a hash-mismatch"
+  [vsrc_l6]="verify-sources.sh LEVEL 6: 4 snapshot hashes verified past an escaped Origin / File cell, the wrong hash of w5.html is a hash-mismatch"
   [vsrc_d2]="verify-sources.sh D2 count: 3 non-web-snapshot rows with an escaped Origin cell before the sha256 cell are counted"
   [vsrc_ed]="verify-sources.sh empty-digest scan: an escaped pipe in front of a digest-looking text does not make that text a bare digest cell"
   [gr_rows]="lib/gap-rows.sh gap_rows_parse: 15 ROW records, cell text unescaped by exactly one backslash-pipe"
@@ -196,7 +197,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth vsrc-l4       verify-sources.sh '${_l4raw//\\\|/' '${_l4raw//ZZZZ/' vsrc_l4
   tooth vsrc-l5       verify-sources.sh '/^\|/ { gsub(/\\\|/,"\001"); v=$2;' '/^\|/ { v=$2;' vsrc_l5
   tooth vsrc-l6       verify-sources.sh '${_raw//\\\|/' '${_raw//ZZZZ/' vsrc_l6
-  tooth vsrc-d2       verify-sources.sh '${_d2raw//\\\|/' '${_d2raw//ZZZZ/' vsrc_d2
+  tooth vsrc-sha      verify-sources.sh 'disk_full=$(sha256sum < "$file"' 'disk_full=$(sha256sum "$file"' vsrc_l6
+  tooth vsrc-d2      verify-sources.sh '${_d2raw//\\\|/' '${_d2raw//ZZZZ/' vsrc_d2
   tooth vsrc-ed       verify-sources.sh 'gsub(/\\\|/, "\001")  # GFM-EP-ED' '$0=$0  # GFM-EP-ED' vsrc_ed
   tooth gr-rows       lib/gap-rows.sh 'gsub(/\\\|/,"\001",t); ' '' gr_rows
 fi
