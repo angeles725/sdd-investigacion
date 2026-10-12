@@ -2179,6 +2179,14 @@ the fast lane — only the spawn / real-tool-run is deferred.  A fast-lane suite
 `== N passed · N failed ==` summary and MUST NOT emit a `SKIP:` line (`run-all.sh` counts
 `SKIP:+exit0` as skipped, which is lost coverage).
 
+**Suite tiers are not lanes.** A lane (above) chooses HOW a suite runs (fixture-cached vs the real tool) and
+is exported to every suite; a tier (`run-all.sh --tier core|extras|all`, kit issue #2203) chooses WHICH suites
+run. The default gate runs the `core` tier; the `extras` tier — category E VM/dynamic-sandbox suites, unused
+adapters and strict-zero usage, listed in `toolbelt/tests/suite-tiers.txt` — is opt-in and runs in the nightly
+`toolbelt-extras` CI job. Nothing is deleted; the two knobs combine (`--tier extras --lane slow`). The manifest
+is strict (an unknown, duplicate or reason-less line, or a missing file, fails the run), so a renamed suite
+cannot silently leave the gate.
+
 **Rule R2 — fast-lane teeth come from the live module, not the frozen fixture.** A fast-lane
 suite's teeth (the assertion that must go red under `--prove-teeth`) MUST come from a LIVE import of
 the SUT — a unit assertion over an importable constant or pure function — NEVER from the committed
