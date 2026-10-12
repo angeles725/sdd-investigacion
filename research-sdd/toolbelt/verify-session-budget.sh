@@ -90,7 +90,7 @@ case "${BASH_SOURCE[0]}" in */*) self="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)";;
 # variables removed); the probe below is a deliberate copy of the Claude one so that path stays byte-identical.
 pi_degraded() { echo "pi: DEGRADED — $1"; echo "state: degraded ($1; nothing was measured on pi)"; }
 pi_section() {
-  local kit ext helper pihome sbtmp sbclaude sbroot sborig e f cperr="" rc perr="" ts recs nsec=0 total=0 ndeg=0 nrec=0 nfinal=0 zn="" kind a b c d st partial exts=() bargs=() pcap
+  local kit ext helper pihome sbtmp sbclaude sbroot sborig e f cperr="" rc perr="" ts recs nsec=0 total=0 ndeg=0 nrec=0 nfinal=0 forged=0 nonce nn num zn="" kind a b c d st partial exts=() bargs=() pcap
   echo "verify-session-budget: $target"
   echo "harness: pi (kit extension research-sdd-hooks.ts + <target>/.pi/extensions/*; sections added on before_agent_start after a startup session_start)"
   echo "limits: fake pi (no-op API, no ctx.mode/model/tools); session_start handlers run in parallel, before_agent_start one after another; counted: sections, returned message content; unmeasured (typed): returned systemPrompt, event.systemPrompt edits"
@@ -149,12 +149,18 @@ pi_section() {
     --unsetenv SSH_AUTH_SOCK --unsetenv SSH_AGENT_PID --unsetenv GPG_AGENT_INFO --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv XDG_RUNTIME_DIR
     --unshare-pid --unshare-net --unshare-ipc --new-session --die-with-parent --chdir "$target")
   recs="$pw/recs"
-  timeout -k 2 "$pcap" bwrap "${bargs[@]}" node "$helper" "$target" "${exts[@]}" >"$recs" 2>"$pw/err"
+  # Records are authenticated: a per-run nonce goes to the helper on STDIN (extensions in its process can read argv and env, not an
+  # already-consumed stdin) and prefixes every record. Anything else on stdout is forged by an extension and is never evaluated.
+  nonce="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"; [ -n "$nonce" ] || { pi_degraded "no random nonce available"; return; }
+  printf '%s\n' "$nonce" | timeout -k 2 "$pcap" bwrap "${bargs[@]}" node "$helper" "$target" "${exts[@]}" >"$recs" 2>"$pw/err"
   rc=$?
   if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then pi_degraded "timeout ${pcap}s: the extensions did not finish"; return; fi
   if [ "$rc" != 0 ]; then pi_degraded "extension harness exit $rc ($(head -1 "$pw/err" | cut -c1-120))"; return; fi
   if [ ! -s "$recs" ]; then pi_degraded "extension harness produced no records (a silent 0 is not a measurement)"; return; fi
-  while IFS=$'\t' read -r kind a b c d; do
+  while IFS=$'\t' read -r nn kind a b c d; do
+    [ "$nn" = "$nonce" ] || { forged=$((forged+1)); continue; }
+    case "$kind" in S) num="$c";; T) num="$b";; Z) num="$a";; *) num=0;; esac
+    case "$num" in ''|*[!0-9]*) forged=$((forged+1)); continue;; esac   # numeric fields reach arithmetic only after this check
     case "$kind" in
       S) nrec=$((nrec+1)); nsec=$((nsec+1)); st=ok
          case "$d" in pending) st="degraded(sweeps pending)"; ndeg=$((ndeg+1));; degraded-text) st="degraded(section text reports DEGRADED)"; ndeg=$((ndeg+1));; esac
@@ -163,7 +169,7 @@ pi_section() {
       E) nrec=$((nrec+1)); nfinal=$((nfinal+1)); ndeg=$((ndeg+1)); echo "ext[$a] status=degraded($b)";;
       Z) zn="$a";;
       T) nrec=$((nrec+1)); nfinal=$((nfinal+1))
-         if [ "$c" = 0 ]; then
+         if [ "$b" = 0 ]; then
            if [ "$a" = research-sdd-hooks.ts ]; then ndeg=$((ndeg+1)); echo "ext[$a] status=degraded(added no section: inactive?)"; else echo "ext[$a] added no section"; fi
          fi;;
     esac
@@ -174,6 +180,7 @@ pi_section() {
     ndeg=$((ndeg+1)); nrec=$((nrec+1))
     echo "harness: degraded(incomplete record set: $nfinal of ${#exts[@]} extensions finished, closing marker $([ -n "$zn" ] && echo present || echo missing))"
   fi
+  [ "$forged" = 0 ] || { ndeg=$((ndeg+1)); nrec=$((nrec+1)); echo "harness: degraded($forged unauthenticated or malformed record line(s) ignored: an extension wrote to the helper's stdout)"; }
   partial=""; [ "$ndeg" -gt 0 ] && partial=" (partial: $ndeg degraded)"
   echo "aggregate[pi]: $total chars (budget < $budget) $([ "$total" -ge "$budget" ] && echo "OVER BUDGET" || echo OK)$partial"
   if [ "$ndeg" -gt 0 ]; then echo "state: degraded ($ndeg of $nrec pi records could not be fully measured)"; else echo "state: ok ($nsec pi sections from $((${#exts[@]})) extensions)"; fi

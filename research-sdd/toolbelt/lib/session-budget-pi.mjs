@@ -25,13 +25,21 @@
 // Exit: 0 always for findings; 2 usage error.
 import { pathToFileURL } from 'node:url';
 
+// The caller's per-run nonce arrives on stdin and is read BEFORE any extension is imported; every record is prefixed with it, so a line
+// an extension writes to stdout itself is recognisably forged. The write function is captured now (an extension may replace console.log).
+const writeOut = process.stdout.write.bind(process.stdout);
+const nonce = await new Promise((res) => {
+  let b = ''; process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (d) => { b += d; if (b.includes('\n')) { process.stdin.pause(); res(b.split('\n')[0]); } });
+  process.stdin.on('end', () => res(b.trim()));
+});
 const [cwd, ...exts] = process.argv.slice(2);
 if (!cwd || exts.length === 0) { console.error('usage: session-budget-pi.mjs <cwd> <ext-file>...'); process.exit(2); }
 const waitMs = Number(process.env.RSDD_BUDGET_PI_WAIT_MS) > 0 ? Number(process.env.RSDD_BUDGET_PI_WAIT_MS) : 60000;
 const one = (s) => String(s).replace(/[\t\r\n]+/g, ' ').slice(0, 200);
 // The name shown for an extension: its path below the nearest `extensions` directory (sub/index.ts stays distinct from index.ts).
 const nameOf = (file) => { const i = file.lastIndexOf('/extensions/'); return i >= 0 ? file.slice(i + '/extensions/'.length) : file.slice(file.lastIndexOf('/') + 1); };
-const rec = (...f) => console.log(f.join('\t'));
+const rec = (...f) => writeOut(nonce + '\t' + f.join('\t') + '\n');
 const withTimeout = (p, ms) => new Promise((res, rej) => {
   const t = setTimeout(() => rej(new Error('timed out after ' + ms + 'ms')), ms);
   p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });

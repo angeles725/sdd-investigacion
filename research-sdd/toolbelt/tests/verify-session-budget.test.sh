@@ -297,27 +297,27 @@ pi_free() {
   printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["d"] = "hook DEGRADED: gone"; });\n' > "$HX/c-degraded.ts"
   printf 'export default (pi: any) => pi.on("before_agent_start", async () => {});\n' > "$HX/d-silent.ts"
   printf 'export default (pi: any) => pi.on("before_agent_start", async () => { throw new Error("handler boom"); });\n' > "$HX/e-throws.ts"
-  r="$(node "$H" "$HX" "$HX/a-emoji.ts" "$HX/b-pending.ts" "$HX/c-degraded.ts" "$HX/d-silent.ts" "$HX/e-throws.ts" 2>/dev/null)"
+  r="$(printf 'N\n' | node "$H" "$HX" "$HX/a-emoji.ts" "$HX/b-pending.ts" "$HX/c-degraded.ts" "$HX/d-silent.ts" "$HX/e-throws.ts" 2>/dev/null | sed 's/^N\t//')"
   has "$r" '^S.a-emoji.ts.emoji.10.ok$' && ok "67 the helper counts code points (10 emoji = 10, not 20 UTF-16 units)" || no "67 emoji length wrong: [$r]"
   has "$r" '^S.b-pending.ts.p.[0-9]+.pending$' && has "$r" '^S.c-degraded.ts.d.[0-9]+.degraded-text$' && ok "68 the helper flags 'sweeps pending' and DEGRADED section text" || no "68 flags wrong: [$r]"
   has "$r" '^T.d-silent.ts.0$' && has "$r" '^E.e-throws.ts.before_agent_start failed: handler boom' && ok "69 a silent extension is T 0; a throwing handler is an E record, not a zero" || no "69 silent/throw wrong: [$r]"
   [ "$(grep -c $'^[TE]\t' <<<"$r")" = 5 ] && [ "$(tail -n1 <<<"$r")" = "$(printf 'Z\t5')" ] \
     && ok "70 every extension gets exactly one final T or E record and the output ends with the closing marker 'Z <n>'" || no "70 final records / marker wrong: [$r]"
   FXR="$FIX/pi-routes/.pi/extensions"
-  r="$(node "$H" "$HX" "$FXR/msg.ts" "$FXR/sysprompt.ts" "$FXR/mutate.ts" 2>/dev/null)"
+  r="$(printf 'N\n' | node "$H" "$HX" "$FXR/msg.ts" "$FXR/sysprompt.ts" "$FXR/mutate.ts" 2>/dev/null | sed 's/^N\t//')"
   has "$r" '^S.msg.ts.message:note.300.ok$' && ok "71 a returned message's content is counted as a section (300 chars)" || no "71 message route wrong: [$r]"
   has "$r" '^U.sysprompt.ts.returned systemPrompt' && has "$r" '^U.mutate.ts.mutated event.systemPrompt' && ! has "$r" '^T.(sysprompt|mutate).ts.[1-9]' \
     && ok "72 a returned systemPrompt and an event.systemPrompt edit are typed U (unmeasured), never a 0-char success" || no "72 unmeasured routes wrong: [$r]"
-  r="$(RSDD_BUDGET_PI_WAIT_MS=500 node "$H" "$HX" "$FIX/pi-hang/.pi/extensions/hang.ts" "$FIX/pi-card/.pi/extensions/card.ts" 2>/dev/null)"
+  r="$(printf 'N\n' | RSDD_BUDGET_PI_WAIT_MS=500 node "$H" "$HX" "$FIX/pi-hang/.pi/extensions/hang.ts" "$FIX/pi-card/.pi/extensions/card.ts" 2>/dev/null | sed 's/^N\t//')"
   has "$r" '^E.hang.ts.before_agent_start failed: timed out after 500ms' && has "$r" '^S.card.ts.card-section.2500.ok' && [ "$(tail -n1 <<<"$r")" = "$(printf 'Z\t2')" ] \
     && ok "73 a hanging handler yields ITS OWN E record after the per-handler wait; the next extension is still measured" || no "73 per-handler wait wrong: [$r]"
-  r="$(node "$H" "$HX" "$FIX/pi-sub/.pi/extensions/index.ts" "$FIX/pi-sub/.pi/extensions/tools/index.ts" 2>/dev/null)"
+  r="$(printf 'N\n' | node "$H" "$HX" "$FIX/pi-sub/.pi/extensions/index.ts" "$FIX/pi-sub/.pi/extensions/tools/index.ts" 2>/dev/null | sed 's/^N\t//')"
   has "$r" '^S.index.ts.idx-root.10' && has "$r" '^S.tools/index.ts.idx-tools.20' && ok "74 extension names are paths below .pi/extensions (index.ts vs tools/index.ts stay distinct)" || no "74 names wrong: [$r]"
 }
 
 pi_sb() {
   local S="$1" FIX="$2" bef aft sum agg LT
-  [ "$PI_NODE_OK" = 1 ] || { skn "56-66,75-79 pi measurement cases"; return; }
+  [ "$PI_NODE_OK" = 1 ] || { skn "56-66,75-79,82-83 pi measurement cases"; return; }
   PI_KIT="$TMP/pi-stubkit"; PIENV=()
   bef="$TMP/pi-before"; aft="$TMP/pi-after"
   snap "$FIX/pi-card" > "$bef"
@@ -375,6 +375,18 @@ pi_sb() {
   snap "$TMP/nodot-git" > "$bef"; runpi "$S" "$TMP/nodot-git"; snap "$TMP/nodot-git" > "$aft"
   has "$OUT" '^section\[research-sdd-hooks.ts\] research-sdd-session chars=[1-9][0-9]* status=ok' && has "$OUT" '^state: ok' && cmp -s "$bef" "$aft" && [ ! -e "$TMP/nodot-git/.claude" ] \
     && ok "79 a corpus target with NO .claude is measured like one with a copy bound (the session-sha write lands in the sandbox), target untouched" || no "79 no-.claude target wrong: [$OUT]"
+  # --- the helper channel is authenticated; records are validated before any arithmetic (RDD R1-001) -----------------------------
+  local CAN="$TMP/canary-evil" CAN2="$TMP/canary-forge" SN="$TMP/shim-forge-node"
+  rm -f "$CAN" "$CAN2"
+  PIENV=(RSDD_STUB_N=100 RSDD_TEST_CANARY="$CAN"); runpi "$S" "$FIX/pi-evil"
+  [ ! -e "$CAN" ] && ! has "$OUT" 'section\[evil.ts\]' && has "$OUT" '^harness: degraded\([0-9]+ unauthenticated or malformed record' && has "$OUT" 'partial: ' && has "$OUT" '^state: degraded' \
+    && ok "82 records an extension forges on stdout (command-substitution payload, fake section, fake Z, fake aggregate) run nothing, are not believed, and make the report partial" \
+    || no "82 forged records accepted or evaluated: canary=$([ -e "$CAN" ] && echo CREATED) [$OUT]"
+  rm -rf "$SN"; mkdir -p "$SN"; cp "$FIXSRC/_shims/forge-node.sh" "$SN/node"; chmod +x "$SN/node"
+  PIENV=(RSDD_STUB_N=100 RSDD_TEST_CANARY="$CAN2" RSDD_TEST_REALNODE="$(type -P node)" PATH="$SN:$PATH"); runpi "$S" "$FIX/pi-none"
+  [ ! -e "$CAN2" ] && has "$OUT" '^harness: degraded\(1 unauthenticated or malformed record' && has "$OUT" 'partial: ' \
+    && ok "83 even a record with the CORRECT nonce is validated: a non-numeric chars field is never evaluated (canary not created)" \
+    || no "83 non-numeric field evaluated or accepted: canary=$([ -e "$CAN2" ] && echo CREATED) [$OUT]"
   PIENV=()
 }
 
@@ -457,6 +469,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ptooth pi "pi: incomplete record set not flagged" 's/if \[ "\$zn" != "\${#exts\[@\]}" \] || \[ "\$nfinal" != "\${#exts\[@\]}" \]; then/if false; then/'
   ptooth pi "pi: unmeasured (U) route not partial" 's/U) nrec=\$((nrec+1)); ndeg=\$((ndeg+1));/U) nrec=$((nrec+1));/'
   ptooth pi "pi: target without .claude not shadowed by a throwaway one" 's/^    bargs+=(--ro-bind "\$target" "\$sborig" --bind "\$sbroot" "\$target")/    :/'
+  ptooth pi "pi: record nonce check removed" 's/\[ "\$nn" = "\$nonce" \] ||/true ||/'
+  ptooth pi "pi: numeric validation of record fields removed" "s/case \"\\\$num\" in ''|\\*\\[!0-9\\]\\*)/case \"\\\$num\" in zzzz)/"
   tooth_mjs "helper omits the closing marker" "s/^rec('Z', exts.length);//"
   tooth_mjs "helper ignores a returned message" "s/rk === 'message' \&\&/rk === 'zzz' \&\&/"
   tooth_mjs "helper ignores event.systemPrompt edits" 's/if (event.systemPrompt !== promptBefore)/if (false)/'
