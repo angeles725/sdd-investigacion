@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+run_cases
+printf "== %d passed · %d failed ==\n" "$p" "$f"

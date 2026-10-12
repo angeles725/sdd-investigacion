@@ -1,0 +1,13 @@
+verify-session-budget: @FIX@/partialmix
+source startup:
+hook[1] chars=5000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/ok5000.sh
+hook[2] chars=n/a status=degraded(exit 1) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/failer.sh
+aggregate[startup]: 5000 chars (budget < 8000) OK (partial: 1 degraded)
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact:
+hook[1] chars=9000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/ok9000.sh
+aggregate[compact]: 9000 chars (budget < 8000) OVER BUDGET
+source fork: (no matching SessionStart hooks)
+aggregate: 9000 chars (budget < 8000) OVER BUDGET (partial: 1 degraded in startup) worst-source=compact
+state: degraded (1 of 3 hook runs could not be measured; 0 timed-out)

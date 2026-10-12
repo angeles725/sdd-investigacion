@@ -55,6 +55,7 @@ checks() {
   grep -q 'hook-pretool-pkill-guard\.sh' "$f" || echo "pkill-delegated-to-kit-script"
   { grep -q '"bash_background"' "$f" && grep -q '"monitor"' "$f" && grep -q 'SHELL_TOOLS\.has(event\.toolName)' "$f"; } || echo "pkill-covers-every-shell-tool"
   grep -q 'entries: \[\.\.\.base, \.\.\.mine\]' "$f" || echo "settle-keeps-other-extensions-entries"
+  grep -q 'ctx?\.mode === "print"' "$f" || echo "settle-print-mode-aware"
   { grep -q 'mkdtempSync(' "$f" && grep -q 'flag: "wx"' "$f"; } || echo "transcript-private-and-exclusive"
   { grep -qE 'MAX_INJECT_CHARS = [0-9]+;' "$f" && [ "$(grep -oE 'MAX_INJECT_CHARS = [0-9]+' "$f" | grep -oE '[0-9]+')" -lt 8000 ]; } || echo "context-budget-under-8000"
   grep -q 'const next = freshState();' "$f" || echo "state-recomputed-every-session-start"
@@ -79,6 +80,57 @@ else no "structural: parity extraction saw $n_all scripts / $n_src wrappers"; fi
 # the extension file must not carry a name the gentle-ai bundle owns
 case "$(basename "$SUT")" in review-*|jd-*|gentle-ai-*) no "structural: extension file name collides with a reserved prefix" ;; *) ok "structural: file name is kit-unique (research-sdd-hooks.ts)" ;; esac
 
+# --- installer agent home (kit issue #2139 item 2) -----------------------------------------------------
+# pi honours GENTLE_PI_AGENT_HOME, then PI_CODING_AGENT_DIR, then ~/.pi/agent; the extension resolves its agent home that
+# way, so the installer must deploy to the same place or the skill, prompts and extension land where pi does not load them.
+ADAPTERS="$KIT/install/adapters.sh"
+INSTALLER="$KIT/install/research-sdd-install.sh"
+# home_checks ADAPTERS-FILE — one LABEL per FAILED expectation of rsdd_field config_root (silent = all hold).
+home_checks() {
+  local f="$1" h="$TMP/hc-home"
+  mkdir -p "$h"
+  # rf FIELD HARNESS HOME [VAR=value...] — rsdd_field FIELD in a subshell with only the given pi variables set
+  rf() {
+    (
+      set +u; export HOME="$h"; unset GENTLE_PI_AGENT_HOME PI_CODING_AGENT_DIR
+      for kv in "${@:4}"; do export "${kv?}"; done
+      # shellcheck source=/dev/null
+      . "$f" || exit 9
+      rsdd_field "$2" "$1" "${3:-$h}"
+    )
+  }
+  r() { rf config_root "$@"; }
+  rcof() { local o; o="$(rf "$@" 2>&1)"; echo "rc=$? $o"; }
+  [[ "$(rcof config_root pi "$h" PI_CODING_AGENT_DIR=rel/dir)" == "rc=2 "*PI_CODING_AGENT_DIR*absolute* ]] || echo "home-relative-override-rejected"
+  [[ "$(rcof config_root pi "$h" GENTLE_PI_AGENT_HOME=/)" == "rc=2 "*GENTLE_PI_AGENT_HOME*absolute* ]] || echo "home-root-override-rejected"
+  [[ "$(rcof config_root pi "$h" PI_CODING_AGENT_DIR=//)" == "rc=2 "* ]] || echo "home-slashes-only-rejected"
+  [ "$(rf config_root_source pi "$h" GENTLE_PI_AGENT_HOME=/x/g PI_CODING_AGENT_DIR=/x/p)" = GENTLE_PI_AGENT_HOME ] || echo "home-source-gentle"
+  [ "$(rf config_root_source pi "$h" PI_CODING_AGENT_DIR=/x/p)" = PI_CODING_AGENT_DIR ] || echo "home-source-pi-coding-agent-dir"
+  [ "$(rf config_root_source pi "$h")" = default ] || echo "home-source-default"
+  [ "$(rf config_root_source gentle-shell "$h" PI_CODING_AGENT_DIR=/x/p)" = default ] || echo "home-source-gentle-shell-default"
+  [ "$(r pi "$h")" = "$h/.pi/agent" ] || echo "home-default-unchanged"
+  [ "$(r pi "$h" PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/pi-dir" ] || echo "home-pi-coding-agent-dir"
+  [ "$(r pi "$h" GENTLE_PI_AGENT_HOME=/x/g PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/g" ] || echo "home-gentle-pi-agent-home-first"
+  [ "$(r pi "$h" GENTLE_PI_AGENT_HOME= PI_CODING_AGENT_DIR=/x/pi-dir)" = "/x/pi-dir" ] || echo "home-empty-gentle-falls-through"
+  [ "$(r pi "$h" PI_CODING_AGENT_DIR=/x/pi-dir/)" = "/x/pi-dir" ] || echo "home-trailing-slash-trimmed"
+  [ "$(r gentle-shell "$h" PI_CODING_AGENT_DIR=/x/pi-dir GENTLE_PI_AGENT_HOME=/x/g)" = "$h/.gentle-shell/agent" ] || echo "home-gentle-shell-isolated"
+  [ "$(r claude "$h" PI_CODING_AGENT_DIR=/x/pi-dir)" = "$h/.claude" ] || echo "home-claude-untouched"
+  [ "$(r pi "$TMP/other" PI_CODING_AGENT_DIR=/x/pi-dir)" = "$TMP/other/.pi/agent" ] || echo "home-explicit-home-wins"
+}
+out="$(home_checks "$ADAPTERS")"
+if [ -z "$out" ]; then ok "installer home: pi resolves GENTLE_PI_AGENT_HOME -> PI_CODING_AGENT_DIR -> ~/.pi/agent; gentle-shell, claude and an explicit home are unaffected"
+else no "installer home: $(printf '%s' "$out" | tr '\n' ';')"; fi
+# the extension and the installer must agree on the order
+if grep -q 'process\.env\.GENTLE_PI_AGENT_HOME || process\.env\.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent")' "$SUT"; then
+  ok "installer home: the extension's agentHome() uses the same order the installer does"
+else no "installer home: the extension's agentHome() order changed - keep it equal to rsdd_field's"; fi
+# end to end through the real installer (dry run): the plan names the custom agent home
+e2e_home="$TMP/e2e-home"; mkdir -p "$e2e_home"
+e2e="$(HOME="$e2e_home" PI_CODING_AGENT_DIR="$TMP/custom-pi" bash "$INSTALLER" --harness pi --dry-run 2>&1)"
+if grep -q "INSTALL  *$TMP/custom-pi/skills/research-sdd/SKILL.md" <<<"$e2e" && ! grep -q "$e2e_home/.pi/agent" <<<"$e2e"; then
+  ok "installer home: a dry-run pi install under PI_CODING_AGENT_DIR targets that directory only"
+else no "installer home: dry-run did not target PI_CODING_AGENT_DIR: $(grep -m2 -E 'INSTALL|SPLICE' <<<"$e2e" | tr '\n' ';')"; fi
+
 # --- behavior (needs Node's built-in TypeScript type stripping) -----------------------------------------
 HAVE_TS=0
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'process.features.typescript ? 1 : 0' 2>/dev/null)" = 1 ]; then HAVE_TS=1; fi
@@ -86,7 +138,11 @@ if [ "$HAVE_TS" = 1 ]; then
   beh_out="$(node "$BEHAVIOR" 2>&1)"; beh_rc=$?
   beh_sum="$(grep -E '^== [0-9]+ passed · [0-9]+ failed ==$' <<<"$beh_out" | tail -1)"
   if [ "$beh_rc" = 0 ] && [ -n "$beh_sum" ]; then ok "behavior: pi-hooks-behavior.test.mjs against the real extension ($beh_sum)"
-  else no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';')"; fi
+  else
+    # name the failing case(s); a crash prints no FAIL line, so the output tail is always included (kit issue #2158: a
+    # failure whose case was never captured cannot be told from a load-sensitive one)
+    no "behavior: pi-hooks-behavior.test.mjs failed (rc=$beh_rc): $(grep -E '^  FAIL' <<<"$beh_out" | head -5 | tr '\n' ';') tail: $(tail -3 <<<"$beh_out" | cut -c1-200 | tr '\n' ';')"
+  fi
 elif [ "${RSDD_REQUIRE_NODE_TS:-}" = 1 ]; then
   no "behavior: RSDD_REQUIRE_NODE_TS=1 but this Node ($(node --version 2>/dev/null || echo 'node absent')) has no built-in TypeScript type stripping: the extension handlers were not executed (typed refusal, not a skip)"
 else
@@ -129,6 +185,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # (a different label would mean the mutant tripped something else); KIND "behavior": the behavior suite must exit 1
   # with a FAIL line (a crash is not a bite) when run on the mutant as RSDD_PI_HOOKS_SRC; skipped when this Node
   # cannot strip types.
+  # bite_line OUT RC — prints the first FAIL case when a behavior run on a mutant genuinely BIT: exit 1 and a FAIL line
+  # that is not the suite's own "uncaught exception" line. A crash is not a bite (CLAUDE.md §4: a wrong-reason failure).
+  bite_line() { [ "$2" = 1 ] && grep '^  FAIL' "$1" | grep -v 'uncaught exception' | head -1; }
+  # controls for the predicate itself
+  printf '  PASS  a\n  FAIL  uncaught exception, remaining cases not run — Error: x\n' > "$M/ctl-crash.out"
+  printf '  FAIL  uncaught exception, remaining cases not run — Error: x\n  FAIL  a real case — detail\n' > "$M/ctl-both.out"
+  if [ -z "$(bite_line "$M/ctl-crash.out" 1)" ]; then ok "teeth predicate: a crash-only run (uncaught-exception FAIL line) is not a bite"
+  else no "teeth predicate: an uncaught-exception FAIL line counted as a bite - a crashing mutant would pass as caught"; fi
+  if [ -n "$(bite_line "$M/ctl-both.out" 1)" ] && [ -z "$(bite_line "$M/ctl-both.out" 0)" ]; then ok "teeth predicate: a real FAIL line with exit 1 is a bite; exit 0 never is"
+  else no "teeth predicate: a real FAIL line / exit code was not honoured"; fi
   tooth() {
     local name="$1" kind="$2" expect="$3" a=() e r
     shift 3
@@ -141,8 +207,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       if [ "$HAVE_TS" != 1 ]; then sk "teeth $name: needs Node type stripping to run the behavior suite on the mutant"; return; fi
       RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" >"$M/$name.out" 2>&1; r=$?
-      if [ "$r" = 1 ] && grep -q '^  FAIL' "$M/$name.out"; then ok "teeth $name: behavior suite goes red ($(grep -m1 '^  FAIL' "$M/$name.out" | cut -c8-90))"
-      else no "teeth $name: behavior suite exit $r on the mutant — THEATER"; fi
+      if [ -n "$(bite_line "$M/$name.out" "$r")" ]; then ok "teeth $name: behavior suite goes red ($(bite_line "$M/$name.out" "$r" | cut -c8-90))"
+      else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$M/$name.out" | cut -c1-160 | tr '\n' ';'))"; fi
     fi
   }
   tooth child-guard-removed   struct   child-guard-first 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
@@ -165,6 +231,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth entries-replaced      struct   settle-keeps-other-extensions-entries 's/entries: \[\.\.\.base, \.\.\.mine\]/entries: [...mine]/'
   tooth shell-tools-narrowed  struct   pkill-covers-every-shell-tool 's/SHELL_TOOLS\.has(event\.toolName)/event.toolName === "bash"/'
   tooth transcript-predictable struct  transcript-private-and-exclusive 's/flag: "wx"/flag: "w"/'
+  # installer-home mutants (adapters.sh): home_checks must name the label that broke
+  htooth() {
+    local name="$1" expect="$2" r; shift 2
+    local a=() e; for e in "$@"; do a+=(-e "$e"); done
+    if ! MUTANT_SYNTAX=none mutant_sed "$ADAPTERS" "$M/$name.sh" "${a[@]}" >/dev/null 2>&1; then no "teeth $name: mutant could not be built (pattern absent / refused)"; return; fi
+    r="$(home_checks "$M/$name.sh")"
+    if grep -q "^$expect" <<<"$r"; then ok "teeth $name: installer-home check '$expect' goes red"
+    else no "teeth $name: expected installer-home label '$expect', got [$(printf '%s' "$r" | tr '\n' ';')] - THEATER"; fi
+  }
+  htooth home-override-dropped  home-pi-coding-agent-dir     's/if \[ "\$harness" = pi \] \&\& \[ "\$home" = "\${HOME:-}" \]; then/if false; then/'
+  htooth home-order-swapped     home-gentle-pi-agent-home-first 's/src=GENTLE_PI_AGENT_HOME; override="\$GENTLE_PI_AGENT_HOME"/src=PI_CODING_AGENT_DIR; override="$PI_CODING_AGENT_DIR"/'
+  htooth home-leaks-to-gentle   home-gentle-shell-isolated   's/if \[ "\$harness" = pi \] \&\& \[ "\$home" = "\${HOME:-}" \]; then/if [ "$harness" != claude ] \&\& [ "$home" = "${HOME:-}" ]; then/'
+  htooth home-ignores-explicit  home-explicit-home-wins      's/ \&\& \[ "\$home" = "\${HOME:-}" \]; then/; then/'
+  htooth home-relative-accepted home-relative-override-rejected 's/\/?\*) root="\$trimmed" ;;/*) root="$trimmed" ;;/'
+  htooth home-source-lies       home-source-gentle            's/src=GENTLE_PI_AGENT_HOME; override=/src=default; override=/'
+  htooth home-slash-kept        home-trailing-slash-trimmed  's/local trimmed=.*$/local trimmed="$override"/'
   # behavior-only mutants: invariants a grep cannot see
   tooth child-guard-behavior  behavior - 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
   tooth outcome-gate-behavior behavior - 's/event\.outcome !== "completed" || event\.continue/false/'
@@ -186,6 +268,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-forced-resolve     behavior - 's/FORCE_RESOLVE_MS = 500;/FORCE_RESOLVE_MS = 600000;/'
   tooth ask-always-blocks     behavior - 's/verdict\.permissionDecision === "ask" \&\& ctx?\.hasUI/false \&\& ctx?.hasUI/'
   tooth inject-once           behavior - 's/event\.systemPromptOptions\.sections\[SECTION_KEY\] = text;.*$/if (!st.noticed.has("inj")) { st.noticed.add("inj"); event.systemPromptOptions.sections[SECTION_KEY] = text; }/'
+  tooth start-sha-ignored     behavior - 's/await recordSessionSha(cur, cur\.startSha);/await recordSessionSha(cur);/'
+  tooth fallback-sha-silent   behavior - 's/^  if (!cur\.startSha) pushNotice.*$//'
+  tooth corpus-late-ignored   behavior - 's/if (cur\.corpus || !cur\.target || !isCorpus(cur\.target)) return;/return;/'
   tooth block-once-removed    behavior - 's/cur\.retroBlocked = true;//'
   tooth token-block-once      behavior - 's/cur\.tokenBlocked = true;//'
   tooth silent-missing-script behavior - 's/degraded: `script missing at \${script}`/degraded: ""/'
@@ -197,6 +282,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth no-launcher-lookup    behavior - 's/for (const key of \["Kit checkout", "Kit path"\])/for (const key of [])/'
   tooth token-no-notice       behavior - 's/mine\.push(\.\.\.noticeOnce("token-transcript",[^;]*;/void 0;/'
   tooth ask-not-blocked       behavior - 's/verdict\.permissionDecision === "deny" || verdict\.permissionDecision === "ask"/verdict.permissionDecision === "deny"/'
+  tooth print-mode-blind      behavior - 's/ctx?\.mode === "print"/ctx?.mode === "pr1nt"/'
+  tooth print-gates-run       behavior - 's/^      if (isPrint(ctx)) {$/      if (false) {/'
+  tooth print-guard-silent    behavior - 's/if (isPrint(ctx)) printNotice(msg);//'
+  tooth print-surface-dropped behavior - 's/for (const m of cur\.surface\.splice(0)) printNotice(m);//'
+  tooth print-notice-silent   behavior - 's/try { process\.stderr\.write(`research-sdd-hooks: \${msg}\\n`); }/try { void msg; }/'
+  tooth print-not-evaluated-unsaid behavior - 's/printNotice("retro\/return-token gates NOT evaluated/void ("retro\/return-token gates NOT evaluated/'
 fi
 
 echo "skipped: $skipped"

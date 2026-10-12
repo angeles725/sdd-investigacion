@@ -30,6 +30,28 @@ const check = (m, cond, detail = '') => (cond ? ok(m) : no(m + (detail ? ' — '
 
 console.log('== pi-hooks-behavior.test.mjs ==');
 
+// A throw that escapes a section would end the process with a stack trace and NO `FAIL` line: the aggregate then reports a
+// failure whose case is unnamed (kit issue #2158). Name it instead, and fail.
+const crashed = (e) => { console.log('  FAIL  uncaught exception, remaining cases not run — ' + String(e?.stack ?? e).split('\n').slice(0, 3).join(' | ')); process.exit(1); };
+process.on('uncaughtException', crashed);
+process.on('unhandledRejection', crashed);
+
+// Timing discipline (kit issue #2158): a case may bound a child's runtime only RELATIVE to something the host cannot
+// stretch (a 30 s sleep it must not wait for), never to a few hundred ms of process start-up. Waits poll for the OUTCOME
+// with a generous ceiling; a child that has not started yet is waited for, not assumed.
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const waitFor = async (fn, ceilingMs = 15000, stepMs = 50) => {
+  const end = Date.now() + ceilingMs;
+  for (;;) { const v = fn(); if (v) return v; if (Date.now() >= end) return null; await sleep(stepMs); }
+};
+// A killed process whose parent has not reaped it yet still answers kill(pid, 0): a zombie is dead.
+const pidAlive = (pid) => {
+  if (!(pid > 0)) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  try { return !/^\S+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+};
+const readPid = (file) => { try { const n = Number(readFileSync(file, 'utf8').trim()); return n > 0 ? n : 0; } catch { return 0; } };
+
 if (!existsSync(SRC)) {
   console.error('FATAL: extension under test missing: ' + SRC);
   process.exit(2);
@@ -110,7 +132,7 @@ function makeTarget(corpus = true, git = false) {
   if (corpus) write(join(t, 'RESEARCH-STATE.md'), '# state\n');
   if (git) {
     const g = (...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
-    g('init', '-q'); g('add', '-A'); g('commit', '-q', '-m', 'init');
+    g('init', '-q'); g('add', '-A'); g('commit', '-q', '--allow-empty', '-m', 'init');
   }
   return t;
 }
@@ -237,7 +259,7 @@ const t0 = Date.now();
   const ev = startEvent();
   await fire(s.pi, 'before_agent_start', ev, s.ctx);
   const txt = sectionOf(ev); const dt = Date.now() - t;
-  check('a hung sweep script is bounded by its timeout and reported as timed out', /timed out/i.test(txt) && txt.includes('sweep-tools-hook') && dt < 6000, `dt=${dt} ${txt.slice(0, 200)}`);
+  check('a hung sweep script is bounded by its timeout and reported as timed out', /timed out/i.test(txt) && txt.includes('sweep-tools-hook') && dt < 7500, `dt=${dt} ${txt.slice(0, 200)}`);
   restoreEnv();
 }
 {
@@ -493,17 +515,20 @@ if (!haveJq) {
 }
 
 // ---- 13. timeouts kill the whole process group ------------------------------------------------------------------------
-{
-  const pidFile = join(TMP, 'grandchild.pid');
-  const body = `#!/usr/bin/env bash\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
-  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '700' } });
+// The timeout is generous and the script's start-up is varied: under load a script can take far longer than a few hundred
+// ms to reach `sleep 30 &`, and a timeout that fires first leaves no grandchild to inspect (kit issue #2158).
+if (!existsSync('/proc/self/stat')) {
+  sk('no /proc: the process-group kill cases need /proc/<pid>/stat to tell a zombie from a live grandchild');
+} else for (const [startDelay, timeoutMs] of [['0', '2500'], ['0.8', '9000']]) {
+  const pidFile = join(TMP, `grandchild-${startDelay}.pid`);
+  const body = `#!/usr/bin/env bash\nsleep ${startDelay}\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
+  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: timeoutMs, RSDD_PI_SWEEP_WAIT_MS: '30000' } });
   await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
-  await new Promise((r) => setTimeout(r, 300));
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
-  let alive = true;
-  try { process.kill(pid, 0); } catch { alive = false; }
-  if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* cleanup */ } }
-  check('a timed-out script takes its grandchildren with it (process group kill)', !alive, 'grandchild ' + pid + ' still running');
+  const pid = readPid(pidFile);
+  if (!pid) { no(`a timed-out script takes its grandchildren with it (start delay ${startDelay}s) — the grandchild was never started: scenario not exercised`); restoreEnv(); continue; }
+  const dead = await waitFor(() => !pidAlive(pid), 6000);
+  if (!dead) { try { process.kill(pid, 'SIGKILL'); } catch { /* cleanup */ } }
+  check(`a timed-out script takes its grandchildren with it (process group kill, start delay ${startDelay}s)`, !!dead, 'grandchild ' + pid + ' still running');
   restoreEnv();
 }
 
@@ -546,14 +571,21 @@ if (!haveJq) {
 
 // ---- 16. the first prompt is not held hostage by slow sweeps ------------------------------------------------------------
 {
-  const slow = { 'sweep-tools-hook': `#!/usr/bin/env bash\nsleep 1.5\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\n` };
+  const slow = { 'sweep-tools-hook': `#!/usr/bin/env bash\nsleep 4\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\n` };
   const s = await boot({ kitOpts: { hookBody: slow }, env: { RSDD_PI_SWEEP_WAIT_MS: '150' } });
   const t = Date.now();
   const ev1 = startEvent(); await fire(s.pi, 'before_agent_start', ev1, s.ctx);
   const dt = Date.now() - t;
-  check('slow sweeps: the first run waits only the short bound and injects a typed pending line', dt < 1200 && /sweeps pending \(started \d{4}-/.test(sectionOf(ev1)) && !/FINDING/.test(sectionOf(ev1)), `dt=${dt} ${sectionOf(ev1).slice(0, 160)}`);
-  await new Promise((r) => setTimeout(r, 1900));
-  const ev2 = startEvent(); await fire(s.pi, 'before_agent_start', ev2, s.ctx);
+  // the outcome proves the first run did not wait for the 4 s script (a waiting run would carry its FINDING); no wall-clock
+  // bound over the 150 ms wait: a loaded host stretches it arbitrarily (kit issue #2158)
+  check('slow sweeps: the first run waits only the short bound and injects a typed pending line', /sweeps pending \(started \d{4}-/.test(sectionOf(ev1)) && !/FINDING/.test(sectionOf(ev1)), `dt=${dt} ${sectionOf(ev1).slice(0, 160)}`);
+  // poll for the finished sweeps instead of sleeping a fixed time: a loaded host starts the 4 s script late
+  let ev2 = startEvent();
+  for (const end = Date.now() + 20000; ; ) {
+    ev2 = startEvent(); await fire(s.pi, 'before_agent_start', ev2, s.ctx);
+    if (/FINDING-sweep-tools-hook/.test(sectionOf(ev2)) || Date.now() >= end) break;
+    await sleep(100);
+  }
   check('the next run injects the finished sweeps (no pending line)', /FINDING-sweep-tools-hook/.test(sectionOf(ev2)) && !/pending/.test(sectionOf(ev2)), sectionOf(ev2).slice(0, 160));
   restoreEnv();
 }
@@ -563,27 +595,28 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   sk('setsid not available: the pipe-holding grandchild cases were not run');
 } else {
   const pidFile = join(TMP, 'escaped.pid');
-  const killEscaped = () => { try { process.kill(Number(readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone */ } };
+  // returns the escaped grandchild's pid (0: the script never got as far as starting it, so the scenario was not exercised)
+  const killEscaped = () => { const pid = readPid(pidFile); rmSync(pidFile, { force: true }); if (pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } return pid; }; // never kill(0): that signals the whole process group
   {
     // timeout: the group kill cannot reach the setsid child, which keeps stdout open
     const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
     const t = Date.now();
-    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '600', RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '2500', RSDD_PI_SWEEP_WAIT_MS: '20000' } });
     const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('a timed-out script whose escaped grandchild holds the pipes still resolves within timeout + grace', /sweep-tools-hook\] degraded: timed out/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    const started = killEscaped() > 0;
+    check('a timed-out script whose escaped grandchild holds the pipes still resolves within timeout + grace', /sweep-tools-hook\] degraded: timed out/.test(sectionOf(ev)) && started && dt < 20000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
     restoreEnv();
   }
   {
     // normal exit: the script finished and printed its finding, but a setsid child still holds the pipes
     const body = `#!/usr/bin/env bash\nsetsid sleep 30 &\necho $! > "${pidFile}"\nprintf '%s\\n' '{"hookSpecificOutput":{"additionalContext":"FINDING-sweep-tools-hook"}}'\nexit 0\n`;
     const t = Date.now();
-    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_WAIT_MS: '6000' } });
+    const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_WAIT_MS: '20000' } });
     const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('a script that exits but leaves a pipe-holding grandchild resolves after a short grace with the output so far', /FINDING-sweep-tools-hook/.test(sectionOf(ev)) && dt < 6000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
+    const started = killEscaped() > 0;
+    check('a script that exits but leaves a pipe-holding grandchild resolves after a short grace with the output so far', /FINDING-sweep-tools-hook/.test(sectionOf(ev)) && started && dt < 20000, `dt=${dt} ${sectionOf(ev).slice(0, 200)}`);
     restoreEnv();
   }
   {
@@ -591,15 +624,15 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
     const gateHolder = `#!/usr/bin/env bash\ncat >/dev/null\nsetsid sleep 30 &\necho $! > "${pidFile}"\nsleep 30\n`;
     const { kit } = makeKit();
     write(join(kit, 'toolbelt', 'retro-gate.sh'), gateHolder, true);
-    setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_PI_GATE_TIMEOUT_MS: '600' });
+    setEnv({ GENTLE_PI_AGENT_HOME: makeAgentHome(kit), RSDD_PI_GATE_TIMEOUT_MS: '2500' });
     const pi = makePi(); (await loadFactory())(pi);
     const ctx = makeCtx(makeTarget(), 'sess-hold', [assistant('x')]);
     await fire(pi, 'session_start', { type: 'session_start', reason: 'startup' }, ctx);
     const t = Date.now();
     const r = await fire(pi, 'agent_before_settle', settleEvent(), ctx);
     const dt = Date.now() - t;
-    killEscaped();
-    check('the settle gate returns (typed timeout notice) even when an escaped grandchild holds its pipes', dt < 6000 && /retro gate DEGRADED: timed out/.test(JSON.stringify(r ?? {})), `dt=${dt} ${JSON.stringify(r)}`);
+    const started = killEscaped() > 0;
+    check('the settle gate returns (typed timeout notice) even when an escaped grandchild holds its pipes', started && dt < 20000 && /retro gate DEGRADED: timed out/.test(JSON.stringify(r ?? {})), `dt=${dt} ${JSON.stringify(r)}`);
     restoreEnv();
   }
 }
@@ -617,6 +650,103 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   check('with a UI, a declined confirmation blocks with the guard reason', no_?.block === true && /ASK-REASON/.test(no_.reason ?? ''), JSON.stringify(no_));
   const noUi = await fire(s.pi, 'tool_call', call, s.ctx);
   check('without a UI the "ask" stays a block', noUi?.block === true && asked.length === 2, JSON.stringify(noUi));
+  restoreEnv();
+}
+
+// ---- 19. print mode (-p): the last assistant message IS the output, so the gate may not replace it (#2177) --------------
+// pi's print mode writes only the text of the final message when that message is an assistant message. A gate block
+// returned as {entries, continue:true} appends a custom message and re-prompts, so the answer already given is lost and
+// the continuation's last message usually carries no text: an empty stdout with rc 0. In print mode the gates do not run at
+// all (a gate that ran would write its block-once marker for a block the one-shot run cannot enforce, and an interactive
+// resume of the session would silently skip it): one typed stderr line, no entry, no continuation, no marker file.
+{
+  const captureStderr = async (fn) => {
+    const orig = process.stderr.write.bind(process.stderr);
+    let buf = '';
+    process.stderr.write = (chunk, ...rest) => { buf += String(chunk); const cb = rest.find((a) => typeof a === 'function'); if (cb) cb(); return true; };
+    try { return { result: await fn(), stderr: buf }; } finally { process.stderr.write = orig; }
+  };
+  const printCtx = (ctx) => ({ ...ctx, mode: 'print' });
+  const markers = (target) => { try { return readdirSync(join(target, '.claude')).filter((n) => /blocked/.test(n)); } catch { return []; } };
+  const both = { RSDD_TEST_RETRO_OUT: BLOCK_JSON, RSDD_TEST_TOKEN_OUT: JSON.stringify({ decision: 'block', reason: 'TOKEN-REQUIRED: copy next: foo' }) };
+  const s = await boot({ env: both });
+  const { result: r, stderr } = await captureStderr(() => fire(s.pi, 'agent_before_settle', settleEvent(), printCtx(s.ctx)));
+  check('print mode: the settle returns no entries and no continuation (the answer stays the last message)', r === undefined, JSON.stringify(r));
+  check('print mode: neither gate runs (no GATE line in the stub kit log)', !/GATE/.test(readLog(s.log)), readLog(s.log).slice(0, 200));
+  check('print mode: no block-once marker file is left behind', markers(s.target).length === 0, JSON.stringify(markers(s.target)));
+  check('print mode: one typed stderr line says the gates were NOT evaluated',
+    /^research-sdd-hooks: retro\/return-token gates NOT evaluated in print mode/m.test(stderr) && !/RETRO-REQUIRED|TOKEN-REQUIRED/.test(stderr), JSON.stringify(stderr));
+  // a later interactive settle of the same session still gets the (never consumed) block
+  const later = await fire(s.pi, 'agent_before_settle', settleEvent(), { ...s.ctx, mode: 'tui' });
+  check('print mode does not consume the block-once flags: an interactive settle afterwards still blocks', later?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(later)), JSON.stringify(later));
+  const nc = await boot({ corpus: false, env: both });
+  const n = await captureStderr(() => fire(nc.pi, 'agent_before_settle', settleEvent(), printCtx(nc.ctx)));
+  check('print mode: a cwd that is not a research corpus prints nothing (no gates apply there)', n.result === undefined && n.stderr === '', JSON.stringify([n.result, n.stderr]));
+  // a failing handler is surfaced on stderr in print mode (ctx.ui.notify is a no-op there), and what is still pending is
+  // flushed at the settle even when the run did not complete
+  const h = await boot();
+  const g = await captureStderr(() => fire(h.pi, 'before_agent_start', { type: 'before_agent_start', systemPromptOptions: {} }, printCtx(h.ctx)));
+  check('print mode: a failing handler is a stderr notice at once, not a silent exit 0', /before_agent_start failed/.test(g.stderr), JSON.stringify(g.stderr));
+  const e = await captureStderr(() => fire(h.pi, 'agent_before_settle', settleEvent({ outcome: 'error' }), printCtx(h.ctx)));
+  check('print mode: the pending failure notice is flushed to stderr even when the run did not complete', /before_agent_start failed/.test(e.stderr) && e.result === undefined, JSON.stringify([e.result, e.stderr]));
+  const ui = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const u = await captureStderr(() => fire(ui.pi, 'agent_before_settle', settleEvent(), { ...ui.ctx, mode: 'tui' }));
+  check('a non-print mode still gets the entry and the continuation, with nothing on stderr', u.result?.continue === true && !/RETRO-REQUIRED|NOT evaluated/.test(u.stderr), JSON.stringify([u.result, u.stderr]));
+  restoreEnv();
+}
+
+// ---- 20. a corpus created mid-session is gated from then on (#2139 item 1) ----------------------------------------------
+// research-sdd-init can create RESEARCH-STATE.md during the session; the corpus flag decided once at session_start would
+// leave the settle gates dead and no session sha recorded, with no notice.
+{
+  const s = await boot({ corpus: false, git: true, sid: 'sess-late', env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const shaFile = join(s.target, '.claude', '.rsdd-session-sess-late');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  check('before the corpus exists: no sha file and no gate (unchanged)', !existsSync(shaFile) && !/GATE/.test(readLog(s.log)));
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  const head = spawnSync('git', ['-C', s.target, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+  check('a corpus that appears mid-session gets its session sha recorded at the next run', existsSync(shaFile) && readFileSync(shaFile, 'utf8').trim() === head && head.length === 40);
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('and the settle gate runs for it', r?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(r)) && /GATE retro/.test(readLog(s.log)), JSON.stringify(r));
+  restoreEnv();
+}
+{
+  // created after the last before_agent_start: the settle itself re-evaluates
+  const s = await boot({ corpus: false, git: true, sid: 'sess-late2', env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
+  check('a corpus created during the run is gated at that very settle, with its sha recorded',
+    r?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(r)) && existsSync(join(s.target, '.claude', '.rsdd-session-sess-late2')), JSON.stringify(r));
+  restoreEnv();
+}
+
+{
+  // the sha is the one at SESSION START, not whatever HEAD is when the corpus shows up (#2139 review SF2)
+  const gitIn = (t, ...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+  const s = await boot({ corpus: false, git: true, sid: 'sess-pre' });
+  const head0 = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'work.txt'), 'work done during the session\n');
+  gitIn(s.target, 'add', '-A'); gitIn(s.target, 'commit', '-q', '-m', 'mid-session work');
+  const head1 = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  const f = join(s.target, '.claude', '.rsdd-session-sess-pre');
+  const got = existsSync(f) ? readFileSync(f, 'utf8').trim() : '';
+  check('a corpus that appears after a mid-session commit records the SESSION-START sha, not the current HEAD', head0 !== head1 && got === head0, `start=${head0} now=${head1} recorded=${got}`);
+  restoreEnv();
+}
+{
+  // no sha was capturable at session start (not a git checkout yet): fall back to the current HEAD, with a typed notice
+  const gitIn = (t, ...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+  const s = await boot({ corpus: false, git: false, sid: 'sess-nogit' });
+  gitIn(s.target, 'init', '-q'); write(join(s.target, 'a.txt'), 'a\n'); gitIn(s.target, 'add', '-A'); gitIn(s.target, 'commit', '-q', '-m', 'late init');
+  const head = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
+  const f = join(s.target, '.claude', '.rsdd-session-sess-nogit');
+  check('with no session-start sha available the current HEAD is recorded, with a typed notice saying so',
+    existsSync(f) && readFileSync(f, 'utf8').trim() === head && /no session-start sha.*current HEAD/i.test(sectionOf(ev)), sectionOf(ev).slice(0, 300));
   restoreEnv();
 }
 
