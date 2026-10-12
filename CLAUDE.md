@@ -189,7 +189,10 @@ gates of PRs #2131 and #2132 failed only on `pipefail-sigpipe-lint`).
 Whenever a script emits or changes a typed state, it also runs `reason-codes.test.sh`: a new emitter of `absent-input`, `empty-input` or similar must be listed in `research-sdd/toolbelt/reason-codes.v1.md`, or that suite fails "real registry input rows vs real toolbelt" (PR #2140 full gate, 2026-10-11).
 
 New suites dropped into `research-sdd/toolbelt/tests/` are picked up automatically — nothing to
-register.
+register. Every suite must be able to print the exact run-all summary line `== N passed · M failed ==`
+(any other format fails the full gate as "malformed summary"); `summary-line-lint.test.sh` checks that
+statically across both corpora and names any suite without the emitter (a static floor, not proof of
+runtime output; a suite whose summary is computed elsewhere declares `# summary-lint: dynamic <reason>`; kit issue #2169).
 
 When scanning a suite log for failures, match the runner's own `  FAIL  ` prefix, not the bare string:
 tests legitimately assert that things fail, so `FAIL` appears inside many PASSING lines. A bare grep
