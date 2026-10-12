@@ -195,6 +195,28 @@ They are listed here so a reader of this registry finds every typed state the sc
   leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
   prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
+- `kit-pr-pipeline: <state>` (maint/kit-pr-pipeline.sh, kit-gate.sh, kit-wait-merge.sh, kit-rdd-start.py,
+  kit-rdd-drive.py, kit issue #2212): the kit-maintenance PR pipeline ends in one typed state, each with its own
+  exit code and exactly one continuation. `maint/` is not a scanned directory, so these are listed here and not as
+  table rows; the script header and `tests/kit-pr-pipeline.test.sh` pin them. The one `degraded:` line they print,
+  `degraded: missing runtime dependency: <deps>` (git gh gentle-ai python3 flock), is probed at startup (exit 3).
+
+  | state | exit | continuation |
+  |---|---|---|
+  | `merged` | 0 | nothing to repair |
+  | `restack-conflict` | 11 | resolve the conflict with the base by hand (the merge was aborted), then re-run |
+  | `push-failed` | 12 | check network and credentials, then re-run |
+  | `fetch-failed` | 21 | check network and the remote name, then re-run |
+  | `rdd-not-approved` | 13 | read the printed `rdd-stop: <reason_code>`; recover by hand (no automatic recovery), then re-run |
+  | `rdd-start-error` | 14 | run `gentle-ai review assess --cwd <worktree> --json` by hand, fix the cause, then re-run |
+  | `consent-required` | 15 | read the printed consent envelope, then re-run with `--consent granted` to record the standing grant |
+  | `gate-failed` | 16 | read `<state-dir>/gate-pr<N>.log`, fix, then re-run |
+  | `ci-failed` | 17 | read the printed failing check, fix, push, then re-run |
+  | `merge-degraded` | 18 | fix the failure merge-gate printed (`merge-gate: degraded: ...`), then re-run `kit-wait-merge.sh` |
+  | `not-merged` | 19 | read the printed merge-gate refusal, then re-run |
+  | `size-check-failed` | 20 | fix what the `--size-check` command reported, then re-run |
+  | `rdd-not-due` | (info; kit-rdd-start.py exits 10) | nothing to repair; the pipeline continues |
+
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 
 Nothing remains scheduled. Every item below is settled; reopen only on the stated trigger.
