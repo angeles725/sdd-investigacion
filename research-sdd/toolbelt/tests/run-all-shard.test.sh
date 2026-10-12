@@ -37,6 +37,7 @@ mktree(){
   # one node suite per corpus so the .test.mjs discovery/shard path is exercised too
   printf 'console.log("== 1 passed %s 0 failed ==");\n' "$MID" > "$root/toolbelt/tests/n01.test.mjs"
   printf 'console.log("== 1 passed %s 0 failed ==");\n' "$MID" > "$root/install/tests/n02.test.mjs"
+  printf '# fixture: no extras\n' > "$root/toolbelt/tests/suite-tiers.txt"   # an absent manifest is DEGRADED + exit 1 (kit issue #2203)
   printf '%s' "$root/toolbelt/tests"
 }
 # expected_list <tooldir> — independent oracle of the full repo-relative list (find, not the SUT)
@@ -114,7 +115,7 @@ d7="$(mktree absent 3 0)"; rm -rf "${d7%/toolbelt/tests}/install"
 shard_run "$d7" 1/3; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF 'ABSENT-INPUT' "$d7/../../../aux/out.1-3"; then ok "shard keeps the install-corpus ABSENT-INPUT gate (exit 1)"
 else no "absent install corpus under --shard did not fail: rc=$rc"; fi
-d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; cp "$SUT" "$d7b/run-all.sh"
+d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; cp "$SUT" "$d7b/run-all.sh"; printf '# fixture: no extras\n' > "$d7b/suite-tiers.txt"
 bash "$d7b/run-all.sh" --shard 1/2 >/dev/null 2>&1; [ $? -eq 1 ] && ok "no suites at all still exits 1 under --shard" || no "empty discovery under --shard did not exit 1"
 
 # 8 — without --shard nothing new appears
@@ -137,6 +138,33 @@ if grep -q 'GNU parallel' <<<"$_pv"; then
   shard_run "$d5" 7/9 -j 2; rc=$?
   if [ "$rc" -eq 1 ] && grep -qF 'EMPTY SHARD' "$d5/../../../aux/out.7-9"; then ok "empty shard under -j does not hang and is reported"; else no "empty shard -j rc=$rc"; fi
 else echo "  SKIP  shard + -j: GNU parallel not usable here"; fi
+
+# 11 — suite tiers (kit issue #2203): the tier filter runs BEFORE --shard/--list-suites, so both see the tier's list
+#      (the Shard line's T is the tier's count) while the corpus gates still judge the full set. Extras: one toolbelt
+#      .sh suite, one node suite. mktree 3 2 => 7 suites, 5 core + 2 extras.
+d11="$(mktree tier 3 2)"; A11="$d11/../../../aux"
+printf '%s\n' "research-sdd/toolbelt/tests/t02.test.sh extras r" "research-sdd/toolbelt/tests/n01.test.mjs extras r" > "$d11/suite-tiers.txt"
+expected_list "$d11" > "$d11/all.txt"
+grep -vxF -e research-sdd/toolbelt/tests/t02.test.sh -e research-sdd/toolbelt/tests/n01.test.mjs "$d11/all.txt" > "$d11/core.txt"
+printf '%s\n' research-sdd/toolbelt/tests/n01.test.mjs research-sdd/toolbelt/tests/t02.test.sh > "$d11/extras.txt"
+bad=""
+for T in core extras all; do
+  case "$T" in core) want="$d11/core.txt" ;; extras) want="$d11/extras.txt" ;; all) want="$d11/all.txt" ;; esac
+  nT="$(wc -l < "$want")"; : > "$d11/u11"
+  for I in 1 2; do
+    shard_run "$d11" "$I/2" --tier "$T"
+    [ -f "$A11/m.$I-2" ] && manifest_suites "$A11/m.$I-2" >> "$d11/u11"
+    grep -qE "^Shard: $I/2 — [0-9]+ of $nT suites\$" "$A11/out.$I-2" || bad="$bad [$T $I/2 Shard line: $(grep '^Shard' "$A11/out.$I-2")]"
+  done
+  LC_ALL=C sort "$d11/u11" > "$d11/u11s"
+  cmp -s "$d11/u11s" "$want" || bad="$bad [$T union != the tier's list]"
+  lo="$(bash "$d11/run-all.sh" --list-suites --tier "$T" 2>/dev/null)"; [ "$lo" = "$(cat "$want")" ] || bad="$bad [$T --list-suites differs]"
+done
+bash "$d11/run-all.sh" --list-suites --tier extras --shard 1/2 >/dev/null 2>&1; [ $? -eq 2 ] || bad="$bad [list+shard+tier not refused]"
+# the corpus gate still judges the FULL set: an absent install corpus fails a core shard even though no install suite is extras
+d11b="$(mktree tierabs 3 2)"; printf '%s\n' "research-sdd/toolbelt/tests/t02.test.sh extras r" > "$d11b/suite-tiers.txt"; rm -rf "${d11b%/toolbelt/tests}/install"
+shard_run "$d11b" 1/2; rc=$?; { [ "$rc" -eq 1 ] && grep -qF "ABSENT-INPUT" "$d11b/../../../aux/out.1-2"; } || bad="$bad [absent install corpus under a core shard rc=$rc]"
+[ -z "$bad" ] && ok "tier + shard: --shard and --list-suites operate on the selected tier (core/extras/all) while the corpus gates judge the full set" || no "tier shard:$bad"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: shard assignment off by one; the union must stop covering the list --"
@@ -189,6 +217,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     dm="$(mktree mut-exit 2 1)"; cp "$w/run-all.sh" "$dm/run-all.sh"; mkfix "$dm/t02.test.sh" 1; shard_run "$dm" 1/1
     if grep -qF 'exit=0' <<<"$(hdr_of "$dm/../../../aux/m.1-1")"; then ok "teeth-exit: mutant records exit=0 for a failing shard -> the header case has real teeth"; else no "teeth-exit: header still exit=1 (THEATER)"; fi
+  fi
+  echo "-- teeth: tier filter neutered; the shard must then see the FULL list (case 11) --"
+  w="$TMP/teeth-tierfilter"; mkdir -p "$w"
+  if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^elif \[\[ "\$TIER" != "all" \]\]; then$/elif false; then/' 2>"$w/err"; then no "teeth-tierfilter: no mutant: $(cat "$w/err")"
+  else
+    dm="$(mktree mut-tier 3 2)"; cp "$w/run-all.sh" "$dm/run-all.sh"; printf '%s\n' "research-sdd/toolbelt/tests/t02.test.sh extras r" > "$dm/suite-tiers.txt"; shard_run "$dm" 1/1
+    if ! grep -qxF 'Shard: 1/1 — 6 of 6 suites' "$dm/../../../aux/out.1-1"; then ok "teeth-tierfilter: filter-less mutant shards the full list -> the tier+shard case has real teeth"; else no "teeth-tierfilter: mutant still shards the tier (THEATER)"; fi
   fi
 fi
 
