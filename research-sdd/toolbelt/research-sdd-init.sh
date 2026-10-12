@@ -55,6 +55,11 @@
 #           EXISTING corpus, never implicit scaffolding of a marker-less target) · --scaffold given
 #           without --wire is a usage error (exit 2): it has no effect on its own.
 #
+# --portable (kit issue #2175): installs templates/hook-kit-run.sh create-only as <target>/tools/hooks/kit-run.sh and writes/prints
+#           settings.json commands with no absolute path: the return-token gate, drift hook and pkill guard run through that
+#           runner (bash "$CLAUDE_PROJECT_DIR"/tools/hooks/kit-run.sh toolbelt/<tool>.sh), the per-target hooks via
+#           "$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh. Default (no flag): unchanged, absolute kit paths.
+#
 # PROPOSE-NEVER-APPLY (METHODOLOGY): by default, prints the .claude/settings.json hook wiring snippet
 # for the operator to paste. Pass --wire to have the script write it automatically (requires jq);
 # --no-wire is a backward-compat alias for the default (print-only, no write).
@@ -156,7 +161,7 @@ if [ ! -f "$_ri_cm_lib" ]; then echo "research-sdd-init: cannot find helper $_ri
 declare -F corpus_has_marker >/dev/null 2>&1 || { echo "research-sdd-init: helper $_ri_cm_lib failed to define corpus_has_marker" >&2; exit 1; }
 unset _ri_cm_lib
 
-target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0; engram_project=""; engram_project_given=0
+target=""; corpus_mode="auto"; prefix=""; subject=""; subject_given=0; force=0; wire=0; scaffold=0; document=0; engram_project=""; engram_project_given=0; portable=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --corpus)   corpus_mode="${2:-auto}"; shift 2;;
@@ -166,6 +171,7 @@ while [ $# -gt 0 ]; do
     --force)    force=1; shift;;
     --wire)    wire=1; shift;;
     --no-wire)  wire=0; shift;;   # backward-compat: same as default (print-only)
+    --portable) portable=1; shift;;   # kit issue #2175: wire kit-owned hooks through the tracked tools/hooks/kit-run.sh resolver (no absolute path)
     --scaffold) scaffold=1; shift;;   # kit issue #1047: explicit opt-in to scaffold+wire in one call
     --document) document=1; shift;;   # kit issue #1114: seed the DOCUMENT CYCLE (outline-driven) RESEARCH-STATE variant
     -*)         echo "unknown flag: $1" >&2; exit 2;;
@@ -182,6 +188,29 @@ fi
 # --wire dropped by mistake) fails loudly instead of behaving as a no-op default scaffold run.
 [ "$scaffold" = 1 ] && [ "$wire" = 0 ] && { echo "usage: --scaffold requires --wire (it only opts a marker-less target into scaffold+wire; pass --scaffold --wire, or drop --scaffold for the ordinary print-only scaffold)" >&2; exit 2; }
 target="$(cd "$target" && pwd)"
+# kit issue #2175: the COMMAND strings written into settings.json (the hook FILES below keep their $target paths).
+# Default: absolute paths, as before. --portable: nothing absolute - the per-target hooks use "$CLAUDE_PROJECT_DIR", the kit-owned
+# ones (return-token gate, drift hook, pkill guard) go through the target's tools/hooks/kit-run.sh, which resolves the kit at run time.
+_C_STOP="$target/.claude/hooks/retro-gate-stop.sh"; _C_SS="$target/.claude/hooks/research-protocol.sh"; _C_PK="$target/.claude/hooks/pkill-guard.sh"
+_RSDD_RUNNER_REL="tools/hooks/kit-run.sh"
+if [ "$portable" = 1 ]; then
+  _RSDD_RUN="bash \"\$CLAUDE_PROJECT_DIR\"/$_RSDD_RUNNER_REL"
+  _RSDD_GATE_CMD="$_RSDD_RUN toolbelt/return-token-gate.sh"   # PORTABLE-GATE
+  _RSDD_DRIFT_CMD="$_RSDD_RUN toolbelt/verify-skill-drift-hook.sh"   # PORTABLE-DRIFT
+  _C_STOP='"$CLAUDE_PROJECT_DIR"/.claude/hooks/retro-gate-stop.sh'
+  _C_SS='"$CLAUDE_PROJECT_DIR"/.claude/hooks/research-protocol.sh'
+  _C_PK="$_RSDD_RUN templates/hook-pretool-pkill-guard.sh"   # PORTABLE-PK
+fi
+# kit issue #2175: install the run-time kit resolver into the target's tracked tree. Create-only: an existing (hand-adapted) copy is kept.
+# Prints a typed created:/kept: line; a missing template or failed copy is a typed FATAL (exit 2).
+_rsdd_install_runner() {
+  local dest="$target/$_RSDD_RUNNER_REL"
+  [ -f "$TPL/hook-kit-run.sh" ] || { echo "FATAL: missing kit template $TPL/hook-kit-run.sh (required by --portable)" >&2; exit 2; }
+  if [ -e "$dest" ]; then echo "kept: $dest"; return 0; fi
+  created+=("$dest")   # scaffold rollback removes it (unused on the wire-only path)
+  { mkdir -p "$target/tools/hooks" && cp "$TPL/hook-kit-run.sh" "$dest" && chmod +x "$dest"; } || { echo "FATAL: could not install $dest" >&2; exit 2; }
+  echo "created: $dest"
+}
 # kit issue #1043 (3): a newline in the target path cannot be rendered into the one-line hook
 # placeholders (or the printed snippet) — refuse up front, typed, before any write.
 case "$target" in *$'\n'*) echo "FATAL: target path contains a newline — refusing (nothing written): $target" >&2; exit 2;; esac
@@ -970,7 +999,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
         echo "WARN: $_wo_ss still contains the <SUBJECT> placeholder — the snippet below omits SessionStart until you adapt it (PROMPT-LOOP §c follow-up)." >&2
       fi
       _rsdd_warn_other_placeholders "$_wo_ss"
-      _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_pre_skip_ss" "$target" "$_wo_pk"
+      _rsdd_print_wire_snippet "$_C_STOP" "$_C_SS" "$_wo_pre_skip_ss" "$target" "$_C_PK"
       echo "== done =="
       exit 0
     fi
@@ -1040,6 +1069,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
       chmod +x "$_wo_pk"
       echo "created: $_wo_pk"
     fi
+    [ "$portable" != 1 ] || _rsdd_install_runner   # PORTABLE-INSTALL-RUNNER-WIRE
 
     # kit issue #959/#1038/#1040: never wire an unadapted SessionStart hook — it would inject a
     # raw <SUBJECT> placeholder card into every session. Stop is always safe to wire. Only a LIVE
@@ -1058,7 +1088,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # jq error (no input value), not an empty object.
     _wo_base='{}'; [ -s "$_wo_settings" ] && _wo_base="$(cat "$_wo_settings")"
     _wo_tmp="$(mktemp)" || { echo "FATAL: could not create a temp file for the settings.json merge (check TMPDIR; hooks above may already be created — re-run --wire after fixing it)" >&2; exit 2; }
-    if _wo_merge_out="$(printf '%s' "$_wo_base" | _rsdd_merge_settings "$_wo_stop" "$_wo_ss" "$_wo_pk" \
+    if _wo_merge_out="$(printf '%s' "$_wo_base" | _rsdd_merge_settings "$_C_STOP" "$_C_SS" "$_C_PK" \
         "$_wo_stop_rel" "$_wo_ss_rel" "$_wo_pk_rel" "$_wo_skip_ss" "$_RSDD_GATE_CMD" 2>/dev/null)" && [ -n "$_wo_merge_out" ]; then
       # kit issue #1040 round 3 finding 3: pretty-print (not `-c` compact) so a hand-maintained
       # settings.json keeps its indentation instead of collapsing to one line.
@@ -1111,7 +1141,7 @@ if [ "$wire" = 1 ] && [ "$force" = 0 ]; then
     # snippet on jq-processing failure (jq present but errored; settings.json shape was already
     # pre-checked above, so this branch is defensive/rare) and exit 4 — hook files created above
     # (if any) already exist on disk, but settings.json was NOT written.
-    _rsdd_print_wire_snippet "$_wo_stop" "$_wo_ss" "$_wo_skip_ss" "$target" "$_wo_pk"
+    _rsdd_print_wire_snippet "$_C_STOP" "$_C_SS" "$_wo_skip_ss" "$target" "$_C_PK"
     echo "== done =="
     exit 4
   fi
@@ -1174,6 +1204,7 @@ _rsdd_scaffold_paths=("$corpus/INDEX.md" "$corpus/RESEARCH-STATE.md" "$corpus/so
 _rsdd_scaffold_paths+=("$target/.engram" "$target/.engram/config.json")   # kit issue #1903: the Engram config the scaffold writes
 # settings.json is written only with --wire (kit issue #1043 item 4), so only then is it a precondition.
 [ "$wire" = 1 ] && _rsdd_scaffold_paths+=("$target/.claude/settings.json")
+[ "$portable" != 1 ] || _rsdd_scaffold_paths+=("$target/$_RSDD_RUNNER_REL")   # kit issue #2175
 _rsdd_dangling_symlinks "${_rsdd_scaffold_paths[@]}" || exit 2
 probe="$target/.rsdd-init-writeprobe.$$"
 ( : > "$probe" ) 2>/dev/null || { echo "FATAL: $target is not writable — cannot scaffold." >&2; exit 2; }
@@ -1209,6 +1240,7 @@ else
   _rsdd_warn_hook_noexec "$target/.claude/hooks/research-protocol.sh"
 fi   # _rsdd_keep_hook
 cpf "$TPL/tools-README.template.md"   "$target/tools/README.md"
+[ "$portable" != 1 ] || _rsdd_install_runner   # PORTABLE-INSTALL-RUNNER
 # kit issue #1903: make the target Engram-writable. Engram reads <target>/.engram/config.json (project_name); without it
 # mem_save(project=<new>) fails unknown_project. Create-only: an existing config is never touched. The name is the directory name
 # lowercased, every run of non-alphanumerics collapsed to one `-` (edit the file to use the TARGETS.md/registry name instead).
@@ -1383,7 +1415,7 @@ if [ "$wire" = 1 ]; then
     # `jq .settings`, discarding the has-* flags) so each hook's registered/already-wired state is reported.
     # The merge sits INSIDE the if-guard (as in the wire-only path): under `set -e` an unguarded
     # failing assignment would abort with jq's raw exit code (5) and no typed message (kit issue #1509).
-    if _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_stop_cmd" "$_ss_cmd" "$_pk_cmd" \
+    if _wire_merge_out="$(printf '%s' "$_wire_base" | _rsdd_merge_settings "$_C_STOP" "$_C_SS" "$_C_PK" \
         "$_stop_rel" "$_ss_rel" "$_pk_rel" "$_wire_skip_ss" "$_RSDD_GATE_CMD" 2>/dev/null)" \
         && [ -n "$_wire_merge_out" ] && jq '.settings' <<<"$_wire_merge_out" > "$_tmp_settings" 2>/dev/null \
         && [ "$(jq -r 'type' "$_tmp_settings" 2>/dev/null)" = "object" ]; then
@@ -1436,7 +1468,7 @@ if [ "$wire" = 0 ] || [ "$_wire_result" = "degraded" ]; then
   # proposal to paste, so SessionStart is always offered, whether or not the hook still carries a live <SUBJECT>
   # (--subject fills it, kit issue #1845); the --wire path above is what skips an unadapted hook.
   _print_skip_ss="false"
-  _rsdd_print_wire_block "$_stop_cmd" "$_ss_cmd" "$_print_skip_ss" "$_pk_cmd"
+  _rsdd_print_wire_block "$_C_STOP" "$_C_SS" "$_print_skip_ss" "$_C_PK"
 fi
 
 _rsdd_vendor_leak_wiring
