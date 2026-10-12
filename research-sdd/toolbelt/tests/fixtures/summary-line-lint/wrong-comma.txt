@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+echo "table-reader-parity: $pass passed, $fail failed"
