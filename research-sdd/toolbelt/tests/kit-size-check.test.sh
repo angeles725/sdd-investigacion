@@ -52,6 +52,7 @@ put() {
     churn) churn "$4" >"$f" ;;
     mix8) { churn 8; gen 2 zz; } >"$f" ;;
     mix7) { churn 7; gen 3 zz; } >"$f" ;;
+    crlf) churn "$4" | sed 's/$/\r/' >"$f" ;;
     bin) printf '\0\1\2binary%s\0' "$4" >"$f" ;;
   esac
 }
@@ -123,6 +124,12 @@ check "x1 fixture first/middle/last edges: authored = 12 (5 + 7), fixture not co
 check "x1b excluded total printed separately, with its file" has "excluded (generated/fixture/lockfile, not counted): 500 line(s) in 1 file(s)"
 check "x1c excluded file is listed by name" has "research-sdd/toolbelt/tests/fixtures/ksc/data.json"
 check "x1d verdict ok" state_is ok
+rfx="$(mkrepo rfx)"; FX=research-sdd/toolbelt/tests/fixtures/ksc-logic
+put "$rfx" $FX/shim.sh gen 10 fs; put "$rfx" $FX/helper.py gen 10 fp; put "$rfx" $FX/mod.mjs gen 10 fm; put "$rfx" $FX/data.json gen 100 fd
+commit_all "$rfx"
+run "$rfx" --base base
+check "x5 fixture *.sh / *.py / *.mjs are reviewed logic and counted (30); fixture data stays excluded (100)" has "authored changed lines: 30 (+30 -0) in 3 file(s)"
+check "x5b the data fixture is the only exclusion" has "excluded (generated/fixture/lockfile, not counted): 100 line(s) in 1 file(s)"
 rlock="$(mkrepo rlock)"
 put "$rlock" src/real.txt gen 3 rl; put "$rlock" package-lock.json gen 100 pl; put "$rlock" Cargo.lock gen 100 cl
 put "$rlock" web/pnpm-lock.yaml gen 100 yl; put "$rlock" go.sum gen 100 gs
@@ -146,8 +153,12 @@ check "u1b authored 3 only" has "authored changed lines: 3 (+3 -0) in 1 file(s)"
 check "u1c unmeasured files named" has "  unmeasured  zzz.bin"
 rbo="$(mkrepo rbo)"; put "$rbo" only.bin bin 1; commit_all "$rbo"
 run "$rbo" --base base
-check "u2 only a binary file: unmeasured reported, verdict ok (not all-excluded)" both 0 ok
+check "u2 only a binary file: verdict unmeasured (0 lines is not small), exit 0" both 0 unmeasured
 check "u2b the binary is listed" has "unmeasured (binary): 1 file(s)"
+rbx="$(mkrepo rbx)"; put "$rbx" only.bin bin 1; put "$rbx" research-sdd/toolbelt/tests/fixtures/ksc/d.json gen 20 bx; commit_all "$rbx"
+run "$rbx" --base base
+check "u3 binary + excluded data only -> size: all-excluded" both 0 all-excluded
+check "u3b the binary is still listed as unmeasured" has "unmeasured (binary): 1 file(s)"
 rren="$(mkrepo rren)"
 put "$rren" aaa_old.txt gen 40 ra; put "$rren" mid_old.txt gen 40 rm; put "$rren" zzz_old.txt gen 40 rz; commit_all "$rren" seed; cg "$rren" tag seed
 cg "$rren" mv aaa_old.txt aaa_new.txt; cg "$rren" mv zzz_old.txt zzz_new.txt; printf 'added line\n' >>"$rren/mid_old.txt"; commit_all "$rren" move
@@ -157,7 +168,7 @@ check "r1b rename pair shown as old -> new" has "  rename  zzz_old.txt -> zzz_ne
 check "r1c only the edit counts (1 line)" has "authored changed lines: 1 (+1 -0) in 1 file(s)"
 rro="$(mkrepo rro)"; put "$rro" one_old.txt gen 40 ro; commit_all "$rro" seed; cg "$rro" tag seed; cg "$rro" mv one_old.txt one_new.txt; commit_all "$rro" move
 run "$rro" --base seed
-check "r2 a single pure rename: authored 0, verdict ok (not empty-input)" both 0 ok
+check "r2 a single pure rename: authored 0, verdict unmeasured (not ok, not empty-input)" both 0 unmeasured
 check "r2b rename listed" has "  rename  one_old.txt -> one_new.txt"
 
 # ---- mechanical churn ---------------------------------------------------------------------------------
@@ -200,6 +211,56 @@ check "s3 three chunks for 100 | 400 | 100" has "chunk 3: 100 lines"
 check "s3b every chunk is within the budget" bash -c '! grep -Eq "^  chunk [0-9]+: ([5-9][0-9]{2}|[0-9]{4,}) lines" <<<"$0"' "$OUT"
 run "$r801" --base base
 check "s4 a single 801-line unit is flagged as exceeding the budget on its own" has "single-unit-over-budget"
+
+rpm="$(mkrepo rpm)"
+put "$rpm" research-sdd/toolbelt/maint/foo.sh gen 200 pf; put "$rpm" research-sdd/toolbelt/tests/foo.test.sh gen 200 pt
+put "$rpm" research-sdd/toolbelt/lib/bar.sh gen 100 pb; put "$rpm" research-sdd/toolbelt/tests/bar.test.sh gen 100 pc; commit_all "$rpm"
+run "$rpm" --base base --budget 450 --hard-limit 900
+check "s5 maint/ SUT and its toolbelt test share a chunk" bash -c '[ -n "$0" ] && [ "$0" = "$1" ]' "$(chunk_of research-sdd/toolbelt/maint/foo.sh)" "$(chunk_of research-sdd/toolbelt/tests/foo.test.sh)"
+check "s5b lib/ SUT and its toolbelt test share a chunk" bash -c '[ -n "$0" ] && [ "$0" = "$1" ]' "$(chunk_of research-sdd/toolbelt/lib/bar.sh)" "$(chunk_of research-sdd/toolbelt/tests/bar.test.sh)"
+check "s5c two chunks (bar pair 200, foo pair 400)" has "chunk 2: 400 lines"
+
+# ---- base advanced after the fork ---------------------------------------------------------------------
+radv="$(mkrepo radv)"; cg "$radv" checkout -q -b feat; put "$radv" feat.txt gen 5 fa; commit_all "$radv" feat
+cg "$radv" checkout -q main; put "$radv" main_only.txt gen 500 ma; commit_all "$radv" main-advance
+run "$radv" --base main --head feat
+check "a1 commits that only advanced the base after the fork are NOT counted (5, not 505)" has "authored changed lines: 5 (+5 -0) in 1 file(s)"
+check "a1b verdict ok" state_is ok
+
+# ---- hotspot diff failure is never silent -------------------------------------------------------------
+mkdir -p "$T/fakebin"
+REALGIT="$(command -v git)"
+printf '#!/usr/bin/env bash\ncase " $* " in *" --unified=0 "*) exit 1 ;; esac\nexec %s "$@"\n' "$REALGIT" >"$T/fakebin/git"; chmod +x "$T/fakebin/git"
+OUT="$(cd "$rc_pos" && PATH="$T/fakebin:$PATH" bash "$SUT" --base base 2>"$T/err")"; RC=$?; ERR="$(cat "$T/err")"
+check "k1 a failing hotspot diff prints 'hotspot: unchecked <file>' (never a silent no-churn)" has "hotspot: unchecked hooks/wire.sh"
+check "k1b the verdict itself is unaffected (ok, exit 0)" both 0 ok
+OUT="$(cd "$rc_pos" && PATH="$T/fakebin:$PATH" bash "$SUT" --base base --format json 2>/dev/null)"; RC=$?
+check "k2 json carries hotspots_unchecked" has '"hotspots_unchecked":["hooks/wire.sh"]'
+run "$rc_pos" --base base --format json
+check "k3 json hotspots_unchecked is empty on a healthy run" has '"hotspots_unchecked":[]'
+rglob="$(mkrepo rglob)"; put "$rglob" 'w[1].sh' churn 60; put "$rglob" w1.sh gen 3 gw; commit_all "$rglob"
+run "$rglob" --base base
+check "k4 a path with glob characters is diffed literally and still flagged" has "mechanical churn: w[1].sh"
+
+# ---- numeric flags ------------------------------------------------------------------------------------
+run "$r10" --base base --budget 010
+check "n1 --budget 010 is ten (base 10), not an octal error" both 0 ok
+check "n1b header shows budget 10 / hard-limit 20" has "budget 10, hard-limit 20"
+run "$r10" --base base --budget 08
+check "n2 --budget 08 is eight: 10 lines -> over-budget" both 0 over-budget
+check "n2b header shows budget 8 / hard-limit 16" has "budget 8, hard-limit 16"
+run "$r10" --base base --budget 8 --hard-limit 009
+check "n3 --hard-limit 009 is nine: 10 lines, budget 8 -> refuse" both 3 refuse
+run "$r10" --base base --budget -5
+check "n4 negative --budget -> usage exit 2" both 2 degraded
+run "$r10" --base base --budget 1e3
+check "n5 --budget 1e3 -> exit 2" both 2 degraded
+run "$r10" --base base --budget 1234567890
+check "n6 a 10-digit --budget (overflow guard) -> exit 2" both 2 degraded
+run "$r10" --base base --hard-limit ''
+check "n7 an explicitly empty --hard-limit -> exit 2 (not the default)" both 2 degraded
+run "$r10" --base base --hard-limit 1234567890
+check "n8 a 10-digit --hard-limit -> exit 2" both 2 degraded
 
 # ---- json ---------------------------------------------------------------------------------------------
 if command -v python3 >/dev/null 2>&1; then
@@ -253,6 +314,17 @@ check "d10 unknown format -> exit 2" both 2 degraded
 rtab="$(mkrepo rtab)"; printf 'x\n' >"$rtab/$(printf 'a\tb')"; commit_all "$rtab"
 run "$rtab" --base base
 check "d11 a tab in a path is refused loudly, not mis-parsed -> exit 2" both 2 degraded
+rcrp="$(mkrepo rcrp)"; printf 'x\n' >"$rcrp/$(printf 'a\rb')"; commit_all "$rcrp"
+run "$rcrp" --base base
+check "d11b a carriage return in a path is refused too (exit 2)" both 2 degraded
+rcrl="$(mkrepo rcrl)"; put "$rcrl" crlf.sh crlf 12; commit_all "$rcrl"
+run "$rcrl" --base base --format json
+no_cr() { [[ $OUT != *$'\r'* ]]; }
+check "d11c a CRLF file's churn pattern reaches the json with no raw CR" no_cr
+check "d11d ...and the churn is still flagged" has '"path":"crlf.sh"'
+if command -v python3 >/dev/null 2>&1; then
+  check "d11e ...and the json parses" bash -c 'python3 -I -c "import json,sys; json.loads(sys.stdin.read())" <<<"$0"' "$OUT"
+fi
 run "$r400" --help
 check "d12 --help prints the header incl. the #2200 pointer, exit 0" bash -c '[ "$1" -eq 0 ] && grep -Fq RSDD_INIT_WIRING <<<"$0"' "$OUT" "$RC"
 
@@ -307,14 +379,40 @@ EOS
       && tt "m12 pure renames no longer recognised" 0 0 "$MUT/m12.sh" --good-has "pure renames .0 lines.: 2 file" --bad-lacks "pure renames .0 lines.: 2 file" -- bash "$T/runner.sh" "$rren" @SUT@ --base seed
     mk "m13 base ref check" "$SUT" "$MUT/m13.sh" 's/^git rev-parse --verify --quiet "\${BASE}^{commit}".*$/:/' \
       && tt "m13 bad base ref no longer named" 2 2 "$MUT/m13.sh" --good-has "base ref does not resolve to a commit" --bad-lacks "base ref does not resolve to a commit" -- bash "$T/runner.sh" "$r400" @SUT@ --base no-such-ref
-    mk "m14 pair key" "$SUT" "$MUT/m14.sh" 's#^    \*/tests/\*\.test\.sh) .*$#    nomatch-pair) : ;;#' \
+    mk "m14 pair key" "$SUT" "$MUT/m14.sh" 's#^    research-sdd/toolbelt/tests/\*\.test\.sh) .*$#    nomatch-pair) : ;;#' \
       && tt "m14 test+SUT pairing removed -> pair split across chunks" 0 0 "$MUT/m14.sh" --good-has "chunk 3: 100 lines" --bad-lacks "chunk 3: 100 lines" -- bash "$T/runner.sh" "$rsp" @SUT@ --base base --budget 450 --hard-limit 900
     mk "m15 chunk limit" "$SUT" "$MUT/m15.sh" 's/cur + tot\[k\] > B/cur + tot[k] > 99999/' \
       && tt "m15 chunk budget ignored -> one giant chunk" 0 0 "$MUT/m15.sh" --good-has "chunk 3: 100 lines" --bad-lacks "chunk 3: 100 lines" -- bash "$T/runner.sh" "$rsp" @SUT@ --base base --budget 450 --hard-limit 900
     mk "m16 hard default" "$SUT" "$MUT/m16.sh" 's/HARD=\$((BUDGET \* 2))/HARD=$((BUDGET * 3))/' \
       && tt "m16 default hard-limit is 2 x budget (21 lines, budget 10 -> refuse)" 3 0 "$MUT/m16.sh" --good-has "size: refuse" --bad-has "size: over-budget" -- bash "$T/runner.sh" "$r21" @SUT@ --base base --budget 10
-    mk "m17 tab refusal" "$SUT" "$MUT/m17.sh" 's/) degrade "unsupported path (tab or newline) in diff" ;; esac/) : ;; esac/' \
+    mk "m17 tab refusal" "$SUT" "$MUT/m17.sh" 's/) degrade "unsupported path (control character: tab, newline, CR...) in diff" ;; esac/) : ;; esac/' \
       && tt "m17 tab-in-path guard removed" 2 0 "$MUT/m17.sh" --good-has "unsupported path" --bad-lacks "unsupported path" -- bash "$T/runner.sh" "$rtab" @SUT@ --base base
+    mk "m14b maint pairing" "$SUT" "$MUT/m14b.sh" 's#^    research-sdd/toolbelt/\*) .*$#    nomatch-sut) : ;;#' \
+      && tt "m14b a maint/ or lib/ SUT no longer pairs with its toolbelt test" 0 0 "$MUT/m14b.sh" --good-has "chunk 2: 400 lines" --bad-lacks "chunk 2: 400 lines" -- bash "$T/runner.sh" "$rpm" @SUT@ --base base --budget 450 --hard-limit 900
+    mk "m18 fixture logic" "$SUT" "$MUT/m18.sh" 's#^    research-sdd/toolbelt/tests/fixtures/\*\.sh|.*) return 1 ;;#    nomatch-logic) return 1 ;;#' \
+      && tt "m18 fixture scripts excluded again (30 -> 0)" 0 0 "$MUT/m18.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
+    mk "m18b fixture .py" "$SUT" "$MUT/m18b.sh" 's#|research-sdd/toolbelt/tests/fixtures/\*\.py##' \
+      && tt "m18b fixture .py no longer counted" 0 0 "$MUT/m18b.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
+    mk "m18c fixture .mjs" "$SUT" "$MUT/m18c.sh" 's#|research-sdd/toolbelt/tests/fixtures/\*\.mjs##' \
+      && tt "m18c fixture .mjs no longer counted" 0 0 "$MUT/m18c.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
+    mk "m19 unmeasured" "$SUT" "$MUT/m19.sh" 's/^elif \[ "\${#M_rows\[@\]}" -eq 0 \]; then state=unmeasured/elif false; then state=unmeasured/' \
+      && tt "m19 unmeasured state removed -> binary-only reads as ok" 0 0 "$MUT/m19.sh" --good-has "size: unmeasured" --bad-lacks "size: unmeasured" -- bash "$T/runner.sh" "$rbo" @SUT@ --base base
+    mk "m20 binary+excluded" "$SUT" "$MUT/m20.sh" 's/\[ "\${#R_rows\[@\]}" -eq 0 \]; then state=all-excluded/[ "${#R_rows[@]}" -eq 0 ] \&\& [ "${#U_paths[@]}" -eq 0 ]; then state=all-excluded/' \
+      && tt "m20 binary + excluded data no longer all-excluded" 0 0 "$MUT/m20.sh" --good-has "size: all-excluded" --bad-lacks "size: all-excluded" -- bash "$T/runner.sh" "$rbx" @SUT@ --base base
+    mk "m21 range dots" "$SUT" "$MUT/m21.sh" 's/^RANGE="\$BASE\.\.\.\$HEAD_REF"/RANGE="$BASE..$HEAD_REF"/' \
+      && tt "m21 two-dot range counts the advanced base (505, not 5)" 0 0 "$MUT/m21.sh" --good-has "authored changed lines: 5 " --bad-lacks "authored changed lines: 5 " -- bash "$T/runner.sh" "$radv" @SUT@ --base main --head feat
+    mk "m22 merge-base check" "$SUT" "$MUT/m22.sh" 's/^git merge-base .*$/:/' \
+      && tt "m22 merge-base check dropped" 2 2 "$MUT/m22.sh" --good-has "no merge base" --bad-lacks "no merge base" -- bash "$T/runner.sh" "$rorph" @SUT@ --base main --head other
+    mk "m23 unchecked hotspot" "$SUT" "$MUT/m23.sh" 's/H_unchecked+=("\$p"); continue/continue/' \
+      && tt "m23 failed hotspot diff silently skipped" 0 0 "$MUT/m23.sh" --good-has "hotspot: unchecked" --bad-lacks "hotspot: unchecked" -- env "PATH=$T/fakebin:$PATH" bash "$T/runner.sh" "$rc_pos" @SUT@ --base base
+    mk "m24 base-10 budget" "$SUT" "$MUT/m24.sh" 's/^BUDGET=\$((10#\$BUDGET))/BUDGET=$((BUDGET + 0))/' \
+      && tt "m24 octal-looking --budget 010 no longer base 10" 0 0 "$MUT/m24.sh" --good-has "budget 10, hard-limit 20" --bad-lacks "budget 10, hard-limit 20" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --budget 010
+    mk "m25 length cap" "$SUT" "$MUT/m25.sh" 's/\[ "\${#BUDGET}" -le 9 \]/true/' \
+      && tt "m25 over-long --budget no longer refused" 2 0 "$MUT/m25.sh" --good-has "at most 9 d" --bad-lacks "at most 9 d" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --budget 1234567890
+    mk "m26 empty hard-limit" "$SUT" "$MUT/m26.sh" "s/case \"\\\$HARD\" in ''|\\*\\[!0-9\\]\\*)/case \"\$HARD\" in *[!0-9]*)/" \
+      && tt "m26 empty --hard-limit silently accepted" 2 2 "$MUT/m26.sh" --good-has "--hard-limit must be" --bad-lacks "--hard-limit must be" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --hard-limit ''
+    mk "m27 json control chars" "$SUT" "$MUT/m27.sh" 's/^  s=\${s\/\/\$.\\t.\/\\\\t}; .*$/  :/' 's/^  s=\${s\/\/\[\[:cntrl:\]\]\/?}$/  :/' \
+      && tt "m27 json escaping of control characters removed -> raw CR in the document" 0 0 "$MUT/m27.sh" --good-lacks "$(printf '\r')" --bad-has "$(printf '\r')" -- bash "$T/runner.sh" "$rcrl" @SUT@ --base base --format json
   }
 fi
 

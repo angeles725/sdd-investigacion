@@ -15,20 +15,27 @@
 #   --format        report (default) or json
 #
 # Verdict (line `size: <state>`, JSON field "state") and exit code:
-#   ok            n <= budget                         exit 0  (also: only renames/binary files, n = 0)
+#   ok            0 < n <= budget                     exit 0
 #   over-budget   budget < n <= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion
 #   refuse        n > hard-limit                      exit 3; prints a split suggestion
 #   empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)
-#   all-excluded  files changed, every one excluded   exit 0  (0 measured lines is NOT "small")
+#   all-excluded  files changed, none measured, every one excluded data or binary  exit 0
+#   unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames
+#                 (0 lines is NOT "small": the binaries were not read)   exit 0
 #   degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: <why>`;
 #                 no merge base, git diff failed,             also bad usage; never read as a zero)
 #                 unsupported path
 #
-# Excluded from the count (printed as a separate total, never hidden): research-sdd/toolbelt/tests/fixtures/**
-# (this covers the *.json fixtures and the merge-gate workflow copy
+# Excluded from the count (printed as a separate total, never hidden): pure DATA under
+# research-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy
 # tests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,
-# pnpm-lock.yaml, go.sum). Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are
-# listed with 0 lines.
+# pnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE
+# counted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.
+# The range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.
+#
+# Split suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename
+# anywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a
+# chunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.
 #
 # Mechanical-churn hotspot: a measured file with > 40% of the authored lines, at least 10 non-blank added
 # lines, where >= 80% of them are the same line after replacing quoted strings with S and digit runs with N.
@@ -41,6 +48,7 @@ set -uo pipefail
 
 BUDGET=400
 HARD=''
+HARD_GIVEN=0
 BASE=''
 HEAD_REF='HEAD'
 FORMAT='report'
@@ -51,7 +59,14 @@ trap '[ -z "$WORK" ] || rm -rf -- "$WORK"' EXIT
 # usage — the header comment block, verbatim, on stdout.
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"; }
 
-jesc() { local s="$1"; s=${s//\\/\\\\}; s=${s//\"/\\\"}; printf '%s' "$s"; }
+# jesc — JSON string body: backslash, quote, \t \n \r escaped; any other control character becomes `?`.
+jesc() {
+  local s="$1"
+  s=${s//\\/\\\\}; s=${s//\"/\\\"}
+  s=${s//$'\t'/\\t}; s=${s//$'\n'/\\n}; s=${s//$'\r'/\\r}
+  s=${s//[[:cntrl:]]/?}
+  printf '%s' "$s"
+}
 
 # degrade <why> — typed degraded state, exit 2. JSON mode prints a JSON document on stdout.
 degrade() {
@@ -69,7 +84,7 @@ while [ $# -gt 0 ]; do
     --base) [ $# -ge 2 ] || degrade "--base needs a value"; BASE="$2"; shift 2 ;;
     --head) [ $# -ge 2 ] || degrade "--head needs a value"; HEAD_REF="$2"; shift 2 ;;
     --budget) [ $# -ge 2 ] || degrade "--budget needs a value"; BUDGET="$2"; shift 2 ;;
-    --hard-limit) [ $# -ge 2 ] || degrade "--hard-limit needs a value"; HARD="$2"; shift 2 ;;
+    --hard-limit) [ $# -ge 2 ] || degrade "--hard-limit needs a value"; HARD="$2"; HARD_GIVEN=1; shift 2 ;;
     --format) [ $# -ge 2 ] || degrade "--format needs a value"; FORMAT="$2"; shift 2 ;;
     --strict) STRICT=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -78,10 +93,18 @@ while [ $# -gt 0 ]; do
 done
 case "$FORMAT" in report|json) ;; *) FORMAT=report; degrade "--format must be report or json" ;; esac
 [ -n "$BASE" ] || { usage >&2; degrade "--base is required"; }
+# Digits only, at most 9 (no overflow), forced to base 10: `08` / `010` are 8 / 10, never an octal error.
 case "$BUDGET" in ''|*[!0-9]*) degrade "--budget must be a positive integer: $BUDGET" ;; esac
+[ "${#BUDGET}" -le 9 ] || degrade "--budget must be a positive integer of at most 9 digits: $BUDGET"
+BUDGET=$((10#$BUDGET))
 [ "$BUDGET" -ge 1 ] || degrade "--budget must be a positive integer: $BUDGET"
-[ -n "$HARD" ] || HARD=$((BUDGET * 2))
-case "$HARD" in ''|*[!0-9]*) degrade "--hard-limit must be a positive integer: $HARD" ;; esac
+if [ "$HARD_GIVEN" -eq 1 ]; then
+  case "$HARD" in ''|*[!0-9]*) degrade "--hard-limit must be a positive integer: $HARD" ;; esac
+  [ "${#HARD}" -le 9 ] || degrade "--hard-limit must be a positive integer of at most 9 digits: $HARD"
+  HARD=$((10#$HARD))
+else
+  HARD=$((BUDGET * 2))
+fi
 [ "$HARD" -ge "$BUDGET" ] || degrade "--hard-limit ($HARD) must be >= --budget ($BUDGET)"
 
 command -v git >/dev/null 2>&1 || degrade "git is not installed"
@@ -98,6 +121,8 @@ git diff --no-ext-diff -M --numstat -z "$RANGE" >"$WORK/numstat" 2>/dev/null || 
 
 is_excluded() {
   case "$1" in
+    # Fixture logic (stubs, shims, helper scripts) is reviewed code: only pure data is excluded.
+    research-sdd/toolbelt/tests/fixtures/*.sh|research-sdd/toolbelt/tests/fixtures/*.py|research-sdd/toolbelt/tests/fixtures/*.mjs) return 1 ;;
     research-sdd/toolbelt/tests/fixtures/*) return 0 ;;
     *.lock|*/package-lock.json|package-lock.json|*/pnpm-lock.yaml|pnpm-lock.yaml|*/go.sum|go.sum) return 0 ;;
   esac
@@ -118,7 +143,7 @@ while [ "$tok_i" -lt "${#TOKS[@]}" ]; do
     old="${TOKS[$tok_i]}"; p="${TOKS[$((tok_i + 1))]:-}"; tok_i=$((tok_i + 2))
     [ -n "$p" ] || degrade "malformed rename record in numstat"
   fi
-  case "$p$old" in *$'\t'*|*$'\n'*) degrade "unsupported path (tab or newline) in diff" ;; esac
+  case "$p$old" in *[[:cntrl:]]*) degrade "unsupported path (control character: tab, newline, CR...) in diff" ;; esac
   P_path+=("$p"); P_old+=("$old"); P_add+=("$a"); P_del+=("$d")
   nentries=$((nentries + 1))
 done
@@ -141,7 +166,8 @@ for ((i = 0; i < nentries; i++)); do
 done
 
 if [ "$nentries" -eq 0 ]; then state=empty-input
-elif [ "${#M_rows[@]}" -eq 0 ] && [ "$ex_files" -gt 0 ] && [ "${#U_paths[@]}" -eq 0 ] && [ "${#R_rows[@]}" -eq 0 ]; then state=all-excluded
+elif [ "${#M_rows[@]}" -eq 0 ] && [ "$ex_files" -gt 0 ] && [ "${#R_rows[@]}" -eq 0 ]; then state=all-excluded
+elif [ "${#M_rows[@]}" -eq 0 ]; then state=unmeasured
 elif [ "$authored" -le "$BUDGET" ]; then state=ok
 elif [ "$authored" -le "$HARD" ]; then state=over-budget
 else state=refuse; fi
@@ -153,11 +179,15 @@ fi
 
 # Hotspots: files holding > 40% of the authored lines whose added lines are one repeated edit.
 H_rows=()   # path<TAB>lines<TAB>pct<TAB>share<TAB>pattern
+H_unchecked=()   # candidate files whose hotspot diff failed: reported, never read as "no churn"
 for row in ${SORTED[@]+"${SORTED[@]}"}; do
   IFS=$'\t' read -r n a d p old <<<"$row"
   [ $((n * 100)) -gt $((authored * 40)) ] || continue
   specs=("$p"); [ -z "$old" ] || specs+=("$old")
-  hs="$(git diff --no-ext-diff -M --unified=0 "$RANGE" -- "${specs[@]}" 2>/dev/null | awk -v q="'" '
+  if ! git --literal-pathspecs diff --no-ext-diff -M --unified=0 "$RANGE" -- "${specs[@]}" >"$WORK/hotspot.diff" 2>/dev/null; then
+    H_unchecked+=("$p"); continue
+  fi
+  hs="$(awk -v q="'" '
     /^diff / { inh = 0 }
     /^@@/ { inh = 1; next }
     inh && /^\+/ {
@@ -171,7 +201,7 @@ for row in ${SORTED[@]+"${SORTED[@]}"}; do
       best = 0; bk = ""
       for (k in c) if (c[k] > best || (c[k] == best && k < bk)) { best = c[k]; bk = k }
       printf "%d\t%d\t%s\n", tot, best, bk
-    }')"
+    }' "$WORK/hotspot.diff")"
   [ -n "$hs" ] || continue
   IFS=$'\t' read -r tot best pat <<<"$hs"
   [ "$tot" -ge 10 ] && [ $((best * 100)) -ge $((tot * 80)) ] || continue
@@ -179,11 +209,16 @@ for row in ${SORTED[@]+"${SORTED[@]}"}; do
 done
 
 # Split suggestion (over-budget / refuse): test+SUT pairs stay together, neighbours by directory, <= budget.
+# A toolbelt test pairs with the SUT of the same basename ANYWHERE under research-sdd/toolbelt/ (maint/, lib/ too).
 unit_key() {
   local p="$1" d b
+  b=${p##*/}
   case "$p" in
-    */tests/*.test.sh) d=${p%/tests/*}; b=${p##*/}; printf '%s/%s' "$d" "${b%.test.sh}" ;;
-    *) d=${p%/*}; [ "$d" != "$p" ] || d=.; b=${p##*/}; printf '%s/%s' "$d" "${b%.*}" ;;
+    research-sdd/toolbelt/tests/*.test.sh) printf 'research-sdd/toolbelt/%s' "${b%.test.sh}" ;;
+    research-sdd/toolbelt/tests/*) d=${p%/*}; printf '%s/%s' "$d" "${b%.*}" ;;
+    research-sdd/toolbelt/*) printf 'research-sdd/toolbelt/%s' "${b%.*}" ;;
+    */tests/*.test.sh) d=${p%/tests/*}; printf '%s/%s' "$d" "${b%.test.sh}" ;;
+    *) d=${p%/*}; [ "$d" != "$p" ] || d=.; printf '%s/%s' "$d" "${b%.*}" ;;
   esac
 }
 SPLIT=()    # C<TAB>idx<TAB>lines<TAB>note   |   F<TAB>idx<TAB>lines<TAB>path
@@ -237,6 +272,8 @@ if [ "$FORMAT" = json ]; then
     IFS=$'\t' read -r p n pct share pat <<<"$row"
     printf '%s{"path":"%s","lines":%s,"percent_of_total":%s,"pattern_share_percent":%s,"pattern":"%s"}' "$sep" "$(jesc "$p")" "$n" "$pct" "$share" "$(jesc "$pat")"; sep=','
   done
+  printf '],"hotspots_unchecked":['; sep=''
+  for p in ${H_unchecked[@]+"${H_unchecked[@]}"}; do printf '%s"%s"' "$sep" "$(jesc "$p")"; sep=','; done
   printf '],"split":['; sep=''
   for row in ${SPLIT[@]+"${SPLIT[@]}"}; do
     IFS=$'\t' read -r kind idx n x <<<"$row"
@@ -280,6 +317,7 @@ for row in ${H_rows[@]+"${H_rows[@]}"}; do
   printf 'mechanical churn: %s holds %s%% of the lines (%s) and %s%% of its added lines repeat one pattern: %s\n' "$p" "$pct" "$n" "$share" "$pat"
   printf '  consider an env/config switch or a separate mechanical PR (e.g. #2200: the RSDD_INIT_WIRING switch)\n'
 done
+for p in ${H_unchecked[@]+"${H_unchecked[@]}"}; do printf 'hotspot: unchecked %s (the churn diff failed; not read as "no churn")\n' "$p"; done
 if [ "${#SPLIT[@]}" -gt 0 ]; then
   printf 'split suggestion (test+SUT pairs kept together, <= %s lines per chunk):\n' "$BUDGET"
   for row in "${SPLIT[@]}"; do
