@@ -98,6 +98,16 @@ absent, node without TypeScript type stripping, no usable bwrap, kit extension m
 zero. A pi measurement is made with the kit under test (its real extension and, unless `RSDD_BUDGET_KIT` points elsewhere, its
 real sweeps) and one startup `session_start` followed by one `before_agent_start`; other session sources are not measured.
 
+The pi report MUST state its emulation limits (`limits:` line): the fake `pi` has a no-op API and no `ctx.mode`/model/tools,
+`session_start` handlers run in parallel and `before_agent_start` handlers one after another. Counted: sections added to
+`systemPromptOptions.sections` and the content of a returned `message`. An extension that injects through a route whose size
+cannot be attributed (a returned `systemPrompt`, an edit of `event.systemPrompt`, any other returned key) MUST be reported as
+`status=unmeasured(...)` and mark the aggregate partial: never a 0-char OK. The helper MUST end with a closing marker and give
+every extension exactly one final record; a missing marker or a short record set (an extension called `process.exit`) is a
+partial, degraded report. Each handler has its own wait, so one hanging extension yields its own degraded line and the others are
+still measured. Extension names are paths below `.pi/extensions`. A target with no `.claude` is shadowed by a throwaway one so the
+kit extension's session-sha write lands in the sandbox, as it does when a copy is bound.
+
 #### Scenario: Pi aggregate is reported and equals the sum of its sections
 
 - GIVEN a target with a `.pi/extensions` extension that adds one section of known length
@@ -112,11 +122,18 @@ real sweeps) and one startup `session_start` followed by one `before_agent_start
 - THEN it prints `pi: DEGRADED — <reason>` and `state: degraded`
 - AND it does NOT print an `aggregate[pi]` line
 
+#### Scenario: Unattributable injection and early exits are partial, not zero
+
+- GIVEN an extension that returns a `systemPrompt`, edits `event.systemPrompt`, or calls `process.exit` in its handler
+- WHEN `--harness pi` runs
+- THEN the report marks the extension `unmeasured(...)` or prints `harness: degraded(incomplete record set ...)`
+- AND the aggregate carries `(partial: K degraded)` and `state: degraded`
+
 #### Scenario: Claude output is unchanged by the pi harness
 
 - GIVEN the default invocation (no `--harness`)
 - WHEN it runs on any target
-- THEN its output is identical to the output before `--harness` existed
+- THEN its output is byte-identical to the output of the script before `--harness` existed, asserted against frozen fixtures (`measured on 2026-10-11 at 5316fe5c`), not recomputed from git
 
 #### Scenario: Mutation — dropping a pi section or the verdict goes red
 

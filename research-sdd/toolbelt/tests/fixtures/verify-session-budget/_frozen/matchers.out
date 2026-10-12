@@ -1,0 +1,15 @@
+verify-session-budget: @FIX@/matchers
+source startup:
+hook[1] chars=200 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/regex200.sh
+hook[2] chars=300 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/list300.sh
+aggregate[startup]: 500 chars (budget < 8000) OK
+source resume:
+hook[1] chars=300 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/list300.sh
+aggregate[resume]: 300 chars (budget < 8000) OK
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork:
+hook[1] chars=50 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/fork50.sh
+aggregate[fork]: 50 chars (budget < 8000) OK
+aggregate: 500 chars (budget < 8000) OK worst-source=startup
+state: ok (4 hook runs, 0 truncated, 0 timed-out)

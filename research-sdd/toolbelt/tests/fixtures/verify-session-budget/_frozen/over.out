@@ -1,0 +1,12 @@
+verify-session-budget: @FIX@/over
+source startup:
+hook[1] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a3000.sh
+hook[2] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/b3000.sh
+hook[3] chars=3000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/c3000.sh
+aggregate[startup]: 9000 chars (budget < 8000) OVER BUDGET
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 9000 chars (budget < 8000) OVER BUDGET worst-source=startup
+state: ok (3 hook runs, 0 truncated, 0 timed-out)

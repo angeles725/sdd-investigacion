@@ -14,7 +14,9 @@
 #   same bwrap sandbox. Prints `harness: pi`, `section[<ext>] <key> chars=<n> status=...`, `aggregate[pi]: <n> chars (budget <
 #   8000) OK|OVER BUDGET [(partial: K degraded)]` and `state:`; a pi path that cannot run prints `pi: DEGRADED — <reason>` and no
 #   aggregate[pi] (never a zero). One startup session only. Env: RSDD_BUDGET_KIT (kit whose sweeps feed the extension, default
-#   this kit), RSDD_BUDGET_PI_HOOKS (extension source, default <kit>/install/pi/research-sdd-hooks.ts). --harness both = Claude
+#   this kit; a `limits:` line states the fake-pi emulation limits; extensions injecting via a returned systemPrompt or an
+#   event.systemPrompt edit print `ext[...] status=unmeasured(...)` (partial); a missing closing marker or short record set from
+#   the helper prints `harness: degraded(incomplete record set ...)` (partial)), RSDD_BUDGET_PI_HOOKS (extension source, default <kit>/install/pi/research-sdd-hooks.ts). --harness both = Claude
 #   report, then pi report.
 #   Reads <target>/.claude/settings.json ONLY (not settings.local.json, not the user-level file).
 #   The hooks are computed PER SESSION SOURCE (startup, resume, clear, compact, fork): the SessionStart entries
@@ -88,9 +90,10 @@ case "${BASH_SOURCE[0]}" in */*) self="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)";;
 # variables removed); the probe below is a deliberate copy of the Claude one so that path stays byte-identical.
 pi_degraded() { echo "pi: DEGRADED — $1"; echo "state: degraded ($1; nothing was measured on pi)"; }
 pi_section() {
-  local kit ext helper pihome sbtmp sbclaude e f cperr="" rc perr="" ts recs nsec=0 total=0 ndeg=0 nrec=0 kind a b c d st partial exts=() bargs=() pcap
+  local kit ext helper pihome sbtmp sbclaude sbroot sborig e f cperr="" rc perr="" ts recs nsec=0 total=0 ndeg=0 nrec=0 nfinal=0 zn="" kind a b c d st partial exts=() bargs=() pcap
   echo "verify-session-budget: $target"
   echo "harness: pi (kit extension research-sdd-hooks.ts + <target>/.pi/extensions/*; sections added on before_agent_start after a startup session_start)"
+  echo "limits: fake pi (no-op API, no ctx.mode/model/tools); session_start handlers run in parallel, before_agent_start one after another; counted: sections, returned message content; unmeasured (typed): returned systemPrompt, event.systemPrompt edits"
   kit="${RSDD_BUDGET_KIT:-${self%/*}}"
   ext="${RSDD_BUDGET_PI_HOOKS:-$kit/install/pi/research-sdd-hooks.ts}"
   helper="$self/lib/session-budget-pi.mjs"
@@ -122,12 +125,26 @@ pi_section() {
       { find "$target/.pi/extensions" -maxdepth 1 -type f \( -name '*.ts' -o -name '*.js' -o -name '*.mjs' \)
         find "$target/.pi/extensions" -mindepth 2 -maxdepth 2 -type f \( -name 'index.ts' -o -name 'index.js' -o -name 'index.mjs' \); } | LC_ALL=C sort)
   fi
-  pcap=$((to_cap + 20))
+  # Every wait is per handler (W); the run-wide cap covers the parallel session_start phase plus one W per extension after it, so one
+  # slow extension yields its own E record instead of a run-wide timeout.
+  pcap=$(( (to_cap + 5) * (${#exts[@]} + 1) + 10 ))
   bargs=(--ro-bind / / --dev /dev --proc /proc --bind "$sbtmp" "$sbtmp")
-  [ -d "$target/.claude" ] && bargs+=(--bind "$sbclaude" "$target/.claude")
+  if [ -d "$target/.claude" ]; then
+    bargs+=(--bind "$sbclaude" "$target/.claude")
+  else
+    # No .claude to bind a throwaway copy over (bwrap cannot create a mount point on the read-only root): shadow the target with a
+    # directory of symlinks into a read-only bind of the real one, plus a fresh writable .claude, so the kit extension's session-sha
+    # write lands in the sandbox exactly as it does when a copy is bound.
+    sbroot="$pw/root"; sborig="$pw/orig"; mkdir -p "$sbroot/.claude" "$sborig"
+    for e in "$target"/* "$target"/.[!.]*; do
+      { [ -e "$e" ] || [ -L "$e" ]; } || continue
+      ln -s "$sborig/$(basename "$e")" "$sbroot/$(basename "$e")"
+    done
+    bargs+=(--ro-bind "$target" "$sborig" --bind "$sbroot" "$target")
+  fi
   bargs+=(--setenv TMPDIR "$sbtmp" --setenv HOME "$sbtmp" --setenv CLAUDE_PROJECT_DIR "$target"
     --setenv GENTLE_PI_AGENT_HOME "$pihome" --setenv RESEARCH_SDD_KIT "$kit"
-    --setenv RSDD_PI_SWEEP_TIMEOUT_MS "$((to_cap * 1000))" --setenv RSDD_PI_SWEEP_WAIT_MS "$((to_cap * 1000 + 5000))" --setenv RSDD_BUDGET_PI_WAIT_MS "$((to_cap * 1000 + 10000))"
+    --setenv RSDD_PI_SWEEP_TIMEOUT_MS "$((to_cap * 1000))" --setenv RSDD_PI_SWEEP_WAIT_MS "$((to_cap * 1000 + 2000))" --setenv RSDD_BUDGET_PI_WAIT_MS "$((to_cap * 1000 + 5000))"
     --unsetenv GENTLE_PI_AGENTS_CHILD --unsetenv PI_CODING_AGENT_DIR --unsetenv RSDD_PI_HOOKS
     --unsetenv SSH_AUTH_SOCK --unsetenv SSH_AGENT_PID --unsetenv GPG_AGENT_INFO --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv XDG_RUNTIME_DIR
     --unshare-pid --unshare-net --unshare-ipc --new-session --die-with-parent --chdir "$target")
@@ -142,13 +159,21 @@ pi_section() {
       S) nrec=$((nrec+1)); nsec=$((nsec+1)); st=ok
          case "$d" in pending) st="degraded(sweeps pending)"; ndeg=$((ndeg+1));; degraded-text) st="degraded(section text reports DEGRADED)"; ndeg=$((ndeg+1));; esac
          echo "section[$a] $b chars=$c status=$st"; total=$((total + c));;
-      E) nrec=$((nrec+1)); ndeg=$((ndeg+1)); echo "ext[$a] status=degraded($b)";;
-      T) nrec=$((nrec+1))
+      U) nrec=$((nrec+1)); ndeg=$((ndeg+1)); echo "ext[$a] status=unmeasured($b)";;
+      E) nrec=$((nrec+1)); nfinal=$((nfinal+1)); ndeg=$((ndeg+1)); echo "ext[$a] status=degraded($b)";;
+      Z) zn="$a";;
+      T) nrec=$((nrec+1)); nfinal=$((nfinal+1))
          if [ "$c" = 0 ]; then
            if [ "$a" = research-sdd-hooks.ts ]; then ndeg=$((ndeg+1)); echo "ext[$a] status=degraded(added no section: inactive?)"; else echo "ext[$a] added no section"; fi
          fi;;
     esac
   done < "$recs"
+  # The helper ends with `Z <n>` and gives every extension exactly one T or E; anything else means it ended early (an extension
+  # called process.exit, say) and the sections above are only part of the picture.
+  if [ "$zn" != "${#exts[@]}" ] || [ "$nfinal" != "${#exts[@]}" ]; then
+    ndeg=$((ndeg+1)); nrec=$((nrec+1))
+    echo "harness: degraded(incomplete record set: $nfinal of ${#exts[@]} extensions finished, closing marker $([ -n "$zn" ] && echo present || echo missing))"
+  fi
   partial=""; [ "$ndeg" -gt 0 ] && partial=" (partial: $ndeg degraded)"
   echo "aggregate[pi]: $total chars (budget < $budget) $([ "$total" -ge "$budget" ] && echo "OVER BUDGET" || echo OK)$partial"
   if [ "$ndeg" -gt 0 ]; then echo "state: degraded ($ndeg of $nrec pi records could not be fully measured)"; else echo "state: ok ($nsec pi sections from $((${#exts[@]})) extensions)"; fi

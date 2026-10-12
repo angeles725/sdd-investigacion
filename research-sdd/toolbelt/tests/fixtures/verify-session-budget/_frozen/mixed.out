@@ -1,0 +1,13 @@
+verify-session-budget: @FIX@/mixed
+source startup:
+hook[1] chars=500 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/plain500.sh
+hook[2] chars=10500 status=TRUNCATED cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/plain10500.sh
+hook[3] chars=500 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/json500.sh
+hook[4] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/writer.sh
+aggregate[startup]: 11505 chars (budget < 8000) OVER BUDGET
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 11505 chars (budget < 8000) OVER BUDGET worst-source=startup
+state: ok (4 hook runs, 1 truncated, 0 timed-out)

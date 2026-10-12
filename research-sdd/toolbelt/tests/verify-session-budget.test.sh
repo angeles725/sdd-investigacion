@@ -89,10 +89,21 @@ shim_missing() {
   printf '%s' "$out"
 }
 
+# frozen SUT FIX NAME : the default output on fixture NAME equals the frozen pre-change output (fixtures/.../_frozen/NAME.out),
+# fixture path normalised to @FIX@. Frozen, not recomputed from git: the old script is not available at test time, the bytes are.
+frozen() {
+  local got
+  run "$1" "$2/$3"; got="$(sed "s#$2#@FIX@#g" <<<"$OUT")"
+  [ "$got" = "$(cat "$FIXSRC/_frozen/$3.out")" ] && ok "F1 default (Claude) output on '$3' is byte-identical to the frozen pre-change output" \
+    || no "F1 default output on '$3' differs from the frozen pre-change output: $(diff <(cat "$FIXSRC/_frozen/$3.out") <(printf '%s\n' "$got") | head -4)"
+}
 check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the fixtures (a mutant may leak writes)
-  local S="$1" FIX ESC="/tmp/rsdd-budget-esc-$$" FHOME B
+  local S="$1" FIX ESC="/tmp/rsdd-budget-esc-$BASHPID" FHOME B only="${RSDD_SUITE_ONLY:-all}" t
   FIX="$(mktemp -d "$TMP/fix.XXXXXX")"; cp -a "$FIXSRC/." "$FIX/"
   FHOME="$FIX/home"; mkdir -p "$FHOME"
+  if [ "$only" = pi ]; then pi_all "$S" "$FIX"; return; fi   # pi-only mutants (teeth) skip the Claude cases
+  # --- the default (Claude) output is frozen: byte-for-byte the pre-change output (origin/main 5316fe5c) on these fixtures ---
+  for t in empty absent badjson; do frozen "$S" "$FIX" "$t"; done
   # --- typed input states that need no sandbox ---------------------------------------------------------------
   run "$S" "$FIX/empty"
   has "$OUT" 'state: empty-input' && ok "18 no SessionStart hooks -> empty-input" || no "18 empty state wrong: [$OUT]"
@@ -125,6 +136,7 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
 
   SKIPMODE=0; [ "$BW_OK" = 1 ] || SKIPMODE=1
 
+  for t in mixed sources matchers newline utf8 over partialmix fresh; do frozen "$S" "$FIX" "$t"; done
   # --- mixed: per-hook numbers, TRUNCATED, JSON, no mutation -------------------------------------------------
   snap "$FIX/mixed" > "$TMP/before"
   run "$S" "$FIX/mixed"
@@ -204,15 +216,17 @@ check_suite() { # $1 = SUT path used by every case; runs on a FRESH COPY of the 
   has "$OUT" 'hook\[2\] chars=1 status=ok' && ok "36 only the loopback interface is visible (no network)" || no "36 network namespace not isolated: [$OUT]"
   has "$OUT" 'hook\[3\] chars=0 status=ok' && ok "37 SSH_AUTH_SOCK / SSH_AGENT_PID / DBUS variables are not inherited" || no "37 agent variables leaked: [$OUT]"
   rm -f "$ESC"
-  pi_cases "$S" "$FIX"
   SKIPMODE=0
+  [ "$only" = claude ] || pi_all "$S" "$FIX"
 }
 
 # --- pi / gentle-shell harness (kit issue #2174) --------------------------------------------------------------------------
 # A stub kit (eight sweep hooks printing RSDD_STUB_N characters) feeds the REAL kit extension (install/pi/research-sdd-hooks.ts);
 # fixture targets add .pi/extensions sections of known size. The instrument must print one aggregate[pi] naming the harness.
+# pi_free = cases that need no usable bwrap (they run even where SKIPMODE would skip the sandbox section); pi_sb = real measurements.
 PI_EXT_REAL="$HERE/../../install/pi/research-sdd-hooks.ts"
 PI_NODE_OK=0; [ "$(node -p 'String(process.features.typescript)' 2>/dev/null || echo false)" != false ] && PI_NODE_OK=1
+skn() { local l="${1%%$'\n'*}"; printf '  SKIP  %s (node has no built-in TypeScript type stripping)\n' "$l"; skipped=$((skipped+1)); }
 mkstubkit() { # $1 = dir ; eight sweep hooks, each printing a JSON additionalContext of $RSDD_STUB_N characters
   local d="$1" h
   mkdir -p "$d/toolbelt"
@@ -225,10 +239,18 @@ runpi() { # runpi SUT TARGET [extra env assignments via PIENV array]; sets OUT, 
   OUT="$(env RSDD_BUDGET_KIT="$PI_KIT" RSDD_BUDGET_PI_HOOKS="$PI_EXT_REAL" RSDD_BUDGET_HOOK_TIMEOUT="${HOOK_TO:-20}" ${PIENV[@]+"${PIENV[@]}"} "$BASH_BIN" "$1" --harness pi "$2" 2>&1)"; RC=$?
 }
 pisum() { sed -n 's/^section\[[^]]*\] .* chars=\([0-9]*\) status=.*/\1/p' <<<"$1" | awk '{n+=$1} END{print n+0}'; }
-pi_cases() {
-  local S="$1" FIX="$2" B bef aft T sum agg
+
+pi_all() { # pi_all SUT FIX : sandbox-free cases first (never skipped for want of bwrap), then the measurements
+  local keep="$SKIPMODE"
+  SKIPMODE=0; pi_free "$1" "$2"
+  SKIPMODE=0; [ "$BW_OK" = 1 ] || SKIPMODE=1
+  pi_sb "$1" "$2"
+  SKIPMODE="$keep"
+}
+
+pi_free() {
+  local S="$1" FIX="$2" B T SH LOG rd miss n HX H r
   PI_KIT="$TMP/pi-stubkit"; rm -rf "$PI_KIT"; mkstubkit "$PI_KIT"; PIENV=()
-  # --- typed states that need no sandbox ----------------------------------------------------------------------------------
   OUT="$("$BASH_BIN" "$S" --harness nope "$FIX/pi-card" 2>&1)"; RC=$?
   [ "$RC" = 2 ] && ok "50 an unknown --harness value is a usage error (exit 2)" || no "50 exit $RC want 2: [$OUT]"
   B="$TMP/bin-nonode"; rm -rf "$B"; mkbin "$B"
@@ -239,12 +261,22 @@ pi_cases() {
   OUT="$(PATH="$B" RSDD_BUDGET_KIT="$PI_KIT" RSDD_BUDGET_PI_HOOKS="$PI_EXT_REAL" "$BASH_BIN" "$S" --harness pi "$FIX/pi-card" 2>&1)"; RC=$?
   has "$OUT" 'pi: DEGRADED — node .*no built-in TypeScript type stripping' && ! has "$OUT" 'aggregate\[pi\]' \
     && ok "52 node without TypeScript type stripping -> typed DEGRADED, no aggregate[pi]" || no "52 no-ts wrong: [$OUT]"
+  if [ "$PI_NODE_OK" != 1 ]; then
+    # The remaining sandbox-free cases execute the extension, so they need node's type stripping: say so by name, or FAIL when CI demands it.
+    if [ "${RSDD_REQUIRE_NODE_TS:-}" = 1 ]; then
+      no "0n RSDD_REQUIRE_NODE_TS=1 but this node ($(node --version 2>/dev/null || echo none)) has no built-in TypeScript type stripping: the pi cases were not executed"
+    else
+      for n in "53 bwrap missing -> pi: DEGRADED" "54 pi containment argv (recording shim)" "55 empty harness output -> typed DEGRADED" \
+               "67-73 helper alone: code points, flags, final records, closing marker, message/systemPrompt routes, per-handler wait, names"; do skn "$n"; done
+    fi
+    return
+  fi
   B="$TMP/bin-pinobwrap"; rm -rf "$B"; mkbin "$B" bwrap; ln -sf "$(type -P node)" "$B/node"
   OUT="$(PATH="$B" RSDD_BUDGET_KIT="$PI_KIT" RSDD_BUDGET_PI_HOOKS="$PI_EXT_REAL" "$BASH_BIN" "$S" --harness pi "$FIX/pi-card" 2>&1)"; RC=$?
   has "$OUT" 'pi: DEGRADED — no-sandbox: bwrap not installed' && ! has "$OUT" 'aggregate\[pi\]' \
     && ok "53 bwrap missing -> pi: DEGRADED — no-sandbox (nothing is run unprotected)" || no "53 pi no-bwrap wrong: [$OUT]"
   # --- containment argv through the recording shim (no node run) ------------------------------------------------------------
-  local SH="$TMP/pishim-bin" LOG="$TMP/pishim.log" rd="$TMP/pishim-recs" miss n
+  SH="$TMP/pishim-bin"; LOG="$TMP/pishim.log"; rd="$TMP/pishim-recs"
   rm -rf "$SH" "$rd"; mkdir -p "$SH" "$rd"; : > "$LOG"
   printf '#!/bin/sh\nif [ "$*" = "--ro-bind / / true" ]; then exit 0; fi\n{ for a in "$@"; do printf "%%s\\n" "$a"; done; echo "--END--"; } >> "$RSDD_SHIM_LOG"\nexit 0\n' > "$SH/bwrap"; chmod +x "$SH/bwrap"
   T="$(cd "$FIX/pi-card" && pwd -P)"
@@ -256,13 +288,42 @@ pi_cases() {
   else no "54 pi containment argv: runs=$n missing:$miss"; fi
   has "$OUT" 'pi: DEGRADED — extension harness produced no records' && ! has "$OUT" 'aggregate\[pi\]' \
     && ok "55 a harness that prints nothing is a typed DEGRADED, not 0 chars" || no "55 empty harness output wrong: [$OUT]"
-  # --- real measurement (needs bwrap, node with type stripping) --------------------------------------------------------------
-  if [ "$PI_NODE_OK" != 1 ]; then sk "56-62 pi measurement cases (node has no TypeScript type stripping)"; return; fi
+  # --- the helper alone: code points, status flags, final records, injection routes -------------------------------------------
+  HX="$TMP/pi-helper"; H="$HERE/../lib/session-budget-pi.mjs"
+  [ -n "${RSDD_PI_HELPER:-}" ] && H="$RSDD_PI_HELPER"
+  rm -rf "$HX"; mkdir -p "$HX"
+  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["emoji"] = "\\u{1F600}".repeat(10); });\n' > "$HX/a-emoji.ts"
+  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["p"] = "x sweeps pending (started now)"; });\n' > "$HX/b-pending.ts"
+  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["d"] = "hook DEGRADED: gone"; });\n' > "$HX/c-degraded.ts"
+  printf 'export default (pi: any) => pi.on("before_agent_start", async () => {});\n' > "$HX/d-silent.ts"
+  printf 'export default (pi: any) => pi.on("before_agent_start", async () => { throw new Error("handler boom"); });\n' > "$HX/e-throws.ts"
+  r="$(node "$H" "$HX" "$HX/a-emoji.ts" "$HX/b-pending.ts" "$HX/c-degraded.ts" "$HX/d-silent.ts" "$HX/e-throws.ts" 2>/dev/null)"
+  has "$r" '^S.a-emoji.ts.emoji.10.ok$' && ok "67 the helper counts code points (10 emoji = 10, not 20 UTF-16 units)" || no "67 emoji length wrong: [$r]"
+  has "$r" '^S.b-pending.ts.p.[0-9]+.pending$' && has "$r" '^S.c-degraded.ts.d.[0-9]+.degraded-text$' && ok "68 the helper flags 'sweeps pending' and DEGRADED section text" || no "68 flags wrong: [$r]"
+  has "$r" '^T.d-silent.ts.0$' && has "$r" '^E.e-throws.ts.before_agent_start failed: handler boom' && ok "69 a silent extension is T 0; a throwing handler is an E record, not a zero" || no "69 silent/throw wrong: [$r]"
+  [ "$(grep -c $'^[TE]\t' <<<"$r")" = 5 ] && [ "$(tail -n1 <<<"$r")" = "$(printf 'Z\t5')" ] \
+    && ok "70 every extension gets exactly one final T or E record and the output ends with the closing marker 'Z <n>'" || no "70 final records / marker wrong: [$r]"
+  FXR="$FIX/pi-routes/.pi/extensions"
+  r="$(node "$H" "$HX" "$FXR/msg.ts" "$FXR/sysprompt.ts" "$FXR/mutate.ts" 2>/dev/null)"
+  has "$r" '^S.msg.ts.message:note.300.ok$' && ok "71 a returned message's content is counted as a section (300 chars)" || no "71 message route wrong: [$r]"
+  has "$r" '^U.sysprompt.ts.returned systemPrompt' && has "$r" '^U.mutate.ts.mutated event.systemPrompt' && ! has "$r" '^T.(sysprompt|mutate).ts.[1-9]' \
+    && ok "72 a returned systemPrompt and an event.systemPrompt edit are typed U (unmeasured), never a 0-char success" || no "72 unmeasured routes wrong: [$r]"
+  r="$(RSDD_BUDGET_PI_WAIT_MS=500 node "$H" "$HX" "$FIX/pi-hang/.pi/extensions/hang.ts" "$FIX/pi-card/.pi/extensions/card.ts" 2>/dev/null)"
+  has "$r" '^E.hang.ts.before_agent_start failed: timed out after 500ms' && has "$r" '^S.card.ts.card-section.2500.ok' && [ "$(tail -n1 <<<"$r")" = "$(printf 'Z\t2')" ] \
+    && ok "73 a hanging handler yields ITS OWN E record after the per-handler wait; the next extension is still measured" || no "73 per-handler wait wrong: [$r]"
+  r="$(node "$H" "$HX" "$FIX/pi-sub/.pi/extensions/index.ts" "$FIX/pi-sub/.pi/extensions/tools/index.ts" 2>/dev/null)"
+  has "$r" '^S.index.ts.idx-root.10' && has "$r" '^S.tools/index.ts.idx-tools.20' && ok "74 extension names are paths below .pi/extensions (index.ts vs tools/index.ts stay distinct)" || no "74 names wrong: [$r]"
+}
+
+pi_sb() {
+  local S="$1" FIX="$2" bef aft sum agg LT
+  [ "$PI_NODE_OK" = 1 ] || { skn "56-66,75-79 pi measurement cases"; return; }
+  PI_KIT="$TMP/pi-stubkit"; PIENV=()
   bef="$TMP/pi-before"; aft="$TMP/pi-after"
   snap "$FIX/pi-card" > "$bef"
   PIENV=(RSDD_STUB_N=100); runpi "$S" "$FIX/pi-card"
   snap "$FIX/pi-card" > "$aft"
-  has "$OUT" '^harness: pi ' && ok "56 the report names the harness it measured" || no "56 harness line missing: [$OUT]"
+  has "$OUT" '^harness: pi ' && has "$OUT" '^limits: fake pi ' && ok "56 the report names the harness it measured and states the fake-pi emulation limits" || no "56 harness/limits line missing: [$OUT]"
   has "$OUT" '^section\[card.ts\] card-section chars=2500 status=ok' && ok "57 a target .pi extension section is measured at its decoded length (2500)" || no "57 card section wrong: [$OUT]"
   has "$OUT" '^section\[research-sdd-hooks.ts\] research-sdd-session chars=[1-9][0-9]* status=ok' && ok "58 the kit extension's research-sdd-session section is measured (non-zero)" || no "58 kit section wrong: [$OUT]"
   [ "$(grep -c '^section\[' <<<"$OUT")" = 2 ] && ok "59a exactly two sections are attributed (kit + card): a section is reported once, under the extension that added it" || no "59a section attribution wrong: [$OUT]"
@@ -270,7 +331,7 @@ pi_cases() {
   [ -n "$agg" ] && [ "$agg" = "$sum" ] && [ "$agg" -gt 2500 ] && has "$OUT" '^aggregate\[pi\]: [0-9]+ chars \(budget < 8000\) OK$' && has "$OUT" '^state: ok' \
     && ok "59 aggregate[pi] equals the sum of the section lines and is under budget" || no "59 aggregate wrong: agg=$agg sum=$sum [$OUT]"
   cmp -s "$bef" "$aft" && ok "60 the target is byte-identical after the pi run (writes land in the sandbox copy)" || no "60 target CHANGED: $(diff "$bef" "$aft" | head -3)"
-  local LT="$TMP/pi-leak"; rm -rf "$LT"; mkdir -p "$LT"
+  LT="$TMP/pi-leak"; rm -rf "$LT"; mkdir -p "$LT"
   PIENV=(RSDD_STUB_N=100 TMPDIR="$LT"); runpi "$S" "$FIX/pi-card"
   [ -z "$(ls -A "$LT")" ] && ! has "$OUT" 'unbound|not found|No such' && has "$OUT" '^aggregate\[pi\]: ' \
     && ok "60a the pi run removes its temp dir on exit and prints no shell error" || no "60a temp leak or shell error: ls=[$(ls -A "$LT")] [$OUT]"
@@ -294,20 +355,27 @@ pi_cases() {
     && ok "65 the caller's GENTLE_PI_AGENTS_CHILD / RSDD_PI_HOOKS do not turn the kit extension off inside the probe" || no "65 ambient env leaked: [$OUT]"
   PIENV=(RSDD_STUB_N=100); OUT="$(RSDD_BUDGET_KIT="$PI_KIT" RSDD_BUDGET_PI_HOOKS="$PI_EXT_REAL" RSDD_BUDGET_HOOK_TIMEOUT=20 "$BASH_BIN" "$S" --harness both "$FIX/pi-card" 2>&1)"
   has "$OUT" '^state: absent-input' && has "$OUT" '^aggregate\[pi\]: ' && ok "66 --harness both prints the Claude report (absent-input here) and then aggregate[pi]" || no "66 both wrong: [$OUT]"
+  # --- injection routes, early exits, slow extensions, names, targets without .claude -------------------------------------------
+  PIENV=(RSDD_STUB_N=100); runpi "$S" "$FIX/pi-routes"
+  has "$OUT" '^section\[msg.ts\] message:note chars=300 status=ok' && has "$OUT" '^ext\[sysprompt.ts\] status=unmeasured\(returned systemPrompt' && has "$OUT" '^ext\[mutate.ts\] status=unmeasured\(mutated event.systemPrompt' \
+    && has "$OUT" 'partial: 2 degraded' && has "$OUT" '^state: degraded' \
+    && ok "75 a returned message is counted; a returned systemPrompt / event.systemPrompt edit is 'unmeasured' and marks the aggregate partial (never a 0-char OK)" || no "75 injection routes wrong: [$OUT]"
+  runpi "$S" "$FIX/pi-exit"
+  has "$OUT" '^harness: degraded\(incomplete record set: 1 of 2 extensions finished, closing marker missing\)' && has "$OUT" '^section\[research-sdd-hooks.ts\]' && has "$OUT" 'partial: 1 degraded' && has "$OUT" '^state: degraded' \
+    && ok "76 an extension that calls process.exit mid-run leaves a missing marker / short record set: the report is partial, never complete" || no "76 early exit not flagged: [$OUT]"
+  PIENV=(RSDD_STUB_N=100); HOOK_TO=1 runpi "$S" "$FIX/pi-hang"
+  has "$OUT" '^ext\[hang.ts\] status=degraded\(before_agent_start failed: timed out' && has "$OUT" '^section\[research-sdd-hooks.ts\]' && ! has "$OUT" 'pi: DEGRADED' \
+    && ok "77 one hanging extension yields its own degraded line; the kit section is still measured (no run-wide timeout)" || no "77 hang handling wrong: [$OUT]"
+  runpi "$S" "$FIX/pi-sub"
+  has "$OUT" '^section\[index.ts\] idx-root chars=10' && has "$OUT" '^section\[tools/index.ts\] idx-tools chars=20' \
+    && ok "78 section names are paths below .pi/extensions" || no "78 names wrong: [$OUT]"
+  # The kit extension writes <target>/.claude/.rsdd-session-<id> only when the target is a corpus AND a git checkout: make one.
+  rm -rf "$TMP/nodot-git"; cp -a "$FIX/pi-nodot" "$TMP/nodot-git"
+  git -C "$TMP/nodot-git" init -q && git -C "$TMP/nodot-git" add -A && git -C "$TMP/nodot-git" -c user.name=t -c user.email=t@t commit -q -m init
+  snap "$TMP/nodot-git" > "$bef"; runpi "$S" "$TMP/nodot-git"; snap "$TMP/nodot-git" > "$aft"
+  has "$OUT" '^section\[research-sdd-hooks.ts\] research-sdd-session chars=[1-9][0-9]* status=ok' && has "$OUT" '^state: ok' && cmp -s "$bef" "$aft" && [ ! -e "$TMP/nodot-git/.claude" ] \
+    && ok "79 a corpus target with NO .claude is measured like one with a copy bound (the session-sha write lands in the sandbox), target untouched" || no "79 no-.claude target wrong: [$OUT]"
   PIENV=()
-  # --- the helper alone: code points, status flags, handler failures --------------------------------------------------------
-  local HX="$TMP/pi-helper" H="$HERE/../lib/session-budget-pi.mjs" r
-  [ -n "${RSDD_PI_HELPER:-}" ] && H="$RSDD_PI_HELPER"
-  rm -rf "$HX"; mkdir -p "$HX"
-  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["emoji"] = "\\u{1F600}".repeat(10); });\n' > "$HX/a-emoji.ts"
-  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["p"] = "x sweeps pending (started now)"; });\n' > "$HX/b-pending.ts"
-  printf 'export default (pi: any) => pi.on("before_agent_start", async (e: any) => { e.systemPromptOptions.sections["d"] = "hook DEGRADED: gone"; });\n' > "$HX/c-degraded.ts"
-  printf 'export default (pi: any) => pi.on("before_agent_start", async () => {});\n' > "$HX/d-silent.ts"
-  printf 'export default (pi: any) => pi.on("before_agent_start", async () => { throw new Error("handler boom"); });\n' > "$HX/e-throws.ts"
-  r="$(node "$H" "$HX" "$HX/a-emoji.ts" "$HX/b-pending.ts" "$HX/c-degraded.ts" "$HX/d-silent.ts" "$HX/e-throws.ts" 2>/dev/null)"
-  has "$r" '^S.a-emoji.ts.emoji.10.ok$' && ok "67 the helper counts code points (10 emoji = 10, not 20 UTF-16 units)" || no "67 emoji length wrong: [$r]"
-  has "$r" '^S.b-pending.ts.p.[0-9]+.pending$' && has "$r" '^S.c-degraded.ts.d.[0-9]+.degraded-text$' && ok "68 the helper flags 'sweeps pending' and DEGRADED section text" || no "68 flags wrong: [$r]"
-  has "$r" '^T.d-silent.ts.0$' && has "$r" '^E.e-throws.ts.before_agent_start failed: handler boom' && ok "69 a silent extension is T 0; a throwing handler is an E record, not a zero" || no "69 silent/throw wrong: [$r]"
 }
 
 check_suite "$SUT"
@@ -316,10 +384,18 @@ check_suite "$SUT"
 # it must print the typed FAIL line and exit 1; without the flag it must SKIP and exit 0.
 if [ -z "${RSDD_SB_SELFTEST:-}" ]; then
   SHB="$TMP/shim-bw"; mkdir -p "$SHB"; printf '#!/bin/sh\nexit 1\n' > "$SHB/bwrap"; chmod +x "$SHB/bwrap"
-  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=1 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_SUITE_ONLY=claude RSDD_REQUIRE_BWRAP=1 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
   has "$OUTR" '  FAIL  0 RSDD_REQUIRE_BWRAP=1' && [ "$RCR" = 1 ] && ok "42 gate: RSDD_REQUIRE_BWRAP=1 + unusable bwrap -> typed FAIL, exit 1" || no "42 require-flag gate: rc=$RCR"
-  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_REQUIRE_BWRAP=0 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  OUTR="$(PATH="$SHB:$PATH" RSDD_SB_SELFTEST=1 RSDD_SUITE_ONLY=claude RSDD_REQUIRE_BWRAP=0 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
   has "$OUTR" '  SKIP  ' && ! has "$OUTR" '  FAIL  ' && [ "$RCR" = 0 ] && ok "43 gate: unusable bwrap without the flag -> SKIP, exit 0" || no "43 skip path: rc=$RCR"
+  # Same gate for node: a node without TypeScript type stripping must FAIL under RSDD_REQUIRE_NODE_TS=1 and SKIP (naming the cases) otherwise.
+  SHN="$TMP/shim-node"; mkdir -p "$SHN"
+  printf '#!/bin/sh\nif [ "$1" = "-p" ]; then echo false; exit 0; fi\nexec "%s" "$@"\n' "$(type -P node)" > "$SHN/node"; chmod +x "$SHN/node"
+  OUTR="$(PATH="$SHN:$PATH" RSDD_SB_SELFTEST=1 RSDD_SUITE_ONLY=pi RSDD_REQUIRE_NODE_TS=1 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  FAIL  0n RSDD_REQUIRE_NODE_TS=1' && [ "$RCR" = 1 ] && ok "80 gate: RSDD_REQUIRE_NODE_TS=1 + node without type stripping -> typed FAIL, exit 1" || no "80 node require-flag gate: rc=$RCR"
+  OUTR="$(PATH="$SHN:$PATH" RSDD_SB_SELFTEST=1 RSDD_SUITE_ONLY=pi RSDD_REQUIRE_NODE_TS=0 "$BASH_BIN" "$HERE/verify-session-budget.test.sh" 2>&1)"; RCR=$?
+  has "$OUTR" '  SKIP  53 bwrap missing' && has "$OUTR" '  SKIP  67-73 helper alone' && has "$OUTR" '  SKIP  56-66,75-79' && ! has "$OUTR" '  FAIL  ' && [ "$RCR" = 0 ] \
+    && ok "81 gate: node without type stripping and no flag -> SKIP lines that NAME every skipped pi case, exit 0" || no "81 node skip path: rc=$RCR [$OUTR]"
 fi
 
 # ---- Teeth ------------------------------------------------------------------------------------------------------------
@@ -328,16 +404,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   echo "-- teeth: each mutant must turn at least one case RED --"
+  ptooth() { TOOTH_ONLY=pi tooth "$@"; }   # a pi mutant: only the pi cases can bite, so only they run
   tooth() { # tooth NEEDS_SANDBOX LABEL SED_EXPR
     local needs="$1" label="$2" expr="$3" m="$TMP/mut-$RANDOM.sh" before_fail p0 sk0 mf
     if [ "$needs" = sb ] && [ "$BW_OK" != 1 ]; then sk "teeth: $label"; return 0; fi
-    if [ "$needs" = pi ] && { [ "$BW_OK" != 1 ] || [ "$PI_NODE_OK" != 1 ]; }; then sk "teeth: $label"; return 0; fi
+    if [ "$needs" = pi ] && [ "$BW_OK" != 1 ]; then sk "teeth: $label"; return 0; fi
+    if { [ "$needs" = pi ] || [ "$needs" = node ]; } && [ "$PI_NODE_OK" != 1 ]; then skn "teeth: $label"; return 0; fi
     rm -f -- "$m"
     mutant_chain_or_count fail "$label" "$SUT" "$m" "$expr" || return 0
     rm -rf "$TMP/mutkit"; mkdir -p "$TMP/mutkit/lib"; cp "$m" "$TMP/mutkit/verify-session-budget.sh"; chmod +x "$TMP/mutkit/verify-session-budget.sh"
     cp "$HERE/../lib/session-budget-pi.mjs" "$TMP/mutkit/lib/"
     before_fail=$fail; p0=$pass; sk0=$skipped
-    check_suite "$TMP/mutkit/verify-session-budget.sh" >"$TMP/mut.log" 2>&1
+    RSDD_SUITE_ONLY="${TOOTH_ONLY:-claude}" check_suite "$TMP/mutkit/verify-session-budget.sh" >"$TMP/mut.log" 2>&1
     # check_suite bumps the counters for the mutant; roll them back and judge by the log.
     mf="$(grep -c '^  FAIL  ' "$TMP/mut.log")"
     pass=$p0; fail=$before_fail; skipped=$sk0
@@ -345,17 +423,56 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   tooth_mjs() { # tooth_mjs LABEL SED_EXPR : mutate lib/session-budget-pi.mjs, run the suite against the real script + that mutant
     local label="$1" expr="$2" mm="$TMP/mutmjs.mjs" bf p0 sk0 mf
-    if [ "$BW_OK" != 1 ] || [ "$PI_NODE_OK" != 1 ]; then sk "teeth: $label"; return 0; fi
+    if [ "$PI_NODE_OK" != 1 ]; then skn "teeth: $label"; return 0; fi
     rm -f -- "$mm"
     MUTANT_SYNTAX=none mutant_chain_or_count fail "$label" "$HERE/../lib/session-budget-pi.mjs" "$mm" "$expr" || return 0
     node --check "$mm" >/dev/null 2>&1 || { no "teeth: $label: mutant is not valid JavaScript"; return 0; }
     rm -rf "$TMP/mutkit"; mkdir -p "$TMP/mutkit/lib"; cp "$SUT" "$TMP/mutkit/verify-session-budget.sh"; cp "$mm" "$TMP/mutkit/lib/session-budget-pi.mjs"
     bf=$fail; p0=$pass; sk0=$skipped
-    RSDD_PI_HELPER="$TMP/mutkit/lib/session-budget-pi.mjs" check_suite "$TMP/mutkit/verify-session-budget.sh" >"$TMP/mut.log" 2>&1
+    RSDD_SUITE_ONLY=pi RSDD_PI_HELPER="$TMP/mutkit/lib/session-budget-pi.mjs" check_suite "$TMP/mutkit/verify-session-budget.sh" >"$TMP/mut.log" 2>&1
     mf="$(grep -c '^  FAIL  ' "$TMP/mut.log")"
     pass=$p0; fail=$bf; skipped=$sk0
     if [ "$mf" -gt 0 ]; then ok "teeth: $label -> $mf case(s) went RED"; else no "teeth: $label stayed fully GREEN (no bite)"; fi
   }
+  # The pi mutants run in a second stream concurrently with the Claude ones (each stream gets its own TMP, so no shared scratch
+  # file); the stream reports its counter deltas on a last line and the parent folds them in. ~2x faster than serial.
+  teeth_pi() {
+  # pi harness (kit issue #2174): shell-side mutants (sandbox arguments scoped to pi_section only)
+  ptooth pi "pi: temp dir never removed" "s/^  trap 'rm -rf \"\$pw\"' EXIT/  :/"
+  ptooth pi "pi aggregate ignores the section lengths" 's/nsec=$((nsec+1)); st=ok/nsec=$((nsec+1)); st=ok; c=0/'
+  ptooth pi "pi budget verdict never OVER" 's/\[ "$total" -ge "$budget" \] \&\& echo "OVER BUDGET" || echo OK/echo OK/'
+  ptooth pi "pi load failure not degraded" 's/E) nrec=$((nrec+1)); nfinal=$((nfinal+1)); ndeg=$((ndeg+1)); echo/E) nrec=$((nrec+1)); nfinal=$((nfinal+1)); echo/'
+  ptooth pi "pi DEGRADED section text not partial" 's/degraded-text) st="degraded(section text reports DEGRADED)"; ndeg=$((ndeg+1));;/degraded-text) st="degraded(section text reports DEGRADED)";;/'
+  ptooth node "pi empty harness output accepted as a measurement" 's/if \[ ! -s "$recs" \]; then pi_degraded/if false; then pi_degraded/'
+  ptooth node "pi sandbox: network shared" '/^pi_section/,/^}/s/ --unshare-net//'
+  ptooth node "pi sandbox: live .claude bound" '/^pi_section/,/^}/s/--bind "$sbclaude" "$target\/.claude"/--bind "$target\/.claude" "$target\/.claude"/'
+  ptooth node "pi sandbox: root filesystem writable" '/^pi_section/,/^}/s/bargs=(--ro-bind \/ \/ /bargs=(--bind \/ \/ /'
+  ptooth node "pi sandbox: SSH_AUTH_SOCK inherited" '/^pi_section/,/^}/s/--unsetenv SSH_AUTH_SOCK //'
+  ptooth pi "pi: caller GENTLE_PI_AGENTS_CHILD inherited" 's/--unsetenv GENTLE_PI_AGENTS_CHILD //'
+  ptooth pi "pi: caller RSDD_PI_HOOKS inherited" 's/ --unsetenv RSDD_PI_HOOKS//'
+  ptooth pi "pi: kit extension not linked into the agent home" 's/^  ln -s "$ext" "$pihome\/extensions\/research-sdd-hooks.ts"/  :/'
+  ptooth pi "pi: target extensions never discovered" 's/^  if \[ -d "$target\/.pi\/extensions" \]; then/  if false; then/'
+  ptooth pi "pi: --harness both skips the pi report" 's/; bash "$self\/verify-session-budget.sh" --harness pi "$target"; exit 0; fi/; exit 0; fi/'
+  ptooth any "pi: node TypeScript probe removed" "s/case \"\$ts\" in ''|false|undefined) pi_degraded/case \"\$ts\" in zzz) pi_degraded/"
+  ptooth pi "pi: incomplete record set not flagged" 's/if \[ "\$zn" != "\${#exts\[@\]}" \] || \[ "\$nfinal" != "\${#exts\[@\]}" \]; then/if false; then/'
+  ptooth pi "pi: unmeasured (U) route not partial" 's/U) nrec=\$((nrec+1)); ndeg=\$((ndeg+1));/U) nrec=$((nrec+1));/'
+  ptooth pi "pi: target without .claude not shadowed by a throwaway one" 's/^    bargs+=(--ro-bind "\$target" "\$sborig" --bind "\$sbroot" "\$target")/    :/'
+  tooth_mjs "helper omits the closing marker" "s/^rec('Z', exts.length);//"
+  tooth_mjs "helper ignores a returned message" "s/rk === 'message' \&\&/rk === 'zzz' \&\&/"
+  tooth_mjs "helper ignores event.systemPrompt edits" 's/if (event.systemPrompt !== promptBefore)/if (false)/'
+  tooth_mjs "helper never times out a handler" "s/const t = setTimeout(() => rej(new Error('timed out after ' + ms + 'ms')), ms);/const t = setTimeout(() => {}, ms);/"
+  tooth_mjs "helper names extensions by basename only" "s/file.lastIndexOf('\/extensions\/')/-1/"
+  tooth_mjs "helper counts UTF-16 units, not code points" 's/\[\.\.\.text\]\.length/text.length/'
+  tooth_mjs "helper ignores the pending flag" 's/\/sweeps pending\/\.test/\/zzzz\/.test/'
+  tooth_mjs "helper ignores DEGRADED text" 's/\/\\bDEGRADED\\b\/\.test/\/zzzz\/.test/'
+  tooth_mjs "helper reports every section for every extension (no diff)" 's/!before\.has(k)/true/'
+  tooth_mjs "helper swallows load failures" "s/catch (e) { rec('E', nameOf(file), /catch (e) { void (/"
+  tooth_mjs "helper swallows before_agent_start failures" "s/catch (e) { rec('E', x.name, one('before_agent_start/catch (e) { void (one('before_agent_start/"
+  }
+  TEETH_PI_OUT="$TMP/teeth-pi.out"
+  ( TMP="$TMP/stream-pi"; mkdir -p "$TMP"; TMPDIR="$TMP"; export TMPDIR; p0=$pass; f0=$fail; s0=$skipped
+    teeth_pi; echo "@@DELTA $((pass-p0)) $((fail-f0)) $((skipped-s0))" ) > "$TEETH_PI_OUT" 2>&1 &
+  TEETH_PI_PID=$!
   tooth sb "truncation threshold 10000 -> 20000" 's/^cap=10000/cap=20000/'
   tooth sb "budget 8000 -> 80000" 's/^budget=8000/budget=80000/'
   tooth sb "non-zero exit not degraded" 's/elif \[ "\$rc" != 0 \]/elif false/'
@@ -389,33 +506,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth sb "utf8 probe always passes" 's/|| utf8_ok=0/|| utf8_ok=1/'
   tooth any "bwrap start probe removed" 's/elif ! perr="\$(bwrap --ro-bind \/ \/ true 2>&1)"; then/elif false; then/'
   tooth any "bwrap-missing reason blanked" 's/sandbox_reason="bwrap not installed"/sandbox_reason=""/'
-  # pi harness (kit issue #2174): shell-side mutants (sandbox arguments scoped to pi_section only)
-  tooth pi "pi: temp dir never removed" "s/^  trap 'rm -rf \"\$pw\"' EXIT/  :/"
-  tooth pi "pi aggregate ignores the section lengths" 's/nsec=$((nsec+1)); st=ok/nsec=$((nsec+1)); st=ok; c=0/'
-  tooth pi "pi budget verdict never OVER" 's/\[ "$total" -ge "$budget" \] \&\& echo "OVER BUDGET" || echo OK/echo OK/'
-  tooth pi "pi load failure not degraded" 's/E) nrec=$((nrec+1)); ndeg=$((ndeg+1)); echo/E) nrec=$((nrec+1)); echo/'
-  tooth pi "pi DEGRADED section text not partial" 's/degraded-text) st="degraded(section text reports DEGRADED)"; ndeg=$((ndeg+1));;/degraded-text) st="degraded(section text reports DEGRADED)";;/'
-  tooth any "pi empty harness output accepted as a measurement" 's/if \[ ! -s "$recs" \]; then pi_degraded/if false; then pi_degraded/'
-  tooth any "pi sandbox: network shared" '/^pi_section/,/^}/s/ --unshare-net//'
-  tooth any "pi sandbox: live .claude bound" '/^pi_section/,/^}/s/--bind "$sbclaude" "$target\/.claude"/--bind "$target\/.claude" "$target\/.claude"/'
-  tooth any "pi sandbox: root filesystem writable" '/^pi_section/,/^}/s/bargs=(--ro-bind \/ \/ /bargs=(--bind \/ \/ /'
-  tooth any "pi sandbox: SSH_AUTH_SOCK inherited" '/^pi_section/,/^}/s/--unsetenv SSH_AUTH_SOCK //'
-  tooth pi "pi: caller GENTLE_PI_AGENTS_CHILD inherited" 's/--unsetenv GENTLE_PI_AGENTS_CHILD //'
-  tooth pi "pi: caller RSDD_PI_HOOKS inherited" 's/ --unsetenv RSDD_PI_HOOKS//'
-  tooth pi "pi: kit extension not linked into the agent home" 's/^  ln -s "$ext" "$pihome\/extensions\/research-sdd-hooks.ts"/  :/'
-  tooth pi "pi: target extensions never discovered" 's/^  if \[ -d "$target\/.pi\/extensions" \]; then/  if false; then/'
-  tooth pi "pi: --harness both skips the pi report" 's/; bash "$self\/verify-session-budget.sh" --harness pi "$target"; exit 0; fi/; exit 0; fi/'
-  tooth any "pi: node TypeScript probe removed" "s/case \"\$ts\" in ''|false|undefined) pi_degraded/case \"\$ts\" in zzz) pi_degraded/"
-  tooth_mjs "helper counts UTF-16 units, not code points" 's/\[\.\.\.text\]\.length/text.length/'
-  tooth_mjs "helper ignores the pending flag" 's/\/sweeps pending\/\.test/\/zzzz\/.test/'
-  tooth_mjs "helper ignores DEGRADED text" 's/\/\\bDEGRADED\\b\/\.test/\/zzzz\/.test/'
-  tooth_mjs "helper reports every section for every extension (no diff)" 's/!before\.has(k)/true/'
-  tooth_mjs "helper swallows load failures" "s/console.log(\['E', basename(file), one('load failed: '/void ([ 'E', basename(file), one('load failed: '/"
-  tooth_mjs "helper swallows before_agent_start failures" "s/console.log(\['E', basename(x.file), one('before_agent_start failed: '/void (['E', basename(x.file), one('before_agent_start failed: '/"
+  tooth any "default output gains a harness line (frozen pre-change output)" 's/^echo "verify-session-budget: \$target"$/echo "verify-session-budget: $target"; echo "harness: claude"/'
   tooth any "jq-missing guard removed" 's/if ! command -v jq >\/dev\/null 2>&1; then echo "state: degraded (jq unavailable/if false; then echo "state: degraded (jq unavailable/'
   tooth any "invalid-JSON guard removed" 's/^if ! jq -e .type == "object". "\$settings" >\/dev\/null 2>&1; then/if false; then/'
+  wait "$TEETH_PI_PID"
+  grep -v '^@@DELTA' "$TEETH_PI_OUT"
+  dl="$(grep '^@@DELTA' "$TEETH_PI_OUT" || true)"
+  if [ -n "$dl" ]; then read -r _ dp df ds <<<"$dl"; pass=$((pass+dp)); fail=$((fail+df)); skipped=$((skipped+ds))
+  else no "teeth: the pi mutant stream produced no result"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
-[ "$skipped" -eq 0 ] || echo "($skipped sandbox-dependent case(s) skipped: no usable bwrap)"
+[ "$skipped" -eq 0 ] || echo "($skipped case(s) skipped, see the SKIP lines for each reason)"
 [ "$fail" -eq 0 ] || exit 1
