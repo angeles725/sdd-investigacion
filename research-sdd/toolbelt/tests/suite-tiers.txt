@@ -1,0 +1,41 @@
+# Suite tiers (kit issue #2203), read by run-all.sh --tier core|extras|all (default core) and shard-join.sh.
+#
+# Format: one extras suite per line, "<repo-relative suite path> extras <reason>". Blank lines and lines
+# starting with '#' are ignored. Parsed strictly: a line without a reason, a tier word other than `extras`,
+# a duplicate, or a path that names no discovered suite fails the run (exit 1) before any suite runs, so a
+# renamed suite cannot silently drop out of the gate. An absent manifest is a typed DEGRADED + exit 1.
+#
+# Suites listed here run only on demand (`run-all.sh --tier extras|all`, or --require-teeth, which implies
+# all) and in the nightly/manual `toolbelt-extras` CI job. Nothing is deleted. Every other suite is core
+# and runs in the default gate. Reasons: category E VM/dynamic sandbox, unused adapter, strict-zero usage.
+research-sdd/toolbelt/tests/capture-analyze.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/capture-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/capture-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/corroborate-bacnet.test.sh extras strict-zero usage (#2203)
+research-sdd/toolbelt/tests/corroborate-firmware.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/corroborate-pcap.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/detonate-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/detonate-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/docker-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/dynamic.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/emba-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/fact-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/fact-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/kaitai-driver-walk-memcap.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/kaitai.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/niagara-hdb-read.test.sh extras strict-zero usage (#2203)
+research-sdd/toolbelt/tests/pcap-flows.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/plan-common.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/proc-common.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/qemu-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/qemu-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/qnx6-read.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/serial-frame-analyze.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/serial-frame-capture.test.sh extras strict-zero usage (#2203)
+research-sdd/toolbelt/tests/trace-exec.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/trace-plan.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/unblob.test.sh extras unused adapter (#2203)
+research-sdd/toolbelt/tests/vm-determinism.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/vm-disk-policy.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/vm-receipt.test.sh extras category E VM/dynamic sandbox (#2203)
+research-sdd/toolbelt/tests/vm-run.test.sh extras category E VM/dynamic sandbox (#2203)
