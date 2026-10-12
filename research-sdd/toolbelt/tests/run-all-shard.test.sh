@@ -222,8 +222,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   w="$TMP/teeth-tierfilter"; mkdir -p "$w"
   if ! mutant_sed "$SUT" "$w/run-all.sh" 's/^elif \[\[ "\$TIER" != "all" \]\]; then$/elif false; then/' 2>"$w/err"; then no "teeth-tierfilter: no mutant: $(cat "$w/err")"
   else
+    # Control first: the REAL runner on this exact fixture must report the tier's list (6 of 6), else the tooth cannot discriminate.
+    dg="$(mktree mut-tier-good 3 2)"; printf '%s\n' "research-sdd/toolbelt/tests/t02.test.sh extras r" > "$dg/suite-tiers.txt"; shard_run "$dg" 1/1
     dm="$(mktree mut-tier 3 2)"; cp "$w/run-all.sh" "$dm/run-all.sh"; printf '%s\n' "research-sdd/toolbelt/tests/t02.test.sh extras r" > "$dm/suite-tiers.txt"; shard_run "$dm" 1/1
-    if ! grep -qxF 'Shard: 1/1 — 6 of 6 suites' "$dm/../../../aux/out.1-1"; then ok "teeth-tierfilter: filter-less mutant shards the full list -> the tier+shard case has real teeth"; else no "teeth-tierfilter: mutant still shards the tier (THEATER)"; fi
+    if ! grep -qxF 'Shard: 1/1 — 6 of 6 suites' "$dg/../../../aux/out.1-1"; then no "teeth-tierfilter: the real runner does not report '6 of 6' on this fixture — the tooth cannot discriminate"
+    elif grep -qxF 'Shard: 1/1 — 7 of 7 suites' "$dm/../../../aux/out.1-1"; then ok "teeth-tierfilter: filter-less mutant shards the full list (7 of 7, control 6 of 6) -> the tier+shard case has real teeth"
+    else no "teeth-tierfilter: mutant still shards the tier (THEATER)"; fi
   fi
 fi
 

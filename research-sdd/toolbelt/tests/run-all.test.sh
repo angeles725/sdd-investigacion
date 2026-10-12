@@ -2819,6 +2819,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tier_tooth unknown-suite unknown 's/^    elif \[\[ "\${_rel_known\[\$_tl_path\]+set}" != "set" \]\]; then$/    elif false; then/'
   tier_tooth degraded-exit absent 's/ \&\& \[\[ -z "\$TIER_DEGRADED" \]\]; then$/; then/'
   tier_tooth degraded-list listabsent 's/\[\[ "\$INSTALL_TESTS_DEGRADED" -eq 0 \&\& -z "\$TIER_DEGRADED" \]\] || exit 1/[[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] || exit 1/'
+  # empty-tier proves the `Tier: EMPTY` message/guard only: exit 1 also comes from suites_ok==0, so rc alone proves nothing here.
   tier_tooth empty-tier empty '/^if \[\[ \${#all_suites\[@\]} -eq 0 \]\]; then$/{N;/Tier: EMPTY/s/-eq 0/-eq 99/}'
   tier_tooth rt-refuse rtrefuse 's/^  if \[\[ -n "\$TIER_EXPLICIT" \&\& "\$TIER" != "all" \]\]; then$/  if false; then/'
   tier_tooth rt-implies rtimplies 's/^  TIER="all"$/  :/'
