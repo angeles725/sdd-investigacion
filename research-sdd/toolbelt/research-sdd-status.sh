@@ -307,9 +307,10 @@ count_open_contra() {
   awk '
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
       if (line !~ /\|/) next
+      gsub(/\\\|/,"\001",line)  # GFM-EP-CONTRA (#2161): `\|` inside a cell is a literal pipe, not a separator
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       n=split(line,a,"|"); if (n<4) next
-      gsub(/^[ \t]+|[ \t]+$/,"",a[4]); if (tolower(a[4])=="open") c++ }
+      gsub(/^[ \t]+|[ \t]+$/,"",a[4]); gsub(/\001/,"|",a[4]); if (tolower(a[4])=="open") c++ }
     END { print c+0 }' "$@"
 }
 
@@ -956,8 +957,9 @@ _read_focuses_tok_uncached() {
     {
       if (index($0, "|") == 0) next
       line = $0
+      gsub(/\\\|/,"\001",line)  # GFM-EP-FOCTOK (#2161): `\|` inside a cell is a literal pipe; restored after the split
       sub(/^\|/, "", line); sub(/\|$/, "", line)
-      n = split(line, a, "|"); for (k=1; k<=n; k++) a[k] = trim(a[k])
+      n = split(line, a, "|"); for (k=1; k<=n; k++) { a[k] = trim(a[k]); gsub(/\001/, "|", a[k]) }
       issep=1; for (k=1; k<=n; k++) { if (a[k] !~ /^:?-+:?$/) { issep=0; break } }
       if (issep) next
       if (!hdone) {
@@ -2385,7 +2387,7 @@ campaign_status_block() {
 outline_rows() {
   section '## Outline' | awk '
     /^[[:space:]]*\|/ {
-      line = $0; gsub(/\\\|/, "\001", line)
+      line = $0; gsub(/\\\|/, "\001", line)  # GFM-EP-OUTLINE
       n = split(line, c, "|")
       for (i = 1; i <= n; i++) { gsub(/\001/, "|", c[i]); gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
       last = n; while (last > 2 && c[last] == "") last--
