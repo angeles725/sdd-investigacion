@@ -83,3 +83,43 @@ unregistered operator tools.
 - GIVEN toolbelt/DEPLOY-WINDOWS-MINIPC.md after the update
 - WHEN tool-registry.md is read
 - THEN it contains a row for DEPLOY-WINDOWS-MINIPC.md
+
+### Requirement: Session budget is measured per harness, and the report names the harness
+
+`verify-session-budget.sh` MUST state which harness each aggregate measures. The default (`--harness claude`) measures the
+Claude Code SessionStart hooks of `<target>/.claude/settings.json` and its output MUST NOT change. `--harness pi` MUST measure the
+pi / gentle-shell path: the system-prompt sections that the kit extension `research-sdd-hooks.ts` and every extension in
+`<target>/.pi/extensions` add on `before_agent_start`, summed as decoded characters (Unicode code points), inside the same
+sandbox as the Claude path (read-only filesystem, no network, throwaway copy of `<target>/.claude`). It MUST print
+`aggregate[pi]: <n> chars (budget < 8000) OK|OVER BUDGET`, with `(partial: K degraded)` when a section reports itself DEGRADED or an
+extension failed to load. `--harness both` prints the Claude report and then the pi report. When the pi path cannot run (node
+absent, node without TypeScript type stripping, no usable bwrap, kit extension missing, harness timeout or silent) it MUST print
+`pi: DEGRADED — <reason>` and a `state: degraded` line, and MUST NOT print an `aggregate[pi]` line: a degraded run is never a
+zero. A pi measurement is made with the kit under test (its real extension and, unless `RSDD_BUDGET_KIT` points elsewhere, its
+real sweeps) and one startup `session_start` followed by one `before_agent_start`; other session sources are not measured.
+
+#### Scenario: Pi aggregate is reported and equals the sum of its sections
+
+- GIVEN a target with a `.pi/extensions` extension that adds one section of known length
+- WHEN `verify-session-budget.sh --harness pi <target>` runs
+- THEN it prints `harness: pi`, one `section[...]` line for the kit extension and one for the target extension
+- AND `aggregate[pi]` equals the sum of the section lines and carries the OK or OVER BUDGET verdict against 8,000
+
+#### Scenario: Pi path that cannot run is typed, not zero
+
+- GIVEN node is absent, or lacks TypeScript type stripping, or bwrap cannot start
+- WHEN `--harness pi` runs
+- THEN it prints `pi: DEGRADED — <reason>` and `state: degraded`
+- AND it does NOT print an `aggregate[pi]` line
+
+#### Scenario: Claude output is unchanged by the pi harness
+
+- GIVEN the default invocation (no `--harness`)
+- WHEN it runs on any target
+- THEN its output is identical to the output before `--harness` existed
+
+#### Scenario: Mutation — dropping a pi section or the verdict goes red
+
+- GIVEN a mutant that ignores section lengths, never reports OVER BUDGET, or discovers no target extensions
+- WHEN the companion suite runs under `--prove-teeth`
+- THEN the suite exits non-zero

@@ -7,7 +7,15 @@
 # total (openspec/specs/kit-session-cost/spec.md). A hook that "works" but is silently truncated is the
 # §7 false-confidence shape (kit issue #2128: two 11-12 k corpus cards).
 #
-# Usage: verify-session-budget.sh <target-dir>
+# Usage: verify-session-budget.sh [--harness claude|pi|both] <target-dir>
+#   --harness claude (default) is everything described below, output unchanged. --harness pi measures the pi / gentle-shell
+#   path instead (kit issue #2174): the system-prompt sections the kit extension research-sdd-hooks.ts and every
+#   <target>/.pi/extensions extension add on before_agent_start, loaded by lib/session-budget-pi.mjs under a fake `pi` in the
+#   same bwrap sandbox. Prints `harness: pi`, `section[<ext>] <key> chars=<n> status=...`, `aggregate[pi]: <n> chars (budget <
+#   8000) OK|OVER BUDGET [(partial: K degraded)]` and `state:`; a pi path that cannot run prints `pi: DEGRADED — <reason>` and no
+#   aggregate[pi] (never a zero). One startup session only. Env: RSDD_BUDGET_KIT (kit whose sweeps feed the extension, default
+#   this kit), RSDD_BUDGET_PI_HOOKS (extension source, default <kit>/install/pi/research-sdd-hooks.ts). --harness both = Claude
+#   report, then pi report.
 #   Reads <target>/.claude/settings.json ONLY (not settings.local.json, not the user-level file).
 #   The hooks are computed PER SESSION SOURCE (startup, resume, clear, compact, fork): the SessionStart entries
 #   whose `matcher` selects that source, by Claude Code's documented "Matcher patterns" rule:
@@ -57,13 +65,96 @@
 # Exit: 0 always for findings and degraded states (WARN-only) · 2 usage error (no/unknown target dir).
 set -uo pipefail
 
-[ "$#" -eq 1 ] && [ -d "$1" ] || { echo "usage: verify-session-budget.sh <target-dir>" >&2; exit 2; }
+harness=claude
+if [ "${1:-}" = "--harness" ]; then
+  case "${2:-}" in claude|pi|both) harness="$2"; shift 2;; *) echo "usage: verify-session-budget.sh [--harness claude|pi|both] <target-dir>" >&2; exit 2;; esac
+fi
+[ "$#" -eq 1 ] && [ -d "$1" ] || { echo "usage: verify-session-budget.sh [--harness claude|pi|both] <target-dir>" >&2; exit 2; }
 target="$(cd "$1" && pwd -P)"
 cap=10000
 budget=8000
 to_cap="${RSDD_BUDGET_HOOK_TIMEOUT:-60}"
 case "$to_cap" in ''|*[!0-9]*|0) to_cap=60;; esac
 sources="startup resume clear compact fork"
+
+# Pure-bash self location (no dirname): the Claude path must not gain a tool dependency (its restricted-PATH cases pin that).
+case "${BASH_SOURCE[0]}" in */*) self="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)";; *) self="$(pwd -P)";; esac
+
+# --- pi / gentle-shell harness (kit issue #2174) ---------------------------------------------------------------------------
+# What pi hands the model is not a SessionStart hook but system-prompt SECTIONS added by extensions on before_agent_start:
+# the kit's research-sdd-hooks.ts (key research-sdd-session: the eight sweeps, capped under 7,900 chars) plus every extension
+# in <target>/.pi/extensions. lib/session-budget-pi.mjs loads them under a fake `pi` and sums the decoded section lengths.
+# Same containment as the Claude path (bubblewrap, read-only filesystem, .claude a throwaway copy, no network, agent/socket
+# variables removed); the probe below is a deliberate copy of the Claude one so that path stays byte-identical.
+pi_degraded() { echo "pi: DEGRADED — $1"; echo "state: degraded ($1; nothing was measured on pi)"; }
+pi_section() {
+  local kit ext helper pihome sbtmp sbclaude e f cperr="" rc perr="" ts recs nsec=0 total=0 ndeg=0 nrec=0 kind a b c d st partial exts=() bargs=() pcap
+  echo "verify-session-budget: $target"
+  echo "harness: pi (kit extension research-sdd-hooks.ts + <target>/.pi/extensions/*; sections added on before_agent_start after a startup session_start)"
+  kit="${RSDD_BUDGET_KIT:-${self%/*}}"
+  ext="${RSDD_BUDGET_PI_HOOKS:-$kit/install/pi/research-sdd-hooks.ts}"
+  helper="$self/lib/session-budget-pi.mjs"
+  echo "kit: $kit"
+  command -v node >/dev/null 2>&1 || { pi_degraded "node unavailable"; return; }
+  ts="$(node -p 'String(process.features.typescript)' 2>/dev/null)"
+  case "$ts" in ''|false|undefined) pi_degraded "node $(node --version 2>/dev/null) has no built-in TypeScript type stripping"; return;; esac
+  [ -f "$ext" ] || { pi_degraded "kit extension not found: $ext"; return; }
+  [ -f "$helper" ] || { pi_degraded "measuring helper not found: $helper"; return; }
+  if ! command -v bwrap >/dev/null 2>&1; then pi_degraded "no-sandbox: bwrap not installed"; return; fi
+  command -v timeout >/dev/null 2>&1 || { pi_degraded "no-sandbox: timeout not installed"; return; }
+  if ! perr="$(bwrap --ro-bind / / true 2>&1)"; then pi_degraded "no-sandbox: bwrap cannot start: $(printf '%s' "$perr" | head -1 | cut -c1-120)"; return; fi
+  pw="$(mktemp -d)" || { pi_degraded "cannot create a temp dir"; return; }
+  trap 'rm -rf "$pw"' EXIT
+  pihome="$pw/pihome"; sbtmp="$pw/tmp"; sbclaude="$pw/dotclaude"
+  mkdir -p "$pihome/extensions" "$sbtmp" "$sbclaude"
+  ln -s "$ext" "$pihome/extensions/research-sdd-hooks.ts"
+  if [ -d "$target/.claude" ]; then
+    for e in "$target/.claude"/* "$target/.claude"/.[!.]*; do
+      [ -e "$e" ] || continue
+      [ "$(basename "$e")" = worktrees ] && continue
+      cp -a "$e" "$sbclaude/" 2>"$pw/cperr" || cperr="$(head -1 "$pw/cperr" | cut -c1-120)"
+    done
+    [ -z "$cperr" ] || { pi_degraded "incomplete-sandbox-copy: $cperr"; return; }
+  fi
+  exts=("$pihome/extensions/research-sdd-hooks.ts")
+  if [ -d "$target/.pi/extensions" ]; then
+    while IFS= read -r f; do exts+=("$f"); done < <(
+      { find "$target/.pi/extensions" -maxdepth 1 -type f \( -name '*.ts' -o -name '*.js' -o -name '*.mjs' \)
+        find "$target/.pi/extensions" -mindepth 2 -maxdepth 2 -type f \( -name 'index.ts' -o -name 'index.js' -o -name 'index.mjs' \); } | LC_ALL=C sort)
+  fi
+  pcap=$((to_cap + 20))
+  bargs=(--ro-bind / / --dev /dev --proc /proc --bind "$sbtmp" "$sbtmp")
+  [ -d "$target/.claude" ] && bargs+=(--bind "$sbclaude" "$target/.claude")
+  bargs+=(--setenv TMPDIR "$sbtmp" --setenv HOME "$sbtmp" --setenv CLAUDE_PROJECT_DIR "$target"
+    --setenv GENTLE_PI_AGENT_HOME "$pihome" --setenv RESEARCH_SDD_KIT "$kit"
+    --setenv RSDD_PI_SWEEP_TIMEOUT_MS "$((to_cap * 1000))" --setenv RSDD_PI_SWEEP_WAIT_MS "$((to_cap * 1000 + 5000))" --setenv RSDD_BUDGET_PI_WAIT_MS "$((to_cap * 1000 + 10000))"
+    --unsetenv GENTLE_PI_AGENTS_CHILD --unsetenv PI_CODING_AGENT_DIR --unsetenv RSDD_PI_HOOKS
+    --unsetenv SSH_AUTH_SOCK --unsetenv SSH_AGENT_PID --unsetenv GPG_AGENT_INFO --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv XDG_RUNTIME_DIR
+    --unshare-pid --unshare-net --unshare-ipc --new-session --die-with-parent --chdir "$target")
+  recs="$pw/recs"
+  timeout -k 2 "$pcap" bwrap "${bargs[@]}" node "$helper" "$target" "${exts[@]}" >"$recs" 2>"$pw/err"
+  rc=$?
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then pi_degraded "timeout ${pcap}s: the extensions did not finish"; return; fi
+  if [ "$rc" != 0 ]; then pi_degraded "extension harness exit $rc ($(head -1 "$pw/err" | cut -c1-120))"; return; fi
+  if [ ! -s "$recs" ]; then pi_degraded "extension harness produced no records (a silent 0 is not a measurement)"; return; fi
+  while IFS=$'\t' read -r kind a b c d; do
+    case "$kind" in
+      S) nrec=$((nrec+1)); nsec=$((nsec+1)); st=ok
+         case "$d" in pending) st="degraded(sweeps pending)"; ndeg=$((ndeg+1));; degraded-text) st="degraded(section text reports DEGRADED)"; ndeg=$((ndeg+1));; esac
+         echo "section[$a] $b chars=$c status=$st"; total=$((total + c));;
+      E) nrec=$((nrec+1)); ndeg=$((ndeg+1)); echo "ext[$a] status=degraded($b)";;
+      T) nrec=$((nrec+1))
+         if [ "$c" = 0 ]; then
+           if [ "$a" = research-sdd-hooks.ts ]; then ndeg=$((ndeg+1)); echo "ext[$a] status=degraded(added no section: inactive?)"; else echo "ext[$a] added no section"; fi
+         fi;;
+    esac
+  done < "$recs"
+  partial=""; [ "$ndeg" -gt 0 ] && partial=" (partial: $ndeg degraded)"
+  echo "aggregate[pi]: $total chars (budget < $budget) $([ "$total" -ge "$budget" ] && echo "OVER BUDGET" || echo OK)$partial"
+  if [ "$ndeg" -gt 0 ]; then echo "state: degraded ($ndeg of $nrec pi records could not be fully measured)"; else echo "state: ok ($nsec pi sections from $((${#exts[@]})) extensions)"; fi
+}
+if [ "$harness" = both ]; then bash "$self/verify-session-budget.sh" "$target"; bash "$self/verify-session-budget.sh" --harness pi "$target"; exit 0; fi
+if [ "$harness" = pi ]; then pi_section; exit 0; fi
 
 echo "verify-session-budget: $target"
 settings="$target/.claude/settings.json"
