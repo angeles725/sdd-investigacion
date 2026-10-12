@@ -854,7 +854,7 @@ home_57="$TMP/stale-render"
 bash "$SUT" --home "$home_57" --harness pi >/dev/null 2>&1
 render_dir_57="$home_57/.pi/agent/research-sdd/profile/general"
 echo "stale leftover from a prior render" > "$render_dir_57/STALE-MARKER.txt"
-bash "$SUT" --home "$home_57" --harness pi >/dev/null 2>&1
+bash "$SUT" --home "$home_57" --harness pi --backup-unrecorded >/dev/null 2>&1
 [ ! -e "$render_dir_57/STALE-MARKER.txt" ] \
   && ok "57: stale file from a prior render is cleaned on re-install" \
   || no "57: stale render file survived a re-install"
@@ -2295,6 +2295,56 @@ if [[ "$v23" == *"RC=0"* ]] && grep -q 'MISSING-NOTES.md' "$vh/.pi/agent/researc
   ok "V23: a profile file whose NAME contains MISSING is recorded (only the hash column is checked)"
 else no "V23: record refused for a path containing MISSING :: $v23"; fi
 
+# --- re-install must not delete unrecorded files in the render dir (kit issue #2133) --------------------
+# A re-install used to rm -rf the whole render dir, destroying a session-written file (observed: an 80 KB
+# TARGETS.md). Contract: a regular file under <config>/research-sdd/profile/<p>/ that the bundle record does
+# not name is refused (typed, exit 1, nothing removed) unless --backup-unrecorded first moves it to a
+# timestamped backup OUTSIDE the render dir and prints the path.
+RG_HOME="$TMP/rg-home"; mkdir -p "$RG_HOME"
+RG_RD="$RG_HOME/.pi/agent/research-sdd/profile/general"
+_rg_reset() { rm -rf "$RG_HOME"; mkdir -p "$RG_HOME"; bash "$SUT" --home "$RG_HOME" --harness pi >/dev/null 2>&1; }
+_rg_reset
+RG_CLEAN_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_CLEAN_RC=$?
+if [ "$RG_CLEAN_RC" = 0 ] && [ -d "$RG_RD" ]; then ok "RG1: a clean re-install (nothing unrecorded) still succeeds"
+else no "RG1: clean re-install failed (rc=$RG_CLEAN_RC) :: $RG_CLEAN_OUT"; fi
+
+rm -f "$RG_RD/TARGETS.md"; printf 'session registry rows\n' > "$RG_RD/TARGETS.md"  # replaces the kit-view symlink with a REGULAR file (the #2133 incident shape)
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ "$(cat "$RG_RD/TARGETS.md" 2>/dev/null)" = "session registry rows" ] \
+   && [[ "$RG_OUT" == *"REFUSED"* ]] && [[ "$RG_OUT" == *"profile/general/TARGETS.md"* ]] && [[ "$RG_OUT" == *"--backup-unrecorded"* ]]; then
+  ok "RG2: an unrecorded file in the render dir refuses the re-install (rc=1), survives, and is named with the flag hint"
+else no "RG2: unrecorded file not refused/preserved (rc=$RG_RC) :: $RG_OUT"; fi
+
+mkdir -p "$RG_RD/notes/deep"; printf 'deep\n' > "$RG_RD/notes/deep/n.md"; rm -f "$RG_RD/TARGETS.md"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ -f "$RG_RD/notes/deep/n.md" ] && [[ "$RG_OUT" == *"notes/deep/n.md"* ]]; then ok "RG3: a nested unrecorded file is found and preserved"
+else no "RG3: nested unrecorded file missed (rc=$RG_RC) :: $RG_OUT"; fi
+
+_rg_reset; rm -f "$RG_RD/TARGETS.md"; printf 'keep me\n' > "$RG_RD/TARGETS.md"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi --dry-run 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ -f "$RG_RD/TARGETS.md" ] && [[ "$RG_OUT" == *"REFUSED"* ]]; then ok "RG4: --dry-run previews the refusal (rc=1) and touches nothing"
+else no "RG4: dry-run did not preview the refusal (rc=$RG_RC) :: $RG_OUT"; fi
+
+_rg_reset; rm -f "$RG_RD/TARGETS.md"; printf 'keep me\n' > "$RG_RD/TARGETS.md"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi --backup-unrecorded 2>&1)"; RG_RC=$?
+RG_BAK="$(printf '%s\n' "$RG_OUT" | sed -n 's/^.*BACKUP unrecorded files to \(.*\)$/\1/p' | head -n 1)"
+if [ "$RG_RC" = 0 ] && [ -n "$RG_BAK" ] && [ "$(cat "$RG_BAK/TARGETS.md" 2>/dev/null)" = "keep me" ] \
+   && [ -L "$RG_RD/TARGETS.md" ] && [[ "$RG_BAK" != "$RG_RD"* ]] && [[ "$RG_BAK" == "$RG_HOME"/* ]]; then
+  ok "RG5: --backup-unrecorded moves the file to a printed backup outside the render dir, then re-installs (rc=0)"
+else no "RG5: backup flow wrong (rc=$RG_RC bak='$RG_BAK') :: $RG_OUT"; fi
+
+_rg_reset; rm -f "$RG_HOME/.pi/agent/research-sdd/.installed-bundle-state"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ -n "$(find "$RG_RD" -type f | head -n 1)" ] && [[ "$RG_OUT" == *"REFUSED"* ]]; then
+  ok "RG6: a render dir with files but NO bundle record cannot be proven clean — refused, nothing removed"
+else no "RG6: unrecorded-state render dir was cleaned or not refused (rc=$RG_RC) :: $RG_OUT"; fi
+
+_rg_reset; printf 'orphan note\n' > "$RG_RD/SESSION-NOTES.md"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi --profile claude 2>&1)"; RG_RC=$?
+if [ "$(cat "$RG_RD/SESSION-NOTES.md" 2>/dev/null)" = "orphan note" ] && [[ "$RG_OUT" == *"REFUSED"* ]]; then
+  ok "RG7: a profile SWITCH keeps the orphaned old render dir when it holds an unrecorded file (named, not deleted)"
+else no "RG7: profile switch deleted/ignored an unrecorded file in the old render dir (rc=$RG_RC) :: $RG_OUT"; fi
+
 # --- --verify teeth (kit issue #1702): every mutant is a temp copy built by lib/mutant.sh (refused =
 #     counted exactly once, its tooth never runs); every tooth pins the exact good/bad exit codes plus an
 #     anchored typed line, and a crash can never read as a bite.
@@ -2359,7 +2409,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _vmk "teeth: V-T12 unrecorded reads absent" "$SUT" "$MKI/v-t12.sh" 's/\[ -e "\$skill" \] \&\& installed=1/:/' \
     && _vtt "teeth: unrecorded install detection removed → files present but unrecorded read as absent" 2 0 "$MKI/v-t12.sh" --good-has 'no bundle record' --bad-has 'status=absent' --bad-lacks "$_CRASH" -- "$_BASH" @SUT@ --verify --home "$_TV/unrec" --harness claude
   # T13 — --verify no longer refuses --dry-run.
-  _vmk "teeth: V-T13 verify accepts --dry-run" "$SUT" "$MKI/v-t13.sh" 's/if \[ "\$dry" = 1 \] || \[ "\$force" = 1 \] || \[ -n "\$profile_flag" \]; then/if [ "$force" = 1 ] || [ -n "$profile_flag" ]; then/' \
+  _vmk "teeth: V-T13 verify accepts --dry-run" "$SUT" "$MKI/v-t13.sh" 's/if \[ "\$dry" = 1 \] || \[ "\$force" = 1 \] || \[ "\$backup_unrec" = 1 \] || \[ -n "\$profile_flag" \]; then/if [ "$force" = 1 ] || [ "$backup_unrec" = 1 ] || [ -n "$profile_flag" ]; then/' \
     && _vtt "teeth: --verify --dry-run accepted → the usage conflict is not enforced" 2 0 "$MKI/v-t13.sh" --good-has '--verify is read-only' --bad-lacks "$_CRASH|--verify is read-only" -- "$_BASH" @SUT@ --verify --dry-run --home "$_TV/empty" --harness claude
 
   # --- RDD round 1 teeth ---------------------------------------------------------------------
@@ -3248,6 +3298,46 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   UOUT="$(HOME="$UN_FAKEHOME" timeout 20 bash "$UM8" --uninstall --harness pi --home "" 2>&1)"; URC=$?
   if [ "$URC" != 2 ]; then ok "teeth: home-check-less mutant accepts --home \"\" (rc=$URC) → the empty --home check has teeth"
   else no "teeth: home-check-less mutant still exits 2 — UN17 is THEATER"; fi
+fi
+
+# --- re-install guard teeth (kit issue #2133): each mutant removes ONE branch of the unrecorded-file guard
+#     and must turn a surviving file into a lost one (or lose the backup / the preview). lib/mutant.sh builds
+#     every mutant as a temp copy and refuses a dead one; each tooth pins the exact good/bad exit codes.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: re-install unrecorded-file guard (lib/mutant.sh) --"
+  _GCRASH="$(mutant_crash_re bash py cmd)" || exit 2
+  _GBASH="$(command -v bash)"
+  _gmk() { mutant_chain "$@" || { fail=$((fail+1)); return 1; }; }
+  _gtt() { if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+  # Drivers: build a fresh pi home with the SUT under test ($1), plant a file, re-install, report the file's fate.
+  _G_KEEP='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; rm -f "$rd/TARGETS.md"; printf keep > "$rd/TARGETS.md"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rc=$?; if [ "$(cat "$rd/TARGETS.md" 2>/dev/null)" = keep ]; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _G_NEST='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; mkdir -p "$rd/n/d"; printf keep > "$rd/n/d/f.md"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rc=$?; if [ "$(cat "$rd/n/d/f.md" 2>/dev/null)" = keep ]; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _G_NOREC='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; rm -f "$h/.pi/agent/research-sdd/.installed-bundle-state"; printf keep > "$rd/PROMPT-LOOP.md.mine"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rc=$?; if [ "$(cat "$rd/PROMPT-LOOP.md.mine" 2>/dev/null)" = keep ]; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _G_BAK='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; rm -f "$rd/TARGETS.md"; printf keep > "$rd/TARGETS.md"; out="$(bash "$1" --home "$h" --harness pi --backup-unrecorded 2>&1)"; rc=$?; bak="$(printf "%s\n" "$out" | sed -n "s/^.*BACKUP unrecorded files to \(.*\)$/\1/p" | head -n 1)"; if [ -n "$bak" ] && [ "$(cat "$bak/TARGETS.md" 2>/dev/null)" = keep ]; then echo BACKED; else echo NOBACKUP; fi; rm -rf "$h"; exit $rc'
+  _G_SWITCH='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; printf keep > "$rd/NOTE.md"; bash "$1" --home "$h" --harness pi --profile claude >/dev/null 2>&1; rc=$?; if [ "$(cat "$rd/NOTE.md" 2>/dev/null)" = keep ]; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _GFN='/^_rsdd_guard_unrecorded() {/,/^}/'
+
+  _gmk "teeth: G-T1 guard returns early" "$SUT" "$MKI/g-t1.sh" "${_GFN}s/^  local dir=.*\$/&\n  return 0/" \
+    && _gtt "teeth: guard disabled → a re-install deletes the session-written file" 1 0 "$MKI/g-t1.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
+  _gmk "teeth: G-T2 enumerator finds nothing" "$SUT" "$MKI/g-t2.sh" 's/if (!(p in known)) print \$0/if (0) print $0/' \
+    && _gtt "teeth: enumerator that lists nothing → unrecorded files read as absent (silent zero)" 1 0 "$MKI/g-t2.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
+  _gmk "teeth: G-T3 refusal exits 0" "$SUT" "$MKI/g-t3.sh" "${_GFN}s/^    return 1\$/    return 0/" \
+    && _gtt "teeth: refusal that returns success → the clean still runs and the file is lost" 1 0 "$MKI/g-t3.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
+  _gmk "teeth: G-T4 depth-1 scan" "$SUT" "$MKI/g-t4.sh" 's/found="\$(find "\$dir" -type f 2>\/dev\/null)" || return 3/found="$(find "$dir" -maxdepth 1 -type f 2>\/dev\/null)" || return 3/' \
+    && _gtt "teeth: scan limited to depth 1 → a nested unrecorded file is lost" 1 0 "$MKI/g-t4.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_NEST" _ @SUT@
+  _gmk "teeth: G-T5 missing record = clean" "$SUT" "$MKI/g-t5.sh" 's/{ \[ -r "\$record" \] \&\& \[ -f "\$record" \]; } || record=\/dev\/null/{ [ -r "$record" ] \&\& [ -f "$record" ]; } || return 0/' \
+    && _gtt "teeth: absent record read as clean → an unprovable render dir is deleted" 1 0 "$MKI/g-t5.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_NOREC" _ @SUT@
+  _gmk "teeth: G-T6 backup moves nothing" "$SUT" "$MKI/g-t6.sh" 's/! mv -- "\$f" "\$dest\/\$rel"/! true/' \
+    && _gtt "teeth: backup step that moves nothing → the file is deleted with no backup" 0 0 "$MKI/g-t6.sh" --good-has '^BACKED$' --bad-has '^NOBACKUP$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_BAK" _ @SUT@
+  _gmk "teeth: G-T7 backup inside the render dir" "$SUT" "$MKI/g-t7.sh" 's|dest="\$root/research-sdd/backups/unrecorded-\$profile-\$ts"|dest="$dir/.backup-$ts"|' \
+    && _gtt "teeth: backup written inside the render dir → it is deleted with the dir it was meant to survive" 0 0 "$MKI/g-t7.sh" --good-has '^BACKED$' --bad-has '^NOBACKUP$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_BAK" _ @SUT@
+  _gmk "teeth: G-T8 reinstall call site unguarded" "$SUT" "$MKI/g-t8.sh" 's/if ! _rsdd_guard_unrecorded "\$render_dir" "\$config_root" "\$profile" 0; then/if false; then/' \
+    && _gtt "teeth: guard not wired into the re-install clean → the file is lost" 1 0 "$MKI/g-t8.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
+  _gmk "teeth: G-T9 switch call site unguarded" "$SUT" "$MKI/g-t9.sh" 's/elif ! _rsdd_guard_unrecorded "\$config_root\/research-sdd\/profile\/\$old_profile" "\$config_root" "\$old_profile" 0 \\$/elif false \\/' \
+    && _gtt "teeth: guard not wired into the profile-switch clean → the orphaned dir's file is lost" 0 0 "$MKI/g-t9.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_SWITCH" _ @SUT@
+  _G_DRY='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; printf keep > "$rd/NOTE.md"; bash "$1" --home "$h" --harness pi --dry-run 2>&1; rc=$?; rm -rf "$h"; exit $rc'
+  _gmk "teeth: G-T10 dry-run call site unguarded" "$SUT" "$MKI/g-t10.sh" 's/if ! _rsdd_guard_unrecorded "\$render_dir" "\$config_root" "\$profile" 1; then/if false; then/' \
+    && _gtt "teeth: dry-run that does not preview the refusal → a plan promises a re-install that will be refused" 1 0 "$MKI/g-t10.sh" --good-has 'REFUSED' --bad-lacks "$_GCRASH|REFUSED" -- "$_GBASH" -c "$_G_DRY" _ @SUT@
 fi
 
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
