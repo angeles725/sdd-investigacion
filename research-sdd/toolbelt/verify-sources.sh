@@ -103,8 +103,9 @@ if [ -f "$sources_md" ]; then
   # heading that starts a fresh block (the fetch-doc.sh reg() pattern). In that case the "header
   # candidate" has sha256 in a data cell. This is unlikely but not impossible; if it occurs, the
   # data row is treated as a non-conforming registry header (schema WARN), not as a data row.
-  # Escaped pipes (\|) inside cells are not handled and would produce a false per-row WARN; no current
-  # fleet file uses them (verified fleet-wide). The L4/L6/D2 loops are NOT anchored here — they scan
+  # Escaped pipes (\|) inside cells are GFM literal pipes: THIS pre-check masks them before the split (kit #2161,
+  # GFM-EP-VSRC). The L4/L5/L6/D2 and empty-digest readers below still split on a bare `|` (tracked as a follow-up
+  # of #2161), so a row with an escaped pipe can still draw a false finding there. The L4/L6/D2 loops are NOT anchored here — they scan
   # the full file to preserve coverage of rows appended after headings.
   # Code-fenced tables (inside ```...``` blocks) that contain a sha256 header cell will draw a
   # spurious schema WARN — the awk parser does not track fence state. No current fleet file does
@@ -115,6 +116,7 @@ if [ -f "$sources_md" ]; then
   awk -F'|' '
     BEGIN { in_blk=0; bk_nf=0; has_sha256=0; skip_rows=0 }
     /^\|/ {
+      gsub(/\\\|/, "\001")  # GFM-EP-VSRC (#2161): `\|` inside a cell is a literal pipe, not a separator (re-splits the fields)
       if ($2 ~ /^[- :]+$/) next
       if (!in_blk) {
         in_blk=1; bk_nf=NF; has_sha256=0; skip_rows=0

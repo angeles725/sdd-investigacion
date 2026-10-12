@@ -166,10 +166,12 @@ END {
 # two programs cannot drift. cells() sets pre, suf, raw[1..nc] and returns nc; setcell() swaps a cell's trimmed
 # text keeping its padding.
 CELLS_AWK='
-function cells(line,   body) {
+function cells(line,   body, i) {
   pre = line; sub(/\|.*$/, "", pre); body = line; sub(/^[ \t]*\|/, "", body)
   suf = ""; if (match(body, /\|[ \t]*$/)) { suf = substr(body, RSTART); body = substr(body, 1, RSTART - 1) }
-  nc = split(body, raw, "|"); return nc
+  gsub(/\\\|/, "\001", body)  # GFM-EP-MIG-CELLS (#2161): `\|` inside a cell is a literal pipe, not a separator
+  nc = split(body, raw, "|"); for (i = 1; i <= nc; i++) gsub(/\001/, "\\|", raw[i])  # cells keep their original bytes (rebuild writes them back)
+  return nc
 }
 function rebuild(   i, out) { out = pre "|"; for (i = 1; i <= nc; i++) out = out raw[i] (i < nc ? "|" : ""); return out suf }
 function setcell(i, newtrim,   l, r) { l = raw[i]; sub(/[^ \t].*$/, "", l); r = raw[i]; sub(/^.*[^ \t]/, "", r); raw[i] = l newtrim r }
@@ -191,7 +193,9 @@ function reg_header(arr, cnt,   i, c) {  # sets global scol; true when Status/Es
 DOC_BODY='
 !/^[ \t]*\|/ { intable = 0; reg = 0 }
 /^[ \t]*\|/ {
-  line = $0; sub(/^[ \t]*\|/, "", line); sub(/\|[ \t]*$/, "", line); n = split(line, a, "|")
+  line = $0; sub(/^[ \t]*\|/, "", line); sub(/\|[ \t]*$/, "", line)
+  gsub(/\\\|/, "\001", line)  # GFM-EP-MIG-DOC (#2161): `\|` inside a cell is a literal pipe; restored after the split
+  n = split(line, a, "|"); for (i = 1; i <= n; i++) gsub(/\001/, "|", a[i])
   if (!intable) {  # header row: only the focus registry table is read
     intable = 1; reg = reg_header(a, n); next
   }
