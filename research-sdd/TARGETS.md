@@ -116,7 +116,7 @@ Sensitivity:
 
 | # | Target | Path | Maturity (.md blocks / git / remote / hook) | Predominant artifact type | Toolbelt tools | Corpus language |
 |---|--------|------|-----------------------------------|--------------------------------|---------------------------|-------------------|
-| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (1153 md @2026-09-22 / 19 focuses / git yes / remote yes / hook yes) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
+| 1 | niagara-research | `$RESEARCH_HOME/niagara-research` | **mature** (1299 md @2026-10-11 / 20 focuses / git yes / remote yes / hook no) `[CERT]` | Decompiled Java Niagara N4 (`.class`) `[CERT]` | `decompile-java.sh` + CodeGraph | Spanish (technical EN) `[CERT]` |
 | 2 | module-navigator | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/module-navigator` | **intermediate** (6 md / nc / git no / remote no / hook no; mature tooling) `[CERT]` | Python tooling (CLI/web) over 926 already-decompiled Niagara JARs `[CERT]` | Direct reading + CodeGraph; `decompile-java.sh` (underlying source) | Spanish (technical EN) `[CERT]` |
 | 3 | niagara-help | `$RESEARCH_HOME/Honeywell/OptimizerSupervisor-N4.14.0.162/niagara-help` | **intermediate** (2 md / nc / git yes / remote no / hook no) `[CERT]` | Tridium docs (HTML/bajadoc/txt) + 2,603 `.java` sources `[CERT]` | `fetch-doc.sh` + `decompile-java.sh` | English (Tridium docs) `[CERT]` |
 | 4 | kidcad-research | `$RESEARCH_HOME/kidcad-research` | **mature** (79 md / git yes / remote yes / hook no) `[CERT]` | Mixed: PDF datasheets + KiCad binaries (ELF/PE) + internal Go source `[CERT]` | `fetch-doc.sh` + `decompile-native.sh` + Go reading | Spanish (technical EN) `[CERT]` |
@@ -150,6 +150,7 @@ Sensitivity:
 | 35 | hisense | `$RESEARCH_HOME/prototipos/clientes/hisense` | **incipient** (3 blocks @2026-09-15 / 1 run / git yes / remote no / hook yes) `[CERT-hw]` · companion to #30/#31 — detail §35 | Standalone 3D HVAC dashboard (669 KB `index.html`) migrated Workers→Vercel, domain `hisense.angeles-group.org`: CLI deploy + DNS cutover (del Workers domain, add A→76.76.21.21) `[CERT-hw]` | Vercel CLI + Cloudflare API (DNS) + `curl` verify | English (corpus) · Spanish UI subject `[CERT-hw]` |
 | 36 | blender-llm | `$RESEARCH_HOME/investigacion/blender-llm` | **incipient** (85 blocks @2026-09-22 / 3 runs / 16 retros / git yes / remote yes / hook yes) `[CERT-hw]` — detail §36 | Blender MCP + LLM ecosystem: ahujasid MCP server + alternatives, security/telemetry, LLM powerups, HVAC workflow; Windows↔WSL2 bridge (mirrored networking localhost:9876) `[CERT-hw]` | direct reading + WebSearch/WebFetch (ecosystem) | English `[CERT-hw]` |
 | 37 | niagara5-research | `$RESEARCH_HOME/niagara5-research` | 140 blocks (B1..B140), 15 retros; licence/security lane B133-B140 2026-10-04 on live bench `pruebas-01` (TPK steered via `--patch-module`, `cacerts.sig` re-signed); PAUSED with a next-session queue | Decompiled Java Niagara N5 5.0.0.28 beta (Java 25, class major 69; 247 single-jar modules) `[CERT]` | `tools/n5-decompile.sh` (target-local) + `decompile-java.sh` | English `[CERT]` |
+| 38 | tunnel-estandar | `$RESEARCH_HOME/tunnel/clientes/_ESTANDAR-TUNELES` | **incipient** (9 blocks @2026-10-06 / 1 run / 1 retro / git yes / remote no / hook file yes) · nested `corpus/` · document-mode (§20) · companion to #27/#29/#32 — detail §38 | Fleet standard for creating client Cloudflare Tunnels + Access; MANUAL-PERSONA (ES) + MANUAL-IA (EN) | direct reading of client bundles + #29 corpus | Spanish (runbook operativo) · technical EN markers |
 
 ---
 
@@ -728,6 +729,16 @@ Standalone 3D HVAC dashboard migrated from Cloudflare Workers to Vercel. Compani
 **Artifact description (full, moved from master row 2026-09-22):** Standalone 3D HVAC dashboard (single 669 KB `index.html`) migrated from Cloudflare Workers to Vercel, custom domain `hisense.angeles-group.org` (DNS stays on Cloudflare): Vercel static CLI deploy + DNS cutover (delete Workers Custom Domain, add A→76.76.21.21 DNS-only) `[CERT-hw]`.
 
 ---
+
+### 38 — tunnel-estandar `[CERT]`
+
+Document-mode (§20) corpus, nested `corpus/`, prefix `estandar-`. Fleet-wide standard for creating client
+Cloudflare Tunnels (remote-managed cloudflared on Windows + Access), synthesized from #27 HotelPalace, #32
+Pancaddia (incl. its `HOWTO-CREAR-TUNEL-CLOUDFLARE.md` + `hardening/`), Umbrella access scripts, #17 Hilton
+recovery runbooks and #29 cloudflared corpus. Deliverables at target root: `MANUAL-PERSONA.md`, `MANUAL-IA.md`.
+Open: SSH default variant (team decision, C2), `__PROGRAMDATA__` in `TrustedUserCAKeys` (C1).
+**Startup:** create the private remote (`toolbelt/ensure-remote.sh <target> --yes`, consent-gated), then
+re-enter in document mode when the team decides C2.
 
 ### 37 — niagara5-research `[CERT]`
 Sibling of #1 (niagara-research, N4/Java 8) for Niagara N5 5.0.0.28 beta. Modules: `C:\ProgramData\Niagara\tridium\config\5.0.0.28\modules` (247 jars, one per module, no -rt/-ux/-wb split); install `C:\Program Files\Niagara\5.0.0.28` (JRE 25). Decompiled tree `organized/` is gitignored (proprietary). `docSource.jar` ships original Tridium sources (highest fidelity). Mode: frontier. Remote `angeles725/niagara5-research` PRIVATE.
