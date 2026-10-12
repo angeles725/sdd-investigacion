@@ -84,19 +84,26 @@ probe() {   # probe CASE FILE
   rm -rf "$t"
 }
 
-# parity_scan KIT -> `<blocks> <bad> <bad names...>` over the declared corpus of KIT (a kit root holding toolbelt/ and
-# install/): toolbelt/*.sh, toolbelt/lib/*.sh, toolbelt/maint/*.sh (maint/ used to be outside this scan), install/*.sh.
-# A glob that matches nothing contributes 0 files (maint/ may legitimately be absent); the caller's >= floor is what
-# proves the scan looked (anti-silent-zero, CLAUDE.md section 7).
+# parity_scan KIT -> line 1 `<blocks> <bad> <bad names...>`, then one `corpus <dir>/*.sh: <files>|absent` line per corpus
+# dir, over the declared corpus of KIT (a kit root holding toolbelt/ and install/): toolbelt, toolbelt/lib,
+# toolbelt/maint, install. toolbelt/maint is the one OPTIONAL dir: it prints `absent` instead of failing, and the
+# real-tree case below requires at least one file there, so a moved or emptied maint/ cannot pass silently
+# (anti-silent-zero, CLAUDE.md section 7). Files counted are every *.sh in the dir, marker or not.
 parity_scan() {
-  local kit="$1" f nblk=0 nbad=0 badlist=""
-  for f in "$kit"/toolbelt/*.sh "$kit"/toolbelt/lib/*.sh "$kit"/toolbelt/maint/*.sh "$kit"/install/*.sh; do
-    [ -f "$f" ] || continue
-    grep -q '# RSDD-SELF-DIR' "$f" || continue
-    nblk=$((nblk + 1))
-    [ "$(block_of "$f")" = "$CANON" ] || { nbad=$((nbad + 1)); badlist="$badlist $(basename "$f")"; }
+  local kit="$1" d f n nblk=0 nbad=0 badlist="" counts=""
+  for d in toolbelt toolbelt/lib toolbelt/maint install; do
+    if [ ! -d "$kit/$d" ]; then counts="$counts"$'\n'"corpus $d/*.sh: absent"; continue; fi
+    n=0
+    for f in "$kit/$d"/*.sh; do
+      [ -f "$f" ] || continue
+      n=$((n + 1))
+      grep -q '# RSDD-SELF-DIR' "$f" || continue
+      nblk=$((nblk + 1))
+      [ "$(block_of "$f")" = "$CANON" ] || { nbad=$((nbad + 1)); badlist="$badlist $(basename "$f")"; }
+    done
+    counts="$counts"$'\n'"corpus $d/*.sh: $n"
   done
-  echo "$nblk $nbad$badlist"
+  echo "$nblk $nbad$badlist$counts"
 }
 
 if [ "${1:-}" = "--probe" ]; then probe "$2" "$3"; exit 0; fi
@@ -108,21 +115,26 @@ no() { echo "  FAIL  $1"; fail=$((fail + 1)); }
 echo "== self-dir-idiom.test.sh =="
 
 # ---- parity: the canonical block everywhere --------------------------------
-read -r nblk nbad badlist <<<"$(parity_scan "$KITDIR")"
+PS="$(parity_scan "$KITDIR")"
+read -r nblk nbad badlist <<<"${PS%%$'\n'*}"
 if [ "$nblk" -ge 39 ] && [ "$nbad" -eq 0 ]; then ok "parity: $nblk scripts carry the canonical block byte-for-byte"
 else no "parity: $nblk scripts carry the marker (want >=39), $nbad differ:$badlist"; fi
+echo "  INFO  $(grep '^corpus ' <<<"$PS" | tr '\n' ';')"
+for c in 'toolbelt/\*\.sh' 'toolbelt/lib/\*\.sh' 'toolbelt/maint/\*\.sh' 'install/\*\.sh'; do
+  if grep -qE "^corpus $c: [1-9][0-9]*\$" <<<"$PS"; then ok "parity corpus: $c has at least one file"; else no "parity corpus: $c has no files or is absent: $(grep "^corpus" <<<"$PS" | tr '\n' ';')"; fi
+done
 # maint/ is in the scan: a drifted idiom block in a maint/ script is caught (fixture kit: one good, one drifted).
 MF="$(mktemp -d)"
 mkdir -p "$MF/toolbelt/lib" "$MF/toolbelt/maint" "$MF/install"
 { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON"; } > "$MF/toolbelt/maint/good.sh"
 { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON" | sed 's/-lt 40/-lt 41/'; } > "$MF/toolbelt/maint/drift.sh"
-r="$(bash "$SELF" --scan-parity "$MF")"
-if [ "$r" = "2 1 drift.sh" ]; then ok "parity: a drifted idiom block under toolbelt/maint/ is flagged (2 carry the marker, drift.sh differs)"
-else no "parity: maint/ fixture scan got [$r], want [2 1 drift.sh]"; fi
+r="$(bash "$SELF" --scan-parity "$MF")"; rc_="$(grep "^corpus toolbelt/maint" <<<"$r")"; r="${r%%$'\n'*}"
+if [ "$r" = "2 1 drift.sh" ] && [ "$rc_" = "corpus toolbelt/maint/*.sh: 2" ]; then ok "parity: a drifted idiom block under toolbelt/maint/ is flagged (2 carry the marker, drift.sh differs)"
+else no "parity: maint/ fixture scan got [$r], want [2 1 drift.sh] + maint count 2 (got [$rc_])"; fi
 rm -rf "$MF/toolbelt/maint"
-r="$(bash "$SELF" --scan-parity "$MF")"
-if [ "$r" = "0 0" ]; then ok "parity: an absent maint/ directory contributes 0 files (stated, not an error)"
-else no "parity: absent maint/ fixture scan got [$r], want [0 0]"; fi
+r="$(bash "$SELF" --scan-parity "$MF")"; rc_="$(grep "^corpus toolbelt/maint" <<<"$r")"; r="${r%%$'\n'*}"
+if [ "$r" = "0 0" ] && [ "$rc_" = "corpus toolbelt/maint/*.sh: absent" ]; then ok "parity: an absent maint/ directory is reported as absent (stated, not an error)"
+else no "parity: absent maint/ fixture scan got [$r] [$rc_], want [0 0] and absent"; fi
 rm -rf "$MF"
 if [ "$(block_of "$TB/tool-registry.md" 2>/dev/null)" = "$CANON" ]; then ok "parity: the tool-registry.md idiom section holds the canonical block"
 else no "parity: tool-registry.md idiom block differs from the canonical block"; fi
@@ -186,7 +198,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # maint/ dropped from the parity corpus -> the drifted maint/ script is no longer flagged
   PMF="$(mktemp -d)"; mkdir -p "$PMF/toolbelt/maint" "$PMF/toolbelt/lib" "$PMF/install"
   { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$CANON" | sed 's/-lt 40/-lt 41/'; } > "$PMF/toolbelt/maint/drift.sh"
-  mk_sed "teeth maint-scope" "$MUT/scope/self-dir-idiom.test.sh" "$SELF" 's# "\$kit"/toolbelt/maint/\*\.sh##' \
+  mk_sed "teeth maint-scope" "$MUT/scope/self-dir-idiom.test.sh" "$SELF" 's#toolbelt/lib toolbelt/maint install; do#toolbelt/lib install; do#' \
     && tooth "teeth maint-scope: maint/ glob dropped -> drifted maint/ block unseen" 0 0 "$MUT/scope/self-dir-idiom.test.sh" \
          --orig "$SELF" --good-has '^1 1 drift\.sh$' --bad-has '^0 0$' -- bash @SUT@ --scan-parity "$PMF"
   rm -rf "$PMF"

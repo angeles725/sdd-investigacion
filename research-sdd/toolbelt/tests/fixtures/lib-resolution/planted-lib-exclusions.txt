@@ -2,3 +2,7 @@
 # Format: <path relative to research-sdd/toolbelt (install/ prefix = research-sdd/install)> | <reason of >= 3 words>
 install/install.sh | sources no lib/, runs only the sibling research-sdd-install.sh (itself listed) and installs system packages so running it here is unsafe
 maint/kit-flake-hunt.sh | sources no lib/ and resolves only run-all.sh by absolute repo path, and running it executes every suite
+maint/kit-gate.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it drives a full test gate
+maint/kit-merge-train.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it merges pull requests
+maint/kit-pr-pipeline.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it drives git and gh
+maint/kit-wait-merge.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it polls and merges through gh
