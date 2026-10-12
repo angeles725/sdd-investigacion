@@ -71,6 +71,9 @@ newdir(){ # case-name
   # an EMPTY install/tests sibling by default (the non-failing "= 0" state, §7); only cases 30-32
   # below deliberately deviate from that default to exercise present/empty/absent explicitly.
   mkdir -p "$(install_dir_for "$root")"
+  # Suite tiers (kit issue #2203): an ABSENT suite-tiers.txt is a typed DEGRADED + exit 1, so every fixture
+  # tree gets a comment-only manifest (= no extras) unless a case writes its own via tier_man().
+  printf '# fixture: no extras\n' > "$root/suite-tiers.txt"
   printf '%s' "$root"
 }
 # install_dir_for <toolbelt-tests-path> — the research-sdd/install/tests sibling of a newdir()
@@ -84,6 +87,7 @@ mut_workdir(){ # name
   local root="$TMP/$1/research-sdd/toolbelt/tests"
   mkdir -p "$root"
   mkdir -p "$(install_dir_for "$root")"
+  printf '# fixture: no extras\n' > "$root/suite-tiers.txt"   # see newdir(): an absent manifest is DEGRADED (kit issue #2203)
   printf '%s' "$root"
 }
 # A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.
@@ -279,6 +283,7 @@ else no "all-skip failed: rc=$rc :: $(grep -iE 'Suites (passed|skipped|failed)' 
 #       the harness check passes, then run the real suites through a copy of run-all.sh.
 _c12root="$TMP/c12pfix"; mkdir -p "$_c12root/tests"
 cp "$SUT" "$_c12root/tests/run-all.sh"
+printf '# fixture: no extras\n' > "$_c12root/tests/suite-tiers.txt"   # kit issue #2203
 cp "$HERE/corroborate-pcap.test.sh" "$_c12root/tests/"
 cp "$HERE/pcap-flows.test.sh" "$_c12root/tests/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/corroborate-pcap.sh"; chmod +x "$_c12root/corroborate-pcap.sh"
@@ -2636,6 +2641,189 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else no "teeth-rsdd-jwire: mutant still reports the leak — mutation not exercised (THEATER)"; fi
     fi
   fi
+fi
+
+# 39 — suite tiers (kit issue #2203): `--tier core|extras|all` (default core) selects suites by the strictly parsed
+#      suite-tiers.txt manifest ("<repo-relative suite> extras <reason>"). Every refusal is typed and exits non-zero BEFORE any
+#      suite runs; an absent manifest is DEGRADED (run everything, exit 1) — a renamed suite must never silently drop out.
+# tier_man <tooldir> [LINE...] — overwrite the fixture manifest; each LINE is written verbatim (one per line)
+tier_man(){ local d="$1"; shift; if [ $# -eq 0 ]; then : > "$d/suite-tiers.txt"; else printf '%s\n' "$@" > "$d/suite-tiers.txt"; fi; }
+TR='research-sdd/toolbelt/tests'
+IR='research-sdd/install/tests'
+# tier_tree <name> — 3 toolbelt suites a/b/c + 1 install suite i, manifest: b is extras. Prints the tests dir.
+tier_tree(){
+  local w; w="$(newdir "$1")"
+  mkfix_sh "$w/a.test.sh" 1 0 0; mkfix_sh "$w/b.test.sh" 1 0 0; mkfix_sh "$w/c.test.sh" 1 0 0
+  mkfix_sh "$(install_dir_for "$w")/i.test.sh" 1 0 0
+  tier_man "$w" "# one extras suite" "$TR/b.test.sh extras category E VM/dynamic sandbox (#2203)"
+  printf '%s' "$w"
+}
+ran_of(){ local s o=""; for s in a b c i; do grep -qF "== $s.test.sh ==" <<<"$1" && o="$o$s"; done; printf '%s' "$o"; }  # which fixture suites streamed their banner
+
+w="$(tier_tree c39a)"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "aci" ] && grep -qxF 'Tier: core — 3 of 4 suites (excluded: 1)' <<<"$out"; then
+  ok "tier: the default is core — the extras suite is excluded, the Tier line says so"
+else no "tier default wrong: rc=$rc ran=$(ran_of "$out") tier=[$(grep -E '^Tier' <<<"$out" | tr '\n' '|')]"; fi
+
+out="$(bash "$w/run-all.sh" --tier extras 2>&1)"; rc=$?; ex_ran="$(ran_of "$out")"; ex_ok=""; grep -qxF 'Tier: extras — 1 of 4 suites (excluded: 3)' <<<"$out" && ex_ok=1
+out="$(bash "$w/run-all.sh" --tier=all 2>&1)"; rc2=$?
+if [ "$rc" -eq 0 ] && [ "$ex_ran" = "b" ] && [ -n "$ex_ok" ] && [ "$rc2" -eq 0 ] && [ "$(ran_of "$out")" = "abci" ] \
+   && grep -qxF 'Tier: all — 4 of 4 suites (excluded: 0)' <<<"$out"; then
+  ok "tier: --tier extras runs only the manifest suites, --tier=all runs everything"
+else no "tier extras/all wrong: rc=$rc ran=$ex_ran ok=$ex_ok rc2=$rc2 ran2=$(ran_of "$out")"; fi
+
+# invalid --tier value: exit 2 before any suite runs (no aggregate, no banner)
+bad=""
+for a in "--tier bogus" "--tier CORE" "--tier=" "--tier" "--tier=core,extras"; do
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $a 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && ! grep -qF 'AGGREGATE' <<<"$out" && grep -qF 'invalid --tier value' <<<"$out"; } || bad="$bad [$a rc=$rc]"
+done
+[ -z "$bad" ] && ok "tier: an invalid or missing --tier value exits 2 before any suite runs" || no "tier arg validation:$bad"
+
+# --list-suites honours the tier; core + extras == all
+core_l="$(bash "$w/run-all.sh" --list-suites 2>/dev/null)"; ext_l="$(bash "$w/run-all.sh" --list-suites --tier extras 2>/dev/null)"; all_l="$(bash "$w/run-all.sh" --tier all --list-suites 2>/dev/null)"
+if [ "$(wc -l <<<"$core_l")" -eq 3 ] && [ "$ext_l" = "$TR/b.test.sh" ] && [ "$(wc -l <<<"$all_l")" -eq 4 ] \
+   && ! grep -qF "$TR/b.test.sh" <<<"$core_l" && [ "$(printf '%s\n%s\n' "$core_l" "$ext_l" | LC_ALL=C sort)" = "$all_l" ]; then
+  ok "tier: --list-suites lists the tier's suites (core excludes extras, core+extras == all)"
+else no "tier list wrong: core=[$(tr '\n' ' ' <<<"$core_l")] extras=[$ext_l] all=$(wc -l <<<"$all_l")"; fi
+
+# invalid manifests are typed errors and exit 1 before any suite runs; every line must be judged (none silently skipped)
+bad=""
+while IFS='|' read -r label l1 l2 l3; do
+  w="$(tier_tree "c39inv-$label")"; tier_man "$w" "$l1" "$l2" "$l3"
+  out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+  { [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: INVALID' <<<"$out"; } || bad="$bad [$label rc=$rc ran=$(ran_of "$out")]"
+done <<EOF2
+noreason|$TR/a.test.sh extras why|$TR/b.test.sh extras|$TR/c.test.sh extras why
+badtier|$TR/a.test.sh core why|$TR/b.test.sh extras why|# c
+badtier-last|# x|$TR/b.test.sh extras why|$TR/c.test.sh slow why
+dup|$TR/a.test.sh extras why|$TR/b.test.sh extras why|$TR/a.test.sh extras again
+unknown-first|$TR/gone.test.sh extras renamed away|$TR/b.test.sh extras why|# c
+unknown-middle|$TR/a.test.sh extras why|$TR/gone.test.sh extras renamed away|$TR/c.test.sh extras why
+unknown-last|$TR/a.test.sh extras why|$TR/b.test.sh extras why|$TR/gone.test.sh extras renamed away
+onlyword|$TR/a.test.sh|# b|# c
+EOF2
+[ -z "$bad" ] && ok "tier: a no-reason / unknown-tier / duplicate / unknown-suite line (first, middle or last) is a typed INVALID and exits 1 before any suite runs" || no "tier manifest validation:$bad"
+
+# an ABSENT manifest: typed DEGRADED, EVERY suite runs, exit 1 (anti-silent-zero)
+w="$(tier_tree c39abs)"; rm -f "$w/suite-tiers.txt"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; lout="$(bash "$w/run-all.sh" --list-suites 2>/dev/null)"; lrc=$?
+if [ "$rc" -eq 1 ] && [ "$(ran_of "$out")" = "abci" ] && grep -qF 'Tier: DEGRADED — suite-tiers.txt absent' <<<"$out" && [ "$lrc" -eq 1 ] && [ "$(wc -l <<<"$lout")" -eq 4 ]; then
+  ok "tier: an absent suite-tiers.txt is DEGRADED — all suites run (and list), the run exits 1"
+else no "tier absent manifest wrong: rc=$rc ran=$(ran_of "$out") lrc=$lrc"; fi
+
+# a tier that selects 0 suites is never a pass
+w="$(tier_tree c39zero)"; tier_man "$w" "$TR/a.test.sh extras r" "$TR/b.test.sh extras r" "$TR/c.test.sh extras r" "$IR/i.test.sh extras r"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; lout="$(bash "$w/run-all.sh" --list-suites 2>&1)"; lrc=$?
+w2="$(tier_tree c39zero2)"; tier_man "$w2"
+out2="$(bash "$w2/run-all.sh" --tier extras 2>&1)"; rc2=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: EMPTY' <<<"$out" && [ "$lrc" -eq 1 ] \
+   && [ "$rc2" -eq 1 ] && [ -z "$(ran_of "$out2")" ] && grep -qF 'Tier: EMPTY' <<<"$out2"; then
+  ok "tier: a tier selecting 0 suites (all-extras core, comment-only manifest extras) exits 1 and runs nothing"
+else no "tier zero wrong: rc=$rc ran=$(ran_of "$out") lrc=$lrc rc2=$rc2 out2=[$(grep -E 'Tier' <<<"$out2")]"; fi
+
+# --require-teeth: implies --tier all; an explicit core|extras is refused (exit 2) because the stale-waiver check judges the whole corpus
+w="$(tier_tree c39rt)"
+bad=""
+for a in "--require-teeth --tier core" "--tier extras --require-teeth" "--require-teeth --tier=core"; do
+  # shellcheck disable=SC2086
+  out="$(bash "$w/run-all.sh" $a 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'cannot be combined with --tier' <<<"$out"; } || bad="$bad [$a rc=$rc]"
+done
+out="$(bash "$w/run-all.sh" --require-teeth 2>&1)"
+grep -qxF 'Tier: all — 4 of 4 suites (excluded: 0)' <<<"$out" || bad="$bad [--require-teeth alone did not imply all: $(grep '^Tier' <<<"$out")]"
+out="$(bash "$w/run-all.sh" --require-teeth --tier all 2>&1)"; rc=$?
+{ [ "$rc" -ne 2 ] && grep -qxF 'Tier: all — 4 of 4 suites (excluded: 0)' <<<"$out"; } || bad="$bad [--require-teeth --tier all refused rc=$rc]"
+[ -z "$bad" ] && ok "tier: --require-teeth implies --tier all; an explicit core|extras with it exits 2 before any suite runs" || no "tier+require-teeth:$bad"
+
+# list edges (§7): the single extras entry in FIRST, MIDDLE and LAST position of the suite list, a manifest whose
+# last line has no trailing newline, and a single-entry manifest
+bad=""
+for pos in a:first b:middle i:last; do
+  s="${pos%%:*}"; w="$(tier_tree "c39edge-$s")"
+  if [ "$s" = i ]; then _rel="$IR/i.test.sh"; else _rel="$TR/$s.test.sh"; fi
+  printf '%s extras edge %s' "$_rel" "${pos##*:}" > "$w/suite-tiers.txt"    # NO trailing newline, single entry
+  out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+  want="$(printf '%s' abci | tr -d "$s")"
+  { [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "$want" ] && grep -qxF 'Tier: core — 3 of 4 suites (excluded: 1)' <<<"$out"; } || bad="$bad [$s rc=$rc ran=$(ran_of "$out")]"
+  out="$(bash "$w/run-all.sh" --tier extras 2>&1)"; [ "$(ran_of "$out")" = "$s" ] || bad="$bad [$s extras ran=$(ran_of "$out")]"
+done
+w="$(tier_tree c39edge-multi)"
+printf '%s\n' "$TR/c.test.sh extras r" "# between" "" "$IR/i.test.sh extras r" > "$w/suite-tiers.txt"; printf '%s extras r' "$TR/a.test.sh" >> "$w/suite-tiers.txt"
+out="$(bash "$w/run-all.sh" 2>&1)"; [ "$(ran_of "$out")" = "b" ] || bad="$bad [multi (unsorted, blank, comment, last line unterminated) ran=$(ran_of "$out")]"
+[ -z "$bad" ] && ok "tier edges: an extras entry first / middle / last, a single-entry manifest, an unterminated last line and unsorted order are all honoured" || no "tier edges:$bad"
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # tier_scn <kind> <fixture-tests-dir> — builds the scenario for one invariant, runs the runner in the dir, prints
+  # "held" when the invariant holds, "broken <why>" otherwise. The same scenario is judged against the REAL runner
+  # (must be held) and against one mutant (must be broken): a scenario the real runner already fails cannot discriminate.
+  tier_scn(){
+    local k="$1" t="$2" out rc ran
+    case "$k" in
+      default)   out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+                 [ "$rc" -eq 0 ] && [ "$ran" = aci ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      extras)    out="$(bash "$t/run-all.sh" --tier extras 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+                 [ "$rc" -eq 0 ] && [ "$ran" = b ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      badvalue)  out="$(bash "$t/run-all.sh" --tier bogus 2>&1)"; rc=$?
+                 [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc" ;;
+      noreason)  tier_man "$t" "$TR/a.test.sh extras why" "$TR/b.test.sh extras" "$TR/c.test.sh extras why"
+                 out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      badword)   tier_man "$t" "$TR/a.test.sh core why" "$TR/b.test.sh extras why"
+                 out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      dup)       tier_man "$t" "$TR/a.test.sh extras why" "$TR/b.test.sh extras why" "$TR/a.test.sh extras again"
+                 out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      unknown)   tier_man "$t" "$TR/gone.test.sh extras renamed away" "$TR/b.test.sh extras why"
+                 out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      absent)    rm -f "$t/suite-tiers.txt"; out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && [ "$(ran_of "$out")" = abci ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      listabsent) rm -f "$t/suite-tiers.txt"; bash "$t/run-all.sh" --list-suites >/dev/null 2>&1; rc=$?
+                 [ "$rc" -eq 1 ] && echo held || echo "broken rc=$rc" ;;
+      empty)     tier_man "$t"; out="$(bash "$t/run-all.sh" --tier extras 2>&1)"; rc=$?
+                 [ "$rc" -eq 1 ] && grep -qF 'Tier: EMPTY' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      rtrefuse)  out="$(bash "$t/run-all.sh" --require-teeth --tier core 2>&1)"; rc=$?
+                 [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      rtimplies) out="$(bash "$t/run-all.sh" --require-teeth 2>&1)"
+                 grep -qxF 'Tier: all — 4 of 4 suites (excluded: 0)' <<<"$out" && echo held || echo "broken: $(grep '^Tier' <<<"$out")" ;;
+      unterm)    printf '%s extras edge' "$TR/a.test.sh" > "$t/suite-tiers.txt"; out="$(bash "$t/run-all.sh" 2>&1)"; rc=$?
+                 [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = bci ] && echo held || echo "broken rc=$rc ran=$(ran_of "$out")" ;;
+      *)         echo "broken: unknown scenario $k" ;;
+    esac
+  }
+  # tier_tooth <label> <scenario> <sed-expr> — the real runner must hold the scenario; the mutant must break it
+  tier_tooth(){
+    local lbl="$1" scn="$2" expr="$3" w tg tm g m
+    w="$(mut_workdir "teeth-tier-$lbl")"
+    tg="$(tier_tree "teeth-tier-$lbl-good")"; g="$(tier_scn "$scn" "$tg")"
+    if [ "$g" != held ]; then no "teeth-tier-$lbl: the real runner does not hold scenario '$scn' ($g) — the tooth cannot discriminate"; return; fi
+    if ! mutant_sed "$SUT" "$w/run-all.sh" "$expr" 2>"$w/err"; then no "teeth-tier-$lbl: no mutant: $(cat "$w/err")"; return; fi
+    tm="$(tier_tree "teeth-tier-$lbl-mut")"; cp "$w/run-all.sh" "$tm/run-all.sh"; m="$(tier_scn "$scn" "$tm")"
+    case "$m" in
+      broken*) ok "teeth-tier-$lbl: the mutant breaks scenario '$scn' ($m) -> the tier case has real teeth" ;;
+      *)       no "teeth-tier-$lbl: the mutant still holds scenario '$scn' (THEATER)" ;;
+    esac
+  }
+  echo "-- teeth: suite tiers (kit issue #2203) — each branch removed in turn; its scenario must then break --"
+  tier_tooth filter default 's/^elif \[\[ "\$TIER" != "all" \]\]; then$/elif false; then/'
+  tier_tooth extras-select extras 's/\[\[ "\$TIER" == "extras" \]\] \&\& _tier_sel+=("\$f")/:/'
+  tier_tooth value badvalue 's/^    core|extras|all) TIER=/    *) TIER=/'
+  tier_tooth invalid-exit noreason 's/^if \[\[ \${#_tier_invalid\[@\]} -gt 0 \]\]; then$/if false; then/'
+  tier_tooth noreason-check noreason 's/^    elif \[\[ -z "\$_tl_why" \]\]; then$/    elif false; then/'
+  tier_tooth tierword badword 's/^    elif \[\[ "\$_tl_word" != "extras" \]\]; then$/    elif false; then/'
+  tier_tooth duplicate dup 's/^    elif \[\[ "\${_extras_reason\[\$_tl_path\]+set}" == "set" \]\]; then$/    elif false; then/'
+  tier_tooth unknown-suite unknown 's/^    elif \[\[ "\${_rel_known\[\$_tl_path\]+set}" != "set" \]\]; then$/    elif false; then/'
+  tier_tooth degraded-exit absent 's/ \&\& \[\[ -z "\$TIER_DEGRADED" \]\]; then$/; then/'
+  tier_tooth degraded-list listabsent 's/\[\[ "\$INSTALL_TESTS_DEGRADED" -eq 0 \&\& -z "\$TIER_DEGRADED" \]\] || exit 1/[[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] || exit 1/'
+  # empty-tier proves the `Tier: EMPTY` message/guard only: exit 1 also comes from suites_ok==0, so rc alone proves nothing here.
+  tier_tooth empty-tier empty '/^if \[\[ \${#all_suites\[@\]} -eq 0 \]\]; then$/{N;/Tier: EMPTY/s/-eq 0/-eq 99/}'
+  tier_tooth rt-refuse rtrefuse 's/^  if \[\[ -n "\$TIER_EXPLICIT" \&\& "\$TIER" != "all" \]\]; then$/  if false; then/'
+  tier_tooth rt-implies rtimplies 's/^  TIER="all"$/  :/'
+  tier_tooth unterminated unterm 's/while IFS= read -r _tl || \[\[ -n "\$_tl" \]\]; do/while IFS= read -r _tl; do/'
 fi
 
 echo "== $pass passed $MID $fail failed =="

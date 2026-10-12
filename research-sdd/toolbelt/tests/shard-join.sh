@@ -4,12 +4,16 @@
 # whole gate (kit issue #2114). The join step of the sharded CI run: exit 0 only when EVERY suite
 # of the full discovered list ran EXACTLY ONCE and passed, in a complete set of green shards.
 #
-# Usage: shard-join.sh [--expected FILE] [--shards N] [--strict-skip] MANIFEST...
+# Usage: shard-join.sh [--expected FILE] [--tier core|extras|all] [--shards N] [--strict-skip] MANIFEST...
 #
 #   --expected FILE  the full suite list, one repo-relative path per line. Default: the output of
-#                    `run-all.sh --list-suites` next to this script (the single discovery source,
+#                    `run-all.sh --list-suites --tier T` next to this script (the single discovery source,
 #                    so the join cannot drift from the runner's own globs). A missing, unreadable
 #                    or EMPTY list is a typed failure, never "nothing expected, nothing missing".
+#   --tier T         (kit issue #2203) the tier the shards ran, default `core` (what the default gate runs).
+#                    Passed to `run-all.sh --list-suites`; ignored with --expected. Manifests from a
+#                    different tier than T read as MISSING / UNEXPECTED SUITE findings. An invalid
+#                    value exits 2.
 #   --shards N       the shard count the caller (the CI matrix) expects; cross-checked against
 #                    every manifest header, so a matrix and a header that agree on the wrong N
 #                    are still caught.
@@ -35,11 +39,12 @@
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-USAGE="usage: shard-join.sh [--expected FILE] [--shards N] [--strict-skip] MANIFEST..."
+USAGE="usage: shard-join.sh [--expected FILE] [--tier core|extras|all] [--shards N] [--strict-skip] MANIFEST..."
 
 expected_file=""
 want_shards=""
 strict_skip=""
+tier="core"
 manifests=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +53,8 @@ while [[ $# -gt 0 ]]; do
     --shards) [[ $# -ge 2 ]] || { echo "--shards needs N; $USAGE" >&2; exit 2; }; want_shards="$2"; shift ;;
     --shards=*) want_shards="${1#--shards=}" ;;
     --strict-skip) strict_skip=1 ;;
+    --tier) [[ $# -ge 2 ]] || { echo "--tier needs core|extras|all; $USAGE" >&2; exit 2; }; tier="$2"; shift ;;
+    --tier=*) tier="${1#--tier=}" ;;
     -*) echo "unknown flag: $1; $USAGE" >&2; exit 2 ;;
     *) manifests+=("$1") ;;
   esac
@@ -57,6 +64,10 @@ if [[ -n "$want_shards" && ! "$want_shards" =~ ^[1-9][0-9]{0,2}$ ]]; then
   echo "invalid --shards value '$want_shards': need a positive integer; $USAGE" >&2
   exit 2
 fi
+case "$tier" in
+  core|extras|all) ;;
+  *) echo "invalid --tier value '$tier' (allowed: core extras all); $USAGE" >&2; exit 2 ;;
+esac
 if [[ ${#manifests[@]} -eq 0 ]]; then
   echo "no manifests given (an empty download must never read as a pass); $USAGE" >&2
   exit 2
@@ -75,8 +86,8 @@ if [[ -n "$expected_file" ]]; then
     mapfile -t expected < <(grep -v '^[[:space:]]*$' "$expected_file")
   fi
 else
-  if ! _list="$(bash "$SCRIPT_DIR/run-all.sh" --list-suites 2>/dev/null)"; then
-    list_bad=1; add "EXPECTED LIST UNAVAILABLE: 'run-all.sh --list-suites' failed (install corpus absent or runner broken)"
+  if ! _list="$(bash "$SCRIPT_DIR/run-all.sh" --list-suites --tier "$tier" 2>/dev/null)"; then
+    list_bad=1; add "EXPECTED LIST UNAVAILABLE: 'run-all.sh --list-suites --tier $tier' failed (install corpus absent, suite-tiers.txt absent/invalid, empty tier, or runner broken)"
   else
     mapfile -t expected < <(printf '%s\n' "$_list" | grep -v '^[[:space:]]*$')
   fi

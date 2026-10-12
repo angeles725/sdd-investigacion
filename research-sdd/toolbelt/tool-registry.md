@@ -4,6 +4,8 @@ Map of **artifact type → tool → wrapper**. The loop runs `profile-target.sh`
 over the target's binaries (uses `file`) and picks the wrapper. All paths are
 verified in this environment (WSL Ubuntu, 2026-06-28).
 
+> **Tests:** the suites of the VM/dynamic-sandbox rows below (vm, qemu, fact, detonate, trace, docker, capture, ...) and of a few unused adapters (kaitai, unblob, pcap, qnx6, serial-frame, ...) are in the opt-in **extras** test tier (kit issue #2203), listed in `tests/suite-tiers.txt`. The default `run-all.sh` gate skips them; run them with `bash research-sdd/toolbelt/tests/run-all.sh --tier extras` (or `--tier all`).
+
 **Scope: KIT wrappers only.** This registry documents scripts that live in `toolbelt/`. A tool a target
 writes for itself (`<target>/tools/*.py`, documented in that target's `tools/README.md`) is TARGET tooling:
 it is tracked fleet-wide by `sweep-tools.sh` (the SessionStart tool ledger) and enters this registry only
