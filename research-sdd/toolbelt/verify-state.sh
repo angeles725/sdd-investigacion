@@ -400,8 +400,8 @@ derive_deferred() {
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       if (tolower(a[1])!="deferred") next
-      if (cnt!=4) next
-      st=tolower(a[4])
+      if (cnt!=4 && cnt!=5) next  # DEF-WIDTH (#2162): 4-cell and 5-cell (id) rows are ONE population, as in the --queue reader and backlog_rows
+      st=tolower(a[cnt])  # DEF-STATUS-LAST: status is the last cell of either width
       if (index(a[2],"~~") || index(st,"~~") || index(st,"✅")) next
       n++ }
     END { print n+0 }' "$1"

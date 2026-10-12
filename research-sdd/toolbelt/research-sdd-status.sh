@@ -516,8 +516,8 @@ count_deferred() {
       sub(/^\|/,"",line); sub(/\|$/,"",line)
       cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
       if (tolower(a[1])!="deferred") next
-      if (cnt!=4) next
-      st=tolower(a[4])
+      if (cnt!=4 && cnt!=5) next  # DEF-WIDTH (#2162): 4-cell and 5-cell (id) rows are ONE population, as in the --queue reader and backlog_rows
+      st=tolower(a[cnt])  # DEF-STATUS-LAST: status is the last cell of either width
       if (index(a[2],"~~") || index(st,"~~") || index(st,"✅")) next
       n++ }
     END { print n+0 }' "$state"
@@ -672,7 +672,7 @@ queue_next() {
   # keeps its own backlog_rows call and output.
   # Open deferred rows: only inside a `## Gap-backlog` section, 4- or 5-column rows (a bolded `**deferred**` priority is a STALE backlog, so never reaches here).
   rows="$(backlog_rows 1)"$'\n'"$(awk -F'|' '/^## /{ ib = ($0 ~ /^## Gap-backlog( \([^)]+\))?$/); next }
-      ib { gsub(/\\\|/,"\001"); pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || (NF!=6 && NF!=7)) next
+      ib { gsub(/\\\|/,"\001"); pr=tolower($2); gsub(/^[ \t]+|[ \t]+$/,"",pr); if (pr!="deferred" || (NF!=6 && NF!=7)) next  # DEF-WIDTH
       gi=(NF==7) ? 4 : 3; si=NF-1; g=$gi; s=tolower($si); gsub(/^[ \t]+|[ \t]+$/,"",g); gsub(/^[ \t]+|[ \t]+$/,"",s)
       if (NF==7) { g=$3; gsub(/^[ \t]+|[ \t]+$/,"",g) }
       gsub(/^\*\*/,"",s)
