@@ -195,6 +195,16 @@ They are listed here so a reader of this registry finds every typed state the sc
   leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
   prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
+- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh`, kit issue #2201): the
+  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. It lives
+  under `tests/`, outside the scanned scripts, so it is NOT a row of the degraded table above. Reasons: a runtime
+  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
+  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
+  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
+  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing). An INVALID manifest line (no reason, a suite that does not exist,
+  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
+  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
+
 - `kit-rdd-start: <state>` / `kit-rdd-drive: <state>` (maint/kit-rdd-start.py, maint/kit-rdd-drive.py, kit issue
   #2212): the RDD drivers end in one typed state, each with its own exit code and exactly one continuation.
   `maint/` is not a scanned directory, so these are listed here and not as table rows;
