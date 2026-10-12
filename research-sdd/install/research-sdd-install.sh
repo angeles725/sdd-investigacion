@@ -12,7 +12,7 @@
 # sentinels; no line numbers to keep in sync. The sentinel lines themselves are excluded.
 # HELP-START
 # Usage:
-#   research-sdd-install.sh [--harness claude|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--profile <name>]
+#   research-sdd-install.sh [--harness claude|pi|gentle-shell|all] [--home <dir>] [--dry-run] [--force-skill] [--backup-unrecorded] [--profile <name>]
 #   research-sdd-install.sh --verify [--harness claude|pi|gentle-shell|all] [--home <dir>]
 #   research-sdd-install.sh --uninstall [--yes] [--harness claude|pi|gentle-shell|all] [--home <dir>]
 #
@@ -23,6 +23,11 @@
 #                 prompt template, the pi extension under <config_root>/extensions/, AND the shipped read-only
 #                 agent definitions under <config_root>/agents/),
 #                 back it up as <file>.local-backup and overwrite it with the kit source
+#   --backup-unrecorded  a re-install replaces the rendered profile dir (<config_root>/research-sdd/profile/<name>/).
+#                 Any regular file in it that the bundle record does not name (e.g. a session-written TARGETS.md) makes
+#                 the re-install REFUSE (typed, exit 1, nothing removed; a dir with files but no record is refused too).
+#                 With this flag those files are first MOVED to <config_root>/research-sdd/backups/unrecorded-<profile>-<UTC>/
+#                 (outside the render dir) and the backup path is printed. Not valid with --verify or --uninstall.
 #   --profile     prompt profile to install (claude|general|...): flag > $RESEARCH_SDD_PROFILE env
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
 #   --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
@@ -249,6 +254,79 @@ _surface__markdown_sections() {
 _rsdd_realpath_m() {
   command -v python3 >/dev/null 2>&1 || return 2
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+# _RSDD_BACKUP_UNRECORDED — 1 when --backup-unrecorded was given (global, set by main).
+_RSDD_BACKUP_UNRECORDED=0
+
+# _rsdd_unrecorded_files <dir> <config_root> — prints (one per line) every REGULAR file under <dir> that the
+# bundle record (<config_root>/research-sdd/.installed-bundle-state) does not name, i.e. the files --verify
+# reports as "(extra)" (kit issue #2133). An absent/unreadable record names nothing, so every regular file is
+# unrecorded: a dir that cannot be proven installer-owned is never treated as disposable. A RECORDED file whose
+# sha256 no longer matches the record (edited since the install, or unhashable) is listed too. rc=0 listing
+# (maybe empty, also when <dir> is absent), rc=3 when the dir cannot be traversed (never a confident empty list).
+_rsdd_unrecorded_files() {
+  local dir="$1" root="$2" record="$2/research-sdd/.installed-bundle-state" found tagged kind a b cur
+  [ -d "$dir" ] || return 0
+  found="$(find "$dir" -type f 2>/dev/null)" || return 3
+  { [ -r "$record" ] && [ -f "$record" ]; } || record=/dev/null
+  [ -n "$found" ] || return 0
+  tagged="$(printf '%s\n' "$found" | awk -v root="$root/" -v rec="$record" '
+    BEGIN { while ((getline l < rec) > 0) if (index(l, "file=") == 1) { r = substr(l, 6); i = index(r, "  "); if (i > 0) known[substr(r, i + 2)] = substr(r, 1, i - 1) } }
+    NF { p = $0; if (index(p, root) == 1) p = substr(p, length(root) + 1); if (p in known) print "K\t" known[p] "\t" $0; else print "U\t" $0 }')" || return 3
+  while IFS=$'\t' read -r kind a b; do
+    case "$kind" in
+      U) printf '%s\n' "$a" ;;
+      K) cur="$(_rsdd_sha256_file "$b")" || cur=""; [ "$cur" = "$a" ] || printf '%s\n' "$b" ;;
+    esac
+  done <<<"$tagged"
+}
+
+# _rsdd_guard_unrecorded <dir> <config_root> <profile> <dry> — the pre-clean guard (kit issue #2133). rc=0: nothing
+# unrecorded, or --backup-unrecorded moved it (dry=1: only announced). rc=1: REFUSED (typed, stderr, nothing
+# removed or moved) or the backup/enumeration failed (degraded, never a silent proceed).
+_rsdd_guard_unrecorded() {
+  local dir="$1" root="$2" profile="$3" dry="$4" list="" lrc=0 f rel dest ts moved="" why="" rec_profile
+  if [ -L "$dir" ]; then
+    echo "research-sdd-install: REFUSED to clean $dir — it is a symlink (the render dir must be a real directory; nothing was removed)" >&2
+    return 1
+  fi
+  list="$(_rsdd_unrecorded_files "$dir" "$root")" || lrc=$?
+  if [ "$lrc" != 0 ]; then
+    echo "research-sdd-install: REFUSED to clean $dir — it could not be traversed to look for unrecorded files (degraded; nothing removed)" >&2
+    return 1
+  fi
+  [ -n "$list" ] || return 0
+  if [ "$_RSDD_BACKUP_UNRECORDED" != 1 ]; then
+    {
+      if [ ! -r "$root/research-sdd/.installed-bundle-state" ]; then
+        why=" (the bundle record is absent or unreadable)"
+      elif rec_profile="$(_rsdd_marker_field "$root/research-sdd/.installed-bundle-state" profile 2>/dev/null)" && [ "$rec_profile" != "$profile" ]; then
+        why=" (the bundle record is for a different profile: '$rec_profile', not '$profile')"
+      fi
+      echo "research-sdd-install: REFUSED to re-install over $dir — it holds regular file(s) the bundle record does not name or whose bytes changed since the install$why; nothing was removed:"
+      while IFS= read -r f; do [ -z "$f" ] || printf '  unrecorded: %s\n' "$f"; done <<<"$list"
+      echo "  Move them away yourself, or re-run with --backup-unrecorded to move them to a timestamped backup under $root/research-sdd/backups/ first."
+    } >&2
+    return 1
+  fi
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  dest="$root/research-sdd/backups/unrecorded-$profile-$ts"
+  [ ! -e "$dest" ] || dest="$dest.$$"
+  if [ "$dry" = 1 ]; then
+    printf '  BACKUP unrecorded files to %s (dry-run: nothing moved)\n' "$dest"
+    return 0
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel="${f#"$dir"/}"
+    if ! mkdir -p -- "$dest/$(dirname -- "$rel")" || ! mv -- "$f" "$dest/$rel"; then
+      echo "research-sdd-install: REFUSED to clean $dir — could not move unrecorded file $f to $dest (nothing else removed; already moved to $dest:${moved:- none})" >&2
+      return 1
+    fi
+    moved="$moved $rel"
+  done <<<"$list"
+  printf '  BACKUP unrecorded files to %s\n' "$dest"
 }
 
 # _rsdd_clean_profile_dir <dir> <config_root> — removes a stale prior render before a fresh one.
@@ -548,7 +626,8 @@ _rsdd_deploy_skill() {
       # _rsdd_clean_profile_dir's own (already-sufficient-for-traversal) F2 guards downstream.
       if ! rsdd_valid_profile "$old_profile" "$KIT"; then
         echo "research-sdd-install: [$h] warning: marker names an invalid profile '$old_profile' — refusing to clean, leaving it for manual inspection" >&2
-      elif ! _rsdd_clean_profile_dir "$config_root/research-sdd/profile/$old_profile" "$config_root"; then
+      elif ! _rsdd_guard_unrecorded "$config_root/research-sdd/profile/$old_profile" "$config_root" "$old_profile" 0 \
+        || ! _rsdd_clean_profile_dir "$config_root/research-sdd/profile/$old_profile" "$config_root"; then
         echo "research-sdd-install: [$h] warning: could not clean the orphaned '$old_profile' render dir" >&2
       fi
     fi
@@ -1342,7 +1421,7 @@ install_one() {
   #    (_rsdd_dry_skill_plan / _rsdd_deploy_skill, CLAUDE.md §7 three-state rule) — kit issue #1024
   #    review correction (R3-silent-overwrite-rendered-profile): the render leg used to `cp`
   #    unconditionally, with no cmp -s check, no backup, and --force-skill silently ignored.
-  local kit_for_section="$KIT" render_dir="" render_err label
+  local kit_for_section="$KIT" render_dir="" render_err label render_blocked=0
   # Global (not local) signal read after _rsdd_deploy_skill returns — see its own comment (kit
   # issue #1024 round 4, item 4). Reset here too: the dry-run branches below never call
   # _rsdd_deploy_skill at all, so without this a STALE 1 from a PREVIOUS harness in the same
@@ -1361,7 +1440,9 @@ install_one() {
       local dry_render_dir dry_render_err
       dry_render_dir="$(mktemp -d)" || { echo "research-sdd-install: [$h] mktemp failed" >&2; rc=1; }
       if [ -n "${dry_render_dir:-}" ]; then
-        if ! dry_render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$dry_render_dir" 2>&1)"; then
+        if ! _rsdd_guard_unrecorded "$render_dir" "$config_root" "$profile" 1; then
+          rc=1; render_blocked=1
+        elif ! dry_render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$dry_render_dir" 2>&1)"; then
           echo "research-sdd-install: [$h] render-profile.sh failed: $dry_render_err" >&2
           rc=1
         else
@@ -1370,7 +1451,9 @@ install_one() {
         rm -rf "$dry_render_dir"
       fi
     else
-      if ! _rsdd_clean_profile_dir "$render_dir" "$config_root"; then
+      if ! _rsdd_guard_unrecorded "$render_dir" "$config_root" "$profile" 0; then
+        rc=1; render_blocked=1
+      elif ! _rsdd_clean_profile_dir "$render_dir" "$config_root"; then
         rc=1
       elif ! render_err="$("$KIT/toolbelt/render-profile.sh" "$profile" "$render_dir" 2>&1)"; then
         echo "research-sdd-install: [$h] render-profile.sh failed: $render_err" >&2
@@ -1399,6 +1482,10 @@ install_one() {
   #    writing a HALF of the switch to disk.
   if [ "$_RSDD_SKILL_BLOCKED_MIXED" = 1 ]; then
     printf '  SKIP    %s (launcher rewrite skipped — profile switch blocked by a hand-edit, mixed state avoided)\n' "$prompt_file"
+  elif [ "$render_blocked" = 1 ]; then
+    # Kit issue #2133 review SF2: the render leg was refused (unrecorded files), so the skill was NOT redeployed
+    # for this profile; rewriting the launcher's "Kit path:" to this profile's render would split them.
+    printf '  SKIP    %s (launcher rewrite skipped — the render dir holds unrecorded files, mixed state avoided)\n' "$prompt_file"
   else
     dispatch="_surface__${strategy//-/_}"
     if ! declare -F "$dispatch" >/dev/null; then
@@ -1534,7 +1621,7 @@ install_one() {
 }
 
 main() {
-  local harness="all" home="$HOME" dry=0 force=0 profile_flag="" verify=0 uninstall=0 yes=0
+  local harness="all" home="$HOME" dry=0 force=0 backup_unrec=0 profile_flag="" verify=0 uninstall=0 yes=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --uninstall)   uninstall=1; shift ;;
@@ -1551,6 +1638,7 @@ main() {
         home="$2"; shift 2 ;;
       --dry-run)     dry=1; shift ;;
       --force-skill) force=1; shift ;;
+      --backup-unrecorded) backup_unrec=1; shift ;;
       --verify)      verify=1; shift ;;
       --profile)
         if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
@@ -1564,6 +1652,7 @@ main() {
   local list
   if [ "$harness" = all ]; then list="$RESEARCH_SDD_HARNESSES"; else list="$harness"; fi
 
+  _RSDD_BACKUP_UNRECORDED="$backup_unrec"
   local h
   for h in $list; do
     if [ -z "${_RSDD_CONFIG_ROOT_REL[$h]:-}" ]; then
@@ -1578,8 +1667,8 @@ main() {
     echo "research-sdd-install: --yes confirms a removal and requires --uninstall" >&2; usage >&2; return 2
   fi
   if [ "$uninstall" = 1 ]; then
-    if [ "$verify" = 1 ] || [ "$force" = 1 ] || [ -n "$profile_flag" ] || { [ "$dry" = 1 ] && [ "$yes" = 1 ]; }; then
-      echo "research-sdd-install: --uninstall cannot be combined with --verify, --force-skill, --profile, or --dry-run together with --yes (it is a dry-run unless --yes is given)" >&2
+    if [ "$verify" = 1 ] || [ "$force" = 1 ] || [ "$backup_unrec" = 1 ] || [ -n "$profile_flag" ] || { [ "$dry" = 1 ] && [ "$yes" = 1 ]; }; then
+      echo "research-sdd-install: --uninstall cannot be combined with --verify, --force-skill, --backup-unrecorded, --profile, or --dry-run together with --yes (it is a dry-run unless --yes is given)" >&2
       usage >&2; return 2
     fi
     local urc=0 one apply=0; [ "$yes" = 1 ] && apply=1
@@ -1594,8 +1683,8 @@ main() {
   # recorded profile is read from the bundle record). Exit: 0 all match/absent · 1 drift · 2 any
   # degraded (outranks drift). Install-mode flags make no sense here → usage error.
   if [ "$verify" = 1 ]; then
-    if [ "$dry" = 1 ] || [ "$force" = 1 ] || [ -n "$profile_flag" ]; then
-      echo "research-sdd-install: --verify is read-only and cannot be combined with --dry-run, --force-skill or --profile" >&2
+    if [ "$dry" = 1 ] || [ "$force" = 1 ] || [ "$backup_unrec" = 1 ] || [ -n "$profile_flag" ]; then
+      echo "research-sdd-install: --verify is read-only and cannot be combined with --dry-run, --force-skill, --backup-unrecorded or --profile" >&2
       usage >&2; return 2
     fi
     local vrc=0 one drift=0 degraded=0
@@ -1630,7 +1719,7 @@ main() {
   done
 
   # Aggregate: a mid-loop harness failure must NOT abort the run (still install the writable ones),
-  # but the overall exit code must be nonzero if ANY harness failed. Dry-run mutates nothing → 0.
+  # but the overall exit code must be nonzero if ANY harness failed. A guard refusal (also previewed under --dry-run) counts as a failure; otherwise a dry-run mutates nothing → 0.
   local rc=0
   for h in $list; do
     install_one "$h" "$home" "$dry" "$force" "${_profile_for[$h]}" "${_profile_source_for[$h]}" || rc=1

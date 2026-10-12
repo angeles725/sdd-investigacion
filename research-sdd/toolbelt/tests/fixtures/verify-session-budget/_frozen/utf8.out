@@ -1,0 +1,10 @@
+verify-session-budget: @FIX@/utf8
+source startup:
+hook[1] chars=3 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/accents.sh
+aggregate[startup]: 3 chars (budget < 8000) OK
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 3 chars (budget < 8000) OK worst-source=startup
+state: ok (1 hook runs, 0 truncated, 0 timed-out)

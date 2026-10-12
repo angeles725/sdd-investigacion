@@ -1,0 +1,23 @@
+verify-session-budget: @FIX@/sources
+source startup:
+hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
+hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
+aggregate[startup]: 500 chars (budget < 8000) OK
+source resume:
+hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
+hook[2] chars=5000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/c5000.sh
+hook[3] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
+aggregate[resume]: 5500 chars (budget < 8000) OK
+source clear:
+hook[1] chars=400 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/a400.sh
+hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
+aggregate[clear]: 500 chars (budget < 8000) OK
+source compact:
+hook[1] chars=9000 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/b9000.sh
+hook[2] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
+aggregate[compact]: 9100 chars (budget < 8000) OVER BUDGET
+source fork:
+hook[1] chars=100 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/d100.sh
+aggregate[fork]: 100 chars (budget < 8000) OK
+aggregate: 9100 chars (budget < 8000) OVER BUDGET worst-source=compact
+state: ok (10 hook runs, 0 truncated, 0 timed-out)
