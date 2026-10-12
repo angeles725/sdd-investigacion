@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       runs:
-        description: "Passes over each suite (integer >= 1)"
+        description: "Passes over each suite (integer 1-4; the job timeout is sized for at most 4)"
         required: false
         default: "3"
       load:
@@ -51,14 +51,17 @@ jobs:
     # hosted-job cap. The core list is therefore split round-robin across SHARD_COUNT = 4
     # runners (suite k belongs to shard (k mod 4) + 1, the same rule as run-all.sh --shard): ~25-34 min of
     # suite time per pass per shard, x 3 passes = ~75-100 min, x ~1.5 for 2 busy-loop workers on 4 vCPUs
-    # = ~115-150 min, plus ~3 min setup. timeout-minutes 210 leaves ~40 % headroom; a timed-out shard is
-    # a RED job (never a clean hunt), and results.tsv is still uploaded (if: always()). The per-suite bound
-    # (--suite-timeout, default 900 s) caps any single hung suite. A dispatch with runs=5 should expect
-    # ~190-250 min and may need a rerun with fewer runs.
+    # = ~115-150 min for 3 passes, ~150-205 min for the 4-pass maximum the Validate step allows, plus ~3 min
+    # setup. timeout-minutes 240 covers that maximum, so a shard can never time out before it has filed its
+    # issues (filing happens after the last pass); a timed-out shard is a RED job (never a clean hunt), and the
+    # out dir is still uploaded (if: always()). The per-suite bound (--suite-timeout, default 900 s) caps any
+    # single hung suite.
     # NOTE: no `name:` line - same reason as toolbelt-shard (merge-gate's parser rejects a job name
     # containing `${{`); GitHub names matrix jobs `flake-hunt (1)` by itself.
+    # Forks run neither the schedule nor a dispatch of this workflow: it files issues in THIS repository only.
+    if: github.repository == 'angeles725/sdd-investigacion'
     runs-on: ubuntu-latest
-    timeout-minutes: 210
+    timeout-minutes: 240
     strategy:
       # Every shard reports; one red shard must not hide the others.
       fail-fast: false
@@ -69,7 +72,6 @@ jobs:
       # SKIP for a missing sandbox / type stripping FAILS instead, so it cannot read as stable.
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
-      GH_TOKEN: ${{ github.token }}
       # Inputs reach the shell ONLY through env (never interpolated into run:). Schedule runs have no
       # inputs, so the defaults below apply.
       INPUT_RUNS: ${{ github.event.inputs.runs || '3' }}
@@ -85,6 +87,8 @@ jobs:
         run: |
           set -eu
           case "$INPUT_RUNS" in '' | *[!0-9]* | 0) echo "::error::runs must be an integer >= 1"; exit 1 ;; esac
+          # The job timeout (240 min, see the arithmetic above) is sized for at most 4 passes.
+          [ "$INPUT_RUNS" -le 4 ] || { echo "::error::runs must be <= 4 (the job timeout is sized for 4 passes)"; exit 1; }
           case "$INPUT_LOAD" in '' | *[!0-9]*) echo "::error::load must be an integer >= 0"; exit 1 ;; esac
           case "$INPUT_TIER" in core | extras | all) ;; *) echo "::error::tier must be core, extras or all"; exit 1 ;; esac
           if [ "$SHARD_TOTAL" != "$SHARD_COUNT" ]; then
@@ -124,18 +128,24 @@ jobs:
       - name: Flake hunt (shard ${{ matrix.shard }})
         # --file-issues=apply: an open `flake: <suite> ` issue is commented on, never duplicated. The
         # suite list was already tier-selected above, so --tier is not passed (the hunt would re-list).
+        # GH_TOKEN is set on THIS step only (it is for gh); kit-flake-hunt.sh also unsets it for every suite it launches.
+        # EVIDENCE_URL (the run page) goes into every issue body, next to the logs uploaded below.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           bash research-sdd/toolbelt/maint/kit-flake-hunt.sh \
             --runs "$INPUT_RUNS" --prove-teeth --load "$INPUT_LOAD" \
             --suites "$RUNNER_TEMP/flake-hunt-in/suites.txt" \
-            --out "$RUNNER_TEMP/flake-hunt" --file-issues=apply
+            --out "$RUNNER_TEMP/flake-hunt/$SHARD" --evidence-url "$EVIDENCE_URL" --file-issues=apply
 
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flake-hunt-results-${{ matrix.shard }}
-          path: ${{ runner.temp }}/flake-hunt/results.tsv
+          # The whole out dir: results.tsv, logs/ (one per suite run) and the issue-*.md bodies.
+          path: ${{ runner.temp }}/flake-hunt/${{ matrix.shard }}
           overwrite: true
           if-no-files-found: warn
           retention-days: 14

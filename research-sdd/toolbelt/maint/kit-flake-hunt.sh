@@ -8,7 +8,7 @@
 # Usage:
 #   kit-flake-hunt.sh [--repo DIR] [--runs K] [--load N] [--load-timeout S] [--suite-timeout S]
 #                     [--suites FILE | --suite PATH ...] [--tier core|all] [--prove-teeth]
-#                     [--out DIR] [--file-issues[=apply]]
+#                     [--out DIR] [--evidence-url URL] [--file-issues[=apply]]
 #
 #   --repo DIR          kit checkout to hunt in (default: the checkout this script lives in). Suites
 #                       run with DIR as cwd, so the pre-fix tree of an incident can be replayed with
@@ -36,6 +36,8 @@
 #                       removed, when its resolved path is the repo or inside it, or when it already
 #                       exists and is not empty. The script never deletes a directory it did not
 #                       create (it only removes its own per-suite TMPDIRs).
+#   --evidence-url URL  an http(s) URL (e.g. the CI run) written as an `evidence: URL` line into every issue body; a
+#                       value that is not a single http(s) URL is refused (exit 2) before anything runs.
 #   --file-issues       print the exact `gh issue create|comment` it WOULD run per flaky or broken suite (dry).
 #   --file-issues=apply actually run it. An open issue whose title starts with `flake: <suite file> `
 #                       is commented on, never duplicated; a failed search files nothing. Label: type:bug.
@@ -61,7 +63,7 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: kit-flake-hunt.sh [--repo DIR] [--runs K] [--load N] [--load-timeout S] [--suite-timeout S] [--suites FILE | --suite PATH ...] [--tier core|all] [--prove-teeth] [--out DIR] [--file-issues[=apply]]" >&2
+  echo "usage: kit-flake-hunt.sh [--repo DIR] [--runs K] [--load N] [--load-timeout S] [--suite-timeout S] [--suites FILE | --suite PATH ...] [--tier core|all] [--prove-teeth] [--out DIR] [--evidence-url URL] [--file-issues[=apply]]" >&2
 }
 die() { printf 'degraded: kit-flake-hunt: %s\n' "$1" >&2; exit 2; }
 isint() { case "$1" in '' | *[!0-9]*) return 1 ;; *) return 0 ;; esac; }
@@ -72,7 +74,7 @@ while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _
 if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
 _RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
 
-REPO="" RUNS=3 LOAD="" LOAD_TIMEOUT="" SUITE_TIMEOUT=900 TIER=all PROVE=0 OUT="" FILE_MODE="" SUITES_FILE=""
+REPO="" RUNS=3 LOAD="" LOAD_TIMEOUT="" SUITE_TIMEOUT=900 TIER=all PROVE=0 OUT="" FILE_MODE="" SUITES_FILE="" EVIDENCE_URL=""
 SUITE_ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -85,6 +87,7 @@ while [ "$#" -gt 0 ]; do
     --suite) [ "$#" -ge 2 ] || { usage; exit 2; }; SUITE_ARGS+=("$2"); shift 2 ;;
     --tier) [ "$#" -ge 2 ] || { usage; exit 2; }; TIER="$2"; shift 2 ;;
     --out) [ "$#" -ge 2 ] || { usage; exit 2; }; OUT="$2"; shift 2 ;;
+    --evidence-url) [ "$#" -ge 2 ] || { usage; exit 2; }; EVIDENCE_URL="$2"; shift 2 ;;
     --prove-teeth) PROVE=1; shift ;;
     --file-issues) FILE_MODE=dry; shift ;;
     --file-issues=apply) FILE_MODE=apply; shift ;;
@@ -107,6 +110,7 @@ isint "$LOAD" || { echo "kit-flake-hunt: --load must be an integer >= 0 (got '$L
 [ -z "$LOAD_TIMEOUT" ] || { isint "$LOAD_TIMEOUT" && [ "$LOAD_TIMEOUT" -ge 1 ]; } || { echo "kit-flake-hunt: --load-timeout must be an integer >= 1" >&2; exit 2; }
 isint "$SUITE_TIMEOUT" && [ "$SUITE_TIMEOUT" -ge 1 ] || { echo "kit-flake-hunt: --suite-timeout must be an integer >= 1" >&2; exit 2; }
 case "$TIER" in core | all) ;; *) echo "kit-flake-hunt: --tier must be core or all (got '$TIER')" >&2; exit 2 ;; esac
+case "$EVIDENCE_URL" in "") ;; http://* | https://*) case "$EVIDENCE_URL" in *[[:space:]]*) echo "kit-flake-hunt: --evidence-url must be one http(s) URL without whitespace" >&2; exit 2 ;; esac ;; *) echo "kit-flake-hunt: --evidence-url must be an http(s) URL (got '$EVIDENCE_URL')" >&2; exit 2 ;; esac
 if [ -n "$SUITES_FILE" ] && [ "${#SUITE_ARGS[@]}" -gt 0 ]; then echo "kit-flake-hunt: --suites and --suite are mutually exclusive" >&2; exit 2; fi
 
 [ -n "$REPO" ] || REPO="$(cd -P -- "$_RSDD_SELF/../../.." && pwd -P)"
@@ -230,7 +234,8 @@ for ((run = 1; run <= RUNS && EXPIRED == 0; run++)); do
       *.test.mjs) runner=(node "$p") ;;
       *) runner=(bash "$p" "${args[@]+"${args[@]}"}") ;;
     esac
-    ( cd -- "$REPO" && export TMPDIR="$st_tmp" FLAKE_HUNT_RUN="$run" FLAKE_HUNT_SUITE="$s" && exec timeout "$SUITE_TIMEOUT" "${runner[@]}" ) >"$log" 2>&1 &
+    # The CI token is for gh only: a suite under test must not see (or leak) it, so it is unset in the suite's subshell.
+    ( cd -- "$REPO" && unset GH_TOKEN GITHUB_TOKEN && export TMPDIR="$st_tmp" FLAKE_HUNT_RUN="$run" FLAKE_HUNT_SUITE="$s" && exec timeout "$SUITE_TIMEOUT" "${runner[@]}" ) >"$log" 2>&1 &
     wait "$!"; rc=$?
     rm -rf -- "$st_tmp"
     first=""
@@ -311,6 +316,7 @@ if [ -n "$FILE_MODE" ] && [ "${#ISSUE_LIST[@]}" -gt 0 ]; then
     body="$OUT/issue-$base.md"
     printf 'Load %s found by kit-flake-hunt (kit issue #2209).\n\nsuite: %s\nclassification: %s\nfailed: %s/%s runs under load=%s (prove-teeth=%s)\nfirst failing line: %s\nresults: %s\n' \
       "${KIND[$s]}" "$s" "${KIND[$s]}" "${FAILS[$s]}" "$RUNS" "$LOAD" "$PROVE" "${FIRST[$s]}" "$RESULTS" >"$body"
+    if [ -n "$EVIDENCE_URL" ]; then printf 'evidence: %s\n' "$EVIDENCE_URL" >>"$body"; fi
     if [ -n "$existing" ]; then
       cmd=(gh issue comment "$existing" --body-file "$body")
     else

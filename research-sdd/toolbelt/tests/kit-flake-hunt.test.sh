@@ -45,6 +45,7 @@ mkgh() { # shim gh in <dir>/gbin; behaviour driven by files in <dir>
   cat >"$1/gbin/gh" <<EOF
 #!/usr/bin/env bash
 printf '%s|' "\$@" >>"$1/gh.log"; echo >>"$1/gh.log"; pwd >>"$1/gh.cwd"
+printf '%s\n' "\${GH_TOKEN-unset}" >>"$1/gh.tok"
 case "\$1 \$2" in
   "issue list") [ -f "$1/gh-fail" ] && exit 1; [ -f "$1/gh-existing" ] && cat "$1/gh-existing"; exit 0 ;;
   "issue create") echo "https://example.invalid/issues/1"; exit 0 ;;
@@ -372,7 +373,28 @@ sc_tmpdir() ( setup; sut="$1"
   grep -qxF 'Flake hunt: runs=2 suites=2 load=0 flaky=0 broken=0 stable=2 skipped=0' <<<"$OUTPUT" || bad "totals: [$OUTPUT]" || exit 1
   echo SCEN-OK )
 
-SCENARIOS=(classify clean brokenonly tsv timeout skip prove survivors interrupt loadbound edges degraded tier xdg issues_dry issues_apply issues_edges summary nothing outguard node expiry loaddefault tmpdir)
+sc_tokens() ( setup; sut="$1"; issue_setup
+  # the suites must not see the CI token (a suite under test could leak or misuse it); gh itself must still get it
+  mkfake "$R" tok.test.sh "echo \"gh=\${GH_TOKEN-unset} gt=\${GITHUB_TOKEN-unset}\" >>$W/suite.tok; echo '  FAIL x'; exit 1"
+  OUTPUT="$(GH_TOKEN=secret-gh GITHUB_TOKEN=secret-gt PATH="$W/gbin:$PATH" bash "$sut" --repo "$R" --out "$W/ot" --runs 2 --load 0 --file-issues=apply --suite s/tok.test.sh 2>&1)"; RC=$?
+  [ "$(wc -l <"$W/suite.tok")" -eq 2 ] || bad "suite did not run twice: $(cat "$W/suite.tok" 2>&1)" || exit 1
+  [ "$(sort -u "$W/suite.tok")" = "gh=unset gt=unset" ] || bad "a suite saw a token: $(sort -u "$W/suite.tok")" || exit 1
+  grep -qx 'secret-gh' "$W/gh.tok" || bad "gh did not receive GH_TOKEN: $(cat "$W/gh.tok" 2>&1)" || exit 1
+  echo SCEN-OK )
+
+sc_evidence() ( setup; sut="$1"; issue_setup
+  url='https://example.invalid/o/r/actions/runs/42'
+  PATH="$W/gbin:$PATH" run_hunt "$sut" --runs 2 --load 0 --evidence-url "$url" --file-issues=apply --suite s/flaky.test.sh
+  [ "$RC" -eq 1 ] || bad "exit $RC out=[$OUTPUT]" || exit 1
+  grep -qxF "evidence: $url" "$LASTOUT/issue-flaky.test.sh.md" || bad "issue body lacks the evidence line: $(cat "$LASTOUT/issue-flaky.test.sh.md")" || exit 1
+  PATH="$W/gbin:$PATH" run_hunt "$sut" --runs 2 --load 0 --file-issues=apply --suite s/flaky.test.sh
+  ! grep -q '^evidence:' "$LASTOUT/issue-flaky.test.sh.md" || bad "evidence line without the flag" || exit 1
+  # a value that is not an http(s) URL is refused before anything runs
+  run_hunt "$sut" --runs 1 --load 0 --evidence-url 'not a url' --suite s/stable.test.sh
+  [ "$RC" -eq 2 ] || bad "bad --evidence-url: exit $RC, want 2 [$OUTPUT]" || exit 1
+  echo SCEN-OK )
+
+SCENARIOS=(classify clean brokenonly tsv timeout skip prove survivors interrupt loadbound edges degraded tier xdg issues_dry issues_apply issues_edges summary nothing outguard node expiry loaddefault tmpdir tokens evidence)
 SCEN_DESC=(
   "classification: stable/flaky/broken/skip lines, totals, exit 1"
   "a clean hunt exits 0 with zero flaky"
@@ -398,6 +420,8 @@ SCEN_DESC=(
   "a load worker that expired before a suite is degraded (exit 2), not a silent unloaded run"
   "default --load-timeout is derived from runs x suites x suite-timeout"
   "each suite gets its own TMPDIR under the out dir, removed afterwards"
+  "suites run without GH_TOKEN/GITHUB_TOKEN while gh keeps GH_TOKEN"
+  "--evidence-url lands in the issue body; absent without the flag; a non-URL is refused"
 )
 
 if [ "${1:-}" = "--scenario" ]; then
@@ -466,6 +490,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth prefix-match-loosened issues_dry 's/"flake: \$base "\*)/*"$base"*)/'
   teeth gh-wrong-cwd issues_dry 's/listing="\$(cd -- "\$REPO" \&\& gh issue list/listing="$(gh issue list/'
   teeth broken-not-filed issues_edges 's/broken=\$((broken + 1)); ISSUE_LIST+=("\$s"); KIND\[\$s\]=broken/broken=$((broken + 1)); KIND[$s]=broken/'
+  teeth tokens-not-unset tokens 's/ \&\& unset GH_TOKEN GITHUB_TOKEN//'
+  teeth evidence-not-in-body evidence 's/^    if \[ -n "\$EVIDENCE_URL" \]; then printf .evidence: %s.n. "\$EVIDENCE_URL" >>"\$body"; fi$/    :/'
+  teeth evidence-url-unchecked evidence 's/^case "\$EVIDENCE_URL" in .*$/:/'
   teeth failed-search-files-anyway issues_apply 's/if \[ "\$FILE_MODE" = apply \]; then echo "degraded: kit-flake-hunt: gh issue search/if false; then echo "degraded: kit-flake-hunt: gh issue search/'
 fi
 
