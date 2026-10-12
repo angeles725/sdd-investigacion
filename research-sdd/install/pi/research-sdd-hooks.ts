@@ -60,6 +60,7 @@ interface HookState {
   sid: string; target: string; home: string; kit: string; tried: string[]; corpus: boolean; startedAt: string;
   startup: Promise<string>; sweepText: string | null; notices: string[]; surface: string[]; noticed: Set<string>;
   retroBlocked: boolean; tokenBlocked: boolean;
+  startSha: string; // HEAD at session_start when the cwd was not yet a corpus ("" when unreadable): see adoptCorpus
 }
 
 function envMs(name: string, dflt: number): number {
@@ -238,12 +239,31 @@ function finalContext(sweep: string, notices: string[]): string {
   return [body, noticeText].filter(Boolean).join("\n");
 }
 
-async function recordSessionSha(st: HookState): Promise<void> {
+// The checkout's HEAD sha, or "" when it cannot be read (not a git checkout, git absent, timeout).
+async function headSha(target: string): Promise<string> {
+  const r = await run("git", ["-C", target, "rev-parse", "HEAD"], { timeoutMs: 5000 });
+  const sha = r.stdout.trim();
+  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : "";
+}
+
+// A corpus can appear after session_start (research-sdd-init creates RESEARCH-STATE.md during the session). The flag
+// decided once at session_start would leave the settle gates dead for that session (kit issue #2139), so every
+// before_agent_start / settle re-checks with one readdir and, when the corpus has appeared, records the sha. The sha
+// recorded is the one captured IN MEMORY at session_start (startSha): the retro gate diffs against it, and the HEAD at
+// the moment the corpus appears would hide every commit the session made before then. Only when none was capturable
+// (not a git checkout yet) does it fall back to the current HEAD, with a typed notice.
+async function adoptCorpus(cur: HookState): Promise<void> {
+  if (cur.corpus || !cur.target || !isCorpus(cur.target)) return;
+  cur.corpus = true;
+  if (!cur.startSha) pushNotice(cur, "Research-SDD retro gate: no session-start sha was captured (the cwd was not a git checkout when the session began) and the corpus appeared mid-session; recording the current HEAD instead (degraded).");
+  await recordSessionSha(cur, cur.startSha);
+}
+
+async function recordSessionSha(st: HookState, known = ""): Promise<void> {
   const file = join(st.target, ".claude", `.rsdd-session-${st.sid}`);
   try { if (existsSync(file) && statSync(file).size > 0) return; } catch { /* fall through and rewrite */ }
-  const r = await run("git", ["-C", st.target, "rev-parse", "HEAD"], { timeoutMs: 5000 });
-  const sha = r.stdout.trim();
-  if (!/^[0-9a-f]{40,64}$/.test(sha)) {
+  const sha = known || (await headSha(st.target));
+  if (!sha) {
     pushNotice(st, "Research-SDD retro gate: no session-start git sha could be recorded (not a git checkout?); it will use its mtime fallback (degraded).");
     return;
   }
@@ -323,7 +343,7 @@ const entry = (content: string) => ({ type: "custom_message" as const, customTyp
 
 function freshState(): HookState {
   return { sid: "", target: "", home: "", kit: "", tried: [], corpus: false, startedAt: "", startup: Promise.resolve(""), sweepText: null,
-    notices: [], surface: [], noticed: new Set(), retroBlocked: false, tokenBlocked: false };
+    notices: [], surface: [], noticed: new Set(), retroBlocked: false, tokenBlocked: false, startSha: "" };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -362,12 +382,14 @@ export default function (pi: ExtensionAPI) {
       cur.startup = collectStartup(cur).catch((e) => `Research-SDD session sweep DEGRADED: ${String(e).slice(0, 200)}`);
       cur.startup.then((t) => { cur.sweepText = t; });
       if (cur.corpus) await recordSessionSha(cur);
+      else cur.startSha = await headSha(cur.target);
     }, ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     await guard("before_agent_start", async () => {
       const cur = st;
+      await adoptCorpus(cur);
       let sweep = cur.sweepText;
       if (sweep === null) {
         sweep = await withTimeout<string | null>(cur.startup, envMs("RSDD_PI_SWEEP_WAIT_MS", 3000), null);
@@ -383,6 +405,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_before_settle", async (event, ctx) => {
     return guard("agent_before_settle", async () => {
       const cur = st;
+      await adoptCorpus(cur);
       // Print mode (-p) writes ONLY the text of the final message, and only when that message is an assistant message: an
       // appended entry or a re-prompt replaces the answer already given with an empty stdout and rc 0 (kit issue #2177).
       // So there nothing is appended or continued, and the gates do NOT run at all: a gate that ran would write its
