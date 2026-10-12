@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+MID='·'
+printf '== %s passed %s %s failed ==\n' "$p" "$MID" "$f"

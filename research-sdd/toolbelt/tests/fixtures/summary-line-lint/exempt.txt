@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# summary-lint: dynamic summary is printed by the sourced harness lib
+source "$HERE/lib/h.sh"; h_main
