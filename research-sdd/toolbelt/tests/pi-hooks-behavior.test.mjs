@@ -517,10 +517,12 @@ if (!haveJq) {
 // ---- 13. timeouts kill the whole process group ------------------------------------------------------------------------
 // The timeout is generous and the script's start-up is varied: under load a script can take far longer than a few hundred
 // ms to reach `sleep 30 &`, and a timeout that fires first leaves no grandchild to inspect (kit issue #2158).
-for (const startDelay of ['0', '0.8']) {
+if (!existsSync('/proc/self/stat')) {
+  sk('no /proc: the process-group kill cases need /proc/<pid>/stat to tell a zombie from a live grandchild');
+} else for (const [startDelay, timeoutMs] of [['0', '2500'], ['0.8', '9000']]) {
   const pidFile = join(TMP, `grandchild-${startDelay}.pid`);
   const body = `#!/usr/bin/env bash\nsleep ${startDelay}\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`;
-  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: '2500', RSDD_PI_SWEEP_WAIT_MS: '20000' } });
+  const s = await boot({ kitOpts: { hookBody: { 'sweep-tools-hook': body } }, env: { RSDD_PI_SWEEP_TIMEOUT_MS: timeoutMs, RSDD_PI_SWEEP_WAIT_MS: '30000' } });
   await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
   const pid = readPid(pidFile);
   if (!pid) { no(`a timed-out script takes its grandchildren with it (start delay ${startDelay}s) — the grandchild was never started: scenario not exercised`); restoreEnv(); continue; }
@@ -716,6 +718,35 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   const r = await fire(s.pi, 'agent_before_settle', settleEvent(), s.ctx);
   check('a corpus created during the run is gated at that very settle, with its sha recorded',
     r?.continue === true && /RETRO-REQUIRED/.test(JSON.stringify(r)) && existsSync(join(s.target, '.claude', '.rsdd-session-sess-late2')), JSON.stringify(r));
+  restoreEnv();
+}
+
+{
+  // the sha is the one at SESSION START, not whatever HEAD is when the corpus shows up (#2139 review SF2)
+  const gitIn = (t, ...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+  const s = await boot({ corpus: false, git: true, sid: 'sess-pre' });
+  const head0 = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'work.txt'), 'work done during the session\n');
+  gitIn(s.target, 'add', '-A'); gitIn(s.target, 'commit', '-q', '-m', 'mid-session work');
+  const head1 = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  await fire(s.pi, 'before_agent_start', startEvent(), s.ctx);
+  const f = join(s.target, '.claude', '.rsdd-session-sess-pre');
+  const got = existsSync(f) ? readFileSync(f, 'utf8').trim() : '';
+  check('a corpus that appears after a mid-session commit records the SESSION-START sha, not the current HEAD', head0 !== head1 && got === head0, `start=${head0} now=${head1} recorded=${got}`);
+  restoreEnv();
+}
+{
+  // no sha was capturable at session start (not a git checkout yet): fall back to the current HEAD, with a typed notice
+  const gitIn = (t, ...a) => spawnSync('git', ['-C', t, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+  const s = await boot({ corpus: false, git: false, sid: 'sess-nogit' });
+  gitIn(s.target, 'init', '-q'); write(join(s.target, 'a.txt'), 'a\n'); gitIn(s.target, 'add', '-A'); gitIn(s.target, 'commit', '-q', '-m', 'late init');
+  const head = gitIn(s.target, 'rev-parse', 'HEAD').stdout.trim();
+  write(join(s.target, 'RESEARCH-STATE.md'), '# state\n');
+  const ev = startEvent(); await fire(s.pi, 'before_agent_start', ev, s.ctx);
+  const f = join(s.target, '.claude', '.rsdd-session-sess-nogit');
+  check('with no session-start sha available the current HEAD is recorded, with a typed notice saying so',
+    existsSync(f) && readFileSync(f, 'utf8').trim() === head && /no session-start sha.*current HEAD/i.test(sectionOf(ev)), sectionOf(ev).slice(0, 300));
   restoreEnv();
 }
 
