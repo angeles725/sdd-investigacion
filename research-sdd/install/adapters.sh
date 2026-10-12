@@ -99,11 +99,26 @@ declare -A _RSDD_SKILL_SRC_RELKIT=(
 )
 # WHERE: the read-only reviewer agent definitions (kit issue #1714), as a directory RELATIVE TO the kit
 # root holding one <name>.md Claude Code subagent definition per kit review role; deployed to
-# <config_root>/agents/. Empty/absent = the harness gets none (only claude has a subagent format the
-# kit ships definitions for). Every definition's `tools` must be a subset of the ALLOWLIST
+# <config_root>/agents/. Empty/absent = the harness gets none (claude and pi/gentle-shell have a subagent format the
+# kit ships definitions for). Every claude definition's `tools` must be a subset of the ALLOWLIST
 # {Read, Grep, Glob} (the install suite enforces it; anything else, Bash/Task/WebFetch/mcp__* included, fails).
+#
+# pi and gentle-shell (kit issue #2124) take agents/pi: the three TIER agents research-sdd-{mechanical,structural,
+# reasoning}. They are pi-format (inline `tools: [read, grep, find]`, lower-case) and deliberately carry NO `model:`
+# key: the model comes from the user's subagents.json model_profiles[<agent name>] (model selection is user-owned,
+# toolbelt/model-tiers.v1.md §3). Their allowlist is {read, grep, find}, enforced by pi-tier-agents.test.sh.
 declare -A _RSDD_AGENTS_SRC_RELKIT=(
   [claude]="agents/claude"
+  [pi]="agents/pi"
+  [gentle-shell]="agents/pi"
+)
+# WHAT + WHERE: does the harness resolve a subagent's model from <config_root>/subagents.json `model_profiles`
+# (kit issue #2124)? `true` makes the installer PRINT (never write) a model_profiles snippet for the tier agents
+# and makes --verify report whether each has a profile. The project file <cwd>/.pi/subagents.json merges over it.
+declare -A _RSDD_SUPPORTS_MODEL_PROFILES=(
+  [claude]="false"
+  [pi]="true"
+  [gentle-shell]="true"
 )
 # WHAT: the per-harness DEFAULT prompt profile (kit issue #993 WU2) — used only when the
 # installer receives neither an explicit --profile flag nor a non-empty $RESEARCH_SDD_PROFILE
@@ -144,6 +159,9 @@ rsdd_field() {
     extension_hooks_path)
       plug="${_RSDD_EXTENSION_SRC_RELKIT[$harness]:-}"
       if [ -n "$plug" ]; then printf '%s\n' "$root/extensions/research-sdd-hooks.ts"; else printf '\n'; fi ;;
+    supports_model_profiles) printf '%s\n' "${_RSDD_SUPPORTS_MODEL_PROFILES[$harness]:-false}" ;;
+    model_profiles_path)
+      if [ "${_RSDD_SUPPORTS_MODEL_PROFILES[$harness]:-false}" = true ]; then printf '%s\n' "$root/subagents.json"; else printf '\n'; fi ;;
     agents_dir)       printf '%s\n' "$root/agents" ;;
     agents_src_relkit) printf '%s\n' "${_RSDD_AGENTS_SRC_RELKIT[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
