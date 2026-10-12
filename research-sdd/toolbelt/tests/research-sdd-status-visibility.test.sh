@@ -322,8 +322,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # the second pass FORCES the coarse fallback so that path is exercised on every machine
   for clkmode in auto coarse; do
     pick_clock "$clkmode"
-    SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; elb=$(( $(now_ms) - t0 ))
-    if ! { [ "$elb" -lt "$CEIL_MS" ] && grep -q 'timed out' <<<"$base"; }; then no "teeth I [$CLK clock, mode=$clkmode]: unmutated script did not pass the timeout case (${elb}ms, ceiling ${CEIL_MS}ms) — control invalid"
+    # The control is judged by its TYPED outcome (the 'timed out' degraded line, which only the bound can emit), not by
+    # wall time: under CPU load the unmutated run measured exactly the ceiling (kit issue #2197) although the bound fired.
+    # Elapsed time is reported only. VIS_TEETH_I_LAG_S (default 0) injects scheduler latency into the control window so
+    # the load-independence is itself testable.
+    SUT_UNDER_TEST=""; t0=$(now_ms); base="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; sleep "${VIS_TEETH_I_LAG_S:-0}"; elb=$(( $(now_ms) - t0 ))
+    if ! grep -q 'timed out' <<<"$base"; then no "teeth I [$CLK clock, mode=$clkmode]: unmutated script did not pass the timeout case (no 'timed out' line after ${elb}ms) — control invalid"
     elif toothlib I 's/cmd=("\$bounder" "\$t" "\${cmd\[@\]}")/:/'; then
       t0=$(now_ms); out="$(RSDD_GH_TIMEOUT=1 status "$TMP/slow" "$g/gh")"; el=$(( $(now_ms) - t0 ))
       if [ "$el" -ge "$CEIL_MS" ] && ! grep -q 'timed out' <<<"$out"; then ok "teeth I [$CLK clock, mode=$clkmode]: unbounded gh ran ${el}ms (>= ${CEIL_MS}ms), no 'timed out' -> case 11a has teeth"

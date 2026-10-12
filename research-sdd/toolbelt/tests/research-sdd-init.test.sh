@@ -14,6 +14,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-init.sh"
+# kit issue #2183: portable wiring is the init default; this suite pins the legacy absolute wiring (default coverage: hook-kit-run / hook-exec / enforcement-e2e).
+export RSDD_INIT_WIRING=absolute
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -3119,7 +3121,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else
     mkdir -p "$TMP/mw6/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw6/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mw6/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw6/templates"
     mw6="$TMP/mw6/toolbelt/init.sh"
-    awk '/if \[ -e "\$_wo_stop" \]; then/ { print "if false; then  # MUTANT: always overwrite existing hook"; next } { print }' "$SUT" > "$mw6"
+    awk '/^    elif \[ -e "\$_wo_stop" \]; then/ { print "    elif false; then  # MUTANT: always overwrite existing hook"; next } { print }' "$SUT" > "$mw6"
     if ! grep -q 'MUTANT: always overwrite existing hook' "$mw6"; then
       no "teeth MW6: could not build mutant (kept-check line not found)"
     else
@@ -3417,7 +3419,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mkdir -p "$TMP/mw15/toolbelt/lib"; cp "$HERE/../lib/corpus-markers.sh" "$TMP/mw15/toolbelt/lib/"; cp "$HERE/../lib/gh-visibility.sh" "$TMP/mw15/toolbelt/lib/"; ln -sfn "$HERE/../../templates" "$TMP/mw15/templates"
     mw15="$TMP/mw15/toolbelt/init.sh"
     awk '
-      /_rsdd_print_wire_snippet "\$_wo_stop" "\$_wo_ss" "\$_wo_skip_ss" "\$target"/ { print; getline; print; print "    exit 0  # MUTANT: merge-failure fallback reports success"; skip=1; next }
+      /_rsdd_print_wire_snippet "\$_C_STOP" "\$_C_SS" "\$_wo_skip_ss" "\$target"/ { print; getline; print; print "    exit 0  # MUTANT: merge-failure fallback reports success"; skip=1; next }
       skip==1 { skip=0; next }
       { print }
     ' "$SUT" > "$mw15"
@@ -3992,7 +3994,7 @@ b"; mkdir -p "$d"; : > "$d/INDEX.md"
       || no "teeth M-1496-WO-CREATE: guard still created — THEATER"
   else no "teeth M-1496-WO-CREATE: could not build mutant"; fi
   # M-1496-OVERWRITE: create-only test neutered → a hand-adapted guard is clobbered.
-  if _k43_build k96ow -e 's|^    if \[ -e "\$_wo_pk" \]; then|    if false; then|'; then
+  if _k43_build k96ow -e 's|^    elif \[ -e "\$_wo_pk" \]; then|    elif false; then|'; then
     d="$TMP/k43/k96ow-t"; mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
     printf '#!/usr/bin/env bash\n# MARK-1496-LOCAL\nexit 0\n' > "$d/.claude/hooks/pkill-guard.sh"
     bash "$(_k96_inits k96ow)" "$d" --wire >/dev/null 2>&1

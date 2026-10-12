@@ -1,0 +1,18 @@
+verify-session-budget: @FIX@/fresh
+source startup:
+hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
+aggregate[startup]: 5 chars (budget < 8000) OK
+source resume:
+hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
+aggregate[resume]: 5 chars (budget < 8000) OK
+source clear:
+hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
+aggregate[clear]: 5 chars (budget < 8000) OK
+source compact:
+hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
+aggregate[compact]: 5 chars (budget < 8000) OK
+source fork:
+hook[1] chars=5 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/marker.sh
+aggregate[fork]: 5 chars (budget < 8000) OK
+aggregate: 5 chars (budget < 8000) OK worst-source=startup
+state: ok (5 hook runs, 0 truncated, 0 timed-out)

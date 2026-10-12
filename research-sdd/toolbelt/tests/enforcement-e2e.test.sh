@@ -19,7 +19,8 @@
 # R-check actually bites:
 #   R2-TOOTH-A: mutant research-sdd-init.sh (SUBJECT guard neutered) wires SessionStart on a
 #               real fresh target → the real phase-1 "not wired yet" check fails.
-#   R2-TOOTH-B: Stop-only settings post-adapt (no SessionStart) → "both wired" fails.
+#   R2-TOOTH-B: kit-run Stop without SessionStart, or SessionStart without the kit-run Stop → the real "both wired" predicate fails.
+#   S1-TOOTH: the same wired Stop command with no resolvable kit does NOT block → the S1 check would FAIL.
 #   R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check would FAIL.
 #   R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not invoked → R5 fails.
 #   R7-TOOTH: mutant gate (GH-PROBE stripped) → no WARN emitted → R7 fails.
@@ -201,14 +202,19 @@ _r2_ss_hook="$T_R2/.claude/hooks/research-protocol.sh"
 _r2_err1="$ROOT/r2-phase1.err"
 "$BASH_BIN" "$INIT_SUT" "$T_R2" --corpus flat --scaffold --wire >/dev/null 2>"$_r2_err1"
 
+# The exact "both wired" predicate of phase 2, shared with R2-TOOTH-B so the tooth bites on the SAME check (Stop half AND SessionStart half).
+_r2_both_wired() {   # <stop-cmd> <sessionstart-cmd>
+  <<<"$1" grep -q 'kit-run.sh toolbelt/retro-gate.sh' && <<<"$2" grep -q 'research-protocol.sh'
+}
+
 _r2_stop_cmd1="" ; _r2_ss_cmd1=""
 if [ -f "$_r2_settings" ]; then
   _r2_stop_cmd1="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
   _r2_ss_cmd1="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if <<<"$_r2_stop_cmd1" grep -q 'retro-gate-stop.sh'; then
-  ok "R2: --scaffold --wire on a fresh target wired Stop (retro-gate-stop.sh)"
+if <<<"$_r2_stop_cmd1" grep -q 'kit-run.sh toolbelt/retro-gate.sh'; then
+  ok "R2: --scaffold --wire on a fresh target wired Stop (retro gate via tools/hooks/kit-run.sh, the portable default)"
 else
   no "R2: --scaffold --wire did NOT wire Stop — stop=[$_r2_stop_cmd1]"
 fi
@@ -237,8 +243,7 @@ if [ -f "$_r2_settings" ]; then
   _r2_ss_cmd2="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if <<<"$_r2_stop_cmd2" grep -q 'retro-gate-stop.sh' && \
-   <<<"$_r2_ss_cmd2" grep -q 'research-protocol.sh'; then
+if _r2_both_wired "$_r2_stop_cmd2" "$_r2_ss_cmd2"; then
   ok "R2: after adapting the hook, a re-run --wire wires BOTH Stop and SessionStart"
 else
   no "R2: after adapting the hook, re-run --wire did NOT wire both hooks — stop=[$_r2_stop_cmd2] ss=[$_r2_ss_cmd2]"
@@ -376,6 +381,26 @@ else
   no "R7: unexpected stdout (should be empty on allow): [$_r7_stdout]"
 fi
 
+# S1 - the REAL wired Stop command (generated settings.json, run under bash -c) blocks a retro-due target via kit-run -> retro-gate.sh
+_S1_KIT="$(cd -P -- "$KIT_TOOLBELT/.." && pwd -P)"
+_s1_cmd="$(jq -r '[.hooks.Stop[].hooks[].command | select(contains("toolbelt/retro-gate.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
+T_S1="$ROOT/s1-target"; mkgit_baseline "$T_S1"
+SID_S1="s1-sess-e2e"; mksession "$T_S1" "$SID_S1"; add_block "$T_S1" "e2e-block1.md"   # a block after the session sha, NO retro
+mkdir -p "$T_S1/tools/hooks" && cp "$T_R2/tools/hooks/kit-run.sh" "$T_S1/tools/hooks/kit-run.sh"   # the runner init installed into the R2 target (a tracked file of the target)
+MOCK_GH_S1="$ROOT/mockbin-s1"; mock_gh "$MOCK_GH_S1" auth-ok
+s1_check() {   # <kit-or-bogus> <home> : 0 when the wired command, run exactly as Claude Code would, BLOCKS. The block-once marker is per session, so it is cleared first.
+  local out; rm -f "$T_S1/.claude/.rsdd-retro-blocked-$SID_S1"
+  out="$(printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$SID_S1" |
+    env -i PATH="$MOCK_GH_S1:$PATH" HOME="$2" CLAUDE_PROJECT_DIR="$T_S1" RESEARCH_SDD_KIT="$1" RSDD_CLAUDE_PROJECTS_DIR="$RSDD_CLAUDE_PROJECTS_DIR" "$BASH_BIN" -c "$_s1_cmd" 2>/dev/null)"
+  [ "$(jq -r '.decision // empty' <<<"$out" 2>/dev/null)" = block ]
+}
+mkdir -p "$ROOT/s1-home"
+if [ -n "$_s1_cmd" ] && s1_check "$_S1_KIT" "$ROOT/s1-home"; then
+  ok "S1: the real wired Stop command (kit-run -> retro-gate.sh, RESEARCH_SDD_KIT set) BLOCKS a retro-due target end to end"
+else
+  no "S1: the wired Stop command did not block a retro-due target (cmd=[$_s1_cmd])"
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary (non-teeth run)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -472,23 +497,28 @@ fi
 # the guard clears (mirrors the original R2-TOOTH's both-hooks shape, retargeted at the
 # post-adapt phase).
 _r2tb_dir="$ROOT/r2-tooth-b"; mkdir -p "$_r2tb_dir/.claude"
-jq -n '{
-  "hooks": {
-    "Stop": [{"matcher":"","hooks":[{"type":"command","command":"/x/retro-gate-stop.sh"}]}],
-    "SessionStart": []
-  }
-}' > "$_r2tb_dir/.claude/settings.json"
+# Two broken settings.json shapes, each judged by the REAL phase-2 predicate (_r2_both_wired): (a) the real kit-run Stop command but no SessionStart
+# (bites the SessionStart half), (b) the SessionStart hook but a Stop command that is not the kit-run retro gate (bites the Stop half).
+_r2tb_stop_real="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2_settings" 2>/dev/null)"
+_r2tb_ss_real="$_r2_ss_cmd2"
+jq -n --arg stop "$_r2tb_stop_real" '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":$stop}]}],"SessionStart":[]}}' > "$_r2tb_dir/.claude/settings.json"
 _r2tb_stop="$(jq -r '.hooks.Stop[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
 _r2tb_ss="$(jq -r '.hooks.SessionStart[0].hooks[0].command // empty' "$_r2tb_dir/.claude/settings.json" 2>/dev/null)"
 _r2tb_pass=0
-if <<<"$_r2tb_stop" grep -q 'retro-gate-stop.sh' && \
-   <<<"$_r2tb_ss" grep -q 'research-protocol.sh'; then
-  _r2tb_pass=1
-fi
+if _r2_both_wired "$_r2tb_stop" "$_r2tb_ss"; then _r2tb_pass=1; fi
+if _r2_both_wired "/x/retro-gate-stop.sh" "$_r2tb_ss_real"; then _r2tb_pass=1; fi
 if [ "$_r2tb_pass" -eq 0 ]; then
-  ok "R2-TOOTH-B: Stop-only settings post-adapt (no SessionStart) → 'both wired' assertion correctly fails (bites)"
+  ok "R2-TOOTH-B: kit-run Stop without SessionStart, and SessionStart without the kit-run Stop → the real 'both wired' predicate correctly fails (bites both halves)"
 else
   no "R2-TOOTH-B: Stop-only settings post-adapt should FAIL the both-wired assertion but PASSED (too loose)"
+fi
+
+# ── S1-TOOTH: the same wired command with no resolvable kit does not block → the S1 check bites ──
+mkdir -p "$ROOT/s1-home-empty"
+if ! s1_check "/nonexistent/kit" "$ROOT/s1-home-empty"; then
+  ok "S1-TOOTH: with no resolvable kit the wired command does not block → the S1 check would FAIL (bites)"
+else
+  no "S1-TOOTH: the wired command still blocked with no resolvable kit — S1 is THEATER"
 fi
 
 # ── R3-TOOTH: mutant status (threshold=999) → no RETRO-DUE → R3 check fails ───
