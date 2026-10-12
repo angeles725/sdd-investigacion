@@ -47,28 +47,30 @@ if ! command -v unshare >/dev/null 2>&1 || ! unshare -rm true >/dev/null 2>&1; t
 fi
 
 # inner.sh runs INSIDE the namespace: optional bind of a work tree, empty tmpfs on /tmp, run the suite, report.
-# argv: <bind-src|-> <bind-dst|-> <cwd> <suite-path>
+# argv: <bind-src|-> <bind-dst|-> <cwd> <suite-path> [suite-arg]
 cat > "$TMP/inner.sh" <<'INNER'
 #!/usr/bin/env bash
-src="$1"; dst="$2"; cwd="$3"; suite="$4"
+src="$1"; dst="$2"; cwd="$3"; suite="$4"; sarg="${5:-}"
 if [ "$src" != "-" ]; then mount --bind "$src" "$dst" || { echo "result bind-failed"; exit 0; }; fi
 mount -t tmpfs tmpfs /tmp || { echo "result mount-failed"; exit 0; }
 mkdir /tmp/work && export TMPDIR=/tmp/work
 cd "$cwd" || { echo "result cd-failed"; exit 0; }
-timeout 900 bash "$suite" > /tmp/out.log 2>&1
+timeout 900 bash "$suite" $sarg > /tmp/out.log 2>&1
 rc=$?
 ran=0; grep -qE '^== [0-9]+ passed' /tmp/out.log && ran=1
+# tooth=1: the fact-exec root-hardcoded mutant (which really allocates a run dir) was caught, i.e. the allocator ran.
+tooth=0; grep -qE '^  PASS  teeth-root-hardcoded' /tmp/out.log && tooth=1
 if [ -e /tmp/rsdd ]; then
   # find's own rc is the scan verdict; a failed scan must never read as "0 entries".
   if ! listing="$(find /tmp/rsdd -mindepth 1 -maxdepth 1 2>/dev/null)"; then echo "result scan-failed"; exit 0; fi
   if [ -n "$listing" ]; then n=$(printf '%s\n' "$listing" | wc -l); else n=0; fi
 else n=0; fi
-echo "result rc=$rc ran=$ran entries=$n"
+echo "result rc=$rc ran=$ran tooth=$tooth entries=$n"
 INNER
 
-# run_in_empty_tmp <bind-src|-> <bind-dst|-> <cwd> <suite-path> — sets RESULT to the inner "result ..." line.
+# run_in_empty_tmp <bind-src|-> <bind-dst|-> <cwd> <suite-path> [suite-arg] — sets RESULT to the inner "result ..." line.
 run_in_empty_tmp(){
-  RESULT="$(unshare -rm bash "$TMP/inner.sh" "$1" "$2" "$3" "$4" 2>&1 | grep '^result ' | tail -1)"
+  RESULT="$(unshare -rm bash "$TMP/inner.sh" "$1" "$2" "$3" "$4" "${5:-}" 2>&1 | grep '^result ' | tail -1)"
 }
 # judge <label> — OK only when the suite RAN and left no entries in the default root.
 judge(){
@@ -87,6 +89,33 @@ for s in "${SUITES[@]}"; do
   judge "default-root-clean $s"
 done
 
+# fact-exec (#2171): its --prove-teeth run leaves rsdd-<uuid> dirs in the default root when the `teeth-root-hardcoded` mutant
+# (which deliberately allocates there) is not redirected. The full teeth run takes ~25 min, so this runs a TRIMMED copy that
+# keeps only that one tooth. `tooth=1` is the proof the allocator ran: the mutant allocated a run dir and the suite caught it.
+# The trimmed tree needs a bind mount point because the real /tmp (where $TMP lives) is hidden by the empty tmpfs.
+MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
+if [ -z "$MNT" ]; then
+  printf '  SKIP  %s\n' "fact-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
+elif [ ! -f "$HERE/fact-exec.test.sh" ]; then no "fact-exec: suite file missing under $HERE"
+else
+  # fe_trim <src> <dst-tree> - build the trimmed tree (symlinked lib/fact_plan) around a copy of <src> keeping only the root-hardcoded tooth.
+  fe_trim(){
+    mkdir -p "$2/tests"; ln -s "$HERE/../lib" "$2/lib"; ln -s "$HERE/../fact_plan.py" "$2/fact_plan.py"; ln -s "$HERE/lib" "$2/tests/lib"
+    sed -e '/^\(FE_GLOBAL_ROOT=[^ ]* \)\{0,1\}tt teeth-/{/ tt teeth-root-hardcoded /!{/^tt teeth-root-hardcoded /!d;};}' "$1" > "$2/tests/fact-exec.test.sh"
+    grep -q 'tt teeth-root-hardcoded ' "$2/tests/fact-exec.test.sh"
+  }
+  FE="$TMP/fe"
+  if ! fe_trim "$HERE/fact-exec.test.sh" "$FE"; then no "fact-exec: the root-hardcoded tooth is gone from fact-exec.test.sh (trim found nothing)"
+  else
+    run_in_empty_tmp "$FE" "$MNT" "$MNT/tests" "$MNT/tests/fact-exec.test.sh" --prove-teeth
+    case "$RESULT" in
+      *"ran=1 tooth=1 entries=0") ok "default-root-clean fact-exec --prove-teeth: the allocator ran (tooth caught) and left no entries ($RESULT)" ;;
+      *"tooth=0"*) no "default-root-clean fact-exec --prove-teeth: the root-hardcoded tooth did not pass - nothing proven ($RESULT)" ;;
+      *) no "default-root-clean fact-exec --prove-teeth: LEFT entries in the default rsdd root ($RESULT)" ;;
+    esac
+  fi
+fi
+
 # RSDD_REQUIRE_UNSHARE paths, exercised with a PATH shim whose `unshare` always fails (no recursion into real runs).
 mkdir -p "$TMP/noshare"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/noshare/unshare"; chmod +x "$TMP/noshare/unshare"
@@ -99,7 +128,6 @@ else no "require-unshare-on: rc=$rs_rc :: $rs_out"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mount point for the fixture/mutant trees: they live under the real /tmp, which the empty tmpfs hides.
-  MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
 
   # The "-- teeth:" banners are printed ONLY where a mutant really runs: run-all --require-teeth counts banners
   # as teeth. Skips use the indented per-test form so a suite whose real cases passed is not classed as SKIPPED.
@@ -113,7 +141,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
     } > "$TMP/fix/leaky.test.sh"
     run_in_empty_tmp "$TMP/fix" "$MNT" "$MNT" "$MNT/leaky.test.sh"
-    case "$RESULT" in *"ran=1 entries=1") ok "teeth-leak-detect: a leaking fixture reads entries=1 → the empty-/tmp measurement sees a default-root leak" ;;
+    case "$RESULT" in *"ran=1 tooth=0 entries=1") ok "teeth-leak-detect: a leaking fixture reads entries=1 → the empty-/tmp measurement sees a default-root leak" ;;
       *) no "teeth-leak-detect: the leaking fixture was NOT flagged ($RESULT) — the harness cannot see a leak (THEATER)" ;; esac
 
     echo "-- teeth: a suite that never prints its summary must not read as clean --"
@@ -132,8 +160,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else
       run_in_empty_tmp "$T" "$MNT" "$MNT/tests" "$MNT/tests/capture-analyze.test.sh"
       case "$RESULT" in *"ran=1"*"entries=0") no "teeth-capture-analyze-global: the mutant left nothing — mutation not exercised ($RESULT) (THEATER)" ;;
-        *"ran=1 entries="*) ok "teeth-capture-analyze-global: the pre-fix suite leaves entries in /tmp/rsdd → the regression test has real teeth ($RESULT)" ;;
+        *"ran=1 "*"entries="*) ok "teeth-capture-analyze-global: the pre-fix suite leaves entries in /tmp/rsdd → the regression test has real teeth ($RESULT)" ;;
         *) no "teeth-capture-analyze-global: the mutant did not run to a summary ($RESULT)" ;; esac
+    fi
+  fi
+
+  if [ -n "$MNT" ] && [ -f "$HERE/fact-exec.test.sh" ]; then
+    echo "-- teeth: fact-exec with the FE_GLOBAL_ROOT redirect removed (its pre-#2171 state) must be flagged --"
+    if ! mutant_sed "$HERE/fact-exec.test.sh" "$TMP/fe-mutant.sh" 's|^FE_GLOBAL_ROOT="\$MUT/global-root" tt teeth-root-hardcoded|tt teeth-root-hardcoded|' 2>"$TMP/mutant.err" \
+       || ! fe_trim "$TMP/fe-mutant.sh" "$TMP/fe2"; then
+      no "teeth-fact-exec-global: could not build a valid mutant: $(cat "$TMP/mutant.err")"
+    else
+      run_in_empty_tmp "$TMP/fe2" "$MNT" "$MNT/tests" "$MNT/tests/fact-exec.test.sh" --prove-teeth
+      case "$RESULT" in *"tooth=1 entries=0") no "teeth-fact-exec-global: the mutant left nothing - mutation not exercised ($RESULT) (THEATER)" ;;
+        *"ran=1 tooth=1 entries="*) ok "teeth-fact-exec-global: without the redirect the teeth run leaves entries in /tmp/rsdd -> the regression test has real teeth ($RESULT)" ;;
+        *) no "teeth-fact-exec-global: the mutant did not run to a proven summary ($RESULT)" ;; esac
     fi
   fi
 

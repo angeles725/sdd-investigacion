@@ -25,7 +25,9 @@ _SBX = tempfile.mkdtemp(prefix="fe-sbx-")
 atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
 _SBX_ROOT = os.path.join(_SBX, "rsdd")
 os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
-_GLOBAL_ROOT = Path("/tmp/rsdd")
+# #2171: FE_GLOBAL_ROOT redirects the "global" root the FACT-NOLEAK guard watches. Only the root-hardcoded mutant sets it (to a
+# private dir) so its deliberate default-root allocations never land in the host's real /tmp/rsdd.
+_GLOBAL_ROOT = Path(os.environ.get("FE_GLOBAL_ROOT") or "/tmp/rsdd")
 def _global_names() -> set:
     try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
     except OSError: return set()
@@ -204,6 +206,7 @@ def _http_server():
     return srv
 
 Path("/tmp/rsdd").mkdir(exist_ok=True)   # preflight verify_rsdd_root needs this
+_GLOBAL_ROOT.mkdir(mode=0o700, exist_ok=True)   # same for a redirected FE_GLOBAL_ROOT
 
 # ── RED1 (regression): allow=False + spy → exit 3, compose never spawned ─────
 with tempfile.TemporaryDirectory() as td:
@@ -655,7 +658,7 @@ with tempfile.TemporaryDirectory() as td:
 # (a concurrent suite): INFO only, never failed on or deleted.
 _leaked = sorted(p for p in _produced if p.startswith(str(_GLOBAL_ROOT) + os.sep))
 if _leaked:
-    nok("FACT-NOLEAK: new entries under /tmp/rsdd", f"{len(_leaked)} e.g. {_leaked[:2]}")
+    nok(f"FACT-NOLEAK: new entries under {_GLOBAL_ROOT}", f"{len(_leaked)} e.g. {_leaked[:2]}")
     for _p in _leaked:  # remove ONLY the dirs this suite produced
         shutil.rmtree(_p, ignore_errors=True)
 else:
@@ -695,7 +698,10 @@ tt teeth-down-on-up-fail "$DN" "$(dn '"compose up failed"')" "FAIL  FLAGSHIP-DOW
 tt teeth-down-on-put-fail "$DN" "$(dn '"REST PUT"')" "FAIL  FLAGSHIP-DOWN2: no 'compose down' in shim record on PUT 500"
 tt teeth-down-on-timeout "$DN" "$(dn '"did not complete"')" "FAIL  FLAGSHIP-DOWN3: no 'compose down' in shim record on analysis-timeout"
 tt teeth-down-on-network "$DN" "$(dn '"not internal:true"')" "FAIL  T-B2: no 'compose down' in shim record"
-tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full)' 'FAIL  FACT-NOLEAK: new entries under /tmp/rsdd'
+# The mutant allocates under the guard's "global" root instead of the sandbox. FE_GLOBAL_ROOT points that root at a private dir (#2171), so
+# the leak is still detected by FACT-NOLEAK but the run dirs never reach the host's /tmp/rsdd.
+mkdir -m 700 "$MUT/global-root" || exit 2
+FE_GLOBAL_ROOT="$MUT/global-root" tt teeth-root-hardcoded '_dc.make_run_subdir(run_uuid_full, rsdd_root)' '_dc.make_run_subdir(run_uuid_full, os.environ.get("FE_GLOBAL_ROOT") or _dc._DEFAULT_RSDD_ROOT)' 'FAIL  FACT-NOLEAK: new entries under '
 # The failure itself must also be detected (exit 2), not just cleaned up.
 tt teeth-up-exit-code 'if exit_code != 0:' 'if False:' 'FAIL  FLAGSHIP-DOWN1: rc=0'
 tt teeth-put-failure 'raise GateError(f"FACT REST PUT /rest/firmware failed: {exc}") from exc' 'raw, status = b"{\"uid\": \"x\"}", 200' 'FAIL  FLAGSHIP-DOWN2: rc=0'
