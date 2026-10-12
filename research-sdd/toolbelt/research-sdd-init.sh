@@ -211,11 +211,21 @@ fi
 # registered instead of adding a second copy: per-target stop/SessionStart -> the portable forms, the return-token gate and the drift
 # hook (any absolute path ending in their script name) -> the kit-run forms, the per-target pkill guard -> the kit-run form unless the
 # file was hand-adapted (differs from the kit template), in which case it becomes the "$CLAUDE_PROJECT_DIR" form of that same file.
+# 0 when <target>/.claude/hooks/retro-gate-stop.sh exists and differs from the kit template rendered for this target (or cannot be
+# proven pristine): an edited per-target stop hook is the operator's, so the migration keeps it wired instead of swapping the gate.
+_rsdd_stop_hook_edited() {
+  local f="$target/.claude/hooks/retro-gate-stop.sh" t rc=0
+  [ -e "$f" ] || return 1
+  t="$(mktemp)" || return 0
+  if cp "$TPL/hook-stop-retro-gate.sh" "$t" && _rsdd_render_hook "$t"; then if cmp -s "$f" "$t"; then rc=1; fi; fi
+  rm -f "$t"; return "$rc"
+}
 _rsdd_migrate_base() {
-  local pk_new="$_C_PK" hd="$target/.claude/hooks"
+  local pk_new="$_C_PK" sn_new="$_C_STOP" hd="$target/.claude/hooks"
+  if _rsdd_stop_hook_edited; then sn_new='"$CLAUDE_PROJECT_DIR"/.claude/hooks/retro-gate-stop.sh'; fi   # PORTABLE-STOP-EDITED
   if [ -e "$hd/pkill-guard.sh" ] && ! cmp -s "$hd/pkill-guard.sh" "$TPL/hook-pretool-pkill-guard.sh"; then pk_new='"$CLAUDE_PROJECT_DIR"/.claude/hooks/pkill-guard.sh'; fi
   jq -c --arg sa "$hd/retro-gate-stop.sh" --arg ssa "$hd/research-protocol.sh" --arg pka "$hd/pkill-guard.sh" \
-    --arg sn "$_C_STOP" --arg ssn "$_C_SS" --arg pkn "$pk_new" --arg gate "$_RSDD_GATE_CMD" --arg drift "$_RSDD_DRIFT_CMD" '
+    --arg sn "$sn_new" --arg ssn "$_C_SS" --arg pkn "$pk_new" --arg gate "$_RSDD_GATE_CMD" --arg drift "$_RSDD_DRIFT_CMD" '
     def forms($a; $r): [$a, ("\"" + $a + "\""), ("$CLAUDE_PROJECT_DIR/" + $r), ("\"$CLAUDE_PROJECT_DIR\"/" + $r), ("${CLAUDE_PROJECT_DIR}/" + $r), ("\"$CLAUDE_PROJECT_DIR/" + $r + "\"")];
     def unq: if (length >= 2 and startswith("\"") and endswith("\"")) then .[1:-1] else . end;
     def kitabs($f): . as $c | ($c | unq) as $p
@@ -237,17 +247,41 @@ _rsdd_apply_migration() {
   local -n _mb="$1"; local m c
   m="$(_rsdd_migrate_base "$_mb")" && c="$(jq -c . <<<"$_mb" 2>/dev/null)" || { echo "  WARN   : could not check settings.json for absolute hook entries to migrate (left as-is)"; return 0; }
   [ "$m" = "$c" ] || { _mb="$m"; echo "  migrated: existing absolute hook entries rewritten to the portable form (no duplicates added)"; }
+  if _rsdd_stop_hook_edited; then
+    echo "  note   : kept edited $target/.claude/hooks/retro-gate-stop.sh as the Stop retro gate (hand-adapted, so not routed through kit-run); it is untracked under --portable, so a fresh clone loses that gate until you track it"
+  fi
 }
 # kit issue #2175: --portable tracks .claude/settings.json (and the SessionStart hook) while the rest of .claude/ stays ignored. Appends the
 # five lines only when absent; a blanket `.claude/` line the user (or an earlier run) wrote is NEVER rewritten - it makes settings.json
 # untracked, so a typed WARN names the replacement instead (propose-never-apply). A symlinked / non-regular .gitignore is a typed DEGRADED.
 _rsdd_gitignore_portable() {
-  local gi="$target/.gitignore" tag="  gitignore:" l gwant=('.claude/*' '!.claude/settings.json' '!.claude/hooks/' '.claude/hooks/*' '!.claude/hooks/research-protocol.sh')
+  local gi="$target/.gitignore" tag="  gitignore:" l i j gbad=0 gwant=('.claude/*' '!.claude/settings.json' '!.claude/hooks/' '.claude/hooks/*' '!.claude/hooks/research-protocol.sh')
+  local lns=() last=0
   if [ -L "$gi" ] || { [ -e "$gi" ] && [ ! -f "$gi" ]; }; then
-    echo "$tag DEGRADED $gi is a symlink or not a regular file - the .claude/ track rules were not added (NOT portable); add: ${gwant[*]}"; return 0
+    echo "$tag DEGRADED $gi is a symlink or not a regular file - the .claude/ track rules were not added (NOT portable); add these lines, in this order:"
+    printf '    %s\n' "${gwant[@]}"; return 0
   fi
-  if [ -f "$gi" ] && grep -qxE '/?\.claude/?' "$gi" 2>/dev/null; then   # RSDD-GI-PORTABLE-BLANKET
-    echo "$tag WARN $gi ignores the whole .claude/ directory - settings.json stays UNTRACKED, so a fresh clone has no hook wiring (NOT portable). Replace that line with: ${gwant[*]}"; return 0
+  # A blanket ignore of .claude (`.claude`, `.claude/`, `/.claude/`, `.claude/**`, `/.claude/*`, trailing blanks allowed) hides settings.json.
+  if [ -f "$gi" ] && grep -qxE '/?\.claude(/|/\*\*)?[[:space:]]*|/\.claude/\*[[:space:]]*' "$gi" 2>/dev/null; then   # RSDD-GI-PORTABLE-BLANKET
+    echo "$tag WARN $gi ignores the whole .claude/ directory - settings.json stays UNTRACKED, so a fresh clone has no hook wiring (NOT portable). Replace that line with:"
+    printf '    %s\n' "${gwant[@]}"; return 0
+  fi
+  # Last matching rule wins, so the rules only work in this order. Present lines must already be in order and no missing line may belong
+  # BEFORE one that is present (appending it would put it after, e.g. `.claude/*` after its negations): then WARN, never edit.
+  for i in "${!gwant[@]}"; do
+    lns[i]=0; [ -f "$gi" ] && lns[i]="$(awk -v p="${gwant[$i]}" '$0 == p { n = NR } END { print n + 0 }' "$gi")"
+  done
+  for i in "${!gwant[@]}"; do
+    if [ "${lns[i]}" -gt 0 ]; then
+      [ "${lns[i]}" -gt "$last" ] || gbad=1
+      last="${lns[i]}"
+    else
+      for j in "${!gwant[@]}"; do [ "$j" -gt "$i" ] && [ "${lns[j]}" -gt 0 ] && gbad=1; done
+    fi
+  done
+  if [ "$gbad" = 1 ]; then   # RSDD-GI-ORDER
+    echo "$tag WARN $gi has some of the --portable track rules out of order or partly missing - left untouched (NOT portable). Make these lines appear in this order:"
+    printf '    %s\n' "${gwant[@]}"; return 0
   fi
   if [ -s "$gi" ] && [ "$(tail -c1 "$gi" 2>/dev/null)" != "" ]; then printf '\n' >> "$gi"; fi
   for l in "${gwant[@]}"; do grep -qxF -- "$l" "$gi" 2>/dev/null || printf '%s\n' "$l" >> "$gi"; done   # PORTABLE-GI
@@ -1376,7 +1410,8 @@ rel="${corpus#"$target"}"; rel="${rel#/}"; [ -z "$rel" ] && rel="(target root, f
 echo "== research-sdd-init: scaffolded =="
 echo "  target : $target"
 echo "  corpus : ${rel}"
-echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · hook · pkill-guard hook · retros/ · tools/README.md · .gitignore"
+_created_hooks="hook · pkill-guard hook"; [ "$portable" != 1 ] || _created_hooks="hook · tools/hooks/kit-run.sh"   # PORTABLE-SUMMARY
+echo "  created: INDEX.md · RESEARCH-STATE.md · sources/SOURCES.md · $_created_hooks · retros/ · tools/README.md · .gitignore"
 _rsdd_gitignore_plan
 case "$_eng_state" in
   created)     if [ "$engram_project_given" = 1 ]; then echo "  engram: created: $_eng_cfg (project_name=$_eng_name, from --engram-project)"
@@ -1396,7 +1431,8 @@ if [ "$git_did_init" = 1 ]; then
   echo "  git    : initialized a new repo in the target"
 else
   echo "  git    : target is ALREADY under git — corpus files land untracked (git add as needed)"
-  echo "           the .claude/ hook is gitignored (.claude/ is in .gitignore) — git add --force to track it, or leave it ignored"
+  if [ "$portable" = 1 ]; then echo "           --portable: .claude/settings.json and .claude/hooks/research-protocol.sh are un-ignored in .gitignore - git add them with the corpus (see the gitignore line above if it WARNed)"
+  else echo "           the .claude/ hook is gitignored (.claude/ is in .gitignore) — git add --force to track it, or leave it ignored"; fi
 fi
 echo "  remote : no remote — run $KIT/toolbelt/ensure-remote.sh $target --yes when you consent to push (PRIVATE, consent-gated)"
 echo

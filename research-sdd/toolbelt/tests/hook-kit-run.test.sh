@@ -212,6 +212,8 @@ case_migration() {      # --wire --portable over a target wired the DEFAULT way:
   [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$st")" = 2 ] && [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
     [ "$(jq '[.hooks.SessionStart[].hooks[]] | length' "$st")" = 2 ] || return 1
   grep -q 'migrated:' "$d.out" || return 1
+  grep -q 'gitignore: WARN .*UNTRACKED' "$d.out" || return 1   # the default scaffold wrote a blanket .claude/ line: kept, and named
+  jq -e '[.hooks.Stop[].hooks[].command] | any(contains("kit-run.sh toolbelt/retro-gate.sh"))' "$st" >/dev/null || return 1
   n="$(cksum < "$st")"; bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out2" 2>&1 || return 1   # and the migration is itself idempotent
   [ "$n" = "$(cksum < "$st")" ]
 }
@@ -224,6 +226,44 @@ case_migration_adapted() {  # a HAND-ADAPTED per-target pkill guard is kept (por
   st="$d/.claude/settings.json"
   [ "$(jq '[.hooks.PreToolUse[].hooks[]] | length' "$st")" = 1 ] &&
     jq -e '.hooks.PreToolUse[0].hooks[0].command == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pkill-guard.sh"' "$st" >/dev/null && ! grep -qF "$d" "$st"
+}
+case_migration_stop_edited() {  # an EDITED per-target retro-gate-stop.sh is kept wired (typed note), never silently swapped for the kit's gate
+  local kit="$1" d="$TMP/ms-$RANDOM" st before
+  mkdir -p "$d"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "kit run" --scaffold --wire >"$d.out0" 2>&1 || return 1
+  printf '# hand-adapted\n' >> "$d/.claude/hooks/retro-gate-stop.sh"; before="$(cksum < "$d/.claude/hooks/retro-gate-stop.sh")"
+  bash "$kit/toolbelt/research-sdd-init.sh" "$d" --wire --portable >"$d.out" 2>&1 || return 1
+  st="$d/.claude/settings.json"
+  [ "$before" = "$(cksum < "$d/.claude/hooks/retro-gate-stop.sh")" ] || return 1
+  [ "$(jq '[.hooks.Stop[].hooks[]] | length' "$st")" = 2 ] &&
+    jq -e '[.hooks.Stop[].hooks[].command] | any(. == "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/retro-gate-stop.sh")' "$st" >/dev/null &&
+    ! jq -e '[.hooks.Stop[].hooks[].command] | any(contains("toolbelt/retro-gate.sh"))' "$st" >/dev/null && ! grep -qF "$d" "$st" &&
+    grep -q 'note   : kept edited .*retro-gate-stop.sh' "$d.out"
+}
+case_gitignore_order() {  # missing track rules are appended IN ORDER (.claude/* before the negations); an out-of-order file is WARNed, not edited
+  local kit="$1" d="$TMP/go-$RANDOM" e="$TMP/go2-$RANDOM" r
+  mkdir -p "$d" "$e"; printf 'node_modules/\n.claude/*\n' > "$d/.gitignore"
+  scaffold_portable "$kit" "$d" || return 1
+  r="$(grep -nxF -e '.claude/*' -e '!.claude/settings.json' -e '!.claude/hooks/' -e '.claude/hooks/*' -e '!.claude/hooks/research-protocol.sh' "$d/.gitignore" | cut -d: -f2- | paste -sd' ')"
+  [ "$r" = ".claude/* !.claude/settings.json !.claude/hooks/ .claude/hooks/* !.claude/hooks/research-protocol.sh" ] || return 1
+  printf '!.claude/settings.json\n' > "$e/.gitignore"   # a negation with no preceding .claude/*: appending .claude/* would un-track it
+  scaffold_portable "$kit" "$e" || return 1
+  grep -q 'gitignore: WARN .*order' "$e.out" && [ "$(grep -c 'claude' "$e/.gitignore")" = 1 ] &&
+    grep -qx '    .claude/hooks/\*' "$e.out"   # the rules are printed one per line
+}
+case_gitignore_blanket_variants() {  # every spelling of a blanket .claude ignore draws the WARN and is left untouched
+  local kit="$1" v d i=0
+  for v in '.claude/**' '/.claude/*' '/.claude/' '.claude' '.claude/ '; do
+    i=$((i+1)); d="$TMP/gv-$i-$RANDOM"; mkdir -p "$d"; printf '%s\n' "$v" > "$d/.gitignore"
+    scaffold_portable "$kit" "$d" || return 1
+    grep -q 'gitignore: WARN .*UNTRACKED' "$d.out" || return 1
+    grep -qxF "$v" "$d/.gitignore" || return 1
+  done
+}
+case_portable_messages() {  # --portable never claims a per-target pkill-guard hook nor tells the user to `git add --force` settings
+  local kit="$1" d="$TMP/pm-$RANDOM"; mkdir -p "$d"; git -C "$d" init -q >/dev/null 2>&1 || return 1   # an ALREADY-git target prints the git hint
+  scaffold_portable "$kit" "$d" || return 1
+  ! grep -q 'created: .*pkill-guard hook' "$d.out" && ! grep -q 'git add --force' "$d.out" && grep -q 'ALREADY under git' "$d.out"
 }
 case_default_bytes() {  # without --portable the generated settings.json is byte-identical to origin/main's (frozen fixture, paths normalised)
   local kit="$1" d="$TMP/db-$RANDOM"; mkdir -p "$d"
@@ -252,6 +292,10 @@ case_migration_adapted "$K"      && ok "17 a hand-adapted per-target pkill guard
 case_gitignore_tracked "$K"      && ok "18 --portable tracks settings.json + the SessionStart hook + the runner; the rest of .claude/ is ignored" || no "18 gitignore must track the wiring"
 case_gitignore_blanket_warns "$K" && ok "19 a pre-existing blanket .claude/ line is kept and WARNed about, never rewritten" || no "19 blanket gitignore line"
 case_no_percopy "$K"             && ok "20 --portable creates no per-target retro-gate-stop.sh / pkill-guard.sh" || no "20 per-target copies"
+case_migration_stop_edited "$K"  && ok "25 an edited per-target retro-gate-stop.sh stays wired (typed note), like the pkill guard" || no "25 edited stop hook"
+case_gitignore_order "$K"        && ok "26 track rules are appended in order; an out-of-order .gitignore is WARNed (rules one per line), not edited" || no "26 gitignore order"
+case_gitignore_blanket_variants "$K" && ok "27 .claude/**, /.claude/*, /.claude/, .claude and trailing-space spellings all draw the WARN" || no "27 blanket variants"
+case_portable_messages "$K"      && ok "28 --portable prints no pkill-guard-hook claim and no 'git add --force' hint" || no "28 portable messages"
 case_default_bytes "$K"          && ok "21 default (no --portable) settings.json is byte-identical to the origin/main fixture" || no "21 default wiring must be unchanged"
 case_invalid_env "$SUT_RUN"      && ok "22 a set-but-invalid RESEARCH_SDD_KIT is reported (typed) then the next source resolves" || no "22 invalid env"
 case_rel_escape "$SUT_RUN"       && ok "23 an absolute or '..' script path is refused" || no "23 rel escape"
@@ -302,6 +346,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   iteeth GITIGNORE-RULES-DROPPED case_gitignore_tracked 's/^  for l in "\${gwant\[@]}"; do .* # PORTABLE-GI$/  :/'
   iteeth GITIGNORE-BLANKET-IGNORED case_gitignore_blanket_warns 's/if \[ -f "\$gi" \] && grep -qxE [^ ]* "\$gi" 2>\/dev\/null; then/if false; then/'
   iteeth PERTARGET-COPIES-KEPT case_no_percopy 's/^if \[ "\$portable" != 1 \]; then   # --portable (kit #2175): both/if true; then   # both/'
+  iteeth STOP-EDITED-REPLACED case_migration_stop_edited '/# PORTABLE-STOP-EDITED$/d'
+  iteeth GITIGNORE-ORDER-IGNORED case_gitignore_order 's/^  if \[ "\$gbad" = 1 \]; then.*$/  if false; then/'
+  iteeth BLANKET-NARROW case_gitignore_blanket_variants 's/grep -qxE [^ ]* "\$gi"/grep -qxE ".claude\/?" "$gi"/'
+  iteeth GIT-HINT-ALWAYS case_portable_messages 's/^  if \[ "\$portable" = 1 \]; then echo "           --portable: .*$/  if false; then :/'
+  iteeth SUMMARY-PKILL-CLAIM case_portable_messages 's/^_created_hooks="hook · pkill-guard hook"; .*$/_created_hooks="hook · pkill-guard hook"/'
   iteeth DEFAULT-DRIFT-QUOTING case_default_bytes 's/^_RSDD_DRIFT_CMD=.*$/_RSDD_DRIFT_CMD="$_RSDD_DRIFT_PATH"/'
   iteeth PORTABLE-GATE-ABSOLUTE case_no_abs_paths 's/^  _RSDD_GATE_CMD=.*# PORTABLE-GATE$/:/'
   iteeth PORTABLE-RUNNER-NOT-INSTALLED case_fresh_clone '/# PORTABLE-INSTALL-RUNNER$/d'
