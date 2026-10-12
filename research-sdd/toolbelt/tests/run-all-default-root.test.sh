@@ -55,12 +55,14 @@ cat > "$TMP/inner.sh" <<'INNER'
 src="$1"; dst="$2"; cwd="$3"; suite="$4"; sarg="${5:-}"
 if [ "$src" != "-" ]; then mount --bind "$src" "$dst" || { echo "result bind-failed"; exit 0; }; fi
 mount -t tmpfs tmpfs /tmp || { echo "result mount-failed"; exit 0; }
+unset DE_GLOBAL_ROOT FE_GLOBAL_ROOT   # a caller-set redirect must not hide a pre-fix leak
+unset DE_GLOBAL_ROOT FE_GLOBAL_ROOT   # a caller-set redirect must not hide a pre-fix leak
 mkdir /tmp/work && export TMPDIR=/tmp/work
 cd "$cwd" || { echo "result cd-failed"; exit 0; }
 timeout 900 bash "$suite" $sarg > /tmp/out.log 2>&1
 rc=$?
 ran=0; grep -qE '^== [0-9]+ passed' /tmp/out.log && ran=1
-# tooth=1: the fact-exec root-hardcoded mutant (which really allocates a run dir) was caught, i.e. the allocator ran.
+# tooth=1: the fact-exec or docker-exec root-hardcoded mutant (which really allocates a run dir) was caught, i.e. the allocator ran.
 tooth=0; grep -qE '^  PASS  teeth-root-hardcoded' /tmp/out.log && tooth=1
 if [ -e /tmp/rsdd ]; then
   # find's own rc is the scan verdict; a failed scan must never read as "0 entries".
@@ -102,7 +104,7 @@ done
 if [ "${1:-}" = "--prove-teeth" ]; then
 MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
 if [ -z "$MNT" ]; then
-  printf '  SKIP  %s\n' "fact-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
+  printf '  SKIP  %s\n' "fact-exec + docker-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
 elif [ ! -f "$HERE/fact-exec.test.sh" ]; then no "fact-exec: suite file missing under $HERE"
 else
   # fe_trim <src> <dst-tree> - build the trimmed tree (symlinked lib/fact_plan) around a copy of <src> keeping only the root-hardcoded tooth.
@@ -130,7 +132,7 @@ if [ -n "$MNT" ]; then
     de_trim(){
       mkdir -p "$2/tests"; ln -s "$HERE/../lib" "$2/lib"; ln -s "$HERE/lib" "$2/tests/lib"
       for m in "$HERE"/../*.py; do ln -s "$m" "$2/$(basename "$m")"; done
-      sed -e '/^if mutant_py_stage_control /d' \
+      sed -e '/^if mutant_py_stage_control /d' -e '/^# CLI-SNAPSHOT-TOOTH-BEGIN/,/^# CLI-SNAPSHOT-TOOTH-END/d' \
           -e '/^tt teeth-image-local /,/FAIL  G-image-not-local/d' \
           -e '/^\(DE_GLOBAL_ROOT=[^ ]* \)\{0,1\}tt teeth-/{/ tt teeth-root-hardcoded /!{/^tt teeth-root-hardcoded /!d;};}' "$1" > "$2/tests/docker-exec.test.sh"
       grep -q 'tt teeth-root-hardcoded ' "$2/tests/docker-exec.test.sh"
@@ -161,7 +163,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The "-- teeth:" banners are printed ONLY where a mutant really runs: run-all --require-teeth counts banners
   # as teeth. Skips use the indented per-test form so a suite whose real cases passed is not classed as SKIPPED.
   if [ -z "$MNT" ]; then
-    printf '  SKIP  %s\n' "fixture + capture-analyze teeth (no /mnt, /media, /srv or /opt mount point for the work tree)"
+    printf '  SKIP  %s\n' "fixture + capture-analyze + docker-exec teeth (no /mnt, /media, /srv or /opt mount point for the work tree)"
   else
     echo "-- teeth: a fixture suite that leaves a run dir in the default root must be flagged --"
     mkdir -p "$TMP/fix"
@@ -208,8 +210,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   if [ -n "$MNT" ] && [ -f "$HERE/docker-exec.test.sh" ]; then
-    echo "-- teeth: docker-exec with the DE_GLOBAL_ROOT redirect removed (its pre-#2186 state) must be flagged --"
-    if ! mutant_sed "$HERE/docker-exec.test.sh" "$TMP/de-mutant.sh" 's|^DE_GLOBAL_ROOT="\$MUT/global-root" tt teeth-root-hardcoded|tt teeth-root-hardcoded|' 2>"$TMP/mutant.err" \
+    echo "-- teeth: docker-exec with the DE_GLOBAL_ROOT redirect AND the NOLEAK cleanup removed (its pre-#2186 state, where the guard never saw the CLI child's dirs) must be flagged --"
+    if ! mutant_sed "$HERE/docker-exec.test.sh" "$TMP/de-mutant.sh" 's|^DE_GLOBAL_ROOT="\$MUT/global-root" tt teeth-root-hardcoded|tt teeth-root-hardcoded|;s|^        shutil.rmtree(_p, ignore_errors=True)$|        pass|' 2>"$TMP/mutant.err" \
        || ! de_trim "$TMP/de-mutant.sh" "$TMP/de2"; then
       no "teeth-docker-exec-global: could not build a valid mutant: $(cat "$TMP/mutant.err")"
     else

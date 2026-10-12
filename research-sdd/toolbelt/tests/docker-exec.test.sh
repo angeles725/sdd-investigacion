@@ -36,7 +36,9 @@ atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
 _SBX_ROOT = os.path.join(_SBX, "rsdd")
 os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
 # #2186: the guard never reads its watch target from the environment. A leak is ANY produced run dir outside the sandbox root
-# (_SBX_ROOT); _GLOBAL_ROOT is only the host default root scanned for INFO lines about other suites' entries.
+# (_SBX_ROOT). Coverage: in-process make_run_subdir calls (recorded by _rec_mrs) plus a before/after snapshot of every watched root
+# around each CLI child (_run_child), because emba_plan.py writes its run dir into --output files, not stdout/stderr. The watched roots
+# are the sandbox and the host default root (_GLOBAL_ROOT), the only places a child or a root-ignoring mutant can allocate.
 _GLOBAL_ROOT = Path("/tmp/rsdd")
 def _global_names() -> set:
     try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
@@ -56,13 +58,20 @@ m._dc.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded 
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
 def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if r else ""))
+_WATCH = [_GLOBAL_ROOT, Path(_SBX_ROOT)]
+def _scan(root) -> set:
+    try: return {str(x) for x in Path(root).iterdir() if re.fullmatch(r"rsdd-[0-9a-f]{32}", x.name)}
+    except OSError: return set()
+def _run_child(cmd, e):
+    before = {str(w): _scan(w) for w in _WATCH}
+    r = subprocess.run(cmd, capture_output=True, text=True, env=e)
+    for w in _WATCH: _produced.update(_scan(w) - before[str(w)])   # CLI-CHILD-SNAPSHOT
+    _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
+    return r
 def cli(*a, xe=None):
     e = os.environ.copy()
     if xe: e.update(xe)
-    r = subprocess.run([sys.executable, str(emba_path), *map(str, a)],
-                       capture_output=True, text=True, env=e)
-    _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
-    return r
+    return _run_child([sys.executable, str(emba_path), *map(str, a)], e)
 
 # Fake docker shim — records calls to DOCKER_SHIM_RECORD.
 # image inspect → JSON with RepoDigests (DOCKER_INSPECT_EXIT to force failure).
@@ -299,6 +308,20 @@ _root_case("ROOT-MISSING: missing override root is created as a 0700 dir", _s_mi
 _root_case("ROOT-RELATIVE: relative override root -> GateError", _s_rel, True)
 _root_case("ROOT-MODE: group-writable override root -> GateError", _s_mode, True)
 
+# ── CLI-CHILD-SNAPSHOT (#2186): a CLI child's allocation outside the sandbox is recorded even when its path is in no output ──
+with tempfile.TemporaryDirectory() as _td:
+    _gw = Path(_td) / "global"; _gw.mkdir(mode=0o700)
+    _WATCH.append(_gw)
+    try:
+        _before = set(_produced)
+        _run_child([sys.executable, "-c", "import os,sys; os.mkdir(os.path.join(sys.argv[1], 'rsdd-' + 'a' * 32), 0o700)", str(_gw)], os.environ.copy())
+        _new = _produced - _before
+        _out = sorted(p for p in _new if not p.startswith(_SBX_ROOT + os.sep))
+        if len(_out) == 1 and _out[0] == str(_gw / ("rsdd-" + "a" * 32)): ok("CLI-CHILD-SNAPSHOT: a silent CLI-child allocation outside the sandbox is recorded as a leak")
+        else: nok("CLI-CHILD-SNAPSHOT: a silent CLI-child allocation outside the sandbox was NOT recorded", str(sorted(_new)))
+    finally:
+        _WATCH.remove(_gw); _produced.difference_update(p for p in list(_produced) if p.startswith(str(_gw) + os.sep))
+
 # ── DOCKER-NOLEAK (#2090): no run dir THIS suite produced landed under the global /tmp/rsdd ──
 # Attribution is by identity (_produced), never by content. Other new rsdd-* entries belong to someone else
 # (a concurrent suite): INFO only, never failed on or deleted.
@@ -329,7 +352,7 @@ if [ -z "$pass" ] || [ -z "$fail" ]; then
 fi
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
+mutant_bootstrap mutant_py_stage mutant_sed mutant_py_stage_control mutant_py_tooth mutant_py_crash_strict mutant_cleanup_register || exit 2
 SELF="$HERE/$(basename "$0")"
 MUT="$(mktemp -d)" || exit 2
 mutant_cleanup_register "$MUT" || exit 2
@@ -352,6 +375,18 @@ tt teeth-root-noverify lib/docker_common.py 'verify_rsdd_root(root)  # override 
 tt teeth-root-uid lib/docker_common.py 'st.st_uid != os.geteuid() or st.st_mode' 'st.st_uid != os.geteuid() + 1 or st.st_mode' 'FAIL  ROOT-MISSING'
 tt teeth-root-nomode lib/docker_common.py 'if st.st_uid != os.geteuid() or st.st_mode & 0o022:' 'if False:' 'FAIL  ROOT-MODE'
 tt teeth-root-noabs lib/docker_common.py 'if not os.path.isabs(root):' 'if False:' 'FAIL  ROOT-RELATIVE'
+# CLI-SNAPSHOT-TOOTH-BEGIN
+# Hand-rolled tooth (the guard lives in this script's own PY_SRC, not in a staged SUT file): drop the before/after snapshot and the plain run
+# must then FAIL CLI-CHILD-SNAPSHOT, i.e. the silent-allocation case really depends on the snapshot.
+if mutant_py_stage "$HERE" "$MUT/cs" && mkdir -p "$MUT/cs/tests" \
+   && mutant_sed "$SELF" "$MUT/cs/tests/docker-exec.test.sh" '/# CLI-CHILD-SNAPSHOT$/d' 2>"$MUT/cs.err"; then
+  cs_out="$(bash "$MUT/cs/tests/docker-exec.test.sh" 2>&1)"
+  if grep -qF 'FAIL  CLI-CHILD-SNAPSHOT: a silent CLI-child allocation outside the sandbox was NOT recorded' <<<"$cs_out" \
+     && ! grep -qE "$(mutant_py_crash_strict)" <<<"$cs_out"; then
+    echo "  PASS  teeth-cli-snapshot: without the before/after snapshot a silent CLI-child allocation goes unrecorded"; pass=$((pass + 1))
+  else echo "  FAIL  teeth-cli-snapshot - THEATER: mutant did not fail CLI-CHILD-SNAPSHOT: $(tr '\n' ' ' <<<"$cs_out" | tail -c 300)"; fail=$((fail + 1)); fi
+else echo "  FAIL  teeth-cli-snapshot: could not build the mutant: $(cat "$MUT/cs.err" 2>/dev/null)"; fail=$((fail + 1)); fi
+# CLI-SNAPSHOT-TOOTH-END
 tt teeth-run-subdir lib/docker_exec.py 'exec_argv = [new_mount if tok == old_mount else tok for tok in exec_argv]' 'pass' 'FAIL  RED2/GREEN: no per-run mount under the sandbox root in exec_argv'
 
 tt teeth-exit-125 lib/docker_exec.py 'exit_code in (125, 126, 127)' 'exit_code in (126, 127)' 'FAIL  G-failure-125: rc=0'
