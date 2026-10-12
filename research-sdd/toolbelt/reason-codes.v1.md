@@ -214,9 +214,11 @@ They are listed here so a reader of this registry finds every typed state the sc
   `bad head ref`; `no merge-base of <base> and HEAD`; `git diff failed`; `teeth-log dir absent` (an absent
   directory is not "no logs"); `suite-impact.sh not found`; `suite-impact.sh exited N: <its message>` (an
   impact map that could not look must never read as an empty requirement set);
-  `KIT_WRITER_CHECK_TIMEOUT must be a positive integer`; `cannot create teeth-log dir`. Findings (exit 1, not
-  degraded): `missing-teeth <suite> <reason>`, `no-suite <file>`, `name-kill <file>:<line>`. Notes (never fail):
-  `full-gate-needed: <reason>`, `teeth-na <suite>`, `required: 0 (...)`. Continuation: install the tool or fix the
+  `KIT_WRITER_CHECK_TIMEOUT must be a positive integer`; `cannot create teeth-log dir`; `cannot hash the changed
+  files`. Findings (exit 1, not degraded): `missing-teeth <suite> <reason>`, `stale-teeth <suite> <reason>` (the log's
+  binding header is missing or its tree hash differs from the changed files), `no-suite <file>`, `name-kill
+  <file>:<line>`, `bad-waiver <file>:<line>` (a waiver with no reason). Notes (never fail): `full-gate-needed:
+  <reason>`, `teeth-na <suite>`, `teeth-waived <suite> (<reason>)`, `required: 0 (...)`. Continuation: install the tool or fix the
   ref or directory, then re-run; run `--write-teeth-log DIR <suite>...` to produce the logs a `missing-teeth`
   line asks for.
 

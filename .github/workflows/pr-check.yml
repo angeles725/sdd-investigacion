@@ -189,7 +189,21 @@ jobs:
               if (f.previous_filename) paths.push(f.previous_filename);
             }
 
-            const result = checkRedEvidence(context.payload.pull_request.body || '', paths);
+            // A cited suite must exist in the repository (checkout) or among the PR's files.
+            const { execFileSync } = require('node:child_process');
+            let tracked;
+            try {
+              tracked = execFileSync('git', ['ls-files'], {
+                cwd: process.env.GITHUB_WORKSPACE,
+                encoding: 'utf8',
+                maxBuffer: 64 * 1024 * 1024,
+              }).split('\n').filter(Boolean);
+            } catch (err) {
+              core.setFailed(`❌ Could not list repository files to verify the cited RED suites: ${err.message}`);
+              return;
+            }
+
+            const result = checkRedEvidence(context.payload.pull_request.body || '', paths, tracked.concat(paths));
             if (!result.required) {
               core.info('✅ No production script changed: RED evidence not required.');
             } else if (result.ok) {

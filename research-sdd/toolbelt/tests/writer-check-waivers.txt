@@ -1,0 +1,8 @@
+# writer-check-waivers.txt — suites that maint/kit-writer-check.sh does not require a --prove-teeth log for (kit issue #2208).
+#
+# One `<repo-relative suite path> <reason>` per line; `#` lines and blank lines are ignored. A waived suite that a
+# change requires is reported `teeth-waived <suite> (<reason>)` — never silently. List a suite here only when it
+# genuinely cannot show teeth: it prints no teeth banner under --prove-teeth, or it can only skip. The reason says
+# which. A line without a reason is a `bad-waiver` finding. Waivers are debt, not passes: delete the line when the
+# suite gains mutation controls (run-all.sh --prove-teeth lists suites without teeth).
+research-sdd/toolbelt/tests/hook-kit-run.test.sh prints no teeth banner under --prove-teeth (no mutation controls yet; run-all.sh lists it under "Suites with teeth but no banner")

@@ -20,6 +20,31 @@ const SEPARATOR = /\s(?:—|–|--)\s/;
 // A whole field that is a `<...>` template token or a stand-in word; a `<` inside real output is fine.
 const PLACEHOLDER = /^\s*(?:<[^>]*>|tbd|todo|n\/a|none|-)\s*$/i;
 const MIN_TEXT = 8;
+const MIN_NA_REASON = 20;
+// Generic stand-ins that say nothing about why RED cannot run (compared after trimming and dropping trailing punctuation).
+const GENERIC_NA = new Set([
+  'not applicable',
+  'not applicable to this change',
+  'no tests needed',
+  'no test needed',
+  'no tests needed for this change',
+  'not needed',
+  'nothing to test',
+  'nothing to test here',
+  'see above',
+  'see description',
+  'see description above',
+  'see the description',
+  'see the diff',
+  'see commits',
+  'trivial',
+  'trivial change',
+  'trivial change, nothing to do',
+  'minor change',
+  'small change',
+  'no red needed',
+  'red not needed',
+]);
 
 // Lines starting with `RED:` (optionally a list bullet), case-sensitive on the keyword.
 const RED_LINE = /^\s*(?:[-*]\s+)?RED:(.*)$/;
@@ -39,8 +64,11 @@ function parseRedEvidence(body) {
 
     if (/^n\/a(?:\s|$)/i.test(rest)) {
       const reason = rest.replace(/^n\/a\s*(?:—|–|--)?\s*/i, '').trim();
-      if (reason.length < MIN_TEXT || PLACEHOLDER.test(reason)) {
-        errors.push({ raw, reason: `"RED: n/a" needs a real reason (at least ${MIN_TEXT} characters, no placeholder)` });
+      const normalized = reason.toLowerCase().replace(/[\s.!;:]+$/, '');
+      if (reason.length < MIN_NA_REASON || PLACEHOLDER.test(reason)) {
+        errors.push({ raw, reason: `"RED: n/a" needs a real reason (at least ${MIN_NA_REASON} characters, no placeholder)` });
+      } else if (GENERIC_NA.has(normalized)) {
+        errors.push({ raw, reason: '"RED: n/a" reason is generic: say specifically why RED cannot be executed here' });
       } else {
         notApplicable.push({ reason });
       }
@@ -59,6 +87,8 @@ function parseRedEvidence(body) {
 
     if (PLACEHOLDER.test(suite) || PLACEHOLDER.test(name) || PLACEHOLDER.test(excerpt)) {
       errors.push({ raw, reason: 'still contains a template placeholder' });
+    } else if (/[<>]/.test(suite)) {
+      errors.push({ raw, reason: `"${suite}" contains angle brackets (a template placeholder?)` });
     } else if (!SUITE_PATTERN.test(suite)) {
       errors.push({ raw, reason: `"${suite}" is not a test file name (expected *.test.sh, *.test.mjs, *.test.cjs or *.test.py)` });
     } else if (name.length === 0) {
@@ -76,19 +106,31 @@ function parseRedEvidence(body) {
   return { evidence, notApplicable, errors };
 }
 
-// Production behavior = a kit toolbelt (or install/templates) script outside tests/. Docs and test files are not.
+// Production behavior = a script (.sh .py .mjs .js .cjs .ts) under research-sdd/toolbelt, install or templates, EXCEPT
+// suites (tests/*.test.*), tests/fixtures/**, other tests/ sub-directories and install/tests/**; the test
+// infrastructure (tests/run-all.sh, suite-impact.sh, shard-join.sh, tests/lib/**) counts. This is the same rule as
+// is_production in research-sdd/toolbelt/maint/kit-writer-check.sh; the shared list
+// research-sdd/toolbelt/tests/fixtures/kit-writer-check/production-paths.txt pins both implementations.
+const SCRIPT_EXT = /\.(?:sh|py|mjs|js|cjs|ts)$/;
 function isProductionPath(path) {
   if (typeof path !== 'string') return false;
-  if (/^research-sdd\/toolbelt\/tests\//.test(path)) return false;
+  if (/^research-sdd\/toolbelt\/tests\/fixtures\//.test(path)) return false;
+  if (/^research-sdd\/toolbelt\/tests\/lib\//.test(path)) return SCRIPT_EXT.test(path);
+  if (/^research-sdd\/toolbelt\/tests\/[^/]*\.test\./.test(path)) return false;
+  if (/^research-sdd\/toolbelt\/tests\/.+\//.test(path)) return false;
   if (/^research-sdd\/install\/tests\//.test(path)) return false;
-  if (/^research-sdd\/(?:toolbelt|install|templates)\//.test(path)) {
-    return /\.(?:sh|py|mjs|js|cjs|ts)$/.test(path);
-  }
+  if (/^research-sdd\/(?:toolbelt|install|templates)\//.test(path)) return SCRIPT_EXT.test(path);
   return false;
 }
 
+// A cited suite exists when some known path is that path or ends with "/<suite>" (a bare file name is fine).
+function suiteExists(suite, knownPaths) {
+  return knownPaths.some((k) => k === suite || k.endsWith(`/${suite}`));
+}
+
 // files: array of paths (a rename contributes both its new and previous path).
-function checkRedEvidence(body, files) {
+// knownPaths: optional array of every repo path plus the PR's files; when given, each cited suite must exist in it.
+function checkRedEvidence(body, files, knownPaths) {
   const list = Array.isArray(files) ? files : [];
   const production = list.filter(isProductionPath);
   const parsed = parseRedEvidence(body);
@@ -100,6 +142,10 @@ function checkRedEvidence(body, files) {
     for (const e of parsed.errors) problems.push(`${e.raw}: ${e.reason}`);
   } else if (parsed.evidence.length === 0 && parsed.notApplicable.length === 0) {
     problems.push('no "RED:" line in the PR body');
+  } else if (Array.isArray(knownPaths)) {
+    for (const e of parsed.evidence) {
+      if (!suiteExists(e.suite, knownPaths)) problems.push(`RED: ${e.suite}: suite not found in the repository or the PR files`);
+    }
   }
   return { required: true, ok: problems.length === 0, production, ...parsed, problems };
 }

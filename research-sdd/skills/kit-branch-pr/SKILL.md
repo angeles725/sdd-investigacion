@@ -129,11 +129,12 @@ Check each in the PR:
 ```bash
 # 1. teeth logs for every suite the diff impacts, then the check (exit 0 required)
 bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree          # lists required suites
-bash research-sdd/toolbelt/maint/kit-writer-check.sh --write-teeth-log DIR <suite>...       # --prove-teeth, bounded by timeout
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --write-teeth-log DIR --base origin/main <suite>...   # --prove-teeth, bounded by timeout, bound to the changed files
 bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree --teeth-log DIR
 ```
 
-- No name-based process kills in added code; kill a recorded PID (`# writer-check: allow-name-kill <reason>` for a justified exception).
+- No name-based process kills (pkill/killall, `kill -1`, pgrep/pidof into kill) in added code or in a Bash call: kill a recorded PID (`$!`, `jobs -p`). The check flags added lines (`# writer-check: allow-name-kill <reason>` for a justified exception) and the strict PreToolUse hook in `.claude/settings.json` denies the command.
+- A `stale-teeth` finding means the files changed after the log (or the log was hand-written): re-run `--write-teeth-log`. A suite that cannot show teeth is waived with a reason in `tests/writer-check-waivers.txt`.
 - A PR that changes production scripts carries an executed-RED line in its body, or the `Check RED Evidence` job fails:
 
 ```markdown

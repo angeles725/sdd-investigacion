@@ -149,6 +149,58 @@ test('checkRedEvidence: no files / non-array files is "not required", never a th
   assert.equal(checkRedEvidence('', undefined).required, false);
 });
 
+test('isProductionPath agrees with the shared parity list that kit-writer-check.sh --classify is pinned to', () => {
+  const list = readFileSync(
+    resolve(__dirname, '../../research-sdd/toolbelt/tests/fixtures/kit-writer-check/production-paths.txt'),
+    'utf8',
+  );
+  let n = 0;
+  for (const line of list.split('\n')) {
+    const m = /^(production|other)\t(.+)$/.exec(line);
+    if (!m) continue;
+    n += 1;
+    assert.equal(isProductionPath(m[2]), m[1] === 'production', `${m[1]} ${m[2]}`);
+  }
+  assert.ok(n > 15, `the parity list was read (${n} lines)`);
+});
+
+test('the suite field rejects angle brackets anywhere', () => {
+  for (const line of [
+    'RED: <foo>.test.sh case — expected 3 got 0',
+    'RED: foo<1>.test.sh case — expected 3 got 0',
+    'RED: foo.test.sh> case — expected 3 got 0',
+  ]) {
+    const r = parseRedEvidence(line);
+    assert.equal(r.evidence.length, 0, line);
+    assert.equal(r.errors.length, 1, line);
+  }
+});
+
+test('with the known paths, the cited suite must exist in the repo or in the PR files', () => {
+  const known = ['research-sdd/toolbelt/tests/foo.test.sh', 'research-sdd/toolbelt/foo.sh'];
+  assert.equal(checkRedEvidence(GOOD, PROD, known).ok, true);
+  assert.equal(checkRedEvidence('RED: research-sdd/toolbelt/tests/foo.test.sh c — expected 3 got 0', PROD, known).ok, true);
+  const bad = checkRedEvidence('RED: ghost.test.sh case — expected 3 got 0', PROD, known);
+  assert.equal(bad.ok, false);
+  assert.match(bad.problems[0], /ghost\.test\.sh/);
+  assert.match(bad.problems[0], /not found/);
+  // a suffix that is not a whole path segment does not count
+  assert.equal(checkRedEvidence('RED: oo.test.sh case — expected 3 got 0', PROD, known).ok, false);
+  // without known paths the existence check is skipped (unit use), never a throw
+  assert.equal(checkRedEvidence('RED: ghost.test.sh case — expected 3 got 0', PROD).ok, true);
+});
+
+test('"RED: n/a" needs at least 20 characters and a non-generic reason', () => {
+  assert.equal(parseRedEvidence('RED: n/a — nineteen chars long').errors.length, 1);
+  assert.equal(parseRedEvidence('RED: n/a — twenty chars exactly').notApplicable.length, 1);
+  for (const generic of ['not applicable to this change', 'No tests needed for this change.', 'see description above', 'trivial change, nothing to do']) {
+    const r = parseRedEvidence(`RED: n/a — ${generic}`);
+    assert.equal(r.notApplicable.length, 0, generic);
+    assert.equal(r.errors.length, 1, generic);
+    assert.match(r.errors[0].reason, /generic|specific/, generic);
+  }
+});
+
 test('the workflow wires the gate through the module (no raw-body regex of its own)', () => {
   const workflow = readFileSync(resolve(__dirname, '../workflows/pr-check.yml'), 'utf8');
   assert.match(workflow, /parse-red-evidence\.cjs/);

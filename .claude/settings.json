@@ -6,9 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/research-sdd/templates/hook-pretool-pkill-guard.sh\"",
+            "command": "[ -x \"$CLAUDE_PROJECT_DIR/research-sdd/templates/hook-pretool-pkill-guard.sh\" ] && \"$CLAUDE_PROJECT_DIR/research-sdd/templates/hook-pretool-pkill-guard.sh\" --strict-name-kill || { echo 'pkill guard missing or failed: blocking this Bash call (fail closed)' >&2; exit 2; }",
             "timeout": 10,
-            "statusMessage": "Checking for self-matching pkill -f…"
+            "statusMessage": "Checking for name-based process kills…"
           }
         ]
       }
