@@ -464,7 +464,7 @@ _rsdd_write_marker() {
   mkdir -p "$(dirname "$marker")" || return 1
   tmp="$(mktemp)" || return 1
   printf 'profile=%s\nsha256=%s\n' "$profile" "$sha" > "$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$marker"
+  mv -f "$tmp" "$marker" || { rm -f "$tmp"; return 1; }
 }
 
 # _rsdd_marker_matches_deployed <marker_file> <deployed_path> — true iff the marker exists, has a
