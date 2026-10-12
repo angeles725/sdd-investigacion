@@ -373,6 +373,26 @@ for _bs in full pfx; do
     || { printf '  PASS  %-42s (digest read past the escape)\n' "backslash name $_bs → no finding"; pass=$((pass+1)); }
 done
 
+# BAD (#2182) — snapshot present but UNREADABLE (chmod 000, created at test time): typed `unreadable-snapshot:`
+#   FAIL, distinct from hash-mismatch/prefix-mismatch. Root reads anything, so the case is typed-SKIPped there.
+d="$TMP/bad-unreadable"; mkdir -p "$d"
+block "$d/ur-block1.md" '# Block 1' '## 1.1 cites sources/web-snapshots/foo.md — unreadable snapshot.'
+snapshot "$d/sources/web-snapshots/foo.md" '<div>unreadable body</div>'
+_ur_h="$(sha256sum < "$d/sources/web-snapshots/foo.md" | cut -d' ' -f1)"
+sources_registry "$d" "| web-snapshots/foo.md | web-snapshot | http://x | 2026-01-01 | $_ur_h | B1 |"
+chmod 000 "$d/sources/web-snapshots/foo.md"
+if [ -r "$d/sources/web-snapshots/foo.md" ]; then
+  printf '  SKIP  %-42s (running as root: chmod 000 file stays readable)\n' "unreadable snapshot → typed FAIL"
+  UR_SKIP=1
+else
+  UR_SKIP=0
+  assert_exit "$SUT" 1 "BAD: unreadable snapshot (chmod 000)" "$d"
+  out="$(bash "$SUT" "$d" 2>&1)"
+  if grep -q 'unreadable-snapshot: sources/web-snapshots/foo.md' <<<"$out" && ! grep -qE 'hash-mismatch|prefix-mismatch' <<<"$out"; then
+    printf '  PASS  %-42s (typed, not a mismatch)\n' "unreadable snapshot → typed FAIL"; pass=$((pass+1))
+  else printf '  FAIL  %-42s (typed line missing or mismatch reported)\n' "unreadable snapshot → typed FAIL"; fail=$((fail+1)); fi
+fi
+
 # REGRESSION GUARD — an ORPHAN snapshot (LEVEL 5 FAIL) must NOT ALSO get a LEVEL 6 hash line (no double-report).
 #   Reuse the BAD 4 fixture: foo.md on disk, registry names nothing → orphan-snapshot only, no hash finding.
 d="$TMP/bad-orphan-snapshot"   # built above (orphan, empty registry)
@@ -1329,6 +1349,14 @@ SED
   m="$TMP/mutants/SHA-NAMED-PFX.sh"
   mk_sed SHA-NAMED-PFX "$m" 's/disk_pfx="$(sha256sum < "$file"/disk_pfx="$(sha256sum "$file"/' \
     && tooth "teeth SHA-NAMED-PFX: prefix digest read from the escaped named form" 0 1 "$m" --good-lacks 'prefix-mismatch' --bad-has 'prefix-mismatch' --bad-lacks "$NV_ERR" -- bash @SUT@ "$TMP/good-bs-pfx"
+  # #2182 — unreadable snapshot gets its own typed finding; without the -r guard it degrades to a hash-mismatch.
+  if [ "${UR_SKIP:-1}" = 0 ]; then
+    m="$TMP/mutants/UNREADABLE-OFF.sh"
+    mk_sed UNREADABLE-OFF "$m" 's/^    if \[ ! -r "\$file" \]; then   # UNREADABLE-SNAPSHOT/    if false; then   # UNREADABLE-SNAPSHOT/' \
+      && tooth "teeth UNREADABLE-OFF: -r guard removed" 1 1 "$m" --good-has 'unreadable-snapshot:' --bad-lacks 'unreadable-snapshot:' -- bash @SUT@ "$TMP/bad-unreadable"
+  else
+    printf '  SKIP  %-42s (running as root)\n' "teeth UNREADABLE-OFF"
+  fi
   # #1678 — LEVEL 4 File-cell trim. Both teeth need exact rc on the real SUT and the mutant plus a typed line.
   m="$TMP/mutants/SP-STRIPALL.sh"
   mk_sed SP-STRIPALL "$m" '/# L4-FILE-TRIM$/s#.*#    file="${file//[[:blank:]]/}"#' \

@@ -342,6 +342,10 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
     case "$key" in web-snapshots/*) ;; *) continue;; esac   # only web-snapshot rows
     file="$corpus/sources/$key"
     [ -f "$file" ] || continue   # registered but absent on disk is out of scope here (not an integrity mismatch)
+    if [ ! -r "$file" ]; then   # UNREADABLE-SNAPSHOT (#2182): present but unreadable is not a hash verdict — typed, never an empty-digest mismatch
+      echo "   unreadable-snapshot: ${file#"$corpus"/} — registered file exists but cannot be read; hash integrity not checkable (FAIL)"
+      rc=1; continue
+    fi
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
     if grep -qiE '^[0-9a-f]{64}$' <<<"$reg"; then
       reg_full=$(printf '%s' "$reg" | tr 'A-F' 'a-f')                 # normalize case for the compare
