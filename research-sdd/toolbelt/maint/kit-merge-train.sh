@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# kit-merge-train.sh [options] <pr> [<pr>...]
+#
+# Kit-maintenance tool (kit issue #2213; outside the research toolbelt core): gate a batch of approved kit PRs ONCE
+# on a combined "train" head instead of re-gating each PR after every restack, then merge them in order.
+#   1. each PR (in the given order) must be OPEN, not a draft, and its head must be the head its RDD acknowledged
+#   2. a LOCAL branch train/<ts> (a dedicated worktree, never pushed) is built from the base with `git merge --no-ff`
+#      per PR head; a conflict drops that PR (typed `train-conflict`), the rest continue; no auto-resolution
+#   3. ONE gate (kit-gate.sh) runs on the train head
+#   4. green: per PR, in order, kit-wait-merge.sh (CI wait + merge-gate --merge, run in a worktree AT that PR's head,
+#      so merge-gate's own RDD check covers the exact head). The first PR that does not merge stops the train; the
+#      rest are reported pending. Red: nothing is merged.
+# RDD stays per PR and per head: the train never replaces it. Merging a PR whose head moved after its RDD is refused
+# twice: here (head pin) and by merge-gate (review_due / head_mismatch).
+#
+# Options:
+#   --rdd-ok PR=SHA   (repeatable, REQUIRED for every PR) the head sha (7+ hex, prefix ok) the PR's RDD acknowledged.
+#                     The pin is explicit input, never inferred: a PR without a pin is refused `rdd-unconfirmed`, a pin
+#                     that is not the PR's current head is refused `rdd-head-mismatch`.
+#   --repo DIR        the kit checkout (default: the current directory); its sibling `<repo>-worktrees/` holds the train
+#                     worktrees (never /tmp)
+#   --base-ref REF    the train base and merge-gate base (default origin/main); the remote is the part before `/`
+#   --state-dir DIR   receipt, gate log and gate lock; default ${XDG_STATE_HOME:-$HOME/.local/state}/research-sdd/pipeline;
+#                     refused when it resolves (symlinks included) inside the repo
+#   --gate-cmd CMD    run CMD (bash -c, inside the train worktree) as the gate instead of the default full gate
+#   --serial          the default full gate without -j (CLAUDE.md section 5 reference); not with --gate-cmd
+#   --bisect          on a red gate, gate prefixes of the batch (binary search) to name the first PR whose inclusion
+#                     turns the gate red. The base is ASSUMED green (never gated); the culprit may be an interaction
+#   --dry-run         print the plan (`kit-merge-train: plan: ...`); run no git/gh, create nothing
+# Environment: KIT_RETRY_SLEEP, and for kit-wait-merge.sh KIT_POLL_SLEEP, KIT_POLL_MAX, KIT_MERGE_SLEEP,
+# KIT_MERGE_TRIES, KIT_MERGE_GATE.
+#
+# Receipt <state-dir>/train-<ts>.json: state, base_sha, train_sha, gate {rc, log, cmd}, per-PR {pr, head, status
+# (merged|pending|dropped|refused|culprit), reason}, culprit. Written on every exit after the first fetch.
+#
+# Typed exit states (last line `kit-merge-train: <state>: ...`; registered in reason-codes.v1.md):
+#   merged            0   every requested PR merged
+#   usage             2   bad arguments, or a state dir inside the repo
+#   degraded          3   git, gh, jq or flock missing
+#   ci-failed        17   (from kit-wait-merge) a CI check failed for the PR that stopped the train
+#   merge-degraded   18   (from kit-wait-merge) merge-gate stayed degraded
+#   not-merged       19   (from kit-wait-merge) merge-gate refused / PR not MERGED; later PRs pending
+#   fetch-failed     21   git fetch still failing after 3 tries
+#   gate-lock-timeout 22  the gate lock was not obtained in time (not a gate failure)
+#   train-gate-failed 26  the combined gate was red; nothing merged (--bisect names the culprit)
+#   train-partial    27   everything that stayed in the train merged, but PRs were refused or dropped (conflict)
+#   train-empty      28   no PR survived the checks and the merges; nothing gated or merged
+#   train-error      29   an unexpected git/worktree/gate failure (not a conflict)
+set -u
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+# shellcheck disable=SC2034 # read by kit-maint-common.sh
+KIT_TOOL=kit-merge-train
+# shellcheck source=kit-maint-common.sh
+. "$_RSDD_SELF/kit-maint-common.sh" || { echo "kit-merge-train: degraded: kit-maint-common.sh unavailable" >&2; exit 3; }
+
+repo=. base=origin/main state='' gate_cmd='' serial=0 bisect=0 dry_run=0
+declare -A pin=()
+prs=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rdd-ok) [ $# -ge 2 ] || kit_fail 2 usage "--rdd-ok needs PR=SHA"; k="${2%%=*}"; v="${2#*=}"
+      case "$k" in ''|*[!0-9]*) kit_fail 2 usage "--rdd-ok PR must be a number: $2" ;; esac
+      case "$v" in ''|*[!0-9a-fA-F]*) kit_fail 2 usage "--rdd-ok SHA must be hex: $2" ;; esac
+      [ "${#v}" -ge 7 ] && [ "$k=$v" = "$2" ] || kit_fail 2 usage "--rdd-ok wants PR=SHA with 7+ hex chars: $2"
+      pin[$k]="$v"; shift 2 ;;
+    --repo) [ $# -ge 2 ] || kit_fail 2 usage "--repo needs a value"; repo="$2"; shift 2 ;;
+    --base-ref) [ $# -ge 2 ] || kit_fail 2 usage "--base-ref needs a value"; base="$2"; shift 2 ;;
+    --state-dir) [ $# -ge 2 ] || kit_fail 2 usage "--state-dir needs a value"; state="$2"; shift 2 ;;
+    --gate-cmd) [ $# -ge 2 ] || kit_fail 2 usage "--gate-cmd needs a value"; gate_cmd="$2"; shift 2 ;;
+    --serial) serial=1; shift ;;
+    --bisect) bisect=1; shift ;;
+    --dry-run) dry_run=1; shift ;;
+    -h|--help) awk 'NR > 1 && /^[^#]/ { exit } NR > 1 { print }' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --) shift; break ;;
+    -*) kit_fail 2 usage "unknown option $1" ;;
+    *) break ;;
+  esac
+done
+prs=("$@")
+[ "${#prs[@]}" -ge 1 ] || kit_fail 2 usage "kit-merge-train.sh [options] <pr> [<pr>...]"
+for p in "${prs[@]}"; do
+  case "$p" in ''|*[!0-9]*) kit_fail 2 usage "pr must be a number: $p" ;; esac
+done
+[ "$(printf '%s\n' "${prs[@]}" | sort | uniq -d | wc -l)" -eq 0 ] || kit_fail 2 usage "a PR is listed twice"
+[ "$serial" -eq 0 ] || [ -z "$gate_cmd" ] || kit_fail 2 usage "--serial cannot be combined with --gate-cmd"
+case "$base" in */*) remote="${base%%/*}" ;; *) kit_fail 2 usage "--base-ref must be <remote>/<branch>: $base" ;; esac
+[ -d "$repo" ] || kit_fail 2 usage "repo is not a directory: $repo"
+repo="$(CDPATH='' cd -- "$repo" && pwd -P)" || kit_fail 2 usage "cannot resolve --repo"
+[ -n "$state" ] || state="$(kit_state_dir)"
+state="$(kit_phys_path "$state")" || kit_fail 2 usage "cannot resolve --state-dir"
+case "$state/" in "$repo"/*) kit_fail 2 usage "--state-dir $state is inside the repo; state never lives in the repo" ;; esac
+wtroot="$(dirname -- "$repo")/$(basename -- "$repo")-worktrees"
+
+if [ "$dry_run" = 1 ]; then
+  kit_say "plan: PRs ${prs[*]} in order onto $base; one gate (${gate_cmd:-default full gate}$([ "$serial" = 1 ] && echo ', serial')); bisect=$bisect"
+  kit_say "plan: train worktree under $wtroot, state dir $state; each PR needs --rdd-ok; nothing was run"
+  exit 0
+fi
+
+kit_probe_deps git gh jq flock || exit 3
+git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || kit_fail 2 usage "not a git checkout: $repo"
+mkdir -p "$state" || kit_fail 2 usage "cannot create state dir $state"
+ts="$(date +%Y%m%d-%H%M%S)-$$"
+receipt="$state/train-$ts.json"
+wt="$wtroot/train-$ts" branch="train/$ts"
+declare -A p_head=() p_status=() p_reason=()
+base_sha='' train_sha='' gate_rc='' gate_log='' culprit='' started=0
+made_wts=()
+
+write_receipt() { # $1 = final state
+  local rows='' p
+  for p in "${prs[@]}"; do
+    rows+="$p"$'\t'"${p_head[$p]:-}"$'\t'"${p_status[$p]:-pending}"$'\t'"${p_reason[$p]:-}"$'\n'
+  done
+  printf '%s' "$rows" | jq -Rn --arg state "$1" --arg base "$base_sha" --arg train "$train_sha" --arg grc "$gate_rc" \
+    --arg glog "$gate_log" --arg gcmd "${gate_cmd:-default}" --arg culprit "$culprit" --arg branch "$branch" '
+    {state: $state, base_sha: $base, train_branch: $branch, train_sha: $train,
+     gate: {rc: (if $grc == "" then null else ($grc | tonumber) end), log: $glog, cmd: $gcmd},
+     culprit: (if $culprit == "" then null else ($culprit | tonumber) end),
+     prs: [inputs | select(length > 0) | split("\t") | {pr: (.[0] | tonumber), head: .[1], status: .[2], reason: .[3]}]}' \
+    > "$receipt" 2>/dev/null || kit_say "degraded: could not write the receipt $receipt"
+}
+cleanup() {
+  local w
+  for w in ${made_wts[@]+"${made_wts[@]}"}; do git -C "$repo" worktree remove --force "$w" >/dev/null 2>&1; done
+  [ "$started" = 0 ] || git -C "$repo" branch -D "$branch" >/dev/null 2>&1
+  git -C "$repo" worktree prune >/dev/null 2>&1
+  return 0
+}
+finish() { # CODE STATE MSG
+  write_receipt "$2"; cleanup
+  kit_say "receipt=$receipt"
+  kit_fail "$1" "$2" "${3:-}"
+}
+
+kit_retry 3 git -C "$repo" fetch -q "$remote" || finish 21 fetch-failed "git fetch $remote still failing"
+base_sha="$(git -C "$repo" rev-parse "$base^{commit}" 2>/dev/null)" || finish 29 train-error "base ref $base does not resolve"
+
+# 1. per-PR checks: open, not draft, RDD head pin, head fetched and equal to what gh reports
+keep=()
+for p in "${prs[@]}"; do
+  info="$(kit_retry 3 gh pr view "$p" --json state,isDraft,headRefOid 2>/dev/null)" && [ -n "$info" ] || { p_status[$p]=refused; p_reason[$p]=gh-view-failed; kit_say "train-refused #$p: gh pr view failed"; continue; }
+  oid="$(jq -r '.headRefOid // empty' <<<"$info" 2>/dev/null)"; p_head[$p]="$oid"
+  why=''
+  if [ "$(jq -r '.state // empty' <<<"$info" 2>/dev/null)" != OPEN ]; then why=not-open
+  elif [ "$(jq -r '.isDraft' <<<"$info" 2>/dev/null)" != false ]; then why=draft
+  elif [ -z "$oid" ]; then why=no-head
+  elif [ -z "${pin[$p]:-}" ]; then why=rdd-unconfirmed
+  elif lo_oid="${oid,,}" && [ "${lo_oid#"${pin[$p],,}"}" = "$lo_oid" ]; then why=rdd-head-mismatch
+  elif ! kit_retry 3 git -C "$repo" fetch -q "$remote" "refs/pull/$p/head" 2>/dev/null \
+       || [ "$(git -C "$repo" rev-parse FETCH_HEAD 2>/dev/null)" != "$oid" ]; then why=head-moved
+  fi
+  if [ -n "$why" ]; then p_status[$p]=refused; p_reason[$p]=$why; kit_say "train-refused #$p: $why"; continue; fi
+  keep+=("$p")
+done
+[ "${#keep[@]}" -gt 0 ] || finish 28 train-empty "no PR passed the checks"
+
+# 2. the local train
+mkdir -p "$wtroot" || finish 29 train-error "cannot create $wtroot"
+git -C "$repo" worktree add -q -b "$branch" "$wt" "$base_sha" || finish 29 train-error "cannot create the train worktree $wt"
+started=1; made_wts+=("$wt")
+merged=()
+for p in "${keep[@]}"; do
+  if git -C "$wt" merge -q --no-ff -m "train: merge #$p" "${p_head[$p]}" >/dev/null 2>&1; then
+    merged+=("$p")
+  elif [ -n "$(git -C "$wt" ls-files -u)" ]; then
+    git -C "$wt" merge --abort >/dev/null 2>&1
+    p_status[$p]=dropped; p_reason[$p]=train-conflict; kit_say "train-conflict #$p: dropped from the batch"
+  else
+    git -C "$wt" merge --abort >/dev/null 2>&1
+    finish 29 train-error "merging #$p failed without a conflict"
+  fi
+done
+[ "${#merged[@]}" -gt 0 ] || finish 28 train-empty "every PR conflicted"
+train_sha="$(git -C "$wt" rev-parse HEAD)"
+
+# 3. ONE gate
+gate_args=(--state-dir "$state")
+[ -z "$gate_cmd" ] || gate_args+=(--cmd "$gate_cmd")
+[ "$serial" = 0 ] || gate_args+=(--serial)
+run_gate() { # LABEL -> sets gate_rc/gate_log, returns 0 green, 16 red; exits 22/29 on an unusable gate
+  local rc
+  gate_log="$state/gate-$1.log"
+  bash "$_RSDD_SELF/kit-gate.sh" "${gate_args[@]}" "$wt" "$1"; rc=$?
+  case "$rc" in
+    0) gate_rc=0 ;;
+    16) gate_rc=$(sed -n 's/^gate rc=//p' "$gate_log" 2>/dev/null | tail -1); gate_rc="${gate_rc:-1}" ;;
+    22) finish 22 gate-lock-timeout "another gate holds the lock" ;;
+    *) finish 29 train-error "kit-gate.sh exited $rc" ;;
+  esac
+  return "$rc"
+}
+if ! run_gate "train-$ts"; then
+  if [ "$bisect" = 1 ]; then
+    final_gate_rc="$gate_rc" final_gate_log="$gate_log"
+    lo=0 hi=${#merged[@]}
+    while [ $((hi - lo)) -gt 1 ]; do
+      mid=$(((lo + hi) / 2))
+      git -C "$wt" reset -q --hard "$base_sha" || finish 29 train-error "bisect reset failed"
+      for ((i = 0; i < mid; i++)); do
+        git -C "$wt" merge -q --no-ff -m "train: merge #${merged[$i]}" "${p_head[${merged[$i]}]}" >/dev/null 2>&1 \
+          || finish 29 train-error "bisect re-merge of #${merged[$i]} failed"
+      done
+      kit_say "bisect: gating the first $mid of ${#merged[@]} PRs"
+      if run_gate "train-$ts-bisect-$mid"; then lo=$mid; else hi=$mid; fi
+    done
+    culprit="${merged[$((hi - 1))]}"; p_status[$culprit]=culprit; p_reason[$culprit]=first-red-prefix
+    gate_rc="$final_gate_rc" gate_log="$final_gate_log"
+    kit_say "bisect: first red prefix ends at #$culprit (the base is assumed green; may be an interaction)"
+  fi
+  finish 26 train-gate-failed "the combined gate was red${culprit:+; culprit #$culprit}; nothing merged (log $gate_log)"
+fi
+
+# 4. merge in order, in a worktree at each PR's own head
+stopped='' stop_rc=0
+for p in "${merged[@]}"; do
+  if [ -n "$stopped" ]; then p_status[$p]=pending; p_reason[$p]="after #$stopped"; continue; fi
+  pw="$wtroot/train-$ts-pr$p"
+  if ! git -C "$repo" worktree add -q --detach "$pw" "${p_head[$p]}"; then
+    stopped=$p; stop_rc=29; p_status[$p]=pending; p_reason[$p]=worktree-failed; continue
+  fi
+  made_wts+=("$pw")
+  bash "$_RSDD_SELF/kit-wait-merge.sh" --base-ref "$base" "$pw" "$p"; mrc=$?
+  git -C "$repo" worktree remove --force "$pw" >/dev/null 2>&1
+  if [ "$mrc" -eq 0 ]; then
+    p_status[$p]=merged
+    kit_retry 3 git -C "$repo" fetch -q "$remote" || kit_say "warning: fetch after #$p failed; the next merge-gate may see a stale base"
+  else
+    stopped=$p; stop_rc=$mrc; p_status[$p]=pending; p_reason[$p]="stopped: kit-wait-merge rc=$mrc"
+  fi
+done
+if [ -n "$stopped" ]; then
+  case "$stop_rc" in
+    17) st=ci-failed ;; 18) st=merge-degraded ;; 29) st=train-error ;; *) st=not-merged; stop_rc=19 ;;
+  esac
+  finish "$stop_rc" "$st" "#$stopped stopped the train; the PRs after it are pending"
+fi
+for p in "${prs[@]}"; do
+  if [ "${p_status[$p]:-}" != merged ]; then
+    finish 27 train-partial "merged: ${merged[*]}; refused or dropped: see the receipt"
+  fi
+done
+finish 0 merged "all ${#merged[@]} PRs merged after one gate on train $train_sha"
