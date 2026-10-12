@@ -32,10 +32,10 @@ RDD → merge.
       extension load, agent home, skill/prompt discovery); adapt the kit if the layout changed; report results.
 - [x] K1 #2171 corroborate-ifc /tmp/rsdd leftovers.
 - [x] K2 #2169 suite summary-line lint.
-- [ ] K3 #2161 bare-pipe table readers; K4 #2162 deferred-row populations.
-- [ ] K5 gentle-shell follow-ups #2125 #2133 #2139 #2158; K6 #993 profiles eval.
+- [x] K3 #2161 bare-pipe table readers; K4 #2162 deferred-row populations.
+- [x] K5 gentle-shell follow-ups #2125 #2133 #2139 #2158; K6 #993 profiles eval.
 - [x] K7 session-start improvements: tool catalog drift (8 uncataloged tools), install --verify gentle-shell drift.
-- [ ] Z close: this document, Engram mirror, docs PR.
+- [x] Z close: this document, Engram mirror, docs PR.
 
 ## Progress / evidence
 - 2026-10-11: shared checkout fast-forwarded 0f904d25 → 568587bc (153 commits; local TARGETS.md edit and untracked
@@ -56,5 +56,29 @@ RDD → merge.
 - #2174 → PR #2187 (verify-session-budget --harness pi|both; niagara pi aggregate 5,781 OK); fix round.
 - K5b #2158/#2125/#2139 writer running.
 
+- K3/K4: #2179 (#2161 + #2178) and #2192 (#2162, one shared deferred reader, per-table width, backlog scope) merged.
+- #2182 → #2191 merged (stdin hashing, typed unreadable-snapshot); toolbelt part of #2190 → PR #2198 OPEN.
+- #2175 → #2184 merged; #2183 → #2200 merged (portable default, RSDD_INIT_WIRING; shrunk 758→2 lines in init.test.sh after lens_context_budget_exceeded).
+- #2174 → #2187 merged (RDD CRITICAL R1-001 bash arithmetic injection fixed: ^[0-9]+$ + stdin nonce; recover → successor lineage approved).
+- #2186 → #2188 merged (docker-exec mutant; snapshot only in suite-owned roots). /tmp/rsdd leftovers 15 → 4 → 0 expected.
+- K5: #2133 → #2185 merged; #2158 + #2139 → #2189 merged; #2125 stays open (needs gentle-shell source). #2195 (install suite TMPDIR leak, real marker-temp leak) → PR #2196 OPEN.
+- #2197 visibility teeth-I load flake (failed 4 gates) → #2199 merged. METHODOLOGY \| doctrine was wrong → #2194 merged.
+- K6 #993 closed by maintainer decision (A/B dropped; replaced by #2211 learn-from-gentle-shell + #2210 smoke).
+
+## Merged this chain
+Kit (15): #2172 #2176 #2180 #2181 #2179 #2194 #2185 #2191 #2184 #2192 #2199 #2200 #2187 #2188 #2189. Corpus: niagara-research #30 #31.
+
+## Stopped at close (maintainer decision, 2026-10-12)
+The serial ~45-min gate queue was stopped: PR #2196 and PR #2198 stay OPEN with reviews/fixes done; resume them after the fast-gates block (restack → RDD → gate). The final full gate on main moves to step 0 of the next session.
+
+## Decisions / new issues (2026-10-12)
+Local full gate stays authoritative (CI-only rejected). Next-session order: fast gates (#2203 part 1 E→extras, #2208, #2209, #2201+#2213+#2214, #2212) → #2211→#2204 doctrine diet → #2203 part 2, field tools, #2202 Go spike → #2216 #2215 #2210 #2206 #2205 #2207. Category E (VM/dynamic) → optional extras (no `forense`, never used).
+
+## Lessons
+- Run --prove-teeth on EVERY suite of an edited script (init teeth broke silently, #2184).
+- A load flake in one suite blocks every gate; isolate and fix it first (#2197).
+- Restacks re-trigger RDD + gate for every queued PR — batch merges (merge train, #2213).
+- Doctrine claims about renderers must be verified against the renderer (GFM \| — #2194).
+
 ## Next step
-Drain pipeline (#2179 #2184 #2185 #2188), #2187 fixes → pipeline, K5b; then K4 #2162, #2182, #2183, K6 #993, final gate on main, close.
+Next session step 0: final full gate on origin/main + shared checkout update; then the fast-gates block; then resume #2196 and #2198.
