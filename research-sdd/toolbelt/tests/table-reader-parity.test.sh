@@ -184,7 +184,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth st-deferred   research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' st_def
   tooth st-blockcol   research-sdd-status.sh 'gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL' '$0=$0  # GFM-EP-BLOCKCOL' st_blocks
   tooth st-iter       research-sdd-status.sh 'gsub(/\\\|/,"\001",l)  # GFM-EP-ITER' 'l=l  # GFM-EP-ITER' st_iter
-  tooth st-queue      research-sdd-status.sh 'ib { gsub(/\\\|/,"\001"); ' 'ib { ' st_queue
+  tooth st-queue      research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' st_queue
   tooth st-hdr        research-sdd-status.sh 'gsub(/\001/,"|",l); print "col_none' 'print "col_none' st_hdr
   tooth st-outline    research-sdd-status.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-OUTLINE' 'line=line  # GFM-EP-OUTLINE' st_outline
   tooth st-contra     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-CONTRA' 'line=line  # GFM-EP-CONTRA' st_contra

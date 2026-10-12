@@ -145,7 +145,7 @@ nq "$SUT" "$mk5" --queue
 if grep -q 'queue-unknown-gap' <<<"$err"; then no "2t 5-column open deferred row must be KNOWN [$err]"; else ok "2t 5-column open deferred row is known"; fi
 grep -q '1 deferred' <<<"$err" && ok "2t 5-column deferred counted as deferred" || no "2t counts [$err]"
 mk_q "$TMP/q-oob/RESEARCH-STATE.md" 0 'next_session_queue: G11' "high|G1 first gap|pending"
-printf '\n## Notes\n\n| Priority | Gap | Type | Status |\n|---|---|---|---|\n| deferred | G11 not a backlog row | web | parked |\n' >> "$TMP/q-oob/RESEARCH-STATE.md"
+printf '\n## Notes\n\n| Severity | Gap | Type | Status |\n|---|---|---|---|\n| deferred | G11 not a backlog row | web | parked |\n' >> "$TMP/q-oob/RESEARCH-STATE.md"
 nq "$SUT" "$TMP/q-oob" --queue; want "2v a deferred row outside a Gap-backlog section is NOT a backlog row (unknown, loud)" "NEXT | high | G1 first gap" 'WARN: queue-unknown-gap.*G11'
 
 # --- 2w. several rows match one queued id: warned, a servable one still wins ------------------------------------------------
@@ -248,7 +248,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     nq "$MUT" "$TMP/q-cls1" --queue; mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G10' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
     grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth I: closed-class rows unread -> em-dash gap reads unknown -> 2m has teeth" || no "teeth I: mutant still knew the em-dash gap [$err]"; fi
   # J: open deferred rows not read -> a queued parked gap reads unknown
-  if mutate J 's/if (pr!="deferred" || (NF!=6 \&\& NF!=7)) next/next/'; then
+  if mutate J 's/^      if (p!="deferred") next$/      next/'; then
     mk_q "$TMP/q-cls1/RESEARCH-STATE.md" 0 'next_session_queue: G8' "${CROWS[@]}"; nq "$MUT" "$TMP/q-cls1" --queue
     grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth J: open-deferred unread -> unknown -> 2m has teeth" || no "teeth J: mutant still knew the parked gap [$err]"; fi
   # K: in-progress counted as done -> the exhausted counts are wrong
@@ -287,12 +287,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutate S 's/case "\${val,,}" in/case "${val}" in/'; then
     nq "$MUT" "$TMP/q-NONE" --queue
     ! grep -q 'queue-empty' <<<"$err" && ok "teeth S: case-sensitive none -> 2q has teeth" || no "teeth S: still queue-empty [$err]"; fi
-  # T: open-deferred scan not limited to Gap-backlog sections -> 2v goes red
-  if mutate T 's/^      ib { gsub/      { gsub/'; then
+  # T: open-deferred scan not limited to Gap-backlog sections / Priority-headed tables (DEF-SCOPE, #2162) -> 2v goes red
+  if mutate T 's/if (!ib \&\& !tok) next/if (0) next/'; then
     nq "$MUT" "$TMP/q-oob" --queue
     ! grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth T: deferred row outside the backlog read -> 2v has teeth" || no "teeth T: still unknown [$err]"; fi
   # U: 5-column open deferred rows dropped -> 2t goes red
-  if mutate U 's/(NF!=6 \&\& NF!=7)/(NF!=6)/'; then
+  if mutate U 's/sc=(ex>0)?ex:4/sc=4/'; then
     nq "$MUT" "$mk5" --queue
     grep -q 'queue-unknown-gap' <<<"$err" && ok "teeth U: 5-col deferred unread -> 2t has teeth" || no "teeth U: mutant still knew it [$err]"; fi
   # W: ambiguity warning dropped -> 2w goes red
