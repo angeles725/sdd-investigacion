@@ -994,7 +994,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   home_m16="$TMP/teeth-m16-stale"
   bash "$MUTANT16" --home "$home_m16" --harness pi >/dev/null 2>&1
   render_dir_m16="$home_m16/.pi/agent/research-sdd/profile/general"
+  # The stale file must be RECORDED (kit issue #2133 review SF1): an unrecorded one is now refused by the
+  # guard whether or not the clean runs, which would make this control hollow.
   echo "stale" > "$render_dir_m16/STALE-MARKER.txt"
+  _m16_sha="$(sha256sum "$render_dir_m16/STALE-MARKER.txt" | awk '{print $1}')"
+  printf 'file=%s  research-sdd/profile/general/STALE-MARKER.txt\n' "$_m16_sha" >> "$home_m16/.pi/agent/research-sdd/.installed-bundle-state"
+  home_m16c="$TMP/teeth-m16-control"; mkdir -p "$home_m16c"; cp -a "$home_m16/." "$home_m16c/"
+  bash "$SUT" --home "$home_m16c" --harness pi >/dev/null 2>&1
+  [ ! -e "$home_m16c/.pi/agent/research-sdd/profile/general/STALE-MARKER.txt" ] \
+    && ok "57b: a stale RECORDED render file is cleaned by a plain re-install (no flag needed)" \
+    || no "57b: a stale recorded render file survived the real installer"
   bash "$MUTANT16" --home "$home_m16" --harness pi >/dev/null 2>&1
   if [ -e "$render_dir_m16/STALE-MARKER.txt" ]; then
     ok "teeth: MUTANT16 (clean skipped) leaves the stale marker → stale-render cleanup check has teeth"
@@ -2345,6 +2354,47 @@ if [ "$(cat "$RG_RD/SESSION-NOTES.md" 2>/dev/null)" = "orphan note" ] && [[ "$RG
   ok "RG7: a profile SWITCH keeps the orphaned old render dir when it holds an unrecorded file (named, not deleted)"
 else no "RG7: profile switch deleted/ignored an unrecorded file in the old render dir (rc=$RG_RC) :: $RG_OUT"; fi
 
+# RG8 (review SF2 + NIT8): a guard refusal on the render leg must SKIP the launcher rewrite, so launcher and skill never
+# point at different profiles. Sequence: general install -> stray in general dir -> switch to claude (old dir kept,
+# RG7) -> switch BACK to general (render dir holds the stray; the record now belongs to profile claude).
+_rg_reset; printf 'orphan note\n' > "$RG_RD/SESSION-NOTES.md"
+bash "$SUT" --home "$RG_HOME" --harness pi --profile claude >/dev/null 2>&1
+RG_AGENTS="$RG_HOME/.pi/agent/AGENTS.md"; RG_SKILL="$RG_HOME/.pi/agent/skills/research-sdd/SKILL.md"
+RG_L_BEFORE="$(cat "$RG_AGENTS" 2>/dev/null)"; RG_S_BEFORE="$(cat "$RG_SKILL" 2>/dev/null)"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi --profile general 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ "$(cat "$RG_AGENTS" 2>/dev/null)" = "$RG_L_BEFORE" ] && [ "$(cat "$RG_SKILL" 2>/dev/null)" = "$RG_S_BEFORE" ] \
+   && [[ "$RG_OUT" == *"SKIP"*"AGENTS.md"* ]] && [[ "$RG_OUT" == *"different profile"* ]] \
+   && [ "$(cat "$RG_RD/SESSION-NOTES.md" 2>/dev/null)" = "orphan note" ]; then
+  ok "RG8: a refused switch-back skips the launcher rewrite (typed SKIP), leaves launcher+skill on one profile, and names the record/profile mismatch"
+else no "RG8: refused switch-back rewrote the launcher or hid the mismatch (rc=$RG_RC) :: $RG_OUT"; fi
+
+# RG9 (NIT4): the profile dir itself being a symlink is refused — the guard must not look through it, and the
+# clean must not delete the link target (a sibling dir that is still inside profile/).
+_rg_reset; mkdir -p "$RG_HOME/.pi/agent/research-sdd/profile/real-target"; printf 'precious\n' > "$RG_HOME/.pi/agent/research-sdd/profile/real-target/KEEP.md"
+rm -rf "$RG_RD"; ln -s "$RG_HOME/.pi/agent/research-sdd/profile/real-target" "$RG_RD"
+RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [ "$(cat "$RG_HOME/.pi/agent/research-sdd/profile/real-target/KEEP.md" 2>/dev/null)" = precious ] && [[ "$RG_OUT" == *"REFUSED"*"symlink"* ]]; then
+  ok "RG9: a symlinked profile dir is refused (typed) and its target survives"
+else no "RG9: symlinked profile dir not refused / target lost (rc=$RG_RC) :: $RG_OUT"; fi
+
+# RG10 (NIT3): a RECORDED regular render file whose bytes were edited since the install is protected too.
+_rg_reset; RG_MOD="$RG_RD/METHODOLOGY.md"
+if [ -f "$RG_MOD" ] && [ ! -L "$RG_MOD" ]; then
+  printf '\nZZ-LOCAL-EDIT-2133\n' >> "$RG_MOD"
+  RG_OUT="$(bash "$SUT" --home "$RG_HOME" --harness pi 2>&1)"; RG_RC=$?
+  if [ "$RG_RC" = 1 ] && grep -q 'ZZ-LOCAL-EDIT-2133' "$RG_MOD" && [[ "$RG_OUT" == *"REFUSED"*"METHODOLOGY.md"* ]]; then ok "RG10: an edited recorded render file refuses the re-install and survives"
+  else no "RG10: edited recorded file not protected (rc=$RG_RC) :: $RG_OUT"; fi
+else no "RG10: fixture assumption broken — METHODOLOGY.md is not a regular file in the render dir"; fi
+
+# RG11 (NIT5): a backup that fails part-way names the destination and what was already moved.
+_rg_reset; printf 'a\n' > "$RG_RD/A-first.md"; printf 'b\n' > "$RG_RD/B-second.md"
+RG_FAKEBIN="$TMP/rg-fakebin"; mkdir -p "$RG_FAKEBIN"
+printf '#!/bin/sh\nn="%s/count"\nc=$(cat "$n" 2>/dev/null || echo 0); c=$((c+1)); echo "$c" > "$n"\n[ "$c" -ge 2 ] && exit 1\nexec /bin/mv "$@"\n' "$RG_FAKEBIN" > "$RG_FAKEBIN/mv"; chmod +x "$RG_FAKEBIN/mv"
+RG_OUT="$(PATH="$RG_FAKEBIN:$PATH" bash "$SUT" --home "$RG_HOME" --harness pi --backup-unrecorded 2>&1)"; RG_RC=$?
+if [ "$RG_RC" = 1 ] && [[ "$RG_OUT" == *"backups/unrecorded-general-"* ]] && [[ "$RG_OUT" == *"already moved"* ]] && [ "$(find "$RG_RD" -maxdepth 1 \( -name A-first.md -o -name B-second.md \) | wc -l)" = 1 ]; then
+  ok "RG11: a partial backup failure names the backup dir and the files already moved, and removes nothing else"
+else no "RG11: partial backup failure not reported (rc=$RG_RC) :: $RG_OUT"; fi
+
 # --- --verify teeth (kit issue #1702): every mutant is a temp copy built by lib/mutant.sh (refused =
 #     counted exactly once, its tooth never runs); every tooth pins the exact good/bad exit codes plus an
 #     anchored typed line, and a crash can never read as a bite.
@@ -3319,7 +3369,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   _gmk "teeth: G-T1 guard returns early" "$SUT" "$MKI/g-t1.sh" "${_GFN}s/^  local dir=.*\$/&\n  return 0/" \
     && _gtt "teeth: guard disabled → a re-install deletes the session-written file" 1 0 "$MKI/g-t1.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
-  _gmk "teeth: G-T2 enumerator finds nothing" "$SUT" "$MKI/g-t2.sh" 's/if (!(p in known)) print \$0/if (0) print $0/' \
+  _gmk "teeth: G-T2 enumerator finds nothing" "$SUT" "$MKI/g-t2.sh" 's/else print "U\\t" \$0/else next/' \
     && _gtt "teeth: enumerator that lists nothing → unrecorded files read as absent (silent zero)" 1 0 "$MKI/g-t2.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
   _gmk "teeth: G-T3 refusal exits 0" "$SUT" "$MKI/g-t3.sh" "${_GFN}s/^    return 1\$/    return 0/" \
     && _gtt "teeth: refusal that returns success → the clean still runs and the file is lost" 1 0 "$MKI/g-t3.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_KEEP" _ @SUT@
@@ -3338,6 +3388,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _G_DRY='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; printf keep > "$rd/NOTE.md"; bash "$1" --home "$h" --harness pi --dry-run 2>&1; rc=$?; rm -rf "$h"; exit $rc'
   _gmk "teeth: G-T10 dry-run call site unguarded" "$SUT" "$MKI/g-t10.sh" 's/if ! _rsdd_guard_unrecorded "\$render_dir" "\$config_root" "\$profile" 1; then/if false; then/' \
     && _gtt "teeth: dry-run that does not preview the refusal → a plan promises a re-install that will be refused" 1 0 "$MKI/g-t10.sh" --good-has 'REFUSED' --bad-lacks "$_GCRASH|REFUSED" -- "$_GBASH" -c "$_G_DRY" _ @SUT@
+  # Review round (kit issue #2133): symlinked render dir, edited recorded file, launcher skip on a refused render leg.
+  _G_LINK='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; pr="$h/.pi/agent/research-sdd/profile"; mkdir -p "$pr/real-target"; printf keep > "$pr/real-target/KEEP.md"; rm -rf "$pr/general"; ln -s "$pr/real-target" "$pr/general"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rc=$?; if [ "$(cat "$pr/real-target/KEEP.md" 2>/dev/null)" = keep ]; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _G_EDIT='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; printf "\nZZ-LOCAL-EDIT-2133\n" >> "$rd/METHODOLOGY.md"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rc=$?; if grep -q "ZZ-LOCAL-EDIT-2133" "$rd/METHODOLOGY.md" 2>/dev/null; then echo SURVIVED; else echo LOST; fi; rm -rf "$h"; exit $rc'
+  _G_SPLIT='h="$(mktemp -d)"; bash "$1" --home "$h" --harness pi >/dev/null 2>&1; rd="$h/.pi/agent/research-sdd/profile/general"; printf keep > "$rd/NOTE.md"; bash "$1" --home "$h" --harness pi --profile claude >/dev/null 2>&1; a="$(cat "$h/.pi/agent/AGENTS.md")"; bash "$1" --home "$h" --harness pi --profile general >/dev/null 2>&1; rc=$?; if [ "$(cat "$h/.pi/agent/AGENTS.md")" = "$a" ]; then echo LAUNCHER_KEPT; else echo LAUNCHER_SPLIT; fi; rm -rf "$h"; exit $rc'
+  _gmk "teeth: G-T11 symlink check off" "$SUT" "$MKI/g-t11.sh" 's/if \[ -L "\$dir" \]; then/if false; then/' \
+    && _gtt "teeth: symlinked render dir not refused → the link target is deleted" 1 1 "$MKI/g-t11.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_LINK" _ @SUT@
+  _gmk "teeth: G-T12 recorded-hash check off" "$SUT" "$MKI/g-t12.sh" 's/\[ "\$cur" = "\$a" \] || printf/true || printf/' \
+    && _gtt "teeth: edited recorded file read as untouched → the hand edit is deleted" 1 0 "$MKI/g-t12.sh" --good-has '^SURVIVED$' --bad-has '^LOST$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_EDIT" _ @SUT@
+  _gmk "teeth: G-T13 launcher skip off" "$SUT" "$MKI/g-t13.sh" 's/elif \[ "\$render_blocked" = 1 \]; then/elif false; then/' \
+    && _gtt "teeth: refused render leg still rewrites the launcher → launcher and skill point at different profiles" 1 1 "$MKI/g-t13.sh" --good-has '^LAUNCHER_KEPT$' --bad-has '^LAUNCHER_SPLIT$' --bad-lacks "$_GCRASH" -- "$_GBASH" -c "$_G_SPLIT" _ @SUT@
 fi
 
 # Live-tree hermeticity (kit issue #1156): nothing under research-sdd/install changed during the run.
