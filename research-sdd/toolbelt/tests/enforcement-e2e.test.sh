@@ -207,8 +207,8 @@ if [ -f "$_r2_settings" ]; then
   _r2_ss_cmd1="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if <<<"$_r2_stop_cmd1" grep -q 'retro-gate-stop.sh'; then
-  ok "R2: --scaffold --wire on a fresh target wired Stop (retro-gate-stop.sh)"
+if <<<"$_r2_stop_cmd1" grep -q 'kit-run.sh toolbelt/retro-gate.sh'; then
+  ok "R2: --scaffold --wire on a fresh target wired Stop (retro gate via tools/hooks/kit-run.sh, the portable default)"
 else
   no "R2: --scaffold --wire did NOT wire Stop — stop=[$_r2_stop_cmd1]"
 fi
@@ -237,7 +237,7 @@ if [ -f "$_r2_settings" ]; then
   _r2_ss_cmd2="$(jq -r '[.hooks.SessionStart[]?.hooks[]?.command | select(contains("research-protocol.sh"))][0] // empty' "$_r2_settings" 2>/dev/null)"
 fi
 
-if <<<"$_r2_stop_cmd2" grep -q 'retro-gate-stop.sh' && \
+if <<<"$_r2_stop_cmd2" grep -q 'kit-run.sh toolbelt/retro-gate.sh' && \
    <<<"$_r2_ss_cmd2" grep -q 'research-protocol.sh'; then
   ok "R2: after adapting the hook, a re-run --wire wires BOTH Stop and SessionStart"
 else
