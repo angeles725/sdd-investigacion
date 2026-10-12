@@ -211,6 +211,17 @@ They are listed here so a reader of this registry finds every typed state the sc
   | `rdd-not-approved` | 13 | read the printed `rdd-stop: <reason_code>` (or `non-capture-collect (<op>)`); recover by hand, there is no automatic recovery, then re-run |
   | `rdd-protocol-error` | 14 | the provider answered with a shape the driver does not accept (detail printed); check the gentle-ai version, then re-run |
 
+- `size: <state>` and `degraded: kit-size-check: <reason>` (maint/kit-size-check.sh, kit issue #2214): the pre-RDD size
+  guard prints one verdict line `size: ok|over-budget|refuse|empty-input|all-excluded|unmeasured|degraded`. `empty-input` (the diff
+  lists no file), `all-excluded` (files changed, none measured, every one excluded data or binary) and `unmeasured`
+  (only binaries and/or pure renames) are the distinct non-measurements: none is a small diff. A hotspot candidate
+  whose diff failed prints `hotspot: unchecked <file>`, which is not a clean no-churn. `degraded` (exit 2, reason on stderr: no git or awk, not a work tree, unresolved base or head
+  ref, no merge base, mktemp failed, diff failed, malformed rename record, bad flag or value, a control
+  character in a path) is never a zero.
+  The scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
+  are listed here, not in the table. Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
+  `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
+
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 
 Nothing remains scheduled. Every item below is settled; reopen only on the stated trigger.

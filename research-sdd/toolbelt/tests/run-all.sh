@@ -16,13 +16,28 @@
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
-#                [--shard I/N [--shard-manifest PATH]] | --list-suites
+#                [--tier <core|extras|all>] [--shard I/N [--shard-manifest PATH]] | --list-suites
 #
+#   --tier <t>       Suite tier (kit issue #2203), default `core`. suite-tiers.txt (next to this script) lists
+#                    the EXTRAS suites, one `<repo-relative suite path> extras <reason>` per line ('#' comments,
+#                    blank lines ignored): category E VM/dynamic-sandbox suites and unused adapters. `core` runs
+#                    everything not listed, `extras` only the listed ones, `all` both. The manifest is parsed
+#                    strictly: a line without a reason, a tier word other than `extras`, a duplicate, or a path
+#                    that names no discovered suite is `Tier: INVALID` and exits 1 BEFORE any suite runs (a
+#                    renamed suite must never silently drop out of the gate). An ABSENT or unreadable manifest
+#                    is `Tier: DEGRADED`: every suite runs and the run exits 1 (anti-silent-zero). A tier that
+#                    selects 0 suites is `Tier: EMPTY` and exits 1. An invalid value exits 2. The aggregate
+#                    prints `Tier: <t> — K of T suites (excluded: N)` (T = every discovered suite). The tier
+#                    filter applies BEFORE --list-suites and --shard, so both operate on the selected tier;
+#                    discovery, the empty-list check and the install-corpus ABSENT gate judge the full set.
+#                    --require-teeth implies `--tier all`; with an explicit core|extras it exits 2 (the
+#                    stale-waiver check judges the whole corpus). Also `--tier=<t>`.
 #   --shard I/N      Opt-in CI sharding (kit issue #2114): run only shard I of N (1 <= I <= N <= 32). The
-#                    FULL discovered list of BOTH corpora is sorted by repo-relative path (LC_ALL=C) and
+#                    selected tier's list (all suites of BOTH corpora under --tier all) is sorted by
+#                    repo-relative path (LC_ALL=C) and
 #                    suite number k (0-based) belongs to shard (k mod N) + 1, a disjoint cover of the list
 #                    for every N. Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
-#                    (#1126/#1144) still apply to the FULL list. The aggregate gains one
+#                    (#1126/#1144) still judge the FULL discovered set. The aggregate gains one
 #                    `Shard: I/N — K of T suites` line; K = 0 (N > T) is reported as EMPTY SHARD and exits 1
 #                    (zero coverage is never a pass). Without the flag nothing changes. Also `--shard=I/N`.
 #   --shard-manifest PATH
@@ -31,7 +46,7 @@
 #                    line per suite this shard ran. shard-join.sh consumes the N manifests and proves the
 #                    union covers every suite exactly once, all green.
 #                    Not combinable with --require-teeth (exit 2): the waiver gate needs the whole corpus.
-#   --list-suites    Print the full discovered suite list (repo-relative, LC_ALL=C sorted), one per line,
+#   --list-suites    Print the selected tier's suite list (repo-relative, LC_ALL=C sorted), one per line,
 #                    and exit (1 when the install corpus is absent). The single discovery source for
 #                    shard-join.sh.
 #
@@ -256,7 +271,7 @@ KEEP_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--shard I/N [--shard-manifest PATH]] | --list-suites"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--tier <core|extras|all>] [--shard I/N [--shard-manifest PATH]] | --list-suites"
 MAX_SHARDS=32
 SHARD_I=""
 SHARD_N=""
@@ -282,6 +297,15 @@ _parse_shard_manifest() {  # <path> — sets SHARD_MANIFEST or exits 2
     exit 2
   fi
   SHARD_MANIFEST="$1"
+}
+TIER="core"
+TIER_EXPLICIT=""
+_parse_tier() {  # <value> — sets TIER or exits 2 (before any suite runs)
+  # SENTINEL-TIER-VALIDATE
+  case "$1" in
+    core|extras|all) TIER="$1"; TIER_EXPLICIT=1 ;;
+    *) echo "invalid --tier value '$1' (allowed: core extras all); $USAGE" >&2; exit 2 ;;
+  esac
 }
 LANE_ARG=""
 _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
@@ -339,6 +363,13 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
     --lane=*)
       _parse_lane "${_a#--lane=}"
       ;;
+    --tier)
+      _ai=$((_ai + 1))
+      _parse_tier "${_args[$_ai]-}"
+      ;;
+    --tier=*)
+      _parse_tier "${_a#--tier=}"
+      ;;
     --shard)
       _ai=$((_ai + 1))
       _parse_shard "${_args[$_ai]-}"
@@ -383,8 +414,16 @@ if [[ -n "$REQUIRE_TEETH" && -n "$SHARD_N" ]]; then
   echo "--require-teeth cannot be combined with --shard: the teeth-helper waiver gate judges the whole corpus, so a shard would report waivers for suites in other shards as stale and fail; run --require-teeth unsharded; $USAGE" >&2
   exit 2
 fi
+# SENTINEL-TIER-REQUIRE-TEETH-REFUSE
+if [[ -n "$REQUIRE_TEETH" ]]; then
+  if [[ -n "$TIER_EXPLICIT" && "$TIER" != "all" ]]; then
+    echo "--require-teeth cannot be combined with --tier $TIER: the teeth-helper waiver gate judges the whole corpus, so the excluded suites' waivers would be reported as stale; --require-teeth implies --tier all; $USAGE" >&2
+    exit 2
+  fi
+  TIER="all"
+fi
 if [[ -n "$LIST_SUITES" && -n "$SHARD_N" ]]; then
-  echo "--list-suites lists the FULL discovered set and cannot be combined with --shard; $USAGE" >&2
+  echo "--list-suites lists the selected tier and cannot be combined with --shard; $USAGE" >&2
   exit 2
 fi
 
@@ -434,10 +473,74 @@ fi
 # install corpus now runs FIRST, not interleaved by suite name).
 mapfile -t all_suites < <(printf '%s\n' "${all_suites[@]}" | sort)
 
+# --- Suite tiers (kit issue #2203) ------------------------------------------------------------
+# suite-tiers.txt lists the EXTRAS suites ("<repo-relative suite path> extras <reason>"; '#' comments and blank
+# lines ignored). The manifest is judged against the FULL discovered set, then the list is filtered by --tier
+# BEFORE --list-suites / --shard / total_suites below, so those operate on the selected tier. Strict like
+# teeth-helper-waivers.txt: every defect is a typed `Tier: INVALID` line and exit 1 before any suite runs (a
+# renamed suite must not silently drop out of the gate); an absent/unreadable manifest is DEGRADED (run ALL, exit 1).
+# SENTINEL-SUITE-TIER
+TIER_MANIFEST="$SCRIPT_DIR/suite-tiers.txt"
+TIER_DEGRADED=""
+discovered_suites=${#all_suites[@]}
+declare -A _rel_known=()
+for f in "${all_suites[@]}"; do _rel_known["${suite_rel[$f]}"]=1; done
+declare -A _extras_reason=()
+_tier_invalid=()
+if [[ ! -e "$TIER_MANIFEST" ]]; then
+  TIER_DEGRADED="suite-tiers.txt absent"
+elif [[ ! -f "$TIER_MANIFEST" || ! -r "$TIER_MANIFEST" ]]; then
+  TIER_DEGRADED="suite-tiers.txt unreadable"
+else
+  _tl_n=0
+  while IFS= read -r _tl || [[ -n "$_tl" ]]; do
+    _tl_n=$((_tl_n + 1))
+    _tl="${_tl#"${_tl%%[![:space:]]*}"}"
+    [[ -z "$_tl" || "$_tl" == "#"* ]] && continue
+    read -r _tl_path _tl_word _tl_why <<<"$_tl"
+    if [[ -z "$_tl_word" ]]; then
+      _tier_invalid+=("line $_tl_n: '$_tl_path' has no tier word and no reason")
+    elif [[ "$_tl_word" != "extras" ]]; then
+      _tier_invalid+=("line $_tl_n: unknown tier '$_tl_word' for '$_tl_path' (only 'extras' is listed; core is the default)")
+    elif [[ -z "$_tl_why" ]]; then
+      _tier_invalid+=("line $_tl_n: '$_tl_path' has no reason")
+    elif [[ "${_extras_reason[$_tl_path]+set}" == "set" ]]; then
+      _tier_invalid+=("line $_tl_n: '$_tl_path' is listed twice")
+    elif [[ "${_rel_known[$_tl_path]+set}" != "set" ]]; then
+      _tier_invalid+=("line $_tl_n: '$_tl_path' names no discovered suite (renamed or removed?)")
+    else
+      _extras_reason["$_tl_path"]="$_tl_why"
+    fi
+  done < "$TIER_MANIFEST"
+fi
+if [[ ${#_tier_invalid[@]} -gt 0 ]]; then
+  for _ti in "${_tier_invalid[@]}"; do echo "Tier: INVALID — $TIER_MANIFEST $_ti" >&2; done
+  echo "run-all.sh: suite-tiers.txt has ${#_tier_invalid[@]} invalid line(s); nothing ran" >&2
+  exit 1
+fi
+if [[ -n "$TIER_DEGRADED" ]]; then
+  echo "Tier: DEGRADED — $TIER_DEGRADED; running ALL $discovered_suites suite(s) because the extras cannot be told apart; the run exits non-zero" >&2
+elif [[ "$TIER" != "all" ]]; then
+  _tier_sel=()
+  for f in "${all_suites[@]}"; do
+    if [[ "${_extras_reason[${suite_rel[$f]}]+set}" == "set" ]]; then
+      [[ "$TIER" == "extras" ]] && _tier_sel+=("$f")
+    else
+      [[ "$TIER" == "core" ]] && _tier_sel+=("$f")
+    fi
+  done
+  all_suites=("${_tier_sel[@]+"${_tier_sel[@]}"}")
+fi
+if [[ ${#all_suites[@]} -eq 0 ]]; then
+  echo "Tier: EMPTY — --tier $TIER selected 0 of $discovered_suites suites (check suite-tiers.txt); nothing ran, so this is not a pass" >&2
+  exit 1
+fi
+
 # --- --list-suites / --shard (kit issue #2114) -------------------------------------------------
-# Both operate on the FULL discovered list above; the empty-list gate has already run on it and
-# INSTALL_TESTS_DEGRADED (checked at exit) is untouched by the selection.
-total_suites=${#all_suites[@]}
+# Both operate on the tier-selected list above (kit issue #2203); the empty-list gate has already run on the
+# FULL discovered list and INSTALL_TESTS_DEGRADED (checked at exit) is untouched by the selection.
+total_suites=${#all_suites[@]}   # the SELECTED tier's count (discovered_suites is the full set)
+tier_selected=$total_suites
 if [[ -n "$LIST_SUITES" || -n "$SHARD_N" ]]; then
   declare -A _rel_abs=()
   for f in "${all_suites[@]}"; do _rel_abs["${suite_rel[$f]}"]="$f"; done
@@ -449,7 +552,7 @@ if [[ -n "$LIST_SUITES" || -n "$SHARD_N" ]]; then
 fi
 if [[ -n "$LIST_SUITES" ]]; then
   printf '%s\n' "${_sorted_rels[@]}"
-  [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] || exit 1
+  [[ "$INSTALL_TESTS_DEGRADED" -eq 0 && -z "$TIER_DEGRADED" ]] || exit 1
   exit 0
 fi
 if [[ -n "$SHARD_N" ]]; then
@@ -1084,6 +1187,11 @@ if [[ "$INSTALL_TESTS_DEGRADED" -eq 1 ]]; then
 else
   echo "Corpus: install tests ($INSTALL_TESTS_DIR) = $((${#install_sh_suites[@]} + ${#install_mjs_suites[@]})) suite(s)"
 fi
+if [[ -n "$TIER_DEGRADED" ]]; then
+  echo "Tier: DEGRADED — $TIER_DEGRADED; ran all $discovered_suites suites; run exits non-zero"
+else
+  echo "Tier: $TIER — $tier_selected of $discovered_suites suites (excluded: $((discovered_suites - tier_selected)))"
+fi
 if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
 fi
@@ -1282,7 +1390,7 @@ final_rc=1
 if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#hermeticity_violations[@]} -eq 0 ]] && [[ "$HERMETICITY_DEGRADED" -eq 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
-   && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]]; then
+   && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] && [[ -z "$TIER_DEGRADED" ]]; then
   final_rc=0
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
   if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
