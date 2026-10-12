@@ -345,7 +345,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
     reg=$(printf '%s' "$shacell" | tr -d '`[:blank:]')
     if grep -qiE '^[0-9a-f]{64}$' <<<"$reg"; then
       reg_full=$(printf '%s' "$reg" | tr 'A-F' 'a-f')                 # normalize case for the compare
-      disk_full=$(sha256sum "$file" | cut -d' ' -f1)
+      disk_full=$(sha256sum < "$file" | cut -d' ' -f1)   # SHA-STDIN (#2182): stdin form prints name `-`, never the `\`-escaped name GNU adds for names with `\`/newline
       if [ "$reg_full" != "$disk_full" ]; then   # HASH-INTEGRITY compare
         echo "   hash-mismatch: ${file#"$corpus"/} — registered ${reg_full:0:16}… but file hashes ${disk_full:0:16}… (tampered/corrupted or stale registration)"
         rc=1
@@ -365,7 +365,7 @@ if [ -f "$sources_md" ] && command -v sha256sum >/dev/null 2>&1; then
           pfx="${reg%%…*}"; pfx="${pfx%%[.][.][.]*}"; pfx="$(printf '%s' "$pfx" | tr -d '[:space:]')"
           pfx_lower="$(printf '%s' "$pfx" | tr 'A-F' 'a-f')"
           if grep -qE '^[0-9a-f]+$' <<<"$pfx_lower" && [ "${#pfx_lower}" -ge "$MIN_PREFIX" ]; then
-            disk_pfx="$(sha256sum "$file" | cut -d' ' -f1 | cut -c1-"${#pfx_lower}")"   # PREFIX-COMPARISON compare
+            disk_pfx="$(sha256sum < "$file" | cut -d' ' -f1 | cut -c1-"${#pfx_lower}")"   # PREFIX-COMPARISON compare
             if [ "$pfx_lower" = "$disk_pfx" ]; then
               hverified=$((hverified + 1))
             else
