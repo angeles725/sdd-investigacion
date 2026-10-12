@@ -38,6 +38,17 @@
 #                   verify harness=<h> status=drift drifted=<path (modified|missing|extra)>,...
 #                   verify harness=<h> status=absent (not installed)
 #                   verify harness=<h> status=degraded reason=<why>   (no sha256 tool, no/corrupt record, unreadable file, kit agent source missing)
+#                 On pi and gentle-shell (kit issue #2124) the install deploys three read-only TIER agents
+#                 (research-sdd-mechanical|structural|reasoning, no `model:`) to <config_root>/agents/, PRINTS a
+#                 ready-to-merge model_profiles snippet (placeholder models, a clean JSON block between two marker lines; never written:
+#                 model selection is user-owned), and --verify adds one INFORMATIONAL line per tier agent of an
+#                 installed harness (never changes the exit code; the project <cwd>/.pi/subagents.json wins over
+#                 the global <config_root>/subagents.json):
+#                   verify tier-profile harness=<h> agent=<name> status=configured|placeholder source=project|global file=<path>
+#                   (project wins when its entry has a model string, placeholder or not - the runtime merge rule)
+#                   verify tier-profile harness=<h> agent=<name> status=unconfigured looked=<global>,<project>
+#                   verify tier-profile harness=<h> agent=<name> status=degraded reason=<unreadable / invalid JSON>
+#                   verify tier-profile-note harness=<h> not-checked=profile pins and session bindings (they replace model_profiles)
 #                 After the harness lines, ONE kit-checkout staleness line (advisory: it never changes the exit
 #                 code), because deployed Stop hooks exec toolbelt scripts from THIS checkout:
 #                   verify kit status=current ref=<upstream> behind=0
@@ -655,6 +666,119 @@ _rsdd_agent_names() {
   done
   [ -n "$names" ] || return 1
   printf '%s' "$names" | LC_ALL=C sort
+}
+
+# --- tier model profiles (kit issue #2124) ----------------------------------------------------------
+# pi / gentle-shell resolve a subagent's model from subagents.json `model_profiles[<agent name>]` (global
+# <config_root>/subagents.json, merged under by the project's <cwd>/.pi/subagents.json), then the agent's own
+# frontmatter `model`, then default_model, then the session model. The kit's tier agents carry no `model:`,
+# and model selection is user-owned (toolbelt/model-tiers.v1.md §3): the installer therefore PRINTS a
+# ready-to-merge snippet and --verify REPORTS whether a profile exists; it never writes a subagents.json.
+_RSDD_TIER_AGENTS="research-sdd-mechanical research-sdd-structural research-sdd-reasoning"
+
+# _rsdd_print_tier_snippet <h> <home> — the model_profiles snippet for the tier agents this harness ships: a clean
+# JSON block between two marker lines (no per-line prefix, so it pastes as valid JSON). Prints nothing when the
+# harness has no model_profiles support. Placeholder models only; a project path is not printed (it would depend
+# on the caller's cwd), the relative file name is.
+_rsdd_print_tier_snippet() {
+  local h="$1" home="$2" gpath a first=1 ph e
+  [ "$(rsdd_field "$h" supports_model_profiles)" = true ] || return 0
+  gpath="$(rsdd_field "$h" model_profiles_path "$home")"
+  printf '  %s\n' "model profiles: NOT written (model selection is user-owned). Merge the JSON block below into your project's .pi/subagents.json"
+  printf '  %s\n' "(or the global $gpath); if it already has a model_profiles object, add these three keys to it. Replace every <placeholder> first:"
+  printf '%s\n' "--- model_profiles snippet: begin ---"
+  printf '{\n  "model_profiles": {\n'
+  for a in $_RSDD_TIER_AGENTS; do
+    case "$a" in
+      *-mechanical) ph="<provider>/<lowest-cost-model>"; e=low ;;
+      *-structural) ph="<provider>/<mid-cost-model>"; e=medium ;;
+      *)            ph="<provider>/<strongest-model>"; e=high ;;
+    esac
+    [ "$first" = 1 ] || printf ',\n'
+    first=0
+    printf '    "%s": { "model": "%s", "effort": "%s" }' "$a" "$ph" "$e"
+  done
+  printf '\n  }\n}\n'
+  printf '%s\n' "--- model_profiles snippet: end ---"
+  printf '  %s\n' "A model left as a <placeholder> is spawned literally (--verify reports status=placeholder). Dispatch a tier with subagent_run agent=research-sdd-<tier>."
+}
+
+# _rsdd_profile_file_state <file> <agent> — one of: configured · placeholder · unconfigured · absent ·
+# degraded:<reason>. The runtime merges a project entry over a global one field by field (`profile.model ??
+# base.model`), so what matters per file is whether model_profiles[<agent>].model is a non-empty STRING:
+# configured = a real model ref; placeholder = a string that still starts with `<` (it is accepted and spawned
+# literally); unconfigured = no usable model string. absent = the file does not exist (a normal state);
+# degraded = it exists but cannot be settled (unreadable, invalid JSON, or neither python3 nor jq to read it) -
+# never silently counted as unconfigured (CLAUDE.md §7).
+_rsdd_profile_file_state() {
+  local f="$1" agent="$2" out
+  [ -e "$f" ] || { echo absent; return 0; }
+  if [ ! -f "$f" ] || [ ! -r "$f" ]; then echo "degraded:$f is not a readable file"; return 0; fi
+  if command -v python3 >/dev/null 2>&1; then
+    out="$(python3 -I -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        d = json.load(fh)
+except Exception:
+    print("invalid"); sys.exit(0)
+mp = d.get("model_profiles") if isinstance(d, dict) else None
+p = mp.get(sys.argv[2]) if isinstance(mp, dict) else None
+m = p.get("model") if isinstance(p, dict) else None
+if isinstance(m, str) and m.strip():
+    print("placeholder" if m.strip().startswith("<") else "configured")
+else:
+    print("unconfigured")
+' "$f" "$agent" 2>/dev/null)" || out=""
+  elif command -v jq >/dev/null 2>&1; then
+    out="$(jq -r --arg a "$agent" '(try .model_profiles[$a].model catch null) as $m | if ($m|type)=="string" and (($m|gsub("^\\s+|\\s+$";""))|length>0) then (if ($m|gsub("^\\s+";"")|startswith("<")) then "placeholder" else "configured" end) else "unconfigured" end' "$f" 2>/dev/null)" || out="invalid"
+  else
+    echo "degraded:no JSON tool (python3 and jq both absent) to read $f"; return 0
+  fi
+  case "$out" in
+    configured|placeholder|unconfigured) echo "$out" ;;
+    invalid) echo "degraded:$f is not valid JSON" ;;
+    *) echo "degraded:$f could not be read as JSON" ;;
+  esac
+}
+
+# _rsdd_verify_tier_profiles <h> <home> — informational `verify tier-profile` lines (one per tier agent) for an
+# INSTALLED harness that supports model_profiles; never changes the verify exit code. Resolved with the SAME
+# precedence as the runtime: a project entry that carries a model string wins over the global one, placeholder or
+# not (a placeholder in the project file hides a real global profile); a project entry without a model falls
+# through to the global file. Profile pins and session bindings replace model_profiles wholesale at runtime and
+# are invisible here: one note line says so.
+_rsdd_verify_tier_profiles() {
+  local h="$1" home="$2" gfile pfile a g p reason
+  [ "$(rsdd_field "$h" supports_model_profiles)" = true ] || return 0
+  [ -e "$(rsdd_field "$h" config_root "$home")/research-sdd/.installed-bundle-state" ] || return 0
+  gfile="$(rsdd_field "$h" model_profiles_path "$home")"
+  pfile="$PWD/.pi/subagents.json"
+  for a in $_RSDD_TIER_AGENTS; do
+    g="$(_rsdd_profile_file_state "$gfile" "$a")"
+    p="$(_rsdd_profile_file_state "$pfile" "$a")"
+    if [ "$p" = configured ] || [ "$p" = placeholder ]; then
+      printf 'verify tier-profile harness=%s agent=%s status=%s source=project file=%s\n' "$h" "$a" "$p" "$pfile"
+    elif [ "${g%%:*}" = degraded ] || [ "${p%%:*}" = degraded ]; then
+      reason=""
+      [ "${g%%:*}" != degraded ] || reason="${g#degraded:}"
+      [ "${p%%:*}" != degraded ] || reason="${reason:+$reason; }${p#degraded:}"
+      # The runtime's readJson treats an invalid PROJECT file as missing, so the tier then runs on what the global
+      # file says: keep status=degraded (the file is broken) and append that effective result.
+      if [ "${p%%:*}" = degraded ] && [ "${p%" is not valid JSON"}" != "$p" ] && [ "${g%%:*}" != degraded ]; then
+        case "$g" in
+          configured|placeholder) reason="$reason (runtime ignores an invalid project file) effective=$g source=global" ;;
+          *)                      reason="$reason (runtime ignores an invalid project file) effective=unconfigured" ;;
+        esac
+      fi
+      printf 'verify tier-profile harness=%s agent=%s status=degraded reason=%s\n' "$h" "$a" "$reason"
+    elif [ "$g" = configured ] || [ "$g" = placeholder ]; then
+      printf 'verify tier-profile harness=%s agent=%s status=%s source=global file=%s\n' "$h" "$a" "$g" "$gfile"
+    else
+      printf 'verify tier-profile harness=%s agent=%s status=unconfigured looked=%s,%s (informational: set model_profiles["%s"]; see the snippet the install prints)\n' "$h" "$a" "$gfile" "$pfile" "$a"
+    fi
+  done
+  printf 'verify tier-profile-note harness=%s not-checked=profile pins and session bindings (they replace model_profiles wholesale at runtime); status=placeholder means the literal placeholder model would be spawned\n' "$h"
 }
 
 # _rsdd_install_members <h> <home> — the members one install deploys, one rel per line.
@@ -1329,6 +1453,24 @@ install_one() {
           _rsdd_deploy_skill "$asrc" "$adest" "$force" "read-only agent definition" "$h" "$amarker" "agent" "$config_root" || rc=1
         fi
       done <<<"$agent_names"
+      _rsdd_print_tier_snippet "$h" "$home"
+    fi
+  fi
+
+  # 2d. pi extension (kit issue #2123): pi + gentle-shell only (the adapter field is empty elsewhere). The kit's
+  #     research-sdd-hooks.ts is deployed to <config_root>/extensions/ through the SAME divergence-checked
+  #     helpers as the skill: a hand-edited copy is kept with a typed WARNING, --force-skill backs it up first,
+  #     an unmodified older copy is a managed (silent) update. Its marker is .installed-extension-state with the
+  #     constant profile "extension", so profile switches never touch it.
+  local ext_dest ext_src="" ext_marker
+  ext_dest="$(rsdd_field "$h" extension_hooks_path "$home")"
+  if [ -n "$ext_dest" ]; then
+    ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
+    ext_marker="$config_root/research-sdd/.installed-extension-state"
+    if [ "$dry" = 1 ]; then
+      _rsdd_dry_skill_plan "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$ext_marker" "extension" || rc=1
+    else
+      _rsdd_deploy_skill "$ext_src" "$ext_dest" "$force" "pi extension: session hooks" "$h" "$ext_marker" "extension" "$config_root" || rc=1
     fi
   fi
 
@@ -1460,6 +1602,7 @@ main() {
     for h in $list; do
       one=0; _rsdd_verify_one "$h" "$home" || one=$?
       case "$one" in 0) ;; 1) drift=1 ;; *) degraded=1 ;; esac
+      _rsdd_verify_tier_profiles "$h" "$home"  # informational (kit issue #2124): never moves the exit code
     done
     _rsdd_verify_kit  # SENTINEL-VERIFY-KIT
     [ "$degraded" = 1 ] && vrc=2
