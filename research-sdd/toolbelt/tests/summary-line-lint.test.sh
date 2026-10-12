@@ -34,25 +34,32 @@ SELF="$HERE/$(basename "$0")"
 SUT="$SELF"
 FIX="$HERE/fixtures/summary-line-lint"
 
-# The exact shape run-all.sh accepts (summary_re in run-all.sh), as it appears in SOURCE text. Counts may be any
-# expression without '=' ($pass, ${pass}, %d, %s, $((a + b)), {passed}); the separator is U+00B7, a $MID /
-# ${MID} variable, or (printf only) %s; single spaces everywhere.
-SL_LIT='== [^= ][^=]* passed · [^=]*[^= ] failed =='                              # SENTINEL-SL-LIT
-SL_MID='== [^= ][^=]* passed (\$MID|\$\{MID\}|%s) [^=]*[^= ] failed =='           # SENTINEL-SL-MID
+# The shape run-all.sh accepts (summary_re: the WHOLE line is `== N passed · M failed ==`), as it appears in
+# SOURCE text. The emitter must start at the opening of its string literal (a quote, a backtick or a literal \n,
+# which also covers print(f"), each count is ONE source token ($v, ${v}, $((expr)), %d, %s, {v}, a number), the
+# separator is U+00B7 / $MID / ${MID} / %s, spaces are single, and `==` must be followed by the closing quote
+# or \n. A prefix, an indent, an inner double space or trailing text therefore does not match.
+SL_Q="[\"'\`]"
+SL_EDGE="(${SL_Q}|\\\\n)"
+SL_CNT='(\$[A-Za-z_]+|\$\{[^}]+\}|\$\(\([^)]*\)\)|%[ds]|\{[a-z_]+\}|[0-9]+)'
+SL_LIT="${SL_EDGE}== ${SL_CNT} passed · ${SL_CNT} failed ==${SL_EDGE}"   # SENTINEL-SL-LIT
+SL_MID="${SL_EDGE}== ${SL_CNT} passed (\\\$MID|\\\$\\{MID\\}|%s) ${SL_CNT} failed ==${SL_EDGE}"   # SENTINEL-SL-MID
 SL_MID_DEF="^[[:space:]]*MID=.*·"                                                  # SENTINEL-SL-MIDDEF
-SL_MARK='# summary-lint: dynamic [^ ]'
+SL_MARK='^[[:space:]]*(#|//) summary-lint: dynamic [^ ]'
 SL_COMMENT='^[[:space:]]*(#|//)'                                                   # SENTINEL-SL-COMMENT
 
 sl_forms() {
   cat <<'EOF'
-forms recognised (on a non-comment line, comment = leading # or //; single spaces; counts are any expression without '='):
+forms recognised (on a non-comment line, comment = leading # or //; the emitter starts right after an opening quote/backtick/\n
+  and ends right before a closing quote/\n; single spaces; each <n> is ONE token: $v ${v} $((expr)) %d %s {v} or digits):
   == <n> passed · <n> failed ==          literal U+00B7 (bash echo/printf, python print(f"..."), JS console.log template)
   == <n> passed $MID <n> failed ==       also ${MID}; accepted only when the file assigns MID='·' on a code line
   == <n> passed %s <n> failed ==         printf with the separator as an argument; same MID-assignment requirement
   an explicit `# summary-lint: dynamic <reason>` marker (a reason is required) exempts a file whose summary is computed elsewhere
 forms NOT recognised (known limits): a summary built from fragments over several lines, an emitter reached only through
   a sourced library without the marker, a fixture-generating line standing in for a real emitter, LAST-line position
-  and runtime reachability (run-all.sh owns those)
+  and runtime reachability (run-all.sh owns those); MID='·' is accepted ANYWHERE in the file's code lines, not proven to
+  be the MID the emitter reads; block comments (/* */, : '...' heredocs) are scanned as code, so an emitter inside one counts
 EOF
 }
 
@@ -155,12 +162,12 @@ scan_case() {
 }
 
 # --- compliant forms ---------------------------------------------------------------------------------------
-for f in ok-literal ok-mid ok-printf-mid ok-js ok-first-line ok-printf ok-no-trailing-newline ok-with-marker; do
+for f in ok-token-forms ok-literal ok-mid ok-printf-mid ok-js ok-first-line ok-printf ok-no-trailing-newline ok-with-marker; do
   scan_case "compliant form passes: $f" 0 0 0 "$FIX/$f.txt"
 done
 scan_case "marker exempts a file with no emitter (reason present)" 0 0 1 "$FIX/exempt.txt"
 # --- non-compliant forms -----------------------------------------------------------------------------------
-for f in missing wrong-comma wrong-kv wrong-separator wrong-spacing wrong-no-equals comment-only mid-undefined mid-in-comment exempt-no-reason; do
+for f in wrong-prefix wrong-indent wrong-inner-spaces wrong-trailing missing wrong-comma wrong-kv wrong-separator wrong-spacing wrong-no-equals comment-only mid-undefined mid-in-comment exempt-no-reason; do
   scan_case "non-compliant is flagged: $f" 1 1 0 "$FIX/$f.txt"
 done
 # Position edges (CLAUDE.md §7): the violation in FIRST, MIDDLE and LAST position of a list, and a lone file.
@@ -193,6 +200,15 @@ mkdir -p "$TMP/root/toolbelt/tests" "$TMP/root/install/tests"
 out="$(bash "$SELF" --scan-tree "$TMP/root" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'empty corpus' <<<"$out"; then ok "a corpus dir with no *.test.sh files → exit 2"
 else no "empty corpus dir: exit $rc, output: $(head -c 200 <<<"$out")"; fi
+# One corpus empty while the other holds a compliant suite must still be exit 2 (the empty one may not hide).
+for half in toolbelt install; do
+  rm -rf "$TMP/half"; mkdir -p "$TMP/half/toolbelt/tests" "$TMP/half/install/tests"
+  other=install; [ "$half" = install ] && other=toolbelt
+  cp "$FIX/ok-literal.txt" "$TMP/half/$half/tests/a.test.sh"
+  out="$(bash "$SELF" --scan-tree "$TMP/half" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -q "empty corpus.*$other/tests" <<<"$out"; then ok "only $half/tests populated, $other/tests empty → exit 2"
+  else no "only $half populated: exit $rc, output: $(head -c 200 <<<"$out")"; fi
+done
 cp "$FIX/ok-literal.txt" "$TMP/root/toolbelt/tests/a.test.sh"
 cp "$FIX/missing.txt" "$TMP/root/install/tests/b.test.sh"
 out="$(bash "$SELF" --scan-tree "$TMP/root" 2>&1)"; rc=$?
@@ -204,7 +220,7 @@ else no "tree mode: exit $rc, output: $(head -c 400 <<<"$out")"; fi
 out="$(bash "$SELF" --scan-tree "$HERE/../.." 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^violations: 0$' <<<"$out"; then ok "REAL TREE: 0 violations across the declared corpora"
 else no "REAL TREE lint failed (exit $rc): $(grep -E 'ERROR|VIOLATION' <<<"$out" | head -20 | tr '\n' ';')"; fi
-for pat in '^corpus toolbelt/tests/\*\.test\.sh: [1-9]' '^corpus toolbelt/tests/\*\.test\.mjs: [1-9]' '^corpus install/tests/\*\.test\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
+for pat in '^corpus toolbelt/tests/\*\.test\.sh: [1-9]' '^corpus install/tests/\*\.test\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
   if grep -qE -- "$pat" <<<"$out"; then ok "report prints: $pat"; else no "report is missing: $pat"; fi
 done
 printf '%s\n' "$out" | sed -n '/^corpus /p;/^files scanned/p;/^violations:/p;/^exempt sites:/,$p'
@@ -226,7 +242,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each detector facet must be load-bearing --"
 
   # Tooth 1: the literal pattern accepts any wording → `N passed, M failed` reads as compliant.
-  mk_sed "teeth lit" "$MUT/lit/$M" "s/^SL_LIT='[^']*'/SL_LIT='passed.*failed'/" \
+  mk_sed "teeth lit" "$MUT/lit/$M" "s/^SL_LIT=.*/SL_LIT='passed.*failed'/" \
     && tooth "teeth lit: loose pattern → a non-run-all format passes" 1 0 "$MUT/lit/$M" \
          --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan "$FIX/wrong-comma.txt"
 
@@ -257,8 +273,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # Tooth 7: empty-corpus guard removed.
   mk_sed "teeth empty-corpus" "$MUT/empty/$M" '/# SENTINEL-SL-EMPTY-CORPUS$/ s/.*/      :/' \
-    && tooth "teeth empty-corpus: guard removed → an empty corpus is a silent pass" 2 2 "$MUT/empty/$M" \
-         --good-has 'empty corpus' --bad-lacks 'empty corpus' -- bash -c 'mkdir -p "$1/toolbelt/tests" "$1/install/tests"; bash "$0" --scan-tree "$1"' @SUT@ "$TMP/root-empty"
+    && tooth "teeth empty-corpus: guard removed → one empty corpus beside a compliant one passes silently" 2 0 "$MUT/empty/$M" \
+         --good-has 'empty corpus' --bad-has 'violations: 0' --bad-lacks 'empty corpus' -- bash -c 'rm -rf "$1"; mkdir -p "$1/toolbelt/tests" "$1/install/tests"; cp "$2" "$1/install/tests/a.test.sh"; bash "$0" --scan-tree "$1"' @SUT@ "$TMP/half-teeth" "$FIX/ok-literal.txt"
 
   rm -rf "$MUT"
 fi
