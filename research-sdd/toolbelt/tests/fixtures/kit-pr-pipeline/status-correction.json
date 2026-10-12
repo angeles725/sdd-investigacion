@@ -1,0 +1,1 @@
+{"next_transition":{"kind":"collect","collect":{"inputs":[{"name":"plan","capture_operation":"review.capture-correction-plan","arguments":[{"token":"--lineage"},{"token":"L1"}]}]}}}
