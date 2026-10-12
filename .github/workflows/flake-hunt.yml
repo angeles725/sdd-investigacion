@@ -1,0 +1,141 @@
+name: flake hunt
+
+# Kit issue #2209 part 2: run research-sdd/toolbelt/maint/kit-flake-hunt.sh nightly and on demand. The
+# hunt runs every selected suite K times under bounded synthetic CPU load and files (or comments on) ONE
+# issue per flaky or broken suite (`flake: <suite file> ...`, label type:bug). Not a PR/push check and not
+# part of the required `toolbelt-tests` gate: a red nightly is a signal, never a merge blocker.
+# Doc: CLAUDE.md section 5 (Quality Gates, "Flake hunt" row).
+on:
+  schedule:
+    # 04:41 UTC, after the 03:17 toolbelt-tests nightly (core shards + extras) so the two do not compete.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Passes over each suite (integer >= 1)"
+        required: false
+        default: "3"
+      load:
+        description: "Busy-loop CPU workers (integer >= 0; 0 = no load)"
+        required: false
+        default: "2"
+      tier:
+        description: "Suite tier to hunt"
+        required: false
+        type: choice
+        default: core
+        options:
+          - core
+          - extras
+          - all
+
+# Least privilege: contents read for checkout, issues write so the hunt can file/comment.
+permissions:
+  contents: read
+  issues: write
+
+# One hunt at a time: a second one would double the CPU load on the same issues.
+concurrency:
+  group: flake-hunt
+  cancel-in-progress: false
+
+env:
+  # Number of shards of the hunt. MUST equal the length of the matrix below (asserted in the first step).
+  SHARD_COUNT: "4"
+
+jobs:
+  flake-hunt:
+    # Timeout arithmetic (kit issue #2209). The hunt runs suites SERIALLY (the load is the contention),
+    # so one runner cannot do the whole list: the toolbelt gate measured 25-34 min wall at -j 4
+    # (~100-135 min of serial suite time) per pass over the core list, so 3 passes = 5-7 h > the 6 h
+    # hosted-job cap. The core list is therefore split round-robin across SHARD_COUNT = 4
+    # runners (suite k belongs to shard (k mod 4) + 1, the same rule as run-all.sh --shard): ~25-34 min of
+    # suite time per pass per shard, x 3 passes = ~75-100 min, x ~1.5 for 2 busy-loop workers on 4 vCPUs
+    # = ~115-150 min, plus ~3 min setup. timeout-minutes 210 leaves ~40 % headroom; a timed-out shard is
+    # a RED job (never a clean hunt), and results.tsv is still uploaded (if: always()). The per-suite bound
+    # (--suite-timeout, default 900 s) caps any single hung suite. A dispatch with runs=5 should expect
+    # ~190-250 min and may need a rerun with fewer runs.
+    # NOTE: no `name:` line - same reason as toolbelt-shard (merge-gate's parser rejects a job name
+    # containing `${{`); GitHub names matrix jobs `flake-hunt (1)` by itself.
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      # Every shard reports; one red shard must not hide the others.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      # Same prerequisite-must-not-skip flags as the toolbelt shard job (kit issue #2138): a suite that would
+      # SKIP for a missing sandbox / type stripping FAILS instead, so it cannot read as stable.
+      RSDD_REQUIRE_BWRAP: "1"
+      RSDD_REQUIRE_NODE_TS: "1"
+      GH_TOKEN: ${{ github.token }}
+      # Inputs reach the shell ONLY through env (never interpolated into run:). Schedule runs have no
+      # inputs, so the defaults below apply.
+      INPUT_RUNS: ${{ github.event.inputs.runs || '3' }}
+      INPUT_LOAD: ${{ github.event.inputs.load || '2' }}
+      INPUT_TIER: ${{ github.event.inputs.tier || 'core' }}
+      SHARD: ${{ matrix.shard }}
+      SHARD_TOTAL: ${{ strategy.job-total }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate inputs and matrix length
+        run: |
+          set -eu
+          case "$INPUT_RUNS" in '' | *[!0-9]* | 0) echo "::error::runs must be an integer >= 1"; exit 1 ;; esac
+          case "$INPUT_LOAD" in '' | *[!0-9]*) echo "::error::load must be an integer >= 0"; exit 1 ;; esac
+          case "$INPUT_TIER" in core | extras | all) ;; *) echo "::error::tier must be core, extras or all"; exit 1 ;; esac
+          if [ "$SHARD_TOTAL" != "$SHARD_COUNT" ]; then
+            echo "::error::matrix has $SHARD_TOTAL shard(s) but SHARD_COUNT=$SHARD_COUNT"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Install bubblewrap and enable unprivileged user namespaces
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+          bwrap --ro-bind / / true || { echo "::error::bubblewrap cannot create an unprivileged sandbox on this runner"; exit 1; }
+
+      - name: Sanity-check python3 and gh
+        run: |
+          python3 --version
+          gh --version | head -n 1
+
+      - name: Select this shard's suites
+        # run-all.sh --list-suites cannot be combined with --shard, so the same round-robin rule is applied
+        # here. An empty shard is an error (anti-silent-zero), not a clean hunt.
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/flake-hunt-in"
+          bash research-sdd/toolbelt/tests/run-all.sh --list-suites --tier "$INPUT_TIER" \
+            | awk -v i="$SHARD" -v n="$SHARD_COUNT" '(NR - 1) % n == i - 1' > "$RUNNER_TEMP/flake-hunt-in/suites.txt"
+          count="$(wc -l < "$RUNNER_TEMP/flake-hunt-in/suites.txt")"
+          echo "shard $SHARD/$SHARD_COUNT: $count suite(s), tier $INPUT_TIER"
+          [ "$count" -ge 1 ] || { echo "::error::shard $SHARD selected 0 suites"; exit 1; }
+
+      - name: Flake hunt (shard ${{ matrix.shard }})
+        # --file-issues=apply: an open `flake: <suite> ` issue is commented on, never duplicated. The
+        # suite list was already tier-selected above, so --tier is not passed (the hunt would re-list).
+        run: |
+          bash research-sdd/toolbelt/maint/kit-flake-hunt.sh \
+            --runs "$INPUT_RUNS" --prove-teeth --load "$INPUT_LOAD" \
+            --suites "$RUNNER_TEMP/flake-hunt-in/suites.txt" \
+            --out "$RUNNER_TEMP/flake-hunt" --file-issues=apply
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-hunt-results-${{ matrix.shard }}
+          path: ${{ runner.temp }}/flake-hunt/results.tsv
+          overwrite: true
+          if-no-files-found: warn
+          retention-days: 14
