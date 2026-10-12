@@ -1,5 +1,7 @@
 # Dynamic phase — environment setup
 
+> **Tests:** the category E (VM/dynamic sandbox) suites described here (`vm-*`, `qemu-*`, `fact-*`, `detonate-*`, `trace-*`, `docker-exec`, `capture-*`, ...) are in the opt-in **extras** test tier (kit issue #2203): the default `run-all.sh` gate skips them; run them with `bash research-sdd/toolbelt/tests/run-all.sh --tier extras` (or `--tier all`). The list is `research-sdd/toolbelt/tests/suite-tiers.txt`; CI runs it nightly.
+
 ## 0. First-run install (WSL2 Ubuntu)
 
 Before anything else, run the kit installer to satisfy BASELINE dependencies and wire the
