@@ -35,10 +35,11 @@ _SBX = tempfile.mkdtemp(prefix="de-sbx-")
 atexit.register(shutil.rmtree, _SBX, ignore_errors=True)
 _SBX_ROOT = os.path.join(_SBX, "rsdd")
 os.environ["RSDD_VM_ROOT"] = _SBX_ROOT
-# #2186: the guard never reads its watch target from the environment. A leak is ANY produced run dir outside the sandbox root
-# (_SBX_ROOT). Coverage: in-process make_run_subdir calls (recorded by _rec_mrs) plus a before/after snapshot of every watched root
-# around each CLI child (_run_child), because emba_plan.py writes its run dir into --output files, not stdout/stderr. The watched roots
-# are the sandbox and the host default root (_GLOBAL_ROOT), the only places a child or a root-ignoring mutant can allocate.
+# #2186: the leak definition never depends on the environment. A leak is ANY produced run dir outside the sandbox root
+# (_SBX_ROOT). Coverage: in-process make_run_subdir calls (recorded by _rec_mrs), rsdd paths printed by a CLI child, and a before/after
+# snapshot of the roots THIS SUITE OWNS around each CLI child (_run_child), because emba_plan.py writes its run dir into --output files.
+# The host default root is never scanned or modified here (another suite may own fresh dirs in it); that is run-all's default-root
+# check and run-all-default-root.test.sh. The only extra owned root is the harness's $DE_GLOBAL_ROOT (teeth-root-hardcoded redirect).
 _GLOBAL_ROOT = Path("/tmp/rsdd")
 def _global_names() -> set:
     try: return {x.name for x in _GLOBAL_ROOT.glob("rsdd-*")}
@@ -58,7 +59,7 @@ m._dc.make_run_subdir = _rec_mrs   # in-process runs; CLI children are recorded 
 passed = 0; failed = 0
 def ok(n): global passed; passed += 1; print(f"  PASS  {n}")
 def nok(n, r=""): global failed; failed += 1; print(f"  FAIL  {n}" + (f": {r}" if r else ""))
-_WATCH = [_GLOBAL_ROOT, Path(_SBX_ROOT)]
+_WATCH = [Path(_SBX_ROOT)] + ([Path(os.environ["DE_GLOBAL_ROOT"])] if os.environ.get("DE_GLOBAL_ROOT") else [])
 def _scan(root) -> set:
     try: return {str(x) for x in Path(root).iterdir() if re.fullmatch(r"rsdd-[0-9a-f]{32}", x.name)}
     except OSError: return set()
@@ -69,7 +70,7 @@ def _run_child(cmd, e):
     _produced.update(re.findall(r"/[^\s\"']*?/rsdd-[0-9a-f]{32}", r.stdout + r.stderr))
     return r
 def cli(*a, xe=None):
-    e = os.environ.copy()
+    e = os.environ.copy(); e["RSDD_VM_ROOT"] = _SBX_ROOT   # children allocate in the suite-owned root unless a case overrides it
     if xe: e.update(xe)
     return _run_child([sys.executable, str(emba_path), *map(str, a)], e)
 
