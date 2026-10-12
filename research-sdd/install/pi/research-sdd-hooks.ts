@@ -14,7 +14,9 @@
 //                                         string is capped under the 8,000-char SessionStart budget.
 //   Stop          -> agent_before_settle  retro-gate.sh, then return-token-gate.sh; ONLY when outcome === "completed"
 //                                         and no continuation is queued; a block is returned once as {entries, continue:true}
-//                                         appended to the entries other extensions already put on the event.
+//                                         appended to the entries other extensions already put on the event. In print mode
+//                                         (-p) the final message is the output, so there a block is a stderr line instead
+//                                         (no entry, no continuation; kit issue #2177).
 //   PreToolUse    -> tool_call            bash / bash_background / monitor commands that mention pkill/pgrep go through the
 //                                         kit's pkill-guard script; anything but a well-formed allow is a block.
 //
@@ -306,6 +308,11 @@ function writeTranscript(ctx: any, event: any): { dir: string; file: string } | 
   return { dir, file };
 }
 
+// A typed one-line notice on stderr (print mode: stdout carries the answer only).
+function printNotice(msg: string): void {
+  try { process.stderr.write(`research-sdd-hooks: ${msg}\n`); } catch { /* stderr closed: nothing left to tell */ }
+}
+
 const entry = (content: string) => ({ type: "custom_message" as const, customType: NOTICE_TYPE, content, display: true });
 
 function freshState(): HookState {
@@ -373,7 +380,18 @@ export default function (pi: ExtensionAPI) {
       // pi REPLACES the entries with the handler's return, so every return carries the entries already on the event.
       const base = Array.isArray(event.entries) ? event.entries : [];
       const mine: Array<ReturnType<typeof entry>> = cur.surface.splice(0).map(entry);
-      const done = (cont: boolean) => (mine.length || cont ? { entries: [...base, ...mine], ...(cont ? { continue: true } : {}) } : undefined);
+      // Print mode (-p) writes ONLY the text of the final message, and only when that message is an assistant message: an
+      // appended entry or a re-prompt replaces the answer already given with an empty stdout and rc 0 (kit issue #2177).
+      // So there a block / degraded notice is a typed stderr line and the settle returns nothing.
+      const printMode = ctx?.mode === "print";
+      const done = (cont: boolean) => {
+        if (printMode) {
+          for (const e of mine) printNotice(e.content);
+          if (cont) printNotice("the gate block above is NOT enforced in print mode: a continuation would replace the answer with the follow-up turn, which print mode does not echo. Run the session interactively to satisfy the gate.");
+          return undefined;
+        }
+        return mine.length || cont ? { entries: [...base, ...mine], ...(cont ? { continue: true } : {}) } : undefined;
+      };
       if (!cur.corpus) return done(false); // the gates are per research target (Claude wires them per target)
       if (!cur.kit) { mine.push(...noticeOnce("kit", degradedKitText(cur))); return done(false); }
       const gateMs = envMs("RSDD_PI_GATE_TIMEOUT_MS", 120000);

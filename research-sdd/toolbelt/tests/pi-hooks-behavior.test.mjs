@@ -620,6 +620,36 @@ if (spawnSync('setsid', ['--version']).status !== 0) {
   restoreEnv();
 }
 
+// ---- 19. print mode (-p): the last assistant message IS the output, so the gate may not replace it (#2177) --------------
+// pi's print mode writes only the text of the final message when that message is an assistant message. A gate block
+// returned as {entries, continue:true} appends a custom message and re-prompts, so the answer already given is lost and
+// the continuation's last message usually carries no text: an empty stdout with rc 0. In print mode a block must surface
+// as a typed stderr notice and the settle must return nothing (no entry, no continue).
+{
+  const captureStderr = async (fn) => {
+    const orig = process.stderr.write.bind(process.stderr);
+    let buf = '';
+    process.stderr.write = (chunk, ...rest) => { buf += String(chunk); const cb = rest.find((a) => typeof a === 'function'); if (cb) cb(); return true; };
+    try { return { result: await fn(), stderr: buf }; } finally { process.stderr.write = orig; }
+  };
+  const printCtx = (ctx) => ({ ...ctx, mode: 'print' });
+  const s = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const { result: r, stderr } = await captureStderr(() => fire(s.pi, 'agent_before_settle', settleEvent(), printCtx(s.ctx)));
+  check('print mode: a retro-gate block returns no entries and no continuation (the answer stays the last message)', r === undefined, JSON.stringify(r));
+  check('print mode: the retro-gate block reason is surfaced on stderr, typed and marked not enforced',
+    /research-sdd-hooks/.test(stderr) && /RETRO-REQUIRED/.test(stderr) && /print mode/.test(stderr) && /NOT enforced/.test(stderr), JSON.stringify(stderr));
+  const tok = await boot({ env: { RSDD_TEST_TOKEN_OUT: JSON.stringify({ decision: 'block', reason: 'TOKEN-REQUIRED: copy next: foo' }) } });
+  const t = await captureStderr(() => fire(tok.pi, 'agent_before_settle', settleEvent(), printCtx(tok.ctx)));
+  check('print mode: a return-token block is a stderr notice, not a continuation', t.result === undefined && /TOKEN-REQUIRED/.test(t.stderr) && /NOT enforced/.test(t.stderr), JSON.stringify([t.result, t.stderr]));
+  const deg = await boot({ env: { RSDD_TEST_RETRO_EXIT: '3', RSDD_TEST_RETRO_ERR: 'retro-gate: boom' } });
+  const d = await captureStderr(() => fire(deg.pi, 'agent_before_settle', settleEvent(), printCtx(deg.ctx)));
+  check('print mode: a degraded gate is a stderr notice and appends no entry', d.result === undefined && /retro gate DEGRADED/.test(d.stderr), JSON.stringify([d.result, d.stderr]));
+  const ui = await boot({ env: { RSDD_TEST_RETRO_OUT: BLOCK_JSON } });
+  const u = await captureStderr(() => fire(ui.pi, 'agent_before_settle', settleEvent(), { ...ui.ctx, mode: 'tui' }));
+  check('a non-print mode still gets the entry and the continuation, with nothing on stderr', u.result?.continue === true && !/RETRO-REQUIRED/.test(u.stderr), JSON.stringify([u.result, u.stderr]));
+  restoreEnv();
+}
+
 restoreEnv();
 console.log(`\nskipped: ${skip} (${Date.now() - t0} ms)`);
 console.log(`== ${pass} passed · ${fail} failed ==`);
