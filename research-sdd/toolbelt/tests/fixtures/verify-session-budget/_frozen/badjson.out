@@ -1,0 +1,2 @@
+verify-session-budget: @FIX@/badjson
+state: degraded (settings.json is not a readable JSON object; no hook was run)
