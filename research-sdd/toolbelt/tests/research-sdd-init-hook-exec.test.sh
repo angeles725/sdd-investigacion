@@ -7,6 +7,8 @@
 # mode-644 hooks that exit 126). A hook that already EXISTS without +x is never rewritten (hand-adapted
 # hooks are not modified, kit issue #1496) but is REPORTED with a typed WARN naming the file.
 #
+# Cases 1-3 pin the --absolute opt-out (the per-target hook copies); case 7 pins the portable DEFAULT (kit issue #2183).
+#
 # Every case runs a private COPY of the kit (toolbelt + templates) whose templates are forced to mode 644,
 # so the SUT's own chmod is the only thing that can produce +x.
 #
@@ -37,12 +39,12 @@ H_SS=".claude/hooks/research-protocol.sh"; H_STOP=".claude/hooks/retro-gate-stop
 
 case_scaffold() {   # <kit> : fresh scaffold --wire -> all three hooks executable
   local d="$TMP/sc-$RANDOM"; mkdir -p "$d"
-  bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "hook exec" --scaffold --wire >"$d.out" 2>&1 || return 1
+  bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "hook exec" --scaffold --wire --absolute >"$d.out" 2>&1 || return 1
   [ -x "$d/$H_SS" ] && [ -x "$d/$H_STOP" ] && [ -x "$d/$H_PK" ]
 }
 case_wire_create() {  # <kit> : --wire on a corpus with NO hooks creates all three executable
   local d="$TMP/wc-$RANDOM"; mkdir -p "$d"; : > "$d/INDEX.md"
-  bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire --subject "hook exec" >"$d.out" 2>&1 || return 1
+  bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire --absolute --subject "hook exec" >"$d.out" 2>&1 || return 1
   [ -x "$d/$H_SS" ] && [ -x "$d/$H_STOP" ] && [ -x "$d/$H_PK" ]
 }
 case_rewire_warns() {  # <kit> : --wire over EXISTING non-executable hooks: each is named in a WARN, none rewritten
@@ -50,7 +52,7 @@ case_rewire_warns() {  # <kit> : --wire over EXISTING non-executable hooks: each
   mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
   for h in "$H_SS" "$H_STOP" "$H_PK"; do printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/$h"; chmod 644 "$d/$h"; done
   before="$(cat "$d/$H_SS" "$d/$H_STOP" "$d/$H_PK" | cksum)"
-  bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1
+  bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire --absolute >"$d.out" 2>&1
   for h in "$H_SS" "$H_STOP" "$H_PK"; do
     grep -qF "WARN: $d/$h is not executable" "$d.out" || return 1
     [ ! -x "$d/$h" ] || return 1
@@ -79,6 +81,11 @@ case_exec_kept_silent() {  # <kit> : EXECUTABLE existing hooks (and executable k
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire >"$d.out" 2>&1
   grep -qF 'kept: ' "$d.out" && ! grep -qF 'is not executable' "$d.out"
 }
+case_portable_default() {  # <kit> : the DEFAULT (portable, kit issue #2183) scaffold --wire makes the SessionStart hook and the kit-run.sh runner executable
+  local d="$TMP/pd-$RANDOM"; mkdir -p "$d"
+  bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "hook exec" --scaffold --wire >"$d.out" 2>&1 || return 1
+  [ -x "$d/$H_SS" ] && [ -x "$d/tools/hooks/kit-run.sh" ] && [ ! -e "$d/$H_STOP" ] && [ ! -e "$d/$H_PK" ]
+}
 
 echo "== research-sdd-init-hook-exec.test.sh =="
 K="$(mkkit k1)"
@@ -88,6 +95,7 @@ case_rewire_warns "$K"      && ok "3 --wire over existing non-executable hooks W
 case_scaffold_keep_warns "$K" && ok "4 kept non-executable SessionStart hook is reported on the scaffold path" || no "4 kept hook must be reported"
 case_kit_script_warns "$K"  && ok "5 non-executable kit scripts wired as bare commands (gate, drift hook) are reported" || no "5 kit script noexec must be reported"
 case_exec_kept_silent "$K" && ok "6 executable kept hooks and kit scripts draw no not-executable WARN" || no "6 executable hooks must not warn"
+case_portable_default "$K"  && ok "7 default (portable) scaffold --wire makes research-protocol.sh and tools/hooks/kit-run.sh executable (templates at 644)" || no "7 portable default hooks not +x"
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -108,6 +116,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   steeth WARN-ALWAYS case_exec_kept_silent 's/\[ -x "\$1" \] ||/false ||/'
   steeth KIT-GATE-WARN-DROPPED case_kit_script_warns 's/^  _rsdd_warn_kit_script_noexec "\$_RSDD_GATE_PATH"$/  :/'
   steeth KIT-DRIFT-WARN-DROPPED case_kit_script_warns 's/^  _rsdd_warn_kit_script_noexec "\$_RSDD_DRIFT_PATH"$/  :/'
+  steeth RUNNER-CHMOD case_portable_default 's/ && chmod +x "\$dest"; }/; }/'
   steeth SCAFFOLD-KEPT-WARN-DROPPED case_scaffold_keep_warns 's/is not executable — the hook cannot run/is fine — the hook cannot run/'
 fi
 
