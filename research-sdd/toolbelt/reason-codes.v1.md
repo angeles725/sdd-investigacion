@@ -315,7 +315,7 @@ They are listed here so a reader of this registry finds every typed state the sc
   `scanning for '<pattern>' failed`; `cannot create temp files`. Continuation: install the tool, point
   `XDG_CACHE_HOME` at a writable directory outside the repo, or fix the suite-impact failure, then re-run.
 - `Cache: hit H, miss M, uncacheable U — [<suite>: <reason>, ...]` (not degraded): a suite that is never keyed always
-  runs and says why: `blind-spot (manifest|detected:<class>)`, `no dependency resolved`, `not known to suite-impact.sh`,
+  runs and says why: `always-run`, `blind-spot (manifest|detected:<class>)`, `no dependency resolved`, `not known to suite-impact.sh`,
   `suite file unreadable`, `dependency unreadable: <file>`, `could not compute the key`. `Cache store FAILED: N` means N
   full passes could not be written (those suites run again next time). A cache dir inside the repository is refused with
   exit 2 before any suite runs; `--cache` with `--require-teeth` or `--shard` is refused with exit 2.

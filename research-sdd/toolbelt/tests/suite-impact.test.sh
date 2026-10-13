@@ -587,7 +587,11 @@ dep_has e.test.sh $TS/fixtures/e-data/x.txt && ok "--deps-all: a reached fixture
 ! dep_has aaa-first.test.sh $T/beta.sh && ok "--deps-all: an unrelated production file is not a dependency" || no "deps unrelated leaked in"
 grep -qxF -- "BLIND$TAB${PFX}evalish.test.sh${TAB}manifest" <<<"$OUT" && ok "--deps-all: a blind-spot suite is named BLIND with its reason" || no "deps blind" "($(grep BLIND <<<"$OUT"))"
 ! grep -q -- "^DEP$TAB${PFX}evalish.test.sh$TAB" <<<"$OUT" && ok "--deps-all: a BLIND suite lists no (misleading) DEP lines" || no "deps blind has DEP lines"
-grep -qE -- "^UNRESOLVED$TAB${PFX}lint-always.test.sh$TAB" <<<"$OUT" && ok "--deps-all: a suite that resolves no dependency is UNRESOLVED, never an empty confident set" || no "deps unresolved" "($(grep UNRESOLVED <<<"$OUT"))"
+grep -qxF -- "ALWAYS$TAB${PFX}lint-always.test.sh${TAB}manifest" <<<"$OUT" && ! grep -q -- "^DEP$TAB${PFX}lint-always.test.sh$TAB" <<<"$OUT" && ok "--deps-all: an always-run (whole-tree reader) suite is named ALWAYS and lists no DEP lines" || no "deps always" "($(grep ALWAYS <<<"$OUT"))"
+D_ur="$(newcase deps_unres)"; printf 'echo hi\n' > "$D_ur/$TS/bare.test.sh"; ( cd "$D_ur" && git add -A && git commit -q -m bare )
+run --repo "$D_ur" --deps-all
+grep -qE -- "^UNRESOLVED$TAB${PFX}bare.test.sh$TAB" <<<"$OUT" && ok "--deps-all: a suite that resolves no dependency is UNRESOLVED, never an empty confident set" || no "deps unresolved" "($(grep UNRESOLVED <<<"$OUT"))"
+run --repo "$P" --deps-all
 nsu="$(git -C "$P" ls-files | grep -cE '^research-sdd/(toolbelt/tests|install/tests)/[^/]+\.test\.(sh|mjs)$')"
 ndep="$(grep -c "^DEP$TAB" <<<"$OUT")"
 grep -qxF -- "DEPS-SUMMARY$TAB$nsu$TAB$ndep" <<<"$OUT" && ok "--deps-all: the last line proves it looked (suites=$nsu, dep lines=$ndep)" || no "deps summary" "($(tail -1 <<<"$OUT"))"
@@ -700,7 +704,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mt "deps: blind suites not marked" 0 0 's/if grep -qxF -- "\$s" "\$TMP\/blind"; then printf/if false; then printf/' \
     --good-has "manifest" --bad-lacks "manifest" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}evalish.test.sh"
   mt "deps: unresolved suites not marked" 0 0 's/elif \[ "\$n" -eq 0 \]; then printf .UNRESOLVED/elif false; then printf '"'"'UNRESOLVED/' \
-    --good-has "UNRESOLVED" --bad-lacks "UNRESOLVED" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}lint-always.test.sh"
+    --good-has "UNRESOLVED" --bad-lacks "UNRESOLVED" -- "$BASH_BIN" @SUT@ --repo "$D_ur" --deps "${PFX}bare.test.sh"
+  mt "deps: always-run suites not marked" 0 0 's/if grep -qxF -- "\$s" "\$TMP\/always"; then printf/if false; then printf/' \
+    --good-has "ALWAYS" --bad-lacks "ALWAYS" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}lint-always.test.sh"
   mt "deps: unknown --deps suite accepted" 2 2 's/|| degraded "no such suite: \$DEPS_WANT (give a repo-relative suite path)"/|| :/' \
     --good-has 'no such suite' --bad-lacks 'no such suite' -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}nosuch.test.sh"
   mt "deps: summary line dropped" 0 0 "s/^  printf 'DEPS-SUMMARY/  : printf 'DEPS-SUMMARY/" \

@@ -20,7 +20,8 @@
 #                    over the same word graph, on the working tree: tab-separated `DEP <suite> <file>` (a production
 #                    file, a fixture file of a reached fixture dir, or another suite it runs), `BLIND <suite> <reason>`
 #                    (listed in impact-blindspot.txt or flagged by the detector: its reach cannot be known),
-#                    `UNRESOLVED <suite> <reason>` (no dependency resolved at all), and a last
+#                    `ALWAYS <suite> manifest` (an always-run whole-tree reader: no key exists), `UNRESOLVED <suite> <reason>`
+#                    (no dependency resolved at all), and a last
 #                    `DEPS-SUMMARY <suites> <dep-lines>`. --deps <suite> prints one suite (repo-relative path). It does not
 #                    change how a change is mapped to suites.
 #
@@ -411,7 +412,9 @@ if [ "$DEPS" = 1 ]; then
   while IFS=$'\t' read -r tag s n; do
     [ "$tag" = COUNT ] || continue
     c="$(detect_blind "$s")"
-    if grep -qxF -- "$s" "$TMP/blind"; then printf 'BLIND\t%s\tmanifest\n' "$s" >> "$TMP/dblind"
+    # an always-run suite is a whole-tree reader: its inputs are not a dependency set, so it has no key
+    if grep -qxF -- "$s" "$TMP/always"; then printf 'ALWAYS\t%s\tmanifest\n' "$s" >> "$TMP/dblind"
+    elif grep -qxF -- "$s" "$TMP/blind"; then printf 'BLIND\t%s\tmanifest\n' "$s" >> "$TMP/dblind"
     elif [ -n "$c" ]; then printf 'BLIND\t%s\tdetected:%s\n' "$s" "$c" >> "$TMP/dblind"
     elif [ "$n" -eq 0 ]; then printf 'UNRESOLVED\t%s\tno dependency resolved from the suite text\n' "$s" >> "$TMP/dblind"
     fi

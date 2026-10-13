@@ -73,15 +73,17 @@
 #                    the impact-*.txt / suite-tiers.txt / teeth-helper-waivers.txt manifests and the install and
 #                    templates trees; files outside research-sdd/ (openspec/, .github/, CLAUDE.md, TARGETS.md,
 #                    .shellcheckrc, odd/) when the suite or a dependency NAMES them; the run mode (--prove-teeth,
-#                    lane, tier); the first `--version` line of bash/python3/node/jq/shellcheck and the VCS tool;
-#                    and the RSDD_* environment. Blind-spot suites and suites whose dependencies cannot be resolved
+#                    lane; NOT the tier), `id -u`, and the path plus first `--version` line of bash/python3/node/jq/shellcheck, the VCS tool,
+#                    bwrap, unshare, parallel, qemu-system-*, tshark, binwalk and docker;
+#                    and the RSDD_* environment (printf %q). ALWAYS-RUN suites (impact-always.txt: whole-tree readers),
+#                    blind-spot suites and suites whose dependencies cannot be resolved
 #                    are NEVER cached (always run, reason printed). Only a full PASS is stored: never a FAIL, a
 #                    SKIP, a suite with per-test skips, or anything from a suite whose own hermeticity/TMPDIR
 #                    check found a violation (nor any suite of a -j batch that found one). Entries live in ${XDG_CACHE_HOME:-$HOME/.cache}/research-sdd/run-all/ (a cache dir
 #                    inside the repository is refused, exit 2). Degraded states (no sha256 tool, unusable cache
 #                    dir, suite-impact cannot answer) run WITHOUT the cache and say so (`Cache: DEGRADED`), never
 #                    silently. --cache is refused with --require-teeth and --shard (exit 2): the authoritative gate
-#                    never uses it. Known limits: the key cannot see state a suite reads from outside the repo (the
+#                    never uses it. Known limits: the key cannot see state outside research-sdd/ and the named groups (the
 #                    host's commit history, $HOME, the network) or tools other than those listed. `--no-cache` is
 #                    the explicit default. RUN_ALL_SHA256_CMD overrides the hash tool (a test hook).
 #   --list-suites    Print the selected tier's suite list (repo-relative, LC_ALL=C sorted), one per line,
@@ -738,7 +740,7 @@ _cache_degrade() { CACHE_DEGRADED_REASON="$1"; echo "run-all.sh: Cache: DEGRADED
 _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report arrays; rc 1 = degraded (nothing keyed)
   local sha="${RUN_ALL_SHA256_CMD:-sha256sum}" rel_tests="research-sdd/toolbelt/tests" imp="$SCRIPT_DIR/suite-impact.sh"
   local root base abs dfile="" errf="" hfile="" rc hl tag a b f t v s rel bn key km reason gi mine hdr h
-  declare -A cdeps=() cblind=() cunres=() chash=() gmention=() ghash=()
+  declare -A cdeps=() cblind=() cunres=() calways=() chash=() gmention=() ghash=()
   root="$(cd -P -- "$SCRIPT_DIR/../../.." 2>/dev/null && pwd -P)" || { _cache_degrade "cannot resolve the repository root from $SCRIPT_DIR"; return 1; }
   base="${XDG_CACHE_HOME:-}"
   if [[ -z "$base" ]]; then
@@ -773,6 +775,7 @@ _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report ar
       DEP) cdeps["$a"]+="$b"$'\n' ;;
       BLIND) cblind["$a"]="$b" ;;
       UNRESOLVED) cunres["$a"]="$b" ;;
+      ALWAYS) calways["$a"]="$b" ;;
     esac
   done < "$dfile"
   # one batch hash of every file under research-sdd/ (content only)
@@ -785,18 +788,28 @@ _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report ar
   fi
   # run mode, tool versions (first --version line), RSDD_* environment
   local mode_sig tool_sig="" env_sig="" glob_sig=""
-  mode_sig="mode prove=${PROVE_TEETH:-none} lane=${LANE_ARG:-none} tier=$TIER"$'\n'
-  for t in bash python3 node git jq shellcheck; do
-    if command -v "$t" >/dev/null 2>&1; then v="$("$t" --version 2>&1 </dev/null)"; v="${v%%$'\n'*}"; else v="absent"; fi
-    tool_sig+="tool $t $v"$'\n'
+  # The tier is NOT part of the key: it only picks which suites run, never what one suite does.
+  mode_sig="mode prove=${PROVE_TEETH:-none} lane=${LANE_ARG:-none}"$'\n'
+  local -a q_tools=(bash python3 node git jq shellcheck bwrap unshare parallel tshark binwalk docker)
+  local q_name
+  while IFS= read -r q_name; do [[ -n "$q_name" ]] && q_tools+=("$q_name"); done < <(compgen -c qemu-system- | LC_ALL=C sort -u)
+  local -a q_to=(); command -v timeout >/dev/null 2>&1 && q_to=(timeout 5)
+  tool_sig+="uid $(id -u 2>/dev/null || echo unknown)"$'\n'
+  for t in "${q_tools[@]}"; do   # presence (path) AND the first --version line: a suite may skip or run by what is installed
+    if v="$(command -v "$t" 2>/dev/null)" && [[ -n "$v" ]]; then
+      h="$("${q_to[@]}" "$t" --version 2>&1 </dev/null)"; h="${h%%$'\n'*}"
+      tool_sig+="tool $t $v $h"$'\n'
+    else
+      tool_sig+="tool $t absent"$'\n'
+    fi
   done
   for v in $(compgen -e | LC_ALL=C sort); do
-    [[ "$v" == RSDD_* ]] && env_sig+="env $v=${!v}"$'\n'
+    [[ "$v" == RSDD_* ]] && env_sig+="env $v=$(printf '%q' "${!v}")"$'\n'
   done
   # SENTINEL-CACHE-GLOBAL: inputs every suite may lean on
   while IFS= read -r f; do
     case "$f" in
-      "$rel_tests"/lib/*|"$rel_tests"/run-all.sh|"$rel_tests"/suite-impact.sh|"$rel_tests"/impact-*.txt|"$rel_tests"/suite-tiers.txt|"$rel_tests"/teeth-helper-waivers.txt|research-sdd/templates/*)
+      "$rel_tests"/lib/*|"$rel_tests"/run-all.sh|"$rel_tests"/suite-impact.sh|"$rel_tests"/impact-*.txt|"$rel_tests"/suite-tiers.txt|"$rel_tests"/teeth-helper-waivers.txt|"$rel_tests"/shard-join.sh|research-sdd/templates/*)
         glob_sig+="global $f ${chash[$f]}"$'\n' ;;
       research-sdd/install/tests/*.test.sh|research-sdd/install/tests/*.test.mjs) ;;
       research-sdd/install/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;
@@ -813,7 +826,9 @@ _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report ar
   rm -f "$dfile" "$errf" "$hfile"
   for s in "${all_suites[@]}"; do
     rel="${suite_rel[$s]}"; bn="${s##*/}"; reason=""; mine=""
-    if [[ -n "${cblind[$rel]+set}" ]]; then reason="blind-spot (${cblind[$rel]})"   # SENTINEL-CACHE-BLIND
+    # SENTINEL-CACHE-ALWAYS: an always-run suite reads the whole tree; a key made of its declared deps would not see it
+    if [[ -n "${calways[$rel]+set}" ]]; then reason="always-run"
+    elif [[ -n "${cblind[$rel]+set}" ]]; then reason="blind-spot (${cblind[$rel]})"   # SENTINEL-CACHE-BLIND
     elif [[ -n "${cunres[$rel]+set}" ]]; then reason="no dependency resolved"
     elif [[ -z "${cdeps[$rel]+set}" ]]; then reason="not known to suite-impact.sh"
     elif [[ -z "${chash[$rel]+set}" ]]; then reason="suite file unreadable"
@@ -1493,7 +1508,11 @@ for suite in "${all_suites[@]}"; do
   # --cache: record a FULL pass only (SENTINEL-CACHE-STORE). Never a FAIL/SKIP, a suite with per-test skips (an
   # environment-dependent result), or anything once this run has a hermeticity / TMPDIR violation: replaying a
   # leaking suite's PASS would hide the leak.
-  if [[ "${cache_state[$suite]-}" == miss && "$_res" == PASS && "$_suite_test_skips" -eq 0 && "${s_failed:-1}" -eq 0 \
+  # SENTINEL-CACHE-SKIPLINE: any line that starts with SKIP (indented or not, `SKIP:` or `SKIP  case`) marks an
+  # environment-dependent result
+  _suite_skip_seen=0
+  if [[ "${cache_state[$suite]-}" == miss ]] && grep -qE '^[[:space:]]*SKIP([^[:alnum:]_]|$)' "$tmp_out"; then _suite_skip_seen=1; fi
+  if [[ "${cache_state[$suite]-}" == miss && "$_res" == PASS && "$_suite_skip_seen" -eq 0 && "${s_failed:-1}" -eq 0 \
         && -n "$_suite_clean" ]]; then
     [[ -n "${_cache_head-}" ]] || { _cache_head="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)" || _cache_head=""; : "${_cache_head:=nohead}"; }
     if { printf 'PASS %s 0 %s %s\n' "$s_passed" "$(date +%Y-%m-%d)" "$_cache_head"; cat "$tmp_out"; } > "$CACHE_DIR/.tmp.$$.$suite_idx" 2>/dev/null \
@@ -1512,6 +1531,7 @@ done
 
 # --- Final aggregate block ------------------------------------------------
 suites_failed=$((suites_run - suites_ok - ${#suites_skipped[@]}))
+_cache_note=""; [[ ${#cache_hit_names[@]} -eq 0 ]] || _cache_note=" (${#cache_hit_names[@]} cached suites not checked)"   # a reused result ran nothing, so these checks never saw it
 
 echo "==============================================================="
 echo "AGGREGATE RESULT"
@@ -1587,7 +1607,7 @@ echo "Test cases failed: $total_failed"
 if [[ "$HERMETICITY_DEGRADED" -eq 1 ]]; then
   echo "Hermeticity: DEGRADED — ${HERMETICITY_DEGRADED_REASON:-cause not recorded}; could not verify"
 else
-  echo "Hermeticity violations (new/modified/removed top-level entries in caller cwd): ${#hermeticity_violations[@]}"
+  echo "Hermeticity violations (new/modified/removed top-level entries in caller cwd): ${#hermeticity_violations[@]}${_cache_note}"
   if [[ ${#hermeticity_violations[@]} -gt 0 ]]; then
     echo "  (a suite must not leak, overwrite, or delete top-level entries in the caller's cwd — kit issue #1032)"
     _hv_sorted=()
@@ -1600,7 +1620,7 @@ fi
 if [[ "$KIT_TREE_DEGRADED" -eq 1 ]]; then
   echo "Kit-tree hermeticity: DEGRADED — ${KIT_TREE_DEGRADED_REASON:-cause not recorded}; could not verify"
 else
-  echo "Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): ${#kit_tree_violations[@]}"
+  echo "Kit-tree hermeticity violations (new/modified/removed files under research-sdd/): ${#kit_tree_violations[@]}${_cache_note}"
   if [[ ${#kit_tree_violations[@]} -gt 0 ]]; then
     echo "  (a suite must not write into the repo tree — build mutants/fixtures in a temp dir — kit issue #1156)"
     _kt_sorted=()
@@ -1615,7 +1635,7 @@ if [[ -n "$TMPDIR_DEGRADED_REASON" ]]; then
   echo "TMPDIR leftovers: DEGRADED — $TMPDIR_DEGRADED_REASON; could not verify"
 else
   _tl_names=""; if [[ ${#tmp_leftovers[@]} -gt 0 ]]; then _tl_names="$(printf '%s, ' "${tmp_leftovers[@]}")"; _tl_names="${_tl_names%, }"; fi
-  echo "TMPDIR leftovers: $tmp_leftover_total — [$_tl_names]"
+  echo "TMPDIR leftovers: $tmp_leftover_total — [$_tl_names]${_cache_note}"
   if [[ "$tmp_leftover_total" -gt 0 ]]; then
     echo "  (a suite must remove what it creates under TMPDIR — kit issue #1277; fails the run only under --require-clean-tmp)"
   fi
