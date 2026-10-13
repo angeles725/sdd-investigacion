@@ -109,7 +109,8 @@ All three gates must pass on a quiet tree before requesting review:
 # Gate 1 — shellcheck (zero warnings; globstar required for full coverage)
 shopt -s globstar && shellcheck -S warning research-sdd/toolbelt/**/*.sh
 
-# Gate 2 — full test suite (skipped ≠ passed; zero-coverage run exits 1)
+# Gate 2 — test suite, default core tier (skipped ≠ passed; zero-coverage run exits 1);
+# touching a SUT/lib an extras suite exercises? also run: ... run-all.sh --tier extras
 bash research-sdd/toolbelt/tests/run-all.sh
 
 # Gate 3 — mutation controls (every mutation control must go red)
@@ -119,9 +120,27 @@ bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth
 Check each in the PR:
 ```markdown
 - [x] shellcheck: zero warnings
-- [x] run-all.sh: all suites pass
+- [x] run-all.sh: all suites of the default core tier pass (a change touching a SUT or lib exercised by an extras suite also ran `run-all.sh --tier extras`; see CLAUDE.md §5 Tier row)
 - [x] run-all.sh --prove-teeth: all mutation controls go red
 - [x] PR is within ~400 authored lines (or kit-chained-pr used)
+```
+
+**Writer checklist (CLAUDE.md §4, kit issue #2208)** — run before the full gate:
+
+```bash
+# 1. teeth logs for every suite the diff impacts, then the check (exit 0 required)
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree          # lists required suites
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --write-teeth-log DIR --base origin/main <suite>...   # --prove-teeth, bounded by timeout, bound to the changed files
+bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree --teeth-log DIR
+```
+
+- No name-based process kills (pkill/killall, `kill -1`, pgrep/pidof into kill) in added code or in a Bash call: kill a recorded PID (`$!`, `jobs -p`). The check flags added lines (`# writer-check: allow-name-kill <reason>` for a justified exception) and the strict PreToolUse hook in `.claude/settings.json` denies the command.
+- A `stale-teeth` finding means the files changed after the log (or the log was hand-written): re-run `--write-teeth-log`. A suite that cannot show teeth is waived with a reason in `tests/writer-check-waivers.txt`.
+- A PR that changes production scripts carries an executed-RED line in its body, or the `Check RED Evidence` job fails:
+
+```markdown
+RED: foo.test.sh case-name — expected 3 got 0
+RED: n/a — <reason RED cannot be executed>
 ```
 
 ### 6. Contributor Checklist

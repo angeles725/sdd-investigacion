@@ -1,0 +1,1 @@
+{"risk": "high", "review_due": true, "review_due_reason": "high_risk", "next_transition": {"command": "gentle-ai review assess --cwd /x --json"}}

@@ -15,8 +15,11 @@
 #   Exit (--scan, --scan-tree): 0 no violations · 1 violations · 2 operational failure (absent corpus, zero files,
 #   unreadable file, no code lines seen) — a zero is never a silent pass (CLAUDE.md §7).
 #
-# Corpus (declared): research-sdd/toolbelt/*.sh · research-sdd/toolbelt/lib/*.sh · research-sdd/install/*.sh ·
-# research-sdd/templates/*.sh (hook templates copied into a target; gated since kit issue #2042).
+# Corpus (declared): research-sdd/toolbelt/*.sh · research-sdd/toolbelt/lib/*.sh · research-sdd/toolbelt/maint/*.sh ·
+# research-sdd/install/*.sh · research-sdd/templates/*.sh (hook templates copied into a target; gated since kit issue #2042).
+# toolbelt/maint/ (maintainer tools) was outside the corpus until now. It is OPTIONAL: an absent maint/ directory is
+# reported as `corpus toolbelt/maint/*.sh: absent (not gated)` and a present one with no *.sh is an error; the real-tree
+# check below requires a non-zero maint/ count, so a moved or emptied maint/ cannot pass silently (CLAUDE.md §7).
 # EXCLUDED (declared, reported by --scan-tree, never gated):
 #   - toolbelt/tests/ and install/tests/ — test suites are launched by path from run-all.sh / a developer and
 #     only locate their own fixtures; 190+ of them use `dirname "$0"` and none is a PATH-resolved entry point.
@@ -140,8 +143,12 @@ lrl_scan() {   # lrl_scan FILE... -> report on stdout, rc 0/1/2
 lrl_tree() {   # lrl_tree RESEARCH_DIR -> report with corpus counts
   local root="$1" d n files=() c
   [ -d "$root/toolbelt" ] || { echo "ERROR: absent corpus: $root/toolbelt" >&2; return 2; }
-  for d in toolbelt toolbelt/lib install templates; do   # SENTINEL-LRL-TPLDIR
-    [ -d "$root/$d" ] || { echo "ERROR: absent corpus dir: $root/$d" >&2; return 2; }
+  for d in toolbelt toolbelt/lib toolbelt/maint install templates; do   # SENTINEL-LRL-TPLDIR
+    if [ ! -d "$root/$d" ]; then
+      # maint/ is the one optional corpus dir (SENTINEL-LRL-MAINT-OPTIONAL): stated, never silently skipped.
+      if [ "$d" = toolbelt/maint ]; then printf 'corpus %s/*.sh: absent (not gated)\n' "$d"; continue; fi
+      echo "ERROR: absent corpus dir: $root/$d" >&2; return 2
+    fi
     c=0
     for n in "$root/$d"/*.sh; do [ -e "$n" ] || continue; files+=("$n"); c=$((c + 1)); done
     printf 'corpus %s/*.sh: %d\n' "$d" "$c"
@@ -159,7 +166,7 @@ lrl_complete() {   # lrl_complete RESEARCH_DIR LIST EXCL -> report, rc 0 complet
   [ -d "$root/toolbelt" ] || { echo "ERROR: absent corpus: $root/toolbelt" >&2; return 2; }
   [ -s "$list" ] || { echo "ERROR: planted-lib list absent or empty: $list" >&2; return 2; }
   [ -r "$excl" ] || { echo "ERROR: exclusions file unreadable: $excl" >&2; return 2; }
-  for f in "$root"/toolbelt/*.sh "$root"/toolbelt/lib/*.sh "$root"/install/*.sh; do
+  for f in "$root"/toolbelt/*.sh "$root"/toolbelt/lib/*.sh "$root"/toolbelt/maint/*.sh "$root"/install/*.sh; do
     [ -e "$f" ] || continue
     grep -q '^_RSDD_SELF=' "$f"; rc=$?
     case "$rc" in 0) ;; 1) continue ;; *) echo "ERROR: grep failed on $f" >&2; return 2 ;; esac
@@ -297,7 +304,7 @@ if [ "$rc" -eq 2 ] && grep -q 'absent corpus' <<<"$out"; then ok "absent corpus 
 out="$(bash "$SELF" --scan-tree "$TB/.." 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qx 'violations: 0' <<<"$out"; then ok "REAL TREE: 0 \$0-derived directories across the declared corpus"
 else no "REAL TREE lint failed (rc=$rc): $(grep -E '^[^ ]+:[0-9]+:F[0-9]|ERROR' <<<"$out" | head -10 | tr '\n' ';')"; fi
-for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus toolbelt/lib/\*\.sh: [1-9]' '^corpus install/\*\.sh: [1-9]' '^corpus templates/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
+for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus toolbelt/lib/\*\.sh: [1-9]' '^corpus install/\*\.sh: [1-9]' '^corpus toolbelt/maint/\*\.sh: [1-9]' '^corpus templates/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
   if grep -qE -- "$pat" <<<"$out"; then ok "report prints: $pat"; else no "report is missing: $pat"; fi
 done
 
@@ -422,6 +429,27 @@ printf '_hook_target="$(cd "$(dirname "$0")/../.." && pwd)"\n' >> "$tt/templates
 out="$(bash "$SELF" --scan-tree "$tt" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && grep -qx 'violations: 1' <<<"$out" && grep -qE 'templates/hook-sessionstart\.sh:[0-9]+:F1: ' <<<"$out"; then ok "templates: a re-planted dirname \"\$0\" in a template copy is flagged (violations: 1, rc 1)"; else no "templates: re-planted \$0 dirname in a template not flagged (rc=$rc): $(grep -E '^violations|ERROR' <<<"$out" | tr '\n' ';')"; fi
 
+# ---- toolbelt/maint/ is part of the gated corpus: a $0-derived dirname in a maint/ script is flagged ----
+mt="$TMP/mt"; mkdir -p "$mt/toolbelt/lib" "$mt/toolbelt/maint" "$mt/install" "$mt/templates"
+printf 'echo a\n' > "$mt/toolbelt/a.sh"; printf 'echo b\n' > "$mt/toolbelt/lib/b.sh"; printf 'echo c\n' > "$mt/install/c.sh"; printf 'echo t\n' > "$mt/templates/t.sh"
+printf 'echo m\n' > "$mt/toolbelt/maint/m.sh"
+out="$(bash "$SELF" --scan-tree "$mt" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'violations: 0' <<<"$out" && grep -qx 'corpus toolbelt/maint/\*\.sh: 1' <<<"$out"; then ok "maint: a clean maint/ script is counted (corpus toolbelt/maint/*.sh: 1) and passes"; else no "maint: clean fixture (rc=$rc): $(grep -E '^corpus|^violations|ERROR' <<<"$out" | tr '\n' ';')"; fi
+printf '_m_dir="$(cd "$(dirname "$0")/.." && pwd)"\n' >> "$mt/toolbelt/maint/m.sh"
+out="$(bash "$SELF" --scan-tree "$mt" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qx 'violations: 1' <<<"$out" && grep -qE 'maint/m\.sh:[0-9]+:F1: ' <<<"$out"; then ok "maint: a dirname \"\$0\" in a toolbelt/maint/ script is flagged (violations: 1, rc 1)"; else no "maint: \$0 dirname in maint/ not flagged (rc=$rc): $(grep -E '^violations|ERROR' <<<"$out" | tr '\n' ';')"; fi
+rm -rf "$mt/toolbelt/maint"
+out="$(bash "$SELF" --scan-tree "$mt" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'corpus toolbelt/maint/\*\.sh: absent (not gated)' <<<"$out"; then ok "maint: an absent maint/ is stated in the report (absent (not gated)), not skipped silently"; else no "maint: absent maint/ not stated (rc=$rc): $(grep -E '^corpus|ERROR' <<<"$out" | tr '\n' ';')"; fi
+mkdir -p "$mt/toolbelt/maint"
+out="$(bash "$SELF" --scan-tree "$mt" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q 'empty corpus' <<<"$out"; then ok "maint: a present maint/ with no *.sh is an error (rc 2), not a pass"; else no "maint: empty maint/ (rc=$rc): $(head -c 200 <<<"$out")"; fi
+# completeness also covers maint/: an unlisted _RSDD_SELF script under maint/ is reported missing
+mkdir -p "$cr/toolbelt/maint"; printf '_RSDD_SELF=1\n' > "$cr/toolbelt/maint/m.sh"
+out="$(bash "$SELF" --complete "$cr" "$TMP/cr-all.txt" "$TMP/cr-none.txt" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q 'missing (neither listed nor excluded): maint/m.sh' <<<"$out"; then ok "completeness: an unlisted _RSDD_SELF script under maint/ is reported missing → rc 1"; else no "completeness maint gap rc=$rc: $out"; fi
+rm -rf "$cr/toolbelt/maint"
+
 # ---- Templates: hook-prepush-vendor-leak.sh finds its sibling scanner from its OWN path (#2042) -------------------
 # A pre-push hook is run by path from <target>/.git/hooks/pre-push -> `bash <KIT>/templates/hook-prepush-vendor-leak.sh`; the
 # $0-derived form took the scanner from the CALLER's cwd when bash found the file through PATH. Run it by bare name (PATH)
@@ -496,6 +524,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth templates-scanned" "$MUT/tpl/$M" '/SENTINEL-LRL-TPLDIR$/ s/ templates; do/; do/' \
     && tooth "teeth templates-scanned: templates dropped from the corpus -> a \$0 dirname in a template is missed" 1 0 "$MUT/tpl/$M" \
          --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan-tree "$tt"
+
+  # Tooth: maint/ is in the scanned corpus - drop it from the corpus loop and a planted maint/ violation reads clean.
+  printf '_m_dir="$(cd "$(dirname "$0")/.." && pwd)"\n' > "$TMP/mt-viol.sh"
+  mkdir -p "$TMP/mt2/toolbelt/lib" "$TMP/mt2/toolbelt/maint" "$TMP/mt2/install" "$TMP/mt2/templates"
+  printf 'echo a\n' > "$TMP/mt2/toolbelt/a.sh"; printf 'echo b\n' > "$TMP/mt2/toolbelt/lib/b.sh"; printf 'echo c\n' > "$TMP/mt2/install/c.sh"; printf 'echo t\n' > "$TMP/mt2/templates/t.sh"
+  cp "$TMP/mt-viol.sh" "$TMP/mt2/toolbelt/maint/m.sh"
+  mk_sed "teeth maint-scanned" "$MUT/maint/$M" '/SENTINEL-LRL-TPLDIR$/ s/ toolbelt\/maint install/ install/' \
+    && tooth "teeth maint-scanned: maint dropped from the corpus -> a \$0 dirname in a maint/ script is missed" 1 0 "$MUT/maint/$M" \
+         --good-has 'violations: 1' --bad-has 'violations: 0' -- bash @SUT@ --scan-tree "$TMP/mt2"
+
+  # Tooth: completeness covers maint/ - drop the maint glob from lrl_complete and the unlisted maint/ script is no longer missing.
+  mkdir -p "$TMP/cm/toolbelt/lib" "$TMP/cm/toolbelt/maint" "$TMP/cm/install"
+  printf '_RSDD_SELF=1\n' > "$TMP/cm/toolbelt/a.sh"; printf '_RSDD_SELF=1\n' > "$TMP/cm/toolbelt/maint/m.sh"
+  mk_sed "teeth maint-complete" "$MUT/mcomp/$M" 's# "\$root"/toolbelt/maint/\*\.sh##' \
+    && tooth "teeth maint-complete: maint glob dropped from completeness -> an unlisted maint/ script goes unseen" 1 0 "$MUT/mcomp/$M" \
+         --good-has 'missing 1' --bad-has 'missing 0' -- bash @SUT@ --complete "$TMP/cm" "$TMP/cr-a.txt" "$TMP/cr-none.txt"
 
   # Tooth: the prepush template check bites - the hook re-derived from $0 (bare name, other cwd) cannot find its scanner.
   mkdir -p "$MUT/pp/toolbelt" "$MUT/pp/templates"; cp "$TB/scan-vendor-leak.sh" "$MUT/pp/toolbelt/"
