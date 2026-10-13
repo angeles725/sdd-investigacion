@@ -2,7 +2,9 @@
 name: toolbelt tests
 
 on:
+  # Kit issue #2234: push runs on main only; PR branches run via pull_request, so each PR commit is checked once.
   push:
+    branches: [main]
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
