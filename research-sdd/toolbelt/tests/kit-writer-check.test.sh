@@ -55,7 +55,7 @@ w() { mkdir -p "$(dirname "$P/$1")"; cat > "$P/$1"; }
 fake_suite() { # path sut-word
   w "$1" <<EOF
 #!/usr/bin/env bash
-# exercises $2
+: '$2'   # SUT named on a code line: comment-only mentions are not graph edges (#2201)
 if [ "\${1:-}" = "--prove-teeth" ]; then echo "-- teeth --"; fi
 echo "== 3 passed · 0 failed =="
 EOF
