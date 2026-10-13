@@ -195,13 +195,17 @@ They are listed here so a reader of this registry finds every typed state the sc
   leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
   prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
-- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh`, kit issue #2201): the
-  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. It lives
-  under `tests/`, outside the scanned scripts, so it is NOT a row of the degraded table above. Reasons: a runtime
+- `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
+  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
+  <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
+- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
+  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
+  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
   dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
   ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
   `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
-  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing). An INVALID manifest line (no reason, a suite that does not exist,
+  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
+  `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
   a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
   tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
 
@@ -254,21 +258,6 @@ They are listed here so a reader of this registry finds every typed state the sc
   are listed here, not in the table. Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
   `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
 
-
-- `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
-  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
-  <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
-- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
-  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
-  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
-  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
-  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
-  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
-  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
-  `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
-  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
-  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
-
 ### kit-writer-check (#2208)
 
 - `degraded: kit-writer-check: <reason>` (`maint/kit-writer-check.sh`, kit issue #2208): the writer-discipline
@@ -285,6 +274,31 @@ They are listed here so a reader of this registry finds every typed state the sc
   <reason>`, `teeth-na <suite>`, `teeth-waived <suite> (<reason>)`, `required: 0 (...)`. Continuation: install the tool or fix the
   ref or directory, then re-run; run `--write-teeth-log DIR <suite>...` to produce the logs a `missing-teeth`
   line asks for.
+
+- `kit-merge-train: <state>` (maint/kit-merge-train.sh, kit issue #2213): one gate on a combined local train head,
+  then an ordered merge. It reuses `merged` 0, `usage` 2, `degraded` 3, `fetch-failed` 21 and `gate-lock-timeout` 22
+  from the table above and relays `ci-failed` 17, `merge-degraded` 18 and `not-merged` 19 from `kit-wait-merge.sh`
+  (the PRs after the one that stopped the train are `pending` in the receipt). Per-PR lines `train-refused #N:
+  <reason>` (`not-open`, `draft`, `rdd-unconfirmed`, `rdd-head-mismatch`, `head-moved`, `gh-view-failed`) and
+  `train-conflict #N` drop that PR and are not exits. `tests/kit-merge-train.test.sh` pins them.
+
+  | state | exit | continuation |
+  |---|---|---|
+  | `train-gate-failed` | 26 | read the printed gate log; re-run with `--bisect` to name the first PR whose inclusion turns it red; nothing was merged |
+  | `train-partial` | 27 | everything left in the train merged; fix the refused / conflicting PRs listed in the receipt and train them again |
+  | `train-empty` | 28 | no PR survived the checks and merges; read the `train-refused` / `train-conflict` lines |
+  | `train-error` | 29 | read the git or gate error above (not a conflict, or the run was interrupted), fix by hand, then re-run |
+  | `base-moved` | 30 | the base branch moved during the gate; nothing was merged; re-run the train on the new base |
+  | `main-raced` | 31 | a commit landed on the base between two merges (the merged PRs are `merged` in the receipt, the rest `pending`); inspect main, then re-train the rest |
+  | `tree-mismatch` | 32 | the tree on the base differs from the train tree (or the base+merged-prefix tree); inspect main before anything else is merged |
+  | `merged-out-of-band` | 33 | GitHub shows the PR MERGED at a head other than the gated one (`kit-wait-merge.sh --expect-head`); inspect it, the train stopped and the PR is `out-of-band` in the receipt |
+
+  Also: `pr-cwd-mismatch` (a per-PR refusal: the `--pr-cwd` directory is not a worktree of the repo, or its HEAD is not the
+  pinned head); without `--pr-cwd`, merge-gate in the train's own worktree typically stops the train at `not-merged`
+  with `refuse: review_due`, because RDD authority is bound to the worktree where the review ran;
+  `base-not-<branch>` (a per-PR refusal: the PR does not target the train's base branch, e.g. a stacked PR) and
+  `bisect-incomplete: gate-lock-timeout` (a `train-gate-failed` whose `--bisect` could not finish; the receipt keeps the
+  full gate's rc and log).
 
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 
