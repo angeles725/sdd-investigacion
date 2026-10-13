@@ -80,3 +80,4 @@ run-all-default-root runs suites by a computed $HERE/$name.test.sh path
 run-all runs suites by a computed $HERE/$name.test.sh path
 shard-join runs suites by a computed $HERE/$name.test.sh path
 kit-flake-hunt runs suites by a computed $HERE/$name.test.sh path
+kit-writer-check runs suites by a computed $HERE/$name.test.sh path (fixture only; reach unproven, so unscoped)
