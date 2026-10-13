@@ -23,7 +23,8 @@
 # The `| head` consumer family (kit issue #1145) is deliberately NOT linted — measured, not assumed (2026-10-07):
 #   incidence  723 `| head` sites in 79 files, 65 sites in 20 production files (tests/ excluded). Enumerator, run from
 #              research-sdd/: `grep -rnE '\| *head( |$)' --include='*.sh' toolbelt install` (then `| grep -v /tests/` for
-#              production). Scope: *.sh under toolbelt/ and install/ only. It matches `|head` and `| head` at any
+#              production). Scope: *.sh under toolbelt/ and install/ only (the lint corpus also covers
+#              toolbelt/maint/, optional and stated when absent, but this measurement predates it). It matches `|head` and `| head` at any
 #              position on a physical line (including a continuation line that starts with `| head`); it does NOT see
 #              `|& head`, `head` reached through a variable/xargs/eval, or scripts without a .sh extension.
 #   mechanism  under pipefail a producer that writes more than the ~64 KB pipe buffer after `head` has exited gets
@@ -199,9 +200,14 @@ pfl_tree() {
   local root="$1" c d g f files=() n
   [ -d "$root" ] || { echo "ERROR: absent corpus root: $root" >&2; return 2; }
   # corpus declaration: <dir relative to the root>
-  for c in toolbelt toolbelt/lib toolbelt/tests toolbelt/tests/lib install install/tests; do
+  for c in toolbelt toolbelt/lib toolbelt/maint toolbelt/tests toolbelt/tests/lib install install/tests; do   # SENTINEL-PFL-MAINT
     d="$root/$c"
-    [ -d "$d" ] || { echo "ERROR: absent corpus directory: $c/ (expected $d)" >&2; return 2; }
+    if [ ! -d "$d" ]; then
+      # toolbelt/maint is the one OPTIONAL corpus dir: stated in the report, never silently skipped. A present maint/ with
+      # no *.sh is still an error below, and the real-tree check requires a non-zero maint count.
+      if [ "$c" = toolbelt/maint ]; then echo "corpus $c/*.sh: absent (not gated)"; continue; fi
+      echo "ERROR: absent corpus directory: $c/ (expected $d)" >&2; return 2
+    fi
     n=0
     for f in "$d"/*.sh; do
       [ -f "$f" ] || continue
@@ -280,11 +286,27 @@ mkdir -p "$TMP/root/toolbelt"
 out="$(bash "$SELF" --scan-tree "$TMP/root" 2>&1)"; rc=$?
 if [ "$rc" -eq 2 ] && grep -q 'empty corpus' <<<"$out"; then ok "a corpus dir with no *.sh files → exit 2"
 else no "empty corpus dir: exit $rc, output: $(head -c 200 <<<"$out")"; fi
+# maint/ is a gated corpus: a producer | grep -q violation under toolbelt/maint/ is flagged; an absent maint/ is stated, not skipped.
+MR="$TMP/mroot"
+for c in toolbelt toolbelt/lib toolbelt/maint toolbelt/tests toolbelt/tests/lib install install/tests; do
+  mkdir -p "$MR/$c"; printf '#!/usr/bin/env bash\nset -uo pipefail\necho ok\n' > "$MR/$c/f.sh"
+done
+out="$(bash "$SELF" --scan-tree "$MR" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'corpus toolbelt/maint/\*\.sh: 1 file(s)' <<<"$out" && grep -qx 'violations: 0' <<<"$out"; then ok "maint: a clean toolbelt/maint/ script is counted and passes"
+else no "maint clean fixture: exit $rc, output: $(grep -E '^corpus toolbelt/maint|^violations|ERROR' <<<"$out" | tr '\n' ';')"; fi
+printf '#!/usr/bin/env bash\nset -uo pipefail\nprintf x | %s -q x\n' grep > "$MR/toolbelt/maint/f.sh"
+out="$(bash "$SELF" --scan-tree "$MR" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qE 'toolbelt/maint/f\.sh:[0-9]+' <<<"$out"; then ok "maint: a pipefail-sigpipe site under toolbelt/maint/ is flagged (exit 1)"
+else no "maint violation not flagged: exit $rc, output: $(grep -E 'VIOLATION|ERROR|^violations' <<<"$out" | head -3 | tr '\n' ';')"; fi
+rm -rf "$MR/toolbelt/maint"
+out="$(bash "$SELF" --scan-tree "$MR" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qx 'corpus toolbelt/maint/\*\.sh: absent (not gated)' <<<"$out"; then ok "maint: an absent maint/ is stated in the report (absent (not gated))"
+else no "absent maint/ not stated: exit $rc, output: $(grep -E '^corpus|ERROR' <<<"$out" | tr '\n' ';')"; fi
 out="$(bash "$SELF" --scan-tree "$HERE/../.." 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && grep -q '^violations: 0$' <<<"$out"; then ok "REAL TREE: 0 violations across the declared corpora"
 else no "REAL TREE lint failed (exit $rc): $(grep -E 'ERROR|VIOLATION' <<<"$out" | head -20 | tr '\n' ';')"; fi
 # Report shape (§7): corpus counts, files scanned, forms, violations and exempt sites must all be printed.
-for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus install/tests/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
+for pat in '^corpus toolbelt/\*\.sh: [1-9]' '^corpus toolbelt/maint/\*\.sh: [1-9]' '^corpus install/tests/\*\.sh: [1-9]' '^files scanned: [1-9]' '^forms recognised' '^forms NOT recognised' '^exempt sites: [0-9]'; do
   if grep -qE -- "$pat" <<<"$out"; then ok "report prints: $pat"; else no "report is missing: $pat"; fi
 done
 printf '%s\n' "$out" | sed -n '/^corpus /p;/^files scanned/p;/^violations:/p;/^exempt sites:/,$p'
@@ -335,6 +357,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_sed "teeth bufname" "$MUT/bufname/$M" '/^      else printf "V/ s/bufname/FILENAME/' \
     && tooth "teeth bufname: FILENAME at flush time → violation of A reported under B" 1 1 "$MUT/bufname/$M" \
          --good-has 'multi-a\.txt:2:' --bad-lacks 'multi-a\.txt:2:' -- bash @SUT@ --scan "$FIX/multi-a.txt" "$FIX/multi-b.txt"
+
+  # Tooth 7: maint/ dropped from the corpus loop → a producer | grep -q violation under toolbelt/maint/ reads clean.
+  MR2="$TMP/mroot2"
+  for c in toolbelt toolbelt/lib toolbelt/maint toolbelt/tests toolbelt/tests/lib install install/tests; do
+    mkdir -p "$MR2/$c"; printf '#!/usr/bin/env bash\nset -uo pipefail\necho ok\n' > "$MR2/$c/f.sh"
+  done
+  printf '#!/usr/bin/env bash\nset -uo pipefail\nprintf x | %s -q x\n' grep > "$MR2/toolbelt/maint/f.sh"
+  mk_sed "teeth maint-corpus" "$MUT/maintc/$M" '/SENTINEL-PFL-MAINT$/ s# toolbelt/maint##' \
+    && tooth "teeth maint-corpus: maint dropped from the corpus → a violation under toolbelt/maint/ is missed" 1 0 "$MUT/maintc/$M" \
+         --good-has 'toolbelt/maint/f\.sh:3' --bad-lacks 'toolbelt/maint/f\.sh' -- bash @SUT@ --scan-tree "$MR2"
 
   rm -rf "$MUT"
 fi

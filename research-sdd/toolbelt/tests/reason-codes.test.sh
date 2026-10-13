@@ -303,12 +303,12 @@ function mask(p,   i, n, ch, st, out, prev) {
 }'
 
 IC_REPORT=''
-# ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh. rc 0 clean · 1 findings · 2 degraded.
+# ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh and DIR/maint/*.sh (maint tools are IN scope: a typed state they emit needs a registry row, prose mentions need a stale-detected waiver; maint/ may be absent, the report says how many files it held). rc 0 clean · 1 findings · 2 degraded.
 # Sets IC_REPORT to the coverage declaration (what was traversed, how each occurrence was classified).
 ic_check() {
   local reg="$1" dir="$2" rows p rel f ln tok cls txt w wf ws wr
   local c cl em ct i n nfiles=0 nocc=0 key lst row_i e
-  local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0
+  local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0 n_maint_files=0
   local -a codes=() classes=() emits=() files=() usedw=() wv=()
   local pairs=';' all='' n_uncl=0
   nfind=0; IC_REPORT=''
@@ -333,8 +333,9 @@ ic_check() {
   done <<<"$rows"
 
   if [ ! -d "$dir" ]; then printf 'DEGRADED: scan directory absent: %s\n' "$dir"; return 2; fi
-  for p in "$dir"/*.sh "$dir"/lib/*.sh; do
+  for p in "$dir"/*.sh "$dir"/lib/*.sh "$dir"/maint/*.sh; do   # SENTINEL-IC-MAINT
     [ -f "$p" ] || continue
+    case "$p" in "$dir"/maint/*) n_maint_files=$((n_maint_files + 1)) ;; esac
     if [ ! -r "$p" ]; then printf 'DEGRADED: scanned file unreadable: %s\n' "$p"; return 2; fi
     files+=("$p")
   done
@@ -422,7 +423,7 @@ ic_check() {
     done
   done
 
-  IC_REPORT="scanned $nfiles shell files (*.sh and lib/*.sh); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell)"
+  IC_REPORT="scanned $nfiles shell files (*.sh, lib/*.sh and maint/*.sh; under maint/: $n_maint_files); $nocc token occurrences: $n_emit emit, $n_consumer consumer, $n_counter counter, $n_comment trailing-comment, $n_waived waived, $n_uncl unclassified; $n_py python file(s) mention a token and are out of scope (not shell)"
   printf 'COVERAGE: %s\n' "$IC_REPORT"
   [ "$nfind" -eq 0 ]
 }
@@ -712,6 +713,15 @@ expect_ic() {
 mkifix i_good
 expect_ic "input scan: good fixture is clean (all forms recognised, non-emit classes skipped)" 0 i_good
 
+# toolbelt/maint/ is IN the scan: a maint/ emitter must be a registry row, and the report counts maint/ files.
+expect_ic "input scan: the report counts maint/ files (0 when maint/ is absent)" 0 i_good 'under maint/: 0\)'
+mkifix i_maint_bad
+mkdir -p "$tmp/i_maint_bad/tb/maint"; printf '%s\n' 'echo "empty-input: run-level note"' > "$tmp/i_maint_bad/tb/maint/m.sh"
+expect_ic "input scan: a maint/ emitter missing from the registry row fails (emitter mismatch)" 1 i_maint_bad "emitter mismatch: maint/m.sh emits 'empty-input'"
+mkifix i_maint
+mkdir -p "$tmp/i_maint/tb/maint"; cp "$tmp/i_maint_bad/tb/maint/m.sh" "$tmp/i_maint/tb/maint/m.sh"
+edit "$tmp/i_maint/reg.md" 's#`empty-input` | input | a.sh, lib/b.sh |#`empty-input` | input | a.sh, lib/b.sh, maint/m.sh |#'
+expect_ic "input scan: listing the maint/ emitter in the row makes it clean, and the report counts it" 0 i_maint 'under maint/: 1\)'
 mkifix i_unlisted
 edit "$tmp/i_unlisted/reg.md" '/`no-match`/d'
 expect_ic "input scan: emitted code with no registry row fails (unlisted)" 1 i_unlisted 'unlisted input-class code emitted: no-match'
@@ -865,6 +875,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # input-class scan teeth: the same helper, pointed at --check-input with the fixture's own (empty) waiver file
   ictooth() { RC_IC_WAIVERS_FILE="$tmp/$2/waivers.txt" TOOTH_MODE=--check-input TOOTH_SUB=tb tooth "$@"; }
   ictooth ic-unlisted    i_unlisted    1 0 '/# TOOTH-IC-UNLISTED/s/finding /: /'
+  # maint/ is scanned: drop it from the glob and the unlisted maint/ emitter is no longer found
+  ictooth ic-maint-scanned i_maint_bad 1 0 's#"\$dir"/lib/\*\.sh "\$dir"/maint/\*\.sh; do#"$dir"/lib/*.sh; do#'
   ictooth ic-staleemit   i_staleemit   1 0 '/# TOOTH-IC-STALEEMIT/s/finding /: /'
   ictooth ic-emitter     i_emitter1    1 0 '/# TOOTH-IC-EMITTER/s/finding /: /'
   ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
