@@ -339,7 +339,7 @@ if [ -n "$SCRATCH_P" ]; then
       _plast=$(( ${#_pl[@]} - 1 ))
       { [ "$_plast" -ge 0 ] && [ "${_pl[$_plast]}" = "RC=0" ]; } || { _err "probes scan failed under $TARGET_P/sources/probes; preserved copies not evaluated"; exit 2; }   # CC-PB-RC
       for ((_j = 0; _j < _plast; _j++)); do
-        _probe_shas="$_probe_shas"$'\n'"$($_sha_cmd -- "${_pl[$_j]}" 2>/dev/null | cut -d' ' -f1)"
+        _probe_shas="$_probe_shas"$'\n'"$($_sha_cmd < "${_pl[$_j]}" 2>/dev/null | cut -d' ' -f1)"
       done
     fi
     if [ -z "$_sha_cmd" ]; then   # CC-NO-SHA
@@ -360,7 +360,7 @@ if [ -n "$SCRATCH_P" ]; then
       if [ -n "$_citer" ]; then
         _same=0
         if [ -n "$_sha_cmd" ] && [ -n "$_probe_shas" ]; then
-          _h="$($_sha_cmd -- "$_f" 2>/dev/null | cut -d' ' -f1)"
+          _h="$($_sha_cmd < "$_f" 2>/dev/null | cut -d' ' -f1)"
           if [ -n "$_h" ] && grep -qxF -- "$_h" <<<"$_probe_shas"; then _same=1; fi   # CC-PRESERVED
         fi
         if [ "$_same" = 1 ]; then _pres=$((_pres + 1))
