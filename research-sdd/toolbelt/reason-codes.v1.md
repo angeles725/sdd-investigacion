@@ -118,7 +118,7 @@ checks the `emitters` column in both directions (see "How an input code is found
 | code | class | emitters | meaning | continuation |
 |---|---|---|---|---|
 | `absent-input` | input | coverage-map.sh, focus-partition-audit.sh, migrate-backlogs.sh, reconcile-issues.sh, retro-gate.sh, stage-retro-issues.sh, sweep-audits.sh, sweep-breakthroughs.sh, sweep-retros.sh, sweep-tools.sh, verify-cd-physical.sh, verify-registry.sh, verify-retro.sh, verify-session-budget.sh, verify-tool-catalog.sh | the file or directory was not found or not traversable | fix the path or restore the input, then re-run; do not read the result as zero |
-| `empty-input` | input | coverage-map.sh, focus-partition-audit.sh, migrate-backlogs.sh, reconcile-issues.sh, score-loop-transcript.sh, stage-retro-issues.sh, sweep-audits-hook.sh, sweep-audits.sh, sweep-breakthroughs-hook.sh, sweep-breakthroughs.sh, sweep-retros.sh, sweep-tools.sh, verify-cd-physical.sh, verify-session-budget.sh, verify-tool-catalog.sh | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
+| `empty-input` | input | coverage-map.sh, focus-partition-audit.sh, migrate-backlogs.sh, reconcile-issues.sh, score-loop-transcript.sh, stage-retro-issues.sh, sweep-audits-hook.sh, sweep-audits.sh, sweep-breakthroughs-hook.sh, sweep-breakthroughs.sh, sweep-retros.sh, sweep-tools.sh, verify-cd-physical.sh, verify-session-budget.sh, verify-tool-catalog.sh, maint/kit-size-check.sh | the input exists and is genuinely empty | confirm the emptiness is real; nothing to repair |
 | `unclassifiable` | input | focus-partition-audit.sh, reconcile-issues.sh, retro-gate.sh, stage-retro-issues.sh, verify-cd-physical.sh, verify-registry.sh | items exist but the instrument could not classify them | inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate |
 | `no-match` | input | coverage-map.sh, focus-partition-audit.sh, reconcile-issues.sh, stage-retro-issues.sh, sweep-breakthroughs-hook.sh, sweep-breakthroughs.sh, sweep-retros.sh, verify-cd-physical.sh, verify-registry.sh, verify-tool-catalog.sh | items exist and the instrument looked, but none satisfied the filter | confirm the filter is the intended one; widen it if a hit was expected, otherwise nothing to repair |
 
@@ -257,8 +257,9 @@ They are listed here so a reader of this registry finds every typed state the sc
   whose diff failed prints `hotspot: unchecked <file>`, which is not a clean no-churn. `degraded` (exit 2, reason on stderr: no git or awk, not a work tree, unresolved base or head
   ref, no merge base, mktemp failed, diff failed, malformed rename record, bad flag or value, a control
   character in a path) is never a zero.
-  The scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
-  are listed here, not in the table. Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
+  The degraded-code scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
+  are listed here, not in the degraded table; the INPUT-class scan does traverse `maint/*.sh`, which is why `maint/kit-size-check.sh` is an emitter of the `empty-input` input row.
+  Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
   `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
 
 ### kit-writer-check (#2208)
