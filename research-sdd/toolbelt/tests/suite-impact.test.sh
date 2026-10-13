@@ -413,6 +413,22 @@ run --repo "$D" --audit
 { [ "$RC" = 1 ] && hasre '^AUDIT dead reach glob in impact-blindspot.txt: research-sdd/toolbelt/nope/\* \(reachbad\)$' && ! hasre 'beta\.sh \(reachbad\)'; } \
   && ok "--audit: a reach glob matching no file is reported (the live glob of the same line is not), exit 1" || no "audit dead glob" "(rc=$RC $OUT)"
 
+# audit universe: a reach glob must match a file the classifier can place in the changed-CODE set
+for kind in "tests:$TS/*" "templates:research-sdd/templates/*" "install:research-sdd/install/*" "markdown:research-sdd/toolbelt/*.md"; do
+  lbl="${kind%%:*}"; glob="${kind#*:}"
+  D="$(newcase "audit_univ_$lbl")"; printf 'reachbad reach=%s matches only non-code files\n' "$glob" >> "$D/$TS/impact-blindspot.txt"; commit_all "$D"
+  run --repo "$D" --audit
+  { [ "$RC" = 1 ] && hasre "^AUDIT dead reach glob in impact-blindspot.txt: .* \(reachbad\)$"; } \
+    && ok "--audit: a reach glob matching only non-code files ($lbl) is dead for selection, exit 1" || no "audit universe $lbl" "(rc=$RC $OUT)"
+done
+
+# a CODE change outside research-sdd/toolbelt/ is covered by no reach glob: every blind-spot suite is added
+run --repo "$D_kc" --base base --format list
+{ sel_has evalish.test.sh && sel_has reachlib.test.sh && sel_has reachtop.test.sh && sel_has reachmulti.test.sh; } \
+  && ok "reach fallback: kit code outside toolbelt/ adds ALL blind-spot suites, scoped ones included" || no "reach fallback" "($OUT)"
+run --repo "$D_kc" --base base
+hasre '^Blind-spot skipped by reach: 0$' && ok "reach fallback: nothing is reported as skipped" || no "reach fallback report" "($OUT)"
+
 # ---- #2201 part 1c: comment lines and markdown are not graph edges --------------------------------------------------
 D_c1="$(kase cmt1 $T/cmtonly.sh)"; run --repo "$D_c1" --base base
 hasre '^Escalated to FULL: no suite reaches the changed file: research-sdd/toolbelt/cmtonly\.sh' && ok "comment edge: a script named only in a pure '#' comment line is not reached (escalates as unreached)" || no "comment-only mention" "($OUT)"
@@ -690,6 +706,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirpipe" "${BASE[@]}"
   mt "Markdown fixtures are edge sources again" 0 0 's/json|txt|bash/json|md|txt|bash/' \
     --good-has 'Escalated to FULL: no suite reaches' --bad-lacks 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$D_m1" "${BASE[@]}"
+  mt "audit matches reach globs against every file, not the changed-code universe" 1 0 's/^is_code_path() {$/is_code_path() { return 0/' \
+    --good-has 'dead reach glob' -- "$BASH_BIN" @SUT@ --repo "$TMP/audit_univ_templates" --audit
+  mt "code outside toolbelt/ no longer adds the scoped suites" 0 0 's/grep -qv .\^research-sdd\/toolbelt\/. "\$TMP\/code_changed"/false/' \
+    --good-has 'tests/reachlib.test.sh' --bad-lacks 'tests/reachlib.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_kc" "${BASE[@]}" --format list
 fi
 
 echo "== $pass passed · $fail failed =="
