@@ -16,7 +16,7 @@
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
-#                [--tier <core|extras|all>] [--shard I/N [--shard-manifest PATH]] | --list-suites
+#                [--tier <core|extras|all>] [--impacted <ref>] [--shard I/N [--shard-manifest PATH]] | --list-suites
 #
 #   --tier <t>       Suite tier (kit issue #2203), default `core`. suite-tiers.txt (next to this script) lists
 #                    the EXTRAS suites, one `<repo-relative suite path> extras <reason>` per line ('#' comments,
@@ -46,6 +46,25 @@
 #                    line per suite this shard ran. shard-join.sh consumes the N manifests and proves the
 #                    union covers every suite exactly once, all green.
 #                    Not combinable with --require-teeth (exit 2): the waiver gate needs the whole corpus.
+#   --impacted <ref> Fast per-PR gate (kit issue #2201 part 1b), also `--impacted=<ref>`: run only the suites
+#                    suite-impact.sh (next to this script) selects for the change between merge-base(<ref>, HEAD)
+#                    and the working tree (uncommitted edits count), intersected with the --tier selection. It
+#                    parses the suite-impact `--format report` (the only format that carries the escalation
+#                    verdict). When suite-impact escalated to FULL the whole tier selection runs unchanged (no
+#                    intersection with its list). A selected suite outside the tier is NOT run but is named
+#                    (`Impacted outside tier:`). Anything suite-impact cannot answer (script absent, bad ref or no
+#                    merge-base, no repo, exit != 0, no header or verdict, a `Selected:` list that is missing,
+#                    empty or disagrees with its own count, a suite total that differs from this runner's
+#                    discovered count, or a suite this runner did not discover) is `Impacted: DEGRADED`, exit 2
+#                    BEFORE any suite runs: never a silent partial set. A selection that is empty inside the tier
+#                    is `Impacted: EMPTY`, exit 1. The aggregate prints `Impacted: K of T suites (base <ref>,
+#                    merge-base <sha>)` (T = the tier selection; <sha> is the merge-base actually diffed, not the
+#                    ref's tip), ONE escalation line (`Impacted escalated: no` or `Impacted escalated: FULL —
+#                    <reason>`) and `Impacted skipped: S (selected K + skipped S = T ...)`. Not combinable with
+#                    --shard or --require-teeth (exit 2: teeth coverage and the waiver gate judge the whole
+#                    corpus). With --list-suites it lists the impacted selection. With --keep-tmp the selection
+#                    is kept as <TMPDIR root>/impacted.txt. It NEVER replaces the per-batch full gate (CLAUDE.md
+#                    section 5).
 #   --list-suites    Print the selected tier's suite list (repo-relative, LC_ALL=C sorted), one per line,
 #                    and exit (1 when the install corpus is absent). The single discovery source for
 #                    shard-join.sh.
@@ -271,7 +290,7 @@ KEEP_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--tier <core|extras|all>] [--shard I/N [--shard-manifest PATH]] | --list-suites"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--tier <core|extras|all>] [--impacted <ref>] [--shard I/N [--shard-manifest PATH]] | --list-suites"
 MAX_SHARDS=32
 SHARD_I=""
 SHARD_N=""
@@ -306,6 +325,16 @@ _parse_tier() {  # <value> — sets TIER or exits 2 (before any suite runs)
     core|extras|all) TIER="$1"; TIER_EXPLICIT=1 ;;
     *) echo "invalid --tier value '$1' (allowed: core extras all); $USAGE" >&2; exit 2 ;;
   esac
+}
+IMPACTED_REF=""
+_parse_impacted() {  # <value> — sets IMPACTED_REF or exits 2 (before any suite runs)
+  # SENTINEL-IMPACTED-REF-VALIDATE
+  # A flag-looking value (`--impacted --prove-teeth`) is refused: it would swallow the next flag as a ref.
+  if [[ -z "$1" || "$1" == -* ]]; then
+    echo "invalid --impacted value '$1': need a git base ref (for example origin/main), not empty and not a flag; $USAGE" >&2
+    exit 2
+  fi
+  IMPACTED_REF="$1"
 }
 LANE_ARG=""
 _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
@@ -370,6 +399,13 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
     --tier=*)
       _parse_tier "${_a#--tier=}"
       ;;
+    --impacted)
+      _ai=$((_ai + 1))
+      _parse_impacted "${_args[$_ai]-}"
+      ;;
+    --impacted=*)
+      _parse_impacted "${_a#--impacted=}"
+      ;;
     --shard)
       _ai=$((_ai + 1))
       _parse_shard "${_args[$_ai]-}"
@@ -421,6 +457,15 @@ if [[ -n "$REQUIRE_TEETH" ]]; then
     exit 2
   fi
   TIER="all"
+fi
+# SENTINEL-IMPACTED-REFUSE
+if [[ -n "$IMPACTED_REF" && -n "$SHARD_N" ]]; then
+  echo "--impacted cannot be combined with --shard: shards must cover the whole tier list so shard-join.sh can prove every suite ran once; $USAGE" >&2
+  exit 2
+fi
+if [[ -n "$IMPACTED_REF" && -n "$REQUIRE_TEETH" ]]; then
+  echo "--impacted cannot be combined with --require-teeth: teeth coverage and the teeth-helper waiver gate judge the whole corpus, so a partial run would report the skipped suites' waivers as stale; $USAGE" >&2
+  exit 2
 fi
 if [[ -n "$LIST_SUITES" && -n "$SHARD_N" ]]; then
   echo "--list-suites lists the selected tier and cannot be combined with --shard; $USAGE" >&2
@@ -539,8 +584,79 @@ fi
 # --- --list-suites / --shard (kit issue #2114) -------------------------------------------------
 # Both operate on the tier-selected list above (kit issue #2203); the empty-list gate has already run on the
 # FULL discovered list and INSTALL_TESTS_DEGRADED (checked at exit) is untouched by the selection.
-total_suites=${#all_suites[@]}   # the SELECTED tier's count (discovered_suites is the full set)
-tier_selected=$total_suites
+tier_selected=${#all_suites[@]}   # the SELECTED tier's count (discovered_suites is the full set)
+
+# --- --impacted (kit issue #2201 part 1b) ----------------------------------------------------------
+# Intersect the tier selection with what suite-impact.sh says the change (base ref -> working tree) can affect. Every
+# state it cannot answer is a typed DEGRADED + exit 2 BEFORE any suite runs (CLAUDE.md section 7): a guess or a
+# partial set must never stand in for the answer. The report format is parsed because only it carries the
+# escalation verdict; its own `Impacted: N of M` header is cross-checked against the `Selected:` list so a
+# truncated or contradictory answer cannot read as a selection.
+IMPACTED_ESC="no"
+IMPACTED_SHA=""
+IMPACTED_OUTSIDE=""
+impacted_sel_rels=()
+_imp_degraded() { echo "Impacted: DEGRADED — $1; nothing ran (an unknown or partial selection is never replaced by a guess)" >&2; exit 2; }
+if [[ -n "$IMPACTED_REF" ]]; then
+  # SENTINEL-IMPACTED-SELECT
+  _imp_script="$SCRIPT_DIR/suite-impact.sh"
+  command -v git >/dev/null 2>&1 || _imp_degraded "git not found on PATH"
+  [[ -f "$_imp_script" ]] || _imp_degraded "suite-impact.sh not found next to run-all.sh ($SCRIPT_DIR)"
+  # suite-impact --worktree diffs merge-base(<ref>, HEAD) against the working tree, so that commit (not the ref's tip) is the real base.
+  IMPACTED_SHA="$(git -C "$SCRIPT_DIR" rev-parse --short "$(git -C "$SCRIPT_DIR" merge-base "$IMPACTED_REF" HEAD 2>/dev/null)" 2>/dev/null)" || IMPACTED_SHA=""
+  [[ -n "$IMPACTED_SHA" ]] || _imp_degraded "base ref '$IMPACTED_REF' has no merge-base with HEAD (or does not resolve to a commit) in the repository around $SCRIPT_DIR"
+  _imp_errf="$(mktemp)" || _imp_degraded "cannot create a temp file for suite-impact's stderr"
+  _imp_report="$(bash "$_imp_script" --base "$IMPACTED_REF" --worktree --format report --repo "$SCRIPT_DIR" 2>"$_imp_errf")"; _imp_rc=$?
+  _imp_err1="$(head -n 1 "$_imp_errf" 2>/dev/null)"; rm -f "$_imp_errf"
+  [[ "$_imp_rc" -eq 0 ]] || _imp_degraded "suite-impact.sh exited $_imp_rc${_imp_err1:+ ($_imp_err1)}"
+  _imp_n=""; _imp_m=""; _imp_verdict=""; _imp_in_sel=0; _imp_seen_sel=0; _imp_sel=()
+  while IFS= read -r _imp_l; do
+    if (( _imp_in_sel )); then [[ -z "$_imp_l" ]] || _imp_sel+=("$_imp_l"); continue; fi
+    if [[ "$_imp_l" =~ ^Impacted:\ ([0-9]+)\ of\ ([0-9]+)\ suites$ ]]; then _imp_n="${BASH_REMATCH[1]}"; _imp_m="${BASH_REMATCH[2]}"
+    elif [[ "$_imp_l" == "Escalated: no" ]]; then _imp_verdict="no"
+    elif [[ "$_imp_l" == "Escalated to FULL: "* ]]; then _imp_verdict="${_imp_l#Escalated to FULL: }"
+    elif [[ "$_imp_l" == "Selected:" ]]; then _imp_in_sel=1; _imp_seen_sel=1
+    fi
+  done <<<"$_imp_report"
+  [[ -n "$_imp_n" ]] || _imp_degraded "suite-impact.sh printed no 'Impacted: N of M suites' header"
+  [[ -n "$_imp_verdict" ]] || _imp_degraded "suite-impact.sh printed no escalation verdict (neither 'Escalated: no' nor 'Escalated to FULL:')"
+  (( _imp_seen_sel )) || _imp_degraded "suite-impact.sh printed no 'Selected:' list"
+  [[ "$_imp_n" -eq "${#_imp_sel[@]}" && "$_imp_n" -gt 0 ]] || _imp_degraded "suite-impact.sh header says $_imp_n suite(s) but its Selected list has ${#_imp_sel[@]}"
+  # suite-impact's own suite count must equal what this runner discovered: a suite one side cannot see (for example a
+  # .gitignored one) would otherwise be dropped from the selection without a word.
+  [[ "$_imp_m" -eq "$discovered_suites" ]] || _imp_degraded "suite-impact.sh knows $_imp_m suite(s) but this runner discovered $discovered_suites (a git-ignored or unreadable suite?)"
+  declare -A _imp_known=() _imp_tier=() _imp_pick=()
+  for _imp_f in "${suite_rel[@]}"; do _imp_known["$_imp_f"]=1; done
+  for _imp_f in "${all_suites[@]}"; do _imp_tier["${suite_rel[$_imp_f]}"]=1; done
+  _imp_unknown=(); _imp_outside=()
+  for _imp_l in "${_imp_sel[@]}"; do
+    if [[ "${_imp_known[$_imp_l]+set}" != set ]]; then _imp_unknown+=("$_imp_l")
+    elif [[ "${_imp_tier[$_imp_l]+set}" == set ]]; then _imp_pick["$_imp_l"]=1
+    else _imp_outside+=("$_imp_l")
+    fi
+  done
+  [[ ${#_imp_unknown[@]} -eq 0 ]] || _imp_degraded "suite-impact.sh selected ${#_imp_unknown[@]} suite(s) this runner did not discover: ${_imp_unknown[*]}"
+  IMPACTED_ESC="$_imp_verdict"
+  if [[ "$IMPACTED_ESC" != "no" ]]; then
+    # Escalated to FULL: the whole tier selection runs unchanged (no intersection, nothing "outside").
+    for _imp_f in "${all_suites[@]}"; do impacted_sel_rels+=("${suite_rel[$_imp_f]}"); done
+  else
+    _imp_new=()
+    for _imp_f in "${all_suites[@]}"; do
+      [[ "${_imp_pick[${suite_rel[$_imp_f]}]+set}" == set ]] && { _imp_new+=("$_imp_f"); impacted_sel_rels+=("${suite_rel[$_imp_f]}"); }
+    done
+    if [[ ${#_imp_outside[@]} -gt 0 ]]; then
+      IMPACTED_OUTSIDE="$(printf '%s\n' "${_imp_outside[@]}" | LC_ALL=C sort | paste -sd, - | sed 's/,/, /g')"
+      [[ -z "$LIST_SUITES" ]] || echo "Impacted outside tier: $IMPACTED_OUTSIDE" >&2
+    fi
+    if [[ ${#_imp_new[@]} -eq 0 ]]; then
+      echo "Impacted: EMPTY — suite-impact selected ${#_imp_sel[@]} suite(s) but none is inside --tier $TIER (outside tier: ${IMPACTED_OUTSIDE:-none}); nothing ran, so this is not a pass" >&2
+      exit 1
+    fi
+    all_suites=("${_imp_new[@]}")
+  fi
+fi
+total_suites=${#all_suites[@]}   # what will run: the tier selection, narrowed by --impacted
 if [[ -n "$LIST_SUITES" || -n "$SHARD_N" ]]; then
   declare -A _rel_abs=()
   for f in "${all_suites[@]}"; do _rel_abs["${suite_rel[$f]}"]="$f"; done
@@ -613,6 +729,11 @@ if RUN_TMP_ROOT="$(mktemp -d)" && [[ -n "$RUN_TMP_ROOT" && -d "$RUN_TMP_ROOT" ]]
   export RUN_TMP_ROOT
   # SENTINEL-KEEP-TMP-EARLY
   [[ -n "$KEEP_TMP" ]] && echo "run-all.sh: --keep-tmp: per-run TMPDIR root kept at $RUN_TMP_ROOT" >&2
+  # SENTINEL-IMPACTED-KEEP
+  if [[ -n "$IMPACTED_REF" && -n "$KEEP_TMP" ]]; then
+    printf '%s\n' "${impacted_sel_rels[@]}" | LC_ALL=C sort > "$RUN_TMP_ROOT/impacted.txt" \
+      || echo "run-all.sh: WARNING: could not write $RUN_TMP_ROOT/impacted.txt" >&2
+  fi
 else
   RUN_TMP_ROOT=""
   TMPDIR_DEGRADED_REASON="the per-run TMPDIR root could not be created ('mktemp -d' failed); suites ran with the caller's TMPDIR"
@@ -1191,6 +1312,16 @@ if [[ -n "$TIER_DEGRADED" ]]; then
   echo "Tier: DEGRADED — $TIER_DEGRADED; ran all $discovered_suites suites; run exits non-zero"
 else
   echo "Tier: $TIER — $tier_selected of $discovered_suites suites (excluded: $((discovered_suites - tier_selected)))"
+fi
+if [[ -n "$IMPACTED_REF" ]]; then
+  echo "Impacted: $total_suites of $tier_selected suites (base $IMPACTED_REF, merge-base $IMPACTED_SHA)"
+  if [[ "$IMPACTED_ESC" == "no" ]]; then
+    echo "Impacted escalated: no"
+  else
+    echo "Impacted escalated: FULL — $IMPACTED_ESC"
+  fi
+  echo "Impacted skipped: $((tier_selected - total_suites)) (selected $total_suites + skipped $((tier_selected - total_suites)) = $tier_selected suites in the tier)"
+  [[ -z "$IMPACTED_OUTSIDE" ]] || echo "Impacted outside tier: $IMPACTED_OUTSIDE"
 fi
 if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"

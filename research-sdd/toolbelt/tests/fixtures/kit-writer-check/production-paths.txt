@@ -1,0 +1,34 @@
+# production-path parity list (kit issue #2208): <production|other><TAB><repo-relative path>.
+# maint/kit-writer-check.sh --classify and .github/scripts/parse-red-evidence.cjs isProductionPath must agree on every
+# line (kit-writer-check.test.sh and parse-red-evidence.test.cjs both read this file).
+production	research-sdd/toolbelt/foo.sh
+production	research-sdd/toolbelt/lib/x.sh
+production	research-sdd/toolbelt/maint/kit-writer-check.sh
+production	research-sdd/toolbelt/adv.mjs
+production	research-sdd/toolbelt/gate.py
+production	research-sdd/toolbelt/x.js
+production	research-sdd/toolbelt/x.cjs
+production	research-sdd/toolbelt/x.ts
+production	research-sdd/install/adapters.sh
+production	research-sdd/templates/hook-kit-run.sh
+production	research-sdd/toolbelt/tests/run-all.sh
+production	research-sdd/toolbelt/tests/suite-impact.sh
+production	research-sdd/toolbelt/tests/shard-join.sh
+production	research-sdd/toolbelt/tests/lib/mutant.sh
+production	research-sdd/toolbelt/tests/lib/deep/helper.py
+other	research-sdd/toolbelt/tests/lib/notes.md
+other	research-sdd/toolbelt/tests/foo.test.sh
+other	research-sdd/toolbelt/tests/foo.test.mjs
+other	research-sdd/toolbelt/tests/foo.test.py
+other	research-sdd/toolbelt/tests/fixtures/x.sh
+other	research-sdd/toolbelt/tests/fixtures/deep/y.py
+other	research-sdd/toolbelt/tests/sub/x.sh
+other	research-sdd/toolbelt/tests/impact-always.txt
+other	research-sdd/install/tests/x.test.sh
+other	research-sdd/install/tests/helper.sh
+other	research-sdd/templates/audit.template.md
+other	research-sdd/toolbelt/tool-registry.md
+other	research-sdd/METHODOLOGY.md
+other	research-sdd/skills/kit-branch-pr/SKILL.md
+other	.github/workflows/pr-check.yml
+other	CLAUDE.md
