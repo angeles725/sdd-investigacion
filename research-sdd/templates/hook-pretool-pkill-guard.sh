@@ -35,6 +35,17 @@
 # payload contains pkill/pgrep, the decision is "ask" (never a silent allow).
 set -uo pipefail
 
+# STRICT mode (kit issue #2208): `--strict-name-kill` additionally refuses EVERY name-based kill, whatever its
+# flags: pkill / killall (bracketed -f, -x and plain forms included), `kill -1` / `kill -9 -1` / `kill -- -1` /
+# `kill -TERM -1` (the "-1" target = every process), and pgrep / pidof output fed to kill (`| xargs kill`,
+# `| while read ... kill`, `kill $(pgrep ...)`). The kit's own .claude/settings.json passes it; research targets
+# do not, so their default behavior (header above) is unchanged. The verdict list both this hook and the
+# writer-check scan (maint/kit-writer-check.sh) must agree on is tests/fixtures/kit-writer-check/name-kill-corpus.txt.
+_strict=0
+for _a in "$@"; do [ "$_a" = "--strict-name-kill" ] && _strict=1; done
+
+_STRICT_TEXT='Kill only processes you started yourself, by PID: record $! when you spawn the process (or read it back with jobs -p), kill that PID, and bound a runaway run with timeout. Never match processes by name or pattern: a name match can hit another session'"'"'s processes.'
+
 _ALTERNATIVES='Safe alternatives: (a) record the PID at spawn ($! or a PID file) and kill that PID; (b) match by exact process name: pkill -x <name> / pgrep -x <name>; (c) bracket-escape the pattern so it cannot match its own text: pkill -f "[p]attern". See PROMPT-LOOP-APPENDIX.md#hard-rules-loop-mechanics "PKILL -F WRAPPER-SHELL MATCH".'
 
 _input="$(cat)"
@@ -66,7 +77,16 @@ fi
 _bracket_re='\[[^]]+\]'
 _flat="$(printf '%s' "$_cmd" | tr -d "'\"" | tr ';&|(){}`$' '\n\n\n\n\n\n\n\n\n')"
 
-_bad=""
+_bad=""; _strict_bad=""
+if [ "$_strict" = 1 ]; then
+  # pgrep/pidof output piped into xargs/while ... kill, or substituted into kill: the segment split below cannot see
+  # across the separators, so these two shapes are matched on the whole quote-stripped command.
+  _nq="$(printf '%s' "$_cmd" | tr -d "'\"")"
+  _re_pipe='(pgrep|pidof)[^&|;]*\|[[:space:]]*(xargs|while)[^&]*(^|[^[:alnum:]_-])kill([^[:alnum:]_-]|$)'
+  _re_sub='(^|[^[:alnum:]_-])kill[^;|&]*(\$\(|`)[[:space:]]*(pgrep|pidof)'
+  if [[ "$_nq" =~ $_re_pipe ]]; then _strict_bad="pgrep/pidof output piped into kill"
+  elif [[ "$_nq" =~ $_re_sub ]]; then _strict_bad="kill of a pgrep/pidof substitution"; fi
+fi
 while IFS= read -r _seg; do
   read -ra _tok <<<"$_seg"
   _i=0
@@ -79,6 +99,14 @@ while IFS= read -r _seg; do
     esac
   done
   [ "$_i" -lt "${#_tok[@]}" ] || continue
+  if [ "$_strict" = 1 ] && [ -z "$_strict_bad" ]; then
+    case "${_tok[$_i]##*/}" in
+      pkill|killall) _strict_bad="${_tok[*]:$_i}" ;;   # writer-check: allow-name-kill case pattern naming the tools the hook denies, not a command
+      kill) for ((_j=_i+1; _j<${#_tok[@]}; _j++)); do
+              [ "${_tok[$_j]}" = "-1" ] && { _strict_bad="${_tok[*]:$_i}"; break; }
+            done ;;
+    esac
+  fi
   case "${_tok[$_i]##*/}" in
     pkill|pgrep) ;;
     *) continue ;;
@@ -107,6 +135,10 @@ while IFS= read -r _seg; do
   if [ "$_plain_elsewhere" = 1 ]; then _bad="$_name -f ${_pat# } (its plain text \"$_plain\" also appears elsewhere in this command)"; break; fi
 done <<<"$_flat"
 
+if [ -n "$_strict_bad" ]; then
+  _emit deny "Refused name-based kill \`$_strict_bad\`: this repo forbids killing processes by name or pattern (writer discipline, kit issue #2208). $_STRICT_TEXT"
+  exit 0
+fi
 [ -n "$_bad" ] || exit 0
 _emit deny "Refused \`$_bad\`: an unescaped -f pattern also matches this shell's own wrapper command line and kills the session (exit 144). $_ALTERNATIVES"
 exit 0

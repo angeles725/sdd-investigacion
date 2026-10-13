@@ -2755,6 +2755,159 @@ printf '%s\n' "$TR/c.test.sh extras r" "# between" "" "$IR/i.test.sh extras r" >
 out="$(bash "$w/run-all.sh" 2>&1)"; [ "$(ran_of "$out")" = "b" ] || bad="$bad [multi (unsorted, blank, comment, last line unterminated) ran=$(ran_of "$out")]"
 [ -z "$bad" ] && ok "tier edges: an extras entry first / middle / last, a single-entry manifest, an unterminated last line and unsorted order are all honoured" || no "tier edges:$bad"
 
+# 40 — run-all.sh --impacted <ref> (kit issue #2201 part 1b): run only the suites suite-impact.sh selects (worktree mode, so
+#      uncommitted writer changes count), intersected with the --tier selection; an escalation runs the whole tier selection;
+#      every state suite-impact cannot answer is a typed `Impacted: DEGRADED` + exit 2 BEFORE any suite runs (never a silent
+#      partial set); --shard / --require-teeth are refused (exit 2). Each case runs against a tiny git repo built in $TMP.
+IMP_SUT="$HERE/suite-impact.sh"
+IMPT='research-sdd/toolbelt/tests'
+imp_root(){ printf '%s' "${1%/research-sdd/toolbelt/tests}"; }
+imp_git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -c init.defaultBranch=main "$@"; }
+# imp_tree <name> — suites a b c (toolbelt) + i (install); b is EXTRAS, c is the always-run suite; alpha.sh is reached by a only,
+# beta.sh by b only, iota.sh by i only. Committed as a git repo at the fixture root. Prints the tests dir.
+imp_tree(){
+  local w r; w="$(newdir "$1")"; r="$(imp_root "$w")"
+  mkfix_sh "$w/a.test.sh" 1 0 0; mkfix_sh "$w/b.test.sh" 1 0 0; mkfix_sh "$w/c.test.sh" 1 0 0
+  mkfix_sh "$(install_dir_for "$w")/i.test.sh" 1 0 0
+  printf '# uses "$TB/alpha.sh"\n' >> "$w/a.test.sh"; printf '# uses "$TB/beta.sh"\n' >> "$w/b.test.sh"
+  printf '# uses "$TB/iota.sh"\n' >> "$(install_dir_for "$w")/i.test.sh"
+  printf '#!/usr/bin/env bash\necho alpha\n' > "$r/research-sdd/toolbelt/alpha.sh"
+  printf '#!/usr/bin/env bash\necho beta\n' > "$r/research-sdd/toolbelt/beta.sh"
+  printf '#!/usr/bin/env bash\necho iota\n' > "$r/research-sdd/toolbelt/iota.sh"
+  tier_man "$w" "# one extras suite" "$IMPT/b.test.sh extras fixture extras"
+  printf 'c fixture always-run suite\n' > "$w/impact-always.txt"; printf '# fixture: no blind-spot suites\n' > "$w/impact-blindspot.txt"
+  cp "$IMP_SUT" "$w/suite-impact.sh"
+  imp_git -C "$r" init -q && imp_git -C "$r" add -A && imp_git -C "$r" commit -q -m base || return 1
+  printf '%s' "$w"
+}
+imp_edit(){ printf '# edit\n' >> "$(imp_root "$1")/research-sdd/toolbelt/$2"; }   # imp_edit <tests-dir> <production file>
+imp_sha(){ imp_git -C "$(imp_root "$1")" rev-parse --short HEAD; }
+
+# select: an edit to alpha.sh selects a (reaches it) + c (always-run); b is extras and i is unreached
+w="$(imp_tree c40sel)"; sha="$(imp_sha "$w")"; imp_edit "$w" alpha.sh
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "ac" ] && grep -qxF "Impacted: 2 of 3 suites (base HEAD, merge-base $sha)" <<<"$out" \
+   && grep -qxF 'Impacted escalated: no' <<<"$out" && grep -qxF 'Impacted skipped: 1 (selected 2 + skipped 1 = 3 suites in the tier)' <<<"$out" \
+   && ! grep -qF 'Impacted outside tier' <<<"$out" && ! grep -qF "escalated: FULL" <<<"$out"; then
+  ok "impacted: an uncommitted edit selects the suites that reach it plus the always-run set; the aggregate declares K of T, escalation and the skipped count"
+else no "impacted select wrong: rc=$rc ran=$(ran_of "$out") lines=[$(grep -E '^Impacted' <<<"$out" | tr '\n' '|')]"; fi
+out="$(bash "$w/run-all.sh" 2>&1)"
+grep -qF 'Impacted' <<<"$out" && no "impacted: a run WITHOUT --impacted must print no Impacted line" || ok "impacted: absent unless asked (default aggregate unchanged)"
+
+# committed change, both flag spellings, and --prove-teeth is accepted alongside
+w="$(imp_tree c40com)"; imp_edit "$w" alpha.sh; imp_git -C "$(imp_root "$w")" commit -qam edit
+out="$(bash "$w/run-all.sh" --impacted=HEAD~1 2>&1)"; rc=$?; out2="$(bash "$w/run-all.sh" --impacted HEAD~1 --prove-teeth 2>&1)"; rc2=$?
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "ac" ] && [ "$rc2" -ne 2 ] && [ "$(ran_of "$out2")" = "ac" ]; then
+  ok "impacted: a committed change against an older base selects the same suites (--impacted=REF and --impacted REF, with --prove-teeth)"
+else no "impacted committed wrong: rc=$rc ran=$(ran_of "$out") rc2=$rc2 ran2=$(ran_of "$out2")"; fi
+
+# escalation: a harness file (suite-tiers.txt) changed -> the whole tier selection runs, the reason is named
+w="$(imp_tree c40esc)"; sha="$(imp_sha "$w")"; printf '# edit\n' >> "$w/suite-tiers.txt"
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "aci" ] && grep -qE "^Impacted escalated: FULL — .*suite-tiers\.txt" <<<"$out" \
+   && grep -qxF "Impacted: 3 of 3 suites (base HEAD, merge-base $sha)" <<<"$out" && ! grep -qF "Impacted outside tier" <<<"$out" && [ "$(grep -c "^Impacted.*escalated\|^Impacted: FULL" <<<"$out")" -eq 1 ] \
+   && ! grep -qxF "Impacted escalated: no" <<<"$out"; then
+  ok "impacted: an escalation (FULL) runs the whole tier selection and names the reason"
+else no "impacted escalation wrong: rc=$rc ran=$(ran_of "$out") lines=[$(grep -E '^Impacted' <<<"$out" | tr '\n' '|')]"; fi
+
+# an impacted extras suite stays out of --tier core but is NAMED; --tier all runs it; --tier extras keeps only it
+w="$(imp_tree c40ext)"; imp_edit "$w" beta.sh
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; oall="$(bash "$w/run-all.sh" --impacted HEAD --tier all 2>&1)"; oext="$(bash "$w/run-all.sh" --impacted HEAD --tier extras 2>&1)"
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "c" ] && grep -qxF "Impacted outside tier: $IMPT/b.test.sh" <<<"$out" \
+   && [ "$(ran_of "$oall")" = "bc" ] && ! grep -qF 'Impacted outside tier' <<<"$oall" \
+   && [ "$(ran_of "$oext")" = "b" ] && grep -qxF "Impacted outside tier: $IMPT/c.test.sh" <<<"$oext"; then
+  ok "impacted: an impacted suite outside the tier is named (not run); --tier all runs both; --tier extras keeps only the extras one"
+else no "impacted outside-tier wrong: rc=$rc ran=$(ran_of "$out") all=$(ran_of "$oall") ext=$(ran_of "$oext") lines=[$(grep -E '^Impacted' <<<"$out" | tr '\n' '|')]"; fi
+
+# nothing left after the tier intersection is never a pass
+w="$(imp_tree c40empty)"; imp_edit "$w" alpha.sh
+out="$(bash "$w/run-all.sh" --impacted HEAD --tier extras 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Impacted: EMPTY' <<<"$out" && ! grep -qF AGGREGATE <<<"$out"; then
+  ok "impacted: an impacted selection that is empty inside the tier exits 1 with Impacted: EMPTY and runs nothing"
+else no "impacted empty wrong: rc=$rc ran=$(ran_of "$out") out=[$(grep -E 'Impacted' <<<"$out" | tr '\n' '|')]"; fi
+
+# list edges: first (install suite i), single (no change -> always-run c alone) and middle (a) selections
+w="$(imp_tree c40edge)"; r="$(imp_root "$w")"; bad=""
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "c" ] && grep -qF 'Impacted: 1 of 3 suites' <<<"$out"; } || bad="$bad [single/no-change rc=$rc ran=$(ran_of "$out")]"
+imp_edit "$w" iota.sh
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; [ "$(ran_of "$out")" = "ci" ] || bad="$bad [first(i) ran=$(ran_of "$out")]"
+l="$(bash "$w/run-all.sh" --impacted HEAD --list-suites 2>/dev/null)"; [ "$l" = "$(printf '%s\n%s' "research-sdd/install/tests/i.test.sh" "$IMPT/c.test.sh")" ] || bad="$bad [first list=[$l]]"
+imp_git -C "$r" checkout -q -- . ; imp_edit "$w" alpha.sh
+l="$(bash "$w/run-all.sh" --impacted HEAD --list-suites 2>/dev/null)"; [ "$l" = "$(printf '%s\n%s' "$IMPT/a.test.sh" "$IMPT/c.test.sh")" ] || bad="$bad [middle list=[$l]]"
+[ -z "$bad" ] && ok "impacted edges: a first-position, a middle and a single (always-run only) selection each run and list exactly their suites" || no "impacted edges:$bad"
+
+# --list-suites honours --impacted (stdout is a pure list; the outside-tier note goes to stderr); escalation lists the whole tier
+w="$(imp_tree c40list)"; imp_edit "$w" beta.sh
+l="$(bash "$w/run-all.sh" --impacted HEAD --list-suites 2>"$TMP/c40list.err")"; rc=$?
+lesc="$(imp_tree c40list2)"; printf '# edit\n' >> "$lesc/suite-tiers.txt"; le="$(bash "$lesc/run-all.sh" --impacted HEAD --list-suites 2>/dev/null)"
+if [ "$rc" -eq 0 ] && [ "$l" = "$IMPT/c.test.sh" ] && grep -qxF "Impacted outside tier: $IMPT/b.test.sh" "$TMP/c40list.err" \
+   && [ "$(wc -l <<<"$le")" -eq 3 ]; then
+  ok "impacted: --list-suites lists the impacted selection (stdout only the list), or the whole tier on escalation"
+else no "impacted list wrong: rc=$rc l=[$l] err=[$(cat "$TMP/c40list.err")] esc=$(wc -l <<<"$le")"; fi
+
+# --keep-tmp keeps the selection list next to the per-suite TMPDIRs
+w="$(imp_tree c40keep)"; imp_edit "$w" alpha.sh
+out="$(bash "$w/run-all.sh" --impacted HEAD --keep-tmp 2>&1)"; kept="$(sed -n 's/^TMPDIR kept: //p' <<<"$out")"
+if [ -n "$kept" ] && [ -f "$kept/impacted.txt" ] && [ "$(cat "$kept/impacted.txt")" = "$(printf '%s\n%s' "$IMPT/a.test.sh" "$IMPT/c.test.sh")" ]; then
+  ok "impacted: --keep-tmp keeps the selected suite list as impacted.txt in the kept TMPDIR root"
+else no "impacted keep-tmp wrong: kept=[$kept] file=[$(cat "$kept/impacted.txt" 2>&1)]"; fi
+[ -n "$kept" ] && rm -rf "$kept"
+
+# degraded: every state suite-impact cannot answer exits 2 BEFORE any suite runs, typed, never a partial set
+bad=""
+imp_deg(){ # label tests-dir args... — expects rc 2, nothing ran, a typed DEGRADED line, no aggregate
+  local lbl="$1" t="$2" o r; shift 2
+  o="$(GIT_CEILING_DIRECTORIES="$TMP" bash "$t/run-all.sh" "$@" 2>&1)"; r=$?
+  { [ "$r" -eq 2 ] && [ -z "$(ran_of "$o")" ] && grep -qF 'Impacted: DEGRADED' <<<"$o" && ! grep -qF AGGREGATE <<<"$o"; } || bad="$bad [$lbl rc=$r ran=$(ran_of "$o") out=$(head -c 160 <<<"$o" | tr '\n' '|')]"
+}
+w="$(imp_tree c40d1)"; rm -f "$w/suite-impact.sh";                         imp_deg absent "$w" --impacted HEAD
+w="$(imp_tree c40d2)";                                                     imp_deg badref "$w" --impacted no-such-ref-xyz
+w="$(imp_tree c40d3)"; rm -rf "$(imp_root "$w")/.git";                     imp_deg norepo "$w" --impacted HEAD
+w="$(imp_tree c40d4)"; printf 'c\n' > "$w/impact-always.txt";                imp_deg badmanifest "$w" --impacted HEAD
+w="$(imp_tree c40d5)"; : > "$w/impact-always.txt"; imp_git -C "$(imp_root "$w")" commit -qam empty-always; imp_deg emptyalways "$w" --impacted HEAD
+# stub suite-impact: malformed / partial / contradictory output is also degraded
+stub(){ # tests-dir report-line... — replace suite-impact.sh with a script that prints the given lines and exits 0
+  local t="$1"; shift; { printf '#!/usr/bin/env bash\n'; printf 'printf "%%s\\n" '; printf "'%s' " "$@"; printf '\n'; } > "$t/suite-impact.sh"
+}
+w="$(imp_tree c40s1)"; stub "$w" 'Impacted: 1 of 4 suites' 'Escalated: no' 'Selected:' "$IMPT/ghost.test.sh";                 imp_deg unknown-suite "$w" --impacted HEAD
+w="$(imp_tree c40s2)"; stub "$w" 'Impacted: 3 of 4 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh";                     imp_deg count-mismatch "$w" --impacted HEAD
+w="$(imp_tree c40s3)"; stub "$w" 'Impacted: 1 of 4 suites' 'Escalated: no' "$IMPT/a.test.sh";                                  imp_deg no-selected "$w" --impacted HEAD
+w="$(imp_tree c40s4)"; stub "$w" 'Impacted: 0 of 4 suites' 'Escalated: no' 'Selected:';                                        imp_deg empty-selected "$w" --impacted HEAD
+w="$(imp_tree c40s5)"; stub "$w" 'Impacted: 1 of 4 suites' "$IMPT/a.test.sh" 'Selected:' "$IMPT/a.test.sh";                    imp_deg no-escalation-verdict "$w" --impacted HEAD
+w="$(imp_tree c40s6)"; printf '#!/usr/bin/env bash\necho boom >&2\nexit 1\n' > "$w/suite-impact.sh";                               imp_deg exit1 "$w" --impacted HEAD
+w="$(imp_tree c40s7)"; stub "$w" 'Impacted: 1 of 9 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh";                           imp_deg suite-count-mismatch "$w" --impacted HEAD
+[ -z "$bad" ] && ok "impacted: absent script / bad ref / no repo / bad manifest / malformed, contradictory or suite-count-mismatching output exit 2 with a typed DEGRADED and run nothing" || no "impacted degraded:$bad"
+
+# an escalation verdict runs the whole tier unchanged: the (here deliberately partial) Selected list is not intersected
+w="$(imp_tree c40f1)"; stub "$w" 'Impacted: 1 of 4 suites' 'Escalated to FULL: stub reason' 'Selected:' "$IMPT/a.test.sh"
+out="$(bash "$w/run-all.sh" --impacted HEAD 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(ran_of "$out")" = "aci" ] && grep -qxF 'Impacted escalated: FULL — stub reason' <<<"$out" && grep -qxF 'Impacted: 3 of 3 suites (base HEAD, merge-base '"$(imp_sha "$w")"')' <<<"$out" \
+   && ! grep -qF 'Impacted outside tier' <<<"$out"; then
+  ok "impacted: on an escalation verdict the whole tier selection runs unchanged (no intersection with the Selected list)"
+else no "impacted escalation-unchanged wrong: rc=$rc ran=$(ran_of "$out") lines=[$(grep -E '^Impacted' <<<"$out" | tr '\n' '|')]"; fi
+
+# the printed sha is the merge-base suite-impact --worktree diffs against, NOT the ref's tip (the ref has diverged from HEAD)
+w="$(imp_tree c40mb)"; r="$(imp_root "$w")"; mb="$(imp_sha "$w")"
+imp_git -C "$r" checkout -q -b other && printf '# other\n' >> "$r/research-sdd/toolbelt/beta.sh" && imp_git -C "$r" commit -qam other && imp_git -C "$r" checkout -q main
+imp_edit "$w" alpha.sh; tip="$(imp_git -C "$r" rev-parse --short other)"
+out="$(bash "$w/run-all.sh" --impacted other 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$mb" != "$tip" ] && grep -qxF "Impacted: 2 of 3 suites (base other, merge-base $mb)" <<<"$out"; then
+  ok "impacted: the aggregate prints the merge-base of <ref> and HEAD, not the ref's tip"
+else no "impacted merge-base wrong: rc=$rc mb=$mb tip=$tip lines=[$(grep -E '^Impacted' <<<"$out" | tr '\n' '|')]"; fi
+
+# refusals: --shard and --require-teeth are refused (exit 2); a missing, empty or flag-looking ref is a usage error
+w="$(imp_tree c40ref)"; bad=""
+for a in "--impacted HEAD --shard 1/2" "--shard 1/2 --impacted HEAD" "--impacted HEAD --require-teeth" "--require-teeth --impacted=HEAD"; do
+  out="$(bash "$w/run-all.sh" $a 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'cannot be combined with' <<<"$out" && ! grep -qF AGGREGATE <<<"$out"; } || bad="$bad [$a rc=$rc]"
+done
+for a in "--impacted" "--impacted=" "--impacted --prove-teeth" "--impacted -j"; do
+  out="$(bash "$w/run-all.sh" $a 2>&1)"; rc=$?
+  { [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF -- '--impacted' <<<"$out"; } || bad="$bad [$a rc=$rc]"
+done
+[ -z "$bad" ] && ok "impacted: --shard and --require-teeth with it, and a missing/empty/flag-looking ref, exit 2 before any suite runs" || no "impacted refusals:$bad"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # tier_scn <kind> <fixture-tests-dir> — builds the scenario for one invariant, runs the runner in the dir, prints
   # "held" when the invariant holds, "broken <why>" otherwise. The same scenario is judged against the REAL runner
@@ -2824,6 +2977,83 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tier_tooth rt-refuse rtrefuse 's/^  if \[\[ -n "\$TIER_EXPLICIT" \&\& "\$TIER" != "all" \]\]; then$/  if false; then/'
   tier_tooth rt-implies rtimplies 's/^  TIER="all"$/  :/'
   tier_tooth unterminated unterm 's/while IFS= read -r _tl || \[\[ -n "\$_tl" \]\]; do/while IFS= read -r _tl; do/'
+
+  # --impacted (kit issue #2201 part 1b): each guard removed in turn; the scenario that needs it must then break. As for
+  # the tier teeth, the SAME scenario is judged against the real runner (must hold) and against one mutant (must break).
+  imp_scn(){ # <kind> <fixture-tests-dir> — prints "held" or "broken <why>"
+    local k="$1" t="$2" out rc ran
+    case "$k" in
+      select)  imp_edit "$t" alpha.sh; out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 0 ] && [ "$ran" = ac ] && grep -qxF "Impacted escalated: no" <<<"$out" && grep -qxF "Impacted skipped: 1 (selected 2 + skipped 1 = 3 suites in the tier)" <<<"$out" && echo held || echo "broken rc=$rc ran=$ran" ;;
+      outside) imp_edit "$t" beta.sh; out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 0 ] && [ "$ran" = c ] && grep -qxF "Impacted escalated: no" <<<"$out" && grep -qxF "Impacted outside tier: $IMPT/b.test.sh" <<<"$out" && echo held || echo "broken rc=$rc ran=$ran" ;;
+      esc)     printf '# edit\n' >> "$t/suite-tiers.txt"; out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 0 ] && [ "$ran" = aci ] && grep -qE '^Impacted escalated: FULL — .*suite-tiers\.txt' <<<"$out" && echo held || echo "broken rc=$rc ran=$ran" ;;
+      rcstub)  stub "$t" 'Impacted: 1 of 4 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh"; echo 'exit 3' >> "$t/suite-impact.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 2 ] && [ -z "$ran" ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      count)   stub "$t" 'Impacted: 3 of 4 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 2 ] && [ -z "$ran" ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      unknown) stub "$t" 'Impacted: 2 of 4 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh" "$IMPT/ghost.test.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 2 ] && [ -z "$ran" ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      verdict) stub "$t" 'Impacted: 1 of 4 suites' 'Selected:' "$IMPT/a.test.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 2 ] && [ -z "$ran" ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      empty)   imp_edit "$t" alpha.sh; out="$(bash "$t/run-all.sh" --impacted HEAD --tier extras 2>&1)"; rc=$?
+               [ "$rc" -eq 1 ] && grep -qF 'Impacted: EMPTY' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      shard)   out="$(bash "$t/run-all.sh" --impacted HEAD --shard 1/2 2>&1)"; rc=$?
+               [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF -- '--impacted cannot be combined with --shard' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      rtrefuse) out="$(bash "$t/run-all.sh" --impacted HEAD --require-teeth 2>&1)"; rc=$?
+               [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF -- '--impacted cannot be combined with --require-teeth' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      refval)  out="$(bash "$t/run-all.sh" --impacted --prove-teeth 2>&1)"; rc=$?
+               [ "$rc" -eq 2 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'invalid --impacted value' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      escfull) stub "$t" 'Impacted: 1 of 4 suites' 'Escalated to FULL: stub reason' 'Selected:' "$IMPT/a.test.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 0 ] && [ "$ran" = aci ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      mcheck)  stub "$t" 'Impacted: 1 of 9 suites' 'Escalated: no' 'Selected:' "$IMPT/a.test.sh"
+               out="$(bash "$t/run-all.sh" --impacted HEAD 2>&1)"; rc=$?; ran="$(ran_of "$out")"
+               [ "$rc" -eq 2 ] && [ -z "$ran" ] && echo held || echo "broken rc=$rc ran=$ran" ;;
+      mbase)   local r mb; r="$(imp_root "$t")"; mb="$(imp_sha "$t")"
+               imp_git -C "$r" checkout -q -b other && printf '# other\n' >> "$r/research-sdd/toolbelt/beta.sh" && imp_git -C "$r" commit -qam other && imp_git -C "$r" checkout -q main
+               imp_edit "$t" alpha.sh; out="$(bash "$t/run-all.sh" --impacted other 2>&1)"; rc=$?
+               [ "$rc" -eq 0 ] && grep -qxF "Impacted: 2 of 3 suites (base other, merge-base $mb)" <<<"$out" && echo held || echo "broken rc=$rc line=$(grep '^Impacted: ' <<<"$out")" ;;
+      keep)    imp_edit "$t" alpha.sh; out="$(bash "$t/run-all.sh" --impacted HEAD --keep-tmp 2>&1)"; local kept; kept="$(sed -n 's/^TMPDIR kept: //p' <<<"$out")"
+               if [ -n "$kept" ] && [ -f "$kept/impacted.txt" ]; then echo held; else echo "broken kept=[$kept]"; fi; [ -z "$kept" ] || rm -rf "$kept" ;;
+      *)       echo "broken: unknown scenario $k" ;;
+    esac
+  }
+  imp_tooth(){ # <label> <scenario> <sed-expr>
+    local lbl="$1" scn="$2" expr="$3" w tg tm g m
+    w="$(mut_workdir "teeth-imp-$lbl")"
+    tg="$(imp_tree "teeth-imp-$lbl-good")"; g="$(imp_scn "$scn" "$tg")"
+    if [ "$g" != held ]; then no "teeth-imp-$lbl: the real runner does not hold scenario '$scn' ($g) — the tooth cannot discriminate"; return; fi
+    if ! mutant_sed "$SUT" "$w/run-all.sh" "$expr" 2>"$w/err"; then no "teeth-imp-$lbl: no mutant: $(cat "$w/err")"; return; fi
+    tm="$(imp_tree "teeth-imp-$lbl-mut")"; cp "$w/run-all.sh" "$tm/run-all.sh"; imp_git -C "$(imp_root "$tm")" commit -qam "mutant runner" || { no "teeth-imp-$lbl: could not commit the mutant into its fixture"; return; }; m="$(imp_scn "$scn" "$tm")"
+    case "$m" in
+      broken*) ok "teeth-imp-$lbl: the mutant breaks scenario '$scn' ($m) -> the impacted case has real teeth" ;;
+      *)       no "teeth-imp-$lbl: the mutant still holds scenario '$scn' (THEATER)" ;;
+    esac
+  }
+  echo "-- teeth: run-all.sh --impacted (kit issue #2201 part 1b) — each guard removed in turn; its scenario must then break --"
+  imp_tooth intersect select 's/^    all_suites=("\${_imp_new\[@\]}")$/    :/'
+  imp_tooth worktree select 's/--base "\$IMPACTED_REF" --worktree --format/--base "$IMPACTED_REF" --format/'
+  imp_tooth skipped-count select 's/echo "Impacted skipped: \$((tier_selected - total_suites))/echo "Impacted skipped: 0/'
+  imp_tooth outside-tier outside 's/^    elif \[\[ "\${_imp_tier\[\$_imp_l\]+set}" == set \]\]; then _imp_pick\["\$_imp_l"\]=1$/    elif true; then _imp_pick["$_imp_l"]=1/'
+  imp_tooth escalation esc 's/_imp_verdict="\${_imp_l#Escalated to FULL: }"/_imp_verdict="no"/'
+  imp_tooth exit-code rcstub 's/^  \[\[ "\$_imp_rc" -eq 0 \]\] || _imp_degraded/  : || _imp_degraded/'
+  imp_tooth count-check count 's/^  \[\[ "\$_imp_n" -eq "\${#_imp_sel\[@\]}" \&\& "\$_imp_n" -gt 0 \]\] ||/  true ||/'
+  imp_tooth unknown-suite unknown 's/^  \[\[ \${#_imp_unknown\[@\]} -eq 0 \]\] ||/  true ||/'
+  imp_tooth verdict-check verdict 's/^  \[\[ -n "\$_imp_verdict" \]\] ||/  true ||/'
+  imp_tooth empty-exit empty 's/^    if \[\[ \${#_imp_new\[@\]} -eq 0 \]\]; then$/    if [[ ${#_imp_new[@]} -eq 99 ]]; then/'
+  imp_tooth refuse-shard shard 's/^if \[\[ -n "\$IMPACTED_REF" \&\& -n "\$SHARD_N" \]\]; then$/if false; then/'
+  imp_tooth refuse-teeth rtrefuse 's/^if \[\[ -n "\$IMPACTED_REF" \&\& -n "\$REQUIRE_TEETH" \]\]; then$/if false; then/'
+  imp_tooth ref-validate refval 's/^  if \[\[ -z "\$1" || "\$1" == -\* \]\]; then$/  if false; then/'
+  imp_tooth keep-list keep 's/^  if \[\[ -n "\$IMPACTED_REF" \&\& -n "\$KEEP_TMP" \]\]; then$/  if false; then/'
+  imp_tooth escalation-unchanged escfull 's/^  if \[\[ "\$IMPACTED_ESC" != "no" \]\]; then$/  if false; then/'
+  imp_tooth suite-count mcheck 's/^  \[\[ "\$_imp_m" -eq "\$discovered_suites" \]\] ||/  true ||/'
+  imp_tooth merge-base mbase 's/\$(git -C "\$SCRIPT_DIR" merge-base "\$IMPACTED_REF" HEAD 2>\/dev\/null)/$(git -C "$SCRIPT_DIR" rev-parse "$IMPACTED_REF" 2>\/dev\/null)/'
 fi
 
 echo "== $pass passed $MID $fail failed =="
