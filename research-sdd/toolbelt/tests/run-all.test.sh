@@ -2258,7 +2258,7 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$have_gnu_parallel" -eq 1 ]; then
   gout="$(bash "$w/run-all.good.sh" -j 2 2>&1)"
   if ! grep -qF 'recorded 0 result(s) for 1 suite(s)' <<<"$gout"; then
     no "teeth-j-count: UNMUTATED runner did not print the mismatch line — control invalid"
-  elif ! mutant_sed "$SUT" "$w/run-all.sh" 's/\[\[ "\$_par_results" -ne "\${#all_suites\[@\]}" \]\]/false/' 2>"$w/mutant.err"; then
+  elif ! mutant_sed "$SUT" "$w/run-all.sh" 's/\[\[ "\$_par_results" -ne "\${#_par_run\[@\]}" \]\]/false/' 2>"$w/mutant.err"; then
     no "teeth-j-count: could not build a valid mutant: $(cat "$w/mutant.err")"
   else
     mout="$(bash "$w/run-all.sh" -j 2 2>&1)"

@@ -16,7 +16,8 @@
 #
 # Usage:
 #   ./run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N]
-#                [--tier <core|extras|all>] [--impacted <ref>] [--shard I/N [--shard-manifest PATH]] | --list-suites
+#                [--tier <core|extras|all>] [--impacted <ref>] [--cache|--no-cache]
+#                [--shard I/N [--shard-manifest PATH]] | --list-suites
 #
 #   --tier <t>       Suite tier (kit issue #2203), default `core`. suite-tiers.txt (next to this script) lists
 #                    the EXTRAS suites, one `<repo-relative suite path> extras <reason>` per line ('#' comments,
@@ -65,6 +66,24 @@
 #                    corpus). With --list-suites it lists the impacted selection. With --keep-tmp the selection
 #                    is kept as <TMPDIR root>/impacted.txt. It NEVER replaces the per-batch full gate (CLAUDE.md
 #                    section 5).
+#   --cache          Opt-in content-addressed result cache (kit issue #2201 part 2): a suite whose key is unchanged
+#                    reuses its previous full PASS (its recorded output is replayed, labelled `(cached)`, and counts
+#                    as passed) instead of running. The key is a sha256 over the suite file; every file in its
+#                    forward dependency set (suite-impact.sh --deps-all); tests/lib/**, run-all.sh, suite-impact.sh,
+#                    the impact-*.txt / suite-tiers.txt / teeth-helper-waivers.txt manifests and the install and
+#                    templates trees; files outside research-sdd/ (openspec/, .github/, CLAUDE.md, TARGETS.md,
+#                    .shellcheckrc, odd/) when the suite or a dependency NAMES them; the run mode (--prove-teeth,
+#                    lane, tier); the first `--version` line of bash/python3/node/jq/shellcheck and the VCS tool;
+#                    and the RSDD_* environment. Blind-spot suites and suites whose dependencies cannot be resolved
+#                    are NEVER cached (always run, reason printed). Only a full PASS is stored: never a FAIL, a
+#                    SKIP, a suite with per-test skips, or anything from a suite whose own hermeticity/TMPDIR
+#                    check found a violation (nor any suite of a -j batch that found one). Entries live in ${XDG_CACHE_HOME:-$HOME/.cache}/research-sdd/run-all/ (a cache dir
+#                    inside the repository is refused, exit 2). Degraded states (no sha256 tool, unusable cache
+#                    dir, suite-impact cannot answer) run WITHOUT the cache and say so (`Cache: DEGRADED`), never
+#                    silently. --cache is refused with --require-teeth and --shard (exit 2): the authoritative gate
+#                    never uses it. Known limits: the key cannot see state a suite reads from outside the repo (the
+#                    host's commit history, $HOME, the network) or tools other than those listed. `--no-cache` is
+#                    the explicit default. RUN_ALL_SHA256_CMD overrides the hash tool (a test hook).
 #   --list-suites    Print the selected tier's suite list (repo-relative, LC_ALL=C sorted), one per line,
 #                    and exit (1 when the install corpus is absent). The single discovery source for
 #                    shard-join.sh.
@@ -290,12 +309,13 @@ KEEP_TMP=""
 # any other token, in any position, exits 2 (unknown flag).
 MAX_JOBS=6
 JOBS=1
-USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--tier <core|extras|all>] [--impacted <ref>] [--shard I/N [--shard-manifest PATH]] | --list-suites"
+USAGE="usage: run-all.sh [--prove-teeth|--require-teeth] [--require-clean-tmp] [--keep-tmp] [--lane <fast|slow|all>] [-j N] [--tier <core|extras|all>] [--impacted <ref>] [--cache|--no-cache] [--shard I/N [--shard-manifest PATH]] | --list-suites"
 MAX_SHARDS=32
 SHARD_I=""
 SHARD_N=""
 SHARD_MANIFEST=""
 LIST_SUITES=""
+CACHE=""
 _parse_shard() {  # <value> — sets SHARD_I/SHARD_N or exits 2 (before any suite runs)
   # SENTINEL-SHARD-VALIDATE
   if [[ ! "$1" =~ ^[0-9]{1,3}/[0-9]{1,3}$ ]]; then
@@ -406,6 +426,12 @@ while [[ $_ai -lt ${#_args[@]} ]]; do
     --impacted=*)
       _parse_impacted "${_a#--impacted=}"
       ;;
+    --cache)
+      CACHE=1
+      ;;
+    --no-cache)
+      CACHE=""
+      ;;
     --shard)
       _ai=$((_ai + 1))
       _parse_shard "${_args[$_ai]-}"
@@ -465,6 +491,15 @@ if [[ -n "$IMPACTED_REF" && -n "$SHARD_N" ]]; then
 fi
 if [[ -n "$IMPACTED_REF" && -n "$REQUIRE_TEETH" ]]; then
   echo "--impacted cannot be combined with --require-teeth: teeth coverage and the teeth-helper waiver gate judge the whole corpus, so a partial run would report the skipped suites' waivers as stale; $USAGE" >&2
+  exit 2
+fi
+# SENTINEL-CACHE-REFUSE
+if [[ -n "$CACHE" && -n "$REQUIRE_TEETH" ]]; then
+  echo "--cache cannot be combined with --require-teeth: the authoritative gate (teeth coverage, the waiver gate) judges the whole corpus and never reuses a result; $USAGE" >&2
+  exit 2
+fi
+if [[ -n "$CACHE" && -n "$SHARD_N" ]]; then
+  echo "--cache cannot be combined with --shard: shards are the CI gate, which must run every suite it covers; $USAGE" >&2
   exit 2
 fi
 if [[ -n "$LIST_SUITES" && -n "$SHARD_N" ]]; then
@@ -682,6 +717,146 @@ if [[ -n "$SHARD_N" ]]; then
     [[ "${_shard_pick[$f]+set}" == set ]] && _shard_suites+=("$f")
   done
   all_suites=("${_shard_suites[@]+"${_shard_suites[@]}"}")
+fi
+# --- --cache (kit issue #2201 part 2) ----------------------------------------------------------------------
+# Content-addressed per-suite result cache; the flag, its key and its refusals are described in the header. Every key is
+# decided HERE, before any suite runs, from file CONTENT only (never mtimes): sha256 over the run mode, tool versions,
+# the RSDD_* environment, the global inputs (tests/lib, run-all.sh, suite-impact.sh, manifests, install and templates
+# trees), the suite file and its forward dependency set from `suite-impact.sh --deps-all`, plus the outside-repo groups
+# the suite or a dependency NAMES. Any state it cannot establish is a typed `Cache: DEGRADED` and the run proceeds
+# WITHOUT the cache; a suite it cannot key is `uncacheable` with the reason printed (CLAUDE.md section 7).
+CACHE_ACTIVE=""
+CACHE_DEGRADED_REASON=""
+CACHE_DIR=""
+cache_hit_names=()     # basenames reused
+cache_unc_names=()     # "<basename>: <reason>"
+cache_miss_count=0
+cache_stored=0
+cache_store_failed=0
+declare -A cache_state=() cache_file=()
+_cache_degrade() { CACHE_DEGRADED_REASON="$1"; echo "run-all.sh: Cache: DEGRADED — $1; running WITHOUT the cache" >&2; }
+_cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report arrays; rc 1 = degraded (nothing keyed)
+  local sha="${RUN_ALL_SHA256_CMD:-sha256sum}" rel_tests="research-sdd/toolbelt/tests" imp="$SCRIPT_DIR/suite-impact.sh"
+  local root base abs dfile="" errf="" hfile="" rc hl tag a b f t v s rel bn key km reason gi mine hdr h
+  declare -A cdeps=() cblind=() cunres=() chash=() gmention=() ghash=()
+  root="$(cd -P -- "$SCRIPT_DIR/../../.." 2>/dev/null && pwd -P)" || { _cache_degrade "cannot resolve the repository root from $SCRIPT_DIR"; return 1; }
+  base="${XDG_CACHE_HOME:-}"
+  if [[ -z "$base" ]]; then
+    [[ -n "${HOME:-}" ]] || { _cache_degrade "neither XDG_CACHE_HOME nor HOME is set, so there is no cache dir"; return 1; }
+    base="$HOME/.cache"
+  fi
+  CACHE_DIR="$base/research-sdd/run-all"
+  abs="$(realpath -m -- "$CACHE_DIR" 2>/dev/null)" || abs="$CACHE_DIR"
+  [[ "$abs" == /* ]] || abs="$PWD/$abs"
+  # SENTINEL-CACHE-INREPO
+  case "$abs/" in
+    "$root"/*) echo "--cache: the cache dir '$abs' is inside the repository '$root'; set XDG_CACHE_HOME outside it (a cached result must never become part of the tree under test); $USAGE" >&2; exit 2 ;;
+  esac
+  command -v "$sha" >/dev/null 2>&1 || { _cache_degrade "no sha256 tool ($sha not on PATH)"; return 1; }
+  { mkdir -p -- "$CACHE_DIR" && : > "$CACHE_DIR/.probe.$$" && rm -f "$CACHE_DIR/.probe.$$"; } 2>/dev/null \
+    || { _cache_degrade "cache dir '$CACHE_DIR' cannot be created or written"; return 1; }
+  [[ -f "$imp" ]] || { _cache_degrade "suite-impact.sh not found next to run-all.sh ($SCRIPT_DIR)"; return 1; }
+  dfile="$(mktemp)" && errf="$(mktemp)" && hfile="$(mktemp)" || { rm -f "$dfile" "$errf" "$hfile"; _cache_degrade "cannot create temp files"; return 1; }
+  bash "$imp" --deps-all --repo "$SCRIPT_DIR" >"$dfile" 2>"$errf"; rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _cache_degrade "suite-impact.sh --deps-all exited $rc ($(head -n 1 "$errf"))"; rm -f "$dfile" "$errf" "$hfile"; return 1
+  fi
+  hl="$(tail -n 1 "$dfile")"
+  if [[ ! "$hl" =~ ^DEPS-SUMMARY$'\t'([0-9]+)$'\t'[0-9]+$ ]]; then
+    _cache_degrade "suite-impact.sh --deps-all printed no DEPS-SUMMARY line"; rm -f "$dfile" "$errf" "$hfile"; return 1
+  fi
+  if [[ "${BASH_REMATCH[1]}" -ne "$discovered_suites" ]]; then
+    _cache_degrade "suite-impact.sh knows ${BASH_REMATCH[1]} suite(s) but this runner discovered $discovered_suites"; rm -f "$dfile" "$errf" "$hfile"; return 1
+  fi
+  while IFS=$'\t' read -r tag a b; do
+    case "$tag" in
+      DEP) cdeps["$a"]+="$b"$'\n' ;;
+      BLIND) cblind["$a"]="$b" ;;
+      UNRESOLVED) cunres["$a"]="$b" ;;
+    esac
+  done < "$dfile"
+  # one batch hash of every file under research-sdd/ (content only)
+  ( cd "$root" && find research-sdd -type f -print0 | xargs -0 "$sha" ) > "$hfile" 2>"$errf"
+  while IFS= read -r hl; do
+    [[ "$hl" =~ ^([0-9a-f]{64})\ \ (.+)$ ]] && chash["${BASH_REMATCH[2]}"]="${BASH_REMATCH[1]}"
+  done < "$hfile"
+  if [[ ${#chash[@]} -eq 0 ]]; then
+    _cache_degrade "could not hash the files under research-sdd/ ($(head -n 1 "$errf"))"; rm -f "$dfile" "$errf" "$hfile"; return 1
+  fi
+  # run mode, tool versions (first --version line), RSDD_* environment
+  local mode_sig tool_sig="" env_sig="" glob_sig=""
+  mode_sig="mode prove=${PROVE_TEETH:-none} lane=${LANE_ARG:-none} tier=$TIER"$'\n'
+  for t in bash python3 node git jq shellcheck; do
+    if command -v "$t" >/dev/null 2>&1; then v="$("$t" --version 2>&1 </dev/null)"; v="${v%%$'\n'*}"; else v="absent"; fi
+    tool_sig+="tool $t $v"$'\n'
+  done
+  for v in $(compgen -e | LC_ALL=C sort); do
+    [[ "$v" == RSDD_* ]] && env_sig+="env $v=${!v}"$'\n'
+  done
+  # SENTINEL-CACHE-GLOBAL: inputs every suite may lean on
+  while IFS= read -r f; do
+    case "$f" in
+      "$rel_tests"/lib/*|"$rel_tests"/run-all.sh|"$rel_tests"/suite-impact.sh|"$rel_tests"/impact-*.txt|"$rel_tests"/suite-tiers.txt|"$rel_tests"/teeth-helper-waivers.txt|research-sdd/templates/*)
+        glob_sig+="global $f ${chash[$f]}"$'\n' ;;
+      research-sdd/install/tests/*.test.sh|research-sdd/install/tests/*.test.mjs) ;;
+      research-sdd/install/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;
+    esac
+  done < <(printf '%s\n' "${!chash[@]}" | LC_ALL=C sort)
+  # files outside research-sdd/ a suite may read, keyed only when the suite or one of its dependencies names them
+  local -a g_pat=('openspec' '\.github' 'CLAUDE\.md' 'TARGETS\.md' '\.shellcheckrc' '(^|[^A-Za-z0-9_])odd/')
+  local -a g_path=(openspec .github CLAUDE.md TARGETS.md .shellcheckrc odd)
+  for gi in "${!g_pat[@]}"; do
+    ( cd "$root" && grep -rlIE --include='*.sh' --include='*.py' --include='*.mjs' --include='*.js' -e "${g_pat[$gi]}" research-sdd ) > "$hfile" 2>"$errf"; rc=$?
+    if [[ "$rc" -gt 1 ]]; then _cache_degrade "scanning for '${g_pat[$gi]}' failed ($(head -n 1 "$errf"))"; rm -f "$dfile" "$errf" "$hfile"; return 1; fi
+    while IFS= read -r f; do gmention["$gi|$f"]=1; done < "$hfile"
+  done
+  rm -f "$dfile" "$errf" "$hfile"
+  for s in "${all_suites[@]}"; do
+    rel="${suite_rel[$s]}"; bn="${s##*/}"; reason=""; mine=""
+    if [[ -n "${cblind[$rel]+set}" ]]; then reason="blind-spot (${cblind[$rel]})"   # SENTINEL-CACHE-BLIND
+    elif [[ -n "${cunres[$rel]+set}" ]]; then reason="no dependency resolved"
+    elif [[ -z "${cdeps[$rel]+set}" ]]; then reason="not known to suite-impact.sh"
+    elif [[ -z "${chash[$rel]+set}" ]]; then reason="suite file unreadable"
+    fi
+    if [[ -z "$reason" ]]; then
+      km="$mode_sig$tool_sig$env_sig$glob_sig""suite $rel ${chash[$rel]}"$'\n'
+      for gi in "${!g_pat[@]}"; do [[ -n "${gmention["$gi|$rel"]+set}" ]] && mine+=" $gi"; done
+      while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        if [[ -z "${chash[$f]+set}" ]]; then reason="dependency unreadable: $f"; break; fi
+        km+="dep $f ${chash[$f]}"$'\n'
+        for gi in "${!g_pat[@]}"; do [[ -n "${gmention["$gi|$f"]+set}" ]] && mine+=" $gi"; done
+      done <<<"${cdeps[$rel]}"
+    fi
+    if [[ -z "$reason" ]]; then
+      for gi in $(printf '%s\n' $mine | LC_ALL=C sort -un); do
+        if [[ -z "${ghash[$gi]+set}" ]]; then
+          h="$( cd "$root" && if [[ -d "${g_path[$gi]}" ]]; then find "${g_path[$gi]}" -type f -print0 | LC_ALL=C sort -z | xargs -0 "$sha" 2>/dev/null
+                              elif [[ -f "${g_path[$gi]}" ]]; then "$sha" "${g_path[$gi]}" 2>/dev/null
+                              else echo absent; fi | "$sha" )"
+          ghash[$gi]="${h%% *}"
+        fi
+        km+="outside ${g_path[$gi]} ${ghash[$gi]}"$'\n'
+      done
+    fi
+    if [[ -n "$reason" ]]; then
+      cache_state["$s"]=unc; cache_unc_names+=("$bn: $reason"); continue
+    fi
+    key="$(printf '%s' "$km" | "$sha")"; key="${key%% *}"
+    if [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then cache_state["$s"]=unc; cache_unc_names+=("$bn: could not compute the key"); continue; fi
+    cache_file["$s"]="$CACHE_DIR/$key"
+    hdr=""; [[ -f "${cache_file[$s]}" ]] && hdr="$(head -n 1 "${cache_file[$s]}" 2>/dev/null)"
+    # a hit needs a well-formed header AND a recorded all-pass summary line; anything else is a miss (never trusted)
+    if [[ "$hdr" =~ ^PASS\ [0-9]+\ 0\  ]] && grep -qE '^== [0-9]+ passed · 0 failed ==$' "${cache_file[$s]}" 2>/dev/null; then   # SENTINEL-CACHE-HIT
+      cache_state["$s"]=hit; cache_hit_names+=("$bn")
+    else
+      cache_state["$s"]=miss; cache_miss_count=$((cache_miss_count + 1))
+    fi
+  done
+  return 0
+}
+if [[ -n "$CACHE" ]]; then
+  if _cache_prepare; then CACHE_ACTIVE=1; fi
 fi
 suite_results=()   # "<repo-relative path> <PASS|FAIL|SKIP>" per suite actually run (shard manifest)
 
@@ -1103,12 +1278,21 @@ echo "$rc" > "$PAR_DIR/$idx.rc.tmp" && mv "$PAR_DIR/$idx.rc.tmp" "$PAR_DIR/$idx.
 echo "run-all.sh: -j done: $(basename "$suite") rc=$rc" >&2
 WORKER
   export PAR_DIR PROVE_TEETH
-  echo "run-all.sh: -j $JOBS — running ${#all_suites[@]} suite(s) in parallel (output replayed in serial order below)" >&2
-  parallel --line-buffer -j "$JOBS" bash "$PAR_DIR/run1.sh" '{#}' '{}' ::: "${all_suites[@]}" >/dev/null
-  # No silent zero: every suite must have left a result file.
+  # A suite the cache reuses (--cache) is not handed to the batch; the others keep their position in the serial order as
+  # their index, so the replay below finds <index>.rc/.out whether or not hits are interleaved.
+  _par_idx=(); _par_run=()
+  for ((_pi = 0; _pi < ${#all_suites[@]}; _pi++)); do
+    [[ "${cache_state[${all_suites[$_pi]}]-}" == hit ]] && continue   # SENTINEL-CACHE-J-SKIP
+    _par_idx+=("$((_pi + 1))"); _par_run+=("${all_suites[$_pi]}")
+  done
+  echo "run-all.sh: -j $JOBS — running ${#_par_run[@]} suite(s) in parallel (output replayed in serial order below)" >&2
+  if [[ ${#_par_run[@]} -gt 0 ]]; then
+    parallel --line-buffer -j "$JOBS" bash "$PAR_DIR/run1.sh" '{1}' '{2}' ::: "${_par_idx[@]}" :::+ "${_par_run[@]}" >/dev/null
+  fi
+  # No silent zero: every suite that was handed to the batch must have left a result file.
   _par_results=$(find "$PAR_DIR" -maxdepth 1 -name '*.rc' | wc -l)
-  if [[ "$_par_results" -ne "${#all_suites[@]}" ]]; then
-    echo "run-all.sh: -j batch recorded $_par_results result(s) for ${#all_suites[@]} suite(s); the missing suites are reported as failed" >&2
+  if [[ "$_par_results" -ne "${#_par_run[@]}" ]]; then
+    echo "run-all.sh: -j batch recorded $_par_results result(s) for ${#_par_run[@]} suite(s); the missing suites are reported as failed" >&2
   fi
   _hv_before=${#hermeticity_violations[@]}; _kv_before=${#kit_tree_violations[@]}
   _check_cwd_hermeticity "$PARALLEL_LABEL"
@@ -1119,20 +1303,29 @@ WORKER
 fi
 
 suite_idx=0
+_viol_at_start=$((${#hermeticity_violations[@]} + ${#kit_tree_violations[@]}))   # under -j: what the batch snapshot already found
 for suite in "${all_suites[@]}"; do
   base="$(basename "$suite")"
   suites_run=$((suites_run + 1))
   suite_idx=$((suite_idx + 1))
 
+  _cache_hit=""
+  [[ "${cache_state[$suite]-}" == hit ]] && _cache_hit=1
   echo "==============================================================="
-  echo ">>> running: $base"
+  echo ">>> running: $base${_cache_hit:+ (cached)}"
   echo "==============================================================="
 
   # Build the command. Only *.test.sh suites accept --prove-teeth.
   # A direct pipe to `tee` streams output AND captures it; the pipeline waits
   # for `tee` to finish, so the temp file is fully written before we parse it.
   # PIPESTATUS[0] is the SUITE's exit code (not tee's) — reliable under pipefail.
-  if [[ -n "$JOBS_ACTIVE" ]]; then
+  if [[ -n "$_cache_hit" ]]; then
+    # --cache: replay the recorded output of the previous full PASS (line 1 is the entry header); nothing executes, so the
+    # hermeticity and TMPDIR checks below have nothing to judge for this suite.
+    tail -n +2 "${cache_file[$suite]}" > "$tmp_out"
+    cat "$tmp_out"
+    rc=0
+  elif [[ -n "$JOBS_ACTIVE" ]]; then
     # -j path: the suite already ran in the batch; replay its captured output and exit code.
     if [[ -f "$PAR_DIR/$suite_idx.rc" ]]; then
       rc="$(cat "$PAR_DIR/$suite_idx.rc")"
@@ -1158,18 +1351,22 @@ for suite in "${all_suites[@]}"; do
     rc=${PIPESTATUS[0]}
   fi
 
-  if [[ -z "$JOBS_ACTIVE" ]]; then
+  _viol_before=$((${#hermeticity_violations[@]} + ${#kit_tree_violations[@]})); _left_before=$tmp_leftover_total
+  if [[ -z "$JOBS_ACTIVE" && -z "$_cache_hit" ]]; then
     _check_cwd_hermeticity "$base"
     _check_kit_tree_hermeticity "$base"
     _check_rsdd_default_root "$base"
   fi
-  # After the suite (serial) or the whole batch (-j: its subdir is its own either way).
-  _check_tmp_leftovers "$base" "$suite_idx"
+  # After the suite (serial) or the whole batch (-j: its subdir is its own either way). A reused result ran nothing.
+  [[ -n "$_cache_hit" ]] || _check_tmp_leftovers "$base" "$suite_idx"
+  _suite_clean=""   # no hermeticity / TMPDIR finding from THIS suite's check (and none from a -j batch, which cannot be attributed)
+  [[ $((${#hermeticity_violations[@]} + ${#kit_tree_violations[@]})) -eq "$_viol_before" && "$tmp_leftover_total" -eq "$_left_before" && "$_viol_at_start" -eq 0 ]] && _suite_clean=1
 
 
   # Parse the LAST matching summary line from the captured output.
   # Also accumulate per-test skip lines ("  SKIP  ..." indented format).
   parsed_line=""
+  _suite_test_skips=0
   while IFS= read -r line; do
     if [[ "$line" =~ $summary_re ]]; then
       parsed_line="$line"
@@ -1177,6 +1374,7 @@ for suite in "${all_suites[@]}"; do
       s_failed="${BASH_REMATCH[2]}"
     elif [[ "$line" == "  SKIP  "* ]]; then
       total_skipped=$((total_skipped + 1))
+      _suite_test_skips=$((_suite_test_skips + 1))
     fi
   done < "$tmp_out"
 
@@ -1292,6 +1490,22 @@ for suite in "${all_suites[@]}"; do
     esac
   fi
 
+  # --cache: record a FULL pass only (SENTINEL-CACHE-STORE). Never a FAIL/SKIP, a suite with per-test skips (an
+  # environment-dependent result), or anything once this run has a hermeticity / TMPDIR violation: replaying a
+  # leaking suite's PASS would hide the leak.
+  if [[ "${cache_state[$suite]-}" == miss && "$_res" == PASS && "$_suite_test_skips" -eq 0 && "${s_failed:-1}" -eq 0 \
+        && -n "$_suite_clean" ]]; then
+    [[ -n "${_cache_head-}" ]] || { _cache_head="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)" || _cache_head=""; : "${_cache_head:=nohead}"; }
+    if { printf 'PASS %s 0 %s %s\n' "$s_passed" "$(date +%Y-%m-%d)" "$_cache_head"; cat "$tmp_out"; } > "$CACHE_DIR/.tmp.$$.$suite_idx" 2>/dev/null \
+       && mv -f "$CACHE_DIR/.tmp.$$.$suite_idx" "${cache_file[$suite]}" 2>/dev/null; then
+      cache_stored=$((cache_stored + 1))
+    else
+      rm -f "$CACHE_DIR/.tmp.$$.$suite_idx" 2>/dev/null
+      cache_store_failed=$((cache_store_failed + 1))
+      echo "run-all.sh: WARNING: could not store the cache entry for $base in $CACHE_DIR" >&2
+    fi
+  fi
+
   suite_results+=("${suite_rel[$suite]} $_res")
   echo
 done
@@ -1325,6 +1539,17 @@ if [[ -n "$IMPACTED_REF" ]]; then
 fi
 if [[ -n "$LANE_ARG" ]]; then
   echo "Lane: $LANE_ARG — exported to every suite as RSDD_TEST_LANE"
+fi
+if [[ -n "$CACHE_DEGRADED_REASON" ]]; then
+  echo "Cache: DEGRADED — $CACHE_DEGRADED_REASON; ran every suite without the cache"
+elif [[ -n "$CACHE_ACTIVE" ]]; then
+  _cu=""; if [[ ${#cache_unc_names[@]} -gt 0 ]]; then _cu="$(printf '%s, ' "${cache_unc_names[@]}")"; _cu="${_cu%, }"; fi
+  _ch="none"; if [[ ${#cache_hit_names[@]} -gt 0 ]]; then _ch="$(printf '%s, ' "${cache_hit_names[@]}")"; _ch="${_ch%, }"; fi
+  echo "Cache: hit ${#cache_hit_names[@]}, miss $cache_miss_count, uncacheable ${#cache_unc_names[@]} — [$_cu]"
+  echo "Cache hits: $_ch"
+  echo "Cache stored: $cache_stored"
+  [[ "$cache_store_failed" -eq 0 ]] || echo "Cache store FAILED: $cache_store_failed entr(y/ies) could not be written to $CACHE_DIR (those suites will run again)"
+  echo "Cache dir: $CACHE_DIR"
 fi
 if [[ -n "$SHARD_N" ]]; then
   echo "Shard: $SHARD_I/$SHARD_N — ${#all_suites[@]} of $total_suites suites"
