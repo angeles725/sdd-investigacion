@@ -195,6 +195,16 @@ They are listed here so a reader of this registry finds every typed state the sc
   leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
   prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
 
+- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh`, kit issue #2201): the
+  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. It lives
+  under `tests/`, outside the scanned scripts, so it is NOT a row of the degraded table above. Reasons: a runtime
+  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
+  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
+  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
+  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing). An INVALID manifest line (no reason, a suite that does not exist,
+  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
+  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
+
 - `kit-rdd-start: <state>` / `kit-rdd-drive: <state>` (maint/kit-rdd-start.py, maint/kit-rdd-drive.py, kit issue
   #2212): the RDD drivers end in one typed state, each with its own exit code and exactly one continuation.
   `maint/` is not a scanned directory, so these are listed here and not as table rows;
@@ -210,6 +220,49 @@ They are listed here so a reader of this registry finds every typed state the sc
   | `consent-required` | 15 | read the printed consent envelope, then re-run `kit-rdd-start.py` with `--consent granted` to record the standing grant |
   | `rdd-not-approved` | 13 | read the printed `rdd-stop: <reason_code>` (or `non-capture-collect (<op>)`); recover by hand, there is no automatic recovery, then re-run |
   | `rdd-protocol-error` | 14 | the provider answered with a shape the driver does not accept (detail printed); check the gentle-ai version, then re-run |
+
+- `size: <state>` and `degraded: kit-size-check: <reason>` (maint/kit-size-check.sh, kit issue #2214): the pre-RDD size
+  guard prints one verdict line `size: ok|over-budget|refuse|empty-input|all-excluded|unmeasured|degraded`. `empty-input` (the diff
+  lists no file), `all-excluded` (files changed, none measured, every one excluded data or binary) and `unmeasured`
+  (only binaries and/or pure renames) are the distinct non-measurements: none is a small diff. A hotspot candidate
+  whose diff failed prints `hotspot: unchecked <file>`, which is not a clean no-churn. `degraded` (exit 2, reason on stderr: no git or awk, not a work tree, unresolved base or head
+  ref, no merge base, mktemp failed, diff failed, malformed rename record, bad flag or value, a control
+  character in a path) is never a zero.
+  The scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
+  are listed here, not in the table. Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
+  `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
+
+
+- `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
+  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
+  <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
+- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
+  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
+  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
+  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
+  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
+  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
+  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
+  `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
+  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
+  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
+
+### kit-writer-check (#2208)
+
+- `degraded: kit-writer-check: <reason>` (`maint/kit-writer-check.sh`, kit issue #2208): the writer-discipline
+  check could not look, and says so on stderr with exit 2 instead of reporting a clean pass. It lives under
+  `maint/`, outside the scanned scripts, so it is NOT a row of the degraded table above. Reasons: a runtime
+  dependency (git, grep, awk, sort, mktemp, timeout) is not on PATH; `not a git repository`; `bad base ref` /
+  `bad head ref`; `no merge-base of <base> and HEAD`; `git diff failed`; `teeth-log dir absent` (an absent
+  directory is not "no logs"); `suite-impact.sh not found`; `suite-impact.sh exited N: <its message>` (an
+  impact map that could not look must never read as an empty requirement set);
+  `KIT_WRITER_CHECK_TIMEOUT must be a positive integer`; `cannot create teeth-log dir`; `cannot hash the changed
+  files`. Findings (exit 1, not degraded): `missing-teeth <suite> <reason>`, `stale-teeth <suite> <reason>` (the log's
+  binding header is missing or its tree hash differs from the changed files), `no-suite <file>`, `name-kill
+  <file>:<line>`, `bad-waiver <file>:<line>` (a waiver with no reason). Notes (never fail): `full-gate-needed:
+  <reason>`, `teeth-na <suite>`, `teeth-waived <suite> (<reason>)`, `required: 0 (...)`. Continuation: install the tool or fix the
+  ref or directory, then re-run; run `--write-teeth-log DIR <suite>...` to produce the logs a `missing-teeth`
+  line asks for.
 
 - `kit-pr-pipeline: <state>` (maint/kit-pr-pipeline.sh, kit-gate.sh, kit-wait-merge.sh, kit issue #2212): the PR
   pipeline ends in one typed state, each with its own exit code and exactly one continuation. It relays the RDD
