@@ -129,7 +129,8 @@ declares what the scan recognises, what it excludes and what it cannot see. The 
 tokens: `absent-input`, `empty-input`, `unclassifiable`, `no-match`. An input-class row outside that list fails
 as "not scannable"; a new token needs the scanner and this table updated together.
 
-Traversed: every `*.sh` directly under `research-sdd/toolbelt/` and under `research-sdd/toolbelt/lib/`. An
+Traversed: every `*.sh` directly under `research-sdd/toolbelt/`, under `research-sdd/toolbelt/lib/` and under
+`research-sdd/toolbelt/maint/`. An
 absent directory, zero shell files, or zero token occurrences is a typed DEGRADED (exit 2), never a clean pass.
 The test prints one `INFO  input-class coverage:` line with the file count and the per-class tallies of the run.
 
@@ -174,14 +175,16 @@ lists a script that does not emit the code (stale emitter), when a script emits 
 ## Run-level notes that are not degraded codes
 
 These prefixes are NOT `degraded:` lines, so the extraction rule never sees them and they do not fail a run.
-They are listed here so a reader of this registry finds every typed state the script can print.
+They are listed in `reason-codes.d/<tool>.md` (one file per tool; see below), so a reader of this registry finds every
+typed state the script can print.
 
 **Where a new tool adds its notes (kit issue #2225).** Run-level notes live one tool per file in
-`reason-codes.d/<tool>.md`, each starting with a `### <tool>` heading whose text equals the file stem. Add
-a NEW file; never append to this file or to another tool's file, so two PRs that each add a tool merge in
-either order with no textual conflict. `tests/registry-layout.test.sh` fails when the directory is absent,
-empty, or holds a file that is empty or lacks its heading. The degraded and input TABLES above stay in this
-file (the coverage test parses them as one table); only these prose notes moved.
+`reason-codes.d/<tool>.md`, each starting with a `### <tool>` heading whose text starts with the file stem. Add
+a NEW file for a new tool's notes instead of appending here, so two PRs that each add a tool's notes merge in
+either order. `tests/registry-layout.test.sh` fails when the directory is absent, empty, holds a non-`.md`
+file, or holds a file that is empty or lacks its heading. The degraded and input TABLES above stay in this
+file (the coverage test parses them as one table; their `emitters` cells remain a shared conflict point,
+deferred to a follow-up issue); only these prose notes moved.
 
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 

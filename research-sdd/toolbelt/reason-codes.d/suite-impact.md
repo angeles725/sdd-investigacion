@@ -1,11 +1,11 @@
 ### suite-impact
 
 - `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
-  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
+  that follows for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
   <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
 - `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
   impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
-  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
+  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table in `reason-codes.v1.md` (section "Degraded class"). Reasons: a runtime
   dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
   ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
   `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;

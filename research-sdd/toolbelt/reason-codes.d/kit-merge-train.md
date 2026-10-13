@@ -2,7 +2,7 @@
 
 - `kit-merge-train: <state>` (maint/kit-merge-train.sh, kit issue #2213): one gate on a combined local train head,
   then an ordered merge. It reuses `merged` 0, `usage` 2, `degraded` 3, `fetch-failed` 21 and `gate-lock-timeout` 22
-  from the table above and relays `ci-failed` 17, `merge-degraded` 18 and `not-merged` 19 from `kit-wait-merge.sh`
+  from `reason-codes.d/kit-pr-pipeline.md` and relays `ci-failed` 17, `merge-degraded` 18 and `not-merged` 19 from `kit-wait-merge.sh`
   (the PRs after the one that stopped the train are `pending` in the receipt). Per-PR lines `train-refused #N:
   <reason>` (`not-open`, `draft`, `rdd-unconfirmed`, `rdd-head-mismatch`, `head-moved`, `gh-view-failed`) and
   `train-conflict #N` drop that PR and are not exits. `tests/kit-merge-train.test.sh` pins them.

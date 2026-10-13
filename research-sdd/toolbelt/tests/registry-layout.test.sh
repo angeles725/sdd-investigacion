@@ -9,8 +9,12 @@
 #   - either directory without a single *.md                           -> DEGRADED rc 2 (empty-input)
 #   - a .d file that is empty, or whose first line is not `### <stem>` -> FINDING rc 1
 #   - a note stem that existed at the split (PINNED_NOTES) is gone     -> FINDING rc 1
-#   - a maint/ entry script named in neither tool-registry.md nor
-#     tool-registry.d/*.md                                             -> FINDING rc 1
+#   - a non-.md file inside either .d directory                        -> FINDING rc 1
+#   - maint/ absent, or with no tool script                            -> DEGRADED rc 2 (a zero-script pass proves nothing)
+#   - a maint/ entry script with neither a `### <stem>` heading in
+#     tool-registry.d/*.md nor a table row starting with
+#     `| \`maint/<name>` in tool-registry.md                            -> FINDING rc 1
+# On success the checker prints `INFO  maint scripts checked: N`.
 # The degraded/input TABLES stay in reason-codes.v1.md and are verified by reason-codes.test.sh.
 #
 # Usage: registry-layout.test.sh [--prove-teeth]
@@ -31,7 +35,8 @@ layout_check() {
     if [ ! -d "$tb/$d" ]; then printf 'DEGRADED: absent-input: %s is not a directory\n' "$d"; return 2; fi
     n="$(find "$tb/$d" -maxdepth 1 -type f -name '*.md' | wc -l)" || { printf 'DEGRADED: find failed on %s\n' "$d"; return 2; }
     if [ "$n" -eq 0 ]; then printf 'DEGRADED: empty-input: %s holds no *.md file\n' "$d"; return 2; fi
-    for f in "$tb/$d"/*.md; do
+    for f in "$tb/$d"/*; do
+      case "$f" in *.md) ;; *) printf 'FINDING: non-.md file in %s: %s\n' "$d" "$(basename "$f")"; rc=1; continue ;; esac
       stem="$(basename "$f" .md)"
       first="$(head -n 1 "$f")"
       if [ ! -s "$f" ]; then printf 'FINDING: empty file: %s/%s.md\n' "$d" "$stem"; rc=1; continue; fi
@@ -44,15 +49,20 @@ layout_check() {
     [ -f "$tb/reason-codes.d/$stem.md" ] || { printf 'FINDING: dropped note section: reason-codes.d/%s.md\n' "$stem"; rc=1; }
   done
   if [ ! -f "$tb/tool-registry.md" ]; then printf 'DEGRADED: absent-input: tool-registry.md\n'; return 2; fi
-  if [ -d "$tb/maint" ]; then
-    for f in "$tb"/maint/*; do
-      [ -f "$f" ] || continue
-      stem="$(basename "$f")"
-      case "$stem" in *-common.sh) continue ;; esac   # sourced helper, not a tool entry point
-      grep -qF -- "$stem" "$tb/tool-registry.md" "$tb"/tool-registry.d/*.md \
-        || { printf 'FINDING: maint/%s is named in neither tool-registry.md nor tool-registry.d/\n' "$stem"; rc=1; }
-    done
-  fi
+  if [ ! -d "$tb/maint" ]; then printf 'DEGRADED: absent-input: maint is not a directory\n'; return 2; fi
+  n=0
+  for f in "$tb"/maint/*; do
+    [ -f "$f" ] || continue
+    stem="$(basename "$f")"
+    case "$stem" in *-common.sh) continue ;; esac   # sourced helper, not a tool entry point
+    n=$((n + 1))
+    if grep -qE -- "^### ${stem%.*}( |\$)" "$tb"/tool-registry.d/*.md \
+      || grep -qF -- "| \`maint/$stem" "$tb/tool-registry.md"; then :; else
+      printf 'FINDING: maint/%s has no "### %s" heading in tool-registry.d/ and no table row in tool-registry.md\n' "$stem" "${stem%.*}"; rc=1
+    fi
+  done
+  if [ "$n" -eq 0 ]; then printf 'DEGRADED: empty-input: maint/ holds no tool script\n'; return 2; fi
+  printf 'INFO  maint scripts checked: %s\n' "$n"
   return "$rc"
 }
 
@@ -75,10 +85,11 @@ expect() {
   if [ "$rc" -ne "$want" ]; then no "$name (rc $rc, wanted $want)"; printf '%s\n' "$out" | sed 's/^/        /'; return; fi
   if [ -n "$pat" ] && ! grep -qE -- "$pat" <<<"$out"; then no "$name (output lacks /$pat/)"; printf '%s\n' "$out" | sed 's/^/        /'; return; fi
   ok "$name"
+  case "$name" in real*) grep -E -- '^INFO ' <<<"$out" | sed 's/^/        /' ;; esac
 }
 
 # --- 1. the real toolbelt ---
-expect "real layout: every note section present, every maint tool listed" 0 "$TB"
+expect "real layout: every note section present, every maint tool has its own entry" 0 "$TB" 'maint scripts checked: [1-9]'
 
 # --- 2. fixtures: a clean tree and one defect each ---
 tmp="$(mktemp -d)" || { echo "FATAL: mktemp failed" >&2; exit 2; }
@@ -106,8 +117,18 @@ expect "fixture: LAST file (alphabetical) with a bad heading fails" 1 "$tmp/last
 mkfix dropped; rm "$tmp/dropped/reason-codes.d/suite-impact.md"
 expect "fixture: a pinned note section removed fails" 1 "$tmp/dropped" 'dropped note section: reason-codes.d/suite-impact.md'
 mkfix unlist;  : > "$tmp/unlist/maint/c.py"
-expect "fixture: a maint tool listed nowhere fails" 1 "$tmp/unlist" 'maint/c.py is named in neither'
-mkfix single;  rm "$tmp/single/tool-registry.d/b.md"; printf '### only\n| `maint/b.sh` |' > "$tmp/single/tool-registry.d/only.md"
+expect "fixture: a maint tool listed nowhere fails" 1 "$tmp/unlist" 'maint/c.py has no "### c" heading'
+mkfix mention; : > "$tmp/mention/maint/c.py"; printf 'see maint/c.py in prose' >> "$tmp/mention/tool-registry.md"
+expect "fixture: a bare mention in prose is not an entry (substring is not enough)" 1 "$tmp/mention" 'maint/c.py has no'
+mkfix nomaint; rm -r "$tmp/nomaint/maint"
+expect "fixture: maint/ absent -> DEGRADED rc 2" 2 "$tmp/nomaint" 'absent-input: maint'
+mkfix emaint;  rm "$tmp/emaint/maint/a.sh" "$tmp/emaint/maint/b.sh"
+expect "fixture: maint/ with only a helper (zero tool scripts) -> DEGRADED rc 2" 2 "$tmp/emaint" 'empty-input: maint'
+mkfix nonmd;   : > "$tmp/nonmd/reason-codes.d/notes.txt"
+expect "fixture: a non-.md file in a .d directory fails" 1 "$tmp/nonmd" 'non-.md file in reason-codes.d: notes.txt'
+mkfix firsthd; printf '## aa\nbody' > "$tmp/firsthd/reason-codes.d/aa.md"
+expect "fixture: FIRST file (alphabetical) with a bad heading fails" 1 "$tmp/firsthd" 'reason-codes.d/aa.md must start'
+mkfix single;  rm "$tmp/single/tool-registry.d/b.md"; printf '### b\n| `maint/b.sh` |' > "$tmp/single/tool-registry.d/b.md"
 expect "fixture: single-file .d directory is clean" 0 "$tmp/single"
 
 # --- 3. teeth: mutate a COPY of the real toolbelt pieces; each must turn the checker red ---
@@ -120,11 +141,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   expect_red() { expect "teeth: $1" 1 "$2" "$3"; }
   if cp_real t_tr && rm "$tmp/t_tr/tool-registry.d/kit-writer-check.md"; then
-    expect_red "dropping tool-registry.d/kit-writer-check.md leaves maint/kit-writer-check.sh unlisted" "$tmp/t_tr" 'kit-writer-check.sh is named in neither'
+    expect_red "dropping tool-registry.d/kit-writer-check.md leaves maint/kit-writer-check.sh without an entry" "$tmp/t_tr" 'kit-writer-check.sh has no'
   else no "teeth: could not build the tool-registry.d mutant"; fi
   if cp_real t_rc && rm "$tmp/t_rc/reason-codes.d/kit-merge-train.md"; then
     expect_red "dropping reason-codes.d/kit-merge-train.md is a dropped note section" "$tmp/t_rc" 'dropped note section: reason-codes.d/kit-merge-train.md'
   else no "teeth: could not build the reason-codes.d mutant"; fi
+  if cp_real t_mt && rm -r "$tmp/t_mt/maint"; then
+    expect "teeth: removing maint/ from the real layout is DEGRADED, not a pass" 2 "$tmp/t_mt" 'absent-input: maint'
+  else no "teeth: could not build the maint-absent mutant"; fi
   if cp_real t_hd && MUTANT_SYNTAX=none mutant_sed "$TB/reason-codes.d/kit-rdd.md" "$tmp/t_hd/reason-codes.d/kit-rdd.md" '1s/^### /## /'; then
     expect_red "breaking one heading is caught" "$tmp/t_hd" 'must start with "### kit-rdd"'
   else no "teeth: could not build the heading mutant (refused by lib/mutant.sh)"; fi

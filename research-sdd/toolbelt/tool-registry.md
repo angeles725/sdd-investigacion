@@ -489,8 +489,9 @@ To re-verify an existing corpus (not discover new gaps): `PROMPT-AUDIT.md` + `te
 ## Maintenance tools (`toolbelt/maint/`)
 
 **Where a new maint tool adds its row (kit issue #2225).** One file per tool in `tool-registry.d/<tool>.md`,
-starting with a `### <tool>` heading (text equal to the file stem) followed by its own
-`| Tool | Interface and contract |` table. Add a NEW file; never append to this file or to another tool's file,
-so two PRs that each add a tool merge in either order with no textual conflict. The older maint rows that
+starting with a `### <tool>` heading (text starting with the file stem) followed by its own
+table whose first column is `Tool`. Add a NEW file for a new maint tool instead of appending here,
+so two PRs that each add a tool merge in either order. The wrapper table above stays shared. The older maint rows that
 sit inside the "Operator toolbelt" table above stay where they are. `tests/registry-layout.test.sh` checks
-that every `maint/*` script is named in this file or in `tool-registry.d/`.
+that every `maint/*` script has its own `### <stem>` heading in `tool-registry.d/` or a table row starting
+with `` `maint/<name> `` in this file.
