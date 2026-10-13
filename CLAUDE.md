@@ -156,6 +156,38 @@ the SUT bytes to the pre-fix state, run the new tests, and require each to fail 
 before fix" note in a commit message is not verified teeth; only executing the suite against the
 broken code is — doc-lane #2.
 
+**Writer checklist (kit issue #2208).** Three incident shapes recur when a writer is trusted to remember
+the rules: only the plain suite of an edited script was run, so mutants broke and only the full gate
+saw it (#2184); a name-based process kill was used on the writer's own load loops (#2199); RED was
+asserted but never executed (#2184). The checks below make each one mechanical, before the full gate:
+
+1. Run every suite the diff impacts with `--prove-teeth` and keep the logs:
+   `bash research-sdd/toolbelt/maint/kit-writer-check.sh --base origin/main --worktree` lists the
+   required suites; `... --write-teeth-log DIR --base origin/main <suite>...` runs them bounded by
+   `timeout` and writes the logs, each stamped with a binding header (`# writer-check: head=… tree=…`)
+   hashing the changed files; `... --base origin/main --worktree --teeth-log DIR` must then exit 0.
+   Exit 1 names each `missing-teeth`, `stale-teeth` (the files changed after the log, or the log was not
+   written by the tool), `no-suite`, `bad-waiver` and `name-kill` finding; exit 2 means it could not look.
+   A suite that cannot show teeth is listed with a reason in `tests/writer-check-waivers.txt` and is
+   reported `teeth-waived`, never silently.
+2. Never kill processes by name (pkill / killall, `kill -1` and its signal forms, pgrep / pidof piped or
+   substituted into kill): record the PID at spawn (`$!`, `jobs -p`) and kill that PID, and let `timeout`
+   bound a runaway run. Two enforcers share one verdict list
+   (`tests/fixtures/kit-writer-check/name-kill-corpus.txt`): the check flags added lines (a justified
+   exception carries `# writer-check: allow-name-kill <reason>` on that line), and the PreToolUse hook
+   `research-sdd/templates/hook-pretool-pkill-guard.sh --strict-name-kill`, wired in this repo's
+   `.claude/settings.json`, denies the command before it runs. The hook fails closed here: a missing
+   script exits 2, which Claude Code treats as a blocking error. Research targets keep the hook's default
+   mode (only the self-matching `pkill -f` refusal).
+3. Put the executed RED in the PR body as `RED: <suite> <case-or-test-name> — <failing output excerpt>`
+   (one line per proving case; the suite must exist in the repository or the PR), or
+   `RED: n/a — <reason>` (at least 20 characters, specific) when RED cannot be executed. The
+   `Check RED Evidence` job in `pr-check.yml` fails a PR that changes production scripts without one
+   (`.github/scripts/parse-red-evidence.cjs`). "Production" is one rule, implemented in that script and in
+   `kit-writer-check.sh --classify` and pinned by `tests/fixtures/kit-writer-check/production-paths.txt`.
+
+The check is evidence of a run, not a verdict: the quiet-tree gate in §5 remains the authority.
+
 ---
 
 ## 5. Quality Gates
