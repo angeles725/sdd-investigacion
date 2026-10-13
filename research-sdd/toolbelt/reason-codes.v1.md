@@ -129,7 +129,8 @@ declares what the scan recognises, what it excludes and what it cannot see. The 
 tokens: `absent-input`, `empty-input`, `unclassifiable`, `no-match`. An input-class row outside that list fails
 as "not scannable"; a new token needs the scanner and this table updated together.
 
-Traversed: every `*.sh` directly under `research-sdd/toolbelt/` and under `research-sdd/toolbelt/lib/`. An
+Traversed: every `*.sh` directly under `research-sdd/toolbelt/`, under `research-sdd/toolbelt/lib/` and under
+`research-sdd/toolbelt/maint/`. An
 absent directory, zero shell files, or zero token occurrences is a typed DEGRADED (exit 2), never a clean pass.
 The test prints one `INFO  input-class coverage:` line with the file count and the per-class tallies of the run.
 
@@ -174,156 +175,16 @@ lists a script that does not emit the code (stale emitter), when a script emits 
 ## Run-level notes that are not degraded codes
 
 These prefixes are NOT `degraded:` lines, so the extraction rule never sees them and they do not fail a run.
-They are listed here so a reader of this registry finds every typed state the script can print.
+They are listed in `reason-codes.d/<tool>.md` (one file per tool; see below), so a reader of this registry finds every
+typed state the script can print.
 
-- `shallow-clone: <dir> is a shallow clone and no cited commit resolved locally for N row(s) (e.g. <sha>)`
-  (reconcile-issues.sh, kit issue #1773): printed once per run (single-retro and `--all`) when the closure
-  evidence of N rows cites no commit that exists locally and the checkout is shallow, so reachability
-  cannot be verified. Those rows stay `borderline`, never `shipped`, and the exit code is unchanged.
-  Continuation: run `git fetch --unshallow` (or raise the CI fetch-depth), then re-run `reconcile-issues.sh`.
-
-- `note: state_reason for issue #<n> missing from the closed-issue listing after one reload` (reconcile-issues.sh,
-  kit issue #1752): on a gh without the `stateReason` field, a closed issue found by the search is absent from
-  the batched `state_reason` listing even after one forced reload of it. Its rows are reported `borderline`
-  (the issue's evidence is not trusted) and the run is not failed. Continuation: run
-  `gh api repos/<owner>/<repo>/issues/<n> --jq .state_reason` by hand, then re-run `reconcile-issues.sh`.
-
-- `regressed-lookup: <reason>` (reconcile-issues.sh, kit issue #1709 slice 2): the `regressed` check for a `shipped`
-  row could not look at something and says so on stderr instead of reporting a silent no-match: the shipped retro or
-  a sibling has no `YYYY-MM-DD` filename prefix, or a sibling has the same date (retros cannot be ordered), the row title is under 12 characters or a
-  bare priority/type token (no cross-retro identity), or a later retro's review-status marker sits outside the
-  leading-block scope (open/closed cannot be told). The run is not failed. Continuation: rename the retro with a date
-  prefix, give the row a real title, or move the marker into the leading block, then re-run `reconcile-issues.sh`.
-
-- `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
-  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
-  <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
-- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
-  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
-  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
-  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
-  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
-  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
-  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
-  `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
-  a duplicate, or a malformed `reach=` scope in `impact-blindspot.txt`: no globs, an empty glob, a glob not starting with
-  `research-sdd/` or containing `..`, or `reach=` in `impact-always.txt`) is a finding, not a degraded state: exit 1 and no
-  selection is printed. `--audit` also exits 1 on `AUDIT dead reach glob in impact-blindspot.txt: <glob> (<suite>)`, a reach
-  glob that matches no file (it would silently never select its suite). Continuation: install the missing
-  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
-
-- `kit-rdd-start: <state>` / `kit-rdd-drive: <state>` (maint/kit-rdd-start.py, maint/kit-rdd-drive.py, kit issue
-  #2212): the RDD drivers end in one typed state, each with its own exit code and exactly one continuation.
-  `maint/` is not a scanned directory, so these are listed here and not as table rows;
-  `tests/kit-rdd-start.test.sh` and `tests/kit-rdd-drive.test.sh` pin them. The one `degraded:` line they print,
-  `degraded: missing runtime dependency: gentle-ai`, is probed at startup (exit 3). The reason codes after
-  `rdd-stop:` are the provider's own, printed only when the provider supplied them.
-
-  | state | exit | continuation |
-  |---|---|---|
-  | `started` | 0 | nothing to repair; run `kit-rdd-drive.py` on the output file |
-  | `rdd-not-due` | 10 | nothing to repair (assess exited 0 and said review_due is false) |
-  | `rdd-start-error` | 14 | run `gentle-ai review assess --cwd <worktree> --json` by hand, fix the cause (failed assessment, malformed or refused provider answer), then re-run |
-  | `consent-required` | 15 | read the printed consent envelope, then re-run `kit-rdd-start.py` with `--consent granted` to record the standing grant |
-  | `rdd-not-approved` | 13 | read the printed `rdd-stop: <reason_code>` (or `non-capture-collect (<op>)`); recover by hand, there is no automatic recovery, then re-run |
-  | `rdd-protocol-error` | 14 | the provider answered with a shape the driver does not accept (detail printed); check the gentle-ai version, then re-run |
-
-- `kit-pr-pipeline: <state>` (maint/kit-pr-pipeline.sh, kit-gate.sh, kit-wait-merge.sh, kit issue #2212): the PR
-  pipeline ends in one typed state, each with its own exit code and exactly one continuation. It relays the RDD
-  states above (`rdd-not-approved` 13, `rdd-start-error` 14, `consent-required` 15, `degraded` 3).
-  `tests/kit-pr-pipeline.test.sh` pins them; `maint/` is not a scanned directory, so they are listed here and not
-  as table rows.
-
-  | state | exit | continuation |
-  |---|---|---|
-  | `merged` | 0 | nothing to repair |
-  | `restack-conflict` | 11 | resolve the conflict with the base by hand (the merge was aborted), then re-run |
-  | `push-failed` | 12 | check network and credentials, then re-run |
-  | `fetch-failed` | 21 | check network and the remote name, then re-run |
-  | `bad-base-ref` | 23 | fix `--base-ref` / `--remote` (the base does not resolve), then re-run |
-  | `dirty-tree` | 24 | commit or stash the tracked changes, then re-run |
-  | `restack-error` | 25 | read the git error above (the merge failed without a conflict), fix by hand, then re-run |
-  | `gate-failed` | 16 | read `<state-dir>/gate-pr<N>.log`, fix, then re-run (`--serial` for the section 5 reference run) |
-  | `gate-lock-timeout` | 22 | another gate holds the lock; re-run when it finishes, or raise `--lock-timeout` on `kit-gate.sh` |
-  | `ci-failed` | 17 | read the printed failing check, fix, push, then re-run |
-  | `merge-degraded` | 18 | fix the failure merge-gate printed (`merge-gate: degraded: ...`), then re-run `kit-wait-merge.sh` |
-  | `not-merged` | 19 | read the printed merge-gate refusal, then re-run |
-  | `size-check-failed` | 20 | fix what the `--size-check` command reported, then re-run |
-
-- `size: <state>` and `degraded: kit-size-check: <reason>` (maint/kit-size-check.sh, kit issue #2214): the pre-RDD size
-  guard prints one verdict line `size: ok|over-budget|refuse|empty-input|all-excluded|unmeasured|degraded`. `empty-input` (the diff
-  lists no file), `all-excluded` (files changed, none measured, every one excluded data or binary) and `unmeasured`
-  (only binaries and/or pure renames) are the distinct non-measurements: none is a small diff. A hotspot candidate
-  whose diff failed prints `hotspot: unchecked <file>`, which is not a clean no-churn. `degraded` (exit 2, reason on stderr: no git or awk, not a work tree, unresolved base or head
-  ref, no merge base, mktemp failed, diff failed, malformed rename record, bad flag or value, a control
-  character in a path) is never a zero.
-  The degraded-code scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
-  are listed here, not in the degraded table; the INPUT-class scan does traverse `maint/*.sh`, which is why `maint/kit-size-check.sh` is an emitter of the `empty-input` input row.
-  Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
-  `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
-
-### kit-writer-check (#2208)
-
-- `degraded: kit-writer-check: <reason>` (`maint/kit-writer-check.sh`, kit issue #2208): the writer-discipline
-  check could not look, and says so on stderr with exit 2 instead of reporting a clean pass. It lives under
-  `maint/`, outside the scanned scripts, so it is NOT a row of the degraded table above. Reasons: a runtime
-  dependency (git, grep, awk, sort, mktemp, timeout) is not on PATH; `not a git repository`; `bad base ref` /
-  `bad head ref`; `no merge-base of <base> and HEAD`; `git diff failed`; `teeth-log dir absent` (an absent
-  directory is not "no logs"); `suite-impact.sh not found`; `suite-impact.sh exited N: <its message>` (an
-  impact map that could not look must never read as an empty requirement set);
-  `KIT_WRITER_CHECK_TIMEOUT must be a positive integer`; `cannot create teeth-log dir`; `cannot hash the changed
-  files`. Findings (exit 1, not degraded): `missing-teeth <suite> <reason>`, `stale-teeth <suite> <reason>` (the log's
-  binding header is missing or its tree hash differs from the changed files), `no-suite <file>`, `name-kill
-  <file>:<line>`, `bad-waiver <file>:<line>` (a waiver with no reason). Notes (never fail): `full-gate-needed:
-  <reason>`, `teeth-na <suite>`, `teeth-waived <suite> (<reason>)`, `required: 0 (...)`. Continuation: install the tool or fix the
-  ref or directory, then re-run; run `--write-teeth-log DIR <suite>...` to produce the logs a `missing-teeth`
-  line asks for.
-
-- `kit-merge-train: <state>` (maint/kit-merge-train.sh, kit issue #2213): one gate on a combined local train head,
-  then an ordered merge. It reuses `merged` 0, `usage` 2, `degraded` 3, `fetch-failed` 21 and `gate-lock-timeout` 22
-  from the table above and relays `ci-failed` 17, `merge-degraded` 18 and `not-merged` 19 from `kit-wait-merge.sh`
-  (the PRs after the one that stopped the train are `pending` in the receipt). Per-PR lines `train-refused #N:
-  <reason>` (`not-open`, `draft`, `rdd-unconfirmed`, `rdd-head-mismatch`, `head-moved`, `gh-view-failed`) and
-  `train-conflict #N` drop that PR and are not exits. `tests/kit-merge-train.test.sh` pins them.
-
-  | state | exit | continuation |
-  |---|---|---|
-  | `train-gate-failed` | 26 | read the printed gate log; re-run with `--bisect` to name the first PR whose inclusion turns it red; nothing was merged |
-  | `train-partial` | 27 | everything left in the train merged; fix the refused / conflicting PRs listed in the receipt and train them again |
-  | `train-empty` | 28 | no PR survived the checks and merges; read the `train-refused` / `train-conflict` lines |
-  | `train-error` | 29 | read the git or gate error above (not a conflict, or the run was interrupted), fix by hand, then re-run |
-  | `base-moved` | 30 | the base branch moved during the gate; nothing was merged; re-run the train on the new base |
-  | `main-raced` | 31 | a commit landed on the base between two merges (the merged PRs are `merged` in the receipt, the rest `pending`); inspect main, then re-train the rest |
-  | `tree-mismatch` | 32 | the tree on the base differs from the train tree (or the base+merged-prefix tree); inspect main before anything else is merged |
-  | `merged-out-of-band` | 33 | GitHub shows the PR MERGED at a head other than the gated one (`kit-wait-merge.sh --expect-head`); inspect it, the train stopped and the PR is `out-of-band` in the receipt |
-
-  Also: `pr-cwd-mismatch` (a per-PR refusal: the `--pr-cwd` directory is not a worktree of the repo, or its HEAD is not the
-  pinned head); without `--pr-cwd`, merge-gate in the train's own worktree typically stops the train at `not-merged`
-  with `refuse: review_due`, because RDD authority is bound to the worktree where the review ran;
-  `base-not-<branch>` (a per-PR refusal: the PR does not target the train's base branch, e.g. a stacked PR) and
-  `bisect-incomplete: gate-lock-timeout` (a `train-gate-failed` whose `--bisect` could not finish; the receipt keeps the
-  full gate's rc and log).
-
-### run-all cache (#2201)
-
-- `Cache: DEGRADED — <reason>` (`tests/run-all.sh --cache`, kit issue #2201 part 2): the result cache could not be
-  keyed or stored, so EVERY suite ran without it; printed on stderr when it happens and as an aggregate line, exit code
-  unchanged (the run is still the authoritative one). It lives in `tests/`, outside the scanned scripts, so it is NOT a
-  row of the degraded table. Reasons: `no sha256 tool (<cmd> not on PATH)`; `neither XDG_CACHE_HOME nor HOME is set`;
-  `cache dir '<dir>' cannot be created or written`; `suite-impact.sh not found next to run-all.sh`;
-  `suite-impact.sh --deps-all exited N (<its message>)`; `suite-impact.sh --deps-all printed no DEPS-SUMMARY line`;
-  `suite-impact.sh knows N suite(s) but this runner discovered M`; `could not hash the files under research-sdd/`;
-  `scanning for '<pattern>' failed`; `cannot create temp files`. Continuation: install the tool, point
-  `XDG_CACHE_HOME` at a writable directory outside the repo, or fix the suite-impact failure, then re-run.
-- `Cache: hit H, miss M, uncacheable U — [<suite>: <reason>, ...]` (not degraded): a suite that is never keyed always
-  runs and says why: `always-run`, `blind-spot (manifest|detected:<class>)`, `no dependency resolved`, `not known to suite-impact.sh`,
-  `suite file unreadable`, `dependency unreadable: <file>`, `could not compute the key`. `Cache store FAILED: N` means N
-  full passes could not be written (those suites run again next time). A cache dir inside the repository is refused with
-  exit 2 before any suite runs; `--cache` with `--require-teeth` or `--shard` is refused with exit 2.
-- `degraded: suite-impact: <reason>` for `--deps-all` / `--deps <suite>` (`tests/suite-impact.sh`): the existing
-  suite-impact reasons plus `no such suite: <path>` (an unknown `--deps` argument) and
-  `dependency pass produced no suites (could not look)`; exit 2. `BLIND` and `UNRESOLVED` lines in its output are
-  answers, not degraded states: they mean the suite's reach is unknowable, and run-all.sh never caches such a suite.
+**Where a new tool adds its notes (kit issue #2225).** Run-level notes live one tool per file in
+`reason-codes.d/<tool>.md`, each starting with a `### <tool>` heading whose text starts with the file stem. Add
+a NEW file for a new tool's notes instead of appending here, so two PRs that each add a tool's notes merge in
+either order. `tests/registry-layout.test.sh` fails when the directory is absent, empty, holds a non-`.md`
+file, or holds a file that is empty or lacks its heading. The degraded and input TABLES above stay in this
+file (the coverage test parses them as one table; their `emitters` cells remain a shared conflict point,
+deferred to a follow-up issue); only these prose notes moved.
 
 ## Deferral ledger (kit issue #1704 closes with slice 3)
 
