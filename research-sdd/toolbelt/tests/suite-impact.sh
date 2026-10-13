@@ -42,7 +42,8 @@
 # built script names) defeat the word map; they are added whenever a production CODE file changes, scoped by an
 # optional REACH (kit issue #2201, part 1c): a manifest line `<suite> reach=<glob>[,<glob>...] <reason>` adds the
 # suite only when a changed code file matches a glob (repo-relative, bash `case` patterns, `*` crosses `/`, each glob
-# starts with `research-sdd/`, no `..`). A line without `reach=` keeps the unscoped behaviour (any code change).
+# starts with `research-sdd/`, no `..`). A line without `reach=` keeps the unscoped behaviour (any code change). A code
+# change outside research-sdd/toolbelt/ adds EVERY blind-spot suite (no reach glob covers it).
 # `reach=` is parsed strictly and is valid only in impact-blindspot.txt; `--audit` also flags a glob matching no file.
 # Docs-only changes (markdown outside templates/install, openspec/**, odd/**) select the always-run set plus
 # whatever suite names the document's basename. No-change (empty diff) also selects the always-run set: the
@@ -123,6 +124,17 @@ else
   find research-sdd -type f | LC_ALL=C sort > "$TMP/files"
 fi
 [ -s "$TMP/files" ] || degraded "empty inventory of research-sdd/ (could not look)"
+
+# is_code_path PATH -> 0 when a change to PATH sets CODE_CHANGED (so the blind-spot set is considered), else 1.
+# Mirrors the classification loop below: the tests tree, install/, templates/ and Markdown never get there. The audit
+# matches reach globs against this universe, so a glob that only matches such files is reported dead.
+is_code_path() {
+  case "$1" in
+    "$TESTS_REL"/*|research-sdd/install/*|research-sdd/templates/*|*.md) return 1 ;;
+    research-sdd/*) return 0 ;;
+  esac
+  return 1
+}
 
 # kind_of PATH -> S | F | P | X (X: not a graph node; a FULL-escalation class or skipped)
 kind_of() {
@@ -322,7 +334,7 @@ if [ "$AUDIT" = 1 ]; then
   while IFS=$'\t' read -r s c; do
     grep -qxF -- "$s" "$TMP/blind" || { echo "AUDIT missing from impact-blindspot.txt: $s ($c)"; missing=$((missing+1)); }
   done < "$TMP/detected"
-  # dead reach globs: a glob matching no file in the inventory would silently never select its suite
+  # dead reach globs: a glob matching no CODE file (see is_code_path) would silently never select its suite
   dead=0
   if [ -s "$TMP/blind_reach" ]; then
     while IFS=$'\t' read -r name pp globs; do printf '%s\t%s\n' "$name" "$globs"; done < "$TMP/blind_reach" | LC_ALL=C sort -u > "$TMP/reach_names"
@@ -331,7 +343,7 @@ if [ "$AUDIT" = 1 ]; then
       for g in "${local_gl[@]}"; do
         hit=0
         # shellcheck disable=SC2254 # the reach glob is a pattern by design
-        while IFS= read -r f; do case "$f" in $g) hit=1; break ;; esac; done < "$TMP/files"
+        while IFS= read -r f; do is_code_path "$f" || continue; case "$f" in $g) hit=1; break ;; esac; done < "$TMP/files"
         [ "$hit" = 1 ] || { echo "AUDIT dead reach glob in impact-blindspot.txt: $g ($name)"; dead=$((dead+1)); }
       done
     done < "$TMP/reach_names"
@@ -482,9 +494,12 @@ if [ "$CODE_CHANGED" = 1 ]; then
   done < "$TMP/blind_reach"
   LC_ALL=C sort -u -o "$TMP/scoped_hit" "$TMP/scoped_hit"
   cat "$TMP/scoped_hit" >> "$TMP/blind_add"
+  # no reach glob covers a code change outside research-sdd/toolbelt/ (profiles, skills, other kit content): add ALL
+  if grep -qv '^research-sdd/toolbelt/' "$TMP/code_changed"; then cp "$TMP/blind" "$TMP/blind_add"; : > "$TMP/scoped_hit"; fi
   cat "$TMP/blind_add" >> "$TMP/sel"; LC_ALL=C sort -u -o "$TMP/sel" "$TMP/sel"
   BLIND_ADDED="$(LC_ALL=C sort -u "$TMP/blind_add" | grep -c .)"
   BLIND_SKIPPED="$(LC_ALL=C comm -23 "$TMP/scoped" "$TMP/scoped_hit" | grep -c .)"
+  if grep -qv '^research-sdd/toolbelt/' "$TMP/code_changed"; then BLIND_SKIPPED=0; fi
 fi
 if [ -n "$FULL_REASON" ]; then cp "$TMP/suites" "$TMP/sel"; fi
 NSEL="$(grep -c . "$TMP/sel")"

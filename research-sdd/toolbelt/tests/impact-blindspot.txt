@@ -1,14 +1,16 @@
 # Blind-spot suites (kit issue #2201): suites whose reach into production code the word map in suite-impact.sh
 # cannot follow (eval of built text, whole-kit copies/links, kit-wide globs, script names assembled at run time).
-# They are added to a selection whenever any production CODE file changes.
+# They are added to a selection when a production CODE file changes, scoped by an optional reach (see below).
 # Format: one `<suite> [reach=<glob>[,<glob>...]] <reason>` per line; <suite> is the file name without `.test.sh` / `.test.mjs`.
 # REACH (kit issue #2201, part 1c) scopes a suite to the production files whose change it cannot see: it is added only
 # when a changed code file matches a glob (repo-relative; bash `case` patterns where `*` crosses `/`; each glob starts
 # with `research-sdd/`). A line without `reach=` is added for ANY production code change (the safe default for a suite
 # whose reach is unknown). Derive a reach from what the suite copies, links or evals: a whole-kit copy of toolbelt/*.sh
 # plus lib/ reaches those; a suite that mutates its own literal SUT and copies named libs reaches lib/ (its SUT is
-# already a literal edge); a suite that only drives fixture copies of the test harness reaches the tests/ tree (which
-# never counts as production code, so it is selected through the word map and the harness escalations instead); a python copier reaches toolbelt/*.py and lib/. `--audit` flags a glob that matches no file.
+# already a literal edge); a suite that only drives fixture copies of the test harness has no production reach but
+# stays unscoped (it is also selected through the word map and the harness escalations); a python copier reaches
+# toolbelt/*.py and lib/. A code change outside research-sdd/toolbelt/ adds EVERY blind-spot suite (no glob covers it).
+# `--audit` flags a glob that matches no CODE file (tests/, install/, templates/ and Markdown never trigger the set).
 # `suite-impact.sh --audit` re-derives the set from the corpus and FAILS (exit 1) for a detected suite missing here;
 # a listed suite the detector no longer flags is kept on purpose (the detector is a heuristic, not a proof).
 blocked-rows reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
@@ -73,8 +75,8 @@ verify-skill-drift copies or links the whole toolbelt/kit into a fixture
 verify-skill-drift-hook reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 verify-state reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 verify-state-inplace-blocked reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
-suite-impact reach=research-sdd/toolbelt/tests/* uses eval on built text inside its fixture suites (the audit detector flags the literal)
-run-all-default-root reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
-run-all reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
-shard-join reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
-kit-flake-hunt reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
+suite-impact uses eval on built text inside its fixture suites (the audit detector flags the literal)
+run-all-default-root runs suites by a computed $HERE/$name.test.sh path
+run-all runs suites by a computed $HERE/$name.test.sh path
+shard-join runs suites by a computed $HERE/$name.test.sh path
+kit-flake-hunt runs suites by a computed $HERE/$name.test.sh path
