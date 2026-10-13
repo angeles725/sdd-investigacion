@@ -206,7 +206,10 @@ They are listed here so a reader of this registry finds every typed state the sc
   `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
   `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
   `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
-  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
+  a duplicate, or a malformed `reach=` scope in `impact-blindspot.txt`: no globs, an empty glob, a glob not starting with
+  `research-sdd/` or containing `..`, or `reach=` in `impact-always.txt`) is a finding, not a degraded state: exit 1 and no
+  selection is printed. `--audit` also exits 1 on `AUDIT dead reach glob in impact-blindspot.txt: <glob> (<suite>)`, a reach
+  glob that matches no file (it would silently never select its suite). Continuation: install the missing
   tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
 
 - `size: <state>` and `degraded: kit-size-check: <reason>` (maint/kit-size-check.sh, kit issue #2214): the pre-RDD size

@@ -1,73 +1,80 @@
 # Blind-spot suites (kit issue #2201): suites whose reach into production code the word map in suite-impact.sh
 # cannot follow (eval of built text, whole-kit copies/links, kit-wide globs, script names assembled at run time).
 # They are added to a selection whenever any production CODE file changes.
-# Format: one `<suite> <reason>` per line; <suite> is the file name without `.test.sh` / `.test.mjs`.
+# Format: one `<suite> [reach=<glob>[,<glob>...]] <reason>` per line; <suite> is the file name without `.test.sh` / `.test.mjs`.
+# REACH (kit issue #2201, part 1c) scopes a suite to the production files whose change it cannot see: it is added only
+# when a changed code file matches a glob (repo-relative; bash `case` patterns where `*` crosses `/`; each glob starts
+# with `research-sdd/`). A line without `reach=` is added for ANY production code change (the safe default for a suite
+# whose reach is unknown). Derive a reach from what the suite copies, links or evals: a whole-kit copy of toolbelt/*.sh
+# plus lib/ reaches those; a suite that mutates its own literal SUT and copies named libs reaches lib/ (its SUT is
+# already a literal edge); a suite that only drives fixture copies of the test harness reaches the tests/ tree (which
+# never counts as production code, so it is selected through the word map and the harness escalations instead); a python copier reaches toolbelt/*.py and lib/. `--audit` flags a glob that matches no file.
 # `suite-impact.sh --audit` re-derives the set from the corpus and FAILS (exit 1) for a detected suite missing here;
 # a listed suite the detector no longer flags is kept on purpose (the detector is a heuristic, not a proof).
-blocked-rows copies or links the whole toolbelt/kit into a fixture
+blocked-rows reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 ci-path-filter-coverage uses eval on built text; the script it runs is not a literal name
-clean-check named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-corroborate-java named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-corroborate-pcap copies or links the whole toolbelt/kit into a fixture
-decompile-java uses eval on built text; the script it runs is not a literal name
+clean-check reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+corroborate-java reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+corroborate-pcap reach=research-sdd/toolbelt/*.py,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+decompile-java reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 doctrine-absence builds a script name at run time (${x}.sh)
-enforcement-e2e copies or links the whole toolbelt/kit into a fixture
-fetch-doc uses eval on built text; the script it runs is not a literal name
-firmware-carve named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-focus-prefix-range copies or links the whole toolbelt/kit into a fixture
-ghidra-exporter named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-hook-kit-run builds a script name at run time (${x}.sh)
-hook-pretool-pkill-guard builds a script name at run time (${x}.sh)
+enforcement-e2e reach=research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+fetch-doc reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+firmware-carve reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+focus-prefix-range reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+ghidra-exporter reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+hook-kit-run reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+hook-pretool-pkill-guard reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 kit-checkout-resolution loops over a toolbelt glob
 lib-resolution-lint copies or links the whole toolbelt/kit into a fixture
-merge-gate uses eval on built text; the script it runs is not a literal name
-mutant uses eval on built text; the script it runs is not a literal name
+merge-gate reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+mutant reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 pi-hooks builds a script name at run time (${x}.sh)
 pi-tier-agents loops over a toolbelt glob
-plan-review-slices builds a script name at run time (${x}.sh)
-qemu-exec copies or links the whole toolbelt/kit into a fixture
-reconcile-issues uses eval on built text; the script it runs is not a literal name
-reconcile-issues-delta-forms builds a script name at run time (${x}.sh)
-reconcile-issues-dismissed builds a script name at run time (${x}.sh)
+plan-review-slices reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+qemu-exec reach=research-sdd/toolbelt/*.py,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+reconcile-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+reconcile-issues-delta-forms reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+reconcile-issues-dismissed reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 research-sdd-install uses eval on built text; the script it runs is not a literal name
-research-sdd-status builds a script name at run time (${x}.sh)
-research-sdd-status-clean-warn loops over a toolbelt glob
-research-sdd-status-deferred-populations copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-focus-scope copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-inplace-blocked copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-next-scope copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-queue copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-retyped copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-root-pick copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-unreadable-stop copies or links the whole toolbelt/kit into a fixture
-research-sdd-status-visibility copies or links the whole toolbelt/kit into a fixture
-resume-state named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-resume-state-json builds a script name at run time (${x}.sh)
-retro-gate uses eval on built text; the script it runs is not a literal name
-retro-status uses eval on built text; the script it runs is not a literal name
-return-token-gate copies or links the whole toolbelt/kit into a fixture
-scan-secrets builds a script name at run time (${x}.sh)
-scan-vendor-leak named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
-score-loop-transcript builds a script name at run time (${x}.sh)
+research-sdd-status reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+research-sdd-status-clean-warn reach=research-sdd/toolbelt/* loops over a toolbelt glob
+research-sdd-status-deferred-populations reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-focus-scope reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-inplace-blocked reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-next-scope reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-queue reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-retyped reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-root-pick reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-unreadable-stop reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+research-sdd-status-visibility reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+resume-state reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+resume-state-json reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+retro-gate reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+retro-status reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+return-token-gate reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+scan-secrets reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+scan-vendor-leak reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
+score-loop-transcript reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 self-dir-idiom loops over a toolbelt glob
-stage-retro-issues uses eval on built text; the script it runs is not a literal name
-stage-retro-issues-delta-forms builds a script name at run time (${x}.sh)
-stage-retro-issues-dismissed builds a script name at run time (${x}.sh)
-stage-retro-issues-unclassifiable builds a script name at run time (${x}.sh)
-state-update copies or links the whole toolbelt/kit into a fixture
-sweep-breakthroughs builds a script name at run time (${x}.sh)
-sweep-retros uses eval on built text; the script it runs is not a literal name
-table-reader-parity copies or links the whole toolbelt/kit into a fixture
-verify-block builds a script name at run time (${x}.sh)
-verify-registry-json builds a script name at run time (${x}.sh)
-verify-registry-wired-exec builds a script name at run time (${x}.sh)
-verify-session-budget builds a script name at run time (${x}.sh)
+stage-retro-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+stage-retro-issues-delta-forms reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+stage-retro-issues-dismissed reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+stage-retro-issues-unclassifiable reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+state-update reach=research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+sweep-breakthroughs reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+sweep-retros reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+table-reader-parity reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+verify-block reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+verify-registry-json reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+verify-registry-wired-exec reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+verify-session-budget reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 verify-skill-drift copies or links the whole toolbelt/kit into a fixture
-verify-skill-drift-hook builds a script name at run time (${x}.sh)
-verify-state uses eval on built text; the script it runs is not a literal name
-verify-state-inplace-blocked copies or links the whole toolbelt/kit into a fixture
-suite-impact uses eval on built text inside its fixture suites (the audit detector flags the literal)
-run-all-default-root runs suites by a computed $HERE/$name.test.sh path
-run-all runs suites by a computed $HERE/$name.test.sh path
-shard-join runs suites by a computed $HERE/$name.test.sh path
-kit-flake-hunt runs suites by a computed $HERE/$name.test.sh path
+verify-skill-drift-hook reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+verify-state reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+verify-state-inplace-blocked reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+suite-impact reach=research-sdd/toolbelt/tests/* uses eval on built text inside its fixture suites (the audit detector flags the literal)
+run-all-default-root reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
+run-all reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
+shard-join reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path
+kit-flake-hunt reach=research-sdd/toolbelt/tests/* runs suites by a computed $HERE/$name.test.sh path

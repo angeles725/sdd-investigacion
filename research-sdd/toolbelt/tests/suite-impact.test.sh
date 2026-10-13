@@ -78,6 +78,53 @@ EOF
 w $TS/zzz-last.test.sh <<'EOF'
 "$TB/zeta.sh"
 EOF
+# --- #2201 part 1c: reach-scoped blind spots and comment-line edges
+w $TS/reachlib.test.sh <<'EOF'
+echo reach lib
+EOF
+w $TS/reachtop.test.sh <<'EOF'
+echo reach top
+EOF
+w $TS/reachmulti.test.sh <<'EOF'
+echo reach multi
+EOF
+w $TS/reachbad.test.sh <<'EOF'
+echo reach bad
+EOF
+w $TS/cmtmention.test.sh <<'EOF'
+# this suite is documented to run cmtonly.sh
+echo cmtcode.sh
+true # trailing cmttrail.sh
+EOF
+w $TS/cmtjs.test.mjs <<'EOF'
+// pure comment naming cmtjsonly.mjs
+import x from "../cmtjscode.mjs";
+EOF
+w $TS/cmtdirective.test.sh <<'EOF'
+# shellcheck source=../cmtdirsc.sh
+# SENTINEL-X-ANCHOR cmtdirsent.sh
+# --prove-teeth: cmtdirteeth.sh
+# summary-lint: dynamic cmtdirsum.sh
+# pipefail-audit: cmtdirpipe.sh
+# NG-X-ANCHOR cmtdirng.sh
+echo directives
+EOF
+w $TS/mdreader.test.sh <<'EOF'
+cat "$HERE/fixtures/mddir/notes.md"
+EOF
+w $TS/fixtures/mddir/notes.md <<'EOF'
+see mdmention.sh for details
+EOF
+for n in cmtonly cmtcode cmttrail cmtdirsc cmtdirsent cmtdirteeth cmtdirsum cmtdirpipe cmtdirng mdmention; do w $T/$n.sh <<'EOF'
+echo p
+EOF
+done
+w $T/cmtjsonly.mjs <<'EOF'
+export default 2;
+EOF
+w $T/cmtjscode.mjs <<'EOF'
+export default 3;
+EOF
 w $TS/hooks.test.sh <<'EOF'
 . "$TB/lib/hook-emit.sh"
 EOF
@@ -106,6 +153,9 @@ EOF
 w $TS/impact-blindspot.txt <<'EOF'
 # fixture
 evalish builds a command and evals it
+reachlib reach=research-sdd/toolbelt/lib/* copies the lib directory only
+reachtop reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies the top-level scripts and lib
+reachmulti reach=research-sdd/toolbelt/alpha.sh,research-sdd/toolbelt/beta.sh,research-sdd/toolbelt/zeta.sh runs three named scripts
 EOF
 w $TS/lib/mutant.sh <<'EOF'
 :
@@ -232,6 +282,9 @@ commit_all() { ( cd "$1" && git add -A && git commit -q -m change ); }
 mod() { printf '# changed\n' >> "$1/$2"; }
 # kase NAME FILE... — clone, modify the files, commit; prints the dir
 kase() { local n="$1" d; shift; d="$(newcase "$n")" || return 1; for f in "$@"; do mod "$d" "$f"; done; commit_all "$d"; printf '%s' "$d"; }
+mkbad() {   # mkbad NAME FILE LINE -> a repo whose HEAD tree has the extra manifest line
+  local d; d="$(newcase "$1")"; printf '%s\n' "$3" >> "$d/$TS/$2"; commit_all "$d"; printf '%s' "$d"
+}
 
 echo "== suite-impact.test.sh (SUT: $(basename "$SUT")) =="
 
@@ -242,7 +295,7 @@ run --repo "$D_lit" --base base --format list
 sel_has b.test.sh && no "alpha change must not select the beta suite" "($OUT)" || ok "alpha change leaves the beta suite out"
 sel_has lint-always.test.sh && ok "always-run suite is in every selection" || no "always-run missing" "($OUT)"
 sel_has evalish.test.sh && ok "blind-spot suite is added when production code changes" || no "blind-spot missing" "($OUT)"
-[ "$(nsel)" = 3 ] && ok "selection is exactly mapped + always + blind (3 of $NSUITES_FIX)" || no "selection size" "($(nsel): $OUT)"
+[ "$(nsel)" = 5 ] && ok "selection is exactly mapped + always + blind + matching reach suites (5 of $NSUITES_FIX)" || no "selection size" "($(nsel): $OUT)"
 
 D_tb="$(kase tb $T/beta.sh)"; run --repo "$D_tb" --base base --format list
 sel_has b.test.sh && ok "\$TOOLBELT/x.sh mapping" || no "\$TOOLBELT mapping" "($OUT)"
@@ -262,7 +315,7 @@ D_fxt="$(kase fxt $TS/fixtures/topfile.json)"; run --repo "$D_fxt" --base base -
 sel_has f.test.sh && ok "top-level fixture file maps by basename" || no "top-level fixture mapping" "($OUT)"
 
 D_last="$(kase last $T/zeta.sh)"; run --repo "$D_last" --base base --format list
-{ sel_has zzz-last.test.sh && [ "$(nsel)" = 3 ]; } && ok "LAST suite in sort order is selected (single mapped suite)" || no "last-suite edge" "($(nsel): $OUT)"
+{ sel_has zzz-last.test.sh && [ "$(nsel)" = 5 ]; } && ok "LAST suite in sort order is selected (single mapped suite)" || no "last-suite edge" "($(nsel): $OUT)"
 D_mjs="$(kase mjs $T/adv.mjs)"; run --repo "$D_mjs" --base base --format list
 sel_has pi.test.mjs && ok ".test.mjs suite maps" || no "mjs suite" "($OUT)"
 D_inst="$(kase inst $T/instref.sh)"; run --repo "$D_inst" --base base --format list
@@ -300,6 +353,86 @@ D_kc="$(kase kitcontent research-sdd/profiles/p.json)"; run --repo "$D_kc" --bas
 { sel_has prof.test.sh && sel_has evalish.test.sh && has "Escalated: no"; } && ok "non-markdown kit content outside toolbelt maps AND triggers the blind-spot set" || no "kit content" "($OUT)"
 D_im="$(kase instmjs $T/instref.sh)"; run --repo "$D_im" --base base
 { has research-sdd/install/tests/inst2.test.mjs && has "Escalated: no"; } && ok "install/tests/*.test.mjs is a suite" || no "install mjs suite" "($OUT)"
+
+# ---- #2201 part 1c: reach-scoped blind spots ------------------------------------------------------------------------
+run --repo "$D_lit" --base base --format list
+{ sel_has reachtop.test.sh && sel_has reachmulti.test.sh && sel_has evalish.test.sh && ! sel_has reachlib.test.sh; } \
+  && ok "reach: a top-level script change adds the suites whose reach matches, not the lib-only suite" || no "reach top-level" "($OUT)"
+run --repo "$D_cy1" --base base --format list
+{ sel_has reachlib.test.sh && sel_has reachtop.test.sh && sel_has evalish.test.sh && ! sel_has reachmulti.test.sh; } \
+  && ok "reach: a lib change adds the lib-reach and top+lib suites, not the three-named-scripts suite" || no "reach lib" "($OUT)"
+run --repo "$D_py" --base base --format list
+{ sel_has evalish.test.sh && ! sel_has reachlib.test.sh && ! sel_has reachtop.test.sh && ! sel_has reachmulti.test.sh; } \
+  && ok "reach: a .py change matches no reach glob; the unscoped blind-spot suite is still added" || no "reach python" "($OUT)"
+D_rb="$(kase reachb $T/beta.sh)"; run --repo "$D_rb" --base base --format list
+sel_has reachmulti.test.sh && ok "reach: MIDDLE glob of a three-glob list matches" || no "reach middle glob" "($OUT)"
+run --repo "$D_last" --base base --format list
+sel_has reachmulti.test.sh && ok "reach: LAST glob of a three-glob list matches" || no "reach last glob" "($OUT)"
+D_rw="$(kase reachw $T/wrap.sh)"; run --repo "$D_rw" --base base --format list
+{ sel_has reachtop.test.sh && ! sel_has reachmulti.test.sh; } && ok "reach: a script outside the three named globs does not select the multi-glob suite" || no "reach non-member" "($OUT)"
+D_rm="$(kase reachmd $T/notes.md)"; run --repo "$D_rm" --base base --format list
+{ ! sel_has reachtop.test.sh && ! sel_has evalish.test.sh; } && ok "reach: a markdown change triggers no blind-spot suite, scoped or not" || no "reach markdown" "($OUT)"
+run --repo "$D_lit" --base base
+hasre '^Blind-spot skipped by reach: 1$' && ok "report: names how many scoped suites the reach skipped" || no "reach skipped line" "($OUT)"
+run --repo "$D_rm" --base base
+hasre '^Blind-spot skipped by reach' && no "docs-only must not print a reach line" "($OUT)" || ok "report: no reach line when the blind-spot set is not triggered"
+
+# mkreach NAME LINE FILE -> repo whose BASE already carries the blind-spot manifest LINE, then FILE is modified
+mkreach() {
+  local d; d="$(newcase "$1")"; printf '%s\n' "$2" >> "$d/$TS/impact-blindspot.txt"; commit_all "$d"
+  ( cd "$d" && git tag base2 ); mod "$d" "$3"; commit_all "$d"; printf '%s' "$d"
+}
+D="$(mkreach rc_ok 'reachbad reach=research-sdd/toolbelt/beta.sh a single glob' $T/beta.sh)"
+run --repo "$D" --base base2 --format list
+{ [ "$RC" = 0 ] && sel_has reachbad.test.sh; } && ok "reach: a single-glob list (first = last) selects on a match" || no "reach single glob" "(rc=$RC $OUT $ERR)"
+D="$(mkreach rc_no 'reachbad reach=research-sdd/toolbelt/beta.sh a single glob' $T/alpha.sh)"
+run --repo "$D" --base base2 --format list
+{ [ "$RC" = 0 ] && ! sel_has reachbad.test.sh; } && ok "reach: a single-glob list stays out when the change does not match" || no "reach single glob no match" "(rc=$RC $OUT $ERR)"
+D="$(mkreach rc_old 'reachbad plain reason words reach=research-sdd/toolbelt/beta.sh' $T/alpha.sh)"
+run --repo "$D" --base base2 --format list
+{ [ "$RC" = 0 ] && sel_has reachbad.test.sh; } && ok "reach: a line with no leading reach= token keeps the unscoped behaviour (reach= inside the reason is prose)" || no "reach backward compat" "(rc=$RC $OUT $ERR)"
+
+reach_bad() {   # reach_bad LABEL LINE MESSAGE [MANIFEST]
+  local d; d="$(mkbad "rb_${1//[^A-Za-z0-9]/_}" "${4:-impact-blindspot.txt}" "$2")"
+  run --repo "$d" --base base
+  { [ "$RC" = 1 ] && ehas "$3" && [ -z "$OUT" ]; } && ok "reach parse: $1 -> exit 1, no selection" || no "reach parse: $1" "(rc=$RC $ERR)"
+}
+reach_bad "empty list"            'reachbad reach= because'                                              'reach= has no globs'
+reach_bad "leading comma"         'reachbad reach=,research-sdd/toolbelt/a.sh because'                   'empty reach glob'
+reach_bad "trailing comma"        'reachbad reach=research-sdd/toolbelt/a.sh, because'                   'empty reach glob'
+reach_bad "double comma"          'reachbad reach=research-sdd/toolbelt/a.sh,,research-sdd/toolbelt/b.sh because' 'empty reach glob'
+reach_bad "no reason"             'reachbad reach=research-sdd/toolbelt/a.sh'                            'no reason'
+reach_bad "not under research-sdd" 'reachbad reach=toolbelt/a.sh because'                                'must start with research-sdd/'
+reach_bad "absolute glob"         'reachbad reach=/etc/* because'                                        'must start with research-sdd/'
+reach_bad "parent traversal"      'reachbad reach=research-sdd/../x because'                             "must not contain '..'"
+reach_bad "reach in always list"  'reachbad reach=research-sdd/toolbelt/a.sh because'                    'only valid in impact-blindspot.txt' impact-always.txt
+
+# dead reach globs are an audit finding
+D="$(newcase audit_dead)"; printf 'reachbad reach=research-sdd/toolbelt/nope/*,research-sdd/toolbelt/beta.sh a dead glob\n' >> "$D/$TS/impact-blindspot.txt"; commit_all "$D"
+run --repo "$D" --audit
+{ [ "$RC" = 1 ] && hasre '^AUDIT dead reach glob in impact-blindspot.txt: research-sdd/toolbelt/nope/\* \(reachbad\)$' && ! hasre 'beta\.sh \(reachbad\)'; } \
+  && ok "--audit: a reach glob matching no file is reported (the live glob of the same line is not), exit 1" || no "audit dead glob" "(rc=$RC $OUT)"
+
+# ---- #2201 part 1c: comment lines and markdown are not graph edges --------------------------------------------------
+D_c1="$(kase cmt1 $T/cmtonly.sh)"; run --repo "$D_c1" --base base
+hasre '^Escalated to FULL: no suite reaches the changed file: research-sdd/toolbelt/cmtonly\.sh' && ok "comment edge: a script named only in a pure '#' comment line is not reached (escalates as unreached)" || no "comment-only mention" "($OUT)"
+D_c2="$(kase cmt2 $T/cmtcode.sh)"; run --repo "$D_c2" --base base --format list
+{ sel_has cmtmention.test.sh && ! hasre 'Escalated'; } && ok "comment edge: a code-line mention still maps" || no "code-line mention" "($OUT)"
+D_c3="$(kase cmt3 $T/cmttrail.sh)"; run --repo "$D_c3" --base base --format list
+sel_has cmtmention.test.sh && ok "comment edge: a trailing comment on a code line keeps its edge" || no "trailing comment" "($OUT)"
+D_c4="$(kase cmt4 $T/cmtjsonly.mjs)"; run --repo "$D_c4" --base base
+hasre '^Escalated to FULL: no suite reaches the changed file: research-sdd/toolbelt/cmtjsonly\.mjs' && ok "comment edge: a '//' comment line in a .mjs suite is not an edge" || no "js comment" "($OUT)"
+D_c5="$(kase cmt5 $T/cmtjscode.mjs)"; run --repo "$D_c5" --base base --format list
+sel_has cmtjs.test.mjs && ok "comment edge: a code line in the same .mjs suite still maps" || no "js code line" "($OUT)"
+for n in cmtdirsc:"shellcheck source=" cmtdirsent:"SENTINEL-" cmtdirteeth:"--prove-teeth:" cmtdirsum:"summary-lint:" cmtdirpipe:"pipefail-audit:" cmtdirng:"NG-"; do
+  f="${n%%:*}"; dname="${n#*:}"
+  Dd="$(kase "dir_$f" $T/$f.sh)"; run --repo "$Dd" --base base --format list
+  { sel_has cmtdirective.test.sh && ! hasre 'Escalated'; } && ok "comment edge: the '$dname' directive comment is kept as an edge" || no "directive $dname" "($OUT)"
+done
+D_m1="$(kase md1 $T/mdmention.sh)"; run --repo "$D_m1" --base base
+hasre '^Escalated to FULL: no suite reaches the changed file: research-sdd/toolbelt/mdmention\.sh' && ok "markdown edge: a script named only in a fixture .md is not reached" || no "markdown mention" "($OUT)"
+D_m2="$(kase md2 $TS/fixtures/mddir/notes.md)"; run --repo "$D_m2" --base base --format list
+{ sel_has mdreader.test.sh && ! hasre 'Escalated'; } && ok "markdown edge: changing the fixture .md itself still selects the suite naming its directory" || no "fixture md change" "($OUT)"
 
 # ---- docs-only / no-change ----------------------------------------------------------------------------------
 D_doc="$(newcase docs)"; mod "$D_doc" README.md; mkdir -p "$D_doc/openspec" "$D_doc/odd"; echo x > "$D_doc/openspec/s.md"; echo y > "$D_doc/odd/t.md"; commit_all "$D_doc"
@@ -351,7 +484,7 @@ OUT="$(SUITE_IMPACT_WIDE_THRESHOLD=2 "$BASH_BIN" "$SUT" --repo "$D" --base base 
 
 # ---- report shape ---------------------------------------------------------------------------------------------
 run --repo "$D_lit" --base base
-{ hasre '^Impacted: 3 of '"$NSUITES_FIX"' suites$' && has "$T/alpha.sh → ${PFX}aaa-first.test.sh" && hasre '^Always-run: 1$' && hasre '^Blind-spot: 1 added' && has "Escalated: no" && has "Selected:"; } \
+{ hasre '^Impacted: 5 of '"$NSUITES_FIX"' suites$' && has "$T/alpha.sh → ${PFX}aaa-first.test.sh" && hasre '^Always-run: 1$' && hasre '^Blind-spot: 3 added' && hasre '^Blind-spot skipped by reach: 1$' && has "Escalated: no" && has "Selected:"; } \
   && ok "report: Impacted line, '<changed> → <suite>', always/blind counts, verdict, Selected" || no "report shape" "($OUT)"
 run --repo "$D_doc" --base base
 hasre '^Blind-spot: 0 \(not triggered\)' && ok "report: blind-spot not triggered by docs" || no "blind-spot report" "($OUT)"
@@ -393,9 +526,6 @@ run --repo "$D_lit" --base base --format xml
 { [ "$RC" = 2 ] && ehas '--format must be list or report'; } && ok "bad --format -> exit 2" || no "bad format" "(rc=$RC $ERR)"
 
 # ---- strict manifests ---------------------------------------------------------------------------------------------------
-mkbad() {   # mkbad NAME FILE LINE -> a repo whose HEAD tree has the extra manifest line
-  local d; d="$(newcase "$1")"; printf '%s\n' "$3" >> "$d/$TS/$2"; commit_all "$d"; printf '%s' "$d"
-}
 D="$(mkbad m_noreason impact-always.txt 'evalish')"
 run --repo "$D" --base base
 { [ "$RC" = 1 ] && ehas 'no reason: evalish' && [ -z "$OUT" ]; } && ok "manifest line without a reason -> exit 1, no selection printed" || no "manifest no reason" "(rc=$RC $ERR)"
@@ -459,7 +589,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     -- "$BASH_BIN" @SUT@ --repo "$D_lit" "${BASE[@]}" --worktree --head HEAD
   mt "dotted basename lookup removed" 0 0 's/^  lookup(w, src)$/  ;/' \
     --good-lacks 'Escalated to FULL' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$D_dotf" "${BASE[@]}"
-  mt "kit content no longer triggers blind-spot set" 0 0 's/\*) DOCS_ONLY=0; CODE_CHANGED=1; \[ "\$st" = D \] && full "deleted kit-content/*) DOCS_ONLY=0; [ "$st" = D ] \&\& full "deleted kit-content/' \
+  mt "kit content no longer triggers blind-spot set" 0 0 's/\*) DOCS_ONLY=0; CODE_CHANGED=1; printf .%s\\n. "\$p" >> "\$TMP\/code_changed"; \[ "\$st" = D \] \&\& full "deleted kit-content/*) DOCS_ONLY=0; [ "$st" = D ] \&\& full "deleted kit-content/' \
     --good-has 'tests/evalish.test.sh' --bad-lacks 'tests/evalish.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_kc" "${BASE[@]}"
   mt "install .test.mjs not a suite" 0 0 's/|research-sdd\/install\/tests\/\*\.test\.mjs) rest=/) rest=/' \
     --good-has 'inst2.test.mjs' --bad-lacks 'inst2.test.mjs' -- "$BASH_BIN" @SUT@ --repo "$D_im" "${BASE[@]}"
@@ -469,7 +599,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     --good-has 'tests/e.test.sh' --bad-lacks 'tests/e.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_fx" "${BASE[@]}" --format list
   mt "always-run set dropped" 0 2 's/cat "\$TMP\/selected_direct" "\$TMP\/always"; }/cat "$TMP\/selected_direct"; }/' \
     --good-has 'tests/lint-always.test.sh' --bad-has 'empty selection' -- "$BASH_BIN" @SUT@ --repo "$D_doc" "${BASE[@]}" --format list
-  mt "blind-spot set never added" 0 0 's/cat "\$TMP\/blind" >> "\$TMP\/sel"; /: ; /' \
+  mt "blind-spot set never added" 0 0 's/cat "\$TMP\/blind_add" >> "\$TMP\/sel"; /: ; /' \
     --good-has 'tests/evalish.test.sh' --bad-lacks 'tests/evalish.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_lit" "${BASE[@]}" --format list
   mt "changed suite no longer selects itself" 0 0 's/if \[ "\$st" != D \] && grep -qxF -- "\$p" "\$TMP\/suites"; then/if false; then/' \
     --good-has 'tests/aaa-first.test.sh' --bad-lacks 'tests/aaa-first.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_sc" "${BASE[@]}" --format list
@@ -519,6 +649,47 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     -- "$BASH_BIN" @SUT@ --repo "$D_ak" --audit
   mt "audit ignores comment lines no more" 0 1 's/body="\$(grep -vE .\^\[\[:space:\]\]\*(#|\/\/). "\$f" 2>\/dev\/null)" || true/body="$(cat "$f")" || true/' \
     -- "$BASH_BIN" @SUT@ --repo "$D_ac" --audit
+  # ---- #2201 part 1c ------------------------------------------------------------------------------------------------
+  mt "reach filter bypassed (scoped suites always added)" 0 0 's/comm -23 "\$TMP\/blind" "\$TMP\/scoped" > "\$TMP\/blind_add"/cp "$TMP\/blind" "$TMP\/blind_add"/' \
+    --good-lacks 'tests/reachlib.test.sh' --bad-has 'tests/reachlib.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_lit" "${BASE[@]}" --format list
+  mt "reach glob never matches" 0 0 's/case "\$cf" in \$g) printf/case "$cf" in NEVERMATCH) printf/' \
+    --good-has 'tests/reachtop.test.sh' --bad-lacks 'tests/reachtop.test.sh' -- "$BASH_BIN" @SUT@ --repo "$D_lit" "${BASE[@]}" --format list
+  mt "reach: empty list accepted" 1 0 "s/case \"\\\$globs\" in '') echo \"reach= has no globs\"; return 1 ;;/case \"\$globs\" in NEVERMATCH) :;;/" \
+    --good-has 'reach= has no globs' --bad-lacks 'reach= has no globs' -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_empty_list" "${BASE[@]}"
+  mt "reach: leading comma not named" 1 1 's/ ,\*|\*,|\*,,\*) echo/ *,|*,,*) echo/' \
+    --good-has 'empty reach glob' --bad-lacks 'empty reach glob' -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_leading_comma" "${BASE[@]}"
+  mt "reach: trailing comma accepted" 1 0 's/ ,\*|\*,|\*,,\*) echo/ ,*|*,,*) echo/' \
+    --good-has 'empty reach glob' --bad-lacks 'empty reach glob' -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_trailing_comma" "${BASE[@]}"
+  mt "reach: double comma not named" 1 1 's/ ,\*|\*,|\*,,\*) echo/ ,*|*,) echo/' \
+    --good-has 'empty reach glob' --bad-lacks 'empty reach glob' -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_double_comma" "${BASE[@]}"
+  mt "reach: parent traversal accepted" 1 0 's/case "\$g" in \*\.\.\*) echo/case "$g" in NEVERMATCH) echo/' \
+    --good-has "must not contain" --bad-lacks "must not contain" -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_parent_traversal" "${BASE[@]}"
+  mt "reach: glob outside research-sdd/ accepted" 1 0 's/case "\$g" in research-sdd\/\*) ;; \*) echo/case "$g" in *) ;; NEVERMATCH) echo/' \
+    -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_absolute_glob" "${BASE[@]}"
+  mt "reach= accepted in the always-run manifest" 1 0 's/if \[ -z "\$reach_out" \]; then echo "INVALID/if false; then echo "INVALID/' \
+    -- "$BASH_BIN" @SUT@ --repo "$TMP/rb_reach_in_always_list" "${BASE[@]}"
+  mt "dead reach glob not audited" 1 0 's/^        hit=0$/        hit=1/' \
+    --good-has 'dead reach glob' -- "$BASH_BIN" @SUT@ --repo "$TMP/audit_dead" --audit
+  mt "pure '#' comment lines are edges again" 0 0 '/cm\[FILENAME\] == "#" \&\& /d' \
+    --good-has 'Escalated to FULL: no suite reaches' --bad-lacks 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$D_c1" "${BASE[@]}"
+  mt "pure '//' comment lines are edges again" 0 0 '/cm\[FILENAME\] == "\/\/" \&\& /d' \
+    --good-has 'Escalated to FULL: no suite reaches' --bad-lacks 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$D_c4" "${BASE[@]}"
+  mt "all comment lines dropped, directives included" 0 0 's/ \&\& \$0 !~ DIRECTIVE) next/) next/' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirsc" "${BASE[@]}"
+  mt "directive 'shellcheck source=' no longer kept" 0 0 's/shellcheck\[ \\t\]+source=|//' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirsc" "${BASE[@]}"
+  mt "directive 'SENTINEL-' no longer kept" 0 0 's/|SENTINEL-//' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirsent" "${BASE[@]}"
+  mt "directive 'NG-' no longer kept" 0 0 's/|NG-//' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirng" "${BASE[@]}"
+  mt "directive '--prove-teeth:' no longer kept" 0 0 's/|--prove-teeth://' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirteeth" "${BASE[@]}"
+  mt "directive 'summary-lint:' no longer kept" 0 0 's/|summary-lint://' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirsum" "${BASE[@]}"
+  mt "directive 'pipefail-audit:' no longer kept" 0 0 's/|pipefail-audit://' \
+    --good-has 'tests/cmtdirective.test.sh' --bad-has 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$TMP/dir_cmtdirpipe" "${BASE[@]}"
+  mt "Markdown fixtures are edge sources again" 0 0 's/json|txt|bash/json|md|txt|bash/' \
+    --good-has 'Escalated to FULL: no suite reaches' --bad-lacks 'Escalated to FULL' -- "$BASH_BIN" @SUT@ --repo "$D_m1" "${BASE[@]}"
 fi
 
 echo "== $pass passed · $fail failed =="
