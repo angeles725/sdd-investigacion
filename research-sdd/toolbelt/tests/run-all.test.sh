@@ -20,6 +20,8 @@ SUT="$HERE/run-all.sh"   # the runner lives NEXT TO this test, not one dir up
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 TMP="$(mktemp -d)"
+# The runner appends per-suite timings (kit issue #2230) under XDG_STATE_HOME: keep the real history clean of fixture suites.
+export XDG_STATE_HOME="$TMP/state"
 # Every copy of run-all.sh run below scans the default rsdd root (kit issue #2164). Point it at a private, ABSENT
 # dir for the whole suite so no case reads the real /tmp/rsdd (live sessions write there; it may be 0700 and
 # owned by someone else). Cases that exercise the check set their own root.
@@ -1040,7 +1042,8 @@ case "$_pv" in *"GNU parallel"*) have_gnu_parallel=1 ;; esac
 skip_j(){ printf '  SKIP  %s (GNU parallel not installed)\n' "$1"; }
 # agg_norm — the aggregate block minus the lines that legitimately differ between serial and -j
 # (the corpus path, the Parallel line); everything else must be byte-identical.
-agg_norm(){ sed -n '/^AGGREGATE RESULT$/,$p' <<<"$1" | grep -v -e '^Corpus: toolbelt' -e '^Parallel:'; }
+# The timing block (kit issue #2230: mode, seconds, history path) differs per run and per mode by design; it is excluded like the Parallel line.
+agg_norm(){ sed -n '/^AGGREGATE RESULT$/,$p' <<<"$1" | grep -v -e '^Corpus: toolbelt' -e '^Parallel:' -e '^Slowest suites' -e '^ *[0-9][0-9]*\.[0-9]  ' -e '^Suite timing history'; }
 
 # mkbin_without <dir> <name>... — a PATH directory holding a symlink to EVERY executable found on the
 # current PATH except the named ones (derived, not a hand-kept allowlist: a tool the runner later

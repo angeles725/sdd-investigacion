@@ -20,6 +20,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
 TMP="$(mktemp -d)"
+# The runner appends per-suite timings (kit issue #2230) under XDG_STATE_HOME: keep the real history clean of fixture suites.
+export XDG_STATE_HOME="$TMP/state"
 trap 'rm -rf "$TMP"' EXIT
 MID='·'
 pass=0; fail=0

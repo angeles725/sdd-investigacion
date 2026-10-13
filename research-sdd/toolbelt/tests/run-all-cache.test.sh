@@ -27,6 +27,8 @@ command -v sha256sum >/dev/null 2>&1 || { echo "FATAL: sha256sum not on PATH" >&
 . "$HERE/lib/mutant.sh"
 mutant_bootstrap mutant_sed || exit 2
 TMP="$(mktemp -d)"
+# The runner appends per-suite timings (kit issue #2230) under XDG_STATE_HOME: keep the real history clean of fixture suites.
+export XDG_STATE_HOME="$TMP/state"
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 export RUN_ALL_DEFAULT_RSDD_ROOT="$TMP/default-rsdd-private"   # never scan the host's real /tmp/rsdd
 unset XDG_CACHE_HOME RSDD_CACHE_PROBE

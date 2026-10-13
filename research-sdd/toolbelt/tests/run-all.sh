@@ -1317,6 +1317,18 @@ WORKER
   _attribute_batch_leaks "$_hv_before" "$_kv_before"
 fi
 
+# --- Per-suite wall time (kit issue #2230) --------------------------------------------------------------------
+# timing_rows holds "<seconds>|<repo-relative suite>|<rc>" for every suite that was MEASURED; a reused (--cache)
+# suite ran nothing and is counted apart (timing_cached), a suite with no usable measurement is counted in
+# timing_unmeasured: none of the three may read as 0 s (CLAUDE.md section 7).
+timing_rows=(); timing_cached=0; timing_unmeasured=0
+_ts_now() { local _v; _v="$(date +%s.%N 2>/dev/null)"; case "$_v" in ""|*[!0-9.]*) _v="$(date +%s 2>/dev/null)" ;; esac; printf '%s' "$_v"; }
+# _ts_secs <t0> <t1> — elapsed seconds with one decimal; prints nothing when either end is not a number or t1 < t0.
+_ts_secs() {
+  case "$1$2" in ""|*[!0-9.]*) return 0 ;; esac
+  awk -v a="$1" -v b="$2" 'BEGIN { if (a ~ /^[0-9]+(\.[0-9]+)?$/ && b ~ /^[0-9]+(\.[0-9]+)?$/ && b >= a) printf "%.1f", b - a }'
+}
+
 suite_idx=0
 _viol_at_start=$((${#hermeticity_violations[@]} + ${#kit_tree_violations[@]}))   # under -j: what the batch snapshot already found
 for suite in "${all_suites[@]}"; do
@@ -1329,6 +1341,7 @@ for suite in "${all_suites[@]}"; do
   echo "==============================================================="
   echo ">>> running: $base${_cache_hit:+ (cached)}"
   echo "==============================================================="
+  _ts_t0=""; [[ -n "$_cache_hit" || -n "$JOBS_ACTIVE" ]] || _ts_t0="$(_ts_now)"   # -j suites carry their own window (<idx>.win)
 
   # Build the command. Only *.test.sh suites accept --prove-teeth.
   # A direct pipe to `tee` streams output AND captures it; the pipeline waits
@@ -1364,6 +1377,19 @@ for suite in "${all_suites[@]}"; do
       TMPDIR="$_st" bash "$suite" 2>&1 | tee "$tmp_out"
     fi
     rc=${PIPESTATUS[0]}
+  fi
+
+  _ts_val=""
+  if [[ -n "$_cache_hit" ]]; then
+    timing_cached=$((timing_cached + 1))
+  else
+    if [[ -n "$JOBS_ACTIVE" ]]; then
+      _ts_w0=""; _ts_w1=""; [[ -f "$PAR_DIR/$suite_idx.win" ]] && read -r _ts_w0 _ts_w1 < "$PAR_DIR/$suite_idx.win"
+      _ts_val="$(_ts_secs "$_ts_w0" "$_ts_w1")"
+    else
+      _ts_val="$(_ts_secs "$_ts_t0" "$(_ts_now)")"
+    fi
+    if [[ -n "$_ts_val" ]]; then timing_rows+=("$_ts_val|${suite_rel[$suite]}|$rc"); else timing_unmeasured=$((timing_unmeasured + 1)); fi
   fi
 
   _viol_before=$((${#hermeticity_violations[@]} + ${#kit_tree_violations[@]})); _left_before=$tmp_leftover_total
@@ -1755,6 +1781,35 @@ if [[ -n "$PROVE_TEETH" ]]; then
     _am_names=""; if [[ ${#_ambig[@]} -gt 0 ]]; then _am_names="$(_join "${_ambig[@]}")"; fi
     echo "Ambiguous teeth-helper suite names (both corpora): ${#_ambig[@]} — [$_am_names]"
   fi
+fi
+# --- Slowest suites + timing history (kit issue #2230) --------------------------------------------------------
+# SENTINEL-SLOWEST-SUITES
+_ts_mode="serial"; [[ -z "$JOBS_ACTIVE" ]] || _ts_mode="-j $JOBS"
+_ts_sorted=()
+if [[ ${#timing_rows[@]} -gt 0 ]]; then mapfile -t _ts_sorted < <(printf '%s\n' "${timing_rows[@]}" | LC_ALL=C sort -t'|' -k1,1nr -k2,2); fi
+_ts_top=${#_ts_sorted[@]}; [[ $_ts_top -le 15 ]] || _ts_top=15
+echo "Slowest suites (top $_ts_top of ${#_ts_sorted[@]} timed, wall seconds, $_ts_mode): measured ${#_ts_sorted[@]}, cached $timing_cached (not timed), unmeasured $timing_unmeasured"
+for ((_ti = 0; _ti < _ts_top; _ti++)); do
+  IFS='|' read -r _ts_s _ts_n _ts_r <<< "${_ts_sorted[$_ti]}"
+  printf '  %8s  %s%s\n' "$_ts_s" "$_ts_n" "$([[ "$_ts_r" == 0 ]] || echo " (rc=$_ts_r)")"
+done
+# SENTINEL-TIMING-HISTORY: append-only, outside the repo (the kit-tree hermeticity check fails a suite that writes into
+# research-sdd/). A state dir that cannot be created or written is a typed degraded note; the gate result is unchanged.
+if [[ ${#timing_rows[@]} -gt 0 ]]; then
+  _th_dir="${XDG_STATE_HOME:-${HOME:-}/.local/state}/research-sdd"; _th_file="$_th_dir/suite-timings.log"
+  _th_head="$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null)" || _th_head=""; : "${_th_head:=nohead}"
+  _th_date="$(date +%Y-%m-%d)"
+  if [[ -z "${HOME:-}${XDG_STATE_HOME:-}" ]]; then
+    echo "Suite timing history: DEGRADED — neither XDG_STATE_HOME nor HOME is set; ${#timing_rows[@]} timings not recorded"
+  elif mkdir -p "$_th_dir" 2>/dev/null && {
+         for _tr in "${timing_rows[@]}"; do IFS='|' read -r _ts_s _ts_n _ts_r <<< "$_tr"; printf '%s %s %s %s %s\n' "$_th_date" "$_th_head" "$_ts_n" "$_ts_s" "$_ts_r"; done
+       } >> "$_th_file" 2>/dev/null; then
+    echo "Suite timing history: appended ${#timing_rows[@]} row(s) to $_th_file"
+  else
+    echo "Suite timing history: DEGRADED — cannot write $_th_file; ${#timing_rows[@]} timings not recorded"
+  fi
+else
+  echo "Suite timing history: nothing to record (no suite was measured)"
 fi
 echo "==============================================================="
 
