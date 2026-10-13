@@ -39,14 +39,22 @@
 #
 # ALWAYS-RUN (tests/impact-always.txt) are whole-tree readers a mapped selection cannot see; they are in every
 # selection. BLIND-SPOT suites (tests/impact-blindspot.txt: eval, whole-kit copies, kit-wide globs, dynamically
-# built script names) defeat the word map; they are added whenever any production CODE file changes.
+# built script names) defeat the word map; they are added whenever a production CODE file changes, scoped by an
+# optional REACH (kit issue #2201, part 1c): a manifest line `<suite> reach=<glob>[,<glob>...] <reason>` adds the
+# suite only when a changed code file matches a glob (repo-relative, bash `case` patterns, `*` crosses `/`, each glob
+# starts with `research-sdd/`, no `..`). A line without `reach=` keeps the unscoped behaviour (any code change). A code
+# change outside research-sdd/toolbelt/ adds EVERY blind-spot suite (no reach glob covers it).
+# `reach=` is parsed strictly and is valid only in impact-blindspot.txt; `--audit` also flags a glob matching no file.
 # Docs-only changes (markdown outside templates/install, openspec/**, odd/**) select the always-run set plus
 # whatever suite names the document's basename. No-change (empty diff) also selects the always-run set: the
 # list is never silently empty; the report says `no-change`.
 #
 # Known limits: a script name assembled at run time (${x}.sh) is invisible to the map (hence the blind-spot
-# manifest and --audit); the closure is over file names, not call sites, so it over-selects (a comment
-# mentioning a file is an edge) and never under-selects on a literal name.
+# manifest and --audit); the closure is over file names, not call sites, so it over-selects. Pure comment lines
+# (`#` in .sh/.py, `//` in .mjs/.js) and Markdown fixtures are NOT edge sources (kit issue #2201, part 1c: prose
+# mentions made research-sdd-status.sh reachable through ~77 nodes), except a comment that is a directive the
+# suites rely on: `shellcheck source=`, `SENTINEL-`, `NG-`, `--prove-teeth:`, `summary-lint:`, `pipefail-audit:`.
+# A mention in code, a string or a trailing comment on a code line is still an edge.
 set -uo pipefail
 
 SELF_NAME="suite-impact"
@@ -117,6 +125,17 @@ else
 fi
 [ -s "$TMP/files" ] || degraded "empty inventory of research-sdd/ (could not look)"
 
+# is_code_path PATH -> 0 when a change to PATH sets CODE_CHANGED (so the blind-spot set is considered), else 1.
+# Mirrors the classification loop below: the tests tree, install/, templates/ and Markdown never get there. The audit
+# matches reach globs against this universe, so a glob that only matches such files is reported dead.
+is_code_path() {
+  case "$1" in
+    "$TESTS_REL"/*|research-sdd/install/*|research-sdd/templates/*|*.md) return 1 ;;
+    research-sdd/*) return 0 ;;
+  esac
+  return 1
+}
+
 # kind_of PATH -> S | F | P | X (X: not a graph node; a FULL-escalation class or skipped)
 kind_of() {
   local p="$1" rest
@@ -146,16 +165,34 @@ NSUITES="$(grep -c . "$TMP/suites")"
 [ "$NSUITES" -gt 0 ] || degraded "no test suites found under $TESTS_REL (could not look)"
 
 MANIFEST_BAD=0
-# load_manifest FILE OUT: validates (one `<suite> <reason>` per line, suite exists, no duplicates) and writes
-# the resolved suite paths to OUT. Invalid lines are reported on stderr and counted.
+# load_manifest FILE OUT [REACH_OUT]: validates (one `<suite> [reach=<globs>] <reason>` per line, suite exists, no
+# duplicates) and writes the resolved suite paths to OUT. With REACH_OUT, `reach=` is accepted and every scoped
+# suite is also written there as `<suite name>\t<suite path>\t<comma-separated globs>`; without it a `reach=` token
+# is invalid. Invalid lines are reported on stderr and counted.
+valid_reach() {   # valid_reach GLOBS -> 0, or prints the reason on stdout and returns 1
+  local globs="$1" g
+  case "$globs" in '') echo "reach= has no globs"; return 1 ;; ,*|*,|*,,*) echo "empty reach glob in: $globs"; return 1 ;; esac
+  local -a gl; IFS=, read -ra gl <<<"$globs"
+  for g in "${gl[@]}"; do
+    case "$g" in *..*) echo "reach glob must not contain '..': $g"; return 1 ;; esac
+    case "$g" in research-sdd/*) ;; *) echo "reach glob must start with research-sdd/: $g"; return 1 ;; esac
+  done
+  return 0
+}
 load_manifest() {
-  local file="$1" out="$2" ln=0 line name reason seen=" " paths
-  : > "$out"
+  local file="$1" out="$2" reach_out="${3:-}" ln=0 line name reason seen=" " paths globs tok why pp
+  : > "$out"; [ -z "$reach_out" ] || : > "$reach_out"
   [ -f "$file" ] || degraded "manifest absent: $file"
   while IFS= read -r line || [ -n "$line" ]; do
     ln=$((ln+1))
     case "$line" in ''|'#'*|[[:space:]]*'#'*) continue ;; esac
     name="${line%%[[:space:]]*}"; reason="${line#"$name"}"; reason="${reason#"${reason%%[![:space:]]*}"}"
+    globs=""
+    case "$reason" in reach=*)
+      if [ -z "$reach_out" ]; then echo "INVALID $(basename "$file"):$ln: reach= is only valid in impact-blindspot.txt: $name" >&2; MANIFEST_BAD=$((MANIFEST_BAD+1)); continue; fi
+      tok="${reason%%[[:space:]]*}"; globs="${tok#reach=}"; reason="${reason#"$tok"}"; reason="${reason#"${reason%%[![:space:]]*}"}"
+      if ! why="$(valid_reach "$globs")"; then echo "INVALID $(basename "$file"):$ln: $why ($name)" >&2; MANIFEST_BAD=$((MANIFEST_BAD+1)); continue; fi ;;
+    esac
     if [ -z "$reason" ]; then echo "INVALID $(basename "$file"):$ln: no reason: $name" >&2; MANIFEST_BAD=$((MANIFEST_BAD+1)); continue; fi
     case "$seen" in *" $name "*) echo "INVALID $(basename "$file"):$ln: duplicate suite: $name" >&2; MANIFEST_BAD=$((MANIFEST_BAD+1)); continue ;; esac
     seen="$seen$name "
@@ -165,11 +202,12 @@ load_manifest() {
       echo "INVALID $(basename "$file"):$ln: names no existing suite: $name" >&2; MANIFEST_BAD=$((MANIFEST_BAD+1)); continue
     fi
     printf '%s\n' "$paths" >> "$out"
+    if [ -n "$globs" ]; then while IFS= read -r pp; do printf '%s\t%s\t%s\n' "$name" "$pp" "$globs" >> "$reach_out"; done <<<"$paths"; fi
   done < "$file"
   LC_ALL=C sort -u -o "$out" "$out"
 }
 load_manifest "$MANIFEST_DIR/impact-always.txt" "$TMP/always"
-load_manifest "$MANIFEST_DIR/impact-blindspot.txt" "$TMP/blind"
+load_manifest "$MANIFEST_DIR/impact-blindspot.txt" "$TMP/blind" "$TMP/blind_reach"
 
 # ---- blind-spot detector (shared by --audit and the manifest's reasons) ---------------------------------
 # detect_blind PATH -> prints the first matching class, or nothing. Comment lines are ignored.
@@ -208,12 +246,16 @@ content_files() {
   awk -F'\t' '
     $1=="S" { print $2; next }
     $1=="P" && $2 ~ /\.(sh|py|mjs|js)$/ { print $2; next }
-    $1=="F" && $2 ~ /\.(sh|py|mjs|js|json|md|txt|bash)$/ { print $2 }
+    $1=="F" && $2 ~ /\.(sh|py|mjs|js|json|txt|bash)$/ { print $2 }
   ' "$TMP/nodes"
 }
 
 AWK_GRAPH='
-BEGIN { FS = "\t" }
+BEGIN {
+  FS = "\t"
+  # a pure comment line is prose, not a reference; these comment forms are directives the suites rely on (kept)
+  DIRECTIVE = "^[ \t]*(#|//)[ \t]*(shellcheck[ \t]+source=|SENTINEL-|NG-|--prove-teeth:|summary-lint:|pipefail-audit:)"
+}
 FILENAME == ARGV[1] {
   if ($1 == "S") { kind[$2] = "S"; sb = $2; sub(/^.*\//, "", sb); n = ++skn[sb]; sk[sb, n] = $2 }
   else if ($1 == "P") { kind[$2] = "P"; add_pk($3, $2); if ($4 != "-") add_pk($4, $2) }
@@ -238,6 +280,9 @@ function word(w, src) {
 }
 {
   src = (kind[FILENAME] == "S") ? "S:" FILENAME : (kind[FILENAME] == "P") ? "P:" FILENAME : "D:" fdir[FILENAME]
+  if (!(FILENAME in cm)) cm[FILENAME] = (FILENAME ~ /\.(sh|bash|py)$/) ? "#" : (FILENAME ~ /\.(mjs|js)$/) ? "//" : ""
+  if (cm[FILENAME] == "#" && $0 ~ /^[ \t]*#/ && $0 !~ DIRECTIVE) next
+  if (cm[FILENAME] == "//" && $0 ~ /^[ \t]*\/\// && $0 !~ DIRECTIVE) next
   line = $0
   # python imports: `from lib.x import a, b` / `import a.b`. Every identifier after the keyword becomes a candidate
   # module file (`<id>.py`), so dotted paths (lib.x -> lib.py, x.py) and imported names resolve; a candidate with no
@@ -289,14 +334,28 @@ if [ "$AUDIT" = 1 ]; then
   while IFS=$'\t' read -r s c; do
     grep -qxF -- "$s" "$TMP/blind" || { echo "AUDIT missing from impact-blindspot.txt: $s ($c)"; missing=$((missing+1)); }
   done < "$TMP/detected"
+  # dead reach globs: a glob matching no CODE file (see is_code_path) would silently never select its suite
+  dead=0
+  if [ -s "$TMP/blind_reach" ]; then
+    while IFS=$'\t' read -r name pp globs; do printf '%s\t%s\n' "$name" "$globs"; done < "$TMP/blind_reach" | LC_ALL=C sort -u > "$TMP/reach_names"
+    while IFS=$'\t' read -r name globs; do
+      local_gl=(); IFS=, read -ra local_gl <<<"$globs"
+      for g in "${local_gl[@]}"; do
+        hit=0
+        # shellcheck disable=SC2254 # the reach glob is a pattern by design
+        while IFS= read -r f; do is_code_path "$f" || continue; case "$f" in $g) hit=1; break ;; esac; done < "$TMP/files"
+        [ "$hit" = 1 ] || { echo "AUDIT dead reach glob in impact-blindspot.txt: $g ($name)"; dead=$((dead+1)); }
+      done
+    done < "$TMP/reach_names"
+  fi
   # orphans: production CODE files no suite reaches (a change to one escalates to FULL by design)
   awk -F'\t' '$1=="P" && $2 ~ /\.(sh|py|mjs|js)$/ && $2 !~ /\/tests\//{print "P:" $2}' "$TMP/nodes" > "$TMP/allp"
   run_graph "$TMP/allp"
   orphans="$(awk -F'\t' '$1=="CLOSURE" && $4==0{n++} END{print n+0}' "$TMP/gout")"
   echo "Audit: $NSUITES suites; detected blind-spot $(grep -c . "$TMP/detected"); manifest blind-spot $(grep -c . "$TMP/blind"); always-run $(grep -c . "$TMP/always")"
-  echo "Audit: missing from impact-blindspot.txt: $missing; invalid manifest lines: $MANIFEST_BAD"
+  echo "Audit: missing from impact-blindspot.txt: $missing; invalid manifest lines: $MANIFEST_BAD; dead reach globs: $dead"
   echo "Audit: production code files no suite reaches (change escalates to FULL): $orphans"
-  [ "$missing" -eq 0 ] && [ "$MANIFEST_BAD" -eq 0 ] && exit 0
+  [ "$missing" -eq 0 ] && [ "$MANIFEST_BAD" -eq 0 ] && [ "$dead" -eq 0 ] && exit 0
   exit 1
 fi
 [ "$MANIFEST_BAD" -eq 0 ] || { echo "$SELF_NAME: $MANIFEST_BAD invalid manifest line(s); refusing to select from a broken manifest" >&2; exit 1; }
@@ -327,7 +386,7 @@ cd "$ROOT" || degraded "cannot enter $ROOT"
 # ---- classify each change ---------------------------------------------------------------------------------
 FULL_REASON=""
 full() { [ -n "$FULL_REASON" ] || FULL_REASON="$1"; }
-: > "$TMP/changed_nodes"; : > "$TMP/selected_direct"; : > "$TMP/maplines"
+: > "$TMP/changed_nodes"; : > "$TMP/selected_direct"; : > "$TMP/maplines"; : > "$TMP/code_changed"
 CODE_CHANGED=0; DOCS_ONLY=1; NCHANGED=0
 while IFS=$'\t' read -r st p; do
   [ -n "$p" ] || continue
@@ -372,7 +431,7 @@ while IFS=$'\t' read -r st p; do
     research-sdd/toolbelt/*)
       case "$p" in
         *.md) [ "$st" = D ] || printf 'P:%s\n' "$p" >> "$TMP/changed_nodes" ;;
-        *) DOCS_ONLY=0; CODE_CHANGED=1
+        *) DOCS_ONLY=0; CODE_CHANGED=1; printf '%s\n' "$p" >> "$TMP/code_changed"
            case "$st" in A) full "added production file: $p" ;; D) full "deleted/renamed production file: $p" ;; esac
            for w in $WIDE_NAMED; do [ "$base" = "$w" ] && full "widely used library changed: $p"; done
            printf 'P:%s\n' "$p" >> "$TMP/changed_nodes" ;;
@@ -380,7 +439,7 @@ while IFS=$'\t' read -r st p; do
     research-sdd/*)
       case "$p" in
         *.md) [ "$st" = D ] || printf 'P:%s\n' "$p" >> "$TMP/changed_nodes" ;;
-        *) DOCS_ONLY=0; CODE_CHANGED=1; [ "$st" = D ] && full "deleted kit-content file: $p"; printf 'P:%s\n' "$p" >> "$TMP/changed_nodes" ;;
+        *) DOCS_ONLY=0; CODE_CHANGED=1; printf '%s\n' "$p" >> "$TMP/code_changed"; [ "$st" = D ] && full "deleted kit-content file: $p"; printf 'P:%s\n' "$p" >> "$TMP/changed_nodes" ;;
       esac ;;
     openspec/*|odd/*) ;;
     *.md) ;;
@@ -420,9 +479,27 @@ fi
 
 # ---- selection ---------------------------------------------------------------------------------------------
 { cut -f2 "$TMP/maplines"; cat "$TMP/selected_direct" "$TMP/always"; } | LC_ALL=C sort -u > "$TMP/sel"
-BLIND_ADDED=0
+BLIND_ADDED=0; BLIND_SKIPPED=0
 if [ "$CODE_CHANGED" = 1 ]; then
-  cat "$TMP/blind" >> "$TMP/sel"; LC_ALL=C sort -u -o "$TMP/sel" "$TMP/sel"; BLIND_ADDED="$(grep -c . "$TMP/blind")"
+  # unscoped blind-spot suites always; a reach-scoped one only when a changed code file matches one of its globs
+  cut -f2 "$TMP/blind_reach" | LC_ALL=C sort -u > "$TMP/scoped"
+  LC_ALL=C comm -23 "$TMP/blind" "$TMP/scoped" > "$TMP/blind_add"
+  : > "$TMP/scoped_hit"
+  while IFS=$'\t' read -r name pp globs; do
+    gl=(); IFS=, read -ra gl <<<"$globs"
+    while IFS= read -r cf; do
+      # shellcheck disable=SC2254 # the reach glob is a pattern by design
+      for g in "${gl[@]}"; do case "$cf" in $g) printf '%s\n' "$pp" >> "$TMP/scoped_hit"; break 2 ;; esac; done
+    done < "$TMP/code_changed"
+  done < "$TMP/blind_reach"
+  LC_ALL=C sort -u -o "$TMP/scoped_hit" "$TMP/scoped_hit"
+  cat "$TMP/scoped_hit" >> "$TMP/blind_add"
+  # no reach glob covers a code change outside research-sdd/toolbelt/ (profiles, skills, other kit content): add ALL
+  if grep -qv '^research-sdd/toolbelt/' "$TMP/code_changed"; then cp "$TMP/blind" "$TMP/blind_add"; : > "$TMP/scoped_hit"; fi
+  cat "$TMP/blind_add" >> "$TMP/sel"; LC_ALL=C sort -u -o "$TMP/sel" "$TMP/sel"
+  BLIND_ADDED="$(LC_ALL=C sort -u "$TMP/blind_add" | grep -c .)"
+  BLIND_SKIPPED="$(LC_ALL=C comm -23 "$TMP/scoped" "$TMP/scoped_hit" | grep -c .)"
+  if grep -qv '^research-sdd/toolbelt/' "$TMP/code_changed"; then BLIND_SKIPPED=0; fi
 fi
 if [ -n "$FULL_REASON" ]; then cp "$TMP/suites" "$TMP/sel"; fi
 NSEL="$(grep -c . "$TMP/sel")"
@@ -435,7 +512,10 @@ LC_ALL=C sort -u "$TMP/maplines" | while IFS=$'\t' read -r c s; do printf '%s â†
 if [ "$NCHANGED" -eq 0 ]; then echo "no-change: empty diff, always-run set only"
 elif [ "$DOCS_ONLY" = 1 ]; then echo "docs-only: always-run set plus suites naming the document"; fi
 echo "Always-run: $(grep -c . "$TMP/always")"
-if [ "$CODE_CHANGED" = 1 ]; then echo "Blind-spot: $BLIND_ADDED added (production code changed)"; else echo "Blind-spot: 0 (not triggered)"; fi
+if [ "$CODE_CHANGED" = 1 ]; then
+  echo "Blind-spot: $BLIND_ADDED added (production code changed)"
+  [ -s "$TMP/scoped" ] && echo "Blind-spot skipped by reach: $BLIND_SKIPPED"
+else echo "Blind-spot: 0 (not triggered)"; fi
 if [ -n "$FULL_REASON" ]; then echo "Escalated to FULL: $FULL_REASON"; else echo "Escalated: no"; fi
 echo "Selected:"
 cat "$TMP/sel"

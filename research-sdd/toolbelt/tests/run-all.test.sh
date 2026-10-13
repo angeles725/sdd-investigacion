@@ -2769,8 +2769,8 @@ imp_tree(){
   local w r; w="$(newdir "$1")"; r="$(imp_root "$w")"
   mkfix_sh "$w/a.test.sh" 1 0 0; mkfix_sh "$w/b.test.sh" 1 0 0; mkfix_sh "$w/c.test.sh" 1 0 0
   mkfix_sh "$(install_dir_for "$w")/i.test.sh" 1 0 0
-  printf '# uses "$TB/alpha.sh"\n' >> "$w/a.test.sh"; printf '# uses "$TB/beta.sh"\n' >> "$w/b.test.sh"
-  printf '# uses "$TB/iota.sh"\n' >> "$(install_dir_for "$w")/i.test.sh"
+  printf 'SUT="$TB/alpha.sh"\n' >> "$w/a.test.sh"; printf 'SUT="$TB/beta.sh"\n' >> "$w/b.test.sh"
+  printf 'SUT="$TB/iota.sh"\n' >> "$(install_dir_for "$w")/i.test.sh"
   printf '#!/usr/bin/env bash\necho alpha\n' > "$r/research-sdd/toolbelt/alpha.sh"
   printf '#!/usr/bin/env bash\necho beta\n' > "$r/research-sdd/toolbelt/beta.sh"
   printf '#!/usr/bin/env bash\necho iota\n' > "$r/research-sdd/toolbelt/iota.sh"
