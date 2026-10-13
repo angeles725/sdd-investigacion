@@ -158,3 +158,66 @@ jobs:
             } else {
               core.info(`✅ PR has type label: ${typeLabels[0]}`);
             }
+
+  check-red-evidence:
+    name: Check RED Evidence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+      - name: Verify a production-behavior PR shows executed RED
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { checkRedEvidence } = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/parse-red-evidence.cjs`
+            );
+
+            // Kit issue #2208: RED asserted but never executed against the pre-fix code is the
+            // incident shape. A PR touching production scripts must carry a reviewer-visible
+            // `RED: <suite> <case> — <failing output excerpt>` line, or `RED: n/a — <reason>`.
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const paths = [];
+            for (const f of files) {
+              paths.push(f.filename);
+              if (f.previous_filename) paths.push(f.previous_filename);
+            }
+
+            // A cited suite must exist in the repository (checkout) or among the PR's files.
+            const { execFileSync } = require('node:child_process');
+            let tracked;
+            try {
+              tracked = execFileSync('git', ['ls-files'], {
+                cwd: process.env.GITHUB_WORKSPACE,
+                encoding: 'utf8',
+                maxBuffer: 64 * 1024 * 1024,
+              }).split('\n').filter(Boolean);
+            } catch (err) {
+              core.setFailed(`❌ Could not list repository files to verify the cited RED suites: ${err.message}`);
+              return;
+            }
+
+            const result = checkRedEvidence(context.payload.pull_request.body || '', paths, tracked.concat(paths));
+            if (!result.required) {
+              core.info('✅ No production script changed: RED evidence not required.');
+            } else if (result.ok) {
+              core.info(`✅ RED evidence present: ${result.evidence.length} line(s), ${result.notApplicable.length} n/a.`);
+            } else {
+              core.setFailed(
+                '❌ This PR changes production scripts but its RED evidence is missing or invalid:\n' +
+                result.problems.map((p) => `  - ${p}`).join('\n') +
+                '\n\nProduction files in this PR:\n' +
+                result.production.map((p) => `  - ${p}`).join('\n') +
+                '\n\nAdd to the PR body (reviewer-visible text; comments and code fences do not count):\n' +
+                '  RED: <suite>.test.sh <case-or-test-name> — <failing output excerpt from the pre-fix run>\n' +
+                'or, when RED cannot be executed:\n' +
+                '  RED: n/a — <reason>\n' +
+                'See CLAUDE.md section 4 (Writer checklist).'
+              );
+            }

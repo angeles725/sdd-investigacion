@@ -1,0 +1,42 @@
+# Always-run suites (kit issue #2201): whole-tree readers that the word map in suite-impact.sh cannot see.
+# Every selection includes them. A docs-only change selects them plus the suites that name the changed document
+# directly (by basename); it never follows a document through the closure.
+# Format: one `<suite> <reason>` per line; <suite> is the file name without `.test.sh` / `.test.mjs`.
+# A line with no reason, a duplicate, or a suite that does not exist makes suite-impact.sh exit 1 (a stale entry is
+# a defect, not a skip: it would silently shrink the safety net).
+pipefail-sigpipe-lint whole-tree lint: scans the shell tree, so any new or edited script can fail it
+lint-substitution whole-tree lint: scans the shell tree, so any new or edited script can fail it
+self-dir-idiom whole-tree lint: scans the shell tree, so any new or edited script can fail it
+lib-resolution-lint whole-tree lint: scans the shell tree, so any new or edited script can fail it
+verify-cd-physical whole-tree lint: scans the shell tree, so any new or edited script can fail it
+summary-line-lint lints every suite's summary emitter across both corpora
+mutant-syntax-export-lint whole-tree lint: scans the shell tree, so any new or edited script can fail it
+template-heading-literal scans templates and tests for heading literals tree-wide
+reason-codes registry vs every scanned emitter; a new typed state fails it
+tool-registry-discoverability tool-registry.md vs every wrapper script
+process-integrity whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
+verify-doc-consistency whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
+doctrine-absence whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
+wall-protocol-doctrine whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
+model-tiers-doc whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
+skill-invariants reads every skill file
+profile-invariants reads every profile
+rendered-headings reads rendered doc headings tree-wide
+ci-path-filter-coverage reads the CI workflow and the suite corpus as a whole
+ci-workflow-doc-consistency reads the CI workflow and the suite corpus as a whole
+ci-workflow-lint-substitution reads the CI workflow and the suite corpus as a whole
+harness-sweep-parity cross-file parity check across the kit tree
+table-reader-parity cross-file parity check across the kit tree
+discriminator-parity cross-file parity check across the kit tree
+verify-parity cross-file parity check across the kit tree
+gen-catalog generates or verifies a catalog over the whole toolbelt
+verify-tool-catalog generates or verifies a catalog over the whole toolbelt
+verify-tool-catalog-hook generates or verifies a catalog over the whole toolbelt
+scripts-manifest generates or verifies a catalog over the whole toolbelt
+n4-type-catalog generates or verifies a catalog over the whole toolbelt
+templates reads every template
+run-all exercises the test harness itself over the whole corpus
+run-all-shard exercises the test harness itself over the whole corpus
+run-all-default-root exercises the test harness itself over the whole corpus
+research-sdd-install installer over the whole kit tree
+pi-tier-agents reads every agent definition

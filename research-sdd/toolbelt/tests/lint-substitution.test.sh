@@ -243,6 +243,28 @@ else
   no "13 default invocation failed (exit=$RC scanned=[$_c13_scanned] expected=[$_c13_expected] out=[$OUT])"
 fi
 
+# 13b. toolbelt/maint/ is inside the default scan (the traversal is recursive: `find <root> -type f -name '*.sh'`).
+#      A kit-shaped fixture (a copy of the lint beside toolbelt/maint/ holding a FORM-A site) must be flagged by the
+#      NO-ARGUMENT invocation, naming the maint/ file. Case 13 only compares counts; this pins the maint/ violation path.
+#      Pinned, not newly fixed: the recursive find already reached maint/ when this case was added.
+mkdir -p "$TMP/c13b/research-sdd/toolbelt/maint" "$TMP/c13b/research-sdd/install"
+cp "$SUT" "$TMP/c13b/research-sdd/toolbelt/lint-substitution.sh"
+_c13b_tpl='content="hello world"
+anchor="hello"
+repl="a&b"
+printf %s "PLACEHOLDER{content/"PLACEHOLDERanchor"/PLACEHOLDERrepl}"'
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '%s\n' "${_c13b_tpl//PLACEHOLDER/\$}"
+} > "$TMP/c13b/research-sdd/toolbelt/maint/site.sh"
+unset _c13b_tpl
+OUT="$(cd "$TMP/c13b/research-sdd/toolbelt" && bash ./lint-substitution.sh 2>&1)"; RC=$?
+if [ "$RC" -eq 1 ] && <<<"$OUT" grep -qF 'maint/site.sh' && <<<"$OUT" grep -qF 'FORM-A'; then
+  ok "13b default invocation flags a FORM-A site under toolbelt/maint/ -> exit 1, maint/site.sh named"
+else
+  no "13b maint/ fixture violation not flagged by the default scan (exit=$RC out=[$OUT])"
+fi
+
 # 14. FORM-A TRIGGER-ANYWHERE (kit issue #1142 review round 3, blocking finding #1): the operand
 #     used to be flagged only when it STARTED with an unquoted $/backtick; retro-gate.sh:210 was
 #     missed because its operand starts with a literal escaped backslash and only carries the
@@ -546,6 +568,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth J: escaped-pair alternative dropped -> escaped-brace sub-form undetected (count 7 -> $_mj_count) -> case 14's escaped-brace probe has real teeth"
     else
       no "teeth J: mutant did not drop to 6 sub-forms (count=$_mj_count, exit=$MRC) — mutation not exercised (THEATER)"
+    fi
+  fi
+
+  # Tooth K: traversal limited to the top level of each root (`-maxdepth 1`) -> the maint/ fixture violation is
+  # missed (exit 0, NO-MATCH) -> case 13b has real teeth.
+  if ! mutant_sed "$SUT" "$TMP/c13b/research-sdd/toolbelt/lint-substitution.mutant.sh" "s/find \"\$_root\" -type f/find \"\$_root\" -maxdepth 1 -type f/"; then
+    no "teeth K: could not build mutant (find invocation not found, or refused by lib/mutant.sh)"
+  else
+    MOUT="$(cd "$TMP/c13b/research-sdd/toolbelt" && bash ./lint-substitution.mutant.sh 2>&1)"; MRC=$?
+    if [ "$MRC" -eq 0 ] && <<<"$MOUT" grep -qF 'NO-MATCH'; then
+      ok "teeth K: traversal limited to depth 1 -> the maint/ violation is missed (exit 0) -> case 13b has real teeth"
+    else
+      no "teeth K: mutant still flagged the maint/ site (exit=$MRC) — mutation not exercised (THEATER) :: out=[$MOUT]"
     fi
   fi
 fi
