@@ -205,6 +205,48 @@ They are listed here so a reader of this registry finds every typed state the sc
   a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
   tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
 
+- `kit-rdd-start: <state>` / `kit-rdd-drive: <state>` (maint/kit-rdd-start.py, maint/kit-rdd-drive.py, kit issue
+  #2212): the RDD drivers end in one typed state, each with its own exit code and exactly one continuation.
+  `maint/` is not a scanned directory, so these are listed here and not as table rows;
+  `tests/kit-rdd-start.test.sh` and `tests/kit-rdd-drive.test.sh` pin them. The one `degraded:` line they print,
+  `degraded: missing runtime dependency: gentle-ai`, is probed at startup (exit 3). The reason codes after
+  `rdd-stop:` are the provider's own, printed only when the provider supplied them.
+
+  | state | exit | continuation |
+  |---|---|---|
+  | `started` | 0 | nothing to repair; run `kit-rdd-drive.py` on the output file |
+  | `rdd-not-due` | 10 | nothing to repair (assess exited 0 and said review_due is false) |
+  | `rdd-start-error` | 14 | run `gentle-ai review assess --cwd <worktree> --json` by hand, fix the cause (failed assessment, malformed or refused provider answer), then re-run |
+  | `consent-required` | 15 | read the printed consent envelope, then re-run `kit-rdd-start.py` with `--consent granted` to record the standing grant |
+  | `rdd-not-approved` | 13 | read the printed `rdd-stop: <reason_code>` (or `non-capture-collect (<op>)`); recover by hand, there is no automatic recovery, then re-run |
+  | `rdd-protocol-error` | 14 | the provider answered with a shape the driver does not accept (detail printed); check the gentle-ai version, then re-run |
+
+- `size: <state>` and `degraded: kit-size-check: <reason>` (maint/kit-size-check.sh, kit issue #2214): the pre-RDD size
+  guard prints one verdict line `size: ok|over-budget|refuse|empty-input|all-excluded|unmeasured|degraded`. `empty-input` (the diff
+  lists no file), `all-excluded` (files changed, none measured, every one excluded data or binary) and `unmeasured`
+  (only binaries and/or pure renames) are the distinct non-measurements: none is a small diff. A hotspot candidate
+  whose diff failed prints `hotspot: unchecked <file>`, which is not a clean no-churn. `degraded` (exit 2, reason on stderr: no git or awk, not a work tree, unresolved base or head
+  ref, no merge base, mktemp failed, diff failed, malformed rename record, bad flag or value, a control
+  character in a path) is never a zero.
+  The scan above traverses only `toolbelt/*.sh` and `toolbelt/lib/*.sh`, so `maint/` is outside it and these states
+  are listed here, not in the table. Continuation: fix the ref or flag named on stderr and re-run; for `refuse` or
+  `over-budget` split the change as the printed suggestion shows, then re-run `kit-size-check.sh`.
+
+
+- `degraded: suite-impact-oracle: <reason>` (`tests/suite-impact-oracle.sh`, kit issue #2201): same contract as the line
+  below for the mutation oracle (missing tool, bad `--ref`, `<file> does not exist at <ref>`, `mutation did not change
+  <file>`, `the instrument selected no suite`, `ran N of M unselected suites (could not look)`); exit 2.
+- `degraded: suite-impact: <reason>` (`tests/suite-impact.sh` and `tests/suite-impact-replay.sh`, kit issue #2201): the
+  impact map could not look, and says so on stderr with exit 2 instead of printing an empty selection. These two live
+  under `tests/`, outside the scanned scripts, so they are NOT rows of the degraded table above. Reasons: a runtime
+  dependency (git, grep, sort, awk, tar, mktemp, find) is not on PATH; `not a git repository`; `bad base ref` / `bad head
+  ref`; `head <ref> has no research-sdd/ tree to analyse`; `manifest absent` (`impact-always.txt` or
+  `impact-blindspot.txt` missing from the analysed tree); `no test suites found`; `empty inventory of research-sdd/`;
+  `SUITE_IMPACT_WIDE_THRESHOLD must be a positive integer`; `empty selection` (the always-run manifest selected nothing); and, for the replay, `instrument absent`, `bad ref`, and
+  `no commit could be analysed (nothing was measured)`. An INVALID manifest line (no reason, a suite that does not exist,
+  a duplicate) is a finding, not a degraded state: exit 1 and no selection is printed. Continuation: install the missing
+  tool, fix the ref or the manifest, then re-run; never read an empty selection as "nothing is impacted".
+
 ### kit-writer-check (#2208)
 
 - `degraded: kit-writer-check: <reason>` (`maint/kit-writer-check.sh`, kit issue #2208): the writer-discipline

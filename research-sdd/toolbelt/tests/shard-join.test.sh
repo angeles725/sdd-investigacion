@@ -115,6 +115,7 @@ join --expected "$TMP/exp"; RC1=$RC; join --expected "$TMP/exp" --bogus "$TMP/m1
 if [ -z "${SHARD_JOIN_SUT:-}" ]; then
   r="$TMP/e2e/research-sdd"; mkdir -p "$r/toolbelt/tests" "$r/install/tests" "$TMP/e2e/aux"
   cp "$HERE/run-all.sh" "$r/toolbelt/tests/run-all.sh"; cp "$SUT" "$r/toolbelt/tests/shard-join.sh"
+  printf '# fixture: no extras\n' > "$r/toolbelt/tests/suite-tiers.txt"   # an absent manifest is DEGRADED (kit issue #2203)
   for f in t1 t2 t3; do printf '#!/usr/bin/env bash\necho "== 1 passed %s 0 failed =="\n' "$MID" > "$r/toolbelt/tests/$f.test.sh"; done
   printf '#!/usr/bin/env bash\necho "== 1 passed %s 0 failed =="\n' "$MID" > "$r/install/tests/i1.test.sh"
   for i in 1 2 3; do bash "$r/toolbelt/tests/run-all.sh" --shard "$i/3" --shard-manifest "$TMP/e2e/aux/m$i" >/dev/null 2>&1; done
@@ -122,6 +123,26 @@ if [ -z "${SHARD_JOIN_SUT:-}" ]; then
   if [ "$RC" -eq 0 ] && grep -q '^Shard join: OK — 3 shard(s), 4 suite(s)' <<<"$OUT"; then ok "end to end: real shard manifests + --list-suites join OK"; else no "e2e rc=$RC out=$OUT"; fi
   OUT="$(bash "$r/toolbelt/tests/shard-join.sh" --shards 3 "$TMP/e2e/aux/m1" "$TMP/e2e/aux/m3" "$TMP/e2e/aux/m3" 2>&1)"; RC=$?
   if [ "$RC" -eq 1 ] && grep -qF 'DUPLICATE SHARD: shard 3/3' <<<"$OUT" && grep -qF 'MISSING SHARD: shard 2/3' <<<"$OUT"; then ok "end to end: a duplicated manifest in place of shard 2 fails"; else no "e2e dup rc=$RC out=$OUT"; fi
+
+  # 10 — tiers (kit issue #2203): the default expected list is the CORE tier; --tier X selects the list the shards ran.
+  #      t3 is extras. Core shards (2) joined by default: 3 suites; the same manifests joined as --tier all miss t3;
+  #      extras manifests joined as --tier extras: 1 suite; a core join of extras manifests must not pass.
+  rt="$TMP/e2et/research-sdd"; mkdir -p "$rt/toolbelt/tests" "$rt/install/tests" "$TMP/e2et/aux"
+  cp "$r/toolbelt/tests/"*.sh "$rt/toolbelt/tests/"; cp "$r/install/tests/i1.test.sh" "$rt/install/tests/"
+  printf '%s\n' "research-sdd/toolbelt/tests/t3.test.sh extras e2e fixture" > "$rt/toolbelt/tests/suite-tiers.txt"
+  for i in 1 2; do bash "$rt/toolbelt/tests/run-all.sh" --shard "$i/2" --shard-manifest "$TMP/e2et/aux/c$i" >/dev/null 2>&1; done
+  bash "$rt/toolbelt/tests/run-all.sh" --tier extras --shard 1/1 --shard-manifest "$TMP/e2et/aux/x1" >/dev/null 2>&1
+  OUT="$(bash "$rt/toolbelt/tests/shard-join.sh" --shards 2 "$TMP/e2et/aux/c1" "$TMP/e2et/aux/c2" 2>&1)"; RC=$?
+  OUT2="$(bash "$rt/toolbelt/tests/shard-join.sh" --tier all --shards 2 "$TMP/e2et/aux/c1" "$TMP/e2et/aux/c2" 2>&1)"; RC2=$?
+  OUT3="$(bash "$rt/toolbelt/tests/shard-join.sh" --tier=extras --shards 1 "$TMP/e2et/aux/x1" 2>&1)"; RC3=$?
+  OUT4="$(bash "$rt/toolbelt/tests/shard-join.sh" --shards 1 "$TMP/e2et/aux/x1" 2>&1)"; RC4=$?
+  bash "$rt/toolbelt/tests/shard-join.sh" --tier bogus "$TMP/e2et/aux/c1" >/dev/null 2>&1; RC5=$?
+  if [ "$RC" -eq 0 ] && grep -q '^Shard join: OK — 2 shard(s), 3 suite(s)' <<<"$OUT" \
+     && [ "$RC2" -eq 1 ] && grep -qF 'MISSING SUITE: research-sdd/toolbelt/tests/t3.test.sh' <<<"$OUT2" \
+     && [ "$RC3" -eq 0 ] && grep -q '^Shard join: OK — 1 shard(s), 1 suite(s)' <<<"$OUT3" \
+     && [ "$RC4" -eq 1 ] && grep -qF 'UNEXPECTED SUITE: research-sdd/toolbelt/tests/t3.test.sh' <<<"$OUT4" && [ "$RC5" -eq 2 ]; then
+    ok "tiers end to end: the default join is core, --tier all/extras joins the matching shards, a tier mismatch fails, a bad --tier exits 2"
+  else no "tier e2e rc=$RC/$RC2/$RC3/$RC4/$RC5 out=[$OUT] [$OUT2] [$OUT3] [$OUT4]"; fi
 fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
@@ -160,6 +181,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth shardsflag 's/"\$h_n" != "\$want_shards"/"$h_n" == "x$want_shards"/' 'but --shards 3 was expected' "$TMP/exp" --shards 3 "$TMP/g1" "$TMP/g2"
   tooth novalid 's/add "NO VALID MANIFEST[^"]*"/:/' 'NO VALID MANIFEST' "$TMP/exp" "$TMP/trunc" "$TMP/nohdr"
   tooth strictskip 's/\[\[ -z "\$strict_skip" \]\] || add "SKIPPED SUITE/true || add "SKIPPED SUITE/' 'SKIPPED SUITE' "$TMP/exp" --strict-skip "$TMP/k1" "$TMP/g2"
+  echo "-- teeth: --tier not forwarded to run-all.sh --list-suites; the extras join must then compare against the core list (case 10) --"
+  w="$TMP/t-tier"; mkdir -p "$w"
+  if [ -z "${rt:-}" ]; then no "teeth-tier: tier fixture (case 10) not built"
+  elif ! mutant_sed "$SUT" "$w/shard-join.sh" 's/--list-suites --tier "\$tier"/--list-suites/' 2>"$w/err"; then no "teeth-tier: no mutant: $(cat "$w/err")"
+  else
+    cp "$w/shard-join.sh" "$rt/toolbelt/tests/shard-join-mut.sh"
+    mout="$(bash "$rt/toolbelt/tests/shard-join-mut.sh" --tier extras --shards 1 "$TMP/e2et/aux/x1" 2>&1)"; mrc=$?
+    if [ "$mrc" -ne 0 ]; then ok "teeth-tier: forwarding-less mutant fails the extras join -> the tier join case has real teeth"
+    else no "teeth-tier: mutant still joins the extras shards OK (THEATER)"; fi
+  fi
   tooth emptyexp 's/add "EXPECTED LIST EMPTY: zero suites expected, which cannot be a pass"/:/' 'EXPECTED LIST EMPTY' "$TMP/exp-empty" "$TMP/z1"
 fi
 
