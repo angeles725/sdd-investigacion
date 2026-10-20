@@ -1,0 +1,17 @@
+L1 ⟨high⟩⟨B1-G1 plain⟩⟨x⟩⟨pending⟩
+L2 ⟨high⟩⟨B1-G2 back\⟩⟨x⟩⟨pending⟩
+L3 ⟨high⟩⟨B1-G3  tab	pad⟩⟨x⟩⟨pending⟩
+L4 ⟨high⟩⟨B1-G4 lead ws⟩⟨x⟩⟨pending⟩
+L5 ⟨high⟩⟨B1-G5 no trail pipe⟩⟨x⟩⟨pending⟩
+L6 ⟨high⟩⟨B1-G6⟩⟨⟩⟨pending⟩
+L7 ⟨high⟩⟨B1-G7 e\| f⟩⟨x⟩⟨Pending · z|⟩
+L8 ⟨high⟩⟨B1-G8 triple \\| t⟩⟨x⟩⟨pending⟩⟨extra⟩
+L9 ⟨—⟩⟨B1-G9 skipped⟩⟨x⟩⟨done⟩
+L10 ⟨7⟩⟨B1-G10 pend⟩⟨x⟩⟨pending⟩
+L11 ⟨zzz⟩⟨B1-G11 unparsed⟩⟨x⟩⟨pending⟩
+L12 ⟨high⟩⟨B1-G12 few⟩
+L14 ⟨high⟩⟨B1-G14 last|⟩
+L15 
+L16 
+L17 ⟨⟩
+L18 ⟨high⟩⟨B1-G15 end\\⟩
