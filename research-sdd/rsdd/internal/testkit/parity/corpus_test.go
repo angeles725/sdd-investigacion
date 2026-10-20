@@ -36,38 +36,13 @@ func TestCorpusUnchangedIsEqual(t *testing.T) {
 	}
 }
 
-func TestCorpusWriteIsDetected(t *testing.T) {
-	for _, side := range []string{"legacy", "rsdd"} {
-		t.Run(side, func(t *testing.T) {
-			r := newRig(t)
-			c1 := mkCorpus(t, "one", map[string]string{"f.md": "hello"})
-			legacy, rsdd := []string{"catf={{corpus}}/f.md"}, []string{"catf={{corpus}}/f.md"}
-			if side == "legacy" {
-				legacy = append(legacy, "touch={{corpus}}/f.md")
-			} else {
-				rsdd = append(rsdd, "touch={{corpus}}/f.md")
-			}
-			r.addCase("write", legacy, rsdd, true, map[string]string{})
-			rep := r.runner.RunAll(r.load(), Options{CorpusMode: true, Corpora: []string{c1}})
-			if !rep.Failed() || len(rep.Results) != 1 {
-				t.Fatalf("a write into the corpus must fail: %s", rep.Summary())
-			}
-			p := firstProblems(t, rep)
-			if !hasKind(p, KindCorpusMod) || !strings.Contains(joined(p), side) || !strings.Contains(joined(p), "f.md") {
-				t.Fatalf("want corpus-modified naming %s and f.md, got:\n%s", side, joined(p))
-			}
-		})
+func mustFingerprint(t *testing.T, dir string) Tree {
+	t.Helper()
+	tr, err := Fingerprint(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestCorpusCreateIsDetected(t *testing.T) {
-	r := newRig(t)
-	c1 := mkCorpus(t, "one", map[string]string{"f.md": "hello"})
-	r.addCase("make", []string{"touch={{corpus}}/new.md"}, []string{"out="}, true, map[string]string{})
-	rep := r.runner.RunAll(r.load(), Options{CorpusMode: true, Corpora: []string{c1}})
-	if !rep.Failed() || !hasKind(firstProblems(t, rep), KindCorpusMod) || !strings.Contains(joined(firstProblems(t, rep)), "new.md") {
-		t.Fatalf("a created file must be reported: %s %v", rep.Summary(), rep.Results)
-	}
+	return tr
 }
 
 func TestAbsentCorporaAreCountedNotDropped(t *testing.T) {
@@ -147,11 +122,15 @@ func TestCorpusTimeoutStillCheckedForWrites(t *testing.T) {
 	r := newRig(t)
 	r.runner.Cfg.Timeout = 300 * time.Millisecond
 	c1 := mkCorpus(t, "one", map[string]string{"f.md": "a"})
+	before := mustFingerprint(t, c1)
 	r.addCase("slow", []string{"touch={{corpus}}/f.md", "sleep=30"}, []string{"out="}, true, map[string]string{})
 	rep := r.runner.RunAll(r.load(), Options{CorpusMode: true, Corpora: []string{c1}})
 	p := firstProblems(t, rep)
-	if !hasKind(p, KindTimeout) || !hasKind(p, KindCorpusMod) {
-		t.Fatalf("a timed-out run that already wrote must report both:\n%s", joined(p))
+	if !hasKind(p, KindTimeout) || hasKind(p, KindCorpusMod) {
+		t.Fatalf("a timed-out run reports the timeout and, on a scratch copy, no corpus-modified:\n%s", joined(p))
+	}
+	if d := before.Diff(mustFingerprint(t, c1)); len(d) != 0 {
+		t.Fatalf("the real corpus changed: %v", d)
 	}
 }
 

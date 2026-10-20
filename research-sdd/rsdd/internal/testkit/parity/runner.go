@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -149,8 +148,20 @@ func (r Result) describe() string {
 	return sb.String()
 }
 
+// treeSpec is one directory the sides may touch: a fixture's inputs/ or the
+// corpus. src is only ever read; each side works on its own scratch copy.
+type treeSpec struct {
+	name string // "input" or "corpus": the pristine and scratch directory name
+	src  string
+}
+
 // RunCase runs one case: legacy first, then rsdd, each in the same freshly
 // wiped sandbox. corpus is the real corpus path for a corpus spec, else "".
+//
+// Neither side ever sees the real corpus or the case's inputs/: each gets a
+// fresh copy at the same path inside the sandbox, and what it did to that copy
+// (the effect) is compared as a fourth stream. The real corpus is fingerprinted
+// before and after each side as a tripwire that should be unreachable.
 func (r *Runner) RunCase(c Case, corpus string) Result {
 	res := Result{Case: c.Name, Corpus: corpus, Status: StatusFailed}
 	fail := func(p ...Problem) Result {
@@ -163,16 +174,24 @@ func (r *Runner) RunCase(c Case, corpus string) Result {
 	if c.Spec.Corpus != (corpus != "") {
 		return fail(Problem{KindSpecInvalid, "a corpus spec needs a corpus path and a plain spec must not get one"})
 	}
+	var trees []treeSpec
+	if c.HasInputs {
+		trees = append(trees, treeSpec{"input", filepath.Join(c.Dir, "inputs")})
+	}
 	var before Tree
 	if corpus != "" {
 		var err error
 		if before, err = Fingerprint(corpus); err != nil {
 			return fail(Problem{KindCorpusRead, err.Error()})
 		}
+		trees = append(trees, treeSpec{"corpus", corpus})
+	}
+	if err := r.makePristine(trees); err != nil {
+		return fail(Problem{KindSandbox, "pristine copy: " + err.Error()})
 	}
 	var obs [2]Observed
 	for i, side := range []string{"legacy", "rsdd"} {
-		o, probs := r.runSide(c, side, corpus)
+		o, probs := r.runSide(c, side, trees)
 		obs[i] = o
 		if corpus != "" {
 			probs = append(probs, checkCorpus(side, corpus, before)...)
@@ -181,8 +200,12 @@ func (r *Runner) RunCase(c Case, corpus string) Result {
 			return fail(probs...)
 		}
 	}
-	status, probs := Judge(obs[0], obs[1], c.Intended)
-	res.Status, res.Problems = status, probs
+	legacy, rsdd, stale := applyNormalisers(obs[0], obs[1], c.Normalisers, r.sandbox())
+	status, probs := Judge(legacy, rsdd, c.Intended)
+	if len(stale) > 0 {
+		status = StatusFailed
+	}
+	res.Status, res.Problems = status, append(stale, probs...)
 	return res
 }
 
@@ -197,13 +220,45 @@ func checkCorpus(side, corpus string, before Tree) []Problem {
 	return nil
 }
 
-func (r *Runner) sandbox() string { return filepath.Join(r.Cfg.Work, "sandbox") }
+// Cleanup removes the sandbox and pristine copies. Mode-preserving copies can
+// hold read-only directories that a plain RemoveAll (and t.TempDir) cannot delete.
+func (r *Runner) Cleanup() error {
+	return errors.Join(forceRemove(r.sandbox()), forceRemove(r.pristine()))
+}
 
-// runSide wipes and rebuilds the sandbox, then runs one side in it.
-func (r *Runner) runSide(c Case, side, corpus string) (Observed, []Problem) {
+func (r *Runner) sandbox() string  { return filepath.Join(r.Cfg.Work, "sandbox") }
+func (r *Runner) pristine() string { return filepath.Join(r.Cfg.Work, "pristine") }
+
+// makePristine copies every tree once into the pristine dir. This is the only
+// read of the real corpus; both sides' scratch copies and their effect diffs
+// derive from it.
+func (r *Runner) makePristine(trees []treeSpec) error {
+	if err := forceRemove(r.pristine()); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(r.pristine(), 0o755); err != nil {
+		return err
+	}
+	for _, t := range trees {
+		if err := copyTree(t.src, filepath.Join(r.pristine(), t.name), t.name == "corpus"); err != nil {
+			return fmt.Errorf("%s: %w", t.name, err)
+		}
+	}
+	return nil
+}
+
+// runSide wipes and rebuilds the sandbox (fresh scratch copies at the same
+// paths for both sides), runs one side in it and computes its effect.
+func (r *Runner) runSide(c Case, side string, trees []treeSpec) (Observed, []Problem) {
 	sb := r.sandbox()
-	if err := prepareSandbox(sb, c); err != nil {
+	if err := r.prepareSandbox(sb, trees); err != nil {
 		return Observed{}, []Problem{{KindSandbox, fmt.Sprintf("%s: %v", side, err)}}
+	}
+	corpus := ""
+	for _, t := range trees {
+		if t.name == "corpus" {
+			corpus = filepath.Join(sb, "corpus")
+		}
 	}
 	rep := strings.NewReplacer(placeholderInput, filepath.Join(sb, "input"), placeholderCorpus, corpus, placeholderSbx, sb)
 	sub := func(in []string) []string {
@@ -240,11 +295,35 @@ func (r *Runner) runSide(c Case, side, corpus string) (Observed, []Problem) {
 	case o.truncated:
 		return Observed{}, []Problem{{KindOutputTooBig, fmt.Sprintf("the %s run wrote more than %d bytes to a stream", side, maxOutput)}}
 	}
-	return Observed{Stdout: o.stdout, Stderr: o.stderr, Exit: o.exit}, nil
+	effect, err := r.effect(trees)
+	if err != nil {
+		return Observed{}, []Problem{{KindSandbox, fmt.Sprintf("%s effect: %v", side, err)}}
+	}
+	return Observed{Stdout: o.stdout, Stderr: o.stderr, Exit: o.exit, Effect: effect}, nil
 }
 
-func prepareSandbox(sb string, c Case) error {
-	if err := os.RemoveAll(sb); err != nil {
+// effect concatenates the per-tree diffs of the sandbox copies against the
+// pristine copies; with more than one tree each non-empty part is labelled.
+func (r *Runner) effect(trees []treeSpec) ([]byte, error) {
+	var out []byte
+	for _, t := range trees {
+		e, err := treeEffect(filepath.Join(r.pristine(), t.name), filepath.Join(r.sandbox(), t.name))
+		if err != nil {
+			return nil, err
+		}
+		if len(e) == 0 {
+			continue
+		}
+		if len(trees) > 1 {
+			out = append(out, "["+t.name+"]\n"...)
+		}
+		out = append(out, e...)
+	}
+	return out, nil
+}
+
+func (r *Runner) prepareSandbox(sb string, trees []treeSpec) error {
+	if err := forceRemove(sb); err != nil {
 		return fmt.Errorf("wipe sandbox: %w", err)
 	}
 	for _, d := range []string{"home", "tmp"} {
@@ -252,43 +331,12 @@ func prepareSandbox(sb string, c Case) error {
 			return err
 		}
 	}
-	if c.HasInputs {
-		return copyTree(filepath.Join(c.Dir, "inputs"), filepath.Join(sb, "input"))
+	for _, t := range trees {
+		if err := copyTree(filepath.Join(r.pristine(), t.name), filepath.Join(sb, t.name), false); err != nil {
+			return fmt.Errorf("scratch copy of %s: %w", t.name, err)
+		}
 	}
 	return nil
-}
-
-func copyTree(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case d.IsDir():
-			return os.MkdirAll(target, 0o755)
-		case info.Mode()&fs.ModeSymlink != 0:
-			link, err := os.Readlink(p)
-			if err != nil {
-				return err
-			}
-			return os.Symlink(link, target)
-		default:
-			b, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(target, b, info.Mode().Perm())
-		}
-	})
 }
 
 type outcome struct {

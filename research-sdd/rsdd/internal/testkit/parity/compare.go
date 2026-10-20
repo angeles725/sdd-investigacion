@@ -11,6 +11,7 @@ type Observed struct {
 	Stdout []byte
 	Stderr []byte
 	Exit   int
+	Effect []byte // deterministic diff of the side's scratch trees against their pristine copies
 }
 
 // Status is the verdict for one compared run.
@@ -38,6 +39,9 @@ func Diverging(legacy, rsdd Observed) map[string]string {
 	if legacy.Exit != rsdd.Exit {
 		out["exit"] = fmt.Sprintf("exit differs: legacy %d, rsdd %d", legacy.Exit, rsdd.Exit)
 	}
+	if d := diffBytes("effect", legacy.Effect, rsdd.Effect); d != "" {
+		out["effect"] = d
+	}
 	return out
 }
 
@@ -50,7 +54,7 @@ func Judge(legacy, rsdd Observed, declared []Intended) (Status, []Problem) {
 		decl[d.Field] = true
 	}
 	var probs []Problem
-	for _, f := range []string{"stdout", "stderr", "exit"} {
+	for _, f := range []string{"stdout", "stderr", "exit", "effect"} {
 		d, diverges := diff[f]
 		switch {
 		case diverges && !decl[f]:

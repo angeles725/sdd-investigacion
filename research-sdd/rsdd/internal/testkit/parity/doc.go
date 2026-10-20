@@ -9,6 +9,22 @@
 // two runs, so absolute paths in the output match without normalization) and
 // compares stdout, stderr and exit code byte for byte.
 //
+// Neither side ever touches the real corpus or the case's inputs/. Each run
+// gets a fresh, mode-preserving copy (symlinks stay symlinks and are never
+// followed; .git is skipped for corpora) at the same path inside the sandbox,
+// {{corpus}} and {{input}} point at that copy, and what the side did to it is
+// diffed against a pristine copy and compared as a fourth stream, "effect".
+// The real corpus is fingerprinted before and after each side as a tripwire
+// that should be unreachable. Caveat: a symlink whose target lies outside the
+// corpus is copied verbatim, so a script that writes THROUGH it writes the
+// outside target; the tripwire cannot see that.
+//
+// intended.json entries are golden's {field, reason} (field may also be
+// "effect") or {normalise, pattern?, reason} with normalise one of time,
+// temproot or pid (pid needs a pattern). Normalisers apply to stdout, stderr
+// and effect of both sides, need a reason, and are stale when they rewrote
+// nothing on either side.
+//
 // Anti-silent-zero: every non-pass state is typed. A missing legacy root or
 // binary is "absent-input", zero specs is "empty-input", an absent corpus
 // directory is counted and reported, a declared divergence that no longer

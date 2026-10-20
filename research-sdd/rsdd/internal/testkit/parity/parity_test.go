@@ -69,6 +69,11 @@ func TestParity(t *testing.T) {
 		opt = Options{CorpusMode: true, Corpora: toks}
 	}
 
+	t.Cleanup(func() {
+		if err := runner.Cleanup(); err != nil {
+			t.Error(err)
+		}
+	})
 	rep := runner.RunAll(cases, opt)
 	for _, r := range rep.Results {
 		switch r.Status {

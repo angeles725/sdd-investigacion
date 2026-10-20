@@ -25,6 +25,11 @@ for a in "$@"; do
     exists=*) if [ -e "${a#exists=}" ]; then printf 'yes'; else printf 'no'; fi ;;
     catf=*) cat "${a#catf=}" ;;
     env=*) eval "printf '%s' \"\${${a#env=}}\"" ;;
+    put=*) v="${a#put=}"; printf '%s' "${v#*|}" > "${v%%|*}" ;;
+    chmod=*) v="${a#chmod=}"; chmod "${v%%|*}" "${v#*|}" ;;
+    ln=*) v="${a#ln=}"; ln -s "${v%%|*}" "${v#*|}" ;;
+    rm=*) rm -rf "${a#rm=}" ;;
+    rl=*) readlink "${a#rl=}" ;;
     ctx) pwd; printf '%s\n%s\n' "$HOME" "$TMPDIR" ;;
     cat) cat ;;
   esac

@@ -133,7 +133,7 @@ func TestCopyTree(t *testing.T) {
 	os.WriteFile(filepath.Join(src, "plain.txt"), []byte("p"), 0o644)
 	os.Symlink("plain.txt", filepath.Join(src, "link"))
 	dst := filepath.Join(t.TempDir(), "out")
-	if err := copyTree(src, dst); err != nil {
+	if err := copyTree(src, dst, false); err != nil {
 		t.Fatal(err)
 	}
 	st, err := os.Stat(filepath.Join(dst, "a", "b", "x.sh"))
@@ -146,7 +146,7 @@ func TestCopyTree(t *testing.T) {
 	if l, err := os.Readlink(filepath.Join(dst, "link")); err != nil || l != "plain.txt" {
 		t.Fatalf("symlink not preserved: %q %v", l, err)
 	}
-	if err := copyTree(filepath.Join(src, "missing"), dst); err == nil {
+	if err := copyTree(filepath.Join(src, "missing"), dst, false); err == nil {
 		t.Fatal("an absent source must be an error")
 	}
 }

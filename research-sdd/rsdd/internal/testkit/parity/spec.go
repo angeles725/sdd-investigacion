@@ -59,13 +59,14 @@ type Intended struct {
 // Case is a loaded case directory. Problems holds load-time findings; a case
 // with problems is reported as failed and never executed.
 type Case struct {
-	Name      string
-	Dir       string
-	Spec      Spec
-	Intended  []Intended
-	Stdin     []byte
-	HasInputs bool
-	Problems  []Problem
+	Name        string
+	Dir         string
+	Spec        Spec
+	Intended    []Intended
+	Normalisers []Normaliser
+	Stdin       []byte
+	HasInputs   bool
+	Problems    []Problem
 }
 
 // reservedEnv are the keys the runner fixes for isolation.
@@ -122,8 +123,8 @@ func loadCase(dir string) Case {
 		return bad(KindSpecInvalid, "spec uses {{input}} but the case has no inputs/ directory")
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "intended.json")); err == nil {
-		list, probs := parseIntended(b)
-		c.Intended = list
+		list, norms, probs := parseIntended(b)
+		c.Intended, c.Normalisers = list, norms
 		c.Problems = append(c.Problems, probs...)
 	} else if !os.IsNotExist(err) {
 		return bad(KindSpecInvalid, "intended.json unreadable: %v", err)
@@ -201,24 +202,49 @@ func validateSpec(s Spec) string {
 	return ""
 }
 
-// parseIntended applies golden's intended.json schema: a list of
-// {field, reason}, field one of stdout|stderr|exit, reason non-blank.
-func parseIntended(b []byte) ([]Intended, []Problem) {
-	var list []Intended
+// intendedEntry is one intended.json entry. golden's {field, reason} entries
+// are valid unchanged (parity adds the field "effect"); parity also accepts
+// {normalise, pattern?, reason} entries. Exactly one of field/normalise is set.
+type intendedEntry struct {
+	Field     string `json:"field"`
+	Normalise string `json:"normalise"`
+	Pattern   string `json:"pattern"`
+	Reason    string `json:"reason"`
+}
+
+// parseIntended validates the entries and splits them into declared field
+// divergences and compiled normalisers.
+func parseIntended(b []byte) ([]Intended, []Normaliser, []Problem) {
+	var list []intendedEntry
 	if err := strictJSON(b, &list); err != nil {
-		return nil, []Problem{{KindSpecInvalid, "intended.json: " + err.Error()}}
+		return nil, nil, []Problem{{KindSpecInvalid, "intended.json: " + err.Error()}}
 	}
+	var fields []Intended
+	var norms []normaliserEntry
 	var probs []Problem
 	for i, e := range list {
-		switch e.Field {
-		case "stdout", "stderr", "exit":
-		default:
-			probs = append(probs, Problem{KindSpecInvalid, fmt.Sprintf("intended.json entry %d: field %q is not one of stdout|stderr|exit", i, e.Field)})
+		if (e.Field == "") == (e.Normalise == "") {
+			probs = append(probs, Problem{KindSpecInvalid, fmt.Sprintf("intended.json entry %d: exactly one of field or normalise is required", i)})
 			continue
+		}
+		if e.Normalise != "" {
+			norms = append(norms, normaliserEntry{e.Normalise, e.Pattern, e.Reason})
+			continue
+		}
+		switch e.Field {
+		case "stdout", "stderr", "exit", "effect":
+		default:
+			probs = append(probs, Problem{KindSpecInvalid, fmt.Sprintf("intended.json entry %d: field %q is not one of stdout|stderr|exit|effect", i, e.Field)})
+			continue
+		}
+		if e.Pattern != "" {
+			probs = append(probs, Problem{KindSpecInvalid, fmt.Sprintf("intended.json entry %d (%s): pattern is only valid for a pid normaliser", i, e.Field)})
 		}
 		if strings.TrimSpace(e.Reason) == "" {
 			probs = append(probs, Problem{KindNoReason, fmt.Sprintf("intended.json entry %d (%s): every intended divergence needs a non-empty reason", i, e.Field)})
 		}
+		fields = append(fields, Intended{Field: e.Field, Reason: e.Reason})
 	}
-	return list, probs
+	compiled, nprobs := compileNormalisers(norms)
+	return fields, compiled, append(probs, nprobs...)
 }
