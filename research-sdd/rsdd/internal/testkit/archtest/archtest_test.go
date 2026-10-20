@@ -24,23 +24,34 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 		"gamma/g.go: os.Getwd",
 		"cli/other.go: os.Getenv",    // only cli/stdio.go is exempt
 		"cmd/tool/main.go: time.Now", // cmd/ is scanned too
+		"epsilon/e.go: os.Getenv",    // dot-import must not hide the call
+		"epsilon/e.go: time.Now",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("violation %q not reported; got:\n%s", want, got)
 		}
 	}
-	for _, mustNot := range []string{"cli/stdio.go", "g_test.go"} {
+	// Exempt files really do contain the forbidden calls (see testdata/bad), so
+	// "not reported" is a property the scanner has to earn.
+	for _, exempt := range []string{"cli/stdio.go", "gamma/g_test.go"} {
+		src, err := os.ReadFile(filepath.Join("testdata", "bad", "internal", filepath.FromSlash(exempt)))
+		if err != nil || !strings.Contains(string(src), "os.Getenv") {
+			t.Fatalf("fixture %s must exist and call os.Getenv for the exemption check to mean anything (err=%v)", exempt, err)
+		}
 		for _, line := range r.Violations {
-			if strings.HasPrefix(line, mustNot) {
-				t.Errorf("%s is exempt but was reported: %s", mustNot, line)
+			if strings.HasPrefix(line, exempt+":") {
+				t.Errorf("%s is exempt but was reported: %s", exempt, line)
 			}
 		}
-		if false {
-			t.Errorf("%s is exempt but was reported:\n%s", mustNot, got)
+	}
+	// The registry tier may import any domain.
+	for _, line := range r.Violations {
+		if strings.HasPrefix(line, "commands imports") {
+			t.Errorf("registry import wrongly reported: %s", line)
 		}
 	}
-	if len(r.Violations) != 10 {
-		t.Errorf("want exactly 10 violations, got %d:\n%s", len(r.Violations), got)
+	if len(r.Violations) != 12 {
+		t.Errorf("want exactly 12 violations, got %d:\n%s", len(r.Violations), got)
 	}
 }
 
@@ -111,5 +122,23 @@ func TestMissingCmdDirIsFine(t *testing.T) {
 	r, err := Check(root, "example.test/m")
 	if err != nil || r.Packages != 1 || len(r.Violations) != 0 {
 		t.Fatalf("got (%+v, %v), want 1 package, no violations, no error", r, err)
+	}
+}
+
+// internal/x and cmd/x are different packages; the package key must keep
+// the root they were found under.
+func TestPackageKeyKeepsRoot(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"internal/x", "cmd/x"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, d, "x.go"), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := Check(root, "example.test/m")
+	if err != nil || r.Packages != 2 {
+		t.Fatalf("got (%+v, %v), want 2 distinct packages", r, err)
 	}
 }

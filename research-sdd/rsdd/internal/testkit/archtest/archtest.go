@@ -9,8 +9,8 @@
 //	domain     every other segment - may import core tier only, never
 //	                                  another domain and never commands
 //
-// A violation fails the build, which is what keeps "adding a command = one
-// file + one registry line" true.
+// A violation fails the archtest (go test), which is what keeps "adding a
+// command = one file + one registry line" true. It does not fail go build.
 package archtest
 
 import (
@@ -105,13 +105,16 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 		}
 		relFile, _ := filepath.Rel(nameRoot, path)
 		pkg, file := filepath.ToSlash(relDir), filepath.ToSlash(relFile)
-		pkgs[sub+"/"+pkg] = true
+		// One key per directory, unique across internal/ and cmd/.
+		relBase, _ := filepath.Rel(base, filepath.Dir(path))
+		pkgs[sub+"/"+filepath.ToSlash(relBase)] = true
 		r.Files++
 		f, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return fmt.Errorf("archtest: parse %s: %w", path, err)
 		}
-		names := map[string]string{} // local import name -> import path (os, time only)
+		names := map[string]string{}  // local import name -> import path (os, time only)
+		dotted := map[string]string{} // forbidden function name -> import path, for dot-imports
 		for _, imp := range f.Imports {
 			p, err := strconv.Unquote(imp.Path.Value)
 			if err != nil {
@@ -122,7 +125,14 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 				if imp.Name != nil {
 					local = imp.Name.Name
 				}
-				names[local] = p
+				if local == "." {
+					// import . "os": Getenv(...) appears as a bare identifier.
+					for fn := range forbiddenCalls[p] {
+						dotted[fn] = p
+					}
+				} else {
+					names[local] = p
+				}
 			}
 			if sub == "internal" && strings.HasPrefix(p, prefix) {
 				target := strings.TrimPrefix(p, prefix)
@@ -134,20 +144,37 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 		if file == stdioFile || strings.HasSuffix(file, "_test.go") {
 			return nil
 		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			id, ok := sel.X.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			if path, watched := names[id.Name]; watched && forbiddenCalls[path][sel.Sel.Name] {
-				r.Violations = append(r.Violations, fmt.Sprintf("%s: %s.%s outside %s - take it from cli.Stdio", file, path, sel.Sel.Name, stdioFile))
+		report := func(path, fn string) {
+			r.Violations = append(r.Violations, fmt.Sprintf("%s: %s.%s outside %s - take it from cli.Stdio", file, path, fn, stdioFile))
+		}
+		var visit func(n ast.Node) bool
+		visit = func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				// Only the qualifier can name a package; x.Sel is a member name.
+				if id, ok := x.X.(*ast.Ident); ok {
+					if path, watched := names[id.Name]; watched && forbiddenCalls[path][x.Sel.Name] {
+						report(path, x.Sel.Name)
+					}
+				} else {
+					ast.Inspect(x.X, visit)
+				}
+				return false
+			case *ast.KeyValueExpr:
+				// A struct-literal key is a field name, not a use of a dot-imported function.
+				if _, isIdent := x.Key.(*ast.Ident); isIdent {
+					ast.Inspect(x.Value, visit)
+					return false
+				}
+			case *ast.Ident:
+				// Obj == nil: not declared in this file, i.e. it can only come from a dot-import.
+				if path, ok := dotted[x.Name]; ok && x.Obj == nil {
+					report(path, x.Name)
+				}
 			}
 			return true
-		})
+		}
+		ast.Inspect(f, visit)
 		return nil
 	})
 }
