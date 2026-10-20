@@ -2,6 +2,7 @@ package reasons_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,8 +115,32 @@ func TestGeneratedTableIsUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(regen, committed) {
-		t.Fatal("table_gen.go is stale: run go generate ./internal/core/reasons/...")
+	if err := checkFresh(committed, regen); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fixCommand is the exact command that repairs a stale table_gen.go.
+const fixCommand = "cd research-sdd/rsdd && go generate ./internal/core/reasons/..."
+
+// checkFresh compares the committed generated table with a fresh generation.
+func checkFresh(committed, regen []byte) error {
+	if bytes.Equal(committed, regen) {
+		return nil
+	}
+	return fmt.Errorf("table_gen.go is stale against reason-codes.v1.md; fix it with: %s", fixCommand)
+}
+
+func TestStaleTableMessageNamesTheFixCommand(t *testing.T) {
+	if err := checkFresh([]byte("a"), []byte("a")); err != nil {
+		t.Fatalf("identical bytes reported stale: %v", err)
+	}
+	err := checkFresh([]byte("old"), []byte("new"))
+	if err == nil {
+		t.Fatal("differing bytes were not reported stale")
+	}
+	if !strings.Contains(err.Error(), fixCommand) {
+		t.Fatalf("message %q does not carry the exact fix command %q", err, fixCommand)
 	}
 }
 

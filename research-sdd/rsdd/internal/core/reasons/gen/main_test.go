@@ -69,21 +69,30 @@ func TestParseTableEscapedPipe(t *testing.T) {
 }
 
 func TestParseTableRejects(t *testing.T) {
-	cases := map[string]string{
-		"no rows":            header,
-		"empty input":        "",
-		"too few cells":      "| `degraded: a` | degraded | x.sh | m |\n",
-		"too many cells":     "| `degraded: a` | degraded | x.sh | m | c | extra |\n",
-		"unknown class":      "| `degraded: a` | weird | x.sh | m | c |\n",
-		"empty continuation": "| `degraded: a` | degraded | x.sh | m |  |\n",
-		"empty code":         "| `` | degraded | x.sh | m | c |\n",
-		"duplicate code":     rowLine("degraded: a", "degraded") + "\n" + rowLine("degraded: a", "degraded") + "\n",
-		"degraded prefix":    rowLine("not a degraded line", "degraded") + "\n",
+	cases := []struct{ name, md, wantSub string }{
+		{"no rows", header, "no registry rows"},
+		{"empty input", "", "no registry rows"},
+		{"too few cells", "| `degraded: a` | degraded | x.sh | m |\n", "has 4 cells, want 5"},
+		{"too many cells", "| `degraded: a` | degraded | x.sh | m | c | extra |\n", "has 6 cells, want 5"},
+		{"no closing pipe", "| `degraded: a` | degraded | x.sh | m | c\n", "does not end with a closing pipe"},
+		{"unclosed backtick code", "| `degraded: a | degraded | x.sh | m | c |\n", "not backtick-wrapped"},
+		{"unknown class", "| `degraded: a` | weird | x.sh | m | c |\n", `unknown class "weird"`},
+		{"empty continuation", "| `degraded: a` | degraded | x.sh | m |  |\n", "empty meaning or continuation"},
+		{"empty meaning", "| `degraded: a` | degraded | x.sh |  | c |\n", "empty meaning or continuation"},
+		{"empty emitters cell", "| `degraded: a` | degraded |  | m | c |\n", "has no emitters"},
+		{"emitters of only commas", "| `degraded: a` | degraded | , , | m | c |\n", "has no emitters"},
+		{"empty code", "| `` | degraded | x.sh | m | c |\n", "empty code"},
+		{"duplicate code", rowLine("degraded: a", "degraded") + "\n" + rowLine("degraded: a", "degraded") + "\n", `duplicate code "degraded: a" (first at line 1)`},
+		{"degraded prefix", rowLine("not a degraded line", "degraded") + "\n", "lacks the"},
 	}
-	for name, md := range cases {
-		t.Run(name, func(t *testing.T) {
-			if rows, err := parseTable(strings.NewReader(md)); err == nil {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rows, err := parseTable(strings.NewReader(c.md))
+			if err == nil {
 				t.Fatalf("expected an error, got rows %+v", rows)
+			}
+			if !strings.Contains(err.Error(), c.wantSub) {
+				t.Fatalf("error %q does not contain %q", err, c.wantSub)
 			}
 		})
 	}
@@ -119,5 +128,20 @@ func TestRenderRejectsNameCollision(t *testing.T) {
 	}
 	if _, err := render(rows); err == nil {
 		t.Fatal("expected a name collision error")
+	}
+}
+
+func TestRenderRejectsReservedIdentifiers(t *testing.T) {
+	// Hand-written exported names of package reasons that a registry code would collide with.
+	for _, code := range []string{"class", "code", "all", "lookup", "render", "emit", "emit detail", "class degraded", "class input"} {
+		rows := []row{{Code: code, Class: "input", Emitters: []string{"x"}, Meaning: "m", Continuation: "c"}}
+		_, err := render(rows)
+		if err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("code %q: want a reserved-identifier error, got %v", code, err)
+		}
+	}
+	// A near miss is fine.
+	if _, err := render([]row{{Code: "classes", Class: "input", Emitters: []string{"x"}, Meaning: "m", Continuation: "c"}}); err != nil {
+		t.Errorf("classes: %v", err)
 	}
 }

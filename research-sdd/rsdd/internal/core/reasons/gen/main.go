@@ -29,8 +29,19 @@ type row struct {
 
 const degradedPrefix = "degraded: "
 
+// reserved lists the exported identifiers hand-written in package reasons; a generated Code variable with
+// one of these names would not compile, or worse would shadow the API.
+var reserved = map[string]bool{
+	"Code": true, "Class": true, "ClassDegraded": true, "ClassInput": true,
+	"All": true, "Lookup": true, "Render": true, "Emit": true, "EmitDetail": true,
+}
+
 // splitCells splits a markdown table line (without its outer pipes) on unescaped pipes. In GFM any
-// backslash-pipe inside a cell is an escaped pipe and renders as a literal pipe.
+// backslash-pipe inside a cell is an escaped pipe and renders as a literal pipe (verified against the
+// GFM renderer, per the kit doctrine on table semantics). KNOWN DIVERGENCE: the shell parser in
+// tests/reason-codes.test.sh splits with awk -F'|' and does not honour the escape. The registry has no
+// escaped pipe today (0 occurrences), so the two agree on the real file; a future row that adds one will
+// make them disagree, and that is a finding for the shell side.
 func splitCells(s string) []string {
 	var cells []string
 	var cur strings.Builder
@@ -140,6 +151,9 @@ func render(rows []row) ([]byte, error) {
 		n := identName(r.Code)
 		if n == "" || unicode.IsDigit([]rune(n)[0]) {
 			return nil, fmt.Errorf("code %q yields unusable identifier %q", r.Code, n)
+		}
+		if reserved[n] {
+			return nil, fmt.Errorf("code %q maps to identifier %s, which is reserved by package reasons", r.Code, n)
 		}
 		if other, dup := used[n]; dup {
 			return nil, fmt.Errorf("codes %q and %q both map to identifier %s", other, r.Code, n)
