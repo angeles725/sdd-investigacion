@@ -16,7 +16,7 @@ reason), runs faster, removes whole defect families by construction, and is quic
 |---|---|---|
 | Production shell | 117 files, 35,750 lines | word-splitting, `set -e`/pipefail SIGPIPE races, ~182 `jq` call sites, GNU/BSD tool drift, >15 hand-copied GFM table readers held together only by a parity test |
 | Production Python | 63 files, 21,588 lines | 7 copies of `renameat2` via ctypes, 7 canonical-JSON encoders, 8 `publish()`, 34 argparse CLIs, two import styles, 7 legacy adapters that never adopted `lib/adapter_core.py` |
-| Tests | 211 suites, ~146k lines | 25–34 min single job (#2114), now 4 shards; dependency graph unknown to the runner (#2201) |
+| Tests | 217 `*.test.sh` + 3 `*.test.mjs` (enumerator: `git ls-files`), ~146k lines | 25–34 min single job (#2114), now 4 shards; dependency graph unknown to the runner (#2201) |
 | Bash-only policing | ~4.9k lines of lints/guards | exists only because the code is bash (pipefail-sigpipe, lint-substitution, self-dir-idiom, lib-resolution, summary-line, mutant-syntax) |
 
 The kit has almost no dead code (three audits agree): the win is unification, typing and speed,
@@ -172,6 +172,47 @@ makes every test hermetic and parallel by default.
 `CGO_ENABLED=0` static builds for linux/darwin/windows x amd64/arm64. The installer builds from source
 when `go` is present, otherwise downloads the release asset and verifies its sha256. Both harnesses
 (Claude Code and pi/gentle-shell) keep working at every phase (hard constraint from #2202).
+
+### 4.9 Porting rules from the plan review (Programador1 + Opus, 2026-10-19; verified)
+
+1. **Teeth move with the SUT.** 186 suites mutate the bash SUT text (`mutant_sed`/`mutant_chain`,
+   tests/lib/mutant.sh). When a script becomes a shim those mutants cannot apply. The porting PR moves
+   each teeth case into a Go mutation/table test, or waives it in `teeth-helper-waivers.txt` naming the Go
+   test that replaces it; black-box cases stay on the shim. Record `--prove-teeth` counts before/after.
+2. **Kit-copy and stub suites.** 92 suites copy toolbelt scripts into a temp kit and 13 stub sibling
+   scripts. Shims honour an absolute `$RSDD_BIN` first and `run-all.sh` exports it; every stubbing suite is
+   listed in its porting unit and rewritten as a Go test with an interface seam (in-process calls would
+   otherwise bypass the stub and the suite would pass while testing nothing).
+3. **Degraded behaviour per hook event** (never fail open): SessionStart = exit 0 + DEGRADED headline;
+   PreToolUse guard = `ask`/deny, never an empty allow; Stop gates = the existing `branch=degraded` allow
+   path (retro-gate.sh mode=degraded). Each pinned by a golden in U0.5.
+4. **Distribution.** Staleness is a source-tree hash embedded in the binary (`rsdd version
+   --source-hash`), not mtime; rebuild under `flock` into a temp file then rename; `GOTOOLCHAIN=local`,
+   `-mod=vendor` for offline builds; typed `degraded: rsdd-stale` (mismatch, no go) and
+   `degraded: rsdd-build-failed`. Env/temp names must not collide with `RSDD_VM_ROOT` or `/tmp/rsdd`.
+5. **Regex semantics.** Go `regexp` has no lookaround and `\b`/`\w` are ASCII-only. Phase 3/6 units list
+   every lookaround (≥20 in lint-block-packs, lint_block.py, `grep -P` in scan-secrets.sh and
+   install-tool.sh) with its replacement and non-ASCII + boundary parity fixtures.
+6. **JSON and sort byte parity.** core/jsonout ships goldens for non-ASCII, `<>&` (SetEscapeHTML off),
+   floats and empty `{}`/`[]` per mode (indent 1 and 2 both exist). Parity runs the legacy side under
+   `LC_ALL=C` and under the user's locale and records any difference (422 `sort` calls vs 170 `LC_ALL=C`).
+7. **Parity covers effects, not only streams.** Writers (state-update, archive, append-row, init) are
+   compared by before/after tree diff on a SCRATCH COPY of the corpus — never the corpus itself (§8).
+   Normalisers (time, temp root, PID) are declared in intended.json and approved per PR. A ported
+   script's bash is frozen; the oracle sha moves only with a recorded reason.
+8. **Registry does not serialise lanes.** Each domain package exports `Commands []cli.Command` and the
+   table concatenates them; phase 0 creates the domain stubs (done in #2277).
+9. **Units are sized before a lane starts**: file set, estimated lines, affected suites. research-sdd-status.sh
+   (2,642 lines) is split by output section. Phases 3–7 get their unit lists at the end of the previous phase.
+10. **No literal counts as acceptance.** Every count in §8 is the output of a named enumerator
+    (e.g. `git ls-files 'research-sdd/**/*.test.sh' | wc -l` = 217 at 18b4b206, not "211"). Acceptance adds
+    `rsdd hook session-start --all` ≤ 8,000 decoded characters (verify-session-budget) and performance as
+    p50/p95 over N runs on a recorded host and load average.
+
+Rejected: deleting the 9 four-line corroborate wrappers in U0.4 — doctrine cites those paths; they
+become shims in phase 6 and are deleted in phase 8 with the doctrine rewrite.
+Phase 7 (extras) stays IN scope (the maintainer asked for a complete port) but is ported last and only
+after its usage is re-measured; until then it is frozen Python behind the same gate.
 
 ## 5. Phases and work units
 
