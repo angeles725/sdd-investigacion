@@ -54,7 +54,7 @@ mksuite() {
 ctree() {
   local root="$TMP/$1" w; w="$root/$CT"
   mkdir -p "$w/lib" "$w/fixtures/a" "$root/research-sdd/install/tests" "$root/research-sdd/toolbelt"
-  cp "$SUT" "$w/run-all.sh"; cp "$IMP" "$w/suite-impact.sh"; mkdir -p "$root/research-sdd/toolbelt/lib"; cp "$HERE/../lib/test-lane.sh" "$root/research-sdd/toolbelt/lib/test-lane.sh"
+  cp "$SUT" "$w/run-all.sh"; cp "$IMP" "$w/suite-impact.sh"; cp "$HERE/lib/test-lane.sh" "$w/lib/test-lane.sh"
   mksuite "$w/a.test.sh" a 0 ': "$TB/alpha.sh" and fixtures'
   mksuite "$w/b.test.sh" b 0 ': "$TB/beta.sh"'
   mksuite "$w/c.test.sh" c 0 ': "$TB/gamma.sh"'

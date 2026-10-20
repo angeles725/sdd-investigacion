@@ -22,7 +22,7 @@ if ! declare -F rsdd_lane >/dev/null 2>&1; then
 
   # Capture lib dir at source time so the fixture resolver is cwd-independent.
   _RSDD_LANE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  _RSDD_LANE_TOOLBELT_DIR="$(dirname "$_RSDD_LANE_LIB_DIR")"
+  _RSDD_LANE_TESTS_DIR="$(dirname "$_RSDD_LANE_LIB_DIR")"
 
   # rsdd_lane
   #   Echo the active lane name: fast | slow | all.
@@ -53,7 +53,7 @@ if ! declare -F rsdd_lane >/dev/null 2>&1; then
       return 1
     fi
     printf '%s\n' \
-      "${_RSDD_LANE_TOOLBELT_DIR}/tests/fixtures/lane/${suite}/${name}.json"
+      "${_RSDD_LANE_TESTS_DIR}/fixtures/lane/${suite}/${name}.json"
   }
 
 fi
