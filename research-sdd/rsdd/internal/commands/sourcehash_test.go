@@ -51,7 +51,7 @@ func TestFixtureSelectedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"a.go", "embed/data.bin", "go.mod", "go.sum", "pkg/embed/x.txt", "sub/b.go", "vendor/v/lib.txt"}
+	want := []string{"a.go", "embed/data.bin", "go.mod", "go.sum", "pkg/embed/deep/y_test.go", "pkg/embed/x.txt", "sub/b.go", "vendor/v/lib.txt", "vendor/v/x_test.go"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("selected files = %v, want %v", got, want)
 	}
@@ -69,6 +69,7 @@ func TestSelectionRules(t *testing.T) {
 		{"go.sum optional", fstest.MapFS{"go.mod": f("m")}, []string{"go.mod"}},
 		{"vendor tree", fstest.MapFS{"vendor/m/x.txt": f("v"), "vendor/modules.txt": f("v"), "a.go": f("x")}, []string{"a.go", "vendor/m/x.txt", "vendor/modules.txt"}},
 		{"embed dirs at any depth", fstest.MapFS{"embed/a.bin": f("e"), "p/q/embed/b.bin": f("e"), "a.go": f("x")}, []string{"a.go", "embed/a.bin", "p/q/embed/b.bin"}},
+		{"vendor and embed keep test files", fstest.MapFS{"vendor/x_test.go": f("v"), "embed/y_test.go": f("e"), "p/embed/q/z_test.go": f("e"), "p/z_test.go": f("x"), "testdata/embed/w_test.go": f("x")}, []string{"embed/y_test.go", "p/embed/q/z_test.go", "vendor/x_test.go"}},
 		{"non-matching files", fstest.MapFS{"a.go": f("x"), "README.md": f("r"), "x/notes.txt": f("n"), "embedded/y.txt": f("n")}, []string{"a.go"}},
 		{"testdata segment excludes everything", fstest.MapFS{"a.go": f("x"), "testdata/b.go": f("x"), "p/testdata/c.go": f("x"), "testdata/embed/d.bin": f("x"), "embed/testdata/e.bin": f("x"), "vendor/testdata/f.go": f("x")}, []string{"a.go"}},
 		{"bytewise order, not walk order", fstest.MapFS{"a/b.go": f("x"), "a.go": f("x"), "a-b.go": f("x"), "B.go": f("x")}, []string{"B.go", "a-b.go", "a.go", "a/b.go"}},

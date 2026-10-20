@@ -43,11 +43,25 @@ var (
 )
 
 // selected reports whether the root-relative slash path joins the hashed set.
+// Precedence, strongest first:
+//  1. a `testdata` segment excludes the path;
+//  2. every file under the root's vendor/ and under any embed/ directory is
+//     selected, *_test.go included;
+//  3. otherwise *.go is selected unless it is *_test.go, and go.mod / go.sum at
+//     the root are selected.
 func selected(rel string) bool {
 	segs := strings.Split(rel, "/")
 	for _, s := range segs {
 		if s == "testdata" {
 			return false
+		}
+	}
+	if segs[0] == "vendor" && len(segs) > 1 {
+		return true
+	}
+	for _, s := range segs[:len(segs)-1] {
+		if s == "embed" {
+			return true
 		}
 	}
 	base := segs[len(segs)-1]
@@ -56,13 +70,6 @@ func selected(rel string) bool {
 		return !strings.HasSuffix(base, "_test.go")
 	case rel == "go.mod", rel == "go.sum":
 		return true
-	case segs[0] == "vendor" && len(segs) > 1:
-		return true
-	}
-	for _, s := range segs[:len(segs)-1] {
-		if s == "embed" {
-			return true
-		}
 	}
 	return false
 }
