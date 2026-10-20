@@ -1,7 +1,15 @@
 // Package envelope renders the research-sdd.<instrument>/v1 JSON envelope of json-envelope.v1.md.
 //
-// One renderer replaces the four hand-rolled jq builders. Field order is part of the contract with the
-// shell instruments, so objects are ordered slices, not maps.
+// One renderer replaces the per-instrument envelope builders of verify-registry.sh, sweep-retros.sh,
+// retro-gate.sh and resume-state.sh. Member order is part of the output the shell instruments print, so
+// objects are ordered slices, not maps, and the position of "reason" relative to "counts" is an explicit
+// KeyOrder the caller must choose: the instruments disagree (retro-gate.sh and resume-state.sh print reason
+// first, as the contract table does; sweep-retros.sh and verify-registry.sh print counts first), and there
+// is deliberately no default.
+//
+// Two rules of the contract are applied while rendering, and nothing else is repaired: the block reason of
+// a retro-gate verdict item has its invalid UTF-8 replaced with U+FFFD exactly like jq does (the contract
+// says so); invalid UTF-8 anywhere else is an error.
 package envelope
 
 import (
@@ -14,6 +22,21 @@ import (
 	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/state"
+)
+
+// KeyOrder is the position of "reason" relative to "counts" in the rendered envelope. The instruments
+// disagree, so the caller must name the order of the instrument it ports; there is no default.
+type KeyOrder int
+
+// The two orders in use. The zero value is invalid.
+const (
+	OrderInvalid KeyOrder = iota
+	// ReasonBeforeCounts renders schema, state, reason, counts, items: the contract table, retro-gate.sh,
+	// resume-state.sh and every hand-built degraded line.
+	ReasonBeforeCounts
+	// CountsBeforeReason renders schema, state, counts, reason, items: the jq builders of sweep-retros.sh
+	// and verify-registry.sh.
+	CountsBeforeReason
 )
 
 // Field is one key of an ordered object.
@@ -66,7 +89,7 @@ func (e Envelope) Validate() error {
 			return fmt.Errorf("envelope: state %s must have no items (a finding is never hidden behind another state)", e.State)
 		}
 	}
-	if err := checkKeys(e.Counts, "counts"); err != nil {
+	if err := checkObject(e.Counts, "counts"); err != nil {
 		return err
 	}
 	for _, f := range e.Counts {
@@ -77,26 +100,22 @@ func (e Envelope) Validate() error {
 		}
 	}
 	for i, it := range e.Items {
-		if err := checkKeys(it, fmt.Sprintf("items[%d]", i)); err != nil {
+		where := fmt.Sprintf("items[%d]", i)
+		if len(it) == 0 || it[0].Key != "kind" {
+			return fmt.Errorf("envelope: %s must lead with its kind field", where)
+		}
+		if kind, ok := it[0].Value.(string); !ok || kind == "" {
+			return fmt.Errorf("envelope: %s kind must be a non-empty string", where)
+		}
+		if err := checkObject(it, where); err != nil {
 			return err
 		}
-		if kind, ok := lookup(it, "kind").(string); !ok || kind == "" {
-			return fmt.Errorf("envelope: items[%d] lacks a non-empty string kind", i)
-		}
 	}
 	return nil
 }
 
-func lookup(o Object, key string) any {
-	for _, f := range o {
-		if f.Key == key {
-			return f.Value
-		}
-	}
-	return nil
-}
-
-func checkKeys(o Object, where string) error {
+// checkObject rejects empty and duplicate keys in o and in every object nested anywhere below it.
+func checkObject(o Object, where string) error {
 	seen := make(map[string]bool, len(o))
 	for _, f := range o {
 		if f.Key == "" {
@@ -106,23 +125,116 @@ func checkKeys(o Object, where string) error {
 			return fmt.Errorf("envelope: %s has duplicate key %q", where, f.Key)
 		}
 		seen[f.Key] = true
+		if err := checkValue(f.Value, where+"."+f.Key); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
+func checkValue(v any, where string) error {
+	switch x := v.(type) {
+	case Object:
+		return checkObject(x, where)
+	case []Object:
+		for i, o := range x {
+			if err := checkObject(o, fmt.Sprintf("%s[%d]", where, i)); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for i, e := range x {
+			if err := checkValue(e, fmt.Sprintf("%s[%d]", where, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// sanitizeVerdict applies the one repair the contract specifies: for a retro-gate verdict item (kind
+// "verdict"), invalid UTF-8 in the block reason becomes U+FFFD, as jq does when the instrument builds it.
+// The input item is not modified.
+func sanitizeVerdict(it Object) Object {
+	if len(it) == 0 || it[0].Value != "verdict" {
+		return it
+	}
+	out := make(Object, len(it))
+	copy(out, it)
+	for i, f := range out {
+		if s, ok := f.Value.(string); ok && f.Key == "reason" {
+			out[i].Value = jqValidUTF8(s)
+		}
+	}
+	return out
+}
+
+// jqValidUTF8 replaces invalid UTF-8 with U+FFFD the way jq's decoder does: a stray continuation byte, an
+// invalid lead byte (0x80-0xC1, 0xF5-0xFF) and each byte of such a run count one replacement; a lead byte
+// followed by too few continuation bytes counts one for the truncated prefix; a complete but invalid
+// sequence (overlong, surrogate, above U+10FFFF) counts one for the whole sequence.
+func jqValidUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c < utf8.RuneSelf {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		var need int
+		switch {
+		case c >= 0xC2 && c <= 0xDF:
+			need = 2
+		case c >= 0xE0 && c <= 0xEF:
+			need = 3
+		case c >= 0xF0 && c <= 0xF4:
+			need = 4
+		default:
+			b.WriteRune(utf8.RuneError)
+			i++
+			continue
+		}
+		n := 1
+		for n < need && i+n < len(s) && s[i+n]&0xC0 == 0x80 {
+			n++
+		}
+		if n == need && utf8.ValidString(s[i:i+n]) {
+			b.WriteString(s[i : i+n])
+		} else {
+			b.WriteRune(utf8.RuneError)
+		}
+		i += n
+	}
+	return b.String()
+}
+
 // Pretty renders the envelope the way the shell instruments' jq builders print it: two-space indent,
-// keys in the order schema, state, counts, reason, items, and a trailing newline.
-func (e Envelope) Pretty() ([]byte, error) {
-	return e.render(true, []string{"schema", "state", "counts", "reason", "items"})
+// members in the given order, and a trailing newline.
+func (e Envelope) Pretty(order KeyOrder) ([]byte, error) { return e.render(true, order) }
+
+// Compact renders the single-line form the instruments print by hand when jq is unavailable, with members
+// in the given order and a trailing newline.
+func (e Envelope) Compact(order KeyOrder) ([]byte, error) { return e.render(false, order) }
+
+func (o KeyOrder) members() ([]string, error) {
+	switch o {
+	case ReasonBeforeCounts:
+		return []string{"schema", "state", "reason", "counts", "items"}, nil
+	case CountsBeforeReason:
+		return []string{"schema", "state", "counts", "reason", "items"}, nil
+	}
+	return nil, fmt.Errorf("envelope: invalid key order %d (choose ReasonBeforeCounts or CountsBeforeReason)", int(o))
 }
 
-// Compact renders the single-line form the instruments print by hand when jq is unavailable: keys in the
-// order schema, state, reason, counts, items, and a trailing newline.
-func (e Envelope) Compact() ([]byte, error) {
-	return e.render(false, []string{"schema", "state", "reason", "counts", "items"})
-}
-
-func (e Envelope) render(pretty bool, order []string) ([]byte, error) {
+func (e Envelope) render(pretty bool, ko KeyOrder) ([]byte, error) {
+	order, err := ko.members()
+	if err != nil {
+		return nil, err
+	}
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
@@ -132,7 +244,7 @@ func (e Envelope) render(pretty bool, order []string) ([]byte, error) {
 	}
 	items := make([]any, len(e.Items))
 	for i, it := range e.Items {
-		items[i] = it
+		items[i] = sanitizeVerdict(it)
 	}
 	fields := map[string]any{"schema": e.Schema, "state": e.State.String(), "counts": e.Counts, "reason": reason, "items": items}
 	top := make(Object, 0, len(order))
