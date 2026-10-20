@@ -194,3 +194,16 @@ func TestResultDescribe(t *testing.T) {
 		}
 	}
 }
+
+// The caller's PATH reaches both sides only through ConfigFromEnv (archtest bans
+// os.Getenv here); an empty Config.Path falls back to defaultPath.
+func TestConfigFromEnvCarriesPath(t *testing.T) {
+	env := map[string]string{"PATH": "/opt/x/bin:/usr/bin"}
+	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Path != "/opt/x/bin:/usr/bin" {
+		t.Fatalf("Path = %q, want the getenv PATH", cfg.Path)
+	}
+}

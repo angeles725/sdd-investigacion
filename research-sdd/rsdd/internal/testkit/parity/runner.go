@@ -27,7 +27,12 @@ type Config struct {
 	Bin        string        // rsdd binary
 	Work       string        // parent of the sandbox
 	Timeout    time.Duration // per run; <= 0 means the default
+	Path       string        // PATH handed to both sides; empty means defaultPath
 }
+
+// defaultPath is the PATH both sides get when Config.Path is empty. The caller's
+// PATH arrives only through ConfigFromEnv's getenv (archtest: no ambient reads).
+const defaultPath = "/usr/local/bin:/usr/bin:/bin"
 
 // Degraded is a typed "could not run" result (absent-input or degraded). It
 // is never a pass.
@@ -41,7 +46,7 @@ type Runner struct{ Cfg Config }
 // ConfigFromEnv reads RSDD_PARITY_LEGACY, RSDD_BIN and RSDD_PARITY_TIMEOUT.
 // Unset roots stay empty so NewRunner can type them as absent-input.
 func ConfigFromEnv(getenv func(string) string, work string) (Config, error) {
-	cfg := Config{LegacyRoot: getenv("RSDD_PARITY_LEGACY"), Bin: getenv("RSDD_BIN"), Work: work, Timeout: defaultTimeout}
+	cfg := Config{LegacyRoot: getenv("RSDD_PARITY_LEGACY"), Bin: getenv("RSDD_BIN"), Work: work, Timeout: defaultTimeout, Path: getenv("PATH")}
 	if s := getenv("RSDD_PARITY_TIMEOUT"); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil || d <= 0 {
@@ -212,7 +217,11 @@ func (r *Runner) runSide(c Case, side, corpus string) (Observed, []Problem) {
 	if side == "legacy" {
 		path, args = filepath.Join(r.Cfg.LegacyRoot, c.Spec.Legacy[0]), sub(c.Spec.Legacy[1:])
 	}
-	env := []string{"PATH=" + os.Getenv("PATH"), "LC_ALL=C", "TZ=UTC", "HOME=" + filepath.Join(sb, "home"), "TMPDIR=" + filepath.Join(sb, "tmp")}
+	pathEnv := r.Cfg.Path
+	if pathEnv == "" {
+		pathEnv = defaultPath
+	}
+	env := []string{"PATH=" + pathEnv, "LC_ALL=C", "TZ=UTC", "HOME=" + filepath.Join(sb, "home"), "TMPDIR=" + filepath.Join(sb, "tmp")}
 	keys := make([]string, 0, len(c.Spec.Env))
 	for k := range c.Spec.Env {
 		keys = append(keys, k)
