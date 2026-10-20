@@ -237,6 +237,41 @@ func TestRejectsBytesLikePythonDoes(t *testing.T) {
 	}
 }
 
+// A cycle made only of pointers or interfaces never enters list() or object(), so the container bound
+// alone cannot stop it: Go cannot recover from the resulting stack overflow (#2293).
+func TestIndirectionOnlyCyclesAreBounded(t *testing.T) {
+	for name, mk := range map[string]func() any{
+		"self-referential pointer": func() any { var p any; p = &p; return p },
+		"interface cycle":          func() any { var a, b any; a = &b; b = &a; return a },
+	} {
+		if b, err := Canonical(mk()); err == nil || !strings.Contains(err.Error(), "indirection") {
+			t.Errorf("%s: must be rejected with an indirection error, got %d bytes, %v", name, len(b), err)
+		}
+	}
+	var leaf any = "leaf"
+	p := &leaf
+	for i := 1; i < MaxDepth; i++ {
+		q := any(p)
+		p = &q
+	}
+	if b, err := Canonical(p); err != nil || string(b) != "\"leaf\"\n" {
+		t.Errorf("a %d-pointer chain must encode as its leaf: %q %v", MaxDepth, b, err)
+	}
+	q := any(p)
+	if b, err := Canonical(&q); err == nil || !strings.Contains(err.Error(), "indirection") {
+		t.Errorf("a %d-pointer chain must be rejected, got %d bytes, %v", MaxDepth+1, len(b), err)
+	}
+	// The bound is per path, not per value: many sibling pointers, each one hop deep, must encode.
+	siblings := make([]any, 2*MaxDepth)
+	for i := range siblings {
+		s := "x"
+		siblings[i] = &s
+	}
+	if b, err := Canonical(siblings); err != nil || len(b) != len(`"x",`)*2*MaxDepth+2 {
+		t.Errorf("%d sibling pointers must encode: %d bytes, %v", 2*MaxDepth, len(b), err)
+	}
+}
+
 func TestDepthIsBounded(t *testing.T) {
 	nest := func(n int) any {
 		var v any = "leaf"

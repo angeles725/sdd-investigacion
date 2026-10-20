@@ -62,9 +62,14 @@ func Indented(v any) ([]byte, error) { return Encode(v, Options{Indent: 2, ASCII
 
 var errDepth = fmt.Errorf("jsonout: nesting depth exceeds %d (cyclic value?)", MaxDepth)
 
+var errIndirection = fmt.Errorf("jsonout: pointer/interface indirection exceeds %d (cyclic value?)", MaxDepth)
+
 type encoder struct {
 	o   Options
 	buf bytes.Buffer
+	// indirections counts the pointer/interface hops on the current path. They add no nesting, so a
+	// cycle made only of them would bypass the container depth bound and overflow the stack.
+	indirections int
 }
 
 var numberSyntax = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
@@ -122,6 +127,11 @@ func (e *encoder) reflected(rv reflect.Value, depth int) error {
 			e.buf.WriteString("null")
 			return nil
 		}
+		if e.indirections >= MaxDepth {
+			return errIndirection
+		}
+		e.indirections++
+		defer func() { e.indirections-- }()
 		return e.value(rv.Elem().Interface(), depth)
 	default:
 		return fmt.Errorf("jsonout: unsupported value of type %s", rv.Type())
