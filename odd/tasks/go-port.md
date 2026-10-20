@@ -102,13 +102,13 @@ Merges decided now (each removes a family of near-identical entry points):
 
 Callers are hooks (`.claude/settings.json`, the pi extension, `templates/hook-*`), CI, installed target
 corpora that call `toolbelt/<name>.sh` through `hook-kit-run.sh`, and ~440 mentions in doctrine.
-Therefore every ported path keeps a 3-line shim until phase 8:
-
-```bash
-#!/usr/bin/env bash
-# Ported to Go: `rsdd verify block`. Compatibility shim (removed in phase 8, kit issue <N>).
-. "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec verify block "$@"
-```
+Therefore every ported path keeps a small shim until phase 8. The two canonical shim templates
+(CLI and HOOK) live in the header of `toolbelt/lib/rsdd-exec.sh` and are executed verbatim by its
+suite (symlinked, and with the lib absent), so a shim can never drift from them. Both resolve their own
+directory with the RSDD-SELF-DIR idiom, not `$(dirname "$0")`, because hook shims are often invoked
+through symlinks. CLI shims: a missing lib is `degraded` rc 2. HOOK shims: a missing lib is announced
+with exit 0 (SENTINEL-HOOK-EMIT-GUARD), so the allow-on-degradation path always runs. Copy a template;
+never hand-write a shim.
 
 `rsdd-exec.sh` resolution: `$RSDD_BIN` -> `<kit>/bin/rsdd`. If a `*.go` file under `rsdd/` is newer
 than the binary and `go` is on PATH, it rebuilds (`go build`, cached, ~1 s). If the binary is missing
