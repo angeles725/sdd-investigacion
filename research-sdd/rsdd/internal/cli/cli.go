@@ -103,7 +103,7 @@ func Run(table []Command, args []string, s Stdio) int {
 // exec runs one command behind the panic boundary and the output contract.
 func exec(cmd Command, args []string, s Stdio) (code int) {
 	var out bytes.Buffer
-	errw := &lineTracker{w: s.Err}
+	errw := &degradedProbe{w: s.Err}
 	inner := s
 	inner.Out, inner.Err = &out, errw
 	defer func() {
@@ -126,25 +126,43 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
 		}
-		if code == ExitDegraded && !errw.sawDegraded {
+		if code == ExitDegraded && !errw.sawDegraded() {
 			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
 		}
 	}()
 	return cmd.Run(args, inner)
 }
 
-// lineTracker forwards writes and records whether a "DEGRADED:" line passed.
-type lineTracker struct {
-	w           io.Writer
-	sawDegraded bool
+// degradedProbe forwards stderr writes and records whether a line that STARTS
+// with "DEGRADED:" passed. It is line-aware: a marker split across writes
+// counts, a marker in the middle of a line does not, and an unterminated final
+// line is still judged (sawDegraded looks at the pending partial line too).
+type degradedProbe struct {
+	w       io.Writer
+	pending []byte // current line so far, capped at len("DEGRADED:")
+	seen    bool
 }
 
-func (l *lineTracker) Write(p []byte) (int, error) {
-	if bytes.Contains(p, []byte("DEGRADED:")) {
-		l.sawDegraded = true
+const degradedMarker = "DEGRADED:"
+
+func (d *degradedProbe) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b == '\n' {
+			d.pending = d.pending[:0]
+			continue
+		}
+		// Only the first len(degradedMarker) bytes of a line can form the marker.
+		if len(d.pending) < len(degradedMarker) {
+			d.pending = append(d.pending, b)
+			if string(d.pending) == degradedMarker {
+				d.seen = true
+			}
+		}
 	}
-	return l.w.Write(p)
+	return d.w.Write(p)
 }
+
+func (d *degradedProbe) sawDegraded() bool { return d.seen }
 
 func isHelp(a string) bool { return a == "--help" || a == "-h" || a == "help" }
 

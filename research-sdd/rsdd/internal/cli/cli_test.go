@@ -233,3 +233,44 @@ func TestExitMapDegradedPrecedence(t *testing.T) {
 		t.Errorf("tothree: got (%d, %q), want 3 with DEGRADED: line", code, errOut)
 	}
 }
+
+// The DEGRADED: contract is about LINES of stderr: a line split across writes
+// still counts, and the marker in the middle of a line does not.
+func TestDegradedMarkerIsJudgedPerLine(t *testing.T) {
+	split := cli.Command{Name: "split", Summary: "x", Run: func(_ []string, s cli.Stdio) int {
+		s.Err.Write([]byte("DEGRA"))
+		s.Err.Write([]byte("DED: jq missing\n"))
+		return cli.ExitDegraded
+	}}
+	unterminated := cli.Command{Name: "unterminated", Summary: "x", Run: func(_ []string, s cli.Stdio) int {
+		s.Err.Write([]byte("DEGRADED: jq missing"))
+		return cli.ExitDegraded
+	}}
+	midline := cli.Command{Name: "midline", Summary: "x", Run: func(_ []string, s cli.Stdio) int {
+		s.Err.Write([]byte("note: DEGRADED: only quoted\n"))
+		return cli.ExitDegraded
+	}}
+	afterShort := cli.Command{Name: "aftershort", Summary: "x", Run: func(_ []string, s cli.Stdio) int {
+		s.Err.Write([]byte("x\nDEGRADED: jq missing\n"))
+		return cli.ExitDegraded
+	}}
+	table := []cli.Command{split, unterminated, midline, afterShort}
+	for name, want := range map[string]int{"split": 1, "unterminated": 1, "midline": 2, "aftershort": 1} {
+		code, _, errOut := run(t, table, name)
+		if code != 3 || strings.Count(errOut, "DEGRADED:") != want {
+			t.Errorf("%s: got (%d, %q), want exit 3 and %d DEGRADED: marker(s)", name, code, errOut, want)
+		}
+	}
+}
+
+// A bare group name is a usage error that lists the group's commands on
+// stderr and prints nothing on stdout.
+func TestBareGroupIsUsageErrorWithGroupHelp(t *testing.T) {
+	code, out, errOut := run(t, testTable(), "verify")
+	if code != cli.ExitUsage || out != "" {
+		t.Fatalf("got (%d, %q), want (2, empty stdout)", code, out)
+	}
+	if !strings.Contains(errOut, "rsdd verify <command>") || !strings.Contains(errOut, "verify a block") {
+		t.Errorf("stderr lacks the group usage: %q", errOut)
+	}
+}
