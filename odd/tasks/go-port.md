@@ -269,4 +269,14 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
 - 2026-10-19: read-only mapping complete (Python, bash, tests/CI, other languages + specs, callers +
   contracts, dead-code audits x3, executable-root call graph). Baseline timing (Programador1) pending.
 - 2026-10-19: epic #2270 and phase-0 issues #2271–#2275 opened (status:approved).
-- Next: land this document, start U0.1 and U0.4, then U0.2, U0.3, U0.5 in parallel once U0.1 merges.
+- 2026-10-19: lanes running (route: delegated, one writer per lane, disjoint file sets).
+  U0.1 PR #2277 (Opus review: fix-first — exit contract vs json-envelope.v1, cache/impact blind spot; fixes in
+  progress). U0.3 PR #2279 stacked on #2277 (spike: Go 124 µs vs bash 10.8 ms on TARGETS.md; driver now fails
+  loudly in every mode; head 1ab49fb6). U0.2 4-PR stack pending push. U0.5 part A in review fixes, part B on
+  feat/2275-parity. U0.4 two PRs in progress.
+- Decisions recorded: exit contract follows json-envelope.v1 (§4.7); shim templates live in rsdd-exec.sh (§4.4);
+  gremlins gate = zero LIVED mutants, not a percentage; merge order #2277 → U0.2 stack → U0.3 → U0.5.
+- Follow-up issues: #2278 (reason-codes scanner hard-coded list), #2280 (indented FOCUSES rows bug);
+  phase-1 issues #2281–#2286 opened. Baseline: wall-time run aborted (machine under load); CPU-time + CI
+  history baseline in progress, short quiet window pending.
+- Next: gate + merge #2277, then the stacked PRs in order.
