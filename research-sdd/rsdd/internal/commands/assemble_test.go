@@ -52,3 +52,10 @@ func TestDuplicateMessageLabelsGroupedAndUngrouped(t *testing.T) {
 		t.Errorf("grouped label: %v", err)
 	}
 }
+
+func TestAssembleDuplicateWithinOneDomainNamesItOnce(t *testing.T) {
+	_, err := assemble([]namedSet{{"solo", []cli.Command{cmd("g", "n"), cmd("g", "n")}}})
+	if err == nil || strings.Count(err.Error(), `"solo"`) != 1 || !strings.Contains(err.Error(), `"g n"`) {
+		t.Fatalf("err = %v, want one attribution to domain solo", err)
+	}
+}

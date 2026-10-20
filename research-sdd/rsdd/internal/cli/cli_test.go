@@ -274,3 +274,12 @@ func TestBareGroupIsUsageErrorWithGroupHelp(t *testing.T) {
 		t.Errorf("stderr lacks the group usage: %q", errOut)
 	}
 }
+
+func TestValidateDuplicateIsTyped(t *testing.T) {
+	run := func([]string, cli.Stdio) int { return 0 }
+	err := cli.Validate([]cli.Command{{Name: "n", Group: "g", Run: run}, {Name: "n", Group: "g", Run: run}})
+	var dup *cli.DuplicateError
+	if !errors.As(err, &dup) || dup.Group != "g" || dup.Name != "n" {
+		t.Fatalf("err = %v, want *DuplicateError{g, n}", err)
+	}
+}

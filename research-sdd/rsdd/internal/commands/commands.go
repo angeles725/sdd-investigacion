@@ -5,7 +5,9 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/adversarial"
@@ -38,33 +40,37 @@ type namedSet struct {
 	cmds []cli.Command
 }
 
-// assemble concatenates the sets and refuses any collision across them, naming
-// both owning domains for a duplicate (group, name); cli.Validate then rejects a
-// group that shares its name with an ungrouped command. Nothing is silently shadowed.
+// assemble concatenates the sets and hands the result to cli.Validate, the
+// single authority on what a valid table is. The only thing added here is
+// attribution: a duplicate is re-reported with the domains that own it.
+// Nothing is silently shadowed.
 func assemble(sets []namedSet) ([]cli.Command, error) {
 	var out []cli.Command
-	owner := map[[2]string]string{}
 	for _, s := range sets {
-		for _, c := range s.cmds {
-			key := [2]string{c.Group, c.Name}
-			if prev, dup := owner[key]; dup {
-				return nil, fmt.Errorf("duplicate command %q in domains %q and %q", cmdLabel(c), prev, s.name)
-			}
-			owner[key] = s.name
-			out = append(out, c)
-		}
+		out = append(out, s.cmds...)
 	}
 	if err := cli.Validate(out); err != nil {
+		var dup *cli.DuplicateError
+		if errors.As(err, &dup) {
+			return nil, fmt.Errorf("%w in domains %s", err, strings.Join(owners(sets, dup), " and "))
+		}
 		return nil, err
 	}
 	return out, nil
 }
 
-func cmdLabel(c cli.Command) string {
-	if c.Group == "" {
-		return c.Name
+// owners lists the sets that define the duplicated command.
+func owners(sets []namedSet, d *cli.DuplicateError) []string {
+	var names []string
+	for _, s := range sets {
+		for _, c := range s.cmds {
+			if c.Group == d.Group && c.Name == d.Name {
+				names = append(names, fmt.Sprintf("%q", s.name))
+				break
+			}
+		}
 	}
-	return c.Group + " " + c.Name
+	return names
 }
 
 // Table is the full command table consumed by cli.Run: version plus every

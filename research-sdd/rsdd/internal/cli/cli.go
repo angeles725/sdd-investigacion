@@ -28,6 +28,15 @@ type Command struct {
 	ExitMap map[int]int
 }
 
+// DuplicateError is Validate's typed rejection of a repeated (group, name), so
+// a caller that knows where each command came from can attribute it without
+// re-implementing the duplicate rule.
+type DuplicateError struct{ Group, Name string }
+
+func (e *DuplicateError) Error() string {
+	return fmt.Sprintf("duplicate command %q", label(Command{Group: e.Group, Name: e.Name}))
+}
+
 // Validate rejects a table that would shadow or cannot dispatch: an empty
 // name, a missing Run, a duplicate (group, name), or a group whose name is
 // also an ungrouped command.
@@ -41,7 +50,7 @@ func Validate(table []Command) error {
 		case c.Run == nil:
 			return fmt.Errorf("command %q has no Run", label(c))
 		case seen[[2]string{c.Group, c.Name}]:
-			return fmt.Errorf("duplicate command %q", label(c))
+			return &DuplicateError{Group: c.Group, Name: c.Name}
 		}
 		seen[[2]string{c.Group, c.Name}] = true
 		if c.Group == "" {
