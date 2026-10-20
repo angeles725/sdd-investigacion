@@ -20,13 +20,27 @@ func Run(args []string, s cli.Stdio) int
 
 | Code | Constant | Meaning |
 |---|---|---|
-| 0 | `cli.ExitOK` | ran; nothing to report, or advisory output only |
-| 1 | `cli.ExitFindings` | ran; findings reported |
-| 2 | `cli.ExitCannot` | could not run: usage error, unknown command, internal error |
-| 3 | `cli.ExitDegraded` | degraded: ran with a typed envelope, the result is NOT a zero |
+| 0 | `cli.ExitOK` | any state except degraded; findings are advisory and never change the code (CLAUDE.md section 8) |
+| 1 | `cli.ExitOperational` | operational failure (unreadable input, internal error) |
+| 2 | `cli.ExitUsage` | usage error: unknown command, bad flags, no arguments |
+| 3 | `cli.ExitDegraded` | degraded (a runtime dependency is missing): print a `DEGRADED:` line on stderr and a valid envelope on stdout; `cli.Run` appends a generic `DEGRADED:` line if you forgot |
 
-A panic is recovered by `cli.Run` and becomes `degraded: internal-error` on stderr with exit 2 - never
-exit 0. Distinguish absent-input / empty-input / no-match / degraded (CLAUDE.md section 7); a bare `0`
+A legacy instrument whose contract differs (e.g. `verify-state`: 1 = stale; `status`: 1 = no token)
+declares a per-command mapping in its table entry. `Run` returns its own code and `ExitMap`
+translates it to the process exit code; codes absent from the map pass through:
+
+```go
+{Name: "state", Group: "verify", Summary: "...", Run: verifystate.Run,
+	ExitMap: map[int]int{verifystate.Stale: 1}},
+```
+
+Stdout of a command is buffered and written only when it returns. A panic is recovered, the buffered
+stdout is **discarded** (a partial report must not look complete), and the process exits 1 with the
+typed stderr line `rsdd: internal-error: <panic value>` - an operational failure, not a degraded state,
+and never a stack trace. The consequence for streaming: a command's stdout appears when it finishes;
+progress belongs on stderr, which is written through immediately.
+
+Distinguish absent-input / empty-input / no-match / degraded (CLAUDE.md section 7); a bare `0`
 that could mean any of them is a bug.
 
 ## 2. Register it
