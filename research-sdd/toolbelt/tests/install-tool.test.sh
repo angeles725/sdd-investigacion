@@ -12,7 +12,7 @@
 # contains ONLY "$box/bin" — never the host PATH. That box holds (a) argv-logging
 # stubs for the external managers a case exercises (dotnet/brew/apt-get/sudo, …),
 # and (b) symlinks to the REAL coreutils install-tool.sh actually invokes on the
-# covered paths (dirname for HERE=, date for ts()/log(), grep+sort for --list).
+# covered paths (dirname for HERE=, date for ts()/log(), sed+sort for --list).
 # A tool is PRESENT only because its stub is dropped in the box; a tool a case
 # wants ABSENT is guaranteed absent because nothing of that name exists in the
 # controlled PATH — determinism comes from the box, NOT from what the host does
@@ -54,7 +54,7 @@ SUT="$HERE/../install-tool.sh"
 #     bash by absolute path (so the hermetic PATH can't hide it); coreutils that the
 #     covered dispatch paths actually invoke.  type -P skips functions/aliases.
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
-CORE_UTILS=(dirname date grep sort mktemp mkdir mv rm cp)   # dirname:HERE=  date:ts()/log()  grep,sort:--list  mktemp/mkdir/mv/rm/cp:java recipes; cp:stub_download materialise
+CORE_UTILS=(dirname date grep sed sort mktemp mkdir mv rm cp)   # dirname:HERE=  date:ts()/log()  sed,sort:--list  mktemp/mkdir/mv/rm/cp:java recipes; cp:stub_download materialise
 CORE_PATHS=()
 for u in "${CORE_UTILS[@]}"; do
   p="$(type -P "$u")"; [ -n "$p" ] || { echo "FATAL: required coreutil '$u' not on PATH" >&2; exit 2; }
@@ -242,6 +242,28 @@ if [ "$RC" = 0 ] && grep -qx 'ilspycmd' <<<"$OUT" && grep -qx 'yara' <<<"$OUT" &
   ok "7 --list → 0, names ilspycmd + yara + frida" "(exit $RC)"
 else
   no "7 --list → 0, names ilspycmd + yara + frida" "exit=$RC out=[$OUT]"
+fi
+
+# 7c — the --list extraction rule, pinned on a synthetic tail so a regex change cannot hide behind the real catalog.
+#      Appended AFTER the SUT's last statement (bash never parses it: --list exits first). Rule: indentation, a
+#      single [a-z0-9_-] label, `)`, then whitespace. Excluded: unindented, alias `a|b)`, glob `*)`, label with
+#      no trailing whitespace, uppercase. Included: space AND tab indentation, duplicate label (sort -u).
+#      Portability: the extraction must use only POSIX grep/sed (no `grep -P`, GNU-only).
+box="$(mkbox c7c-list-rule)"
+{ cat "$SUT"
+  printf '\n  zz-one) x\n\tzz_two) x\n  zz-one) y\nzz-unind) x\n  zz-a|zz-b) x\n  *) x\n  zz-nows)\n  ZZ-UP) x\n'
+} > "$box/install-tool.sh"
+run "$box" --list
+if [ "$RC" = 0 ] && [ "$(grep -c '^zz' <<<"$OUT")" = 2 ] && grep -qx 'zz-one' <<<"$OUT" && grep -qx 'zz_two' <<<"$OUT" \
+   && ! grep -qiE 'zz-(unind|a|b|nows|up)|^\*' <<<"$OUT"; then
+  ok "7c --list rule: indented single label + ws only; alias/glob/unindented/no-ws/uppercase excluded" "(exit $RC)"
+else
+  no "7c --list rule" "exit=$RC out=[$OUT]"
+fi
+if grep -nE 'grep +(-[a-zA-Z]*P|--perl-regexp)' "$SUT" >/dev/null; then
+  no "7d SUT has no GNU-only grep -P" "$(grep -nE 'grep +(-[a-zA-Z]*P|--perl-regexp)' "$SUT" | head -1)"
+else
+  ok "7d SUT has no GNU-only grep -P"
 fi
 
 # 7b — every tool with a wrapper/evidence contract in this toolbelt has a --list recipe.
@@ -559,6 +581,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       ok "teeth: sha256-skip mutant installs despite mismatch" "(case 18 has teeth)"
     else
       no "teeth: sha256-skip mutant installs despite mismatch" "exit=$RC dest=$([ -f "$DEST_VF" ] && echo yes || echo no) — case 18 is THEATER"
+    fi
+  fi
+
+  echo "-- teeth: narrow the --list sed indentation to one space; cases 7/7b/7c must lose recipes --"
+  box="$(mkbox teeth-list-indent)"
+  orig="'s/^[[:space:]]+([a-z0-9_-]+)"
+  new="'s/^[[:space:]]([a-z0-9_-]+)"
+  if _it_mutant list-indent "$box" "$orig" "$new"; then
+    run "$box" --list
+    if [ "$RC" = 0 ] && ! grep -qx 'ilspycmd' <<<"$OUT"; then
+      ok "teeth: list-indent mutant drops two-space recipes (cases 7/7b/7c have teeth)" "(ilspycmd missing)"
+    else
+      no "teeth: list-indent mutant drops two-space recipes" "exit=$RC ilspycmd still listed — --list cases are THEATER"
     fi
   fi
 
