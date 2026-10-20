@@ -20,3 +20,4 @@ __pycache__/
 
 # rsdd Go build output (make -C research-sdd/rsdd build)
 research-sdd/bin/
+.codegraph/
