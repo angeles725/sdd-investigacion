@@ -10,6 +10,9 @@
 #                    so the result never depends on a downloaded toolchain or ambient flags.
 #   --parse FILE     (internal) count the package results in a captured `go test` output: prints
 #                    `pass=N fail=M`, exit 1 when M > 0. The bridge's own counter is tested through it.
+#   --decide-gremlins FILE [RC]
+#                    (internal) print the gremlins verdict for a captured `make teeth` output and its exit
+#                    code RC (default 0); the bridge's gremlins parser is tested through it.
 #   --prove-teeth    one mutation control on a COPY of the module in $TMPDIR (never the live tree):
 #                    removing the panic boundary in internal/cli must turn the Go tests red
 set -uo pipefail
@@ -22,18 +25,26 @@ count_go_output() {
 
 # decide_gremlins FILE RC -> prints the report line(s), then `VERDICT: PASS|FAIL|SKIP <detail>`.
 # Gate = no LIVED mutant among the covered ones. Timed-out and not-covered mutants are reported, never
-# failed. No parsable summary (gremlins could not run: no network, no module cache, no build) is a SKIP -
-# or a FAIL under RSDD_REQUIRE_GO=1; it is never a silent pass.
+# failed. Three input states stay distinct (CLAUDE.md section 7):
+#   - a complete, numeric summary (Killed/Lived/Not covered + Timed out lines): judged on LIVED;
+#   - no summary AND a non-zero rc: gremlins itself did not run (no network, no module cache, no build):
+#     SKIP - or FAIL under RSDD_REQUIRE_GO=1; a SKIP is never counted as teeth;
+#   - anything else (a "Killed:"/"Timed out:" line that is not numeric, only one of the two lines, or no
+#     summary at all after rc=0): gremlins ran but its output cannot be read - typed FAIL, never a pass.
 decide_gremlins() {
   local f="$1" rc="$2" counts l
   counts="$(awk '
-    /^Killed:/   { gsub(/,/,""); k=$2; l=$4; n=$7; seen=1 }
-    /^Timed out:/{ gsub(/,/,""); t=$3 }
-    END { if (seen) printf "killed=%d lived=%d timed_out=%d not_covered=%d\n", k, l, t, n }' "$f")"
+    /^Killed:/ { kl++; gsub(/,/,""); if ($3=="Lived:" && $5=="Not" && $6=="covered:" && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $7 ~ /^[0-9]+$/) { k=$2; l=$4; n=$7; kok=1 } }
+    /^Timed out:/ { tl++; gsub(/,/,""); if ($3 ~ /^[0-9]+$/) { t=$3; tok=1 } }
+    END { if (kl==1 && tl==1 && kok && tok) printf "killed=%d lived=%d timed_out=%d not_covered=%d\n", k, l, t, n }' "$f")"
   if [ -z "$counts" ]; then
     local why; why="$(tail -n 3 "$f" | tr '\n' ' ')"
-    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "VERDICT: FAIL gremlins did not run (rc=$rc, RSDD_REQUIRE_GO=1): $why"
-    else echo "VERDICT: SKIP gremlins did not run (rc=$rc): $why"; fi
+    if ! grep -q -e '^Killed:' -e '^Timed out:' "$f" && [ "$rc" -ne 0 ]; then
+      if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "VERDICT: FAIL gremlins did not run (rc=$rc, RSDD_REQUIRE_GO=1): $why"
+      else echo "VERDICT: SKIP gremlins did not run (rc=$rc): $why"; fi
+    else
+      echo "VERDICT: FAIL gremlins summary unparseable (rc=$rc): $why"
+    fi
     return 0
   fi
   echo "gremlins: $counts"
@@ -165,6 +176,19 @@ if grep -q '^VERDICT: PASS' <<<"$g" && grep -q 'timed_out=3' <<<"$g"; then
 g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)"
 if grep -q '^VERDICT: SKIP gremlins did not run (rc=1)' <<<"$g"; then
   ok "gremlins: tool unavailable -> typed SKIP"; else no "gremlins: unavailable case wrong: $g"; fi
+# An unparseable or absent summary after a run that exited 0 is a typed FAIL (never a PASS, never a SKIP):
+# gremlins ran, so the instrument is broken or its output format drifted - anti-silent-zero.
+printf 'Killed: x, Lived: y, Not covered: z\nTimed out: 0, Not viable: 0, Skipped: 0\n' > "$ROOT/gr-garbled.out"
+printf 'Killed: 5, Lived: 0, Not covered: 2\n' > "$ROOT/gr-partial.out"
+printf 'gremlins: all done, nothing to report\n' > "$ROOT/gr-nosummary.out"
+for c in garbled partial nosummary; do
+  g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$ROOT/gr-$c.out" 0)"
+  if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=0)' <<<"$g" && ! grep -q '^VERDICT: \(PASS\|SKIP\)' <<<"$g"; then
+    ok "gremlins: $c summary after rc=0 -> typed FAIL, never PASS or SKIP"; else no "gremlins: $c case wrong: $g"; fi
+done
+g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$ROOT/gr-garbled.out" 1)"
+if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=1)' <<<"$g"; then
+  ok "gremlins: a garbled summary is a FAIL even when rc is non-zero (gremlins did run)"; else no "gremlins: garbled rc=1 wrong: $g"; fi
 g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)"
 if grep -q '^VERDICT: FAIL gremlins did not run (rc=1, RSDD_REQUIRE_GO=1)' <<<"$g"; then
   ok "gremlins: tool unavailable under RSDD_REQUIRE_GO=1 -> FAIL"; else no "gremlins: required-unavailable case wrong: $g"; fi
@@ -217,6 +241,18 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "counter mutation" "$0" "$MUTDI
       "$MUTDIR/rsdd-go.test.sh" --orig "$0" \
       --good-has 'fail=1' --bad-has 'fail=0' -- \
       bash @SUT@ --parse "$ROOT/canned-fail.out"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Tooth for the gremlins parser: an unparseable summary after rc=0 must be a FAIL; the mutant downgrades
+# it to a SKIP (a silent non-gate). The suite is the SUT (`--decide-gremlins FILE RC`).
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-unparseable mutation" "$0" "$MUTDIR/rsdd-go-gr.test.sh" \
+    's/VERDICT: FAIL gremlins summary unparseable/VERDICT: SKIP gremlins summary unparseable/'; then
+  if mutant_tooth "teeth: an unparseable gremlins summary downgraded to SKIP is caught" 0 0 \
+      "$MUTDIR/rsdd-go-gr.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL gremlins summary unparseable' --bad-has 'VERDICT: SKIP gremlins summary unparseable' -- \
+      bash @SUT@ --decide-gremlins "$ROOT/gr-garbled.out" 0; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
