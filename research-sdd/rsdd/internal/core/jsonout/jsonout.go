@@ -6,8 +6,14 @@
 //   - CanonicalUnicode: the same with ensure_ascii=False (analysis_manifest.py, zip_metadata.py).
 //   - Indented: indent=2, sort_keys, ensure_ascii (the _write_json helpers).
 //
-// Every form ends with a single newline. Go's encoding/json is deliberately not used for output: it escapes
-// <, > and & and formats floats differently from Python.
+// Every form ends with a single newline.
+//
+// Known divergence: Python can carry invalid UTF-8 inside a str as lone surrogates (surrogateescape), and
+// json.dumps then emits \udcXX escapes. Go strings holding invalid UTF-8 are rejected here instead; a
+// caller with such bytes must decide how to represent them before encoding.
+//
+// Go's encoding/json is deliberately not used for output: it escapes <, > and & and formats floats
+// differently from Python.
 package jsonout
 
 import (
@@ -54,6 +60,8 @@ func CanonicalUnicode(v any) ([]byte, error) { return Encode(v, Options{}) }
 // Indented is the indent=2 sorted ASCII form of the _write_json helpers.
 func Indented(v any) ([]byte, error) { return Encode(v, Options{Indent: 2, ASCII: true}) }
 
+var errDepth = fmt.Errorf("jsonout: nesting depth exceeds %d (cyclic value?)", MaxDepth)
+
 type encoder struct {
 	o   Options
 	buf bytes.Buffer
@@ -97,6 +105,9 @@ func (e *encoder) reflected(rv reflect.Value, depth int) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		e.buf.WriteString(strconv.FormatUint(rv.Uint(), 10))
 	case reflect.Slice, reflect.Array:
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return fmt.Errorf("jsonout: %s is bytes; json.dumps raises TypeError on bytes, so convert to a string or a list of ints first", rv.Type())
+		}
 		return e.list(rv.Len(), depth, func(i int) any { return rv.Index(i).Interface() })
 	case reflect.Map:
 		return e.object(rv, depth)
@@ -119,6 +130,9 @@ func (e *encoder) reflected(rv reflect.Value, depth int) error {
 }
 
 func (e *encoder) list(n, depth int, at func(int) any) error {
+	if depth >= MaxDepth {
+		return errDepth
+	}
 	if n == 0 {
 		e.buf.WriteString("[]")
 		return nil
@@ -143,6 +157,9 @@ func (e *encoder) list(n, depth int, at func(int) any) error {
 }
 
 func (e *encoder) object(rv reflect.Value, depth int) error {
+	if depth >= MaxDepth {
+		return errDepth
+	}
 	if rv.Type().Key().Kind() != reflect.String {
 		return fmt.Errorf("jsonout: map key type %s is not a string", rv.Type().Key())
 	}
@@ -300,3 +317,8 @@ func pyFloat(f float64) string {
 		return sign + "0." + strings.Repeat("0", -exp-1) + digits
 	}
 }
+
+// MaxDepth is the deepest container nesting Encode accepts. Python's json.dumps stops at its recursion
+// limit (about 1000 frames); this bound likewise turns a cyclic value into an error instead of a stack
+// overflow.
+const MaxDepth = 1000

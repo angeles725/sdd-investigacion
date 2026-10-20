@@ -81,14 +81,31 @@ func TestMatchesPythonBytes(t *testing.T) {
 	}
 }
 
-func TestEveryGoldenHasACase(t *testing.T) {
+func TestGoldenFilesAreExactlyTheCasesTimesModes(t *testing.T) {
 	in := loadCases(t)
+	want := map[string]bool{}
+	for _, c := range in.Cases {
+		for _, m := range []string{"canonical", "unicode", "indented"} {
+			want[c.Name+"."+m+".golden"] = true
+		}
+	}
 	files, err := filepath.Glob(filepath.Join("testdata", "*.golden"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := len(in.Cases) * 3; len(files) != want {
-		t.Fatalf("%d golden files for %d cases, want %d", len(files), len(in.Cases), want)
+	got := map[string]bool{}
+	for _, f := range files {
+		got[filepath.Base(f)] = true
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("missing golden %s (run python3 -I testdata/regen.py)", name)
+		}
+	}
+	for name := range got {
+		if !want[name] {
+			t.Errorf("orphan golden %s has no case in inputs.json", name)
+		}
 	}
 }
 
@@ -113,22 +130,35 @@ func TestHTMLCharactersAreNotEscaped(t *testing.T) {
 	}
 }
 
-func TestGoNativeValuesMatchTheJSONNumberPath(t *testing.T) {
-	floats := []float64{0, 1, -1, 0.1, 1.5, 100000, 1e15, 1e16, 1e-4, 1e-5, 1e-7, 5e-324, 1.7976931348623157e308,
-		123456789012345680000, 0.30000000000000004, -2.5e-10, math.Copysign(0, -1)}
-	for _, f := range floats {
-		native, err := Canonical(f)
-		if err != nil {
-			t.Fatal(err)
+// pythonFloatReprs were produced by python3 -I -c 'print(json.dumps(f))' for each float64, so the table is
+// independent of the encoder under test.
+var pythonFloatReprs = []struct {
+	f    float64
+	want string
+}{
+	{0, "0.0"}, {1, "1.0"}, {-1, "-1.0"}, {0.1, "0.1"}, {1.5, "1.5"}, {100000, "100000.0"},
+	{1e15, "1000000000000000.0"}, {1e16, "1e+16"}, {1e-4, "0.0001"}, {1e-5, "1e-05"}, {1e-7, "1e-07"},
+	{5e-324, "5e-324"}, {1.7976931348623157e308, "1.7976931348623157e+308"},
+	{123456789012345680000, "1.2345678901234568e+20"}, {0.30000000000000004, "0.30000000000000004"},
+	{-2.5e-10, "-2.5e-10"}, {math.Copysign(0, -1), "-0.0"}, {2.5e-5, "2.5e-05"},
+	{9007199254740992, "9007199254740992.0"}, {1e22, "1e+22"}, {123456789.123456789, "123456789.12345679"},
+	{0.5, "0.5"},
+}
+
+func TestGoNativeFloatsMatchPythonRepr(t *testing.T) {
+	for _, c := range pythonFloatReprs {
+		got, err := Canonical(c.f)
+		if err != nil || string(got) != c.want+"\n" {
+			t.Errorf("float64(%v): got %q, %v; want %q", c.f, got, err, c.want)
 		}
-		viaNumber, err := Canonical(json.Number(strings.TrimSpace(string(mustPyRepr(t, f)))))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(native, viaNumber) {
-			t.Errorf("float64(%v): native %q vs json.Number %q", f, native, viaNumber)
+		viaNumber, err := Canonical(json.Number(c.want))
+		if err != nil || string(viaNumber) != c.want+"\n" {
+			t.Errorf("json.Number(%q): got %q, %v", c.want, viaNumber, err)
 		}
 	}
+}
+
+func TestGoNativeIntegersAndScalars(t *testing.T) {
 	got, err := Canonical(map[string]any{"i": 3, "i8": int8(-8), "u": uint64(18446744073709551615), "f32": float32(0.5), "n": nil, "b": true})
 	if err != nil {
 		t.Fatal(err)
@@ -136,16 +166,6 @@ func TestGoNativeValuesMatchTheJSONNumberPath(t *testing.T) {
 	if want := `{"b":true,"f32":0.5,"i":3,"i8":-8,"n":null,"u":18446744073709551615}` + "\n"; string(got) != want {
 		t.Errorf("got %q want %q", got, want)
 	}
-}
-
-// mustPyRepr formats f with the encoder itself; used only to feed the json.Number path with a valid literal.
-func mustPyRepr(t *testing.T, f float64) []byte {
-	t.Helper()
-	b, err := Canonical(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
 }
 
 func TestReflectedContainers(t *testing.T) {
@@ -196,6 +216,52 @@ func TestJSONNumberForms(t *testing.T) {
 		}
 		if err != nil || string(b) != want+"\n" {
 			t.Errorf("%q: got %q, %v; want %q", in, b, err, want)
+		}
+	}
+}
+
+func TestRejectsBytesLikePythonDoes(t *testing.T) {
+	// json.dumps(b"x") raises TypeError; Go would otherwise render a list of ints (or base64 elsewhere).
+	for name, v := range map[string]any{
+		"[]byte":            []byte("x"),
+		"nested []byte":     map[string]any{"k": []byte("x")},
+		"[]uint8 in a list": []any{[]uint8{1, 2}},
+		"[N]byte":           [2]byte{1, 2},
+	} {
+		if b, err := Canonical(v); err == nil || !strings.Contains(err.Error(), "bytes") {
+			t.Errorf("%s: got %q, %v; want an error naming bytes", name, b, err)
+		}
+	}
+	if b, err := Canonical([]int{1, 2}); err != nil || string(b) != "[1,2]\n" {
+		t.Errorf("[]int must still work: %q %v", b, err)
+	}
+}
+
+func TestDepthIsBounded(t *testing.T) {
+	nest := func(n int) any {
+		var v any = "leaf"
+		for i := 0; i < n; i++ {
+			v = []any{v}
+		}
+		return v
+	}
+	if _, err := Canonical(nest(MaxDepth)); err != nil {
+		t.Errorf("depth %d must encode: %v", MaxDepth, err)
+	}
+	if b, err := Canonical(nest(MaxDepth + 1)); err == nil || !strings.Contains(err.Error(), "depth") {
+		t.Errorf("depth %d must be rejected, got %d bytes, %v", MaxDepth+1, len(b), err)
+	}
+	for name, mk := range map[string]func() any{
+		"self-referential list": func() any { a := make([]any, 1); a[0] = a; return a },
+		"self-referential map":  func() any { m := map[string]any{}; m["m"] = m; return m },
+		"cycle through a typed slice": func() any {
+			a := make([]any, 1)
+			a[0] = map[string]any{"k": a}
+			return a
+		},
+	} {
+		if b, err := Canonical(mk()); err == nil || !strings.Contains(err.Error(), "depth") {
+			t.Errorf("%s: got %d bytes, %v; want a depth error, not a stack overflow", name, len(b), err)
 		}
 	}
 }
