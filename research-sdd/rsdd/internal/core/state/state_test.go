@@ -57,8 +57,8 @@ func TestInvalidStateNeverDefaults(t *testing.T) {
 		if s.String() != "invalid" {
 			t.Errorf("State(%d).String() = %q, want invalid", int(s), s.String())
 		}
-		if code, err := s.ExitCode(); err == nil {
-			t.Errorf("State(%d).ExitCode() = %d, nil; want an error", int(s), code)
+		if code, err := s.ExitCode(); err == nil || code != -1 {
+			t.Errorf("State(%d).ExitCode() = %d, %v; want -1 and an error", int(s), code, err)
 		}
 	}
 }
