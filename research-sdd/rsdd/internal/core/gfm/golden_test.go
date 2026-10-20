@@ -2,6 +2,7 @@ package gfm
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -75,32 +76,64 @@ func TestGoldenFixtures(t *testing.T) {
 // under the GFM rule, where an escaped pipe never adds a column; they were not copied from this package's output.
 // A cell count other than the table width means an escaped pipe was treated as a separator.
 func TestParityFixtureShape(t *testing.T) {
-	d := Parse(mustRead(t, "testdata/fixtures/state/RESEARCH-STATE.md"))
-	if d.State != StateTables || len(d.Tables) != 3 {
-		t.Fatalf("state fixture: want 3 tables (backlog, 5-column deferred, iteration history), got %d", len(d.Tables))
+	for _, p := range parityShapeProblems(mustRead(t, "testdata/fixtures/state/RESEARCH-STATE.md")) {
+		t.Error(p)
 	}
-	if h := d.Tables[0].Header.Text(); len(h) != 4 {
-		t.Errorf("backlog header = %q", h)
+}
+
+// parityShape is the expected structure of the parity fixture, in document order.
+var parityShape = []struct {
+	name       string
+	cols, rows int
+}{
+	{"backlog", 4, 12},
+	{"deferred", 5, 4},
+	{"iteration history", 4, 9},
+}
+
+// parityShapeProblems lists every deviation from parityShape: the table count, and for each table its header
+// width, its data-row count and every row's width. A missing table is reported by the count and never skipped.
+func parityShapeProblems(src string) []string {
+	d := Parse(src)
+	if d.State != StateTables || len(d.Tables) != len(parityShape) {
+		return []string{fmt.Sprintf("want %d tables, got %d (state %v)", len(parityShape), len(d.Tables), d.State)}
 	}
-	if got := len(d.Tables[0].Rows); got != 12 {
-		t.Errorf("backlog data rows = %d want 12", got)
-	}
-	for i, r := range d.Tables[0].Rows {
-		if r.Len() != 4 {
-			t.Errorf("backlog row %d has %d cells, want 4 (an escaped pipe must not add a column): %q", i, r.Len(), r.Source)
+	var out []string
+	for i, want := range parityShape {
+		tb := d.Tables[i]
+		if tb.Header == nil || tb.Separator == nil {
+			out = append(out, want.name+": no header/separator")
+			continue
+		}
+		if got := tb.Header.Len(); got != want.cols {
+			out = append(out, fmt.Sprintf("%s: header has %d cells, want %d", want.name, got, want.cols))
+		}
+		if got := len(tb.Rows); got != want.rows {
+			out = append(out, fmt.Sprintf("%s: %d data rows, want %d", want.name, got, want.rows))
+		}
+		for j, r := range tb.Rows {
+			if r.Len() != want.cols {
+				out = append(out, fmt.Sprintf("%s: row %d has %d cells, want %d (an escaped pipe must not add a column): %q", want.name, j, r.Len(), want.cols, r.Source))
+			}
 		}
 	}
-	for i, r := range d.Tables[1].Rows {
-		if r.Len() != 5 {
-			t.Errorf("deferred row %d has %d cells, want 5: %q", i, r.Len(), r.Source)
+	return out
+}
+
+// The shape check must bite: a missing table or a changed row count has to be reported.
+func TestParityShapeBites(t *testing.T) {
+	src := mustRead(t, "testdata/fixtures/state/RESEARCH-STATE.md")
+	for name, mut := range map[string]string{
+		"deferred table removed": strings.Replace(src, "| Priority | ID | Gap | Artifact | Status |", "no table here", 1),
+		"deferred row dropped":   strings.Replace(src, "| deferred | B3-G9 | g\\\\\\|triple | x | parked |\n", "", 1),
+		"iteration row dropped":  strings.Replace(src, "| 9 | f | B9 | 1 \\\\\\| a |\n", "", 1),
+		"backlog row dropped":    strings.Replace(src, "| high | B1-G1 mid\\|esc | x | pending |\n", "", 1),
+	} {
+		if mut == src {
+			t.Fatalf("%s: the mutation did not apply; the fixture text moved", name)
 		}
-	}
-	if got := len(d.Tables[2].Rows); got != 9 {
-		t.Errorf("iteration rows = %d want 9", got)
-	}
-	for i, r := range d.Tables[2].Rows {
-		if r.Len() != 4 {
-			t.Errorf("iteration row %d has %d cells, want 4: %q", i, r.Len(), r.Source)
+		if len(parityShapeProblems(mut)) == 0 {
+			t.Errorf("%s: the shape check still passes", name)
 		}
 	}
 }

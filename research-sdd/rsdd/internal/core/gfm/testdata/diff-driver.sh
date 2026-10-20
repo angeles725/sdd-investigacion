@@ -35,7 +35,7 @@ case "$mode" in
     sed -e 's/^deferred_open:.*/deferred_open: 0/' -e 's/^covered_blocks:.*/covered_blocks: 0/' "$file" > "$tmp/RESEARCH-STATE.md"
     bash "$tb/research-sdd-status.sh" "$tmp" --sync-state >/dev/null || die "reader-failed: research-sdd-status.sh --sync-state exited $?"
     out="$(sed -n -e 's/^deferred_open: */deferred_open=/p' -e 's/^covered_blocks: */covered_blocks=/p' "$tmp/RESEARCH-STATE.md")"
-    [ "$(printf '%s\n' "$out" | grep -c '=')" = 2 ] || die "empty-output: expected deferred_open and covered_blocks after --sync-state, got: ${out:-<nothing>}"
+    [ "$(printf '%s\n' "$out" | grep -c '^deferred_open=')" = 1 ] && [ "$(printf '%s\n' "$out" | grep -c '^covered_blocks=')" = 1 ] || die "empty-output: expected deferred_open and covered_blocks after --sync-state, got: ${out:-<nothing>}"
     printf '%s\n' "$out" ;;
   *) die "unknown mode: $mode" 2 ;;
 esac
