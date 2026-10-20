@@ -138,24 +138,6 @@ func TestDifferentialErrorsAreTyped(t *testing.T) {
 	}
 }
 
-// FINDING F2: an unreadable (mode 000) TARGETS.md is a confident empty list, rc 0, in bash. Go reports it.
-func TestDifferentialFindingUnreadableFileIsASilentZeroInBash(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: chmod 000 stays readable, premise unavailable (NOT a pass)")
-	}
-	p := write(t, filepath.Join(t.TempDir(), "locked.md"), "| `/x` |\n")
-	if err := os.Chmod(p, 0); err != nil {
-		t.Fatal(err)
-	}
-	b := bashDriver(t, bashEnv("", "/h"), "", "tpall", p)
-	if b.rc != 0 || b.stdout != "" {
-		t.Fatalf("premise changed, bash is no longer silent: rc=%d out=%q err=%q", b.rc, b.stdout, b.stderr)
-	}
-	if _, err := ReadTargets(p); !errors.Is(err, ErrUnreadable) {
-		t.Fatalf("Go must type it: %v", err)
-	}
-}
-
 // FINDING F4: the return code of target_paths_all depends on the CALLER's pipefail: its last pipeline (the
 // $RESEARCH_HOME form) exits 1 when no row has such a token, although the output is complete.
 func TestDifferentialFindingPipefailMakesRCContentDependent(t *testing.T) {
@@ -368,22 +350,12 @@ func TestDifferentialStateFilesFilesystemQuirks(t *testing.T) {
 			}
 		}
 		lb := bashDriver(t, bashEnv("", "/h"), "", "liststate", dir)
-		lg, _ := ListStateFiles(dir)
+		lg, lerr := ListStateFiles(dir)
+		if lerr != nil { // R3-quirk-list-unchecked-error: an unchecked error here would compare an empty list against bash
+			t.Fatalf("%s: ListStateFiles(%q): %v", label, dir, lerr)
+		}
 		if lines(lg) != lb.stdout {
 			t.Errorf("%s list go=%q bash=%q", label, lg, lb.stdout)
 		}
-	}
-}
-
-// FINDING F6: list_state_files on a directory that does not exist prints nothing and returns 0, the same as an
-// empty corpus. Go separates absent-input from empty-input.
-func TestDifferentialFindingListStateFilesAbsentDirIsASilentZeroInBash(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "nope")
-	b := bashDriver(t, bashEnv("", "/h"), "", "liststate", missing)
-	if b.rc != 0 || b.stdout != "" {
-		t.Fatalf("premise changed: rc=%d out=%q", b.rc, b.stdout)
-	}
-	if _, err := ListStateFiles(missing); !errors.Is(err, ErrAbsentInput) {
-		t.Fatalf("Go must type it: %v", err)
 	}
 }

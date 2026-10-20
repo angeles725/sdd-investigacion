@@ -57,7 +57,7 @@ var (
 // isRowLine is grep -E '^\s*\|': optional whitespace (space, tab, \v, \f, \r) and then a pipe. Prose lines that
 // merely mention a path never pass it (CLAUDE.md section 11 (a)).
 func isRowLine(l string) bool {
-	return strings.HasPrefix(strings.TrimLeft(l, " \t\v\f\r"), "|")
+	return strings.HasPrefix(strings.TrimLeft(l, Behaviour.RowBlanks), "|")
 }
 
 // ReadTargets reads a TARGETS.md-like file. An empty name is ErrUsage, a missing or non-regular file is
@@ -173,9 +173,9 @@ func RC(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, ErrNoAncestor), errors.Is(err, ErrStateAmbiguous):
+	case errors.Is(err, ErrNoAncestor), errors.Is(err, ErrStateAmbiguous), errors.Is(err, ErrNotDir):
 		return 2
-	case errors.Is(err, ErrStateUsage):
+	case errors.Is(err, ErrStateUsage), errors.Is(err, ErrIncompleteWalk):
 		return 3
 	}
 	return 1

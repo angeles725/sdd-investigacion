@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gfm"
 )
 
 // NameResult is the outcome of NameForRetro on success.
@@ -80,9 +82,22 @@ func NameForRetro(targetsPath, retro string, getenv Getenv) (NameResult, error) 
 		if !isRowLine(line) {
 			continue
 		}
-		f := strings.Split(line, "|")
-		if len(f) >= 4 && strings.Contains(f[3], "`"+raw+"`") {
-			name = strings.Trim(strings.NewReplacer("`", "", "*", "").Replace(f[2]), blanks)
+		var nameCell, pathCell string
+		if Behaviour.SplitEscapedPipes { // F5, legacy: awk -F'|' splits on every pipe, `\|` included
+			f := strings.Split(line, "|")
+			if len(f) < 4 {
+				continue
+			}
+			nameCell, pathCell = f[2], f[3]
+		} else {
+			cells, _ := gfm.SplitRow(line, gfm.Options{KeepCR: true})
+			if len(cells) < 3 {
+				continue
+			}
+			nameCell, pathCell = gfm.Unescape(cells[1]), gfm.Unescape(cells[2])
+		}
+		if strings.Contains(pathCell, "`"+raw+"`") {
+			name = strings.Trim(strings.NewReplacer("`", "", "*", "").Replace(nameCell), blanks)
 			break
 		}
 	}

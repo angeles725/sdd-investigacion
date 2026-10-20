@@ -5,6 +5,17 @@
 #   tpall         lib/target-paths.sh  target_paths_all <targets_md>
 #   tppairs       lib/target-paths.sh  target_paths_pairs <targets_md>
 #   tnr           lib/target-paths.sh  target_name_for_retro <targets_md> <retro>
+#   bfilter       lib/block-files.sh   block_file_filter [-v] [prefix]            (candidate paths on stdin)
+#   nwroots       lib/block-files.sh   block_files_nested_worktree_roots <root>
+#   pathin        lib/block-files.sh   block_files_path_in_nested_worktree <path> <roots>
+#   fprefix       lib/focus-prefix.sh  derive_focus_prefix <state-file>          (printed through $(...))
+#   frange        lib/focus-prefix.sh  derive_focus_range <state-file>           (printed through $(...))
+#   brfilter      lib/focus-prefix.sh  block_range_filter [-n] <lo> <hi>         (paths on stdin)
+#   fscan         lib/focus-prefix.sh  _focus_range_scan <dir> <lo-hi> <state>   (output sorted: FAM order is awk's)
+#   freport       lib/focus-prefix.sh  focus_range_report <state-file> '%s|%s\n'
+#   ipid          lib/focus-prefix.sh  inplace_gap_id <text>
+#   ipcount       lib/focus-prefix.sh  inplace_blocked_count <body>             (rows on stdin)
+#   kitrun        templates/hook-kit-run.sh <rel> (run for real; the env decides the kit)
 #   isdir         reads paths on stdin, prints "<path>\t<1|0>" from the bash `[ -d ]` the sweeps use
 #   liststate     lib/state-files.sh   list_state_files <dir>
 #   resolvestate  lib/state-files.sh   resolve_state_file [-H] <dir> [--focus <slug>]
@@ -35,6 +46,22 @@ case "$mode" in
   tnr)          need target-paths.sh target_name_for_retro;   target_name_for_retro "$@" ;;
   liststate)    need state-files.sh list_state_files;         list_state_files "$@" ;;
   resolvestate) need state-files.sh resolve_state_file;       resolve_state_file "$@" ;;
+  bfilter)  need block-files.sh block_file_filter;                         block_file_filter "$@" ;;
+  nwroots)  need block-files.sh block_files_nested_worktree_roots;         block_files_nested_worktree_roots "$@" ;;
+  pathin)   need block-files.sh block_files_path_in_nested_worktree;       block_files_path_in_nested_worktree "$@" ;;
+  fprefix)  need block-files.sh block_file_filter; need focus-prefix.sh derive_focus_prefix
+            printf '%s\n' "$(derive_focus_prefix "$@")" ;;
+  frange)   need block-files.sh block_file_filter; need focus-prefix.sh derive_focus_range
+            printf '%s\n' "$(derive_focus_range "$@")" ;;
+  brfilter) need block-files.sh block_file_filter; need focus-prefix.sh block_range_filter;    block_range_filter "$@" ;;
+  fscan)    need block-files.sh block_file_filter; need focus-prefix.sh _focus_range_scan;     _focus_range_scan "$@" | LC_ALL=C sort ;;
+  freport)  need block-files.sh block_file_filter; need focus-prefix.sh focus_range_report;    focus_range_report "$1" '%s|%s\n' ;;
+  ipid)     need block-files.sh block_file_filter; need focus-prefix.sh inplace_gap_id;        inplace_gap_id "$@" ;;
+  ipcount)  need block-files.sh block_file_filter; need focus-prefix.sh inplace_blocked_count; inplace_blocked_count "$@" ;;
+  kitrun)
+    k="$tb/../templates/hook-kit-run.sh"
+    [ -f "$k" ] || die "template missing: $k"
+    bash "$k" "$@" ;;
   isdir)
     while IFS= read -r p || [ -n "$p" ]; do
       if [ -d "$p" ]; then printf '%s\t1\n' "$p"; else printf '%s\t0\n' "$p"; fi

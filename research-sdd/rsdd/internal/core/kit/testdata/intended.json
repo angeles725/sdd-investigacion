@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "intended": [
+    {"case": "unreadable-targets-file", "reason": "legacy silent zero, #2291"},
+    {"case": "list-state-files-absent-dir", "reason": "legacy silent zero, #2291"}
+  ]
+}

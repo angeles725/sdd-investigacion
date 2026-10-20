@@ -31,13 +31,22 @@ const stateMaxDepth = 3 // find -maxdepth 3
 // start point under -H, unreadable subtrees are skipped, and the .git test runs on the whole printed path.
 func findState(dir string, follow bool, pat string) []string {
 	var out []string
-	visit := func(p, name string) {
-		if ok, _ := path.Match(pat, name); ok && !strings.HasSuffix(name, ".template.md") && !strings.Contains(p, "/.git/") {
-			out = append(out, p)
-		}
-	}
 	trimmed := strings.TrimRight(dir, "/")
-	visit(dir, trimmed[strings.LastIndex(trimmed, "/")+1:])
+	visit := func(p, name string, isDir bool) {
+		ok, _ := path.Match(pat, name)
+		if !ok || strings.HasSuffix(name, ".template.md") {
+			return
+		}
+		if Behaviour.FindNoTypeFilter { // F7, legacy: no -type filter, .git tested on the whole printed path
+			if strings.Contains(p, "/.git/") {
+				return
+			}
+		} else if isDir || strings.Contains(strings.TrimPrefix(p, trimmed), "/.git/") {
+			return
+		}
+		out = append(out, p)
+	}
+	visit(dir, trimmed[strings.LastIndex(trimmed, "/")+1:], false)
 	stat := os.Lstat
 	if follow {
 		stat = os.Stat
@@ -56,7 +65,7 @@ func findState(dir string, follow bool, pat string) []string {
 			if strings.HasSuffix(p, "/") {
 				ep = p + e.Name()
 			}
-			visit(ep, e.Name())
+			visit(ep, e.Name(), e.IsDir())
 			if e.IsDir() && depth < stateMaxDepth {
 				walk(ep, depth+1)
 			}
