@@ -17,21 +17,25 @@ lift() { # lift <script> <function> -> file
   sed -n "/^$2()/,/^}/p" "$tb/$1" > "$tmp/$2.sh"
   [ -s "$tmp/$2.sh" ] || { echo "diff-driver: function $2 not found in $1" >&2; exit 2; }
 }
+die() { echo "diff-driver: $1" >&2; exit "${2:-1}"; }   # typed failure: never a silent empty or zero result (kit section 7)
 case "$mode" in
   gaprows)
-    [ -f "$tb/lib/gap-rows.sh" ] || { echo "diff-driver: lib/gap-rows.sh missing" >&2; exit 2; }
-    bash -c '. "$1/lib/gap-rows.sh"; gap_rows_parse "$2"' _ "$tb" "$file" ;;
+    [ -f "$tb/lib/gap-rows.sh" ] || die "lib/gap-rows.sh missing" 2
+    bash -c '. "$1/lib/gap-rows.sh"; gap_rows_parse "$2"' _ "$tb" "$file" || die "reader-failed: gap_rows_parse exited $?" ;;
   contra)
     lift research-sdd-status.sh count_open_contra
-    bash -c '. "$1"; count_open_contra "$2"' _ "$tmp/count_open_contra.sh" "$file" ;;
+    bash -c '. "$1"; count_open_contra "$2"' _ "$tmp/count_open_contra.sh" "$file" || die "reader-failed: count_open_contra exited $?" ;;
   foctok)
     lift research-sdd-status.sh _read_focuses_tok_uncached
-    bash -c '. "$1"; f="$2"; shift 2; for k in "$@"; do printf "%s=%s\n" "$k" "$(_read_focuses_tok_uncached "$f" "$k" 2>/dev/null)"; done' _ "$tmp/_read_focuses_tok_uncached.sh" "$file" "$@" ;;
+    # The reader's stderr (its WARN lines) stays visible; a non-zero exit of the reader fails the driver.
+    bash -c '. "$1"; f="$2"; shift 2; for k in "$@"; do tok="$(_read_focuses_tok_uncached "$f" "$k")" || { echo "diff-driver: reader-failed: _read_focuses_tok_uncached exited $? for key $k" >&2; exit 5; }; printf "%s=%s\n" "$k" "$tok"; done' _ "$tmp/_read_focuses_tok_uncached.sh" "$file" "$@" || exit $? ;;
   state)
     # Zero the two envelope values first so the output proves --sync-state DERIVED them (a file already
     # carrying the right numbers would otherwise pass vacuously).
     sed -e 's/^deferred_open:.*/deferred_open: 0/' -e 's/^covered_blocks:.*/covered_blocks: 0/' "$file" > "$tmp/RESEARCH-STATE.md"
-    bash "$tb/research-sdd-status.sh" "$tmp" --sync-state >/dev/null 2>&1
-    sed -n -e 's/^deferred_open: */deferred_open=/p' -e 's/^covered_blocks: */covered_blocks=/p' "$tmp/RESEARCH-STATE.md" ;;
-  *) echo "diff-driver: unknown mode: $mode" >&2; exit 2 ;;
+    bash "$tb/research-sdd-status.sh" "$tmp" --sync-state >/dev/null || die "reader-failed: research-sdd-status.sh --sync-state exited $?"
+    out="$(sed -n -e 's/^deferred_open: */deferred_open=/p' -e 's/^covered_blocks: */covered_blocks=/p' "$tmp/RESEARCH-STATE.md")"
+    [ "$(printf '%s\n' "$out" | grep -c '=')" = 2 ] || die "empty-output: expected deferred_open and covered_blocks after --sync-state, got: ${out:-<nothing>}"
+    printf '%s\n' "$out" ;;
+  *) die "unknown mode: $mode" 2 ;;
 esac

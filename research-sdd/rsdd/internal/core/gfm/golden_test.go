@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func dumpRows(src string) string {
 	var b strings.Builder
 	for r := range Rows(src, Options{}) {
 		b.WriteString("L")
-		b.WriteString(itoa(r.Line))
+		b.WriteString(strconv.Itoa(r.Line))
 		if r.Sep {
 			b.WriteString(" SEP")
 		}
@@ -26,17 +27,6 @@ func dumpRows(src string) string {
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var d []byte
-	for ; n > 0; n /= 10 {
-		d = append([]byte{byte('0' + n%10)}, d...)
-	}
-	return string(d)
 }
 
 func TestGoldenFixtures(t *testing.T) {
@@ -79,8 +69,11 @@ func TestGoldenFixtures(t *testing.T) {
 	}
 }
 
-// The shared parity fixture has a known shape (kit table-reader-parity.test.sh): 6 pending backlog rows,
-// 4 + 4 ... counts below are read from the GFM expectation, not from the implementation.
+// TestParityFixtureShape checks the structure of the shared parity fixture (the one table-reader-parity.test.sh
+// feeds to every bash reader): three tables, namely the 4-column backlog (12 data rows), the 5-column deferred
+// table (4 rows) and the 4-column iteration history (9 rows). The expected counts come from reading the fixture
+// under the GFM rule, where an escaped pipe never adds a column; they were not copied from this package's output.
+// A cell count other than the table width means an escaped pipe was treated as a separator.
 func TestParityFixtureShape(t *testing.T) {
 	d := Parse(mustRead(t, "testdata/fixtures/state/RESEARCH-STATE.md"))
 	if d.State != StateTables || len(d.Tables) != 3 {
