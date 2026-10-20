@@ -1,0 +1,5 @@
+{
+  "amp": "a&b",
+  "k<>&": "v",
+  "tag": "<script>alert('x') && 1 < 2 > 0</script>"
+}
