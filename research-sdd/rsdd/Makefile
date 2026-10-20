@@ -30,9 +30,9 @@ lint:
 
 # Mutation testing over the packages that carry behaviour. A surviving
 # (LIVED) mutant is a finding; gremlins exits non-zero below the efficacy
-# threshold. 70 is the measured baseline floor for the skeleton (79% at
-# creation; load makes gremlins time mutants out, which count as neither
-# killed nor lived, so efficacy is noisy) - raise it as suites grow, never lower it to hide a regression.
+# threshold. 70 is a baseline floor: raise it as suites grow, never lower it to
+# hide a regression. Under machine load gremlins times mutants out, and those
+# count as neither killed nor lived, so efficacy is noisy - rerun on a quiet tree.
 teeth:
 	go run $(GREMLINS) unleash --threshold-efficacy 70 .
 

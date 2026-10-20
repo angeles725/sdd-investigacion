@@ -27,6 +27,34 @@ type Command struct {
 	ExitMap map[int]int
 }
 
+// Validate rejects a table that would shadow or cannot dispatch: an empty
+// name, a missing Run, a duplicate (group, name), or a group whose name is
+// also an ungrouped command.
+func Validate(table []Command) error {
+	seen := map[[2]string]bool{}
+	ungrouped := map[string]bool{}
+	for _, c := range table {
+		switch {
+		case c.Name == "":
+			return fmt.Errorf("command with empty name (group %q)", c.Group)
+		case c.Run == nil:
+			return fmt.Errorf("command %q has no Run", label(c))
+		case seen[[2]string{c.Group, c.Name}]:
+			return fmt.Errorf("duplicate command %q", label(c))
+		}
+		seen[[2]string{c.Group, c.Name}] = true
+		if c.Group == "" {
+			ungrouped[c.Name] = true
+		}
+	}
+	for _, c := range table {
+		if c.Group != "" && ungrouped[c.Group] {
+			return fmt.Errorf("group %q collides with the ungrouped command of the same name", c.Group)
+		}
+	}
+	return nil
+}
+
 // Run dispatches args against table and returns the process exit code.
 // `rsdd <name>` runs an ungrouped command; `rsdd <group> <name>` a grouped one.
 //
@@ -36,6 +64,10 @@ type Command struct {
 // with the typed stderr line "rsdd: internal-error", never a stack trace.
 // A degraded exit (3) always carries a "DEGRADED:" line on stderr.
 func Run(table []Command, args []string, s Stdio) int {
+	if err := Validate(table); err != nil {
+		fmt.Fprintf(s.Err, "rsdd: invalid command table: %v\n", err)
+		return ExitOperational
+	}
 	if len(args) == 0 {
 		writeUsage(s.Err, table)
 		return ExitUsage
