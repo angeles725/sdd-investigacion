@@ -154,9 +154,14 @@ controls become table tests with a broken implementation injected through an int
 
 ### 4.7 Errors and degraded states
 
-Every command returns `(state.State, error)`; `cli.Run` maps it to the documented exit codes (0/1/2/3)
-and prints the typed reason. Errors are wrapped with `%w` and carry the path/tool involved. A panic is
-recovered at the boundary and becomes `degraded: internal-error` with exit 2 — never exit 0.
+Every command returns `(state.State, error)`; `cli.Run` maps it to the exit contract of
+`json-envelope.v1.md:32-48` by default: 0 = any state except degraded (a finding is advisory and never
+changes the exit code, CLAUDE.md §8), 1 = operational failure, 2 = usage error, 3 = degraded (missing
+runtime dependency, `DEGRADED:` on stderr). Instruments whose legacy contract differs (e.g. verify-state
+1 = stale, status 1 = no return-token) declare their own mapping in the command table, pinned by goldens.
+Errors are wrapped with `%w` and carry the path/tool involved. A panic is recovered at the boundary and
+is an operational failure: exit 1 with a typed `rsdd: internal-error` line — never exit 0, and never
+labelled degraded (degraded means a missing dependency, not a bug).
 Environment, clock and cwd are injected through `Stdio` (no `os.Getenv`/`time.Now` in packages), which
 makes every test hermetic and parallel by default.
 
