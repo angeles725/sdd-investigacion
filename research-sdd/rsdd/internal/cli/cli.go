@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 )
 
 // Exit codes of the rsdd process contract (research-sdd/toolbelt/json-envelope.v1.md).
@@ -158,7 +159,7 @@ func hasGroup(table []Command, group string) bool {
 func writeUsage(w io.Writer, table []Command) {
 	fmt.Fprint(w, "Usage:\n  rsdd <command> [args]\n  rsdd <group> <command> [args]\n\nCommands:\n")
 	sorted := append([]Command(nil), table...)
-	sort.SliceStable(sorted, func(i, j int) bool { return label(sorted[i]) < label(sorted[j]) })
+	slices.SortStableFunc(sorted, func(a, b Command) int { return strings.Compare(label(a), label(b)) })
 	for _, c := range sorted {
 		fmt.Fprintf(w, "  %-24s %s\n", label(c), c.Summary)
 	}
@@ -172,7 +173,7 @@ func writeGroupUsage(w io.Writer, table []Command, group string) {
 			in = append(in, c)
 		}
 	}
-	sort.SliceStable(in, func(i, j int) bool { return in[i].Name < in[j].Name })
+	slices.SortStableFunc(in, func(a, b Command) int { return strings.Compare(a.Name, b.Name) })
 	for _, c := range in {
 		fmt.Fprintf(w, "  %-24s %s\n", c.Name, c.Summary)
 	}

@@ -130,9 +130,6 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 					r.Violations = append(r.Violations, fmt.Sprintf("%s imports %s: %s (%s)", pkg, p, why, file))
 				}
 			}
-			if sub == "cmd" && strings.HasPrefix(p, prefix) {
-				continue // cmd/ is registry-tier: any internal import is allowed
-			}
 		}
 		if file == stdioFile || strings.HasSuffix(file, "_test.go") {
 			return nil

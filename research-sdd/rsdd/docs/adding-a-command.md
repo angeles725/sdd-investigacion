@@ -81,6 +81,12 @@ no cases, FAILS (it is never skipped). Create the case with empty expectation fi
 
 Shared logic two domains need belongs in `internal/core/<name>`.
 
+Packages also never read ambient state: `os.Getenv`, `os.LookupEnv`, `os.Getwd` and `time.Now` are
+forbidden outside `internal/cli/stdio.go` (test files excepted), and `cmd/` is scanned too. Take them
+from `cli.Stdio`. `cli.Validate` (run on every dispatch, and by a test on the shipped table) rejects a
+duplicate `(group, name)`, a group that shares a name with an ungrouped command, an empty name and a nil
+`Run`, so nothing is silently shadowed.
+
 ## 5. Keep the bash entry point as a shim
 
 Callers (hooks, CI, installed target corpora) invoke `toolbelt/<name>.sh`, so a ported script stays as a
