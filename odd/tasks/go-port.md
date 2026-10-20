@@ -130,9 +130,11 @@ pkill guard answers `permissionDecision`; `return-token:` line verbatim (PROMPT-
 4. **Goldens** reused byte-for-byte: install plans x3, the 3 `json-envelope/default-output.golden` files (they pin
    the DEFAULT non-`--json` output, proving `--json` is a separate mode), verify-session-budget `_frozen` x11,
    lane fixtures x25, frozen retro/heading corpora, lint input/expectation pairs. No real `--json` envelope
-   output was committed anywhere, so U0.2 adds envelope goldens generated from real `--json` runs of
-   verify-registry and sweep-retros (with a committed regeneration script); resume-state's indented
-   document shape is a recorded contract gap, outside the envelope.
+   output was committed anywhere, so U0.2 adds envelope goldens generated from real `--json` runs of all
+   four emitters (verify-registry, sweep-retros, retro-gate, resume-state — resume-state.sh:163-173 does
+   emit a full envelope in `--json` mode) with a committed, hermetic regeneration script. Key order is
+   per instrument (retro-gate and resume-state: schema,state,reason,counts,items; sweep-retros and
+   verify-registry put counts before reason), so the renderer takes a per-instrument key order.
 
 Suites that reach into Python/bash internals (69 run `python3` directly; `mutant_py_replace`) are
 rewritten as Go tests in the same unit that ports their SUT. Teeth are kept: hand-written mutation
