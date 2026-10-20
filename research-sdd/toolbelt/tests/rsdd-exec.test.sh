@@ -24,14 +24,15 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 setup_world() {   # LIB_PATH
   W="$(mktemp -d)" || exit 2
   W="$(CDPATH='' cd -- "$W" && pwd -P)"
-  trap 'rm -rf -- "$W"' EXIT
+  trap 'chmod -R u+rwx -- "$W" 2>/dev/null; rm -rf -- "$W"' EXIT
   SCLIB="$1"
-  FARM="$W/farm"; GOBIN="$W/gobin"; mkdir -p "$FARM" "$GOBIN"
+  FARM="$W/farm"; GOBIN="$W/gobin"; JQD="$W/jqd"; mkdir -p "$FARM" "$GOBIN" "$JQD"
   local t p
-  for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls; do
+  for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls readlink; do
     p="$(type -P "$t")" || { echo "FATAL: tool $t missing" >&2; exit 2; }
     ln -s "$p" "$FARM/$t"
   done
+  p="$(type -P jq)" && ln -s "$p" "$JQD/jq"
   cat >"$W/body" <<'EOF'
 #!/usr/bin/env bash
 echo "FAKE-@TAG@"
@@ -50,7 +51,11 @@ echo "BUILDNOISE-STDERR" >&2
 body="$(<"$FAKE_BODY")"; body="${body//@TAG@/"${FAKE_GO_TAG:-NEW}"}"
 case "${FAKE_GO_MODE:-ok}" in
   fail) printf 'half-written junk' > "$out"; exit 1 ;;
-  slow) : > "$out"; chmod 755 "$out"; sleep "${FAKE_GO_SLEEP:-1}"; printf '%s\n' "$body" > "$out" ;;
+  slow) : > "$out"; chmod 755 "$out"
+        [ -z "${FAKE_GO_READY:-}" ] || : > "$FAKE_GO_READY"
+        for ((i = 0; i < 100; i++)); do [ -e "${FAKE_GO_RELEASE:-/nonexistent}" ] && break; sleep 0.05; done
+        [ -e "${FAKE_GO_RELEASE:-/nonexistent}" ] || { echo "fake go: release timeout" >&2; exit 97; }
+        printf '%s\n' "$body" > "$out" ;;
   *) printf '%s\n' "$body" > "$out" ;;
 esac
 EOF
@@ -61,6 +66,7 @@ mkkit() {   # NAME — KIT=<W>/NAME/k it with lib copy, shims and (old) sources;
   KIT="$W/$1/k it"
   mkdir -p "$KIT/toolbelt/lib" "$KIT/rsdd/cmd/rsdd" "$KIT/rsdd/internal/deep"
   cp "$SCLIB" "$KIT/toolbelt/lib/rsdd-exec.sh"
+  cp "$HERE/../lib/hook-emit.sh" "$KIT/toolbelt/lib/hook-emit.sh"
   printf 'package main\n' >"$KIT/rsdd/cmd/rsdd/main.go"
   printf 'package deep\n' >"$KIT/rsdd/internal/deep/deep.go"
   printf 'module x\n' >"$KIT/rsdd/go.mod"; printf 'sum\n' >"$KIT/rsdd/go.sum"
@@ -84,6 +90,13 @@ before="$-"
 [ "$before" = "$-" ] || echo "OPTS-CHANGED"
 rsdd_exec verify block "$@"
 EOF
+  cat >"$KIT/toolbelt/nocd.sh" <<'EOF'
+#!/usr/bin/env bash
+cd() { return 1; }
+. "$(dirname "$0")/lib/rsdd-exec.sh"
+unset -f cd
+rsdd_exec verify block "$@"
+EOF
   cat >"$KIT/toolbelt/hook.sh" <<'EOF'
 #!/usr/bin/env bash
 . "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec_hook "$@"
@@ -102,11 +115,12 @@ putbin() {   # TAG [DATE] — fake rsdd at KIT/bin/rsdd; DATE absent = now
 # dorun LABEL SCRIPT PM args... — PM go|nogo. Env knobs: GOMODE GOTAG GOSLEEP FAKE_RC READ_STDIN STDIN_FILE USE_RSDD_BIN
 dorun() {
   local label="$1" script="$2" pm="$3" p; shift 3
-  case "$pm" in go) p="$GOBIN:$FARM" ;; *) p="$FARM" ;; esac
+  case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; *) p="$FARM" ;; esac
+  local sp="$KIT/toolbelt/$script"; case "$script" in /*) sp="$script" ;; esac
   local -a ev=(PATH="$p" FAKE_GO_LOG="$W/go.log" FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$W/body"
-    FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_SLEEP="${GOSLEEP:-1}")
+    FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}")
   if [ -n "${USE_RSDD_BIN+x}" ]; then ev+=(RSDD_BIN="$USE_RSDD_BIN"); fi
-  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$KIT/toolbelt/$script" "$@" <"${STDIN_FILE:-/dev/null}" >"$W/$label.out" 2>"$W/$label.err"
+  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$W/$label.out" 2>"$W/$label.err"
   echo "$?" >"$W/$label.rc"
 }
 prefixed() {   # PREFIX FILE
@@ -125,6 +139,9 @@ probes() {   # build-side probes: how often fake go ran, where, what is left in 
 }
 doshow() { dorun "$@"; show "$1"; }   # LABEL SCRIPT PM args...
 
+tplfile() {   # NAME OUT — the header template NAME of the library under test, prefix stripped
+  awk -v n="$1" '$0 == "#   >>> TEMPLATE " n { on = 1; next } $0 == "#   <<< TEMPLATE" { on = 0 } on { sub(/^#       /, ""); print }' "$SCLIB" >"$2"
+}
 sc_args() {
   mkkit args; putbin FRESH
   doshow plain shim.sh go a b
@@ -230,25 +247,117 @@ sc_usage() {
   doshow one direct.sh go onlygroup
   doshow two direct.sh go verify block
 }
+wait_until() {   # FN — poll FN up to ~5 s; rc 1 = typed timeout
+  local i
+  for ((i = 0; i < 100; i++)); do "$1" && return 0; sleep 0.05; done
+  return 1
+}
+_ready() { [ -e "$W/ready" ]; }
+_b_settled() { [ -e "$W/B.rc" ] || [ "$(grep -c . "$W/go.log")" -ge 2 ]; }
 sc_race() {
   mkkit race
-  ( GOMODE=slow GOSLEEP=1 dorun A shim.sh go ra ) &
-  sleep 0.3
-  ( GOMODE=slow GOSLEEP=1 dorun B shim.sh go rb ) &
+  ( GOMODE=slow READY_FILE="$W/ready" RELEASE_FILE="$W/release" dorun A shim.sh go ra ) &
+  if ! wait_until _ready; then echo "HANDSHAKE-TIMEOUT=A-never-signalled-ready"; : >"$W/release"; wait; return; fi
+  ( GOMODE=slow READY_FILE="$W/ready" RELEASE_FILE="$W/release" dorun B shim.sh go rb ) &
+  # B either finished (it ran the half-written file) or reached its own go build: only then release A.
+  wait_until _b_settled || echo "HANDSHAKE-TIMEOUT=B-never-settled"
+  : >"$W/release"
   wait
   show A; show B
+  printf 'B-COMPLETE=%s\n' "$(grep -qx 'FAKE-NEW' "$W/B.out" && echo yes || echo no)"
   probes
+  local final=""
+  if [ -x "$KIT/bin/rsdd" ]; then final="$("$KIT/bin/rsdd" 2>&1 | head -n 1)"; fi
+  printf 'FINAL=%s\n' "$final"
 }
 
 # hook scenarios
 sc_hook_sweep() {
   mkkit hs; putbin FRESH
-  local weird; weird=$'/no/"q"\\b\ttab\x01ctl'
-  USE_RSDD_BIN="$weird" doshow weird hook.sh go sweep verify block a
+  local weird got; weird=$'/no/"q"\\b\ttab\x01ctl'
+  USE_RSDD_BIN="$weird" doshow weird hook.sh gojq sweep verify block a
+  USE_RSDD_BIN="$weird" doshow weirdplain hook.sh go sweep verify block a
   USE_RSDD_BIN='/plain/path' doshow plain hook.sh go sweep verify block a
   doshow nogo hook.sh nogo sweep verify block
   rm -rf "${KIT:?}/bin"; doshow nogo2 hook.sh nogo sweep verify block
+  _rt weird sweep
 }
+_rt() {   # LABEL KIND — jq round trip of LABEL's stdout (KIND sweep|guard); prints JQ-RT-LABEL=ok|bad|skip
+  local label="$1" kind="$2" weird got want
+  weird=$'/no/"q"\\b\ttab\x01ctl'
+  if ! command -v jq >/dev/null 2>&1; then echo "JQ-RT-$label=skip"; return; fi
+  if [ "$kind" = sweep ]; then
+    got="$(jq -r '.hookSpecificOutput.additionalContext' "$W/$label.out" 2>/dev/null)"
+    want="Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $weird"
+    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' "$W/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
+  else
+    got="$(jq -r '.hookSpecificOutput.permissionDecisionReason' "$W/$label.out" 2>/dev/null)"
+    want="Research-SDD guard DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $weird"
+    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecision == "ask"' "$W/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
+  fi
+}
+sc_hook_guard() {
+  mkkit hgd; putbin FRESH
+  local weird; weird=$'/no/"q"\\b\ttab\x01ctl'
+  USE_RSDD_BIN="$weird" doshow weird hook.sh gojq guard verify block a
+  USE_RSDD_BIN="$weird" doshow weirdplain hook.sh go guard verify block a
+  doshow avail hook.sh nogo guard verify block z
+  rm -rf "${KIT:?}/bin"; doshow nogo hook.sh nogo guard verify block
+  rm -rf "${KIT:?}/rsdd"; doshow nosrc hook.sh go guard verify block
+  _rt weird guard; _rt weirdplain guard
+}
+sc_hook_nohe() {   # lib/hook-emit.sh missing beside the lib: still announces, still allows
+  mkkit hnh; putbin FRESH
+  rm -f "$KIT/toolbelt/lib/hook-emit.sh"
+  USE_RSDD_BIN='/plain/path' doshow sweep hook.sh gojq sweep verify block
+}
+sc_tpl() {   # the header templates, extracted verbatim from the library under test, run as real shims
+  cd "$W" || exit 2
+  mkkit tpl; putbin FRESH
+  local t f
+  mkdir -p "$W/links" "$W/l2" "$W/nolib/toolbelt"
+  for t in cli hook-sweep hook-guard hook-gate; do
+    f="$KIT/toolbelt/t-$t.sh"
+    tplfile "$t" "$f"; chmod 755 "$f"
+    printf 'TPL-LINES-%s=%s\n' "$t" "$(grep -c . "$f")"
+    ln -sf "$f" "$W/links/abs-$t.sh"; ln -sf "../links/abs-$t.sh" "$W/l2/hop-$t.sh"
+    cp "$f" "$W/nolib/toolbelt/t-$t.sh"
+    doshow "$t-direct" "t-$t.sh" go a 'b c'
+    doshow "$t-abs" "$W/links/abs-$t.sh" go a
+    doshow "$t-chain" "$W/l2/hop-$t.sh" go a
+    doshow "$t-nolib" "$W/nolib/toolbelt/t-$t.sh" go a
+    printf 'NOLIB-RC-%s=%s\n' "$t" "$(<"$W/$t-nolib.rc")"
+    printf 'CHAIN-OK-%s=%s\n' "$t" "$(grep -qx 'FAKE-FRESH' "$W/$t-chain.out" && echo yes || echo no)"
+    printf 'NOLIB-ASK-%s=%s\n' "$t" "$(grep -q '"permissionDecision":"ask"' "$W/$t-nolib.out" && echo yes || echo no)"
+  done
+}
+sc_bin_ro() {   # a non-writable <kit>/bin: the reason is named, the raw mktemp error is not shown
+  if [ "$(id -u)" = 0 ]; then echo "SKIP-ROOT=1"; return; fi
+  mkkit ro1; mkdir -p "$KIT/bin"; chmod a-w "$KIT/bin"
+  doshow none shim.sh go
+  probes
+  chmod u+w "$KIT/bin"
+  mkkit ro2; putbin OLD '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"; chmod a-w "$KIT/bin"
+  doshow stale shim.sh go
+  probes
+  chmod u+w "$KIT/bin"
+  mkkit ro3; chmod a-w "$KIT"
+  doshow nobindir shim.sh go
+  chmod u+w "$KIT"
+}
+sc_scan_fail() {   # an unreadable subdirectory under rsdd/: the scan fails, a failed scan counts as stale
+  if [ "$(id -u)" = 0 ]; then echo "SKIP-ROOT=1"; return; fi
+  mkkit sf; putbin FRESH
+  chmod 000 "$KIT/rsdd/internal/deep"
+  doshow scan shim.sh go x
+  probes
+  chmod 755 "$KIT/rsdd/internal/deep"
+}
+sc_nocd() {   # the kit root cannot be resolved (cd fails at source time)
+  mkkit nocd; putbin FRESH
+  doshow nocd nocd.sh go
+}
+
 sc_hook_gate() {
   mkkit hg
   USE_RSDD_BIN='/no/"q"\b' doshow bad hook.sh go gate verify block a
@@ -260,6 +369,7 @@ sc_hook_pass() {
   mkkit hp; putbin FRESH
   doshow sweep hook.sh go sweep verify block 'a b' ''
   FAKE_RC=3 doshow gate hook.sh go gate verify block x
+  doshow guard hook.sh go guard verify block 'g h'
 }
 sc_hook_usage() {
   mkkit hu; putbin FRESH
@@ -288,7 +398,7 @@ no() { printf '  FAIL  %-66s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 skip() { printf '  SKIP  %-66s %s\n' "$1" "${2:-}"; }
 
 echo "== rsdd-exec.test.sh (SUT: lib/rsdd-exec.sh) =="
-[ -f "$LIB" ] || { echo "FATAL: lib not found: $LIB" >&2; }
+[ -f "$LIB" ] || { echo "FATAL: lib not found: $LIB" >&2; exit 2; }
 
 scen() {   # NAME LIB -> report on stdout
   "$BASH_BIN" "$SELF" --scenario "$1" "$2" 2>&1
@@ -427,61 +537,133 @@ chk "caller without options: unchanged and runs" "$R" lenient '^o\| FAKE-NEW$|^o
 nchk "caller without options: unchanged" "$R" lenient 'OPTS-CHANGED'
 chk "strict caller: rc 0" "$R" strict '^RC=0$'
 
-# 10. concurrent rebuild safety
+# 10. concurrent rebuild safety (deterministic handshake: A signals ready, B starts, A is released afterwards)
 R="$(scen race "$LIB")"
+if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "race: handshake completed" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "race: handshake completed (no typed timeout)"; fi
 for l in A B; do
   chk "race: shim $l execs a COMPLETE binary" "$R" "$l" '^o\| FAKE-NEW$'
   chk "race: shim $l exit 0" "$R" "$l" '^RC=0$'
 done
+pchk "race: shim B ran a complete binary (B-COMPLETE)" "$R" '^B-COMPLETE=yes$'
 pchk "race: no temp file left behind" "$R" '^TMPLEFT=0$'
-pchk "race: final binary is complete" "$R" '^GOCALLS=[12]$'
+pchk "race: the final binary on disk runs and prints the full marker" "$R" '^FINAL=FAKE-NEW$'
 
-# 11. hook mode
-JQ="$(type -P jq || true)"
+# 11. hook mode: sweep / guard / gate
+rt_chk() {   # NAME REPORT LABEL — jq round trip probe: ok, or a typed SKIP when jq is absent
+  case "$(grep "^JQ-RT-$3=" <<<"$2")" in
+    "JQ-RT-$3=ok") ok "$1" ;;
+    "JQ-RT-$3=skip") skip "$1" "jq not installed (typed SKIP)" ;;
+    *) no "$1" "$(grep "^JQ-RT-$3=" <<<"$2")" ;;
+  esac
+}
 R="$(scen hook_sweep "$LIB")"
 chk "hook sweep (bad RSDD_BIN): rc 0" "$R" weird '^RC=0$'
 chk "hook sweep: degraded line on stderr" "$R" weird '^e\| degraded: rsdd-unavailable — RSDD_BIN not executable: '
-[ "$(sect "$R" weird | grep -c '^o| ')" = 1 ] && ok "hook sweep: exactly one stdout line" || no "hook sweep: exactly one stdout line"
-chk "hook sweep: envelope shape (plain reason)" "$R" plain '^o\| \{"hookSpecificOutput":\{"hookEventName":"SessionStart","additionalContext":"Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: /plain/path"\}\}$'
-chk "hook sweep: go absent -> envelope names the reason" "$R" nogo2 'additionalContext":"Research-SDD hooks DEGRADED: rsdd-unavailable — (go not found|no sources)'
-nchk "hook sweep: available binary is not an error (nogo, fresh bin)" "$R" nogo 'DEGRADED'
+rt_chk "hook sweep with jq: envelope is JSON; quote, backslash, tab and control char survive a round trip" "$R" weird
+chk "hook sweep without jq: plain text headline (rsdd_hook_emit fallback)" "$R" plain '^o\| Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: /plain/path$'
+nchk "hook sweep without jq: no JSON" "$R" plain 'hookSpecificOutput'
+chk "hook sweep: go absent -> headline names the reason" "$R" nogo2 'Research-SDD hooks DEGRADED: rsdd-unavailable — (go not found|no sources)'
+nchk "hook sweep: available binary is not an error" "$R" nogo 'DEGRADED'
 chk "hook sweep: available binary executes instead" "$R" nogo '^o\| FAKE-FRESH$'
-if [ -n "$JQ" ]; then
-  line="$(stdout_of "$R" weird)"
-  weird=$'/no/"q"\\b\ttab\x01ctl'
-  if got="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$line" 2>/dev/null)" \
-     && [ "$got" = "Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $weird" ]; then
-    ok "hook sweep: quote, backslash, tab and control char survive a jq round trip"
-  else no "hook sweep: JSON round trip" "line=[$line] got=[${got:-}]"; fi
-  if jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' <<<"$line" >/dev/null 2>&1; then ok "hook sweep: hookEventName is SessionStart"; else no "hook sweep: hookEventName"; fi
-else
-  skip "hook sweep: jq round trip" "jq not installed (typed SKIP)"
-fi
+R="$(scen hook_nohe "$LIB")"
+chk "hook sweep: lib/hook-emit.sh missing -> plain headline, still rc 0" "$R" sweep '^o\| Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: /plain/path \(lib/hook-emit.sh missing\)$'
+chk "hook sweep: lib/hook-emit.sh missing -> rc 0" "$R" sweep '^RC=0$'
+
+R="$(scen hook_guard "$LIB")"
+ASK_RE='"hookSpecificOutput":\{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Research-SDD guard DEGRADED: rsdd-unavailable — '
+for l in weird weirdplain nogo nosrc; do
+  chk "hook guard [$l]: rc 0" "$R" "$l" '^RC=0$'
+  chk "hook guard [$l]: stdout is the PreToolUse ask decision (never an empty allow)" "$R" "$l" "^o\\| \\{$ASK_RE"
+  chk "hook guard [$l]: degraded line on stderr" "$R" "$l" '^e\| degraded: rsdd-unavailable — '
+  nchk "hook guard [$l]: never allow or deny" "$R" "$l" '"permissionDecision":"(allow|deny)"'
+done
+chk "hook guard without jq: quote, backslash, tab and control char escaped" "$R" weirdplain '/no/\\"q\\"\\\\b\\ttab\\u0001ctl"\}\}$'
+rt_chk "hook guard with jq: decision JSON round trip (reason intact)" "$R" weird
+rt_chk "hook guard without jq: escaped JSON parses and round-trips" "$R" weirdplain
+chk "hook guard: available binary executes instead" "$R" avail '^o\| FAKE-FRESH$'
+nchk "hook guard: available binary emits no decision" "$R" avail 'hookSpecificOutput'
+
 R="$(scen hook_gate "$LIB")"
 for l in bad nogo bfail nosrc; do
   chk "hook gate [$l]: rc 0 (allow)" "$R" "$l" '^RC=0$'
   nchk "hook gate [$l]: stdout empty" "$R" "$l" '^o\| '
   chk "hook gate [$l]: degraded line on stderr" "$R" "$l" '^e\| degraded: rsdd-unavailable — '
-  chk "hook gate [$l]: branch=degraded line in the retro-gate/return-token-gate shape" "$R" "$l" '^e\| rsdd-exec-gate: state=allow branch=degraded \(rsdd-unavailable — .+\)$'
+  chk "hook gate [$l]: state=allow branch=degraded line (the gates' fields, no target=)" "$R" "$l" '^e\| rsdd-exec-gate: state=allow branch=degraded \(rsdd-unavailable — .+\)$'
 done
 chk "hook gate: reason with quote and backslash printed verbatim" "$R" bad '^e\| rsdd-exec-gate: state=allow branch=degraded \(rsdd-unavailable — RSDD_BIN not executable: /no/"q"\\b\)$'
 R="$(scen hook_pass "$LIB")"
 chk "hook sweep with a binary: args pass through, no envelope" "$R" sweep '^o\| FAKE-FRESH$'
 nchk "hook sweep with a binary: no JSON" "$R" sweep 'hookSpecificOutput'
-chk "hook sweep with a binary: empty-string arg kept" "$R" sweep "^o\| arg=''\$"
+chk "hook sweep with a binary: empty-string arg kept" "$R" sweep "^o\\| arg=''\$"
 chk "hook gate with a binary: exit code passes through" "$R" gate '^RC=3$'
+chk "hook guard with a binary: args pass through" "$R" guard '^o\| arg=g\\ h$'
 R="$(scen hook_usage "$LIB")"
 for l in none one two badmode; do
   chk "hook usage [$l] -> rc 2" "$R" "$l" '^RC=2$'
-  chk "hook usage [$l] -> usage line" "$R" "$l" '^e\| usage: rsdd_exec_hook <sweep\|gate>'
+  chk "hook usage [$l] -> usage line" "$R" "$l" '^e\| usage: rsdd_exec_hook <sweep\|guard\|gate>'
   nchk "hook usage [$l] -> nothing on stdout" "$R" "$l" '^o\| '
 done
+
+# 11b. the documented shim templates, extracted from the library header and run verbatim
+R="$(scen tpl "$LIB")"
+blk() { awk '/# RSDD-SELF-DIR/ { on = 1 } on { sub(/^[ \t]+/, ""); print } on && /unset _rsdd_s/ { exit }' "$1"; }
+CANON_BLK="$(blk "$HERE/../verify-registry-hook.sh")"
+for t in cli hook-sweep hook-guard hook-gate; do
+  pchk "template [$t]: extracted from the header (non-empty)" "$R" "^TPL-LINES-$t=[1-9]"
+  tplfile() { awk -v n="$1" '$0 == "#   >>> TEMPLATE " n { on = 1; next } $0 == "#   <<< TEMPLATE" { on = 0 } on { sub(/^#       /, ""); print }' "$LIB" >"$2"; }
+  tplfile "$t" "$ROOT/tpl-$t.sh"
+  if [ -n "$CANON_BLK" ] && [ "$(blk "$ROOT/tpl-$t.sh")" = "$CANON_BLK" ]; then ok "template [$t]: idiom block equals verify-registry-hook.sh's"; else no "template [$t]: idiom block equals verify-registry-hook.sh's"; fi
+  for v in direct abs chain; do
+    chk "template [$t] $v: runs, rc 0" "$R" "$t-$v" '^RC=0$'
+    chk "template [$t] $v: finds the lib and passes args through" "$R" "$t-$v" '^o\| FAKE-FRESH$'
+    chk "template [$t] $v: first arg reaches the binary" "$R" "$t-$v" '^o\| arg=a$'
+  done
+  nchk "template [$t] chain: no self-dir degraded line" "$R" "$t-chain" 'self-dir symlink'
+  pchk "template [$t]: relative two-hop symlink chain resolves" "$R" "^CHAIN-OK-$t=yes\$"
+done
+chk "template [cli] lib absent: rc 2" "$R" cli-nolib '^RC=2$'
+chk "template [cli] lib absent: degraded line names the shim" "$R" cli-nolib '^e\| degraded: rsdd-unavailable — rsdd-exec.sh missing beside .*/nolib/toolbelt/t-cli.sh$'
+nchk "template [cli] lib absent: nothing on stdout" "$R" cli-nolib '^o\| '
+chk "template [hook-sweep] lib absent: announced on stdout, rc 0" "$R" hook-sweep-nolib '^o\| Research-SDD hook: lib/rsdd-exec.sh missing beside .*/t-hook-sweep.sh$'
+chk "template [hook-sweep] lib absent: rc 0" "$R" hook-sweep-nolib '^RC=0$'
+chk "template [hook-guard] lib absent: rc 0" "$R" hook-guard-nolib '^RC=0$'
+chk "template [hook-guard] lib absent: fails closed to ask" "$R" hook-guard-nolib "^o\\| \\{\"hookSpecificOutput\":\\{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"Research-SDD guard DEGRADED: rsdd-unavailable — rsdd-exec.sh missing beside "
+chk "template [hook-guard] lib absent: degraded line on stderr" "$R" hook-guard-nolib '^e\| degraded: rsdd-unavailable — rsdd-exec.sh missing beside '
+chk "template [hook-gate] lib absent: rc 0" "$R" hook-gate-nolib '^RC=0$'
+nchk "template [hook-gate] lib absent: stdout empty" "$R" hook-gate-nolib '^o\| '
+chk "template [hook-gate] lib absent: branch=degraded line" "$R" hook-gate-nolib '^e\| rsdd-exec-gate: state=allow branch=degraded \(rsdd-unavailable — rsdd-exec.sh missing beside '
+
+# 11c. read-only bin dir, failed staleness scan, unresolvable kit root
+R="$(scen bin_ro "$LIB")"
+if grep -q '^SKIP-ROOT=1$' <<<"$R"; then
+  skip "bin dir not writable: cases" "running as root (typed SKIP: root ignores permissions)"
+else
+  chk "bin not writable, no binary: rc 2" "$R" none '^RC=2$'
+  chk "bin not writable, no binary: reason is the bin dir, not 'build failed'" "$R" none '^e\| degraded: rsdd-unavailable — bin dir not writable: .*/k it/bin$'
+  nchk "bin not writable: raw mktemp error is silenced" "$R" none 'mktemp'
+  nchk "bin not writable, no binary: no 'build failed' wording" "$R" none 'build failed'
+  chk "bin not writable, stale binary: old binary runs" "$R" stale '^o\| FAKE-OLD$'
+  chk "bin not writable, stale binary: notice names the bin dir" "$R" stale '^e\| rsdd-exec: notice: bin dir not writable: .*/k it/bin; running a binary older than its sources: '
+  nchk "bin not writable, stale binary: raw mktemp error is silenced" "$R" stale 'mktemp'
+  chk "kit dir not writable (bin/ cannot be created): reason is the bin dir" "$R" nobindir '^e\| degraded: rsdd-unavailable — bin dir not writable: .*/k it/bin$'
+fi
+R="$(scen scan_fail "$LIB")"
+if grep -q '^SKIP-ROOT=1$' <<<"$R"; then
+  skip "failed staleness scan counts as stale" "running as root (typed SKIP: root can read every directory)"
+else
+  chk "unreadable subdir under rsdd/: the failed scan counts as stale -> rebuilt" "$R" scan '^o\| FAKE-NEW$'
+  pchk "unreadable subdir under rsdd/: exactly one build ran" "$R" '^GOCALLS=1$'
+fi
+R="$(scen nocd "$LIB")"
+chk "kit root unresolvable (cd fails at source time) -> rc 2" "$R" nocd '^RC=2$'
+chk "kit root unresolvable -> degraded line" "$R" nocd '^e\| degraded: rsdd-unavailable — cannot resolve the kit root$'
+nchk "kit root unresolvable -> nothing on stdout" "$R" nocd '^o\| '
 
 # 12. overhead (report-only: wall-time assertions flake under load)
 OV="$ROOT/ov"; mkdir -p "$OV/k it/toolbelt/lib" "$OV/k it/bin"
 cp "$LIB" "$OV/k it/toolbelt/lib/rsdd-exec.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$OV/k it/bin/rsdd"; chmod 755 "$OV/k it/bin/rsdd"
-printf '#!/usr/bin/env bash\n. "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec verify block "$@"\n' >"$OV/k it/toolbelt/shim.sh"
+tplfile cli "$OV/k it/toolbelt/shim.sh"   # the documented CLI template, so the overhead includes the RSDD-SELF-DIR idiom
 if [ -f "$LIB" ]; then
   N=200
   t0=$EPOCHREALTIME; for ((i = 0; i < N; i++)); do "$BASH_BIN" "$OV/k it/toolbelt/shim.sh" a >/dev/null 2>&1; done; t1=$EPOCHREALTIME
@@ -538,7 +720,7 @@ mk stale-no-gomod 's# -o -name go.mod -o -name go.sum##' &&
 mk stale-inverted 's#-newer "\$1"#! -newer "$1"#' &&
   tt stale-inverted equal --good-has '^o\| FAKE-OLD$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
 mk no-atomic-rename 's#go build -o "\$tmp" ./cmd/rsdd \&\& chmod 755 "\$tmp" \&\& mv -f "\$tmp" "\$bin"#go build -o "$bin" ./cmd/rsdd \&\& chmod 755 "$bin"#' &&
-  tt no-atomic-rename race --good-has '^o\| FAKE-NEW$' --good-lacks '^e\| .*[Pp]ermission' --bad-lacks '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
+  tt no-atomic-rename race --good-has '^B-COMPLETE=yes$' --bad-has '^B-COMPLETE=no$' --bad-lacks '^HANDSHAKE-TIMEOUT' --bad-lacks "$CRASH"
 mk swallow-degraded 's#printf '"'"'degraded: rsdd-unavailable — %s\\n'"'"' "\$1" >&2; return 2;#return 2;#' &&
   tt swallow-degraded nogo_none --good-has '^e\| degraded: rsdd-unavailable — go not found$' --bad-lacks '^e\| degraded: ' --bad-lacks "$CRASH"
 mk degrade-rc0 's#"\$1" >&2; return 2; }#"$1" >\&2; return 0; }#' &&
@@ -557,7 +739,7 @@ mk no-chmod 's# \&\& chmod 755 "\$tmp"##' &&
   tt no-chmod missing --good-has '^o\| FAKE-NEW$' --bad-lacks '^o\| FAKE-NEW$'
 mk no-tmp-cleanup "s#trap 'rm -f -- \"\$tmp\"' EXIT; ##" &&
   tt no-tmp-cleanup buildfail_none --good-has '^TMPLEFT=0$' --bad-has '^TMPLEFT=[1-9]' --bad-lacks "$CRASH"
-mk no-old-fallback 's#if \[ "\$have" -eq 0 \]; then _RSDD_EXEC_WHY="build failed"; return 2; fi#_RSDD_EXEC_WHY="build failed"; return 2#' &&
+mk no-old-fallback 's#if \[ "\$have" -eq 0 \]; then _RSDD_EXEC_WHY="\$why"; return 2; fi#_RSDD_EXEC_WHY="$why"; return 2#' &&
   tt no-old-fallback buildfail_old --good-has '^o\| FAKE-OLD$' --bad-lacks '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
 mk no-nogo-fallback 's#if \[ "\$have" -eq 0 \]; then _RSDD_EXEC_WHY="go not found"; return 2; fi#_RSDD_EXEC_WHY="go not found"; return 2#' &&
   tt no-nogo-fallback nogo_old --good-has '^o\| FAKE-OLD$' --bad-lacks '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
@@ -569,18 +751,58 @@ set -e' &&
 mk no-nosrc 's#_RSDD_EXEC_WHY="no sources at \$src"; return 2#_RSDD_EXEC_WHY="no sources"; return 2#' &&
   tt no-nosrc nosrc --good-has 'no sources at .*/k it/rsdd$' --bad-lacks 'no sources at ' --bad-lacks "$CRASH"
 # hook mode
+JQ_ON=0; command -v jq >/dev/null 2>&1 && JQ_ON=1
+ASKRE='"permissionDecision":"ask"'
 mk sweep-rc2 's#^      return 0$#      return 2#' &&
   tt sweep-rc2 hook_sweep --good-has '^RC=0$' --bad-has '^RC=2$' --bad-lacks "$CRASH"
-mk sweep-silent 's#^        printf '"'"'{"hookSpecificOutput"[^\n]*$#        :#' &&
-  tt sweep-silent hook_sweep --good-has '^o\| \{"hookSpecificOutput"' --bad-lacks '^o\| \{"hookSpecificOutput"' --bad-lacks "$CRASH"
-mk gate-stdout 's#"\$_RSDD_EXEC_WHY" >&2$#"$_RSDD_EXEC_WHY"#' &&
+mk sweep-silent 's#^            rsdd_hook_emit .*$#            :#' &&
+  tt sweep-silent hook_sweep --good-has '^## plain$' --good-has '^o\| Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: /plain/path$' --bad-lacks '^o\| Research-SDD hooks DEGRADED' --bad-lacks "$CRASH"
+if [ "$JQ_ON" = 1 ]; then
+  mk sweep-unescaped 's#^            rsdd_hook_emit .*$#            printf '"'"'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Research-SDD hooks DEGRADED: rsdd-unavailable — %s"}}\n'"'"' "$_RSDD_EXEC_WHY"#' &&
+    tt sweep-unescaped hook_sweep --good-has '^JQ-RT-weird=ok$' --bad-has '^JQ-RT-weird=bad$' --bad-lacks "$CRASH"
+else
+  skip "teeth sweep-unescaped" "jq not installed (typed SKIP)"
+fi
+mk gate-stdout 's#"\$_RSDD_EXEC_WHY" >&2 ;;$#"$_RSDD_EXEC_WHY" ;;#' &&
   tt gate-stdout hook_gate --good-lacks '^o\| ' --bad-has '^o\| rsdd-exec-gate: ' --bad-lacks "$CRASH"
-mk json-unescaped 's#^    local s="\$1" i ch esc$#    printf "%s" "$1"; return 0#' &&
-  tt json-unescaped hook_sweep --good-has '^o\| .*RSDD_BIN not executable: /no/\\"q\\"\\\\b\\ttab\\u0001ctl' --bad-lacks '\\"q\\"' --bad-lacks "$CRASH"
 mk gate-no-branch 's#rsdd-exec-gate: state=allow branch=degraded#rsdd-exec-gate: state=allow branch=ok#' &&
   tt gate-no-branch hook_gate --good-has 'branch=degraded \(rsdd-unavailable' --bad-lacks 'branch=degraded \(rsdd-unavailable' --bad-lacks "$CRASH"
-mk hook-mode-open 's#case "\$mode" in sweep | gate) ;; \*) echo "usage: rsdd_exec_hook <sweep|gate> <group> <cmd> \[args...\]" >&2; return 2 ;; esac#:#' &&
+mk hook-mode-open 's#case "\$mode" in sweep | guard | gate) ;; \*) echo .*esac$#:#' &&
   tt hook-mode-open hook_usage --good-lacks '^o\| arg=verify$' --bad-has '^o\| arg=verify$'
+# guard mode
+mk guard-empty-allow 's#^        guard) _rsdd_exec_ask .*$#        guard) : ;;#' &&
+  tt guard-empty-allow hook_guard --good-has "$ASKRE" --bad-lacks "$ASKRE" --bad-lacks "$CRASH"
+mk guard-allow 's#--arg d ask#--arg d allow#' 's#"permissionDecision":"ask"#"permissionDecision":"allow"#' &&
+  tt guard-allow hook_guard --good-has "$ASKRE" --good-lacks '"permissionDecision":"allow"' --bad-has '"permissionDecision":"allow"' --bad-lacks "$ASKRE" --bad-lacks "$CRASH"
+mk guard-deny 's#--arg d ask#--arg d deny#' 's#"permissionDecision":"ask"#"permissionDecision":"deny"#' &&
+  tt guard-deny hook_guard --good-has "$ASKRE" --good-lacks '"permissionDecision":"deny"' --bad-has '"permissionDecision":"deny"' --bad-lacks "$ASKRE" --bad-lacks "$CRASH"
+mk guard-lib-missing-allows '/SENTINEL-GUARD-FAIL-CLOSED/s#>&2; printf .*; exit 0; }#>\&2; exit 0; }#' &&
+  tt guard-lib-missing-allows tpl --good-has '^NOLIB-ASK-hook-guard=yes$' --bad-has '^NOLIB-ASK-hook-guard=no$' --bad-lacks "$CRASH"
+mk guard-lib-missing-allow-json '/SENTINEL-GUARD-FAIL-CLOSED/s#"permissionDecision":"ask"#"permissionDecision":"allow"#' &&
+  tt guard-lib-missing-allow-json tpl --good-has '^NOLIB-ASK-hook-guard=yes$' --bad-has '^NOLIB-ASK-hook-guard=no$' --bad-lacks "$CRASH"
+mk guard-json-unescaped 's#"\$(_rsdd_exec_json_escape "\$1")"#"$1"#' &&
+  tt guard-json-unescaped hook_guard --good-has '/no/\\"q\\"\\\\b\\ttab\\u0001ctl"\}\}$' --bad-lacks '/no/\\"q\\"\\\\b\\ttab\\u0001ctl"\}\}$' --bad-lacks "$CRASH"
+# documented templates (the header IS the test input: a drifted template must fail a case)
+mk tpl-cli-exit0 '/SENTINEL-RSDD-EXEC-GUARD/s#exit 2; }#exit 0; }#' &&
+  tt tpl-cli-exit0 tpl --good-has '^NOLIB-RC-cli=2$' --bad-has '^NOLIB-RC-cli=0$' --bad-lacks "$CRASH"
+mk tpl-sweep-exit2 '/SENTINEL-HOOK-EMIT-GUARD/s#exit 0; }#exit 2; }#' &&
+  tt tpl-sweep-exit2 tpl --good-has '^NOLIB-RC-hook-sweep=0$' --bad-has '^NOLIB-RC-hook-sweep=2$' --bad-lacks "$CRASH"
+mk tpl-dirname '/^#       _RSDD_SELF=/s#_RSDD_SELF=.*; unset#_RSDD_SELF="$(dirname "$0")"; unset#' &&
+  tt tpl-dirname tpl --good-has '^CHAIN-OK-cli=yes$' --bad-has '^CHAIN-OK-cli=no$' --bad-lacks "$CRASH"
+# bin dir, scan failure, kit root
+if [ "$(id -u)" != 0 ]; then
+  mk bin-ro-build-failed 's#\(mktemp "\$kit/bin/.rsdd.XXXXXX" 2>/dev/null)" || return \)3#\11#' &&
+    tt bin-ro-build-failed bin_ro --good-has 'bin dir not writable: ' --bad-has 'degraded: rsdd-unavailable — build failed' --bad-lacks "$CRASH"
+  mk bin-ro-raw-error 's#mktemp "\$kit/bin/.rsdd.XXXXXX" 2>/dev/null#mktemp "$kit/bin/.rsdd.XXXXXX"#' &&
+    tt bin-ro-raw-error bin_ro --good-lacks 'mktemp: ' --bad-has 'mktemp: ' --bad-lacks "$CRASH"
+  mk scan-failure-not-stale 's#\[ "\$rc" -ne 0 \] || ##' &&
+    tt scan-failure-not-stale scan_fail --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-FRESH$' --bad-lacks "$CRASH"
+else
+  skip "teeth bin-ro / scan-failure" "running as root (typed SKIP)"
+fi
+mk kit-root-unchecked 's#if \[ -z "\$kit" \]; then _RSDD_EXEC_WHY="cannot resolve the kit root"; return 2; fi#:#' &&
+  tt kit-root-unchecked nocd --good-has 'cannot resolve the kit root' --bad-lacks 'cannot resolve the kit root' --bad-lacks "$CRASH"
+# race: no atomic rename is covered above (handshake scenario)
 
 echo ""
 total=$((pass+fail))
