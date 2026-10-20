@@ -209,6 +209,18 @@ when `go` is present, otherwise downloads the release asset and verifies its sha
     `rsdd hook session-start --all` ≤ 8,000 decoded characters (verify-session-budget) and performance as
     p50/p95 over N runs on a recorded host and load average.
 
+Do NOT port (no production caller; Programador4 audit): `block_range_filter` (lib/focus-prefix.sh:113),
+`pcap_magic_check` and `squashfs_superblock` (lib/adapter_helpers.py:256,297), `require_capability`
+(lib/gate.py:73), plus `adapter_core.stop_group`/`tree_size` (unused copies). Their tests and contract
+lines are deleted in the phase that ports the containing file.
+One source for duplicated data: the Java decompiler sha256 pins exist 4x (install-tool.sh:132,155,179;
+corroborate_java.py:33-35; INSTALLED-TOOLS.md; java-corroboration.v1.md) — phase 5 makes one Go table the
+source and generates/validates the doc copies; the 4 MiB cap (corroborate_ifc.py:61, corroborate_kaitai.py:63)
+and the two different `ts` timestamp formats (dynamic.sh/probe.sh/serial-console.sh vs install-tool.sh) are
+unified in core with the legacy format kept per command by golden.
+CI blind spots to close when ported: lib/ifc_driver.py runs only with ifcopenshell installed (SKIP in CI) and
+ghidra/DecompileByString.java has no suite — phase 6 adds them to the extras job.
+
 Rejected: deleting the 9 four-line corroborate wrappers in U0.4 — doctrine cites those paths; they
 become shims in phase 6 and are deleted in phase 8 with the doctrine rewrite.
 Phase 7 (extras) stays IN scope (the maintainer asked for a complete port) but is ported last and only
