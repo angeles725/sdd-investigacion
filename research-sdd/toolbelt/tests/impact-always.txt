@@ -14,6 +14,7 @@ mutant-syntax-export-lint whole-tree lint: scans the shell tree, so any new or e
 template-heading-literal scans templates and tests for heading literals tree-wide
 reason-codes registry vs every scanned emitter; a new typed state fails it
 tool-registry-discoverability tool-registry.md vs every wrapper script
+rsdd-go whole-tree Go module: any change under research-sdd/rsdd can fail it, and the word map cannot see the Go tree
 process-integrity whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
 verify-doc-consistency whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
 doctrine-absence whole-tree reader of doctrine/docs/registries: the word map cannot see what it reads
