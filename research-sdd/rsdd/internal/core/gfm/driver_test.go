@@ -60,18 +60,21 @@ func TestDriverFailsLoudlyOnReaderError(t *testing.T) {
 	if err := os.WriteFile(plain, []byte("| a |\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// want is the typed reason the driver must print; code is the exit status documented in diff-driver.sh.
 	cases := []struct {
 		name, mode, file, script string
 		keys                     []string
+		want                     string // "reader-failed" | "empty-output"
+		code                     int
 	}{
-		{"state: script exits non-zero", "state", envelope, "echo boom >&2\nexit 3\n", nil},
-		{"state: script ok but envelope values never appear", "state", plain, "exit 0\n", nil},
-		{"foctok: reader function fails", "foctok", plain, "_read_focuses_tok_uncached() {\n  echo boom >&2\n  return 4\n}\n", []string{"k1"}},
-		{"state: only deferred_open comes back", "state", envelope, "printf 'deferred_open: 1\\n' > \"$1/RESEARCH-STATE.md\"\n", nil},
-		{"state: only covered_blocks comes back", "state", envelope, "printf 'covered_blocks: 1\\n' > \"$1/RESEARCH-STATE.md\"\n", nil},
-		{"state: one key twice is not both keys", "state", envelope, "printf 'deferred_open: 1\\ndeferred_open: 2\\n' > \"$1/RESEARCH-STATE.md\"\n", nil},
-		{"gaprows: gap_rows_parse fails", "gaprows", plain, "gap_rows_parse() {\n  echo boom >&2\n  return 6\n}\n", nil},
-		{"contra: reader function fails", "contra", plain, "count_open_contra() {\n  echo boom >&2\n  return 5\n}\n", nil},
+		{"state: script exits non-zero", "state", envelope, "echo boom >&2\nexit 3\n", nil, "reader-failed", 1},
+		{"state: script ok but envelope values never appear", "state", plain, "exit 0\n", nil, "empty-output", 1},
+		{"foctok: reader function fails", "foctok", plain, "_read_focuses_tok_uncached() {\n  echo boom >&2\n  return 4\n}\n", []string{"k1"}, "reader-failed", 5},
+		{"state: only deferred_open comes back", "state", envelope, "printf 'deferred_open: 1\\n' > \"$1/RESEARCH-STATE.md\"\n", nil, "empty-output", 1},
+		{"state: only covered_blocks comes back", "state", envelope, "printf 'covered_blocks: 1\\n' > \"$1/RESEARCH-STATE.md\"\n", nil, "empty-output", 1},
+		{"state: one key twice is not both keys", "state", envelope, "printf 'deferred_open: 1\\ndeferred_open: 2\\n' > \"$1/RESEARCH-STATE.md\"\n", nil, "empty-output", 1},
+		{"gaprows: gap_rows_parse fails", "gaprows", plain, "gap_rows_parse() {\n  echo boom >&2\n  return 6\n}\n", nil, "reader-failed", 1},
+		{"contra: reader function fails", "contra", plain, "count_open_contra() {\n  echo boom >&2\n  return 5\n}\n", nil, "reader-failed", 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -79,14 +82,41 @@ func TestDriverFailsLoudlyOnReaderError(t *testing.T) {
 			if exit == 0 {
 				t.Fatalf("driver exited 0 on a failing reader (silent pass); stdout=%q stderr=%q", stdout, stderr)
 			}
-			want := "diff-driver: reader-failed"
-			if c.mode == "state" && !strings.Contains(c.name, "non-zero") {
-				want = "diff-driver: empty-output" // the script succeeded but did not deliver both envelope keys exactly once
+			if exit != c.code {
+				t.Errorf("exit %d, documented %d: %q", exit, c.code, stderr)
 			}
-			if !strings.Contains(stderr, want) {
-				t.Errorf("exit %d but stderr lacks the typed message %q: %q", exit, want, stderr)
+			if want := "diff-driver: " + c.want; !strings.Contains(stderr, want) {
+				t.Errorf("stderr lacks the typed message %q: %q", want, stderr)
 			}
 		})
+	}
+}
+
+func TestDriverUsageAndUnknownModeExit2(t *testing.T) {
+	plain := filepath.Join(t.TempDir(), "plain.md")
+	if err := os.WriteFile(plain, []byte("| a |\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tb := fakeToolbelt(t, "state", "exit 0\n")
+	for name, args := range map[string][]string{
+		"too few arguments": {tb, "state"},
+		"missing input":     {tb, "state", filepath.Join(t.TempDir(), "nope.md")},
+		"unknown mode":      {tb, "bogus", plain},
+	} {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not found in PATH")
+		}
+		script, err := filepath.Abs(filepath.Join("testdata", "diff-driver.sh"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", append([]string{script}, args...)...)
+		var se strings.Builder
+		cmd.Stderr = &se
+		ee, ok := cmd.Run().(*exec.ExitError)
+		if !ok || ee.ExitCode() != 2 || !strings.Contains(se.String(), "diff-driver:") {
+			t.Errorf("%s: want exit 2 with a typed message, got %v / %q", name, ee, se.String())
+		}
 	}
 }
 

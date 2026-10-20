@@ -7,10 +7,18 @@
 #   foctok    research-sdd-status.sh _read_focuses_tok_uncached <file> <key>...   (one "key=token" per key)
 #   state     research-sdd-status.sh --sync-state on a COPY of <file>    (deferred_open / covered_blocks lines)
 # Functions embedded in scripts are lifted with sed exactly like table-reader-parity.test.sh does.
-# Exit: 0 ok, 2 usage / SUT missing (never a silent empty result).
+# Exit codes (every `exit` and `die` below; never a silent empty or zero result):
+#   0  success: the reader ran and its output is on stdout
+#   1  reader-failed: gaprows / contra / state reader exited non-zero (stderr: "diff-driver: reader-failed: ...")
+#      empty-output: state mode ran but did not return deferred_open and covered_blocks exactly once each
+#   2  usage or missing input: fewer than 3 arguments, input file not found, lib/gap-rows.sh missing,
+#      function not found in the toolbelt script, unknown mode
+#   5  reader-failed in foctok mode: _read_focuses_tok_uncached exited non-zero for a key
+# Anything else: the exit status of the bash reader process itself (foctok propagates it as is).
 set -uo pipefail
 export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
-tb="${1:?toolbelt dir}"; mode="${2:?mode}"; file="${3:?file}"; shift 3
+[ "$#" -ge 3 ] || { echo "diff-driver: usage: diff-driver.sh <toolbelt-dir> <mode> <file> [key...]" >&2; exit 2; }
+tb="$1"; mode="$2"; file="$3"; shift 3
 [ -f "$file" ] || { echo "diff-driver: input not found: $file" >&2; exit 2; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 lift() { # lift <script> <function> -> file
