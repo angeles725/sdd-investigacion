@@ -1,0 +1,17 @@
+{
+  "schema": "research-sdd.verify-registry/v1",
+  "state": "no-match",
+  "counts": {
+    "targets": 2,
+    "targets_absent": 0,
+    "targets_skipped": 0,
+    "reconciled": 2,
+    "count_drift": 0,
+    "retro_drift": 0,
+    "unresolved": 0,
+    "oversized_rows": 0,
+    "attention": 0
+  },
+  "reason": "targets reconciled, no findings",
+  "items": []
+}

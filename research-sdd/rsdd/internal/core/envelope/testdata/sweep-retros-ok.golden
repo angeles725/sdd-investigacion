@@ -1,0 +1,39 @@
+{
+  "schema": "research-sdd.sweep-retros/v1",
+  "state": "ok",
+  "counts": {
+    "targets": 2,
+    "targets_absent": 1,
+    "targets_skipped": 0,
+    "retros": 3,
+    "pending": 2,
+    "missing_retro": 0
+  },
+  "reason": null,
+  "items": [
+    {
+      "kind": "pending-retro",
+      "file": "@KIT@/targetA/retros/p1.md",
+      "target": "@KIT@/targetA",
+      "deltas": 3,
+      "deltas_state": "counted",
+      "status": "pending",
+      "age_days": 0,
+      "age_state": "counted",
+      "escalated": false,
+      "warning": null
+    },
+    {
+      "kind": "pending-retro",
+      "file": "@KIT@/targetA/retros/n1.md",
+      "target": "@KIT@/targetA",
+      "deltas": 1,
+      "deltas_state": "counted",
+      "status": "none",
+      "age_days": 0,
+      "age_state": "counted",
+      "escalated": false,
+      "warning": null
+    }
+  ]
+}
