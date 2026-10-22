@@ -30,7 +30,12 @@ ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
 MUT=(); MUTLIB=()
-[ "${1:-}" = "--prove-teeth" ] && { . "$HERE/lib/mutant.sh"; }
+# mutant.sh is sourced in EVERY mode, not only under --prove-teeth: c_escpipe_guard builds a mutated
+# retro-grammar.sh copy (MUTLIB) in the plain run too, and mkbox calls mutant_chain for it. Sourcing it only
+# for --prove-teeth made that check fail with an empty reason in a plain run while CI (always --prove-teeth)
+# stayed green. The helper only defines functions, so sourcing it unconditionally has no side effect.
+[ -f "$HERE/lib/mutant.sh" ] || { echo "FATAL: helper tests/lib/mutant.sh not found" >&2; exit 2; }
+. "$HERE/lib/mutant.sh"
 
 # mkbox <name>: hermetic sandbox (TARGETS.md with target-foo, SUT + libs copy, gh stub). Prints the box path.
 # MUT mutates the SUT copy, MUTLIB mutates the retro-grammar.sh copy (the delta classifier lives there).
@@ -190,7 +195,7 @@ c_double_backslash() {
 # it. A lib that does not define it must stop the seeder fail-closed (exit 1, named), never run with the escaped pipe unhandled.
 c_escpipe_guard() {
   local b; MUTLIB=('s/^_RG_AWK_ESCPIPE_FN=/_RG_AWK_ESCPIPE_FN_RENAMED=/')
-  b="$(mkbox "guard$1")" || return 1
+  b="$(mkbox "guard$1")" || { echo "MKBOX: lib mutant not built | $(cat "$ROOT/mutant.log" 2>/dev/null)"; MUTLIB=(); return 1; }
   MUTLIB=()
   run "$b" double-backslash-pipe.md; MSG=""
   [ "$RC" = 1 ] || MSG="RC $RC != 1"
