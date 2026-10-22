@@ -177,7 +177,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # no block files and exits 2 ('no block files') — the late, misleading failure the guard prevents.
   mkdir -p "$MD/orig/lib" "$MD/mut/lib"
   printf '#!/usr/bin/env bash\n# intentionally empty — no block_file_filter defined\n' > "$MD/orig/lib/block-files.sh"
-  cp "$MD/orig/lib/block-files.sh" "$MD/mut/lib/block-files.sh"
+  cp "$MD/orig/lib/block-files.sh" "$MD/mut/lib/block-files.sh"   # stage-libs-ok: copies the empty stub, not a toolbelt lib
   cp "$TOOLBELT/verify-corrections.sh" "$MD/orig/verify-corrections.sh"
   mk "TOOTH-3 mutant build" "$TOOLBELT/verify-corrections.sh" "$MD/mut/verify-corrections.sh" \
     '/^declare -F block_file_filter .*failed to define block_file_filter/d' \

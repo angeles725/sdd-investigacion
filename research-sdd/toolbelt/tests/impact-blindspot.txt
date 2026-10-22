@@ -19,9 +19,12 @@ ci-path-filter-coverage uses eval on built text; the script it runs is not a lit
 clean-check reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
 corroborate-java reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
 corroborate-pcap reach=research-sdd/toolbelt/*.py,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
-decompile-java reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
+coverage-map reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+decompile-java reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also uses eval on built text; the script it runs is not a literal name
+decompile-net reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 doctrine-absence builds a script name at run time (${x}.sh)
-enforcement-e2e reach=research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
+enforcement-e2e reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also copies or links the whole toolbelt/kit into a fixture
+ensure-remote reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 fetch-doc reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 firmware-carve reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
 focus-prefix-range reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
@@ -30,6 +33,7 @@ hook-kit-run reach=research-sdd/toolbelt/lib/* builds a script name at run time 
 hook-pretool-pkill-guard reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 kit-checkout-resolution loops over a toolbelt glob
 lib-resolution-lint copies or links the whole toolbelt/kit into a fixture
+lint-block reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 merge-gate reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 mutant reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 pi-hooks builds a script name at run time (${x}.sh)
@@ -39,6 +43,7 @@ qemu-exec reach=research-sdd/toolbelt/*.py,research-sdd/toolbelt/lib/* copies or
 reconcile-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 reconcile-issues-delta-forms reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 reconcile-issues-dismissed reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
+research-sdd-archive reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 research-sdd-init reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 research-sdd-install uses eval on built text; the script it runs is not a literal name
 research-sdd-status reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
@@ -72,8 +77,15 @@ sweep-breakthroughs reach=research-sdd/toolbelt/lib/* builds a script name at ru
 sweep-retros reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also uses eval on built text; the script it runs is not a literal name
 table-reader-parity reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 verify-block reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
-verify-registry-json reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
-verify-registry-wired-exec reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+verify-corrections reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-corrections-binding reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-corrections-precision reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-corrections-residuals reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-parity reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-registry reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-registry-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
+verify-registry-json reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
+verify-registry-wired-exec reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 verify-session-budget reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 verify-skill-drift copies or links the whole toolbelt/kit into a fixture
 verify-skill-drift-hook reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)

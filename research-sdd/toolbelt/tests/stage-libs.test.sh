@@ -33,15 +33,6 @@ SCAN_DIR="${LINT_SCAN_DIR:-$HERE}"
 
 # Suites that still hand-copy toolbelt libs (the ratchet: it only shrinks). One suite name per line.
 RATCHET="
-coverage-map
-decompile-java
-decompile-net
-discriminator-parity
-enforcement-e2e
-ensure-remote
-lint-block
-migrate-backlogs
-research-sdd-archive
 run-all
 run-all-cache
 sessionstart-budget
@@ -51,16 +42,7 @@ sweep-breakthroughs
 sweep-breakthroughs-hook
 sweep-retros-hook
 sweep-tools-hook
-verify-corrections
-verify-corrections-binding
-verify-corrections-precision
-verify-corrections-residuals
 verify-kit-clean-hook
-verify-parity
-verify-registry
-verify-registry-hook
-verify-registry-json
-verify-registry-wired-exec
 verify-skill-drift
 verify-skill-drift-hook
 verify-tool-catalog-hook
