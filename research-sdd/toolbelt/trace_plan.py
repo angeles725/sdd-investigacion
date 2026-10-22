@@ -11,7 +11,7 @@ Global -snapshot is ABSENT; per-drive containment policy (lib/vm_disk_policy.py)
 replaces it. Live TraceVmExecutor is wired below when --allow-exec.
 """
 from __future__ import annotations
-import argparse, os, struct, sys
+import argparse, os, sys
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
-    run_adapter_main, add_max_input_bytes_arg, read_target_once,
+    run_adapter_main, add_max_input_bytes_arg, read_target_once, arch_from_elf_head,
 )
 from vm_disk_policy import broad_qemu_root_message as _broad_qemu_root_msg      # noqa: E402
 
@@ -42,14 +42,6 @@ _DEFAULT_ROOTFS: str = "/rsdd/rootfs.img"
 # Must match vm_disk_policy._RT_TREE_DEST.
 _RT_TREE_DEST: str = "/rsdd/rt"
 
-# ELF e_machine → qemu-system arch suffix.
-# NOTE: byte-identical to detonate_plan._EM_TO_QEMU and qemu_plan._EM_TO_QEMU —
-# keep in sync manually; not imported to avoid cross-module coupling.
-_EM_TO_QEMU: dict[int, str] = {
-    3: "i386", 8: "mips", 20: "ppc", 21: "ppc64",
-    40: "arm", 42: "sh4", 62: "x86_64", 183: "aarch64", 243: "riscv64",
-}
-
 # Tracer-specific options recorded as data in the plan (not enforced at host level;
 # the guest-side rsdd-agent reads these from the plan and uses them when tracing).
 _TRACER_OPTIONS: dict[str, dict[str, Any]] = {
@@ -60,21 +52,6 @@ _TRACER_OPTIONS: dict[str, dict[str, Any]] = {
 
 
 class TracePlanError(AdapterError): ...
-
-
-def _arch_from_head(hdr: bytes) -> str:
-    """ELF e_machine from a header prefix → qemu arch suffix; 'x86_64' on any fault.
-
-    NOTE: byte-identical to detonate_plan._arch_from_head — keep in sync manually.
-    """
-    if len(hdr) < 20 or hdr[:4] != b"\x7fELF":
-        return "x86_64"
-    ei_data = hdr[5]
-    if ei_data == 1: fmt = "<H"
-    elif ei_data == 2: fmt = ">H"
-    else: return "x86_64"
-    e_machine = struct.unpack_from(fmt, hdr, 18)[0]
-    return _EM_TO_QEMU.get(e_machine, "x86_64")
 
 
 def build_plan(target: Path, tracer: str, caps: dict[str, int], *,
@@ -197,7 +174,7 @@ def plan_trace(args: Any) -> int:
     # ONE open: header sniff and sha256 come from the same fd (#2077).
     try: head, input_size, input_sha = read_target_once(target, args.max_input_bytes)
     except AdapterError as exc: print(f"trace-plan: {exc}", file=sys.stderr); return 2
-    arch = _arch_from_head(head)   # ELF e_machine → qemu arch; "x86_64" fallback
+    arch = arch_from_elf_head(head)  # ELF e_machine → qemu arch; "x86_64" fallback
     # Emit the broad-qemu-root warning BEFORE caps validation so operators see it
     # even when caps are also wrong — the warning is diagnostic and independent.
     qemu_root = getattr(args, "qemu_root", None)
