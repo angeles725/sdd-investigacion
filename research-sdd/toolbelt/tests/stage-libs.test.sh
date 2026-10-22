@@ -33,7 +33,6 @@ SCAN_DIR="${LINT_SCAN_DIR:-$HERE}"
 
 # Suites that still hand-copy toolbelt libs (the ratchet: it only shrinks). One suite name per line.
 RATCHET="
-check-gap-drift
 coverage-map
 decompile-java
 decompile-net
@@ -73,7 +72,6 @@ verify-registry-json
 verify-registry-wired-exec
 verify-skill-drift
 verify-skill-drift-hook
-verify-state
 verify-tool-catalog-hook
 "
 
