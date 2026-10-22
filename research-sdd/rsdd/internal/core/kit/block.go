@@ -67,22 +67,36 @@ func firstLine(path string) (string, bool) {
 // first come in sorted order (bash: readdir order). ErrNotDir is rc 2; ErrIncompleteWalk is rc 3 with the roots
 // found so far.
 func NestedWorktreeRoots(root string) ([]string, error) {
+	return nestedWorktreeRoots(root, os.ReadDir)
+}
+
+// nestedWorktreeRoots is NestedWorktreeRoots with the directory reader injected (tests walk "/" without touching it).
+func nestedWorktreeRoots(root string, readDir func(string) ([]os.DirEntry, error)) ([]string, error) {
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
 		return nil, &msgError{"block-files: nested_worktree_roots: not a directory: " + root, ErrNotDir}
 	}
-	root = strings.TrimSuffix(root, "/")
-	skip := root + "/.claude/worktrees"
+	// `${_root%/}` strips ONE slash, so "root//" keeps one (its prune path then never matches find's output: a
+	// bash quirk kept for parity). A root of "/" is the filesystem root, never "": bash cannot probe it (find "" fails,
+	// rc 3 "under  —", finding F15); Go walks it from "/".
+	skip := "/.claude/worktrees"
+	if root != "/" {
+		root = strings.TrimSuffix(root, "/")
+		skip = root + "/.claude/worktrees"
+	}
 	out := []string{skip}
 	incomplete := false
 	var walk func(dir string)
 	walk = func(dir string) {
-		ents, err := os.ReadDir(dir)
+		ents, err := readDir(dir)
 		if err != nil {
 			incomplete = true
 			return
 		}
 		for _, e := range ents {
 			p := dir + "/" + e.Name()
+			if strings.HasSuffix(dir, "/") { // find prints children of "dir/" as "dir/child"
+				p = dir + e.Name()
+			}
 			switch {
 			case p == skip:
 			case e.IsDir() && e.Name() == ".git":
@@ -103,10 +117,14 @@ func NestedWorktreeRoots(root string) ([]string, error) {
 	return out, nil
 }
 
+// ownGit says the .git file (whose directory is wt) is the probe root's own, never a nested worktree. For the
+// filesystem root "/" the directory of "/.git" is "" after the suffix cut.
+func ownGit(wt, root string) bool { return wt == root || (root == "/" && wt == "") }
+
 // worktreeRoot decides whether the .git file gf marks a linked worktree.
 func worktreeRoot(gf, root string) (string, bool) {
 	wt := strings.TrimSuffix(gf, "/.git")
-	if wt == root {
+	if ownGit(wt, root) {
 		return "", false
 	}
 	line, ok := firstLine(gf)

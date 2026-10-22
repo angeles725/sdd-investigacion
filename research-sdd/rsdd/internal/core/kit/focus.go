@@ -384,12 +384,14 @@ func ScanRange(dir string, lo, hi int, stateFile string) (RangeScan, error) {
 		res.Families[n[:start]]++
 	}
 	res.Count = len(ids)
-	for v := lo; v <= hi; v++ {
+	// Every id is inside [lo, hi], so the missing count is arithmetic; only the first 10 are enumerated, which costs
+	// O(files + 10) whatever the span (bash loops over the whole span and gets the same numbers).
+	if res.MissingCount = res.Span - res.Count; res.MissingCount < 0 {
+		res.MissingCount = 0
+	}
+	for v := lo; v <= hi && len(res.MissingFirst) < res.MissingCount; v++ {
 		if !ids[v] {
-			res.MissingCount++
-			if res.MissingCount <= 10 {
-				res.MissingFirst = append(res.MissingFirst, v)
-			}
+			res.MissingFirst = append(res.MissingFirst, v)
 		}
 	}
 	return res, nil

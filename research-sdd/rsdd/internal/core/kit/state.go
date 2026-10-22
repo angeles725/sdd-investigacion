@@ -46,7 +46,11 @@ func findState(dir string, follow bool, pat string) []string {
 		}
 		out = append(out, p)
 	}
-	visit(dir, trimmed[strings.LastIndex(trimmed, "/")+1:], false)
+	startIsDir := false
+	if st, err := os.Stat(dir); err == nil {
+		startIsDir = st.IsDir()
+	}
+	visit(dir, trimmed[strings.LastIndex(trimmed, "/")+1:], startIsDir)
 	stat := os.Lstat
 	if follow {
 		stat = os.Stat
