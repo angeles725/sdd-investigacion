@@ -39,6 +39,7 @@ qemu-exec reach=research-sdd/toolbelt/*.py,research-sdd/toolbelt/lib/* copies or
 reconcile-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 reconcile-issues-delta-forms reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 reconcile-issues-dismissed reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
+research-sdd-init reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 research-sdd-install uses eval on built text; the script it runs is not a literal name
 research-sdd-status reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 research-sdd-status-clean-warn reach=research-sdd/toolbelt/* loops over a toolbelt glob

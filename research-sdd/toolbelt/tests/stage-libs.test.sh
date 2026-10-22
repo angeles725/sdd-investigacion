@@ -44,7 +44,6 @@ migrate-backlogs
 reconcile-issues-delta-forms
 reconcile-issues-dismissed
 research-sdd-archive
-research-sdd-init
 retro-gate
 retro-grammar
 run-all
