@@ -59,6 +59,7 @@ scan-secrets reach=research-sdd/toolbelt/lib/* builds a script name at run time 
 scan-vendor-leak reach=research-sdd/toolbelt/lib/* named by the #2201 impact map as a whole-tree reader; kept although the detector does not flag it
 score-loop-transcript reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 self-dir-idiom loops over a toolbelt glob
+stage-libs reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 stage-retro-issues reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name
 stage-retro-issues-delta-forms reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 stage-retro-issues-dismissed reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
