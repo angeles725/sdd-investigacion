@@ -440,13 +440,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   TOOLBELT="$HERE/.."
+  # shellcheck source=lib/stage-libs.sh
+  . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a mutant tree
 
   # mk_tree NAME -> fresh copy of wrapper + helper + lib in $TMP/mt/NAME; echoes the dir
   mk_tree() {
     local d="$TMP/mt/$1"
-    mkdir -p "$d/lib"
+    rsdd_stage_libs "$d"
     cp "$TOOLBELT/lint-block.sh" "$TOOLBELT/lint_block.py" "$d/"
-    cp "$TOOLBELT/lib/block-files.sh" "$d/lib/"
     cp -r "$TOOLBELT/lint-block-packs" "$d/"
     chmod +x "$d/lint-block.sh"
     printf '%s' "$d"

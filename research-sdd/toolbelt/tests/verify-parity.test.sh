@@ -17,6 +17,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-parity.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -155,9 +157,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A bad side that is only an exit code must not be a crash: these never read as a bite.
   CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  # Seed block-files.sh into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
-  mkdir -p "$TMP/lib"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
+  # Stage lib/ (block-files.sh among it) into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
+  rsdd_stage_libs "$TMP"
   echo "-- teeth: neuter the per-hex membership guard; expect the DRIFT fixture to stop exiting 1 --"
   mutant="$TMP/verify-parity.MUTANT.sh"
   # Force the drift branch's guard false so a missing hex can never be flagged.

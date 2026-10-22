@@ -18,6 +18,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-corrections.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 FIX="$HERE/fixtures/verify-corrections"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -d "$FIX/real-1868" ] || { echo "FATAL: fixture dir missing: $FIX/real-1868" >&2; exit 2; }
@@ -381,7 +383,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   CRASH="$(mutant_crash_re bash cmd tb awk)" || exit 2
-  mkdir -p "$TMP/lib"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"
+  rsdd_stage_libs "$TMP"   # mutants in $TMP source lib/block-files.sh at $(dirname $0)/lib/
 
   echo "-- teeth (#1868 item 1): cross-focus qualifier --"
   m="$TMP/vc.NOQUAL.sh"
