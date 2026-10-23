@@ -272,6 +272,24 @@ func TestIndirectionOnlyCyclesAreBounded(t *testing.T) {
 	}
 }
 
+// TestMapDepthIsBoundedAtTheSameLimitAsLists pins object's own depth guard: a map nested exactly
+// MaxDepth deep encodes and one level more is rejected, independent of list's guard.
+func TestMapDepthIsBoundedAtTheSameLimitAsLists(t *testing.T) {
+	nest := func(n int) any {
+		var v any = "leaf"
+		for i := 0; i < n; i++ {
+			v = map[string]any{"k": v}
+		}
+		return v
+	}
+	if _, err := Canonical(nest(MaxDepth)); err != nil {
+		t.Errorf("map depth %d must encode: %v", MaxDepth, err)
+	}
+	if b, err := Canonical(nest(MaxDepth + 1)); err == nil || !strings.Contains(err.Error(), "depth") {
+		t.Errorf("map depth %d must be rejected, got %d bytes, %v", MaxDepth+1, len(b), err)
+	}
+}
+
 func TestDepthIsBounded(t *testing.T) {
 	nest := func(n int) any {
 		var v any = "leaf"
