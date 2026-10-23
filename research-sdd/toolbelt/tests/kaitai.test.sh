@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/kaitai.test.sh — kaitai-struct evidence adapter test suite (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based schema/cap/isolation assertions + unit tests.
 #                    No ksc or kaitai-venv spawn.  Always emits "== N passed · N failed ==".
 #   slow           — real tool run; requires kaitai-struct-compiler, bwrap, python3,
@@ -17,8 +17,8 @@ SUT="$TOOLBELT/corroborate-kaitai.sh"
 MANIFEST="$TOOLBELT/analysis_manifest.py"
 
 # Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the script-under-test does not exist yet.
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }

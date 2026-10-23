@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/jvm-callgraph.test.sh — jvm-callgraph lane-aware test suite
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based structural assertions; NO java/mvn spawn required.
 #                    Always runs.  Anti-#128 WIN.
 #   slow           — real java/mvn build + full integration tests.
@@ -33,8 +33,8 @@ TOOLBELT="$(dirname "$HERE")"
 WRAPPER="$TOOLBELT/jvm-callgraph.sh"
 
 # Source lane helper (aborts on invalid RSDD_TEST_LANE value per §7 anti-silent-zero).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the SUT shell wrapper does not exist yet.
 [ -f "$WRAPPER" ] || { echo "FATAL: SUT not found: $WRAPPER" >&2; exit 2; }

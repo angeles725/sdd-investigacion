@@ -6,6 +6,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../verify-tool-catalog-hook.sh"
 
 pass=0; fail=0
@@ -40,7 +42,7 @@ write_stub() {
     > "$TMP/verify-tool-catalog.sh"
   chmod +x "$TMP/verify-tool-catalog.sh"
   cp "$SUT" "$TMP/verify-tool-catalog-hook.sh"
-  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
+  rsdd_stage_libs "$TMP"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/verify-tool-catalog-hook.sh"
 }
 

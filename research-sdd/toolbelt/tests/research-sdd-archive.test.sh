@@ -11,6 +11,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-archive.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -278,13 +280,9 @@ else no "unreadable subtree: exit=$rc / banner=$(grep -c 'research-sdd-archive:'
 
 # 13 — a MISSING/broken gate linter must fail CLOSED and be reported DISTINCTLY (not as a stale-mirror FAIL).
 d="$TMP/brokenlinter"; mkgood "$d"
-tb="$TMP/tb"; mkdir -p "$tb/lib"
+tb="$TMP/tb"; rsdd_stage_libs "$tb"   # every lib the SUT sources (retro-status, state-files, block-files, focus-prefix, ...)
 cp "$SUT" "$tb/research-sdd-archive.sh"
 cp "$HERE/../verify-sources.sh" "$tb/verify-sources.sh"   # present + passing
-cp "$HERE/../lib/retro-status.sh" "$tb/lib/retro-status.sh"  # required helper
-cp "$HERE/../lib/state-files.sh"  "$tb/lib/state-files.sh"   # required helper (uf-gate loop)
-cp "$HERE/../lib/block-files.sh"  "$tb/lib/block-files.sh"   # required helper (block discriminator)
-cp "$HERE/../lib/focus-prefix.sh" "$tb/lib/focus-prefix.sh"  # required helper (--focus scope of the §14 gate)
 cp "$HERE/../scan-secrets.sh"     "$tb/scan-secrets.sh"       # required helper (gate)
 # verify-state.sh deliberately NOT copied → the gate call resolves to a missing file (rc 127)
 out="$(bash "$tb/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
@@ -1525,16 +1523,12 @@ out="$(bash "$SUT" "$d" 2>&1)"; rc=$?
 # Simulated with a stub library so the assertion does not depend on filesystem permissions.
 d="$TMP/uf-empty-enum"; mkgood "$d"
 awk '/^undocumented_findings:/{$0="undocumented_findings: 1"} {print}' "$d/RESEARCH-STATE.md" > "$d/RS.tmp" && mv "$d/RS.tmp" "$d/RESEARCH-STATE.md"
-tbE="$TMP/tb-empty-enum"; mkdir -p "$tbE/lib"
+tbE="$TMP/tb-empty-enum"; rsdd_stage_libs "$tbE"
 cp "$SUT" "$tbE/research-sdd-archive.sh"
 cp "$HERE/../verify-state.sh"     "$tbE/verify-state.sh"
 cp "$HERE/../verify-sources.sh"   "$tbE/verify-sources.sh"
 cp "$HERE/../scan-secrets.sh"     "$tbE/scan-secrets.sh"
-cp "$HERE/../lib/retro-status.sh" "$tbE/lib/retro-status.sh"
-cp "$HERE/../lib/focus-prefix.sh" "$tbE/lib/focus-prefix.sh"
-cp "$HERE/../lib/block-files.sh"  "$tbE/lib/block-files.sh"   # required helper (block discriminator)
-cp "$HERE/../lib/blocked-rows.sh" "$tbE/lib/blocked-rows.sh"
-# STUB: enumeration returns nothing, as a permission-denied find would.
+# STUB (written over the staged lib/state-files.sh): enumeration returns nothing, as a permission-denied find would.
 printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" 'list_state_files() { return 0; }' > "$tbE/lib/state-files.sh"
 out="$(bash "$tbE/research-sdd-archive.sh" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 3 ] && grep -qiE 'undocumented_findings.*(no state file|could not|enumerat)' <<<"$out"; then
@@ -1550,16 +1544,12 @@ fi
 # closes having inspected nothing. Moving the increment AFTER -f makes the counter mean
 # "files actually inspected", which is strictly stronger and catches this window too.
 d="$TMP/uf-noexist-paths"; mkgood "$d"
-tbNE="$TMP/tb-noexist"; mkdir -p "$tbNE/lib"
+tbNE="$TMP/tb-noexist"; rsdd_stage_libs "$tbNE"
 cp "$SUT" "$tbNE/research-sdd-archive.sh"
 cp "$HERE/../verify-state.sh"     "$tbNE/verify-state.sh"
 cp "$HERE/../verify-sources.sh"   "$tbNE/verify-sources.sh"
 cp "$HERE/../scan-secrets.sh"     "$tbNE/scan-secrets.sh"
-cp "$HERE/../lib/retro-status.sh" "$tbNE/lib/retro-status.sh"
-cp "$HERE/../lib/focus-prefix.sh" "$tbNE/lib/focus-prefix.sh"
-cp "$HERE/../lib/block-files.sh"  "$tbNE/lib/block-files.sh"  # required helper (block discriminator)
-cp "$HERE/../lib/blocked-rows.sh" "$tbNE/lib/blocked-rows.sh"
-# STUB: enumeration returns two paths that do not exist — simulates paths that vanished
+# STUB (written over the staged lib/state-files.sh): enumeration returns two paths that do not exist — simulates paths that vanished
 # between the find scan and the inspection loop, or a broken enumerator outputting garbage.
 printf '%s\n' '# shellcheck disable=SC2148' ". \"$HERE/../lib/state-files.sh\"" \
   "list_state_files() { printf '%s\n' \"$d/DOES-NOT-EXIST-1.md\" \"$d/DOES-NOT-EXIST-2.md\"; }" \
@@ -1829,9 +1819,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   # Every mutant is a copy of the SUT placed in $MUT, so the siblings and lib/ it resolves via $(dirname $0) are
   # copied there ONCE.
-  mkdir -p "$MUT/lib"
+  rsdd_stage_libs "$MUT"
   cp "$HERE/../verify-state.sh" "$HERE/../verify-sources.sh" "$HERE/../scan-secrets.sh" "$HERE/../verify-corrections.sh" "$MUT/"
-  cp "$HERE/../lib/retro-status.sh" "$HERE/../lib/focus-prefix.sh" "$HERE/../lib/state-files.sh" "$HERE/../lib/block-files.sh" "$HERE/../lib/blocked-rows.sh" "$MUT/lib/"
   REFUSE_RE='REFUSED: reconcile'   # printed by the SUT's gate on exit 3
   ARCH_RE='^  archived'            # printed by the SUT's last line on exit 0
   UF_RE='undocumented_findings: REFUSE'

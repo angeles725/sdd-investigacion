@@ -1,0 +1,39 @@
+name: rsdd-go
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "research-sdd/rsdd/**"
+      - ".github/workflows/rsdd-go.yml"
+  pull_request:
+    paths:
+      - "research-sdd/rsdd/**"
+      - ".github/workflows/rsdd-go.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rsdd-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: research-sdd/rsdd
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache-dependency-path: research-sdd/rsdd/go.mod
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: go vet ./...
+      - name: staticcheck (pinned in the Makefile)
+        run: make lint
+      - name: go test -race
+        run: make race
+      - name: cross build (CGO_ENABLED=0)
+        run: make cross

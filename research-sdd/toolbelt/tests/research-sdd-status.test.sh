@@ -14,6 +14,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-status.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture kit
 # HERMETICITY (kit issue #1140 round-2 review, Blocking 4): lib/hook-wiring.sh's git-root walk-up
 # climbs from a target to `/` unless RSDD_HOOK_WIRING_CEILING is set. Case 32f below git-inits a
 # fixture under $TMP; without this, a $TMPDIR that happens to sit inside a real repo would let an
@@ -87,11 +89,7 @@ MKKIT_WRAPPER_EOF
   chmod +x "$kdir/research-sdd-status.sh"
   cp "$SUT" "$kdir/_sut.sh"
   cp "$HERE/../verify-state.sh" "$kdir/verify-state.sh"
-  cp "$HERE/../lib/focus-prefix.sh" "$kdir/lib/focus-prefix.sh"
-  cp "$HERE/../lib/state-files.sh" "$kdir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$kdir/lib/blocked-rows.sh"
-  cp "$HERE/../lib/retro-status.sh" "$kdir/lib/retro-status.sh"
-  cp "$HERE/../lib/hook-wiring.sh" "$kdir/lib/hook-wiring.sh"
+  rsdd_stage_libs "$kdir"
   case "$mode" in
     untracked)
       printf '#!/usr/bin/env bash\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
@@ -137,17 +135,10 @@ MKKIT_WRAPPER_EOF
 # Used for R3-STUB-ONLY parser↔producer contract test.
 mk_kit_real_reconcile() {
   local kdir="$1" ghdir="$2"
-  mkdir -p "$kdir/lib"
+  rsdd_stage_libs "$kdir"
   cp "$SUT" "$kdir/research-sdd-status.sh"
   cp "$HERE/../verify-state.sh" "$kdir/verify-state.sh"
   cp "$HERE/../reconcile-issues.sh" "$kdir/reconcile-issues.sh"
-  cp "$HERE/../lib/focus-prefix.sh" "$kdir/lib/focus-prefix.sh"
-  cp "$HERE/../lib/state-files.sh" "$kdir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$kdir/lib/blocked-rows.sh"
-  cp "$HERE/../lib/retro-status.sh" "$kdir/lib/retro-status.sh"
-  cp "$HERE/../lib/hook-wiring.sh" "$kdir/lib/hook-wiring.sh"
-  cp "$HERE/../lib/retro-grammar.sh" "$kdir/lib/retro-grammar.sh"
-  cp "$HERE/../lib/target-paths.sh" "$kdir/lib/target-paths.sh"
   # kit issue #1287 item 3: reconcile treats an absent/zero-row TARGETS.md as an OPERATIONAL failure
   # (exit 1), so the fixture kit needs a registry. Callers pass a kdir of the form
   # <root>/research-sdd/toolbelt, making <root> the KIT_ROOT reconcile derives. One dummy row (a path
@@ -2152,11 +2143,7 @@ PERF_WRAPPER_EOF
 chmod +x "$_kit_perf/research-sdd-status.sh"
 cp "$SUT" "$_kit_perf/_sut.sh"
 cp "$HERE/../verify-state.sh" "$_kit_perf/verify-state.sh"
-cp "$HERE/../lib/retro-status.sh" "$_kit_perf/lib/retro-status.sh"
-cp "$HERE/../lib/hook-wiring.sh" "$_kit_perf/lib/hook-wiring.sh"
-cp "$HERE/../lib/focus-prefix.sh" "$_kit_perf/lib/focus-prefix.sh"
-cp "$HERE/../lib/state-files.sh" "$_kit_perf/lib/state-files.sh"
-cp "$HERE/../lib/block-files.sh" "$_kit_perf/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_kit_perf/lib/blocked-rows.sh"
+rsdd_stage_libs "$_kit_perf"
 # Recording stub: logs LAST argument (retro path) to the invocations file, returns one untracked line.
 # Uses ${@: -1} because gate calls reconcile as: reconcile.sh --issues-cache <file> <retro>
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${@: -1}" >> "%s"\nprintf "untracked: row 1\\n"\nexit 0\n' \
@@ -2203,14 +2190,9 @@ fi
 # R4-unbounded-when-timeout-absent: previously the gate ran each probe unbounded.
 _kit_ta="$TMP/kit-idg-timeout-absent"
 _ta_log="$TMP/timeout-absent-invocations.log"
-mkdir -p "$_kit_ta/lib"
+rsdd_stage_libs "$_kit_ta"
 cp "$SUT" "$_kit_ta/research-sdd-status.sh"
 cp "$HERE/../verify-state.sh" "$_kit_ta/verify-state.sh"
-cp "$HERE/../lib/retro-status.sh" "$_kit_ta/lib/retro-status.sh"
-cp "$HERE/../lib/hook-wiring.sh" "$_kit_ta/lib/hook-wiring.sh"
-cp "$HERE/../lib/focus-prefix.sh" "$_kit_ta/lib/focus-prefix.sh"
-cp "$HERE/../lib/state-files.sh" "$_kit_ta/lib/state-files.sh"
-cp "$HERE/../lib/block-files.sh" "$_kit_ta/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_kit_ta/lib/blocked-rows.sh"
 # Recording stub: logs its argument (assert 0 calls); returns "tracked" so clean STOP if probe runs.
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$1" >> "%s"\nprintf "tracked: row 1\\n"\nexit 0\n' \
   "$_ta_log" > "$_kit_ta/reconcile-issues.sh"
@@ -3558,15 +3540,10 @@ else no "RC-GOLDEN-3: merged stdout/stderr order differs from the pre-wire scrip
 # NEGATIVE CONTROL — reverse the priority order; the "high beats low" fixture must then pick LOW.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant status scripts resolve $here to $TMP, so they need verify-state.sh at $TMP/verify-state.sh.
-  # verify-state.sh sources lib/focus-prefix.sh; status.sh also sources lib/state-files.sh after the fix.
-  # lib/retro-status.sh is also included so the PERF pre-filter runs inside mutants (safe: no markers
-  # in teeth fixtures, so the pre-filter is transparent for existing mutant scenarios).
-  mkdir -p "$TMP/lib"
-  cp "$HERE/../lib/focus-prefix.sh" "$TMP/lib/focus-prefix.sh"
-  cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"  # SUT sources at $(dirname $0)/lib/
-  cp "$HERE/../lib/retro-status.sh" "$TMP/lib/retro-status.sh"
-  cp "$HERE/../lib/gh-visibility.sh" "$TMP/lib/gh-visibility.sh"  # kit #1820: the remote-visibility probe lives in the shared lib
+  # verify-state.sh and every toolbelt lib (staged by rsdd_stage_libs, tests/lib/stage-libs.sh) sit beside them, so
+  # the PERF pre-filter (lib/retro-status.sh) runs inside mutants (safe: no markers in teeth fixtures, so the
+  # pre-filter is transparent for existing mutant scenarios).
+  rsdd_stage_libs "$TMP"
   # kit #1637: DECLARED-KEEP (a declared counter above the derivation is carried forward) shadows every control
   # whose mutant bites by clobbering such a counter or by changing the derivation that the keep now masks. Those
   # mechanisms are still load-bearing for fixtures with declared <= derived and for --only, so their mutants are
@@ -3585,7 +3562,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mutant_sed "$SUT" "$out" -e '/# DECLARED-KEEP$/d' "$@" || return 1
     if cmp -s "$SUT_NK" "$out"; then rm -f "$out"; echo "  FAIL  nk_mutant_sed: the mutation does not change the keep-less base (dead sed expression) — $out"; return 1; fi
   }
-  cp "$HERE/../lib/hook-wiring.sh" "$TMP/lib/hook-wiring.sh"
 
   echo "-- teeth: reverse priority order in a mutant, expect the order fixture to pick the WRONG gap --"
   mutant="$TMP/status.MUTANT.sh"
@@ -4621,14 +4597,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-IDG-unverified-marker: could not build mutant (sed did not replace IDG-UNVERIFIED-MARKER)"
     else
       _unver_kit="$TMP/kit-teeth-unver"
-      mkdir -p "$_unver_kit/lib"
+      rsdd_stage_libs "$_unver_kit"
       cp "$idg_unver_mutant" "$_unver_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_unver_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_unver_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_unver_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_unver_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_unver_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_unver_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_unver_kit/lib/hook-wiring.sh"
       printf '#!/usr/bin/env bash\nprintf "degraded: gh not authenticated\\n" >&2\nexit 1\n' \
         > "$_unver_kit/reconcile-issues.sh"
       chmod +x "$_unver_kit/reconcile-issues.sh"
@@ -4665,14 +4636,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth-IDG-timeout: could not build mutant (sed did not remove _idg_timeout_bin from IDG-TIMEOUT-WRAP or IDG-REVERIFY-TIMEOUT-WRAP)"
     else
       _tmt_mut_kit="$TMP/kit-teeth-tmt"
-      mkdir -p "$_tmt_mut_kit/lib"
+      rsdd_stage_libs "$_tmt_mut_kit"
       cp "$idg_tmt_mutant" "$_tmt_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_tmt_mut_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_tmt_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_tmt_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_tmt_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_tmt_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_tmt_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_tmt_mut_kit/lib/hook-wiring.sh"
       # Same 3s-sleep stub as T-IDG-TIMEOUT; mutant removes timeout wrapper → stub completes normally.
       printf '#!/usr/bin/env bash\nsleep 3\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_tmt_mut_kit/reconcile-issues.sh"
@@ -4716,13 +4682,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       cp "$idg_ctr_mutant" "$_ctr_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_ctr_mut_kit/verify-state.sh"
       cp "$HERE/../reconcile-issues.sh" "$_ctr_mut_kit/reconcile-issues.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_ctr_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_ctr_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ctr_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ctr_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_ctr_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_ctr_mut_kit/lib/hook-wiring.sh"
-      cp "$HERE/../lib/retro-grammar.sh" "$_ctr_mut_kit/lib/retro-grammar.sh"
-      cp "$HERE/../lib/target-paths.sh" "$_ctr_mut_kit/lib/target-paths.sh"
+      rsdd_stage_libs "$_ctr_mut_kit"
       # Registry (kit issue #1287 item 3): without it real reconcile exits 1 and the mutant's STOP
       # would be for the WRONG reason (an operational failure, not the corrupted awk pattern).
       printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | fixture-dummy | `/nonexistent-kit-fixture-target` |\n' \
@@ -4769,14 +4729,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-opfail: could not build mutant (sed did not replace IDG-OPFAIL-SENTINEL — check sed pattern)"
     else
       _opfail_kit="$TMP/kit-teeth-opfail"
-      mkdir -p "$_opfail_kit/lib"
+      rsdd_stage_libs "$_opfail_kit"
       cp "$idg_opfail_mutant" "$_opfail_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_opfail_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_opfail_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_opfail_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_opfail_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_opfail_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_opfail_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_opfail_kit/lib/hook-wiring.sh"
       # exit_1_empty stub: exits 1 with no output — same scenario as T-IDG-E.
       printf '#!/usr/bin/env bash\nexit 1\n' > "$_opfail_kit/reconcile-issues.sh"
       chmod +x "$_opfail_kit/reconcile-issues.sh"
@@ -4839,21 +4794,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-oos: could not build mutant (sed did not replace IDG-OOS-SENTINEL — check sed pattern)"
     else
       _oos_teeth_kit="$TMP/kit-teeth-oos"
-      mkdir -p "$_oos_teeth_kit/lib"
+      rsdd_stage_libs "$_oos_teeth_kit"
       cp "$idg_oos_mutant" "$_oos_teeth_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_oos_teeth_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_oos_teeth_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_oos_teeth_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_oos_teeth_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_oos_teeth_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_oos_teeth_kit/lib/retro-status.sh"
-      # kit issue #1130 CI follow-up: research-sdd-status.sh unconditionally sources
-      # lib/hook-wiring.sh (kit issue #1109, landed via #1120/#1129's merge into main) and exits 1
-      # if it is missing. Every OTHER mutant-kit builder in this file already copies it (see
-      # teeth-IDG-opfail immediately above); this one was added before that dependency existed
-      # and was never updated when the branch was rebased past it. Without this copy the mutant
-      # exits 1 with "cannot find helper" on stderr (discarded by 2>/dev/null below) and stdout
-      # is empty — deterministic in EVERY environment, not something a gh/PATH stub can paper over.
-      cp "$HERE/../lib/hook-wiring.sh" "$_oos_teeth_kit/lib/hook-wiring.sh"
       # Stub: exits 0, prints the real reconcile-issues.sh out-of-scope-marker: shape to stderr,
       # nothing to stdout (no ^untracked: lines) — same scenario as T-IDG-OOS.
       printf '#!/usr/bin/env bash\nprintf "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r1.md — refusing to classify (kit issue #1099); move the marker into the leading block\\n" >&2\nexit 0\n' \
@@ -4894,14 +4837,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-find-exit-unverified: could not build mutant (sed did not replace IDG-FIND-EXIT-UNVERIFIED)"
     else
       _fex_kit="$TMP/kit-teeth-fex"
-      mkdir -p "$_fex_kit/lib"
+      rsdd_stage_libs "$_fex_kit"
       cp "$idg_find_exit_mutant" "$_fex_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_fex_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_fex_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_fex_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_fex_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_fex_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_fex_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_fex_kit/lib/hook-wiring.sh"
       # No reconcile stub needed: no retros are listed (stub find outputs nothing, exits 1).
       printf '#!/usr/bin/env bash\nexit 0\n' > "$_fex_kit/reconcile-issues.sh"
       chmod +x "$_fex_kit/reconcile-issues.sh"
@@ -4939,14 +4877,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-enum-mktemp-guard: could not build mutant (sed did not replace IDG-ENUM-MKTEMP-GUARD)"
     else
       _mtg_kit="$TMP/kit-teeth-mtg"
-      mkdir -p "$_mtg_kit/lib"
+      rsdd_stage_libs "$_mtg_kit"
       cp "$idg_mktemp_guard_mutant" "$_mtg_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_mtg_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_mtg_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_mtg_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_mtg_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_mtg_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_mtg_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_mtg_kit/lib/hook-wiring.sh"
       # tracked stub: if somehow retros are found (they won't be), all tracked → no ISSUES-DUE.
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_mtg_kit/reconcile-issues.sh"
@@ -4987,14 +4920,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-sort-exit-unverified: could not build mutant (sed did not replace IDG-SORT-EXIT-UNVERIFIED)"
     else
       _sort_mut_kit="$TMP/kit-teeth-sort"
-      mkdir -p "$_sort_mut_kit/lib"
+      rsdd_stage_libs "$_sort_mut_kit"
       cp "$idg_sort_mutant" "$_sort_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_sort_mut_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_sort_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_sort_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_sort_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_sort_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_sort_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_sort_mut_kit/lib/hook-wiring.sh"
       # tracked stub: all retros tracked → no ISSUES-DUE; bare STOP if unverified flag is neutered.
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_sort_mut_kit/reconcile-issues.sh"
@@ -5034,14 +4962,9 @@ CTR_TEETH_EOF
       no "teeth-IDG-timeout-absent: could not build mutant (sed did not replace IDG-TIMEOUT-ABSENT-FAIL-CLOSED)"
     else
       _ta_mut_kit="$TMP/kit-teeth-ta"
-      mkdir -p "$_ta_mut_kit/lib"
+      rsdd_stage_libs "$_ta_mut_kit"
       cp "$idg_ta_mutant" "$_ta_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_ta_mut_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_ta_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_ta_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ta_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ta_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_ta_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_ta_mut_kit/lib/hook-wiring.sh"
       # tracked stub: probes skipped (ABSENT-SKIP fires), so reconcile is never called; just needs to exist.
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1\\n"\nexit 0\n' \
         > "$_ta_mut_kit/reconcile-issues.sh"
@@ -5083,11 +5006,7 @@ CTR_TEETH_EOF
       _ee_mut_kit="$TMP/kit-teeth-ee"; mkdir -p "$_ee_mut_kit/lib"
       cp "$_idg_ee_mutant" "$_ee_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_ee_mut_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_ee_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_ee_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ee_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ee_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_ee_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_ee_mut_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_ee_mut_kit"
       # recording_untracked stub: logs each invocation to _IDG_RECORD_LOG; returns untracked.
       printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "$1" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_ee_mut_kit/reconcile-issues.sh"
@@ -5126,11 +5045,7 @@ CTR_TEETH_EOF
       _ab_mut_kit="$TMP/kit-teeth-ab"; mkdir -p "$_ab_mut_kit/lib"
       cp "$_idg_ab_mutant" "$_ab_mut_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_ab_mut_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_ab_mut_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_ab_mut_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_ab_mut_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_ab_mut_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_ab_mut_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_ab_mut_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_ab_mut_kit"
       # tracked stub: returns no untracked lines; budget must be the only trigger.
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_ab_mut_kit/reconcile-issues.sh"
@@ -5172,17 +5087,10 @@ CTR_TEETH_EOF
        ! grep -q -- '--issues-cache "\$_idg_cache_file"' "$_b1t_mut"; then
       # Tooth kit: real reconcile + all its libs + recording gh stub
       _b1t_kdir="$TMP/kit-b1tooth/research-sdd/toolbelt"   # <root>/research-sdd/toolbelt: root = KIT_ROOT (#1287)
-      mkdir -p "$_b1t_kdir/lib"
+      rsdd_stage_libs "$_b1t_kdir"
       cp "$_b1t_mut" "$_b1t_kdir/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_b1t_kdir/verify-state.sh"
       cp "$HERE/../reconcile-issues.sh" "$_b1t_kdir/reconcile-issues.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_b1t_kdir/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_b1t_kdir/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_b1t_kdir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_b1t_kdir/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_b1t_kdir/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_b1t_kdir/lib/hook-wiring.sh"
-      cp "$HERE/../lib/retro-grammar.sh" "$_b1t_kdir/lib/retro-grammar.sh"
-      cp "$HERE/../lib/target-paths.sh" "$_b1t_kdir/lib/target-paths.sh"
       printf '# fixture targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | fixture-dummy | `/nonexistent-kit-fixture-target` |\n' \
         > "$_b1t_kdir/../TARGETS.md"
       _b1t_ghdir="$TMP/gh-batch1-tooth"
@@ -5243,11 +5151,7 @@ GHTOOTHEOF
       mkdir -p "$_btwt_kit/lib" "$_btwt_kit/bin"
       cp "$_btwt_mut" "$_btwt_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_btwt_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_btwt_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_btwt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_btwt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_btwt_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_btwt_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_btwt_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_btwt_kit"
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_btwt_kit/reconcile-issues.sh"
       chmod +x "$_btwt_kit/reconcile-issues.sh"
@@ -5296,11 +5200,7 @@ BTWTTEOF
       mkdir -p "$_blt_kit/lib" "$_blt_kit/bin"
       cp "$_blt_mut" "$_blt_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_blt_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_blt_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_blt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_blt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_blt_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_blt_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_blt_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_blt_kit"
       printf '#!/usr/bin/env bash\nprintf "tracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_blt_kit/reconcile-issues.sh"
       chmod +x "$_blt_kit/reconcile-issues.sh"
@@ -5349,11 +5249,7 @@ BLTGHEOF
       mkdir -p "$_bfbt_kit/lib" "$_bfbt_kit/bin"
       cp "$_bfbt_mut" "$_bfbt_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_bfbt_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_bfbt_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_bfbt_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_bfbt_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_bfbt_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_bfbt_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_bfbt_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_bfbt_kit"
       # recording_untracked stub: logs the retro path to _IDG_RECORD_LOG; returns "untracked".
       printf '#!/usr/bin/env bash\nprintf '"'"'%%s\n'"'"' "${@: -1}" >> "${_IDG_RECORD_LOG:-/dev/null}"\nprintf "untracked: row 1 delta-foo\\n"\nexit 0\n' \
         > "$_bfbt_kit/reconcile-issues.sh"
@@ -5402,11 +5298,7 @@ BLTGHEOF
       mkdir -p "$_brev_kit/bin" "$_brev_kit/lib"
       cp "$_brev_mut" "$_brev_kit/research-sdd-status.sh"
       cp "$HERE/../verify-state.sh" "$_brev_kit/verify-state.sh"
-      cp "$HERE/../lib/focus-prefix.sh" "$_brev_kit/lib/focus-prefix.sh"
-      cp "$HERE/../lib/state-files.sh" "$_brev_kit/lib/state-files.sh"
-      cp "$HERE/../lib/block-files.sh" "$_brev_kit/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_brev_kit/lib/blocked-rows.sh"
-      cp "$HERE/../lib/retro-status.sh" "$_brev_kit/lib/retro-status.sh"
-      cp "$HERE/../lib/hook-wiring.sh" "$_brev_kit/lib/hook-wiring.sh"
+      rsdd_stage_libs "$_brev_kit"
       # cache_untracked_reverify_tracked stub: batch says untracked; per-retro says tracked (false-neg).
       printf '#!/usr/bin/env bash\n_has_cache=0\nfor _a in "$@"; do [ "$_a" = "--issues-cache" ] && _has_cache=1; done\nif [ "$_has_cache" = "1" ]; then\n  printf "untracked: row 1 delta-foo\\n"\nelse\n  printf "tracked: row 1 delta-foo\\n"\nfi\n' \
         > "$_brev_kit/reconcile-issues.sh"
@@ -6780,11 +6672,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   _sh_lib_mutant="$TMP/hook-wiring.STOP-HOOK-STATE.MUTANT.sh"
   printf 'hook_stop_wiring_state() { echo "wired"; return 0; }\n' > "$_sh_lib_mutant"
   _sh2_mutant_dir="$TMP/status-libmut/toolbelt"
-  mkdir -p "$_sh2_mutant_dir/lib"
+  rsdd_stage_libs "$_sh2_mutant_dir"
   cp "$SUT" "$_sh2_mutant_dir/research-sdd-status.sh"
-  cp "$HERE/../lib/focus-prefix.sh" "$_sh2_mutant_dir/lib/focus-prefix.sh"
-  cp "$HERE/../lib/state-files.sh" "$_sh2_mutant_dir/lib/state-files.sh"
-  cp "$HERE/../lib/block-files.sh" "$_sh2_mutant_dir/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$_sh2_mutant_dir/lib/blocked-rows.sh"
   cp "$_sh_lib_mutant" "$_sh2_mutant_dir/lib/hook-wiring.sh"
   d="$TMP/hook-absent-teeth"; mkstate "$d" 1 "high|g1|pending"
   _sh2_out="$(bash "$_sh2_mutant_dir/research-sdd-status.sh" "$d" 2>/dev/null)"
@@ -7208,8 +7097,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_or_count mutant_chain_or_count mutant_crash_re || exit 2
-  mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-  for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  rsdd_stage_libs "$TMP"
   # b13_tooth <name> <sed-script> <fixture-builder: heading> <hdr> <want-good> <rows...> — OR stderr mode when want-good is "ERR:<pattern>"
   # The mutant must make the fixture's observable (counters, or the named stderr line) DIFFER from the good run.
   b13_tooth() {
@@ -7794,8 +7683,8 @@ rm -rf "$_ro_w"
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mkdir -p "$TMP/lib"; cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
-  for _l in focus-prefix state-files block-files retro-status hook-wiring; do cp "$HERE/../lib/$_l.sh" "$TMP/lib/$_l.sh"; done
+  cp "$HERE/../verify-state.sh" "$TMP/verify-state.sh"
+  rsdd_stage_libs "$TMP"
   # t1640_tooth <name> <fixture-dir> <want-prefix-of-GOOD-run> <sed-script>: the good run must match <want>, the mutant must NOT.
   t1640_tooth() {
     local name="$1" dd="$2" want="$3" script="$4" m good bad

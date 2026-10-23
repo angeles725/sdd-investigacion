@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/ghidra-c-exporter.test.sh — test suite for ExportDecompiledC.java (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based predicates. No Ghidra spawn. Always emits
 #                    "== N passed · N failed ==".
 #   slow           — real Ghidra run; requires Ghidra, gcc, java21.
@@ -34,8 +34,8 @@ TOOLBELT="$(dirname "$HERE")"
 SCRIPT="$TOOLBELT/ghidra/ExportDecompiledC.java"
 
 # Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the SUT does not exist yet.
 [ -f "$SCRIPT" ] || { echo "FATAL: SUT not found: $SCRIPT" >&2; exit 2; }

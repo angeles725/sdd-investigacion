@@ -1,0 +1,216 @@
+// Command gen generates the typed reason-code table from reason-codes.v1.md.
+//
+// Usage (from the reasons package directory, see the go:generate line in reasons.go):
+//
+//	go run ./gen -md ../../../../toolbelt/reason-codes.v1.md -out table_gen.go
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"flag"
+	"fmt"
+	"go/format"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+// row is one parsed registry row.
+type row struct {
+	Code         string
+	Class        string
+	Emitters     []string
+	Meaning      string
+	Continuation string
+}
+
+const degradedPrefix = "degraded: "
+
+// reserved lists the exported identifiers hand-written in package reasons; a generated Code variable with
+// one of these names would not compile, or worse would shadow the API.
+var reserved = map[string]bool{
+	"Code": true, "Class": true, "ClassDegraded": true, "ClassInput": true,
+	"All": true, "Lookup": true, "Render": true, "Emit": true, "EmitDetail": true,
+}
+
+// splitCells splits a markdown table line (without its outer pipes) on unescaped pipes. In GFM any
+// backslash-pipe inside a cell is an escaped pipe and renders as a literal pipe (verified against the
+// GFM renderer, per the kit doctrine on table semantics). KNOWN DIVERGENCE: the shell parser in
+// tests/reason-codes.test.sh splits with awk -F'|' and does not honour the escape. The registry has no
+// escaped pipe today (0 occurrences), so the two agree on the real file; a future row that adds one will
+// make them disagree, and that is a finding for the shell side.
+func splitCells(s string) []string {
+	var cells []string
+	var cur strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\' && i+1 < len(s) && s[i+1] == '|':
+			cur.WriteByte('|')
+			i++
+		case s[i] == '|':
+			cells = append(cells, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(s[i])
+		}
+	}
+	return append(cells, strings.TrimSpace(cur.String()))
+}
+
+// parseTable extracts every registry row from the markdown source. A registry row is a table line whose
+// first cell is a backtick-wrapped code. Every such line must parse completely; anything malformed is an
+// error rather than a skipped row, and an input with no rows at all is an error (never a silent empty table).
+func parseTable(r io.Reader) ([]row, error) {
+	var rows []row
+	seen := map[string]int{}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for n := 1; sc.Scan(); n++ {
+		// Registry rows start in column 0. An indented table (nested in a list item) is prose about
+		// something else, for example the state table of a script's exit codes.
+		line := strings.TrimRight(sc.Text(), " \t\r")
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		inner := strings.TrimPrefix(line, "|")
+		cells := splitCells(inner)
+		if !strings.HasPrefix(cells[0], "`") {
+			continue // header, separator, or another table
+		}
+		if cells[len(cells)-1] != "" {
+			return nil, fmt.Errorf("line %d: registry row does not end with a closing pipe", n)
+		}
+		cells = cells[:len(cells)-1]
+		if len(cells) != 5 {
+			return nil, fmt.Errorf("line %d: registry row has %d cells, want 5", n, len(cells))
+		}
+		code := cells[0]
+		if len(code) < 2 || !strings.HasSuffix(code, "`") {
+			return nil, fmt.Errorf("line %d: code cell %q is not backtick-wrapped", n, code)
+		}
+		code = code[1 : len(code)-1]
+		if code == "" {
+			return nil, fmt.Errorf("line %d: empty code", n)
+		}
+		class := cells[1]
+		if class != "degraded" && class != "input" {
+			return nil, fmt.Errorf("line %d: unknown class %q", n, class)
+		}
+		if class == "degraded" && !strings.HasPrefix(code, degradedPrefix) {
+			return nil, fmt.Errorf("line %d: degraded code %q lacks the %q prefix", n, code, degradedPrefix)
+		}
+		var emitters []string
+		for _, e := range strings.Split(cells[2], ",") {
+			if e = strings.TrimSpace(e); e != "" {
+				emitters = append(emitters, e)
+			}
+		}
+		if len(emitters) == 0 {
+			return nil, fmt.Errorf("line %d: %q has no emitters", n, code)
+		}
+		if cells[3] == "" || cells[4] == "" {
+			return nil, fmt.Errorf("line %d: %q has an empty meaning or continuation", n, code)
+		}
+		if first, dup := seen[code]; dup {
+			return nil, fmt.Errorf("line %d: duplicate code %q (first at line %d)", n, code, first)
+		}
+		seen[code] = n
+		rows = append(rows, row{Code: code, Class: class, Emitters: emitters, Meaning: cells[3], Continuation: cells[4]})
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("no registry rows found")
+	}
+	return rows, nil
+}
+
+// identName derives a Go identifier from a code text: "<v>" becomes the word "V", every other run of
+// non-alphanumerics separates words, and each word gets an upper-case first letter.
+func identName(code string) string {
+	code = strings.ReplaceAll(code, "<v>", " V ")
+	words := strings.FieldsFunc(code, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	var b strings.Builder
+	for _, w := range words {
+		rs := []rune(w)
+		rs[0] = unicode.ToUpper(rs[0])
+		b.WriteString(string(rs))
+	}
+	return b.String()
+}
+
+// render produces the formatted Go source for rows.
+func render(rows []row) ([]byte, error) {
+	names := make([]string, len(rows))
+	used := map[string]string{}
+	for i, r := range rows {
+		n := identName(r.Code)
+		if n == "" || unicode.IsDigit([]rune(n)[0]) {
+			return nil, fmt.Errorf("code %q yields unusable identifier %q", r.Code, n)
+		}
+		if reserved[n] {
+			return nil, fmt.Errorf("code %q maps to identifier %s, which is reserved by package reasons", r.Code, n)
+		}
+		if other, dup := used[n]; dup {
+			return nil, fmt.Errorf("codes %q and %q both map to identifier %s", other, r.Code, n)
+		}
+		used[n] = r.Code
+		names[i] = n
+	}
+	var b bytes.Buffer
+	b.WriteString("// Code generated by gen; DO NOT EDIT.\n// Source: research-sdd/toolbelt/reason-codes.v1.md\n\npackage reasons\n\n")
+	b.WriteString("// One Code per registry row, in registry order.\nvar (\n")
+	for i, r := range rows {
+		fmt.Fprintf(&b, "\t// %s is the registry row %s.\n\t%s = Code{%d}\n", names[i], strconv.Quote(r.Code), names[i], i+1)
+	}
+	b.WriteString(")\n\nvar table = []entry{\n")
+	for _, r := range rows {
+		class := "ClassDegraded"
+		if r.Class == "input" {
+			class = "ClassInput"
+		}
+		var em []string
+		for _, e := range r.Emitters {
+			em = append(em, strconv.Quote(e))
+		}
+		fmt.Fprintf(&b, "\t{text: %s, class: %s, emitters: []string{%s}, meaning: %s, continuation: %s},\n",
+			strconv.Quote(r.Code), class, strings.Join(em, ", "), strconv.Quote(r.Meaning), strconv.Quote(r.Continuation))
+	}
+	b.WriteString("}\n")
+	return format.Source(b.Bytes())
+}
+
+func run(mdPath, outPath string) error {
+	f, err := os.Open(mdPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	rows, err := parseTable(f)
+	if err != nil {
+		return fmt.Errorf("%s: %w", mdPath, err)
+	}
+	src, err := render(rows)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(outPath, src, 0o644)
+}
+
+func main() {
+	md := flag.String("md", "", "path to reason-codes.v1.md")
+	out := flag.String("out", "", "path of the Go file to write")
+	flag.Parse()
+	if *md == "" || *out == "" {
+		fmt.Fprintln(os.Stderr, "usage: gen -md reason-codes.v1.md -out table_gen.go")
+		os.Exit(2)
+	}
+	if err := run(*md, *out); err != nil {
+		fmt.Fprintln(os.Stderr, "gen:", err)
+		os.Exit(1)
+	}
+}

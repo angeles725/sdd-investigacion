@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/ghidra-exporter.test.sh — CuratedEvidenceExporter.java test suite (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based schema/cap/isolation assertions. No Ghidra spawn.
 #                    Always emits "== N passed · N failed ==".
 #   slow           — real Ghidra run; requires Ghidra 12.1.x, gcc, python3, java21.
@@ -27,8 +27,8 @@ TOOLBELT="$(dirname "$HERE")"
 EXPORTER="$TOOLBELT/ghidra/CuratedEvidenceExporter.java"
 
 # Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the exporter source does not exist yet.
 [ -f "$EXPORTER" ] || { echo "FATAL: SUT not found: $EXPORTER" >&2; exit 2; }

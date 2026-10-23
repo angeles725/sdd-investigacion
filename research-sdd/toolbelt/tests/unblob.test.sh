@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/unblob.test.sh — unblob evidence adapter test suite (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based schema/isolation/depth-cap assertions + unit tests.
 #                    No unblob spawn.  Always emits "== N passed · N failed ==".
 #   slow           — real unblob run; requires unblob, bwrap, python3.
@@ -16,8 +16,8 @@ SUT="$TOOLBELT/corroborate-unblob.sh"
 MANIFEST="$TOOLBELT/analysis_manifest.py"
 
 # Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the script-under-test does not exist yet.
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }

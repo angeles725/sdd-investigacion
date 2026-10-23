@@ -2510,9 +2510,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 # 38 — --lane passthrough (kit issue #1821 item 2): `--lane <name>` / `--lane=<name>` exports RSDD_TEST_LANE to every
-#      suite (validated through lib/test-lane.sh, fail closed); no flag leaves the caller's ambient value untouched.
+#      suite (validated through tests/lib/test-lane.sh, fail closed); no flag leaves the caller's ambient value untouched.
 mklane_fix(){ # workdir — a suite that records the RSDD_TEST_LANE it saw ("<unset>" when absent) and prints a valid summary
-  mkdir -p "$1/../lib"; cp "$HERE/../lib/test-lane.sh" "$1/../lib/test-lane.sh"
+  mkdir -p "$1/lib"; cp "$HERE/lib/test-lane.sh" "$1/lib/test-lane.sh"
   { printf '#!/usr/bin/env bash\n'
     printf 'printf "%%s\\n" "${RSDD_TEST_LANE-<unset>}" >> "%s"\n' "$TMP/lane-seen.txt"
     printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
@@ -2546,10 +2546,10 @@ done
 # THERE; the real lib is never moved or hidden. The $TMP path guard is defensive only (lexical; newdir always builds under
 # $TMP); the REAL check is the sha1 of the real lib before/after. Unique dir: c38b is case 38b's leaky-suite directory.
 w2="$(newdir c38-lane-absent-lib)"; mkfix_sh "$w2/a.test.sh" 1 0 0
-_real_lane_lib="$HERE/../lib/test-lane.sh"
+_real_lane_lib="$HERE/lib/test-lane.sh"
 _real_lane_sha="$(sha1sum "$_real_lane_lib" | awk '{print $1}')"
-mkdir -p "$w2/../lib"; cp "$_real_lane_lib" "$w2/../lib/test-lane.sh"
-case "$w2/../lib/test-lane.sh" in "$TMP"/*) rm -f "$w2/../lib/test-lane.sh" ;; *) _c38bad="$_c38bad [isolated lib path outside \$TMP]" ;; esac
+mkdir -p "$w2/lib"; cp "$_real_lane_lib" "$w2/lib/test-lane.sh"
+case "$w2/lib/test-lane.sh" in "$TMP"/*) rm -f "$w2/lib/test-lane.sh" ;; *) _c38bad="$_c38bad [isolated lib path outside \$TMP]" ;; esac
 out="$(bash "$w2/run-all.sh" --lane slow 2>&1)"; rc=$?
 [ "$(sha1sum "$_real_lane_lib" | awk '{print $1}')" = "$_real_lane_sha" ] || _c38bad="$_c38bad [real lib modified]"
 if [ "$rc" -ne 2 ] || ! grep -qF 'is absent' <<<"$out"; then _c38bad="$_c38bad [absent lib rc=$rc]"; fi

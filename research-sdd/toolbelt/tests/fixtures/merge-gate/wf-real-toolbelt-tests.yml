@@ -2,7 +2,9 @@
 name: toolbelt tests
 
 on:
+  # Kit issue #2234: push runs on main only; PR branches run via pull_request, so each PR commit is checked once.
   push:
+    branches: [main]
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
@@ -11,6 +13,8 @@ on:
       - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
+      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      - "research-sdd/rsdd/**"
       # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
       # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
       - ".claude/settings.json"
@@ -32,6 +36,8 @@ on:
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
+      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      - "research-sdd/rsdd/**"
       - ".claude/settings.json"
       - "research-sdd/METHODOLOGY.md"
       - "research-sdd/PROMPT-LOOP.md"
@@ -78,6 +84,8 @@ jobs:
       # honoured once PR #2137 lands).
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
+      # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
+      RSDD_REQUIRE_GO: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -95,6 +103,12 @@ jobs:
           # >= 22.18 so `process.features.typescript` (native type stripping, kit issue #2138) is on without a flag;
           # 24 is the current LTS line.
           node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache-dependency-path: research-sdd/rsdd/go.mod
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE
