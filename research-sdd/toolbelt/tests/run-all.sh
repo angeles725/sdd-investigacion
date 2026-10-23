@@ -91,7 +91,7 @@
 #                    shard-join.sh.
 #
 #   --lane <name>    Passthrough (kit issue #1821): exports RSDD_TEST_LANE=<name> to every suite so the
-#                    lane-aware ones (lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
+#                    lane-aware ones (tests/lib/test-lane.sh: fast = fixture-cached, slow = real tool, all =
 #                    both) pick it up. The value is validated with the lib's own rsdd_lane and an
 #                    unknown or missing value exits 2 before any suite runs (fail closed). Without the
 #                    flag the caller's ambient RSDD_TEST_LANE is left exactly as it was.
@@ -359,8 +359,8 @@ _parse_impacted() {  # <value> — sets IMPACTED_REF or exits 2 (before any suit
   IMPACTED_REF="$1"
 }
 LANE_ARG=""
-_parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
-  local v="$1" lib="$SCRIPT_DIR/../lib/test-lane.sh"
+_parse_lane() {  # <value> — validates through tests/lib/test-lane.sh (rsdd_lane), sets LANE_ARG or exits 2
+  local v="$1" lib="$SCRIPT_DIR/lib/test-lane.sh"
   if [[ -z "$v" ]]; then
     echo "invalid --lane value: missing (allowed: fast slow all); $USAGE" >&2
     exit 2
@@ -369,7 +369,7 @@ _parse_lane() {  # <value> — validates through lib/test-lane.sh (rsdd_lane), s
     echo "--lane needs $lib to validate the lane and it is absent; $USAGE" >&2
     exit 2
   fi
-  # shellcheck source=../lib/test-lane.sh
+  # shellcheck source=lib/test-lane.sh
   . "$lib"
   if ! RSDD_TEST_LANE="$v" rsdd_lane >/dev/null; then
     echo "invalid --lane value '$v' (allowed: fast slow all); $USAGE" >&2

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/corroborate-native-r2.test.sh — corroborate-native-r2 adapter (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — live SAFE_R2 import teeth + fixture-based structural assertions.
 #                    Always runs; no r2/gcc/bwrap spawn required.  Anti-#128 WIN.
 #   slow           — integration tests with real r2 + gcc + bwrap.
@@ -21,8 +21,8 @@ SUT_PY="$TOOLBELT/corroborate_native.py"
 MAN="$TOOLBELT/analysis_manifest.py"
 
 # Source lane helper (aborts on invalid RSDD_TEST_LANE value per §7 anti-silent-zero).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the SUT Python module does not exist yet.
 [ -f "$SUT_PY" ] || { echo "FATAL: SUT module not found: $SUT_PY" >&2; exit 2; }
