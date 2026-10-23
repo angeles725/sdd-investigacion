@@ -177,12 +177,20 @@ func jqValidUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
+	// The scan ranges over the byte positions, so it ends after len(s) steps whatever the body computes: a
+	// sequence of n bytes is written once and its n-1 trailing bytes are passed over through skip. A
+	// hand-advanced index (i += n) let a miscounted n stall or rewind the scan while the builder grew without
+	// bound, which is how one gremlins mutant (n-- for n++) OOM-killed the CI runner.
 	var b strings.Builder
-	for i := 0; i < len(s); {
+	skip := 0
+	for i := range len(s) {
+		if skip > 0 {
+			skip--
+			continue
+		}
 		c := s[i]
 		if c < utf8.RuneSelf {
 			b.WriteByte(c)
-			i++
 			continue
 		}
 		var need int
@@ -195,7 +203,6 @@ func jqValidUTF8(s string) string {
 			need = 4
 		default:
 			b.WriteRune(utf8.RuneError)
-			i++
 			continue
 		}
 		n := 1
@@ -207,7 +214,7 @@ func jqValidUTF8(s string) string {
 		} else {
 			b.WriteRune(utf8.RuneError)
 		}
-		i += n
+		skip = n - 1
 	}
 	return b.String()
 }
