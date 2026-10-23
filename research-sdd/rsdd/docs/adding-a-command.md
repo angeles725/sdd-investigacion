@@ -45,14 +45,20 @@ that could mean any of them is a bug.
 
 ## 2. Register it
 
-Add one line to `Table` in `internal/commands/commands.go`:
+Add the entry to **your own domain's** `Commands` var, in `internal/<domain>/commands.go`
+(every domain from plan section 4.3 has a stub: `verify`, `sweep`, `hook`, `gate`, `status`, `corpus`, ...):
 
 ```go
-{Name: "block", Group: "verify", Summary: "verify a block", Run: verifyblock.Run},
+var Commands = []cli.Command{
+	{Name: "block", Group: "verify", Summary: "verify a block", Run: Run},
+}
 ```
 
-`rsdd --help` and `rsdd <group> --help` are generated from the table; there is no other place to list it.
-`Group` may be empty for a top-level command (`rsdd version`).
+Never edit `internal/commands/commands.go`: it concatenates `version` plus every domain's `Commands` into
+`Table`, and refuses the table (a start-up panic, plus a test) on a duplicate `(group, name)` across domains
+or a group that shares a name with an ungrouped command. `internal/commands` is the only package allowed to
+import domains. `rsdd --help` and `rsdd <group> --help` are generated from the table; there is no other
+place to list a command. `Group` may be empty for a top-level command (`rsdd version`).
 
 ## 3. Golden case
 
@@ -80,6 +86,12 @@ no cases, FAILS (it is never skipped). Create the case with empty expectation fi
 - a domain package (`internal/<domain>/...`) imports only the core tier - never another domain, never `commands`.
 
 Shared logic two domains need belongs in `internal/core/<name>`.
+
+Packages also never read ambient state: `os.Getenv`, `os.LookupEnv`, `os.Getwd` and `time.Now` are
+forbidden outside `internal/cli/stdio.go` (test files excepted), and `cmd/` is scanned too. Take them
+from `cli.Stdio`. `cli.Validate` (run on every dispatch, and by a test on the shipped table) rejects a
+duplicate `(group, name)`, a group that shares a name with an ungrouped command, an empty name and a nil
+`Run`, so nothing is silently shadowed.
 
 ## 5. Keep the bash entry point as a shim
 

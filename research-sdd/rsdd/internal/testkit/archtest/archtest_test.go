@@ -52,6 +52,9 @@ func TestFixtureAllowedImportsPass(t *testing.T) {
 	if len(r.Violations) != 0 {
 		t.Errorf("registry->domain and domain->core are allowed, got: %v", r.Violations)
 	}
+	if r.Files != 5 {
+		t.Errorf("expected 5 files scanned, got %d", r.Files)
+	}
 	if r.Packages != 5 {
 		t.Errorf("expected 5 packages scanned, got %d", r.Packages)
 	}
@@ -94,4 +97,19 @@ func modulePath(t *testing.T, gomod string) string {
 	}
 	t.Fatal("no module line in go.mod")
 	return ""
+}
+
+// A module without cmd/ is valid (cmd is optional); a missing internal/ is not.
+func TestMissingCmdDirIsFine(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "internal", "x", "x.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Check(root, "example.test/m")
+	if err != nil || r.Packages != 1 || len(r.Violations) != 0 {
+		t.Fatalf("got (%+v, %v), want 1 package, no violations, no error", r, err)
+	}
 }

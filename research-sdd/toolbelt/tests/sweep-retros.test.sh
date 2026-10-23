@@ -32,6 +32,8 @@ TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT no
 [ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
 RG_LIB="$HERE/../lib/retro-grammar.sh"       # shared delta-heading grammar the SUT now sources
 [ -f "$RG_LIB" ] || { echo "FATAL: retro-grammar helper not found: $RG_LIB" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox kit toolbelt
 [ -f "$HERE/../lib/hook-wiring.sh" ] || { echo "FATAL: hook-wiring helper not found: $HERE/../lib/hook-wiring.sh" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
@@ -49,13 +51,8 @@ no()   { printf '  FAIL  %-56s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 # KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt/lib"
+  rsdd_stage_libs "$kit/toolbelt"   # every lib the SUT sources (retro-status, target-paths, block-files, retro-grammar, hook-wiring)
   cp "$SUT" "$kit/toolbelt/sweep-retros.sh"
-  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"       # SUT sources this at $(dirname $0)/lib/
-  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"   # SUT sources this at $(dirname $0)/lib/
-  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh"     # SUT sources this for block_file_filter
-  cp "$RG_LIB" "$kit/toolbelt/lib/retro-grammar.sh"  # SUT sources this for retro_grammar_delta_info
-  cp "$HERE/../lib/hook-wiring.sh" "$kit/toolbelt/lib/hook-wiring.sh"  # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
 }
 

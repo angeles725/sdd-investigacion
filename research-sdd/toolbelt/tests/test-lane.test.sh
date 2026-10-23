@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-lane.test.sh — contract for lib/test-lane.sh.
+# test-lane.test.sh — contract for tests/lib/test-lane.sh.
 #
 # Covers:
 #   a) RSDD_TEST_LANE unset   → rsdd_lane echoes "fast" (default)
@@ -20,10 +20,10 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="$HERE/../lib/test-lane.sh"
-[ -f "$LIB" ] || { echo "FATAL: lib/test-lane.sh not found: $LIB" >&2; exit 2; }
+LIB="$HERE/lib/test-lane.sh"
+[ -f "$LIB" ] || { echo "FATAL: tests/lib/test-lane.sh not found: $LIB" >&2; exit 2; }
 
-# shellcheck source=../lib/test-lane.sh
+# shellcheck source=lib/test-lane.sh
 . "$LIB"
 
 pass=0; fail=0
@@ -89,8 +89,8 @@ fi
 result_f=""
 rc_f=0
 result_f="$(rsdd_lane_fixture my-suite my-fixture)" || rc_f=$?
-toolbelt_dir="$(dirname "$HERE")"
-expected_f="${toolbelt_dir}/tests/fixtures/lane/my-suite/my-fixture.json"
+tests_dir="$HERE"
+expected_f="${tests_dir}/fixtures/lane/my-suite/my-fixture.json"
 if [[ "$rc_f" -eq 0 && "$result_f" == "$expected_f" ]]; then
   ok "f rsdd_lane_fixture: resolves expected path" "(got: $result_f)"
 else
@@ -107,7 +107,7 @@ else
   no "g rsdd_lane_fixture no args: non-zero exit" "rc=$rc_g"
 fi
 
-# h — direct execution guard: running lib/test-lane.sh directly must exit non-zero
+# h — direct execution guard: running tests/lib/test-lane.sh directly must exit non-zero
 rc_h=0
 bash "$LIB" >/dev/null 2>&1 || rc_h=$?
 if [[ "$rc_h" -ne 0 ]]; then

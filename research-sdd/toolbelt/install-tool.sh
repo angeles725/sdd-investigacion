@@ -50,7 +50,7 @@ sudo_n() { # run sudo non-interactively; return 100 if a password would be requi
 case "${1:-}" in
   --help|-h) usage; exit 0 ;;
   --check)   shift; have "${1:?cmd}" && exit 0 || exit 1 ;;
-  --list)    grep -oP '^\s+\K[a-z0-9_-]+(?=\)\s)' "$HERE/install-tool.sh" 2>/dev/null | sort -u; exit 0 ;;
+  --list)    sed -nE 's/^[[:space:]]+([a-z0-9_-]+)\)[[:space:]].*/\1/p' "$HERE/install-tool.sh" 2>/dev/null | sort -u; exit 0 ;;
   --log)     shift; log "${1:?tool}" "${2:?how}" "${4:?status}" "external/manual"; exit 0 ;;
   -*)        usage >&2; exit 2 ;;
 esac

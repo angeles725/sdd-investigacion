@@ -60,7 +60,7 @@ that scores a run is `research-sdd/toolbelt/score-loop-transcript.sh` (kit issue
 |                  | `claude` profile | `general` profile |
 |---|---|---|
 | **Claude** (current model) | cell A | cell B |
-| **Qwen** (4.6, via reasonix/codex harness) | cell C | cell D |
+| **Qwen** (4.6, via the pi or gentle-shell harness) | cell C | cell D |
 
 Each cell is run 3 times (3 seeds — a fresh session per seed; there is no explicit RNG seed to
 set, "seed" here means an independent run, not a shared-state replay). 4 cells × 3 seeds = 12
@@ -127,26 +127,31 @@ and risking drift):
 
 ## Known limitations
 
-- **Qwen transcript shape is unverified; Claude Code's own shape now IS (round 2), and a real
-  Codex/`reasonix` rollout shape is now CONFIRMED unusable as-is (round 3).**
+- **Qwen transcript shape (pi / gentle-shell) is unverified; Claude Code's own shape IS verified
+  (round 2), and a real non-Claude rollout shape was CONFIRMED unusable as-is (round 3).** Cells
+  C/D run on the supported non-Claude harnesses, `pi` and `gentle-shell` (Codex and Reasonix
+  support was dropped on 2026-10-03, kit issue #1471); the round-3 inspection below was made on
+  a Codex rollout before that drop and stands as the evidence for why the guard exists.
   `score-loop-transcript.sh`'s JSONL-record assumptions — `origin.kind=="human"` for a genuine
   operator turn, `compact_boundary`/`isCompactSummary` for compaction — were checked read-only
   against three real Claude Code session transcripts and are accurate for that harness. A real
-  Codex rollout (`~/.codex/sessions/.../rollout-*.jsonl`) was ALSO inspected read-only this
-  round: its top-level `.type` is always `event_msg`/`response_item`/`token_usage_record`/etc —
+  Codex rollout (`~/.codex/sessions/.../rollout-*.jsonl`, a harness no longer supported) was
+  ALSO inspected read-only this round: its top-level `.type` is always `event_msg`/`response_item`/`token_usage_record`/etc —
   never `"user"`/`"assistant"` — and the human/assistant role lives NESTED at `.payload.role`,
   with no top-level `.origin` field at all. `score-loop-transcript.sh`'s round-3
   "unrecognized transcript shape" guard correctly refuses to score a transcript in this shape
   (every criterion reads `degraded unrecognized transcript shape` instead of a false pass) — so
-  a Qwen/reasonix cell run through score-loop-transcript.sh unmodified will DEGRADE cleanly, not
-  silently misscore, which is the safe default but not a usable eval result. Before running
-  cells C/D for the first time: confirm the harness's actual transcript shape (repeat the same
-  read-only `jq`-over-real-records inspection this kit did for Claude Code and Codex). The
+  a Qwen cell on a harness whose transcript has that shape, scored by score-loop-transcript.sh
+  unmodified, will DEGRADE cleanly, not silently misscore, which is the safe default but not a usable eval result. Before running
+  cells C/D for the first time: confirm the actual transcript shape of the chosen harness (`pi` or
+  `gentle-shell`; repeat the same read-only `jq`-over-real-records inspection this kit did for
+  Claude Code and Codex — no pi/gentle-shell inspection is recorded here). The
   `RSDD_OPERATOR_INPUT_JQ`/`RSDD_COMPACT_JQ` overrides CANNOT make such a transcript scoreable:
   the top-level `.origin` presence check and the assistant `.type` test are hardcoded outside
   them (kit issue #1017 item 3), so only a script change verified against real data can add a
-  new shape. Until then cells C/D will read `degraded` for every criterion and are not
-  comparable to A/B — not guessed.
+  new shape. Until a pi/gentle-shell shape is verified (or found to match
+  Claude Code's), cells C/D may read `degraded` for every criterion and are then not comparable
+  to A/B — not guessed.
 - **Without a transcript, C1 is `n/a`, not a usable fallback signal.** A prior draft of this
   protocol suggested relying on "C1's transcript-independent count" for cells C/D if Qwen's
   transcript shape turns out to be unusable. That undersells what happens: with no transcript

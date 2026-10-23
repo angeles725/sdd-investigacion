@@ -17,6 +17,8 @@ SUT="$TOOLBELT/check-gap-drift.sh"
 VS="$TOOLBELT/verify-state.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture toolbelt
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -253,13 +255,13 @@ run "$d"; expect "20e pending row with a marker first cell but too few cells is 
 # 21. Operational failures exit 2 (1 is reserved for findings); a flag with a missing value cannot hang.
 run "$TMP/clean" --threshold; expect "21a --threshold with no value exits 2 (no hang)" 2 "usage"
 run "$TMP/clean" --state; expect "21b --state with no value exits 2 (no hang)" 2 "usage"
-mkdir -p "$TMP/nolib/lib"; cp "$SUT" "$TMP/nolib/"; cp "$TOOLBELT/lib/block-files.sh" "$TMP/nolib/lib/"
+rsdd_stage_libs "$TMP/nolib" --except gap-rows.sh; cp "$SUT" "$TMP/nolib/"
 OUT="$(timeout 20 bash "$TMP/nolib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
 expect "21c missing lib/gap-rows.sh exits 2 (never 1, which means findings)" 2 "gap-rows.sh"
-mkdir -p "$TMP/nolib2/lib"; cp "$SUT" "$TMP/nolib2/"; cp "$TOOLBELT/lib/gap-rows.sh" "$TMP/nolib2/lib/"
+rsdd_stage_libs "$TMP/nolib2" --except block-files.sh; cp "$SUT" "$TMP/nolib2/"
 OUT="$(timeout 20 bash "$TMP/nolib2/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
 expect "21d missing lib/block-files.sh exits 2" 2 "block-files.sh"
-mkdir -p "$TMP/badlib/lib"; cp "$SUT" "$TMP/badlib/"; cp "$TOOLBELT/lib/block-files.sh" "$TMP/badlib/lib/"; : > "$TMP/badlib/lib/gap-rows.sh"
+rsdd_stage_libs "$TMP/badlib"; cp "$SUT" "$TMP/badlib/"; : > "$TMP/badlib/lib/gap-rows.sh"
 OUT="$(timeout 20 bash "$TMP/badlib/check-gap-drift.sh" "$TMP/clean" 2>&1)"; RC=$?
 expect "21e lib that fails to define its function exits 2" 2 "failed to define"
 
@@ -291,23 +293,20 @@ vsrc_drift=$RC
 vs "$TMP/vs-clean"; vsrc_clean=$RC
 [ "$vsrc_drift" = "$vsrc_clean" ] && ok "V3 the drift WARN does not change verify-state's exit code (WARN-only)" || no "V3 exit code changed: drift=$vsrc_drift clean=$vsrc_clean"
 # degraded: checker missing beside a copy of verify-state, state HAS gap rows => typed degraded WARN.
-mkdir -p "$TMP/vscopy/lib"
-cp "$VS" "$TMP/vscopy/verify-state.sh"
-cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$TMP/vscopy/lib/"
+rsdd_stage_libs "$TMP/vscopy"; cp "$VS" "$TMP/vscopy/verify-state.sh"
 OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-drift" 2>&1)"; RC=$?
 if grep -qF 'check-gap-drift.sh not found' <<<"$OUT"; then ok "V4 checker absent + gap rows present => typed degraded WARN (never silent)"; else no "V4 missing checker not reported"; fi
-mkdir -p "$TMP/vscopy3/lib"; cp "$VS" "$TMP/vscopy3/verify-state.sh"; cp "$SUT" "$TMP/vscopy3/"
-cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$TMP/vscopy3/lib/"
+rsdd_stage_libs "$TMP/vscopy3" --except gap-rows.sh; cp "$VS" "$TMP/vscopy3/verify-state.sh"; cp "$SUT" "$TMP/vscopy3/"
 OUT="$(bash "$TMP/vscopy3/verify-state.sh" "$TMP/vs-drift" 2>&1)"
 if grep -qF 'gap-drift: degraded' <<<"$OUT"; then ok "V7 checker present but its helper lib is missing => typed degraded WARN (not silence)"; else no "V7 broken checker produced no gap-drift line — $(printf '%s' "$OUT" | grep -a gap-drift | head -1)"; fi
-mkdir -p "$TMP/vscopy4/lib"; cp "$VS" "$TMP/vscopy4/verify-state.sh"; cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$TMP/vscopy4/lib/"
+rsdd_stage_libs "$TMP/vscopy4"; cp "$VS" "$TMP/vscopy4/verify-state.sh"
 printf '#!/usr/bin/env bash\necho oops >&2\nexit 1\n' > "$TMP/vscopy4/check-gap-drift.sh"
 OUT="$(bash "$TMP/vscopy4/verify-state.sh" "$TMP/vs-drift" 2>&1)"
 if grep -qF 'check-gap-drift.sh failed (exit 1)' <<<"$OUT"; then ok "V8 checker exit 1 with NO typed finding line => degraded WARN (1 is reserved for findings)"; else no "V8 untyped exit 1 not reported"; fi
 mkdir -p "$TMP/vs-norows"; { printf '%s\n' '# S' '<!-- research-state.v1 -->' 'schema: research-state.v1' 'covered_blocks: 0' 'gaps_closed: 0' 'known_gaps: 1' 'investigable_open: 1' 'requires_execution_open: 0' 'blocked_open: 0' 'deferred_open: 0' '<!-- /research-state.v1 -->' "$HDR1" "$HDR2" "$HDR3" '| high | plain gap | x | pending |'; } > "$TMP/vs-norows/RESEARCH-STATE.md"
 OUT="$(bash "$TMP/vscopy/verify-state.sh" "$TMP/vs-norows" 2>&1)"
 lacks "V5 checker absent but NO gap rows => no degraded noise" "check-gap-drift.sh not found"
-mkdir -p "$TMP/vscopy2/lib"; cp "$VS" "$TMP/vscopy2/verify-state.sh"; cp "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$TMP/vscopy2/lib/"
+rsdd_stage_libs "$TMP/vscopy2"; cp "$VS" "$TMP/vscopy2/verify-state.sh"
 printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$TMP/vscopy2/check-gap-drift.sh"
 OUT="$(bash "$TMP/vscopy2/verify-state.sh" "$TMP/vs-drift" 2>&1)"
 if grep -qF 'check-gap-drift.sh failed (exit 2)' <<<"$OUT"; then ok "V6 checker exits 2 => typed degraded WARN naming the failure"; else no "V6 checker failure not reported"; fi
@@ -317,9 +316,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: check-gap-drift / gap-rows / verify-state mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mk_tree(){ local d="$TMP/mut-$1"; mkdir -p "$d/lib"
-    cp "$TOOLBELT/check-gap-drift.sh" "$TOOLBELT/verify-state.sh" "$d/"
-    cp "$TOOLBELT/lib/gap-rows.sh" "$TOOLBELT/lib/block-files.sh" "$TOOLBELT/lib/focus-prefix.sh" "$TOOLBELT/lib/state-files.sh" "$TOOLBELT/lib/blocked-rows.sh" "$d/lib/"; printf '%s' "$d"; }
+  mk_tree(){ local d="$TMP/mut-$1"; rsdd_stage_libs "$d"
+    cp "$TOOLBELT/check-gap-drift.sh" "$TOOLBELT/verify-state.sh" "$d/"; printf '%s' "$d"; }
   # tooth <name> <file> <sed-expr> <fixture> <rc GOOD gives> <needle GOOD prints> [tool args...]
   # The mutant must change the exit code or lose the needle; either proves the assertion bites.
   tooth(){ local name="$1" file="$2" expr="$3" fx="$4" grc="$5" needle="$6"; shift 6

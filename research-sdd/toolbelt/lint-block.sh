@@ -24,15 +24,17 @@
 #
 # Typed states (CLAUDE.md §7 — a bare "0" must say which zero it is):
 #   ABSENT-INPUT  a given path does not exist                    -> exit 2 (reported, rest still linted)
-#   EMPTY-INPUT   an empty file, or a directory with no block files -> reported, not a finding
+#   EMPTY-INPUT   an empty file, or a directory with no block files -> reported; an empty FILE fails FAIL
+#                 mode (exit 1: a new block must have content), --audit stays exit 0
 #   UNCLASSIFIED  --audit: N non-canonical .md files under a corpus were not linted (count + first 3)
 #   NO-MATCH      files read and inspected, no rule fired          -> exit 0
+#   PARTIAL       as NO-MATCH, but a path was absent or a listing DEGRADED -> exit 2, never NO-MATCH
 #   DEGRADED      python3 or the helper is unavailable / a listing failed -> exit 2, NOTHING linted
 #                 is never reported as clean
 # Every run ends with a `SUMMARY` line carrying the coverage counters (how many Self-verify
 # sections, [CERT-hw]/[CERT-live] items and R6 trigger clauses were actually inspected).
 #
-# Exit: 0 clean (or --audit) · 1 findings in FAIL mode · 2 usage / absent / unreadable / degraded.
+# Exit: 0 clean (or --audit) · 1 findings or an empty block in FAIL mode · 2 usage / absent / unreadable / degraded.
 
 set -uo pipefail
 
@@ -145,6 +147,7 @@ fi
 
 mode_args=()
 [ "$audit" -eq 1 ] && mode_args=(--audit)
+[ "$rc_ops" -ne 0 ] && mode_args+=(--partial)
 python3 "$HELPER" "${mode_args[@]}" "${pack_args[@]}" --files-from - < "$list"
 rc=$?
 if [ "$rc_ops" -ne 0 ] && [ "$rc" -lt 2 ]; then rc=2; fi

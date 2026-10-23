@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 )
 
 // Exit codes of the rsdd process contract (research-sdd/toolbelt/json-envelope.v1.md).
@@ -111,12 +112,22 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 			code = ExitOperational
 			return
 		}
-		s.Out.Write(out.Bytes())
-		if code == ExitDegraded && !errw.sawDegraded {
-			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
+		if _, err := s.Out.Write(out.Bytes()); err != nil {
+			// The result never reached the caller: operational failure,
+			// whatever the command returned.
+			fmt.Fprintf(s.Err, "rsdd: stdout-write-failed: %v\n", err)
+			code = ExitOperational
+			return
 		}
+		// Precedence: ExitMap translates the code Run returned first; the
+		// degraded contract then judges the FINAL code. So a degraded 3 is
+		// never remapped unless the map explicitly lists 3, and any command
+		// that ends on 3 (returned or mapped) carries a DEGRADED: line.
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
+		}
+		if code == ExitDegraded && !errw.sawDegraded {
+			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
 		}
 	}()
 	return cmd.Run(args, inner)
@@ -158,7 +169,7 @@ func hasGroup(table []Command, group string) bool {
 func writeUsage(w io.Writer, table []Command) {
 	fmt.Fprint(w, "Usage:\n  rsdd <command> [args]\n  rsdd <group> <command> [args]\n\nCommands:\n")
 	sorted := append([]Command(nil), table...)
-	sort.SliceStable(sorted, func(i, j int) bool { return label(sorted[i]) < label(sorted[j]) })
+	slices.SortStableFunc(sorted, func(a, b Command) int { return strings.Compare(label(a), label(b)) })
 	for _, c := range sorted {
 		fmt.Fprintf(w, "  %-24s %s\n", label(c), c.Summary)
 	}
@@ -172,7 +183,7 @@ func writeGroupUsage(w io.Writer, table []Command, group string) {
 			in = append(in, c)
 		}
 	}
-	sort.SliceStable(in, func(i, j int) bool { return in[i].Name < in[j].Name })
+	slices.SortStableFunc(in, func(a, b Command) int { return strings.Compare(a.Name, b.Name) })
 	for _, c := range in {
 		fmt.Fprintf(w, "  %-24s %s\n", c.Name, c.Summary)
 	}

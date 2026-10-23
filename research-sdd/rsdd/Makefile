@@ -28,13 +28,14 @@ race:
 lint:
 	go run $(STATICCHECK) ./...
 
-# Mutation testing over the packages that carry behaviour. A surviving
-# (LIVED) mutant is a finding; gremlins exits non-zero below the efficacy
-# threshold. 70 is a baseline floor: raise it as suites grow, never lower it to
-# hide a regression. Under machine load gremlins times mutants out, and those
-# count as neither killed nor lived, so efficacy is noisy - rerun on a quiet tree.
+# Mutation testing over the packages that carry behaviour. The gate is
+# "no LIVED mutant among the covered ones", decided by the bridge suite
+# (rsdd-go.test.sh --prove-teeth), not by a percentage: this target prints
+# gremlins' report and exits 0 whatever the efficacy. Timed-out mutants are
+# reported, not failed; the raised timeout coefficient keeps a loaded machine
+# from turning kills into timeouts.
 teeth:
-	go run $(GREMLINS) unleash --threshold-efficacy 70 .
+	go run $(GREMLINS) unleash --timeout-coefficient 6 .
 
 cross:
 	GOOS=linux  GOARCH=amd64 go build -o /dev/null ./cmd/rsdd
