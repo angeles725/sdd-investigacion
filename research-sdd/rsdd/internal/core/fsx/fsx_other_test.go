@@ -4,6 +4,7 @@ package fsx
 
 import (
 	"errors"
+	"os"
 	"testing"
 )
 
@@ -25,6 +26,9 @@ func TestNonLinuxOperationsAreUnavailable(t *testing.T) {
 	}
 	if _, err := OpenWONew(dir + "/a"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("OpenWONew: %v", err)
+	}
+	if _, _, err := StageFile(dir+"/a", dir+"/b", "l", os.FileMode(0o600), NoLimit); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("StageFile: %v", err)
 	}
 	if _, err := SHA256FD(3); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("SHA256FD: %v", err)

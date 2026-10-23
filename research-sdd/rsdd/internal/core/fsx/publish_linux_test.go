@@ -270,3 +270,48 @@ func TestSyncDir(t *testing.T) {
 		t.Fatalf("file is not a directory: %v", err)
 	}
 }
+
+func TestStageFileCopiesAndRecords(t *testing.T) {
+	big := make([]byte, 3<<20)
+	for i := range big {
+		big[i] = byte(i * 13)
+	}
+	for name, data := range map[string][]byte{"empty": {}, "small": []byte("hello"), "3MiB": big} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+			_ = os.WriteFile(src, data, 0o644)
+			s, d, err := StageFile(src, dst, "input/target.bin", 0o400, NoLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSrc, _ := filepath.EvalSymlinks(src)
+			if s != (Record{wantSrc, int64(len(data)), "sha256:" + sum(data)}) {
+				t.Fatalf("source record %+v", s)
+			}
+			if d != (Record{"input/target.bin", int64(len(data)), "sha256:" + sum(data)}) {
+				t.Fatalf("staged record %+v", d)
+			}
+			if got := read(t, dst); got != string(data) {
+				t.Fatal("copy differs")
+			}
+			if st, _ := os.Stat(dst); st.Mode().Perm() != 0o400 {
+				t.Fatalf("mode %v", st.Mode().Perm())
+			}
+		})
+	}
+}
+
+func TestStageFileExistingTargetIsKept(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	mustWrite(t, src, "new")
+	mustWrite(t, dst, "precious")
+	_, _, err := StageFile(src, dst, "l", 0o600, NoLimit)
+	if !errors.Is(err, ErrStageIO) || !errors.Is(err, fs.ErrExist) || err.Error() != "I/O error while staging source" {
+		t.Fatalf("got %v", err)
+	}
+	if read(t, dst) != "precious" {
+		t.Fatal("a pre-existing target must never be unlinked or overwritten")
+	}
+}

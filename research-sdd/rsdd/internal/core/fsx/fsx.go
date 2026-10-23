@@ -26,6 +26,12 @@ var (
 	ErrChanged     = errors.New("file changed while hashing")
 	ErrIO          = errors.New("I/O error reading file")
 	ErrUnavailable = errors.New("atomic no-replace publication is unavailable")
+
+	ErrSourceOpen       = errors.New("source cannot be opened safely")
+	ErrSourceNotRegular = errors.New("source is not a regular file")
+	ErrSourceChanged    = errors.New("source changed while staging")
+	ErrStageIO          = errors.New("I/O error while staging source")
+	ErrStagedMismatch   = errors.New("staged identity mismatch")
 )
 
 // Error is a typed fsx failure: Kind is the sentinel, Path the operand (may be

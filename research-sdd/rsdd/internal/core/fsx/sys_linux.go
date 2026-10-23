@@ -70,6 +70,15 @@ func sysResolveFD(fd int, path string) string {
 	return path
 }
 
+func sysWrite(fd int, p []byte) (int, error) {
+	for {
+		n, err := syscall.Write(fd, p)
+		if err != syscall.EINTR {
+			return n, err
+		}
+	}
+}
+
 func sysFsync(fd int) error { return syscall.Fsync(fd) }
 
 func sysOpenDir(path string) (int, error) {

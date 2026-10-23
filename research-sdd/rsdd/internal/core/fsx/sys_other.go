@@ -15,6 +15,7 @@ func sysClose(int) error                     { return errNoSys }
 func sysSeekStart(int) error                 { return errNoSys }
 func sysResolveFD(_ int, path string) string { return path }
 
+func sysWrite(int, []byte) (int, error)                 { return 0, errNoSys }
 func sysFsync(int) error                                { return errNoSys }
 func sysOpenDir(string) (int, error)                    { return -1, errNoSys }
 func sysRenameat2(int, string, int, string, uint) error { return errNoSys }
