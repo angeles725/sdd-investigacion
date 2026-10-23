@@ -48,7 +48,7 @@
 #
 # ALWAYS-RUN (tests/impact-always.txt) are whole-tree readers a mapped selection cannot see; they are in every
 # selection. BLIND-SPOT suites (tests/impact-blindspot.txt: eval, whole-kit copies, kit-wide globs, dynamically
-# built script names) defeat the word map; they are added whenever a production CODE file changes, scoped by an
+# built script names, a tests/lib/stage-libs.sh `rsdd_stage_libs` call that stages every lib) defeat the word map; they are added whenever a production CODE file changes, scoped by an
 # optional REACH (kit issue #2201, part 1c): a manifest line `<suite> reach=<glob>[,<glob>...] <reason>` adds the
 # suite only when a changed code file matches a glob (repo-relative, bash `case` patterns, `*` crosses `/`, each glob
 # starts with `research-sdd/`, no `..`). A line without `reach=` keeps the unscoped behaviour (any code change). A code
@@ -228,6 +228,8 @@ detect_blind() {
   if grep -qE '(^|[;&|(`[:space:]])ev[a]l[[:space:]]+[^#[:space:]]' <<<"$body"; then echo "eval"; return; fi
   if grep -qE '(cp|rsync|ln)[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*[^|;&]*(\$KIT|\$\{KIT\}|\$TB|\$TOOLBELT|\$\{TB\}|\$\{TOOLBELT\}|toolbelt|\$\{?SRC\}?)[^|;&]*(/\*|/\.|[[:space:]]-[a-zA-Z]*[rRa])' <<<"$body"; then echo "kit-copy"; return; fi
   if grep -qE 'for [a-z_]+ in [^;]*(toolbelt|\$TB|\$TOOLBELT|\$KIT)[^;]*/\*' <<<"$body"; then echo "kit-glob"; return; fi
+  # tests/lib/stage-libs.sh copies EVERY toolbelt/lib file without naming one, so the word map sees no lib edge
+  if grep -qE '(^|[;&|(`{![:space:]])rsdd_stage_libs([[:space:]]|$)' <<<"$body"; then echo "stage-libs"; return; fi
   if grep -qE '\$\{?[A-Za-z_]+\}?\.sh' <<<"$body"; then echo "dynamic-name"; return; fi
   if grep -qE '\$\{?[A-Za-z_]+\}?\.test\.(sh|mjs)' <<<"$body"; then echo "suite-dynamic"; return; fi
 }

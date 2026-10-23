@@ -270,7 +270,7 @@ Always read first, in this order:
      angle against existing focus names and their covered subjects. If the proposed angle substantially
      duplicates an existing focus's covered blocks (>~50 % of the proposed gaps are already answered by
      existing evidence), REJECT or RESCOPE the focus rather than investing in a bootstrap. Use
-     `tools/check-coverage.py` if present; otherwise read FOCUSES.md + INDEX.md manually. A focus
+     a target-local `tools/check-coverage.py` (not shipped by the kit) if present; otherwise read FOCUSES.md + INDEX.md manually. A focus
      whose core coverage already exists is wasted research, not complementary investigation. Record the
      check as "focus-distinctness: OK — <reason>" or "focus-distinctness: REJECTED — <overlap
      evidence>" in RESEARCH-STATE when the focus is opened. (Evidence: frontier bootstrap breadth

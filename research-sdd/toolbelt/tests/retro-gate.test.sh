@@ -28,6 +28,8 @@ export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../retro-gate.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture kit toolbelt
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 # verify-retro.sh must exist (merged in PR1)
 VR="$HERE/../verify-retro.sh"
@@ -189,10 +191,7 @@ run_mutant_nojq() {
 # FKIT mirrors the real toolbelt but uses a stub stage-retro-issues.sh that logs
 # calls to SEED_LOG (env var).  A mock-gh dir is prepended to PATH so gh probes pass.
 FKIT="$ROOT/fkit"
-mkdir -p "$FKIT/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT/toolbelt/lib/"
+rsdd_stage_libs "$FKIT/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT/toolbelt/"
 # Stub seeder: logs "<retro> <flags>" to SEED_LOG, emits real summary: format, exits 0
 cat > "$FKIT/toolbelt/stage-retro-issues.sh" << 'STUBEOF'
@@ -441,10 +440,7 @@ _seed_count=0
 # ─── (EN3-e) Failing seeder → WARN emitted, failed=N in summary, gate still allows ──
 # Validates the seeder-rc fix: a non-zero seeder exit must NOT be swallowed silently.
 FKIT_FAIL="$ROOT/fkit_fail"
-mkdir -p "$FKIT_FAIL/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_FAIL/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_FAIL/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_FAIL/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_FAIL/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_FAIL/toolbelt/"
 # Failing seeder: exits 1 (simulates a seeder failure, e.g. API rate limit)
 cat > "$FKIT_FAIL/toolbelt/stage-retro-issues.sh" << 'FAILEOF'
@@ -490,10 +486,7 @@ run_fkit_fail_gate "$TEN3E" "$_jen3e"
 # Validates Issue 2 regression fix: created/skipped are counted regardless of seeder rc.
 # On the old SUT the 'continue' before count causes created=0 even though one was created.
 FKIT_PARTIAL="$ROOT/fkit_partial"
-mkdir -p "$FKIT_PARTIAL/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_PARTIAL/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_PARTIAL/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_PARTIAL/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_PARTIAL/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_PARTIAL/toolbelt/"
 cat > "$FKIT_PARTIAL/toolbelt/stage-retro-issues.sh" << 'PARTIALEOF'
 #!/usr/bin/env bash
@@ -534,10 +527,7 @@ ERR_P="$(cat "$errf_p")"; rm -f "$errf_p"
 # → emits WARN and never increments empty counter.
 # The real seeder exits 0 with empty-input: on ~50% of the fleet (retros with no delta section).
 FKIT_F="$ROOT/fkit_f"
-mkdir -p "$FKIT_F/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_F/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_F/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_F/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_F/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_F/toolbelt/"
 cat > "$FKIT_F/toolbelt/stage-retro-issues.sh" << 'FABSEOF'
 #!/usr/bin/env bash
@@ -581,10 +571,7 @@ ERR_F="$(cat "$errf_tf")"; rm -f "$errf_tf" "$ROOT/out_tf.$$"
 # unclassifiable: retro falls through to the generic "seeder exited 0 but no summary: line"
 # WARN and is never counted. 15 real seedable fleet retros hit this on every Stop.
 FKIT_U="$ROOT/fkit_u"
-mkdir -p "$FKIT_U/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_U/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_U/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_U/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_U/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_U/toolbelt/"
 cat > "$FKIT_U/toolbelt/stage-retro-issues.sh" << 'FUEOF'
 #!/usr/bin/env bash
@@ -632,9 +619,7 @@ ERR_U="$(cat "$errf_u")"; rm -f "$errf_u" "$ROOT/out_u.$$"
 # issue — before the change only the typed `unclassifiable:` line (no summary) was counted.
 # mk_unc_summary_kit <dir> <gate-script>: fixture kit whose seeder prints a summary with unclassifiable=2.
 mk_unc_summary_kit() {   # optional 3rd arg "both": the seeder ALSO prints the typed `unclassifiable:` line (section-level case)
-  mkdir -p "$1/toolbelt/lib"
-  cp "$HERE/../lib/block-files.sh" "$1/toolbelt/lib/"; cp "$HERE/../lib/retro-status.sh" "$1/toolbelt/lib/"
-  cp "$HERE/../lib/retro-grammar.sh" "$1/toolbelt/lib/"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
+  rsdd_stage_libs "$1/toolbelt"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
   cat > "$1/toolbelt/stage-retro-issues.sh" << 'FUSEOF'
 #!/usr/bin/env bash
 printf 'unclassifiable-row: row 1 has no usable title\n' >&2
@@ -680,9 +665,7 @@ run_unc_summary "$ROOT/fkit_usb" tusb
 # ─── (EN3-zero-label, kit issue #1259 final) the seeder's `unclassifiable-items: 0 (...)` count line must not change
 # the gate's classification of an ordinary run: counted exactly as the same run WITHOUT that line.
 mk_zero_label_kit() {   # <dir> <seeder-body>
-  mkdir -p "$1/toolbelt/lib"
-  cp "$HERE/../lib/block-files.sh" "$1/toolbelt/lib/"; cp "$HERE/../lib/retro-status.sh" "$1/toolbelt/lib/"
-  cp "$HERE/../lib/retro-grammar.sh" "$1/toolbelt/lib/"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
+  rsdd_stage_libs "$1/toolbelt"; cp "$HERE/../verify-retro.sh" "$1/toolbelt/"
   printf '#!/usr/bin/env bash\n%s\nexit 0\n' "$2" > "$1/toolbelt/stage-retro-issues.sh"
   chmod +x "$1/toolbelt/stage-retro-issues.sh"
   cp "$SUT" "$1/toolbelt/retro-gate.sh"
@@ -705,10 +688,7 @@ run_unc_summary "$ROOT/fkit_zl_c" tzlc
 # Distinct from empty-input/no-match: retro file not found is a §7 absent-input signal.
 # RED before fix: absent-input: is folded into empty=N with no WARN (issue #940).
 FKIT_ABS="$ROOT/fkit_abs"
-mkdir -p "$FKIT_ABS/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_ABS/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_ABS/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_ABS/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_ABS/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_ABS/toolbelt/"
 # Stub: real seeder absent-input path (search: absent-input: retro not found)
 # Real seeder emits to stderr; gate captures 2>&1 — stream-agnostic.
@@ -757,10 +737,7 @@ ERR_ABS="$(cat "$errf_abs")"; rm -f "$errf_abs" "$ROOT/out_abs.$$"
 # AND summary: created=0 ... to stdout, rc 0 (all rows shipped).
 # The summary branch must still detect no-match: and count it as empty.
 FKIT_NM="$ROOT/fkit_nm"
-mkdir -p "$FKIT_NM/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_NM/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_NM/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_NM/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_NM/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_NM/toolbelt/"
 # Stub: real seeder no-match path (search: STAGE_RETRO_ISSUES_NOMATCH_GUARD)
 # Real seeder emits no-match: to stderr AND summary: to stdout; gate captures 2>&1.
@@ -801,10 +778,7 @@ ERR_NM="$(cat "$errf_nm")"; rm -f "$errf_nm" "$ROOT/out_nm.$$"
 # Seeder exits 0 but prints nothing recognizable — §7 absent-summary WARN must fire.
 # This is the fallback path distinct from the typed-outcome paths above.
 FKIT_ASW="$ROOT/fkit_asw"
-mkdir -p "$FKIT_ASW/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_ASW/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_ASW/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_ASW/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_ASW/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_ASW/toolbelt/"
 cat > "$FKIT_ASW/toolbelt/stage-retro-issues.sh" << 'ASWEOF'
 #!/usr/bin/env bash
@@ -837,10 +811,7 @@ ERR_ASW="$(cat "$errf_asw")"; rm -f "$errf_asw" "$ROOT/out_asw.$$"
 # ─── (EN3-summary) Real seeder summary: format → created=1 parsed (#935) ─────
 # RED before fix: SUT greps 'created issue' (never matches real 'created: <url>').
 FKIT_SUM="$ROOT/fkit_sum"
-mkdir -p "$FKIT_SUM/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_SUM/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_SUM/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_SUM/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_SUM/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_SUM/toolbelt/"
 cat > "$FKIT_SUM/toolbelt/stage-retro-issues.sh" << 'SUMEOF'
 #!/usr/bin/env bash
@@ -872,10 +843,7 @@ ERR_SUM="$(cat "$errf_sum")"; rm -f "$errf_sum"
 # ─── (EN3-reason) WARN reason = last non-progress line, not first (#935) ──────
 # RED before fix: old head -1 returns the first line (a progress 'created:' line).
 FKIT_RSN="$ROOT/fkit_rsn"
-mkdir -p "$FKIT_RSN/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_RSN/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_RSN/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_RSN/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_RSN/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_RSN/toolbelt/"
 cat > "$FKIT_RSN/toolbelt/stage-retro-issues.sh" << 'RSNEOF'
 #!/usr/bin/env bash
@@ -908,10 +876,7 @@ ERR_RSN="$(cat "$errf_rsn")"; rm -f "$errf_rsn"
 # retro-gate must parse failed= from summary and use the exact count (not +1).
 # RED before fix: failed count from +1 fallback, not from summary parsing.
 FKIT_944="$ROOT/fkit_944"
-mkdir -p "$FKIT_944/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"    "$FKIT_944/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"   "$FKIT_944/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_944/toolbelt/lib/"
+rsdd_stage_libs "$FKIT_944/toolbelt"
 cp "$HERE/../verify-retro.sh"       "$FKIT_944/toolbelt/"
 cat > "$FKIT_944/toolbelt/stage-retro-issues.sh" << 'PR944EOF'
 #!/usr/bin/env bash
@@ -967,8 +932,7 @@ grep -q '3 issue create(s) failed across 1 retro(s)' <<< "$ERR_944" \
 # mk_u_kit <dir> <seeder-body>: stub kit (libs + SUT copy + a stub seeder printing <seeder-body>).
 mk_u_kit() {
   local d="$1" body="$2"
-  mkdir -p "$d/toolbelt/lib"
-  cp "$HERE/../lib/block-files.sh" "$HERE/../lib/retro-status.sh" "$HERE/../lib/retro-grammar.sh" "$d/toolbelt/lib/"
+  rsdd_stage_libs "$d/toolbelt"
   cp "$HERE/../verify-retro.sh" "$d/toolbelt/"
   printf '#!/usr/bin/env bash\n%s\n' "$body" > "$d/toolbelt/stage-retro-issues.sh"
   chmod +x "$d/toolbelt/stage-retro-issues.sh"
@@ -2622,10 +2586,7 @@ _GIT_ROOT_FOR_TEETH="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || t
 # SELF_DIR-relative lib paths (lib/block-files.sh, lib/retro-status.sh,
 # verify-retro.sh) resolve correctly — the same constraint the real SUT has.
 MUT_KIT="$ROOT/mutkit"
-mkdir -p "$MUT_KIT/toolbelt/lib"
-cp "$HERE/../lib/block-files.sh"   "$MUT_KIT/toolbelt/lib/"
-cp "$HERE/../lib/retro-status.sh"  "$MUT_KIT/toolbelt/lib/"
-cp "$HERE/../lib/retro-grammar.sh" "$MUT_KIT/toolbelt/lib/"
+rsdd_stage_libs "$MUT_KIT/toolbelt"
 cp "$VR" "$MUT_KIT/toolbelt/verify-retro.sh"
 # stage-retro-issues.sh (the seeder) must exist too — _run_issue_seeding bails out before
 # reaching its retro loop (and therefore before _retro_is_seedable's WARN) when it is absent.
@@ -3418,10 +3379,7 @@ if [[ "$sut_content_gate" == *"$anchor_t20_line"* ]]; then
   printf '%s\n' "${sut_content_gate/"$anchor_t20_line"/        *NEVER-MATCHES-XX*)}" > "$mutant_t20"
   bash -n "$mutant_t20" 2>/dev/null || { no "T20-unclassifiable teeth: mutant failed bash -n" ""; }
   FKIT_T20="$ROOT/fkit_t20"
-  mkdir -p "$FKIT_T20/toolbelt/lib"
-  cp "$HERE/../lib/block-files.sh"    "$FKIT_T20/toolbelt/lib/"
-  cp "$HERE/../lib/retro-status.sh"   "$FKIT_T20/toolbelt/lib/"
-  cp "$HERE/../lib/retro-grammar.sh"  "$FKIT_T20/toolbelt/lib/"
+  rsdd_stage_libs "$FKIT_T20/toolbelt"
   cp "$HERE/../verify-retro.sh"       "$FKIT_T20/toolbelt/"
   cat > "$FKIT_T20/toolbelt/stage-retro-issues.sh" << 'FT20EOF'
 #!/usr/bin/env bash

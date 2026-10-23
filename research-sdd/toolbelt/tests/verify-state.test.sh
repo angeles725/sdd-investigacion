@@ -20,6 +20,8 @@ FPLIB="$HERE/../lib/focus-prefix.sh"
 [ -f "$SUT" ]   || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -f "$FPLIB" ] || { echo "FATAL: helper not found: $FPLIB" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture toolbelt
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -2840,9 +2842,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # verify-state.sh resolves its lib as $(dirname $0)/lib/focus-prefix.sh; a mutant in $TMP
   # needs the lib at $TMP/lib/focus-prefix.sh (same pattern: research-sdd-status.test.sh copies
   # verify-state.sh to $TMP so the mutant status.sh can call it as $here/verify-state.sh).
-  mkdir -p "$TMP/lib"
-  cp "$FPLIB" "$TMP/lib/focus-prefix.sh"
-  cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"  # SUT sources at $(dirname $0)/lib/
+  rsdd_stage_libs "$TMP"   # every toolbelt lib; the SUT sources them at $(dirname $0)/lib/
 
   echo "-- teeth: neuter CHECK 1's condition; expect the STALE fixture to stop exiting 1 --"
   mutant="$TMP/verify-state.MUTANT.sh"
@@ -3413,8 +3413,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-n4-warn: mutant still emitted WARN — THEATER"
   fi
   cp "$TMP/verify-state.strikethrough.MUTANT.sh" "$TMP/verify-state.sh"  # Propagation: copy-2 mutant → status --next must return STALE
-  # kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally.
-  cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"; cp "$HERE/../lib/hook-wiring.sh" "$TMP/lib/hook-wiring.sh"
+  # kit issue #1109: research-sdd-status.sh sources lib/hook-wiring.sh unconditionally; the rsdd_stage_libs call at the
+  # top of this teeth block already staged it (and state-files.sh, never mutated here) into $TMP/lib.
+  cp "$HERE/../research-sdd-status.sh" "$TMP/status.VS-PROP.sh"
   _pst="$(bash "$TMP/status.VS-PROP.sh" "$TMP/bp-strikethrough" --next 2>/dev/null)"
   [ "${_pst%%\ *}" = "STALE" ] && ok "teeth-BP-strikethrough-prop: neutered copy-2 → STALE in status" || no "teeth-BP-strikethrough-prop: [$_pst] (want STALE)"
   cp "$TMP/verify-state.em-dash.MUTANT.sh" "$TMP/verify-state.sh"
@@ -5590,7 +5591,7 @@ fi
 # teeth for kit #983: the OOB-separator width record in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-OOB5: restore the OOB-separator early return → VS-OOB-5COL goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  rsdd_stage_libs "$TMP"   # (re)stage every lib: restores any lib an earlier tooth left mutated
   _vo_mut="$TMP/verify-state.OOB5.MUTANT.sh"
   cp "$SUT" "$_vo_mut"
   sed -i 's/if (!in_backlog) { expected_cols=(n==4||n==5)?n:0; next };/if (!in_backlog) next;/' "$_vo_mut"
@@ -5608,7 +5609,7 @@ fi
 # teeth for kit #1307: the out-of-backlog Priority-header guard in the verify-state mirror of the backlog awk.
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-VS-FINDINGS: disable the OOB-NO-PRIORITY-HEADER guard → VS-FINDINGS goes RED --"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  rsdd_stage_libs "$TMP"   # (re)stage every lib: restores any lib an earlier tooth left mutated
   _vf_mut="$TMP/verify-state.FINDINGS.MUTANT.sh"
   cp "$SUT" "$_vf_mut"
   sed -i '/OOB-NO-PRIORITY-HEADER/s/if (!in_backlog \&\& !tbl_ok)/if (0)/' "$_vf_mut"
@@ -5627,7 +5628,7 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mkdir -p "$TMP/lib"; cp "$FPLIB" "$TMP/lib/focus-prefix.sh"; cp "$HERE/../lib/block-files.sh" "$TMP/lib/block-files.sh"; cp "$HERE/../lib/blocked-rows.sh" "$TMP/lib/blocked-rows.sh"; cp "$HERE/../lib/state-files.sh" "$TMP/lib/state-files.sh"
+  rsdd_stage_libs "$TMP"   # (re)stage every lib: restores any lib an earlier tooth left mutated
   # _k34_canonfail <script> <target> — run <script> against <target> with the test-only `cd -P` seam
   # forcing the root canonicalization to fail.
   _k34_canonfail() {

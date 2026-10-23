@@ -20,6 +20,8 @@ export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-registry.sh"
 LIB="$HERE/../lib/hook-wiring.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 FIX="$HERE/fixtures/wired-hook-exec"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 [ -f "$SUT" ] && [ -f "$LIB" ] && [ -f "$FIX/settings.json" ] || { echo "FATAL: SUT, lib or fixture missing" >&2; exit 2; }
@@ -158,11 +160,10 @@ fi
 # ---------------------------------------------------------------- verify-registry integration
 # mkkit <name> [<sut> [<lib>]] : a runnable COPY of the SUT and its helpers (KIT = dirname/..).
 mkkit() {
-  local kit="$ROOT/$1" l sut="${2:-$SUT}" lib="${3:-$LIB}"
-  mkdir -p "$kit/toolbelt/lib"
+  local kit="$ROOT/$1" sut="${2:-$SUT}" lib="${3:-$LIB}"
+  rsdd_stage_libs "$kit/toolbelt"
   cp "$sut" "$kit/toolbelt/verify-registry.sh"
-  for l in retro-status target-paths block-files state-files corpus-markers; do cp "$HERE/../lib/$l.sh" "$kit/toolbelt/lib/$l.sh"; done
-  cp "$lib" "$kit/toolbelt/lib/hook-wiring.sh"
+  cp "$lib" "$kit/toolbelt/lib/hook-wiring.sh"   # after staging: a mutant hook-wiring lib replaces the staged copy
   printf '%s' "$kit"
 }
 # mktarget <dir> : a corpus-bearing target carrying the fixture as .claude/. The execute bit is set

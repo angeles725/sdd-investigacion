@@ -8,6 +8,8 @@ set -uo pipefail
 export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-registry-hook.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -41,7 +43,7 @@ write_stub() {
     > "$TMP/verify-registry.sh"
   chmod +x "$TMP/verify-registry.sh"
   cp "$SUT" "$TMP/verify-registry-hook.sh"
-  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
+  rsdd_stage_libs "$TMP"   # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/verify-registry-hook.sh"
 }
 
