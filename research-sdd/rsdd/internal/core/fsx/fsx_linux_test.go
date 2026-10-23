@@ -44,6 +44,12 @@ func fcntl(t *testing.T, fd int, cmd int) int {
 	return int(r)
 }
 
+func setHook(t *testing.T, f func()) {
+	t.Helper()
+	hashChunkHook = f
+	t.Cleanup(func() { hashChunkHook = nil })
+}
+
 func TestOpenROReturnsFdAndStat(t *testing.T) {
 	p := writeFile(t, "a", []byte("hello"))
 	fd, st, err := OpenRO(p)
@@ -175,6 +181,109 @@ func TestIdentityRefusals(t *testing.T) {
 	}
 	if _, err := Identity(filepath.Join(t.TempDir(), "nope"), NoLimit); !errors.Is(err, ErrOpen) {
 		t.Fatalf("missing: %v", err)
+	}
+}
+
+func TestIdentityMaxBytes(t *testing.T) {
+	p := writeFile(t, "a", []byte("12345"))
+	if _, err := Identity(p, 5); err != nil {
+		t.Fatalf("size == cap must pass: %v", err)
+	}
+	if _, err := Identity(p, 4); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("size > cap: %v", err)
+	}
+	if _, err := Identity(p, 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("cap 0: %v", err)
+	}
+	e := writeFile(t, "e", nil)
+	if _, err := Identity(e, 0); err != nil {
+		t.Fatalf("empty under cap 0: %v", err)
+	}
+}
+
+func appendTo(t *testing.T, p string, b []byte) {
+	t.Helper()
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(b); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIdentityDetectsAppendDuringHashing(t *testing.T) {
+	p := writeFile(t, "a", make([]byte, 3<<20))
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			appendTo(t, p, []byte("more"))
+		}
+	})
+	_, err := Identity(p, NoLimit)
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("got %v", err)
+	}
+	if want := "file changed while hashing: " + p; err.Error() != want {
+		t.Fatalf("message %q", err.Error())
+	}
+}
+
+func TestIdentityDetectsTruncateDuringHashing(t *testing.T) {
+	p := writeFile(t, "a", make([]byte, 3<<20))
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			_ = os.Truncate(p, 10)
+		}
+	})
+	if _, err := Identity(p, NoLimit); !errors.Is(err, ErrChanged) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestIdentityDetectsMtimeOnlyChange(t *testing.T) {
+	p := writeFile(t, "a", []byte("abc"))
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			_ = os.Chtimes(p, time.Unix(1000000000, 0), time.Unix(1000000000, 0))
+		}
+	})
+	if _, err := Identity(p, NoLimit); !errors.Is(err, ErrChanged) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestIdentityDeclaredSizeOverCapReadsNothing(t *testing.T) {
+	p := writeFile(t, "a", []byte("0123456789"))
+	reads := 0
+	setHook(t, func() { reads++ })
+	if _, err := Identity(p, 4); !errors.Is(err, ErrTooLarge) || reads != 0 {
+		t.Fatalf("err=%v reads=%d", err, reads)
+	}
+}
+
+// /proc files are regular, stat as size 0 and stay fstat-stable, so only the
+// bytes-read == size check can notice that the content does not match.
+func TestIdentityDetectsReadSizeMismatch(t *testing.T) {
+	_, err := Identity("/proc/self/cmdline", NoLimit)
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestIdentityCapAppliesWhileReading(t *testing.T) {
+	p := writeFile(t, "a", []byte("abc"))
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			appendTo(t, p, []byte("defghij"))
+		}
+	})
+	if _, err := Identity(p, 5); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("got %v", err)
 	}
 }
 
