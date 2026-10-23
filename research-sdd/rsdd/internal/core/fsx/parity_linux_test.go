@@ -61,6 +61,14 @@ func runPy(t *testing.T, op string, args ...string) pyResult {
 	return r
 }
 
+func errnoOf(err error) int {
+	var e syscall.Errno
+	if errors.As(err, &e) {
+		return int(e)
+	}
+	return 0
+}
+
 func TestParityIdentity(t *testing.T) {
 	dir := t.TempDir()
 	mk := func(name string, data []byte) string {
@@ -138,5 +146,88 @@ func TestParityIdentityChangedWhileHashing(t *testing.T) {
 	}
 	if want := "file changed while hashing: " + pyPath; py.Msg != want {
 		t.Fatalf("python message %q", py.Msg)
+	}
+}
+
+func TestParityOpenRO(t *testing.T) {
+	dir := t.TempDir()
+	reg := filepath.Join(dir, "r")
+	_ = os.WriteFile(reg, []byte("abc"), 0o644)
+	link := filepath.Join(dir, "l")
+	_ = os.Symlink(reg, link)
+	fifo := filepath.Join(dir, "f") // no writer: both sides use O_NONBLOCK so neither blocks
+	_ = syscall.Mkfifo(fifo, 0o600)
+	for name, p := range map[string]string{"regular": reg, "symlink": link, "dir": dir, "fifo": fifo, "missing": filepath.Join(dir, "x")} {
+		t.Run(name, func(t *testing.T) {
+			py := runPy(t, "open_ro", p)
+			fd, st, err := OpenRO(p)
+			if err == nil {
+				_ = syscall.Close(fd)
+			}
+			switch {
+			case !py.OK: // Python's open itself failed: Go must fail with the same errno as ErrOpen
+				if !errors.Is(err, ErrOpen) || errnoOf(err) != py.Errno {
+					t.Fatalf("python errno %d go %v", py.Errno, err)
+				}
+			case py.Regular: // Python opened a regular file
+				if err != nil || st.Size != py.Size {
+					t.Fatalf("go %v %+v", err, st)
+				}
+			default: // Python opened a non-regular file (its caller then refuses): Go refuses here
+				if !errors.Is(err, ErrNotRegular) {
+					t.Fatalf("go %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestParityOpenWONew(t *testing.T) {
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "e")
+	_ = os.WriteFile(existing, nil, 0o644)
+	link := filepath.Join(dir, "l")
+	_ = os.Symlink(filepath.Join(dir, "gone"), link)
+	for name, p := range map[string]string{"new": filepath.Join(dir, "n"), "existing": existing, "symlink": link} {
+		t.Run(name, func(t *testing.T) {
+			py := runPy(t, "open_wo_new", p)
+			// run Go on a sibling path so both sides see the same pre-state
+			gp := p
+			if name == "new" {
+				gp = filepath.Join(dir, "n-go")
+			}
+			fd, err := OpenWONew(gp)
+			if err == nil {
+				_ = syscall.Close(fd)
+			}
+			if py.OK != (err == nil) {
+				t.Fatalf("python %+v go %v", py, err)
+			}
+			if err != nil && errnoOf(err) != py.Errno {
+				t.Fatalf("errno python %d go %v", py.Errno, err)
+			}
+			if err == nil {
+				if st, _ := os.Stat(gp); uint32(st.Mode().Perm()) != py.Mode {
+					t.Fatalf("mode python %o go %o", py.Mode, st.Mode().Perm())
+				}
+			}
+		})
+	}
+}
+
+func TestParitySHA256FD(t *testing.T) {
+	data := bytes.Repeat([]byte("xyz"), 100000)
+	p := writeFile(t, "a", data)
+	py := runPy(t, "sha256_fd", p)
+	fd, _, err := OpenRO(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	got, err := SHA256FD(fd)
+	if err != nil || got != py.SHA256 {
+		t.Fatalf("python %q go %q %v", py.SHA256, got, err)
 	}
 }

@@ -3,17 +3,19 @@
 usage: python3 -I parity_driver.py <toolbelt-dir> <op> [args...]
 
 The Go parity test runs the same operation on the same fixture and compares.
-Ops: identity, identity_append.
+Ops: identity, identity_append, open_ro, open_wo_new, sha256_fd.
 """
 import errno
 import json
 import os
+import stat
 import sys
 
 toolbelt = sys.argv[1]
 sys.path.insert(0, toolbelt)
 sys.path.insert(0, os.path.join(toolbelt, "lib"))
 import adapter_core  # noqa: E402
+import niagara_hdb_read  # noqa: E402
 
 op, args = sys.argv[2], sys.argv[3:]
 
@@ -49,6 +51,27 @@ def run():
         finally:
             os.read = real_read
         return {"ok": True, "resolved": str(resolved), "size": size, "sha256": digest}
+    if op == "open_ro":
+        fd = niagara_hdb_read._open_ro(args[0])
+        try:
+            st = os.fstat(fd)
+            return {"ok": True, "regular": stat.S_ISREG(st.st_mode), "size": st.st_size}
+        finally:
+            os.close(fd)
+    if op == "open_wo_new":
+        fd = niagara_hdb_read._open_wo_new(args[0])
+        try:
+            os.write(fd, b"x")
+            return {"ok": True, "mode": stat.S_IMODE(os.fstat(fd).st_mode)}
+        finally:
+            os.close(fd)
+    if op == "sha256_fd":
+        fd = os.open(args[0], os.O_RDONLY)
+        try:
+            os.read(fd, 1000)
+            return {"ok": True, "sha256": niagara_hdb_read._sha256_fd(fd)}
+        finally:
+            os.close(fd)
     raise SystemExit("unknown op " + op)
 
 
