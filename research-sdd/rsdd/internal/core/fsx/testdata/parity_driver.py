@@ -3,7 +3,8 @@
 usage: python3 -I parity_driver.py <toolbelt-dir> <op> [args...]
 
 The Go parity test runs the same operation on the same fixture and compares.
-Ops: identity, identity_append, publish, exchange, write, open_ro, open_wo_new, sha256_fd.
+Ops: identity, identity_append, stage, publish, exchange, write, open_ro,
+open_wo_new, sha256_fd.
 """
 import errno
 import json
@@ -83,6 +84,25 @@ def run():
     if op == "write":
         adapter_core.write(Path(args[0]), json.loads(args[1]))
         return {"ok": True, "mode": stat.S_IMODE(os.stat(args[0]).st_mode)}
+    if op in ("stage", "stage_append"):
+        src, dst, logical, mode = args[0], args[1], args[2], int(args[3], 8)
+        cap = int(args[4]) if len(args) > 4 else None
+        real_read, state = os.read, {"n": 0}
+
+        def hooked(fd, n):
+            data = real_read(fd, n)
+            state["n"] += 1
+            if state["n"] == 1 and op == "stage_append":
+                with open(src, "ab") as f:
+                    f.write(b"more")
+            return data
+
+        os.read = hooked
+        try:
+            s_rec, d_rec = adapter_core.stage_file(Path(src), Path(dst), logical, mode, cap)
+        finally:
+            os.read = real_read
+        return {"ok": True, "src": s_rec, "staged": d_rec, "mode": stat.S_IMODE(os.stat(dst).st_mode)}
     raise SystemExit("unknown op " + op)
 
 

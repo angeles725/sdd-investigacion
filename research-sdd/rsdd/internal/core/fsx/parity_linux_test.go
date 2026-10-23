@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -308,5 +309,88 @@ func TestParityWrite(t *testing.T) {
 	ge, _ := os.ReadDir(gd)
 	if len(pe) != 1 || len(ge) != 1 {
 		t.Fatalf("leftovers python %d go %d", len(pe), len(ge))
+	}
+}
+
+func TestParityStageFile(t *testing.T) {
+	big := bytes.Repeat([]byte("0123456789abcdef"), 3<<16)
+	type fixture struct {
+		name string
+		prep func(t *testing.T, dir string) string // returns source path
+		max  string
+		hook bool
+	}
+	regular := func(data []byte) func(*testing.T, string) string {
+		return func(t *testing.T, dir string) string {
+			_ = os.WriteFile(filepath.Join(dir, "src"), data, 0o644)
+			return filepath.Join(dir, "src")
+		}
+	}
+	fixtures := []fixture{
+		{"empty", regular(nil), "", false},
+		{"small", regular([]byte("hello")), "", false},
+		{"3MiB", regular(big), "", false},
+		{"cap exceeded", regular([]byte("12345")), "4", false},
+		{"cap equal", regular([]byte("12345")), "5", false},
+		{"changed", regular(big), "", true},
+		{"symlink", func(t *testing.T, dir string) string {
+			_ = os.WriteFile(filepath.Join(dir, "t"), []byte("x"), 0o644)
+			_ = os.Symlink(filepath.Join(dir, "t"), filepath.Join(dir, "src"))
+			return filepath.Join(dir, "src")
+		}, "", false},
+		{"dir", func(t *testing.T, dir string) string { return dir }, "", false},
+		{"missing", func(t *testing.T, dir string) string { return filepath.Join(dir, "nope") }, "", false},
+		{"target exists", func(t *testing.T, dir string) string {
+			_ = os.WriteFile(filepath.Join(dir, "dst"), []byte("old"), 0o644)
+			return regular([]byte("new"))(t, dir)
+		}, "", false},
+	}
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			pd, gd := t.TempDir(), t.TempDir()
+			ps, gs := f.prep(t, pd), f.prep(t, gd)
+			op := "stage"
+			if f.hook {
+				op = "stage_append"
+			}
+			args := []string{ps, filepath.Join(pd, "dst"), "input/target.bin", "400"}
+			capBytes := NoLimit
+			if f.max != "" {
+				args = append(args, f.max)
+				capBytes = int64(f.max[0] - '0')
+			}
+			py := runPy(t, op, args...)
+			if f.hook {
+				n := 0
+				setHook(t, func() {
+					if n++; n == 1 {
+						appendTo(t, gs, []byte("more"))
+					}
+				})
+			}
+			s, d, err := StageFile(gs, filepath.Join(gd, "dst"), "input/target.bin", 0o400, capBytes)
+			if py.OK != (err == nil) {
+				t.Fatalf("python %+v go %v", py, err)
+			}
+			pyDst, goDst := filepath.Join(pd, "dst"), filepath.Join(gd, "dst")
+			pb, perr := os.ReadFile(pyDst)
+			gb, gerr := os.ReadFile(goDst)
+			if (perr == nil) != (gerr == nil) || !bytes.Equal(pb, gb) {
+				t.Fatalf("target state differs: python %q/%v go %q/%v", pb, perr, gb, gerr)
+			}
+			if err != nil {
+				if err.Error() != py.Msg {
+					t.Fatalf("message python %q go %q", py.Msg, err.Error())
+				}
+				return
+			}
+			wantSrc := rec{Path: strings.Replace(py.Src.Path, pd, gd, 1), Size: py.Src.Size, SHA256: py.Src.SHA256}
+			if rec(s) != wantSrc || rec(d) != py.Staged {
+				t.Fatalf("records python %+v go %+v %+v", py, s, d)
+			}
+			if st, _ := os.Stat(goDst); uint32(st.Mode().Perm()) != py.Mode {
+				t.Fatalf("mode python %o go %o", py.Mode, st.Mode().Perm())
+			}
+		})
 	}
 }
