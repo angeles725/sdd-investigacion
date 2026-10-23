@@ -92,8 +92,6 @@ is the authoritative schema reference for all harnesses.
 - **PROMPT-LOOP.md NORMAL CYCLE step 3, MODEL TIER** — rule for delegated sweeps (Claude-named;
   this document is the harness-neutral canonical definition)
 - **METHODOLOGY.md §8, "Match the delegated model to the sweep"** — same tier rule in the loop-longevity text
-- **toolbelt/agent-integration-19-21.design.md §2 item-21b** — design rationale
-  for this unit
 
 ---
 

@@ -463,7 +463,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   rteeth DEGRADED-EXIT-ZERO case_unresolved '/did NOT run/{n;s/exit 1/exit 0/}'
   rteeth MISSING-SCRIPT-IGNORED case_missing_script 's/^\[ -f "\$kit\/\$rel" \] || degraded.*$/:/'
   rteeth PKILL-FAILS-OPEN case_pkill_closed 's/permissionDecision:"ask"/permissionDecision:"allow"/'
-  rteeth PKILL-ASKS-ON-EVERYTHING case_pkill_closed 's/grep -Eq .pkill|pgrep./true/'
+  # The mutant must still READ the pipe: replacing the grep with `true` made `printf | true` race (under pipefail the
+  # printf can die of SIGPIPE before the reader exits, flipping the condition false and letting the mutant survive
+  # under load - kit issue #2240). `grep -Eq .` matches every non-empty payload, i.e. "ask on everything", with no race.
+  rteeth PKILL-ASKS-ON-EVERYTHING case_pkill_closed 's/-Eq .pkill|pgrep./-Eq ./'
   rteeth INVALID-ENV-SILENT case_invalid_env 's/^    echo "kit-run: DEGRADED: RESEARCH_SDD_KIT=.*$/    :/'
   rteeth REL-ESCAPE-ALLOWED case_rel_escape 's/^if \[\[ "\$rel" == \/\* .*$/:/'
   rteeth BACKTICK-KEPT case_launcher_backtick '/a launcher value may be backtick-quoted/d'
