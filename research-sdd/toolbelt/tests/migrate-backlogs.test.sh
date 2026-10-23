@@ -414,7 +414,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Q: scan status ignored -> case 22 must go red
   t="$(mk_tree Q)"
   if mutant_sed "$SUT" "$t/migrate-backlogs.sh" 's/^\[ "\$_scan_rc" = 0 \] || .*$/:/' >/dev/null 2>&1; then
-    cp "$TMP/degr/lib/state-files.sh" "$t/lib/state-files.sh"
+    cp "$TMP/degr/lib/state-files.sh" "$t/lib/state-files.sh"   # stage-libs-ok: overwrites the staged lib with the degraded stub
     o="$(bash "$t/migrate-backlogs.sh" "$TMP/degr/corpus" 2>&1)"; r=$?
     { [ "$r" = 1 ] && grep -q '^degraded:' <<<"$o"; } && no "teeth Q: mutant still degraded — THEATER" || ok "teeth Q: scan status ignored -> case 22 has teeth"
   else no "teeth Q: mutant could not be built"; fi

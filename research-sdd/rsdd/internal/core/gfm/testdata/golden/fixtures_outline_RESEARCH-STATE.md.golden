@@ -1,0 +1,13 @@
+L21 ⟨#⟩⟨Outline item⟩⟨Genre⟩⟨Block⟩⟨Status⟩
+L22 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L23 ⟨1⟩⟨item|a⟩⟨g⟩⟨⟩⟨covered⟩
+L24 ⟨2⟩⟨item\|a⟩⟨g⟩⟨⟩⟨covered⟩
+L25 ⟨3⟩⟨item\\|a⟩⟨g⟩⟨⟩⟨covered⟩
+L26 ⟨4⟩⟨i⟩⟨g|x⟩⟨⟩⟨covered⟩
+L27 ⟨5⟩⟨i⟩⟨g\|x⟩⟨⟩⟨covered⟩
+L28 ⟨6⟩⟨i⟩⟨g\\|x⟩⟨⟩⟨covered⟩
+L29 ⟨7⟩⟨i⟩⟨g⟩⟨⟩⟨covered | x⟩
+L30 ⟨8⟩⟨i⟩⟨g⟩⟨⟩⟨covered \| x⟩
+L31 ⟨9⟩⟨i⟩⟨g⟩⟨⟩⟨covered \\| x⟩
+L37 ⟨#⟩⟨Date⟩⟨Item⟩⟨Block⟩⟨Delegated⟩⟨New gaps uncovered⟩
+L38 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩

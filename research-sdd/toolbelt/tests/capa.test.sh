@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/capa.test.sh — capa evidence adapter test suite (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — fixture-based schema/cap/isolation assertions + unit tests.
 #                    No capa spawn.  Always emits "== N passed · N failed ==".
 #   slow           — real capa run; requires capa + bwrap + python3 + rules dir.
@@ -16,8 +16,8 @@ SUT="$TOOLBELT/corroborate-capa.sh"
 MANIFEST="$TOOLBELT/analysis_manifest.py"
 
 # Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the script-under-test does not exist yet.
 [ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }

@@ -57,8 +57,7 @@ declare -A _RSDD_SUPPORTS_SLASH=(
 )
 # WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, pi/gentle-shell=none — Pi has no settings.json hook for the kit to wire; OpenCode
-# dropped #954; codex and reasonix dropped #1471). Where supports_extension_hooks is also true (pi,
+# (claude=hook, pi/gentle-shell=none — Pi has no settings.json hook for the kit to wire). Where supports_extension_hooks is also true (pi,
 # gentle-shell: the research-sdd-hooks extension runs the sweeps and gates the settle, kit issue #2123)
 # the launcher says so and keeps the manual steps only as the fallback for an absent/degraded extension.
 declare -A _RSDD_NEEDS_SWEEP=(
@@ -91,7 +90,6 @@ declare -A _RSDD_EXTENSION_SRC_RELKIT=(
 )
 # WHERE: the skill source file, as a path RELATIVE TO the kit root. Every harness
 # (claude, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
-# Note: OpenCode support was dropped on 2026-09-23 (#954); codex and reasonix on 2026-10-03 (#1471).
 declare -A _RSDD_SKILL_SRC_RELKIT=(
   [claude]="skills/research-sdd/SKILL.md"
   [pi]="skills/research-sdd/SKILL.md"
@@ -142,9 +140,26 @@ rsdd_field() {
   local harness="$1" field="$2" home="${3:-${HOME:-}}"
   local rel="${_RSDD_CONFIG_ROOT_REL[$harness]:-}"
   if [ -z "$rel" ]; then echo "rsdd_field: unknown harness '$harness'" >&2; return 2; fi
-  local root="$home/$rel" plug
+  local root="$home/$rel" plug override="" src=default
+  # pi honours GENTLE_PI_AGENT_HOME, then PI_CODING_AGENT_DIR, then ~/.pi/agent (the research-sdd-hooks extension
+  # resolves its agent home the same way, kit issue #2139). Applies to the pi harness only, and only when <home> is
+  # the invoking user's own $HOME: an explicit `--home <dir>` redirects the whole config root and wins, and
+  # gentle-shell keeps its isolated agent home. The override must be an absolute path other than `/` (the installer
+  # deploys and, on --uninstall, removes under it): anything else is a typed error, never a guess.
+  if [ "$harness" = pi ] && [ "$home" = "${HOME:-}" ]; then
+    if [ -n "${GENTLE_PI_AGENT_HOME:-}" ]; then src=GENTLE_PI_AGENT_HOME; override="$GENTLE_PI_AGENT_HOME"
+    elif [ -n "${PI_CODING_AGENT_DIR:-}" ]; then src=PI_CODING_AGENT_DIR; override="$PI_CODING_AGENT_DIR"; fi
+    if [ "$src" != default ]; then
+      local trimmed="${override%"${override##*[!/]}"}" # trailing slashes off ("/" and "//" become empty)
+      case "$trimmed" in
+        /?*) root="$trimmed" ;;
+        *) echo "rsdd_field: $src must be an absolute path other than / (got '$override')" >&2; return 2 ;;
+      esac
+    fi
+  fi
   case "$field" in
     config_root)             printf '%s\n' "$root" ;;
+    config_root_source)      printf '%s\n' "$src" ;;
     skills_dir)              printf '%s\n' "$root/skills" ;;
     skill_path)              printf '%s\n' "$root/skills/research-sdd/SKILL.md" ;;
     prompt_file)             printf '%s\n' "$root/${_RSDD_PROMPT_FILE_NAME[$harness]}" ;;

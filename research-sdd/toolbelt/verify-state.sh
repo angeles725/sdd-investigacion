@@ -162,7 +162,7 @@ _backlog_rows() {       # emits "priority<TAB>gap-key<TAB>status" (gap-key=gap t
         sc = (expected_cols > 0) ? expected_cols : 4
         if (n!=sc) { if (in_backlog && in_data) { print "WARN: malformed closed-class backlog row (" n " cells, expected " sc "): " $0 > "/dev/stderr"; unc(p) }; next }  # CC-MALFORMED-UNCOUNTED (#1319): a malformed row makes the derived count a LOWER BOUND (sync-state only)
         st = (sc==5) ? tolower(a[5]) : tolower(a[4]); gsub(/^\*\*/, "", st); gsub(/\*\*$/, "", st); split(st,tk," "); tok=tk[1]
-        if (p=="deferred") { if (!(index(a[2],"~~") || index(st,"~~") || index(st,"✅"))) next; cp="deferred" }  # CC-DEFERRED-CLOSED: open deferred rows are counted by count_deferred/derive_deferred, not here
+        if (p=="deferred") { if (!(index(a[2],"~~") || (sc==5 && index(a[3],"~~")) || index(st,"~~") || index(st,"✅"))) next; cp="deferred" }  # CC-DEFERRED-CLOSED: open deferred rows are counted by count_deferred/derive_deferred, not here
         else if (p~/^—/) { if (tok ~ /^(pending|requires-execution|open|queued|blocked)/) { print "WARN: em-dash priority on an OPEN row [" tok "] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): " $0 > "/dev/stderr"; next }; g=a[2]; gsub(/^(\*\*|~~|`|\[)+/,"",g); sub(/[ \t·:—(].*$/,"",g); gsub(/[*~`\]]+$/,"",g); if (g !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ || g !~ /[0-9]/) { print "WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: " $0 > "/dev/stderr"; next }; cp="—" }  # CC-EMDASH-OPEN-WARN CC-EMDASH-NOTE
         else cp="~~"
         if (!in_backlog && in_data) { _oob_count++ }
@@ -393,18 +393,30 @@ derive_stretch_missing() {
 # (explicitly-parked gaps — operator decision, not blocked by hardware/keys). Closed rows (~~, ✅) excluded.
 # Mirrors count_deferred() in research-sdd-status.sh (same lockstep as the other derivations above).
 derive_deferred() {
-  awk '
+  awk -v emit=0 '
+    # DEF-AWK-START (byte-identical in research-sdd-status.sh deferred_scan and verify-state.sh derive_deferred; the populations suite diffs the two)
+    FNR==1 { ib=0; ex=0; tok=0; prv="" }
+    /^## / { ib=($0 ~ /^## Gap-backlog( \([^)]+\))?$/); ex=0; tok=0; prv=""; next }
     { line=$0; gsub(/^[ \t]+|[ \t]+$/,"",line)
-      if (line !~ /\|/) next
+      if (line !~ /\|/) { prv=""; next }
       gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED (#2148): any `\|` is an escaped pipe, never a separator
       sub(/^\|/,"",line); sub(/\|$/,"",line)
-      cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) gsub(/^[ \t]+|[ \t]+$/,"",a[k])
-      if (tolower(a[1])!="deferred") next
-      if (cnt!=4) next
-      st=tolower(a[4])
-      if (index(a[2],"~~") || index(st,"~~") || index(st,"✅")) next
+      cnt=split(line,a,"|"); for(k=1;k<=cnt;k++) { gsub(/^[ \t]+|[ \t]+$/,"",a[k]); gsub(/\001/,"|",a[k]) }
+      p=tolower(a[1]); pv=prv; prv=p; gsub(/\*\*/,"",pv)
+      if (p ~ /^-+$/) { ex=cnt; tok=(pv ~ /^(priority|pr\.?|p|prioridad)$/); next }  # DEF-TABLE-WIDTH (#2162): the separator row fixes the table width; a Priority header marks a backlog table outside ## Gap-backlog
+      if (p!="deferred") next
+      if (!ib && !tok) next  # DEF-SCOPE (#2162): same population as backlog_rows — a ## Gap-backlog section, or a table with a Priority header
+      sc=(ex>0)?ex:4
+      if (sc!=4 && sc!=5) { print "WARN: deferred row skipped (table width " sc ", only 4 or 5 supported): " $0 > "/dev/stderr"; next }  # DEF-WIDTH-WARN
+      if (cnt!=sc) { print "WARN: deferred row skipped (" cnt " cells, table width " sc " — a bare pipe in a cell?): " $0 > "/dev/stderr"; next }  # DEF-WIDTH-WARN (#2162): never a silent drop, never counted
+      st=tolower(a[cnt])  # DEF-STATUS-LAST: status is the last cell of either width
+      if (index(a[2],"~~") || (sc==5 && index(a[3],"~~")) || index(st,"~~") || index(st,"✅")) next  # DEF-CLOSED: ~~ in the first two cells (the Gap cell of either 5-column layout), or ~~ / a check mark in the status
+      gsub(/^\*\*/,"",st)
+      if (emit) print "deferred-open\t" a[2] "\t" st
       n++ }
-    END { print n+0 }' "$1"
+    END { if (!emit) print n+0 }
+    # DEF-AWK-END
+  ' "$1"
 }
 # derived requires_execution_open = OPEN requires-execution (§19 build/PoC) backlog rows: the STATUS column
 # (already tolower'd by _backlog_rows) is ANCHORED to the LEADING token `requires-execution` (mirrors

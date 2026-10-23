@@ -172,12 +172,12 @@ grep -qE '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' <<<"$out" \
   && ok "origin-less: summary" || no "origin-less: summary ($out)"
 
 out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/codex-rollout-shape.jsonl" 2>&1)"
+  --transcript "$FIX/unrecognized-rollout-shape.jsonl" 2>&1)"
 grep -qE '^C1 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "codex-rollout-shape: C1 degraded (zero recognized operator AND assistant records)" \
-  || no "codex-rollout-shape: C1 ($out)"
+  && ok "unrecognized-rollout-shape: C1 degraded (zero recognized operator AND assistant records)" \
+  || no "unrecognized-rollout-shape: C1 ($out)"
 grep -qE '^C4 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "codex-rollout-shape: C4 degraded" || no "codex-rollout-shape: C4 ($out)"
+  && ok "unrecognized-rollout-shape: C4 degraded" || no "unrecognized-rollout-shape: C4 ($out)"
 
 # ============================================================================================
 # C2 — markdown-wrapped endings, final-paragraph scan (not just the physical last line), and
@@ -477,7 +477,7 @@ out="$(RSDD_C4_AFTER_STOP_GRACE=abc bash "$SUT" --corpus "$ROOT/continue" 2>&1)"
 # operator AND zero assistant records) must fire on its own when some record does carry .origin.
 mkrepo "$ROOT/zero-blocks" "2026-06-01T00:10:00Z" "chore: nothing block-shaped"
 out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/zero-blocks" \
-  --transcript "$FIX/codex-rollout-shape.jsonl" 2>&1)"
+  --transcript "$FIX/unrecognized-rollout-shape.jsonl" 2>&1)"
 grep -qE '^C1 degraded unrecognized transcript shape' <<<"$out" \
   && ok "1017-2: codex-shape transcript with 0 block commits → C1 degraded (guard outranks the empty-window fast path)" \
   || no "1017-2: codex shape + 0 commits ($out)"
@@ -786,7 +786,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tt "teeth-1017-guard-order: guard behind the N_BLOCKS==0 path → a codex rollout with 0 commits reports a plain C1 fail" 0 0 \
       --good-has '^C1 degraded unrecognized transcript shape' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
       env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/zero-blocks" \
-      --transcript "$FIX/codex-rollout-shape.jsonl"
+      --transcript "$FIX/unrecognized-rollout-shape.jsonl"
   fi
 
   # Harness for the batching teeth: prints how many `date` processes the run spawned.

@@ -6,6 +6,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../sweep-tools-hook.sh"
 
 pass=0; fail=0
@@ -40,7 +42,7 @@ write_stub() {
     > "$TMP/sweep-tools.sh"
   chmod +x "$TMP/sweep-tools.sh"
   cp "$SUT" "$TMP/sweep-tools-hook.sh"
-  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # the hook sources lib/hook-emit.sh beside itself (#1877)
+  rsdd_stage_libs "$TMP"  # the hook sources lib/hook-emit.sh beside itself (#1877)
   chmod +x "$TMP/sweep-tools-hook.sh"
 }
 
@@ -158,7 +160,7 @@ tooth(){
 hook_tooth(){
   local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
   cp "$TMP/sweep-tools.sh" "$(dirname "$mut")/sweep-tools.sh"
-  mkdir -p "$(dirname "$mut")/lib" && cp "$HERE/../lib/hook-emit.sh" "$(dirname "$mut")/lib/hook-emit.sh"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
+  rsdd_stage_libs "$(dirname "$mut")"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
   tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-tools-hook.sh" "$@"
 }
 

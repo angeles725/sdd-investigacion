@@ -1,0 +1,87 @@
+{
+  "schema": "research-sdd.resume-state/v1",
+  "state": "ok",
+  "reason": null,
+  "counts": {
+    "worktrees": 4,
+    "worktrees_missing": 1,
+    "worktrees_dirty": 1,
+    "branches": 2,
+    "prs": 0,
+    "prs_unknown": 1
+  },
+  "items": [
+    {
+      "kind": "repo",
+      "generated_at": "@T@",
+      "toplevel": "@KIT@/r",
+      "remote": "@KIT@/r.origin",
+      "base_ref": "origin/main",
+      "base_sha": "@SHA@",
+      "prs_status": "skipped",
+      "prs_truncated": null
+    },
+    {
+      "kind": "worktree",
+      "path": "@KIT@/r",
+      "branch": "main",
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "kind": "worktree",
+      "path": "@KIT@/wt-a",
+      "branch": "feat/a",
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 1,
+      "untracked": 1,
+      "ahead": 1,
+      "behind": 1
+    },
+    {
+      "kind": "worktree",
+      "path": "@KIT@/wt-d",
+      "branch": null,
+      "head": "@SHA@",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 1
+    },
+    {
+      "kind": "worktree",
+      "path": "@KIT@/wt-p",
+      "branch": "feat/p",
+      "head": "@SHA@",
+      "exists": false,
+      "prunable": true,
+      "dirty": null,
+      "untracked": null,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "kind": "branch",
+      "name": "ahead1",
+      "head": "@SHA@",
+      "ahead": 1,
+      "behind": 0
+    },
+    {
+      "kind": "branch",
+      "name": "loose",
+      "head": "@SHA@",
+      "ahead": 0,
+      "behind": 1
+    }
+  ]
+}

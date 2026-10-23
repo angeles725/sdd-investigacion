@@ -2,7 +2,9 @@
 name: toolbelt tests
 
 on:
+  # Kit issue #2234: push runs on main only; PR branches run via pull_request, so each PR commit is checked once.
   push:
+    branches: [main]
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
@@ -11,6 +13,8 @@ on:
       - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
+      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      - "research-sdd/rsdd/**"
       # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
       # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
       - ".claude/settings.json"
@@ -32,6 +36,8 @@ on:
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
+      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      - "research-sdd/rsdd/**"
       - ".claude/settings.json"
       - "research-sdd/METHODOLOGY.md"
       - "research-sdd/PROMPT-LOOP.md"
@@ -39,6 +45,14 @@ on:
       - "research-sdd/skills/**"
       - "research-sdd/profiles/**"
       - "research-sdd/agents/**"
+
+  # Kit issue #2203: the extras tier (category E VM/dynamic sandbox suites and unused adapters, listed in
+  # research-sdd/toolbelt/tests/suite-tiers.txt) is OUT of the default gate and runs here instead: nightly and on
+  # demand. These triggers carry no path filter, so on schedule/dispatch the core shard + join jobs below run
+  # as well (a nightly core run of main) and the `toolbelt-extras` job runs ONLY on these two triggers.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 env:
   # Number of shards of the toolbelt gate (kit issue #2114). MUST equal the length of the matrix
@@ -70,6 +84,8 @@ jobs:
       # honoured once PR #2137 lands).
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
+      # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
+      RSDD_REQUIRE_GO: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -87,6 +103,12 @@ jobs:
           # >= 22.18 so `process.features.typescript` (native type stripping, kit issue #2138) is on without a flag;
           # 24 is the current LTS line.
           node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache-dependency-path: research-sdd/rsdd/go.mod
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE
@@ -118,7 +140,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/manifest"
-          bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4 \
+          bash research-sdd/toolbelt/tests/run-all.sh --tier core --prove-teeth -j 4 \
             --shard "${{ matrix.shard }}/$SHARD_COUNT" --shard-manifest "$RUNNER_TEMP/manifest/manifest.txt" \
             2>&1 | tee "$RUNNER_TEMP/run-all.log"
           # A silent fallback to serial would hide the cap problem again: require the Parallel line
@@ -171,7 +193,8 @@ jobs:
       - name: Join - every suite ran exactly once and passed
         if: always()
         # The glob matches nothing if no artifact arrived -> shard-join.sh reports ABSENT (never a pass).
-        run: bash research-sdd/toolbelt/tests/shard-join.sh --shards "$SHARD_COUNT" manifests/shard-manifest-*/manifest.txt
+        # --tier core: the shards above ran the core tier (kit issue #2203), so the expected list is the core list.
+        run: bash research-sdd/toolbelt/tests/shard-join.sh --tier core --shards "$SHARD_COUNT" manifests/shard-manifest-*/manifest.txt
 
       - name: Require every shard job green
         # Last on purpose: the join output above is printed first. A cancelled/failed shard is red here.
@@ -181,6 +204,47 @@ jobs:
             echo "::error::toolbelt-shard result is '${{ needs.toolbelt-shard.result }}' (need success for every shard)"
             exit 1
           fi
+
+  toolbelt-extras:
+    # Kit issue #2203: the opt-in extras tier (research-sdd/toolbelt/tests/suite-tiers.txt), run nightly and on
+    # demand, never on PR/push. Not sharded: `run-all.sh --tier extras --prove-teeth -j 4` is one job. Not part
+    # of the required `toolbelt-tests` check; a red nightly is a signal to fix or retire the suite. It has NO
+    # `name:` line (see the shard job note about merge-gate's parser).
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Same prerequisite-must-not-skip flags as the shard job (kit issue #2138).
+      RSDD_REQUIRE_BWRAP: "1"
+      RSDD_REQUIRE_NODE_TS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Install bubblewrap and enable unprivileged user namespaces
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --version
+          bwrap --ro-bind / / true || { echo "::error::bubblewrap cannot create an unprivileged sandbox on this runner"; exit 1; }
+
+      - name: Sanity-check python3
+        run: python3 --version
+
+      - name: Install GNU parallel
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq parallel && parallel --version | head -n 1
+
+      - name: Run the extras tier
+        run: |
+          set -o pipefail
+          bash research-sdd/toolbelt/tests/run-all.sh --tier extras --prove-teeth -j 4 2>&1 | tee "$RUNNER_TEMP/run-all-extras.log"
+          grep -q '^Parallel: -j 4' "$RUNNER_TEMP/run-all-extras.log" \
+            || { echo "::error::run-all did not run in parallel mode (see DEGRADED line above)"; exit 1; }
 
   shellcheck:
     runs-on: ubuntu-latest

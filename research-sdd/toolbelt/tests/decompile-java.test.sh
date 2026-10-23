@@ -21,12 +21,13 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../decompile-java.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 
 TOOLBELT_DIR="$(cd "$(dirname "$SUT")" && pwd)"
 ROOT="$(mktemp -d)"
 MUTANT_DIR="$ROOT/mutants"
-mkdir -p "$MUTANT_DIR/lib"
-cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/lib/tool-env.sh"
+rsdd_stage_libs "$MUTANT_DIR"
 MUT1="$MUTANT_DIR/decompile-java.mut1.sh"
 MUT2="$MUTANT_DIR/decompile-java.mut2.sh"
 cleanup() { rm -rf "$ROOT"; }
@@ -877,12 +878,12 @@ rt H4 "$FAKE_CLASS" -- --engine vineflower
 if grep -qx "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 partial=0 truncated=none" <<<"$SE"; then ok "H4 unreadable class: typed unknown header, never a fake major 0"
 else no "H4 unreadable class header" "se=[$SE]"; fi
 # H5: helper missing (a copy of the SUT with no corroborate_java.py beside it) → typed unavailable, same field set, run continues.
-mkdir -p "$MUTANT_DIR/nohelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/nohelper/lib/"; cp "$SUT" "$MUTANT_DIR/nohelper/decompile-java.sh"
+rsdd_stage_libs "$MUTANT_DIR/nohelper"; cp "$SUT" "$MUTANT_DIR/nohelper/decompile-java.sh"
 RT_SUT="$MUTANT_DIR/nohelper/decompile-java.sh" rt H5 "$ROOT/Hdr.class" -- --engine vineflower
 if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unavailable" <<<"$SE"; then ok "H5 helper missing: typed reason=facts-unavailable (full field set), decompilation still runs"
 else no "H5 facts-unavailable header" "rc=$RC se=[$SE]"; fi
 # H6: helper present but CRASHING (rc 3 + a stderr message) → reason=facts-error rc=3, first stderr line surfaced, never "unavailable".
-mkdir -p "$MUTANT_DIR/crashhelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/crashhelper/lib/"; cp "$SUT" "$MUTANT_DIR/crashhelper/decompile-java.sh"
+rsdd_stage_libs "$MUTANT_DIR/crashhelper"; cp "$SUT" "$MUTANT_DIR/crashhelper/decompile-java.sh"
 printf 'import sys\nsys.stderr.write("helper exploded\\nsecond line\\n")\nsys.exit(3)\n' > "$MUTANT_DIR/crashhelper/corroborate_java.py"
 RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.sh" rt H6 "$ROOT/Hdr.class" -- --engine vineflower
 if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-error rc=3" <<<"$SE" \
@@ -890,7 +891,7 @@ if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unkn
   ok "H6 helper crash: reason=facts-error rc=3 plus its first stderr line, distinct from facts-unavailable"
 else no "H6 facts-error header" "rc=$RC se=[$SE]"; fi
 # H7: helper hangs → cut by its own budget (rt sets RSDD_DECOMPILE_TIMEOUT=1, so min(30, 1/8) floors at 1 s) → reason=facts-timeout.
-mkdir -p "$MUTANT_DIR/slowhelper/lib"; cp "$TOOLBELT_DIR/lib/tool-env.sh" "$MUTANT_DIR/slowhelper/lib/"; cp "$SUT" "$MUTANT_DIR/slowhelper/decompile-java.sh"
+rsdd_stage_libs "$MUTANT_DIR/slowhelper"; cp "$SUT" "$MUTANT_DIR/slowhelper/decompile-java.sh"
 printf 'import time\ntime.sleep(30)\n' > "$MUTANT_DIR/slowhelper/corroborate_java.py"
 _t0=$SECONDS
 RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H7 "$ROOT/Hdr.class" -- --engine vineflower

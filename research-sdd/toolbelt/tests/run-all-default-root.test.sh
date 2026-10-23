@@ -26,9 +26,10 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# Measured here: capture-analyze (plain run) and fact-exec (a trimmed --prove-teeth run, below). Both have PROOF that the
-# allocator runs against the default root: capture-analyze's pre-fix state leaves a run dir, and fact-exec's root-hardcoded
-# mutant allocates there by design (see the mutant teeth below). The other run-dir suites (capture-exec, docker-exec,
+# Measured here: capture-analyze (plain run) and fact-exec + docker-exec (trimmed --prove-teeth runs, below). All have PROOF that
+# the allocator runs against the default root: capture-analyze's pre-fix state leaves a run dir, and the fact-exec and docker-exec
+# root-hardcoded mutants allocate there by design (see the mutant teeth below). Attribution for #2186 (every run-dir suite, plain
+# and --prove-teeth, in an empty-/tmp namespace) found docker-exec --prove-teeth as the only other source. The other run-dir suites (capture-exec, docker-exec plain,
 # detonate-exec, trace-exec, qemu-exec) already set RSDD_VM_ROOT and carry their own *-NOLEAK guard, and a preflight
 # failure inside the namespace would read as entries=0 for them without proving anything.
 SUITES=(capture-analyze)
@@ -54,12 +55,14 @@ cat > "$TMP/inner.sh" <<'INNER'
 src="$1"; dst="$2"; cwd="$3"; suite="$4"; sarg="${5:-}"
 if [ "$src" != "-" ]; then mount --bind "$src" "$dst" || { echo "result bind-failed"; exit 0; }; fi
 mount -t tmpfs tmpfs /tmp || { echo "result mount-failed"; exit 0; }
+unset DE_GLOBAL_ROOT FE_GLOBAL_ROOT   # a caller-set redirect must not hide a pre-fix leak
+unset DE_GLOBAL_ROOT FE_GLOBAL_ROOT   # a caller-set redirect must not hide a pre-fix leak
 mkdir /tmp/work && export TMPDIR=/tmp/work
 cd "$cwd" || { echo "result cd-failed"; exit 0; }
 timeout 900 bash "$suite" $sarg > /tmp/out.log 2>&1
 rc=$?
 ran=0; grep -qE '^== [0-9]+ passed' /tmp/out.log && ran=1
-# tooth=1: the fact-exec root-hardcoded mutant (which really allocates a run dir) was caught, i.e. the allocator ran.
+# tooth=1: the fact-exec or docker-exec root-hardcoded mutant (which really allocates a run dir) was caught, i.e. the allocator ran.
 tooth=0; grep -qE '^  PASS  teeth-root-hardcoded' /tmp/out.log && tooth=1
 if [ -e /tmp/rsdd ]; then
   # find's own rc is the scan verdict; a failed scan must never read as "0 entries".
@@ -101,7 +104,7 @@ done
 if [ "${1:-}" = "--prove-teeth" ]; then
 MNT=""; for d in /mnt /media /srv /opt; do [ -d "$d" ] && { MNT="$d"; break; }; done
 if [ -z "$MNT" ]; then
-  printf '  SKIP  %s\n' "fact-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
+  printf '  SKIP  %s\n' "fact-exec + docker-exec teeth default-root (no /mnt, /media, /srv or /opt mount point for the work tree)"
 elif [ ! -f "$HERE/fact-exec.test.sh" ]; then no "fact-exec: suite file missing under $HERE"
 else
   # fe_trim <src> <dst-tree> - build the trimmed tree (symlinked lib/fact_plan) around a copy of <src> keeping only the root-hardcoded tooth.
@@ -115,6 +118,31 @@ else
   else
     run_in_empty_tmp "$FE" "$MNT" "$MNT/tests" "$MNT/tests/fact-exec.test.sh" --prove-teeth
     judge "default-root-clean fact-exec --prove-teeth" tooth
+  fi
+fi
+
+# docker-exec (#2186): same shape. Its `teeth-root-hardcoded` mutant (make_run_subdir without the root argument) allocates in the
+# default root, and the 4 empty rsdd-<uuid> dirs it left were the "second source" behind the post-#2180 leftovers. A TRIMMED copy keeps
+# only that tooth (and the DE_GLOBAL_ROOT redirect it needs); `tooth=1` is again the proof the allocator ran.
+if [ -n "$MNT" ]; then
+  if [ ! -f "$HERE/docker-exec.test.sh" ]; then no "docker-exec: suite file missing under $HERE"
+  else
+    # de_trim <src> <dst-tree> - build the trimmed tree (symlinked lib/ and top-level modules) around a copy of <src> keeping only the
+    # root-hardcoded tooth: drop the control run and every other `tt teeth-*` line (teeth-image-local spans several lines).
+    de_trim(){
+      mkdir -p "$2/tests"; ln -s "$HERE/../lib" "$2/lib"; ln -s "$HERE/lib" "$2/tests/lib"
+      for m in "$HERE"/../*.py; do ln -s "$m" "$2/$(basename "$m")"; done
+      sed -e '/^if mutant_py_stage_control /d' -e '/^# CLI-SNAPSHOT-TOOTH-BEGIN/,/^# CLI-SNAPSHOT-TOOTH-END/d' \
+          -e '/^tt teeth-image-local /,/FAIL  G-image-not-local/d' \
+          -e '/^\(DE_GLOBAL_ROOT=[^ ]* \)\{0,1\}tt teeth-/{/ tt teeth-root-hardcoded /!{/^tt teeth-root-hardcoded /!d;};}' "$1" > "$2/tests/docker-exec.test.sh"
+      grep -q 'tt teeth-root-hardcoded ' "$2/tests/docker-exec.test.sh"
+    }
+    DE="$TMP/de"
+    if ! de_trim "$HERE/docker-exec.test.sh" "$DE"; then no "docker-exec: the root-hardcoded tooth is gone from docker-exec.test.sh (trim found nothing)"
+    else
+      run_in_empty_tmp "$DE" "$MNT" "$MNT/tests" "$MNT/tests/docker-exec.test.sh" --prove-teeth
+      judge "default-root-clean docker-exec --prove-teeth" tooth
+    fi
   fi
 fi
 fi
@@ -135,7 +163,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The "-- teeth:" banners are printed ONLY where a mutant really runs: run-all --require-teeth counts banners
   # as teeth. Skips use the indented per-test form so a suite whose real cases passed is not classed as SKIPPED.
   if [ -z "$MNT" ]; then
-    printf '  SKIP  %s\n' "fixture + capture-analyze teeth (no /mnt, /media, /srv or /opt mount point for the work tree)"
+    printf '  SKIP  %s\n' "fixture + capture-analyze + docker-exec teeth (no /mnt, /media, /srv or /opt mount point for the work tree)"
   else
     echo "-- teeth: a fixture suite that leaves a run dir in the default root must be flagged --"
     mkdir -p "$TMP/fix"
@@ -178,6 +206,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       case "$RESULT" in *"tooth=1 entries=0") no "teeth-fact-exec-global: the mutant left nothing - mutation not exercised ($RESULT) (THEATER)" ;;
         *"ran=1 tooth=1 entries="*) ok "teeth-fact-exec-global: without the redirect the teeth run leaves entries in /tmp/rsdd -> the regression test has real teeth ($RESULT)" ;;
         *) no "teeth-fact-exec-global: the mutant did not run to a proven summary ($RESULT)" ;; esac
+    fi
+  fi
+
+  if [ -n "$MNT" ] && [ -f "$HERE/docker-exec.test.sh" ]; then
+    echo "-- teeth: docker-exec with the DE_GLOBAL_ROOT redirect AND the NOLEAK cleanup removed (its pre-#2186 state, where the guard never saw the CLI child's dirs) must be flagged --"
+    if ! mutant_sed "$HERE/docker-exec.test.sh" "$TMP/de-mutant.sh" 's|^DE_GLOBAL_ROOT="\$MUT/global-root" tt teeth-root-hardcoded|tt teeth-root-hardcoded|;s|^        shutil.rmtree(_p, ignore_errors=True)$|        pass|' 2>"$TMP/mutant.err" \
+       || ! de_trim "$TMP/de-mutant.sh" "$TMP/de2"; then
+      no "teeth-docker-exec-global: could not build a valid mutant: $(cat "$TMP/mutant.err")"
+    else
+      run_in_empty_tmp "$TMP/de2" "$MNT" "$MNT/tests" "$MNT/tests/docker-exec.test.sh" --prove-teeth
+      case "$RESULT" in *"tooth=1 entries=0") no "teeth-docker-exec-global: the mutant left nothing - mutation not exercised ($RESULT) (THEATER)" ;;
+        *"ran=1 tooth=1 entries="*) ok "teeth-docker-exec-global: without the redirect the teeth run leaves entries in /tmp/rsdd -> the regression test has real teeth ($RESULT)" ;;
+        *) no "teeth-docker-exec-global: the mutant did not run to a proven summary ($RESULT)" ;; esac
     fi
   fi
 

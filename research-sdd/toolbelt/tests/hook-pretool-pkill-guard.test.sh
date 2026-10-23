@@ -103,6 +103,30 @@ if [ "$RC" = 0 ] && grep -q '^degraded: pkill-guard:' "$TMP/e" && grep -q '"perm
 printf '' | bash "$SUT" >"$TMP/o" 2>"$TMP/e"; RC=$?
 if [ "$RC" = 0 ] && [ ! -s "$TMP/o" ]; then ok "empty stdin -> allow (nothing to inspect)"; else no "empty stdin: rc=$RC out=[$(cat "$TMP/o")]"; fi
 
+# 5. STRICT mode (--strict-name-kill, kit issue #2208): denies EVERY name-based kill; default mode is unchanged.
+# The verdict list is the shared corpus (fixtures/kit-writer-check/name-kill-corpus.txt) that the writer-check scan
+# is pinned to as well (kit-writer-check.test.sh): two detectors, one list.
+CORPUS="$HERE/fixtures/kit-writer-check/name-kill-corpus.txt"
+[ -s "$CORPUS" ] || { echo "FATAL: corpus not found: $CORPUS" >&2; exit 2; }
+srun() { payload Bash "$1" | bash "${SUT_UNDER_TEST:-$SUT}" --strict-name-kill >"$TMP/o" 2>"$TMP/e"; RC=$?; OUT="$(cat "$TMP/o")"; }
+is_deny() { [ "$RC" = 0 ] && [ "$(jq -r '.hookSpecificOutput.permissionDecision // empty' <<<"$OUT" 2>/dev/null)" = deny ]; }
+ncorp=0
+while IFS=$'\t' read -r verdict cmd; do
+  case "$verdict" in deny|allow) ;; *) continue ;; esac
+  ncorp=$((ncorp+1)); srun "$cmd"
+  if [ "$verdict" = deny ]; then is_deny && ok "strict deny: $cmd" || no "strict deny: $cmd — rc=$RC out=[$OUT]"
+  else { [ "$RC" = 0 ] && [ -z "$OUT" ]; } && ok "strict allow: $cmd" || no "strict allow: $cmd — rc=$RC out=[$OUT]"; fi
+done < "$CORPUS"
+[ "$ncorp" -gt 20 ] && ok "the corpus was actually read ($ncorp lines)" || no "corpus read $ncorp lines (silent zero?)"
+# default mode keeps its behavior: the same name kills that strict refuses are allowed without the flag
+for c in 'pkill -x foo' 'pkill foo' 'killall python3' 'kill -9 -1' 'pgrep -f [f]oo | xargs kill'; do allow "default mode still allows: $c" "$c"; done  # writer-check: allow-name-kill fixture text, never executed
+srun 'pgrep -f foo'; is_deny && ok "strict keeps the default -f self-match refusal" || no "strict lost the default refusal"
+srun 'pkill -f foo'
+if is_deny && grep -q 'PID' <<<"$OUT" && grep -q '\$!' <<<"$OUT" && grep -q 'timeout' <<<"$OUT" && grep -q 'jobs -p' <<<"$OUT"; then ok "strict denial recommends PID-based kill (\$!, jobs -p, timeout)"; else no "strict denial text incomplete: $OUT"; fi
+if ! grep -qE 'pkill -x|pgrep -x|\[p\]attern|exact process name' <<<"$OUT"; then ok "strict denial never suggests a name kill"; else no "strict denial still suggests a name kill: $OUT"; fi
+printf '%s' "$(payload Bash 'ls')" | bash "$SUT" --no-such-flag >"$TMP/o" 2>"$TMP/e"; RC=$?
+{ [ "$RC" = 0 ] && [ ! -s "$TMP/o" ]; } && ok "an unknown argument is ignored (default behavior)" || no "unknown argument changed behavior"
+
 # ---- Teeth ------------------------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: mutation controls for hook-pretool-pkill-guard.sh --"
@@ -131,6 +155,21 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth I 's/tr -d "[^|]*|/cat |/'                                    deny  "bash -c 'pkill -f foo'"
   tooth K 's/|if|elif|while|until|command|nice//'                     deny  'if pgrep -f foo'
   tooth L 's/_plain_elsewhere=1/_plain_elsewhere=0/'                  deny  "cd /srv/foo && pkill -f '[f]oo'"
+  # strict-mode teeth: the mutant is probed WITH --strict-name-kill and must false-allow a name kill
+  stooth() {
+    local name="$1" expr="$2" cmd="$3" mo
+    if ! mutant_sed "$SUT" "$M/$name.sh" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant could not be built (pattern absent / refused)"; return; fi
+    mo="$(payload Bash "$cmd" | bash "$M/$name.sh" --strict-name-kill 2>/dev/null)"
+    grep -q '"deny"' <<<"$mo" && no "teeth $name: mutant still denies — THEATER" || ok "teeth $name: strict mutant false-allows [$cmd]"
+  }
+  stooth S1 's/pkill|killall) _strict_bad=/pkill) _strict_bad=/'                                  'killall python3'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S2 's/= "-1" \]/= "-NEVER" ]/'                                                           'kill -9 -1'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S3 's/(xargs|while)\[^&\]\*/(xargsZ)[^\&]*/'                                              'pgrep -x loop | xargs kill'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S4 's/(xargs|while)\[^&\]\*/(xargs)[^\&]*/'                                               'pgrep -x loop | while read p; do kill $p; done'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S5 "s/^  _re_sub=.*/  _re_sub='NEVER-MATCHES-X'/"                                         'kill $(pidof loop)'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S6 "s/^  _re_pipe='(pgrep|pidof)/  _re_pipe='(pgrep)/"                                    'pidof loop | xargs kill'  # writer-check: allow-name-kill fixture text, never executed
+  stooth S7 's/_strict=1; done/_strict=0; done/'                                                  'pkill foo'
+  stooth S8 's/^      kill) for/      killZ) for/'                                                'kill -TERM -1'
   # J: the degraded "ask" branch removed -> a pkill payload with unparseable stdin is silently allowed
   if mutant_sed "$SUT" "$M/J.sh" 's/grep -Eq .pkill|pgrep./false/' >/dev/null 2>&1; then
     mo="$(printf '{not json pkill -f foo' | bash "$M/J.sh" 2>/dev/null)"

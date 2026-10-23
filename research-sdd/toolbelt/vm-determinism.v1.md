@@ -52,7 +52,7 @@ re-derives `limits_conformance` from `observed` — single source of truth.
 
 ## U-V3 dry-run state
 
-`corroborate_compress.py` (U-V3) emits this record with `receipt_identity: null`,
+`vm_run.py` (U-V3, via `plan_common.make_dry_run_det_spec`) emits this record with `receipt_identity: null`,
 `declared: false`, `basis: "dry-run-plan"`, `replicate_identity: null`.
 No `vm-run-receipt.v1` is fabricated for a dry-run.
 

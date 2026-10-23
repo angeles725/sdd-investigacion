@@ -1,0 +1,43 @@
+# name-kill corpus (kit issue #2208): ONE list pinning both detectors.
+# <deny|allow><TAB><one shell command line>. hook-pretool-pkill-guard.sh --strict-name-kill and the name-kill scan in
+# maint/kit-writer-check.sh must give the same verdict for every line (hook-pretool-pkill-guard.test.sh and
+# kit-writer-check.test.sh both read this file). Single-line commands only; no line may be a comment.
+deny	pkill -f foo
+deny	pkill -x foo
+deny	pkill -f [f]oo
+deny	pkill foo
+deny	killall python3
+deny	sudo -n killall python3
+deny	make && pkill -f x
+deny	FOO=1 /usr/bin/pkill -9 loop
+deny	timeout 5 pkill -f loop
+deny	x=$(pkill -f loop)
+deny	bash -c 'pkill -f foo'
+deny	if pkill -f foo; then :; fi
+deny	kill -9 -1
+deny	kill -1
+deny	kill -- -1
+deny	kill -TERM -1
+deny	kill -s KILL -1
+deny	pgrep -f loop | xargs kill
+deny	pidof loop | xargs kill -9
+deny	pidof loop | xargs -r kill
+deny	kill $(pgrep -f loop)
+deny	kill $(pidof loop)
+deny	kill `pidof loop`
+deny	pgrep -f loop | while read p; do kill $p; done
+allow	kill 1234
+allow	kill -9 4321
+allow	kill -TERM "$pid"
+allow	kill $!
+allow	kill -- -12345
+allow	kill -0 $$
+allow	echo "never use pkill -f on loops"
+allow	echo skill killing-time pkillx
+allow	pkill_helper() { :; }
+allow	grep -Eq 'pkill' file
+allow	pgrep -x loop
+allow	jobs -p | xargs kill
+allow	timeout 30 ./run-load.sh
+allow	source hook-pretool-pkill-guard.sh
+allow	STDIN='{"command":"pkill -f foo"}'

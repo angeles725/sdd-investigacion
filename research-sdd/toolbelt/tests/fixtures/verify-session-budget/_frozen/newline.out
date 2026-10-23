@@ -1,0 +1,18 @@
+verify-session-budget: @FIX@/newline
+source startup:
+hook[1] chars=10 status=ok cmd=cat >/dev/null \n printf hello \n printf world
+aggregate[startup]: 10 chars (budget < 8000) OK
+source resume:
+hook[1] chars=10 status=ok cmd=cat >/dev/null \n printf hello \n printf world
+aggregate[resume]: 10 chars (budget < 8000) OK
+source clear:
+hook[1] chars=10 status=ok cmd=cat >/dev/null \n printf hello \n printf world
+aggregate[clear]: 10 chars (budget < 8000) OK
+source compact:
+hook[1] chars=10 status=ok cmd=cat >/dev/null \n printf hello \n printf world
+aggregate[compact]: 10 chars (budget < 8000) OK
+source fork:
+hook[1] chars=10 status=ok cmd=cat >/dev/null \n printf hello \n printf world
+aggregate[fork]: 10 chars (budget < 8000) OK
+aggregate: 10 chars (budget < 8000) OK worst-source=startup
+state: ok (5 hook runs, 0 truncated, 0 timed-out)

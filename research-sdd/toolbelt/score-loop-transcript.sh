@@ -4,7 +4,7 @@
 # warnings; this round closes the remaining BLOCKER plus the RDD warnings and Opus minors):
 # the operator-input filter, transcript-span handling, C3/C4 semantics, and the block-commit
 # regex were recalibrated against three real Claude Code transcripts + corpora (niagara-
-# research, blender-llm) and one real Codex rollout, all inspected read-only — see the PR.
+# research, blender-llm) and one real non-Claude rollout, all inspected read-only — see the PR.
 #
 # Scores a loop run against a target corpus (a git repo) and, optionally, a session transcript
 # (JSONL), on four multi-model-prompt-profile criteria:
@@ -87,15 +87,15 @@
 # notification/hook turns share with genuine human turns).
 #
 # Unrecognized transcript shape (round 3, Opus-confirmed BLOCKER): a transcript from a harness
-# that does not use the `.origin` field convention at all (a real Codex/`reasonix` rollout under
-# `~/.codex/sessions/...` uses `.type=="response_item"` with a NESTED `.payload.role`, never a
+# that does not use the `.origin` field convention at all (a non-Claude rollout whose records use
+# `.type=="response_item"` with a NESTED `.payload.role`, never a
 # top-level `.origin`; `jq -c 'del(.origin)'` reproduces the same failure mode on a Claude Code
 # transcript) makes `.origin.kind=="human"` false for EVERY record — every candidate operator
 # turn silently reads as "not human", so C1's gap check finds zero gaps and C2's question scan
 # starts from a wrongly-large "final messages" set, both scoring a clean, WRONG pass instead of
 # refusing to score. Guard: if no record in the whole transcript carries a non-null `.origin`
 # key at all, OR the transcript has zero recognized operator turns AND zero recognized assistant
-# records (the second condition alone already catches a Codex rollout, whose top-level `.type`
+# records (the second condition alone already catches such a rollout, whose top-level `.type`
 # never equals `"user"`/`"assistant"`), every criterion reports `degraded unrecognized
 # transcript shape` instead of scoring on data it cannot actually interpret. This is deliberately
 # a BROAD refusal (any one of the two conditions is enough) — CLAUDE.md §7's "could it see what
@@ -108,7 +108,7 @@
 #   - A PARTIAL `.origin` — stripped from the human turn only, kept on other records — passes the
 #     guard, and the stripped human turn is then invisible as operator input, so such a transcript can
 #     score a clean 4x pass. The scorer cannot know a turn was human once its marker is gone.
-#   - RSDD_OPERATOR_INPUT_JQ cannot make a Codex/Qwen-style transcript scoreable: the `.origin` presence
+#   - RSDD_OPERATOR_INPUT_JQ cannot make a non-Claude-shaped transcript scoreable: the `.origin` presence
 #     check and the assistant `.type` test are hardcoded outside it.
 #
 # Transcript span: the transcript's own [first_ts, last_ts] is the earliest and latest
@@ -214,7 +214,7 @@
 #
 # Overridable heuristics — DOCUMENTED, NOT authoritatively confirmed for every harness. The
 # Claude Code JSONL shapes below WERE verified read-only against three real session transcripts
-# (see the PR); a different harness (e.g. Codex/`reasonix`) uses a different shape entirely (see
+# (see the PR); a different harness uses a different shape entirely (see
 # "Unrecognized transcript shape" above) and these overrides will not make it recognized — they
 # exist for a harness close enough to Claude Code's shape to need only a field-name correction:
 #   RSDD_BLOCK_COMMIT_REGEX   bash ERE, TWO capture groups: 1 = the matched prefix keyword
@@ -658,7 +658,7 @@ strip_md_wrap() {
 c1() {
   # Unrecognized shape takes priority over every other C1 outcome, including an empty
   # block-commit window — a shape the scorer cannot interpret is not evidence of anything,
-  # zero commits included (round 3 BLOCKER fix: this ordering matters on a real Codex rollout
+  # zero commits included (round 3 BLOCKER fix: this ordering matters on a real non-Claude rollout
   # scoped to a window with 0 candidate commits, which used to slip past the guard below and
   # report a plain "0 block commits" fail instead of the honest "cannot interpret this shape").
   if [[ "$UNRECOGNIZED_SHAPE" -eq 1 ]]; then
