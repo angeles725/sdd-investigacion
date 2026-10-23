@@ -14,6 +14,9 @@ func TestNonLinuxOperationsAreUnavailable(t *testing.T) {
 	if err := Publish(dir+"/a", dir+"/b"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Publish: %v", err)
 	}
+	if err := RenameExchange(dir+"/a", dir+"/b"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("RenameExchange: %v", err)
+	}
 	if _, err := Identity(dir+"/a", NoLimit); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Identity: %v", err)
 	}

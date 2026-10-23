@@ -54,6 +54,11 @@ func RenameNoReplace(oldPath, newPath string) error {
 	return Renameat2(AtFDCWD, oldPath, AtFDCWD, newPath, FlagNoReplace)
 }
 
+// RenameExchange atomically swaps two existing paths (RENAME_EXCHANGE).
+func RenameExchange(a, b string) error {
+	return Renameat2(AtFDCWD, a, AtFDCWD, b, FlagExchange)
+}
+
 // Publish moves stage to dest without ever replacing dest: an existing dest is
 // an EEXIST error, an unsupported kernel is ErrUnavailable. It does not sync
 // the parent directory; call SyncDir for durability.

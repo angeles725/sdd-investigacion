@@ -120,6 +120,38 @@ func TestRenameNoReplaceMissingSourceAndDirs(t *testing.T) {
 	}
 }
 
+func TestRenameExchangeSwaps(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	mustWrite(t, a, "A")
+	mustWrite(t, b, "B")
+	if err := RenameExchange(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, a) != "B" || read(t, b) != "A" {
+		t.Fatal("not swapped")
+	}
+	d1, d2 := filepath.Join(dir, "d1"), filepath.Join(dir, "d2")
+	_ = os.Mkdir(d1, 0o755)
+	_ = os.Mkdir(d2, 0o755)
+	mustWrite(t, filepath.Join(d1, "m"), "1")
+	if err := RenameExchange(d1, d2); err != nil || !exists(filepath.Join(d2, "m")) || exists(filepath.Join(d1, "m")) {
+		t.Fatalf("dir swap: %v", err)
+	}
+}
+
+func TestRenameExchangeRequiresBothToExist(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	mustWrite(t, a, "A")
+	if err := RenameExchange(a, b); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("got %v", err)
+	}
+	if read(t, a) != "A" || exists(b) {
+		t.Fatal("a failed exchange must not create or move anything")
+	}
+}
+
 func TestRenameat2WithDirFDs(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "s"), "S")
@@ -148,6 +180,62 @@ func TestRenameat2InvalidFlagsAreUnavailable(t *testing.T) {
 	}
 	if exists(b) || read(t, a) != "A" {
 		t.Fatal("nothing may move on an unavailable error")
+	}
+}
+
+func TestPublishNeverFallsBackToPlainRename(t *testing.T) {
+	for _, errno := range []syscall.Errno{syscall.ENOSYS, syscall.EINVAL} {
+		dir := t.TempDir()
+		stage, dest := filepath.Join(dir, "stage"), filepath.Join(dir, "dest")
+		mustWrite(t, stage, "S")
+		orig := renameat2Fn
+		renameat2Fn = func(int, string, int, string, uint) error { return errno }
+		err := Publish(stage, dest)
+		renameat2Fn = orig
+		if !errors.Is(err, ErrUnavailable) || !errors.Is(err, errno) {
+			t.Fatalf("%v: got %v", errno, err)
+		}
+		if !exists(stage) || exists(dest) {
+			t.Fatalf("%v: fell back to a rename", errno)
+		}
+	}
+}
+
+func TestRenameat2OtherErrnosStayLinkErrors(t *testing.T) {
+	orig := renameat2Fn
+	defer func() { renameat2Fn = orig }()
+	renameat2Fn = func(int, string, int, string, uint) error { return syscall.EACCES }
+	err := RenameNoReplace("a", "b")
+	var le *os.LinkError
+	if !errors.As(err, &le) || errors.Is(err, ErrUnavailable) || le.Op != "renameat2" || !errors.Is(err, syscall.EACCES) {
+		t.Fatalf("got %#v", err)
+	}
+}
+
+func TestRenameat2PassesFlagsAndPaths(t *testing.T) {
+	orig := renameat2Fn
+	defer func() { renameat2Fn = orig }()
+	var got []any
+	renameat2Fn = func(o int, op string, n int, np string, f uint) error {
+		got = []any{o, op, n, np, f}
+		return nil
+	}
+	_ = RenameNoReplace("a", "b")
+	_ = RenameExchange("c", "d")
+	_ = Publish("e", "f")
+	if want := []any{AtFDCWD, "e", AtFDCWD, "f", uint(FlagNoReplace)}; len(got) != 5 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] || got[4] != want[4] {
+		t.Fatalf("Publish called %v", got)
+	}
+	_ = RenameExchange("c", "d")
+	if got[1] != "c" || got[3] != "d" || got[4] != uint(FlagExchange) {
+		t.Fatalf("RenameExchange called %v", got)
+	}
+}
+
+func TestRenameat2NULInPathIsNotUnavailable(t *testing.T) {
+	err := RenameNoReplace("a\x00b", "c")
+	if err == nil || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("got %v", err)
 	}
 }
 
