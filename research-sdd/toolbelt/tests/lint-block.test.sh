@@ -112,10 +112,23 @@ run "$FX/waiver-adjacent.md"
 [ "$RC" -eq 1 ] && [ "$(reported R3 "$OUT" "$FX/waiver-adjacent.md")" = "$(lines_of ROW-BAD "$FX/waiver-adjacent.md")" ] && ok "7e a waiver covers ONLY its own row; the neighbour row still fires" || no "7e adjacent (rc=$RC out=[$OUT])"
 
 # 8. Typed states in FAIL mode
+# A new block (FAIL mode) must have content: an empty one fails (exit 1), it never passes as clean.
 run "$FX/empty.md"
-[ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && grep -qF 'empty=1' <<< "$OUT" && ok "8a empty file -> EMPTY-INPUT (not NO-MATCH), exit 0" || no "8a empty (rc=$RC out=[$OUT])"
+[ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && grep -qF 'empty=1' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "8a empty file -> EMPTY-INPUT (not NO-MATCH), exit 1 in FAIL mode" || no "8a empty (rc=$RC out=[$OUT])"
 run "$FX/blank.md"
-[ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8b whitespace-only file -> EMPTY-INPUT" || no "8b blank (rc=$RC out=[$OUT])"
+[ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8b whitespace-only file -> EMPTY-INPUT, exit 1 in FAIL mode" || no "8b blank (rc=$RC out=[$OUT])"
+run "$FX/empty.md" "$FX/r3-clean.md"
+[ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT: 1 empty file(s) in FAIL mode' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "8h an empty block next to a clean one still fails FAIL mode (exit 1), and the verdict says EMPTY-INPUT, never NO-MATCH" || no "8h empty+clean (rc=$RC out=[$OUT])"
+run --audit "$FX/empty.md"
+[ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8i --audit empty file -> EMPTY-INPUT, exit 0 (report-only)" || no "8i audit empty (rc=$RC out=[$OUT])"
+run "$FX/does-not-exist.md" "$FX/r3-clean.md"
+OUT_PART="$OUT"; RC_PART=$RC
+OUT="$(python3 "$HERE/../lint_block.py" --partial "$FX/r3-clean.md" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ok "8k helper --partial alone exits 2 (never a clean 0)" || no "8k helper partial (rc=$RC out=[$OUT])"
+OUT="$(python3 "$HERE/../lint_block.py" --audit --partial "$FX/r3-clean.md" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ok "8l --partial wins over --audit: exit 2, never the report-only 0" || no "8l audit+partial (rc=$RC out=[$OUT])"
+OUT="$OUT_PART"; RC=$RC_PART
+[ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "8j absent + clean file -> PARTIAL, never NO-MATCH, exit 2" || no "8j partial (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md"
 [ "$RC" -eq 2 ] && grep -qF 'ABSENT-INPUT' <<< "$OUT" && ok "8c absent file -> ABSENT-INPUT, exit 2" || no "8c absent (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md" "$FX/r3-first.md"
@@ -545,9 +558,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     [ "$MRC" -eq 0 ] && ok "teeth L: waiver range ignored -> neighbour row SUPPRESSED -> case 7e has teeth" || no "teeth L: mutant still flagged (rc=$MRC) — THEATER"
   fi
   # M: FAIL-mode exit code neutered
-  if tooth_build M lint_block.py 's#return 1 if total else 0#return 0#'; then
+  if tooth_build M lint_block.py 's#return 1 if total or empty else 0#return 0#'; then
     mrun "$FX/r3-first.md"
     [ "$MRC" -eq 0 ] && ok "teeth M: FAIL exit code neutered -> findings exit 0 -> FAIL-mode assertions have teeth" || no "teeth M: mutant still exited $MRC — THEATER"
+  fi
+  # EMP: an empty block passes FAIL mode again -> case 8a must catch it
+  if tooth_build EMP lint_block.py 's#return 1 if total or empty else 0#return 1 if total else 0#'; then
+    mrun "$FX/empty.md"
+    [ "$MRC" -eq 0 ] && ok "teeth EMP: empty-block rule dropped -> empty file exits 0 -> case 8a has teeth" || no "teeth EMP: mutant still exited $MRC — THEATER"
   fi
   # N: --audit no longer report-only
   if tooth_build N lint_block.py 's#^    if audit:$#    if False:#'; then
