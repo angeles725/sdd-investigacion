@@ -1,0 +1,8 @@
+Usage:
+  rsdd <command> [args]
+  rsdd <group> <command> [args]
+
+Commands:
+  ok                       prints ok
+  verify block             verify a block
+  verify boom              panics

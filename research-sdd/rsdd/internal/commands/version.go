@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"runtime/debug"
 
@@ -18,7 +20,19 @@ var versionCommand = cli.Command{
 
 // runVersion prints what the binary honestly knows; absent data is the
 // literal "unknown", never a fabricated value.
-func runVersion(_ []string, s cli.Stdio) int {
+func runVersion(args []string, s cli.Stdio) int {
+	fs := flag.NewFlagSet("rsdd version", flag.ContinueOnError)
+	fs.SetOutput(s.Err)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return cli.ExitOK
+		}
+		return cli.ExitUsage
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(s.Err, "rsdd version: unexpected argument %q\n", fs.Arg(0))
+		return cli.ExitUsage
+	}
 	version, revision := "unknown", "unknown"
 	if bi, ok := readBuildInfo(); ok {
 		if bi.Main.Version != "" {

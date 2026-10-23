@@ -8,4 +8,4 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/commands"
 )
 
-func main() { os.Exit(cli.Run(commands.Table, os.Args[1:], cli.OSStdio())) }
+func main() { os.Exit(cli.RunProcess(commands.Table, os.Args[1:])) }

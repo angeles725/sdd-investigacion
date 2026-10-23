@@ -95,7 +95,7 @@ func TestIntendedSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateIntended([]byte(tt.body))
+			err := ValidateIntended([]byte(tt.body))
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -121,5 +121,45 @@ func TestNoCasesIsAnError(t *testing.T) {
 	}
 	if _, err := listCases(filepath.Join(t.TempDir(), "absent")); err == nil {
 		t.Fatal("an absent golden dir must be an error")
+	}
+}
+
+func TestStrictJSONRejectsTrailingData(t *testing.T) {
+	tests := []struct {
+		name, body string
+		wantErr    bool
+	}{
+		{"one value", `{"args":["a"]}`, false},
+		{"trailing whitespace", "{\"args\":[]}\n\n", false},
+		{"two objects", `{"args":["a"]}{"args":["b"]}`, true},
+		{"object plus garbage", `{"args":[]} xyz`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var spec cmdSpec
+			err := strictJSON([]byte(tt.body), &spec)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+	if err := ValidateIntended([]byte(`[] []`)); err == nil {
+		t.Error("intended.json with trailing data must be rejected")
+	}
+}
+
+func TestListCasesReturnsSortedDirsOnly(t *testing.T) {
+	root := t.TempDir()
+	writeCase(t, root, "b", goodFiles())
+	writeCase(t, root, "a", goodFiles())
+	if err := os.WriteFile(filepath.Join(root, "README"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := listCases(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || filepath.Base(got[0]) != "a" || filepath.Base(got[1]) != "b" {
+		t.Fatalf("got %v, want [a b] and no files", got)
 	}
 }

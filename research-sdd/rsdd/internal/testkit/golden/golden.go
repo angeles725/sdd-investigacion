@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,7 +91,7 @@ func runCase(dir string, main func([]string, cli.Stdio) int, rewrite bool) []str
 	if err := strictJSON(read("cmd.json"), &spec); err != nil {
 		return append(problems, fmt.Sprintf("%s: cmd.json: %v", dir, err))
 	}
-	if err := validateIntended(read("intended.json")); err != nil {
+	if err := ValidateIntended(read("intended.json")); err != nil {
 		return append(problems, fmt.Sprintf("%s: intended.json: %v", dir, err))
 	}
 
@@ -136,7 +137,14 @@ func runCase(dir string, main func([]string, cli.Stdio) int, rewrite bool) []str
 func strictJSON(b []byte, v any) error {
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
-	return d.Decode(v)
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	// Exactly one JSON value: anything after it (a second object, garbage) is an error.
+	if _, err := d.Token(); err != io.EOF {
+		return fmt.Errorf("unexpected data after the first JSON value")
+	}
+	return nil
 }
 
 type intended struct {
@@ -144,9 +152,11 @@ type intended struct {
 	Reason string `json:"reason"`
 }
 
-// validateIntended enforces the intended.json schema: a list of
+// ValidateIntended enforces the intended.json schema: a JSON list of
 // {field, reason} where field is stdout|stderr|exit and reason is non-blank.
-func validateIntended(b []byte) error {
+// Unknown keys and trailing data are rejected. It is public so other test
+// kits (the parity runner) validate their intended.json the same way.
+func ValidateIntended(b []byte) error {
 	var list []intended
 	if err := strictJSON(b, &list); err != nil {
 		return err

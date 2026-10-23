@@ -20,25 +20,45 @@ func Run(args []string, s cli.Stdio) int
 
 | Code | Constant | Meaning |
 |---|---|---|
-| 0 | `cli.ExitOK` | ran; nothing to report, or advisory output only |
-| 1 | `cli.ExitFindings` | ran; findings reported |
-| 2 | `cli.ExitCannot` | could not run: usage error, unknown command, internal error |
-| 3 | `cli.ExitDegraded` | degraded: ran with a typed envelope, the result is NOT a zero |
+| 0 | `cli.ExitOK` | any state except degraded; findings are advisory and never change the code (CLAUDE.md section 8) |
+| 1 | `cli.ExitOperational` | operational failure (unreadable input, internal error) |
+| 2 | `cli.ExitUsage` | usage error: unknown command, bad flags, no arguments |
+| 3 | `cli.ExitDegraded` | degraded (a runtime dependency is missing): print a `DEGRADED:` line on stderr and a valid envelope on stdout; `cli.Run` appends a generic `DEGRADED:` line if you forgot |
 
-A panic is recovered by `cli.Run` and becomes `degraded: internal-error` on stderr with exit 2 - never
-exit 0. Distinguish absent-input / empty-input / no-match / degraded (CLAUDE.md section 7); a bare `0`
+A legacy instrument whose contract differs (e.g. `verify-state`: 1 = stale; `status`: 1 = no token)
+declares a per-command mapping in its table entry. `Run` returns its own code and `ExitMap`
+translates it to the process exit code; codes absent from the map pass through:
+
+```go
+{Name: "state", Group: "verify", Summary: "...", Run: verifystate.Run,
+	ExitMap: map[int]int{verifystate.Stale: 1}},
+```
+
+Stdout of a command is buffered and written only when it returns. A panic is recovered, the buffered
+stdout is **discarded** (a partial report must not look complete), and the process exits 1 with the
+typed stderr line `rsdd: internal-error: <panic value>` - an operational failure, not a degraded state,
+and never a stack trace. The consequence for streaming: a command's stdout appears when it finishes;
+progress belongs on stderr, which is written through immediately.
+
+Distinguish absent-input / empty-input / no-match / degraded (CLAUDE.md section 7); a bare `0`
 that could mean any of them is a bug.
 
 ## 2. Register it
 
-Add one line to `Table` in `internal/commands/commands.go`:
+Add the entry to **your own domain's** `Commands` var, in `internal/<domain>/commands.go`
+(every domain from plan section 4.3 has a stub: `verify`, `sweep`, `hook`, `gate`, `status`, `corpus`, ...):
 
 ```go
-{Name: "block", Group: "verify", Summary: "verify a block", Run: verifyblock.Run},
+var Commands = []cli.Command{
+	{Name: "block", Group: "verify", Summary: "verify a block", Run: Run},
+}
 ```
 
-`rsdd --help` and `rsdd <group> --help` are generated from the table; there is no other place to list it.
-`Group` may be empty for a top-level command (`rsdd version`).
+Never edit `internal/commands/commands.go`: it concatenates `version` plus every domain's `Commands` into
+`Table`, and refuses the table (a start-up panic, plus a test) on a duplicate `(group, name)` across domains
+or a group that shares a name with an ungrouped command. `internal/commands` is the only package allowed to
+import domains. `rsdd --help` and `rsdd <group> --help` are generated from the table; there is no other
+place to list a command. `Group` may be empty for a top-level command (`rsdd version`).
 
 ## 3. Golden case
 
@@ -66,6 +86,12 @@ no cases, FAILS (it is never skipped). Create the case with empty expectation fi
 - a domain package (`internal/<domain>/...`) imports only the core tier - never another domain, never `commands`.
 
 Shared logic two domains need belongs in `internal/core/<name>`.
+
+Packages also never read ambient state: `os.Getenv`, `os.LookupEnv`, `os.Getwd` and `time.Now` are
+forbidden outside `internal/cli/stdio.go` (test files excepted), and `cmd/` is scanned too. Take them
+from `cli.Stdio`. `cli.Validate` (run on every dispatch, and by a test on the shipped table) rejects a
+duplicate `(group, name)`, a group that shares a name with an ungrouped command, an empty name and a nil
+`Run`, so nothing is silently shadowed.
 
 ## 5. Keep the bash entry point as a shim
 

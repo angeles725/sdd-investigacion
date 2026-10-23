@@ -21,6 +21,8 @@ set -uo pipefail
 export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="${VRJ_SUT:-$HERE/../verify-registry.sh}"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases" >&2; exit 2; }
@@ -40,10 +42,9 @@ no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
 # mkkit <name> : a runnable COPY of the SUT and its helpers at <ROOT>/<name>/toolbelt/ (KIT=dirname/..).
 mkkit() {
-  local kit="$ROOT/$1" l
-  mkdir -p "$kit/toolbelt/lib"
+  local kit="$ROOT/$1"
+  rsdd_stage_libs "$kit/toolbelt"
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
-  for l in retro-status target-paths block-files state-files corpus-markers hook-wiring; do cp "$HERE/../lib/$l.sh" "$kit/toolbelt/lib/$l.sh"; done
   printf '%s' "$kit"
 }
 # mkcorpus <dir> <n> <prefix> : RESEARCH-STATE.md plus <n> canonical block files.

@@ -35,6 +35,8 @@ CM_LIB="$HERE/../lib/corpus-markers.sh"  # shared corpus-marker predicate the SU
 [ -f "$CM_LIB" ] || { echo "FATAL: corpus-markers helper not found: $CM_LIB" >&2; exit 2; }
 HW_LIB="$HERE/../lib/hook-wiring.sh"  # shared Stop-hook wiring predicate the SUT now sources (#1108)
 [ -f "$HW_LIB" ] || { echo "FATAL: hook-wiring helper not found: $HW_LIB" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 # HERMETICITY (kit issue #1140 round-2 review, Blocking 4): lib/hook-wiring.sh's git-root walk-up
@@ -110,14 +112,8 @@ VR_CLEAN='^Registry consistent with reality'
 # so KIT=dirname/.. resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt/lib"
+  rsdd_stage_libs "$kit/toolbelt"   # every lib the SUT sources (retro-status, target-paths, block-files, state-files, corpus-markers, hook-wiring)
   cp "$SUT" "$kit/toolbelt/verify-registry.sh"
-  cp "$LIB" "$kit/toolbelt/lib/retro-status.sh"   # SUT sources this for retro_is_excluded
-  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh" # SUT sources this for target_paths_all
-  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
-  cp "$HERE/../lib/state-files.sh" "$kit/toolbelt/lib/state-files.sh"
-  cp "$CM_LIB" "$kit/toolbelt/lib/corpus-markers.sh"  # SUT sources this for corpus_marker_present
-  cp "$HW_LIB" "$kit/toolbelt/lib/hook-wiring.sh"     # SUT sources this for hook_stop_wiring_state
   printf '%s' "$kit"
 }
 
@@ -1299,14 +1295,8 @@ fi
 #      Both conventions are valid; the gate must accept either and NOT fire the self-reg WARN.
 repo26="$ROOT/c26-repo"          # the "repo root" that TARGETS.md will register
 kit26="$repo26/research-sdd"     # KIT resolves here: dirname(verify-registry.sh)/..
-mkdir -p "$kit26/toolbelt/lib" "$repo26"
+mkdir -p "$repo26"; rsdd_stage_libs "$kit26/toolbelt"
 cp "$SUT" "$kit26/toolbelt/verify-registry.sh"
-cp "$LIB" "$kit26/toolbelt/lib/retro-status.sh"
-cp "$TP_LIB" "$kit26/toolbelt/lib/target-paths.sh"
-cp "$HERE/../lib/block-files.sh" "$kit26/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
-cp "$HERE/../lib/state-files.sh" "$kit26/toolbelt/lib/state-files.sh"
-cp "$CM_LIB" "$kit26/toolbelt/lib/corpus-markers.sh"   # SUT sources this for corpus_marker_present
-cp "$HW_LIB" "$kit26/toolbelt/lib/hook-wiring.sh"       # SUT sources this for hook_stop_wiring_state
 # Register the repo root with nc + 0 md → count check trivially passes (0 == 0), no other noise.
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26"
@@ -1670,14 +1660,8 @@ VRT2STRIPPED
   echo "-- teeth-kit-parent-match: neuter parent-dir match; repo-root registration must re-WARN --"
   repo26t="$ROOT/c26t-repo"
   kit26t="$repo26t/research-sdd"
-  mkdir -p "$kit26t/toolbelt/lib" "$repo26t"
+  mkdir -p "$repo26t"; rsdd_stage_libs "$kit26t/toolbelt"
   cp "$SUT" "$kit26t/toolbelt/verify-registry.sh"
-  cp "$LIB" "$kit26t/toolbelt/lib/retro-status.sh"
-  cp "$TP_LIB" "$kit26t/toolbelt/lib/target-paths.sh"
-  cp "$HERE/../lib/block-files.sh" "$kit26t/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
-  cp "$HERE/../lib/state-files.sh" "$kit26t/toolbelt/lib/state-files.sh"
-  cp "$CM_LIB" "$kit26t/toolbelt/lib/corpus-markers.sh"
-  cp "$HW_LIB" "$kit26t/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | sdd-investigacion | intermediate (0 md / nc / git yes) | `%s` |\n' "$repo26t"
   } > "$kit26t/TARGETS.md"
