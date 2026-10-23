@@ -65,3 +65,24 @@ const (
 
 // IsRegular reports S_ISREG.
 func (s Stat) IsRegular() bool { return s.Mode&modeTypeMask == modeRegular }
+
+// OpenRO opens path read-only with O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK and returns
+// the fd with its fstat. A symlink or unopenable path is ErrOpen; a non-regular
+// file is ErrNotRegular (the fd is closed on every error). O_NONBLOCK keeps a
+// writerless FIFO from blocking the open before fstat can refuse it.
+func OpenRO(path string) (int, Stat, error) {
+	fd, err := sysOpenRO(path)
+	if err != nil {
+		return -1, Stat{}, &Error{Kind: ErrOpen, Path: path, Err: err}
+	}
+	st, err := sysFstat(fd)
+	if err != nil {
+		_ = sysClose(fd)
+		return -1, Stat{}, &Error{Kind: ErrIO, Path: path, Err: err}
+	}
+	if !st.IsRegular() {
+		_ = sysClose(fd)
+		return -1, Stat{}, &Error{Kind: ErrNotRegular, Path: path}
+	}
+	return fd, st, nil
+}
