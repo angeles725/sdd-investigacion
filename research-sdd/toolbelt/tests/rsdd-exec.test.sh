@@ -19,21 +19,21 @@ LIB="$HERE/../lib/rsdd-exec.sh"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 # ------------------------------------------------------------------------------------------------ scenarios
-# Fixture pieces. W = this process's scratch dir, FARM = symlink farm of the tools the library may use (a PATH
+# Fixture pieces. SCRATCH = this process's scratch dir, FARM = symlink farm of the tools the library may use (a PATH
 # made of only this is the "no go" PATH), GOBIN = dir holding the fake go.
 setup_world() {   # LIB_PATH
-  W="$(mktemp -d)" || exit 2
-  W="$(CDPATH='' cd -- "$W" && pwd -P)"
-  trap 'chmod -R u+rwx -- "$W" 2>/dev/null; rm -rf -- "$W"' EXIT
+  SCRATCH="$(mktemp -d)" || exit 2
+  SCRATCH="$(CDPATH='' cd -- "$SCRATCH" && pwd -P)"
+  trap 'chmod -R u+rwx -- "$SCRATCH" 2>/dev/null; rm -rf -- "$SCRATCH"' EXIT
   SCLIB="$1"
-  FARM="$W/farm"; GOBIN="$W/gobin"; JQD="$W/jqd"; mkdir -p "$FARM" "$GOBIN" "$JQD"
+  FARM="$SCRATCH/farm"; GOBIN="$SCRATCH/gobin"; JQD="$SCRATCH/jqd"; mkdir -p "$FARM" "$GOBIN" "$JQD"
   local t p
   for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls readlink; do
     p="$(type -P "$t")" || { echo "FATAL: tool $t missing" >&2; exit 2; }
     ln -s "$p" "$FARM/$t"
   done
   p="$(type -P jq)" && ln -s "$p" "$JQD/jq"
-  cat >"$W/body" <<'EOF'
+  cat >"$SCRATCH/body" <<'EOF'
 #!/usr/bin/env bash
 echo "FAKE-@TAG@"
 printf 'n=%s\n' "$#"
@@ -62,8 +62,8 @@ EOF
   chmod 755 "$GOBIN/go"
 }
 
-mkkit() {   # NAME — KIT=<W>/NAME/k it with lib copy, shims and (old) sources; no bin/
-  KIT="$W/$1/k it"
+mkkit() {   # NAME — KIT=<SCRATCH>/NAME/k it with lib copy, shims and (old) sources; no bin/
+  KIT="$SCRATCH/$1/k it"
   mkdir -p "$KIT/toolbelt/lib" "$KIT/rsdd/cmd/rsdd" "$KIT/rsdd/internal/deep"
   cp "$SCLIB" "$KIT/toolbelt/lib/rsdd-exec.sh"
   cp "$HERE/../lib/hook-emit.sh" "$KIT/toolbelt/lib/hook-emit.sh"
@@ -102,12 +102,12 @@ EOF
 . "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec_hook "$@"
 EOF
   touch -d '2020-01-01 00:00:00' "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go" "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum"
-  : >"$W/go.log"
+  : >"$SCRATCH/go.log"
 }
 
 putbin() {   # TAG [DATE] — fake rsdd at KIT/bin/rsdd; DATE absent = now
   mkdir -p "$KIT/bin"
-  local body; body="$(<"$W/body")"; printf '%s\n' "${body//@TAG@/"$1"}" >"$KIT/bin/rsdd"
+  local body; body="$(<"$SCRATCH/body")"; printf '%s\n' "${body//@TAG@/"$1"}" >"$KIT/bin/rsdd"
   chmod 755 "$KIT/bin/rsdd"
   if [ -n "${2:-}" ]; then touch -d "$2" "$KIT/bin/rsdd"; fi
 }
@@ -117,23 +117,23 @@ dorun() {
   local label="$1" script="$2" pm="$3" p; shift 3
   case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; *) p="$FARM" ;; esac
   local sp="$KIT/toolbelt/$script"; case "$script" in /*) sp="$script" ;; esac
-  local -a ev=(PATH="$p" FAKE_GO_LOG="$W/go.log" FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$W/body"
+  local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$SCRATCH/body"
     FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}")
   if [ -n "${USE_RSDD_BIN+x}" ]; then ev+=(RSDD_BIN="$USE_RSDD_BIN"); fi
-  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$W/$label.out" 2>"$W/$label.err"
-  echo "$?" >"$W/$label.rc"
+  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
+  echo "$?" >"$SCRATCH/$label.rc"
 }
 prefixed() {   # PREFIX FILE
   local l
   while IFS= read -r l || [ -n "$l" ]; do printf '%s| %s\n' "$1" "$l"; done <"$2"
 }
 show() {   # LABEL
-  printf '## %s\nRC=%s\n' "$1" "$(<"$W/$1.rc")"
-  prefixed o "$W/$1.out"; prefixed e "$W/$1.err"
+  printf '## %s\nRC=%s\n' "$1" "$(<"$SCRATCH/$1.rc")"
+  prefixed o "$SCRATCH/$1.out"; prefixed e "$SCRATCH/$1.err"
 }
 probes() {   # build-side probes: how often fake go ran, where, what is left in bin/
-  printf 'GOCALLS=%s\n' "$(grep -c . "$W/go.log")"
-  printf 'GOCWD=%s\n' "$(head -n 1 "$W/go.log" 2>/dev/null)"
+  printf 'GOCALLS=%s\n' "$(grep -c . "$SCRATCH/go.log")"
+  printf 'GOCWD=%s\n' "$(head -n 1 "$SCRATCH/go.log" 2>/dev/null)"
   printf 'KIT=%s\n' "$KIT"
   printf 'TMPLEFT=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd.*' 2>/dev/null | grep -c .)"
 }
@@ -161,8 +161,8 @@ sc_exits() {
 }
 sc_stdin() {
   mkkit stdin; putbin FRESH
-  printf 'line1\nline2 x\n' >"$W/in.txt"
-  READ_STDIN=1 STDIN_FILE="$W/in.txt" doshow stdin shim.sh go
+  printf 'line1\nline2 x\n' >"$SCRATCH/in.txt"
+  READ_STDIN=1 STDIN_FILE="$SCRATCH/in.txt" doshow stdin shim.sh go
   probes
 }
 sc_stale() {   # VARIANT: gomod | gosum | deepgo | maingo
@@ -225,20 +225,20 @@ sc_binonly() {   # binary present, sources directory absent: the binary runs, no
 }
 sc_rsddbin() {
   mkkit rb; putbin KITBIN '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"
-  mkdir -p "$W/own"; local body; body="$(<"$W/body")"; printf '%s\n' "${body//@TAG@/ENV}" >"$W/own/my rsdd"; chmod 755 "$W/own/my rsdd"
-  USE_RSDD_BIN="$W/own/my rsdd" doshow env shim.sh go q
+  mkdir -p "$SCRATCH/own"; local body; body="$(<"$SCRATCH/body")"; printf '%s\n' "${body//@TAG@/ENV}" >"$SCRATCH/own/my rsdd"; chmod 755 "$SCRATCH/own/my rsdd"
+  USE_RSDD_BIN="$SCRATCH/own/my rsdd" doshow env shim.sh go q
   probes
   rm -rf "${KIT:?}/bin" "${KIT:?}/rsdd"
-  USE_RSDD_BIN="$W/own/my rsdd" doshow nokit shim.sh nogo q
+  USE_RSDD_BIN="$SCRATCH/own/my rsdd" doshow nokit shim.sh nogo q
   USE_RSDD_BIN='' doshow empty shim.sh go
 }
 sc_rsddbin_bad() {
   mkkit rbb; putbin KITBIN
-  USE_RSDD_BIN="$W/does-not-exist" doshow missing shim.sh go
-  : >"$W/plain"; chmod 644 "$W/plain"
-  USE_RSDD_BIN="$W/plain" doshow noexec shim.sh go
-  mkdir -p "$W/adir"
-  USE_RSDD_BIN="$W/adir" doshow dir shim.sh go
+  USE_RSDD_BIN="$SCRATCH/does-not-exist" doshow missing shim.sh go
+  : >"$SCRATCH/plain"; chmod 644 "$SCRATCH/plain"
+  USE_RSDD_BIN="$SCRATCH/plain" doshow noexec shim.sh go
+  mkdir -p "$SCRATCH/adir"
+  USE_RSDD_BIN="$SCRATCH/adir" doshow dir shim.sh go
   probes
 }
 sc_usage() {
@@ -252,19 +252,19 @@ wait_until() {   # FN — poll FN up to ~5 s; rc 1 = typed timeout
   for ((i = 0; i < 100; i++)); do "$1" && return 0; sleep 0.05; done
   return 1
 }
-_ready() { [ -e "$W/ready" ]; }
-_b_settled() { [ -e "$W/B.rc" ] || [ "$(grep -c . "$W/go.log")" -ge 2 ]; }
+_ready() { [ -e "$SCRATCH/ready" ]; }
+_b_settled() { [ -e "$SCRATCH/B.rc" ] || [ "$(grep -c . "$SCRATCH/go.log")" -ge 2 ]; }
 sc_race() {
   mkkit race
-  ( GOMODE=slow READY_FILE="$W/ready" RELEASE_FILE="$W/release" dorun A shim.sh go ra ) &
-  if ! wait_until _ready; then echo "HANDSHAKE-TIMEOUT=A-never-signalled-ready"; : >"$W/release"; wait; return; fi
-  ( GOMODE=slow READY_FILE="$W/ready" RELEASE_FILE="$W/release" dorun B shim.sh go rb ) &
+  ( GOMODE=slow READY_FILE="$SCRATCH/ready" RELEASE_FILE="$SCRATCH/release" dorun A shim.sh go ra ) &
+  if ! wait_until _ready; then echo "HANDSHAKE-TIMEOUT=A-never-signalled-ready"; : >"$SCRATCH/release"; wait; return; fi
+  ( GOMODE=slow READY_FILE="$SCRATCH/ready" RELEASE_FILE="$SCRATCH/release" dorun B shim.sh go rb ) &
   # B either finished (it ran the half-written file) or reached its own go build: only then release A.
   wait_until _b_settled || echo "HANDSHAKE-TIMEOUT=B-never-settled"
-  : >"$W/release"
+  : >"$SCRATCH/release"
   wait
   show A; show B
-  printf 'B-COMPLETE=%s\n' "$(grep -qx 'FAKE-NEW' "$W/B.out" && echo yes || echo no)"
+  printf 'B-COMPLETE=%s\n' "$(grep -qx 'FAKE-NEW' "$SCRATCH/B.out" && echo yes || echo no)"
   probes
   local final=""
   if [ -x "$KIT/bin/rsdd" ]; then final="$("$KIT/bin/rsdd" 2>&1 | head -n 1)"; fi
@@ -287,13 +287,13 @@ _rt() {   # LABEL KIND — jq round trip of LABEL's stdout (KIND sweep|guard); p
   weird=$'/no/"q"\\b\ttab\x01ctl'
   if ! command -v jq >/dev/null 2>&1; then echo "JQ-RT-$label=skip"; return; fi
   if [ "$kind" = sweep ]; then
-    got="$(jq -r '.hookSpecificOutput.additionalContext' "$W/$label.out" 2>/dev/null)"
+    got="$(jq -r '.hookSpecificOutput.additionalContext' "$SCRATCH/$label.out" 2>/dev/null)"
     want="Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $weird"
-    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' "$W/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
+    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' "$SCRATCH/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
   else
-    got="$(jq -r '.hookSpecificOutput.permissionDecisionReason' "$W/$label.out" 2>/dev/null)"
+    got="$(jq -r '.hookSpecificOutput.permissionDecisionReason' "$SCRATCH/$label.out" 2>/dev/null)"
     want="Research-SDD guard DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $weird"
-    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecision == "ask"' "$W/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
+    if [ "$got" = "$want" ] && jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecision == "ask"' "$SCRATCH/$label.out" >/dev/null 2>&1; then echo "JQ-RT-$label=ok"; else echo "JQ-RT-$label=bad"; fi
   fi
 }
 sc_hook_guard() {
@@ -312,23 +312,23 @@ sc_hook_nohe() {   # lib/hook-emit.sh missing beside the lib: still announces, s
   USE_RSDD_BIN='/plain/path' doshow sweep hook.sh gojq sweep verify block
 }
 sc_tpl() {   # the header templates, extracted verbatim from the library under test, run as real shims
-  cd "$W" || exit 2
+  cd "$SCRATCH" || exit 2
   mkkit tpl; putbin FRESH
   local t f
-  mkdir -p "$W/links" "$W/l2" "$W/nolib/toolbelt"
+  mkdir -p "$SCRATCH/links" "$SCRATCH/l2" "$SCRATCH/nolib/toolbelt"
   for t in cli hook-sweep hook-guard hook-gate; do
     f="$KIT/toolbelt/t-$t.sh"
     tplfile "$t" "$f"; chmod 755 "$f"
     printf 'TPL-LINES-%s=%s\n' "$t" "$(grep -c . "$f")"
-    ln -sf "$f" "$W/links/abs-$t.sh"; ln -sf "../links/abs-$t.sh" "$W/l2/hop-$t.sh"
-    cp "$f" "$W/nolib/toolbelt/t-$t.sh"
+    ln -sf "$f" "$SCRATCH/links/abs-$t.sh"; ln -sf "../links/abs-$t.sh" "$SCRATCH/l2/hop-$t.sh"
+    cp "$f" "$SCRATCH/nolib/toolbelt/t-$t.sh"
     doshow "$t-direct" "t-$t.sh" go a 'b c'
-    doshow "$t-abs" "$W/links/abs-$t.sh" go a
-    doshow "$t-chain" "$W/l2/hop-$t.sh" go a
-    doshow "$t-nolib" "$W/nolib/toolbelt/t-$t.sh" go a
-    printf 'NOLIB-RC-%s=%s\n' "$t" "$(<"$W/$t-nolib.rc")"
-    printf 'CHAIN-OK-%s=%s\n' "$t" "$(grep -qx 'FAKE-FRESH' "$W/$t-chain.out" && echo yes || echo no)"
-    printf 'NOLIB-ASK-%s=%s\n' "$t" "$(grep -q '"permissionDecision":"ask"' "$W/$t-nolib.out" && echo yes || echo no)"
+    doshow "$t-abs" "$SCRATCH/links/abs-$t.sh" go a
+    doshow "$t-chain" "$SCRATCH/l2/hop-$t.sh" go a
+    doshow "$t-nolib" "$SCRATCH/nolib/toolbelt/t-$t.sh" go a
+    printf 'NOLIB-RC-%s=%s\n' "$t" "$(<"$SCRATCH/$t-nolib.rc")"
+    printf 'CHAIN-OK-%s=%s\n' "$t" "$(grep -qx 'FAKE-FRESH' "$SCRATCH/$t-chain.out" && echo yes || echo no)"
+    printf 'NOLIB-ASK-%s=%s\n' "$t" "$(grep -q '"permissionDecision":"ask"' "$SCRATCH/$t-nolib.out" && echo yes || echo no)"
   done
 }
 sc_bin_ro() {   # a non-writable <kit>/bin: the reason is named, the raw mktemp error is not shown
