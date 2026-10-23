@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func read(t *testing.T, p string) string {
@@ -302,6 +303,38 @@ func TestStageFileCopiesAndRecords(t *testing.T) {
 	}
 }
 
+func TestStageFileRefusals(t *testing.T) {
+	dir := t.TempDir()
+	reg := filepath.Join(dir, "reg")
+	mustWrite(t, reg, "x")
+	link := filepath.Join(dir, "link")
+	_ = os.Symlink(reg, link)
+	fifo := filepath.Join(dir, "fifo")
+	_ = syscall.Mkfifo(fifo, 0o600)
+	cases := []struct {
+		name, src string
+		want      error
+		msg       string
+	}{
+		{"symlink", link, ErrSourceOpen, "source cannot be opened safely"},
+		{"missing", filepath.Join(dir, "nope"), ErrSourceOpen, "source cannot be opened safely"},
+		{"dir", dir, ErrSourceNotRegular, "source is not a regular file"},
+		{"fifo", fifo, ErrSourceNotRegular, "source is not a regular file"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dst := filepath.Join(dir, "dst-"+c.name)
+			_, _, err := StageFile(c.src, dst, "l", 0o600, NoLimit)
+			if !errors.Is(err, c.want) || err.Error() != c.msg {
+				t.Fatalf("got %v", err)
+			}
+			if exists(dst) {
+				t.Fatal("target created for a refused source")
+			}
+		})
+	}
+}
+
 func TestStageFileExistingTargetIsKept(t *testing.T) {
 	dir := t.TempDir()
 	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
@@ -313,5 +346,118 @@ func TestStageFileExistingTargetIsKept(t *testing.T) {
 	}
 	if read(t, dst) != "precious" {
 		t.Fatal("a pre-existing target must never be unlinked or overwritten")
+	}
+}
+
+func TestStageFileSizeCap(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	mustWrite(t, src, "12345")
+	if _, _, err := StageFile(src, dst, "l", 0o600, 4); !errors.Is(err, ErrTooLarge) || exists(dst) {
+		t.Fatalf("declared size over cap: %v exists=%v", err, exists(dst))
+	}
+	if _, _, err := StageFile(src, dst, "l", 0o600, 5); err != nil {
+		t.Fatalf("size == cap: %v", err)
+	}
+	_ = os.Remove(dst)
+	// the declared size is judged before the target is touched: an existing
+	// target stays and the error is the cap, not EEXIST
+	mustWrite(t, dst, "keep")
+	if _, _, err := StageFile(src, dst, "l", 0o600, 4); !errors.Is(err, ErrTooLarge) || read(t, dst) != "keep" {
+		t.Fatalf("oversize source with existing target: %v", err)
+	}
+	_ = os.Remove(dst)
+	// growth past the cap while copying: error AND the partial target is removed
+	dst2 := filepath.Join(dir, "dst2")
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			appendTo(t, src, []byte("6789"))
+		}
+	})
+	if _, _, err := StageFile(src, dst2, "l", 0o600, 5); !errors.Is(err, ErrTooLarge) || exists(dst2) {
+		t.Fatalf("cap hit mid-copy: %v exists=%v", err, exists(dst2))
+	}
+}
+
+func TestStageFileDetectsSourceChangeAndRemovesTarget(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	_ = os.WriteFile(src, make([]byte, 3<<20), 0o644)
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			appendTo(t, src, []byte("more"))
+		}
+	})
+	_, _, err := StageFile(src, dst, "l", 0o600, NoLimit)
+	if !errors.Is(err, ErrSourceChanged) || err.Error() != "source changed while staging" {
+		t.Fatalf("got %v", err)
+	}
+	if exists(dst) {
+		t.Fatal("partial target must be unlinked")
+	}
+}
+
+func TestStageFileDetectsStagedMismatch(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	mustWrite(t, src, "abc")
+	orig := identityFn
+	defer func() { identityFn = orig }()
+	identityFn = func(p string, m int64) (Ident, error) {
+		id, err := orig(p, m)
+		id.SHA256 = "sha256:bad"
+		return id, err
+	}
+	_, _, err := StageFile(src, dst, "l", 0o600, NoLimit)
+	if !errors.Is(err, ErrStagedMismatch) || err.Error() != "staged identity mismatch" {
+		t.Fatalf("got %v", err)
+	}
+	identityFn = func(p string, m int64) (Ident, error) {
+		id, err := orig(p, m)
+		id.Size++
+		return id, err
+	}
+	if _, _, err := StageFile(src, filepath.Join(dir, "dst2"), "l", 0o600, NoLimit); !errors.Is(err, ErrStagedMismatch) {
+		t.Fatalf("size mismatch: %v", err)
+	}
+}
+
+func TestStageFileDoesNotLeakFds(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	mustWrite(t, src, "abc")
+	before := fdCount(t)
+	_, _, _ = StageFile(src, filepath.Join(dir, "ok"), "l", 0o600, NoLimit)
+	_, _, _ = StageFile(src, filepath.Join(dir, "ok"), "l", 0o600, NoLimit) // target exists
+	_, _, _ = StageFile(dir, filepath.Join(dir, "x"), "l", 0o600, NoLimit)
+	_, _, _ = StageFile(src, filepath.Join(dir, "big"), "l", 0o600, 1)
+	if fdCount(t) != before {
+		t.Fatal("fd leaked")
+	}
+}
+
+func TestStageFileDetectsMtimeOnlyChange(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	mustWrite(t, src, "abc")
+	n := 0
+	setHook(t, func() {
+		if n++; n == 1 {
+			_ = os.Chtimes(src, time.Unix(1000000000, 0), time.Unix(1000000000, 0))
+		}
+	})
+	if _, _, err := StageFile(src, dst, "l", 0o600, NoLimit); !errors.Is(err, ErrSourceChanged) || exists(dst) {
+		t.Fatalf("got %v exists=%v", err, exists(dst))
+	}
+}
+
+// /proc/self/cmdline stats as size 0 and stays fstat-stable, so only the
+// bytes-copied == size check notices the content does not match.
+func TestStageFileDetectsCopiedSizeMismatch(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "dst")
+	if _, _, err := StageFile("/proc/self/cmdline", dst, "l", 0o600, NoLimit); !errors.Is(err, ErrSourceChanged) || exists(dst) {
+		t.Fatalf("got %v exists=%v", err, exists(dst))
 	}
 }
