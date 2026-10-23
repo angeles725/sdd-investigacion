@@ -6,6 +6,9 @@ STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GREMLINS    := github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
 BIN_DIR := ../bin
+# Link-time stamp read by `rsdd version --source-hash`; the value comes from
+# cmd/rsdd-srchash (the same code the tests pin against the fixture).
+SOURCE_HASH_SYM := github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/commands.sourceHash
 export CGO_ENABLED := 0
 
 .PHONY: check fmt-check vet test race lint teeth cross parity build
@@ -38,9 +41,10 @@ teeth:
 	go run $(GREMLINS) unleash --timeout-coefficient 6 .
 
 cross:
-	GOOS=linux  GOARCH=amd64 go build -o /dev/null ./cmd/rsdd
-	GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/rsdd
-	GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/rsdd
+	h=$$(go run ./cmd/rsdd-srchash .) && \
+	GOOS=linux  GOARCH=amd64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd && \
+	GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd && \
+	GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd
 
 # Placeholder: the legacy-vs-Go differential runner (testkit/parity) lands
 # in U0.5. Nothing is ported yet, so there is nothing to compare; this
@@ -50,4 +54,4 @@ parity:
 
 build:
 	mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/rsdd ./cmd/rsdd
+	h=$$(go run ./cmd/rsdd-srchash .) && go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o $(BIN_DIR)/rsdd ./cmd/rsdd
