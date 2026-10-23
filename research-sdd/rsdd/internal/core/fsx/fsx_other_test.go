@@ -23,4 +23,7 @@ func TestNonLinuxOperationsAreUnavailable(t *testing.T) {
 	if _, err := SHA256FD(3); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("SHA256FD: %v", err)
 	}
+	if err := SyncDir(dir); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("SyncDir: %v", err)
+	}
 }

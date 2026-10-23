@@ -68,3 +68,9 @@ func sysResolveFD(fd int, path string) string {
 	}
 	return path
 }
+
+func sysFsync(fd int) error { return syscall.Fsync(fd) }
+
+func sysOpenDir(path string) (int, error) {
+	return retryOpen(path, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+}
