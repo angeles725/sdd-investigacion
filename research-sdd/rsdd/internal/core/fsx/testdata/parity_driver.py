@@ -1,0 +1,59 @@
+"""Parity driver for internal/core/fsx: runs the REAL Python helpers and prints one JSON object.
+
+usage: python3 -I parity_driver.py <toolbelt-dir> <op> [args...]
+
+The Go parity test runs the same operation on the same fixture and compares.
+Ops: identity, identity_append.
+"""
+import errno
+import json
+import os
+import sys
+
+toolbelt = sys.argv[1]
+sys.path.insert(0, toolbelt)
+sys.path.insert(0, os.path.join(toolbelt, "lib"))
+import adapter_core  # noqa: E402
+
+op, args = sys.argv[2], sys.argv[3:]
+
+
+def fail(exc):
+    out = {"ok": False, "class": type(exc).__name__, "msg": str(exc)}
+    if isinstance(exc, OSError) and exc.errno is not None:
+        out["errno"] = exc.errno
+    elif isinstance(exc.__cause__, OSError):
+        out["errno"] = exc.__cause__.errno
+    return out
+
+
+def run():
+    if op == "identity":
+        cap = int(args[1]) if len(args) > 1 else None
+        resolved, size, digest = adapter_core.identity(__import__("pathlib").Path(args[0]), cap)
+        return {"ok": True, "resolved": str(resolved), "size": size, "sha256": digest}
+    if op == "identity_append":
+        real_read, state = os.read, {"n": 0}
+
+        def hooked(fd, n):
+            data = real_read(fd, n)
+            state["n"] += 1
+            if state["n"] == 1:
+                with open(args[0], "ab") as f:
+                    f.write(b"more")
+            return data
+
+        os.read = hooked
+        try:
+            resolved, size, digest = adapter_core.identity(__import__("pathlib").Path(args[0]))
+        finally:
+            os.read = real_read
+        return {"ok": True, "resolved": str(resolved), "size": size, "sha256": digest}
+    raise SystemExit("unknown op " + op)
+
+
+try:
+    result = run()
+except Exception as exc:  # noqa: BLE001 - the driver reports every failure class
+    result = fail(exc)
+print(json.dumps(result, sort_keys=True))
