@@ -1,0 +1,31 @@
+L23 ⟨Priority⟩⟨Gap⟩⟨Artifact⟩⟨Status⟩
+L24 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L25 ⟨high⟩⟨B1-G1 mid|esc⟩⟨x⟩⟨pending⟩
+L26 ⟨high⟩⟨B1-G2 mid\|even⟩⟨x⟩⟨pending⟩
+L27 ⟨high⟩⟨B1-G3 mid\\|triple⟩⟨x⟩⟨pending⟩
+L28 ⟨high⟩⟨B2-G1 ok⟩⟨x⟩⟨pending · last|esc⟩
+L29 ⟨high⟩⟨B2-G2 ok⟩⟨x⟩⟨pending · last\|even⟩
+L30 ⟨high⟩⟨B2-G3 ok⟩⟨x⟩⟨pending · last\\|triple⟩
+L31 ⟨deferred⟩⟨B3-G1 d|esc⟩⟨x⟩⟨parked⟩
+L32 ⟨deferred⟩⟨B3-G2 d\|even⟩⟨x⟩⟨parked⟩
+L33 ⟨deferred⟩⟨B3-G3 d\\|triple⟩⟨x⟩⟨parked⟩
+L34 ⟨deferred⟩⟨B3-G4 closed⟩⟨x⟩⟨✅ done | y⟩
+L35 ⟨deferred⟩⟨B3-G5 closed⟩⟨x⟩⟨✅ done \| y⟩
+L36 ⟨deferred⟩⟨B3-G6 closed⟩⟨x⟩⟨✅ done \\| y⟩
+L38 ⟨Priority⟩⟨ID⟩⟨Gap⟩⟨Artifact⟩⟨Status⟩
+L39 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L40 ⟨deferred⟩⟨B3-G7⟩⟨g|esc⟩⟨x⟩⟨parked⟩
+L41 ⟨deferred⟩⟨B3-G8⟩⟨g\|even⟩⟨x⟩⟨parked⟩
+L42 ⟨deferred⟩⟨B3-G9⟩⟨g\\|triple⟩⟨x⟩⟨parked⟩
+L43 ⟨deferred⟩⟨B3-G10⟩⟨g⟩⟨x⟩⟨parked | z⟩
+L46 ⟨It⟩⟨Focus⟩⟨Block⟩⟨New gaps⟩
+L47 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L48 ⟨1|a⟩⟨f⟩⟨B1⟩⟨1⟩
+L49 ⟨2\|a⟩⟨f⟩⟨B2⟩⟨1⟩
+L50 ⟨3\\|a⟩⟨f⟩⟨B3⟩⟨1⟩
+L51 ⟨4⟩⟨f|a⟩⟨B4⟩⟨1⟩
+L52 ⟨5⟩⟨f\|a⟩⟨B5⟩⟨1⟩
+L53 ⟨6⟩⟨f\\|a⟩⟨B6⟩⟨1⟩
+L54 ⟨7⟩⟨f⟩⟨B7⟩⟨1 | a⟩
+L55 ⟨8⟩⟨f⟩⟨B8⟩⟨1 \| a⟩
+L56 ⟨9⟩⟨f⟩⟨B9⟩⟨1 \\| a⟩

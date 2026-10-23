@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/corroborate-firmware.test.sh — corroborate-firmware adapter (lane-aware)
 #
-# Lane contract (lib/test-lane.sh):
+# Lane contract (tests/lib/test-lane.sh):
 #   fast (default) — live require_private/normalized import teeth + fixture assertions.
 #                    Always runs; no binwalk/bwrap spawn required.  Anti-#128 WIN.
 #   slow           — integration tests with real binwalk + bwrap.
@@ -28,8 +28,8 @@ SUT_PY="$TOOLBELT/corroborate_firmware.py"
 MAN="$TOOLBELT/analysis_manifest.py"
 
 # Source lane helper (aborts on invalid RSDD_TEST_LANE value per §7 anti-silent-zero).
-# shellcheck source=../lib/test-lane.sh
-source "$TOOLBELT/lib/test-lane.sh"
+# shellcheck source=lib/test-lane.sh
+source "$HERE/lib/test-lane.sh"
 
 # RED guard — exit 2 when the SUT Python module does not exist yet.
 [ -f "$SUT_PY" ] || { echo "FATAL: SUT module not found: $SUT_PY" >&2; exit 2; }

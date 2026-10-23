@@ -19,17 +19,12 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
-    run_adapter_main, add_max_input_bytes_arg,
+    run_adapter_main, add_max_input_bytes_arg, EM_TO_QEMU,
 )
 
 SCHEMA_VERSION = "qemu-plan.v1"
 _ELF_MAGIC = b"\x7fELF"; _ELF_MIN = 20  # need e_machine at byte-offset 18
 
-# e_machine → qemu arch suffix (RAW BYTES only; user: qemu-{a}, system: qemu-system-{a})
-_EM_TO_QEMU: dict[int, str] = {
-    3: "i386", 8: "mips", 20: "ppc", 21: "ppc64",
-    40: "arm", 42: "sh4", 62: "x86_64", 183: "aarch64", 243: "riscv64",
-}
 _DEFAULT_CPU = 30; _DEFAULT_MEM = 256 << 20; _DEFAULT_WALL = 60; _DEFAULT_OUT = 128 << 20
 
 
@@ -47,7 +42,7 @@ def _elf_arch(hdr: bytes) -> str:
     elif ei_data == 2: fmt = ">H"
     else: raise QemuPlanError(f"unknown ELF data encoding EI_DATA={ei_data}")
     e_machine = struct.unpack_from(fmt, hdr, 18)[0]
-    arch = _EM_TO_QEMU.get(e_machine)
+    arch = EM_TO_QEMU.get(e_machine)
     if arch is None:
         raise QemuPlanError(f"unsupported e_machine=0x{e_machine:04x}: not in qemu arch mapping")
     return arch

@@ -1,0 +1,14 @@
+{
+  "schema": "research-sdd.sweep-retros/v1",
+  "state": "absent-input",
+  "counts": {
+    "targets": 1,
+    "targets_absent": 1,
+    "targets_skipped": 0,
+    "retros": 0,
+    "pending": 0,
+    "missing_retro": 0
+  },
+  "reason": "every target corpus directory is absent",
+  "items": []
+}

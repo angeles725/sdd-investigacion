@@ -17,3 +17,6 @@ __pycache__/
 
 # Claude Code agent worktrees — ephemeral; make the kit-clean gate portable
 .claude/worktrees/
+
+# rsdd Go build output (make -C research-sdd/rsdd build)
+research-sdd/bin/

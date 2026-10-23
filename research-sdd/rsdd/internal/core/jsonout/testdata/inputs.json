@@ -1,0 +1,14 @@
+{"cases":[
+{"name":"ascii-basic","doc":{"b":1,"a":[1,2,{"z":null,"y":true,"x":false}],"c":"text"}},
+{"name":"nonascii","doc":{"accent":"café ñ ü","cjk":"日本語","emoji":"😀 𝄞 🇦🇷","edges":"\u0080 ÿ ߿ ࠀ ퟿  ￿     ﻿"}},
+{"name":"control","doc":{"all":"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f","del":"a\u007fb","punct":"quote \" backslash \\ slash / apos '"}},
+{"name":"html","doc":{"tag":"<script>alert('x') && 1 < 2 > 0</script>","amp":"a&b","k<>&":"v"}},
+{"name":"key-order","doc":{"b":1,"B":2,"a":3,"10":4,"2":5,"é":6,"z":7,"😀":8,"￿":9,"":10," ":11,"aa":12,"a b":13}},
+{"name":"numbers","doc":{"int":42,"neg":-7,"zero":0,"negzero":-0,"big":123456789012345678901234567890,"f1":1.0,"f2":0.1,"f3":0.30000000000000004,"f4":1e-7,"f5":1e16,"f6":1e15,"f7":123456789012345680000.0,"f8":5e-324,"f9":1.7976931348623157e308,"f10":-0.0,"f11":100000.0,"f12":1.5e300,"f13":0.0001,"f14":0.00001,"f15":2.5E3,"f16":9007199254740993,"f17":12345.6789,"f18":-1.25e-10}},
+{"name":"empties","doc":{"a":{},"b":[],"c":"","d":[[],{}],"e":[{}],"f":{"g":[]}}},
+{"name":"deep","doc":{"l1":{"l2":{"l3":[1,[2,[3,{"l4":"x"}]]]}},"arr":[{"b":1,"a":2},{"d":3,"c":4}]}},
+{"name":"top-string","doc":"just a string é 😀"},
+{"name":"top-null","doc":null},
+{"name":"top-int","doc":5},
+{"name":"top-array","doc":[3,"b",null,true,{"k":"v"}]}
+]}

@@ -1,0 +1,6 @@
+Usage:
+  rsdd verify <command> [args]
+
+Commands:
+  block                    verify a block
+  boom                     panics
