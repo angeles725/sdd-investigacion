@@ -1,0 +1,1 @@
+{"schema":"research-sdd.edge/v1","state":"ok","counts":{"a":0,"b":12,"neg":-3},"reason":null,"items":[{"kind":"edge","text":"quote \" backslash \\ slash / tab \t nl \n cr \r bell \u0007 del \u007f","html":"<a href=\"x\">&amp; </a>","uni":"café 日本 😀    ","flag":true,"none":null,"empty_obj":{},"empty_arr":[],"nested":{"z":[1,2,{"y":[]}],"a":{}}}]}

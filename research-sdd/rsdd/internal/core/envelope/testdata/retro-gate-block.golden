@@ -1,0 +1,22 @@
+{
+  "schema": "research-sdd.retro-gate/v1",
+  "state": "ok",
+  "reason": null,
+  "counts": {
+    "blocked": 1,
+    "degraded_check": 0,
+    "unverified": 0
+  },
+  "items": [
+    {
+      "kind": "verdict",
+      "verdict": "block",
+      "branch": "retro-pending",
+      "target": "target",
+      "session_id": "j1-sess",
+      "check_mode": "session-sha",
+      "newest_retro": null,
+      "reason": "§18 retro pending for target: run the SELF-RETROSPECTIVE (fresh-context retro agent) from @KITDIR@/templates/retro.template.md → @KIT@/target/retros/@DATE@-<focus>.md, then stop. Checked: research file(s) changed, newest retro: none added this session. Template: @KITDIR@/templates/retro.template.md"
+    }
+  ]
+}

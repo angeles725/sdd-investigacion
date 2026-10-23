@@ -1,0 +1,22 @@
+{
+  "schema": "research-sdd.retro-gate/v1",
+  "state": "ok",
+  "reason": null,
+  "counts": {
+    "blocked": 0,
+    "degraded_check": 0,
+    "unverified": 0
+  },
+  "items": [
+    {
+      "kind": "verdict",
+      "verdict": "allow",
+      "branch": "no-change",
+      "target": "target",
+      "session_id": "j1-sess",
+      "check_mode": "session-sha",
+      "newest_retro": null,
+      "reason": null
+    }
+  ]
+}
