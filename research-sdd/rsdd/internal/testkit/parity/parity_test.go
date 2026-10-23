@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -216,6 +217,13 @@ func TestBuildBinary(t *testing.T) {
 	}
 	if st, err := os.Stat(bin); err != nil || st.Mode()&0o111 == 0 || filepath.Dir(bin) != dst {
 		t.Fatalf("binary not built into dst: %s %v", bin, err)
+	}
+	want := "rsdd"
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
+	if filepath.Base(bin) != want {
+		t.Fatalf("binary name %q, want %q on %s", filepath.Base(bin), want, runtime.GOOS)
 	}
 
 	_, err = BuildBinary(t.TempDir(), dst)

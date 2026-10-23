@@ -336,3 +336,68 @@ func TestConfigFromEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestNewRunnerTimeout(t *testing.T) {
+	r := newRig(t)
+	for _, tt := range []struct {
+		in, want time.Duration
+	}{
+		{0, defaultTimeout},
+		{-time.Second, defaultTimeout},
+		{time.Nanosecond, time.Nanosecond},
+		{5 * time.Second, 5 * time.Second},
+	} {
+		rn, err := NewRunner(Config{LegacyRoot: r.root, Bin: r.bin, Work: r.work, Timeout: tt.in})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rn.Cfg.Timeout != tt.want {
+			t.Fatalf("Timeout %s: got %s, want %s (only a non-positive timeout takes the default)", tt.in, rn.Cfg.Timeout, tt.want)
+		}
+	}
+}
+
+func TestClip(t *testing.T) {
+	for _, tt := range []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{"abc", 4, "abc"},
+		{"abcd", 4, "abcd"},
+		{"abcde", 4, "abcd..."},
+		{"", 0, ""},
+	} {
+		if got := clip(tt.s, tt.n); got != tt.want {
+			t.Fatalf("clip(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestEffectLabelsTreesOnlyWhenThereAreSeveral(t *testing.T) {
+	r := newRig(t)
+	for _, name := range []string{"input", "corpus"} {
+		for _, d := range []string{r.runner.pristine(), r.runner.sandbox()} {
+			if err := os.MkdirAll(filepath.Join(d, name), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(r.runner.sandbox(), name, "new.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	one, err := r.runner.effect([]treeSpec{{name: "corpus"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one) == 0 || strings.Contains(string(one), "[corpus]") {
+		t.Fatalf("a single tree's effect is unlabelled: %q", one)
+	}
+	two, err := r.runner.effect([]treeSpec{{name: "input"}, {name: "corpus"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(two), "[input]\n") || !strings.Contains(string(two), "\n[corpus]\n") {
+		t.Fatalf("several trees label each part: %q", two)
+	}
+}

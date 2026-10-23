@@ -115,13 +115,21 @@ func BuildBinary(moduleRoot, dstDir string) (string, error) {
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		msg := strings.TrimSpace(string(b))
-		if len(msg) > 2000 {
-			msg = msg[:2000] + "..."
-		}
+		msg := clip(strings.TrimSpace(string(b)), maxBuildOutput)
 		return "", &Degraded{KindDegraded, fmt.Sprintf("go build ./cmd/rsdd in %s failed: %v\n%s", moduleRoot, err, msg)}
 	}
 	return out, nil
+}
+
+// maxBuildOutput bounds the go build output a degraded result carries.
+const maxBuildOutput = 2000
+
+// clip keeps the first n bytes of s and marks a cut with "...".
+func clip(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
 }
 
 // Result is the verdict for one case (and corpus, when set).
