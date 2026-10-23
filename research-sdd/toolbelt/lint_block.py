@@ -50,8 +50,10 @@ Shipped: jvm (R1 R5 R7), multi-version (R8), native-binary (R9), child-gap (R4).
 Modes
   default  FAIL mode: exit 1 when any finding remains.
   --audit  report-only: exit 0 with counts regardless of findings.
-  --partial  the caller's input was incomplete (absent path / degraded listing): print PARTIAL, never NO-MATCH.
-Exit: 0 clean (or --audit) · 1 findings or an empty file (FAIL mode) · 2 operational error (unreadable file, bad args).
+  --partial  the caller's input was incomplete (absent path / degraded listing): print PARTIAL, never
+             NO-MATCH, and exit 2 (never a clean 0).
+Exit: 0 clean (or --audit) · 1 findings or an empty file (FAIL mode) · 2 operational error (unreadable file, bad args,
+      --partial).
 Output is anti-silent-zero: every run ends with a SUMMARY line that names how many files were read,
 how many were empty, and the coverage counters (how many Self-verify sections / rows R3 actually
 inspected, how many R6 trigger clauses were seen) — a zero finding count can always be told apart
@@ -674,8 +676,12 @@ def main(argv):
     elif total == 0 and partial:
         print("PARTIAL: the files read were inspected and no rule fired, but the input was incomplete "
               "(see ABSENT-INPUT / DEGRADED above); this is NOT a clean result")
+    elif total == 0 and empty and not audit:
+        print(f"EMPTY-INPUT: {empty} empty file(s) in FAIL mode; a new block must have content")
     elif total == 0:
         print("NO-MATCH: files were read and inspected; no rule fired")
+    if partial:
+        return 2
     if audit:
         return 0
     # FAIL mode lints NEW blocks: an empty one fails, it never passes as clean.

@@ -118,10 +118,14 @@ run "$FX/empty.md"
 run "$FX/blank.md"
 [ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8b whitespace-only file -> EMPTY-INPUT, exit 1 in FAIL mode" || no "8b blank (rc=$RC out=[$OUT])"
 run "$FX/empty.md" "$FX/r3-clean.md"
-[ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8h an empty block next to a clean one still fails FAIL mode (exit 1)" || no "8h empty+clean (rc=$RC out=[$OUT])"
+[ "$RC" -eq 1 ] && grep -qF 'EMPTY-INPUT: 1 empty file(s) in FAIL mode' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "8h an empty block next to a clean one still fails FAIL mode (exit 1), and the verdict says EMPTY-INPUT, never NO-MATCH" || no "8h empty+clean (rc=$RC out=[$OUT])"
 run --audit "$FX/empty.md"
 [ "$RC" -eq 0 ] && grep -qF 'EMPTY-INPUT' <<< "$OUT" && ok "8i --audit empty file -> EMPTY-INPUT, exit 0 (report-only)" || no "8i audit empty (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md" "$FX/r3-clean.md"
+OUT_PART="$OUT"; RC_PART=$RC
+OUT="$(python3 "$HERE/../lint_block.py" --partial "$FX/r3-clean.md" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ok "8k helper --partial alone exits 2 (never a clean 0)" || no "8k helper partial (rc=$RC out=[$OUT])"
+OUT="$OUT_PART"; RC=$RC_PART
 [ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ! grep -qF 'NO-MATCH' <<< "$OUT" && ok "8j absent + clean file -> PARTIAL, never NO-MATCH, exit 2" || no "8j partial (rc=$RC out=[$OUT])"
 run "$FX/does-not-exist.md"
 [ "$RC" -eq 2 ] && grep -qF 'ABSENT-INPUT' <<< "$OUT" && ok "8c absent file -> ABSENT-INPUT, exit 2" || no "8c absent (rc=$RC out=[$OUT])"
@@ -580,6 +584,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Q: wrapper — absent path no longer fails
   if tooth_build Q lint-block.sh '/ABSENT-INPUT/{n;s/rc_ops=2/rc_ops=0/}'; then
     mrun "$FX/does-not-exist.md" "$FX/r3-clean.md"
+OUT_PART="$OUT"; RC_PART=$RC
+OUT="$(python3 "$HERE/../lint_block.py" --partial "$FX/r3-clean.md" 2>&1)"; RC=$?
+[ "$RC" -eq 2 ] && grep -qF 'PARTIAL' <<< "$OUT" && ok "8k helper --partial alone exits 2 (never a clean 0)" || no "8k helper partial (rc=$RC out=[$OUT])"
+OUT="$OUT_PART"; RC=$RC_PART
     [ "$MRC" -eq 0 ] && ok "teeth Q: ABSENT-INPUT exit neutered -> absent path passes -> case 8c/8d have teeth" || no "teeth Q: mutant still exited $MRC — THEATER"
   fi
   # R: wrapper — canonical block-file filter dropped -> decoy notes.md scanned
