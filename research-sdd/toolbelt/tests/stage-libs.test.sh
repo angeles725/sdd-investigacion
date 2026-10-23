@@ -32,11 +32,8 @@ SCAN_DIR="${LINT_SCAN_DIR:-$HERE}"
 [ -d "$TB/lib" ] || { echo "FATAL: toolbelt lib dir not found: $TB/lib" >&2; exit 2; }
 
 # Suites that still hand-copy toolbelt libs (the ratchet: it only shrinks). One suite name per line.
-# run-all and run-all-cache wait on an open change to those suites (#2301); once they migrate the list is empty and
-# every hand copy fails b1.
+# Empty since #2301 moved test-lane.sh under tests/lib: every hand copy of a toolbelt lib now fails b1.
 RATCHET="
-run-all
-run-all-cache
 "
 
 pass=0; fail=0
