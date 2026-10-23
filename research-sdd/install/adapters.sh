@@ -57,8 +57,7 @@ declare -A _RSDD_SUPPORTS_SLASH=(
 )
 # WHAT: does the harness lack an automated session-start sweep (no hook), so the
 # manual-run fallback must be documented in its prompt section?
-# (claude=hook, pi/gentle-shell=none — Pi has no settings.json hook for the kit to wire; OpenCode
-# dropped #954; codex and reasonix dropped #1471). Where supports_extension_hooks is also true (pi,
+# (claude=hook, pi/gentle-shell=none — Pi has no settings.json hook for the kit to wire). Where supports_extension_hooks is also true (pi,
 # gentle-shell: the research-sdd-hooks extension runs the sweeps and gates the settle, kit issue #2123)
 # the launcher says so and keeps the manual steps only as the fallback for an absent/degraded extension.
 declare -A _RSDD_NEEDS_SWEEP=(
@@ -91,7 +90,6 @@ declare -A _RSDD_EXTENSION_SRC_RELKIT=(
 )
 # WHERE: the skill source file, as a path RELATIVE TO the kit root. Every harness
 # (claude, pi, gentle-shell) uses the neutral shared source under skills/research-sdd/.
-# Note: OpenCode support was dropped on 2026-09-23 (#954); codex and reasonix on 2026-10-03 (#1471).
 declare -A _RSDD_SKILL_SRC_RELKIT=(
   [claude]="skills/research-sdd/SKILL.md"
   [pi]="skills/research-sdd/SKILL.md"

@@ -1,0 +1,18 @@
+L11 ⟨File⟩⟨Type⟩⟨Origin (URL)⟩⟨Date (UTC)⟩⟨sha256⟩⟨Citing blocks⟩
+L12 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L13 ⟨a|esc.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1⟩
+L14 ⟨a\|even.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1⟩
+L15 ⟨a\\|triple.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1⟩
+L16 ⟨b.pdf⟩⟨manual⟩⟨http://x?q=1|2⟩⟨tbd⟩⟨abc⟩⟨B1⟩
+L17 ⟨c.pdf⟩⟨manual⟩⟨http://x?q=1\|2⟩⟨tbd⟩⟨abc⟩⟨B1⟩
+L18 ⟨d.pdf⟩⟨manual⟩⟨http://x?q=1\\|2⟩⟨tbd⟩⟨abc⟩⟨B1⟩
+L19 ⟨e.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1 | note⟩
+L20 ⟨f.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1 \| note⟩
+L21 ⟨g.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1 \\| note⟩
+L22 ⟨h|esc.pdf⟩⟨manual⟩⟨http://x⟩⟨2026-01-01⟩⟨abc⟩⟨B1⟩
+L23 ⟨j.pdf⟩⟨manual⟩⟨note|e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855⟩⟨tbd⟩⟨abc⟩⟨B1⟩
+L24 ⟨web-snapshots/w|esc.html⟩⟨web⟩⟨http://x⟩⟨2026-01-01⟩⟨8b29000c3655ea56688800375b4c83115b947c1533f9ee759069622769c18974⟩⟨B1⟩
+L25 ⟨web-snapshots/w\|even.html⟩⟨web⟩⟨http://x⟩⟨2026-01-01⟩⟨8b29000c3655ea56688800375b4c83115b947c1533f9ee759069622769c18974⟩⟨B1⟩
+L26 ⟨web-snapshots/w\\|triple.html⟩⟨web⟩⟨http://x⟩⟨2026-01-01⟩⟨8b29000c3655ea56688800375b4c83115b947c1533f9ee759069622769c18974⟩⟨B1⟩
+L27 ⟨web-snapshots/w4.html⟩⟨web⟩⟨http://x?q=1|2⟩⟨tbd⟩⟨8b29000c3655ea56688800375b4c83115b947c1533f9ee759069622769c18974⟩⟨B1⟩
+L28 ⟨web-snapshots/w5.html⟩⟨web⟩⟨http://x?q=1\|2⟩⟨tbd⟩⟨aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa⟩⟨B1⟩

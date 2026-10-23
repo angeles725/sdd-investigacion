@@ -27,6 +27,8 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 [ -f "$LIB_STATUS" ] || { echo "FATAL: retro-status lib not found: $LIB_STATUS" >&2; exit 2; }
 [ -f "$LIB_TP" ]     || { echo "FATAL: target-paths lib not found: $LIB_TP" >&2; exit 2; }
 [ -f "$LIB_BF" ]     || { echo "FATAL: block-files lib not found: $LIB_BF" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox kit toolbelt
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
@@ -537,15 +539,9 @@ echo "== TEETH: both-consumers-flip mutant =="
 # Build a shared sandbox kit: sweep-retros + verify-retro share the same lib/retro-grammar.sh.
 # A single lib mutation must flip BOTH consumers — proving behavioral sharing is real and complete.
 _kit="$ROOT/flip-kit"
-mkdir -p "$_kit/toolbelt/lib"
+rsdd_stage_libs "$_kit/toolbelt"   # every lib both consumers source (incl. lib/hook-wiring.sh, kit issue #1108)
 cp "$SWEEP_SUT"  "$_kit/toolbelt/sweep-retros.sh"
 cp "$VERIFY_SUT" "$_kit/toolbelt/verify-retro.sh"
-cp "$LIB_STATUS" "$_kit/toolbelt/lib/retro-status.sh"
-cp "$LIB_TP"     "$_kit/toolbelt/lib/target-paths.sh"
-cp "$LIB_BF"     "$_kit/toolbelt/lib/block-files.sh"
-cp "$RG_LIB"     "$_kit/toolbelt/lib/retro-grammar.sh"
-# kit issue #1108: sweep-retros.sh now sources lib/hook-wiring.sh for its WIRING-STATUS pass.
-cp "$HERE/../lib/hook-wiring.sh" "$_kit/toolbelt/lib/hook-wiring.sh"
 
 # Fixture retro: uses ONLY the deprecated "## Summary of proposed delta" heading (not canonical).
 # With the real lib: sweep finds it (deprecated, ~2 deltas); verify exits 0 (deprecated but conforming).

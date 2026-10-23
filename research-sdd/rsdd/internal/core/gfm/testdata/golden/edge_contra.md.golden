@@ -1,0 +1,9 @@
+L1 ⟨id⟩⟨claim A⟩⟨claim B⟩⟨status⟩⟨note⟩
+L2 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L3 ⟨C1⟩⟨a⟩⟨b⟩⟨open⟩⟨n⟩
+L4 ⟨C2⟩⟨a⟩⟨b⟩⟨Open⟩
+L5 ⟨C3⟩⟨a|⟩⟨b⟩⟨open⟩
+L6 ⟨C4⟩⟨a⟩⟨b⟩⟨open|⟩⟨n⟩
+L7 ⟨C5⟩⟨a⟩⟨b⟩⟨OPEN⟩
+L9 ⟨C6⟩⟨a⟩⟨b⟩
+L10 ⟨C7⟩⟨x\|⟩⟨y⟩⟨open⟩⟨z⟩

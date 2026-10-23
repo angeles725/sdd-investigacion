@@ -1,0 +1,6 @@
+Usage:
+  rsdd <command> [args]
+  rsdd <group> <command> [args]
+
+Commands:
+  version                  print the module version and VCS revision
