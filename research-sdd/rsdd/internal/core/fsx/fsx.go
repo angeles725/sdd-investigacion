@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 )
 
 // Error kinds. Messages match the Python helpers so reason-code mapping stays
@@ -153,4 +154,35 @@ func Identity(path string, maxBytes int64) (Ident, error) {
 		return Ident{}, &Error{Kind: ErrChanged, Path: path}
 	}
 	return Ident{Resolved: resolved, Size: total, SHA256: "sha256:" + hex.EncodeToString(h.Sum(nil))}, nil
+}
+
+// SHA256FD returns the bare hex sha256 of the whole file behind fd, reading
+// from offset 0 (the offset is left at EOF).
+func SHA256FD(fd int) (string, error) {
+	if err := sysSeekStart(fd); err != nil {
+		return "", &Error{Kind: ErrIO, Err: err}
+	}
+	h := sha256.New()
+	buf := make([]byte, 64*1024)
+	for {
+		n, err := sysRead(fd, buf)
+		if err != nil {
+			return "", &Error{Kind: ErrIO, Err: err}
+		}
+		if n == 0 {
+			return hex.EncodeToString(h.Sum(nil)), nil
+		}
+		h.Write(buf[:n])
+	}
+}
+
+// OpenWONew creates path write-only with O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC
+// and mode 0600; an existing file or symlink at path is refused. The error is
+// a raw *os.PathError, as the Python helpers raise a raw OSError.
+func OpenWONew(path string) (int, error) {
+	fd, err := sysOpenWONew(path)
+	if err != nil {
+		return -1, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return fd, nil
 }

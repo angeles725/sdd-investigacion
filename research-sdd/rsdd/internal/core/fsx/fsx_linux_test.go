@@ -287,6 +287,89 @@ func TestIdentityCapAppliesWhileReading(t *testing.T) {
 	}
 }
 
+func TestSHA256FDReadsFromStart(t *testing.T) {
+	data := make([]byte, 200000)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	p := writeFile(t, "a", data)
+	fd, _, err := OpenRO(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	_, _ = syscall.Read(fd, make([]byte, 1000)) // move the offset
+	got, err := SHA256FD(fd)
+	if err != nil || got != sum(data) {
+		t.Fatalf("got %q %v want %q", got, err, sum(data))
+	}
+	again, err := SHA256FD(fd) // second call must rewind too
+	if err != nil || again != got {
+		t.Fatalf("second call %q %v", again, err)
+	}
+}
+
+func TestSHA256FDEmptyAndBadFd(t *testing.T) {
+	fd, _, err := OpenRO(writeFile(t, "e", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	if got, err := SHA256FD(fd); err != nil || got != sum(nil) {
+		t.Fatalf("empty: %q %v", got, err)
+	}
+	if _, err := SHA256FD(-1); err == nil {
+		t.Fatal("bad fd must error")
+	}
+}
+
+func TestOpenWONewCreatesPrivateFile(t *testing.T) {
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	p := filepath.Join(t.TempDir(), "n")
+	fd, err := OpenWONew(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	if fcntl(t, fd, syscall.F_GETFD)&syscall.FD_CLOEXEC == 0 {
+		t.Fatal("not close-on-exec")
+	}
+	if _, err := syscall.Write(fd, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syscall.Read(fd, make([]byte, 1)); err == nil {
+		t.Fatal("fd must be write-only")
+	}
+	st, _ := os.Stat(p)
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", st.Mode().Perm())
+	}
+}
+
+func TestOpenWONewRefusesExistingAndSymlinks(t *testing.T) {
+	p := writeFile(t, "a", []byte("keep"))
+	if _, err := OpenWONew(p); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("existing: %v", err)
+	}
+	dir := filepath.Dir(p)
+	for name, target := range map[string]string{"dangling": filepath.Join(dir, "gone"), "live": p} {
+		l := filepath.Join(dir, name)
+		if err := os.Symlink(target, l); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenWONew(l); err == nil {
+			t.Fatalf("%s symlink accepted", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gone")); err == nil {
+		t.Fatal("dangling target was created through the symlink")
+	}
+	if b, _ := os.ReadFile(p); string(b) != "keep" {
+		t.Fatal("existing file modified")
+	}
+}
+
 func TestErrorUnwrapAndMessage(t *testing.T) {
 	e := &Error{Kind: ErrTooLarge}
 	if e.Error() != "input exceeds max-input-bytes" || !errors.Is(e, ErrTooLarge) || errors.Is(e, ErrOpen) {

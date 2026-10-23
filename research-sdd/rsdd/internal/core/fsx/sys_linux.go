@@ -13,6 +13,10 @@ func sysOpenRO(path string) (int, error) {
 	return retryOpen(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }
 
+func sysOpenWONew(path string) (int, error) {
+	return retryOpen(path, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_EXCL|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
+}
+
 func retryOpen(path string, flags int, mode uint32) (int, error) {
 	for {
 		fd, err := syscall.Open(path, flags, mode)
@@ -43,6 +47,11 @@ func sysRead(fd int, p []byte) (int, error) {
 }
 
 func sysClose(fd int) error { return syscall.Close(fd) }
+
+func sysSeekStart(fd int) error {
+	_, err := syscall.Seek(fd, 0, 0)
+	return err
+}
 
 // sysResolveFD returns the kernel's canonical path of the open fd (the
 // /proc/self/fd link), falling back to the cleaned absolute path when /proc is

@@ -17,4 +17,10 @@ func TestNonLinuxOperationsAreUnavailable(t *testing.T) {
 	if _, _, err := OpenRO(dir + "/a"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("OpenRO: %v", err)
 	}
+	if _, err := OpenWONew(dir + "/a"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("OpenWONew: %v", err)
+	}
+	if _, err := SHA256FD(3); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("SHA256FD: %v", err)
+	}
 }
