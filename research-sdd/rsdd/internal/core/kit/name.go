@@ -22,8 +22,11 @@ const blanks = " \t\n\v\f\r"
 // directory that holds the retro's retros/ dir. Both sides are compared as physical paths. The row is selected
 // by its PATH cell only (kit issue #1304 item 4). Errors other than ErrNoAncestor carry the bash stderr text.
 //
+// Relative paths (the retro, or a relative RESEARCH_HOME expansion) resolve against cwd, the caller's working
+// directory as the cli boundary supplies it (Stdio.Cwd), the way bash resolves them against its own `pwd`.
+//
 // Row cells are split on every pipe (awk -F'|'), NOT with core/gfm: gfm honours `\|`, bash does not (finding F5).
-func NameForRetro(targetsPath, retro string, getenv Getenv) (NameResult, error) {
+func NameForRetro(targetsPath, retro, cwd string, getenv Getenv) (NameResult, error) {
 	if targetsPath == "" || retro == "" {
 		return NameResult{}, &msgError{"target-paths: target_name_for_retro needs <targets_md> <retro>", ErrUsage}
 	}
@@ -31,7 +34,7 @@ func NameForRetro(targetsPath, retro string, getenv Getenv) (NameResult, error) 
 	if err != nil {
 		return NameResult{}, err
 	}
-	rdir, ok := physDir(filepath.Dir(retro))
+	rdir, ok := physDir(cwd, filepath.Dir(retro))
 	if !ok {
 		return NameResult{}, &msgError{"target-paths: retro directory not found for " + retro, ErrAbsentInput}
 	}
@@ -46,7 +49,7 @@ func NameForRetro(targetsPath, retro string, getenv Getenv) (NameResult, error) 
 		if strings.HasPrefix(p.Raw, "$RESEARCH_HOME") || strings.HasPrefix(p.Raw, "${RESEARCH_HOME}") {
 			hasRH = true
 		}
-		if e, ok := physDir(p.Expanded); ok {
+		if e, ok := physDir(cwd, p.Expanded); ok {
 			exps = append(exps, e)
 			hit = append(hit, p)
 		}

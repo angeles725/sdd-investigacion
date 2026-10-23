@@ -181,14 +181,14 @@ func RC(err error) int {
 	return 1
 }
 
-// physDir is `cd -P p && pwd -P`: the symlink-free absolute directory, or false.
-func physDir(p string) (string, bool) {
+// physDir is `cd -P p && pwd -P` run from cwd: the symlink-free absolute directory, or false. A relative p is
+// joined to cwd, which the caller takes from the cli boundary (Stdio.Cwd); an empty cwd cannot place it.
+func physDir(cwd, p string) (string, bool) {
 	if !filepath.IsAbs(p) {
-		wd, err := os.Getwd()
-		if err != nil {
+		if cwd == "" {
 			return "", false
 		}
-		p = wd + "/" + p
+		p = cwd + "/" + p
 	}
 	r, err := filepath.EvalSymlinks(p)
 	if err != nil {

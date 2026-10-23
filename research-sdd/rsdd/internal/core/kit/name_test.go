@@ -47,7 +47,7 @@ func (e *nameEnv) row(n int, name, path string) string {
 
 func (e *nameEnv) look(targets, retro, rh string) (NameResult, int, error) {
 	e.t.Helper()
-	r, err := NameForRetro(targets, retro, rhEnv(rh))
+	r, err := NameForRetro(targets, retro, e.root, rhEnv(rh))
 	return r, RC(err), err
 }
 
@@ -184,4 +184,26 @@ func TestNameRowSelectionUsesThePathCellOnly(t *testing.T) { // 22a, 22b, 22c
 		fmt.Sprintf("| 2 | decoy-last | `%s/last` | see `%s/first` |", e.root, e.root)), e.retro("first"), "the-real-first")
 	e.retro("pfxlong")
 	e.wantName(e.targets(e.row(1, "long-one", e.root+"/pfxlong"), e.row(2, "short-one", e.root+"/pfx")), e.retro("pfx"), "short-one")
+}
+
+// A relative retro resolves against the cwd the caller passes (the cli boundary's Stdio.Cwd), never against the
+// process working directory; with no cwd a relative retro cannot be placed and is absent input.
+func TestNameRelativeRetroResolvesAgainstTheGivenCwd(t *testing.T) {
+	e := newNameEnv(t)
+	e.retro("m")
+	tg := e.targets(e.row(1, "reg-m", e.root+"/m"))
+	rel := filepath.Join("m", "retros", "r.md")
+	if r, err := NameForRetro(tg, rel, e.root, rhEnv(e.root)); err != nil || r.Name != "reg-m" {
+		t.Fatalf("cwd=root: name=%q err=%v, want reg-m", r.Name, err)
+	}
+	if _, err := NameForRetro(tg, rel, filepath.Join(e.root, "m"), rhEnv(e.root)); !errors.Is(err, ErrAbsentInput) ||
+		err.Error() != "target-paths: retro directory not found for "+rel {
+		t.Fatalf("cwd=root/m: err=%v, want the retro-directory ErrAbsentInput", err)
+	}
+	if _, err := NameForRetro(tg, rel, "", rhEnv(e.root)); !errors.Is(err, ErrAbsentInput) {
+		t.Fatalf("empty cwd: err=%v, want ErrAbsentInput", err)
+	}
+	if r, err := NameForRetro(tg, filepath.Join(e.root, rel), "", rhEnv(e.root)); err != nil || r.Name != "reg-m" {
+		t.Fatalf("absolute retro, empty cwd: name=%q err=%v, want reg-m", r.Name, err)
+	}
 }

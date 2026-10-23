@@ -292,7 +292,7 @@ func TestDifferentialNameForRetro(t *testing.T) {
 			e := newNameEnv(t)
 			targets, retro, rh := s.build(e)
 			b := bashDriver(t, bashEnv(rh, "/home/pinned"), "", "tnr", targets, retro)
-			r, err := NameForRetro(targets, retro, envOf(bashEnv(rh, "/home/pinned")))
+			r, err := NameForRetro(targets, retro, e.root, envOf(bashEnv(rh, "/home/pinned")))
 			gotOut := ""
 			if err == nil {
 				gotOut = r.Name + "\n"

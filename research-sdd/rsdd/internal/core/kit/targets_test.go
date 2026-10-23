@@ -236,7 +236,7 @@ func TestFindingNameLookupSplitsOnEscapedPipes(t *testing.T) {
 	root := physical(t, t.TempDir())
 	mkfiles(t, root, "p/retros/r.md")
 	tgt := write(t, filepath.Join(root, "T.md"), "| 1 | a\\|b | `"+root+"/p` |\n")
-	got, err := NameForRetro(tgt, filepath.Join(root, "p/retros/r.md"), rhEnv(root))
+	got, err := NameForRetro(tgt, filepath.Join(root, "p/retros/r.md"), root, rhEnv(root))
 	if err != nil {
 		t.Fatal(err)
 	}

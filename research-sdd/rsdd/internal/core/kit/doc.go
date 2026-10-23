@@ -5,8 +5,9 @@
 // Design rules:
 //   - The logic never reads the process environment. Callers inject a Getenv func (the way niagara-go injects
 //     Stdio), so a test pins RESEARCH_HOME and HOME explicitly.
-//   - Filesystem roots are plain path arguments; nothing is resolved against hidden state except the process
-//     working directory for relative paths, exactly like the bash `cd -P`.
+//   - Filesystem roots are plain path arguments; nothing is resolved against hidden state. Relative paths resolve
+//     against an explicit cwd argument that the caller takes from the cli boundary (Stdio.Cwd), exactly like the
+//     bash `cd -P` resolves them against its `pwd`.
 //   - Sorting is C-locale (bytewise). The bash libs call plain `sort -u` (see DEFERRED.md, finding F3), so byte
 //     parity is defined against LC_ALL=C.
 //   - absent-input, empty-input and no-match are distinct typed outcomes (kit CLAUDE.md section 7); a degraded
