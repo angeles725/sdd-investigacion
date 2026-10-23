@@ -1,0 +1,10 @@
+L7 ⟨id⟩⟨claim A⟩⟨claim B⟩⟨status⟩⟨note⟩
+L8 SEP ⟨---⟩⟨---⟩⟨---⟩⟨---⟩⟨---⟩
+L9 ⟨C1⟩⟨a|esc⟩⟨b⟩⟨open⟩⟨n⟩
+L10 ⟨C2⟩⟨a\|even⟩⟨b⟩⟨open⟩⟨n⟩
+L11 ⟨C3⟩⟨a\\|triple⟩⟨b⟩⟨open⟩⟨n⟩
+L12 ⟨C4⟩⟨a⟩⟨b|esc⟩⟨open⟩⟨n⟩
+L13 ⟨C5⟩⟨a⟩⟨b⟩⟨open⟩⟨last|esc⟩
+L14 ⟨C6⟩⟨a⟩⟨b⟩⟨resolved⟩⟨x|open⟩
+L15 ⟨C7⟩⟨p|q⟩⟨open⟩⟨resolved⟩⟨n⟩
+L16 ⟨C8⟩⟨a⟩⟨b⟩⟨open | later⟩⟨n⟩
