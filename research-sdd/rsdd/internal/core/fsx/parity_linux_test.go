@@ -231,3 +231,82 @@ func TestParitySHA256FD(t *testing.T) {
 		t.Fatalf("python %q go %q %v", py.SHA256, got, err)
 	}
 }
+
+func TestParityPublish(t *testing.T) {
+	setup := func(dir string, destExists bool) (string, string) {
+		_ = os.WriteFile(filepath.Join(dir, "stage"), []byte("S"), 0o644)
+		if destExists {
+			_ = os.WriteFile(filepath.Join(dir, "dest"), []byte("D"), 0o644)
+		}
+		return filepath.Join(dir, "stage"), filepath.Join(dir, "dest")
+	}
+	for name, exists := range map[string]bool{"fresh": false, "existing dest": true} {
+		t.Run(name, func(t *testing.T) {
+			ps, pd := setup(t.TempDir(), exists)
+			gs, gd := setup(t.TempDir(), exists)
+			py := runPy(t, "publish", ps, pd)
+			err := Publish(gs, gd)
+			if py.OK != (err == nil) || (err != nil && (errnoOf(err) != py.Errno || !errors.Is(err, syscall.EEXIST))) {
+				t.Fatalf("python %+v go %v", py, err)
+			}
+			for _, pair := range [][2]string{{ps, gs}, {pd, gd}} {
+				a, _ := os.ReadFile(pair[0])
+				b, _ := os.ReadFile(pair[1])
+				if !bytes.Equal(a, b) {
+					t.Fatalf("state differs for %s: %q vs %q", pair[0], a, b)
+				}
+			}
+		})
+	}
+}
+
+func TestParityExchange(t *testing.T) {
+	setup := func(dir string) (string, string) {
+		_ = os.WriteFile(filepath.Join(dir, "a"), []byte("A"), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "b"), []byte("B"), 0o644)
+		return filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	}
+	pa, pb := setup(t.TempDir())
+	ga, gb := setup(t.TempDir())
+	if py := runPy(t, "exchange", pa, pb); !py.OK {
+		t.Fatalf("python %+v", py)
+	}
+	if err := RenameExchange(ga, gb); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][2]string{{pa, ga}, {pb, gb}} {
+		a, _ := os.ReadFile(pair[0])
+		b, _ := os.ReadFile(pair[1])
+		if !bytes.Equal(a, b) {
+			t.Fatalf("exchange state differs: %q vs %q", a, b)
+		}
+	}
+	// a missing counterpart: both fail with the same errno and create nothing
+	pm, gm := filepath.Join(filepath.Dir(pa), "missing"), filepath.Join(filepath.Dir(ga), "missing")
+	py := runPy(t, "exchange", pa, pm)
+	err := RenameExchange(ga, gm)
+	if py.OK || err == nil || errnoOf(err) != py.Errno || exists(pm) || exists(gm) {
+		t.Fatalf("python %+v go %v", py, err)
+	}
+}
+
+func TestParityWrite(t *testing.T) {
+	old := syscall.Umask(0o022)
+	defer syscall.Umask(old)
+	pd, gd := t.TempDir(), t.TempDir()
+	py := runPy(t, "write", filepath.Join(pd, "o.json"), `{"b":[1,2],"a":"x"}`)
+	if err := WriteAtomic(filepath.Join(gd, "o.json"), []byte(`{"a":"x","b":[1,2]}`+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := os.ReadFile(filepath.Join(pd, "o.json"))
+	b, _ := os.ReadFile(filepath.Join(gd, "o.json"))
+	st, _ := os.Stat(filepath.Join(gd, "o.json"))
+	if !bytes.Equal(a, b) || uint32(st.Mode().Perm()) != py.Mode {
+		t.Fatalf("python %q mode %o; go %q mode %o", a, py.Mode, b, st.Mode().Perm())
+	}
+	pe, _ := os.ReadDir(pd)
+	ge, _ := os.ReadDir(gd)
+	if len(pe) != 1 || len(ge) != 1 {
+		t.Fatalf("leftovers python %d go %d", len(pe), len(ge))
+	}
+}

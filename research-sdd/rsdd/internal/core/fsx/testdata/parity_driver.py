@@ -3,7 +3,7 @@
 usage: python3 -I parity_driver.py <toolbelt-dir> <op> [args...]
 
 The Go parity test runs the same operation on the same fixture and compares.
-Ops: identity, identity_append, open_ro, open_wo_new, sha256_fd.
+Ops: identity, identity_append, publish, exchange, write, open_ro, open_wo_new, sha256_fd.
 """
 import errno
 import json
@@ -15,6 +15,8 @@ toolbelt = sys.argv[1]
 sys.path.insert(0, toolbelt)
 sys.path.insert(0, os.path.join(toolbelt, "lib"))
 import adapter_core  # noqa: E402
+import corroborate_java  # noqa: E402
+from pathlib import Path  # noqa: E402
 import niagara_hdb_read  # noqa: E402
 
 op, args = sys.argv[2], sys.argv[3:]
@@ -72,6 +74,15 @@ def run():
             return {"ok": True, "sha256": niagara_hdb_read._sha256_fd(fd)}
         finally:
             os.close(fd)
+    if op == "publish":
+        adapter_core.publish(Path(args[0]), Path(args[1]))
+        return {"ok": True}
+    if op == "exchange":
+        corroborate_java.renameat2(Path(args[0]), Path(args[1]), 2)
+        return {"ok": True}
+    if op == "write":
+        adapter_core.write(Path(args[0]), json.loads(args[1]))
+        return {"ok": True, "mode": stat.S_IMODE(os.stat(args[0]).st_mode)}
     raise SystemExit("unknown op " + op)
 
 
