@@ -10,7 +10,7 @@ All helpers are behavior-preserving extractions: identical logic, no functional 
 Dependency direction: plan_common → gate → adapter_core (never the reverse).
 """
 from __future__ import annotations
-import json, re, sys
+import json, re, struct, sys
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -32,6 +32,8 @@ __all__ = [
     "reject_mount_delimiters",
     "validate_token",
     "add_max_input_bytes_arg",
+    "EM_TO_QEMU",
+    "arch_from_elf_head",
     "EXIT_AUTH_REQUIRED",
     "EXIT_ERROR",
     "GateError",
@@ -264,3 +266,31 @@ def run_adapter_main(fn: Callable[[], int], prog: str) -> int:
     except (AdapterError, OSError) as exc:
         print(f"{prog}: {exc}", file=sys.stderr)
         return EXIT_ERROR
+
+
+# ---------------------------------------------------------------------------
+# 8. ELF e_machine → qemu arch mapping (detonate_plan, trace_plan, qemu_plan)
+# ---------------------------------------------------------------------------
+
+# ELF e_machine → qemu arch suffix (user: qemu-{a}, system: qemu-system-{a}).
+# The single source for the three VM planners; they used to carry manually-synced copies.
+EM_TO_QEMU: dict[int, str] = {
+    3: "i386", 8: "mips", 20: "ppc", 21: "ppc64",
+    40: "arm", 42: "sh4", 62: "x86_64", 183: "aarch64", 243: "riscv64",
+}
+
+
+def arch_from_elf_head(hdr: bytes) -> str:
+    """ELF e_machine from a header prefix → qemu arch suffix; 'x86_64' on any fault.
+
+    Lenient variant for detonate_plan/trace_plan (the sample may not be an ELF at all).
+    qemu_plan keeps its own strict parser, which raises on each fault, over EM_TO_QEMU.
+    """
+    if len(hdr) < 20 or hdr[:4] != b"\x7fELF":
+        return "x86_64"
+    ei_data = hdr[5]
+    if ei_data == 1: fmt = "<H"
+    elif ei_data == 2: fmt = ">H"
+    else: return "x86_64"
+    e_machine = struct.unpack_from(fmt, hdr, 18)[0]
+    return EM_TO_QEMU.get(e_machine, "x86_64")
