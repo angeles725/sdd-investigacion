@@ -9,7 +9,7 @@ Global -snapshot replaced by per-drive containment policy (lib/vm_disk_policy.py
 Live DetonateVmExecutor is wired in D2; D1 remains plan-only.
 """
 from __future__ import annotations
-import argparse, os, struct, sys
+import argparse, os, sys
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from gate import CAP_EXEC                                                       
 from vm_plan import build_determinism, VmDeterminismError                      # noqa: E402
 from plan_common import (                                                        # noqa: E402
     PlanOnlyExecutor, select_executor, make_dry_run_det_spec, run_gate_epilogue,
-    run_adapter_main, add_max_input_bytes_arg, read_target_once,
+    run_adapter_main, add_max_input_bytes_arg, read_target_once, arch_from_elf_head,
 )
 from vm_disk_policy import broad_qemu_root_message as _broad_qemu_root_msg      # noqa: E402
 
@@ -38,14 +38,6 @@ _DEFAULT_ROOTFS: str = "/rsdd/rootfs.img"
 # Sandbox destination for the optional runtime tree bind (--ro-bind <src> /rsdd/rt).
 # Must match vm_disk_policy._RT_TREE_DEST.
 _RT_TREE_DEST: str = "/rsdd/rt"
-
-# ELF e_machine → qemu-system arch suffix.
-# NOTE: byte-identical to qemu_plan._EM_TO_QEMU — keep in sync manually.
-# Not imported to avoid promoting a private symbol across module boundaries.
-_EM_TO_QEMU: dict[int, str] = {
-    3: "i386", 8: "mips", 20: "ppc", 21: "ppc64",
-    40: "arm", 42: "sh4", 62: "x86_64", 183: "aarch64", 243: "riscv64",
-}
 
 _MAGIC_HINTS: list[tuple[bytes, str]] = [
     (b"\x7fELF",          "elf"),
@@ -64,18 +56,6 @@ def _type_from_head(head: bytes) -> str:
     for sig, hint in _MAGIC_HINTS:
         if head[:len(sig)] == sig: return hint
     return "unknown"
-
-
-def _arch_from_head(hdr: bytes) -> str:
-    """ELF e_machine from a header prefix → qemu arch suffix; 'x86_64' on any fault."""
-    if len(hdr) < 20 or hdr[:4] != b"\x7fELF":
-        return "x86_64"
-    ei_data = hdr[5]
-    if ei_data == 1: fmt = "<H"
-    elif ei_data == 2: fmt = ">H"
-    else: return "x86_64"
-    e_machine = struct.unpack_from(fmt, hdr, 18)[0]
-    return _EM_TO_QEMU.get(e_machine, "x86_64")
 
 
 def build_plan(sample: Path, caps: dict[str, int], *,
@@ -190,7 +170,7 @@ def plan_detonate(args: Any) -> int:
     except AdapterError as exc:
         print(f"detonate-plan: {exc}", file=sys.stderr); return 2
     type_hint = _type_from_head(head)  # metadata-only; "unknown" when no signature matches
-    arch = _arch_from_head(head)       # ELF e_machine → qemu arch; "x86_64" fallback
+    arch = arch_from_elf_head(head)    # ELF e_machine → qemu arch; "x86_64" fallback
     # Emit the broad-qemu-root warning BEFORE caps validation so operators see it
     # even when caps are also wrong — the warning is diagnostic and independent.
     qemu_root = getattr(args, "qemu_root", None)

@@ -6,6 +6,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../verify-kit-clean-hook.sh"
 
 pass=0; fail=0
@@ -44,7 +46,7 @@ run_hook_with_stub() {
   sed "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g" \
     "$SUT" > "$TMP/hook-under-test.sh"
   chmod +x "$TMP/hook-under-test.sh"
-  mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"  # hook-under-test.sh sources lib/hook-emit.sh beside itself (#1877)
+  rsdd_stage_libs "$TMP"  # hook-under-test.sh sources lib/hook-emit.sh beside itself (#1877)
   bash "$TMP/hook-under-test.sh" 2>&1
 }
 
@@ -89,7 +91,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # The mutant path is removed first and a refused build skips the tooth, so no stale mutant can ever run.
   if mk_mut "teeth A: rc-neutered" "$SUT" "$TMP/mutant-hook.sh" 's/rc=\$?/rc=0/' "s|\"\$here/verify-kit-clean.sh\"|\"$TMP/verify-kit-clean.sh\"|g"; then
     chmod +x "$TMP/mutant-hook.sh"
-    mkdir -p "$TMP/lib" && cp "$HERE/../lib/hook-emit.sh" "$TMP/lib/hook-emit.sh"   # own lib: no order dependence on run_hook_with_stub (#1877)
+    rsdd_stage_libs "$TMP"   # own lib: no order dependence on run_hook_with_stub (#1877)
     printf '#!/usr/bin/env bash\ncat "%s"\nexit 1\n' "$TMP/stub-out.txt" > "$TMP/verify-kit-clean.sh"
     printf '%s\n' "   working tree : DIRTY — uncommitted: 0 staged · 2 unstaged · 5 untracked
    verdict      : NOT clean" > "$TMP/stub-out.txt"
