@@ -380,9 +380,13 @@ func (r *Runner) execute(path string, args, env []string, dir string, stdin []by
 	cmd.Stdin = bytes.NewReader(stdin)
 	var so, se = &capBuf{max: maxOutput}, &capBuf{max: maxOutput}
 	cmd.Stdout, cmd.Stderr = io.Writer(so), io.Writer(se)
-	setProcAttrs(cmd)
+	started := setProcAttrs(cmd)
 	cmd.WaitDelay = 2 * time.Second
-	err := cmd.Run()
+	err := cmd.Start()
+	if err == nil {
+		started()
+		err = cmd.Wait()
+	}
 
 	o := outcome{stdout: so.buf.Bytes(), stderr: se.buf.Bytes(), truncated: so.truncated || se.truncated}
 	var ee *exec.ExitError
