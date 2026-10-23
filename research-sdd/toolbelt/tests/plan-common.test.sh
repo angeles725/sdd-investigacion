@@ -294,6 +294,34 @@ with tempfile.TemporaryDirectory() as td:
         ok("PC-RTO4: symlink / directory / over-cap refused with identity's exact messages")
     except Exception as e: nok("PC-RTO4: refusal-messages", str(e))
 
+# ── PC-ARCH: the ONE ELF e_machine → qemu arch table + the x86_64-fallback parser ──
+def _elf(ei_data, em):   # 20-byte header prefix: e_ident[16] + e_type[2] + e_machine[2]
+    return b"\x7fELF\x01" + bytes([ei_data]) + b"\x01" + b"\x00" * 11 + em.to_bytes(2, "little" if ei_data == 1 else "big")
+try:
+    want = {3: "i386", 8: "mips", 20: "ppc", 21: "ppc64", 40: "arm", 42: "sh4",
+            62: "x86_64", 183: "aarch64", 243: "riscv64"}
+    assert m.EM_TO_QEMU == want, f"EM_TO_QEMU={m.EM_TO_QEMU!r}"
+    ok("PC-ARCH1: EM_TO_QEMU is the canonical 9-entry e_machine table")
+except Exception as e: nok("PC-ARCH1: EM_TO_QEMU table", str(e))
+try:
+    for em, arch in want.items():
+        assert m.arch_from_elf_head(_elf(1, em)) == arch, f"LE em={em}"
+        assert m.arch_from_elf_head(_elf(2, em)) == arch, f"BE em={em}"
+    assert m.arch_from_elf_head(_elf(1, 0xffff)) == "x86_64", "unknown e_machine must fall back"
+    assert m.arch_from_elf_head(_elf(3, 40)) == "x86_64", "unknown EI_DATA must fall back"
+    assert m.arch_from_elf_head(_elf(1, 40)[:19]) == "x86_64", "short header must fall back"
+    assert m.arch_from_elf_head(b"\x00" + _elf(1, 40)[1:]) == "x86_64", "bad magic must fall back"
+    ok("PC-ARCH2: arch_from_elf_head maps LE/BE e_machine, 'x86_64' on any fault")
+except Exception as e: nok("PC-ARCH2: arch_from_elf_head", str(e))
+# The planners must consume the shared table, never re-grow a local copy (the old "keep in sync manually").
+try:
+    for name in ("detonate_plan.py", "trace_plan.py", "qemu_plan.py"):
+        src = (sut.parent.parent / name).read_text()
+        assert "_EM_TO_QEMU" not in src and "def _arch_from_head" not in src, f"{name} re-defines the arch table/parser"
+        assert "EM_TO_QEMU" in src or "arch_from_elf_head" in src, f"{name} no longer uses the shared arch mapping"
+    ok("PC-ARCH3: detonate/trace/qemu planners use plan_common's arch mapping (no local copies)")
+except Exception as e: nok("PC-ARCH3: planners single-source", str(e))
+
 print(f"\n== {passed} passed · {failed} failed ==")
 sys.exit(0 if failed == 0 else 1)
 PY
@@ -328,5 +356,8 @@ tt teeth-PC-10 'except (AdapterError, OSError) as exc:' 'except BaseException as
 # here read_target_once must keep delegating with its head_len (PC-RTO1/3 read the head back).
 tt teeth-rto-head-len 'read_single_fd(path, max_bytes, head_len)' 'read_single_fd(path, max_bytes, 0)' 'FAIL  PC-RTO1: head-size-sha-match'
 tt teeth-rto-cap 'read_single_fd(path, max_bytes, head_len)' 'read_single_fd(path, None, head_len)' 'FAIL  PC-RTO4: refusal-messages'
+# The shared arch table/parser: a wrong entry and a lost fallback must each be caught.
+tt teeth-arch-entry '40: "arm", 42: "sh4"' '40: "armhf", 42: "sh4"' 'FAIL  PC-ARCH1: EM_TO_QEMU table'
+tt teeth-arch-fallback 'return EM_TO_QEMU.get(e_machine, "x86_64")' 'return EM_TO_QEMU.get(e_machine, "unknown")' 'FAIL  PC-ARCH2: arch_from_elf_head'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

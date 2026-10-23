@@ -7,7 +7,8 @@
 # every escalation class (harness, install, templates, CI, shellcheckrc, add/delete/rename, unmapped production
 # file, unmapped fixture, named wide lib, wide closure, unclassified path), list edges (first, last, single,
 # last-line-without-newline, .mjs and install-corpus suites), --worktree, degraded states (bad ref, not a repo, absent
-# manifest), strict manifests (no reason, unknown suite, duplicate), --audit (clean, new eval suite, new kit-copy suite).
+# manifest), strict manifests (no reason, unknown suite, duplicate), --audit (clean, new eval suite, new kit-copy suite,
+# new rsdd_stage_libs suite).
 #
 # Usage: suite-impact.test.sh                (run the suite)
 #        suite-impact.test.sh --prove-teeth  (run suite + mutation controls)
@@ -566,6 +567,12 @@ run --repo "$D_ae" --audit
 D_ak="$(newcase audit_cp)"; printf 'cp -R "$TB"/. "$T/kit"\n' > "$D_ak/$TS/newcopy.test.sh"; ( cd "$D_ak" && git add -A && git commit -q -m a )
 run --repo "$D_ak" --audit
 { [ "$RC" = 1 ] && hasre '^AUDIT missing from impact-blindspot.txt: .*newcopy.test.sh \(kit-copy\)'; } && ok "--audit: a NEW whole-kit copy suite is reported, exit 1" || no "audit kit-copy" "(rc=$RC $OUT)"
+D_as="$(newcase audit_stage)"; printf '. "$HERE/lib/stage-libs.sh"\nrsdd_stage_libs "$T/kit/toolbelt" || exit 2\n' > "$D_as/$TS/newstage.test.sh"; ( cd "$D_as" && git add -A && git commit -q -m a )
+run --repo "$D_as" --audit
+{ [ "$RC" = 1 ] && hasre '^AUDIT missing from impact-blindspot.txt: .*newstage.test.sh \(stage-libs\)'; } && ok "--audit: a NEW suite staging every lib via rsdd_stage_libs is reported, exit 1" || no "audit stage-libs" "(rc=$RC $OUT)"
+D_asc="$(newcase audit_stage_comment)"; printf '# rsdd_stage_libs is named only in a comment\necho ok\n' > "$D_asc/$TS/quietstage.test.sh"; ( cd "$D_asc" && git add -A && git commit -q -m a )
+run --repo "$D_asc" --audit
+[ "$RC" = 0 ] && ok "--audit: rsdd_stage_libs inside a comment is not a blind spot" || no "audit stage-libs comment" "(rc=$RC $OUT)"
 D_ad="$(newcase audit_dyn)"; printf 'for n in a b; do bash "$HERE/$n.test.sh"; done\n' > "$D_ad/$TS/dynrun.test.sh"; ( cd "$D_ad" && git add -A && git commit -q -m a )
 run --repo "$D_ad" --audit
 { [ "$RC" = 1 ] && hasre '^AUDIT missing from impact-blindspot.txt: .*dynrun.test.sh \(suite-dynamic\)'; } && ok "--audit: a suite that runs suites by a computed \$HERE/\$n.test.sh name is reported" || no "audit suite-dynamic" "(rc=$RC $OUT)"
@@ -697,6 +704,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     -- "$BASH_BIN" @SUT@ --repo "$D_ae" --audit
   mt "kit-copy detector removed from --audit" 1 0 's/then echo "kit-copy"; return; fi/then :; fi/' \
     -- "$BASH_BIN" @SUT@ --repo "$D_ak" --audit
+  mt "stage-libs detector removed from --audit" 1 0 's/then echo "stage-libs"; return; fi/then :; fi/' \
+    -- "$BASH_BIN" @SUT@ --repo "$D_as" --audit
   mt "deps: closure stops at direct references" 0 0 's/for (j = 1; j <= fn\[cur\]; j++) { s = fwd/for (j = 1; j <= (cur == start ? fn[cur] : 0); j++) { s = fwd/' \
     --good-has "$T/lib/ll2.sh" --bad-lacks "$T/lib/ll2.sh" -- "$BASH_BIN" @SUT@ --repo "$P" --deps "${PFX}d.test.sh"
   mt "deps: fixture dir files dropped" 0 0 's/for (i = 1; i <= dn\[d\]; i++) { print "DEP/for (i = 1; i <= 0; i++) { print "DEP/' \

@@ -34,6 +34,8 @@ export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT_TOOLBELT="$HERE/.."
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 INIT_SUT="$KIT_TOOLBELT/research-sdd-init.sh"
@@ -170,10 +172,7 @@ mock_gh() {
 fkit() {
   local dir="$1" seed_log="$2"
   local tb="$dir/toolbelt"
-  mkdir -p "$tb/lib"
-  for _l in block-files.sh retro-status.sh retro-grammar.sh; do
-    cp "$KIT_TOOLBELT/lib/$_l" "$tb/lib/"
-  done
+  rsdd_stage_libs "$tb"
   cp "$VR_SUT" "$tb/"
   {
     printf '#!%s\n' "$BASH_BIN"
@@ -311,13 +310,9 @@ fi
 # R6 — reconcile-issues reports 'tracked:' with matching mock issue
 # ─────────────────────────────────────────────────────────────────────────────
 BOX_R6="$ROOT/box-r6"
-mkdir -p "$BOX_R6/research-sdd/toolbelt/lib" \
-         "$BOX_R6/rh/e2e-target/retros" \
-         "$BOX_R6/bin"
+rsdd_stage_libs "$BOX_R6/research-sdd/toolbelt"
+mkdir -p "$BOX_R6/rh/e2e-target/retros" "$BOX_R6/bin"
 cp "$RECONCILE_SUT" "$BOX_R6/research-sdd/toolbelt/reconcile-issues.sh"
-for _l in retro-status.sh retro-grammar.sh target-paths.sh; do
-  cp "$KIT_TOOLBELT/lib/$_l" "$BOX_R6/research-sdd/toolbelt/lib/"
-done
 {
   printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
   printf '| 1 | e2e-target | `%s` |\n' "$BOX_R6/rh/e2e-target"
@@ -428,21 +423,15 @@ mk_or_stop() {
 
 # ── Mutant kit dir: toolbelt mirror for gate mutants (gate uses SELF_DIR-relative lib paths)
 MUT_KIT="$ROOT/mutkit"
-mkdir -p "$MUT_KIT/toolbelt/lib"
-for _l in block-files.sh retro-status.sh retro-grammar.sh; do
-  cp "$KIT_TOOLBELT/lib/$_l" "$MUT_KIT/toolbelt/lib/"
-done
+rsdd_stage_libs "$MUT_KIT/toolbelt"
 cp "$VR_SUT" "$MUT_KIT/toolbelt/"
 cp "$FKIT_R5/toolbelt/stage-retro-issues.sh" "$MUT_KIT/toolbelt/"  # stub seeder
 
 # ── Mutant status kit dir: status mirror with lib for R3 mutant ───────────────
 MUT_STAT_KIT="$ROOT/mutstatkit/toolbelt"
-mkdir -p "$MUT_STAT_KIT/lib"
 # kit issue #1109: research-sdd-status.sh now sources lib/hook-wiring.sh unconditionally at
 # the top (before any mode dispatch), so the R3 mutant needs it alongside the libs it already had.
-for _l in focus-prefix.sh state-files.sh block-files.sh hook-wiring.sh blocked-rows.sh; do
-  cp "$KIT_TOOLBELT/lib/$_l" "$MUT_STAT_KIT/lib/"
-done
+rsdd_stage_libs "$MUT_STAT_KIT"
 # verify-state.sh is invoked by status's STALE gate. Without it (rc=127) the mutant answered STALE for
 # EVERY input, so "no RETRO-DUE" was read as a bite for the wrong reason (kit issue #1576).
 cp "$KIT_TOOLBELT/verify-state.sh" "$MUT_STAT_KIT/"
@@ -455,13 +444,12 @@ cp "$KIT_TOOLBELT/verify-state.sh" "$MUT_STAT_KIT/"
 # neuter the scaffold+wire <SUBJECT> guard) and running the REAL mutant on a REAL fresh target,
 # then applying the exact phase-1 assertion shape to its REAL settings.json output.
 MUT_INIT_KIT="$ROOT/mutinitkit"
-mkdir -p "$MUT_INIT_KIT/toolbelt/lib"
+rsdd_stage_libs "$MUT_INIT_KIT/toolbelt"
 ln -sfn "$KIT_TOOLBELT/../templates" "$MUT_INIT_KIT/templates"
 # kit issue #1108: research-sdd-init.sh now sources lib/corpus-markers.sh unconditionally near
-# its top (corpus_present() delegates to corpus_has_marker) — without it the mutant hits the
+# its top (corpus_present() delegates to corpus_has_marker), so the staged libs above carry it — without it the mutant hits the
 # missing-helper guard and exits 1 before ever reaching the SUBJECT-guard mutation this tooth
 # targets, so R2-TOOTH-A would fail for the WRONG reason (missing lib, not a real bite).
-cp "$KIT_TOOLBELT/lib/corpus-markers.sh" "$MUT_INIT_KIT/toolbelt/lib/corpus-markers.sh"
 MUT_INIT_SUT="$MUT_INIT_KIT/toolbelt/research-sdd-init.sh"
 awk '/if _rsdd_has_live_subject_placeholder "\$_ss_cmd"; then/ { print "    if false; then  # MUTANT: scaffold+wire SUBJECT guard neutered (R2-TOOTH-A)"; next } { print }' \
   "$INIT_SUT" > "$MUT_INIT_SUT"
