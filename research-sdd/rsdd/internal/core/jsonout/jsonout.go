@@ -309,15 +309,8 @@ func pyFloat(f float64) string {
 	digits := strings.Replace(mant, ".", "", 1)
 	switch {
 	case exp >= 16 || exp < -4:
-		m := digits[:1]
-		if len(digits) > 1 {
-			m += "." + digits[1:]
-		}
-		es := "+"
-		if exp < 0 {
-			es, exp = "-", -exp
-		}
-		return fmt.Sprintf("%s%se%s%02d", sign, m, es, exp)
+		// strconv's 'e' form already matches Python's: shortest mantissa, signed exponent of at least two digits.
+		return sign + sci
 	case exp >= 0:
 		if len(digits) <= exp+1 {
 			return sign + digits + strings.Repeat("0", exp+1-len(digits)) + ".0"
