@@ -16,6 +16,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../stage-retro-issues.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into the sandbox toolbelt
 FIX="$HERE/fixtures/stage-retro-issues"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 [ -d "$FIX" ] || { echo "FATAL: fixtures not found: $FIX" >&2; exit 2; }
@@ -30,15 +32,20 @@ ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
 MUT=(); MUTLIB=()
-[ "${1:-}" = "--prove-teeth" ] && { . "$HERE/lib/mutant.sh"; }
+# mutant.sh is sourced in EVERY mode, not only under --prove-teeth: c_escpipe_guard builds a mutated
+# retro-grammar.sh copy (MUTLIB) in the plain run too, and mkbox calls mutant_chain for it. Sourcing it only
+# for --prove-teeth made that check fail with an empty reason in a plain run while CI (always --prove-teeth)
+# stayed green. The helper only defines functions, so sourcing it unconditionally has no side effect.
+[ -f "$HERE/lib/mutant.sh" ] || { echo "FATAL: helper tests/lib/mutant.sh not found" >&2; exit 2; }
+. "$HERE/lib/mutant.sh"
 
 # mkbox <name>: hermetic sandbox (TARGETS.md with target-foo, SUT + libs copy, gh stub). Prints the box path.
 # MUT mutates the SUT copy, MUTLIB mutates the retro-grammar.sh copy (the delta classifier lives there).
 mkbox() {
-  local box="$ROOT/$1" l
+  local box="$ROOT/$1"
   mkdir -p "$box/research-sdd/toolbelt/lib" "$box/rh/target-foo/retros" "$box/bin"
   cp "$SUT" "$box/research-sdd/toolbelt/stage-retro-issues.sh"
-  for l in retro-status retro-grammar target-paths scrub-issue-text; do cp "$HERE/../lib/$l.sh" "$box/research-sdd/toolbelt/lib/$l.sh"; done
+  rsdd_stage_libs "$box/research-sdd/toolbelt"
   printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' "$box/rh/target-foo" > "$box/research-sdd/TARGETS.md"
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "gh $*" >> "$0.log"\nexit 0\n' > "$box/bin/gh"; chmod +x "$box/bin/gh"
   if [ "${#MUT[@]}" -gt 0 ]; then
@@ -190,7 +197,7 @@ c_double_backslash() {
 # it. A lib that does not define it must stop the seeder fail-closed (exit 1, named), never run with the escaped pipe unhandled.
 c_escpipe_guard() {
   local b; MUTLIB=('s/^_RG_AWK_ESCPIPE_FN=/_RG_AWK_ESCPIPE_FN_RENAMED=/')
-  b="$(mkbox "guard$1")" || return 1
+  b="$(mkbox "guard$1")" || { echo "MKBOX: lib mutant not built | $(cat "$ROOT/mutant.log" 2>/dev/null)"; MUTLIB=(); return 1; }
   MUTLIB=()
   run "$b" double-backslash-pipe.md; MSG=""
   [ "$RC" = 1 ] || MSG="RC $RC != 1"

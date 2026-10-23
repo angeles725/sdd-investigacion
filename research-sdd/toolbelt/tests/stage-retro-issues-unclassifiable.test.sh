@@ -10,6 +10,8 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../stage-retro-issues.sh"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into the sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 for _l in retro-status retro-grammar target-paths scrub-issue-text; do
   [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper lib/$_l.sh not found" >&2; exit 2; }
@@ -28,10 +30,10 @@ MUT=()
 
 # mkbox <name>: hermetic sandbox (TARGETS.md with target-foo, SUT + libs copy, gh stub). Prints the box path.
 mkbox() {
-  local box="$ROOT/$1" l
+  local box="$ROOT/$1"
   mkdir -p "$box/research-sdd/toolbelt/lib" "$box/rh/target-foo/retros" "$box/bin"
   cp "$SUT" "$box/research-sdd/toolbelt/stage-retro-issues.sh"
-  for l in retro-status retro-grammar target-paths scrub-issue-text; do cp "$HERE/../lib/$l.sh" "$box/research-sdd/toolbelt/lib/$l.sh"; done
+  rsdd_stage_libs "$box/research-sdd/toolbelt"
   printf '# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' "$box/rh/target-foo" > "$box/research-sdd/TARGETS.md"
   mkstub "$box"
   if [ "${#MUT[@]}" -gt 0 ]; then

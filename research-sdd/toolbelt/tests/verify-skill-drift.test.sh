@@ -26,6 +26,8 @@
 set -uo pipefail
 export RESEARCH_SDD_KIT_STALE_CHECK=off   # kit issue #2130: the patched hook copies run from a non-git temp dir; the stale-kit line has its own suite (verify-skill-drift-hook.test.sh)
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../verify-skill-drift.sh"
 HOOK_SUT="$HERE/../verify-skill-drift-hook.sh"
 FIXTURES_DIR="$HERE/fixtures"
@@ -36,7 +38,7 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 ROOT="$(mktemp -d)"
 trap 'rm -rf "$ROOT"' EXIT
 # Every hook copy below lives directly under $ROOT and sources lib/hook-emit.sh beside itself (#1877).
-mkdir -p "$ROOT/lib" && cp "$HERE/../lib/hook-emit.sh" "$ROOT/lib/hook-emit.sh"
+rsdd_stage_libs "$ROOT"
 # The hook also calls research-sdd-install.sh --verify (W1). These cases pin the SKILL.md-drift half only,
 # so pin that call to a silent stub: never the real install against the operator's real $HOME. The
 # install --verify half has its own suite: verify-skill-drift-hook.test.sh.

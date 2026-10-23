@@ -26,6 +26,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../ensure-remote.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 
 # --- resolve real binaries ONCE, before we restrict the PATH ----------------
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not found on PATH" >&2; exit 2; }
@@ -147,7 +149,7 @@ mkbox() {
   local box="$ROOT/$1" i
   mkdir -p "$box/bin" "$box/home" "$box/target"
   cp "$SUT" "$box/ensure-remote.sh"
-  mkdir -p "$box/lib"; cp "$HERE/../lib/gh-visibility.sh" "$box/lib/gh-visibility.sh" 2>/dev/null || true
+  rsdd_stage_libs "$box" 2>/dev/null || true
   : > "$box/calls.log"
   { printf '#!%s\n' "$BASH_BIN"
     printf 'echo "scan-secrets $*" >> "%s/calls.log"\n' "$box"
@@ -454,7 +456,7 @@ else
   box_E1="$ROOT/e1-box"
   mkdir -p "$box_E1/bin" "$box_E1/home"
   cp "$SUT" "$box_E1/ensure-remote.sh"
-  mkdir -p "$box_E1/lib"; cp "$HERE/../lib/gh-visibility.sh" "$box_E1/lib/gh-visibility.sh" 2>/dev/null || true
+  rsdd_stage_libs "$box_E1" 2>/dev/null || true
   cp "$SCAN_SUT" "$box_E1/scan-secrets.sh"
   : > "$box_E1/calls.log"
   for i in "${!CORE_UTILS[@]}"; do ln -s "${CORE_PATHS[$i]}" "$box_E1/bin/${CORE_UTILS[$i]}"; done
