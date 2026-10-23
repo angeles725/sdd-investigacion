@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# diff-driver.sh <toolbelt-dir> <mode> <file> [key...]
+#
+# Runs the REAL bash table readers of the kit so the Go differential test can require byte-equal output.
+#   gaprows   lib/gap-rows.sh gap_rows_parse <file>                     (ROW/SKIPPED/UNPARSED records)
+#   contra    research-sdd-status.sh count_open_contra <file>           (one integer)
+#   foctok    research-sdd-status.sh _read_focuses_tok_uncached <file> <key>...   (one "key=token" per key)
+#   state     research-sdd-status.sh --sync-state on a COPY of <file>    (deferred_open / covered_blocks lines)
+# Functions embedded in scripts are lifted with sed exactly like table-reader-parity.test.sh does.
+# Exit codes (every `exit` and `die` below; never a silent empty or zero result):
+#   0  success: the reader ran and its output is on stdout
+#   1  reader-failed: gaprows / contra / state reader exited non-zero (stderr: "diff-driver: reader-failed: ...")
+#      empty-output: state mode ran but did not return deferred_open and covered_blocks exactly once each
+#   2  usage or missing input: fewer than 3 arguments, input file not found, lib/gap-rows.sh missing,
+#      function not found in the toolbelt script, unknown mode
+#   5  reader-failed in foctok mode: _read_focuses_tok_uncached exited non-zero for a key
+# Anything else: the exit status of the bash reader process itself (foctok propagates it as is).
+set -uo pipefail
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
+[ "$#" -ge 3 ] || { echo "diff-driver: usage: diff-driver.sh <toolbelt-dir> <mode> <file> [key...]" >&2; exit 2; }
+tb="$1"; mode="$2"; file="$3"; shift 3
+[ -f "$file" ] || { echo "diff-driver: input not found: $file" >&2; exit 2; }
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+lift() { # lift <script> <function> -> file
+  sed -n "/^$2()/,/^}/p" "$tb/$1" > "$tmp/$2.sh"
+  [ -s "$tmp/$2.sh" ] || { echo "diff-driver: function $2 not found in $1" >&2; exit 2; }
+}
+die() { echo "diff-driver: $1" >&2; exit "${2:-1}"; }   # typed failure: never a silent empty or zero result (kit section 7)
+case "$mode" in
+  gaprows)
+    [ -f "$tb/lib/gap-rows.sh" ] || die "lib/gap-rows.sh missing" 2
+    bash -c '. "$1/lib/gap-rows.sh"; gap_rows_parse "$2"' _ "$tb" "$file" || die "reader-failed: gap_rows_parse exited $?" ;;
+  contra)
+    lift research-sdd-status.sh count_open_contra
+    bash -c '. "$1"; count_open_contra "$2"' _ "$tmp/count_open_contra.sh" "$file" || die "reader-failed: count_open_contra exited $?" ;;
+  foctok)
+    lift research-sdd-status.sh _read_focuses_tok_uncached
+    # The reader's stderr (its WARN lines) stays visible; a non-zero exit of the reader fails the driver.
+    bash -c '. "$1"; f="$2"; shift 2; for k in "$@"; do tok="$(_read_focuses_tok_uncached "$f" "$k")" || { echo "diff-driver: reader-failed: _read_focuses_tok_uncached exited $? for key $k" >&2; exit 5; }; printf "%s=%s\n" "$k" "$tok"; done' _ "$tmp/_read_focuses_tok_uncached.sh" "$file" "$@" || exit $? ;;
+  state)
+    # Zero the two envelope values first so the output proves --sync-state DERIVED them (a file already
+    # carrying the right numbers would otherwise pass vacuously).
+    sed -e 's/^deferred_open:.*/deferred_open: 0/' -e 's/^covered_blocks:.*/covered_blocks: 0/' "$file" > "$tmp/RESEARCH-STATE.md"
+    bash "$tb/research-sdd-status.sh" "$tmp" --sync-state >/dev/null || die "reader-failed: research-sdd-status.sh --sync-state exited $?"
+    out="$(sed -n -e 's/^deferred_open: */deferred_open=/p' -e 's/^covered_blocks: */covered_blocks=/p' "$tmp/RESEARCH-STATE.md")"
+    [ "$(printf '%s\n' "$out" | grep -c '^deferred_open=')" = 1 ] && [ "$(printf '%s\n' "$out" | grep -c '^covered_blocks=')" = 1 ] || die "empty-output: expected deferred_open and covered_blocks after --sync-state, got: ${out:-<nothing>}"
+    printf '%s\n' "$out" ;;
+  *) die "unknown mode: $mode" 2 ;;
+esac

@@ -114,3 +114,17 @@ From `research-sdd/rsdd`: `make check` (gofmt, vet, tests), `make race`, `make l
 staticcheck), `make teeth` (pinned gremlins), `make cross`. `make parity` is a placeholder until the
 differential runner lands. The bash gate sees the Go result through
 `research-sdd/toolbelt/tests/rsdd-go.test.sh`.
+
+## 7. The source hash
+
+`make build` stamps the binary with a fingerprint of its Go sources, so a stale binary is detectable:
+`rsdd version --source-hash` prints `sha256:<hex>` and a newline (`sha256:unknown` when the binary was built
+without the stamp, e.g. a plain `go build`). The value comes from `go run ./cmd/rsdd-srchash .` and is linked in
+with `-ldflags "-X .../internal/commands.sourceHash=<value>"` (see the Makefile).
+
+The set is every `*.go` except `*_test.go`, `go.mod`/`go.sum` at the root, everything under `vendor/` and under
+any `embed/` directory, minus any path with a `testdata` segment; regular files only (symlinks are neither
+hashed nor followed), judged on paths relative to the root. A path containing a newline or NUL, or an empty
+set, is a hard error. The exact manifest format and an independent shell pipeline that reproduces the value
+for the test fixture are in `internal/commands/testdata/source-hash/README.md`. Adding a command file changes
+the hash by design; no registration is needed.

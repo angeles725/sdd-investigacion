@@ -5,6 +5,9 @@ one continuation (the runnable next step). Kit issue #1704 (slices 1-3); evidenc
 `sdd-mental-model-bloque31.md` (each code has exactly one continuation) and candidate 5 of
 `bloque33.md`.
 
+After editing this table, run `go generate ./internal/core/reasons/...` in `research-sdd/rsdd`: the Go registry is generated from
+it, and its freshness test fails CI while `table_gen.go` is stale.
+
 Slice 1 is a REGISTRY plus a coverage test; slice 2 extends the coverage test to the input class. No script's emit text was changed: a code is the
 normalised prefix of an emit line that already exists today. Wording changes in a script, or a new
 `degraded:` emit line, make `tests/reason-codes.test.sh` fail until this table is updated — that is the

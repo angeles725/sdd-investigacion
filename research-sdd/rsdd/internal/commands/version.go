@@ -12,6 +12,10 @@ import (
 // readBuildInfo is a seam so tests can pin the build metadata.
 var readBuildInfo = debug.ReadBuildInfo
 
+// sourceHash is stamped at link time (-ldflags "-X <this package>.sourceHash=...",
+// see the Makefile); empty means the binary was built without it.
+var sourceHash string
+
 var versionCommand = cli.Command{
 	Name:    "version",
 	Summary: "print the module version and VCS revision",
@@ -23,6 +27,7 @@ var versionCommand = cli.Command{
 func runVersion(args []string, s cli.Stdio) int {
 	fs := flag.NewFlagSet("rsdd version", flag.ContinueOnError)
 	fs.SetOutput(s.Err)
+	showSource := fs.Bool("source-hash", false, "print the embedded source hash and nothing else")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return cli.ExitOK
@@ -32,6 +37,14 @@ func runVersion(args []string, s cli.Stdio) int {
 	if fs.NArg() != 0 {
 		fmt.Fprintf(s.Err, "rsdd version: unexpected argument %q\n", fs.Arg(0))
 		return cli.ExitUsage
+	}
+	if *showSource {
+		if sourceHash == "" {
+			fmt.Fprintln(s.Out, "sha256:unknown")
+		} else {
+			fmt.Fprintln(s.Out, sourceHash)
+		}
+		return cli.ExitOK
 	}
 	version, revision := "unknown", "unknown"
 	if bi, ok := readBuildInfo(); ok {
