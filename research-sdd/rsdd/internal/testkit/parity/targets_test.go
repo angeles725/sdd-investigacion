@@ -27,6 +27,7 @@ var targetFixtures = []struct {
 	{"non-path slug passes through", "| 1 | a | `/mrdoob/three.js` |\n", "/h", []string{"/mrdoob/three.js"}},
 	{"duplicates collapse and sort", "| 1 | a | `/b` |\n| 2 | b | `/a` |\n| 3 | c | `/b` |\n", "/h", []string{"/a", "/b"}},
 	{"two tokens one row", "| 1 | `/p1` | `/p2` | `$RESEARCH_HOME/p3` |\n", "/h", []string{"/h/p3", "/p1", "/p2"}},
+	{"two RESEARCH_HOME tokens one row", "| 1 | `$RESEARCH_HOME/q1` | `${RESEARCH_HOME}/q2` |\n", "/h", []string{"/h/q1", "/h/q2"}},
 	{"non-backticked and relative tokens ignored", "| 1 | a | /bare/path | `relative/path` |\n", "/h", nil},
 	{"no rows at all", "just prose\n", "/h", nil},
 	{"empty file", "", "/h", nil},

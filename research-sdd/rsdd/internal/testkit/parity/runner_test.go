@@ -224,6 +224,7 @@ func TestSpecValidation(t *testing.T) {
 		files            map[string]string
 	}{
 		{"unknown placeholder", `{"legacy":["a.sh","{{nope}}"],"rsdd":["x"]}`, "unknown placeholder", nil},
+		{"unknown placeholder after a known one", `{"legacy":["a.sh","{{sandbox}}/{{nope}}"],"rsdd":["x"]}`, "unknown placeholder {{nope}}", nil},
 		{"corpus placeholder without flag", `{"legacy":["a.sh","{{corpus}}"],"rsdd":["x"]}`, `"corpus": true is not set`, nil},
 		{"corpus flag without placeholder", `{"legacy":["a.sh"],"rsdd":["x"],"corpus":true}`, "no {{corpus}} placeholder", nil},
 		{"absolute legacy", `{"legacy":["/bin/true"],"rsdd":["x"]}`, "relative to the legacy kit root", nil},
