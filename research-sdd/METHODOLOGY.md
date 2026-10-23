@@ -216,7 +216,7 @@ taxonomy, so they were decided together:
 **`[INFER]` sub-convention — a "corpus-assigned" value.** A distinct, disciplined use of `[INFER]`: a source
 specifies a value by named ROLE only (not a concrete value), and the researcher ASSIGNS the concrete value. This
 is a `[INFER]` — **never a `[CERT]`** (no source states the literal value) — permitted ONLY when the assigned
-value is TOOL-VERIFIED (e.g. `contrast.py`/WCAG certifies a colour satisfies the role) AND explicitly flagged
+value is TOOL-VERIFIED (e.g. a target-local `contrast.py` (not shipped by the kit)/WCAG certifies a colour satisfies the role) AND explicitly flagged
 "corpus-assigned" at the claim. It does not weaken the marker rules; it NAMES an existing honest technique (used
 B21→B28 in the dashboards corpus): the source names the role, the tool certifies the concrete value FITS it, and
 the flag makes the assignment auditable. It stays `[INFER]` because the tool verifies FITNESS, not provenance —
@@ -427,7 +427,7 @@ re-org, or a moved target can vanish the referenced tree). The within-target pre
 multi-FOCUS-within-one-target case (§16) both keep evidence inside one target; this is the cross-TARGET case.
 
 **A zero-hit literal search is a LEXICAL miss, not absence.** A cross-target / cross-corpus literal-string search
-(a target-local `corpus-nav.py find`, `rg`, any grep-for-a-fact tool) that returns nothing proves only
+(a target-local `corpus-nav.py find` — not shipped by the kit, `rg`, any grep-for-a-fact tool) that returns nothing proves only
 that THAT token shape is absent. A prior corpus may have recorded the same fact in prose under a different
 shape than the code symbol.
 Before writing "no hits ⇒ absent / new here", retry the term as hyphenated, camelCase, snake_case and spaced
@@ -1432,7 +1432,7 @@ itself). A unit is CHARTERED when its basename resolves against that combined te
 - an exact backtick-code token (the whole span, e.g. `` `modbusCore` ``),
 - one of the span's `/`-separated path components (e.g. `` `organized/modbusCore/...` ``),
 - one of the span's whitespace- or comma-separated tokens, when a span lists several identifiers or a
-  shared-prefix profile list (e.g. `` `check-coverage.py honeywellSpyderTool XL10NextGen` ``, or
+  shared-prefix profile list (e.g. a target-local `` `check-coverage.py honeywellSpyderTool XL10NextGen` `` (not shipped by the kit), or
   `` `opcUaServer-rt,-wb` ``),
 - the module portion of a `<module>-<profile>` suffix form, `<profile>` one of the Niagara
   module-profile suffixes rt/wb/ux/se, a trailing `.jar` stripped first (e.g. `` `modbusCore-wb` ``
@@ -2007,8 +2007,8 @@ before trusting its verdict:
 
 - **Prove a guard by breaking it — and keep the proof as a re-runnable artifact.** Revert the guarded
   subject PER-FILE (not as a set), run the guard against the reverted copy, and confirm the guard fires.
-  Keep the demonstration as a re-runnable script in the target's `tools/` (`prove-guards.py` or
-  equivalent) — a guard proved once by hand decays the moment the code changes; a committed proof survives.
+  Keep the demonstration as a re-runnable script in the target's `tools/` (a target-local `prove-guards.py`,
+  not shipped by the kit, or equivalent) — a guard proved once by hand decays the moment the code changes; a committed proof survives.
   Anchor the guard to its PRODUCER: reverting data while the producer still runs correctly proves nothing
   about whether the guard watches the right output.
 
@@ -2206,7 +2206,7 @@ in the slow lane. Every fixture-copy or SUT-copy mutation MUST be drift-guarded 
 
 **Python mutation tests: run with `python3 -B` (or clear `__pycache__`).** A same-size, same-second source
 mutation-then-restore leaves a stale `.pyc` whose recorded mtime/size still matches, so the correctly restored
-file appears to fail. (Evidence: `tools/bog-cycles.py` mutation check, niagara B1198 §1198.4. Source: n4 agent-mcp
+file appears to fail. (Evidence: target-local `tools/bog-cycles.py` (not shipped by the kit) mutation check, niagara B1198 §1198.4. Source: n4 agent-mcp
 retro #1.)
 
 **Rule R5 — the content-addressed manifest `verify` is slow-only and never enters a fixture.**
@@ -3463,8 +3463,7 @@ Spyder running simultaneously as background agents). Rules that keep this safe:
   (rationale required) allows corpus citation; `§HOLD` blocks it until the hold condition is resolved.
   Record the audit at `sources/probes/<round>/admission-<sha>.md`. A HOLD at one commit correctly blocked
   corpus citation for half a day; without the protocol, unexplained item drops enter the corpus as
-  regressions. A target-agnostic checklist template lives at `templates/admission-audit.template.md` (create
-  when first needed for a corpus).
+  regressions. The kit ships no template for this audit; use the checklist above.
 - **Concurrency is a context-budget decision.** Run loops in parallel only while the orchestrator stays
   lean (it just routes task-notifications). If the orchestrator starts doing real work per loop, serialize.
 - **Global block-number allocation under `shared-global`.** When focuses share one corpus-wide block prefix
@@ -4215,7 +4214,7 @@ hard-stops, never blind.
 
 - **Regenerate and token-check before any visual judgment pass.** Before capturing screenshots or computing pixel diffs on a §19 build deliverable, regenerate the artifact fresh from the current source and confirm the fix token is present in the served bytes (`rg <new-token> <served.html>` or equivalent). An artifact whose filename does not change between builds is indistinguishable from a stale one without checking its content — a stale artifact absorbs the visual comparison and the fix is declared failing when it was never tested. This is the §11 "Verify the edit landed" discipline applied to build artifacts: it is a prerequisite for the visual pass, not a verification step, and must run before screenshots are captured or pixel diffs are computed. (Evidence: nave-panccadia B38 — the v8 HTML was generated BEFORE the v8 code changes; `rg nominal_width` returned zero hits in the served file; the fix was never served, never evaluated.)
 - **Pixel-diff attribution requires an isolated control.** A pixel diff proves THAT something changed, not WHAT changed it. Before attributing a rendered-image delta to a specific cause, ISOLATE the variable: compare the candidate build against a no-op/without-the-change build that is otherwise identical. Without an isolated control, a pixel diff is correlation, not attribution — other simultaneous variables (dependency version, renderer state, font loading) can produce the same diff. Distinct from the regenerate-and-token-check rule above (which proves the browser received new bytes) and from the external-oracle rule (which verifies the result through an independent channel): this rule is about not asserting a CAUSE for a visual change without eliminating competing causes. (Evidence: nave-panccadia v9 build retro, `retros/2026-08-05-v9-build-run.md` D17 / B38 — a 1,018-pixel diff attributed to a midpoint dedup was actually a same-commit door-template change.)
-- **Multi-artifact co-registration: validate through a label-independent channel.** When aligning two artifacts by deriving a transform from labeled landmarks, a transform that fits the landmarks is necessary but not sufficient — the landmarks constrain a family of solutions, and the correct one is not guaranteed. VALIDATE the alignment through a LABEL-INDEPENDENT channel: compare content or geometry overlap in regions the landmarks did not constrain, and run NEGATIVE CONTROLS — pairs that SHOULD fail alignment — to confirm the method has discriminatory power. A spurious fit (the transform satisfies the landmarks but misaligns the content) is undetectable without an independent check. (The §11 negative-control and known-answer-attribution rules applied to a registration transform; the new obligation here is the label-independent channel. Evidence: COB-IM2 B4 §4.3–4.4 — `coregister.py`, commit `9cc0bd3`: the correct offset beats no-offset and wrong-offset controls by 1–2 orders of magnitude.)
+- **Multi-artifact co-registration: validate through a label-independent channel.** When aligning two artifacts by deriving a transform from labeled landmarks, a transform that fits the landmarks is necessary but not sufficient — the landmarks constrain a family of solutions, and the correct one is not guaranteed. VALIDATE the alignment through a LABEL-INDEPENDENT channel: compare content or geometry overlap in regions the landmarks did not constrain, and run NEGATIVE CONTROLS — pairs that SHOULD fail alignment — to confirm the method has discriminatory power. A spurious fit (the transform satisfies the landmarks but misaligns the content) is undetectable without an independent check. (The §11 negative-control and known-answer-attribution rules applied to a registration transform; the new obligation here is the label-independent channel. Evidence: COB-IM2 B4 §4.3–4.4 — target-local `coregister.py` (not shipped by the kit), commit `9cc0bd3`: the correct offset beats no-offset and wrong-offset controls by 1–2 orders of magnitude.)
 - **Offline/zero-network verification for self-contained visual deliverables.** For an assembled self-contained visual deliverable (e.g. a single HTML build), VERIFY it is truly offline: (a) grep the assembled artifact for external `fetch`/`import()`/XHR/remote-URL references and confirm zero are present; (b) confirm the deliverable renders correctly with the network disabled. This verifies the assembly step actually inlined all dependencies rather than leaving live references. A deliverable mechanically proven offline this way is `[CERT-hw]`; one merely asserted offline is `[INFER]`. The concrete build recipe and network-isolation procedure for design3d tool deliverables live in the design3d skill, not here.
 
 - **Generate for lookup, not for exposure.** When a deliverable surface can be generated from introspection

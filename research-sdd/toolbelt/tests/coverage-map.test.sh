@@ -14,6 +14,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../coverage-map.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
 
@@ -292,9 +294,9 @@ fi
 # 25b: the SUT consumes the shared helper. A kit copy whose lib/block-files.sh ALSO accepts
 #      `-chunk<N>.md` must count a corpus that holds only proj-chunk1.md; the real lib must not. A SUT
 #      with its own private regex ignores the lib and reports the same thing under both.
-K25="$ROOT/kit25"; mkdir -p "$K25/real/lib" "$K25/chunk/lib"
+K25="$ROOT/kit25"; rsdd_stage_libs "$K25/real"; rsdd_stage_libs "$K25/chunk"
 cp "$SUT" "$K25/real/coverage-map.sh"; cp "$SUT" "$K25/chunk/coverage-map.sh"
-cp "$HERE/../lib/block-files.sh" "$K25/real/lib/block-files.sh"
+# the chunk kit overwrites its staged lib/block-files.sh with the widened copy
 sed 's/(block|bloque)/(block|bloque|chunk)/' "$HERE/../lib/block-files.sh" > "$K25/chunk/lib/block-files.sh"
 C25B="$ROOT/c25b"; mk_corpus "$C25B" "proj-chunk1.md" "UniqueAlpha.java is referenced here"
 if ! cmp -s "$HERE/../lib/block-files.sh" "$K25/chunk/lib/block-files.sh"; then
@@ -359,7 +361,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   # The SUT sources lib/block-files.sh from its own directory (kit issue #1821), so every mutant copy
   # built in $ROOT needs the helper beside it.
-  mkdir -p "$ROOT/lib" && cp "$HERE/../lib/block-files.sh" "$ROOT/lib/block-files.sh" || { echo "FATAL: cannot stage lib/block-files.sh for mutants" >&2; exit 2; }
+  rsdd_stage_libs "$ROOT" || { echo "FATAL: cannot stage lib/ for mutants" >&2; exit 2; }
   echo "-- teeth: setting up shared fixture --"
   # Shared fixture: alpha (cited via UniqueAlpha.java), beta (uncited), Shared (ambiguous)
   # METHODOLOGY §3: corpus writes extension-bearing token UniqueAlpha.java

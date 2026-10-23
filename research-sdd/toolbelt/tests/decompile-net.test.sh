@@ -10,6 +10,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../decompile-net.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -317,10 +319,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Crash signatures: a mutant that dies this way must never read as a bite.
   CRASH_RE="$(mutant_crash_re bash py cmd)" || exit 2
 
-  # _nt_stage DIR — stage the kit's lib/tool-env.sh beside a mutant SUT (it resolves lib/ via $0) and
-  # verify the staging. Failure is returned to the caller, which counts it once.
+  # _nt_stage DIR — stage the kit's lib/ (tool-env.sh among it) beside a mutant SUT (it resolves lib/ via $0)
+  # and verify the staging. Failure is returned to the caller, which counts it once.
   _nt_stage() {
-    mkdir -p "$1/lib" && cp "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh" && cmp -s "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh"
+    rsdd_stage_libs "$1" && cmp -s "$HERE/../lib/tool-env.sh" "$1/lib/tool-env.sh"
   }
   # _nt_stage_sut DIR — stage an unmodified SUT copy plus an (empty) lib/ dir for a mutated lib/tool-env.sh.
   _nt_stage_sut() {
