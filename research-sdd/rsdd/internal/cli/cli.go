@@ -112,12 +112,22 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 			code = ExitOperational
 			return
 		}
-		s.Out.Write(out.Bytes())
-		if code == ExitDegraded && !errw.sawDegraded {
-			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
+		if _, err := s.Out.Write(out.Bytes()); err != nil {
+			// The result never reached the caller: operational failure,
+			// whatever the command returned.
+			fmt.Fprintf(s.Err, "rsdd: stdout-write-failed: %v\n", err)
+			code = ExitOperational
+			return
 		}
+		// Precedence: ExitMap translates the code Run returned first; the
+		// degraded contract then judges the FINAL code. So a degraded 3 is
+		// never remapped unless the map explicitly lists 3, and any command
+		// that ends on 3 (returned or mapped) carries a DEGRADED: line.
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
+		}
+		if code == ExitDegraded && !errw.sawDegraded {
+			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
 		}
 	}()
 	return cmd.Run(args, inner)

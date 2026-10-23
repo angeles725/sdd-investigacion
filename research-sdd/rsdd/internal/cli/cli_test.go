@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -182,4 +183,53 @@ func TestNoArgsPrintsUsageAndExits2(t *testing.T) {
 
 func TestGolden(t *testing.T) {
 	golden.Run(t, "testdata/golden", func(a []string, s cli.Stdio) int { return cli.Run(testTable(), a, s) })
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// A failed release of the buffered stdout is an operational failure: exit 1
+// plus a typed stderr line, whatever code the command returned.
+func TestStdoutWriteFailureIsOperational(t *testing.T) {
+	for _, ret := range []int{cli.ExitOK, cli.ExitDegraded} {
+		table := []cli.Command{{Name: "w", Summary: "x", Run: func(_ []string, s cli.Stdio) int {
+			s.Out.Write([]byte("result\n"))
+			return ret
+		}}}
+		var e bytes.Buffer
+		s := cli.Stdio{In: strings.NewReader(""), Out: failWriter{}, Err: &e,
+			Env: func(string) string { return "" }, Clock: time.Now, Cwd: "/work"}
+		code := cli.Run(table, []string{"w"}, s)
+		if code != cli.ExitOperational {
+			t.Errorf("ret=%d: exit = %d, want %d", ret, code, cli.ExitOperational)
+		}
+		if !strings.Contains(e.String(), "rsdd: stdout-write-failed: broken pipe") {
+			t.Errorf("ret=%d: stderr = %q, want the typed stdout-write-failed line", ret, e.String())
+		}
+	}
+}
+
+// Precedence: ExitMap translates the code Run returned, then the degraded
+// contract judges the FINAL code. A degraded 3 is never remapped unless the
+// map explicitly lists 3; a command that maps onto 3 gets the DEGRADED: line.
+func TestExitMapDegradedPrecedence(t *testing.T) {
+	deg := func([]string, cli.Stdio) int { return cli.ExitDegraded }
+	table := []cli.Command{
+		{Name: "unmapped", Summary: "x", ExitMap: map[int]int{1: 0}, Run: deg},
+		{Name: "remapped", Summary: "x", ExitMap: map[int]int{3: 1}, Run: deg},
+		{Name: "tothree", Summary: "x", ExitMap: map[int]int{10: 3},
+			Run: func([]string, cli.Stdio) int { return 10 }},
+	}
+	code, _, errOut := run(t, table, "unmapped")
+	if code != 3 || !strings.Contains(errOut, "DEGRADED:") {
+		t.Errorf("unmapped: got (%d, %q), want 3 with DEGRADED: line", code, errOut)
+	}
+	if code, _, _ = run(t, table, "remapped"); code != 1 {
+		t.Errorf("remapped: exit = %d, want 1 (map lists 3 explicitly)", code)
+	}
+	code, _, errOut = run(t, table, "tothree")
+	if code != 3 || !strings.Contains(errOut, "DEGRADED:") {
+		t.Errorf("tothree: got (%d, %q), want 3 with DEGRADED: line", code, errOut)
+	}
 }

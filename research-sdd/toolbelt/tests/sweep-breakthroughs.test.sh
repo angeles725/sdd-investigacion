@@ -10,6 +10,8 @@
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/stage-libs.sh
+. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../sweep-breakthroughs.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
@@ -29,10 +31,8 @@ no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 # so the script's KIT=dirname/.. resolves inside the sandbox; echoes the kit dir.
 mkkit() {
   local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt/lib"
+  rsdd_stage_libs "$kit/toolbelt"   # every lib the SUT sources (target-paths, block-files)
   cp "$SUT" "$kit/toolbelt/sweep-breakthroughs.sh"
-  cp "$TP_LIB" "$kit/toolbelt/lib/target-paths.sh"
-  cp "$HERE/../lib/block-files.sh" "$kit/toolbelt/lib/block-files.sh" # SUT sources this for block_file_filter
   printf '%s' "$kit"
 }
 
