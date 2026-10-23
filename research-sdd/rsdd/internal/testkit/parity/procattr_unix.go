@@ -26,12 +26,13 @@ func (e *groupRefusedError) Error() string {
 // group nor kill(-1) = every process we may signal), it is the child's own
 // group as recorded right after Start, and it is not our own group.
 func checkGroup(pgid, childPgid, ownPgid int) error {
-	switch {
-	case pgid <= 1:
+	if pgid <= 1 {
 		return &groupRefusedError{pgid, "not a child process group"}
-	case pgid != childPgid:
+	}
+	if pgid != childPgid {
 		return &groupRefusedError{pgid, fmt.Sprintf("not the child's recorded group %d", childPgid)}
-	case pgid == ownPgid:
+	}
+	if pgid == ownPgid {
 		return &groupRefusedError{pgid, "the runner's own group"}
 	}
 	return nil
