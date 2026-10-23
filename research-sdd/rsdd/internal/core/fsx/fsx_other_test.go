@@ -11,6 +11,9 @@ import (
 // may degrade to a weaker primitive.
 func TestNonLinuxOperationsAreUnavailable(t *testing.T) {
 	dir := t.TempDir()
+	if err := Publish(dir+"/a", dir+"/b"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Publish: %v", err)
+	}
 	if _, err := Identity(dir+"/a", NoLimit); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Identity: %v", err)
 	}

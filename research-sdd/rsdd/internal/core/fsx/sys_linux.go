@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"unsafe"
 )
 
 func sysOpenRO(path string) (int, error) {
@@ -73,4 +74,32 @@ func sysFsync(fd int) error { return syscall.Fsync(fd) }
 
 func sysOpenDir(path string) (int, error) {
 	return retryOpen(path, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+}
+
+// sysRenameat2 calls renameat2(2) directly: the frozen syscall package has no
+// wrapper, and the per-architecture number lives in sys_linux_<arch>.go. An
+// architecture without a known number reports ENOSYS.
+func sysRenameat2(oldFD int, oldPath string, newFD int, newPath string, flags uint) error {
+	if sysNumRenameat2 == 0 {
+		return syscall.ENOSYS
+	}
+	op, err := syscall.BytePtrFromString(oldPath)
+	if err != nil {
+		return err
+	}
+	np, err := syscall.BytePtrFromString(newPath)
+	if err != nil {
+		return err
+	}
+	for {
+		_, _, e := syscall.Syscall6(sysNumRenameat2, uintptr(oldFD), uintptr(unsafe.Pointer(op)),
+			uintptr(newFD), uintptr(unsafe.Pointer(np)), uintptr(flags), 0)
+		if e == syscall.EINTR {
+			continue
+		}
+		if e != 0 {
+			return e
+		}
+		return nil
+	}
 }

@@ -79,6 +79,95 @@ func TestWriteAtomicFailureLeavesNothing(t *testing.T) {
 	}
 }
 
+func TestRenameNoReplaceMovesAndRefusesExisting(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	mustWrite(t, a, "A")
+	if err := RenameNoReplace(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if exists(a) || read(t, b) != "A" {
+		t.Fatal("not moved")
+	}
+	mustWrite(t, a, "A2")
+	err := RenameNoReplace(a, b)
+	if !errors.Is(err, fs.ErrExist) || !errors.Is(err, syscall.EEXIST) || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("want plain EEXIST, got %v", err)
+	}
+	var le *os.LinkError
+	if !errors.As(err, &le) || le.Old != a || le.New != b {
+		t.Fatalf("want *os.LinkError naming both paths, got %#v", err)
+	}
+	if read(t, a) != "A2" || read(t, b) != "A" {
+		t.Fatal("a refused rename must leave both files untouched")
+	}
+}
+
+func TestRenameNoReplaceMissingSourceAndDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := RenameNoReplace(filepath.Join(dir, "x"), filepath.Join(dir, "y")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing source: %v", err)
+	}
+	d1, d2 := filepath.Join(dir, "d1"), filepath.Join(dir, "d2")
+	_ = os.Mkdir(d1, 0o755)
+	_ = os.Mkdir(d2, 0o755)
+	if err := RenameNoReplace(d1, d2); !errors.Is(err, syscall.EEXIST) {
+		t.Fatalf("existing empty dir must not be replaced: %v", err)
+	}
+	d3 := filepath.Join(dir, "d3")
+	if err := RenameNoReplace(d1, d3); err != nil || !exists(d3) {
+		t.Fatalf("dir move: %v", err)
+	}
+}
+
+func TestRenameat2WithDirFDs(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "s"), "S")
+	fd, err := sysOpenDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+	if err := Renameat2(fd, "s", fd, "d", FlagNoReplace); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(dir, "d")) != "S" {
+		t.Fatal("dirfd-relative rename failed")
+	}
+}
+
+func TestRenameat2InvalidFlagsAreUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	mustWrite(t, a, "A")
+	for name, flags := range map[string]uint{"unknown bit": 0x80, "both flags": FlagNoReplace | FlagExchange} {
+		err := Renameat2(AtFDCWD, a, AtFDCWD, b, flags)
+		if !errors.Is(err, ErrUnavailable) || !errors.Is(err, syscall.EINVAL) {
+			t.Fatalf("%s: want ErrUnavailable wrapping EINVAL, got %v", name, err)
+		}
+	}
+	if exists(b) || read(t, a) != "A" {
+		t.Fatal("nothing may move on an unavailable error")
+	}
+}
+
+func TestPublishRefusesExistingDest(t *testing.T) {
+	dir := t.TempDir()
+	stage, dest := filepath.Join(dir, "stage"), filepath.Join(dir, "dest")
+	mustWrite(t, stage, "S")
+	mustWrite(t, dest, "D")
+	if err := Publish(stage, dest); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("got %v", err)
+	}
+	if read(t, dest) != "D" || !exists(stage) {
+		t.Fatal("existing dest must survive")
+	}
+	_ = os.Remove(dest)
+	if err := Publish(stage, dest); err != nil || read(t, dest) != "S" || exists(stage) {
+		t.Fatalf("publish: %v", err)
+	}
+}
+
 func TestSyncDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := SyncDir(dir); err != nil {
