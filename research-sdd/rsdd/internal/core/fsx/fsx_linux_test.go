@@ -3,6 +3,8 @@
 package fsx
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
@@ -21,6 +23,8 @@ func writeFile(t *testing.T, name string, data []byte) string {
 	}
 	return p
 }
+
+func sum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
 func fdCount(t *testing.T) int {
 	t.Helper()
@@ -109,6 +113,68 @@ func TestOpenRORefusesWriterlessFIFOWithoutBlocking(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("OpenRO blocked on a writerless FIFO")
+	}
+}
+
+func TestIdentityHashesRegularFiles(t *testing.T) {
+	big := make([]byte, 3<<20)
+	for i := range big {
+		big[i] = byte(i * 7)
+	}
+	for name, data := range map[string][]byte{"empty": {}, "small": []byte("abc"), "3MiB": big} {
+		t.Run(name, func(t *testing.T) {
+			p := writeFile(t, name, data)
+			got, err := Identity(p, NoLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, _ := filepath.EvalSymlinks(p)
+			if got.Resolved != want || got.Size != int64(len(data)) || got.SHA256 != "sha256:"+sum(data) {
+				t.Fatalf("got %+v want %s %d %s", got, want, len(data), sum(data))
+			}
+		})
+	}
+}
+
+func TestIdentityResolvedFollowsParentSymlinks(t *testing.T) {
+	p := writeFile(t, "a", []byte("x"))
+	link := filepath.Join(t.TempDir(), "dirlink")
+	if err := os.Symlink(filepath.Dir(p), link); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Identity(filepath.Join(link, "a"), NoLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := filepath.EvalSymlinks(p); got.Resolved != want {
+		t.Fatalf("resolved %q want %q", got.Resolved, want)
+	}
+}
+
+func TestIdentityRefusals(t *testing.T) {
+	p := writeFile(t, "a", []byte("x"))
+	l := filepath.Join(filepath.Dir(p), "l")
+	_ = os.Symlink(p, l)
+	if _, err := Identity(l, NoLimit); !errors.Is(err, ErrOpen) {
+		t.Fatalf("symlink: %v", err)
+	}
+	if _, err := Identity(t.TempDir(), NoLimit); !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("dir: %v", err)
+	}
+	fifo := filepath.Join(t.TempDir(), "f")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := syscall.Open(fifo, syscall.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(w)
+	if _, err := Identity(fifo, NoLimit); !errors.Is(err, ErrNotRegular) {
+		t.Fatalf("fifo: %v", err)
+	}
+	if _, err := Identity(filepath.Join(t.TempDir(), "nope"), NoLimit); !errors.Is(err, ErrOpen) {
+		t.Fatalf("missing: %v", err)
 	}
 }
 

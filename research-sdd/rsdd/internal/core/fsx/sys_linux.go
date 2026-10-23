@@ -3,6 +3,9 @@
 package fsx
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"syscall"
 )
 
@@ -30,4 +33,29 @@ func sysFstat(fd int) (Stat, error) {
 	}, nil
 }
 
+func sysRead(fd int, p []byte) (int, error) {
+	for {
+		n, err := syscall.Read(fd, p)
+		if err != syscall.EINTR {
+			return n, err
+		}
+	}
+}
+
 func sysClose(fd int) error { return syscall.Close(fd) }
+
+// sysResolveFD returns the kernel's canonical path of the open fd (the
+// /proc/self/fd link), falling back to the cleaned absolute path when /proc is
+// unavailable.
+func sysResolveFD(fd int, path string) string {
+	if p, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd)); err == nil {
+		return p
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		if r, err := filepath.EvalSymlinks(abs); err == nil {
+			return r
+		}
+		return abs
+	}
+	return path
+}
