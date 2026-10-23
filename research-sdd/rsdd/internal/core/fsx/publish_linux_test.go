@@ -414,13 +414,29 @@ func TestStageFileDetectsStagedMismatch(t *testing.T) {
 	if !errors.Is(err, ErrStagedMismatch) || err.Error() != "staged identity mismatch" {
 		t.Fatalf("got %v", err)
 	}
+	// An unverified target must not survive: a later Publish could move it into place, and a
+	// retry would hit EEXIST. (Python's adapter_core.stage_file leaves it; this is deliberate.)
+	if _, err := os.Lstat(dst); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("digest mismatch left the unverified target behind: %v", err)
+	}
 	identityFn = func(p string, m int64) (Ident, error) {
 		id, err := orig(p, m)
 		id.Size++
 		return id, err
 	}
-	if _, _, err := StageFile(src, filepath.Join(dir, "dst2"), "l", 0o600, NoLimit); !errors.Is(err, ErrStagedMismatch) {
+	if _, _, err := StageFile(src, dst, "l", 0o600, NoLimit); !errors.Is(err, ErrStagedMismatch) {
 		t.Fatalf("size mismatch: %v", err)
+	}
+	if _, err := os.Lstat(dst); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("size mismatch left the unverified target behind: %v", err)
+	}
+	reread := errors.New("re-read failed")
+	identityFn = func(string, int64) (Ident, error) { return Ident{}, reread }
+	if _, _, err := StageFile(src, dst, "l", 0o600, NoLimit); !errors.Is(err, reread) {
+		t.Fatalf("re-read failure: %v", err)
+	}
+	if _, err := os.Lstat(dst); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a failed re-read left the unverified target behind: %v", err)
 	}
 }
 

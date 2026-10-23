@@ -121,9 +121,11 @@ func WriteAtomic(path string, data []byte) (err error) {
 // and requires the same size and digest before applying mode. It returns the
 // source record (resolved path) and the staged record (logical path).
 //
-// Any failure after target was created removes the partial target; a target
-// that already existed is never removed. maxBytes caps the source (NoLimit for
-// none).
+// Any failure after target was created removes it: a partial copy, and also a
+// complete copy whose re-read, identity check or chmod failed, so an unverified
+// target never survives for a later Publish (adapter_core.stage_file leaves it
+// on those post-copy failures; this port deliberately does not). A target that
+// already existed is never removed. maxBytes caps the source (NoLimit for none).
 func StageFile(source, target, logical string, mode os.FileMode, maxBytes int64) (Record, Record, error) {
 	src, err := sysOpenRO(source)
 	if err != nil {
@@ -134,15 +136,19 @@ func StageFile(source, target, logical string, mode os.FileMode, maxBytes int64)
 	if err != nil {
 		return Record{}, Record{}, err
 	}
+	discard := func(err error) (Record, Record, error) {
+		_ = os.Remove(target)
+		return Record{}, Record{}, err
+	}
 	id, err := identityFn(target, maxBytes)
 	if err != nil {
-		return Record{}, Record{}, err
+		return discard(err)
 	}
 	if id.Size != total || id.SHA256 != digest {
-		return Record{}, Record{}, &Error{Kind: ErrStagedMismatch}
+		return discard(&Error{Kind: ErrStagedMismatch})
 	}
 	if err := os.Chmod(target, mode); err != nil {
-		return Record{}, Record{}, err
+		return discard(err)
 	}
 	srcRec.Size, srcRec.SHA256 = total, digest
 	return srcRec, Record{Path: logical, Size: id.Size, SHA256: id.SHA256}, nil
