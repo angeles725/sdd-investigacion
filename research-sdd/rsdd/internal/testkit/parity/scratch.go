@@ -1,6 +1,7 @@
 package parity
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -66,9 +67,7 @@ func copyTree(src, dst string, skipGit bool) error {
 		}
 	})
 	for i := len(dirs) - 1; i >= 0; i-- {
-		if cerr := os.Chmod(dirs[i].path, dirs[i].mode); cerr != nil && err == nil {
-			err = cerr
-		}
+		err = errors.Join(err, os.Chmod(dirs[i].path, dirs[i].mode))
 	}
 	return err
 }
