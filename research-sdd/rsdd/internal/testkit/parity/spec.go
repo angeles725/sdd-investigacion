@@ -82,6 +82,8 @@ func LoadCases(dir string) ([]Case, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: parity spec dir %s unreadable: %w", KindAbsentInput, dir, err)
 	}
+	// os.ReadDir returns the entries sorted by name, so cases come out
+	// sorted by Name without a sort of their own.
 	var cases []Case
 	for _, e := range entries {
 		if e.IsDir() {
@@ -91,7 +93,6 @@ func LoadCases(dir string) ([]Case, error) {
 	if len(cases) == 0 {
 		return nil, fmt.Errorf("%s: 0 parity specs under %s", KindEmptyInput, dir)
 	}
-	sort.Slice(cases, func(i, j int) bool { return cases[i].Name < cases[j].Name })
 	return cases, nil
 }
 

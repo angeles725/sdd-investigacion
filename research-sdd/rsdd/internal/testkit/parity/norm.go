@@ -75,17 +75,15 @@ func compileNormalisers(entries []normaliserEntry) ([]Normaliser, []Problem) {
 	return out, probs
 }
 
-// apply rewrites b and reports how many replacements it made.
-func (n Normaliser) apply(b []byte, sandbox string) ([]byte, int) {
+// apply rewrites b and reports whether it matched anything.
+func (n Normaliser) apply(b []byte, sandbox string) ([]byte, bool) {
 	if n.re == nil { // temproot
 		if sandbox == "" {
-			return b, 0
+			return b, false
 		}
-		c := bytes.Count(b, []byte(sandbox))
-		return bytes.ReplaceAll(b, []byte(sandbox), []byte(n.repl)), c
+		return bytes.ReplaceAll(b, []byte(sandbox), []byte(n.repl)), bytes.Contains(b, []byte(sandbox))
 	}
-	c := len(n.re.FindAll(b, -1))
-	return n.re.ReplaceAll(b, []byte(n.repl)), c
+	return n.re.ReplaceAll(b, []byte(n.repl)), n.re.Match(b)
 }
 
 // applyNormalisers normalises the stdout, stderr and effect of both sides, in
@@ -94,15 +92,15 @@ func (n Normaliser) apply(b []byte, sandbox string) ([]byte, int) {
 func applyNormalisers(legacy, rsdd Observed, ns []Normaliser, sandbox string) (Observed, Observed, []Problem) {
 	var stale []Problem
 	for _, n := range ns {
-		total := 0
+		changed := false
 		for _, o := range []*Observed{&legacy, &rsdd} {
 			for _, f := range []*[]byte{&o.Stdout, &o.Stderr, &o.Effect} {
-				var c int
-				*f, c = n.apply(*f, sandbox)
-				total += c
+				var hit bool
+				*f, hit = n.apply(*f, sandbox)
+				changed = changed || hit
 			}
 		}
-		if total == 0 {
+		if !changed {
 			stale = append(stale, Problem{KindStale, fmt.Sprintf("normaliser %q changed nothing on either side: delete the declaration", n.Name)})
 		}
 	}
