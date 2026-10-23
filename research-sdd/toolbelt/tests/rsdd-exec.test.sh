@@ -66,7 +66,7 @@ mkkit() {   # NAME — KIT=<SCRATCH>/NAME/k it with lib copy, shims and (old) so
   KIT="$SCRATCH/$1/k it"
   mkdir -p "$KIT/toolbelt/lib" "$KIT/rsdd/cmd/rsdd" "$KIT/rsdd/internal/deep"
   cp "$SCLIB" "$KIT/toolbelt/lib/rsdd-exec.sh"
-  cp "$HERE/../lib/hook-emit.sh" "$KIT/toolbelt/lib/hook-emit.sh"
+  cp "$HERE/../lib/hook-emit.sh" "$KIT/toolbelt/lib/hook-emit.sh"   # stage-libs-ok: the only lib rsdd-exec.sh sources; the hook-emit-missing case deletes it
   printf 'package main\n' >"$KIT/rsdd/cmd/rsdd/main.go"
   printf 'package deep\n' >"$KIT/rsdd/internal/deep/deep.go"
   printf 'module x\n' >"$KIT/rsdd/go.mod"; printf 'sum\n' >"$KIT/rsdd/go.sum"
