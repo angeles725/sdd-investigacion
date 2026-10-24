@@ -84,6 +84,24 @@
 #                                        -E, case-sensitive unless MUTANT_TOOTH_ICASE is non-empty.
 #                                        GOOD_RC == BAD_RC with neither --bad-has nor --bad-lacks is
 #                                        REFUSED (FAIL, rc 1): such a tooth cannot tell mutant from original.
+#   mutant_jobs_begin DIR                start a batch of concurrent teeth (kit issue #2331) whose files live in
+#                                        DIR (must exist): NAME.out (stdout+stderr), NAME.rc, NAME.timeout, and
+#                                        NAME.d, the job's own fresh scratch dir. Validates the knobs below; a
+#                                        bad value or a missing DIR is `FATAL: ...` on stderr and rc 2.
+#   mutant_job NAME CMD [ARGS...]        run CMD (a command or a shell function) in the background once fewer
+#                                        than MUTANT_JOBS jobs run; NAME is a plain token, unique in the batch.
+#                                        CMD sees MUTANT_JOB_SCRATCH (its NAME.d) and MUTANT_JOB_INDEX (0-based
+#                                        declaration index), so a job never shares state files with a sibling.
+#                                        Past MUTANT_JOB_TIMEOUT seconds its whole process tree is KILLed.
+#   mutant_jobs_end COUNTER VERDICT [PREFIX]
+#                                        wait for every job, then judge them in DECLARATION order (so the report
+#                                        is byte-identical for any MUTANT_JOBS): a timed-out job is
+#                                        `  FAIL  PREFIXNAME: timed out ...` and one more on the caller's COUNTER
+#                                        (as mutant_or_count), and VERDICT is not called for it; otherwise
+#                                        VERDICT NAME RC OUTFILE runs in the caller's shell, so it may count.
+#                                        Jobs are judged only here: a verdict cannot interleave with another.
+#                                        All three run in ONE shell (no $(...) or pipeline around mutant_job or
+#                                        mutant_jobs_end: only the parent can wait for its jobs), else rc 2.
 #
 # Counting contract (chain / built / tooth): they NEVER touch the caller's counters. Each prints its
 # own `  FAIL  <label>...` line to stdout on failure (mutant_tooth also `  PASS  <label> [...]`) and
@@ -111,6 +129,11 @@
 # Environment:
 #   MUTANT_SYNTAX=none   skip the `bash -n` check (mutants of non-bash files). Default: bash.
 #   MUTANT_TMPROOT       the directory OUT must live under. Default: ${TMPDIR:-/tmp}.
+#
+#   MUTANT_JOBS          concurrent jobs of a mutant_job batch, an integer 1..6 (run-all.sh's own -j cap).
+#                        Default 4, the host budget. run-all.sh -j N exports no per-suite budget, so N
+#                        suites in parallel may run up to 4·N teeth: set MUTANT_JOBS lower there.
+#   MUTANT_JOB_TIMEOUT   hard bound in seconds for ONE job (default 300): past it the job is a named FAIL.
 #
 #   MUTANT_TOOTH_DEBUG   when non-empty, mutant_tooth also prints diagnostic detail to STDERR: the
 #                        label, original and mutant paths, ARGV, both exit codes and both outputs.
@@ -447,6 +470,111 @@ mutant_tooth() {
     printf '  FAIL  %s — THEATER:%s\n' "$label" "${why#;}"; rc=1
   fi
   return "$rc"
+}
+
+# ── Concurrent teeth (kit issue #2331) ───────────────────────────────────────────────────────────
+# Teeth that wait out real bounds are wall-clock bound, not CPU bound: run serially they took a suite
+# past its CI bound (pi-hooks #2248, gh-visibility #2331). One batch per suite; see the header.
+_MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JMAX=1; _MUTANT_JBOUND=1; _MUTANT_JQ=(); _MUTANT_JPIDS=(); _MUTANT_JRUN=0
+
+# _mutant_kill_tree PID SIG — signal PID and every descendant. The tree is collected BEFORE any signal,
+# so a child reparented by its parent's death is not missed. Without pgrep only PID itself is signalled.
+_mutant_kill_tree() {
+  local all=("$1") i=0 p kids
+  while [ "$i" -lt "${#all[@]}" ]; do
+    kids="$(pgrep -P "${all[$i]}" 2>/dev/null)" || kids=""
+    for p in $kids; do all+=("$p"); done
+    i=$((i + 1))
+  done
+  kill -s "$2" "${all[@]}" 2>/dev/null
+  return 0
+}
+
+# _mutant_jobs_int NAME DEFAULT MAX — print the validated integer value of env NAME (DEFAULT when unset), rc 2 if bad.
+_mutant_jobs_int() {
+  local v
+  if [ -n "${!1+x}" ]; then v="${!1}"; else v="$2"; fi
+  # SENTINEL-JOBS-VALIDATE
+  case "$v" in '' | *[!0-9]*) v=bad ;; *) v=$((10#$v)); { [ "$v" -ge 1 ] && [ "$v" -le "$3" ]; } || v=bad ;; esac
+  [ "$v" != bad ] || { printf 'FATAL: %s must be an integer 1..%s (got [%s])\n' "$1" "$3" "${!1}" >&2; return 2; }
+  printf '%s' "$v"
+}
+
+# _mutant_jobs_same_shell FN — the jobs are children of the shell that began the batch: only that shell
+# can wait for them (from a $(...) or a pipeline `wait` returns at once and every job would read as dead).
+_mutant_jobs_same_shell() {
+  [ "$BASHPID" = "$_MUTANT_JSHELL" ] && return 0
+  printf 'FATAL: %s must run in the shell that called mutant_jobs_begin (not a subshell)\n' "$1" >&2; return 2
+}
+
+# mutant_jobs_begin DIR — see header.
+mutant_jobs_begin() {
+  local dir="${1:-}" j b
+  [ -n "$dir" ] && [ -d "$dir" ] || { printf 'FATAL: mutant_jobs_begin needs an existing directory (got [%s])\n' "$dir" >&2; return 2; }
+  j="$(_mutant_jobs_int MUTANT_JOBS 4 6)" || return 2
+  b="$(_mutant_jobs_int MUTANT_JOB_TIMEOUT 300 86400)" || return 2
+  _MUTANT_JDIR="$dir" _MUTANT_JSHELL="$BASHPID" _MUTANT_JMAX="$j" _MUTANT_JBOUND="$b" _MUTANT_JRUN=0
+  _MUTANT_JQ=(); _MUTANT_JPIDS=()
+}
+
+# mutant_job NAME CMD [ARGS...] — see header.
+mutant_job() {
+  local name="${1:-}" d="$_MUTANT_JDIR" q idx
+  [ -n "$d" ] || { printf 'FATAL: mutant_job called before mutant_jobs_begin\n' >&2; return 2; }
+  _mutant_jobs_same_shell mutant_job || return 2
+  case "$name" in '' | *[!A-Za-z0-9._-]*) printf 'FATAL: mutant_job name [%s] is not a plain token\n' "$name" >&2; return 2 ;; esac
+  for q in "${_MUTANT_JQ[@]+"${_MUTANT_JQ[@]}"}"; do
+    [ "$q" != "$name" ] || { printf 'FATAL: mutant_job duplicate name [%s]\n' "$name" >&2; return 2; }
+  done
+  [ "$#" -ge 2 ] || { printf 'FATAL: mutant_job %s has no command\n' "$name" >&2; return 2; }
+  shift
+  mkdir -- "$d/$name.d" || return 2
+  # SENTINEL-JOBS-THROTTLE
+  while [ "$_MUTANT_JRUN" -ge "$_MUTANT_JMAX" ]; do wait -n; _MUTANT_JRUN=$((_MUTANT_JRUN - 1)); done
+  idx="${#_MUTANT_JQ[@]}"; _MUTANT_JQ+=("$name")
+  # One manager per job: the command (its own subshell, so an `exit` in a function ends only it), a
+  # watchdog that kills its whole tree at the bound and leaves NAME.timeout, and NAME.rc once it ended.
+  # The manager and the watchdog hold no inherited stdout/stderr: a caller's $(...) must not wait on a
+  # leftover watchdog `sleep`, and bash's "Killed" job notice must not reach the report.
+  (
+    MUTANT_JOB_SCRATCH="$d/$name.d" MUTANT_JOB_INDEX="$idx"
+    export MUTANT_JOB_SCRATCH MUTANT_JOB_INDEX
+    ( "$@" ) >"$d/$name.out" 2>&1 </dev/null & w=$!
+    # SENTINEL-JOBS-BOUND
+    ( sleep "$_MUTANT_JBOUND"; : >"$d/$name.timeout"; _mutant_kill_tree "$w" KILL ) & g=$!
+    wait "$w"; r=$?
+    _mutant_kill_tree "$g" KILL; wait "$g"
+    printf '%s\n' "$r" >"$d/$name.rc"
+  ) >/dev/null 2>&1 </dev/null &
+  _MUTANT_JPIDS+=("$!"); _MUTANT_JRUN=$((_MUTANT_JRUN + 1))
+}
+
+# _mutant_job_fail LINE — print one suite-format FAIL line and fail (the counted unit for mutant_or_count).
+_mutant_job_fail() { printf '  FAIL  %s\n' "$1"; return 1; }
+
+# mutant_jobs_end COUNTER VERDICT [PREFIX] — see header.
+mutant_jobs_end() {
+  local _mje_c="${1:-}" _mje_v="${2:-}" _mje_p="${3:-}" _mje_d="$_MUTANT_JDIR" _mje_n _mje_r
+  [ -n "$_mje_d" ] || { printf 'FATAL: mutant_jobs_end called before mutant_jobs_begin\n' >&2; return 2; }
+  _mutant_jobs_same_shell mutant_jobs_end || return 2
+  if [[ ! "$_mje_c" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ "$_mje_c" == _m* ]]; then
+    printf 'FATAL: mutant_jobs_end bad counter name [%s]\n' "$_mje_c" >&2; return 2
+  fi
+  declare -F "$_mje_v" >/dev/null 2>&1 || { printf 'FATAL: mutant_jobs_end verdict [%s] is not a function\n' "$_mje_v" >&2; return 2; }
+  [ "${#_MUTANT_JPIDS[@]}" -eq 0 ] || wait "${_MUTANT_JPIDS[@]}"
+  # SENTINEL-JOBS-ORDER
+  for _mje_n in "${_MUTANT_JQ[@]+"${_MUTANT_JQ[@]}"}"; do
+    # SENTINEL-JOBS-TIMEOUT
+    if [ -e "$_mje_d/$_mje_n.timeout" ]; then
+      mutant_or_count "$_mje_c" _mutant_job_fail "$_mje_p$_mje_n: timed out — killed after ${_MUTANT_JBOUND}s (MUTANT_JOB_TIMEOUT)"
+    elif ! _mje_r="$(cat "$_mje_d/$_mje_n.rc" 2>/dev/null)" || [ -z "$_mje_r" ]; then
+      mutant_or_count "$_mje_c" _mutant_job_fail "$_mje_p$_mje_n: no exit status recorded — the job manager died"
+    else
+      "$_mje_v" "$_mje_n" "$_mje_r" "$_mje_d/$_mje_n.out"
+    fi
+  done
+  _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JQ=(); _MUTANT_JPIDS=(); _MUTANT_JRUN=0
+  return 0
 }
 
 # ── Shared VM-executor tooth kit (kit issue #1576) ───────────────────────────────────────────────

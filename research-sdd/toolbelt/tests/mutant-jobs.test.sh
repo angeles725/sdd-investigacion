@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# mutant-jobs.test.sh — suite for the concurrent-teeth batch of tests/lib/mutant.sh (kit issue #2331):
+# mutant_jobs_begin / mutant_job / mutant_jobs_end. Invariants: verdicts in declaration order whatever the
+# finishing order (a byte-identical report for any MUTANT_JOBS), MUTANT_JOBS bounds the live jobs, each job
+# has its own scratch dir, a job past MUTANT_JOB_TIMEOUT is a named FAIL counted once with its process tree
+# killed, and every misuse is a loud rc 2. Kept out of mutant.test.sh: its teeth re-run that whole suite,
+# so these timed cases would be paid once per helper tooth there.
+#
+# Usage: mutant-jobs.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 setup.
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"
+[ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
+# shellcheck source=lib/mutant.sh
+. "$LIB"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+unset MUTANT_JOBS MUTANT_JOB_TIMEOUT
+pass=0; fail=0
+ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+echo "== mutant-jobs.test.sh =="
+
+# expect_rc <label> <want-rc> <want-stderr-substring> <cmd...> — the exact rc AND the specific refusal text.
+expect_rc(){
+  local label="$1" want="$2" needle="$3"; shift 3
+  local err rc
+  err="$("$@" 2>&1 >/dev/null)"; rc=$?
+  if [ "$rc" -eq "$want" ] && [[ "$err" == *"$needle"* ]]; then ok "$label"
+  else no "$label (rc=$rc want=$want; stderr=[$err])"; fi
+}
+
+# Concurrent teeth (#2331): mutant_jobs_begin / mutant_job / mutant_jobs_end run teeth MUTANT_JOBS at a time,
+# each in its own scratch dir under a hard MUTANT_JOB_TIMEOUT bound, and judge them in DECLARATION order after all ran.
+# jv NAME RC OUT — the test verdict: one line per job with its rc and output, so order and attribution are visible.
+jv(){ printf 'V %s rc=%s out=[%s]\n' "$1" "$2" "$(tr '\n' ' ' < "$3")"; }
+# jbatch JOBS — four jobs that FINISH in reverse declaration order (d first, a last); prints the verdict lines.
+jbatch(){
+  local d; d="$(mktemp -d "$TMP/jb.XXXXXX")"; jc=0
+  MUTANT_JOBS="$1" mutant_jobs_begin "$d" || return 2
+  mutant_job a bash -c 'sleep 0.3; echo A; exit 3'
+  mutant_job b bash -c 'sleep 0.2; echo B >&2'
+  mutant_job c bash -c 'sleep 0.1; echo C; exit 1'
+  mutant_job d bash -c 'echo D'
+  mutant_jobs_end jc jv "teeth "
+}
+j1="$(jbatch 1)"; j4="$(jbatch 4)"
+want=$'V a rc=3 out=[A ]\nV b rc=0 out=[B ]\nV c rc=1 out=[C ]\nV d rc=0 out=[D ]'
+if [ "$j4" = "$want" ]; then ok "jobs: verdicts in declaration order, each with its own rc and stdout+stderr (jobs=4)"
+else no "jobs: order/attribution under jobs=4 [$j4]"; fi
+if [ "$j1" = "$j4" ]; then ok "jobs: the report is byte-identical under jobs=1 and jobs=4"; else no "jobs: jobs=1 report differs [$j1]"; fi
+# throttle: each job counts the live jobs (marker files in one shared dir) while it runs; the peak is the concurrency.
+jpeak(){
+  local d sh n; d="$(mktemp -d "$TMP/jp.XXXXXX")"; sh="$d/live"; mkdir "$sh" "$d/j"; jc=0
+  MUTANT_JOBS="$1" mutant_jobs_begin "$d/j" || return 2
+  for n in p1 p2 p3 p4 p5 p6; do
+    mutant_job "$n" bash -c ': > "$1/$2"; sleep 0.5; ls "$1" | wc -l; rm -f "$1/$2"' _ "$sh" "$n"
+  done
+  mutant_jobs_end jc jpv "" ; printf '%s\n' "$JPEAK"
+}
+jpv(){ local v; v="$(tr -dc 0-9 < "$3")"; [ "${v:-0}" -gt "${JPEAK:-0}" ] && JPEAK="$v"; return 0; }
+JPEAK=0; p2="$(jpeak 2)"; JPEAK=0; p4="$(jpeak 4)"
+if [ "$p2" -le 2 ] && [ "$p4" -ge 3 ] && [ "$p4" -le 4 ]; then ok "jobs: MUTANT_JOBS bounds the live jobs (peak $p2 at 2, $p4 at 4)"
+else no "jobs: throttle peak jobs=2 -> $p2, jobs=4 -> $p4"; fi
+# isolation: every job gets its own fresh, empty MUTANT_JOB_SCRATCH and its declaration index in MUTANT_JOB_INDEX.
+d="$(mktemp -d "$TMP/ji.XXXXXX")"; jc=0
+MUTANT_JOBS=4 mutant_jobs_begin "$d"
+for n in i0 i1 i2; do mutant_job "$n" bash -c 'ls -A "$MUTANT_JOB_SCRATCH" | wc -l; echo "$MUTANT_JOB_SCRATCH $MUTANT_JOB_INDEX"; : > "$MUTANT_JOB_SCRATCH/mine"'; done
+mutant_jobs_end jc jv "" >"$d.report"; ji="$(cat "$d.report")"
+if grep -qx "V i0 rc=0 out=\[0 $d/i0.d 0 \]" <<<"$ji" && grep -qx "V i1 rc=0 out=\[0 $d/i1.d 1 \]" <<<"$ji" && grep -qx "V i2 rc=0 out=\[0 $d/i2.d 2 \]" <<<"$ji"; then
+  ok "jobs: each job has its own empty scratch dir and its declaration index"
+else no "jobs: per-job isolation [$ji]"; fi
+# timeout: a job past MUTANT_JOB_TIMEOUT is a NAMED FAIL counted once, its verdict is never called, and its whole
+# process tree (a grandchild sleep included) is killed.
+d="$(mktemp -d "$TMP/jt.XXXXXX")"; jc=0; t0=$SECONDS
+MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT=1 mutant_jobs_begin "$d"
+mutant_job slow bash -c 'sleep 30 & echo $! > "$MUTANT_JOB_SCRATCH/gc.pid"; wait'
+mutant_job quick bash -c 'echo Q'
+mutant_jobs_end jc jv "teeth " >"$d.report"; jt="$(cat "$d.report")"
+jgc="$(cat "$d/slow.d/gc.pid" 2>/dev/null)"
+if [ "$jt" = $'  FAIL  teeth slow: timed out — killed after 1s (MUTANT_JOB_TIMEOUT)\nV quick rc=0 out=[Q ]' ] && [ $((SECONDS - t0)) -lt 10 ]; then
+  ok "jobs: a job past MUTANT_JOB_TIMEOUT is a named FAIL, not a skip or a pass; the others are still judged"
+else no "jobs: timeout report [$jt] after $((SECONDS - t0))s"; fi
+# the count happens in the CALLER's shell (not inside the $(...) above): run it again without a substitution
+d2="$(mktemp -d "$TMP/jt.XXXXXX")"; jc=0
+MUTANT_JOBS=1 MUTANT_JOB_TIMEOUT=1 mutant_jobs_begin "$d2"; mutant_job slow bash -c 'exec sleep 30'
+mutant_jobs_end jc jv "" >/dev/null
+if [ "$jc" = 1 ]; then ok "jobs: a timed-out job adds exactly one to the caller's counter"; else no "jobs: timeout counted $jc times"; fi
+if [ -n "$jgc" ] && ! kill -0 "$jgc" 2>/dev/null; then ok "jobs: the timed-out job's grandchild is killed with it"
+else no "jobs: grandchild [$jgc] of a timed-out job survived"; [ -n "$jgc" ] && kill -KILL "$jgc" 2>/dev/null; fi
+# misuse is a loud rc 2, never a quiet no-op
+expect_rc "jobs: MUTANT_JOBS=0 is refused" 2 "MUTANT_JOBS" env MUTANT_JOBS=0 bash -c '. "$1"; mutant_jobs_begin "$2"' _ "$LIB" "$TMP"
+for v in '' abc -1 7 '1 2'; do
+  expect_rc "jobs: MUTANT_JOBS='$v' is refused" 2 "MUTANT_JOBS" env MUTANT_JOBS="$v" bash -c '. "$1"; mutant_jobs_begin "$2"' _ "$LIB" "$TMP"
+done
+expect_rc "jobs: MUTANT_JOB_TIMEOUT=0 is refused" 2 "MUTANT_JOB_TIMEOUT" env MUTANT_JOB_TIMEOUT=0 bash -c '. "$1"; mutant_jobs_begin "$2"' _ "$LIB" "$TMP"
+expect_rc "jobs: a missing batch dir is refused" 2 "directory" bash -c '. "$1"; mutant_jobs_begin "$2/nope"' _ "$LIB" "$TMP"
+expect_rc "jobs: mutant_job before mutant_jobs_begin is refused" 2 "mutant_jobs_begin" bash -c '. "$1"; mutant_job a true' _ "$LIB"
+expect_rc "jobs: a job name that is not a plain token is refused" 2 "name" bash -c '. "$1"; d=$(mktemp -d "$2/jm.XXXXXX"); mutant_jobs_begin "$d"; mutant_job a/b true' _ "$LIB" "$TMP"
+expect_rc "jobs: a duplicate job name is refused" 2 "duplicate" bash -c '. "$1"; d=$(mktemp -d "$2/jm.XXXXXX"); mutant_jobs_begin "$d"; mutant_job a true; mutant_job a true' _ "$LIB" "$TMP"
+expect_rc "jobs: an undefined verdict function is refused" 2 "verdict" bash -c '. "$1"; d=$(mktemp -d "$2/jm.XXXXXX"); mutant_jobs_begin "$d"; mutant_job a true; c=0; mutant_jobs_end c nope_fn' _ "$LIB" "$TMP"
+expect_rc "jobs: mutant_jobs_end from a subshell of the batch shell is refused" 2 "subshell" bash -c '. "$1"; d=$(mktemp -d "$2/jm.XXXXXX"); mutant_jobs_begin "$d"; mutant_job a true; v(){ :; }; c=0; ( mutant_jobs_end c v )' _ "$LIB" "$TMP"
+expect_rc "jobs: a bad counter name is refused" 2 "counter" bash -c '. "$1"; d=$(mktemp -d "$2/jm.XXXXXX"); mutant_jobs_begin "$d"; mutant_job a true; v(){ :; }; mutant_jobs_end "x y" v' _ "$LIB" "$TMP"
+
+# --- teeth: mutate the job batch and require the specific case to go red ---
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: job-batch mutants (each must fail the named case) --"
+  # teeth_case NAME SED_SCRIPT NEEDLE — a helper mutant (built with the helper) must turn case NEEDLE red.
+  teeth_case(){
+    local name="$1" m="$TMP/helper-$1.sh" res
+    if ! mutant_sed "$LIB" "$m" "$2" 2>"$TMP/helper-$name.err"; then
+      no "teeth $name: could not build a valid helper mutant ($(cat "$TMP/helper-$name.err"))"; return
+    fi
+    res="$(MUTANT_LIB="$m" bash "$HERE/mutant-jobs.test.sh" 2>&1)"
+    if grep -qF "  FAIL  $3" <<<"$res"; then ok "teeth $name: mutated helper turns the named case red"
+    else no "teeth $name: mutated helper did NOT fail case [$3] — check is THEATER"; fi
+  }
+  teeth_case order 's/_MUTANT_JQ+=("\$name")/_MUTANT_JQ=("$name" "${_MUTANT_JQ[@]+"${_MUTANT_JQ[@]}"}")/' \
+    "jobs: order/attribution under jobs=4"
+  teeth_case throttle '/SENTINEL-JOBS-THROTTLE/{n;s/-ge "\$_MUTANT_JMAX"/-ge 99/}' \
+    "jobs: throttle peak"
+  teeth_case validate '/SENTINEL-JOBS-VALIDATE/{n;s/{ \[ "\$v" -ge 1 \] && \[ "\$v" -le "\$3" \]; }/true/}' \
+    "jobs: MUTANT_JOBS=0 is refused"
+  teeth_case timeout '/SENTINEL-JOBS-TIMEOUT/{n;s/if \[ -e "\$_mje_d\/\$_mje_n\.timeout" \]; then/if false; then/}' \
+    "jobs: timeout report"
+  teeth_case nokill 's/_mutant_kill_tree "\$w" KILL/:/' \
+    "jobs: timeout report"
+  teeth_case scratch 's/MUTANT_JOB_SCRATCH="\$d\/\$name\.d"/MUTANT_JOB_SCRATCH="$d"/' \
+    "jobs: per-job isolation"
+fi
+
+printf '== %d passed · %d failed ==\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]
