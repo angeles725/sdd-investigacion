@@ -15,7 +15,7 @@ LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"
 SLOTS_LIB="${JOB_SLOTS_LIB:-$HERE/lib/job-slots.sh}"
 RUNALL="${RUN_ALL_SUT:-$HERE/run-all.sh}"
 FIX="$HERE/fixtures/job-budget"; WATCH="$FIX/watch.sh"
-for f in "$LIB" "$RUNALL" "$WATCH"; do [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 2; }; done
+for f in "$LIB" "$RUNALL" "$WATCH" "$FIX/suite.sh"; do [ -f "$f" ] || { echo "FATAL: not found: $f" >&2; exit 2; }; done
 command -v flock >/dev/null 2>&1 || { echo "FATAL: flock (util-linux) is not on PATH" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$LIB"
@@ -141,6 +141,32 @@ if want plain; then
   if [ "$pp" = 3 ]; then ok "plain: without RSDD_JOB_SLOTS MUTANT_JOBS=3 still runs three jobs at once"; else no "plain: peak $pp (want 3)"; fi
 fi
 
+# run-all: two fixture suites (a work phase + a 4-job teeth batch each) under a run-all.sh copy with -j 2 never
+# run more than 2 jobs at once, through GNU parallel and through the serial fallback (a non-GNU `parallel`).
+# runall_peak NAME ARGS... — build a fixture tree (the nested repo shape run-all.sh resolves) and run it; sets RP/RRC.
+runall_peak(){
+  local name="$1" root m; shift; root="$TMP/$name/research-sdd/toolbelt/tests"; m="$TMP/$name-m"
+  mkdir -p "$root/lib" "$TMP/$name/research-sdd/install/tests" "$m/live"; : > "$m/peaks"
+  cp "$RUNALL" "$root/run-all.sh"; cp "$HERE"/lib/*.sh "$root/lib/"; cp "$LIB" "$root/lib/mutant.sh"
+  if [ -f "$SLOTS_LIB" ]; then cp "$SLOTS_LIB" "$root/lib/job-slots.sh"; fi
+  printf '# fixture: no extras\n' > "$root/suite-tiers.txt"
+  cp "$FIX/suite.sh" "$root/a.test.sh"; cp "$FIX/suite.sh" "$root/b.test.sh"
+  ( cd "$TMP/$name" && JB_WATCH="$WATCH" JB_LIVE="$m/live" JB_PEAKS="$m/peaks" bash "$root/run-all.sh" "$@" ) >"$m.out" 2>&1; RRC=$?
+  RP="$(peak "$m/peaks")"
+}
+if want runall; then
+  _pv="$(parallel --version 2>/dev/null)"
+  if [[ "$_pv" == *"GNU parallel"* ]]; then
+    runall_peak ra -j 2
+    if [ "$RRC" = 0 ] && [ "$RP" -ge 1 ] && [ "$RP" -le 2 ]; then ok "run-all: -j 2 with two teeth-batch suites never runs more than 2 jobs (peak $RP)"
+    else no "run-all: -j 2 peak $RP (cap 2) rc $RRC [$(tail -n 5 "$TMP/ra-m.out" | tr '\n' ' ')]"; fi
+  else echo "  SKIP  run-all: -j 2 budget through GNU parallel (GNU parallel not installed)"; fi
+  mkdir "$TMP/fakebin"; printf '#!/bin/sh\necho "not GNU"\n' > "$TMP/fakebin/parallel"; chmod +x "$TMP/fakebin/parallel"
+  PATH="$TMP/fakebin:$PATH" runall_peak rs -j 2
+  if [ "$RP" -ge 1 ] && [ "$RP" -le 2 ] && grep -qF 'DEGRADED' "$TMP/rs-m.out"; then ok "run-all: -j 2 falling back to a serial run still runs at most 2 jobs (peak $RP)"
+  else no "run-all: serial fallback peak $RP (cap 2) rc $RRC"; fi
+fi
+
 # --- teeth: mutate the budget and require the named case to go red ---
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: job-budget mutants (each must fail the named case) --"
@@ -163,6 +189,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth_case release-timeout mutant '/SENTINEL-JOBS-SLOT-CLOSE/{n;s/ {s}<&- & w=/ \& w=/}' timeout "timeout: slots not all free after the batch"
   teeth_case check slots '/SENTINEL-SLOTS-CHECK/{n;s/^  if .* then$/  return 0; if false; then/}' fatal "fatal: RSDD_JOB_SLOTS=[no-such-budget]"
   teeth_case create slots '/SENTINEL-SLOTS-CREATE/{n;s/>&2; return 2; fi/>\&2; return 0; fi/}' fatal "fatal: a budget that cannot be created"
+  if [[ "$(parallel --version 2>/dev/null)" == *"GNU parallel"* ]]; then
+    teeth_case export runall '/SENTINEL-BUDGET-EXPORT/{n;s/export RSDD_JOB_SLOTS=/export RSDD_JOB_SLOTS_UNUSED=/}' runall "run-all: -j 2 peak"
+    teeth_case worker runall '/SENTINEL-BUDGET-WORKER/,+3s/rsdd_slot_take slot "\$RSDD_JOB_SLOTS"/exec {slot}<\/dev\/null/' runall "run-all: -j 2 peak"
+  else echo "  SKIP  teeth export/worker: GNU parallel not installed"; fi
+  teeth_case hold runall '/SENTINEL-BUDGET-HOLD/{n;s/rsdd_slot_take _ra_slot "\$RSDD_JOB_SLOTS" ||/true ||/}' runall "run-all: serial fallback peak"
 fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"

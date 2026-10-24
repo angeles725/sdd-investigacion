@@ -74,8 +74,12 @@ newdir(){ # case-name
   # Suite tiers (kit issue #2203): an ABSENT suite-tiers.txt is a typed DEGRADED + exit 1, so every fixture
   # tree gets a comment-only manifest (= no extras) unless a case writes its own via tier_man().
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"
+  stage_job_slots "$root"
   printf '%s' "$root"
 }
+# stage_job_slots <toolbelt-tests-path> — run-all.sh -j N > 1 sources lib/job-slots.sh for its job budget (kit
+# issue #2338) and refuses an unbounded run without it, so every fixture tree carries the real helper.
+stage_job_slots(){ mkdir -p "$1/lib" && cp "$HERE/lib/job-slots.sh" "$1/lib/job-slots.sh"; }
 # install_dir_for <toolbelt-tests-path> — the research-sdd/install/tests sibling of a newdir()
 # result, mirroring the SUT's own SCRIPT_DIR/../../install/tests resolution.
 install_dir_for(){ printf '%s' "${1%/toolbelt/tests}/install/tests"; }
@@ -88,6 +92,7 @@ mut_workdir(){ # name
   mkdir -p "$root"
   mkdir -p "$(install_dir_for "$root")"
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"   # see newdir(): an absent manifest is DEGRADED (kit issue #2203)
+  stage_job_slots "$root"
   printf '%s' "$root"
 }
 # A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.

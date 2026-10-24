@@ -116,6 +116,10 @@
 #                    a serial re-run of only the candidate suites (those whose run window held the
 #                    leaked path's mtime) to name the offender; otherwise a typed batch label plus an
 #                    `Attribution:` line saying why, never silently.
+#                    N is ONE job budget for the whole run (kit issue #2338): the suites AND their
+#                    teeth batches (lib/mutant.sh mutant_job) run at most N jobs at once, also on
+#                    the serial fallback (lib/job-slots.sh; exported as RSDD_JOB_SLOTS). A budget
+#                    that cannot be created is FATAL, exit 2.
 #
 #   --prove-teeth    Forwarded to the *.test.sh suites (mutation self-test /
 #                    negative control). Node suites are n/a (they have no flag).
@@ -909,6 +913,7 @@ tmp_out="$(mktemp)"
 # SENTINEL-PAR-DIR-INIT
 PAR_DIR=""
 _par_dir_created=""
+JOB_SLOTS_DIR=""        # the -j job budget's private dir (kit issue #2338), created below only when -j N > 1
 RUN_TMP_ROOT=""
 TMPDIR_DEGRADED_REASON=""
 tmp_leftovers=()        # "<suite basename>: <count>"
@@ -932,6 +937,7 @@ fi
 _run_all_cleanup() {
   rm -f "$tmp_out"
   [[ -n "$_par_dir_created" && -n "$PAR_DIR" ]] && rm -rf "$PAR_DIR"
+  [[ -n "$JOB_SLOTS_DIR" ]] && rm -rf "$JOB_SLOTS_DIR"
   if [[ -n "$RUN_TMP_ROOT" && -z "$KEEP_TMP" ]]; then
     # A leftover the suite chmod'ed shut would defeat rm -rf; reopen it first (best effort).
     chmod -R u+rwX "$RUN_TMP_ROOT" 2>/dev/null
@@ -1262,6 +1268,29 @@ if [[ "$JOBS" -gt 1 ]]; then
 fi
 # An empty shard (kit issue #2114) has nothing to batch; `parallel ::: <nothing>` would read stdin.
 [[ ${#all_suites[@]} -gt 0 ]] || JOBS_ACTIVE=""
+# --- One job budget for the whole run (kit issue #2338) ------------------------------------------
+# -j N > 1 caps EVERYTHING this run starts at N concurrent jobs: the suites AND their teeth batches
+# (lib/mutant.sh mutant_job). The budget is N slot files (lib/job-slots.sh, whose header holds the design
+# and the no-deadlock argument) exported as RSDD_JOB_SLOTS: a -j worker holds one slot while its suite
+# runs, and this shell holds one for every suite it runs itself (the serial fallback, the attribution
+# re-runs). A budget that cannot be created is a FATAL exit 2: never an unbounded run. -j 1 / serial by
+# default creates none, so the suites' batches keep their own MUTANT_JOBS throttle.
+_job_budget_hold() {   # take this shell's slot (once); the suites it runs inherit it
+  [[ -n "${RSDD_JOB_SLOTS:-}" && -z "${_ra_slot:-}" ]] || return 0
+  # SENTINEL-BUDGET-HOLD
+  rsdd_slot_take _ra_slot "$RSDD_JOB_SLOTS" || { echo "run-all.sh: FATAL: cannot hold a slot of the -j job budget" >&2; exit 2; }
+}
+if [[ "$JOBS" -gt 1 && ${#all_suites[@]} -gt 0 ]]; then
+  # shellcheck source=lib/job-slots.sh
+  if ! . "$SCRIPT_DIR/lib/job-slots.sh" || ! JOB_SLOTS_DIR="$(mktemp -d)" || [[ -z "$JOB_SLOTS_DIR" ]] \
+     || ! rsdd_slots_create "$JOB_SLOTS_DIR/slots" "$JOBS"; then
+    echo "run-all.sh: FATAL: cannot create the -j $JOBS job budget (lib/job-slots.sh); refusing an unbounded run" >&2
+    exit 2
+  fi
+  # SENTINEL-BUDGET-EXPORT
+  export RSDD_JOB_SLOTS="$JOB_SLOTS_DIR/slots" RSDD_JOB_SLOTS_LIB="$SCRIPT_DIR/lib/job-slots.sh"
+  [[ -n "$JOBS_ACTIVE" ]] || _job_budget_hold
+fi
 _rsdd_snapshot
 if [[ -n "$JOBS_ACTIVE" ]]; then
   PAR_DIR="$(mktemp -d)"; _par_dir_created=1
@@ -1275,16 +1304,26 @@ if [[ -n "${RUN_TMP_ROOT:-}" ]]; then
 fi
 # Wall-clock window of this suite, used to bound the leak-attribution re-run (kit issue #1491).
 _now() { local _v; _v="$(date +%s.%N 2>/dev/null)"; case "$_v" in ""|*[!0-9.]*) _v="$(date +%s 2>/dev/null)" ;; esac; printf '%s' "$_v"; }
+# One job budget (kit issue #2338): hold one slot while the suite runs, on a descriptor the suite does not
+# inherit, so the slot frees itself when this worker ends, however it ends.
+if [[ -n "${RSDD_JOB_SLOTS:-}" ]]; then
+  # SENTINEL-BUDGET-WORKER
+  # shellcheck source=lib/job-slots.sh
+  if ! . "$RSDD_JOB_SLOTS_LIB" || ! rsdd_slot_take slot "$RSDD_JOB_SLOTS" 2>"$PAR_DIR/$idx.out"; then
+    echo "run-all.sh: FATAL: $(basename "$suite") could not hold a slot of the -j job budget" >> "$PAR_DIR/$idx.out"
+    echo 2 > "$PAR_DIR/$idx.rc"; exit 2
+  fi
+else exec {slot}</dev/null; fi
 _t0="$(_now)"
 # Progress to stderr as jobs run (the replay only happens at the end): a hung suite is the one
 # with a "started" line and no "done" line.
 echo "run-all.sh: -j started: $(basename "$suite")" >&2
 if [[ "$suite" == *.test.mjs ]]; then
-  node "$suite" > "$PAR_DIR/$idx.out" 2>&1
+  node "$suite" > "$PAR_DIR/$idx.out" 2>&1 {slot}<&-
 elif [[ -n "${PROVE_TEETH:-}" ]]; then
-  bash "$suite" "$PROVE_TEETH" > "$PAR_DIR/$idx.out" 2>&1
+  bash "$suite" "$PROVE_TEETH" > "$PAR_DIR/$idx.out" 2>&1 {slot}<&-
 else
-  bash "$suite" > "$PAR_DIR/$idx.out" 2>&1
+  bash "$suite" > "$PAR_DIR/$idx.out" 2>&1 {slot}<&-
 fi
 rc=$?
 _t1="$(_now)"
@@ -1309,6 +1348,7 @@ WORKER
   if [[ "$_par_results" -ne "${#_par_run[@]}" ]]; then
     echo "run-all.sh: -j batch recorded $_par_results result(s) for ${#_par_run[@]} suite(s); the missing suites are reported as failed" >&2
   fi
+  _job_budget_hold   # the batch is over: the attribution re-runs below are this shell's own suites
   _hv_before=${#hermeticity_violations[@]}; _kv_before=${#kit_tree_violations[@]}
   _check_cwd_hermeticity "$PARALLEL_LABEL"
   _check_kit_tree_hermeticity "$PARALLEL_LABEL"
