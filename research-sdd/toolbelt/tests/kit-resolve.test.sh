@@ -14,8 +14,9 @@
 #   offline      unreachable origin -> refused; --offline-ok -> WARN + "unfetched", nothing refreshed
 #   env          $RESEARCH_SDD_KIT valid -> its KIT line; no marker -> exit 3; stale -> refused, never touched
 #   cli          -h prints the header; an unknown flag, or no candidate at all -> exit 3; not git -> refused
+# Mutation controls (--prove-teeth): each refusal and the refresh rule is mutated and its case must go red.
 #
-# Usage: kit-resolve.test.sh      env KIT_RESOLVE_SUT=<path> runs the cases against another script
+# Usage: kit-resolve.test.sh [--prove-teeth]      env KIT_RESOLVE_SUT=<path> runs the cases against another script
 # Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
@@ -24,7 +25,7 @@ SUT="${KIT_RESOLVE_SUT:-$HERE/../kit-resolve.sh}"
 command -v git >/dev/null 2>&1 || { echo "FATAL: git not installed" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
-mutant_bootstrap mutant_cleanup_register || exit 2
+mutant_bootstrap mutant_chain mutant_is_crash mutant_cleanup_register || exit 2
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/kit-resolve-test.XXXXXX")" || exit 2
 mutant_cleanup_register "$T" || exit 2
@@ -178,6 +179,47 @@ for c in "${CASES[@]}"; do
     *) no "$c: $WHY" ;;
   esac
 done
+
+# ---- mutation controls --------------------------------------------------------------------------------
+# tooth LABEL CASE MUTANT — the case held on the real SUT above; on MUTANT it must not hold, and the
+# mutant must not merely crash (a crash is theater, not teeth).
+tooth() {
+  WHY=""; "$2" "$3"; local r=$?
+  if [ "$r" = 0 ]; then no "tooth $1: mutant survived $2"
+  elif [ "$r" = 2 ]; then no "tooth $1: fixture setup failed"
+  elif mutant_is_crash "$ERR" bash; then no "tooth $1: mutant crashed ($ERR)"
+  else ok "tooth $1 bites $2"; fi
+}
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: each refusal and the refresh rule must be load-bearing --"
+  MUT="$T/mut"; mkdir -p "$MUT"
+  mk() { mutant_chain "$@" || { fail=$((fail + 1)); return 1; }; }
+  # shellcheck disable=SC2016  # the sed expressions are literal text
+  {
+    mk m1 "$SUT" "$MUT/m1.sh" 's/\[ "\$(behind)" -gt 0 \] \&\& ancestor; then/false; then/' \
+      && tooth "m1 refresh never runs" c_refresh "$MUT/m1.sh"
+    mk m2 "$SUT" "$MUT/m2.sh" 's/status --porcelain --untracked-files=no/status --porcelain --untracked-files=no -- no-such-path/' \
+      && tooth "m2 tracked changes ignored" c_dirty "$MUT/m2.sh"
+    mk m3 "$SUT" "$MUT/m3.sh" 's/status --porcelain --untracked-files=no/status --porcelain/' \
+      && tooth "m3 untracked paths block" c_untracked "$MUT/m3.sh"
+    mk m4 "$SUT" "$MUT/m4.sh" 's/^ancestor() {.*/ancestor() { true; }/' \
+      && tooth "m4a ancestry unchecked" c_ahead "$MUT/m4.sh" \
+      && tooth "m4b ancestry unchecked" c_diverged "$MUT/m4.sh"
+    mk m5 "$SUT" "$MUT/m5.sh" 's/\[ "\$branch" = main \] ||/true ||/' \
+      && tooth "m5a branch unchecked" c_branch "$MUT/m5.sh" \
+      && tooth "m5b branch unchecked" c_detached "$MUT/m5.sh"
+    mk m6 "$SUT" "$MUT/m6.sh" 's/\[ "\${wt#"\$TOP"\/}" != "\$wt" \]/false/' \
+      && tooth "m6 nested worktree unchecked" c_nested "$MUT/m6.sh"
+    mk m7 "$SUT" "$MUT/m7.sh" 's/^OFFLINE_OK=0$/OFFLINE_OK=1/' \
+      && tooth "m7 offline accepted without the flag" c_offline "$MUT/m7.sh"
+    mk m8 "$SUT" "$MUT/m8.sh" 's/if \[ "\$SOURCE" = default \] \&\& \[ "\$FRESH"/if [ "$FRESH"/' \
+      && tooth "m8 env kit refreshed" c_env_stale "$MUT/m8.sh"
+    mk m9 "$SUT" "$MUT/m9.sh" 's/\[ -f "\$RESEARCH_SDD_KIT\/METHODOLOGY.md" \] ||/true ||/' \
+      && tooth "m9 env marker unchecked" c_env_marker "$MUT/m9.sh"
+    mk m10 "$SUT" "$MUT/m10.sh" 's/^\[ "\$n" -eq 0 \] || refuse "stale/true || refuse "stale/' \
+      && tooth "m10 stale accepted" c_env_stale "$MUT/m10.sh"
+  }
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
