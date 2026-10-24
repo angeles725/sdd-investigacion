@@ -9,8 +9,11 @@
 #
 # Usage:
 #   kit-resolve.sh [--offline-ok]
-#     --offline-ok  when `git fetch origin main` fails, accept the local origin/main (named WARN, the line
-#                   says "unfetched", nothing is refreshed); without it an unreachable origin is a refusal.
+#     --offline-ok  when `git fetch origin main` fails or times out, accept the local origin/main (named
+#                   WARN, the line says "unfetched", nothing is refreshed); without it that is a refusal.
+#   env RESEARCH_SDD_KIT_FETCH_TIMEOUT=<seconds>  bound on the fetch (default 20; a positive integer, else
+#                   exit 3). Enforced with timeout(1) (absent: a WARN, unbounded); an ssh origin also gets
+#                   `-o ConnectTimeout` unless GIT_SSH_COMMAND or core.sshCommand is already set.
 #
 # Candidates, first one that applies wins (a stale winner is refused, never skipped):
 #   1. $RESEARCH_SDD_KIT                     — when set it must hold METHODOLOGY.md (else exit 3)
@@ -24,16 +27,19 @@
 # Auto-refresh: when the winner is the default checkout, origin was fetched, the tree is clean and HEAD is
 # a strict ancestor of origin/main, it runs `git merge --ff-only origin/main` on main and stderr says
 # `kit-resolve: refreshed <old>→<new>`. $RESEARCH_SDD_KIT is never touched (refused when stale).
-# Refused, each with a named reason and the exact remedy: dirty, ahead (commits not on origin/main),
-# diverged, stale, not a git work tree, no origin/main, origin unreachable, and for the default checkout
-# also a branch other than main (or detached) and a worktree registered INSIDE its tree (the clean and
-# fast-forward checks there are unsafe).
+# Refused, each with a named reason and the exact remedy: dirty, status-failed (git status itself failed,
+# e.g. a corrupt index), ahead (commits not on origin/main), diverged, stale, not-git, no origin/main,
+# offline (origin unreachable or the fetch timed out), and for the default checkout also a branch other
+# than main (or detached) and a worktree registered inside its tree at a path the checkout does NOT
+# ignore (git status and the fast-forward would judge it). Worktrees under an ignored path, such as Claude
+# Code's .claude/worktrees/, are outside both and allowed.
 # Fetch is a plain `git fetch origin main`: a host whose origin is ssh but has no ssh access sets
 # `git config --global url.https://github.com/.insteadOf git@github.com:` once.
 # Exit: 0 resolved · 2 refused · 3 usage or no candidate
 set -uo pipefail
 
 OFFLINE_OK=0
+FETCH_TIMEOUT="${RESEARCH_SDD_KIT_FETCH_TIMEOUT:-20}"
 usage_exit() { printf 'usage: kit-resolve.sh [--offline-ok]\n' >&2; exit 3; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,6 +48,10 @@ while [ $# -gt 0 ]; do
     *) usage_exit ;;
   esac
 done
+
+case "$FETCH_TIMEOUT" in
+  ''|*[!0-9]*|0) printf 'kit-resolve: RESEARCH_SDD_KIT_FETCH_TIMEOUT must be a positive integer (seconds), got "%s"\n' "$FETCH_TIMEOUT" >&2; exit 3 ;;
+esac
 
 say() { printf 'kit-resolve: %s\n' "$*" >&2; }
 refuse() { say "REFUSED $*"; exit 2; }
@@ -64,18 +74,19 @@ fi
 KIT="$(cd "$KIT" && pwd -P)"
 
 TOP="$(git -C "$KIT" rev-parse --show-toplevel 2>/dev/null)" \
-  || refuse "untracked: $KIT is not in a git work tree; its freshness cannot be checked"
+  || refuse "not-git: $KIT is not in a git work tree; its freshness cannot be checked"
 TOP="$(cd "$TOP" && pwd -P)"
 
 short() { git -C "$TOP" rev-parse --short=7 "$1"; }
 
 if [ "$SOURCE" = default ]; then
-  # a worktree registered under TOP sits inside the tree the clean and ff checks judge
+  # a worktree registered under TOP at a path TOP does not ignore sits inside the tree the clean and
+  # ff checks judge; an ignored one (.claude/worktrees/) is invisible to both
   while IFS= read -r line; do
     wt="${line#worktree }"
     [ "$wt" = "$line" ] && continue
     wt="$(cd "$wt" 2>/dev/null && pwd -P || printf '%s' "$wt")"
-    [ "${wt#"$TOP"/}" != "$wt" ] \
+    [ "${wt#"$TOP"/}" != "$wt" ] && ! git -C "$TOP" check-ignore -q -- "${wt#"$TOP"/}" \
       && refuse "nested worktree: $wt is registered inside $TOP — move it out: git -C $TOP worktree move $wt ${TOP}-worktrees/${wt##*/}"
   done < <(git -C "$TOP" worktree list --porcelain)
   branch="$(git -C "$TOP" symbolic-ref -q --short HEAD)" || branch="(detached at $(short HEAD))"
@@ -87,20 +98,44 @@ else
   AHEAD_REMEDY="$REMEDY"
 fi
 
+# git status' own exit code is judged: a pipeline into wc would turn a failure (corrupt index) into "clean"
+dirty_count() {
+  local st
+  st="$(git -C "$TOP" status --porcelain --untracked-files=no)" || return 1
+  [ -z "$st" ] && { echo 0; return 0; }
+  printf '%s\n' "$st" | wc -l | tr -d ' '
+}
+STATUS_FAILED="status-failed: git status failed in $TOP (corrupt index?); its cleanliness cannot be checked — run git -C $TOP status"
+n_dirty="$(dirty_count)" || refuse "$STATUS_FAILED"
+
 FRESH="origin/main"
-if ! GIT_TERMINAL_PROMPT=0 git -C "$TOP" fetch -q origin main >/dev/null 2>&1; then
-  say "WARN offline: could not fetch origin; freshness unchecked"
+fetch_cmd=(git -C "$TOP" fetch -q origin main)
+if command -v timeout >/dev/null 2>&1; then
+  fetch_cmd=(timeout "$FETCH_TIMEOUT" "${fetch_cmd[@]}")
+else
+  say "WARN timeout(1) not on PATH: the fetch is unbounded"
+fi
+case "$(git -C "$TOP" remote get-url origin 2>/dev/null)" in
+  ssh://*|*@*:*)
+    if [ -z "${GIT_SSH_COMMAND:-}" ] && ! git -C "$TOP" config core.sshCommand >/dev/null 2>&1; then
+      export GIT_SSH_COMMAND="ssh -o ConnectTimeout=$FETCH_TIMEOUT -o BatchMode=yes"
+    fi ;;
+esac
+say "fetching origin… (bounded at ${FETCH_TIMEOUT}s)"
+GIT_TERMINAL_PROMPT=0 "${fetch_cmd[@]}" >/dev/null 2>&1; frc=$?
+if [ "$frc" -ne 0 ]; then
+  if [ "$frc" -eq 124 ]; then say "WARN offline: fetching origin timed out after ${FETCH_TIMEOUT}s; freshness unchecked"
+  else say "WARN offline: could not fetch origin; freshness unchecked"; fi
   [ "$OFFLINE_OK" -eq 1 ] || refuse "offline: rerun with --offline-ok to accept the local origin/main"
   FRESH="origin/main unfetched"
 fi
 git -C "$TOP" rev-parse -q --verify origin/main >/dev/null || refuse "no origin/main ref in $TOP"
 
-dirty_count() { git -C "$TOP" status --porcelain --untracked-files=no | wc -l | tr -d ' '; }
 behind() { git -C "$TOP" rev-list --count HEAD..origin/main; }
 ancestor() { git -C "$TOP" merge-base --is-ancestor HEAD origin/main; }
 
 # auto-refresh: default checkout only, only after a successful fetch, only clean, only a strict fast-forward
-if [ "$SOURCE" = default ] && [ "$FRESH" = origin/main ] && [ "$(dirty_count)" -eq 0 ] \
+if [ "$SOURCE" = default ] && [ "$FRESH" = origin/main ] && [ "$n_dirty" -eq 0 ] \
    && [ "$(behind)" -gt 0 ] && ancestor; then
   old="$(short HEAD)"
   git -C "$TOP" merge -q --ff-only origin/main >/dev/null 2>&1 \
@@ -108,7 +143,7 @@ if [ "$SOURCE" = default ] && [ "$FRESH" = origin/main ] && [ "$(dirty_count)" -
   say "refreshed $old→$(short HEAD)"
 fi
 
-n_dirty="$(dirty_count)"
+n_dirty="$(dirty_count)" || refuse "$STATUS_FAILED"
 [ "$n_dirty" -eq 0 ] \
   || refuse "dirty: $TOP has uncommitted tracked changes ($n_dirty path(s)); commit or stash them first — $REMEDY"
 n="$(behind)"

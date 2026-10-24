@@ -10,9 +10,12 @@
 #   tracked      a tracked change -> refused dirty, not refreshed; untracked-only -> allowed and refreshed;
 #                an untracked path the fast-forward would overwrite -> refused (refresh failed)
 #   history      ahead -> refused ahead; diverged -> refused diverged (HEAD untouched)
-#   placement    not on main / detached -> refused; a worktree registered inside the checkout -> refused
-#   offline      unreachable origin -> refused; --offline-ok -> WARN + "unfetched", nothing refreshed
-#   env          $RESEARCH_SDD_KIT valid -> its KIT line; no marker -> exit 3; stale -> refused, never touched
+#   placement    not on main / detached -> refused; a worktree registered inside the checkout at a path the
+#                checkout does NOT ignore -> refused, at an ignored path (.claude/worktrees/) -> resolves
+#   git errors   git status failing (corrupt index) -> refused status-failed, never "clean"
+#   offline      unreachable origin -> refused; --offline-ok -> WARN + "unfetched", nothing refreshed;
+#                a fetch that hangs is cut by RESEARCH_SDD_KIT_FETCH_TIMEOUT and refused as offline
+#   env          $RESEARCH_SDD_KIT valid -> its KIT line even when a valid default checkout exists; no marker -> exit 3; stale -> refused, never touched
 #   cli          -h prints the header; an unknown flag, or no candidate at all -> exit 3; not git -> refused
 # Mutation controls (--prove-teeth): each refusal and the refresh rule is mutated and its case must go red.
 #
@@ -31,7 +34,7 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/kit-resolve-test.XXXXXX")" || exit 2
 mutant_cleanup_register "$T" || exit 2
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE RESEARCH_SDD_KIT_FETCH_TIMEOUT
 
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass + 1)); }
@@ -57,6 +60,9 @@ advance() {                                                            # advance
 local_commit() { echo l >> "$1/f.txt" && git -C "$1" commit -q -am local; }   # local_commit DIR
 sha() { git -C "$1" rev-parse --short "${2:-HEAD}"; }
 
+# Case contract: a case function takes the SUT path, calls `run` (which sets RC, OUT and ERR) and returns
+# 0 when the behaviour held, 2 when its fixture could not be built, else `why` (which sets WHY). The callers
+# reset RC, OUT, ERR and WHY before every case, so a value left by an earlier case is never judged.
 # run SUT [ARGS...] — runs with HOME=$H and RESEARCH_SDD_KIT=$KITENV (removed when KITENV is empty);
 # sets OUT (stdout), ERR (stderr) and RC.
 KITENV=""
@@ -65,7 +71,7 @@ run() {
   env -u RESEARCH_SDD_KIT ${KITENV:+"RESEARCH_SDD_KIT=$KITENV"} HOME="$H" bash "$s" "$@" >"$T/out" 2>"$T/err"
   RC=$?; OUT="$(cat "$T/out")"; ERR="$(cat "$T/err")"
 }
-# why TEXT — records why the current case did not hold (printed by chk), returns 1
+# why TEXT — records why the current case did not hold (printed by the caller), returns 1
 why() { WHY="$1 :: rc=$RC out=[$OUT] err=[$ERR]"; return 1; }
 # kitline KIT SHA [FRESH] — OUT must be exactly one line, the contract line
 kitline() { [ "$OUT" = "KIT=$1 SHA=$2 (${3:-origin/main}, clean)" ]; }
@@ -126,7 +132,26 @@ c_nested() {
   world && clone_to "$D" && git -C "$D" worktree add -q "$D/research-sdd-worktrees/x" -b x || return 2
   run "$1"
   [ "$RC" = 2 ] && grep -q "REFUSED nested worktree: $D/research-sdd-worktrees/x .*worktree move" <<<"$ERR" \
-    || why "nested worktree not refused"
+    || why "non-ignored nested worktree not refused"
+}
+c_nested_ignored() {   # Claude Code isolation worktrees live in the git-ignored .claude/worktrees/
+  world && echo '.claude/worktrees/' > "$W/up/.gitignore" && advance .gitignore && clone_to "$D" \
+    && git -C "$D" worktree add -q "$D/.claude/worktrees/agent-a" -b a || return 2
+  run "$1"
+  [ "$RC" = 0 ] && kitline "$D/research-sdd" "$(sha "$D")" || why "git-ignored nested worktree refused"
+}
+c_status_fail() {
+  world && clone_to "$D" && echo garbage > "$D/.git/index" || return 2
+  run "$1"
+  [ "$RC" = 2 ] && grep -q 'REFUSED status-failed' <<<"$ERR" && [ -z "$OUT" ] || why "git status failure not refused"
+}
+c_fetch_hang() {   # a local upload-pack that sleeps: the fetch must be cut at the 1 s knob
+  world && clone_to "$D" && printf '#!/bin/sh\nsleep 4\n' > "$W/slow-upload-pack" && chmod +x "$W/slow-upload-pack" \
+    && git -C "$D" config remote.origin.uploadpack "$W/slow-upload-pack" || return 2
+  local t0=$SECONDS
+  RESEARCH_SDD_KIT_FETCH_TIMEOUT=1 run "$1"
+  [ "$RC" = 2 ] && [ $((SECONDS - t0)) -lt 3 ] && grep -q 'kit-resolve: fetching origin' <<<"$ERR" \
+    && grep -q 'REFUSED offline' <<<"$ERR" || why "hanging fetch not bounded ($((SECONDS - t0)) s)"
 }
 c_offline() {
   world && clone_to "$D" && git -C "$D" remote set-url origin "$W/gone.git" || return 2
@@ -139,8 +164,8 @@ c_offline_ok() {
   [ "$RC" = 0 ] && kitline "$D/research-sdd" "$(sha "$D")" "origin/main unfetched" && grep -q 'WARN offline' <<<"$ERR" \
     || why "--offline-ok did not accept the local origin/main"
 }
-c_env_valid() {
-  world && clone_to "$W/envkit" || return 2
+c_env_valid() {   # a valid default checkout exists too: the env candidate must still win
+  world && clone_to "$W/envkit" && clone_to "$D" || return 2
   KITENV="$W/envkit/research-sdd"; run "$1"; KITENV=""
   [ "$RC" = 0 ] && kitline "$W/envkit/research-sdd" "$(sha "$W/envkit")" || why "valid RESEARCH_SDD_KIT not resolved"
 }
@@ -166,13 +191,13 @@ c_nocand() { world || return 2; run "$1"; [ "$RC" = 3 ] && grep -q 'no kit found
 c_notgit() {
   world && mkdir -p "$W/plain" && echo m > "$W/plain/METHODOLOGY.md" || return 2
   KITENV="$W/plain"; run "$1"; KITENV=""
-  [ "$RC" = 2 ] && grep -q 'REFUSED untracked: .* not in a git work tree' <<<"$ERR" || why "non-git kit not refused"
+  [ "$RC" = 2 ] && grep -q 'REFUSED not-git: .* not in a git work tree' <<<"$ERR" || why "non-git kit not refused"
 }
 
 CASES=(c_refresh c_current c_dirty c_untracked c_collide c_ahead c_diverged c_branch c_detached c_nested
-       c_offline c_offline_ok c_env_valid c_env_marker c_env_stale c_help c_badflag c_nocand c_notgit)
+       c_nested_ignored c_status_fail c_fetch_hang c_offline c_offline_ok c_env_valid c_env_marker c_env_stale c_help c_badflag c_nocand c_notgit)
 for c in "${CASES[@]}"; do
-  WHY=""; "$c" "$SUT"; r=$?
+  RC="" OUT="" ERR="" WHY=""; "$c" "$SUT"; r=$?
   case "$r" in
     0) ok "$c" ;;
     2) no "$c: fixture setup failed" ;;
@@ -184,7 +209,7 @@ done
 # tooth LABEL CASE MUTANT — the case held on the real SUT above; on MUTANT it must not hold, and the
 # mutant must not merely crash (a crash is theater, not teeth).
 tooth() {
-  WHY=""; "$2" "$3"; local r=$?
+  RC="" OUT="" ERR="" WHY=""; "$2" "$3"; local r=$?
   if [ "$r" = 0 ]; then no "tooth $1: mutant survived $2"
   elif [ "$r" = 2 ]; then no "tooth $1: fixture setup failed"
   elif mutant_is_crash "$ERR" bash; then no "tooth $1: mutant crashed ($ERR)"
@@ -218,6 +243,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       && tooth "m9 env marker unchecked" c_env_marker "$MUT/m9.sh"
     mk m10 "$SUT" "$MUT/m10.sh" 's/^\[ "\$n" -eq 0 \] || refuse "stale/true || refuse "stale/' \
       && tooth "m10 stale accepted" c_env_stale "$MUT/m10.sh"
+    mk m11 "$SUT" "$MUT/m11.sh" 's/--untracked-files=no)" || return 1$/--untracked-files=no)"/' \
+      && tooth "m11 git status failure ignored" c_status_fail "$MUT/m11.sh"
+    mk m12 "$SUT" "$MUT/m12.sh" 's/fetch_cmd=(timeout "\$FETCH_TIMEOUT" /fetch_cmd=(/' \
+      && tooth "m12 fetch unbounded" c_fetch_hang "$MUT/m12.sh"
+    mk m13 "$SUT" "$MUT/m13.sh" 's/^if \[ -n "\${RESEARCH_SDD_KIT:-}" \]; then/if [ ! -f "$DEFAULT_KIT\/METHODOLOGY.md" ] \&\& [ -n "${RESEARCH_SDD_KIT:-}" ]; then/' \
+      && tooth "m13 default checkout tried first" c_env_valid "$MUT/m13.sh"
+    mk m14 "$SUT" "$MUT/m14.sh" 's/ \&\& ! git -C "\$TOP" check-ignore -q -- "\${wt#"\$TOP"\/}"//' \
+      && tooth "m14 ignored nested worktree refused" c_nested_ignored "$MUT/m14.sh"
   }
 fi
 
