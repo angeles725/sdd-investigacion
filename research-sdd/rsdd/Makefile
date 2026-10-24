@@ -55,8 +55,11 @@ lint:
 # reported, not failed; the raised timeout coefficient keeps a loaded machine
 # from turning kills into timeouts. Each mutant's test binary runs under the CAPPED wrapper (GOFLAGS
 # reaches the `go test` gremlins starts); `go run -exec=env` keeps gremlins itself and its builds uncapped.
+# TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/retro/grammar
+# takes ~80 s per run), which `make check` still runs once; gremlins reruns a whole package per mutant.
+TEETHTAGS ?= nodiff
 teeth:
-	@$(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 .
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 .
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
