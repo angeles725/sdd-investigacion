@@ -597,17 +597,19 @@ mutant_job() {
   # watchdog that kills its whole tree at the bound and leaves NAME.timeout, and NAME.rc once it ended.
   # The manager and the watchdog hold no inherited stdout/stderr: a caller's $(...) must not wait on a
   # leftover watchdog `sleep`, and bash's "Killed" job notice must not reach the report.
-  # Under a job budget the manager first holds a slot on a descriptor of its own (s).
+  # Under a job budget the manager first holds a slot on a descriptor of its own (s), closed in the job and the
+  # watchdog: an orphan the job leaves behind must not keep the slot once the manager is gone.
   (
     MUTANT_JOB_SCRATCH="$d/$name.d" MUTANT_JOB_INDEX="$idx"
     export MUTANT_JOB_SCRATCH MUTANT_JOB_INDEX
     if [ -n "$_MUTANT_JSLOTS" ]; then
       # SENTINEL-JOBS-SLOT-TAKE
       rsdd_slot_take s "$_MUTANT_JSLOTS" "$d/.own-slot" 2>"$d/$name.out" || { printf '2\n' >"$d/$name.rc"; exit 2; }
-    fi
-    ( "$@" ) >"$d/$name.out" 2>&1 </dev/null & w=$!
+    else exec {s}</dev/null; fi
+    # SENTINEL-JOBS-SLOT-CLOSE
+    ( "$@" ) >"$d/$name.out" 2>&1 </dev/null {s}<&- & w=$!
     # SENTINEL-JOBS-BOUND
-    ( sleep "$_MUTANT_JBOUND"; : >"$d/$name.timeout"; _mutant_kill_tree "$w" KILL ) & g=$!
+    ( sleep "$_MUTANT_JBOUND"; : >"$d/$name.timeout"; _mutant_kill_tree "$w" KILL ) {s}<&- & g=$!
     wait "$w"; r=$?
     _mutant_kill_tree "$g" KILL; wait "$g"
     printf '%s\n' "$r" >"$d/$name.rc"

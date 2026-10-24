@@ -33,6 +33,8 @@ echo "== job-budget.test.sh =="
 mkslots(){ local k; mkdir -p "$1"; for k in $(seq 1 "$2"); do : > "$1/slot.$k"; done; }
 # free_slots DIR — how many of DIR's slots no process holds right now.
 free_slots(){ local f n=0; for f in "$1"/slot.*; do flock -n "$f" true && n=$((n + 1)); done; echo "$n"; }
+# wait_free DIR N — poll (bound 3 s) until N slots of DIR are free; prints the last count.
+wait_free(){ local i=0 n; n="$(free_slots "$1")"; while [ "$n" -lt "$2" ] && [ $i -lt 60 ]; do sleep 0.05; i=$((i+1)); n="$(free_slots "$1")"; done; echo "$n"; }
 # peak FILE — the largest line of a watch.sh PEAKS file (0 when empty).
 peak(){ local p=0 v; while read -r v; do [ "${v:-0}" -gt "$p" ] && p="$v"; done < "$1"; echo "$p"; }
 # batch_peak SLOTS N JOBS — run a JOBS-job watcher batch (barrier N, MUTANT_JOBS=JOBS) on budget SLOTS from a
@@ -44,6 +46,17 @@ batch_peak(){
     _ "$LIB" "$d" "$WATCH" "$2" "$3" >/dev/null 2>&1
   peak "$d/peaks"
 }
+# orphan_pids N TOKEN — live `sleep N` processes of THIS run (exact argv AND JB_TOKEN=TOKEN in the environment).
+orphan_pids(){ local f p e; for f in /proc/[0-9]*/cmdline; do
+  [ "$(tr '\0' ' ' < "$f" 2>/dev/null)" = "sleep $1 " ] || continue
+  p="${f#/proc/}"; p="${p%/cmdline}"
+  e="$(tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null)"; grep -qxF "JB_TOKEN=$2" <<<"$e" && echo "$p"
+done; return 0; }
+reap_orphans(){ local p; for p in $(orphan_pids "$1" "$2"); do kill -KILL "$p" 2>/dev/null; done; }
+# A job that leaves an orphan (a `sleep ORPHAN` re-parented away from its tree) and then blocks: the orphan
+# survives every tree kill, so it would keep a slot forever if the job had inherited the slot's descriptor.
+ORPHAN_JOB='( exec sleep "$JB_ORPHAN" & ); echo $$ > "$MUTANT_JOB_SCRATCH/pid"; exec sleep 60'
+
 # budget: two simulated suite workers each hold one slot of a 2-slot budget and run a work phase and a 4-job
 # teeth batch: never more than 2 jobs at once in total.
 if want budget; then
@@ -69,6 +82,41 @@ if want deadlock; then
     _ "$LIB" "$d" "$WATCH" >"$d.out" 2>&1; drc=$?; dp="$(peak "$d/peaks")"
   if [ "$drc" = 0 ] && [ "$dp" = 1 ] && [ "$(wc -l < "$d/peaks")" = 3 ]; then ok "deadlock: a suite holding the only slot runs its teeth one at a time through its own slot"
   else no "deadlock: rc $drc (124 = hung) peak $dp runs $(wc -l < "$d/peaks") [$(tr '\n' ' ' < "$d.out")]"; fi
+fi
+
+# interrupt: while a batch runs, its jobs hold the budget's slots; a TERM to the batch shell frees every one of
+# them (the jobs' orphans included) and a following batch can use the whole budget again.
+if want interrupt; then
+  d="$(mktemp -d "$TMP/ix.XXXXXX")"; mkslots "$d/slots" 2; mkdir "$d/b"; tok="$$.$RANDOM.$RANDOM"; ob=$((7000 + RANDOM % 1000))
+  JB_TOKEN="$tok" JB_ORPHAN="$ob" RSDD_JOB_SLOTS="$d/slots" MUTANT_JOBS=3 bash -c '. "$1"; v(){ :; }; c=0
+    mutant_jobs_begin "$2/b" || exit 2; for n in x1 x2 x3; do mutant_job "$n" bash -c "$3"; done; mutant_jobs_end c v; echo DONE' \
+    _ "$LIB" "$d" "$ORPHAN_JOB" >"$d.out" 2>&1 &
+  ib=$!; i=0
+  while [ "$(cat "$d"/b/x*.d/pid 2>/dev/null | wc -l)" -lt 3 ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+  iheld=$((2 - $(free_slots "$d/slots"))); kill -TERM "$ib"; wait "$ib"; irc=$?
+  ifree="$(wait_free "$d/slots" 2)"; reap_orphans "$ob" "$tok"
+  for f in "$d"/b/x*.d/pid; do p="$(cat "$f" 2>/dev/null)"; [ -n "$p" ] && kill -KILL "$p" 2>/dev/null; done
+  if [ "$iheld" = 2 ]; then ok "interrupt: the running batch's jobs hold both slots of the budget"
+  else no "interrupt: slots held while the batch ran = $iheld (want 2) [$(tr '\n' ' ' < "$d.out")]"; fi
+  if [ "$irc" = 143 ] && [ "$ifree" = 2 ]; then ok "interrupt: a TERM mid-batch frees every slot, orphans or not (rc $irc)"
+  else no "interrupt: after TERM rc=$irc, $ifree of 2 slots free"; fi
+  ip="$(batch_peak "$d/slots" 3 3)"
+  if [ "$ip" = 3 ]; then ok "interrupt: a following batch runs on the whole budget again (peak $ip = 2 slots + its lent one)"
+  else no "interrupt: following batch peak $ip (want 3)"; fi
+fi
+
+# timeout: jobs past MUTANT_JOB_TIMEOUT are named FAILs and their slots are free once the batch ended, orphans or not.
+if want timeout; then
+  d="$(mktemp -d "$TMP/tm.XXXXXX")"; mkslots "$d/slots" 2; mkdir "$d/b"; tok="$$.$RANDOM.$RANDOM"; ob=$((8000 + RANDOM % 1000))
+  tout="$(JB_TOKEN="$tok" JB_ORPHAN="$ob" RSDD_JOB_SLOTS="$d/slots" MUTANT_JOBS=3 MUTANT_JOB_TIMEOUT=1 bash -c '. "$1"; v(){ :; }; c=0
+    mutant_jobs_begin "$2/b" || exit 2; for n in y1 y2 y3; do mutant_job "$n" bash -c "$3"; done; mutant_jobs_end c v' \
+    _ "$LIB" "$d" "$ORPHAN_JOB" 2>&1)"
+  tfree="$(free_slots "$d/slots")"; reap_orphans "$ob" "$tok"
+  if [ "$(grep -c 'timed out' <<<"$tout")" = 3 ] && [ "$tfree" = 2 ]; then ok "timeout: timed-out jobs are named FAILs and leave both slots free at batch end"
+  else no "timeout: slots not all free after the batch ($tfree of 2) [$(tr '\n' ' ' <<<"$tout")]"; fi
+  tp="$(batch_peak "$d/slots" 3 3)"
+  if [ "$tp" = 3 ]; then ok "timeout: a following batch runs on the whole budget again (peak $tp)"
+  else no "timeout: following batch peak $tp (want 3)"; fi
 fi
 
 # fatal: a budget that cannot be joined or created is a named FATAL rc 2 — never an unbounded batch.
@@ -111,6 +159,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth_case take slots '/SENTINEL-SLOTS-TAKE/{n;s/flock "\$@" "\$_RSDD_SLOT_FD"; r=\$?/r=0/}' budget "budget: peak"
   teeth_case join mutant 's/if \[ -n "\${RSDD_JOB_SLOTS+x}" \]; then/if false; then/' budget "budget: peak"
   teeth_case lent mutant 's/rsdd_slot_take s "\$_MUTANT_JSLOTS" "\$d\/\.own-slot"/rsdd_slot_take s "$_MUTANT_JSLOTS"/' deadlock "deadlock: rc"
+  teeth_case release-interrupt mutant '/SENTINEL-JOBS-SLOT-CLOSE/{n;s/ {s}<&- & w=/ \& w=/}' interrupt "interrupt: after TERM"
+  teeth_case release-timeout mutant '/SENTINEL-JOBS-SLOT-CLOSE/{n;s/ {s}<&- & w=/ \& w=/}' timeout "timeout: slots not all free after the batch"
   teeth_case check slots '/SENTINEL-SLOTS-CHECK/{n;s/^  if .* then$/  return 0; if false; then/}' fatal "fatal: RSDD_JOB_SLOTS=[no-such-budget]"
   teeth_case create slots '/SENTINEL-SLOTS-CREATE/{n;s/>&2; return 2; fi/>\&2; return 0; fi/}' fatal "fatal: a budget that cannot be created"
 fi
