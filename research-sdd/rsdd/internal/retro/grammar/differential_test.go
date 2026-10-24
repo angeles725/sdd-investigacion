@@ -146,7 +146,30 @@ var fileModes = map[string]func(path string) bashOut{
 		}
 		return bashOut{stdout: h + "\n"}
 	},
-	"unrec": readThen(func(d *Doc) []string { return UnrecHeadings(d) }),
+	"unrec":     readThen(func(d *Doc) []string { return UnrecHeadings(d) }),
+	"entryrows": readThen(func(d *Doc) []string { return rowLines(EntryRows(d)) }),
+	// entry_ids prints nothing for no entries; its read failure is entry_rows' rc 1.
+	"entryids": readThen(EntryIDs),
+	// entry_warn always returns 0; on an unreadable file only its delta_info call speaks.
+	"entrywarn": func(p string) bashOut {
+		d, err := Read(p)
+		switch {
+		case errors.Is(err, ErrUnreadable):
+			return bashOut{stderr: "retro-grammar: cannot read " + p + " (unreadable) — delta count is UNKNOWN, not zero\n"}
+		case err != nil:
+			return bashOut{}
+		}
+		return bashOut{stdout: EntryWarn(d)}
+	},
+}
+
+// rowLines renders rows as their bash records, without the trailing newline joinLines adds back.
+func rowLines(rows []Row) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = strings.TrimSuffix(r.Line(), "\n")
+	}
+	return out
 }
 
 // readThen renders a mode that prints one line per result and returns 1, silently, on a failed read.
@@ -161,7 +184,8 @@ func readThen(f func(*Doc) []string) func(string) bashOut {
 }
 
 // checkFileModes runs every file mode over paths on both sides and reports each disagreement.
-func checkFileModes(t *testing.T, label string, paths []string) {
+// With requireSignal, a mode on which bash gives one outcome for every input fails: that corpus would prove nothing.
+func checkFileModes(t *testing.T, label string, paths []string, requireSignal bool) {
 	t.Helper()
 	modes := make([]string, 0, len(fileModes))
 	for m := range fileModes {
@@ -172,8 +196,10 @@ func checkFileModes(t *testing.T, label string, paths []string) {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			bash := bashBatch(t, mode, paths)
+			distinct := map[bashOut]bool{}
 			bad := 0
 			for i, p := range paths {
+				distinct[bash[i]] = true
 				if got := fileModes[mode](p); got != bash[i] {
 					if bad++; bad <= 5 {
 						t.Errorf("%s %s %s:\n  go=%+v\nbash=%+v", label, mode, p, got, bash[i])
@@ -183,6 +209,10 @@ func checkFileModes(t *testing.T, label string, paths []string) {
 			if bad > 5 {
 				t.Errorf("%s %s: %d more disagreements not shown", label, mode, bad-5)
 			}
+			if requireSignal && len(distinct) < 2 {
+				t.Errorf("%s %s: bash gave one outcome for all %d inputs: the corpus is vacuous for this mode", label, mode, len(paths))
+			}
+			t.Logf("%s %s: %d inputs, %d distinct bash outcomes", label, mode, len(paths), len(distinct))
 		})
 	}
 }
@@ -209,7 +239,7 @@ func fixturePaths(t *testing.T) []string {
 
 func TestDifferentialFixtures(t *testing.T) {
 	paths := fixturePaths(t)
-	checkFileModes(t, "fixture", paths)
+	checkFileModes(t, "fixture", paths, false)
 	t.Logf("fixtures: %d files x %d modes", len(paths), len(fileModes))
 }
 
@@ -223,7 +253,7 @@ func TestDifferentialGenerated(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	checkFileModes(t, "generated", paths)
+	checkFileModes(t, "generated", paths, true)
 }
 
 func TestDifferentialAbsentAndEmpty(t *testing.T) {
@@ -240,5 +270,5 @@ func TestDifferentialAbsentAndEmpty(t *testing.T) {
 		}
 		paths = append(paths, locked)
 	}
-	checkFileModes(t, "edge", paths)
+	checkFileModes(t, "edge", paths, true)
 }

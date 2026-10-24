@@ -80,3 +80,31 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 	}
 	return false
 }
+
+// trimSpace, trimLeftSpace and trimRightSpace strip C-locale [[:space:]] (awk sub(/^[[:space:]]+/) and friends).
+// An ASCII cutset makes strings.Trim* byte operations, so invalid UTF-8 is never misread as a rune.
+func trimSpace(s string) string      { return strings.Trim(s, spaceSet) }
+func trimLeftSpace(s string) string  { return strings.TrimLeft(s, spaceSet) }
+func trimRightSpace(s string) string { return strings.TrimRight(s, spaceSet) }
+
+// spaceSet is the C-locale [[:space:]] as a cutset.
+const spaceSet = " \t\n\v\f\r"
+
+// firstField is awk split(s, w, /[[:space:]]+/) then w[1], for an s without leading blanks.
+func firstField(s string) string {
+	if i := strings.IndexAny(s, spaceSet); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// asciiLetters is gsub(/[^A-Za-z]/, "", s) under LC_ALL=C.
+func asciiLetters(s string) string {
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if c := s[i] | 0x20; 'a' <= c && c <= 'z' {
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
+}
