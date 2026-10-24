@@ -20,7 +20,8 @@ func TestMarkerIsPartial(t *testing.T) {
 		"<!-- review-status: applied --> PARTIAL":    false,
 		"<!-- review-status: x shipped: (y) PARTIAL": true,
 		"<!-- review-status: x Shipped: y":           false,
-		"":                                           false,
+		"<!-- review-status:(PARTIAL) -->":           false, "<!-- review-status:— PARTIAL -->": false,
+		"": false,
 	} {
 		if got := MarkerIsPartial(line); got != want {
 			t.Errorf("MarkerIsPartial(%q) = %v, want %v", line, got, want)

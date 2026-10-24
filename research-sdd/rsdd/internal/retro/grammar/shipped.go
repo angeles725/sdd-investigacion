@@ -111,11 +111,12 @@ func afterFirst(s, sep string) string {
 	return s
 }
 
-// firstIndex is the index of the earliest of seps in s, len(s) when none occurs (sed `s/(a|b).*$//`).
+// firstIndex is the index of the earliest of seps in s, len(s) when none occurs (sed `s/(a|b).*$//`). Each sep
+// is searched only before the current cut, so a later find is always earlier (the separators share no bytes).
 func firstIndex(s string, seps ...string) int {
 	cut := len(s)
 	for _, sep := range seps {
-		if i := strings.Index(s, sep); i >= 0 && i < cut {
+		if i := strings.Index(s[:cut], sep); i >= 0 {
 			cut = i
 		}
 	}
