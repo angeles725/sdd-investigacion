@@ -35,23 +35,14 @@ func markerLines(t *testing.T) []string {
 		}
 		set[b.String()] = true
 	}
-	keep := func(l string) {
-		low := lower(l)
-		if strings.Contains(low, "review-status") || strings.Contains(low, "shipped") || strings.Contains(l, "DISMISSED") {
-			set[strings.TrimSuffix(l, "\r")] = true
-		}
-	}
-	for _, l := range append(append([]string(nil), genVocab...), markerVocab...) {
-		keep(l)
-	}
+	markerKeywordLines(set, genVocab)
+	markerKeywordLines(set, markerVocab)
 	for _, p := range fixturePaths(t) {
 		d, err := Read(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, l := range d.Raw {
-			keep(l)
-		}
+		markerKeywordLines(set, d.Raw)
 	}
 	out := make([]string, 0, len(set))
 	for l := range set {
@@ -118,13 +109,17 @@ func TestDifferentialRowState(t *testing.T) {
 	t.Logf("rowstate: %d (line, id) pairs, %d distinct answers", len(inputs), len(seen))
 }
 
-func TestDifferentialMarkerLines(t *testing.T) {
-	lines := markerLines(t)
+func TestDifferentialMarkerLines(t *testing.T) { checkLineModes(t, "synthetic", markerLines(t), true) }
+
+// checkLineModes runs every line mode over lines (the id normaliser over their shipped lists, as the consumers
+// feed it) on both sides. With requireSignal a mode with a single bash outcome fails as vacuous.
+func checkLineModes(t *testing.T, label string, lines []string, requireSignal bool) {
+	t.Helper()
 	for mode, f := range lineModes {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			inputs := lines
-			if mode == "shids" { // the id normaliser is fed shipped lists, as the consumers do
+			if mode == "shids" {
 				inputs = shippedLists(lines)
 			}
 			bash := bashBatch(t, mode, inputs)
@@ -133,15 +128,25 @@ func TestDifferentialMarkerLines(t *testing.T) {
 				distinct[bash[i]] = true
 				if got := f(in); got != bash[i] {
 					if bad++; bad <= 5 {
-						t.Errorf("%s %q:\n  go=%+v\nbash=%+v", mode, in, got, bash[i])
+						t.Errorf("%s %s %q:\n  go=%+v\nbash=%+v", label, mode, in, got, bash[i])
 					}
 				}
 			}
-			if len(distinct) < 2 {
-				t.Errorf("%s: one bash outcome for all %d inputs: vacuous", mode, len(inputs))
+			if requireSignal && len(distinct) < 2 {
+				t.Errorf("%s %s: one bash outcome for all %d inputs: vacuous", label, mode, len(inputs))
 			}
-			t.Logf("%s: %d inputs, %d distinct bash outcomes", mode, len(inputs), len(distinct))
+			t.Logf("%s %s: %d inputs, %d distinct bash outcomes", label, mode, len(inputs), len(distinct))
 		})
+	}
+}
+
+// markerKeywordLines keeps the lines of d that mention a marker keyword (review-status, shipped, DISMISSED).
+func markerKeywordLines(set map[string]bool, lines []string) {
+	for _, l := range lines {
+		low := lower(l)
+		if strings.Contains(low, "review-status") || strings.Contains(low, "shipped") || strings.Contains(l, "DISMISSED") {
+			set[strings.TrimSuffix(l, "\r")] = true
+		}
 	}
 }
 

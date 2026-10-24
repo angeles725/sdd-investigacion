@@ -47,5 +47,18 @@ func TestDifferentialFleet(t *testing.T) {
 	}
 	sort.Strings(paths)
 	checkFileModes(t, "fleet", paths, false)
+	markers := map[string]bool{}
+	for _, p := range paths {
+		if d, err := Read(p); err == nil {
+			markerKeywordLines(markers, d.Raw)
+		}
+	}
+	lines := make([]string, 0, len(markers))
+	for l := range markers {
+		lines = append(lines, l)
+	}
+	sort.Strings(lines)
+	checkLineModes(t, "fleet", lines, false)
+	t.Logf("fleet marker lines: %d", len(lines))
 	t.Logf("fleet pass: %d retros under %d retros/ directories (%d registered targets resolve)", len(paths), len(dirs), len(usable))
 }
