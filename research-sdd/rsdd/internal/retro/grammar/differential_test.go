@@ -202,6 +202,15 @@ func init() {
 		}
 		return bashOut{stdout: b.String()}
 	}
+	// The marker readers print nothing (or return 1) for an absent path and, silently, for an unreadable one:
+	// the bash reader discards its read error (finding F3 in doc.go).
+	fileModes["rstatus"] = markerMode(func(d *Doc) bashOut { return lineOut(ReviewStatus(d)) }, bashOut{})
+	fileModes["mscope"] = markerMode(func(d *Doc) bashOut { return lineOut(MarkerScopeLine(d)) }, bashOut{})
+	fileModes["excluded"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsExcluded(d))} }, bashOut{rc: 1})
+	fileModes["waived"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsWaived(d))} }, bashOut{rc: 1})
+	fileModes["mline"] = markerMode(func(d *Doc) bashOut { return lineOut(markerLine(d)) }, bashOut{})
+	fileModes["oos"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(MarkerOutOfScope(d))} }, bashOut{rc: 1})
+	fileModes["bare"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(HasBareMarker(d))} }, bashOut{rc: 1})
 	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
 	fileModes["altheads"] = readThen(AltHeads)
 }
@@ -348,6 +357,25 @@ func TestDifferentialDupIDs(t *testing.T) {
 	}
 }
 
+// markerMode renders a marker reader: failed reads answer onFail whatever the failure.
+func markerMode(f func(*Doc) bashOut, onFail bashOut) func(string) bashOut {
+	return func(p string) bashOut {
+		d, err := Read(p)
+		if err != nil {
+			return onFail
+		}
+		return f(d)
+	}
+}
+
+// lineOut renders a reader that prints one line or nothing.
+func lineOut(s string) bashOut {
+	if s == "" {
+		return bashOut{}
+	}
+	return bashOut{stdout: s + "\n"}
+}
+
 // rowLines renders rows as their bash records, without the trailing newline joinLines adds back.
 func rowLines(rows []Row) []string {
 	out := make([]string, len(rows))
@@ -456,6 +484,9 @@ func TestDifferentialAbsentAndEmpty(t *testing.T) {
 	for name, src := range map[string]string{
 		"warn.md":    "## Proposed kit deltas\n### D1 — a\n### **D2** — b\n",
 		"honesty.md": "## Proposed kit deltas\nNo new deltas; nothing to add.\n",
+		"marker.md": "<!-- review-status: applied · x -->\n<!-- kit-retro: exclude -->\n<!-- retro-waived: 2026 · r -->\n" +
+			"review-status: bare\n",
+		"out-of-scope.md": "# T\n## H\n<!-- review-status: applied -->\n",
 	} {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {

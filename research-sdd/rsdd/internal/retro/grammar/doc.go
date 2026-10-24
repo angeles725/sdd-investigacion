@@ -1,5 +1,5 @@
-// Package grammar ports the research-sdd kit's §18 retro grammar, toolbelt/lib/retro-grammar.sh, to Go with byte
-// parity against the bash original (differential_test.go runs both on every fixture and, read-only, on the real
+// Package grammar ports the research-sdd kit's §18 retro grammar, toolbelt/lib/retro-grammar.sh, and its
+// review-status markers, toolbelt/lib/retro-status.sh, to Go with byte parity against the bash originals (differential_test.go runs both on every fixture and, read-only, on the real
 // retro fleet).
 //
 // Function groups and their contracts (each file's header carries the details):
@@ -12,6 +12,12 @@
 //     AltEntryRows/AltHeads (numbered items and `## Delta <ID> —`), DeltaID/TableIDSkip (the awk id rule the
 //     consumers share), DupIDs and IDSignatureSafe.
 //   - Honesty and titles (honesty.go, title.go): HasHonesty, TitleHasIdentity and RowTitles.
+//   - Review-status markers (marker*.go): the leading-block readers ReviewStatus, MarkerScopeLine, IsExcluded,
+//     IsWaived, HasBareMarker and StatusFromMarkerLine, and MarkerOutOfScope over the whole-file markerLine;
+//     the marker-text readers MarkerIsPartial, ShippedRaw and ShippedIDs (shipped.go), and the typed
+//     per-row answer MarkerRowState over the shipped and DISMISSED lists (rowstate.go). They share this package rather than a sibling one
+//     because they read the same Doc (one read, the same typed errors) with the same byte helpers, and the
+//     same differential harness and fleet corpus check them.
 //
 // Design rules:
 //   - Byte semantics. The bash side is defined under LC_ALL=C (the locale the kit's sort and alt-entry parser pin),
@@ -27,11 +33,18 @@
 //   - F2: retro_grammar_delta_info prints a zero line with rc 0 for an ABSENT file (a silent zero); Go returns
 //     ErrAbsentInput. retro_grammar_has_honesty does not guard readability: an unreadable file is an untyped awk
 //     fatal (rc 2); Go returns ErrUnreadable from Read.
+//   - F3: every lib/retro-status.sh file reader discards its read error (`sed … 2>/dev/null`), so an unreadable
+//     retro reads as "no marker": pending and seedable, the fail-open direction. Go returns ErrUnreadable.
+//   - F4: retro_marker_shipped_ids expands a range with `for ((j = n1; j <= n2; j++))`: a range ending at the
+//     int64 maximum never ends, and a huge one prints millions of ids. Go stops at n2 and refuses a range of
+//     more than 100000 ids with ErrRangeTooLarge (numbers still wrap modulo 2^64 like bash arithmetic).
 //
 // Kept quirks (ported byte for byte, listed so a later fix is a decision, not an accident):
 //   - row_titles counts a bare `|` row in the canonical section as a table row: it yields no title but keeps the
 //     entry form from being consulted.
 //   - row_titles skips a capitalised id such as `SPKI-A` while TableIDSkip (stage/reconcile) keeps it.
+//   - retro_marker_shipped_raw matches `shipped:` in any case but strips only `shipped:`/`Shipped:`, so a
+//     `SHIPPED: x` list keeps its keyword; a reversed range (`P3-P1`) yields no id at all.
 //   - The unrecognised-heading and `## Delta` counts of DeltaInfo stop at the first canonical heading;
 //     UnrecHeadings does not.
 //
@@ -47,7 +60,10 @@
 //     consumers; row_titles keeps its own cell split because it trims C-locale [[:space:]], not gfm's blanks.
 //
 // Every function of lib/retro-grammar.sh has a production caller (stage-retro-issues.sh, reconcile-issues.sh,
-// sweep-retros.sh, verify-retro.sh), so all are ported; lib/retro-status.sh is a separate unit.
+// sweep-retros.sh, verify-retro.sh), so all are ported. In lib/retro-status.sh, _retro_status_strip_bom,
+// retro_marker_line and retro_marker_dismissed_ids have no caller outside the lib (retro_marker_line is only
+// named in comments of lint-substitution.sh and stage-retro-issues.sh) but feed exported readers, so they are
+// ported unexported (bomless, markerLine, dismissedIDs).
 package grammar
 
 import (
