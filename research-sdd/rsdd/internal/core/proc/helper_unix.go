@@ -3,9 +3,9 @@
 package proc
 
 import (
-	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -76,23 +76,73 @@ func lower(l Limit) error {
 // the freshly started child: it lowers every limit and then replaces itself
 // with PATH, so the limits bind the program and never the caller. env is the
 // program's environment. It returns only on failure, with a typed stderr line.
+//
+// A memory limit (as, data, stack) may sit below what the helper has already
+// mapped, so once the limits are lowered nothing may need a new mapping:
+// prepareExec runs first, and a failure is reported through a line buffer
+// allocated up front.
 func HelperMain(args, env []string, stderr io.Writer) int {
-	fail := func(code int, err error) int {
-		fmt.Fprintf(stderr, "rsdd %s: %v\n", HelperCommand, err)
-		return code
-	}
 	if len(args) < 3 {
-		return fail(helperFailed, errors.New("usage: LIMITS PATH ARGV0 [ARG...]"))
+		return newReport(stderr, 0).fail(helperFailed, "usage: LIMITS PATH ARGV0 [ARG...]", "", nil)
 	}
 	limits, err := parseLimits(args[0])
 	if err != nil {
-		return fail(helperFailed, err)
+		return newReport(stderr, 0).fail(helperFailed, err.Error(), "", nil)
 	}
+	path, argv := args[1], args[2:]
+	r := newReport(stderr, len(path))
+	prepareExec(path, argv, env)
 	for _, l := range limits {
 		if err := lower(l); err != nil {
-			return fail(helperFailed, fmt.Errorf("setrlimit %s: %w", l.Resource, err))
+			return r.fail(helperFailed, "setrlimit ", l.Resource, err)
 		}
 	}
-	err = syscall.Exec(args[1], args[2:], env)
-	return fail(execFailed, fmt.Errorf("exec %s: %w", args[1], err))
+	err = syscall.Exec(path, argv, env)
+	return r.fail(execFailed, "exec ", path, err)
+}
+
+// prepareExec readies the helper for limits below what it has already
+// mapped, under which any new mapping is a fatal runtime error rather than
+// an error value:
+//   - the heap profiler is turned off: it samples allocations at random and
+//     records each sample in a bucket that may need a new mapping. Keeping
+//     one P frees the other Ps' allocation caches, and the allocations below
+//     settle the remaining one at the new rate.
+//   - syscall.Exec's own allocations (the NUL-terminated copies of path,
+//     argv and env) are made once, dropped and collected. Go never returns
+//     heap address space to the OS, so the same copies made again by
+//     syscall.Exec are served from those pages.
+func prepareExec(path string, argv, env []string) {
+	runtime.MemProfileRate = 0
+	runtime.GOMAXPROCS(1)
+	p, _ := syscall.BytePtrFromString(path)
+	a, _ := syscall.SlicePtrFromStrings(argv)
+	e, _ := syscall.SlicePtrFromStrings(env)
+	runtime.KeepAlive(p)
+	runtime.KeepAlive(a)
+	runtime.KeepAlive(e)
+	runtime.GC()
+}
+
+// report writes the helper's one stderr line, "rsdd __exec: <what><subject>:
+// <err>", into a buffer sized before any limit is lowered, so reporting a
+// failure under a memory limit needs no allocation.
+type report struct {
+	w   io.Writer
+	buf []byte
+}
+
+// newReport sizes the line for a subject of up to n bytes.
+func newReport(w io.Writer, n int) report {
+	return report{w, make([]byte, 0, n+256)}
+}
+
+func (r report) fail(code int, what, subject string, err error) int {
+	b := append(r.buf, "rsdd "+HelperCommand+": "...)
+	b = append(append(b, what...), subject...)
+	if err != nil {
+		b = append(append(b, ": "...), err.Error()...)
+	}
+	_, _ = r.w.Write(append(b, '\n'))
+	return code
 }

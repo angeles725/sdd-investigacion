@@ -3,6 +3,7 @@
 package proc
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -78,5 +79,55 @@ func TestHelperKeepsArgv0(t *testing.T) {
 	stdout, stderr, code := runHelper(t, "", "/bin/cat", "my-cat", "/proc/self/cmdline")
 	if code != 0 || stdout != "my-cat\x00/proc/self/cmdline\x00" {
 		t.Fatalf("exit %d stdout %q stderr %q, want argv0 my-cat", code, stdout, stderr)
+	}
+}
+
+// vmSize is this process's mapped address space in bytes, from
+// /proc/self/status; the helper is this same binary, so it maps as much.
+func vmSize(t *testing.T) uint64 {
+	t.Helper()
+	b, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "VmSize:"); ok {
+			kb, err := strconv.ParseUint(strings.TrimSuffix(strings.TrimSpace(v), " kB"), 10, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return kb << 10
+		}
+	}
+	t.Fatalf("no VmSize in %q", b)
+	return 0
+}
+
+// An address-space limit below what the helper has already mapped must not
+// break the helper itself: once it is set, no new mapping is possible, so
+// copying a large argv for execve, or reporting a failed exec, must not need
+// one. Either way the outcome is the program's or a typed 127, never the Go
+// runtime dying out of memory. Whether an unprepared helper needs a mapping
+// varies from run to run (heap profiling samples at random), so each case
+// runs several times.
+func TestHelperExecsUnderAnAddressSpaceLimitBelowItsOwnSize(t *testing.T) {
+	const as = 64 << 20
+	if size := vmSize(t); size <= as {
+		t.Skipf("VmSize %d is not above the %d limit: the case proves nothing", size, as)
+	}
+	big := make([]string, 15) // ~1.5 MB of argv: more than any free span holds
+	for i := range big {
+		big[i] = strings.Repeat("a", 100_000)
+	}
+	spec := "as=" + strconv.Itoa(as)
+	for range 10 {
+		_, stderr, code := runHelper(t, append([]string{spec, "/bin/true", "true"}, big...)...)
+		if code != 0 {
+			t.Fatalf("exec under the limit: exit %d stderr %.200q, want /bin/true's 0", code, stderr)
+		}
+		_, stderr, code = runHelper(t, append([]string{spec, "/nonexistent/prog", "prog"}, big...)...)
+		if code != 127 || !strings.HasPrefix(stderr, "rsdd "+HelperCommand+": exec /nonexistent/prog: ") {
+			t.Fatalf("failed exec under the limit: exit %d stderr %.200q, want 127 and a typed line", code, stderr)
+		}
 	}
 }
