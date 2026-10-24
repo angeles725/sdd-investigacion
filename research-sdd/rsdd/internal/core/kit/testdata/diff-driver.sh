@@ -11,6 +11,7 @@
 #   bff           lib/block-files.sh   block_file_filter [-v] [<prefix>]  (paths on stdin)
 #   nwr           lib/block-files.sh   block_files_nested_worktree_roots <root>
 #   pinw          lib/block-files.sh   block_files_path_in_nested_worktree <path> <roots>
+#   dfp           lib/focus-prefix.sh  derive_focus_prefix <state-file>
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -45,5 +46,6 @@ case "$mode" in
     while IFS= read -r p || [ -n "$p" ]; do
       if [ -d "$p" ]; then printf '%s\t1\n' "$p"; else printf '%s\t0\n' "$p"; fi
     done ;;
+  dfp)          need focus-prefix.sh derive_focus_prefix;     derive_focus_prefix "$@" ;;
   *) die "unknown mode: $mode" ;;
 esac
