@@ -50,8 +50,11 @@ type Spec struct {
 type Result struct {
 	Stdout, Stderr []byte
 	// Reason is "" or the Reason* that stopped the run.
-	Reason         string
-	ReturnCode     int
+	Reason     string
+	ReturnCode int
+	// Started and Ended are Spec.Now's readings around the run, and Duration
+	// is Ended - Started. With a nil Spec.Now all three are zero: the
+	// package reads no clock of its own, so it never measures a run.
 	Started, Ended time.Time
 	Duration       time.Duration
 }

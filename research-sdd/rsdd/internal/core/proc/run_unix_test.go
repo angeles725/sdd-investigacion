@@ -281,6 +281,14 @@ func TestRunStampsTheInjectedClock(t *testing.T) {
 	}
 }
 
+// Without a clock nothing is stamped or measured, however long the run.
+func TestRunWithoutAClockLeavesTheTimesZero(t *testing.T) {
+	r, _ := run(t, shSpec(t, `sleep 0.1`))
+	if !r.Started.IsZero() || !r.Ended.IsZero() || r.Duration != 0 {
+		t.Fatalf("Started %v Ended %v Duration %v, want all zero with a nil Now", r.Started, r.Ended, r.Duration)
+	}
+}
+
 // Reaching the cap exactly stops a writer that then idles: the stop fires
 // on the cap, not on the timeout.
 func TestRunOutputCapStopsAtExactlyTheCap(t *testing.T) {
