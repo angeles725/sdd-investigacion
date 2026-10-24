@@ -60,16 +60,26 @@ func parseLimits(spec string) ([]Limit, error) {
 	return out, nil
 }
 
-// lower sets soft and hard of l to min(l.Value, current hard): an
-// unprivileged process can always lower a limit, never raise its hard one.
+// lower sets soft and hard of l to limitTarget: an unprivileged process can
+// always lower a limit, never raise its hard one.
 func lower(l Limit) error {
 	res := resources[l.Resource]
 	var cur syscall.Rlimit
 	if err := syscall.Getrlimit(res, &cur); err != nil {
 		return err
 	}
-	v := min(l.Value, cur.Max)
+	v := limitTarget(l, cur.Max, platformCeiling)
 	return syscall.Setrlimit(res, &syscall.Rlimit{Cur: v, Max: v})
+}
+
+// limitTarget is l.Value clamped to the hard limit and to ceiling, the
+// highest value the platform accepts for the resource when it has one.
+func limitTarget(l Limit, hard uint64, ceiling func(res int) (uint64, bool)) uint64 {
+	v := min(l.Value, hard)
+	if c, ok := ceiling(resources[l.Resource]); ok {
+		v = min(v, c)
+	}
+	return v
 }
 
 // HelperMain is the body of `rsdd __exec LIMITS PATH ARGV0 [ARG...]`, run in

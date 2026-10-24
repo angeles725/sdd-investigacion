@@ -7,7 +7,8 @@ const HelperCommand = "__exec"
 
 // Limit lowers one resource limit (soft and hard) in the child. Resource is
 // one of as, core, cpu, data, fsize, nofile, stack; a Value above the
-// current hard limit is clamped to it.
+// current hard limit is clamped to it, and a nofile Value on darwin also to
+// kern.maxfilesperproc. A value the kernel still refuses fails the helper.
 type Limit struct {
 	Resource string
 	Value    uint64

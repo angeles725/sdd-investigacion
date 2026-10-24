@@ -21,7 +21,8 @@
 //     ["analyzer-exit:<code>"] for a non-zero ReturnCode (negative = signal).
 //   - Limits replace the RLIMIT_FSIZE preexec: Go has no preexec hook, so the
 //     child re-execs through `rsdd __exec` (HelperMain), which lowers each
-//     limit to min(value, hard) and then execs the program. A caller porting
+//     limit to min(value, hard) (nofile on darwin also capped at
+//     kern.maxfilesperproc) and then execs the program. A caller porting
 //     run_bounded passes Limit{"fsize", MaxBytes}.
 //
 // Differences, by design: output is captured from pipes, not written to

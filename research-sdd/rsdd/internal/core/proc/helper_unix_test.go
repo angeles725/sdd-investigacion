@@ -85,3 +85,25 @@ func TestHelperPassesAnUnnamedLimitThroughUnchanged(t *testing.T) {
 		t.Fatalf("program's soft NOFILE = %q (%v), want the caller's 200", out, err)
 	}
 }
+
+func TestLimitTargetClampsToTheHardLimitAndThePlatformCeiling(t *testing.T) {
+	nofileAt := func(n uint64) func(int) (uint64, bool) {
+		return func(res int) (uint64, bool) { return n, res == syscall.RLIMIT_NOFILE }
+	}
+	for _, c := range []struct {
+		l       Limit
+		hard    uint64
+		ceiling func(int) (uint64, bool)
+		want    uint64
+	}{
+		{Limit{"nofile", 64}, 1000, platformCeiling, 64},
+		{Limit{"nofile", 5000}, 1000, nofileAt(10240), 1000},
+		{Limit{"nofile", 50000}, 1 << 62, nofileAt(10240), 10240},
+		{Limit{"nofile", 10240}, 1 << 62, nofileAt(10240), 10240},
+		{Limit{"fsize", 50000}, 1 << 62, nofileAt(10240), 50000},
+	} {
+		if got := limitTarget(c.l, c.hard, c.ceiling); got != c.want {
+			t.Errorf("limitTarget(%v, hard %d) = %d, want %d", c.l, c.hard, got, c.want)
+		}
+	}
+}
