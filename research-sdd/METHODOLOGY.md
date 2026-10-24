@@ -2206,7 +2206,7 @@ in the slow lane. Every fixture-copy or SUT-copy mutation MUST be drift-guarded 
 
 **Python mutation tests: run with `python3 -B` (or clear `__pycache__`).** A same-size, same-second source
 mutation-then-restore leaves a stale `.pyc` whose recorded mtime/size still matches, so the correctly restored
-file appears to fail. (Evidence: target-local `tools/bog-cycles.py` (not shipped by the kit) mutation check, niagara B1198 §1198.4. Source: n4 agent-mcp
+file appears to fail. (Evidence: target-local `tools/bog-cycles.py` (not shipped by the kit; retired 2026-10, now the Go `bog-cycles` of niagara-go) mutation check, niagara B1198 §1198.4. Source: n4 agent-mcp
 retro #1.)
 
 **Rule R5 — the content-addressed manifest `verify` is slow-only and never enters a fixture.**
