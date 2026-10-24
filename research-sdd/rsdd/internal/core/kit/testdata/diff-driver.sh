@@ -17,6 +17,7 @@
 #   frr           lib/focus-prefix.sh  focus_range_report <state-file> '%s|%s\n' (+ block-files.sh)
 #   igid          lib/focus-prefix.sh  inplace_gap_id <text>
 #   ibc           lib/focus-prefix.sh  inplace_blocked_count <blocked-body>  (backlog rows on stdin)
+#   kitrun        ../templates/hook-kit-run.sh <kit-relative-script>  (the whole hook: resolution, then exec)
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -57,5 +58,7 @@ case "$mode" in
   frr)          need block-files.sh block_file_filter; need focus-prefix.sh focus_range_report; focus_range_report "$1" '%s|%s\n' ;;
   igid)         need focus-prefix.sh inplace_gap_id;          inplace_gap_id "$@" ;;
   ibc)          need focus-prefix.sh inplace_blocked_count;   inplace_blocked_count "$@" ;;
+  kitrun)       [ -f "$tb/../templates/hook-kit-run.sh" ] || die "missing: $tb/../templates/hook-kit-run.sh"
+                bash "$tb/../templates/hook-kit-run.sh" "$@" ;;
   *) die "unknown mode: $mode" ;;
 esac

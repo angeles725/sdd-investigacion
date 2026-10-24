@@ -41,8 +41,7 @@ func cLess(a, b string) bool { return strings.Compare(a, b) < 0 }
 // readRegular reads path the way `[ -f path ]` plus a successful read does: a missing path or a non-regular
 // file is ErrAbsentInput, a failed read is ErrUnreadable.
 func readRegular(path string) (string, error) {
-	st, err := os.Stat(path)
-	if err != nil || !st.Mode().IsRegular() {
+	if !isRegularOS(path) {
 		return "", ErrAbsentInput
 	}
 	b, err := os.ReadFile(path)
@@ -50,4 +49,10 @@ func readRegular(path string) (string, error) {
 		return "", ErrUnreadable
 	}
 	return string(b), nil
+}
+
+// isRegularOS is `[ -f path ]`: a regular file, symlinks followed.
+func isRegularOS(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Mode().IsRegular()
 }

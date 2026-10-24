@@ -635,3 +635,29 @@ func TestDifferentialInplaceBlockedCount(t *testing.T) {
 		}
 	}
 }
+
+// TestDifferentialKitResolution runs the whole templates/hook-kit-run.sh: a resolved kit execs the probe script,
+// which prints its own path; a failure is the typed `kit-run: DEGRADED: <why>; <rel> did NOT run` line, exit 1.
+func TestDifferentialKitResolution(t *testing.T) {
+	for _, c := range kitCases {
+		t.Run(c.label, func(t *testing.T) {
+			e := newKitEnv(t)
+			c.setup(e)
+			b := bashDriver(t, e.env, "", "kitrun", c.rel)
+			path, warns, err := ResolveKitScript(c.rel, envOf(e.env))
+			wantErr := lines(warns)
+			out, rc := path+nl(path), 0
+			if err != nil {
+				wantErr += "kit-run: DEGRADED: " + err.Error() + "; " + c.rel + " did NOT run\n"
+				out, rc = "", 1
+			}
+			if b.rc != rc || b.stdout != out || b.stderr != wantErr {
+				t.Fatalf("go rc=%d out=%q err=%q\nbash rc=%d out=%q err=%q", rc, out, wantErr, b.rc, b.stdout, b.stderr)
+			}
+		})
+	}
+	b := bashDriver(t, map[string]string{"HOME": t.TempDir()}, "", "kitrun")
+	if _, _, err := ResolveKitScript("", envOf(nil)); b.rc != 1 || b.stderr != "kit-run: DEGRADED: "+err.Error()+"\n" {
+		t.Fatalf("no script: bash rc=%d err=%q go=%v", b.rc, b.stderr, err)
+	}
+}
