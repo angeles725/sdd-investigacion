@@ -71,11 +71,19 @@ if [ "$p2" -le 2 ]; then ok "jobs: MUTANT_JOBS=2 never has more than two jobs al
 pf="$(jpeak 2 6 1 foreign)"
 if [ "$pf" -le 2 ]; then ok "jobs: a caller's own background job finishing never frees a batch slot (peak $pf at 2)"
 else no "jobs: foreign-job peak $pf at jobs=2 — a non-batch child freed a slot"; fi
-# sleep_pids N — pids of live `sleep N` processes, read from /proc (exact argv, so it can never match this script).
-sleep_pids(){ local f; for f in /proc/[0-9]*/cmdline; do [ "$(tr '\0' ' ' < "$f" 2>/dev/null)" = "sleep $1 " ] && { f="${f#/proc/}"; echo "${f%/cmdline}"; }; done; return 0; }
+# sleep_pids N TOKEN — pids of live `sleep N` processes of THIS run, read from /proc: exact argv (so it never
+# matches this script) AND the run's MUTANT_JX_TOKEN in the environment, so a concurrent run of this suite (a
+# sibling worktree, parallel CI) that drew the same bound is never reported, let alone killed.
+sleep_pids(){ local f p; for f in /proc/[0-9]*/cmdline; do
+  [ "$(tr '\0' ' ' < "$f" 2>/dev/null)" = "sleep $1 " ] || continue
+  p="${f#/proc/}"; p="${p%/cmdline}"
+  tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qxF "MUTANT_JX_TOKEN=$2" && echo "$p"
+done; return 0; }
 # interrupt: a TERM to the batch shell mid-batch kills every job, its manager and its watchdog; nothing survives.
-d="$(mktemp -d "$TMP/jx.XXXXXX")"; jb=$((7000 + RANDOM % 1000))
-MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT="$jb" bash -c '. "$1"; mutant_jobs_begin "$2"; v(){ :; }
+d="$(mktemp -d "$TMP/jx.XXXXXX")"; jb=$((7000 + RANDOM % 1000)); jxtok="$$.$RANDOM.$RANDOM"
+if [ ! -r /proc/self/cmdline ]; then echo "  SKIP  jobs: interrupt case needs /proc to find surviving watchdogs (none here)"
+else
+MUTANT_JX_TOKEN="$jxtok" MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT="$jb" bash -c '. "$1"; mutant_jobs_begin "$2"; v(){ :; }
   for n in x1 x2 x3; do mutant_job "$n" bash -c "echo \$\$ > \"\$MUTANT_JOB_SCRATCH/pid\"; exec sleep 60"; done
   c=0; mutant_jobs_end c v; echo DONE' _ "$LIB" "$d" >"$d.out" 2>&1 &
 jxb=$!; i=0
@@ -83,10 +91,11 @@ while { [ ! -s "$d/x1.d/pid" ] || [ ! -s "$d/x2.d/pid" ]; } && [ $i -lt 100 ]; d
 kill -TERM "$jxb"; wait "$jxb"; jxrc=$?; sleep 0.3
 jxleft=""
 for f in "$d"/x*.d/pid; do p="$(cat "$f" 2>/dev/null)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null && { jxleft="$jxleft job:$p"; kill -KILL "$p"; }; done
-for p in $(sleep_pids "$jb"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
+for p in $(sleep_pids "$jb" "$jxtok"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
 if [ -z "$jxleft" ] && [ "$jxrc" = 143 ] && ! grep -q DONE "$d.out" && [ -s "$d/x1.d/pid" ]; then
   ok "jobs: a TERM mid-batch kills every outstanding job and watchdog, then the shell dies of TERM (rc 143)"
 else no "jobs: interrupted batch left [$jxleft] rc=$jxrc out=[$(tr '\n' ' ' < "$d.out")]"; fi
+fi
 # isolation: every job gets its own fresh, empty MUTANT_JOB_SCRATCH and its declaration index in MUTANT_JOB_INDEX.
 d="$(mktemp -d "$TMP/ji.XXXXXX")"; jc=0
 MUTANT_JOBS=4 mutant_jobs_begin "$d"
@@ -152,7 +161,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "jobs: timeout report"
   teeth_case abort '/SENTINEL-JOBS-ABORT/,+2s/_mutant_kill_tree "\${e%%:\*}" KILL/:/' \
     "jobs: interrupted batch left"
-  teeth_case foreign '/SENTINEL-JOBS-REAP/{n;s/ "\${_mjr_pids\[@\]}" 2>/ 2>/};s/\[ "\${_mjr_e%%:\*}" = "\$_mjr_done" \] || _mjr_keep+=/[ "$_mjr_e" = "${_MUTANT_JLIVE[0]}" ] || _mjr_keep+=/' \
+  teeth_case foreign '/SENTINEL-JOBS-REAP/{n;s/ "\${_mjr_pids\[@\]}" 2>/ 2>/};s/\[ "\${_mjr_e%%:\*}" = "\$_mjr_reaped" \] || _mjr_keep+=/[ "$_mjr_e" = "${_MUTANT_JLIVE[0]}" ] || _mjr_keep+=/' \
     "jobs: foreign-job peak"
   teeth_case scratch 's/MUTANT_JOB_SCRATCH="\$d\/\$name\.d"/MUTANT_JOB_SCRATCH="$d"/' \
     "jobs: per-job isolation"

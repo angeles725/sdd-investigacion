@@ -515,19 +515,19 @@ _mutant_jobs_same_shell() {
 # ONE (`wait -n -p` over the batch pids only, bash >= 5.1). When bash knows none of them any more (rc 127),
 # the list is cleared, so the caller's loop always ends.
 _mutant_jobs_reap_one() {
-  local _mjr_done="" _mjr_e _mjr_keep=() _mjr_pids=()
+  local _mjr_finished="" _mjr_reaped="" _mjr_e _mjr_keep=() _mjr_pids=()
   # A manager that wrote NAME.rc has finished: drop it without waiting (bash may already have retired it
   # from its job table, and `wait -n` would then say "no such job").
   for _mjr_e in "${_MUTANT_JLIVE[@]}"; do
-    if [ -e "$_MUTANT_JDIR/${_mjr_e#*:}.rc" ]; then _mjr_done=1; else _mjr_keep+=("$_mjr_e"); _mjr_pids+=("${_mjr_e%%:*}"); fi
+    if [ -e "$_MUTANT_JDIR/${_mjr_e#*:}.rc" ]; then _mjr_finished=1; else _mjr_keep+=("$_mjr_e"); _mjr_pids+=("${_mjr_e%%:*}"); fi
   done
   _MUTANT_JLIVE=("${_mjr_keep[@]+"${_mjr_keep[@]}"}"); _mjr_keep=()
-  [ -z "$_mjr_done" ] || return 0
+  [ -z "$_mjr_finished" ] || return 0
   [ "${#_mjr_pids[@]}" -gt 0 ] || return 0
   # SENTINEL-JOBS-REAP
-  wait -n -p _mjr_done "${_mjr_pids[@]}" 2>/dev/null
-  if [ "$?" = 127 ] && [ -z "$_mjr_done" ]; then _MUTANT_JLIVE=(); return 0; fi
-  for _mjr_e in "${_MUTANT_JLIVE[@]}"; do [ "${_mjr_e%%:*}" = "$_mjr_done" ] || _mjr_keep+=("$_mjr_e"); done
+  wait -n -p _mjr_reaped "${_mjr_pids[@]}" 2>/dev/null
+  if [ "$?" = 127 ] && [ -z "$_mjr_reaped" ]; then _MUTANT_JLIVE=(); return 0; fi
+  for _mjr_e in "${_MUTANT_JLIVE[@]}"; do [ "${_mjr_e%%:*}" = "$_mjr_reaped" ] || _mjr_keep+=("$_mjr_e"); done
   _MUTANT_JLIVE=("${_mjr_keep[@]+"${_mjr_keep[@]}"}")
 }
 
