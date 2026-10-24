@@ -266,3 +266,32 @@ func TestRunOutputCapStopsAtExactlyTheCap(t *testing.T) {
 		t.Fatalf("reason %q after %s, want output-cap well before the 10s timeout", r.Reason, el)
 	}
 }
+
+// A process that leaves the group (setsid) is out of the guard's reach and
+// may hold the pipe forever; Run still returns once the grace runs out.
+func TestRunDoesNotWaitForAnEscapedPipeHolder(t *testing.T) {
+	needSetsid(t)
+	s := shSpec(t, `setsid sh -c 'echo $$ > esc; exec sleep 30' & sleep 0.2; printf done`)
+	s.Grace = 300 * time.Millisecond
+	t.Cleanup(func() {
+		if b, err := os.ReadFile(filepath.Join(s.Dir, "esc")); err == nil {
+			if pgid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				_ = KillGroup(pgid, pgid)
+			}
+		}
+	})
+	r, el := run(t, s)
+	if string(r.Stdout) != "done" || r.ReturnCode != 0 || el > 4*time.Second {
+		t.Fatalf("got %+v after %s, want a prompt return despite the escaped holder", r, el)
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, "esc")); err != nil {
+		t.Fatalf("the escaped holder never started (%v): the case proves nothing", err)
+	}
+}
+
+func needSetsid(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat("/usr/bin/setsid"); err != nil {
+		t.Skip("/usr/bin/setsid not available (the spec PATH is /usr/bin:/bin)")
+	}
+}
