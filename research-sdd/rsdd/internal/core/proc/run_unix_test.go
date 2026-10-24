@@ -255,3 +255,14 @@ func TestRunStampsTheInjectedClock(t *testing.T) {
 		t.Fatalf("Started %v Ended %v, want the clock's first and second reading", r.Started, r.Ended)
 	}
 }
+
+// Reaching the cap exactly stops a writer that then idles: the stop fires
+// on the cap, not on the timeout.
+func TestRunOutputCapStopsAtExactlyTheCap(t *testing.T) {
+	s := shSpec(t, `head -c 100 /dev/zero; sleep 30`)
+	s.MaxBytes = 100
+	r, el := run(t, s)
+	if r.Reason != ReasonOutputCap || el > 5*time.Second {
+		t.Fatalf("reason %q after %s, want output-cap well before the 10s timeout", r.Reason, el)
+	}
+}

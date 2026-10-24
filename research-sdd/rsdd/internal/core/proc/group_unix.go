@@ -50,15 +50,21 @@ func CheckGroup(pgid, childPgid, ownPgid int) error {
 // SignalGroup sends sig to process group pgid only if CheckGroup accepts it
 // and the group still exists; refused input never reaches a real signal. A
 // group id cannot be reused while any member is alive, so the existence probe
-// keeps a vanished group's id from being signalled.
+// keeps a vanished group's id from being signalled. A group that empties
+// between the probe and the signal reports the same ErrGroupGone refusal.
 func SignalGroup(pgid, childPgid int, sig syscall.Signal) error {
 	if err := CheckGroup(pgid, childPgid, syscall.Getpgrp()); err != nil {
 		return err
 	}
+	gone := &GroupRefusedError{Pgid: pgid, Reason: "group no longer exists", gone: true}
 	if !GroupAlive(pgid) {
-		return &GroupRefusedError{Pgid: pgid, Reason: "group no longer exists", gone: true}
+		return gone
 	}
-	return syscall.Kill(-pgid, sig)
+	err := syscall.Kill(-pgid, sig)
+	if errors.Is(err, syscall.ESRCH) {
+		return gone
+	}
+	return err
 }
 
 // KillGroup is SignalGroup with SIGKILL.
