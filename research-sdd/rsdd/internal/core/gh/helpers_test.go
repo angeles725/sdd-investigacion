@@ -1,3 +1,5 @@
+//go:build unix
+
 package gh
 
 import (
@@ -37,7 +39,7 @@ func opts(t *testing.T, extra ...string) Options {
 	return Options{Env: append([]string{"PATH=" + fakeBin(t)}, extra...)}
 }
 
-// withLog sets GH_LOG in o and returns the stub's log as key -> value.
+// withLog sets GH_LOG in o and returns a reader of the stub's log as key -> value.
 func withLog(t *testing.T, o *Options) func() map[string]string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "gh.log")

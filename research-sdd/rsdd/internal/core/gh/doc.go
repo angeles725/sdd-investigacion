@@ -23,4 +23,6 @@
 //   - Bound is zero for GH_MISSING (nothing was bounded); the bash leaves its unvalidated default there.
 //   - A non-positive default falls back to 20; the bash would pass 0 to timeout(1), which means no bound.
 //   - The probe kills a TERM-ignoring gh after the grace, where `timeout` without -k would wait forever.
+//   - A gh the kernel cannot execute is GH_ERROR 126; under timeout(1) glibc's execvp retries it as a /bin/sh
+//     script, so the bash usually reports sh's 127.
 package gh
