@@ -1478,7 +1478,7 @@ ep_degraded rcfail "#1207 BAD: ephemeral detector exit != 0 is degraded"
 
 # kit #1207 (b) — SCRIPTS-MANIFEST. A preserved script cited under sources/probes/ needs a manifest row whose
 # sha256 equals the file's, but only when the corpus has >= 1 manifest; with none, a typed INFO (never silent).
-mf_sha() { sha256sum "$1" | awk '{print $1}'; }
+mf_sha() { sha256sum < "$1" | awk '{print $1}'; }   # stdin: a positional name makes GNU sha256sum escape a backslash path (#2190)
 mf_corpus() { # <name> <block-body-line...> — fresh corpus dir with scripts a.sh b.sh c.sh under sources/probes/b1/
   MFD="$TMP/mf-$1"; shift; mkdir -p "$MFD/sources/probes/b1"
   local s; for s in a b c; do printf '#!/bin/sh\necho %s\n' "$s" > "$MFD/sources/probes/b1/$s.sh"; done
@@ -1502,6 +1502,16 @@ mf_corpus nomf "Ran \`sources/probes/b1/a.sh\` [CERT]"
 mf_check 0 'INFO    no SCRIPTS-MANIFEST' "#1207 GOOD: corpus with no manifest keeps today's behaviour, typed INFO"
 mf_corpus ok "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
 mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#1207 GOOD: cited script with matching manifest row"
+# #2190: the corpus DIRECTORY name carries a backslash, so a positional `sha256sum <path>` prints "\<hex>"
+# and the manifest compare read a perfectly matching script as differing.
+mf_corpus 'bs\slash' "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
+mf_check 0 'manifest-ok  sources/probes/b1/a.sh' "#2190 GOOD: backslash in the corpus dir name still matches the manifest sha"
+# #2190 typed state: an existing-but-unreadable script is its own finding, never a hex-less "differs" mismatch.
+mf_corpus nord "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh @a.sh
+chmod 000 "$MFD/sources/probes/b1/a.sh"
+if [ -r "$MFD/sources/probes/b1/a.sh" ]; then ok "#2190 unreadable-script case skipped (readable despite chmod 000, e.g. root)"
+else mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(preserved file exists but is unreadable' "#2190 BAD: unreadable preserved script is a typed finding"; fi
+chmod 644 "$MFD/sources/probes/b1/a.sh"
 mf_corpus norow "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 b.sh @b.sh
 mf_check 1 'MANIFEST!  sources/probes/b1/a.sh  \(no valid SCRIPTS-MANIFEST row' "#1207 BAD: cited script has no manifest row"
 mf_corpus badsha "Ran \`sources/probes/b1/a.sh\` [CERT]"; mf_manifest b1 a.sh "$(printf 'f%.0s' $(seq 64))"
@@ -2492,6 +2502,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mk_sed "teeth-mf-sha" "$MUT/mfs.sh" '/# VB-MF-SHA$/s/if grep -qxF "\$_vb_mf_have" <<<"\$_vb_mf_want"; then/if true; then/'; then
     tooth "teeth-mf-sha" 1 0 "$MUT/mfs.sh" --good-has 'MANIFEST!.*differs' --bad-lacks 'MANIFEST!' -- bash @SUT@ "$TMP/mf-badsha/block.md"
   fi
+  echo "-- teeth-mf-stdin (#2190): digest read via a positional name instead of stdin --"
+  if mk_sed "teeth-mf-stdin" "$MUT/mfstdin.sh" 's|\$_vb_mf_sha < "\$target/\$_vb_mf_c" 2>/dev/null|$_vb_mf_sha "$target/$_vb_mf_c" 2>/dev/null|'; then
+    tooth "teeth-mf-stdin" 0 1 "$MUT/mfstdin.sh" --good-has 'manifest-ok  sources/probes/b1/a.sh' --bad-lacks 'manifest-ok' -- bash @SUT@ "$TMP/mf-bs\\slash/block.md"
+  fi
+  echo "-- teeth-mf-nord (#2190): an unreadable script loses its typed state --"
+  chmod 000 "$TMP/mf-nord/sources/probes/b1/a.sh"
+  if [ -r "$TMP/mf-nord/sources/probes/b1/a.sh" ]; then ok "teeth-mf-nord skipped (readable despite chmod 000, e.g. root)"
+  elif mk_sed "teeth-mf-nord" "$MUT/mfunr.sh" 's|_vb_mf_have=UNREADABLE; fi|_vb_mf_have=""; fi|'; then
+    tooth "teeth-mf-nord" 1 1 "$MUT/mfunr.sh" --good-has 'preserved file exists but is unreadable' --bad-lacks 'preserved file exists but is unreadable' -- bash @SUT@ "$TMP/mf-nord/block.md"
+  fi
+  chmod 644 "$TMP/mf-nord/sources/probes/b1/a.sh"
   echo "-- teeth-mf-lookup: every script matches every row --"
   if mk_sed "teeth-mf-lookup" "$MUT/mfl.sh" '/# VB-MF-LOOKUP$/s/\$1 == b/1/'; then
     tooth "teeth-mf-lookup" 1 1 "$MUT/mfl.sh" --good-has 'no valid SCRIPTS-MANIFEST row' --bad-lacks 'no valid SCRIPTS-MANIFEST row' -- bash @SUT@ "$TMP/mf-norow/block.md"

@@ -1187,8 +1187,14 @@ else
         echo "   MANIFEST!  $_vb_mf_c  (no valid SCRIPTS-MANIFEST row for this script — add script|sha256|run/step|block|executed-on|remote-sha256|role)"; rc=1; _vb_mf_n=$((_vb_mf_n+1)); continue
       fi
       _vb_mf_have=ABSENT
-      [ -f "$target/$_vb_mf_c" ] && _vb_mf_have=$($_vb_mf_sha "$target/$_vb_mf_c" 2>/dev/null | awk '{print tolower($1)}')
-      if grep -qxF "$_vb_mf_have" <<<"$_vb_mf_want"; then   # VB-MF-SHA
+      if [ -f "$target/$_vb_mf_c" ]; then
+        # #2190: hash via STDIN — a positional name makes GNU sha256sum/shasum print a leading "\" before the digest when
+        # the path (target dir included) holds a backslash or newline. An unreadable file is a typed state, never an empty digest.
+        if _vb_mf_raw=$($_vb_mf_sha < "$target/$_vb_mf_c" 2>/dev/null); then _vb_mf_have=$(awk '{print tolower($1)}' <<<"$_vb_mf_raw"); else _vb_mf_have=UNREADABLE; fi
+      fi
+      if [ "$_vb_mf_have" = UNREADABLE ]; then
+        echo "   MANIFEST!  $_vb_mf_c  (preserved file exists but is unreadable — sha256 not computed)"; rc=1; _vb_mf_n=$((_vb_mf_n+1))
+      elif grep -qxF "$_vb_mf_have" <<<"$_vb_mf_want"; then   # VB-MF-SHA
         echo "   manifest-ok  $_vb_mf_c  (sha256 matches a row)"
       else
         echo "   MANIFEST!  $_vb_mf_c  (manifest sha256 differs from the file's: ${_vb_mf_have:0:16})"; rc=1; _vb_mf_n=$((_vb_mf_n+1))
