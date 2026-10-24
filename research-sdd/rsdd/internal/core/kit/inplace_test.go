@@ -45,6 +45,8 @@ var inplaceCases = []inplaceCase{
 	{"a last row without a newline is not read", "", "low\tg1\tblocked\nlow\tg2\tblocked", 1},
 	{"a dash-less needs: before a dashed one wins", "- G1 a needs: b — needs: c\n", "low\tG1 a\tblocked\nlow\tG1 a needs: b\tblocked\n", 0},
 	{"en dash bytes in the C-locale bracket", "- G2 x\xe2\x80 needs: c\n- G3 y€ needs: d\n", "low\tG2 x\tblocked\nlow\tG3 y€\tblocked\n", 0},
+	{"interleaved blanks and dashes keep all but the last dash run", "- xylo - - needs: y\n- pqrs -  -needs: q\n- mnop -- -- needs: n\n- abcd - efgh - needs: c\n",
+		"low\txylo -\tblocked\nlow\tpqrs -\tblocked\nlow\tmnop --\tblocked\nlow\tabcd - efgh\tblocked\nlow\txylo\tblocked\nlow\tmnop\tblocked\n", 2},
 	{"empty gap", "", "low\t\t\n", 0},
 	{"empty input", "", "", 0},
 }
