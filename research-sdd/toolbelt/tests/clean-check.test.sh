@@ -360,6 +360,13 @@ printf 'different\n' > "$REPO/sources/probes/b1/probe_run.log"
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && ok "#1207: a same-named but different preserved file does not count" || no "different copy" "($OUT)"
 
+# #2190: a backslash in the SCRATCHPAD file name makes GNU sha256sum print "\<hex>" for the positional form,
+# so the digest never matched the (unescaped) preserved copy and a genuinely preserved artifact read UNPRESERVED.
+cc_scratch 'Result in probe\run.log [CERT-hw]'
+printf 'same bytes\n' > "$SP/probe\\run.log"; mkdir -p "$REPO/sources/probes/b1"; printf 'same bytes\n' > "$REPO/sources/probes/b1/copy.log"
+CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
+{ [ "$RC" = 0 ] && ! has "UNPRESERVED-ARTIFACT" && has "preserved-copies: 1"; } && ok "#2190: backslash scratchpad name still matches its byte-identical preserved copy" || no "#2190 backslash name" "(rc=$RC $OUT)"
+
 # manifest scan failure is typed DEGRADED, never 'no manifests'
 mkdir -p "$TMP/shim-mffind"
 printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && { echo "shim-mffind: find exploded" >&2; exit 1; }; done\nexec %s "$@"\n' "$(type -P find)" > "$TMP/shim-mffind/find"
@@ -701,6 +708,12 @@ KL
   printf 'Ran prerun.sh and probe_run.log\n' > "$RB/notes/b1.md"; printf 'same\n' > "$RSP/probe_run.log"; printf 'same\n' > "$RB/sources/probes/b1/probe_run.log"
   mt "preserved-copy check disabled" '/# CC-PRESERVED$/s/if \[ -n "\$_h" \] \&\& grep -qxF -- "\$_h" <<<"\$_probe_shas"; then _same=1; fi/:/' 1 1 \
     --good-lacks 'UNPRESERVED-ARTIFACT .*probe_run\.log' --bad-has 'UNPRESERVED-ARTIFACT .*probe_run\.log' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
+  fresh; BS="$REPO"; BST="$FT"; BSP="$TMP/bs-spad"; mkdir -p "$BSP" "$BS/notes" "$BS/.research-sdd" "$BS/sources/probes/b1"
+  printf 'sources/\n' > "$BS/.research-sdd/keep.txt"; printf 'Result in probe\\run.log\n' > "$BS/notes/b1.md"
+  printf 'same bytes\n' > "$BSP/probe\\run.log"; printf 'same bytes\n' > "$BS/sources/probes/b1/copy.log"
+  git -C "$BS" add notes/b1.md .research-sdd/keep.txt sources; git -C "$BS" -c user.name=t -c user.email=t@example.invalid commit -q -m bs
+  mt "#2190 digest read back to positional file arg" '/_h="\$(\$_sha_cmd/s/\$_sha_cmd < "\$_f"/$_sha_cmd -- "$_f"/' 0 1 \
+    --good-lacks 'UNPRESERVED-ARTIFACT' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CLEAN_CHECK_SCRATCHPAD=$BSP" "$BASH_BIN" @SUT@ --target "$BS" --tmp "$BST"
   mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 2 1 \
     --good-has 'manifest scan failed' --bad-lacks 'manifest scan failed' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
   mt "probes scan RC ignored" '/# CC-PB-RC$/s/"\${_pl\[\$_plast\]}" = "RC=0"/"x" = "x"/' 2 1 \

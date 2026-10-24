@@ -143,6 +143,37 @@ STUBEOF
       fi
     fi
   fi
+
+  # ── #2190: SHA in the front matter must be the bare digest for a backslash name ──
+  if command -v pdftotext >/dev/null 2>&1; then
+    _bs_pdf="$TMP/we\\ird.pdf"; cp "$_min_pdf" "$_bs_pdf"
+    _want_sha="$(sha256sum < "$_min_pdf" | cut -d' ' -f1)"
+    bash "$SUT" -f --engine pdftotext -o "$TMP/out-bs.md" "$_bs_pdf" >/dev/null 2>&1
+    _got_sha="$(sed -n 's/^sha256: //p' "$TMP/out-bs.md" 2>/dev/null | head -1)"
+    if [ "$_got_sha" = "$_want_sha" ] && [ -n "$_want_sha" ]; then
+      ok "#2190 extract-pdf: backslash in the PDF name still records the bare sha256"
+    else
+      no "#2190 extract-pdf: backslash name sha256 want=[$_want_sha] got=[$_got_sha]"
+    fi
+    if [ "${1:-}" = "--prove-teeth" ]; then
+      echo "-- teeth #2190: positional sha256sum read must make the backslash case go red --"
+      load_mutant
+      MUTANT_BS="$TMP/extract-pdf.MUTANT-bs.sh"
+      if ! mutant_chain "teeth-bs" "$SUT" "$MUTANT_BS" 's|sha256sum < "\$IN"|sha256sum "$IN"|' || ! grep -qF 'sha256sum "$IN"' "$MUTANT_BS"; then
+        no "teeth #2190: could not build positional-read mutant"
+      else
+        bash "$MUTANT_BS" -f --engine pdftotext -o "$TMP/out-bs-mut.md" "$_bs_pdf" >/dev/null 2>&1
+        _mut_sha="$(sed -n 's/^sha256: //p' "$TMP/out-bs-mut.md" 2>/dev/null | head -1)"
+        if [ "$_mut_sha" != "$_want_sha" ]; then
+          ok "teeth #2190: positional-read mutant records a wrong sha256 (test has teeth)"
+        else
+          no "teeth #2190: mutant still recorded the bare digest — test is THEATER"
+        fi
+      fi
+    fi
+  else
+    printf '  SKIP  #2190 extract-pdf backslash-name sha: pdftotext not in PATH\n'
+  fi
 fi
 
 # ── fitz-dependent tests (mojibake detection) ─────────────────────────────────
