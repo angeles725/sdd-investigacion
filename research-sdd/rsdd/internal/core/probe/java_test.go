@@ -4,6 +4,7 @@ package probe
 
 import (
 	"errors"
+	"math"
 	"os"
 	"strconv"
 	"testing"
@@ -178,5 +179,35 @@ func TestJavaJar(t *testing.T) {
 	}
 	if got, err := prober(t.TempDir(), d).JavaJar("jadx"); got != "" || !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("unknown: %q %v", got, err)
+	}
+}
+
+// timeoutDuration reads RSDD_PROBE_TIMEOUT with timeout(1)'s grammar, so brew and java -version honor one
+// setting the same way: a float with an optional s/m/h/d unit, 0 meaning no limit.
+func TestTimeoutDuration(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+		ok   bool
+	}{
+		{"1", time.Second, true},
+		{"1.5", 1500 * time.Millisecond, true},
+		{"2s", 2 * time.Second, true},
+		{"2m", 2 * time.Minute, true},
+		{"1h", time.Hour, true},
+		{"1d", 24 * time.Hour, true},
+		{"0", 0, true},
+		{"1e300", math.MaxInt64, true},
+		{"", 0, false},
+		{"x", 0, false},
+		{"5q", 0, false},
+		{"-1", 0, false},
+		{"inf", 0, false},
+		{"nan", 0, false},
+	}
+	for _, c := range cases {
+		if got, ok := timeoutDuration(c.in); got != c.want || ok != c.ok {
+			t.Errorf("timeoutDuration(%q) = %v, %v; want %v, %v", c.in, got, ok, c.want, c.ok)
+		}
 	}
 }

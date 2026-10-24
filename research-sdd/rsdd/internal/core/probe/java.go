@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -13,7 +14,8 @@ import (
 
 // BrewPrefix is rsdd_brew_prefix: RSDD_BREW_PREFIX, HOMEBREW_PREFIX, `brew --prefix` stdout (its exit code
 // ignored, trailing newlines cut), then /home/linuxbrew/.linuxbrew when it is a directory. Unlike the shell,
-// a brew that outlives the probe timeout is killed and yields no prefix, so a hung brew cannot block a resolver.
+// a brew that outlives RSDD_PROBE_TIMEOUT (read as timeout(1) reads it) is killed and yields no prefix, so a
+// hung brew cannot block a resolver.
 func (p *Prober) BrewPrefix() (string, bool) {
 	for _, k := range []string{"RSDD_BREW_PREFIX", "HOMEBREW_PREFIX"} {
 		if v := p.get(k); v != "" {
@@ -21,7 +23,12 @@ func (p *Prober) BrewPrefix() (string, bool) {
 		}
 	}
 	if brew, ok := p.commandV("brew"); ok {
-		ctx, cancel := context.WithTimeout(context.Background(), p.probeTimeout())
+		ctx, cancel := context.Background(), context.CancelFunc(func() {})
+		if d, ok := timeoutDuration(p.probeTimeoutArg()); !ok {
+			ctx, cancel = context.WithTimeout(ctx, 10*time.Second) // timeout(1) would reject it; keep a bound
+		} else if d > 0 {
+			ctx, cancel = context.WithTimeout(ctx, d)
+		}
 		defer cancel()
 		cmd := p.commandContext(ctx, brew, "--prefix")
 		cmd.WaitDelay = time.Second // a child still holding stdout cannot outlive the kill by more
@@ -54,13 +61,25 @@ func (p *Prober) probeTimeoutArg() string {
 	return "10"
 }
 
-// probeTimeout is probeTimeoutArg as a duration; a value Go cannot read as whole or fractional seconds
-// falls back to the 10 s default rather than to no bound at all.
-func (p *Prober) probeTimeout() time.Duration {
-	if s, err := strconv.ParseFloat(p.probeTimeoutArg(), 64); err == nil && s > 0 {
-		return time.Duration(s * float64(time.Second))
+// timeoutDuration reads a duration with timeout(1)'s grammar: a non-negative float with an optional
+// s/m/h/d unit; 0 means no limit. ok is false for what timeout(1) rejects (empty, a bad unit, negative,
+// inf, nan); a value past time.Duration's range is clamped instead of overflowing into a negative one.
+func timeoutDuration(s string) (time.Duration, bool) {
+	units := map[byte]time.Duration{'s': time.Second, 'm': time.Minute, 'h': time.Hour, 'd': 24 * time.Hour}
+	unit := time.Second
+	if n := len(s); n > 0 {
+		if u, ok := units[s[n-1]]; ok {
+			s, unit = s[:n-1], u
+		}
 	}
-	return 10 * time.Second
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return 0, false
+	}
+	if d := v * float64(unit); d < math.MaxInt64 {
+		return time.Duration(d), true
+	}
+	return math.MaxInt64, true
 }
 
 // command is an exec.Cmd running in the Prober's environment and working directory.
