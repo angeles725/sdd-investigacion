@@ -94,6 +94,18 @@ func TestLaunchBoundStopsAStalledGh(t *testing.T) {
 	}
 }
 
+// The KILL comes 2 s after the TERM (timeout -k 2): a gh whose TERM handler takes 1 s still finishes it.
+func TestLaunchGraceLetsGhFinishItsTermHandler(t *testing.T) {
+	o := opts(t, "RSDD_GH_TIMEOUT=1", "GH_SLEEP=30", "GH_SLOW_TERM=1")
+	out, err := o.launch(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.state != StateTimeout || string(out.res.Stdout) != "graceful" {
+		t.Fatalf("got state=%q stdout=%q: the KILL came before the grace", out.state, out.res.Stdout)
+	}
+}
+
 func TestLaunchRefusedSpecIsProbeFailed(t *testing.T) {
 	o := opts(t)
 	o.MaxBytes = -1

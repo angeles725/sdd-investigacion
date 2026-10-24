@@ -10,13 +10,14 @@ import (
 )
 
 // fakeGHScript is the stub gh: driven by GH_OUT (printf %b escapes) / GH_ERR / GH_RC / GH_SLEEP / GH_SELFKILL /
-// GH_IGNORE_TERM, it logs its argv, cwd, GH_PROMPT_DISABLED, GH_REPO and FOO to $GH_LOG. Only absolute paths, so
+// GH_IGNORE_TERM / GH_SLOW_TERM (seconds its TERM handler takes before it prints "graceful" and exits), it logs its argv, cwd, GH_PROMPT_DISABLED, GH_REPO and FOO to $GH_LOG. Only absolute paths, so
 // a PATH holding nothing but the stub's directory keeps the host's gh, timeout and git out of reach.
 const fakeGHScript = `#!/bin/sh
 [ -z "$GH_LOG" ] || printf 'argv=%s\ncwd=%s\nprompt=%s\nrepo=%s\nfoo=%s\n' "$*" "$(pwd)" \
   "${GH_PROMPT_DISABLED-unset}" "${GH_REPO-unset}" "${FOO-unset}" > "$GH_LOG"
 [ -z "$GH_IGNORE_TERM" ] || trap '' TERM
-[ -z "$GH_SLEEP" ] || /bin/sleep "$GH_SLEEP"
+[ -z "$GH_SLOW_TERM" ] || trap '/bin/sleep "$GH_SLOW_TERM"; printf graceful; exit 0' TERM
+[ -z "$GH_SLEEP" ] || { /bin/sleep "$GH_SLEEP" & wait; }
 [ -z "$GH_SELFKILL" ] || kill -s "$GH_SELFKILL" $$
 printf '%b' "$GH_OUT"
 printf '%s' "$GH_ERR" >&2
