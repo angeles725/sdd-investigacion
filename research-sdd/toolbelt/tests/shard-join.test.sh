@@ -116,7 +116,7 @@ join --expected "$TMP/exp"; RC1=$RC; join --expected "$TMP/exp" --bogus "$TMP/m1
 # 9 — end to end with real run-all.sh manifests (default expected list via --list-suites)
 if [ -z "${SHARD_JOIN_SUT:-}" ]; then
   r="$TMP/e2e/research-sdd"; mkdir -p "$r/toolbelt/tests" "$r/install/tests" "$TMP/e2e/aux"
-  rsdd_stage_run_all "$r/toolbelt/tests"; cp "$SUT" "$r/toolbelt/tests/shard-join.sh"
+  rsdd_stage_run_all "$r/toolbelt/tests" || { echo "FATAL: cannot stage the run-all.sh fixture" >&2; exit 2; }; cp "$SUT" "$r/toolbelt/tests/shard-join.sh"
   printf '# fixture: no extras\n' > "$r/toolbelt/tests/suite-tiers.txt"   # an absent manifest is DEGRADED (kit issue #2203)
   for f in t1 t2 t3; do printf '#!/usr/bin/env bash\necho "== 1 passed %s 0 failed =="\n' "$MID" > "$r/toolbelt/tests/$f.test.sh"; done
   printf '#!/usr/bin/env bash\necho "== 1 passed %s 0 failed =="\n' "$MID" > "$r/install/tests/i1.test.sh"

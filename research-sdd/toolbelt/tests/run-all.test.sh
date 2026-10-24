@@ -65,7 +65,7 @@ mkfix_harness(){ # file
 newdir(){ # case-name
   local root="$TMP/$1/research-sdd/toolbelt/tests"
   mkdir -p "$root"
-  rsdd_stage_run_all "$root" "$SUT"
+  rsdd_stage_run_all "$root" "$SUT" || return 2
   # Kit issue #1144 review finding #2 made an ABSENT install-tests corpus a hard gate failure
   # (nonzero exit), which is correct for the REAL repo but would otherwise force every OTHER
   # case in this file — none of which care about the install corpus — to also stand up an
@@ -90,7 +90,7 @@ mut_workdir(){ # name
   mkdir -p "$root"
   mkdir -p "$(install_dir_for "$root")"
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"   # see newdir(): an absent manifest is DEGRADED (kit issue #2203)
-  rsdd_stage_run_all "$root"
+  rsdd_stage_run_all "$root" || return 2
   printf '%s' "$root"
 }
 # A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.

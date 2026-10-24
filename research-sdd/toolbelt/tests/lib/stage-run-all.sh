@@ -7,9 +7,9 @@
 #
 #   rsdd_stage_run_all DEST_TESTS [RUN_ALL]
 #     copy RUN_ALL (default: the real tests/run-all.sh; a suite passes its SUT or a mutant) to DEST_TESTS/run-all.sh,
-#     and into DEST_TESTS/lib every lib the REAL run-all.sh sources — derived from its text (`$SCRIPT_DIR/lib/<name>.sh`),
-#     never a hand-kept list. Silent on success (rc 0); rc 2 with a message on stderr when a copy fails or the
-#     derivation finds no lib at all (a renamed idiom must not silently stage nothing).
+#     and EVERY tests/lib/*.sh into DEST_TESTS/lib: no derived or hand-kept list, so a lib run-all.sh (or a lib it
+#     sources) names in any spelling is always there. Silent on success (rc 0); rc 2 with a message on stderr when a
+#     copy fails or tests/lib holds no *.sh. Callers propagate the rc (`|| return 2`, or a named FATAL at top level).
 #
 # FUNCTIONS ONLY — no `set` options here: a sourced `set` would change the calling suite's shell options.
 
@@ -17,13 +17,9 @@ _RSDD_STAGE_RA_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # LIN
 
 # rsdd_stage_run_all DEST_TESTS [RUN_ALL] — see header.
 rsdd_stage_run_all() {
-  local dest="$1" sut="${2:-$_RSDD_STAGE_RA_DIR/run-all.sh}" text libs n
-  text="$(cat -- "$_RSDD_STAGE_RA_DIR/run-all.sh")" || { echo "rsdd_stage_run_all: cannot read run-all.sh" >&2; return 2; }
-  libs="$(grep -o '\$SCRIPT_DIR/lib/[A-Za-z0-9_.-]*\.sh' <<<"$text" | sort -u)"
-  [ -n "$libs" ] || { echo "rsdd_stage_run_all: found no \$SCRIPT_DIR/lib/*.sh in run-all.sh" >&2; return 2; }
-  mkdir -p -- "$dest/lib" && cp -- "$sut" "$dest/run-all.sh" || { echo "rsdd_stage_run_all: cannot stage run-all.sh into $dest" >&2; return 2; }
-  for n in $libs; do
-    n="${n##*/}"
-    cp -- "$_RSDD_STAGE_RA_DIR/lib/$n" "$dest/lib/$n" || { echo "rsdd_stage_run_all: cannot stage lib/$n into $dest" >&2; return 2; }
-  done
+  local dest="$1" sut="${2:-$_RSDD_STAGE_RA_DIR/run-all.sh}" libs=()
+  libs=("$_RSDD_STAGE_RA_DIR"/lib/*.sh)
+  [ -f "${libs[0]}" ] || { echo "rsdd_stage_run_all: no tests/lib/*.sh under $_RSDD_STAGE_RA_DIR" >&2; return 2; }
+  mkdir -p -- "$dest/lib" && cp -- "$sut" "$dest/run-all.sh" && cp -- "${libs[@]}" "$dest/lib/" \
+    || { echo "rsdd_stage_run_all: cannot stage run-all.sh and tests/lib into $dest" >&2; return 2; }
 }

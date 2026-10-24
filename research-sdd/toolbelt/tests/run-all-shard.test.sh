@@ -117,7 +117,7 @@ d7="$(mktree absent 3 0)"; rm -rf "${d7%/toolbelt/tests}/install"
 shard_run "$d7" 1/3; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF 'ABSENT-INPUT' "$d7/../../../aux/out.1-3"; then ok "shard keeps the install-corpus ABSENT-INPUT gate (exit 1)"
 else no "absent install corpus under --shard did not fail: rc=$rc"; fi
-d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; rsdd_stage_run_all "$d7b" "$SUT"; printf '# fixture: no extras\n' > "$d7b/suite-tiers.txt"
+d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; rsdd_stage_run_all "$d7b" "$SUT" || { echo "FATAL: cannot stage the run-all.sh fixture" >&2; exit 2; }; printf '# fixture: no extras\n' > "$d7b/suite-tiers.txt"
 bash "$d7b/run-all.sh" --shard 1/2 >/dev/null 2>&1; [ $? -eq 1 ] && ok "no suites at all still exits 1 under --shard" || no "empty discovery under --shard did not exit 1"
 
 # 8 — without --shard nothing new appears
