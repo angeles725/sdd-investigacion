@@ -97,6 +97,9 @@ func HelperMain(args, env []string, stderr io.Writer) int {
 			return r.fail(helperFailed, "setrlimit ", l.Resource, err)
 		}
 	}
+	// syscall.Exec, never a raw execve: it puts back the soft NOFILE the
+	// runtime raised at startup (unless a nofile limit was set here), so a
+	// limit not in LIMITS reaches the program as the caller left it.
 	err = syscall.Exec(path, argv, env)
 	return r.fail(execFailed, "exec ", path, err)
 }

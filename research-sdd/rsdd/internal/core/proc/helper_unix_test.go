@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -63,5 +64,24 @@ func TestHelperExecsTheProgramWithItsArgs(t *testing.T) {
 	stdout, _, code := runHelper(t, "", "/bin/sh", "sh", "-c", `echo "$0 $1"`, "zero", "one")
 	if code != 0 || stdout != "zero one\n" {
 		t.Fatalf("exit %d stdout %q, want the args passed through", code, stdout)
+	}
+}
+
+// A limit not named in LIMITS reaches the program as the caller set it. The
+// Go runtime raises its own soft NOFILE at startup (syscall/rlimit.go), so
+// the helper holds a raised one; syscall.Exec puts the original back before
+// execve (syscall/exec_unix.go), and the program must see the caller's 200.
+func TestHelperPassesAnUnnamedLimitThroughUnchanged(t *testing.T) {
+	var own syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &own); err != nil {
+		t.Fatal(err)
+	}
+	if own.Max <= 201 {
+		t.Skipf("hard NOFILE %d leaves the runtime nothing to raise: the case proves nothing", own.Max)
+	}
+	script := `ulimit -Sn 200 && exec "$0" ` + HelperCommand + ` "" /bin/sh sh -c 'ulimit -Sn'`
+	out, err := exec.Command("/bin/sh", "-c", script, os.Args[0]).CombinedOutput()
+	if err != nil || string(out) != "200\n" {
+		t.Fatalf("program's soft NOFILE = %q (%v), want the caller's 200", out, err)
 	}
 }
