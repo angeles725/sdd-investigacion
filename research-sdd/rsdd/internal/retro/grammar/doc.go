@@ -13,7 +13,7 @@
 //     consumers share), DupIDs and IDSignatureSafe.
 //   - Honesty and titles (honesty.go, title.go): HasHonesty, TitleHasIdentity and RowTitles.
 //   - Review-status markers (marker*.go): the leading-block readers ReviewStatus, MarkerScopeLine, IsExcluded,
-//     IsWaived, HasBareMarker and StatusFromMarkerLine. They share this package rather than a sibling one
+//     IsWaived, HasBareMarker and StatusFromMarkerLine, and MarkerOutOfScope over the whole-file markerLine. They share this package rather than a sibling one
 //     because they read the same Doc (one read, the same typed errors) with the same byte helpers, and the
 //     same differential harness and fleet corpus check them.
 //

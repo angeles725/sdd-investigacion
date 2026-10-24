@@ -208,6 +208,8 @@ func init() {
 	fileModes["mscope"] = markerMode(func(d *Doc) bashOut { return lineOut(MarkerScopeLine(d)) }, bashOut{})
 	fileModes["excluded"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsExcluded(d))} }, bashOut{rc: 1})
 	fileModes["waived"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsWaived(d))} }, bashOut{rc: 1})
+	fileModes["mline"] = markerMode(func(d *Doc) bashOut { return lineOut(markerLine(d)) }, bashOut{})
+	fileModes["oos"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(MarkerOutOfScope(d))} }, bashOut{rc: 1})
 	fileModes["bare"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(HasBareMarker(d))} }, bashOut{rc: 1})
 	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
 	fileModes["altheads"] = readThen(AltHeads)
