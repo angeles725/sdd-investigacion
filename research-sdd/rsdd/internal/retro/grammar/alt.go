@@ -139,8 +139,8 @@ func (s *altScope) itemLine(line string) {
 	}
 	if s.have && s.cur.Target == "" { // ALT_PROPOSED_TARGET
 		if _, t, ok := strings.Cut(line, "PROPOSED "); ok {
-			if q := strings.IndexByte(t, ':'); q >= 0 && q < 120 {
-				s.cur.Target = trimSpace(t[:q])
+			if head, _, ok := strings.Cut(t, ":"); ok && len(head) < 120 {
+				s.cur.Target = trimSpace(head)
 			}
 		}
 	}
@@ -162,10 +162,11 @@ func startItem(id, text string) (Row, bool) {
 			t, rest = t[:e], t[e+2:]
 		}
 	}
-	if len(t) > 100 { // ALT_TITLE_CAP
-		k := cutAt(t, 100)
-		t, rest = t[:k], t[k:]+" "+rest
+	k := cutAt(t, 100) // ALT_TITLE_CAP: len(t) when the title fits
+	if tail := t[k:]; tail != "" {
+		rest = tail + " " + rest
 	}
+	t = t[:k]
 	title := trimSpace(strings.TrimRight(t, ".:"+spaceSet)) // ALT_TITLE_STRIP
 	ev := trimSpace(rest)
 	if len(ev) > 300 {

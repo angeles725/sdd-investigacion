@@ -198,7 +198,7 @@ func unbold(s string) string {
 }
 
 func dropSpace(r rune) rune {
-	if r < 0x80 && isSpace(byte(r)) {
+	if strings.ContainsRune(spaceSet, r) {
 		return -1
 	}
 	return r

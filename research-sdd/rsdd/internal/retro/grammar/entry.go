@@ -136,7 +136,7 @@ func headingPriority(h string) string {
 }
 
 func isPrioritySep(r rune) bool {
-	return r == ',' || r == ';' || r == ':' || (r < 0x80 && isSpace(byte(r)))
+	return strings.ContainsRune(",;:"+spaceSet, r)
 }
 
 // EntryIDs is retro_grammar_entry_ids: the ID column of EntryRows.
