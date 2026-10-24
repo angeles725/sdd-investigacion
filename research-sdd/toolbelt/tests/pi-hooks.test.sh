@@ -17,6 +17,8 @@
 #
 # Usage: pi-hooks.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 setup.
 set -uo pipefail
+# kit issue #2331: the behavior teeth's job count is lib/mutant.sh's MUTANT_JOBS now; a stale PI_TEETH_JOBS would be ignored.
+[ -z "${PI_TEETH_JOBS+x}" ] || { echo "FATAL: PI_TEETH_JOBS was renamed to MUTANT_JOBS (kit issue #2331); unset it and set MUTANT_JOBS" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$(cd "$HERE/../.." && pwd)"
 SUT="$KIT/install/pi/research-sdd-hooks.ts"
@@ -153,6 +155,11 @@ fi
 # A fake `node` that reports no type stripping goes first on PATH; this suite runs itself against it. A child run
 # (RSDD_PI_HOOKS_SELFTEST=1) never recurses.
 if [ "${RSDD_PI_HOOKS_SELFTEST:-}" != 1 ]; then
+  # kit issue #2331: the old concurrency knob must fail loudly, never be ignored in silence
+  st_out="$(PI_TEETH_JOBS=2 RSDD_PI_HOOKS_SELFTEST=1 bash "${BASH_SOURCE[0]}" --prove-teeth 2>&1)"; st_rc=$?
+  if [ "$st_rc" = 2 ] && grep -q 'PI_TEETH_JOBS was renamed to MUTANT_JOBS' <<<"$st_out" && ! grep -q '^== pi-hooks' <<<"$st_out"; then
+    ok "renamed knob: PI_TEETH_JOBS set -> rc 2 naming MUTANT_JOBS before any case runs"
+  else no "renamed knob: PI_TEETH_JOBS set did not fail typed (rc=$st_rc): $(tail -2 <<<"$st_out" | tr '\n' ';')"; fi
   SHIM="$TMP/shim"; mkdir -p "$SHIM"
   printf '#!/usr/bin/env bash\ncase "$*" in *typescript*) echo 0 ;; *--version*) echo v20.0.0 ;; esac\nexit 0\n' > "$SHIM/node"
   chmod +x "$SHIM/node"
@@ -195,6 +202,19 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth predicate: an uncaught-exception FAIL line counted as a bite - a crashing mutant would pass as caught"; fi
   if [ -n "$(bite_line "$M/ctl-both.out" 1)" ] && [ -z "$(bite_line "$M/ctl-both.out" 0)" ]; then ok "teeth predicate: a real FAIL line with exit 1 is a bite; exit 0 never is"
   else no "teeth predicate: a real FAIL line / exit code was not honoured"; fi
+  # Behavior runs are wait-dominated (~28 s wall for ~3 s CPU each: the suite drives real process timeouts), so the ~40
+  # behavior teeth run serially took longer than the flake hunt's 900 s per-suite bound and every --prove-teeth run
+  # timed out (kit issue #2248). They run through the shared lib/mutant.sh job batch (MUTANT_JOBS at a time, kit issue
+  # #2331); each is judged by behavior_verdict after all of them finished, in declaration order. A struct tooth is
+  # still judged at once.
+  mutant_bootstrap mutant_sed mutant_jobs_begin mutant_job mutant_jobs_end || exit 2
+  mkdir "$M/jobs" && mutant_jobs_begin "$M/jobs" || exit 2
+  # behavior_verdict NAME RC OUT — PASS/FAIL for one finished behavior tooth from its output and exit code.
+  behavior_verdict() {
+    local name="$1" r="$2" out="$3"
+    if [ -n "$(bite_line "$out" "$r")" ]; then ok "teeth $name: behavior suite goes red ($(bite_line "$out" "$r" | cut -c8-90))"
+    else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$out" | cut -c1-160 | tr '\n' ';'))"; fi
+  }
   tooth() {
     local name="$1" kind="$2" expect="$3" a=() e r
     shift 3
@@ -206,9 +226,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else no "teeth $name: expected structural label '$expect', got [$(printf '%s' "$r" | tr '\n' ';')] — THEATER"; fi
     else
       if [ "$HAVE_TS" != 1 ]; then sk "teeth $name: needs Node type stripping to run the behavior suite on the mutant"; return; fi
-      RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" >"$M/$name.out" 2>&1; r=$?
-      if [ -n "$(bite_line "$M/$name.out" "$r")" ]; then ok "teeth $name: behavior suite goes red ($(bite_line "$M/$name.out" "$r" | cut -c8-90))"
-      else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$M/$name.out" | cut -c1-160 | tr '\n' ';'))"; fi
+      mutant_job "$name" env RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" || exit 2
     fi
   }
   tooth child-guard-removed   struct   child-guard-first 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
@@ -288,6 +306,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth print-surface-dropped behavior - 's/for (const m of cur\.surface\.splice(0)) printNotice(m);//'
   tooth print-notice-silent   behavior - 's/try { process\.stderr\.write(`research-sdd-hooks: \${msg}\\n`); }/try { void msg; }/'
   tooth print-not-evaluated-unsaid behavior - 's/printNotice("retro\/return-token gates NOT evaluated/void ("retro\/return-token gates NOT evaluated/'
+  mutant_jobs_end fail behavior_verdict "teeth "
 fi
 
 echo "skipped: $skipped"

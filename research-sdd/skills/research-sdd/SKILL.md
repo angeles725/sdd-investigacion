@@ -31,7 +31,17 @@ unexecuted routes are `[INFER]`/proposed), and rewrite any bare "no" you find, y
 ## Resolving the kit path
 
 `KIT` is the research-sdd kit directory — the one holding `METHODOLOGY.md`, `PROMPT-LOOP.md`, and
-`toolbelt/`. Resolve it ONCE, in this order, and use the result for every `$KIT/...` reference below:
+`toolbelt/`. Resolve it ONCE, and use the result for every `$KIT/...` reference below.
+
+**Resolve fail-closed first (kit issue #2334)** — a stale kit runs old tools silently. Run
+`bash <dir>/toolbelt/kit-resolve.sh`, `<dir>` = the first of these holding `toolbelt/kit-resolve.sh`:
+`$RESEARCH_SDD_KIT`, the launcher's `Kit checkout:` line, its `Kit path:` line, `~/investigacion/sdd-investigacion/research-sdd`.
+- Exit 0: stdout line 1 is `KIT=<path> SHA=<sha> (origin/main, clean)`; that path is `KIT` (and the checkout),
+  skip steps 0-2 below. A stderr `kit-resolve: refreshed <old>→<new>` means it fast-forwarded the default checkout.
+- Exit 2 (refused) or 3 (no candidate): STOP. Print the resolver's stderr message verbatim (it names the
+  reason and the exact remedy) and run neither the loop nor any toolbelt script until the user fixes it or
+  explicitly says to proceed on that kit. Offline host: rerun with `--offline-ok` (accepts the local origin/main).
+- No `kit-resolve.sh` in any of those dirs (a kit older than #2334): say so, then fall back to steps 0-2.
 
 0. If this harness's system prompt carries a research-sdd launcher block with a `Kit path:` line,
    expand it (replace a leading `~` with `$HOME`) and use that directory as the O(1) fast-path —

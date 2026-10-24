@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -386,4 +387,323 @@ func TestDifferentialFindingListStateFilesAbsentDirIsASilentZeroInBash(t *testin
 	if _, err := ListStateFiles(missing); !errors.Is(err, ErrAbsentInput) {
 		t.Fatalf("Go must type it: %v", err)
 	}
+}
+
+func TestDifferentialBlockFileFilter(t *testing.T) {
+	for _, c := range filterCases {
+		t.Run(c.label, func(t *testing.T) {
+			var args []string
+			if c.invert {
+				args = append(args, "-v")
+			}
+			if c.prefix != "" {
+				args = append(args, c.prefix)
+			}
+			b := bashDriver(t, nil, lines(c.in), "bff", args...)
+			got, err := FilterBlockFiles(c.in, c.invert, c.prefix)
+			if RC(err) != b.rc || lines(got) != b.stdout || (b.stderr != "") != errors.Is(err, ErrBadPattern) {
+				t.Errorf("go rc=%d out=%q; bash rc=%d out=%q err=%q", RC(err), lines(got), b.rc, b.stdout, b.stderr)
+			}
+		})
+	}
+}
+
+// FINDING F8: the prefix is a raw ERE fragment and GNU grep's ERE is laxer than Go's POSIX syntax: these prefixes
+// are accepted by grep (GNU extensions, or a stray metacharacter taken literally) and rejected by Go. Kit-derived
+// prefixes are `[A-Za-z]…-` and never reach them; the cases pin the premise so a dialect change is noticed.
+func TestDifferentialFindingPrefixDialectGaps(t *testing.T) {
+	in := []string{"/c/a-block1.md", "/c/dblock1.md"}
+	for _, p := range []string{`\d`, `\w`, `\`, `)`} {
+		b := bashDriver(t, nil, lines(in), "bff", p)
+		if b.rc > 1 || b.stderr != "" {
+			t.Errorf("premise changed: grep now rejects prefix %q (rc=%d %q)", p, b.rc, b.stderr)
+		}
+		if _, err := FilterBlockFiles(in, false, p); !errors.Is(err, ErrBadPattern) {
+			t.Errorf("premise changed: Go now accepts prefix %q (%v); move it to filterCases", p, err)
+		}
+	}
+}
+
+// sortedTail sorts every line after the first: bash prints the nested roots in find's readdir order.
+func sortedTail(out string) string {
+	ls := SplitLines(out)
+	if len(ls) > 1 {
+		sort.Strings(ls[1:])
+	}
+	return lines(ls)
+}
+
+func TestDifferentialNestedWorktreeRoots(t *testing.T) {
+	d := nwFixture(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(d, link); err != nil {
+		t.Fatal(err)
+	}
+	inside := d + "/.claude/worktrees/agent-1"
+	for label, root := range map[string]string{"fixture": d, "trailing-slash": d + "/", "symlinked-root": link,
+		"inside-claude-worktrees": inside, "absent": d + "/missing", "a-file": d + "/side-wt/.git", "empty": ""} {
+		t.Run(label, func(t *testing.T) {
+			b := bashDriver(t, nil, "", "nwr", root)
+			roots, err := NestedWorktreeRoots(root)
+			gotErr := ""
+			if err != nil {
+				gotErr = err.Error() + "\n"
+			}
+			if RC(err) != b.rc || lines(roots) != sortedTail(b.stdout) || gotErr != b.stderr {
+				t.Fatalf("go rc=%d out=%q err=%q\nbash rc=%d out=%q err=%q", RC(err), lines(roots), gotErr, b.rc, b.stdout, b.stderr)
+			}
+			for _, p := range []string{d + "/side-wt/x-block1.md", d + "/side-wt", d + "/side-wt-old/x", d + "/x-block1.md", inside + "/y", "", d} {
+				pb := bashDriver(t, nil, "", "pinw", p, strings.TrimSuffix(b.stdout, "\n"))
+				if RC2(PathInNestedWorktree(p, roots)) != pb.rc {
+					t.Errorf("path_in_nested_worktree(%q): go=%v bash rc=%d", p, PathInNestedWorktree(p, roots), pb.rc)
+				}
+			}
+		})
+	}
+}
+
+// TestDifferentialNestedWorktreeRootsIncomplete: an unreadable subdirectory makes find exit 1; both sides keep the
+// partial roots and type the gap (rc 3).
+func TestDifferentialNestedWorktreeRootsIncomplete(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 stays readable, premise unavailable (NOT a pass)")
+	}
+	d := nwFixture(t)
+	mkfiles(t, d, "locked/x")
+	if err := os.Chmod(d+"/locked", 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(d+"/locked", 0o755) })
+	b := bashDriver(t, nil, "", "nwr", d)
+	roots, err := NestedWorktreeRoots(d)
+	if b.rc != 3 || RC(err) != 3 || lines(roots) != sortedTail(b.stdout) || err.Error()+"\n" != b.stderr {
+		t.Fatalf("go rc=%d out=%q err=%v\nbash rc=%d out=%q err=%q", RC(err), lines(roots), err, b.rc, b.stdout, b.stderr)
+	}
+}
+
+// RC2 maps a predicate to a bash test status.
+func RC2(ok bool) int {
+	if ok {
+		return 0
+	}
+	return 1
+}
+
+// prefixStdout is what derive_focus_prefix prints: the filename form without a newline, the FOCUSES.md form with.
+func prefixStdout(p FocusPrefix) string {
+	if p.Source == PrefixFromFocuses {
+		return p.Value + "\n"
+	}
+	return p.Value
+}
+
+func TestDifferentialDeriveFocusPrefix(t *testing.T) {
+	for _, c := range prefixCases {
+		t.Run(c.label, func(t *testing.T) {
+			d := t.TempDir()
+			if c.table != "" {
+				write(t, d+"/FOCUSES.md", c.table)
+			}
+			sf := d + "/" + c.stateBase
+			b := bashDriver(t, nil, "", "dfp", sf)
+			got, err := DeriveFocusPrefix(sf)
+			if err != nil || b.rc != 0 || b.stderr != "" || prefixStdout(got) != b.stdout {
+				t.Fatalf("go %q (%v); bash rc=%d out=%q err=%q", prefixStdout(got), err, b.rc, b.stdout, b.stderr)
+			}
+		})
+	}
+}
+
+func TestDifferentialDeriveFocusRange(t *testing.T) {
+	for _, c := range rangeCases {
+		t.Run(c.label, func(t *testing.T) {
+			sf := focusCorpus(t, t.TempDir(), c.table)
+			for _, s := range []string{sf, filepath.Dir(sf) + "/RESEARCH-STATE-o.md", sf + "/"} {
+				b := bashDriver(t, nil, "", "dfr", s)
+				r, err := DeriveFocusRange(s)
+				if err != nil || b.rc != 0 || b.stderr != "" || r.Value()+nl(r.Value()) != b.stdout {
+					t.Fatalf("%s: go %q (%v); bash rc=%d out=%q err=%q", s, r.Value(), err, b.rc, b.stdout, b.stderr)
+				}
+			}
+		})
+	}
+}
+
+// FINDING F9: an unreadable FOCUSES.md is not a silent "no prefix" in Go. Bash lets awk print its error and the
+// function prints nothing (derive_focus_prefix returns awk's 2, derive_focus_range the 0 of `head`).
+func TestDifferentialFindingUnreadableFocusesIsSilentInBash(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 stays readable, premise unavailable (NOT a pass)")
+	}
+	d := t.TempDir()
+	sf := d + "/RESEARCH-STATE.md"
+	if err := os.Chmod(write(t, d+"/FOCUSES.md", niagaraHeader+rootRow("base-", "B1-B2")), 0); err != nil {
+		t.Fatal(err)
+	}
+	for mode, rc := range map[string]int{"dfp": 2, "dfr": 0} {
+		if b := bashDriver(t, nil, "", mode, sf); b.rc != rc || b.stdout != "" || b.stderr == "" {
+			t.Errorf("premise changed for %s: rc=%d out=%q err=%q", mode, b.rc, b.stdout, b.stderr)
+		}
+	}
+	if _, err := DeriveFocusPrefix(sf); !errors.Is(err, ErrUnreadable) {
+		t.Errorf("prefix: %v", err)
+	}
+	if _, err := DeriveFocusRange(sf); !errors.Is(err, ErrUnreadable) {
+		t.Errorf("range: %v", err)
+	}
+}
+
+func TestDifferentialFocusRangeScanAndReport(t *testing.T) {
+	for _, c := range scanCorpora {
+		t.Run(c.label, func(t *testing.T) {
+			d := t.TempDir()
+			sf := focusCorpus(t, d, c.table)
+			mkfiles(t, d, c.files...)
+			b := bashDriver(t, nil, "", "frr", sf)
+			rep, err := FocusRangeReport(sf)
+			var got strings.Builder
+			for _, x := range rep {
+				got.WriteString(x.Kind + "|" + x.Text + "\n")
+			}
+			if err != nil || b.rc != 0 || b.stderr != "" || got.String() != b.stdout {
+				t.Fatalf("report go %q (%v)\nbash rc=%d out=%q err=%q", got.String(), err, b.rc, b.stdout, b.stderr)
+			}
+			r, _ := DeriveFocusRange(sf)
+			if r.State != RangeOK {
+				return
+			}
+			for _, state := range []string{sf, ""} {
+				s, err := ScanFocusRange(d, r.Lo, r.Hi, state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for field, want := range map[string]string{"COUNT": strconv.Itoa(s.Count), "FILES": strconv.Itoa(s.Files), "SPAN": awkNum(s.Span)} {
+					if b := bashDriver(t, nil, "", "frs", d, r.Value(), state, field); b.rc != 0 || b.stdout != want+"\n" {
+						t.Errorf("stat %s (claims from %q): go %s, bash rc=%d %q", field, state, want, b.rc, b.stdout)
+					}
+				}
+			}
+		})
+	}
+}
+
+// FINDING F10: focus_range_stat on a directory that does not exist counts a confident 0 in bash (find's error is
+// discarded). Go types it.
+func TestDifferentialFindingRangeStatAbsentDirIsASilentZeroInBash(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+	if b := bashDriver(t, nil, "", "frs", missing, "1-5", "", "COUNT"); b.rc != 0 || b.stdout != "0\n" {
+		t.Fatalf("premise changed: rc=%d out=%q", b.rc, b.stdout)
+	}
+	if _, err := ScanFocusRange(missing, 1, 5, ""); !errors.Is(err, ErrAbsentInput) {
+		t.Fatalf("Go must type it: %v", err)
+	}
+}
+
+// TestDifferentialFocusRangeScanSymlinkedDir: find -P does not follow a symlinked start directory, so the scan
+// sees no file through the link (a silent zero, kept for parity) unless the path ends with a slash.
+func TestDifferentialFocusRangeScanSymlinkedDir(t *testing.T) {
+	d := t.TempDir()
+	mkfiles(t, d, "a-block1.md", "a-block2.md")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(d, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{link, link + "/"} {
+		s, err := ScanFocusRange(dir, 1, 2, "")
+		b := bashDriver(t, nil, "", "frs", dir, "1-2", "", "COUNT")
+		if err != nil || b.stdout != strconv.Itoa(s.Count)+"\n" {
+			t.Errorf("%s: go %d (%v), bash %q", dir, s.Count, err, b.stdout)
+		}
+	}
+}
+
+func TestDifferentialInplaceGapID(t *testing.T) {
+	for _, c := range gapIDCases {
+		b := bashDriver(t, nil, "", "igid", c.in)
+		got, _ := InplaceGapID(c.in)
+		if b.rc != 0 || b.stderr != "" || got+nl(got) != b.stdout {
+			t.Errorf("inplace_gap_id(%q): go %q; bash rc=%d out=%q err=%q", c.in, got, b.rc, b.stdout, b.stderr)
+		}
+	}
+}
+
+func TestDifferentialInplaceBlockedCount(t *testing.T) {
+	for _, c := range inplaceCases {
+		b := bashDriver(t, nil, c.rows, "ibc", c.body)
+		if got := strconv.Itoa(InplaceBlockedCount(c.body, c.rows)) + "\n"; b.rc != 0 || b.stderr != "" || got != b.stdout {
+			t.Errorf("%s: go %q; bash rc=%d out=%q err=%q", c.label, got, b.rc, b.stdout, b.stderr)
+		}
+	}
+}
+
+// TestDifferentialKitResolution runs the whole templates/hook-kit-run.sh: a resolved kit execs the probe script,
+// which prints its own path; a failure is the typed `kit-run: DEGRADED: <why>; <rel> did NOT run` line, exit 1.
+func TestDifferentialKitResolution(t *testing.T) {
+	for _, c := range kitCases {
+		t.Run(c.label, func(t *testing.T) {
+			e := newKitEnv(t)
+			c.setup(e)
+			b := bashDriver(t, e.env, "", "kitrun", c.rel)
+			path, warns, err := ResolveKitScript(c.rel, envOf(e.env))
+			wantErr := lines(warns)
+			out, rc := path+nl(path), 0
+			if err != nil {
+				wantErr += "kit-run: DEGRADED: " + err.Error() + "; " + c.rel + " did NOT run\n"
+				out, rc = "", 1
+			}
+			if b.rc != rc || b.stdout != out || b.stderr != wantErr {
+				t.Fatalf("go rc=%d out=%q err=%q\nbash rc=%d out=%q err=%q", rc, out, wantErr, b.rc, b.stdout, b.stderr)
+			}
+		})
+	}
+	b := bashDriver(t, map[string]string{"HOME": t.TempDir()}, "", "kitrun")
+	if _, _, err := ResolveKitScript("", envOf(nil)); b.rc != 1 || b.stderr != "kit-run: DEGRADED: "+err.Error()+"\n" {
+		t.Fatalf("no script: bash rc=%d err=%q go=%v", b.rc, b.stderr, err)
+	}
+}
+
+// TestDifferentialFleetFocusDerivations is the read-only fleet pass: every state file of every registered target
+// of the real TARGETS.md that resolves on this machine gets the prefix, the range and the range report from both
+// sides. Nothing is written; a machine without the corpora skips loudly.
+func TestDifferentialFleetFocusDerivations(t *testing.T) {
+	real, err := filepath.Abs("../../../../TARGETS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := ReadTargets(real)
+	if err != nil {
+		t.Fatalf("the real registry must exist at %s: %v", real, err)
+	}
+	env := envOf(map[string]string{"RESEARCH_HOME": os.Getenv("RESEARCH_HOME"), "HOME": os.Getenv("HOME")})
+	usable, _ := Classify(PathsAll(src, env), IsDirOS)
+	checked := 0
+	for _, dir := range usable {
+		states, err := ListStateFiles(dir)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		for _, sf := range states {
+			p, perr := DeriveFocusPrefix(sf)
+			if b := bashDriver(t, nil, "", "dfp", sf); perr != nil || prefixStdout(p) != b.stdout {
+				t.Errorf("%s: prefix go %q (%v), bash %q", sf, prefixStdout(p), perr, b.stdout)
+			}
+			r, rerr := DeriveFocusRange(sf)
+			if b := bashDriver(t, nil, "", "dfr", sf); rerr != nil || r.Value()+nl(r.Value()) != b.stdout {
+				t.Errorf("%s: range go %q (%v), bash %q", sf, r.Value(), rerr, b.stdout)
+			}
+			rep, err := FocusRangeReport(sf)
+			var got strings.Builder
+			for _, x := range rep {
+				got.WriteString(x.Kind + "|" + x.Text + "\n")
+			}
+			if b := bashDriver(t, nil, "", "frr", sf); err != nil || got.String() != b.stdout {
+				t.Errorf("%s: report go %q (%v), bash %q", sf, got.String(), err, b.stdout)
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Skip("no registered target with a state file resolves on this machine: the fleet pass did NOT run (NOT a pass)")
+	}
+	t.Logf("fleet pass: %d state files under %d targets", checked, len(usable))
 }

@@ -17,6 +17,14 @@ GOLD="$HERE/golden"
 KITROOT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# Every mktemp in the suite AND in the installer it drives lands in SUT_TMPDIR (kit issue #2195):
+# anything still there at the end is a leak, attributed by name, instead of silently piling up in
+# the caller's TMPDIR. It lives inside $TMP, so the EXIT trap removes it either way.
+SUT_TMPDIR="$TMP/sut-tmpdir"
+mkdir -p "$SUT_TMPDIR" || { echo "FATAL: cannot create $SUT_TMPDIR" >&2; exit 2; }
+export TMPDIR="$SUT_TMPDIR"
+# Mutants are built under $TMP (the copy of the install dir), not under the redirected TMPDIR.
+export MUTANT_TMPROOT="$TMP"
 # Mutants and drivers are built in a TEMP COPY of the install dir, never beside the live SUT
 # (kit issue #1156): the copy keeps the relative layout (SELF-based adapters.sh lookup, KIT=SELF/..),
 # every other kit entry is symlinked read-only from the live kit. Everything dies with $TMP, so no
@@ -3406,6 +3414,16 @@ if [ "$INSTALL_SNAP_AFTER" = "$INSTALL_SNAP_BEFORE" ]; then
   ok "hermetic: no path under research-sdd/install was created, modified or removed during the suite"
 else
   no "hermetic: the suite changed the live install tree: $(diff <(printf '%s\n' "$INSTALL_SNAP_BEFORE") <(printf '%s\n' "$INSTALL_SNAP_AFTER") | grep '^[<>]' | cut -f1 | tr '\n' ' ')"
+fi
+
+# TMPDIR hygiene (kit issue #2195): the installer and the suite must leave nothing in TMPDIR.
+# Absent-input guard: the directory must still exist, or an empty listing would read as clean.
+if [ ! -d "$SUT_TMPDIR" ]; then
+  no "tmpdir: $SUT_TMPDIR vanished — cannot prove the suite left nothing behind"
+elif _leaks="$(ls -A "$SUT_TMPDIR")" && [ -z "$_leaks" ]; then
+  ok "tmpdir: the suite and the installer left 0 entries in TMPDIR"
+else
+  no "tmpdir: leftovers in TMPDIR: $(printf '%s\n' "$_leaks" | tr '\n' ' ')"
 fi
 
 echo "== $pass passed · $fail failed =="
