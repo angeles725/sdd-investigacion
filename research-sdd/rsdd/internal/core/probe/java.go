@@ -2,15 +2,18 @@ package probe
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // BrewPrefix is rsdd_brew_prefix: RSDD_BREW_PREFIX, HOMEBREW_PREFIX, `brew --prefix` stdout (its exit code
-// ignored, trailing newlines cut), then /home/linuxbrew/.linuxbrew when it is a directory.
+// ignored, trailing newlines cut), then /home/linuxbrew/.linuxbrew when it is a directory. Unlike the shell,
+// a brew that outlives the probe timeout is killed and yields no prefix, so a hung brew cannot block a resolver.
 func (p *Prober) BrewPrefix() (string, bool) {
 	for _, k := range []string{"RSDD_BREW_PREFIX", "HOMEBREW_PREFIX"} {
 		if v := p.get(k); v != "" {
@@ -18,7 +21,14 @@ func (p *Prober) BrewPrefix() (string, bool) {
 		}
 	}
 	if brew, ok := p.commandV("brew"); ok {
-		out, _ := p.command(brew, "--prefix").Output()
+		ctx, cancel := context.WithTimeout(context.Background(), p.probeTimeout())
+		defer cancel()
+		cmd := p.commandContext(ctx, brew, "--prefix")
+		cmd.WaitDelay = time.Second // a child still holding stdout cannot outlive the kill by more
+		out, _ := cmd.Output()
+		if ctx.Err() != nil {
+			return "", false
+		}
 		v := strings.TrimRight(string(out), "\n")
 		return v, v != ""
 	}
@@ -36,9 +46,31 @@ func (p *Prober) brewPath(suffix string) string {
 	return ""
 }
 
+// probeTimeoutArg is RSDD_PROBE_TIMEOUT as timeout(1) takes it, default 10 (seconds).
+func (p *Prober) probeTimeoutArg() string {
+	if t := p.get("RSDD_PROBE_TIMEOUT"); t != "" {
+		return t
+	}
+	return "10"
+}
+
+// probeTimeout is probeTimeoutArg as a duration; a value Go cannot read as whole or fractional seconds
+// falls back to the 10 s default rather than to no bound at all.
+func (p *Prober) probeTimeout() time.Duration {
+	if s, err := strconv.ParseFloat(p.probeTimeoutArg(), 64); err == nil && s > 0 {
+		return time.Duration(s * float64(time.Second))
+	}
+	return 10 * time.Second
+}
+
 // command is an exec.Cmd running in the Prober's environment and working directory.
 func (p *Prober) command(name string, args ...string) *exec.Cmd {
-	cmd := exec.Command(p.abs(name), args...)
+	return p.commandContext(context.Background(), name, args...)
+}
+
+// commandContext is command killed when ctx ends.
+func (p *Prober) commandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, p.abs(name), args...)
 	cmd.Env, cmd.Dir = p.environ, p.cwd
 	return cmd
 }
@@ -77,12 +109,8 @@ func (p *Prober) java21Usable(home string) bool {
 	if !ok {
 		return false
 	}
-	t := p.get("RSDD_PROBE_TIMEOUT")
-	if t == "" {
-		t = "10"
-	}
 	var out bytes.Buffer
-	cmd := p.command(timeout, t, java, "-version")
+	cmd := p.command(timeout, p.probeTimeoutArg(), java, "-version")
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if cmd.Run() != nil {
 		return false

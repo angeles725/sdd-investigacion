@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 )
 
 // tools is a PATH entry holding the one host tool the java probe execs.
@@ -54,6 +55,22 @@ func TestBrewPrefix(t *testing.T) {
 	}
 	if got, ok := prober(t.TempDir(), d, "PATH="+d+"/none").BrewPrefix(); ok || got != "" {
 		t.Fatalf("no brew: got %q %v", got, ok)
+	}
+}
+
+// A hung brew is bounded by RSDD_PROBE_TIMEOUT, as the java -version probe is: BrewPrefix then
+// reports no prefix instead of blocking every resolver that consults it.
+func TestBrewPrefixHungBrewIsBounded(t *testing.T) {
+	d := t.TempDir()
+	brew := mkdir(t, d, "brewbin")
+	exe(t, d, "brewbin/brew", `/bin/sleep 30; echo /late`)
+	start := time.Now()
+	got, ok := prober(t.TempDir(), d, "PATH="+brew, "RSDD_PROBE_TIMEOUT=1").BrewPrefix()
+	if ok || got != "" {
+		t.Fatalf("hung brew: got %q %v, want no prefix", got, ok)
+	}
+	if el := time.Since(start); el > 10*time.Second {
+		t.Fatalf("hung brew took %s, want about RSDD_PROBE_TIMEOUT=1s", el)
 	}
 }
 
