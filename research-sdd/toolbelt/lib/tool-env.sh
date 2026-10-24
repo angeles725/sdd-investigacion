@@ -226,7 +226,8 @@ rsdd_probe_java_jar() {
 rsdd_file_sha256() {
   local file="$1" sha_bin output
   sha_bin="$(command -v sha256sum 2>/dev/null)" || return 127
-  output="$(rsdd_capture_probe "$sha_bin" "$file")" || return 1
+  # #2190: read the file on STDIN — a positional name makes GNU sha256sum prefix the digest with "\" when the name holds one.
+  output="$(rsdd_capture_probe "$sha_bin" < "$file")" || return 1
   printf '%s\n' "${output%% *}"
 }
 

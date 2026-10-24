@@ -40,7 +40,7 @@
 # Receipt <state-dir>/train-<ts>.json: state, base_sha, train_sha, gate {rc, log, cmd}, per-PR {pr, head, status
 # (merged|pending|dropped|refused|culprit), reason}, culprit. Written on every exit after the first fetch.
 #
-# Typed exit states (last line `kit-merge-train: <state>: ...`; registered in reason-codes.v1.md):
+# Typed exit states (last line `kit-merge-train: <state>: ...`; registered in reason-codes.d/kit-merge-train.md):
 #   merged            0   every requested PR merged
 #   usage             2   bad arguments, or a state dir inside the repo
 #   degraded          3   git, gh, jq or flock missing
