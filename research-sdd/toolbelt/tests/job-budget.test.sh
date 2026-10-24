@@ -165,6 +165,11 @@ if want runall; then
   PATH="$TMP/fakebin:$PATH" runall_peak rs -j 2
   if [ "$RP" -ge 1 ] && [ "$RP" -le 2 ] && grep -qF 'DEGRADED' "$TMP/rs-m.out"; then ok "run-all: -j 2 falling back to a serial run still runs at most 2 jobs (peak $RP)"
   else no "run-all: serial fallback peak $RP (cap 2) rc $RRC"; fi
+  # An inherited but empty RSDD_JOB_SLOTS is one named FATAL from run-all.sh, not a FATAL in every teeth batch.
+  RSDD_JOB_SLOTS='' runall_peak re -j 1
+  if [ "$RRC" = 2 ] && grep -qF 'run-all.sh: FATAL: RSDD_JOB_SLOTS is set but empty' "$TMP/re-m.out"; then
+    ok "run-all: an inherited empty RSDD_JOB_SLOTS is refused once, by run-all.sh (rc 2)"
+  else no "run-all: empty RSDD_JOB_SLOTS not refused by run-all.sh (rc $RRC) [$(tail -n 3 "$TMP/re-m.out" | tr '\n' ' ')]"; fi
 fi
 
 # --- teeth: mutate the budget and require the named case to go red ---

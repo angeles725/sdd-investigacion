@@ -1280,6 +1280,12 @@ _job_budget_hold() {   # take this shell's slot (once); the suites it runs inher
   # SENTINEL-BUDGET-HOLD
   rsdd_slot_take _ra_slot "$RSDD_JOB_SLOTS" || { echo "run-all.sh: FATAL: cannot hold a slot of the -j job budget" >&2; exit 2; }
 }
+# An inherited but empty RSDD_JOB_SLOTS is refused here, as every teeth batch under it would refuse it (lib/mutant.sh
+# joins whenever it is set): one named FATAL instead of a FATAL per suite.
+if [[ -n "${RSDD_JOB_SLOTS+x}" && -z "$RSDD_JOB_SLOTS" ]]; then
+  echo "run-all.sh: FATAL: RSDD_JOB_SLOTS is set but empty; unset it or name a job budget directory" >&2
+  exit 2
+fi
 if [[ "$JOBS" -gt 1 && ${#all_suites[@]} -gt 0 ]]; then
   # shellcheck source=lib/job-slots.sh
   if ! . "$SCRIPT_DIR/lib/job-slots.sh" || ! JOB_SLOTS_DIR="$(mktemp -d)" || [[ -z "$JOB_SLOTS_DIR" ]] \

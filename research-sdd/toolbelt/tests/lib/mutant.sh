@@ -135,6 +135,9 @@
 #
 #   MUTANT_JOBS          concurrent jobs of a mutant_job batch, an integer 1..6 (run-all.sh's own -j cap).
 #                        Default 4, the host budget.
+#   Contract under RSDD_JOB_SLOTS: between mutant_jobs_begin and mutant_jobs_end the caller only queues jobs
+#   (its own slot is lent to one of them), so it must do no heavy work of its own there; and a run-all.sh nested
+#   inside a suite starts its own budget rather than joining the outer one (known limit, kit issue #2338).
 #   RSDD_JOB_SLOTS       a job budget shared with other suites (kit issue #2338, lib/job-slots.sh), exported by
 #                        run-all.sh -j N. When set, every job of a batch also holds one slot of it while it runs
 #                        (the slot wait does not count against MUTANT_JOB_TIMEOUT), so all the suites and teeth
@@ -565,7 +568,7 @@ mutant_jobs_begin() {
   j="$(_mutant_jobs_int MUTANT_JOBS 4 6)" || return 2
   b="$(_mutant_jobs_int MUTANT_JOB_TIMEOUT 300 86400)" || return 2
   _MUTANT_JSLOTS=""
-  if [ -n "${RSDD_JOB_SLOTS+x}" ]; then
+  if [ -n "${RSDD_JOB_SLOTS+x}" ]; then   # set, even empty, means join: an empty value is refused (fail closed)
     # SENTINEL-JOBS-SLOTS-JOIN
     # shellcheck source=lib/job-slots.sh
     . "${RSDD_JOB_SLOTS_LIB:-$_MUTANT_JLIB}" || { printf 'FATAL: RSDD_JOB_SLOTS is set but job-slots.sh cannot be loaded\n' >&2; return 2; }
