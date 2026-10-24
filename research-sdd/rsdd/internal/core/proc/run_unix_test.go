@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -215,6 +216,27 @@ func TestRunSpawnFailureIsTyped(t *testing.T) {
 	_, err := Run(Spec{Argv: []string{"no-such-program-2283"}, Env: []string{testPath}, Timeout: time.Second, MaxBytes: 10})
 	if !errors.Is(err, exec.ErrNotFound) {
 		t.Errorf("a program missing from PATH = %v, want exec.ErrNotFound", err)
+	}
+}
+
+// A pipe that cannot be made is a spawn failure too: with no descriptor
+// left (soft NOFILE 3: only stdin, stdout and stderr fit) the program is
+// never started, and the caller can tell that from the error's type.
+func TestRunPipeFailureIsASpawnError(t *testing.T) {
+	var own syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &own); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &syscall.Rlimit{Cur: 3, Max: own.Max}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Run(Spec{Argv: []string{"/bin/true"}, Timeout: time.Second, MaxBytes: 10})
+	if rerr := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &own); rerr != nil {
+		t.Fatalf("restore NOFILE: %v", rerr)
+	}
+	var se *SpawnError
+	if !errors.As(err, &se) || se.Path != "/bin/true" || !errors.Is(err, syscall.EMFILE) {
+		t.Fatalf("Run with no descriptor left = %v, want a *SpawnError for /bin/true wrapping EMFILE", err)
 	}
 }
 

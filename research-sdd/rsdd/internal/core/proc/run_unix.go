@@ -21,8 +21,9 @@ const defaultPath = "/bin:/usr/bin"
 // Run runs spec.Argv as the leader of a new process group and returns once
 // it has exited. A timeout or the output cap stops the whole group (TERM,
 // grace, KILL, grace); after a normal exit the same stop clears any
-// leftover group member. The error is non-nil only for an invalid spec, a
-// program that cannot be started, or a group the guard refused to stop.
+// leftover group member. The error is non-nil only for an invalid spec
+// (ErrInvalidSpec), a program that cannot be started, including its output
+// pipes not being made (*SpawnError), or a group the guard refused to stop.
 func Run(spec Spec) (Result, error) {
 	if err := spec.validate(); err != nil {
 		return Result{}, err
@@ -38,7 +39,7 @@ func Run(spec Spec) (Result, error) {
 	c := newCapture(spec.MaxBytes)
 	readers, writers, err := attachPipes(cmd)
 	if err != nil {
-		return Result{}, err
+		return Result{}, &SpawnError{Path: spec.Argv[0], Err: err}
 	}
 	res := Result{Started: spec.now()}
 	if err := cmd.Start(); err != nil {
@@ -132,7 +133,7 @@ func attachPipes(cmd *exec.Cmd) (readers, writers [2]*os.File, err error) {
 	for i := range readers {
 		if readers[i], writers[i], err = os.Pipe(); err != nil {
 			closeAll(readers[0], writers[0])
-			return readers, writers, fmt.Errorf("proc: pipe: %w", err)
+			return readers, writers, fmt.Errorf("pipe: %w", err)
 		}
 	}
 	cmd.Stdout, cmd.Stderr = writers[0], writers[1]

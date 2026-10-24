@@ -8,8 +8,8 @@
 //
 //   - The program leads a new process group (start_new_session). A name
 //     without a slash is searched on the spec's own PATH, as Popen does with
-//     an explicit env; a program that cannot be started is a *SpawnError
-//     (Popen raises), never a Result.
+//     an explicit env; a program that cannot be started, or whose output
+//     pipes cannot be made, is a *SpawnError (Popen raises), never a Result.
 //   - Wall clock >= Timeout stops the run with Reason "timeout"; stdout+stderr
 //     reaching MaxBytes (>=, jointly) stops it with "output-cap", also when
 //     only detected after the exit.
