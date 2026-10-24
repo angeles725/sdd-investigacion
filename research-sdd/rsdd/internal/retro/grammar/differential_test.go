@@ -163,6 +163,92 @@ var fileModes = map[string]func(path string) bashOut{
 	},
 }
 
+func init() {
+	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
+	fileModes["altheads"] = readThen(AltHeads)
+}
+
+// tokenModes maps a driver token mode to the Go verdict, rendered the way the driver frames it.
+var tokenModes = map[string]func(tok string) bashOut{
+	"deltaid": func(tok string) bashOut { return bashOut{stdout: strconv.Itoa(b2i(DeltaID(tok))) + "\n"} },
+	"idskip":  func(tok string) bashOut { return bashOut{stdout: strconv.Itoa(b2i(TableIDSkip(tok))) + "\n"} },
+	"idsafe":  func(tok string) bashOut { return bashOut{rc: rcOf(IDSignatureSafe(tok))} },
+}
+
+// tokenCorpus is a hand list of id edges plus every blank- or pipe-separated word of the generated vocabulary
+// and of the kit fixtures (no line breaks: one token per driver input line).
+func tokenCorpus(t *testing.T) []string {
+	t.Helper()
+	set := map[string]bool{}
+	for _, tok := range []string{"", "A", "R1", "SPKI-A", "ITEM-ID", "ABCDEFGH1", "ABCDEFG1", "A-", "A-B-C", "#", "#3",
+		"---", ":-:", "D1.", "d1", "x\xff", "\\", "D|1", "é", "a_b-C9", " D1", "D 1", "Total", "1"} {
+		set[tok] = true
+	}
+	words := func(line string) {
+		for _, w := range strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '|' || r == '\t' }) {
+			set[w] = true
+		}
+	}
+	for _, l := range genVocab {
+		words(l)
+	}
+	for _, p := range fixturePaths(t) {
+		d, err := Read(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range d.Raw {
+			words(l)
+		}
+	}
+	out := make([]string, 0, len(set))
+	for tok := range set {
+		if !strings.ContainsAny(tok, "\n\r") {
+			out = append(out, tok)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestDifferentialTokens(t *testing.T) {
+	toks := tokenCorpus(t)
+	for mode, f := range tokenModes {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			bash := bashBatch(t, mode, toks)
+			yes, bad := 0, 0
+			for i, tok := range toks {
+				if bash[i].rc == 0 && bash[i].stdout != "0\n" {
+					yes++
+				}
+				if got := f(tok); got != bash[i] {
+					if bad++; bad <= 5 {
+						t.Errorf("%s %q: go=%+v bash=%+v", mode, tok, got, bash[i])
+					}
+				}
+			}
+			if yes == 0 || yes == len(toks) {
+				t.Errorf("%s: bash said the same for all %d tokens: vacuous", mode, len(toks))
+			}
+			t.Logf("%s: %d tokens, %d accepted", mode, len(toks), yes)
+		})
+	}
+}
+
+// TestDifferentialDupIDs feeds whole id lists on stdin, the way the consumers pipe item ids.
+func TestDifferentialDupIDs(t *testing.T) {
+	for _, ids := range [][]string{
+		{"1", "2", "1"}, {"b", "B", "a", "b", "B", "B"}, {"", "x", ""}, {"10", "9", "10", "9"}, {"é", "e", "é"}, {"z"},
+	} {
+		so := runDriver(t, "dupids", strings.Join(ids, "\n")+"\n")
+		want := fmt.Sprintf("0 %d 0\n%s", len(joinLines(DupIDs(ids))), joinLines(DupIDs(ids)))
+		if string(so) != want {
+			t.Errorf("DupIDs(%q): bash frame %q, go %q", ids, so, want)
+		}
+	}
+}
+
 // rowLines renders rows as their bash records, without the trailing newline joinLines adds back.
 func rowLines(rows []Row) []string {
 	out := make([]string, len(rows))
