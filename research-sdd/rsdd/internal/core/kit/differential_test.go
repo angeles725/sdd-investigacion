@@ -616,3 +616,22 @@ func TestDifferentialFocusRangeScanSymlinkedDir(t *testing.T) {
 		}
 	}
 }
+
+func TestDifferentialInplaceGapID(t *testing.T) {
+	for _, c := range gapIDCases {
+		b := bashDriver(t, nil, "", "igid", c.in)
+		got, _ := InplaceGapID(c.in)
+		if b.rc != 0 || b.stderr != "" || got+nl(got) != b.stdout {
+			t.Errorf("inplace_gap_id(%q): go %q; bash rc=%d out=%q err=%q", c.in, got, b.rc, b.stdout, b.stderr)
+		}
+	}
+}
+
+func TestDifferentialInplaceBlockedCount(t *testing.T) {
+	for _, c := range inplaceCases {
+		b := bashDriver(t, nil, c.rows, "ibc", c.body)
+		if got := strconv.Itoa(InplaceBlockedCount(c.body, c.rows)) + "\n"; b.rc != 0 || b.stderr != "" || got != b.stdout {
+			t.Errorf("%s: go %q; bash rc=%d out=%q err=%q", c.label, got, b.rc, b.stdout, b.stderr)
+		}
+	}
+}
