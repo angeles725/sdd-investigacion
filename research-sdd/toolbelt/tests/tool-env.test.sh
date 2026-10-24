@@ -333,5 +333,40 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
+# ── #2190: rsdd_file_sha256 must not misread GNU escaped-name output ─────────
+# sha256sum prefixes the digest with a backslash when the file NAME holds one, so a
+# positional read returned "\<hex>". Hashing via stdin carries no name at all.
+bsjar="$ROOT/we\ird.jar"; printf 'jar bytes\n' > "$bsjar"
+want_sha="$(sha256sum < "$bsjar" | cut -d' ' -f1)"
+got_sha="$(rsdd_file_sha256 "$bsjar")"
+if [ "$got_sha" = "$want_sha" ] && [[ "$got_sha" =~ ^[0-9a-f]{64}$ ]]; then
+  ok "#2190 rsdd_file_sha256: backslash in the file name still yields the bare digest"
+else
+  no "#2190 rsdd_file_sha256: backslash name" "want=[$want_sha] got=[$got_sha]"
+fi
+if rsdd_file_sha256 "$ROOT/no-such.jar" >/dev/null 2>&1; then
+  no "#2190 rsdd_file_sha256: an unreadable file must fail, not print a digest"
+else
+  ok "#2190 rsdd_file_sha256: an unreadable file is a typed failure (non-zero)"
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth #2190: positional sha256sum read must make the backslash case go red --"
+  TMP_TEETH_BS="$(mktemp -d)"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$LIB" "$TMP_TEETH_BS/tool-env-bs-mut.sh" 's|rsdd_capture_probe "\$sha_bin" < "\$file"|rsdd_capture_probe "$sha_bin" "$file"|'; then
+    no "teeth #2190: mutant refused by lib/mutant.sh"
+  else
+    mut_sha="$(bash -c 'source "$1"; rsdd_file_sha256 "$2"' _ "$TMP_TEETH_BS/tool-env-bs-mut.sh" "$bsjar" 2>/dev/null)"
+    if [ "$mut_sha" != "$want_sha" ]; then
+      ok "teeth #2190: positional-read mutant returns a wrong digest (test has teeth)"
+    else
+      no "teeth #2190: mutant still returned the bare digest — test is THEATER" "[$mut_sha]"
+    fi
+  fi
+  rm -rf "$TMP_TEETH_BS"
+fi
+
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

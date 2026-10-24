@@ -258,6 +258,20 @@ else
   no "15 tee fails but file exists → no false preserved claim" "exit=$rc15 log=[${log15[0]}] out=[$out15]"
 fi
 
+# 16 — #2190: a script.js whose NAME carries a backslash must still get the bare sha256 in the
+#      footer. GNU sha256sum prefixes the digest with "\" when the file name holds one, so the
+#      positional read returned "\<hex>" and the [CERT-hw] footer lied about the digest.
+tdir="$(newtdir c16-bs)"
+bsjs="$ROOT/we\\ird.js"; printf '// bs\n' > "$bsjs"
+want16="$(sha256sum < "$bsjs" | cut -d' ' -f1)"
+run FRIDA_BIN="$ABSENT" -- frida-hook some-proc "$bsjs" "$tdir"
+got16="$(sed -n 's/^preserved script: .*  sha256=//p' <<<"$OUT" | head -1)"
+if [ "$got16" = "$want16" ] && [[ "$got16" =~ ^[0-9a-f]{64}$ ]]; then
+  ok "16 backslash script name → bare sha256 in the footer" "(sha256 ok)"
+else
+  no "16 backslash script name → bare sha256 in the footer" "want=[$want16] got=[$got16]"
+fi
+
 # ---------------------------------------------------------------------------
 # TEETH (negative control). Case 3 claims the script.js is preserved EVEN WHEN
 # frida is absent — i.e. the `cp` runs BEFORE the frida presence check. Mutate a
@@ -289,6 +303,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth: mutant does NOT preserve on absent-frida" "mutant STILL preserved — case 3 is THEATER"
     fi
     fi
+  fi
+fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth #2190: positional sha256sum read must make case 16 go red --"
+  mutant16="$ROOT/dynamic.mutant16.sh"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  if ! mutant_sed "$SUT" "$mutant16" 's|^sha256_of() .*|sha256_of() { sha256sum -- "$1" \| cut -d" " -f1; }|'; then
+    no "teeth #2190: mutant built"
+  else
+    tdir="$(newtdir teeth16)"
+    mout="$(env FRIDA_BIN="$ABSENT" "$BASH_BIN" "$mutant16" frida-hook some-proc "$bsjs" "$tdir" 2>&1)"
+    mgot="$(sed -n 's/^preserved script: .*  sha256=//p' <<<"$mout" | head -1)"
+    if [ "$mgot" != "$want16" ]; then ok "teeth #2190: positional-read mutant prints a wrong digest" "(case 16 has teeth)"
+    else no "teeth #2190: mutant still printed the bare digest" "case 16 is THEATER"; fi
   fi
 fi
 

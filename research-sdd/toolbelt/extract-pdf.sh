@@ -75,7 +75,8 @@ if [ -f "$OUT" ] && [ "$FORCE" -eq 0 ]; then
   exit 0
 fi
 
-SHA="$(sha256sum "$IN" | cut -d' ' -f1)"
+# #2190: STDIN, not a positional name — GNU sha256sum prefixes the digest with "\" when the file name holds one.
+SHA="$(sha256sum < "$IN" | cut -d' ' -f1)"
 PAGES_TOTAL="$(pdfinfo "$IN" 2>/dev/null | awk '/^Pages:/{print $2}')"
 
 # Page-range flags for the poppler/pymupdf tools
