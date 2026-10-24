@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"regexp"
 	"sort"
@@ -133,9 +135,11 @@ func readClaims(sf string) (claims, error) {
 // blockNamesIn lists the canonical block files directly under dir: `find dir -maxdepth 1 -type f -name '*.md' |
 // block_file_filter`, by name.
 func blockNamesIn(dir string) ([]string, error) {
-	st, err := os.Lstat(dir) // a trailing slash makes lstat(2) resolve a symlink, as it makes find follow it
-	if err != nil {
+	st, err := os.Lstat(dir)            // a trailing slash makes lstat(2) resolve a symlink, as it makes find follow it
+	if errors.Is(err, fs.ErrNotExist) { // ENOENT only; EACCES, ENOTDIR and ELOOP cannot be judged absent
 		return nil, ErrAbsentInput
+	} else if err != nil {
+		return nil, ErrUnreadable
 	}
 	if !st.IsDir() {
 		return nil, nil

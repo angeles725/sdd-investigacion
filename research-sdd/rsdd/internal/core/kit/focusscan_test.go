@@ -126,3 +126,24 @@ func TestFocusRangeScanTypedInputs(t *testing.T) {
 		t.Errorf("unlistable dir: %v", err)
 	}
 }
+
+// TestFocusRangeScanLstatErrorClass: only a path that does not exist is absent-input; a parent without search
+// permission (EACCES) and a file used as a directory (ENOTDIR) are unreadable.
+func TestFocusRangeScanLstatErrorClass(t *testing.T) {
+	d := t.TempDir()
+	write(t, d+"/file", "")
+	if _, err := ScanFocusRange(d+"/file/sub", 1, 2, ""); !errors.Is(err, ErrUnreadable) {
+		t.Errorf("ENOTDIR: %v", err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 stays searchable, premise unavailable (NOT a pass)")
+	}
+	mkfiles(t, d, "closed/corpus/a-block1.md")
+	if err := os.Chmod(d+"/closed", 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(d+"/closed", 0o755) })
+	if _, err := ScanFocusRange(d+"/closed/corpus", 1, 2, ""); !errors.Is(err, ErrUnreadable) {
+		t.Errorf("EACCES on the parent: %v", err)
+	}
+}
