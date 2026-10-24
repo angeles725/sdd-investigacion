@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -549,5 +550,69 @@ func TestDifferentialFindingUnreadableFocusesIsSilentInBash(t *testing.T) {
 	}
 	if _, err := DeriveFocusRange(sf); !errors.Is(err, ErrUnreadable) {
 		t.Errorf("range: %v", err)
+	}
+}
+
+func TestDifferentialFocusRangeScanAndReport(t *testing.T) {
+	for _, c := range scanCorpora {
+		t.Run(c.label, func(t *testing.T) {
+			d := t.TempDir()
+			sf := focusCorpus(t, d, c.table)
+			mkfiles(t, d, c.files...)
+			b := bashDriver(t, nil, "", "frr", sf)
+			rep, err := FocusRangeReport(sf)
+			var got strings.Builder
+			for _, x := range rep {
+				got.WriteString(x.Kind + "|" + x.Text + "\n")
+			}
+			if err != nil || b.rc != 0 || b.stderr != "" || got.String() != b.stdout {
+				t.Fatalf("report go %q (%v)\nbash rc=%d out=%q err=%q", got.String(), err, b.rc, b.stdout, b.stderr)
+			}
+			r, _ := DeriveFocusRange(sf)
+			if r.State != RangeOK {
+				return
+			}
+			for _, state := range []string{sf, ""} {
+				s, err := ScanFocusRange(d, r.Lo, r.Hi, state)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for field, want := range map[string]string{"COUNT": strconv.Itoa(s.Count), "FILES": strconv.Itoa(s.Files), "SPAN": awkNum(s.Span)} {
+					if b := bashDriver(t, nil, "", "frs", d, r.Value(), state, field); b.rc != 0 || b.stdout != want+"\n" {
+						t.Errorf("stat %s (claims from %q): go %s, bash rc=%d %q", field, state, want, b.rc, b.stdout)
+					}
+				}
+			}
+		})
+	}
+}
+
+// FINDING F10: focus_range_stat on a directory that does not exist counts a confident 0 in bash (find's error is
+// discarded). Go types it.
+func TestDifferentialFindingRangeStatAbsentDirIsASilentZeroInBash(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+	if b := bashDriver(t, nil, "", "frs", missing, "1-5", "", "COUNT"); b.rc != 0 || b.stdout != "0\n" {
+		t.Fatalf("premise changed: rc=%d out=%q", b.rc, b.stdout)
+	}
+	if _, err := ScanFocusRange(missing, 1, 5, ""); !errors.Is(err, ErrAbsentInput) {
+		t.Fatalf("Go must type it: %v", err)
+	}
+}
+
+// TestDifferentialFocusRangeScanSymlinkedDir: find -P does not follow a symlinked start directory, so the scan
+// sees no file through the link (a silent zero, kept for parity) unless the path ends with a slash.
+func TestDifferentialFocusRangeScanSymlinkedDir(t *testing.T) {
+	d := t.TempDir()
+	mkfiles(t, d, "a-block1.md", "a-block2.md")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(d, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{link, link + "/"} {
+		s, err := ScanFocusRange(dir, 1, 2, "")
+		b := bashDriver(t, nil, "", "frs", dir, "1-2", "", "COUNT")
+		if err != nil || b.stdout != strconv.Itoa(s.Count)+"\n" {
+			t.Errorf("%s: go %d (%v), bash %q", dir, s.Count, err, b.stdout)
+		}
 	}
 }

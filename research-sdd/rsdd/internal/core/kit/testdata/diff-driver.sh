@@ -13,6 +13,8 @@
 #   pinw          lib/block-files.sh   block_files_path_in_nested_worktree <path> <roots>
 #   dfp           lib/focus-prefix.sh  derive_focus_prefix <state-file>
 #   dfr           lib/focus-prefix.sh  derive_focus_range <state-file>
+#   frs           lib/focus-prefix.sh  focus_range_stat <dir> <lo-hi> <state-file|""> COUNT|FILES|SPAN (+ block-files.sh)
+#   frr           lib/focus-prefix.sh  focus_range_report <state-file> '%s|%s\n' (+ block-files.sh)
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -49,5 +51,7 @@ case "$mode" in
     done ;;
   dfp)          need focus-prefix.sh derive_focus_prefix;     derive_focus_prefix "$@" ;;
   dfr)          need focus-prefix.sh derive_focus_range;      derive_focus_range "$@" ;;
+  frs)          need block-files.sh block_file_filter; need focus-prefix.sh focus_range_stat; focus_range_stat "$@" ;;
+  frr)          need block-files.sh block_file_filter; need focus-prefix.sh focus_range_report; focus_range_report "$1" '%s|%s\n' ;;
   *) die "unknown mode: $mode" ;;
 esac
