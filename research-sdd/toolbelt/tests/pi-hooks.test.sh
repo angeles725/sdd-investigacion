@@ -197,17 +197,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   else no "teeth predicate: a real FAIL line / exit code was not honoured"; fi
   # Behavior runs are wait-dominated (~28 s wall for ~3 s CPU each: the suite drives real process timeouts), so the ~40
   # behavior teeth run serially took longer than the flake hunt's 900 s per-suite bound and every --prove-teeth run
-  # timed out (kit issue #2248). They run PI_TEETH_JOBS (default 4) at a time; each is judged by behavior_verdict after
-  # all of them finished, in declaration order. A struct tooth is still judged at once.
-  BJOBS="${PI_TEETH_JOBS:-4}"
-  case "$BJOBS" in '' | *[!0-9]* | 0) echo "FATAL: PI_TEETH_JOBS must be an integer >= 1 (got '$BJOBS')" >&2; exit 2 ;; esac
-  BQUEUE=(); brunning=0
-  # behavior_verdict NAME — PASS/FAIL for one finished behavior tooth from its .out and .rc files.
+  # timed out (kit issue #2248). They run through the shared lib/mutant.sh job batch (MUTANT_JOBS at a time, kit issue
+  # #2331); each is judged by behavior_verdict after all of them finished, in declaration order. A struct tooth is
+  # still judged at once.
+  mutant_bootstrap mutant_sed mutant_jobs_begin mutant_job mutant_jobs_end || exit 2
+  mkdir "$M/jobs" && mutant_jobs_begin "$M/jobs" || exit 2
+  # behavior_verdict NAME RC OUT — PASS/FAIL for one finished behavior tooth from its output and exit code.
   behavior_verdict() {
-    local name="$1" r
-    r="$(cat "$M/$name.rc" 2>/dev/null)" || r="none"
-    if [ -n "$(bite_line "$M/$name.out" "$r")" ]; then ok "teeth $name: behavior suite goes red ($(bite_line "$M/$name.out" "$r" | cut -c8-90))"
-    else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$M/$name.out" | cut -c1-160 | tr '\n' ';'))"; fi
+    local name="$1" r="$2" out="$3"
+    if [ -n "$(bite_line "$out" "$r")" ]; then ok "teeth $name: behavior suite goes red ($(bite_line "$out" "$r" | cut -c8-90))"
+    else no "teeth $name: behavior suite exit $r on the mutant — THEATER (tail: $(tail -2 "$out" | cut -c1-160 | tr '\n' ';'))"; fi
   }
   tooth() {
     local name="$1" kind="$2" expect="$3" a=() e r
@@ -220,9 +219,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       else no "teeth $name: expected structural label '$expect', got [$(printf '%s' "$r" | tr '\n' ';')] — THEATER"; fi
     else
       if [ "$HAVE_TS" != 1 ]; then sk "teeth $name: needs Node type stripping to run the behavior suite on the mutant"; return; fi
-      if [ "$brunning" -ge "$BJOBS" ]; then wait -n; brunning=$((brunning - 1)); fi
-      ( RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" >"$M/$name.out" 2>&1; echo "$?" >"$M/$name.rc" ) &
-      brunning=$((brunning + 1)); BQUEUE+=("$name")
+      mutant_job "$name" env RSDD_PI_HOOKS_SRC="$M/$name.ts" node "$BEHAVIOR" || exit 2
     fi
   }
   tooth child-guard-removed   struct   child-guard-first 's/^  if (process\.env\.GENTLE_PI_AGENTS_CHILD === "1") return;.*$//'
@@ -302,8 +299,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth print-surface-dropped behavior - 's/for (const m of cur\.surface\.splice(0)) printNotice(m);//'
   tooth print-notice-silent   behavior - 's/try { process\.stderr\.write(`research-sdd-hooks: \${msg}\\n`); }/try { void msg; }/'
   tooth print-not-evaluated-unsaid behavior - 's/printNotice("retro\/return-token gates NOT evaluated/void ("retro\/return-token gates NOT evaluated/'
-  wait
-  for _b in "${BQUEUE[@]+"${BQUEUE[@]}"}"; do behavior_verdict "$_b"; done
+  mutant_jobs_end fail behavior_verdict "teeth "
 fi
 
 echo "skipped: $skipped"
