@@ -81,6 +81,41 @@ var lineModes = map[string]func(line string) bashOut{
 		return bashOut{stdout: ShippedRaw(l) + "\n"}
 	},
 	"shids": func(l string) bashOut { return idsOut(ShippedIDs(l)) },
+	"dism": func(l string) bashOut {
+		ids, malformed, err := dismissedIDs(l)
+		if malformed {
+			return bashOut{rc: 3}
+		}
+		return idsOut(ids, err)
+	},
+}
+
+// TestDifferentialRowState asks every PARTIAL marker line (and a sample of the others) about six row ids. Bash
+// forks about ten processes per call, so the non-partial lines are sampled 1 in 10.
+func TestDifferentialRowState(t *testing.T) {
+	var inputs []string
+	for i, l := range markerLines(t) {
+		if !MarkerIsPartial(l) && i%10 != 0 {
+			continue
+		}
+		for _, rid := range []string{"1", "2", "5", "P2", "9", ""} {
+			inputs = append(inputs, l+"\x1f"+rid)
+		}
+	}
+	bash := bashBatch(t, "rowstate", inputs)
+	seen := map[string]bool{}
+	for i, in := range inputs {
+		line, rid, _ := strings.Cut(in, "\x1f")
+		got := bashOut{stdout: string(MarkerRowState(line, rid)) + "\n"}
+		seen[bash[i].stdout] = true
+		if got != bash[i] {
+			t.Errorf("rowstate %q %q: go=%+v bash=%+v", line, rid, got, bash[i])
+		}
+	}
+	if len(seen) < 5 {
+		t.Errorf("rowstate: bash gave only %d of the 5 answers: the corpus misses a state", len(seen))
+	}
+	t.Logf("rowstate: %d (line, id) pairs, %d distinct answers", len(inputs), len(seen))
 }
 
 func TestDifferentialMarkerLines(t *testing.T) {
