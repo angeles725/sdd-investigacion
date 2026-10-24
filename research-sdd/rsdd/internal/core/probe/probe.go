@@ -95,6 +95,21 @@ func (p *Prober) isDir(path string) bool {
 	return path != "" && err == nil && fi.IsDir()
 }
 
+// globNames is the shell glob dir+prefix*suffix: the matching non-hidden entries of dir in byte order
+// (the LC_ALL=C glob order). An empty or unreadable dir matches nothing.
+func (p *Prober) globNames(dir, prefix, suffix string) []string {
+	ents, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range ents {
+		n := e.Name()
+		if !strings.HasPrefix(n, ".") && len(n) >= len(prefix)+len(suffix) &&
+			strings.HasPrefix(n, prefix) && strings.HasSuffix(n, suffix) {
+			out = append(out, dir+n)
+		}
+	}
+	return out
+}
+
 // LookPath is `command -v name` for an external command (see the package contract).
 func (p *Prober) LookPath(name string) (string, error) {
 	if path, ok := p.commandV(name); ok {
