@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bridge suite for the Go module research-sdd/rsdd (go-port plan U0.1, kit issue #2271).
-# Runs `go test ./...` in the module and reports each Go package as one case, so run-all.sh
+# Runs `go test ./...` (through `make test`) in the module and reports each Go package as one case, so run-all.sh
 # carries the Go result in its `== N passed · M failed ==` summary contract.
 #
 #   go absent        typed SKIP (exit 0) - FAIL instead under RSDD_REQUIRE_GO=1 (CLAUDE.md section 7:
@@ -106,8 +106,9 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
 # Case 1..N: one case per Go package that has tests. `go test` prints `ok <pkg>` or `FAIL <pkg>`;
 # `?  <pkg> [no test files]` is neither. A non-zero exit with no FAIL line (build or setup error)
 # is itself one failure, and zero tested packages is a failure (a silent zero proves nothing).
+# `make test` runs it so every test binary carries the Makefile's memory cap and timeout (see containment).
 out="$ROOT/gotest.out"
-( cd "$MOD" && go test -count=1 ./... ) >"$out" 2>&1
+make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
 rc=$?
 counts="$(count_go_output "$out")"
 npass="${counts#pass=}"; npass="${npass%% *}"
@@ -153,6 +154,49 @@ oldreq="$(PATH="$FAKEBIN:$PATH" RSDD_REQUIRE_GO=1 bash "$0" 2>&1)"; oldreqrc=$?
 if [ "$oldreqrc" -eq 1 ] && grep -q 'FAIL  toolchain too old: have 1.20.1' <<<"$oldreq"; then
   ok "toolchain: old go under RSDD_REQUIRE_GO=1 -> FAIL"
 else no "toolchain: old go with REQUIRE should FAIL (rc=$oldreqrc): $oldreq"; fi
+
+# Containment: `make test` / `make teeth` run every test binary under a memory cap and a timeout, so a
+# runaway (a gremlins mutant that allocates without bound once OOM-killed the 7 GB CI runner) dies as a
+# test FAILURE instead of starving the host. A throwaway module runs through the REAL Makefile: a test
+# that touches 768 MiB must die "out of memory" under a 768 MiB cap and never print SURVIVED; a test
+# that sleeps 20s must die at a 3s timeout. Both fixtures stop on their own, so an uncapped run is bounded.
+FIX="$ROOT/runaway"; mkdir -p "$FIX"
+printf 'module runaway\n\ngo 1.22\n' > "$FIX/go.mod"
+cat > "$FIX/runaway_test.go" <<'GO'
+package runaway
+
+import (
+	"fmt"
+	"testing"
+	"time"
+)
+
+func TestRunaway(t *testing.T) {
+	var keep [][]byte
+	for len(keep) < 24 { // 24 x 32 MiB = 768 MiB, every page touched
+		b := make([]byte, 32<<20)
+		for i := range b {
+			b[i] = 1
+		}
+		keep = append(keep, b)
+	}
+	fmt.Println("RUNAWAY-SURVIVED", len(keep))
+}
+
+func TestHang(t *testing.T) { time.Sleep(20 * time.Second); fmt.Println("HANG-SURVIVED") }
+GO
+contain() { # contain MAKEFILE TEST VAR=VALUE... -> combined output; the make exit code is the last line
+  local mk="$1" t="$2"; shift 2
+  make -s -f "$mk" -C "$FIX" test TESTFLAGS="-count=1 -v -run $t" "$@" 2>&1; echo "rc=$?"
+}
+c="$(contain "$MOD/Makefile" TestRunaway TEST_MEM_KB=786432)"
+if grep -q 'out of memory' <<<"$c" && ! grep -q 'RUNAWAY-SURVIVED' <<<"$c" && ! grep -qx 'rc=0' <<<"$c"; then
+  ok "containment: a test binary allocating past TEST_MEM_KB dies out of memory (a FAIL, not a host OOM)"
+else no "containment: runaway not contained: $(tail -n 5 <<<"$c")"; fi
+c="$(contain "$MOD/Makefile" TestHang TEST_TIMEOUT=3s)"
+if grep -q 'test timed out after 3s' <<<"$c" && ! grep -q 'HANG-SURVIVED' <<<"$c" && ! grep -qx 'rc=0' <<<"$c"; then
+  ok "containment: a hung test binary dies at TEST_TIMEOUT"
+else no "containment: hang not bounded by TEST_TIMEOUT: $(tail -n 5 <<<"$c")"; fi
 
 # Gremlins verdict parser, on canned output.
 cat > "$ROOT/gr-lived.out" <<'CANNED'
@@ -253,6 +297,18 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-unparseable mutation"
       "$MUTDIR/rsdd-go-gr.test.sh" --orig "$0" \
       --good-has 'VERDICT: FAIL gremlins summary unparseable' --bad-has 'VERDICT: SKIP gremlins summary unparseable' -- \
       bash @SUT@ --decide-gremlins "$ROOT/gr-garbled.out" 0; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Tooth for the containment: a Makefile whose -exec wrapper no longer sets the cap must let the runaway
+# fixture allocate its 768 MiB and print RUNAWAY-SURVIVED (the fixture stops there, so this stays bounded).
+if MUTANT_SYNTAX=none mutant_chain_or_count fail "memory-cap mutation" "$MOD/Makefile" "$MUTDIR/Makefile" \
+    's/ulimit -v %s || exit 97/: %s/'; then
+  if mutant_tooth "teeth: a test-binary wrapper without the memory cap lets the runaway survive" 2 0 \
+      "$MUTDIR/Makefile" --orig "$MOD/Makefile" \
+      --good-has 'out of memory' --good-lacks 'RUNAWAY-SURVIVED' --bad-has 'RUNAWAY-SURVIVED' -- \
+      make -s -f @SUT@ -C "$FIX" test 'TESTFLAGS=-count=1 -v -run TestRunaway' TEST_MEM_KB=786432; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
