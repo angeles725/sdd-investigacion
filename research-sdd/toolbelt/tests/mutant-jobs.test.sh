@@ -74,10 +74,10 @@ else no "jobs: foreign-job peak $pf at jobs=2 — a non-batch child freed a slot
 # sleep_pids N TOKEN — pids of live `sleep N` processes of THIS run, read from /proc: exact argv (so it never
 # matches this script) AND the run's MUTANT_JX_TOKEN in the environment, so a concurrent run of this suite (a
 # sibling worktree, parallel CI) that drew the same bound is never reported, let alone killed.
-sleep_pids(){ local f p; for f in /proc/[0-9]*/cmdline; do
+sleep_pids(){ local f p e; for f in /proc/[0-9]*/cmdline; do
   [ "$(tr '\0' ' ' < "$f" 2>/dev/null)" = "sleep $1 " ] || continue
   p="${f#/proc/}"; p="${p%/cmdline}"
-  tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qxF "MUTANT_JX_TOKEN=$2" && echo "$p"
+  e="$(tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null)"; grep -qxF "MUTANT_JX_TOKEN=$2" <<<"$e" && echo "$p"
 done; return 0; }
 # interrupt: a TERM to the batch shell mid-batch kills every job, its manager and its watchdog; nothing survives.
 d="$(mktemp -d "$TMP/jx.XXXXXX")"; jxtok="$$.$RANDOM.$RANDOM"
