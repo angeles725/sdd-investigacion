@@ -8,6 +8,7 @@
 #   isdir         reads paths on stdin, prints "<path>\t<1|0>" from the bash `[ -d ]` the sweeps use
 #   liststate     lib/state-files.sh   list_state_files <dir>
 #   resolvestate  lib/state-files.sh   resolve_state_file [-H] <dir> [--focus <slug>]
+#   bff           lib/block-files.sh   block_file_filter [-v] [<prefix>]  (paths on stdin)
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -35,6 +36,7 @@ case "$mode" in
   tnr)          need target-paths.sh target_name_for_retro;   target_name_for_retro "$@" ;;
   liststate)    need state-files.sh list_state_files;         list_state_files "$@" ;;
   resolvestate) need state-files.sh resolve_state_file;       resolve_state_file "$@" ;;
+  bff)          need block-files.sh block_file_filter;        block_file_filter "$@" ;;
   isdir)
     while IFS= read -r p || [ -n "$p" ]; do
       if [ -d "$p" ]; then printf '%s\t1\n' "$p"; else printf '%s\t0\n' "$p"; fi

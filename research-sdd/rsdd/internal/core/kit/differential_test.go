@@ -387,3 +387,38 @@ func TestDifferentialFindingListStateFilesAbsentDirIsASilentZeroInBash(t *testin
 		t.Fatalf("Go must type it: %v", err)
 	}
 }
+
+func TestDifferentialBlockFileFilter(t *testing.T) {
+	for _, c := range filterCases {
+		t.Run(c.label, func(t *testing.T) {
+			var args []string
+			if c.invert {
+				args = append(args, "-v")
+			}
+			if c.prefix != "" {
+				args = append(args, c.prefix)
+			}
+			b := bashDriver(t, nil, lines(c.in), "bff", args...)
+			got, err := FilterBlockFiles(c.in, c.invert, c.prefix)
+			if RC(err) != b.rc || lines(got) != b.stdout || (b.stderr != "") != errors.Is(err, ErrBadPattern) {
+				t.Errorf("go rc=%d out=%q; bash rc=%d out=%q err=%q", RC(err), lines(got), b.rc, b.stdout, b.stderr)
+			}
+		})
+	}
+}
+
+// FINDING F8: the prefix is a raw ERE fragment and GNU grep's ERE is laxer than Go's POSIX syntax: these prefixes
+// are accepted by grep (GNU extensions, or a stray metacharacter taken literally) and rejected by Go. Kit-derived
+// prefixes are `[A-Za-z]…-` and never reach them; the cases pin the premise so a dialect change is noticed.
+func TestDifferentialFindingPrefixDialectGaps(t *testing.T) {
+	in := []string{"/c/a-block1.md", "/c/dblock1.md"}
+	for _, p := range []string{`\d`, `\w`, `\`, `)`} {
+		b := bashDriver(t, nil, lines(in), "bff", p)
+		if b.rc > 1 || b.stderr != "" {
+			t.Errorf("premise changed: grep now rejects prefix %q (rc=%d %q)", p, b.rc, b.stderr)
+		}
+		if _, err := FilterBlockFiles(in, false, p); !errors.Is(err, ErrBadPattern) {
+			t.Errorf("premise changed: Go now accepts prefix %q (%v); move it to filterCases", p, err)
+		}
+	}
+}

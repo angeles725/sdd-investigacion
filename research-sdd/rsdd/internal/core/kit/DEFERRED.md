@@ -15,6 +15,7 @@ the real bash (`testdata/diff-driver.sh`, LC_ALL=C), including over the real `re
 | F5 | `target_name_for_retro` splits rows on EVERY pipe (`awk -F'|'`); gfm honours `\|`. A `\|` in the name cell shifts the columns and the name falls back to the basename. | `TestFindingNameLookupSplitsOnEscapedPipes`, differential scenario `escaped-pipe-name` | Bash split kept. |
 | F6 | `list_state_files` on a directory that does not exist: exit 0, no output, identical to an empty corpus. | `TestDifferentialFindingListStateFilesAbsentDirIsASilentZeroInBash` | `ErrAbsentInput` vs empty list. |
 | F7 | `find` has no `-type` filter: a DIRECTORY named `RESEARCH-STATE-x.md` is listed; `-not -path '*/.git/*'` tests the whole printed path, so a corpus that lives under a `.git` directory has every result excluded. | `TestDirectoriesAndGitAncestorQuirks`, `TestDifferentialStateFilesFilesystemQuirks` | Reproduced. |
+| F8 | `block_file_filter` interpolates the prefix into a GNU `grep -E` ERE; GNU accepts `\d`, `\w`, a lone `\` or `)` where Go POSIX syntax rejects them. Kit-derived prefixes (`[A-Za-z]…-`) never hit this. | `TestDifferentialFindingPrefixDialectGaps` | `ErrBadPattern` (grep rc 2) for those. |
 
 Other parity notes: a symlinked start directory is not descended unless `-H` (`ResolveOptions.FollowDir`);
 `--focus <slug>` is a glob in bash (`find -name`), so a slug with `*`, `?` or `[` is a pattern (Go uses `path.Match`);
