@@ -81,8 +81,6 @@ sleep_pids(){ local f p; for f in /proc/[0-9]*/cmdline; do
 done; return 0; }
 # interrupt: a TERM to the batch shell mid-batch kills every job, its manager and its watchdog; nothing survives.
 d="$(mktemp -d "$TMP/jx.XXXXXX")"; jb=$((7000 + RANDOM % 1000)); jxtok="$$.$RANDOM.$RANDOM"
-if [ ! -r /proc/self/cmdline ]; then echo "  SKIP  jobs: interrupt case needs /proc to find surviving watchdogs (none here)"
-else
 MUTANT_JX_TOKEN="$jxtok" MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT="$jb" bash -c '. "$1"; mutant_jobs_begin "$2"; v(){ :; }
   for n in x1 x2 x3; do mutant_job "$n" bash -c "echo \$\$ > \"\$MUTANT_JOB_SCRATCH/pid\"; exec sleep 60"; done
   c=0; mutant_jobs_end c v; echo DONE' _ "$LIB" "$d" >"$d.out" 2>&1 &
@@ -91,11 +89,11 @@ while { [ ! -s "$d/x1.d/pid" ] || [ ! -s "$d/x2.d/pid" ]; } && [ $i -lt 100 ]; d
 kill -TERM "$jxb"; wait "$jxb"; jxrc=$?; sleep 0.3
 jxleft=""
 for f in "$d"/x*.d/pid; do p="$(cat "$f" 2>/dev/null)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null && { jxleft="$jxleft job:$p"; kill -KILL "$p"; }; done
-for p in $(sleep_pids "$jb" "$jxtok"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
+if [ -r /proc/self/cmdline ]; then for p in $(sleep_pids "$jb" "$jxtok"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
+else echo "  SKIP  jobs: no /proc here, so surviving watchdogs are not looked for (jobs, rc and DONE still are)"; fi
 if [ -z "$jxleft" ] && [ "$jxrc" = 143 ] && ! grep -q DONE "$d.out" && [ -s "$d/x1.d/pid" ]; then
   ok "jobs: a TERM mid-batch kills every outstanding job and watchdog, then the shell dies of TERM (rc 143)"
 else no "jobs: interrupted batch left [$jxleft] rc=$jxrc out=[$(tr '\n' ' ' < "$d.out")]"; fi
-fi
 # isolation: every job gets its own fresh, empty MUTANT_JOB_SCRATCH and its declaration index in MUTANT_JOB_INDEX.
 d="$(mktemp -d "$TMP/ji.XXXXXX")"; jc=0
 MUTANT_JOBS=4 mutant_jobs_begin "$d"
