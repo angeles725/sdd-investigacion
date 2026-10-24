@@ -2,7 +2,12 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/adapter_core.py"
 [ -f "$SUT" ] || { echo "FATAL: adapter_core.py not found: $SUT" >&2; exit 2; }
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
+ROOT="$(mktemp -d)"
+# ro_inputs fixtures live under /tmp, never under $TMPDIR: sandbox() rejects any ro_input at or under /home (and the
+# other _RO_INPUT_BLOCKED_ROOTS), so a $TMPDIR below $HOME (the flake hunt's $RUNNER_TEMP/flake-hunt/<shard>/tmp,
+# kit issue #2247) would turn the "binds an allowed input" cases into rejections. The absolute template ignores $TMPDIR.
+RO="$(mktemp -d /tmp/adapter-core-ro.XXXXXX)"
+trap 'rm -rf "$ROOT" "$RO"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
 # 1. identity: stable sha256+size; max_bytes rejection
@@ -113,7 +118,7 @@ PY
 then ok "publish: RENAME_NOREPLACE refuses collision; destination preserved"; else no "publish"; fi
 
 # 8. sandbox: ro_inputs are bound; full-root still absent with ro_inputs
-if python3 - "$SUT" "$ROOT" <<'PY'
+if python3 - "$SUT" "$RO" <<'PY'
 import importlib.util,pathlib,sys,os
 s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
 sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
@@ -238,7 +243,7 @@ PY
 then ok "sandbox: ro_inputs='/home/...' raises AdapterError (prefix rule, existence-independent)"; else no "sandbox ro_inputs prefix guard"; fi
 
 # 15. sandbox: legit temp-dir path in ro_inputs is bound; does not raise
-if python3 - "$SUT" "$ROOT" <<'PY'
+if python3 - "$SUT" "$RO" <<'PY'
 import importlib.util,pathlib,sys
 s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
 sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)
@@ -267,7 +272,7 @@ PY
 then ok "sandbox: resolv.conf+nsswitch.conf absent; dynamic-loader entries present"; else no "sandbox dns entries removed"; fi
 
 # 17. sandbox: symlink ro_input → --ro-bind uses realpath, not symlink path (TOCTOU fix)
-if python3 - "$SUT" "$ROOT" <<'PY'
+if python3 - "$SUT" "$RO" <<'PY'
 import importlib.util,pathlib,sys
 s=importlib.util.spec_from_file_location('ac',sys.argv[1]); ac=importlib.util.module_from_spec(s); s.loader.exec_module(ac)
 sroot=pathlib.Path('/tmp/rsdd'); sroot.mkdir(mode=0o700,exist_ok=True)

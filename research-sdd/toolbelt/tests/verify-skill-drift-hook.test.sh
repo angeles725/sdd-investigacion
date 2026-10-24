@@ -337,6 +337,11 @@ else no "H13: caps wrong (headers=$c_hdr entries=$c_ent maxw=$c_wid more=$c_more
 KG() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false -c init.defaultBranch=main "$@"; }
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 KF="$ROOT/kfix"; mkdir -p "$KF"
+# Every K-case runs with HOME pinned to the fixture root, so the fix command reads `git -C ~/k25 ...` whatever $TMPDIR is.
+# The 200-char budget cuts the prose AFTER the command, so a long $TMPDIR (the flake hunt's ~/work/_temp/flake-hunt/<shard>/
+# tmp/<run>, kit issue #2249) cut 'may understate' / the fetch age and failed K3 for the fixture's path length, not the hook.
+# A case passing its own HOME= (K15) still wins: env takes the last assignment.
+KHOME="$(cd -P "$KF" && pwd -P)"
 mk_origin() {   # <name> <commits> — bare origin + seed clone with <commits> commits pushed
   KG init -q --bare "$KF/$1.git" && KG clone -q "$KF/$1.git" "$KF/$1.seed" 2>/dev/null || return 1
   local i; for i in $(seq "$2"); do echo "$i" >"$KF/$1.seed/f"; KG -C "$KF/$1.seed" add f; KG -C "$KF/$1.seed" commit -q -m "c$i"; done
@@ -357,9 +362,8 @@ run_kit() {
   stub="$MATCH"
   nb="$(git -C "$d" rev-list --count 'HEAD..@{upstream}' 2>/dev/null)" || nb=0
   [ "${nb:-0}" -le 0 ] || stub="$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=$nb (local ref, no fetch — may understate) fix: git -C $d pull --ff-only"
-  HOUT="$(env RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$d" "$@" STUB_VERIFY_OUT="${RK_STUB:-$stub}" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; HRC=$?
+  HOUT="$(env RESEARCH_SDD_KIT_STALE_CHECK="" RESEARCH_SDD_KIT_DIR="$d" HOME="$KHOME" "$@" STUB_VERIFY_OUT="${RK_STUB:-$stub}" RESEARCH_SDD_INSTALL_VERIFY_CMD="$SB/install-verify-stub.sh" "$BASH_BIN" "$SB/decode.sh" "$HOOK_SB" 2>/dev/null)"; HRC=$?
 }
-kdisp() { local p; p="$(cd -P "$1" && pwd -P)"; case "$p" in "$HOME"/*) p="~${p#"$HOME"}";; esac; printf '%s' "$p"; }
 echo "-- hook: stale kit checkout (#2130) --"
 if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   run_kit "$KF/k0"
@@ -371,7 +375,7 @@ if mk_kit k0 0 && mk_kit k3 3 && mk_kit k25 25; then
   if [ "$(grep -c 'kit-stale' <<<"$HOUT")" = 1 ] && [[ "$KL" == "verify kit-stale status=stale fix"* ]] && grep -q 'behind=25' <<<"$KL" && grep -q 'pull --ff-only' <<<"$KL" && grep -q 'may understate' <<<"$KL" && grep -q 'WARN' <<<"$HOUT" && ! grep -q 'kit status=behind' <<<"$HOUT"; then ok "K3: 25 behind → ONE typed line (fix command first, count, 'may understate'); install's duplicate behind line is gone"
   else no "K3: stale line wrong; out=[$HOUT]"; fi
   [ -n "$KL" ] && [ "${#KL}" -le 200 ] && ok "K3b: the stale line is within the 200-char SessionStart budget (${#KL})" || no "K3b: stale line missing/over budget (${#KL}): $KL"
-  grep -qF "git -C $(kdisp "$KF/k25") pull --ff-only" <<<"$KL" && ok "K3c: the update step names the resolved kit path (~/-relative under HOME)" || no "K3c: update step lacks the kit path; line=[$KL]"
+  grep -qF "git -C ~/k25 pull --ff-only" <<<"$KL" && ok "K3c: the update step names the resolved kit path (~/-relative under HOME)" || no "K3c: update step lacks the kit path; line=[$KL]"
   run_kit "$KF/k3" RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2
   grep -q 'behind=3' <<<"$HOUT" && ok "K4: RESEARCH_SDD_KIT_STALE_MAX_COMMITS lowers the threshold" || no "K4: env threshold ignored; out=[$HOUT]"
   PWN="$ROOT/k-pwned"; rm -f "$PWN"
@@ -619,7 +623,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
        "$BASH_BIN" -c ': >"$SLEEPLOG"; bash "$1" >/dev/null 2>&1; if grep -qx 1 "$SLEEPLOG"; then echo integer; else echo fractional; fi' _ @SUT@
   fi
   # ---- kit issue #2130: stale-kit line teeth (fixture kits built by the K-cases above) ----
-  _KE() { printf '%s\0' "RESEARCH_SDD_KIT_STALE_CHECK=" "RESEARCH_SDD_KIT_DIR=$1" "STUB_VERIFY_OUT=${2:-$MATCH}" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh"; }
+  _KE() { printf '%s\0' "RESEARCH_SDD_KIT_STALE_CHECK=" "RESEARCH_SDD_KIT_DIR=$1" "HOME=$KHOME" "STUB_VERIFY_OUT=${2:-$MATCH}" "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh"; }
   _KB() { printf '%s' "$MATCH"$'\n'"verify kit status=behind ref=origin/main behind=$1 (local ref, no fetch — may understate) fix: git -C /k pull --ff-only"; }
   mapfile -d '' -t _K25 < <(_KE "$KF/k25" "$(_KB 25)"); mapfile -d '' -t _K3 < <(_KE "$KF/k3" "$(_KB 3)"); mapfile -d '' -t _K0 < <(_KE "$KF/k0")
   mapfile -d '' -t _KNR < <(_KE "$KF/norem"); mapfile -d '' -t _KPL < <(_KE "$KF/plain"); mapfile -d '' -t _KDP < <(_KE "$KF/k25/deep/er")
