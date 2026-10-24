@@ -118,3 +118,12 @@ func resolveLink(links map[string]string, rel, target string) string {
 	}
 	return ""
 }
+
+func refusal(tree string, unsafe []UnsafeLink) Problem {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "the %s scratch copy holds %d symlink(s) that leave the copy root; the case is refused and neither side was run:", tree, len(unsafe))
+	for _, u := range unsafe {
+		fmt.Fprintf(&sb, "\n  %s -> %q (%s)", u.Path, u.Target, u.Why)
+	}
+	return Problem{KindUnsafeLink, sb.String()}
+}

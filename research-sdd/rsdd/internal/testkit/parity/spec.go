@@ -23,6 +23,7 @@ const (
 	KindExecFailed   = "exec-failed"
 	KindOutputTooBig = "output-too-large"
 	KindSandbox      = "sandbox-error"
+	KindUnsafeLink   = "unsafe-symlink"
 	KindEmptyInput   = "empty-input"
 	KindAbsentInput  = "absent-input"
 	KindDegraded     = "degraded"

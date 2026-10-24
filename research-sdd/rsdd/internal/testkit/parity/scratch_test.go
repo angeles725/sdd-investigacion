@@ -124,53 +124,6 @@ func TestCorpusPathIsTheSameForBothSidesAndNotTheRealOne(t *testing.T) {
 	}
 }
 
-func TestSymlinkOutsideTheTreeIsCopiedAsALink(t *testing.T) {
-	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("orig"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	outDir := filepath.Join(outside, "dir")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(outDir, "inner.md"), []byte("inner"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	c1 := mkCorpus(t, "one", map[string]string{"f.md": "hello"})
-	fileLink, dirLink := filepath.Join(outside, "secret.md"), outDir
-	if err := os.Symlink(fileLink, filepath.Join(c1, "flink")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(dirLink, filepath.Join(c1, "dlink")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("/nonexistent/dangling", filepath.Join(c1, "dangling")); err != nil {
-		t.Fatal(err)
-	}
-	before := mustFingerprint(t, c1)
-
-	r := newRig(t)
-	res := runCorpusCase(t, r, c1,
-		[]string{"rl={{corpus}}/flink", "rl={{corpus}}/dlink", "rl={{corpus}}/dangling"},
-		[]string{"out=" + fileLink + "\n" + dirLink + "\n/nonexistent/dangling\n"}, nil)
-	if res.Status != StatusEqual {
-		t.Fatalf("symlinks must be copied as links with their original targets: %s\n%s", res.Status, joined(res.Problems))
-	}
-	// Removing a link on the copy must not touch what it points to.
-	r = newRig(t)
-	res = runCorpusCase(t, r, c1, []string{"rm={{corpus}}/dlink"}, []string{"out="}, nil)
-	if res.Status != StatusFailed || !strings.Contains(joined(res.Problems), "effect differs") {
-		t.Fatalf("removing the link is an effect: %s %s", res.Status, joined(res.Problems))
-	}
-	assertUntouched(t, c1, before)
-	if b, _ := os.ReadFile(filepath.Join(outDir, "inner.md")); string(b) != "inner" {
-		t.Fatalf("the link target outside the tree was touched: %q", b)
-	}
-	if b, _ := os.ReadFile(fileLink); string(b) != "orig" {
-		t.Fatalf("the file outside the tree was touched: %q", b)
-	}
-}
-
 func TestCopyTreePreservesLinksModesAndSkipsGit(t *testing.T) {
 	outside := t.TempDir()
 	os.WriteFile(filepath.Join(outside, "o.md"), []byte("o"), 0o644)

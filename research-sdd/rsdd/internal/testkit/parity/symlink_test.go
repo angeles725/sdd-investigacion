@@ -150,3 +150,149 @@ func TestScanSymlinksAbsentRootIsAnError(t *testing.T) {
 		t.Fatal("an unreadable root must be an error, not 'no links'")
 	}
 }
+
+// ran reports whether each fake side executed (it touches a marker outside the sandbox).
+func markers(t *testing.T) (dir string, legacy, rsdd string) {
+	t.Helper()
+	dir = t.TempDir()
+	return dir, "touch=" + filepath.Join(dir, "legacy"), "touch=" + filepath.Join(dir, "rsdd")
+}
+
+func ranSides(dir string) (legacy, rsdd bool) {
+	_, e1 := os.Stat(filepath.Join(dir, "legacy"))
+	_, e2 := os.Stat(filepath.Join(dir, "rsdd"))
+	return e1 == nil, e2 == nil
+}
+
+func TestCorpusWithEscapingLinksIsRefused(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("orig"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t)
+	scratch := filepath.Join(r.runner.Cfg.Work, "sandbox", "corpus")
+	c1 := mkCorpus(t, "one", map[string]string{"f.md": "hello", "sub/g.md": "g"})
+	links := []linkSpec{
+		{"abs-out", filepath.Join(outside, "secret.md")},
+		{"abs-in", filepath.Join(scratch, "f.md")},
+		{"sub/up", "../../x"},
+		{"ok-inward", "f.md"},
+		{"ok-dangling", "no/such/thing"},
+		{"ok-dir", "sub"},
+	}
+	mkLinks(t, c1, links)
+	before := mustFingerprint(t, c1)
+	dir, lm, rm := markers(t)
+
+	r.addCase("c", []string{lm, "catf={{corpus}}/f.md"}, []string{rm, "catf={{corpus}}/f.md"}, true, map[string]string{})
+	rep := r.runner.RunAll(r.load(), Options{CorpusMode: true, Corpora: []string{c1}})
+	if len(rep.Results) != 1 || rep.Results[0].Status != StatusFailed {
+		t.Fatalf("an unsafe link must fail the case: %s %v", rep.Summary(), rep.Results)
+	}
+	msg := joined(rep.Results[0].Problems)
+	if !hasKind(rep.Results[0].Problems, KindUnsafeLink) {
+		t.Fatalf("want %s, got:\n%s", KindUnsafeLink, msg)
+	}
+	for _, want := range []string{
+		`abs-out -> "` + filepath.Join(outside, "secret.md") + `"`,
+		`abs-in -> "` + filepath.Join(scratch, "f.md") + `"`,
+		`sub/up -> "../../x"`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal must name %q:\n%s", want, msg)
+		}
+	}
+	for _, ok := range []string{"ok-inward", "ok-dangling", "ok-dir"} {
+		if strings.Contains(msg, ok) {
+			t.Errorf("inward link %s must not be reported:\n%s", ok, msg)
+		}
+	}
+	if l, rr := ranSides(dir); l || rr {
+		t.Fatalf("both sides must be skipped (legacy ran=%v rsdd ran=%v)", l, rr)
+	}
+	if rep.Counts.Failed != 1 || rep.Counts.Skipped != 0 || rep.Counts.Equal != 0 || !rep.Failed() {
+		t.Fatalf("a refusal is a failure in the summary, never a skip or a pass: %s", rep.Summary())
+	}
+	assertUntouched(t, c1, before)
+	if b, _ := os.ReadFile(filepath.Join(outside, "secret.md")); string(b) != "orig" {
+		t.Fatalf("outside file touched: %q", b)
+	}
+}
+
+func TestCorpusWithOnlyInwardLinksRuns(t *testing.T) {
+	r := newRig(t)
+	c1 := mkCorpus(t, "one", map[string]string{"f.md": "hello", "sub/g.md": "g"})
+	mkLinks(t, c1, []linkSpec{{"in", "f.md"}, {"sub/back", "../f.md"}, {"dangling", "nope/x"}, {"dirlink", "sub"}})
+	dir, lm, rm := markers(t)
+	res := runCorpusCase(t, r, c1, []string{lm, "rl={{corpus}}/in", "rl={{corpus}}/dangling"}, []string{rm, "out=f.md\nnope/x\n"}, nil)
+	if res.Status == StatusFailed && hasKind(res.Problems, KindUnsafeLink) {
+		t.Fatalf("inward links, dangling ones included, are allowed: %s", joined(res.Problems))
+	}
+	if l, rr := ranSides(dir); !l || !rr {
+		t.Fatalf("both sides must run (legacy=%v rsdd=%v)", l, rr)
+	}
+}
+
+func TestChainEscapingOnSecondHopNamesEveryLink(t *testing.T) {
+	r := newRig(t)
+	c1 := mkCorpus(t, "one", map[string]string{"f.md": "x"})
+	mkLinks(t, c1, []linkSpec{{"a", "sub/b"}, {"sub/b", "../../out"}, {"also", "/abs/elsewhere"}})
+	res := runCorpusCase(t, r, c1, []string{"exists={{corpus}}/f.md"}, []string{"exists={{corpus}}/f.md"}, nil)
+	msg := joined(res.Problems)
+	if res.Status != StatusFailed || !hasKind(res.Problems, KindUnsafeLink) {
+		t.Fatalf("%s %s", res.Status, msg)
+	}
+	for _, want := range []string{`a -> "sub/b"`, `sub/b -> "../../out"`, `also -> "/abs/elsewhere"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal must name %q:\n%s", want, msg)
+		}
+	}
+}
+
+func TestFixtureInputsGetTheSameRefusal(t *testing.T) {
+	r := newRig(t)
+	dir, lm, rm := markers(t)
+	r.addCase("c", []string{lm, "out=a"}, []string{rm, "out=a"}, false, map[string]string{"inputs/a.txt": "x"})
+	in := filepath.Join(r.specs, "c", "inputs")
+	mkLinks(t, in, []linkSpec{{"abs", "/etc/hosts"}, {"deep/up", "../../escape"}, {"ok", "a.txt"}})
+	res := r.runner.RunCase(r.load()[0], "")
+	msg := joined(res.Problems)
+	if res.Status != StatusFailed || !hasKind(res.Problems, KindUnsafeLink) {
+		t.Fatalf("fixture inputs/ with escaping links must be refused: %s %s", res.Status, msg)
+	}
+	for _, want := range []string{`abs -> "/etc/hosts"`, `deep/up -> "../../escape"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal must name %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "ok ->") {
+		t.Errorf("inward link reported:\n%s", msg)
+	}
+	if !strings.Contains(msg, "input") {
+		t.Errorf("refusal should say which tree (input):\n%s", msg)
+	}
+	if l, rr := ranSides(dir); l || rr {
+		t.Fatalf("both sides must be skipped (legacy=%v rsdd=%v)", l, rr)
+	}
+
+	// An inward-only fixture runs.
+	r2 := newRig(t)
+	r2.addCase("c", []string{"out=a"}, []string{"out=a"}, false, map[string]string{"inputs/a.txt": "x"})
+	mkLinks(t, filepath.Join(r2.specs, "c", "inputs"), []linkSpec{{"ok", "a.txt"}, {"dangling", "no/where"}})
+	if res := r2.runner.RunCase(r2.load()[0], ""); res.Status != StatusEqual {
+		t.Fatalf("inward links in inputs/ are allowed: %s %s", res.Status, joined(res.Problems))
+	}
+}
+
+func TestRefusalAppliesToRunAllSummary(t *testing.T) {
+	r := newRig(t)
+	c1 := mkCorpus(t, "one", map[string]string{"f.md": "x"})
+	mkLinks(t, c1, []linkSpec{{"l", "/etc/hosts"}})
+	r.addCase("a-plain", []string{"out=a"}, []string{"out=a"}, false, map[string]string{})
+	r.addCase("b-corpus", []string{"catf={{corpus}}/f.md"}, []string{"catf={{corpus}}/f.md"}, true, map[string]string{})
+	rep := r.runner.RunAll(r.load(), Options{CorpusMode: true, Corpora: []string{c1}})
+	want := "parity: compared=2 equal=1 declared-divergent=0 failed=1 absent-corpora=0 skipped=0"
+	if rep.Summary() != want {
+		t.Fatalf("got %q want %q", rep.Summary(), want)
+	}
+}

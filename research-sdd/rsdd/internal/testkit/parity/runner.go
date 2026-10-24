@@ -262,6 +262,16 @@ func (r *Runner) runSide(c Case, side string, trees []treeSpec) (Observed, []Pro
 	if err := r.prepareSandbox(sb, trees); err != nil {
 		return Observed{}, []Problem{{KindSandbox, fmt.Sprintf("%s: %v", side, err)}}
 	}
+	// Refuse, before either side runs, any copy whose symlinks can leave it.
+	for _, t := range trees {
+		unsafe, err := scanSymlinks(filepath.Join(sb, t.name))
+		if err != nil {
+			return Observed{}, []Problem{{KindSandbox, fmt.Sprintf("%s: %v", side, err)}}
+		}
+		if len(unsafe) > 0 {
+			return Observed{}, []Problem{refusal(t.name, unsafe)}
+		}
+	}
 	corpus := ""
 	for _, t := range trees {
 		if t.name == "corpus" {
