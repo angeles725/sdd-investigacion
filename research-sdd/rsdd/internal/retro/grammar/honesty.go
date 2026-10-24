@@ -23,8 +23,7 @@ var (
 	reVetoH3Word    = regexp.MustCompile(`^###[[:space:]]+(proposed|delta|deltas)([[:space:]]|$)`)
 	reVetoHashID    = regexp.MustCompile(`^(#|###)[[:space:]]+[A-Za-z][0-9]|^#[[:space:]]+[0-9]`)
 	reMarkerLead    = regexp.MustCompile(`^[-*+>][[:space:]]*`)
-	reDirty         = regexp.MustCompile(`^([-*+][[:space:]]|#{1,6}[[:space:]]|\||[0-9]+[.)]([[:space:]]|$)|` +
-		`[a-zA-Z][)]([[:space:]]|$)|•|\[[ xX]\]([[:space:]]|$))`)
+	reDirty         = regexp.MustCompile(`^([-*+][[:space:]]|#{1,6}[[:space:]]|\||[0-9]+[.)]([[:space:]]|$)|[a-zA-Z][)]([[:space:]]|$)|•|\[[ xX]\]([[:space:]]|$))`)
 	honestyVariants = map[string]bool{
 		"no new deltas; the kit already covers this run.":  true,
 		"no new deltas; nothing to add.":                   true,

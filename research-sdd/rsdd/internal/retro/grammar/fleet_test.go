@@ -1,3 +1,5 @@
+//go:build !nodiff
+
 package grammar
 
 import (

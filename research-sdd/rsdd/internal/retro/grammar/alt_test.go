@@ -64,3 +64,12 @@ func TestCutAt(t *testing.T) {
 		}
 	}
 }
+
+func TestAltEdges(t *testing.T) {
+	ev := strings.Repeat("e", 296) + "é" + strings.Repeat("f", 10) // the 297-byte cut lands inside é
+	d := Parse("r.md", "## Delta W3 — low — lower level\n## Proposed kit deltas\n1. **T** "+ev+"\n")
+	want := []Row{{ID: "W3", Change: "lower level", Priority: "LOW"}, {ID: "1", Change: "T", Evidence: ev[:296] + "..."}}
+	if got := AltEntryRows(d); !reflect.DeepEqual(got, want) {
+		t.Errorf("AltEntryRows:\n got %q\nwant %q", got, want)
+	}
+}

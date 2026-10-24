@@ -1,3 +1,5 @@
+//go:build !nodiff
+
 package grammar
 
 import (
@@ -13,6 +15,9 @@ import (
 	"testing"
 )
 
+// Build tag nodiff drops the bash-driven tests (this file, fleet_test.go, gen_test.go) for mutation runs, where
+// the package test repeats per mutant; `make check` always runs them.
+//
 // Differential tests: the REAL lib/retro-grammar.sh (testdata/diff-driver.sh) and the Go port must agree byte for
 // byte on stdout, stderr and the return code for every input. Bash runs under LC_ALL=C, the locale the port
 // implements (doc.go). The driver fails loudly: exit 97 is a broken harness and a t.Fatal, never a skip or a pass.

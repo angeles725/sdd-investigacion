@@ -43,6 +43,11 @@ func TestRowTitles(t *testing.T) {
 	if got := RowTitles(Parse("r.md", src)); !reflect.DeepEqual(got, want) {
 		t.Errorf("RowTitles:\n got %q\nwant %q", got, want)
 	}
+	// a header without a title column falls back to column 2
+	plain := "## Proposed kit deltas\n| ID | Notes | Owner |\n|--|--|--|\n| D1 | second | third |\n"
+	if got := RowTitles(Parse("r.md", plain)); !reflect.DeepEqual(got, []TitleRow{{"D1", "second"}}) {
+		t.Errorf("no title column = %q", got)
+	}
 	// no table row: the entry form answers, through the same id and bold rules
 	entry := "## Proposed kit deltas\n### D1 — **Ent** tail\n### D.2 — dotted\n"
 	if got := RowTitles(Parse("r.md", entry)); !reflect.DeepEqual(got, []TitleRow{{"D1", "Ent"}}) {

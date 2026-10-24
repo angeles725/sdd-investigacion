@@ -7,7 +7,7 @@ import (
 
 func TestEntryRows(t *testing.T) {
 	src := "## Proposed kit deltas\n" +
-		"### D1 — Add the thing (high)\n**Priority**: MEDIUM — fires\n**Where in kit**: lib/a.sh  \n**Evidence**: seen 3x\n" +
+		"### D1 — Add the thing (high)\nplain body line\n**Priority**: MEDIUM — fires\n**Where in kit**: lib/a.sh  \n**Evidence**: seen 3x\n" +
 		"**Evidence**: second\n**Target**: ignored, first wins\n" +
 		"### D2. — Fix: (new, priority: Low)\n**Priority:** 1\n**Kit file** : x\n" +
 		"### D3: —\n**Priority** low, maybe\n**Priority evidence**: q\n" +
