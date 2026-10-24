@@ -604,24 +604,26 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # T/U/W (#2327): each mutant breaks the fractional-sleep probe, so the watchdog keeps a 0.1 s poll on a sleep that cannot do
   # fractions and would burn its count and kill a healthy verify. Racing that kill against the verify's wall clock left ~16 ms
   # per shim start and once read as THEATER under load; instead the tooth reads the poll mode itself, as V does: the shim logs
-  # every sleep argument, '1' can only be the hook's integer fallback (the stub sleeps 2, the probe and the fractional polls
-  # 0.1), and the verify bound is long enough (30) that no kill ends the run before the first poll.
+  # every sleep argument; `integer` needs both a '1' (the hook's integer fallback; the stub sleeps 2) and at most six '0.1'
+  # (the exit-status probe plus up to five samples), so a later `sleep 1` elsewhere in the hook cannot hide a mutant whose
+  # fractional polls log dozens of '0.1'. The verify bound is long enough (30) that no kill ends the run before the first
+  # poll. The end-user harm (a healthy verify killed) stays covered end to end on the real hook by the H4 cases above.
   _probe_tt() { # <mutant letter, lower case> <description> <shim dir>
     _tt "teeth: $2" 0 0 "$MB/m-$1.sh" --good-has '^integer$' --bad-has '^fractional$' --bad-lacks "$_CRASH" -- "$_ENV" \
       "SLEEPLOG=$ROOT/sleep-$1.log" "PATH=$3:$PATH" "RESEARCH_SDD_NO_TIMEOUT_BIN=1" "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT=30" "STUB_VERIFY_SLEEP=2" \
       "RESEARCH_SDD_INSTALL_VERIFY_CMD=$SB/install-verify-stub.sh" "$BASH_BIN" \
-      -c 'rm -f "$1"/mark.*; : >"$SLEEPLOG"; bash "$2" >/dev/null 2>&1; if grep -qx 1 "$SLEEPLOG"; then echo integer; else echo fractional; fi' _ "$3" @SUT@
+      -c 'rm -f "$1"/mark.*; : >"$SLEEPLOG"; bash "$2" >/dev/null 2>&1; n=$(grep -cx 0.1 "$SLEEPLOG"); if grep -qx 1 "$SLEEPLOG" && [ "$n" -le 6 ]; then echo integer; else echo fractional; fi' _ "$3" @SUT@
   }
   # T/U: the fractional-sleep probe (#1771). T drops the exit-status half (shim C rejects fractions slowly), U the elapsed half (shim B returns at once).
   _mk "T" "$SUT" "$MB/m-t.sh" 's/sleep 0.1 2>\/dev\/null || { vsl=1; vper=1; }/sleep 0.1 2>\/dev\/null || :/' \
-    && _probe_tt t "probe ignores sleep's exit status -> a sleep rejecting fractions kills a healthy verify" "$SHIMC"
+    && _probe_tt t "probe ignores sleep's exit status -> the watchdog keeps the 0.1 s poll on a sleep that rejects fractions" "$SHIMC"
   if [ -z "$HAVE_ERT" ]; then printf '  SKIP  teeth U: %s has no EPOCHREALTIME, the elapsed half of the probe cannot run\n' "$BASH_BIN"; else
   _mk "U" "$SUT" "$MB/m-u.sh" 's/\] || { vsl=1; vper=1; }   # SENTINEL-SLEEP-PROBE-ELAPSED/] || :/' \
-    && _probe_tt u "probe ignores elapsed time -> a sleep that returns at once kills a healthy verify" "$SHIMB"
+    && _probe_tt u "probe ignores elapsed time -> the watchdog keeps the 0.1 s poll on a sleep that returns at once" "$SHIMB"
   fi
   if [ -z "$HAVE_ERT" ]; then printf '  SKIP  teeth W: %s has no EPOCHREALTIME, the elapsed half of the probe cannot run\n' "$BASH_BIN"; else
   _mk "W" "$SUT" "$MB/m-w.sh" 's/for vn in 1 2 3 4 5; do/for vn in 5; do/' \
-    && _probe_tt w "probe takes one elapsed sample -> a load-inflated sample on a sleep that returns at once kills a healthy verify" "$SHIME"
+    && _probe_tt w "probe takes one elapsed sample -> one load-inflated sample keeps the 0.1 s poll on a sleep that returns at once" "$SHIME"
   fi
   # V: probe always falls back (threshold unreachable) -> a working fractional sleep silently loses the 0.1 s poll.
   if [ -z "$HAVE_ERT" ]; then printf '  SKIP  teeth V: %s has no EPOCHREALTIME, the probe cannot run\n' "$BASH_BIN"; else
