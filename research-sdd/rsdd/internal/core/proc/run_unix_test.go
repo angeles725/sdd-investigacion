@@ -222,10 +222,25 @@ func TestRunSpawnFailureIsTyped(t *testing.T) {
 	}
 }
 
+// pipeFailChild marks the copy of the test binary that runs
+// TestRunPipeFailureIsASpawnError's body alone.
+const pipeFailChild = "RSDD_PROC_PIPEFAIL_CHILD"
+
 // A pipe that cannot be made is a spawn failure too: with no descriptor
 // left (soft NOFILE 3: only stdin, stdout and stderr fit) the program is
 // never started, and the caller can tell that from the error's type.
+// RLIMIT_NOFILE is process-wide, and lowering it also turns off the
+// NOFILE restore syscall.Exec does for every later exec, so the body runs
+// in a copy of the test binary of its own and never in this process.
 func TestRunPipeFailureIsASpawnError(t *testing.T) {
+	if os.Getenv(pipeFailChild) != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRunPipeFailureIsASpawnError$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), pipeFailChild+"=1")
+		if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), "--- PASS: TestRunPipeFailureIsASpawnError") {
+			t.Fatalf("the pipe-failure case in its own process: %v\n%s", err, out)
+		}
+		return
+	}
 	var own syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &own); err != nil {
 		t.Fatal(err)
