@@ -1,6 +1,6 @@
 // Package kit ports the research-sdd kit's path-derivation libraries to Go with byte parity against the bash
-// originals (toolbelt/lib/target-paths.sh and toolbelt/lib/state-files.sh in this unit; block-files.sh,
-// focus-prefix.sh and the hook-kit-run.sh kit-resolution order are deferred, see DEFERRED.md).
+// originals: toolbelt/lib/target-paths.sh, state-files.sh, block-files.sh, focus-prefix.sh and the kit-resolution
+// order of templates/hook-kit-run.sh (findings, parity notes and what is not ported: DEFERRED.md).
 //
 // Design rules:
 //   - The logic never reads the process environment. Callers inject a Getenv func (the way niagara-go injects

@@ -174,3 +174,11 @@ func TestRootCellDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+func TestBashDirname(t *testing.T) {
+	for in, want := range map[string]string{"": ".", "/": "/", "//": "/", "a": ".", "/a": "/", "a/b//": "a", "a//b": "a", "/a/b/": "/a"} {
+		if got := bashDirname(in); got != want {
+			t.Errorf("bashDirname(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

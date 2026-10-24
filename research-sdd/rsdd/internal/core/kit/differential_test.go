@@ -661,3 +661,49 @@ func TestDifferentialKitResolution(t *testing.T) {
 		t.Fatalf("no script: bash rc=%d err=%q go=%v", b.rc, b.stderr, err)
 	}
 }
+
+// TestDifferentialFleetFocusDerivations is the read-only fleet pass: every state file of every registered target
+// of the real TARGETS.md that resolves on this machine gets the prefix, the range and the range report from both
+// sides. Nothing is written; a machine without the corpora skips loudly.
+func TestDifferentialFleetFocusDerivations(t *testing.T) {
+	real, err := filepath.Abs("../../../../TARGETS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := ReadTargets(real)
+	if err != nil {
+		t.Fatalf("the real registry must exist at %s: %v", real, err)
+	}
+	env := envOf(map[string]string{"RESEARCH_HOME": os.Getenv("RESEARCH_HOME"), "HOME": os.Getenv("HOME")})
+	usable, _ := Classify(PathsAll(src, env), IsDirOS)
+	checked := 0
+	for _, dir := range usable {
+		states, err := ListStateFiles(dir)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		for _, sf := range states {
+			p, perr := DeriveFocusPrefix(sf)
+			if b := bashDriver(t, nil, "", "dfp", sf); perr != nil || prefixStdout(p) != b.stdout {
+				t.Errorf("%s: prefix go %q (%v), bash %q", sf, prefixStdout(p), perr, b.stdout)
+			}
+			r, rerr := DeriveFocusRange(sf)
+			if b := bashDriver(t, nil, "", "dfr", sf); rerr != nil || r.Value()+nl(r.Value()) != b.stdout {
+				t.Errorf("%s: range go %q (%v), bash %q", sf, r.Value(), rerr, b.stdout)
+			}
+			rep, err := FocusRangeReport(sf)
+			var got strings.Builder
+			for _, x := range rep {
+				got.WriteString(x.Kind + "|" + x.Text + "\n")
+			}
+			if b := bashDriver(t, nil, "", "frr", sf); err != nil || got.String() != b.stdout {
+				t.Errorf("%s: report go %q (%v), bash %q", sf, got.String(), err, b.stdout)
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Skip("no registered target with a state file resolves on this machine: the fleet pass did NOT run (NOT a pass)")
+	}
+	t.Logf("fleet pass: %d state files under %d targets", checked, len(usable))
+}

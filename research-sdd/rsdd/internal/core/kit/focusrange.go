@@ -192,18 +192,13 @@ func awkStrtod(s string) float64 {
 	return v
 }
 
-// awkNum prints a number the way gawk does when it turns one into a string: an integral value with every digit,
-// infinities as "+inf"/"-inf", anything else with CONVFMT %.6g.
+// awkNum prints a number the way gawk turns one into a string. Every number here comes from a digit string, so it
+// is integral (printed with every digit) or +inf past the double range.
 func awkNum(v float64) string {
-	switch {
-	case math.IsInf(v, 1):
+	if math.IsInf(v, 1) {
 		return "+inf"
-	case math.IsInf(v, -1):
-		return "-inf"
-	case v == math.Trunc(v):
-		return strconv.FormatFloat(v, 'f', 0, 64)
 	}
-	return strconv.FormatFloat(v, 'g', 6, 64)
+	return strconv.FormatFloat(v, 'f', 0, 64)
 }
 
 // cellTrim is the range awk's trim(): blanks, backticks and stars off both ends.

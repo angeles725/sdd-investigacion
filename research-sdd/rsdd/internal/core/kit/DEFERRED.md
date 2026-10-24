@@ -1,8 +1,13 @@
 # core/kit: findings and deferred work (U1.4, #2284)
 
-Ported here: `lib/target-paths.sh` (`target_paths_all`, `target_paths_pairs`, `target_name_for_retro`) and
-`lib/state-files.sh` (`list_state_files`, `resolve_state_file`). Every function is differentially tested against
-the real bash (`testdata/diff-driver.sh`, LC_ALL=C), including over the real `research-sdd/TARGETS.md`.
+Ported (slice 1): `lib/target-paths.sh` (`target_paths_all`, `target_paths_pairs`, `target_name_for_retro`) and
+`lib/state-files.sh` (`list_state_files`, `resolve_state_file`).
+Ported (slice 2): `lib/block-files.sh` (`block_file_filter`, `block_files_nested_worktree_roots`,
+`block_files_path_in_nested_worktree`), `lib/focus-prefix.sh` (`derive_focus_prefix`, `derive_focus_range`,
+`focus_range_stat` / `focus_range_block_count` via `ScanFocusRange`, `focus_range_report`, `inplace_gap_id`,
+`inplace_blocked_count`) and the kit resolution of `templates/hook-kit-run.sh` (`ResolveKitScript`).
+Every function is differentially tested against the real bash (`testdata/diff-driver.sh`, LC_ALL=C), including over
+the real `research-sdd/TARGETS.md`. `InputReason` maps the typed input states to the reason-codes.v1.md input class.
 
 ## Findings (each is pinned by a named test)
 
@@ -23,18 +28,27 @@ Other parity notes: a symlinked start directory is not descended unless `-H` (`R
 `--focus <slug>` is a glob in bash (`find -name`), so a slug with `*`, `?` or `[` is a pattern (Go uses `path.Match`);
 `target_name_for_retro` compares physical paths (`cd -P`), Go uses `EvalSymlinks`.
 
-## Deferred (stopped at the size rule: the full unit is clearly over about 1,000 lines)
+Slice 2 parity notes (kept for parity, listed so a later unit can decide):
+- `block_files_nested_worktree_roots` prints nested roots in find's readdir order; Go sorts them bytewise (the
+  differential compares sorted). Its `-path "$root/.claude/worktrees"` prune is a glob; Go compares the path exactly,
+  so a root containing `*`, `?` or `[` prunes differently.
+- `focus_range_stat` passes the claims to awk with `-v`, which processes backslash escapes; a FOCUSES.md prefix
+  holding a backslash is read differently by bash (not reproduced). A prefix holding a tab is cut at the tab (kept).
+- `focus_range_report` sorts the family list with plain `sort` (finding F3); the Go order is bytewise.
+- The range numbers are awk doubles; Go keeps float64 and gawk's printing (`+inf` past the range). mawk prints
+  differently; the kit's hosts run gawk.
+- `derive_focus_prefix` runs its awk in the caller's locale (no `LC_ALL=C`), so `[[:blank:]]` may widen under UTF-8.
+- `inplace_blocked_count` reads the rows with `IFS=$'\t' read`: tab runs collapse and an unterminated last row is
+  never read (both kept). The `[-–—]` bracket of its sed holds BYTES under LC_ALL=C (kept).
+- The kit resolution reads launcher files with `sed` in the caller's locale; Go trims the C-locale `[[:space:]]`. An
+  unreadable launcher file is skipped silently in both (resolution then falls through to the next candidate, and
+  "nothing resolved" is still the typed DEGRADED failure). `HOME` unset aborts the bash under `set -u`; Go treats it
+  as empty.
+- `block_file_filter`'s `[ -t 0 ]` interactive-stdin refusal (rc 2) belongs to the CLI boundary: the Go function
+  takes lines already read.
 
-- `lib/block-files.sh`: `block_file_filter [-v] [prefix]` (grep -E status passed through verbatim, prefix interpolated
-  unescaped into the ERE: use `regexp.CompilePOSIX`, return grep's 0/1/2), `block_files_nested_worktree_roots`
-  (find -H, `.git` file probe with commondir and back-pointer `-ef` checks, rc 2/3, readdir order so compare sorted),
-  `block_files_path_in_nested_worktree`.
-- `lib/focus-prefix.sh`: `derive_focus_prefix` (note the newline asymmetry: the suffixed form uses `printf '%s'`, the
-  FOCUSES.md form uses awk `print`, so a differential must compare through `$(...)`; the table is read with
-  `awk -F'|'` on lines that start with `|` at column 0, not `^\s*\|`), `derive_focus_range`, `block_range_filter`,
-  `focus_range_stat`/`_scan`, `focus_range_report`, plus `inplace_gap_id` / `inplace_blocked_count`.
-- Kit resolution order of `templates/hook-kit-run.sh`: `$RESEARCH_SDD_KIT`, then the `Kit checkout:` / `Kit path:` line
-  of `AGENTS.md` under `$GENTLE_PI_AGENT_HOME`, `$PI_CODING_AGENT_DIR`, `~/.gentle-shell/agent`, `~/.pi/agent`, then
-  `~/.claude/CLAUDE.md` (backticks stripped, leading `~` expanded), then `$HOME/investigacion/sdd-investigacion/research-sdd`;
-  first candidate with a `toolbelt/` directory wins; a set-but-invalid `$RESEARCH_SDD_KIT` is reported before falling
-  through; none resolves is a typed `DEGRADED` (exit 1, or fail-closed `ask` for the pkill guard).
+## Not ported, by design
+
+- `block_range_filter` (lib/focus-prefix.sh): no production caller (go-port.md section 4.9).
+- The pkill-guard `ask` answer and the `exec` of `templates/hook-kit-run.sh`: hook-boundary behaviour for the unit
+  that adopts the Go resolver in the shim (the reason text it prints comes from `ResolveKitScript`).
