@@ -422,3 +422,68 @@ func TestDifferentialFindingPrefixDialectGaps(t *testing.T) {
 		}
 	}
 }
+
+// sortedTail sorts every line after the first: bash prints the nested roots in find's readdir order.
+func sortedTail(out string) string {
+	ls := SplitLines(out)
+	if len(ls) > 1 {
+		sort.Strings(ls[1:])
+	}
+	return lines(ls)
+}
+
+func TestDifferentialNestedWorktreeRoots(t *testing.T) {
+	d := nwFixture(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(d, link); err != nil {
+		t.Fatal(err)
+	}
+	inside := d + "/.claude/worktrees/agent-1"
+	for label, root := range map[string]string{"fixture": d, "trailing-slash": d + "/", "symlinked-root": link,
+		"inside-claude-worktrees": inside, "absent": d + "/missing", "a-file": d + "/side-wt/.git", "empty": ""} {
+		t.Run(label, func(t *testing.T) {
+			b := bashDriver(t, nil, "", "nwr", root)
+			roots, err := NestedWorktreeRoots(root)
+			gotErr := ""
+			if err != nil {
+				gotErr = err.Error() + "\n"
+			}
+			if RC(err) != b.rc || lines(roots) != sortedTail(b.stdout) || gotErr != b.stderr {
+				t.Fatalf("go rc=%d out=%q err=%q\nbash rc=%d out=%q err=%q", RC(err), lines(roots), gotErr, b.rc, b.stdout, b.stderr)
+			}
+			for _, p := range []string{d + "/side-wt/x-block1.md", d + "/side-wt", d + "/side-wt-old/x", d + "/x-block1.md", inside + "/y", "", d} {
+				pb := bashDriver(t, nil, "", "pinw", p, strings.TrimSuffix(b.stdout, "\n"))
+				if RC2(PathInNestedWorktree(p, roots)) != pb.rc {
+					t.Errorf("path_in_nested_worktree(%q): go=%v bash rc=%d", p, PathInNestedWorktree(p, roots), pb.rc)
+				}
+			}
+		})
+	}
+}
+
+// TestDifferentialNestedWorktreeRootsIncomplete: an unreadable subdirectory makes find exit 1; both sides keep the
+// partial roots and type the gap (rc 3).
+func TestDifferentialNestedWorktreeRootsIncomplete(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 000 stays readable, premise unavailable (NOT a pass)")
+	}
+	d := nwFixture(t)
+	mkfiles(t, d, "locked/x")
+	if err := os.Chmod(d+"/locked", 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(d+"/locked", 0o755) })
+	b := bashDriver(t, nil, "", "nwr", d)
+	roots, err := NestedWorktreeRoots(d)
+	if b.rc != 3 || RC(err) != 3 || lines(roots) != sortedTail(b.stdout) || err.Error()+"\n" != b.stderr {
+		t.Fatalf("go rc=%d out=%q err=%v\nbash rc=%d out=%q err=%q", RC(err), lines(roots), err, b.rc, b.stdout, b.stderr)
+	}
+}
+
+// RC2 maps a predicate to a bash test status.
+func RC2(ok bool) int {
+	if ok {
+		return 0
+	}
+	return 1
+}

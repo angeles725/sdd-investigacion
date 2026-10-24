@@ -9,6 +9,8 @@
 #   liststate     lib/state-files.sh   list_state_files <dir>
 #   resolvestate  lib/state-files.sh   resolve_state_file [-H] <dir> [--focus <slug>]
 #   bff           lib/block-files.sh   block_file_filter [-v] [<prefix>]  (paths on stdin)
+#   nwr           lib/block-files.sh   block_files_nested_worktree_roots <root>
+#   pinw          lib/block-files.sh   block_files_path_in_nested_worktree <path> <roots>
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -37,6 +39,8 @@ case "$mode" in
   liststate)    need state-files.sh list_state_files;         list_state_files "$@" ;;
   resolvestate) need state-files.sh resolve_state_file;       resolve_state_file "$@" ;;
   bff)          need block-files.sh block_file_filter;        block_file_filter "$@" ;;
+  nwr)          need block-files.sh block_files_nested_worktree_roots; block_files_nested_worktree_roots "$@" ;;
+  pinw)         need block-files.sh block_files_path_in_nested_worktree; block_files_path_in_nested_worktree "$@" ;;
   isdir)
     while IFS= read -r p || [ -n "$p" ]; do
       if [ -d "$p" ]; then printf '%s\t1\n' "$p"; else printf '%s\t0\n' "$p"; fi

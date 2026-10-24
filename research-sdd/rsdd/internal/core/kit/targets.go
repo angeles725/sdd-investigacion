@@ -168,14 +168,16 @@ func IsDirOS(p string) bool {
 	return err == nil && st.IsDir()
 }
 
-// RC maps an error of NameForRetro, ResolveStateFile or FilterBlockFiles back to the bash return code.
+// RC maps an error of NameForRetro, ResolveStateFile, FilterBlockFiles or NestedWorktreeRoots back to the bash
+// return code.
 func RC(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, ErrNoAncestor), errors.Is(err, ErrStateAmbiguous), errors.Is(err, ErrBadPattern):
+	case errors.Is(err, ErrNoAncestor), errors.Is(err, ErrStateAmbiguous), errors.Is(err, ErrBadPattern),
+		errors.Is(err, ErrNotDirectory):
 		return 2
-	case errors.Is(err, ErrStateUsage):
+	case errors.Is(err, ErrStateUsage), errors.Is(err, ErrIncomplete):
 		return 3
 	}
 	return 1
