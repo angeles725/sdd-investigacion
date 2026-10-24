@@ -186,6 +186,17 @@ func init() {
 		}
 		return bashOut{rc: rcOf(HasHonesty(d))}
 	}
+	fileModes["rowtitles"] = func(p string) bashOut {
+		d, err := Read(p)
+		if err != nil {
+			return bashOut{rc: 1}
+		}
+		var b strings.Builder
+		for _, r := range RowTitles(d) {
+			b.WriteString(r.Line())
+		}
+		return bashOut{stdout: b.String()}
+	}
 	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
 	fileModes["altheads"] = readThen(AltHeads)
 }
@@ -256,6 +267,67 @@ func TestDifferentialTokens(t *testing.T) {
 			t.Logf("%s: %d tokens, %d accepted", mode, len(toks), yes)
 		})
 	}
+}
+
+// TestDifferentialTitleIdentity runs retro_grammar_title_has_identity over every table cell of the fixtures and
+// the vocabulary plus UTF-8 edges (11/12-character boundaries, surrogates, overlongs, beyond U+10FFFF).
+func TestDifferentialTitleIdentity(t *testing.T) {
+	set := map[string]bool{}
+	for _, tok := range tokenCorpus(t) {
+		set[tok] = true
+	}
+	for _, e := range []string{"ééééééééééé", "éééééééééééé", "abcdefghi\x80\x80\x80", "\xed\xa0\x80abcdefghij",
+		"\xc0\xafabcdefghijk", "\xf4\x90\x80\x80abcdefghi", "\xf0\x9f\x98\x80abcdefghijk", "abcdefghij\xc3",
+		"\xf8\x88\x80\x80\x80abcdefghi", "\xfd\xbf\xbf\xbf\xbf\xbfabcdefghij", "\xf8\x87\xbf\xbf\xbfabcdefg",
+		"\xef\xbf\xbeabcdefghij", "\xfeabcdefghij", "DOC-FIX", "Regression", "low ", "fix it now please"} {
+		set[e] = true
+	}
+	cells := func(lines []string) {
+		for _, l := range lines {
+			for _, c := range splitCells(l) {
+				set[strings.TrimSpace(c)] = true
+			}
+		}
+	}
+	cells(genVocab)
+	for _, p := range fixturePaths(t) {
+		d, err := Read(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cells(d.Raw)
+	}
+	var all []string
+	for tok := range set {
+		if !strings.ContainsAny(tok, "\n\r") {
+			all = append(all, tok)
+		}
+	}
+	sort.Strings(all)
+	// Bash forks iconv, tr and wc per title: keep every informative title (near the 12-character floor, non-ASCII,
+	// a bare token) and a fixed 1-in-20 sample of the rest.
+	var titles []string
+	for i, tok := range all {
+		if (len(tok) >= 9 && len(tok) <= 15) || strings.ContainsFunc(tok, func(r rune) bool { return r >= 0x80 }) ||
+			bareTokens[lower(tok)] || i%20 == 0 {
+			titles = append(titles, tok)
+		}
+	}
+	bash := bashBatch(t, "titleid", titles)
+	yes := 0
+	for i, title := range titles {
+		got := bashOut{rc: rcOf(TitleHasIdentity(title))}
+		if bash[i].rc == 0 {
+			yes++
+		}
+		if got != bash[i] {
+			t.Errorf("titleid %q: go=%+v bash=%+v", title, got, bash[i])
+		}
+	}
+	if yes == 0 || yes == len(titles) {
+		t.Errorf("titleid: one verdict for all %d titles: vacuous", len(titles))
+	}
+	t.Logf("titleid: %d titles, %d with identity", len(titles), yes)
 }
 
 // TestDifferentialDupIDs feeds whole id lists on stdin, the way the consumers pipe item ids.

@@ -22,14 +22,16 @@ func DeltaID(tok string) bool {
 
 // TableIDSkip is rg_table_id_skip: the first cell of a table row is separator debris or a header word, not a row
 // id. A cell carrying a digit (`1`, `D1`, `B12`) is never skipped; a capitalised id (DeltaID) neither.
-func TableIDSkip(rid string) bool {
-	if rid != "" && onlyBytes(rid, "-:") {
-		return true
-	}
-	if rid == "" || !(isASCIIAlpha(rid[0]) || rid[0] == '#') || strings.ContainsAny(rid, "0123456789") {
-		return false
-	}
-	return !(len(rid) > 1 && 'A' <= rid[0] && rid[0] <= 'Z' && isDigit(rid[1])) && !DeltaID(rid)
+func TableIDSkip(rid string) bool { return isDebris(rid) || (headerWord(rid) && !DeltaID(rid)) }
+
+// isDebris is a separator cell: only `-` and `:`.
+func isDebris(rid string) bool { return rid != "" && onlyBytes(rid, "-:") }
+
+// headerWord is awk `rid ~ /^[[:alpha:]#][^0-9]*$/ && rid !~ /^[A-Z][0-9]/`: a letter or `#` first and no digit
+// anywhere. The second bash clause can never be false once the first holds (no digit at all), so it is dead and
+// not ported (doc.go, finding F1).
+func headerWord(rid string) bool {
+	return rid != "" && (isASCIIAlpha(rid[0]) || rid[0] == '#') && !strings.ContainsAny(rid, "0123456789")
 }
 
 // IDSignatureSafe is retro_grammar_id_signature_safe (#2135): a non-empty id of [A-Za-z0-9_-] only, the
@@ -52,7 +54,6 @@ func DupIDs(ids []string) []string {
 	return out
 }
 
-func isDigit(c byte) bool      { return '0' <= c && c <= '9' }
 func isASCIIAlpha(c byte) bool { c |= 0x20; return 'a' <= c && c <= 'z' }
 
 // onlyBytes reports whether every byte of s is in the ASCII set (true for an empty s). An ASCII cutset makes

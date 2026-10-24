@@ -20,6 +20,34 @@
 //     is a Doc with no records. Bash prints a zero-shaped line for an absent file (retro_grammar_delta_info rc 0):
 //     Go never turns a missing file into a zero count.
 //   - Nothing writes: the package only reads the file it is given.
+//
+// Findings (bash behaviour the port does not copy; each is pinned by the differential so it stays visible):
+//   - F1: `rid !~ /^[A-Z][0-9]/` in rg_table_id_skip and row_titles is dead: the clause before it already
+//     requires no digit at all. Not ported.
+//   - F2: retro_grammar_delta_info prints a zero line with rc 0 for an ABSENT file (a silent zero); Go returns
+//     ErrAbsentInput. retro_grammar_has_honesty does not guard readability: an unreadable file is an untyped awk
+//     fatal (rc 2); Go returns ErrUnreadable from Read.
+//
+// Kept quirks (ported byte for byte, listed so a later fix is a decision, not an accident):
+//   - row_titles counts a bare `|` row in the canonical section as a table row: it yields no title but keeps the
+//     entry form from being consulted.
+//   - row_titles skips a capitalised id such as `SPKI-A` while TableIDSkip (stage/reconcile) keeps it.
+//   - The unrecognised-heading and `## Delta` counts of DeltaInfo stop at the first canonical heading;
+//     UnrecHeadings does not.
+//
+// Parity scope and gaps:
+//   - Parity is defined under LC_ALL=C. Bash consumers that run under a UTF-8 locale fold case and match
+//     [[:space:]] with Unicode rules in gawk; such inputs may differ (only alt_entry_rows pins LC_ALL=C itself).
+//   - Bash command substitution drops NUL bytes and `read` splits on any \037 inside a cell; inputs carrying
+//     NUL or \037 are outside the parity corpus.
+//   - TitleHasIdentity always validates UTF-8; bash skips the probe when iconv is missing (a degraded host).
+//   - retro_grammar_defenced's _RG_QUIET_FENCE switch has no Go counterpart: Read parses once and the caller
+//     prints Doc.FenceWarning once.
+//   - _RG_AWK_ESCPIPE_FN (rg_esc_pipes) is not re-ported as API: core/gfm owns the escaped-pipe rule for the
+//     consumers; row_titles keeps its own cell split because it trims C-locale [[:space:]], not gfm's blanks.
+//
+// Every function of lib/retro-grammar.sh has a production caller (stage-retro-issues.sh, reconcile-issues.sh,
+// sweep-retros.sh, verify-retro.sh), so all are ported; lib/retro-status.sh is a separate unit.
 package grammar
 
 import (
