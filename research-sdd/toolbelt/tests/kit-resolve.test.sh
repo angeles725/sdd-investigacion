@@ -150,8 +150,15 @@ c_fetch_hang() {   # a local upload-pack that sleeps: the fetch must be cut at t
     && git -C "$D" config remote.origin.uploadpack "$W/slow-upload-pack" || return 2
   local t0=$SECONDS
   RESEARCH_SDD_KIT_FETCH_TIMEOUT=1 run "$1"
-  [ "$RC" = 2 ] && [ $((SECONDS - t0)) -lt 3 ] && grep -q 'kit-resolve: fetching origin' <<<"$ERR" \
-    && grep -q 'REFUSED offline' <<<"$ERR" || why "hanging fetch not bounded ($((SECONDS - t0)) s)"
+  # Without timeout(1) the script runs the fetch unbounded with a named WARN: check that path instead of the bound
+  # (the fake upload-pack exits after 4 s without speaking, so that fetch still fails and is refused as offline).
+  if command -v timeout >/dev/null 2>&1; then
+    [ "$RC" = 2 ] && [ $((SECONDS - t0)) -lt 3 ] && grep -q 'kit-resolve: fetching origin' <<<"$ERR" \
+      && grep -q 'REFUSED offline' <<<"$ERR" || why "hanging fetch not bounded ($((SECONDS - t0)) s)"
+  else
+    [ "$RC" = 2 ] && grep -q 'WARN timeout(1) not on PATH' <<<"$ERR" && grep -q 'REFUSED offline' <<<"$ERR" \
+      || why "no timeout(1): unbounded fetch not announced or not refused"
+  fi
 }
 c_offline() {
   world && clone_to "$D" && git -C "$D" remote set-url origin "$W/gone.git" || return 2
