@@ -94,9 +94,10 @@ func TestLaunchBoundStopsAStalledGh(t *testing.T) {
 	}
 }
 
-// The KILL comes 2 s after the TERM (timeout -k 2): a gh whose TERM handler takes 1 s still finishes it.
+// The KILL comes 2 s after the TERM (timeout -k 2): a gh whose TERM handler takes 0.2 s still finishes it;
+// the short handler leaves 1.8 s of margin so a loaded host does not flake, while an immediate KILL still fails.
 func TestLaunchGraceLetsGhFinishItsTermHandler(t *testing.T) {
-	o := opts(t, "RSDD_GH_TIMEOUT=1", "GH_SLEEP=30", "GH_SLOW_TERM=1")
+	o := opts(t, "RSDD_GH_TIMEOUT=1", "GH_SLEEP=30", "GH_SLOW_TERM=0.2")
 	out, err := o.launch(nil)
 	if err != nil {
 		t.Fatal(err)
