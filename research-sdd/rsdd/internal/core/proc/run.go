@@ -40,7 +40,8 @@ type Spec struct {
 	Limits []Limit
 	// Helper is the rsdd binary that serves HelperCommand; required with Limits.
 	Helper string
-	// Now stamps Started and Ended; nil leaves them zero.
+	// Now stamps Started and Ended (Duration is their difference); nil leaves
+	// all three zero. The package reads no clock of its own.
 	Now func() time.Time
 }
 

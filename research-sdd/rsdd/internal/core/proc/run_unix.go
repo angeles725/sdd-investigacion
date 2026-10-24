@@ -41,7 +41,6 @@ func Run(spec Spec) (Result, error) {
 		return Result{}, err
 	}
 	res := Result{Started: spec.now()}
-	t0 := time.Now()
 	if err := cmd.Start(); err != nil {
 		closeAll(readers[0], readers[1], writers[0], writers[1])
 		return Result{}, &SpawnError{Path: spec.Argv[0], Err: err}
@@ -66,7 +65,8 @@ func Run(spec Spec) (Result, error) {
 	}
 	res.Stdout, res.Stderr = c.output()
 	res.ReturnCode = returnCode(cmd.ProcessState)
-	res.Ended, res.Duration = spec.now(), time.Since(t0)
+	res.Ended = spec.now()
+	res.Duration = res.Ended.Sub(res.Started)
 	if stopErr != nil {
 		return res, fmt.Errorf("proc: stop process group: %w", stopErr)
 	}
@@ -161,13 +161,17 @@ func drain(c *capture, readers [2]*os.File) <-chan struct{} {
 }
 
 // finishDrain waits up to grace for both pipes to reach EOF. A process that
-// left the group and still holds a pipe cannot hold Run open: the read
-// deadline ends the copy.
+// left the group and still holds a pipe cannot hold Run open: once grace
+// runs out, a read deadline in the past ends the copy.
 func finishDrain(readers [2]*os.File, drained <-chan struct{}, grace time.Duration) {
-	for _, r := range readers {
-		_ = r.SetReadDeadline(time.Now().Add(grace))
+	select {
+	case <-drained:
+	case <-time.After(grace):
+		for _, r := range readers {
+			_ = r.SetReadDeadline(time.Unix(1, 0))
+		}
+		<-drained
 	}
-	<-drained
 	closeAll(readers[0], readers[1])
 }
 
@@ -197,12 +201,21 @@ func stopGroup(g *Group, pid int, grace time.Duration) error {
 		if err != nil {
 			return err
 		}
-		deadline := time.Now().Add(grace)
-		for GroupAlive(pid) && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
-		}
+		waitEmpty(pid, grace)
 	}
 	return nil
+}
+
+// waitEmpty polls until group pgid has no member or grace runs out.
+func waitEmpty(pgid int, grace time.Duration) {
+	expired := time.After(grace)
+	for GroupAlive(pgid) {
+		select {
+		case <-expired:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // returnCode maps a wait status to Popen's convention.

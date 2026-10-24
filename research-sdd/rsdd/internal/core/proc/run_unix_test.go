@@ -251,8 +251,8 @@ func TestRunStampsTheInjectedClock(t *testing.T) {
 	s := shSpec(t, `true`)
 	s.Now = func() time.Time { calls++; return t0.Add(time.Duration(calls) * time.Second) }
 	r, _ := run(t, s)
-	if !r.Started.Equal(t0.Add(time.Second)) || !r.Ended.Equal(t0.Add(2*time.Second)) {
-		t.Fatalf("Started %v Ended %v, want the clock's first and second reading", r.Started, r.Ended)
+	if !r.Started.Equal(t0.Add(time.Second)) || !r.Ended.Equal(t0.Add(2*time.Second)) || r.Duration != time.Second {
+		t.Fatalf("Started %v Ended %v Duration %v, want the clock's first and second reading 1s apart", r.Started, r.Ended, r.Duration)
 	}
 }
 
