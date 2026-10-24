@@ -163,7 +163,29 @@ var fileModes = map[string]func(path string) bashOut{
 	},
 }
 
+// awkCannotOpen stands for gawk's own fatal line (it names the awk program line, so it is not pinned byte for
+// byte): retro_grammar_has_honesty does not guard readability, so an unreadable file is an untyped rc 2.
+const awkCannotOpen = "<awk: fatal: cannot open file>"
+
+// normalize applies the one declared normalizer to a bash result before comparison.
+func normalize(b bashOut) bashOut {
+	if b.rc == 2 && strings.Contains(b.stderr, "fatal: cannot open file") && strings.Count(b.stderr, "\n") == 1 {
+		b.stderr = awkCannotOpen
+	}
+	return b
+}
+
 func init() {
+	fileModes["honesty"] = func(p string) bashOut {
+		d, err := Read(p)
+		switch {
+		case errors.Is(err, ErrUnreadable):
+			return bashOut{rc: 2, stderr: awkCannotOpen}
+		case err != nil:
+			return bashOut{rc: 1}
+		}
+		return bashOut{rc: rcOf(HasHonesty(d))}
+	}
 	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
 	fileModes["altheads"] = readThen(AltHeads)
 }
@@ -282,6 +304,9 @@ func checkFileModes(t *testing.T, label string, paths []string, requireSignal bo
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			bash := bashBatch(t, mode, paths)
+			for i := range bash {
+				bash[i] = normalize(bash[i])
+			}
 			distinct := map[bashOut]bool{}
 			bad := 0
 			for i, p := range paths {

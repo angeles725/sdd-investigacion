@@ -53,15 +53,29 @@ var genVocab = []string{
 	"", "   ", "\t", "plain text", "text\r", "<!-- comment -->", "É accented line", "\xff\xfe invalid",
 }
 
-// generatedDocs returns n deterministic documents (fixed seed) of 1 to 40 vocabulary lines.
+// honestyVocab biases a third of the documents toward the honesty check: uniform picks over genVocab almost
+// always hit a veto heading or an impure body, so HasHonesty would only ever see "false".
+var honestyVocab = []string{
+	"## Proposed kit deltas", "## 6. Proposed kit delta", "## Honest verdict", "## 2. Honest verdict", "## Other section",
+	"No new deltas; the kit already covers this run.", "- **No new deltas — nothing to add.**", "> No new deltas; nothing to add.",
+	"_no new deltas; nothing to add._", "> guidance prose", "> - bullet in quote", "> — dash continuation", ">",
+	"> \u00a0- nbsp bullet", "| ID | Proposed change |", "|---|---|", "| D1 | row |", "", "plain text", "### 1. Fast loop",
+}
+
+// generatedDocs returns n deterministic documents (fixed seed): 1 to 40 genVocab lines, or 1 to 6 honestyVocab
+// lines for every third document.
 func generatedDocs(n int) []string {
 	r := rand.New(rand.NewSource(2286))
 	docs := make([]string, n)
 	for i := range docs {
 		k := 1 + r.Intn(40)
+		vocab := genVocab
+		if i%3 == 0 {
+			vocab, k = honestyVocab, 1+r.Intn(6)
+		}
 		lines := make([]string, k)
 		for j := range lines {
-			lines[j] = genVocab[r.Intn(len(genVocab))]
+			lines[j] = vocab[r.Intn(len(vocab))]
 		}
 		docs[i] = strings.Join(lines, "\n")
 		if r.Intn(4) > 0 {
