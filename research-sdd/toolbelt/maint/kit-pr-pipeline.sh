@@ -27,7 +27,7 @@
 # Environment: KIT_RETRY_SLEEP (retry backoff base, default 5 s) and, for kit-wait-merge.sh, KIT_POLL_SLEEP,
 # KIT_POLL_MAX, KIT_MERGE_SLEEP, KIT_MERGE_TRIES, KIT_MERGE_GATE.
 #
-# Typed exit states (the last line is `kit-pr-pipeline: <state>: ...`; registered in reason-codes.v1.md):
+# Typed exit states (the last line is `kit-pr-pipeline: <state>: ...`; registered in reason-codes.d/kit-pr-pipeline.md):
 #   state              exit  meaning
 #   merged               0   the PR merged
 #   usage                2   bad arguments, missing worktree, or a state dir inside the worktree
