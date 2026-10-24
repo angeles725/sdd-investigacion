@@ -9,6 +9,7 @@ func TestStatusFromMarkerLine(t *testing.T) {
 		"x <!--review-status:ApPlied-x": "applied", "<!-- review-status: pending · 2026 -->": "pending",
 		"review-status: applied": "", "": "", "<!-- review-status: 123 -->": "",
 		"<!-- review-status: a <!-- review-status: b": "a", "<!--\treview-status:\tDISMISSED": "dismissed",
+		"<!--\nreview-status: x": "", "x\n<!-- review-status: y": "y",
 	} {
 		if got := StatusFromMarkerLine(line); got != want {
 			t.Errorf("StatusFromMarkerLine(%q) = %q, want %q", line, got, want)

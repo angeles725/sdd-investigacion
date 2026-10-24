@@ -1,0 +1,129 @@
+//go:build !nodiff
+
+package grammar
+
+import (
+	"math/rand"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// markerParts are the fragments the synthetic marker lines are built from: every status, PARTIAL, shipped and
+// DISMISSED form the readers distinguish, with their near misses.
+var markerParts = [][]string{
+	{"<!-- review-status: ", "<!--review-status:", "", "x <!-- REVIEW-STATUS: ", "review-status: "},
+	{"applied", "Dismissed", "pending", "123", ""},
+	{" · sha", " · PARTIAL", " ·PARTIAL1", " · Partial", " (PARTIAL)", " — note", " xPARTIAL", ""},
+	{" — shipped: #1, #2", " · shipped: P1-P3 (x)", " shipped: Δ1 (#549), D1 (§20)", " · SHIPPED: x", " Shipped: P08-P10",
+		" shipped: #1,,#2\t3", " shipped: P3-P1, 1-3", ""},
+	{"; DISMISSED: #2 (reason; more)", "; DISMISSED: ;", "; DISMISSED: (only (nested) reason)", "; DEFERRED: #7; DISMISSED: 5",
+		" dismissed: 3", " xDISMISSED: 9", "; DISMISSED: 4; DISMISSED: 1-2 --> DISMISSED: 8", "(DISMISSED: 6)", ""},
+	{" -->", " --> PARTIAL", " -> x", " --> shipped: 9", ""},
+}
+
+// markerLines is a fixed sample of synthetic marker lines plus every fixture and vocabulary line that mentions a
+// marker keyword.
+func markerLines(t *testing.T) []string {
+	t.Helper()
+	set := map[string]bool{"": true}
+	r := rand.New(rand.NewSource(1944))
+	for i := 0; i < 600; i++ {
+		var b strings.Builder
+		for _, part := range markerParts {
+			b.WriteString(part[r.Intn(len(part))])
+		}
+		set[b.String()] = true
+	}
+	keep := func(l string) {
+		low := lower(l)
+		if strings.Contains(low, "review-status") || strings.Contains(low, "shipped") || strings.Contains(l, "DISMISSED") {
+			set[strings.TrimSuffix(l, "\r")] = true
+		}
+	}
+	for _, l := range append(append([]string(nil), genVocab...), markerVocab...) {
+		keep(l)
+	}
+	for _, p := range fixturePaths(t) {
+		d, err := Read(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range d.Raw {
+			keep(l)
+		}
+	}
+	out := make([]string, 0, len(set))
+	for l := range set {
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// idsOut renders an id list the way the bash helpers print it.
+func idsOut(ids []string, err error) bashOut {
+	if err != nil {
+		return bashOut{rc: -1, stderr: err.Error()}
+	}
+	return bashOut{stdout: joinLines(ids)}
+}
+
+// lineModes maps a driver line mode to the Go rendering of the same call on one marker line.
+var lineModes = map[string]func(line string) bashOut{
+	"sfml":    func(l string) bashOut { return lineOut(StatusFromMarkerLine(l)) },
+	"partial": func(l string) bashOut { return bashOut{rc: rcOf(MarkerIsPartial(l))} },
+	// shipped_raw prints its (possibly empty) list line whenever the keyword matched.
+	"shraw": func(l string) bashOut {
+		if l == "" || grepO(l, reShippedList) == "" {
+			return bashOut{}
+		}
+		return bashOut{stdout: ShippedRaw(l) + "\n"}
+	},
+	"shids": func(l string) bashOut { return idsOut(ShippedIDs(l)) },
+}
+
+func TestDifferentialMarkerLines(t *testing.T) {
+	lines := markerLines(t)
+	for mode, f := range lineModes {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			inputs := lines
+			if mode == "shids" { // the id normaliser is fed shipped lists, as the consumers do
+				inputs = shippedLists(lines)
+			}
+			bash := bashBatch(t, mode, inputs)
+			distinct, bad := map[bashOut]bool{}, 0
+			for i, in := range inputs {
+				distinct[bash[i]] = true
+				if got := f(in); got != bash[i] {
+					if bad++; bad <= 5 {
+						t.Errorf("%s %q:\n  go=%+v\nbash=%+v", mode, in, got, bash[i])
+					}
+				}
+			}
+			if len(distinct) < 2 {
+				t.Errorf("%s: one bash outcome for all %d inputs: vacuous", mode, len(inputs))
+			}
+			t.Logf("%s: %d inputs, %d distinct bash outcomes", mode, len(inputs), len(distinct))
+		})
+	}
+}
+
+// shippedLists is every non-empty ShippedRaw of lines, every DISMISSED segment text, and the id edges.
+func shippedLists(lines []string) []string {
+	set := map[string]bool{"": true, "P08-P10": true, "P3-P1": true, "##5": true, "#": true, "a,,b\tc": true,
+		"(c) a": true, "x (unclosed": true, "P99999999999999999999-P99999999999999999999": true, "A1-B3": true}
+	for _, l := range lines {
+		set[ShippedRaw(l)] = true
+		if _, seg, ok := strings.Cut(l, "DISMISSED:"); ok {
+			set[seg] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for s := range set {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}

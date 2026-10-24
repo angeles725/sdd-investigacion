@@ -13,7 +13,8 @@
 //     consumers share), DupIDs and IDSignatureSafe.
 //   - Honesty and titles (honesty.go, title.go): HasHonesty, TitleHasIdentity and RowTitles.
 //   - Review-status markers (marker*.go): the leading-block readers ReviewStatus, MarkerScopeLine, IsExcluded,
-//     IsWaived, HasBareMarker and StatusFromMarkerLine, and MarkerOutOfScope over the whole-file markerLine. They share this package rather than a sibling one
+//     IsWaived, HasBareMarker and StatusFromMarkerLine, and MarkerOutOfScope over the whole-file markerLine;
+//     the marker-text readers MarkerIsPartial, ShippedRaw and ShippedIDs (shipped.go). They share this package rather than a sibling one
 //     because they read the same Doc (one read, the same typed errors) with the same byte helpers, and the
 //     same differential harness and fleet corpus check them.
 //
@@ -33,11 +34,16 @@
 //     fatal (rc 2); Go returns ErrUnreadable from Read.
 //   - F3: every lib/retro-status.sh file reader discards its read error (`sed … 2>/dev/null`), so an unreadable
 //     retro reads as "no marker": pending and seedable, the fail-open direction. Go returns ErrUnreadable.
+//   - F4: retro_marker_shipped_ids expands a range with `for ((j = n1; j <= n2; j++))`: a range ending at the
+//     int64 maximum never ends, and a huge one prints millions of ids. Go stops at n2 and refuses a range of
+//     more than 100000 ids with ErrRangeTooLarge (numbers still wrap modulo 2^64 like bash arithmetic).
 //
 // Kept quirks (ported byte for byte, listed so a later fix is a decision, not an accident):
 //   - row_titles counts a bare `|` row in the canonical section as a table row: it yields no title but keeps the
 //     entry form from being consulted.
 //   - row_titles skips a capitalised id such as `SPKI-A` while TableIDSkip (stage/reconcile) keeps it.
+//   - retro_marker_shipped_raw matches `shipped:` in any case but strips only `shipped:`/`Shipped:`, so a
+//     `SHIPPED: x` list keeps its keyword; a reversed range (`P3-P1`) yields no id at all.
 //   - The unrecognised-heading and `## Delta` counts of DeltaInfo stop at the first canonical heading;
 //     UnrecHeadings does not.
 //

@@ -25,11 +25,10 @@ var (
 // StatusFromMarkerLine is retro_status_from_marker_line: the lowercased status word of the first
 // `<!-- review-status: <word>` on the line, "" when there is none. A marker line is one line.
 func StatusFromMarkerLine(line string) string {
-	m := reStatusWord.FindString(lower(line))
-	if m == "" {
+	_, word, found := strings.Cut(lower(grepO(line, reStatusWord)), "review-status:")
+	if !found {
 		return ""
 	}
-	_, word, _ := strings.Cut(m, "review-status:")
 	return trimLeftSpace(word)
 }
 
