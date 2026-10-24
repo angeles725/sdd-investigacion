@@ -167,8 +167,9 @@ if want runall; then
   else no "run-all: serial fallback peak $RP (cap 2) rc $RRC"; fi
   # An inherited but empty RSDD_JOB_SLOTS is one named FATAL from run-all.sh, not a FATAL in every teeth batch.
   RSDD_JOB_SLOTS='' runall_peak re -j 1
-  if [ "$RRC" = 2 ] && grep -qF 'run-all.sh: FATAL: RSDD_JOB_SLOTS is set but empty' "$TMP/re-m.out"; then
-    ok "run-all: an inherited empty RSDD_JOB_SLOTS is refused once, by run-all.sh (rc 2)"
+  if [ "$RRC" = 2 ] && grep -qF 'run-all.sh: FATAL: RSDD_JOB_SLOTS is set but empty' "$TMP/re-m.out" \
+     && ! grep -qF '.test.sh' "$TMP/re-m.out"; then
+    ok "run-all: an inherited empty RSDD_JOB_SLOTS is refused by run-all.sh before any suite runs (rc 2)"
   else no "run-all: empty RSDD_JOB_SLOTS not refused by run-all.sh (rc $RRC) [$(tail -n 3 "$TMP/re-m.out" | tr '\n' ' ')]"; fi
 fi
 
