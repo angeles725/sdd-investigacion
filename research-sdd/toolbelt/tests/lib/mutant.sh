@@ -87,7 +87,9 @@
 #   mutant_jobs_begin DIR                start a batch of concurrent teeth (kit issue #2331) whose files live in
 #                                        DIR (must exist): NAME.out (stdout+stderr), NAME.rc, NAME.timeout, and
 #                                        NAME.d, the job's own fresh scratch dir. Validates the knobs below; a
-#                                        bad value or a missing DIR is `FATAL: ...` on stderr and rc 2.
+#                                        bad value, a missing DIR or bash < 5.1 is `FATAL: ...` on stderr and rc 2.
+#                                        It traps INT/TERM/HUP until mutant_jobs_end: a signal mid-batch kills
+#                                        every unfinished job's tree, restores the caller's traps and re-raises.
 #   mutant_job NAME CMD [ARGS...]        run CMD (a command or a shell function) in the background once fewer
 #                                        than MUTANT_JOBS jobs run; NAME is a plain token, unique in the batch.
 #                                        CMD sees MUTANT_JOB_SCRATCH (its NAME.d) and MUTANT_JOB_INDEX (0-based
@@ -475,7 +477,9 @@ mutant_tooth() {
 # ── Concurrent teeth (kit issue #2331) ───────────────────────────────────────────────────────────
 # Teeth that wait out real bounds are wall-clock bound, not CPU bound: run serially they took a suite
 # past its CI bound (pi-hooks #2248, gh-visibility #2331). One batch per suite; see the header.
-_MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JMAX=1; _MUTANT_JBOUND=1; _MUTANT_JQ=(); _MUTANT_JPIDS=(); _MUTANT_JRUN=0
+# _MUTANT_JLIVE holds "PID:NAME" for every job manager the batch has not reaped yet: only these are waited for
+# (never a caller's own background job) and only these are killed when the batch shell is interrupted.
+_MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JMAX=1; _MUTANT_JBOUND=1; _MUTANT_JQ=(); _MUTANT_JLIVE=(); _MUTANT_JTRAPS=""
 
 # _mutant_kill_tree PID SIG — signal PID and every descendant. The tree is collected BEFORE any signal,
 # so a child reparented by its parent's death is not missed. Without pgrep only PID itself is signalled.
@@ -507,14 +511,55 @@ _mutant_jobs_same_shell() {
   printf 'FATAL: %s must run in the shell that called mutant_jobs_begin (not a subshell)\n' "$1" >&2; return 2
 }
 
+# _mutant_jobs_reap_one — drop the finished managers from _MUTANT_JLIVE, or when none has finished wait for
+# ONE (`wait -n -p` over the batch pids only, bash >= 5.1). When bash knows none of them any more (rc 127),
+# the list is cleared, so the caller's loop always ends.
+_mutant_jobs_reap_one() {
+  local _mjr_done="" _mjr_e _mjr_keep=() _mjr_pids=()
+  # A manager that wrote NAME.rc has finished: drop it without waiting (bash may already have retired it
+  # from its job table, and `wait -n` would then say "no such job").
+  for _mjr_e in "${_MUTANT_JLIVE[@]}"; do
+    if [ -e "$_MUTANT_JDIR/${_mjr_e#*:}.rc" ]; then _mjr_done=1; else _mjr_keep+=("$_mjr_e"); _mjr_pids+=("${_mjr_e%%:*}"); fi
+  done
+  _MUTANT_JLIVE=("${_mjr_keep[@]+"${_mjr_keep[@]}"}"); _mjr_keep=()
+  [ -z "$_mjr_done" ] || return 0
+  [ "${#_mjr_pids[@]}" -gt 0 ] || return 0
+  # SENTINEL-JOBS-REAP
+  wait -n -p _mjr_done "${_mjr_pids[@]}" 2>/dev/null
+  if [ "$?" = 127 ] && [ -z "$_mjr_done" ]; then _MUTANT_JLIVE=(); return 0; fi
+  for _mjr_e in "${_MUTANT_JLIVE[@]}"; do [ "${_mjr_e%%:*}" = "$_mjr_done" ] || _mjr_keep+=("$_mjr_e"); done
+  _MUTANT_JLIVE=("${_mjr_keep[@]+"${_mjr_keep[@]}"}")
+}
+
+# _mutant_jobs_restore_traps — put back the INT/TERM/HUP traps the caller had before mutant_jobs_begin.
+_mutant_jobs_restore_traps() { trap - INT TERM HUP; eval "$_MUTANT_JTRAPS"; _MUTANT_JTRAPS=""; }
+
+# _mutant_jobs_abort SIG — the batch shell got SIG mid-batch: kill the whole tree (manager, job, watchdog) of
+# every job not finished yet (a manager that wrote NAME.rc is done; its pid may already be reused), restore
+# the caller's traps and re-raise SIG, so the caller's own disposition (default: die of SIG) still applies.
+_mutant_jobs_abort() {
+  local e
+  # SENTINEL-JOBS-ABORT
+  for e in "${_MUTANT_JLIVE[@]+"${_MUTANT_JLIVE[@]}"}"; do
+    [ -e "$_MUTANT_JDIR/${e#*:}.rc" ] || _mutant_kill_tree "${e%%:*}" KILL
+  done
+  _MUTANT_JLIVE=(); _MUTANT_JDIR=""; _MUTANT_JSHELL=""
+  _mutant_jobs_restore_traps
+  kill -s "$1" "$BASHPID"
+}
+
 # mutant_jobs_begin DIR — see header.
 mutant_jobs_begin() {
   local dir="${1:-}" j b
+  if [ "${BASH_VERSINFO[0]}" -lt 5 ] || { [ "${BASH_VERSINFO[0]}" -eq 5 ] && [ "${BASH_VERSINFO[1]}" -lt 1 ]; }; then
+    printf 'FATAL: mutant_jobs_begin needs bash >= 5.1 (wait -n -p); this is %s\n' "$BASH_VERSION" >&2; return 2
+  fi
   [ -n "$dir" ] && [ -d "$dir" ] || { printf 'FATAL: mutant_jobs_begin needs an existing directory (got [%s])\n' "$dir" >&2; return 2; }
   j="$(_mutant_jobs_int MUTANT_JOBS 4 6)" || return 2
   b="$(_mutant_jobs_int MUTANT_JOB_TIMEOUT 300 86400)" || return 2
-  _MUTANT_JDIR="$dir" _MUTANT_JSHELL="$BASHPID" _MUTANT_JMAX="$j" _MUTANT_JBOUND="$b" _MUTANT_JRUN=0
-  _MUTANT_JQ=(); _MUTANT_JPIDS=()
+  _MUTANT_JDIR="$dir" _MUTANT_JSHELL="$BASHPID" _MUTANT_JMAX="$j" _MUTANT_JBOUND="$b"
+  _MUTANT_JQ=(); _MUTANT_JLIVE=(); _MUTANT_JTRAPS="$(trap -p INT TERM HUP)"
+  trap '_mutant_jobs_abort INT' INT; trap '_mutant_jobs_abort TERM' TERM; trap '_mutant_jobs_abort HUP' HUP
 }
 
 # mutant_job NAME CMD [ARGS...] — see header.
@@ -530,7 +575,7 @@ mutant_job() {
   shift
   mkdir -- "$d/$name.d" || return 2
   # SENTINEL-JOBS-THROTTLE
-  while [ "$_MUTANT_JRUN" -ge "$_MUTANT_JMAX" ]; do wait -n; _MUTANT_JRUN=$((_MUTANT_JRUN - 1)); done
+  while [ "${#_MUTANT_JLIVE[@]}" -ge "$_MUTANT_JMAX" ]; do _mutant_jobs_reap_one; done
   idx="${#_MUTANT_JQ[@]}"; _MUTANT_JQ+=("$name")
   # One manager per job: the command (its own subshell, so an `exit` in a function ends only it), a
   # watchdog that kills its whole tree at the bound and leaves NAME.timeout, and NAME.rc once it ended.
@@ -546,7 +591,7 @@ mutant_job() {
     _mutant_kill_tree "$g" KILL; wait "$g"
     printf '%s\n' "$r" >"$d/$name.rc"
   ) >/dev/null 2>&1 </dev/null &
-  _MUTANT_JPIDS+=("$!"); _MUTANT_JRUN=$((_MUTANT_JRUN + 1))
+  _MUTANT_JLIVE+=("$!:$name")
 }
 
 # _mutant_job_fail LINE — print one suite-format FAIL line and fail (the counted unit for mutant_or_count).
@@ -561,7 +606,8 @@ mutant_jobs_end() {
     printf 'FATAL: mutant_jobs_end bad counter name [%s]\n' "$_mje_c" >&2; return 2
   fi
   declare -F "$_mje_v" >/dev/null 2>&1 || { printf 'FATAL: mutant_jobs_end verdict [%s] is not a function\n' "$_mje_v" >&2; return 2; }
-  [ "${#_MUTANT_JPIDS[@]}" -eq 0 ] || wait "${_MUTANT_JPIDS[@]}"
+  while [ "${#_MUTANT_JLIVE[@]}" -gt 0 ]; do _mutant_jobs_reap_one; done
+  _mutant_jobs_restore_traps
   # SENTINEL-JOBS-ORDER
   for _mje_n in "${_MUTANT_JQ[@]+"${_MUTANT_JQ[@]}"}"; do
     # SENTINEL-JOBS-TIMEOUT
@@ -573,7 +619,7 @@ mutant_jobs_end() {
       "$_mje_v" "$_mje_n" "$_mje_r" "$_mje_d/$_mje_n.out"
     fi
   done
-  _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JQ=(); _MUTANT_JPIDS=(); _MUTANT_JRUN=0
+  _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JQ=(); _MUTANT_JLIVE=()
   return 0
 }
 

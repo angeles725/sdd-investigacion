@@ -48,19 +48,45 @@ want=$'V a rc=3 out=[A ]\nV b rc=0 out=[B ]\nV c rc=1 out=[C ]\nV d rc=0 out=[D 
 if [ "$j4" = "$want" ]; then ok "jobs: verdicts in declaration order, each with its own rc and stdout+stderr (jobs=4)"
 else no "jobs: order/attribution under jobs=4 [$j4]"; fi
 if [ "$j1" = "$j4" ]; then ok "jobs: the report is byte-identical under jobs=1 and jobs=4"; else no "jobs: jobs=1 report differs [$j1]"; fi
-# throttle: each job counts the live jobs (marker files in one shared dir) while it runs; the peak is the concurrency.
+# throttle: each job leaves a marker in one shared dir while it runs and reports the most markers it saw, so the
+# peak is the concurrency. JWATCH DIR NAME BARRIER — wait (bound 10 s) until BARRIER markers exist, then sample for
+# 0.5 s. With the barrier the lower bound holds by construction; without it a broken cap can only be MISSED on a
+# slow host (a false PASS), never reported falsely.
+JWATCH=': > "$1/$2"; i=0; while [ "$(ls "$1" | wc -l)" -lt "$3" ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+p=0; i=0; while [ $i -lt 10 ]; do n=$(ls "$1" | wc -l); [ "$n" -gt "$p" ] && p=$n; sleep 0.05; i=$((i+1)); done; echo "$p"; rm -f "$1/$2"'
+# jpeak JOBS COUNT BARRIER [foreign] — peak live jobs of COUNT watcher jobs at MUTANT_JOBS=JOBS. "foreign": the
+# caller first starts four short background jobs of its own, which must never free a batch slot.
 jpeak(){
-  local d sh n; d="$(mktemp -d "$TMP/jp.XXXXXX")"; sh="$d/live"; mkdir "$sh" "$d/j"; jc=0
+  local d sh n f; d="$(mktemp -d "$TMP/jp.XXXXXX")"; sh="$d/live"; mkdir "$sh" "$d/j"; jc=0; JPEAK=0
+  if [ "${4:-}" = foreign ]; then for f in 1 2 3 4; do sleep 0.1 & done; fi
   MUTANT_JOBS="$1" mutant_jobs_begin "$d/j" || return 2
-  for n in p1 p2 p3 p4 p5 p6; do
-    mutant_job "$n" bash -c ': > "$1/$2"; sleep 0.5; ls "$1" | wc -l; rm -f "$1/$2"' _ "$sh" "$n"
-  done
-  mutant_jobs_end jc jpv "" ; printf '%s\n' "$JPEAK"
+  for n in $(seq 1 "$2"); do mutant_job "p$n" bash -c "$JWATCH" _ "$sh" "p$n" "$3"; done
+  mutant_jobs_end jc jpv "" ; wait; printf '%s\n' "$JPEAK"
 }
 jpv(){ local v; v="$(tr -dc 0-9 < "$3")"; [ "${v:-0}" -gt "${JPEAK:-0}" ] && JPEAK="$v"; return 0; }
-JPEAK=0; p2="$(jpeak 2)"; JPEAK=0; p4="$(jpeak 4)"
-if [ "$p2" -le 2 ] && [ "$p4" -ge 3 ] && [ "$p4" -le 4 ]; then ok "jobs: MUTANT_JOBS bounds the live jobs (peak $p2 at 2, $p4 at 4)"
-else no "jobs: throttle peak jobs=2 -> $p2, jobs=4 -> $p4"; fi
+p4="$(jpeak 4 4 4)"
+if [ "$p4" = 4 ]; then ok "jobs: MUTANT_JOBS=4 runs four jobs at once (barrier: peak $p4)"; else no "jobs: throttle peak jobs=4 -> $p4 (want 4)"; fi
+p2="$(jpeak 2 6 1)"
+if [ "$p2" -le 2 ]; then ok "jobs: MUTANT_JOBS=2 never has more than two jobs alive (peak $p2)"; else no "jobs: throttle peak jobs=2 -> $p2 (cap 2)"; fi
+pf="$(jpeak 2 6 1 foreign)"
+if [ "$pf" -le 2 ]; then ok "jobs: a caller's own background job finishing never frees a batch slot (peak $pf at 2)"
+else no "jobs: foreign-job peak $pf at jobs=2 — a non-batch child freed a slot"; fi
+# sleep_pids N — pids of live `sleep N` processes, read from /proc (exact argv, so it can never match this script).
+sleep_pids(){ local f; for f in /proc/[0-9]*/cmdline; do [ "$(tr '\0' ' ' < "$f" 2>/dev/null)" = "sleep $1 " ] && { f="${f#/proc/}"; echo "${f%/cmdline}"; }; done; return 0; }
+# interrupt: a TERM to the batch shell mid-batch kills every job, its manager and its watchdog; nothing survives.
+d="$(mktemp -d "$TMP/jx.XXXXXX")"; jb=$((7000 + RANDOM % 1000))
+MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT="$jb" bash -c '. "$1"; mutant_jobs_begin "$2"; v(){ :; }
+  for n in x1 x2 x3; do mutant_job "$n" bash -c "echo \$\$ > \"\$MUTANT_JOB_SCRATCH/pid\"; exec sleep 60"; done
+  c=0; mutant_jobs_end c v; echo DONE' _ "$LIB" "$d" >"$d.out" 2>&1 &
+jxb=$!; i=0
+while { [ ! -s "$d/x1.d/pid" ] || [ ! -s "$d/x2.d/pid" ]; } && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+kill -TERM "$jxb"; wait "$jxb"; jxrc=$?; sleep 0.3
+jxleft=""
+for f in "$d"/x*.d/pid; do p="$(cat "$f" 2>/dev/null)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null && { jxleft="$jxleft job:$p"; kill -KILL "$p"; }; done
+for p in $(sleep_pids "$jb"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
+if [ -z "$jxleft" ] && [ "$jxrc" = 143 ] && ! grep -q DONE "$d.out" && [ -s "$d/x1.d/pid" ]; then
+  ok "jobs: a TERM mid-batch kills every outstanding job and watchdog, then the shell dies of TERM (rc 143)"
+else no "jobs: interrupted batch left [$jxleft] rc=$jxrc out=[$(tr '\n' ' ' < "$d.out")]"; fi
 # isolation: every job gets its own fresh, empty MUTANT_JOB_SCRATCH and its declaration index in MUTANT_JOB_INDEX.
 d="$(mktemp -d "$TMP/ji.XXXXXX")"; jc=0
 MUTANT_JOBS=4 mutant_jobs_begin "$d"
@@ -117,13 +143,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth_case order 's/_MUTANT_JQ+=("\$name")/_MUTANT_JQ=("$name" "${_MUTANT_JQ[@]+"${_MUTANT_JQ[@]}"}")/' \
     "jobs: order/attribution under jobs=4"
   teeth_case throttle '/SENTINEL-JOBS-THROTTLE/{n;s/-ge "\$_MUTANT_JMAX"/-ge 99/}' \
-    "jobs: throttle peak"
+    "jobs: throttle peak jobs=2"
   teeth_case validate '/SENTINEL-JOBS-VALIDATE/{n;s/{ \[ "\$v" -ge 1 \] && \[ "\$v" -le "\$3" \]; }/true/}' \
     "jobs: MUTANT_JOBS=0 is refused"
   teeth_case timeout '/SENTINEL-JOBS-TIMEOUT/{n;s/if \[ -e "\$_mje_d\/\$_mje_n\.timeout" \]; then/if false; then/}' \
     "jobs: timeout report"
   teeth_case nokill 's/_mutant_kill_tree "\$w" KILL/:/' \
     "jobs: timeout report"
+  teeth_case abort '/SENTINEL-JOBS-ABORT/,+2s/_mutant_kill_tree "\${e%%:\*}" KILL/:/' \
+    "jobs: interrupted batch left"
+  teeth_case foreign '/SENTINEL-JOBS-REAP/{n;s/ "\${_mjr_pids\[@\]}" 2>/ 2>/};s/\[ "\${_mjr_e%%:\*}" = "\$_mjr_done" \] || _mjr_keep+=/[ "$_mjr_e" = "${_MUTANT_JLIVE[0]}" ] || _mjr_keep+=/' \
+    "jobs: foreign-job peak"
   teeth_case scratch 's/MUTANT_JOB_SCRATCH="\$d\/\$name\.d"/MUTANT_JOB_SCRATCH="$d"/' \
     "jobs: per-job isolation"
 fi
