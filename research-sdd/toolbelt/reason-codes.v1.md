@@ -42,7 +42,7 @@ contains the literal. Only a line that starts with a comment is excluded; a ` #`
 comment, or inside a quoted string) is still reported. The scan is line-based; a `degraded: ` hidden in a
 string built across lines without that literal is invisible. Scanned scripts today:
 `research-sdd-status.sh`, `reconcile-issues.sh`, `stage-retro-issues.sh`, `research-sdd-init.sh`,
-`migrate-backlogs.sh` (added by slice 3; a reason after `degraded: migrate-backlogs:` is part of the code).
+`migrate-backlogs.sh` (added by slice 3; a reason after `degraded: migrate-backlogs:` is part of the code), and `lib/rsdd-exec.sh` (kit issue #2275; the one scanned file in a toolbelt subdirectory, named with its `lib/` path in the emitters column).
 
 ## Columns
 
@@ -110,7 +110,8 @@ string built across lines without that literal is invisible. Scanned scripts tod
 | `degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)` | degraded | migrate-backlogs.sh | the state-file scan failed; this is NOT the same as no state files | run the scan by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
 | `degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)` | degraded | migrate-backlogs.sh | the FOCUSES.md scan failed, so the document-focus check has no verdict | run `find` for FOCUSES.md by hand on the target, fix the cause, then re-run `migrate-backlogs.sh` |
 | `degraded: migrate-backlogs: awk failed reading` | degraded | migrate-backlogs.sh | awk failed reading a FOCUSES.md, so the document-focus check was not computed | run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh` |
-| `degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at` | degraded | research-sdd-status.sh, reconcile-issues.sh, stage-retro-issues.sh, research-sdd-init.sh, migrate-backlogs.sh | the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found | re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path |
+| `degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at` | degraded | research-sdd-status.sh, reconcile-issues.sh, stage-retro-issues.sh, research-sdd-init.sh, migrate-backlogs.sh, lib/rsdd-exec.sh | the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found | re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path |
+| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh | the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>` or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line) | install Go and re-run, or build it by hand (`cd research-sdd/rsdd && go build -o ../bin/rsdd ./cmd/rsdd`), or point `RSDD_BIN` at an executable `rsdd` |
 
 ## Input class
 
