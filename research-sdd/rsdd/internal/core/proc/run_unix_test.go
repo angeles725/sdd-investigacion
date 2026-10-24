@@ -96,12 +96,15 @@ func TestRunCleanExitHasNoErrors(t *testing.T) {
 	wantErrors(t, r)
 }
 
+// SIGUSR1's number differs between unixes (10 on linux, 30 on darwin), so
+// the expected code is derived from it, never written down.
 func TestRunReportsAKillingSignalAsANegativeCode(t *testing.T) {
+	want := -int(syscall.SIGUSR1)
 	r, _ := run(t, shSpec(t, `kill -USR1 $$`))
-	if r.ReturnCode != -10 {
-		t.Fatalf("ReturnCode %d, want -10 (SIGUSR1)", r.ReturnCode)
+	if r.ReturnCode != want {
+		t.Fatalf("ReturnCode %d, want %d (SIGUSR1)", r.ReturnCode, want)
 	}
-	wantErrors(t, r, "analyzer-exit:-10")
+	wantErrors(t, r, "analyzer-exit:"+strconv.Itoa(want))
 }
 
 // TERM first, then a grace period: a child that cleans up on TERM gets to
