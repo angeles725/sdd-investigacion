@@ -23,6 +23,9 @@ const (
 	harnessRC   = 97
 )
 
+// driverSlots caps concurrent bash drivers: the parallel mode subtests share a loaded host.
+var driverSlots = make(chan struct{}, 4)
+
 type bashOut struct {
 	stdout, stderr string
 	rc             int
@@ -31,6 +34,8 @@ type bashOut struct {
 // bashBatch runs one driver mode over inputs (one per line on stdin) and returns one result per input.
 func bashBatch(t *testing.T, mode string, inputs []string) []bashOut {
 	t.Helper()
+	driverSlots <- struct{}{}
+	defer func() { <-driverSlots }() // released on t.Fatal/t.Skip too (both unwind through defers)
 	so := runDriver(t, mode, strings.Join(inputs, "\n")+"\n")
 	out := make([]bashOut, 0, len(inputs))
 	for len(so) > 0 {
@@ -117,6 +122,42 @@ var fileModes = map[string]func(path string) bashOut{
 		}
 		return bashOut{stdout: joinLines(d.Lines), stderr: d.FenceWarning()}
 	},
+	// delta_info: bash prints a zero line for an absent file (rc 0, the silent zero Go reports as ErrAbsentInput)
+	// and a typed stderr line plus the zero line, rc 1, for an unreadable one.
+	"delta": func(p string) bashOut {
+		d, err := Read(p)
+		switch {
+		case errors.Is(err, ErrAbsentInput):
+			return bashOut{stdout: DeltaInfo{Form: FormNone}.Line()}
+		case err != nil:
+			return bashOut{stdout: DeltaInfo{Form: FormNone}.Line(), rc: 1,
+				stderr: "retro-grammar: cannot read " + p + " (unreadable) — delta count is UNKNOWN, not zero\n"}
+		}
+		return bashOut{stdout: Delta(d).Line(), stderr: d.FenceWarning()}
+	},
+	"canon": func(p string) bashOut {
+		d, err := Read(p)
+		if err != nil {
+			return bashOut{rc: 1}
+		}
+		h, ok := CanonicalHeading(d)
+		if !ok {
+			return bashOut{}
+		}
+		return bashOut{stdout: h + "\n"}
+	},
+	"unrec": readThen(func(d *Doc) []string { return UnrecHeadings(d) }),
+}
+
+// readThen renders a mode that prints one line per result and returns 1, silently, on a failed read.
+func readThen(f func(*Doc) []string) func(string) bashOut {
+	return func(p string) bashOut {
+		d, err := Read(p)
+		if err != nil {
+			return bashOut{rc: 1}
+		}
+		return bashOut{stdout: joinLines(f(d))}
+	}
 }
 
 // checkFileModes runs every file mode over paths on both sides and reports each disagreement.
@@ -128,18 +169,21 @@ func checkFileModes(t *testing.T, label string, paths []string) {
 	}
 	sort.Strings(modes)
 	for _, mode := range modes {
-		bash := bashBatch(t, mode, paths)
-		bad := 0
-		for i, p := range paths {
-			if got := fileModes[mode](p); got != bash[i] {
-				if bad++; bad <= 5 {
-					t.Errorf("%s %s %s:\n  go=%+v\nbash=%+v", label, mode, p, got, bash[i])
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			bash := bashBatch(t, mode, paths)
+			bad := 0
+			for i, p := range paths {
+				if got := fileModes[mode](p); got != bash[i] {
+					if bad++; bad <= 5 {
+						t.Errorf("%s %s %s:\n  go=%+v\nbash=%+v", label, mode, p, got, bash[i])
+					}
 				}
 			}
-		}
-		if bad > 5 {
-			t.Errorf("%s %s: %d more disagreements not shown", label, mode, bad-5)
-		}
+			if bad > 5 {
+				t.Errorf("%s %s: %d more disagreements not shown", label, mode, bad-5)
+			}
+		})
 	}
 }
 
@@ -188,5 +232,13 @@ func TestDifferentialAbsentAndEmpty(t *testing.T) {
 	if err := os.WriteFile(empty, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	checkFileModes(t, "edge", []string{"", filepath.Join(dir, "missing.md"), dir, empty})
+	paths := []string{"", filepath.Join(dir, "missing.md"), dir, empty}
+	if os.Geteuid() != 0 { // root reads a mode-000 file: the unreadable premise is then unavailable
+		locked := filepath.Join(dir, "locked.md")
+		if err := os.WriteFile(locked, []byte("## Proposed kit deltas\n"), 0); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, locked)
+	}
+	checkFileModes(t, "edge", paths)
 }
