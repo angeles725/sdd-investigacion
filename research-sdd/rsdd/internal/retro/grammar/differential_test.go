@@ -451,6 +451,18 @@ func TestDifferentialAbsentAndEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := []string{"", filepath.Join(dir, "missing.md"), dir, empty}
+	// Readable inputs that set every mode apart from the failed reads whoever runs the test: the locked file
+	// below is dropped under root, and without these delta, entrywarn and honesty would see one outcome only.
+	for name, src := range map[string]string{
+		"warn.md":    "## Proposed kit deltas\n### D1 — a\n### **D2** — b\n",
+		"honesty.md": "## Proposed kit deltas\nNo new deltas; nothing to add.\n",
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
 	if os.Geteuid() != 0 { // root reads a mode-000 file: the unreadable premise is then unavailable
 		locked := filepath.Join(dir, "locked.md")
 		if err := os.WriteFile(locked, []byte("## Proposed kit deltas\n"), 0); err != nil {
