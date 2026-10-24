@@ -112,6 +112,10 @@ func vmSize(t *testing.T) uint64 {
 // runs several times.
 func TestHelperExecsUnderAnAddressSpaceLimitBelowItsOwnSize(t *testing.T) {
 	const as = 64 << 20
+	if raceBuild {
+		// The test binary is the helper here, and under -race its TSAN runtime cannot even start below 64 MiB.
+		t.Skip("race build: ThreadSanitizer needs more address space than the limit under test; covered by make test")
+	}
 	if size := vmSize(t); size <= as {
 		t.Skipf("VmSize %d is not above the %d limit: the case proves nothing", size, as)
 	}
@@ -123,7 +127,7 @@ func TestHelperExecsUnderAnAddressSpaceLimitBelowItsOwnSize(t *testing.T) {
 	for range 10 {
 		_, stderr, code := runHelper(t, append([]string{spec, "/bin/true", "true"}, big...)...)
 		if code != 0 {
-			t.Fatalf("exec under the limit: exit %d stderr %.200q, want /bin/true's 0", code, stderr)
+			t.Fatalf("exec under the limit: exit %d stderr %.4000q, want /bin/true's 0", code, stderr)
 		}
 		_, stderr, code = runHelper(t, append([]string{spec, "/nonexistent/prog", "prog"}, big...)...)
 		if code != 127 || !strings.HasPrefix(stderr, "rsdd "+HelperCommand+": exec /nonexistent/prog: ") {

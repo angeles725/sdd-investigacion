@@ -15,9 +15,18 @@
 // {{corpus}} and {{input}} point at that copy, and what the side did to it is
 // diffed against a pristine copy and compared as a fourth stream, "effect".
 // The real corpus is fingerprinted before and after each side as a tripwire
-// that should be unreachable. Caveat: a symlink whose target lies outside the
-// corpus is copied verbatim, so a script that writes THROUGH it writes the
-// outside target; the tripwire cannot see that.
+// that should be unreachable.
+//
+// Symlink refusal: before either side runs, every scratch copy (corpus and
+// fixture inputs/) is scanned. A symlink whose resolution can leave the copy
+// root makes the case refuse with the typed kind "unsafe-symlink", naming
+// EVERY such link (relative path and target text); both sides are skipped and
+// the refusal is a failure in the summary. Absolute targets are unsafe even
+// when they point back inside the root, relative targets that climb out with
+// ".." are unsafe, and chains are resolved hop by hop (lexically, with a hop
+// limit; reaching the limit also refuses). Inward relative links, dangling
+// ones and directory links included, are allowed and stay links. Nothing is
+// ever dereference-copied.
 //
 // intended.json entries are golden's {field, reason} (field may also be
 // "effect") or {normalise, pattern?, reason} with normalise one of time,

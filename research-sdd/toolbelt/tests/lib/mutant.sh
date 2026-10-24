@@ -91,7 +91,8 @@
 #                                        It traps INT/TERM/HUP until mutant_jobs_end: a signal mid-batch kills
 #                                        every unfinished job's tree, restores the caller's traps and re-raises.
 #   mutant_job NAME CMD [ARGS...]        run CMD (a command or a shell function) in the background once fewer
-#                                        than MUTANT_JOBS jobs run; NAME is a plain token, unique in the batch.
+#                                        than MUTANT_JOBS jobs run (and, under RSDD_JOB_SLOTS, once it holds a
+#                                        slot of that budget); NAME is a plain token, unique in the batch.
 #                                        CMD sees MUTANT_JOB_SCRATCH (its NAME.d) and MUTANT_JOB_INDEX (0-based
 #                                        declaration index), so a job never shares state files with a sibling.
 #                                        Past MUTANT_JOB_TIMEOUT seconds its whole process tree is KILLed.
@@ -133,8 +134,15 @@
 #   MUTANT_TMPROOT       the directory OUT must live under. Default: ${TMPDIR:-/tmp}.
 #
 #   MUTANT_JOBS          concurrent jobs of a mutant_job batch, an integer 1..6 (run-all.sh's own -j cap).
-#                        Default 4, the host budget. run-all.sh -j N exports no per-suite budget, so N
-#                        suites in parallel may run up to 4·N teeth: set MUTANT_JOBS lower there.
+#                        Default 4, the host budget.
+#   Contract under RSDD_JOB_SLOTS: between mutant_jobs_begin and mutant_jobs_end the caller only queues jobs
+#   (its own slot is lent to one of them), so it must do no heavy work of its own there; and a run-all.sh nested
+#   inside a suite starts its own budget rather than joining the outer one (known limit, kit issue #2338).
+#   RSDD_JOB_SLOTS       a job budget shared with other suites (kit issue #2338, lib/job-slots.sh), exported by
+#                        run-all.sh -j N. When set, every job of a batch also holds one slot of it while it runs
+#                        (the slot wait does not count against MUTANT_JOB_TIMEOUT), so all the suites and teeth
+#                        of that run stay within N jobs; a budget that cannot be joined is FATAL, rc 2. Unset:
+#                        MUTANT_JOBS alone throttles. RSDD_JOB_SLOTS_LIB names job-slots.sh (default: beside this file).
 #   MUTANT_JOB_TIMEOUT   hard bound in seconds for ONE job (default 300): past it the job is a named FAIL.
 #
 #   MUTANT_TOOTH_DEBUG   when non-empty, mutant_tooth also prints diagnostic detail to STDERR: the
@@ -480,6 +488,8 @@ mutant_tooth() {
 # _MUTANT_JLIVE holds "PID:NAME" for every job manager the batch has not reaped yet: only these are waited for
 # (never a caller's own background job) and only these are killed when the batch shell is interrupted.
 _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JMAX=1; _MUTANT_JBOUND=1; _MUTANT_JQ=(); _MUTANT_JLIVE=(); _MUTANT_JTRAPS=""
+_MUTANT_JSLOTS=""   # the joined job budget (RSDD_JOB_SLOTS), empty when the batch is throttled by MUTANT_JOBS alone
+_MUTANT_JLIB="${BASH_SOURCE[0]%/*}/job-slots.sh"
 
 # _mutant_kill_tree PID SIG — signal PID and every descendant. The tree is collected BEFORE any signal,
 # so a child reparented by its parent's death is not missed. Without pgrep only PID itself is signalled.
@@ -543,7 +553,7 @@ _mutant_jobs_abort() {
   for e in "${_MUTANT_JLIVE[@]+"${_MUTANT_JLIVE[@]}"}"; do
     [ -e "$_MUTANT_JDIR/${e#*:}.rc" ] || _mutant_kill_tree "${e%%:*}" KILL
   done
-  _MUTANT_JLIVE=(); _MUTANT_JDIR=""; _MUTANT_JSHELL=""
+  _MUTANT_JLIVE=(); _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JSLOTS=""
   _mutant_jobs_restore_traps
   kill -s "$1" "$BASHPID"
 }
@@ -557,6 +567,15 @@ mutant_jobs_begin() {
   [ -n "$dir" ] && [ -d "$dir" ] || { printf 'FATAL: mutant_jobs_begin needs an existing directory (got [%s])\n' "$dir" >&2; return 2; }
   j="$(_mutant_jobs_int MUTANT_JOBS 4 6)" || return 2
   b="$(_mutant_jobs_int MUTANT_JOB_TIMEOUT 300 86400)" || return 2
+  _MUTANT_JSLOTS=""
+  if [ -n "${RSDD_JOB_SLOTS+x}" ]; then   # set, even empty, means join: an empty value is refused (fail closed)
+    # SENTINEL-JOBS-SLOTS-JOIN
+    # shellcheck source=lib/job-slots.sh
+    . "${RSDD_JOB_SLOTS_LIB:-$_MUTANT_JLIB}" || { printf 'FATAL: RSDD_JOB_SLOTS is set but job-slots.sh cannot be loaded\n' >&2; return 2; }
+    rsdd_slots_check "$RSDD_JOB_SLOTS" || return 2
+    : >"$dir/.own-slot" || return 2   # the caller's slot, lent to one job of this batch at a time (job-slots.sh)
+    _MUTANT_JSLOTS="$RSDD_JOB_SLOTS"
+  fi
   _MUTANT_JDIR="$dir" _MUTANT_JSHELL="$BASHPID" _MUTANT_JMAX="$j" _MUTANT_JBOUND="$b"
   _MUTANT_JQ=(); _MUTANT_JLIVE=(); _MUTANT_JTRAPS="$(trap -p INT TERM HUP)"
   trap '_mutant_jobs_abort INT' INT; trap '_mutant_jobs_abort TERM' TERM; trap '_mutant_jobs_abort HUP' HUP
@@ -581,12 +600,19 @@ mutant_job() {
   # watchdog that kills its whole tree at the bound and leaves NAME.timeout, and NAME.rc once it ended.
   # The manager and the watchdog hold no inherited stdout/stderr: a caller's $(...) must not wait on a
   # leftover watchdog `sleep`, and bash's "Killed" job notice must not reach the report.
+  # Under a job budget the manager first holds a slot on a descriptor of its own (s), closed in the job and the
+  # watchdog: an orphan the job leaves behind must not keep the slot once the manager is gone.
   (
     MUTANT_JOB_SCRATCH="$d/$name.d" MUTANT_JOB_INDEX="$idx"
     export MUTANT_JOB_SCRATCH MUTANT_JOB_INDEX
-    ( "$@" ) >"$d/$name.out" 2>&1 </dev/null & w=$!
+    if [ -n "$_MUTANT_JSLOTS" ]; then
+      # SENTINEL-JOBS-SLOT-TAKE
+      rsdd_slot_take s "$_MUTANT_JSLOTS" "$d/.own-slot" 2>"$d/$name.out" || { printf '2\n' >"$d/$name.rc"; exit 2; }
+    else exec {s}</dev/null; fi
+    # SENTINEL-JOBS-SLOT-CLOSE
+    ( "$@" ) >"$d/$name.out" 2>&1 </dev/null {s}<&- & w=$!
     # SENTINEL-JOBS-BOUND
-    ( sleep "$_MUTANT_JBOUND"; : >"$d/$name.timeout"; _mutant_kill_tree "$w" KILL ) & g=$!
+    ( sleep "$_MUTANT_JBOUND"; : >"$d/$name.timeout"; _mutant_kill_tree "$w" KILL ) {s}<&- & g=$!
     wait "$w"; r=$?
     _mutant_kill_tree "$g" KILL; wait "$g"
     printf '%s\n' "$r" >"$d/$name.rc"
@@ -619,7 +645,8 @@ mutant_jobs_end() {
       "$_mje_v" "$_mje_n" "$_mje_r" "$_mje_d/$_mje_n.out"
     fi
   done
-  _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JQ=(); _MUTANT_JLIVE=()
+  [ -z "$_MUTANT_JSLOTS" ] || rm -f "$_mje_d/.own-slot"
+  _MUTANT_JDIR=""; _MUTANT_JSHELL=""; _MUTANT_JQ=(); _MUTANT_JLIVE=(); _MUTANT_JSLOTS=""
   return 0
 }
 

@@ -14,7 +14,7 @@ LIB="${MUTANT_LIB:-$HERE/lib/mutant.sh}"
 # shellcheck source=lib/mutant.sh
 . "$LIB"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-unset MUTANT_JOBS MUTANT_JOB_TIMEOUT
+unset MUTANT_JOBS MUTANT_JOB_TIMEOUT RSDD_JOB_SLOTS   # this suite measures the plain MUTANT_JOBS throttle (kit issue #2338)
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
