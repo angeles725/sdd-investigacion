@@ -8,6 +8,16 @@
 #   isdir         reads paths on stdin, prints "<path>\t<1|0>" from the bash `[ -d ]` the sweeps use
 #   liststate     lib/state-files.sh   list_state_files <dir>
 #   resolvestate  lib/state-files.sh   resolve_state_file [-H] <dir> [--focus <slug>]
+#   bff           lib/block-files.sh   block_file_filter [-v] [<prefix>]  (paths on stdin)
+#   nwr           lib/block-files.sh   block_files_nested_worktree_roots <root>
+#   pinw          lib/block-files.sh   block_files_path_in_nested_worktree <path> <roots>
+#   dfp           lib/focus-prefix.sh  derive_focus_prefix <state-file>
+#   dfr           lib/focus-prefix.sh  derive_focus_range <state-file>
+#   frs           lib/focus-prefix.sh  focus_range_stat <dir> <lo-hi> <state-file|""> COUNT|FILES|SPAN (+ block-files.sh)
+#   frr           lib/focus-prefix.sh  focus_range_report <state-file> '%s|%s\n' (+ block-files.sh)
+#   igid          lib/focus-prefix.sh  inplace_gap_id <text>
+#   ibc           lib/focus-prefix.sh  inplace_blocked_count <blocked-body>  (backlog rows on stdin)
+#   kitrun        ../templates/hook-kit-run.sh <kit-relative-script>  (the whole hook: resolution, then exec)
 #
 # The function's own return code is the driver's exit code and its stderr is passed through untouched, so the
 # caller compares all three channels. Harness failures exit 97 and are never confusable with a function rc
@@ -35,9 +45,20 @@ case "$mode" in
   tnr)          need target-paths.sh target_name_for_retro;   target_name_for_retro "$@" ;;
   liststate)    need state-files.sh list_state_files;         list_state_files "$@" ;;
   resolvestate) need state-files.sh resolve_state_file;       resolve_state_file "$@" ;;
+  bff)          need block-files.sh block_file_filter;        block_file_filter "$@" ;;
+  nwr)          need block-files.sh block_files_nested_worktree_roots; block_files_nested_worktree_roots "$@" ;;
+  pinw)         need block-files.sh block_files_path_in_nested_worktree; block_files_path_in_nested_worktree "$@" ;;
   isdir)
     while IFS= read -r p || [ -n "$p" ]; do
       if [ -d "$p" ]; then printf '%s\t1\n' "$p"; else printf '%s\t0\n' "$p"; fi
     done ;;
+  dfp)          need focus-prefix.sh derive_focus_prefix;     derive_focus_prefix "$@" ;;
+  dfr)          need focus-prefix.sh derive_focus_range;      derive_focus_range "$@" ;;
+  frs)          need block-files.sh block_file_filter; need focus-prefix.sh focus_range_stat; focus_range_stat "$@" ;;
+  frr)          need block-files.sh block_file_filter; need focus-prefix.sh focus_range_report; focus_range_report "$1" '%s|%s\n' ;;
+  igid)         need focus-prefix.sh inplace_gap_id;          inplace_gap_id "$@" ;;
+  ibc)          need focus-prefix.sh inplace_blocked_count;   inplace_blocked_count "$@" ;;
+  kitrun)       [ -f "$tb/../templates/hook-kit-run.sh" ] || die "missing: $tb/../templates/hook-kit-run.sh"
+                bash "$tb/../templates/hook-kit-run.sh" "$@" ;;
   *) die "unknown mode: $mode" ;;
 esac

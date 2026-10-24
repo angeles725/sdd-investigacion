@@ -1,6 +1,6 @@
 // Package kit ports the research-sdd kit's path-derivation libraries to Go with byte parity against the bash
-// originals (toolbelt/lib/target-paths.sh and toolbelt/lib/state-files.sh in this unit; block-files.sh,
-// focus-prefix.sh and the hook-kit-run.sh kit-resolution order are deferred, see DEFERRED.md).
+// originals: toolbelt/lib/target-paths.sh, state-files.sh, block-files.sh, focus-prefix.sh and the kit-resolution
+// order of templates/hook-kit-run.sh (findings, parity notes and what is not ported: DEFERRED.md).
 //
 // Design rules:
 //   - The logic never reads the process environment. Callers inject a Getenv func (the way niagara-go injects
@@ -41,8 +41,7 @@ func cLess(a, b string) bool { return strings.Compare(a, b) < 0 }
 // readRegular reads path the way `[ -f path ]` plus a successful read does: a missing path or a non-regular
 // file is ErrAbsentInput, a failed read is ErrUnreadable.
 func readRegular(path string) (string, error) {
-	st, err := os.Stat(path)
-	if err != nil || !st.Mode().IsRegular() {
+	if !isRegularOS(path) {
 		return "", ErrAbsentInput
 	}
 	b, err := os.ReadFile(path)
@@ -50,4 +49,10 @@ func readRegular(path string) (string, error) {
 		return "", ErrUnreadable
 	}
 	return string(b), nil
+}
+
+// isRegularOS is `[ -f path ]`: a regular file, symlinks followed.
+func isRegularOS(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.Mode().IsRegular()
 }
