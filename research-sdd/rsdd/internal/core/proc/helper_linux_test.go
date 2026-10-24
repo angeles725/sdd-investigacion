@@ -127,7 +127,7 @@ func TestHelperExecsUnderAnAddressSpaceLimitBelowItsOwnSize(t *testing.T) {
 	for range 10 {
 		_, stderr, code := runHelper(t, append([]string{spec, "/bin/true", "true"}, big...)...)
 		if code != 0 {
-			t.Fatalf("exec under the limit: exit %d stderr %.200q, want /bin/true's 0", code, stderr)
+			t.Fatalf("exec under the limit: exit %d stderr %.4000q, want /bin/true's 0", code, stderr)
 		}
 		_, stderr, code = runHelper(t, append([]string{spec, "/nonexistent/prog", "prog"}, big...)...)
 		if code != 127 || !strings.HasPrefix(stderr, "rsdd "+HelperCommand+": exec /nonexistent/prog: ") {

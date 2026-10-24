@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -125,6 +126,8 @@ func HelperMain(args, env []string, stderr io.Writer) int {
 //     argv and env) are made once, dropped and collected. Go never returns
 //     heap address space to the OS, so the same copies made again by
 //     syscall.Exec are served from those pages.
+//   - the collector is then switched off: a cycle started by those copies
+//     would need fresh work buffers, a new mapping the limit forbids.
 func prepareExec(path string, argv, env []string) {
 	runtime.MemProfileRate = 0
 	runtime.GOMAXPROCS(1)
@@ -135,6 +138,7 @@ func prepareExec(path string, argv, env []string) {
 	runtime.KeepAlive(a)
 	runtime.KeepAlive(e)
 	runtime.GC()
+	debug.SetGCPercent(-1)
 }
 
 // report writes the helper's one stderr line, "rsdd __exec: <what><subject>:
