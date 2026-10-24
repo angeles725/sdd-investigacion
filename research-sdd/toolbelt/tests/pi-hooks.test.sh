@@ -17,6 +17,8 @@
 #
 # Usage: pi-hooks.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 setup.
 set -uo pipefail
+# kit issue #2331: the behavior teeth's job count is lib/mutant.sh's MUTANT_JOBS now; a stale PI_TEETH_JOBS would be ignored.
+[ -z "${PI_TEETH_JOBS+x}" ] || { echo "FATAL: PI_TEETH_JOBS was renamed to MUTANT_JOBS (kit issue #2331); unset it and set MUTANT_JOBS" >&2; exit 2; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$(cd "$HERE/../.." && pwd)"
 SUT="$KIT/install/pi/research-sdd-hooks.ts"
@@ -153,6 +155,11 @@ fi
 # A fake `node` that reports no type stripping goes first on PATH; this suite runs itself against it. A child run
 # (RSDD_PI_HOOKS_SELFTEST=1) never recurses.
 if [ "${RSDD_PI_HOOKS_SELFTEST:-}" != 1 ]; then
+  # kit issue #2331: the old concurrency knob must fail loudly, never be ignored in silence
+  st_out="$(PI_TEETH_JOBS=2 RSDD_PI_HOOKS_SELFTEST=1 bash "${BASH_SOURCE[0]}" --prove-teeth 2>&1)"; st_rc=$?
+  if [ "$st_rc" = 2 ] && grep -q 'PI_TEETH_JOBS was renamed to MUTANT_JOBS' <<<"$st_out" && ! grep -q '^== pi-hooks' <<<"$st_out"; then
+    ok "renamed knob: PI_TEETH_JOBS set -> rc 2 naming MUTANT_JOBS before any case runs"
+  else no "renamed knob: PI_TEETH_JOBS set did not fail typed (rc=$st_rc): $(tail -2 <<<"$st_out" | tr '\n' ';')"; fi
   SHIM="$TMP/shim"; mkdir -p "$SHIM"
   printf '#!/usr/bin/env bash\ncase "$*" in *typescript*) echo 0 ;; *--version*) echo v20.0.0 ;; esac\nexit 0\n' > "$SHIM/node"
   chmod +x "$SHIM/node"
