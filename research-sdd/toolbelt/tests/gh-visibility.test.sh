@@ -66,14 +66,19 @@ probe() {
 }
 has() { grep -qF -- "$2" <<<"$1"; }
 
-B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-none none)"; B_NOGH="$(mkbin b-nogh none-nogh)"
 HAVE_SETSID=0; [ -n "$(type -P setsid)" ] && HAVE_SETSID=1
 HAVE_PS=0; [ -n "$(type -P ps)" ] && HAVE_PS=1
-if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then B_WDG="$(mkbin b-wdg none-setsid-ps)"; fi
-[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATEPS="$(mkbin b-gateps none-setsid-gateps)"
-[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATESETSID="$(mkbin b-gatesetsid none-gatesetsid-ps)"
-[ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ] && B_GATEBADPS="$(mkbin b-gatebadps none-setsid-gatebadps)"
-[ "$HAVE_SETSID" = 1 ] && { B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; B_SLOWPS="$(mkbin b-slowps none-setsid-slowps)"; }
+# mkbins — (re)build every hermetic bin dir under the current $TMP. A concurrent tooth calls it again under its own
+# scratch $TMP, so the gh.log files and stubs it uses are never a sibling tooth's.
+mkbins() {
+  B_TO="$(mkbin b-to timeout)"; B_GT="$(mkbin b-gt gtimeout)"; B_NONE="$(mkbin b-none none)"; B_NOGH="$(mkbin b-nogh none-nogh)"
+  if [ "$HAVE_SETSID" = 1 ] && [ "$HAVE_PS" = 1 ]; then
+    B_WDG="$(mkbin b-wdg none-setsid-ps)"; B_GATEPS="$(mkbin b-gateps none-setsid-gateps)"
+    B_GATESETSID="$(mkbin b-gatesetsid none-gatesetsid-ps)"; B_GATEBADPS="$(mkbin b-gatebadps none-setsid-gatebadps)"
+  fi
+  if [ "$HAVE_SETSID" = 1 ]; then B_NOPS="$(mkbin b-nops none-setsid)"; B_FAKEPS="$(mkbin b-fakeps none-setsid-fakeps)"; B_SLOWPS="$(mkbin b-slowps none-setsid-slowps)"; fi
+}
+mkbins
 
 echo "== gh-visibility.test.sh =="
 
@@ -385,7 +390,9 @@ c_h_stale() { # LIB — an UNRELATED background job started before the traps (st
   has "$r" "STALE=ALIVE"
 }
 c_h_fallback() { # LIB — _GHV_PID still empty (signal between fork and `pid=$!`): the NEW background job is killed via `$!`
-  local r; r="$(hrun "$1" '_ghv_set_traps; ( exec sleep 300 ) & s=$!; _ghv_on_signal TERM >/dev/null; wait "$s"; echo "FB_RC=$?"')"
+  # The job sleeps 20 s, not 300: on a mutant that does not kill it the case waits it out, so this is the tooth's wall time
+  # (kit issue #2331: 300 s made it the slowest tooth and hit the per-tooth MUTANT_JOB_TIMEOUT bound).
+  local r; r="$(hrun "$1" '_ghv_set_traps; ( exec sleep 20 ) & s=$!; _ghv_on_signal TERM >/dev/null; wait "$s"; echo "FB_RC=$?"')"
   has "$r" "FB_RC=137"
 }
 c_h_nobare() { # LIB — group mode with a known pid: the handler signals the GROUP form only (no bare-pid KILL, kit #1854)
@@ -423,14 +430,26 @@ fi
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
-  # tooth LABEL CASEFN SED_EXPR [needs-timeout] — build a mutant of the lib, require the case to FAIL on it.
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count mutant_jobs_begin mutant_job mutant_jobs_end || exit 2
+  # Most cases wait out real bounds (a stalled gh, watchdog TERM/KILL escalation), so ~45 teeth run serially took ~470 s
+  # (kit issue #2331): they run MUTANT_JOBS at a time and are judged in declaration order once all of them finished.
+  # tooth_case CASEFN MUT — one tooth's case run, isolated from its siblings: its own $TMP (pid/gate/log files and the
+  # hermetic bin dirs, rebuilt) and its own block of ten watchdog bounds from RUNB (the `sleep N` that sleeps_gone polls).
+  tooth_case() {
+    TMP="$MUTANT_JOB_SCRATCH"; RUNB=$((RUNB + 10 * MUTANT_JOB_INDEX)); mkbins
+    "$@"
+  }
+  # tooth_verdict LABEL RC OUT — the case must FAIL (rc != 0) on the mutant.
+  tooth_verdict() {
+    if [ "$2" = 0 ]; then no "teeth $1: case still holds on the mutant — THEATER"; else ok "teeth $1: case goes red"; fi
+  }
+  # tooth LABEL CASEFN SED_EXPR [extra] — build a mutant of the lib (now), queue the case run on it as a job.
   tooth() {
     local label="$1" fn="$2" expr="$3" m="$TMP/mut-$1.sh" extra=("${@:4}")
     if ! mutant_chain_or_count fail "teeth $label" "$LIB" "$m" "$expr"; then return; fi
-    if "$fn" "$m" "${extra[@]}"; then no "teeth $label: case still holds on the mutant — THEATER"
-    else ok "teeth $label: case goes red"; fi
+    mutant_job "$label" tooth_case "$fn" "$m" "${extra[@]}" || exit 2
   }
+  mkdir "$TMP/teeth" && mutant_jobs_begin "$TMP/teeth" || exit 2
   echo "-- teeth --"
   tooth missing-ok       c_missing 's/GHV_STATE=GH_MISSING; return 1/GHV_STATE=GH_MISSING; return 0/'
   tooth error-failopen   c_error   's/if \[ "\$rc" != 0 \]; then GHV_STATE=GH_ERROR; return 1; fi/:/'
@@ -487,6 +506,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     tooth gtimeout-gone    c_slow_gt 's/gtimeout/gtimeoutX/g'
     tooth watchdog-143     c_slow_wd 's/\[ "\$rc" = 143 \] \&\& rc=124/:/'
   fi
+  mutant_jobs_end fail tooth_verdict "teeth "
 fi
 
 echo "== $pass passed · $fail failed =="
