@@ -85,6 +85,13 @@ func TestGhidraHome(t *testing.T) {
 		got, err := prober(root, d, "PATH="+d+"/none").GhidraHome()
 		wantPath(t, got, err, root+"/opt/ghidra_10.4")
 	})
+	t.Run("/opt/ghidra* version tie broken by reversed byte order", func(t *testing.T) {
+		root := t.TempDir()
+		exe(t, root, "opt/ghidra_011/support/analyzeHeadless", "")
+		exe(t, root, "opt/ghidra_11/support/analyzeHeadless", "")
+		got, err := prober(root, d, "PATH="+d+"/none").GhidraHome()
+		wantPath(t, got, err, root+"/opt/ghidra_11") // LC_ALL=C sort -Vr: ghidra_11 before ghidra_011
+	})
 	got, err := prober(t.TempDir(), d, "PATH="+d+"/none").GhidraHome()
 	wantDegraded(t, got, err, "ghidra", ErrNotFound)
 }
