@@ -80,7 +80,11 @@ sleep_pids(){ local f p; for f in /proc/[0-9]*/cmdline; do
   tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qxF "MUTANT_JX_TOKEN=$2" && echo "$p"
 done; return 0; }
 # interrupt: a TERM to the batch shell mid-batch kills every job, its manager and its watchdog; nothing survives.
-d="$(mktemp -d "$TMP/jx.XXXXXX")"; jb=$((7000 + RANDOM % 1000)); jxtok="$$.$RANDOM.$RANDOM"
+d="$(mktemp -d "$TMP/jx.XXXXXX")"; jxtok="$$.$RANDOM.$RANDOM"
+# With /proc a surviving watchdog is found by its bound and KILLed; without it the bound is short (30 s, far past the
+# few seconds before the TERM) so a leaked watchdog that cannot be found still ends on its own.
+if [ -r /proc/self/cmdline ]; then jb=$((7000 + RANDOM % 1000)); jxwd="every outstanding job and watchdog"
+else jb=30; jxwd="every outstanding job (watchdogs not searched: no /proc)"; fi
 MUTANT_JX_TOKEN="$jxtok" MUTANT_JOBS=2 MUTANT_JOB_TIMEOUT="$jb" bash -c '. "$1"; mutant_jobs_begin "$2"; v(){ :; }
   for n in x1 x2 x3; do mutant_job "$n" bash -c "echo \$\$ > \"\$MUTANT_JOB_SCRATCH/pid\"; exec sleep 60"; done
   c=0; mutant_jobs_end c v; echo DONE' _ "$LIB" "$d" >"$d.out" 2>&1 &
@@ -92,7 +96,7 @@ for f in "$d"/x*.d/pid; do p="$(cat "$f" 2>/dev/null)"; [ -n "$p" ] && kill -0 "
 if [ -r /proc/self/cmdline ]; then for p in $(sleep_pids "$jb" "$jxtok"); do jxleft="$jxleft watchdog:$p"; kill -KILL "$p"; done
 else echo "  SKIP  jobs: no /proc here, so surviving watchdogs are not looked for (jobs, rc and DONE still are)"; fi
 if [ -z "$jxleft" ] && [ "$jxrc" = 143 ] && ! grep -q DONE "$d.out" && [ -s "$d/x1.d/pid" ]; then
-  ok "jobs: a TERM mid-batch kills every outstanding job and watchdog, then the shell dies of TERM (rc 143)"
+  ok "jobs: a TERM mid-batch kills $jxwd, then the shell dies of TERM (rc 143)"
 else no "jobs: interrupted batch left [$jxleft] rc=$jxrc out=[$(tr '\n' ' ' < "$d.out")]"; fi
 # isolation: every job gets its own fresh, empty MUTANT_JOB_SCRATCH and its declaration index in MUTANT_JOB_INDEX.
 d="$(mktemp -d "$TMP/ji.XXXXXX")"; jc=0
