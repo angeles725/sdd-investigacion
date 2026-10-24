@@ -513,8 +513,23 @@ func TestDifferentialDeriveFocusPrefix(t *testing.T) {
 	}
 }
 
-// FINDING F9: an unreadable FOCUSES.md is not a silent "no prefix" in Go. Bash lets awk print its error, prints
-// nothing and returns awk's 2.
+func TestDifferentialDeriveFocusRange(t *testing.T) {
+	for _, c := range rangeCases {
+		t.Run(c.label, func(t *testing.T) {
+			sf := focusCorpus(t, t.TempDir(), c.table)
+			for _, s := range []string{sf, filepath.Dir(sf) + "/RESEARCH-STATE-o.md", sf + "/"} {
+				b := bashDriver(t, nil, "", "dfr", s)
+				r, err := DeriveFocusRange(s)
+				if err != nil || b.rc != 0 || b.stderr != "" || r.Value()+nl(r.Value()) != b.stdout {
+					t.Fatalf("%s: go %q (%v); bash rc=%d out=%q err=%q", s, r.Value(), err, b.rc, b.stdout, b.stderr)
+				}
+			}
+		})
+	}
+}
+
+// FINDING F9: an unreadable FOCUSES.md is not a silent "no prefix" in Go. Bash lets awk print its error and the
+// function prints nothing (derive_focus_prefix returns awk's 2, derive_focus_range the 0 of `head`).
 func TestDifferentialFindingUnreadableFocusesIsSilentInBash(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod 000 stays readable, premise unavailable (NOT a pass)")
@@ -524,12 +539,15 @@ func TestDifferentialFindingUnreadableFocusesIsSilentInBash(t *testing.T) {
 	if err := os.Chmod(write(t, d+"/FOCUSES.md", niagaraHeader+rootRow("base-", "B1-B2")), 0); err != nil {
 		t.Fatal(err)
 	}
-	for mode, rc := range map[string]int{"dfp": 2} {
+	for mode, rc := range map[string]int{"dfp": 2, "dfr": 0} {
 		if b := bashDriver(t, nil, "", mode, sf); b.rc != rc || b.stdout != "" || b.stderr == "" {
 			t.Errorf("premise changed for %s: rc=%d out=%q err=%q", mode, b.rc, b.stdout, b.stderr)
 		}
 	}
 	if _, err := DeriveFocusPrefix(sf); !errors.Is(err, ErrUnreadable) {
 		t.Errorf("prefix: %v", err)
+	}
+	if _, err := DeriveFocusRange(sf); !errors.Is(err, ErrUnreadable) {
+		t.Errorf("range: %v", err)
 	}
 }

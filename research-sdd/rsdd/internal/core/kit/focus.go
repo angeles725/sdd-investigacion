@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// Port of toolbelt/lib/focus-prefix.sh derive_focus_prefix (METHODOLOGY §16).
+// Ports of toolbelt/lib/focus-prefix.sh: derive_focus_prefix and derive_focus_range (METHODOLOGY §16).
 //
-// It reads FOCUSES.md with `awk -F'|'` on lines that start with a pipe at column 0, NOT with core/gfm: every pipe
+// Both read FOCUSES.md with `awk -F'|'` on lines that start with a pipe at column 0, NOT with core/gfm: every pipe
 // splits (an escaped `\|` too) and a row indented by a blank is not a row. Cells are awk fields: fields[0] is
 // the text before the first pipe, so the state-file cell is $4 = fields[3].
 
