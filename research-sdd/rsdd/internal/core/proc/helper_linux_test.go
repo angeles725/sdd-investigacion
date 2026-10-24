@@ -112,6 +112,10 @@ func vmSize(t *testing.T) uint64 {
 // runs several times.
 func TestHelperExecsUnderAnAddressSpaceLimitBelowItsOwnSize(t *testing.T) {
 	const as = 64 << 20
+	if raceBuild {
+		// The test binary is the helper here, and under -race its TSAN runtime cannot even start below 64 MiB.
+		t.Skip("race build: ThreadSanitizer needs more address space than the limit under test; covered by make test")
+	}
 	if size := vmSize(t); size <= as {
 		t.Skipf("VmSize %d is not above the %d limit: the case proves nothing", size, as)
 	}
