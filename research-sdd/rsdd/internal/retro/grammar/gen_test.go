@@ -64,16 +64,31 @@ var honestyVocab = []string{
 	"> \u00a0- nbsp bullet", "| ID | Proposed change |", "|---|---|", "| D1 | row |", "", "plain text", "### 1. Fast loop",
 }
 
-// generatedDocs returns n deterministic documents (fixed seed): 1 to 40 genVocab lines, or 1 to 6 honestyVocab
-// lines for every third document.
+// markerVocab biases another third of the documents toward the review-status readers: leading blocks with a
+// BOM, H1 lines, indents, opt-outs, fences and markers in and out of scope.
+var markerVocab = []string{
+	"\xef\xbb\xbf# Title", "\xef\xbb\xbf<!-- review-status: applied -->", "# Title", "#", "  #x", "## H2", "", "   ",
+	"<!-- review-status: applied · abc -->", "<!-- REVIEW-STATUS: Dismissed (x) -->", "   <!-- review-status: pending -->",
+	"    <!-- review-status: applied -->", "\t<!-- review-status: applied -->", "<!-- other comment -->",
+	"<!-- kit-retro: exclude -->", "<!-- KIT-RETRO: Exclude -->  ", "<!-- kit-retro: exclude x -->",
+	"<!-- retro-waived: 2026-01-01 · r -->", "<!-- retro-waived: -->", "review-status: applied", "  Review-Status: bare",
+	"prose line", "```", "~~~", "````", "``` x`y", "  ~~~ \r", "<!--review-status:123-->", "text <!-- review-status: x -->",
+	"<!-- review-status: applied · PARTIAL — shipped: #1, P2-P4; DISMISSED: #5 (why) -->", "<!-- review-status: pending -->\r",
+}
+
+// generatedDocs returns n deterministic documents (fixed seed): by index modulo 3, 1 to 6 honestyVocab lines,
+// 1 to 8 markerVocab lines, or 1 to 40 genVocab lines.
 func generatedDocs(n int) []string {
 	r := rand.New(rand.NewSource(2286))
 	docs := make([]string, n)
 	for i := range docs {
 		k := 1 + r.Intn(40)
 		vocab := genVocab
-		if i%3 == 0 {
+		switch i % 3 {
+		case 0:
 			vocab, k = honestyVocab, 1+r.Intn(6)
+		case 1:
+			vocab, k = markerVocab, 1+r.Intn(8)
 		}
 		lines := make([]string, k)
 		for j := range lines {

@@ -16,6 +16,13 @@
 #     idsafe    retro_grammar_id_signature_safe           titleid retro_grammar_title_has_identity
 #     deltaid   awk rg_delta_id (prints 0/1)              idskip  awk rg_table_id_skip (prints 0/1)
 #   Stream mode: dupids  retro_grammar_dup_ids over the whole stdin (one frame).
+#   lib/retro-status.sh file modes (input = a path):
+#     rstatus retro_review_status   mscope retro_marker_scope_line   mline retro_marker_line
+#     oos     retro_marker_out_of_scope   excluded retro_is_excluded   waived retro_is_waived
+#     bare    retro_has_bare_marker
+#   lib/retro-status.sh line modes (input = one marker line; rowstate: "<line>\037<row-id>"):
+#     sfml retro_status_from_marker_line   partial retro_marker_is_partial   shraw retro_marker_shipped_raw
+#     shids retro_marker_shipped_ids       dism retro_marker_dismissed_ids   rowstate retro_marker_row_state
 #
 # Harness failures exit 97 and never look like a function rc: the lib missing, sourcing failing, the lib not
 # defining a function (the same fail-closed check every real consumer does), or an unknown mode.
@@ -34,6 +41,15 @@ for fn in retro_grammar_defenced retro_grammar_delta_info retro_grammar_entry_ro
   declare -F "$fn" >/dev/null 2>&1 || die "lib failed to define $fn"
 done
 [ -n "${_RG_AWK_ID_FN:-}" ] || die "lib failed to define _RG_AWK_ID_FN"
+slib="$tb/lib/retro-status.sh"
+[ -f "$slib" ] || die "lib missing: $slib"
+# shellcheck source=/dev/null
+. "$slib" || die "sourcing $slib failed"
+for fn in retro_review_status retro_marker_scope_line retro_marker_line retro_marker_out_of_scope retro_is_excluded \
+  retro_is_waived retro_has_bare_marker retro_status_from_marker_line retro_marker_is_partial retro_marker_shipped_raw \
+  retro_marker_shipped_ids retro_marker_dismissed_ids retro_marker_row_state; do
+  declare -F "$fn" >/dev/null 2>&1 || die "lib failed to define $fn"
+done
 tmp="$(mktemp -d)" || die "mktemp failed"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -62,6 +78,19 @@ case "$mode" in
   deltaid)   fn="awk_id rg_delta_id" ;;
   idskip)    fn="awk_id rg_table_id_skip" ;;
   dupids)    frame retro_grammar_dup_ids; exit 0 ;;
+  rstatus)   fn=retro_review_status ;;
+  mscope)    fn=retro_marker_scope_line ;;
+  mline)     fn=retro_marker_line ;;
+  oos)       fn=retro_marker_out_of_scope ;;
+  excluded)  fn=retro_is_excluded ;;
+  waived)    fn=retro_is_waived ;;
+  bare)      fn=retro_has_bare_marker ;;
+  sfml)      fn=retro_status_from_marker_line ;;
+  partial)   fn=retro_marker_is_partial ;;
+  shraw)     fn=retro_marker_shipped_raw ;;
+  shids)     fn=retro_marker_shipped_ids ;;
+  dism)      fn=retro_marker_dismissed_ids ;;
+  rowstate)  fn=row_state; row_state() { retro_marker_row_state "${1%%$'\037'*}" "${1#*$'\037'}"; } ;;
   *)         die "unknown mode: $mode" ;;
 esac
 while IFS= read -r arg || [ -n "$arg" ]; do
