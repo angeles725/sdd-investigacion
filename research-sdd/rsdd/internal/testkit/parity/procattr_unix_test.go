@@ -9,13 +9,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
 // spawnGrandchild runs script under execute; the script records its own
 // process group in a file (the child leads its group: Setpgid) and backgrounds
 // a long sleep in that group that inherits the output pipes. It returns the
 // outcome, how long execute took and the recorded group. Cleanup goes through
-// the killGroup guard on that group, never a raw pid: the sleeper may already
+// the proc.KillGroup guard on that group, never a raw pid: the sleeper may already
 // be reaped and its pid reused by an unrelated process.
 func spawnGrandchild(t *testing.T, timeout time.Duration, script string) (outcome, time.Duration, int) {
 	t.Helper()
@@ -33,7 +35,7 @@ func spawnGrandchild(t *testing.T, timeout time.Duration, script string) (outcom
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = killGroup(pgid, pgid) })
+	t.Cleanup(func() { _ = proc.KillGroup(pgid, pgid) })
 	return o, el, pgid
 }
 
@@ -43,7 +45,7 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 		t.Fatalf("want a timeout, got %+v", o)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for groupAlive(pgid) {
+	for proc.GroupAlive(pgid) {
 		if time.Now().After(deadline) {
 			t.Fatalf("group %d survived the timeout kill: the kill must target the process group", pgid)
 		}
