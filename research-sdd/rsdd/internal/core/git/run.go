@@ -63,6 +63,10 @@ func (r Runner) Run(dir string, args ...string) ([]byte, error) {
 		Argv: append([]string{bin, "-C", dir}, args...), Env: r.Env,
 		Timeout: r.timeout(), MaxBytes: r.maxBytes(), Now: r.Now,
 	})
+	code := res.ReturnCode
+	if code < 0 {
+		code = 128 - code // the shell's code for signal -code
+	}
 	switch {
 	case errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist): // a *proc.SpawnError from the lookup
 		return nil, fmt.Errorf("%w: %v", ErrMissing, err)
@@ -72,11 +76,7 @@ func (r Runner) Run(dir string, args ...string) ([]byte, error) {
 		return res.Stdout, fmt.Errorf("%w after %v: git %s", ErrTimeout, r.timeout(), strings.Join(args, " "))
 	case res.Reason == proc.ReasonOutputCap:
 		return res.Stdout, fmt.Errorf("%w (%d bytes): git %s", ErrOutputCap, r.maxBytes(), strings.Join(args, " "))
-	case res.ReturnCode != 0:
-		code := res.ReturnCode
-		if code < 0 {
-			code = 128 - code
-		}
+	case code != 0:
 		return res.Stdout, &ExitError{Args: args, Code: code, Stderr: string(res.Stderr)}
 	}
 	return res.Stdout, nil

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,11 +116,9 @@ func shellRC(res proc.Result) int {
 
 // cleanEnv is `env -u GH_REPO GH_PROMPT_DISABLED=1` over environ.
 func cleanEnv(environ []string) []string {
-	out := make([]string, 0, len(environ)+1)
-	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k != "GH_REPO" && k != "GH_PROMPT_DISABLED" {
-			out = append(out, kv)
-		}
-	}
+	out := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return k == "GH_REPO" || k == "GH_PROMPT_DISABLED"
+	})
 	return append(out, "GH_PROMPT_DISABLED=1")
 }

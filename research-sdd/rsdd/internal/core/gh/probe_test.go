@@ -14,6 +14,7 @@ func TestProbe(t *testing.T) {
 	}{
 		{"public", []string{"GH_OUT=PUBLIC\n"}, "", Visibility{State: StatePublic, Raw: "PUBLIC", Bound: b20}},
 		{"private lower-case", []string{"GH_OUT=private\n\n"}, "", Visibility{State: StatePrivate, Raw: "PRIVATE", Bound: b20}},
+		{"letter range edges", []string{"GH_OUT=az`{AZ"}, "", Visibility{State: StateUnrecognised, Raw: "AZ`{AZ", Bound: b20}},
 		{"internal", []string{"GH_OUT=Internal"}, "", Visibility{State: StateInternal, Raw: "INTERNAL", Bound: b20}},
 		{"error even printing PRIVATE", []string{"GH_OUT=PRIVATE", "GH_RC=1", "GH_ERR=HTTP 401: bad credentials\nmore"}, "",
 			Visibility{State: StateError, RC: 1, Why: "HTTP 401: bad credentials", Raw: "PRIVATE", Bound: b20}},
