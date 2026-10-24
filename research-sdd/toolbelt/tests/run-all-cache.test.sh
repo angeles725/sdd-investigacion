@@ -25,6 +25,8 @@ command -v git >/dev/null 2>&1 || { echo "FATAL: git not on PATH" >&2; exit 2; }
 command -v sha256sum >/dev/null 2>&1 || { echo "FATAL: sha256sum not on PATH" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
+# shellcheck source=lib/stage-run-all.sh
+. "$HERE/lib/stage-run-all.sh"
 mutant_bootstrap mutant_sed || exit 2
 TMP="$(mktemp -d)"
 trap 'chmod -R u+rwX "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
@@ -54,7 +56,7 @@ mksuite() {
 ctree() {
   local root="$TMP/$1" w; w="$root/$CT"
   mkdir -p "$w/lib" "$w/fixtures/a" "$root/research-sdd/install/tests" "$root/research-sdd/toolbelt"
-  cp "$SUT" "$w/run-all.sh"; cp "$IMP" "$w/suite-impact.sh"; cp "$HERE/lib/test-lane.sh" "$w/lib/test-lane.sh"
+  rsdd_stage_run_all "$w" "$SUT" || return 2; cp "$IMP" "$w/suite-impact.sh"
   mksuite "$w/a.test.sh" a 0 ': "$TB/alpha.sh" and fixtures'
   mksuite "$w/b.test.sh" b 0 ': "$TB/beta.sh"'
   mksuite "$w/c.test.sh" c 0 ': "$TB/gamma.sh"'

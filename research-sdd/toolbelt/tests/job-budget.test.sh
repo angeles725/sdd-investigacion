@@ -19,6 +19,8 @@ for f in "$LIB" "$RUNALL" "$WATCH" "$FIX/suite.sh"; do [ -f "$f" ] || { echo "FA
 command -v flock >/dev/null 2>&1 || { echo "FATAL: flock (util-linux) is not on PATH" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$LIB"
+# shellcheck source=lib/stage-run-all.sh
+. "$HERE/lib/stage-run-all.sh"
 TMP="$(mktemp -d)"; trap 'chmod -R u+rwX "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 # This suite's own cases build private budgets: one inherited from an outer run-all.sh must not leak in.
 unset MUTANT_JOBS MUTANT_JOB_TIMEOUT RSDD_JOB_SLOTS
@@ -147,7 +149,7 @@ fi
 runall_peak(){
   local name="$1" root m; shift; root="$TMP/$name/research-sdd/toolbelt/tests"; m="$TMP/$name-m"
   mkdir -p "$root/lib" "$TMP/$name/research-sdd/install/tests" "$m/live"; : > "$m/peaks"
-  cp "$RUNALL" "$root/run-all.sh"; cp "$HERE"/lib/*.sh "$root/lib/"; cp "$LIB" "$root/lib/mutant.sh"
+  rsdd_stage_run_all "$root" "$RUNALL" || return 2; cp "$LIB" "$root/lib/mutant.sh"
   if [ -f "$SLOTS_LIB" ]; then cp "$SLOTS_LIB" "$root/lib/job-slots.sh"; fi
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"
   cp "$FIX/suite.sh" "$root/a.test.sh"; cp "$FIX/suite.sh" "$root/b.test.sh"

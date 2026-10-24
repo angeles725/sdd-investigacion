@@ -13,6 +13,8 @@ SUT="${RUN_ALL_SHARD_SUT:-$HERE/run-all.sh}"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
+# shellcheck source=lib/stage-run-all.sh
+. "$HERE/lib/stage-run-all.sh"
 mutant_bootstrap mutant_sed mutant_chain || exit 2
 TMP="$(mktemp -d)"
 # run-all.sh scans the default rsdd root (#2164); keep this suite's runs off the real /tmp/rsdd.
@@ -31,7 +33,7 @@ mkfix(){ # file exitcode — a minimal passing (0) or failing (1) suite
 mktree(){
   local root="$TMP/$1/research-sdd" i
   mkdir -p "$root/toolbelt/tests" "$root/install/tests" "$root/../aux"
-  cp "$SUT" "$root/toolbelt/tests/run-all.sh"
+  rsdd_stage_run_all "$root/toolbelt/tests" "$SUT" || return 2
   for ((i = 1; i <= $2; i++)); do mkfix "$root/toolbelt/tests/t$(printf %02d "$i").test.sh" 0; done
   for ((i = 1; i <= $3; i++)); do mkfix "$root/install/tests/i$(printf %02d "$i").test.sh" 0; done
   # one node suite per corpus so the .test.mjs discovery/shard path is exercised too
@@ -115,7 +117,7 @@ d7="$(mktree absent 3 0)"; rm -rf "${d7%/toolbelt/tests}/install"
 shard_run "$d7" 1/3; rc=$?
 if [ "$rc" -eq 1 ] && grep -qF 'ABSENT-INPUT' "$d7/../../../aux/out.1-3"; then ok "shard keeps the install-corpus ABSENT-INPUT gate (exit 1)"
 else no "absent install corpus under --shard did not fail: rc=$rc"; fi
-d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; cp "$SUT" "$d7b/run-all.sh"; printf '# fixture: no extras\n' > "$d7b/suite-tiers.txt"
+d7b="$TMP/nolist/research-sdd/toolbelt/tests"; mkdir -p "$d7b" "$TMP/nolist/research-sdd/install/tests"; rsdd_stage_run_all "$d7b" "$SUT"; printf '# fixture: no extras\n' > "$d7b/suite-tiers.txt"
 bash "$d7b/run-all.sh" --shard 1/2 >/dev/null 2>&1; [ $? -eq 1 ] && ok "no suites at all still exits 1 under --shard" || no "empty discovery under --shard did not exit 1"
 
 # 8 — without --shard nothing new appears

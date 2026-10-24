@@ -19,6 +19,8 @@ SUT="$HERE/run-all.sh"   # the runner lives NEXT TO this test, not one dir up
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
+# shellcheck source=lib/stage-run-all.sh
+. "$HERE/lib/stage-run-all.sh"
 TMP="$(mktemp -d)"
 # Every copy of run-all.sh run below scans the default rsdd root (kit issue #2164). Point it at a private, ABSENT
 # dir for the whole suite so no case reads the real /tmp/rsdd (live sessions write there; it may be 0700 and
@@ -63,7 +65,7 @@ mkfix_harness(){ # file
 newdir(){ # case-name
   local root="$TMP/$1/research-sdd/toolbelt/tests"
   mkdir -p "$root"
-  cp "$SUT" "$root/run-all.sh"
+  rsdd_stage_run_all "$root" "$SUT"
   # Kit issue #1144 review finding #2 made an ABSENT install-tests corpus a hard gate failure
   # (nonzero exit), which is correct for the REAL repo but would otherwise force every OTHER
   # case in this file — none of which care about the install corpus — to also stand up an
@@ -74,25 +76,21 @@ newdir(){ # case-name
   # Suite tiers (kit issue #2203): an ABSENT suite-tiers.txt is a typed DEGRADED + exit 1, so every fixture
   # tree gets a comment-only manifest (= no extras) unless a case writes its own via tier_man().
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"
-  stage_job_slots "$root"
   printf '%s' "$root"
 }
-# stage_job_slots <toolbelt-tests-path> — run-all.sh -j N > 1 sources lib/job-slots.sh for its job budget (kit
-# issue #2338) and refuses an unbounded run without it, so every fixture tree carries the real helper.
-stage_job_slots(){ mkdir -p "$1/lib" && cp "$HERE/lib/job-slots.sh" "$1/lib/job-slots.sh"; }
 # install_dir_for <toolbelt-tests-path> — the research-sdd/install/tests sibling of a newdir()
 # result, mirroring the SUT's own SCRIPT_DIR/../../install/tests resolution.
 install_dir_for(){ printf '%s' "${1%/toolbelt/tests}/install/tests"; }
 # mut_workdir <name> — same nested-repo-shape + empty-install-sibling guarantee as newdir(), for
 # the --prove-teeth blocks below that build their OWN mutant run-all.sh (sed/cp) directly into a
-# fresh workdir instead of going through newdir(). Does NOT copy $SUT — callers write $w/run-all.sh
-# themselves.
+# fresh workdir instead of going through newdir(). It stages the REAL run-all.sh with its libs (the
+# callers then overwrite $w/run-all.sh with their mutant).
 mut_workdir(){ # name
   local root="$TMP/$1/research-sdd/toolbelt/tests"
   mkdir -p "$root"
   mkdir -p "$(install_dir_for "$root")"
   printf '# fixture: no extras\n' > "$root/suite-tiers.txt"   # see newdir(): an absent manifest is DEGRADED (kit issue #2203)
-  stage_job_slots "$root"
+  rsdd_stage_run_all "$root"
   printf '%s' "$root"
 }
 # A suite WITH teeth: handles --prove-teeth AND emits a "-- teeth:" banner.
