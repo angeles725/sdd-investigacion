@@ -40,7 +40,7 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver loc
 REGISTRY="$HERE/../reason-codes.v1.md"
 TOOLBELT="$HERE/.."
 
-SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh)
+SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
 REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
 # The extraction rule as an awk program (kept in one place; teeth mutate individual lines of it).
@@ -467,6 +467,8 @@ mkfix() {
   printf '%s\n' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' \
     'echo "degraded: migrate-backlogs: cannot read $f — proposal not computed" >&2' > "$d/scripts/migrate-backlogs.sh"
   printf '%s' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' >> "$d/scripts/migrate-backlogs.sh"
+  mkdir -p "$d/scripts/lib"
+  printf '%s' 'printf '"'"'degraded: rsdd-unavailable — %s\n'"'"' "$1" >&2' > "$d/scripts/lib/rsdd-exec.sh"
   {
     printf '%s\n' '# fixture registry' '' \
       '| code | class | emitters | meaning | continuation |' \
@@ -479,6 +481,7 @@ mkfix() {
       '| `degraded: jq failed on` | degraded | research-sdd-init.sh | m6 | fix settings.json |' \
       '| `degraded: migrate-backlogs: mktemp failed` | degraded | migrate-backlogs.sh | m10 | free TMPDIR space |' \
       '| `degraded: migrate-backlogs: cannot read` | degraded | migrate-backlogs.sh | m11 | fix the permissions |' \
+      '| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh | m12 | install go |' \
       '| `absent-input` | input | many | m7 | fix the path |' \
       '| `empty-input` | input | many | m8 | confirm emptiness |'
     printf '%s' '| `unclassifiable` | input | many | m9 | inspect by hand |'
@@ -574,6 +577,16 @@ mkfix mb_scanned
 grep -v 'migrate-backlogs' "$tmp/mb_scanned/reg.md" > "$tmp/mb_scanned/r" && mv "$tmp/mb_scanned/r" "$tmp/mb_scanned/reg.md"
 printf '%s' 'echo "degraded: migrate-backlogs: only reason" >&2' > "$tmp/mb_scanned/scripts/migrate-backlogs.sh"
 expect "a script missing from the scanned list would hide its codes: scanned, so unlisted fails" 1 "$tmp/mb_scanned/reg.md" "$tmp/mb_scanned/scripts" 'unlisted code emitted by migrate-backlogs.sh'
+# lib/rsdd-exec.sh is a scanned script (kit issue #2275): a lib/ path resolves under the scripts dir; same guards
+mkfix unl_rsdd
+printf '\n%s' 'echo "degraded: rsdd-brand-new — x" >&2' >> "$tmp/unl_rsdd/scripts/lib/rsdd-exec.sh"
+expect "unlisted lib/rsdd-exec.sh code fails" 1 "$tmp/unl_rsdd/reg.md" "$tmp/unl_rsdd/scripts" 'unlisted code emitted by lib/rsdd-exec.sh: degraded: rsdd-brand-new'
+mkfix rsdd_scanned
+grep -v 'rsdd-unavailable' "$tmp/rsdd_scanned/reg.md" > "$tmp/rsdd_scanned/r" && mv "$tmp/rsdd_scanned/r" "$tmp/rsdd_scanned/reg.md"
+expect "lib/rsdd-exec.sh missing from the scanned list would hide its code: scanned, so unlisted fails" 1 "$tmp/rsdd_scanned/reg.md" "$tmp/rsdd_scanned/scripts" 'unlisted code emitted by lib/rsdd-exec.sh: degraded: rsdd-unavailable'
+mkfix rsdd_absent
+rm -f "$tmp/rsdd_absent/scripts/lib/rsdd-exec.sh"
+expect "lib/rsdd-exec.sh absent -> DEGRADED rc 2 (not a clean pass)" 2 "$tmp/rsdd_absent/reg.md" "$tmp/rsdd_absent/scripts" 'DEGRADED: scanned script absent or unreadable: .*lib/rsdd-exec.sh'
 mkfix stale_mb
 edit "$tmp/stale_mb/reg.md" 's/^| `absent-input`/| `degraded: migrate-backlogs: ghost reason` | degraded | migrate-backlogs.sh | g | go |\
 | `absent-input`/'
@@ -863,7 +876,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   c = index($0, " #"); if (c \&\& c < p) next'
   tooth mb-unlisted   unl_mb     1 0 '/# TOOTH-UNLISTED/s/finding /: /'
   tooth mb-stale      stale_mb   1 0 '/# TOOTH-STALE/s/finding /: /'
-  tooth mb-scanned    mb_scanned    1 0 '/^SCRIPTS=(/s/ migrate-backlogs.sh)/)/'
+  tooth mb-scanned    mb_scanned    1 0 '/^SCRIPTS=(/s/ migrate-backlogs.sh / /'
+  tooth rsdd-scanned rsdd_scanned 1 0 '/^SCRIPTS=(/s/ lib\/rsdd-exec.sh)/)/'
   tooth mb-emitter    mb_emitter 1 0 '/# TOOTH-EMITTER/s/finding /: /'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
