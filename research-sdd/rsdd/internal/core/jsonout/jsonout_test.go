@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -239,7 +240,11 @@ func TestRejectsBytesLikePythonDoes(t *testing.T) {
 
 // A cycle made only of pointers or interfaces never enters list() or object(), so the container bound
 // alone cannot stop it: Go cannot recover from the resulting stack overflow (#2293).
+// The test lowers the goroutine stack ceiling from Go's 1 GB default to 64 MB (a legit MaxDepth chain uses
+// well under 2 MB), so a guard that stops counting dies at 64 MB instead of growing a 1 GB stack: the
+// gremlins mutant e.indirections-- reached 1 GB RSS per test binary before this cap.
 func TestIndirectionOnlyCyclesAreBounded(t *testing.T) {
+	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20))
 	for name, mk := range map[string]func() any{
 		"self-referential pointer": func() any { var p any; p = &p; return p },
 		"interface cycle":          func() any { var a, b any; a = &b; b = &a; return a },

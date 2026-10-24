@@ -11,6 +11,23 @@ BIN_DIR := ../bin
 SOURCE_HASH_SYM := github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/commands.sourceHash
 export CGO_ENABLED := 0
 
+# Every test binary that `make test` or `make teeth` starts runs under a memory cap and a timeout, so a
+# runaway (a gremlins mutant that allocated without bound OOM-killed the 7 GB CI runner) dies as a test
+# FAILURE - KILLED for gremlins - instead of starving the host. The cap is RLIMIT_AS (ulimit -v, KiB) set
+# by a generated `go test -exec` wrapper: only test binaries and what they spawn are capped, never the
+# compiler or linker, so the cap cannot turn into a build failure. The Go runtime alone reserves ~512 MiB
+# of address space at start and the largest clean test binary peaks at ~70 MB RSS. TEST_MEM_KB=unlimited
+# opts out explicitly (for a platform without ulimit -v); a cap that cannot be set fails the target.
+TEST_MEM_KB  ?= 1048576
+TEST_TIMEOUT ?= 5m
+TESTFLAGS    ?=
+define CAPPED
+d="$$(mktemp -d)" && trap 'rm -rf "$$d"' EXIT && case "$$d" in *[[:space:]]*) echo "temp dir path has whitespace: $$d" >&2; exit 2 ;; esac && \
+( ulimit -v $(TEST_MEM_KB) ) || { echo "cannot set ulimit -v $(TEST_MEM_KB) (set TEST_MEM_KB=unlimited to opt out)" >&2; exit 2; } && \
+printf '#!/bin/sh\nulimit -v %s || exit 97\nexec "$$@"\n' '$(TEST_MEM_KB)' >"$$d/capexec" && chmod +x "$$d/capexec" && \
+GOFLAGS="$$GOFLAGS -exec=$$d/capexec"
+endef
+
 .PHONY: check fmt-check vet test race lint teeth cross parity build
 
 check: fmt-check vet test
@@ -22,7 +39,7 @@ vet:
 	go vet ./...
 
 test:
-	go test ./...
+	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
 
 # -race needs cgo, so this target overrides the CGO_ENABLED=0 default.
 race:
@@ -36,9 +53,10 @@ lint:
 # (rsdd-go.test.sh --prove-teeth), not by a percentage: this target prints
 # gremlins' report and exits 0 whatever the efficacy. Timed-out mutants are
 # reported, not failed; the raised timeout coefficient keeps a loaded machine
-# from turning kills into timeouts.
+# from turning kills into timeouts. Each mutant's test binary runs under the CAPPED wrapper (GOFLAGS
+# reaches the `go test` gremlins starts); `go run -exec=env` keeps gremlins itself and its builds uncapped.
 teeth:
-	go run $(GREMLINS) unleash --timeout-coefficient 6 .
+	@$(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 .
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \

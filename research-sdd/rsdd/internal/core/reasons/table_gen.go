@@ -111,14 +111,16 @@ var (
 	DegradedMigrateBacklogsAwkFailedReading = Code{52}
 	// DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt is the registry row "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at".
 	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt = Code{53}
+	// DegradedRsddUnavailable is the registry row "degraded: rsdd-unavailable".
+	DegradedRsddUnavailable = Code{54}
 	// AbsentInput is the registry row "absent-input".
-	AbsentInput = Code{54}
+	AbsentInput = Code{55}
 	// EmptyInput is the registry row "empty-input".
-	EmptyInput = Code{55}
+	EmptyInput = Code{56}
 	// Unclassifiable is the registry row "unclassifiable".
-	Unclassifiable = Code{56}
+	Unclassifiable = Code{57}
 	// NoMatch is the registry row "no-match".
-	NoMatch = Code{57}
+	NoMatch = Code{58}
 )
 
 var table = []entry{
@@ -174,7 +176,8 @@ var table = []entry{
 	{text: "degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the state-file scan failed; this is NOT the same as no state files", continuation: "run the scan by hand on the target, fix the cause, then re-run `migrate-backlogs.sh`"},
 	{text: "degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the FOCUSES.md scan failed, so the document-focus check has no verdict", continuation: "run `find` for FOCUSES.md by hand on the target, fix the cause, then re-run `migrate-backlogs.sh`"},
 	{text: "degraded: migrate-backlogs: awk failed reading", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "awk failed reading a FOCUSES.md, so the document-focus check was not computed", continuation: "run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at", class: ClassDegraded, emitters: []string{"research-sdd-status.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "research-sdd-init.sh", "migrate-backlogs.sh"}, meaning: "the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found", continuation: "re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path"},
+	{text: "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at", class: ClassDegraded, emitters: []string{"research-sdd-status.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "research-sdd-init.sh", "migrate-backlogs.sh", "lib/rsdd-exec.sh"}, meaning: "the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found", continuation: "re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path"},
+	{text: "degraded: rsdd-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh"}, meaning: "the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>` or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line)", continuation: "install Go and re-run, or build it by hand (`cd research-sdd/rsdd && go build -o ../bin/rsdd ./cmd/rsdd`), or point `RSDD_BIN` at an executable `rsdd`"},
 	{text: "absent-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "retro-gate.sh", "stage-retro-issues.sh", "sweep-audits.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-registry.sh", "verify-retro.sh", "verify-session-budget.sh", "verify-tool-catalog.sh"}, meaning: "the file or directory was not found or not traversable", continuation: "fix the path or restore the input, then re-run; do not read the result as zero"},
 	{text: "empty-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "score-loop-transcript.sh", "stage-retro-issues.sh", "sweep-audits-hook.sh", "sweep-audits.sh", "sweep-breakthroughs-hook.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-session-budget.sh", "verify-tool-catalog.sh", "maint/kit-size-check.sh"}, meaning: "the input exists and is genuinely empty", continuation: "confirm the emptiness is real; nothing to repair"},
 	{text: "unclassifiable", class: ClassInput, emitters: []string{"focus-partition-audit.sh", "reconcile-issues.sh", "retro-gate.sh", "stage-retro-issues.sh", "verify-cd-physical.sh", "verify-registry.sh"}, meaning: "items exist but the instrument could not classify them", continuation: "inspect the listed items by hand and extend the instrument's recognised forms if they are legitimate"},
