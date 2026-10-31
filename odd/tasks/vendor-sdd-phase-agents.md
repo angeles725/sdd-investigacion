@@ -35,9 +35,9 @@ Out of scope: pi / gentle-shell deployment; deleting the restored `~/.claude/age
 
 ## Tasks
 
-- [ ] T1 — vendor + rename agents, skills and shared files; attribution file (route: delegated writer, trigger: 2+ non-trivial files)
-- [ ] T2 — installer deploys/verifies/uninstalls the new set; tests with RED + teeth (route: same writer)
-- [ ] T3 — `CLAUDE.md` §2 + doc references (route: same writer)
+- [x] T1 — vendor + rename agents, skills and shared files; attribution file (route: delegated writer, trigger: 2+ non-trivial files) — 0b090138
+- [x] T2 — installer deploys/verifies/uninstalls the new set; tests with RED + teeth (route: same writer) — 2e236e6e, b93ffe40
+- [x] T3 — `CLAUDE.md` §2 + doc references (route: same writer) — d8f57170
 - [ ] T4 — quiet-tree full gate (orchestrator, needs heavy slot), RDD assess, PR, Opus review
 
 ## Acceptance criteria
@@ -50,3 +50,5 @@ Out of scope: pi / gentle-shell deployment; deleting the restored `~/.claude/age
 ## Progress
 
 - 2026-10-31: issue #2351 created (status:approved); ODD doc created; writer pending.
+- Writer: RED executed against the pre-change SUT (20 phase/golden cases failed for the right reason). Install suite 306/0 plain, 467/0 with --prove-teeth; kit-writer-check Findings: 0. Authored +485/-19 (incl. 32 generated golden lines), vendored +4664. Not pushed. T4 pending (orchestrator: quiet-tree gate, RDD, PR).
+- Follow-up noticed: `research-sdd/install/install.sh` SENTINEL-AGENTS-NOTICE still looks for `~/.claude/agents/sdd-apply.md` (pinned by `toolbelt/tests/install.test.sh`); outside this unit's surfaces.
