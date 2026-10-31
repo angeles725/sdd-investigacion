@@ -53,3 +53,12 @@ Out of scope: pi / gentle-shell deployment; deleting the restored `~/.claude/age
 - Writer: RED executed against the pre-change SUT (20 phase/golden cases failed for the right reason). Install suite 306/0 plain, 467/0 with --prove-teeth; kit-writer-check Findings: 0. Authored +485/-19 (incl. 32 generated golden lines), vendored +4664. Not pushed. T4 pending (orchestrator: quiet-tree gate, RDD, PR).
 - Correction (orchestrator): vendored the 3 remaining `_shared/` files the phase skills reference (skill-resolver, engram-convention, research-lifecycle) into `research-sdd-phase-shared/` (now 8 files) and rewrote every `_shared/` reference; the static guard now fails on ANY `_shared/`. RED executed first (guard failed on init/SKILL.md:75 and research/SKILL.md:53). Install suite 306/0 plain, 470/0 teeth; kit-writer-check Findings: 0. Commit SHA: see git log (subject `fix(vendor): make the phase skills self-contained ...`).
 - Follow-up noticed: `research-sdd/install/install.sh` SENTINEL-AGENTS-NOTICE still looks for `~/.claude/agents/sdd-apply.md` (pinned by `toolbelt/tests/install.test.sh`); outside this unit's surfaces.
+- Follow-up filed as #2352 (install.sh notice). Open note for the PR: `research-sdd-phase-shared/sdd-orchestrator-workflow.md:270` mentions `persistence-contract.md` living under the global skills dir; it is prose, not a read path, and the file is not vendored — candidate one-file follow-up.
+- 2026-10-31 session close: the quiet-tree full gate (`run-all.sh --prove-teeth`, serial) was started at a43569f4 and STOPPED by the user at 80 of 198 core suites (5,039 passed, 0 failed so far) to save time; its temp leftovers were removed. That partial run is NOT a gate result.
+
+## Next step (resume here)
+
+1. Re-run the full gate on a quiet tree, in parallel to save time: `bash research-sdd/toolbelt/tests/run-all.sh --prove-teeth -j 4` (logs under `~/investigacion/sdd-investigacion-worktrees/2351-data/`, one heavy run machine-wide). Demand the full aggregate line.
+2. `gentle-ai review assess --cwd <worktree> --json` over the branch; follow the RDD consent/review if due.
+3. Open the PR for `feat/2351-vendor-sdd-phase-agents` (closes #2351) with the RED lines from this document, then the Opus adversarial review; merge after CI.
+4. After merge: `research-sdd-install.sh --harness claude` on this machine to deploy `research-sdd-phase-*`.
