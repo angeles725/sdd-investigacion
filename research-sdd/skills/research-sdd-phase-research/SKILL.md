@@ -50,4 +50,4 @@ Return `status` (`done | partial | blocked`), `executive_summary`, `sources`, `c
 
 ## References
 
-- `../_shared/research-lifecycle.md`
+- `../research-sdd-phase-shared/research-lifecycle.md`

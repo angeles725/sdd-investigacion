@@ -2841,11 +2841,11 @@ fi
 # vendored SDD phase agents + skills + shared files (kit issue #2351)
 # gentle-ai >= 4.1.0 retired SDD and its `sync` deletes ~/.claude/agents/sdd-*, ~/.claude/skills/sdd-* and the SDD
 # files in ~/.claude/skills/_shared/. The kit vendors them as research-sdd-phase-<phase> (agents/claude/*.md and
-# skills/research-sdd-phase-<phase>/), plus skills/research-sdd-phase-shared/ (5 files, no SKILL.md), and the
+# skills/research-sdd-phase-<phase>/), plus skills/research-sdd-phase-shared/ (8 files, no SKILL.md), and the
 # installer deploys the skill files (claude only) as bundle members: --verify covers them, --uninstall removes them.
 echo "-- #2351: vendored SDD phase agents, skills and shared files --"
 PH_PHASES="apply archive design explore init onboard propose research spec tasks verify"
-PH_SHARED_FILES="openspec-convention.md sdd-orchestrator-sections.md sdd-orchestrator-workflow.md sdd-phase-common.md sdd-status-contract.md"
+PH_SHARED_FILES="engram-convention.md openspec-convention.md research-lifecycle.md sdd-orchestrator-sections.md sdd-orchestrator-workflow.md sdd-phase-common.md sdd-status-contract.md skill-resolver.md"
 PH_SKILLS_SRC="$KITROOT/skills"
 PH_REL_LIST="$(cd "$PH_SKILLS_SRC" && find research-sdd-phase-* -type f | LC_ALL=C sort)"
 PH_N="$(printf '%s\n' "$PH_REL_LIST" | awk 'NF' | wc -l)"
@@ -2854,7 +2854,7 @@ PH_LAST="$(printf '%s\n' "$PH_REL_LIST" | tail -n 1)"
 PH_MID="research-sdd-phase-design/references/threat-matrix.md"   # a nested, single-file references/ dir
 
 # Source shape: 11 agents named after their file with description/model/tools, 11 skill dirs with a SKILL.md, and
-# a shared dir holding exactly the 5 shared files and NO SKILL.md (it must never register as a skill).
+# a shared dir holding exactly the 8 shared files and NO SKILL.md (it must never register as a skill).
 ph_bad=""
 for p in $PH_PHASES; do
   af="$KITROOT/agents/claude/research-sdd-phase-$p.md"
@@ -2870,13 +2870,14 @@ _ph_sh="$(cd "$PH_SKILLS_SRC/research-sdd-phase-shared" 2>/dev/null && find . -t
 [ "$_ph_sh" = "$(printf '%s ' $PH_SHARED_FILES)" ] || ph_bad="$ph_bad shared-set=[$_ph_sh]"
 _ph_nagents="$(find "$KITROOT/agents/claude" -maxdepth 1 -name 'research-sdd-phase-*.md' | wc -l)"
 [ "$_ph_nagents" = 11 ] || ph_bad="$ph_bad agents=$_ph_nagents"
-if [ -z "$ph_bad" ]; then ok "phase: 11 agents (name=file, description, model, tools) + 11 skill dirs with SKILL.md + a shared dir of exactly the 5 shared files and no SKILL.md"
+if [ -z "$ph_bad" ]; then ok "phase: 11 agents (name=file, description, model, tools) + 11 skill dirs with SKILL.md + a shared dir of exactly the 8 shared files and no SKILL.md"
 else no "phase: vendored source malformed:$ph_bad"; fi
 if [ -f "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md" ] && grep -q 'Copyright (c) 2025 Gentleman Programming' "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md" \
    && grep -q 'Permission is hereby granted' "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md"; then ok "phase: the MIT notice (Gentleman Programming) ships with the vendored files"
 else no "phase: vendor/gentle-ai-sdd/NOTICE.md is missing or lacks the MIT text/copyright"; fi
 
-# Static guard: nothing vendored may point at a path gentle-ai sync deletes or at an agent still named sdd-<phase>.
+# Static guard: nothing vendored may point into gentle-ai's _shared/ dir (ANY file: gentle-ai owns it and may prune
+# it in a later release) or at skills/sdd-*, or at an agent still named sdd-<phase>.
 # Silent = clean. A missing target or an empty scan is reported (a guard that scanned nothing proves nothing).
 _phase_stale_refs() {
   local d g rc n=0
@@ -2885,7 +2886,7 @@ _phase_stale_refs() {
     n=$((n+1))
     g=0
     grep -rnE -e 'skills/sdd-' \
-      -e '_shared/(sdd-phase-common|openspec-convention|sdd-orchestrator-sections|sdd-orchestrator-workflow|sdd-status-contract)' \
+      -e '_shared/' \
       -e '(^|[^A-Za-z0-9/._-])sdd-(apply|archive|design|explore|init|onboard|propose|research|spec|tasks|verify)([^A-Za-z0-9_-]|$)' \
       "$d" 2>&1 || g=$?
     [ "$g" -le 1 ] || printf '%s: grep failed rc=%s\n' "$d" "$g"
@@ -2893,7 +2894,7 @@ _phase_stale_refs() {
   [ "$n" -gt 0 ] || printf 'nothing to scan\n'
 }
 _ph_guard="$(_phase_stale_refs "$KITROOT"/agents/claude/research-sdd-phase-*.md "$KITROOT"/skills/research-sdd-phase-*)"
-if [ -z "$_ph_guard" ]; then ok "phase: no vendored file references skills/sdd-*, the five old _shared/ paths or an agent named sdd-<phase>"
+if [ -z "$_ph_guard" ]; then ok "phase: no vendored file references skills/sdd-*, any _shared/ path or an agent named sdd-<phase>"
 else no "phase: stale references in vendored files: $(printf '%s' "$_ph_guard" | cut -c1-160 | head -5 | tr '\n' '|')"; fi
 
 # Deploy into a sandbox home (never the real ~/.claude).
@@ -2954,8 +2955,8 @@ else no "phase: deleted skill file not reported (rc=$rc_v): $v"; fi
 rm -rf "$h/.claude/skills/research-sdd-phase-shared"
 v="$(bash "$SUT" --verify --home "$h" --harness claude 2>&1)"
 _ph_nmiss="$(grep -o 'skills/research-sdd-phase-shared/[^ ]* (missing)' <<<"$v" | wc -l)"
-if [ "$_ph_nmiss" = 5 ]; then ok "phase: a deleted shared dir (what gentle-ai sync would do) is reported as 5 missing members"
-else no "phase: deleted shared dir reported $_ph_nmiss missing members, expected 5: $v"; fi
+if [ "$_ph_nmiss" = 8 ]; then ok "phase: a deleted shared dir (what gentle-ai sync would do) is reported as 8 missing members"
+else no "phase: deleted shared dir reported $_ph_nmiss missing members, expected 8: $v"; fi
 
 # A record written without the phase skill members must not verify as match: the comparison set is the kit's current set.
 h="$TMP/phase-prerecord"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
@@ -3079,6 +3080,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   _g_one skill-path 'Read ~/.claude/skills/sdd-apply/SKILL.md and follow it'
   _g_one shared-path 'Also read ~/.claude/skills/_shared/sdd-phase-common.md'
+  _g_one shared-other-file 'See ../_shared/engram-convention.md for artifact naming'
   _g_one agent-name 'next_recommended: `sdd-spec` and `sdd-design`'
   _g_one frontmatter-name 'name: sdd-verify'
   g="$gdir/clean"; rm -rf "$g"; mkdir -p "$g"; cp -R "$KITROOT"/skills/research-sdd-phase-* "$g/"

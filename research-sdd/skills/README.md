@@ -78,7 +78,7 @@ cp research-sdd/skills/kit-chained-pr/SKILL.md ~/.claude/skills/kit-chained-pr/S
 ## SDD phase skills (vendored, deployed by the installer)
 
 `research-sdd-phase-<phase>/` (apply, archive, design, explore, init, onboard, propose, research, spec,
-tasks, verify) and `research-sdd-phase-shared/` (the five shared files; no `SKILL.md`) are the skills read by
+tasks, verify) and `research-sdd-phase-shared/` (the eight shared files; no `SKILL.md`) are the skills read by
 the SDD phase agents `research-sdd/agents/claude/research-sdd-phase-<phase>.md`. They are vendored from
 gentle-ai <= 4.0.0 (MIT; see `research-sdd/vendor/gentle-ai-sdd/NOTICE.md`) because gentle-ai >= 4.1.0 retired
 SDD and its `sync` deletes the `sdd-*` originals. Unlike the skills above, you do not copy them by hand:

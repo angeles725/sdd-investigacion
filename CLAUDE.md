@@ -45,7 +45,7 @@ Verified against the agent definitions the installer deploys to `~/.claude/agent
 sonnet; `research-sdd-phase-archive.md` → haiku; the 4R review lenses → sonnet; FABLE has no agent file and
 is selected via an inline `model:` on the Agent call.
 
-The SDD phase agents (11), their skills (11) and the five shared files are **versioned in the kit** under
+The SDD phase agents (11), their skills (11) and the eight shared files are **versioned in the kit** under
 `research-sdd/agents/claude/research-sdd-phase-*.md` and `research-sdd/skills/research-sdd-phase-*/`
 (`research-sdd-phase-shared/` holds the shared files), vendored from gentle-ai (MIT, notice in
 `research-sdd/vendor/gentle-ai-sdd/NOTICE.md`), and **deployed by the installer**

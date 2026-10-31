@@ -207,7 +207,7 @@ Maintain a session-scoped launch log of `(phase, task-fingerprint)` pairs. If th
 
 ### Sub-Agent Launch Protocol
 
-ALL sub-agent launch prompts that involve reading, writing, or reviewing code MUST include pre-resolved skill paths from the skill registry. Follow `~/.claude/skills/_shared/skill-resolver.md`.
+ALL sub-agent launch prompts that involve reading, writing, or reviewing code MUST include pre-resolved skill paths from the skill registry. Follow `~/.claude/skills/research-sdd-phase-shared/skill-resolver.md`.
 
 Resolve skills once per session, cache the registry, and pass exact `SKILL.md` paths. If a delegated result reports `skill_resolution` as `fallback-registry`, `fallback-path`, or `none`, re-read the registry before subsequent delegations.
 

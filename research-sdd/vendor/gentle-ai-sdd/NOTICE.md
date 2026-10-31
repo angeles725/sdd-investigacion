@@ -9,7 +9,7 @@ here and deploys them under its own `research-sdd-phase-` namespace (kit issue #
 |---|---|
 | `research-sdd/agents/claude/research-sdd-phase-<phase>.md` (11) | `~/.claude/agents/sdd-<phase>.md` |
 | `research-sdd/skills/research-sdd-phase-<phase>/**` (11 dirs) | `~/.claude/skills/sdd-<phase>/**` |
-| `research-sdd/skills/research-sdd-phase-shared/*.md` (5) | `~/.claude/skills/_shared/{sdd-phase-common,openspec-convention,sdd-orchestrator-sections,sdd-orchestrator-workflow,sdd-status-contract}.md` |
+| `research-sdd/skills/research-sdd-phase-shared/*.md` (8) | `~/.claude/skills/_shared/{sdd-phase-common,openspec-convention,sdd-orchestrator-sections,sdd-orchestrator-workflow,sdd-status-contract,skill-resolver,engram-convention,research-lifecycle}.md` |
 
 `<phase>` is one of: apply, archive, design, explore, init, onboard, propose, research, spec, tasks, verify.
 
@@ -19,7 +19,7 @@ Byte copies except identifier and path renames, nothing else:
 
 - frontmatter `name: sdd-<phase>` becomes `name: research-sdd-phase-<phase>`;
 - `~/.claude/skills/sdd-<phase>/` becomes `~/.claude/skills/research-sdd-phase-<phase>/`;
-- the five shared files moved from `~/.claude/skills/_shared/` to `~/.claude/skills/research-sdd-phase-shared/`
+- the eight shared files (the five SDD ones plus the three the phase skills reference) moved from `~/.claude/skills/_shared/` to `~/.claude/skills/research-sdd-phase-shared/`
   (file names unchanged), and every path reference to them was updated;
 - an agent reference `sdd-<phase>` becomes `research-sdd-phase-<phase>`; the `sdd-*` skip pattern in the init
   registry-scan rule names the renamed skills.

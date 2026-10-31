@@ -17,7 +17,7 @@ per-machine `~/.claude/agents/`.
 ## Scope
 
 - 11 agents → `research-sdd/agents/claude/research-sdd-phase-<phase>.md`
-- 11 skill dirs + 5 shared files → kit source, deployed to `~/.claude/skills/research-sdd-phase-<phase>/` and
+- 11 skill dirs + 8 shared files (5 SDD + 3 resolver/convention files they reference) → kit source, deployed to `~/.claude/skills/research-sdd-phase-<phase>/` and
   `~/.claude/skills/research-sdd-phase-shared/` (claude harness only)
 - installer: install, `--verify`, `--uninstall`, `--force-skill`, `--dry-run` cover the new managed set
 - `CLAUDE.md` §2 and any kit doc naming the old agents updated
@@ -51,4 +51,5 @@ Out of scope: pi / gentle-shell deployment; deleting the restored `~/.claude/age
 
 - 2026-10-31: issue #2351 created (status:approved); ODD doc created; writer pending.
 - Writer: RED executed against the pre-change SUT (20 phase/golden cases failed for the right reason). Install suite 306/0 plain, 467/0 with --prove-teeth; kit-writer-check Findings: 0. Authored +485/-19 (incl. 32 generated golden lines), vendored +4664. Not pushed. T4 pending (orchestrator: quiet-tree gate, RDD, PR).
+- Correction (orchestrator): vendored the 3 remaining `_shared/` files the phase skills reference (skill-resolver, engram-convention, research-lifecycle) into `research-sdd-phase-shared/` (now 8 files) and rewrote every `_shared/` reference; the static guard now fails on ANY `_shared/`. RED executed first (guard failed on init/SKILL.md:75 and research/SKILL.md:53). Install suite 306/0 plain, 470/0 teeth; kit-writer-check Findings: 0. Commit SHA: see git log (subject `fix(vendor): make the phase skills self-contained ...`).
 - Follow-up noticed: `research-sdd/install/install.sh` SENTINEL-AGENTS-NOTICE still looks for `~/.claude/agents/sdd-apply.md` (pinned by `toolbelt/tests/install.test.sh`); outside this unit's surfaces.
