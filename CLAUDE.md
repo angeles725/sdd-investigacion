@@ -40,13 +40,19 @@ For reading and deciding, file count never forces a route: the budget is evidenc
 | Archive / onboarding (copy-and-close) | HAIKU | Mechanical only |
 | Adversarial PR review gate | FABLE | Fresh-context cross-check |
 
-Verified against the harness agent definitions in `~/.claude/agents/`: `sdd-propose.md` / `sdd-design.md`
-→ opus; `sdd-apply.md` → sonnet; `sdd-archive.md` → haiku; the 4R review lenses → sonnet; FABLE has no
-agent file and is selected via an inline `model:` on the Agent call.
+Verified against the agent definitions the installer deploys to `~/.claude/agents/`:
+`research-sdd-phase-propose.md` / `research-sdd-phase-design.md` → opus; `research-sdd-phase-apply.md` →
+sonnet; `research-sdd-phase-archive.md` → haiku; the 4R review lenses → sonnet; FABLE has no agent file and
+is selected via an inline `model:` on the Agent call.
 
-Note that `~/.claude/agents/` is **per-machine and not in this repo** — a fresh clone does not get it.
-That is precisely the gap this file exists to close, so treat the table above as the authority and the
-agent files as one machine's implementation of it.
+The SDD phase agents (11), their skills (11) and the five shared files are **versioned in the kit** under
+`research-sdd/agents/claude/research-sdd-phase-*.md` and `research-sdd/skills/research-sdd-phase-*/`
+(`research-sdd-phase-shared/` holds the shared files), vendored from gentle-ai (MIT, notice in
+`research-sdd/vendor/gentle-ai-sdd/NOTICE.md`), and **deployed by the installer**
+(`research-sdd-install.sh --harness claude`; `--verify` covers them, `--uninstall` removes them). They carry
+the `research-sdd-phase-` prefix because gentle-ai >= 4.1.0 retired SDD and its `sync` deletes
+`~/.claude/agents/sdd-*`, `~/.claude/skills/sdd-*` and the SDD files in `~/.claude/skills/_shared/`. FABLE
+has no file, so the table above stays the authority and the agent files are its implementation.
 
 **FABLE maxim:** a test that never goes red is theater. Green without a mutation check does not establish
 that the assertion bites.
@@ -115,9 +121,9 @@ worktree is fine for your own runs — three-lane #2. Either way each worktree n
 bytes differ — and it must live under the home directory as
 `<repo-parent>/<repo-name>-worktrees/<name>`, never `/tmp`.
 
-**`sdd-design` and other architectural-phase agents must not edit source files.** A delegation prompt
+**`research-sdd-phase-design` and other architectural-phase agents must not edit source files.** A delegation prompt
 for a design or planning agent must say "artifact only, no source edits"; if the agent needs
-filesystem access, launch it with `isolation: "worktree"`. Unit 7's sdd-design agent stray-edited
+filesystem access, launch it with `isolation: "worktree"`. Unit 7's design agent (then named `sdd-design`) stray-edited
 live `METHODOLOGY.md` on the shared checkout; `git restore` discarded it and apply re-ran from
 scratch — doc-lane #1.
 
