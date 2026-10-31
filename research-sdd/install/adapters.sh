@@ -110,6 +110,14 @@ declare -A _RSDD_AGENTS_SRC_RELKIT=(
   [pi]="agents/pi"
   [gentle-shell]="agents/pi"
 )
+# WHERE: the vendored SDD phase skills (kit issue #2351), as a directory RELATIVE TO the kit root holding the
+# skill dirs `research-sdd-phase-<phase>/` plus the shared-files dir `research-sdd-phase-shared/`; every regular
+# file under them is deployed to <config_root>/skills/<same relative path>. Empty/absent = the harness gets none.
+# Claude only: the phase agents (agents/claude/research-sdd-phase-*.md) read these skills at
+# ~/.claude/skills/research-sdd-phase-*; pi and gentle-shell ship neither the agents nor the skills.
+declare -A _RSDD_PHASE_SKILLS_SRC_RELKIT=(
+  [claude]="skills"
+)
 # WHAT + WHERE: does the harness resolve a subagent's model from <config_root>/subagents.json `model_profiles`
 # (kit issue #2124)? `true` makes the installer PRINT (never write) a model_profiles snippet for the tier agents
 # and makes --verify report whether each has a profile. The project file <cwd>/.pi/subagents.json merges over it.
@@ -180,6 +188,7 @@ rsdd_field() {
     agents_dir)       printf '%s\n' "$root/agents" ;;
     agents_src_relkit) printf '%s\n' "${_RSDD_AGENTS_SRC_RELKIT[$harness]:-}" ;;
     skill_src_relkit) printf '%s\n' "${_RSDD_SKILL_SRC_RELKIT[$harness]:-}" ;;
+    phase_skills_src_relkit) printf '%s\n' "${_RSDD_PHASE_SKILLS_SRC_RELKIT[$harness]:-}" ;;
     prompt_profile) printf '%s\n' "${_RSDD_DEFAULT_PROFILE[$harness]:-}" ;;
     *) echo "rsdd_field: unknown field '$field'" >&2; return 2 ;;
   esac

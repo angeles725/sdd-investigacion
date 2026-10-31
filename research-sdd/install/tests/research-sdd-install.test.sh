@@ -2838,6 +2838,302 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 fi
 
 # =====================================================================================================
+# vendored SDD phase agents + skills + shared files (kit issue #2351)
+# gentle-ai >= 4.1.0 retired SDD and its `sync` deletes ~/.claude/agents/sdd-*, ~/.claude/skills/sdd-* and the SDD
+# files in ~/.claude/skills/_shared/. The kit vendors them as research-sdd-phase-<phase> (agents/claude/*.md and
+# skills/research-sdd-phase-<phase>/), plus skills/research-sdd-phase-shared/ (5 files, no SKILL.md), and the
+# installer deploys the skill files (claude only) as bundle members: --verify covers them, --uninstall removes them.
+echo "-- #2351: vendored SDD phase agents, skills and shared files --"
+PH_PHASES="apply archive design explore init onboard propose research spec tasks verify"
+PH_SHARED_FILES="openspec-convention.md sdd-orchestrator-sections.md sdd-orchestrator-workflow.md sdd-phase-common.md sdd-status-contract.md"
+PH_SKILLS_SRC="$KITROOT/skills"
+PH_REL_LIST="$(cd "$PH_SKILLS_SRC" && find research-sdd-phase-* -type f | LC_ALL=C sort)"
+PH_N="$(printf '%s\n' "$PH_REL_LIST" | awk 'NF' | wc -l)"
+PH_FIRST="$(printf '%s\n' "$PH_REL_LIST" | sed -n 1p)"
+PH_LAST="$(printf '%s\n' "$PH_REL_LIST" | tail -n 1)"
+PH_MID="research-sdd-phase-design/references/threat-matrix.md"   # a nested, single-file references/ dir
+
+# Source shape: 11 agents named after their file with description/model/tools, 11 skill dirs with a SKILL.md, and
+# a shared dir holding exactly the 5 shared files and NO SKILL.md (it must never register as a skill).
+ph_bad=""
+for p in $PH_PHASES; do
+  af="$KITROOT/agents/claude/research-sdd-phase-$p.md"
+  [ -f "$af" ] || { ph_bad="$ph_bad agent-$p-missing"; continue; }
+  _fm="$(awk 'NR==1 { if ($0!="---") exit; next } $0=="---" { exit } { print }' "$af")"
+  [ "$(printf '%s\n' "$_fm" | awk -F': *' '$1=="name" { print $2 }')" = "research-sdd-phase-$p" ] || ph_bad="$ph_bad agent-$p-name"
+  grep -q '^description: .' <<<"$_fm" || ph_bad="$ph_bad agent-$p-description"
+  grep -q '^model: .' <<<"$_fm" || ph_bad="$ph_bad agent-$p-model"
+  grep -q '^tools: .' <<<"$_fm" || ph_bad="$ph_bad agent-$p-tools"
+  [ -f "$PH_SKILLS_SRC/research-sdd-phase-$p/SKILL.md" ] || ph_bad="$ph_bad skill-$p-missing"
+done
+_ph_sh="$(cd "$PH_SKILLS_SRC/research-sdd-phase-shared" 2>/dev/null && find . -type f | sed 's|^\./||' | LC_ALL=C sort | tr '\n' ' ')"
+[ "$_ph_sh" = "$(printf '%s ' $PH_SHARED_FILES)" ] || ph_bad="$ph_bad shared-set=[$_ph_sh]"
+_ph_nagents="$(find "$KITROOT/agents/claude" -maxdepth 1 -name 'research-sdd-phase-*.md' | wc -l)"
+[ "$_ph_nagents" = 11 ] || ph_bad="$ph_bad agents=$_ph_nagents"
+if [ -z "$ph_bad" ]; then ok "phase: 11 agents (name=file, description, model, tools) + 11 skill dirs with SKILL.md + a shared dir of exactly the 5 shared files and no SKILL.md"
+else no "phase: vendored source malformed:$ph_bad"; fi
+if [ -f "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md" ] && grep -q 'Copyright (c) 2025 Gentleman Programming' "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md" \
+   && grep -q 'Permission is hereby granted' "$KITROOT/vendor/gentle-ai-sdd/NOTICE.md"; then ok "phase: the MIT notice (Gentleman Programming) ships with the vendored files"
+else no "phase: vendor/gentle-ai-sdd/NOTICE.md is missing or lacks the MIT text/copyright"; fi
+
+# Static guard: nothing vendored may point at a path gentle-ai sync deletes or at an agent still named sdd-<phase>.
+# Silent = clean. A missing target or an empty scan is reported (a guard that scanned nothing proves nothing).
+_phase_stale_refs() {
+  local d g rc n=0
+  for d in "$@"; do
+    [ -e "$d" ] || { printf '%s: scan target absent\n' "$d"; continue; }
+    n=$((n+1))
+    g=0
+    grep -rnE -e 'skills/sdd-' \
+      -e '_shared/(sdd-phase-common|openspec-convention|sdd-orchestrator-sections|sdd-orchestrator-workflow|sdd-status-contract)' \
+      -e '(^|[^A-Za-z0-9/._-])sdd-(apply|archive|design|explore|init|onboard|propose|research|spec|tasks|verify)([^A-Za-z0-9_-]|$)' \
+      "$d" 2>&1 || g=$?
+    [ "$g" -le 1 ] || printf '%s: grep failed rc=%s\n' "$d" "$g"
+  done
+  [ "$n" -gt 0 ] || printf 'nothing to scan\n'
+}
+_ph_guard="$(_phase_stale_refs "$KITROOT"/agents/claude/research-sdd-phase-*.md "$KITROOT"/skills/research-sdd-phase-*)"
+if [ -z "$_ph_guard" ]; then ok "phase: no vendored file references skills/sdd-*, the five old _shared/ paths or an agent named sdd-<phase>"
+else no "phase: stale references in vendored files: $(printf '%s' "$_ph_guard" | cut -c1-160 | head -5 | tr '\n' '|')"; fi
+
+# Deploy into a sandbox home (never the real ~/.claude).
+home="$TMP/phase-apply"
+bash "$SUT" --home "$home" --harness claude >/dev/null 2>&1; rc_ph=$?
+ph_miss=""
+while IFS= read -r r; do
+  [ -n "$r" ] || continue
+  cmp -s "$PH_SKILLS_SRC/$r" "$home/.claude/skills/$r" || ph_miss="$ph_miss $r"
+done <<<"$PH_REL_LIST"
+_ph_dirs="$(find "$home/.claude/skills" -mindepth 1 -maxdepth 1 -type d -name 'research-sdd-phase-*' | wc -l)"
+_ph_deployed="$(find "$home/.claude/skills" -path "$home/.claude/skills/research-sdd-phase-*" -type f | wc -l)"
+if [ "$rc_ph" = 0 ] && [ "$PH_N" -gt 0 ] && [ -z "$ph_miss" ] && [ "$_ph_dirs" = 12 ] && [ "$_ph_deployed" = "$PH_N" ] \
+   && [ ! -e "$home/.claude/skills/research-sdd-phase-shared/SKILL.md" ] && [ -f "$home/.claude/skills/research-sdd-phase-apply/strict-tdd.md" ] \
+   && [ -f "$home/.claude/skills/$PH_MID" ]; then
+  ok "phase: apply deploys all $PH_N skill files byte-identical into 12 dirs under <home>/.claude/skills (nested references/ and extra .md included, no shared SKILL.md)"
+else no "phase: apply did not deploy the skill set (rc=$rc_ph, files=$_ph_deployed/$PH_N, dirs=$_ph_dirs, missing:$ph_miss)"; fi
+
+# The 11 phase agents ride the existing agents deploy.
+ph_amiss=""
+for p in $PH_PHASES; do cmp -s "$KITROOT/agents/claude/research-sdd-phase-$p.md" "$home/.claude/agents/research-sdd-phase-$p.md" || ph_amiss="$ph_amiss $p"; done
+if [ -z "$ph_amiss" ]; then ok "phase: all 11 phase agents are deployed byte-identical into <home>/.claude/agents/"
+else no "phase: phase agents not deployed:$ph_amiss"; fi
+
+# Idempotent re-apply.
+before_ph="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+out_ph2="$(bash "$SUT" --home "$home" --harness claude 2>&1)"; rc_ph2=$?
+after_ph="$(cd "$home" && find . -type f -exec cksum {} + | LC_ALL=C sort)"
+if [ "$rc_ph2" = 0 ] && [ "$before_ph" = "$after_ph" ] && ! <<<"$out_ph2" grep -qi 'warning'; then ok "phase: re-apply is idempotent (no byte change, no WARNING)"
+else no "phase: re-apply changed files or warned (rc=$rc_ph2)"; fi
+
+# --verify: match, counted into the bundle (members and `files=`), then drift / absence at first, middle, last, single.
+st_ph="$home/.claude/research-sdd/.installed-bundle-state"
+ver_ph="$(bash "$SUT" --verify --home "$home" --harness claude 2>&1)"
+_ph_members="$(grep -c '^file=.*  skills/research-sdd-phase-' "$st_ph")"
+_ph_files="$(sed -n 's/.* files=\([0-9]*\)$/\1/p' <<<"$ver_ph")"
+_ph_allm="$(grep -c '^file=' "$st_ph")"
+if <<<"$ver_ph" grep -q 'status=match' && [ "$_ph_members" = "$PH_N" ] && [ "$_ph_files" = "$_ph_allm" ]; then
+  ok "phase: --verify matches and counts all $PH_N skill files into the bundle (files=$_ph_files = record lines)"
+else no "phase: --verify/bundle record does not cover the skill files (members=$_ph_members/$PH_N files=$_ph_files record=$_ph_allm): $ver_ph"; fi
+
+_ph_tamper() { # <rel> — fresh install, tamper one file, print the verify line
+  local h="$TMP/phase-t-$RANDOM"
+  bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+  printf '%s\n' '# tampered' >> "$h/.claude/skills/$1"
+  bash "$SUT" --verify --home "$h" --harness claude 2>&1
+}
+for r in "$PH_FIRST" "$PH_MID" "$PH_LAST"; do
+  v="$(_ph_tamper "$r")"
+  if grep -qF "status=drift drifted=skills/$r (modified)" <<<"$v"; then ok "phase: --verify names a tampered skill file as drift ($r)"
+  else no "phase: --verify missed a tampered skill file $r: $v"; fi
+done
+h="$TMP/phase-absent"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+rm -f "$h/.claude/skills/$PH_MID"
+v="$(bash "$SUT" --verify --home "$h" --harness claude 2>&1)"; rc_v=$?
+if [ "$rc_v" = 1 ] && grep -qF "skills/$PH_MID (missing)" <<<"$v" && ! grep -q 'status=match' <<<"$v"; then ok "phase: --verify reports a deleted skill file as drift (missing), exit 1"
+else no "phase: deleted skill file not reported (rc=$rc_v): $v"; fi
+rm -rf "$h/.claude/skills/research-sdd-phase-shared"
+v="$(bash "$SUT" --verify --home "$h" --harness claude 2>&1)"
+_ph_nmiss="$(grep -o 'skills/research-sdd-phase-shared/[^ ]* (missing)' <<<"$v" | wc -l)"
+if [ "$_ph_nmiss" = 5 ]; then ok "phase: a deleted shared dir (what gentle-ai sync would do) is reported as 5 missing members"
+else no "phase: deleted shared dir reported $_ph_nmiss missing members, expected 5: $v"; fi
+
+# A record written without the phase skill members must not verify as match: the comparison set is the kit's current set.
+h="$TMP/phase-prerecord"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+st_p="$h/.claude/research-sdd/.installed-bundle-state"
+grep -v '^file=.*  skills/research-sdd-phase-' "$st_p" > "$st_p.new"
+dg_p="$(awk 'index($0,"file=")==1 { rest=substr($0,6); i=index(rest,"  "); printf "%s\t%s\n", substr(rest,1,i-1), substr(rest,i+2) }' "$st_p.new" | sha256sum | awk '{print $1}')"
+sed -i "s/^bundle_sha256=.*/bundle_sha256=$dg_p/" "$st_p.new" && mv "$st_p.new" "$st_p"
+rm -rf "$h/.claude/skills/research-sdd-phase-"*
+v="$(bash "$SUT" --verify --home "$h" --harness claude 2>&1)"; rc_v=$?
+if [ "$rc_v" = 1 ] && grep -q 'status=drift drifted=.*skills/research-sdd-phase-' <<<"$v" && ! grep -q 'status=match' <<<"$v"; then
+  ok "phase: a record without the phase skill members reports the kit's skill files as typed drift, not match"
+else no "phase: record without phase members verified clean (rc=$rc_v): $v"; fi
+
+# A kit without the phase skills: install fails loudly, --verify is degraded (exit 2), never match.
+NP="$TMP/kit-nophase"; mkdir -p "$NP/install" "$NP/skills"
+for _f in "$KITROOT/install"/*; do
+  [ "$_f" = "$KITROOT/install/tests" ] && continue
+  cp -R "$_f" "$NP/install/"
+done
+for _f in "$KITROOT"/*; do
+  [ -e "$_f" ] || continue
+  case "$_f" in "$KITROOT/install"|"$KITROOT/skills") continue ;; esac
+  ln -s "$_f" "$NP/$(basename "$_f")"
+done
+for _f in "$KITROOT/skills"/*; do
+  case "$_f" in */research-sdd-phase-*) continue ;; esac
+  ln -s "$_f" "$NP/skills/$(basename "$_f")"
+done
+out_np="$(bash "$NP/install/research-sdd-install.sh" --home "$TMP/phase-nokit" --harness claude 2>&1)"; rc_np=$?
+if [ "$rc_np" != 0 ] && grep -q 'no SDD phase skill files found' <<<"$out_np"; then ok "phase: a kit without phase skill sources fails the install loudly (rc=$rc_np)"
+else no "phase: kit without phase skills did not fail the install (rc=$rc_np): $out_np"; fi
+ver_np="$(bash "$NP/install/research-sdd-install.sh" --verify --home "$TMP/phase-apply" --harness claude 2>&1)"; rc_vnp=$?
+if [ "$rc_vnp" = 2 ] && grep -q 'harness=claude status=degraded reason=.*SDD phase skill files' <<<"$ver_np"; then ok "phase: --verify against a kit without phase skills is degraded (exit 2), never match"
+else no "phase: --verify passed or mis-typed with the phase skill source missing (rc=$rc_vnp): $ver_np"; fi
+
+# A differing user file is kept with a typed WARNING; --force-skill backs it up first; the rest still deploy.
+h="$TMP/phase-collide"; mkdir -p "$h/.claude/skills/research-sdd-phase-apply"
+printf 'my own apply skill\n' > "$h/.claude/skills/research-sdd-phase-apply/SKILL.md"
+out_pc="$(bash "$SUT" --home "$h" --harness claude 2>&1)"; rc_pc=$?
+if [ "$(cat "$h/.claude/skills/research-sdd-phase-apply/SKILL.md")" = "my own apply skill" ] \
+   && <<<"$out_pc" grep -q 'WARNING.*research-sdd-phase-apply/SKILL\.md.*diverged.*kept' \
+   && cmp -s "$PH_SKILLS_SRC/research-sdd-phase-apply/strict-tdd.md" "$h/.claude/skills/research-sdd-phase-apply/strict-tdd.md"; then
+  ok "phase: a differing same-named user skill file is kept with a typed WARNING; the other files still deploy (rc=$rc_pc)"
+else no "phase: user-file collision mishandled (rc=$rc_pc): $out_pc"; fi
+v="$(bash "$SUT" --verify --home "$h" --harness claude 2>&1)"
+if grep -q 'status=drift.*kept-hand-edit=skills/research-sdd-phase-apply/SKILL\.md' <<<"$v"; then ok "phase: a kept user skill file is recorded as a kept-hand-edit and verify reports drift"
+else no "phase: kept-hand-edit not reported: $v"; fi
+out_pf="$(bash "$SUT" --home "$h" --harness claude --force-skill 2>&1)"; rc_pf=$?
+if [ "$rc_pf" = 0 ] && [ "$(cat "$h/.claude/skills/research-sdd-phase-apply/SKILL.md.local-backup")" = "my own apply skill" ] \
+   && cmp -s "$PH_SKILLS_SRC/research-sdd-phase-apply/SKILL.md" "$h/.claude/skills/research-sdd-phase-apply/SKILL.md"; then
+  ok "phase: --force-skill backs the user file up as .local-backup, then overwrites it with the kit copy"
+else no "phase: --force-skill did not back up/overwrite (rc=$rc_pf): $out_pf"; fi
+
+# --dry-run plans every skill file and writes nothing.
+h="$TMP/phase-dry"
+out_pd="$(bash "$SUT" --dry-run --home "$h" --harness claude 2>&1)"
+_ph_plan="$(grep -c 'INSTALL .*/skills/research-sdd-phase-.* (SDD phase skill file)' <<<"$out_pd")"
+if [ "$_ph_plan" = "$PH_N" ] && [ ! -e "$h/.claude" ]; then ok "phase: dry-run plans all $PH_N skill files and writes nothing"
+else no "phase: dry-run planned $_ph_plan of $PH_N lines or wrote files"; fi
+
+# pi and gentle-shell ship neither the phase agents nor the phase skills.
+for hh in pi gentle-shell; do
+  h="$TMP/phase-$hh"
+  bash "$SUT" --home "$h" --harness "$hh" >/dev/null 2>&1
+  # The rendered profile dir only mirrors the kit's top-level entries as symlinks (as for every kit skill); it is not a deploy.
+  _ph_found="$(find "$h" -not -path '*/research-sdd/profile/*' \( -name 'research-sdd-phase-*' -o -name '.installed-phase-skill-*' \) | wc -l)"
+  v="$(bash "$SUT" --verify --home "$h" --harness "$hh" 2>&1)"
+  if [ "$_ph_found" = 0 ] && grep -q "harness=$hh status=match" <<<"$v"; then ok "phase: harness $hh is unaffected (no phase agent/skill/marker, verify matches)"
+  else no "phase: harness $hh gained phase content ($_ph_found paths) or fails verify: $v"; fi
+done
+
+# --uninstall: removes the files, markers and emptied dirs; keeps an edited file (modified) and a marker-less one (unproven).
+h="$TMP/phase-un"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+mkdir -p "$h/.claude/skills/other"; printf 'user skill\n' > "$h/.claude/skills/other/SKILL.md"
+out_pu="$(bash "$SUT" --uninstall --yes --home "$h" --harness claude 2>&1)"; rc_pu=$?
+_ph_left="$(find "$h/.claude" \( -name 'research-sdd-phase-*' -o -name '.installed-phase-skill-*' \) | wc -l)"
+if [ "$rc_pu" = 0 ] && [ "$_ph_left" = 0 ] && [ -f "$h/.claude/skills/other/SKILL.md" ] && grep -q 'removed  .*skills/research-sdd-phase-apply/SKILL\.md  \[SDD phase skill file\]' <<<"$out_pu"; then
+  ok "phase: --uninstall --yes removes every phase skill file, its marker and the emptied dirs; an unrelated user skill survives"
+else no "phase: uninstall left residue or failed (rc=$rc_pu, left=$_ph_left): $(find "$h/.claude" -name 'research-sdd-phase-*' | head -3 | tr '\n' ' ')"; fi
+h="$TMP/phase-un-dry"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+out_pd2="$(bash "$SUT" --uninstall --home "$h" --harness claude 2>&1)"
+_ph_wr="$(grep -c 'would-remove  .*skills/research-sdd-phase-.*\[SDD phase skill file\]' <<<"$out_pd2")"
+if [ "$_ph_wr" = "$PH_N" ] && [ "$(find "$h/.claude/skills" -path '*research-sdd-phase-*' -type f | wc -l)" = "$PH_N" ]; then ok "phase: --uninstall without --yes lists all $PH_N would-remove lines and removes nothing"
+else no "phase: uninstall dry-run listed $_ph_wr of $PH_N or removed files"; fi
+h="$TMP/phase-un-edit"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+printf '\nedited\n' >> "$h/.claude/skills/$PH_FIRST"
+printf '\nedited\n' >> "$h/.claude/skills/$PH_LAST"
+rm -f "$h/.claude/research-sdd/.installed-phase-skill-${PH_MID//\//__}-state"
+out_pe="$(bash "$SUT" --uninstall --yes --home "$h" --harness claude 2>&1)"
+_ph_left="$(find "$h/.claude/skills" -path '*research-sdd-phase-*' -type f | wc -l)"
+if [ "$_ph_left" = 3 ] && grep -qF "kept (modified)  $h/.claude/skills/$PH_FIRST" <<<"$out_pe" && grep -qF "kept (modified)  $h/.claude/skills/$PH_LAST" <<<"$out_pe" \
+   && grep -qF "kept (unproven)  $h/.claude/skills/$PH_MID" <<<"$out_pe"; then
+  ok "phase: uninstall keeps the first and last files when edited (modified) and a marker-less file (unproven); removes the other managed files"
+else no "phase: uninstall edge handling wrong (left=$_ph_left): $(printf '%s' "$out_pe" | grep -c 'kept')"; fi
+
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: the static guard must catch each stale-reference class at the first, last and only file --"
+  gdir="$TMP/phase-guard"; mkdir -p "$gdir"
+  _g_one() { # <label> <line> — inject <line> into one copy at first / last / single file
+    local label="$1" line="$2" pos g f
+    for pos in first last single; do
+      g="$gdir/$label-$pos"; rm -rf "$g"; mkdir -p "$g"
+      if [ "$pos" = single ]; then
+        printf 'clean text\n' > "$g/only.md"; f="$g/only.md"
+      else
+        cp -R "$KITROOT"/skills/research-sdd-phase-* "$g/"
+        if [ "$pos" = first ]; then f="$g/$PH_FIRST"; else f="$g/$PH_LAST"; fi
+      fi
+      printf '\n%s\n' "$line" >> "$f"
+      if grep -qF "${f##*/}" <<<"$(_phase_stale_refs "$g")"; then ok "teeth: guard catches '$label' in the $pos file"
+      else no "teeth: guard missed '$label' in the $pos file — the static guard is THEATER"; fi
+    done
+  }
+  _g_one skill-path 'Read ~/.claude/skills/sdd-apply/SKILL.md and follow it'
+  _g_one shared-path 'Also read ~/.claude/skills/_shared/sdd-phase-common.md'
+  _g_one agent-name 'next_recommended: `sdd-spec` and `sdd-design`'
+  _g_one frontmatter-name 'name: sdd-verify'
+  g="$gdir/clean"; rm -rf "$g"; mkdir -p "$g"; cp -R "$KITROOT"/skills/research-sdd-phase-* "$g/"
+  if [ -z "$(_phase_stale_refs "$g")" ]; then ok "teeth: guard control — an unmodified copy of the vendored skills is clean"
+  else no "teeth: guard control failed — the clean copy is flagged"; fi
+  if grep -q 'scan target absent' <<<"$(_phase_stale_refs "$gdir/no-such-dir")"; then ok "teeth: guard reports an absent scan target instead of passing"
+  else no "teeth: guard passed over a missing target — silent zero"; fi
+
+  echo "-- teeth: installer mutants must break the phase skill deploy / collision / bundle / uninstall assertions --"
+  M_PNODEP="$MKI/research-sdd-install.MUTANT-phase-nodeploy.$$.sh"
+  mutant_sed "$SUT" "$M_PNODEP" 's/_rsdd_deploy_skill "\$psrc" "\$pdest"/true "$psrc" "$pdest"/' \
+    || no "teeth: phase no-deploy mutant could not be built"
+  h="$TMP/phase-m1"; bash "$M_PNODEP" --home "$h" --harness claude >/dev/null 2>&1
+  if [ ! -f "$h/.claude/skills/research-sdd-phase-apply/SKILL.md" ]; then ok "teeth: no-deploy mutant leaves no phase skill → the deploy check has teeth"
+  else no "teeth: no-deploy mutant still deployed the phase skills — THEATER"; fi
+
+  M_PCLOB="$MKI/research-sdd-install.MUTANT-phase-clobber.$$.sh"
+  mutant_sed "$SUT" "$M_PCLOB" 's/"\$force" "SDD phase skill file"/1 "SDD phase skill file"/' \
+    || no "teeth: phase clobber mutant could not be built"
+  h="$TMP/phase-m2"; mkdir -p "$h/.claude/skills/research-sdd-phase-apply"; printf 'my own apply skill\n' > "$h/.claude/skills/research-sdd-phase-apply/SKILL.md"
+  bash "$M_PCLOB" --home "$h" --harness claude >/dev/null 2>&1
+  if [ "$(cat "$h/.claude/skills/research-sdd-phase-apply/SKILL.md")" != "my own apply skill" ]; then ok "teeth: always-force mutant overwrites the user's skill file → the collision check has teeth"
+  else no "teeth: always-force mutant kept the user's file — THEATER"; fi
+
+  M_PNOMEM="$MKI/research-sdd-install.MUTANT-phase-nomember.$$.sh"
+  mutant_sed "$SUT" "$M_PNOMEM" 's|printf .%s\\n. "skills/\$an"|true|' \
+    || no "teeth: phase no-member mutant could not be built"
+  h="$TMP/phase-m3"; bash "$M_PNOMEM" --home "$h" --harness claude >/dev/null 2>&1
+  if ! grep -q '^file=.*  skills/research-sdd-phase-' "$h/.claude/research-sdd/.installed-bundle-state" 2>/dev/null; then ok "teeth: no-member mutant drops the skill files from the bundle record → the coverage check has teeth"
+  else no "teeth: no-member mutant still recorded the phase skills — THEATER"; fi
+
+  M_PNOCUR="$MKI/research-sdd-install.MUTANT-phase-nocurrentset.$$.sh"
+  mutant_sed "$SUT" "$M_PNOCUR" 's|\[ -z "\$an" \] \|\| printf .skills/%s\\n. "\$an"|true|' \
+    || no "teeth: phase no-current-set mutant could not be built"
+  v="$(bash "$M_PNOCUR" --verify --home "$TMP/phase-prerecord" --harness claude 2>&1)"
+  if grep -q 'harness=claude status=match' <<<"$v"; then ok "teeth: comparing only the recorded manifest reports match for a record without phase members → the current-set check has teeth"
+  else no "teeth: dropping the phase current-set union did not change the verdict — THEATER"; fi
+
+  M_PNOVER="$NP/install/research-sdd-install.MUTANT-phase-noverify.$$.sh"
+  mutant_sed "$SUT" "$M_PNOVER" 's/if ! kit_phase="\$(_rsdd_phase_skill_rels "\$h")"; then/if false; then/' \
+    || no "teeth: phase no-verify-check mutant could not be built"
+  v="$(bash "$M_PNOVER" --verify --home "$TMP/phase-apply" --harness claude 2>&1)"
+  if grep -q 'harness=claude status=match' <<<"$v"; then ok "teeth: without the phase-source check --verify wrongly reports match → the degraded check has teeth"
+  else no "teeth: removing the phase-source check did not change the verdict — THEATER"; fi
+
+  M_PNOUN="$MKI/research-sdd-install.MUTANT-phase-nouninstall.$$.sh"
+  mutant_sed "$SUT" "$M_PNOUN" 's/_rsdd_u_artifact "\$root\/skills\/\$prel"/true "$root\/skills\/$prel"/' \
+    || no "teeth: phase no-uninstall mutant could not be built"
+  h="$TMP/phase-m6"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+  bash "$M_PNOUN" --uninstall --yes --home "$h" --harness claude >/dev/null 2>&1
+  if [ -f "$h/.claude/skills/research-sdd-phase-apply/SKILL.md" ]; then ok "teeth: no-uninstall mutant leaves the phase skills → the uninstall check has teeth"
+  else no "teeth: no-uninstall mutant still removed the phase skills — THEATER"; fi
+
+  M_PNODIR="$MKI/research-sdd-install.MUTANT-phase-nodirs.$$.sh"
+  mutant_sed "$SUT" "$M_PNODIR" 's/\${phase_dirs\[@\]+"\${phase_dirs\[@\]}"} //' \
+    || no "teeth: phase no-dirs mutant could not be built"
+  h="$TMP/phase-m7"; bash "$SUT" --home "$h" --harness claude >/dev/null 2>&1
+  bash "$M_PNODIR" --uninstall --yes --home "$h" --harness claude >/dev/null 2>&1
+  if [ -d "$h/.claude/skills/research-sdd-phase-design/references" ]; then ok "teeth: no-dir-cleanup mutant leaves the emptied dirs → the directory cleanup check has teeth"
+  else no "teeth: no-dir-cleanup mutant still removed the phase dirs — THEATER"; fi
+fi
+
+# =====================================================================================================
 # pi extension (kit issue #2123): research-sdd/install/pi/research-sdd-hooks.ts is deployed to
 # <config_root>/extensions/research-sdd-hooks.ts on pi and gentle-shell ONLY (capability column
 # supports_extension_hooks). It is a bundle member (--verify covers it), follows the skill's hand-edit

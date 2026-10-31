@@ -21,7 +21,8 @@
 #   --dry-run     print the exact plan (files + rendered section) WITHOUT touching the filesystem
 #   --force-skill when a deployed file this installer manages has diverged (the skill, the slash-command
 #                 prompt template, the pi extension under <config_root>/extensions/, AND the shipped read-only
-#                 agent definitions under <config_root>/agents/),
+#                 agent definitions under <config_root>/agents/, plus the claude SDD phase skill files
+#                 under <config_root>/skills/research-sdd-phase-*/, kit issue #2351),
 #                 back it up as <file>.local-backup and overwrite it with the kit source
 #   --backup-unrecorded  a re-install replaces the rendered profile dir (<config_root>/research-sdd/profile/<name>/).
 #                 Any regular file in it that the bundle record does not name (e.g. a session-written TARGETS.md) makes
@@ -32,7 +33,7 @@
 #                 > per-harness default (adapters.sh _RSDD_DEFAULT_PROFILE); unknown profile exits 2
 #   --verify      READ-ONLY drift check (kit issue #1702): recompute a sorted-path whole-bundle sha256 over what
 #                 this installer manages for each harness (the deployed SKILL.md, the slash-command prompt
-#                 template, the pi extension (pi + gentle-shell), the claude read-only agent definitions, the marked research-sdd launcher block inside the shared prompt file, and the
+#                 template, the pi extension (pi + gentle-shell), the claude read-only agent definitions, the claude SDD phase skill files, the marked research-sdd launcher block inside the shared prompt file, and the
 #                 regular files of a rendered profile) and compare it with the bundle digest the last
 #                 successful install recorded in <config_root>/research-sdd/.installed-bundle-state. Prints
 #                 ONE typed line per harness and writes NOTHING (no temp files, no state):
@@ -746,6 +747,32 @@ _rsdd_agent_names() {
   printf '%s' "$names" | LC_ALL=C sort
 }
 
+# _rsdd_phase_skill_rels <h> — the vendored SDD phase skill files (kit issue #2351) for this harness: every
+# regular file under <kit>/<phase_skills_src_relkit>/research-sdd-phase-*/, one path per line RELATIVE to that
+# skills dir (research-sdd-phase-apply/SKILL.md, ...), byte-sorted. Empty + rc=0 when the harness ships none;
+# rc=1 when it should but the dir is absent, unreadable or holds no such file (a silent zero would deploy nothing
+# and look installed — CLAUDE.md §7).
+_rsdd_phase_skill_rels() {
+  local rel dir found out="" f
+  rel="$(rsdd_field "$1" phase_skills_src_relkit)"
+  [ -n "$rel" ] || return 0
+  dir="$KIT/$rel"
+  [ -d "$dir" ] || return 1
+  found="$(find "$dir" -mindepth 2 -path "$dir/research-sdd-phase-*/*" -type f 2>/dev/null)" || return 1
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    out="$out${f#"$dir"/}"$'\n'
+  done <<<"$found"
+  [ -n "$out" ] || return 1
+  printf '%s' "$out" | LC_ALL=C sort
+}
+
+# _rsdd_phase_marker <config_root> <rel> — the per-file state marker of one phase skill file: the rel path with
+# every "/" written "__" (reversed by uninstall, which re-validates the result before touching any path).
+_rsdd_phase_marker() {
+  printf '%s/research-sdd/.installed-phase-skill-%s-state\n' "$1" "${2//\//__}"
+}
+
 # --- tier model profiles (kit issue #2124) ----------------------------------------------------------
 # pi / gentle-shell resolve a subagent's model from subagents.json `model_profiles[<agent name>]` (global
 # <config_root>/subagents.json, merged under by the project's <cwd>/.pi/subagents.json), then the agent's own
@@ -878,6 +905,12 @@ _rsdd_install_members() {
   while IFS= read -r an; do
     [ -z "$an" ] || printf '%s\n' "agents/$an"
   done <<<"$names"
+  # The vendored SDD phase skill files (kit issue #2351), same capture-the-rc rule as the agents above.
+  local prels
+  prels="$(_rsdd_phase_skill_rels "$h")" || return 1
+  while IFS= read -r an; do
+    [ -z "$an" ] || printf '%s\n' "skills/$an"
+  done <<<"$prels"
 }
 
 # _rsdd_apply_kept <kept> — stdin manifest -> stdout manifest where each kept member's sha is replaced by
@@ -1005,6 +1038,11 @@ _rsdd_verify_one() {
     printf 'verify harness=%s status=degraded reason=the kit has no readable agent definitions to compare against (%s)\n' "$h" "$KIT/$(rsdd_field "$h" agents_src_relkit)"
     return 2
   fi
+  local kit_phase
+  if ! kit_phase="$(_rsdd_phase_skill_rels "$h")"; then
+    printf 'verify harness=%s status=degraded reason=the kit has no readable SDD phase skill files to compare against (%s)\n' "$h" "$KIT/$(rsdd_field "$h" phase_skills_src_relkit)"
+    return 2
+  fi
   if [ -n "$ext" ]; then
     ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
     if [ ! -r "$ext_src" ]; then
@@ -1024,6 +1062,10 @@ _rsdd_verify_one() {
     while IFS= read -r an; do
       [ -z "$an" ] || printf 'agents/%s\n' "$an"
     done <<<"$kit_agents"
+    # The kit's CURRENT phase skill files (kit issue #2351), unioned for the same reason as the agents.
+    while IFS= read -r an; do
+      [ -z "$an" ] || printf 'skills/%s\n' "$an"
+    done <<<"$kit_phase"
   )"
   cur_set="$(printf '%s\n' "$cur_set" | LC_ALL=C awk 'NF && !seen[$0]++')"
   cur_manifest="$(printf '%s\n' "$cur_set" | _rsdd_manifest "$root" "$profile")" || mrc=$?
@@ -1356,6 +1398,26 @@ uninstall_one() {
     _rsdd_u_artifact "$root/agents/$an" "$root/research-sdd/.installed-agent-${an%.md}-state" "read-only agent definition" "$apply"
   done <<<"$names"
 
+  # Vendored SDD phase skill files (kit issue #2351): the kit's CURRENT files plus every file an install marker
+  # records, de-duplicated. A marker name is turned back into a path only after it matches the strict shape of
+  # a phase skill file (research-sdd-phase-<x>/<segments>, each segment starting alphanumeric: no "..", no "//").
+  local prels pm pn prel pdirs
+  prels="$(_rsdd_phase_skill_rels "$h" 2>/dev/null)" || prels=""
+  for pm in "$root"/research-sdd/.installed-phase-skill-*-state; do
+    { [ -e "$pm" ] || [ -L "$pm" ]; } || continue
+    pn="${pm##*/.installed-phase-skill-}"; pn="${pn%-state}"; pn="${pn//__//}"
+    if [[ "$pn" =~ ^research-sdd-phase-[A-Za-z0-9-]+(/[A-Za-z0-9][A-Za-z0-9._-]*)+$ ]]; then prels="$prels"$'\n'"$pn"
+    else _rsdd_u_report "kept (unproven)" "$pm" state "unsafe phase skill name"; fi
+  done
+  prels="$(printf '%s\n' "$prels" | LC_ALL=C awk 'NF && !seen[$0]++' | LC_ALL=C sort)"
+  pdirs=""
+  while IFS= read -r prel; do
+    [ -n "$prel" ] || continue
+    _rsdd_u_artifact "$root/skills/$prel" "$(_rsdd_phase_marker "$root" "$prel")" "SDD phase skill file" "$apply"
+    pdirs="$pdirs$(dirname "$prel")"$'\n'"${prel%%/*}"$'\n'
+  done <<<"$prels"
+  pdirs="$(printf '%s\n' "$pdirs" | LC_ALL=C awk 'NF && !seen[$0]++' | LC_ALL=C sort -r)"
+
   _rsdd_u_launcher "$h" "$home" "$apply" "$record"
   _rsdd_u_profiles "$h" "$home" "$apply" "$record"
 
@@ -1370,7 +1432,9 @@ uninstall_one() {
 
   # Installer-named directories left empty: rmdir only (never rm -r), so a user file inside keeps its dir.
   if [ "$apply" = 1 ]; then
-    for d in "$root/research-sdd/profile" "$root/skills/research-sdd" "$root/research-sdd"; do
+    local pd phase_dirs=()
+    while IFS= read -r pd; do [ -z "$pd" ] || phase_dirs+=("$root/skills/$pd"); done <<<"$pdirs"
+    for d in "$root/research-sdd/profile" "$root/skills/research-sdd" ${phase_dirs[@]+"${phase_dirs[@]}"} "$root/research-sdd"; do
       { [ -d "$d" ] && [ ! -L "$d" ]; } || continue
       c=0; _rsdd_u_contained "$d" || c=$?
       if [ "$c" = 1 ]; then _rsdd_u_report "kept (outside config root)" "$d" "directory"; continue; fi
@@ -1543,11 +1607,36 @@ install_one() {
     fi
   fi
 
+  # 2c2. vendored SDD phase skill files (kit issue #2351): claude only (the adapter field is empty elsewhere).
+  #      Every file under skills/research-sdd-phase-*/ lands at <config_root>/skills/<same rel path> through the
+  #      SAME divergence-checked helpers as the agents: a differing same-named user file is KEPT with a typed
+  #      WARNING (--force-skill backs it up first), one marker file per deployed file.
+  local phase_rels="" phase_skills_rel pr psrc pdest pmarker phase_dest_dir
+  phase_skills_rel="$(rsdd_field "$h" phase_skills_src_relkit)"
+  if [ -n "$phase_skills_rel" ]; then
+    phase_dest_dir="$(rsdd_field "$h" skills_dir "$home")"
+    if ! phase_rels="$(_rsdd_phase_skill_rels "$h")"; then
+      echo "research-sdd-install: [$h] no SDD phase skill files found in $KIT/$phase_skills_rel" >&2; rc=1
+    else
+      while IFS= read -r pr; do
+        psrc="$KIT/$phase_skills_rel/$pr"; pdest="$phase_dest_dir/$pr"
+        pmarker="$(_rsdd_phase_marker "$config_root" "$pr")"
+        if [ "$dry" = 1 ]; then
+          _rsdd_dry_skill_plan "$psrc" "$pdest" "$force" "SDD phase skill file" "$pmarker" "phase-skill" || rc=1
+        else
+          _rsdd_deploy_skill "$psrc" "$pdest" "$force" "SDD phase skill file" "$h" "$pmarker" "phase-skill" "$config_root" || rc=1
+        fi
+      done <<<"$phase_rels"
+    fi
+  fi
+
   # 2d. pi extension (kit issue #2123): pi + gentle-shell only (the adapter field is empty elsewhere). The kit's
   #     research-sdd-hooks.ts is deployed to <config_root>/extensions/ through the SAME divergence-checked
   #     helpers as the skill: a hand-edited copy is kept with a typed WARNING, --force-skill backs it up first,
   #     an unmodified older copy is a managed (silent) update. Its marker is .installed-extension-state with the
   #     constant profile "extension", so profile switches never touch it.
+  #     NOTE: this block appears twice in the file (pre-existing duplicate; the plan goldens of pi and
+  #     gentle-shell encode the doubled INSTALL line). Left untouched here: pi/gentle-shell stay byte-identical.
   local ext_dest ext_src="" ext_marker
   ext_dest="$(rsdd_field "$h" extension_hooks_path "$home")"
   if [ -n "$ext_dest" ]; then
@@ -1560,13 +1649,7 @@ install_one() {
     fi
   fi
 
-  # 2d. pi extension (kit issue #2123): pi + gentle-shell only (the adapter field is empty elsewhere). The kit's
-  #     research-sdd-hooks.ts is deployed to <config_root>/extensions/ through the SAME divergence-checked
-  #     helpers as the skill: a hand-edited copy is kept with a typed WARNING, --force-skill backs it up first,
-  #     an unmodified older copy is a managed (silent) update. Its marker is .installed-extension-state with the
-  #     constant profile "extension", so profile switches never touch it.
-  local ext_dest ext_src="" ext_marker
-  ext_dest="$(rsdd_field "$h" extension_hooks_path "$home")"
+  # 2d (second copy, see the note above).
   if [ -n "$ext_dest" ]; then
     ext_src="$KIT/$(rsdd_field "$h" extension_hooks_src_relkit)"
     ext_marker="$config_root/research-sdd/.installed-extension-state"
@@ -1602,6 +1685,14 @@ install_one() {
         kept="${kept:+$kept$'\n'}agents/$an"$'\t'"$ksha"
       fi
     done <<<"$agent_names"
+    while IFS= read -r pr; do
+      [ -n "$pr" ] || continue
+      psrc="$KIT/$phase_skills_rel/$pr"; pdest="$phase_dest_dir/$pr"
+      if ! cmp -s "$psrc" "$pdest"; then
+        ksha="$(_rsdd_sha256_file "$psrc")" || ksha=""
+        kept="${kept:+$kept$'\n'}skills/$pr"$'\t'"$ksha"
+      fi
+    done <<<"$phase_rels"
     if [[ "$kept" == *$'\t' ]] || [[ "$kept" == *$'\t\n'* ]]; then
       echo "research-sdd-install: [$h] could not hash the source of a kept hand-edit — bundle record not written" >&2
       rc=1
