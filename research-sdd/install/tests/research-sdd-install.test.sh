@@ -2645,6 +2645,9 @@ _agents_write_grants() {
   local d="$1" f n=0 tools front t name
   for f in "$d"/*.md; do
     [ -f "$f" ] || continue
+    # The vendored SDD phase agents (kit issue #2351) are deliberately NOT read-only (apply writes code); they
+    # are checked by their own section below, never by this reviewer-lens allowlist.
+    case "$(basename "$f")" in research-sdd-phase-*.md) continue ;; esac
     n=$((n+1))
     front="$(awk 'NR==1 { if ($0!="---") exit; next } $0=="---" { exit } { print }' "$f")"
     tools="$(printf '%s\n' "$front" | awk -F: '$1=="tools" { sub(/^[^:]*:[ \t]*/, ""); print; f=1 } END { exit !f }')" \
