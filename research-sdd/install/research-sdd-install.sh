@@ -758,7 +758,8 @@ _rsdd_phase_skill_rels() {
   [ -n "$rel" ] || return 0
   dir="$KIT/$rel"
   [ -d "$dir" ] || return 1
-  found="$(find "$dir" -mindepth 2 -path "$dir/research-sdd-phase-*/*" -type f 2>/dev/null)" || return 1
+  # -H: the kit's skills dir may itself be a symlink (a worktree/mutant kit view); find must still descend into it.
+  found="$(find -H "$dir" -mindepth 2 -path "$dir/research-sdd-phase-*/*" -type f 2>/dev/null)" || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     out="$out${f#"$dir"/}"$'\n'

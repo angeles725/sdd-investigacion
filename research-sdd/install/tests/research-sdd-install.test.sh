@@ -3016,6 +3016,14 @@ _ph_plan="$(grep -c 'INSTALL .*/skills/research-sdd-phase-.* (SDD phase skill fi
 if [ "$_ph_plan" = "$PH_N" ] && [ ! -e "$h/.claude" ]; then ok "phase: dry-run plans all $PH_N skill files and writes nothing"
 else no "phase: dry-run planned $_ph_plan of $PH_N lines or wrote files"; fi
 
+# A kit whose skills dir is itself a symlink (the temp kit copy $MK links every non-install entry) must still
+# deploy every phase skill file: find has to descend into a symlinked root, not report "no files found".
+h="$TMP/phase-symlinked-kit"
+bash "$MKI/research-sdd-install.sh" --home "$h" --harness claude >/dev/null 2>&1; rc_sl=$?
+_ph_sl="$(find "$h/.claude/skills" -path "$h/.claude/skills/research-sdd-phase-*" -type f | wc -l)"
+if [ -L "$MK/skills" ] && [ "$rc_sl" = 0 ] && [ "$_ph_sl" = "$PH_N" ]; then ok "phase: a kit reached through a symlinked skills dir deploys all $PH_N skill files"
+else no "phase: symlinked-kit install broke (skills link=$([ -L "$MK/skills" ] && echo yes || echo no), rc=$rc_sl, files=$_ph_sl/$PH_N)"; fi
+
 # pi and gentle-shell ship neither the phase agents nor the phase skills.
 for hh in pi gentle-shell; do
   h="$TMP/phase-$hh"
@@ -3131,6 +3139,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   bash "$M_PNODIR" --uninstall --yes --home "$h" --harness claude >/dev/null 2>&1
   if [ -d "$h/.claude/skills/research-sdd-phase-design/references" ]; then ok "teeth: no-dir-cleanup mutant leaves the emptied dirs → the directory cleanup check has teeth"
   else no "teeth: no-dir-cleanup mutant still removed the phase dirs — THEATER"; fi
+
+  M_PNOH="$MKI/research-sdd-install.MUTANT-phase-nofollow.$$.sh"
+  mutant_sed "$SUT" "$M_PNOH" 's/found="\$(find -H "\$dir" -mindepth 2/found="$(find "$dir" -mindepth 2/' \
+    || no "teeth: phase no-follow mutant could not be built"
+  h="$TMP/phase-m8"; bash "$M_PNOH" --home "$h" --harness claude >/dev/null 2>&1; rc_m8=$?
+  if [ "$rc_m8" != 0 ] && [ ! -e "$h/.claude/skills/research-sdd-phase-apply/SKILL.md" ]; then ok "teeth: a find that does not follow a symlinked skills dir finds nothing and fails the install → the symlink check has teeth"
+  else no "teeth: no-follow mutant still installed through the symlinked skills dir (rc=$rc_m8) — THEATER"; fi
 fi
 
 # =====================================================================================================
