@@ -293,15 +293,6 @@ func runLegacy(t testing.TB, tb string, args []string, env []string, cwd string)
 	return result{out.String(), errb.String(), codeOf(err)}
 }
 
-func mustRealpath(t testing.TB, p string) string {
-	t.Helper()
-	r, err := filepath.EvalSymlinks(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return r
-}
-
 // stubKit builds the eight-sweep stub kit the pi cases feed to the real kit extension.
 func stubKit(t testing.TB, dir string) {
 	t.Helper()

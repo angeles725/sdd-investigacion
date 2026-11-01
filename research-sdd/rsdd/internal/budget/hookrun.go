@@ -30,20 +30,19 @@ type hookResult struct {
 
 // probe is the state shared by every hook run of one Claude-harness report.
 type probe struct {
-	e         env
-	target    string
-	toCap     string // RSDD_BUDGET_HOOK_TIMEOUT, validated
-	work      string
-	jq        string
-	timeout   string
-	reason    string // sandbox unusable ("" = usable)
-	utf8OK    bool
-	sbClaude  string // throwaway copy of <target>/.claude
-	sbTmp     string // fresh TMPDIR
-	copyFail  string
-	capped    []string // commands that hit the SCRIPT's cap: not run again in later sources
-	outFile   string
-	startJSON string
+	e        env
+	target   string
+	toCap    string // RSDD_BUDGET_HOOK_TIMEOUT, validated
+	work     string
+	jq       string
+	timeout  string
+	reason   string // sandbox unusable ("" = usable)
+	utf8OK   bool
+	sbClaude string // throwaway copy of <target>/.claude
+	sbTmp    string // fresh TMPDIR
+	copyFail string
+	capped   []string // commands that hit the SCRIPT's cap: not run again in later sources
+	outFile  string
 }
 
 // prepSandbox makes the throwaway copy and TMPDIR afresh (measurements are order-independent).
