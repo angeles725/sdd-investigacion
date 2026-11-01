@@ -126,7 +126,7 @@ func loadFrames(path string) (frameLog, error) {
 	return fl, nil
 }
 
-// SerialFrameAnalyze is the `rsdd serial serial-frame-analyze` command.
+// SerialFrameAnalyze is the `rsdd serial frame-analyze` command.
 func SerialFrameAnalyze(args []string, s cli.Stdio) int {
 	cl := &cmdLine{prog: analyzeTool, about: "Offline analysis of serial frame captures (serial-frame.v1). Read-only; no hardware or network required.", subs: []subSpec{
 		{name: "stats", args: []argSpec{{name: "input", required: true, metavar: "LOG"}, {name: "output", required: true, metavar: "JSON"}}},

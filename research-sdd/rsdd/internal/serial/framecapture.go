@@ -57,7 +57,7 @@ type serialPort interface {
 	Close() error
 }
 
-// openPort opens path at baud for reading. It is a variable so tests can supply a scripted port.
+// openPort opens path at baud for reading; now is the command's clock. It is a variable so tests can supply a scripted port.
 var openPort = openSerialPort
 
 // rawFrame is one captured frame with its time since the start of the capture.
@@ -66,7 +66,7 @@ type rawFrame struct {
 	data []byte
 }
 
-// entropy is the Shannon entropy of data in bits per byte.
+// entropy is the Shannon entropy of data in bits per byte (0.0 for no data, -0.0 for a single repeated value).
 func entropy(data []byte) float64 {
 	if len(data) == 0 {
 		return 0
@@ -76,14 +76,14 @@ func entropy(data []byte) float64 {
 		counts[b]++
 	}
 	n := float64(len(data))
-	h := 0.0
+	sum := 0.0
 	for _, c := range counts {
 		if c != 0 {
 			p := float64(c) / n
-			h -= p * math.Log2(p)
+			sum += p * math.Log2(p)
 		}
 	}
-	return h
+	return -sum // -0.0 for constant data, exactly as the Python expression -sum(...) yields
 }
 
 func planDoc(mode string, plan map[string]any) map[string]any {
@@ -185,7 +185,7 @@ func sweepOne(port string, baud int, now func() time.Time, seconds float64) map[
 	fail := func(err error) map[string]any {
 		return map[string]any{"baud": baud, "error": err.Error(), "likely_framed": false}
 	}
-	p, err := openPort(port, int64(baud))
+	p, err := openPort(port, int64(baud), now)
 	if err != nil {
 		return fail(err)
 	}
@@ -240,7 +240,7 @@ func jsonInt(v *big.Int) any {
 	return json.Number(v.String())
 }
 
-// SerialFrameCapture is the `rsdd serial serial-frame-capture` command.
+// SerialFrameCapture is the `rsdd serial frame-capture` command.
 func SerialFrameCapture(args []string, s cli.Stdio) int {
 	port := func(name string, kind argKind, required bool, metavar string) argSpec {
 		return argSpec{name: name, kind: kind, required: required, metavar: metavar}
@@ -321,7 +321,7 @@ func (c *capture) capture(seconds, gapMS float64) int {
 		fmt.Fprintf(c.s.Err, "%s: %s: Not a valid baudrate: %s\n", captureTool, c.port, baud)
 		return cli.ExitUsage
 	}
-	p, err := openPort(c.port, baud.Int64())
+	p, err := openPort(c.port, baud.Int64(), c.s.Clock)
 	if err != nil {
 		fmt.Fprintf(c.s.Err, "%s: %s: %v\n", captureTool, c.port, err)
 		return cli.ExitUsage

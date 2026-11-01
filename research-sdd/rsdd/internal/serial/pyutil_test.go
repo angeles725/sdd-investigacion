@@ -9,21 +9,21 @@ import (
 
 func TestPyRepr(t *testing.T) {
 	for in, want := range map[string]string{
-		`/tmp/a b`:      `'/tmp/a b'`,
-		`it's`:          `"it's"`,
-		`say "hi" it's`: `'say "hi" it\'s'`,
-		"tab\there":     `'tab\there'`,
-		"nl\n":          `'nl\n'`,
-		"cr\r":          `'cr\r'`,
-		`back\slash`:    `'back\\slash'`,
-		"\x01":          `'\x01'`,
-		"\x7f":          `'\x7f'`,
-		"café":          "'café'",
-		"\x80":          `'\udc80'`,
-		" ":             `'\xa0'`,
-		"zero​with":     "'zero\\u200bwith'",
-		"\U000e0001":    `'\U000e0001'`,
-		"�":             "'�'",
+		`/tmp/a b`:       `'/tmp/a b'`,
+		`it's`:           `"it's"`,
+		`say "hi" it's`:  `'say "hi" it\'s'`,
+		"tab\there":      `'tab\there'`,
+		"nl\n":           `'nl\n'`,
+		"cr\r":           `'cr\r'`,
+		`back\slash`:     `'back\\slash'`,
+		"\x01":           `'\x01'`,
+		"\x7f":           `'\x7f'`,
+		"café":           "'café'",
+		"\x80":           `'\udc80'`,
+		"\u00a0":         `'\xa0'`,
+		"zero\u200bwith": "'zero\\u200bwith'",
+		"\U000e0001":     `'\U000e0001'`,
+		"�":              "'�'",
 	} {
 		if got := pyRepr(in); got != want {
 			t.Errorf("pyRepr(%q) = %s, want %s", in, got, want)
@@ -60,25 +60,25 @@ func (u *unwrapper) Unwrap() error { return u.en }
 
 func TestPySplitLines(t *testing.T) {
 	for in, want := range map[string][]string{
-		"":                       nil,
-		"a":                      {"a"},
-		"a\n":                    {"a"},
-		"\n":                     {""},
-		"a\nb":                   {"a", "b"},
-		"a\r\nb\rc":              {"a", "b", "c"},
-		"a\r\n\r\nb":             {"a", "", "b"},
-		"a\vb\fc\x1cd\x1de\x1ef": {"a", "b", "c", "d", "e", "f"},
-		"a\u0085b c d":           {"a", "b", "c", "d"},
-		"a\x1fb":                 {"a\x1fb"},
-		"a\n\n  ":                {"a", "", "  "},
-		"x​y":                    {"x​y"},
-		"tail\r":                 {"tail"},
-		"\r\n":                   {""},
-		"a\xe2\x82\nb":           {"a\xe2\x82", "b"},
-		"one ":                   {"one"},
-		"  ":                     {"", ""},
-		"a\rb\n\rc":              {"a", "b", "", "c"},
-		"keep\ttab and  nbsp":    {"keep\ttab and  nbsp"},
+		"":                         nil,
+		"a":                        {"a"},
+		"a\n":                      {"a"},
+		"\n":                       {""},
+		"a\nb":                     {"a", "b"},
+		"a\r\nb\rc":                {"a", "b", "c"},
+		"a\r\n\r\nb":               {"a", "", "b"},
+		"a\vb\fc\x1cd\x1de\x1ef":   {"a", "b", "c", "d", "e", "f"},
+		"a\u0085b\u2028c\u2029d":   {"a", "b", "c", "d"},
+		"a\x1fb":                   {"a\x1fb"},
+		"a\n\n  ":                  {"a", "", "  "},
+		"x\u200by":                 {"x\u200by"},
+		"tail\r":                   {"tail"},
+		"\r\n":                     {""},
+		"a\xe2\x82\nb":             {"a\xe2\x82", "b"},
+		"one\u2028":                {"one"},
+		"\u2028\u2028":             {"", ""},
+		"a\rb\n\rc":                {"a", "b", "", "c"},
+		"keep\ttab and \u00a0nbsp": {"keep\ttab and \u00a0nbsp"},
 	} {
 		if got := pySplitLines(in); !reflect.DeepEqual(got, want) {
 			t.Errorf("pySplitLines(%q) = %q, want %q", in, got, want)
@@ -90,11 +90,11 @@ func TestPyStrip(t *testing.T) {
 	for in, want := range map[string]string{
 		"  a  ":                         "a",
 		"\t\n\v\f\r a \x1c\x1d\x1e\x1f": "a",
-		"  a　":                          "a",
+		"\u00a0\u2003a\u3000":           "a",
 		"\u0085a\u2028":                 "a",
 		"a b":                           "a b",
 		"":                              "",
-		"​a​":                           "​a​",
+		"\u200ba\u200b":                 "\u200ba\u200b",
 	} {
 		if got := pyStrip(in); got != want {
 			t.Errorf("pyStrip(%q) = %q, want %q", in, got, want)
