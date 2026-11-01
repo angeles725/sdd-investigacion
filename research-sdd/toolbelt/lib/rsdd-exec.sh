@@ -45,14 +45,16 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     if ! command -v find >/dev/null 2>&1 || ! command -v sort >/dev/null 2>&1; then _RSDD_EXEC_HWHY="find or sort not found"; return 1; fi
     while IFS= read -r -d '' p; do files+=("$p"); done < <(
       cd -- "$src" 2>/dev/null || { printf 'FIND-FAILED\0'; exit 0; }
-      { find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -path './testdata/*' ! -path '*/testdata/*' -print0 2>/dev/null || printf 'FIND-FAILED\0'; } | LC_ALL=C sort -z)
+      { find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -path './testdata/*' ! -path '*/testdata/*' ! -name testdata -print0 2>/dev/null || printf 'FIND-FAILED\0'; } | LC_ALL=C sort -z)
+    # An empty selection is decided BEFORE any "${files[@]}" expansion: on bash < 4.4 that expansion is an unbound
+    # variable error under the caller's `set -u`.
+    if [ "${#files[@]}" -eq 0 ]; then _RSDD_EXEC_HWHY="no source files matched"; return 1; fi
     for p in "${files[@]}"; do
       case "$p" in
         FIND-FAILED) _RSDD_EXEC_HWHY="scanning the sources failed"; return 1 ;;
         *$'\n'* | *\\*) _RSDD_EXEC_HWHY="a source path contains a newline or a backslash"; return 1 ;;
       esac
     done
-    if [ "${#files[@]}" -eq 0 ]; then _RSDD_EXEC_HWHY="no source files matched"; return 1; fi
     out="$(cd -- "$src" 2>/dev/null && "${sha[@]}" -- "${files[@]}" 2>/dev/null)" || { _RSDD_EXEC_HWHY="${sha[0]} failed over the sources"; return 1; }
     while IFS= read -r line; do lines+=("$line"); done <<<"$out"
     if [ "${#lines[@]}" -ne "${#files[@]}" ]; then _RSDD_EXEC_HWHY="${sha[0]} answered out of step"; return 1; fi
@@ -89,8 +91,10 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   # answer, `sha256:unknown` and a non-zero exit included) · 2 cannot tell (sets _RSDD_EXEC_HWHY).
   _rsdd_exec_check() {
     local got
+    _RSDD_EXEC_GOT=""
     _rsdd_exec_tree_hash "$2" || return 2
     got="$("$1" version --source-hash 2>/dev/null </dev/null)" || return 1
+    _RSDD_EXEC_GOT="$got"
     [ "$got" = "$_RSDD_EXEC_TREE" ] || return 1
   }
 
@@ -103,11 +107,34 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     ( trap 'rm -f -- "$tmp"' EXIT; cd -- "$kit/rsdd" && h="$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "$h" && go build -ldflags "-s -w -X $_RSDD_EXEC_HASH_SYM=$h" -o "$tmp" ./cmd/rsdd && chmod 755 "$tmp" && mv -f "$tmp" "$bin" ) >&2 || return 1
   }
 
-  # _rsdd_exec_build_locked KIT — _rsdd_exec_build under an exclusive flock on <kit>/bin/.rsdd.lock. Freshness is
-  # re-checked after the lock is taken, so a shim that waited does not rebuild what another one just built.
-  # rc 0 built · 10 already fresh after the wait · 1 build failed · 3 <kit>/bin not writable.
+  # _rsdd_exec_lock_wait — sets _RSDD_EXEC_LOCKWAIT: seconds to wait for the rebuild lock. Default 120; the env var
+  # RSDD_EXEC_LOCK_WAIT overrides it and must be a positive integer (anything else: one notice, the default).
+  _rsdd_exec_lock_wait() {
+    _RSDD_EXEC_LOCKWAIT=120
+    [ -n "${RSDD_EXEC_LOCK_WAIT+x}" ] || return 0
+    if [[ "$RSDD_EXEC_LOCK_WAIT" =~ ^[1-9][0-9]{0,8}$ ]]; then _RSDD_EXEC_LOCKWAIT="$RSDD_EXEC_LOCK_WAIT"
+    else echo "rsdd-exec: notice: RSDD_EXEC_LOCK_WAIT must be a positive integer, got '$RSDD_EXEC_LOCK_WAIT'; using 120" >&2; fi
+  }
+
+  # _rsdd_exec_disagree_known KIT — rc 0 when <kit>/bin/.rsdd-disagree records exactly the binary hash and the tree hash
+  # of the check that just ran (_RSDD_EXEC_GOT, _RSDD_EXEC_TREE): that pair was already rebuilt once.
+  _rsdd_exec_disagree_known() {
+    local marker
+    [ -n "$_RSDD_EXEC_GOT" ] || return 1
+    marker="$(cat -- "$1/bin/.rsdd-disagree" 2>/dev/null)" || return 1
+    [ "$marker" = "$_RSDD_EXEC_GOT $_RSDD_EXEC_TREE" ]
+  }
+
+  # _rsdd_exec_build_locked KIT — _rsdd_exec_build under an exclusive flock on <kit>/bin/.rsdd.lock, waited for at most
+  # _RSDD_EXEC_LOCKWAIT seconds. Freshness is re-checked after the lock is taken, so a shim that waited does not
+  # rebuild what another one just built. After a build the shell hash is compared with the stamp just written; a
+  # disagreement (the shell and Go selections differ) is recorded in <kit>/bin/.rsdd-disagree as "<stamp> <shell hash>"
+  # so the next calls do not rebuild in a loop.
+  # rc 0 built · 10 already fresh after the wait · 11 built but the shell hash disagrees with the stamp · 12 the lock
+  # stayed busy · 1 build failed · 3 <kit>/bin not writable.
   _rsdd_exec_build_locked() {
-    local kit="$1" bin="$1/bin/rsdd" lock="$1/bin/.rsdd.lock" rc=0
+    local kit="$1" bin="$1/bin/rsdd" lock="$1/bin/.rsdd.lock" rc=0 crc
+    _rsdd_exec_lock_wait
     if ! command -v flock >/dev/null 2>&1; then
       echo "rsdd-exec: notice: flock not found; rebuilding without a lock" >&2
       _rsdd_exec_build "$kit"; return
@@ -116,9 +143,19 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     { : >>"$lock"; } 2>/dev/null || return 3
     (
       { exec {lfd}>>"$lock"; } 2>/dev/null || exit 3
-      flock -x "$lfd" || exit 1
-      if [ -f "$bin" ] && [ -x "$bin" ] && _rsdd_exec_check "$bin" "$kit/rsdd"; then exit 10; fi
-      _rsdd_exec_build "$kit"
+      flock -w "$_RSDD_EXEC_LOCKWAIT" "$lfd" || exit 12
+      if [ -f "$bin" ] && [ -x "$bin" ]; then
+        crc=0; _rsdd_exec_check "$bin" "$kit/rsdd" || crc=$?
+        if [ "$crc" -eq 0 ]; then exit 10; fi
+        if [ "$crc" -eq 1 ] && _rsdd_exec_disagree_known "$kit"; then exit 11; fi
+      fi
+      _rsdd_exec_build "$kit" || exit $?
+      crc=0; _rsdd_exec_check "$bin" "$kit/rsdd" || crc=$?
+      if [ "$crc" -eq 1 ] && [ -n "$_RSDD_EXEC_GOT" ]; then
+        printf '%s %s\n' "$_RSDD_EXEC_GOT" "$_RSDD_EXEC_TREE" >"$kit/bin/.rsdd-disagree" 2>/dev/null
+        exit 11
+      fi
+      exit 0
     ) || rc=$?
     return "$rc"
   }
@@ -153,8 +190,13 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
       else
         brc=0; _rsdd_exec_build_locked "$kit" || brc=$?
         if [ "$brc" -eq 10 ]; then brc=0; fi
+        if [ "$brc" -eq 11 ]; then brc=0; echo "rsdd-exec: degraded: rsdd-source-hash-unavailable — shell and go source hashes disagree" >&2; fi
         if [ "$brc" -ne 0 ]; then
-          if [ "$brc" -eq 3 ]; then why="bin dir not writable: $kit/bin"; note="$why"; else why="build failed"; note="rebuild failed"; fi
+          case "$brc" in
+            3) why="bin dir not writable: $kit/bin"; note="$why" ;;
+            12) why="rebuild lock busy"; note="rebuild lock busy for ${_RSDD_EXEC_LOCKWAIT}s" ;;
+            *) why="build failed"; note="rebuild failed" ;;
+          esac
           if [ "$have" -eq 0 ]; then _RSDD_EXEC_WHY="$why"; return 2; fi
           echo "rsdd-exec: notice: $note; running a binary older than its sources: $bin" >&2
         fi
@@ -303,14 +345,26 @@ fi
 #          output goes to stderr only. If <kit>/bin cannot be created or written, the reason is `bin dir not
 #          writable: <dir>` (not `build failed`). Without `flock` the rebuild runs unlocked after one
 #          `rsdd-exec: notice: flock not found; rebuilding without a lock` line (the atomic rename keeps it safe).
-#          When the shell hash is UNAVAILABLE (no sha256 tool, a failed find, no source file, a path with a
-#          newline or a backslash) `go run ./cmd/rsdd-srchash .` stands in for it; if that fails too, or go is
-#          absent, one line `rsdd-exec: degraded: rsdd-source-hash-unavailable — <reason>` goes to stderr and
-#          the existing binary runs unchanged (an unknown is never "fresh" and never triggers a rebuild).
+#          The wait for that lock is bounded: `flock -w <seconds>`, default 120, overridden by the env var
+#          RSDD_EXEC_LOCK_WAIT (a positive integer; any other value gives one `rsdd-exec: notice: RSDD_EXEC_LOCK_WAIT
+#          must be a positive integer, got '<v>'; using 120` line and the default). When the lock stays busy: an
+#          existing binary runs after `rsdd-exec: notice: rebuild lock busy for <N>s; running a binary older than its
+#          sources: <bin>`; without a binary the reason is `rebuild lock busy` (see 4.), so a hung `go build` never
+#          blocks the hooks that wait behind it for good.
+#          When the shell hash is UNAVAILABLE (no sha256 tool; a failed find; no source file; a path with a newline or a
+#          backslash; a sha tool that failed or answered out of step, or printed no hash) `go run ./cmd/rsdd-srchash .`
+#          stands in for it; if that fails too, or go is absent, one line
+#          `rsdd-exec: degraded: rsdd-source-hash-unavailable — <reason>` goes to stderr and the existing binary runs
+#          unchanged (an unknown is never "fresh" and never triggers a rebuild). The same line, with the reason
+#          `shell and go source hashes disagree`, is printed when a rebuild has just stamped a hash that the shell
+#          hash still differs from: the new binary runs, the pair (stamp, shell hash) is remembered in
+#          <kit>/bin/.rsdd-disagree, and the next calls with the same pair do not rebuild again. A change of the sources
+#          changes the pair and allows one new rebuild. Known limit: the selected files go to the sha tool as arguments,
+#          so a source tree whose paths exceed the OS argument limit (E2BIG) makes the shell hash UNAVAILABLE.
 #       3. Rebuild impossible but an old binary exists -> a `rsdd-exec: notice:` line on stderr, old one runs.
 #       4. No binary and no way to get one -> exactly one `degraded:` line,
 #          `degraded: rsdd-unavailable — <reason>` (`go not found`, `build failed`,
-#          `bin dir not writable: <dir>`, `no sources at <path>`, `RSDD_BIN not executable: <path>`),
+#          `bin dir not writable: <dir>`, `rebuild lock busy`, `no sources at <path>`, `RSDD_BIN not executable: <path>`),
 #          rc 2, nothing on stdout. Build diagnostics (the `go build` output) may precede that line on stderr.
 #
 #   rsdd_exec_hook <sweep|guard|gate> <group> <cmd> [args...]

@@ -32,13 +32,20 @@ setup_world() {   # LIB_PATH
   SCLIB="$1"
   FARM="$SCRATCH/farm"; GOBIN="$SCRATCH/gobin"; JQD="$SCRATCH/jqd"; mkdir -p "$FARM" "$GOBIN" "$JQD"
   local t p
-  FARMNF="$SCRATCH/farm-noflock"; FARMNS="$SCRATCH/farm-nosha"; mkdir -p "$FARMNF" "$FARMNS"
+  FARMNF="$SCRATCH/farm-noflock"; FARMNS="$SCRATCH/farm-nosha"; FARMSHA="$SCRATCH/farm-shasum"; FLOGD="$SCRATCH/flogd"
+  mkdir -p "$FARMNF" "$FARMNS" "$FARMSHA" "$FLOGD"
   for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls readlink sort sha256sum flock; do
     p="$(type -P "$t")" || { echo "FATAL: tool $t missing" >&2; exit 2; }
     ln -s "$p" "$FARM/$t"
     [ "$t" = flock ] || ln -s "$p" "$FARMNF/$t"
     [ "$t" = sha256sum ] || ln -s "$p" "$FARMNS/$t"
+    [ "$t" = sha256sum ] || ln -s "$p" "$FARMSHA/$t"
   done
+  # FARMSHA: no sha256sum, only shasum (the library's fallback); an absent shasum leaves SHASUM_OK unset (typed SKIP)
+  SHASUM_OK=""; p="$(type -P shasum)" && { ln -s "$p" "$FARMSHA/shasum"; SHASUM_OK=1; }
+  # FLOGD: a flock that logs its argv to $FLOCK_LOG and runs the real one
+  FLOCK_REAL="$(type -P flock)"
+  printf '#!%s\nprintf "%%s\\n" "$*" >>"$FLOCK_LOG"\nexec "%s" "$@"\n' "$BASH_BIN" "$FLOCK_REAL" >"$FLOGD/flock"; chmod 755 "$FLOGD/flock"
   p="$(type -P jq)" && ln -s "$p" "$JQD/jq"
   MK_SYM="$(awk '$1 == "SOURCE_HASH_SYM" && $2 == ":=" { print $3 }' "$HERE/../../rsdd/Makefile")"
   [ -n "$MK_SYM" ] || { echo "FATAL: SOURCE_HASH_SYM not found in rsdd/Makefile" >&2; exit 2; }
@@ -132,7 +139,7 @@ EOF
 ref_hash() {
   ( cd -- "$1" 2>/dev/null && find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum \
       -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) \
-      ! -path './testdata/*' ! -path '*/testdata/*' \
+      ! -path './testdata/*' ! -path '*/testdata/*' ! -name testdata \
     | sed 's|^\./||' | LC_ALL=C sort \
     | while IFS= read -r p; do printf '%s\0%s\n' "$p" "$(sha256sum < "$p" | cut -d' ' -f1)"; done \
     | sha256sum | awk '{print "sha256:" $1}' ) 2>/dev/null
@@ -146,13 +153,14 @@ putbin() {   # TAG [HASH] [DATE] — fake rsdd at KIT/bin/rsdd; HASH = what `ver
   if [ -n "${3:-}" ]; then touch -d "$3" "$KIT/bin/rsdd"; fi
 }
 
-# dorun LABEL SCRIPT PM args... — PM go|gojq|nogojq|nogo|goNF (no flock)|nosha (go, no sha tool)|nosha_nogo.
+# dorun LABEL SCRIPT PM args... — PM go|gojq|nogojq|nogo|goNF (no flock)|nosha (go, no sha tool)|nosha_nogo|shasum (go, shasum only)|shasum_nogo|flog (go, flock logs argv to FLOCK_LOG).
 # Env knobs: GOMODE GOTAG GOHASH (what `go run rsdd-srchash` prints; default = the tree hash) SRCMODE=fail FAKE_RC
 # FAKE_HASH_RC READ_STDIN STDIN_FILE USE_RSDD_BIN DORUN_TIMEOUT
 dorun() {
   local label="$1" script="$2" pm="$3" p gh; shift 3
   case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; goNF) p="$GOBIN:$FARMNF" ;;
-    nosha) p="$GOBIN:$FARMNS" ;; nosha_nogo) p="$FARMNS" ;; *) p="$FARM" ;; esac
+    nosha) p="$GOBIN:$FARMNS" ;; nosha_nogo) p="$FARMNS" ;; shasum) p="$GOBIN:$FARMSHA" ;; shasum_nogo) p="$FARMSHA" ;;
+    flog) p="$GOBIN:$FLOGD:$FARM" ;; *) p="$FARM" ;; esac
   local sp="$KIT/toolbelt/$script"; case "$script" in /*) sp="$script" ;; esac
   if [ -n "${GOHASH+x}" ]; then gh="$GOHASH"; else gh="$(ref_hash "$KIT/rsdd")"; fi
   local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_RUNLOG="$SCRATCH/run.log" FAKE_GO_LDLOG="$SCRATCH/ld.log" FAKE_GO_SYM="$MK_SYM"
@@ -423,6 +431,80 @@ sc_usage() {
   doshow one direct.sh go onlygroup
   doshow two direct.sh go verify block
 }
+sc_testdata_file() {   # a REGULAR FILE named testdata (vendor/, embed/) is dropped by the Go side: no hash drift, no rebuild
+  mkkit tdfile
+  mkdir -p "$KIT/rsdd/vendor/x" "$KIT/rsdd/embed/y"; printf 'v\n' >"$KIT/rsdd/vendor/x/testdata"; printf 'e\n' >"$KIT/rsdd/embed/y/testdata"
+  putbin OLDBIN '' '2021-01-01 00:00:00'
+  doshow tdfile shim.sh go x
+  probes
+}
+sc_disagree() {   # the Go stamp never equals the shell hash: ONE rebuild, one typed line per call, no rebuild loop
+  mkkit dis; putbin OLD "$H_OLD"
+  GOHASH="$H_OLD" doshow first shim.sh go x
+  probes
+  GOHASH="$H_OLD" doshow second shim.sh go x
+  probes
+  printf 'package deep\n// moved\n' >"$KIT/rsdd/internal/deep/deep.go"
+  GOHASH="$H_OLD" doshow third shim.sh go x
+  probes
+}
+sc_lockbusy() {   # the rebuild lock is held by someone else for longer than the wait
+  local holder v
+  for v in old none; do
+    mkkit "lb-$v"; [ "$v" = old ] && putbin OLD "$H_OLD"
+    mkdir -p "$KIT/bin"; : >"$KIT/bin/.rsdd.lock"
+    ( exec 9>"$KIT/bin/.rsdd.lock"; flock -x 9 && exec sleep 30 ) &
+    holder=$!
+    _held() { ! flock -n "$KIT/bin/.rsdd.lock" true; }
+    if ! wait_until _held; then echo "HANDSHAKE-TIMEOUT=lock-never-held"; kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; return; fi
+    RSDD_EXEC_LOCK_WAIT=1 DORUN_TIMEOUT=10 doshow "$v" shim.sh go x
+    if [ "$v" = none ]; then RSDD_EXEC_LOCK_WAIT=1 DORUN_TIMEOUT=10 doshow guard hook.sh go guard verify block x; fi
+    kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+    probes
+  done
+}
+sc_lockwait_arg() {   # the wait handed to flock: default 120, RSDD_EXEC_LOCK_WAIT when valid; invalid values: one notice, 120
+  local v n=0
+  export FLOCK_LOG="$SCRATCH/flock.log"
+  mkkit lwdef; putbin OLD "$H_OLD"; : >"$FLOCK_LOG"
+  doshow default shim.sh flog x
+  printf 'DEFARGS=%s\n' "$(head -n 1 "$FLOCK_LOG")"
+  for v in 7 abc 0 -3 '' '1 2' 007; do
+    n=$((n + 1)); mkkit "lw$n"; putbin OLD "$H_OLD"; : >"$FLOCK_LOG"
+    RSDD_EXEC_LOCK_WAIT="$v" doshow "v$n" shim.sh flog x
+    printf 'VALUE%s=[%s] ARGS=%s\n' "$n" "$v" "$(head -n 1 "$FLOCK_LOG")"
+  done
+}
+sc_shasum() {   # only shasum (no sha256sum): fresh, stale and unknown-to-go cases still decide by the shell hash
+  if [ -z "$SHASUM_OK" ]; then echo "SHASUM=ABSENT"; return; fi
+  mkkit shs1; putbin OLDBIN
+  doshow fresh shim.sh shasum_nogo x
+  probes
+  mkkit shs2; putbin OLD "$H_OLD"
+  doshow stale shim.sh shasum x
+  probes
+}
+sc_fixture_shasum() {   # the shasum path of the shell hash equals the hash the Go side pins
+  local fx="$HERE/../../rsdd/internal/commands/testdata/source-hash" want
+  if [ -z "$SHASUM_OK" ]; then echo "SHASUM=ABSENT"; return; fi
+  # shellcheck source=/dev/null
+  . "$SCLIB"
+  want="$(<"$fx/expected-hash.txt")"
+  (
+    PATH="$FARMSHA"
+    if command -v sha256sum >/dev/null 2>&1; then echo "FIXTURE=FARM-HAS-SHA256SUM"; exit 0; fi
+    if _rsdd_exec_shell_hash "$fx"; then
+      if [ "$_RSDD_EXEC_TREE" = "$want" ]; then echo "FIXTURE=OK"; else echo "FIXTURE=DIFF got=$_RSDD_EXEC_TREE want=$want"; fi
+    else echo "FIXTURE=UNAVAILABLE why=$_RSDD_EXEC_HWHY"; fi
+  )
+}
+sc_empty_strict() {   # empty selection under the caller's set -euo pipefail: the typed line, no unbound-variable crash
+  mkkit emptystrict; putbin OLD
+  rm -f "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum" "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go"
+  SRCMODE=fail doshow strict strict.sh go x
+  probes
+}
+
 wait_until() {   # FN — poll FN up to ~5 s; rc 1 = typed timeout
   local i
   for ((i = 0; i < 100; i++)); do "$1" && return 0; sleep 0.05; done
@@ -841,6 +923,59 @@ if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "lockfree: lock holder started
 chk "fresh binary + the lock held by another process -> still runs (not blocked)" "$R" fresh '^o\| FAKE-OLD$'
 chk "fresh binary + the lock held by another process -> rc 0 (no timeout)" "$R" fresh '^RC=0$'
 
+R="$(scen testdata_file "$LIB")"
+chk "a regular file named testdata under vendor/ and embed/ is not hashed -> binary runs" "$R" tdfile '^o\| FAKE-OLDBIN$'
+pchk "a regular file named testdata -> no rebuild" "$R" '^GOCALLS=0$'
+nchk "a regular file named testdata -> stderr silent" "$R" tdfile '^e\| '
+R="$(scen disagree "$LIB")"
+chk "shell/go hash disagreement: first call runs the rebuilt binary" "$R" first '^o\| FAKE-NEW$'
+chk "shell/go hash disagreement: first call prints the typed line" "$R" first '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — shell and go source hashes disagree$'
+[ "$(sect "$R" first | grep -c 'degraded: ')" = 1 ] && ok "disagreement: exactly one degraded line on the first call" || no "disagreement: exactly one degraded line on the first call"
+chk "shell/go hash disagreement: second call runs the binary, rc 0" "$R" second '^o\| FAKE-NEW$'
+chk "shell/go hash disagreement: second call still says so" "$R" second '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — shell and go source hashes disagree$'
+[ "$(sect "$R" second | grep -c 'degraded: ')" = 1 ] && ok "disagreement: exactly one degraded line on the second call" || no "disagreement: exactly one degraded line on the second call"
+nchk "shell/go hash disagreement: the second call does not rebuild" "$R" second 'BUILDNOISE'
+chk "shell/go hash disagreement: two consecutive calls build exactly once (no loop)" "$R" second '^GOCALLS=1$'
+chk "shell/go hash disagreement: a changed source after it is rebuilt again" "$R" third '^e\| BUILDNOISE-STDERR$'
+pchk "shell/go hash disagreement: the changed source costs exactly one more build" "$R" '^GOCALLS=2$'
+R="$(scen lockbusy "$LIB")"
+if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "lockbusy: lock holder started" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "lockbusy: lock holder started"; fi
+chk "lock busy + old binary -> the old binary runs" "$R" old '^o\| FAKE-OLD$'
+chk "lock busy + old binary -> rc 0 (no hang)" "$R" old '^RC=0$'
+chk "lock busy + old binary -> notice names the wait and the binary" "$R" old '^e\| rsdd-exec: notice: rebuild lock busy for 1s; running a binary older than its sources: .*/k it/bin/rsdd$'
+chk "lock busy + no binary -> rc 2" "$R" none '^RC=2$'
+chk "lock busy + no binary -> degraded line" "$R" none '^e\| degraded: rsdd-unavailable — rebuild lock busy$'
+nchk "lock busy + no binary -> nothing on stdout" "$R" none '^o\| '
+chk "lock busy + no binary, guard hook -> rc 0" "$R" guard '^RC=0$'
+chk "lock busy + no binary, guard hook -> still answers ask" "$R" guard '^o\| .*"permissionDecision":"ask".*rebuild lock busy'
+pchk "lock busy -> no go build" "$R" '^GOCALLS=0$'
+R="$(scen lockwait_arg "$LIB")"
+pchk "lock wait: default is 120 seconds" "$R" '^DEFARGS=-w 120 [0-9]+$'
+pchk "lock wait: RSDD_EXEC_LOCK_WAIT=7 is handed to flock" "$R" '^VALUE1=\[7\] ARGS=-w 7 [0-9]+$'
+for n in 2 3 4 5 6 7; do
+  pchk "lock wait: invalid value #$n -> flock gets 120" "$R" "^VALUE$n=\\[.*\\] ARGS=-w 120 [0-9]+\$"
+  chk "lock wait: invalid value #$n -> one notice" "$R" "v$n" '^e\| rsdd-exec: notice: RSDD_EXEC_LOCK_WAIT must be a positive integer, got .*; using 120$'
+  [ "$(sect "$R" "v$n" | grep -c 'RSDD_EXEC_LOCK_WAIT must be')" = 1 ] && ok "lock wait: invalid value #$n -> the notice appears exactly once" || no "lock wait: invalid value #$n -> the notice appears exactly once"
+done
+nchk "lock wait: a valid value prints no notice" "$R" v1 'RSDD_EXEC_LOCK_WAIT'
+R="$(scen shasum "$LIB")"
+if grep -q '^SHASUM=ABSENT' <<<"$R"; then skip "shasum fallback" "shasum not installed (typed SKIP)"; else
+  chk "shasum only: matching hash -> binary runs" "$R" fresh '^o\| FAKE-OLDBIN$'
+  nchk "shasum only: matching hash -> stderr silent" "$R" fresh '^e\| '
+  pchk "shasum only: matching hash -> no build, no go run" "$R" '^GOCALLS=0$'
+  chk "shasum only: different hash -> rebuilt" "$R" stale '^o\| FAKE-NEW$'
+  nchk "shasum only: different hash -> no source-hash-unavailable line" "$R" stale 'source-hash-unavailable'
+fi
+R="$(scen fixture_shasum "$LIB")"
+if grep -q '^SHASUM=ABSENT' <<<"$R"; then skip "shasum fixture hash" "shasum not installed (typed SKIP)"; else
+  pchk "shasum only: the shell tree hash over the Go fixture equals expected-hash.txt" "$R" '^FIXTURE=OK$'
+fi
+R="$(scen empty_strict "$LIB")"
+chk "empty selection under set -euo pipefail -> typed line" "$R" strict '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — .*no source files matched'
+chk "empty selection under set -euo pipefail -> the existing binary runs" "$R" strict '^o\| FAKE-OLD$'
+chk "empty selection under set -euo pipefail -> rc 0" "$R" strict '^RC=0$'
+nchk "empty selection under set -euo pipefail -> no unbound variable" "$R" strict 'unbound'
+
 # 11. hook mode: sweep / guard / gate
 rt_chk() {   # NAME REPORT LABEL — jq round trip probe: ok, or a typed SKIP when jq is absent
   case "$(grep "^JQ-RT-$3=" <<<"$2")" in
@@ -1063,9 +1198,9 @@ mk stamp-unvalidated 's#&& _rsdd_exec_valid_hash "\$h" && go build#\&\& go build
 mk stamp-failure-ignored 's#h="\$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "\$h" && go build#h="$(go run ./cmd/rsdd-srchash .)"; go build#' &&
   tt stamp-failure-ignored stampfail --good-lacks '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
 # --- the lock
-mk no-lock 's#flock -x "\$lfd" || exit 1#:#' &&
+mk no-lock 's#flock -w "\$_RSDD_EXEC_LOCKWAIT" "\$lfd" || exit 12#:#' &&
   tt no-lock race --good-lacks '^HANDSHAKE-TIMEOUT' --good-has '^GOCALLS=1$' --bad-has '^HANDSHAKE-TIMEOUT=B-never-blocked' --bad-lacks "$CRASH"
-mk no-recheck 's#&& _rsdd_exec_check "\$bin" "\$kit/rsdd"; then exit 10#\&\& false; then exit 10#' &&
+mk no-recheck 's#if \[ "\$crc" -eq 0 \]; then exit 10; fi#:#' &&
   tt no-recheck race --good-has '^GOCALLS=1$' --bad-has '^GOCALLS=2$' --bad-lacks "$CRASH"
 mk recheck-rc-unmapped 's#if \[ "\$brc" -eq 10 \]; then brc=0; fi#:#' &&
   tt recheck-rc-unmapped race --good-has '^B-COMPLETE=yes$' --bad-has '^B-COMPLETE=no$' --bad-lacks "$CRASH"
@@ -1157,6 +1292,39 @@ fi
 mk kit-root-unchecked 's#if \[ -z "\$kit" \]; then _RSDD_EXEC_WHY="cannot resolve the kit root"; return 2; fi#:#' &&
   tt kit-root-unchecked nocd --good-has 'cannot resolve the kit root' --bad-lacks 'cannot resolve the kit root' --bad-lacks "$CRASH"
 # race: no atomic rename is covered above (handshake scenario)
+
+# --- review batch for #2384: testdata files, hash disagreement, bounded lock wait, shasum, symlinks
+mk fixture-symlink 's#find \. -type f#find -L . -type f#' && tt fixture-symlink fixture "${FXG[@]}"
+mk testdata-file-kept "s# ! -name testdata##" &&
+  tt testdata-file-kept testdata_file --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+mk disagree-loops 's#if \[ "\$crc" -eq 1 \] \&\& _rsdd_exec_disagree_known "\$kit"; then exit 11; fi#:#' &&
+  tt disagree-loops disagree --good-has '^GOCALLS=2$' --bad-lacks '^GOCALLS=2$' --bad-lacks "$CRASH"
+mk disagree-unkeyed 's#\[ "\$marker" = "\$_RSDD_EXEC_GOT \$_RSDD_EXEC_TREE" \]#true#' &&
+  tt disagree-unkeyed disagree --good-has '^GOCALLS=2$' --bad-lacks '^GOCALLS=2$' --bad-lacks "$CRASH"
+mk disagree-silent 's#if \[ "\$brc" -eq 11 \]; then brc=0; echo [^;]*; fi#if [ "$brc" -eq 11 ]; then brc=0; fi#' &&
+  tt disagree-silent disagree --good-has 'shell and go source hashes disagree' --bad-lacks 'shell and go source hashes disagree' --bad-lacks "$CRASH"
+mk disagree-unrecorded 's#>"\$kit/bin/.rsdd-disagree" 2>/dev/null#>/dev/null 2>\&1#' &&
+  tt disagree-unrecorded disagree --good-has '^GOCALLS=2$' --bad-lacks '^GOCALLS=2$' --bad-lacks "$CRASH"
+mk lock-forever 's#flock -w "\$_RSDD_EXEC_LOCKWAIT" "\$lfd" || exit 12#flock -x "$lfd" || exit 12#' &&
+  tt lock-forever lockbusy --good-has 'rebuild lock busy for 1s' --bad-lacks 'rebuild lock busy for 1s' --bad-lacks "$CRASH"
+mk lock-busy-unmapped 's#12) why="rebuild lock busy"; note="rebuild lock busy for \${_RSDD_EXEC_LOCKWAIT}s" ;;#12) why="build failed"; note="rebuild failed" ;;#' &&
+  tt lock-busy-unmapped lockbusy --good-has 'degraded: rsdd-unavailable — rebuild lock busy$' --bad-lacks 'degraded: rsdd-unavailable — rebuild lock busy$' --bad-lacks "$CRASH"
+mk lockwait-env-ignored 's#_RSDD_EXEC_LOCKWAIT="\$RSDD_EXEC_LOCK_WAIT"#_RSDD_EXEC_LOCKWAIT=120#' &&
+  tt lockwait-env-ignored lockwait_arg --good-has '^VALUE1=\[7\] ARGS=-w 7 ' --bad-lacks '^VALUE1=\[7\] ARGS=-w 7 ' --bad-lacks "$CRASH"
+mk lockwait-zero-accepted 's#\^\[1-9\]\[0-9\]{0,8}\$#^[0-9]+$#' &&
+  tt lockwait-zero-accepted lockwait_arg --good-has '^VALUE3=\[0\] ARGS=-w 120 ' --bad-lacks '^VALUE3=\[0\] ARGS=-w 120 ' --bad-lacks "$CRASH"
+mk lockwait-notice-silent 's#else echo "rsdd-exec: notice: RSDD_EXEC_LOCK_WAIT must be[^"]*" >\&2; fi#else :; fi#' &&
+  tt lockwait-notice-silent lockwait_arg --good-has 'RSDD_EXEC_LOCK_WAIT must be a positive integer' --bad-lacks 'RSDD_EXEC_LOCK_WAIT must be a positive integer' --bad-lacks "$CRASH"
+mk lockwait-default 's#_RSDD_EXEC_LOCKWAIT=120$#_RSDD_EXEC_LOCKWAIT=5#' &&
+  tt lockwait-default lockwait_arg --good-has '^DEFARGS=-w 120 ' --bad-lacks '^DEFARGS=-w 120 ' --bad-lacks "$CRASH"
+if [ -n "$(type -P shasum)" ]; then
+  SHG=(--good-has '^FIXTURE=OK$' --bad-lacks '^FIXTURE=OK$' --bad-lacks "$CRASH")
+  mk shasum-offset 's#line:66#line:65#' && tt shasum-offset fixture_shasum "${SHG[@]}"
+  mk shasum-algo 's#shasum -a 256 -b#shasum -a 1 -b#' && tt shasum-algo fixture_shasum "${SHG[@]}"
+  mk shasum-missing 's#elif command -v shasum >/dev/null 2>&1; then sha=(shasum -a 256 -b)#elif false; then sha=(shasum)#' && tt shasum-missing fixture_shasum "${SHG[@]}"
+else
+  skip "teeth shasum-*" "shasum not installed (typed SKIP)"
+fi
 
 echo ""
 total=$((pass+fail))
