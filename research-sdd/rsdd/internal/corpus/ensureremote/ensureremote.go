@@ -30,7 +30,8 @@
 //     stderr line from the rsdd dispatcher; it is a declared divergence (parity case er-no-consent);
 //   - the "looks like text" test uses the ASCII class [[:alnum:]], stricter than the locale-dependent bash one;
 //   - git, the scanner and the `gh api` owner lookups were unbounded in the bash and are bounded here (git and the
-//     scanner one hour, the owner lookups by RSDD_GH_TIMEOUT); a bound hit fails closed like any other failure;
+//     scanner one hour, the owner lookups by RSDD_GH_TIMEOUT); the final `git push` is the exception: unbounded and
+//     streamed with the caller's stdin, stdout and stderr, as in the bash; a bound hit fails closed like any other failure;
 //   - blobs are classified in memory, so the mktemp copy, its EXIT/INT/TERM cleanup trap and the base64/od/mktemp
 //     tool probes of the bash have no counterpart;
 //   - no GHV_NOTE line: the bash prints it only when the watchdog bounds gh, which core/gh replaces;
