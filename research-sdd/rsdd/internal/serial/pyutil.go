@@ -125,8 +125,6 @@ func invalidPrefixLen(b []byte) int {
 	lo, hi := byte(0x80), byte(0xbf)
 	need := 0
 	switch lead := b[0]; {
-	case lead >= 0xc2 && lead <= 0xdf:
-		need = 1
 	case lead >= 0xe0 && lead <= 0xef:
 		need = 2
 		if lead == 0xe0 {

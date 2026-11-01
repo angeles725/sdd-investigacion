@@ -63,6 +63,9 @@ DIFF_A = "0.0 len=3 81 00 01\n0.1 len=3 81 00 02\n0.2 len=3 81 00 02\n0.3 len=4 
 DIFF_B = "0.0 len=3 81 00 09\n0.1 len=3 81 00 02\n0.2 len=3 81 00 09\n0.3 len=3 82 00 00\n0.4 len=2 55 66\n"
 EXTRA["diff_a.log"] = DIFF_A
 EXTRA["diff_b.log"] = DIFF_B
+# two shared types of the same length told apart by the first byte, and a representative chosen among equals
+EXTRA["diff_c.log"] = "0.0 len=3 81 00 01\n0.1 len=3 81 00 02\n0.2 len=3 20 05 06\n0.3 len=3 20 07 08\n0.4 len=2 aa bb\n"
+EXTRA["diff_d.log"] = "0.0 len=3 20 05 09\n0.1 len=3 20 07 08\n0.2 len=3 81 00 02\n0.3 len=3 81 00 01\n0.4 len=2 aa cc\n"
 # every checksum family once, with a mixed-in bad frame, a short frame and a skip-first checksum
 def crc16_modbus(d):
     c = 0xFFFF
@@ -97,7 +100,7 @@ for log in ["basic", "empty", "malformed", "ties", "variab", "badhex", "junk", "
 for log in ["basic", "checksum", "crc-modbus", "crc-ccitt", "empty", "malformed", "badhex", "mixed_sums", "skip_sum",
             "onlyshort", "ties", "unicode", "invalid_utf8"]:
     case(f"checksum_{log}", "checksum", "--input", F + log + ".log", "--output", "{TMP}/out.json")
-for a, b in [("basic", "basic_b"), ("basic", "basic"), ("diff_a", "diff_b"), ("diff_b", "diff_a"), ("empty", "empty"),
+for a, b in [("basic", "basic_b"), ("basic", "basic"), ("diff_a", "diff_b"), ("diff_b", "diff_a"), ("diff_c", "diff_d"), ("diff_d", "diff_c"), ("empty", "empty"),
              ("empty", "basic"), ("basic", "empty"), ("malformed", "basic"), ("basic", "malformed"),
              ("badhex", "basic"), ("junk", "empty"), ("ties", "variab")]:
     case(f"diff_{a}_{b}", "diff", "--input-a", F + a + ".log", "--input-b", F + b + ".log", "--output", "{TMP}/out.json")

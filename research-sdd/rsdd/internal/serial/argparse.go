@@ -209,15 +209,11 @@ func (c *cmdLine) looksLikeOption(sub subSpec, arg string) bool {
 	return true
 }
 
-// resolve maps an option string (name part, before any "=") to its spec: exact name first, then a unique
-// prefix. A nil spec with no message is an unknown option.
+// resolve maps an option string (name part, before any "=") to its spec: an option name or a unique prefix of
+// one (no option name here is a prefix of another, so an exact name is always unique). A nil spec with no
+// message is an unknown option.
 func (c *cmdLine) resolve(sub subSpec, name, arg string) (*argSpec, string) {
 	found := matches(sub, name)
-	for _, m := range found {
-		if "--"+m.name == name {
-			return m, ""
-		}
-	}
 	switch len(found) {
 	case 0:
 		return nil, ""

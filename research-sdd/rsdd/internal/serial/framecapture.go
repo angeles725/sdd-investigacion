@@ -107,7 +107,7 @@ func captureFrames(p serialPort, now func() time.Time, seconds, gap float64) ([]
 		}
 		at := now()
 		if len(chunk) > 0 {
-			if !lastRx.IsZero() && at.Sub(lastRx).Seconds() > gap && len(cur) > 0 {
+			if !lastRx.IsZero() && at.Sub(lastRx).Seconds() > gap {
 				frames = append(frames, rawFrame{lastRx.Sub(t0).Seconds(), cur})
 				cur = nil
 			}
@@ -146,7 +146,7 @@ func baudResult(baud int, raw []byte) map[string]any {
 	}
 	return map[string]any{
 		"baud": baud, "byte_count": len(raw), "entropy": roundDigits(h, 4),
-		"likely_framed":      len(raw) > 0 && h < framedMaxEntropy && len(raw) > framedMinBytes,
+		"likely_framed":      h < framedMaxEntropy && len(raw) > framedMinBytes,
 		"sample_hex":         fmt.Sprintf("%x", raw[:min(len(raw), sampleBytes)]),
 		"unique_byte_values": len(unique),
 	}
