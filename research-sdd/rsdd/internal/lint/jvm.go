@@ -4,7 +4,6 @@ package lint
 // Vocabulary and messages are the Python's; the lookarounds / Unicode `\b` are rewritten as documented per regex.
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -38,19 +37,19 @@ var (
 		`drops?`+ws+`+cx`+rb, `null`+ws+`+Context`, `getPermissions\(null\)`,
 	))
 	// R5_ACCESS_CTX_RE, case-sensitive. Its `(?<!\[)\bBlock\b(?!\s*\d)` alternative is code (blockCitation).
-	r5AccessCtxRE = regexp.MustCompile(alt(
+	r5AccessCtxRE = newLazyRE(alt(
 		lb+`polic(?:y|ies)`+rb, lb+`Bypass`+ws+`+actions?`+rb, lb+`action:`,
 		lb+`(?:Access|Allow|Include|Exclude|Require)`+rb, lb+`Service`+ws+`+Auth`+rb,
 	))
 	// The `(?=\s+(?:policy|policies|action|rule)s?\b)` lookahead of the code-span form, applied to the text after it.
-	r5ActionTailRE = regexp.MustCompile(`^` + ws + `+(?:policy|policies|action|rule)s?` + rb)
+	r5ActionTailRE = newLazyRE(`^` + ws + `+(?:policy|policies|action|rule)s?` + rb)
 
 	r5PermCtxCI = reCI(alt(
 		lb+`permissions?`+rb, `getPermissions`, lb+`security`+rb, lb+`credentials?`+rb, lb+`o?auth\p{Nd}?`+rb, lb+`authn`+rb,
 		lb+`authz`+rb, lb+`(?:un|de)?(?:authenticat|authoriz|authoris)`, lb+`null[`+wsClass+`-]+context`+rb,
 	))
 	// `Context` and `cx` are case-sensitive: lower-case "context" is ordinary English (see jvm.py).
-	r5PermCtxCS = regexp.MustCompile(lb + `Context` + rb + `|` + lb + `cx` + rb)
+	r5PermCtxCS = newLazyRE(lb + `Context` + rb + `|` + lb + `cx` + rb)
 
 	// R5_CLEARED_RE `(?:dispatch|cited-absence):\s*(?!<placeholder>(?!\w))(?=\S*[A-Za-z0-9]{3,})\S{3,}`: after the
 	// token the whitespace is maximal (a shorter run leaves a space where both lookaheads need a non-space), and the
@@ -58,7 +57,7 @@ var (
 	r5ClearedTokenRE       = reCI(`(?:dispatch|cited-absence):`)
 	r5ClearedPlaceholderRE = reCI(`^(?:todo|tbd|tba|tbc|xxx|n/?a|none|nil|null|unknown|unresolved|pending|unclear|missing|fixme|wip|\?+)` + rb)
 	// [A-Za-z0-9]{3,} under re.IGNORECASE also takes U+0130, U+0131, U+017F and U+212A.
-	r5Alnum3RE = regexp.MustCompile(`[A-Za-z0-9\x{130}\x{131}\x{17f}\x{212a}]{3,}`)
+	r5Alnum3RE = newLazyRE(`[A-Za-z0-9\x{130}\x{131}\x{17f}\x{212a}]{3,}`)
 
 	r5GapRefRE = reCI(alt(
 		`^`+ws+`*Gap`+rb, lb+`G\p{Nd}+`+ws+`*:`, lb+`B\p{Nd}+-G\p{Nd}+`+rb, lb+`gap`+ws+`+G\p{Nd}+`, lb+`see`+ws+`+block`+rb,
