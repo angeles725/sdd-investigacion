@@ -16,7 +16,7 @@ func TestCksumKnownVectors(t *testing.T) {
 	}{
 		{"123456789", 930766865},
 		{"", 4294967295},
-		{"a\n", 1220704766},
+		{"a\n", 2418082923}, // checked against the system cksum(1)
 	} {
 		if got := cksum([]byte(c.in)); got != c.want {
 			t.Errorf("cksum(%q) = %d, want %d", c.in, got, c.want)
