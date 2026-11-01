@@ -69,11 +69,8 @@ func writeNew(path string, content []byte) error {
 		return err
 	}
 	f := os.NewFile(uintptr(fd), path)
-	_, err = f.Write(content)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
+	_, werr := f.Write(content)
+	return errors.Join(werr, f.Close())
 }
 
 // writeJSON writes doc as the key-sorted indent=2 JSON the legacy _write_json produced.

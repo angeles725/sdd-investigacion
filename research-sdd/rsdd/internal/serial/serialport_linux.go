@@ -102,8 +102,8 @@ func configureRaw(fd int, baud int64) error {
 	} else if err := setCustomBaud(fd, &t, baud); err != nil {
 		return termiosError(err)
 	}
-	// pyserial discards pending input on open; a device that refuses the flush (ENOTTY, EINVAL) is tolerated
-	if _, _, en := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), tcflsh, tciflsh); en != 0 && en != syscall.ENOTTY && en != syscall.EINVAL {
+	// pyserial discards pending input on open
+	if _, _, en := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), tcflsh, tciflsh); en != 0 {
 		return termiosError(en)
 	}
 	return nil

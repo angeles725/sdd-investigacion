@@ -148,10 +148,7 @@ func (a *analysis) checksum(input string) int {
 			if x.hits != y.hits {
 				return y.hits - x.hits
 			}
-			if c := strings.Compare(x.name, y.name); c != 0 {
-				return c
-			}
-			return x.skip - y.skip
+			return strings.Compare(x.name, y.name) // equal keys keep the generated order: skip 0 before skip 1
 		})
 		for _, r := range results {
 			algorithms = append(algorithms, r.doc())

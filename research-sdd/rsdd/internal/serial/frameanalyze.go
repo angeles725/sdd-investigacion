@@ -1,10 +1,10 @@
 package serial
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -200,10 +200,7 @@ func (a *analysis) stats(input string) int {
 	}
 	histogram := make([]any, 0, len(order))
 	for _, l := range slices.SortedStableFunc(slices.Values(order), func(x, y int) int {
-		if counts[x] != counts[y] {
-			return counts[y] - counts[x]
-		}
-		return x - y
+		return cmp.Or(cmp.Compare(counts[y], counts[x]), cmp.Compare(x, y))
 	}) {
 		histogram = append(histogram, map[string]any{"count": counts[l], "length": l})
 	}
@@ -320,11 +317,8 @@ func (a *analysis) diff(inputA, inputB string) int {
 			shared = append(shared, k)
 		}
 	}
-	sort.Slice(shared, func(i, j int) bool {
-		if shared[i].length != shared[j].length {
-			return shared[i].length < shared[j].length
-		}
-		return shared[i].first < shared[j].first
+	slices.SortFunc(shared, func(a, b frameKey) int {
+		return cmp.Or(cmp.Compare(a.length, b.length), cmp.Compare(a.first, b.first))
 	})
 	types := make([]any, 0, len(shared))
 	for _, k := range shared {

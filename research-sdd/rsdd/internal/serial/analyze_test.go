@@ -72,7 +72,7 @@ func expectedFile(t *testing.T, name, ext string) (string, bool) {
 }
 
 func TestAnalyzeGolden(t *testing.T) {
-	for _, c := range goldenCases(t, 52) {
+	for _, c := range goldenCases(t, 55) {
 		t.Run(c.name, func(t *testing.T) {
 			tmp := t.TempDir()
 			args := make([]string, len(c.args))

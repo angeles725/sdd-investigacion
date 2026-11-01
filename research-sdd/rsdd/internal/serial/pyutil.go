@@ -120,13 +120,13 @@ func pySplitLines(s string) []string {
 }
 
 // invalidPrefixLen is the length of the maximal invalid subpart at the head of b (b[0] does not start a valid
-// UTF-8 sequence): the lead byte plus the continuation bytes that still fit a valid sequence.
+// UTF-8 sequence): the lead byte plus the continuation bytes that still fit a valid sequence. Only the leads
+// E0..EF and F0..F4 can have a partly valid tail (a 2-byte lead that failed to decode has no continuation, and
+// a complete valid sequence would have decoded), so the scan simply runs while the bytes fit.
 func invalidPrefixLen(b []byte) int {
 	lo, hi := byte(0x80), byte(0xbf)
-	need := 0
 	switch lead := b[0]; {
 	case lead >= 0xe0 && lead <= 0xef:
-		need = 2
 		if lead == 0xe0 {
 			lo = 0xa0
 		}
@@ -134,19 +134,18 @@ func invalidPrefixLen(b []byte) int {
 			hi = 0x9f
 		}
 	case lead >= 0xf0 && lead <= 0xf4:
-		need = 3
 		if lead == 0xf0 {
 			lo = 0x90
 		}
 		if lead == 0xf4 {
 			hi = 0x8f
 		}
+	default:
+		return 1
 	}
 	n := 1
-	for ; n <= need && n < len(b); n++ {
-		if b[n] < lo || b[n] > hi {
-			break
-		}
+	for n < len(b) && b[n] >= lo && b[n] <= hi {
+		n++
 		lo, hi = 0x80, 0xbf
 	}
 	return n
@@ -169,15 +168,17 @@ func pyDecodeReplace(b []byte) string {
 	return sb.String()
 }
 
-// digitValue is the decimal value of a Unicode Nd character (int() accepts them all).
+// digitValue is the decimal value of a Unicode Nd character (int() accepts them all). Every Nd range starts at
+// a zero digit and the ranges are sorted, so the value is the offset into the first range that reaches r; r must
+// be an Nd character (the callers only pass what \p{Nd} matched).
 func digitValue(r rune) int {
 	for _, rg := range unicode.Nd.R16 {
-		if r >= rune(rg.Lo) && r <= rune(rg.Hi) {
+		if r <= rune(rg.Hi) {
 			return int(r-rune(rg.Lo)) % 10
 		}
 	}
 	for _, rg := range unicode.Nd.R32 {
-		if r >= rune(rg.Lo) && r <= rune(rg.Hi) {
+		if r <= rune(rg.Hi) {
 			return int(r-rune(rg.Lo)) % 10
 		}
 	}
