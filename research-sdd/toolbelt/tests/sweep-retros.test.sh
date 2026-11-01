@@ -2196,8 +2196,10 @@ else
   no "67 no review-status marker → WARN names retro file + emits add-marker guidance" "exit=$RC out=[$OUT]"
 fi
 
-# 68 — RSDD_PROFILE=1: five 'profile: <phase> <seconds>' lines on STDERR (correct phase
-#      names, numeric seconds). pending-pass + waiver-pass reconcile with total within ±15%
+# 68 — RSDD_PROFILE=1: six 'profile: <phase> <seconds>' lines on STDERR (correct phase
+#      names, numeric seconds). pending-pass + waiver-pass + wiring-pass reconcile with total within ±15%
+#      (wiring-pass added by kit issue #2356: the wiring pass became one rsdd process, a fixed cost this
+#      millisecond fixture cannot absorb in the un-named gap, so it is now a named, reconciled phase)
 #      (total = pending + gap + waiver; gap = print/summary section between loops, typically
 #      < 5% on real corpora; ±15% is the right floor for a minimal unit-test fixture).
 #      RED on baseline: no RSDD_PROFILE support → zero profile lines on STDERR.
@@ -2247,11 +2249,13 @@ p68_profile() {
     P68_PEND="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
     P68_WAIV="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
     P68_TOT="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
-    if [ "$RC" != 0 ] || ! [[ "$P68_PEND" =~ $P68_NUM && "$P68_WAIV" =~ $P68_NUM && "$P68_TOT" =~ $P68_NUM ]]; then
-      P68_CLASS=BROKEN; P68_RECON="broken rc=$RC pend=[$P68_PEND] waiv=[$P68_WAIV] tot=[$P68_TOT]"; return 2
+    # wiring-pass is optional HERE (a stub that predates it reads 0); case 68 itself requires the real SUT to print it.
+    P68_WIRE="$(grep '^profile: wiring-pass '       <<<"$STDERR_P" | awk '{print $NF}')"; P68_WIRE="${P68_WIRE:-0.000000}"
+    if [ "$RC" != 0 ] || ! [[ "$P68_PEND" =~ $P68_NUM && "$P68_WAIV" =~ $P68_NUM && "$P68_TOT" =~ $P68_NUM && "$P68_WIRE" =~ $P68_NUM ]]; then
+      P68_CLASS=BROKEN; P68_RECON="broken rc=$RC pend=[$P68_PEND] waiv=[$P68_WAIV] wire=[$P68_WIRE] tot=[$P68_TOT]"; return 2
     fi
-    P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v t="$P68_TOT" \
-      'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+    P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v r="$P68_WIRE" -v t="$P68_TOT" \
+      'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w+r; diff=sum-t; if(diff<0)diff=-diff
              print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
     if [ "$P68_RECON" = ok ]; then P68_CLASS=PASS; p68_note; return 0; fi
     P68_CLASS=MISS
@@ -2266,11 +2270,12 @@ if [ "$RC" = 0 ] \
    && grep -qE '^profile: waiver-pass [0-9]+\.[0-9]+$'       <<<"$STDERR_P" \
    && grep -qE '^profile: retro-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
    && grep -qE '^profile: block-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+   && grep -qE '^profile: wiring-pass [0-9]+\.[0-9]+$'       <<<"$STDERR_P" \
    && grep -qE '^profile: total [0-9]+\.[0-9]+$'             <<<"$STDERR_P" \
    && [ "$_p68_class" = PASS ] && [ "$_p68_recon" = "ok" ]; then
-  ok "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" "(exit $RC)"
+  ok "68 RSDD_PROFILE=1 → 6 profile lines on STDERR, numeric seconds, pend+waiv+wire≈total ±15%" "(exit $RC)"
 else
-  no "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" \
+  no "68 RSDD_PROFILE=1 → 6 profile lines on STDERR, numeric seconds, pend+waiv+wire≈total ±15%" \
      "class=$_p68_class RC=$RC recon=$_p68_recon runs=$P68_RUNS stderr=[$STDERR_P]"
 fi
 
@@ -4415,6 +4420,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth UF: fallback-zeroed mutant still fires MISSING-RETRO — case 72 is THEATER" "out=[$_outm_uf]"
     fi
     unset _mutant_uf _outm_uf _anchor_uf _content_uf
+  fi
+
+  # Tooth PRWP (kit issue #2356): drop the wiring-pass profile line from the SUT; case 68 requires it, so the
+  # mutant's stderr lacks the line and case 68's own condition fails.
+  echo "-- teeth PRWP: drop the wiring-pass profile line; case 68 must go RED --"
+  _anchor_prwp="$(grep -F '# RSDD_PROFILE_WIRE_PRINT' "$SUT")"
+  if [ -z "$_anchor_prwp" ]; then
+    no "teeth PRWP: wiring-pass print anchor not found in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-prwp)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+    write_targets "$kit" "$tgt"
+    _content_prwp="$(cat "$SUT")"
+    printf '%s\n' "${_content_prwp/"$_anchor_prwp"/}" > "$kit/toolbelt/sweep-retros.sh"
+    run_profile "$kit"
+    if [ "$RC" = 0 ] && grep -qE '^profile: total [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+       && ! grep -q '^profile: wiring-pass ' <<<"$STDERR_P"; then
+      ok "teeth PRWP: mutant prints no wiring-pass line, which case 68 requires — case 68 has teeth" "()"
+    else
+      no "teeth PRWP: mutant must drop only the wiring-pass line — case 68 is THEATER" "rc=$RC stderr=[$STDERR_P]"
+    fi
+    unset _anchor_prwp _content_prwp
   fi
 
   # Tooth PRWT: zero the waiver accumulator → waiver reports 0.000000, pending+waiver ≠ total
