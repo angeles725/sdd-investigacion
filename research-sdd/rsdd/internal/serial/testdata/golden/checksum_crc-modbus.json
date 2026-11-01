@@ -1,0 +1,129 @@
+{
+  "input": {
+    "frame_count": 3,
+    "line_count": 3,
+    "path": "testdata/frames/crc-modbus.log",
+    "sha256": "07d8cfe4228276d16b05bd0bcb8d9d529b475ed85a30efc12df2775558be104c",
+    "skipped_line_count": 0,
+    "useful_frame_count": 3
+  },
+  "mode": "checksum",
+  "results": {
+    "algorithms": [
+      {
+        "candidate": true,
+        "hit_count": 3,
+        "hit_rate": 1.0,
+        "little_endian": true,
+        "name": "crc16-modbus",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 1,
+        "hit_rate": 0.3333,
+        "name": "xor8",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "little_endian": false,
+        "name": "crc16-ccitt",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "little_endian": false,
+        "name": "crc16-ccitt",
+        "skip_first": 1,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "little_endian": false,
+        "name": "crc16-modbus",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "little_endian": true,
+        "name": "crc16-modbus",
+        "skip_first": 1,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "little_endian": false,
+        "name": "crc16-modbus",
+        "skip_first": 1,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "name": "sum8",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "name": "sum8",
+        "skip_first": 1,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "name": "twos-comp8",
+        "skip_first": 0,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "name": "twos-comp8",
+        "skip_first": 1,
+        "total_frames": 3
+      },
+      {
+        "candidate": false,
+        "hit_count": 0,
+        "hit_rate": 0.0,
+        "name": "xor8",
+        "skip_first": 1,
+        "total_frames": 3
+      }
+    ]
+  },
+  "schema": "serial-frame.v1",
+  "status": "complete",
+  "summary": {
+    "distinct_lengths": 1,
+    "frame_count": 3,
+    "line_count": 3,
+    "skipped_line_count": 0,
+    "truncated": false,
+    "useful_frame_count": 3
+  },
+  "tool": "serial-frame-analyze",
+  "truncated": false
+}
