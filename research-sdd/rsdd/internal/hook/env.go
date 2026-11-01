@@ -10,6 +10,10 @@ import (
 const (
 	envCeiling = "RSDD_HOOK_WIRING_CEILING"
 	envHome    = "HOME"
+
+	// The Claude Code history root of LaunchState: the test seam wins over CLAUDE_CONFIG_DIR, which wins over HOME.
+	envProjectsDir = "RSDD_CLAUDE_PROJECTS_DIR"
+	envConfigDir   = "CLAUDE_CONFIG_DIR"
 )
 
 // Env carries what the predicates read from the outside world. Cwd stands in
