@@ -255,6 +255,27 @@ function it replaces, called through a tiny bash driver over the same fixtures. 
 kit-run, catalog generator. Shims replace the old paths; `.claude/settings.json` and the pi extension
 keep calling the same paths. Measure against the baseline; decide on the parse cache.
 
+Phase 2 units (sized 2026-11-01 from origin/main d90b88d5; Go line counts are estimates). The hot path calls no
+Python. Each unit registers its command with one line in its domain's `commands.go` (one-line rebase conflicts
+accepted; no `init()` registration).
+
+| Unit | Issue | Source | Needs first | Lane |
+|---|---|---|---|---|
+| U2.1 hook emit + verify kit-clean | #2354 | lib/hook-emit.sh, verify-kit-clean(-hook).sh | — | A |
+| U2.2 pkill guard + kit-run | #2355 | templates/hook-pretool-pkill-guard.sh, templates/hook-kit-run.sh | — | A |
+| U2.3a/b hook-wiring lib | #2356, #2357 | lib/hook-wiring.sh (705, split in two) | — | B |
+| U2.4a/b sweep retros | #2358, #2359 | sweep-retros(-hook).sh | U2.1, U2.3b | B |
+| U2.5 sweep audits + breakthroughs | #2360 | sweep-audits(-hook).sh, sweep-breakthroughs(-hook).sh | U2.1 | A |
+| U2.6 sweep tools + verify tool-catalog | #2361 | sweep-tools(-hook).sh, verify-tool-catalog(-hook).sh | U2.1 | A |
+| U2.7a/b/c verify registry | #2362, #2363, #2364 | verify-registry(-hook).sh (874), lib/corpus-markers.sh | U2.1, U2.3b | B |
+| U2.8 verify skill-drift | #2365 | verify-skill-drift(-hook).sh | U2.1 | A |
+| U2.9 gate return-token | #2366 | return-token-gate.sh | — | C |
+| U2.10a/b gate retro | #2367, #2368 | retro-gate.sh (912), templates/hook-stop-retro-gate.sh | — | C |
+| U2.11 catalog generator | #2369 | templates/gen-catalog.py | — | C |
+| U2.12 session-start + sweep all | #2370 | sweep-all.sh, templates/hook-sessionstart.sh; baseline measurement | U2.4b, U2.5, U2.6, U2.7c, U2.8 | A |
+
+Lanes: A = session 2, B = session 4 (after #2292/#2293/#2321), C = session 3 (after #2287, #2371).
+
 ### Phase 3 — Loop instruments
 `verify {block,state,sources,corrections,parity,retro,cd-physical,gap-drift,doc-consistency}`,
 `status show` (research-sdd-status.sh, 2,642 lines, split into sub-units), `status resume*`,
@@ -282,6 +303,41 @@ adversarial kernel (JS copy kept for the Workflow script, parity-tested).
 ### Phase 7 — Extras tier (VM / dynamic / docker)
 plan/gate/exec pipeline and VM disk policy, behind the same `--allow-*` fail-closed gate. Lowest
 priority: no commits since July and #2203 made it an optional tier.
+
+### Python port map (phases 3, 4, 6, 7; mapped 2026-11-01 on origin/main)
+
+67 non-test `.py` files, 21,555 lines. `templates/gen-catalog.py` is U2.11; `lib/ifc_driver.py` and
+`lib/kaitai_driver.py` stay Python (section 3). Phase 5 has no Python; its one Python-related job is a single Go
+table for the decompiler sha256 pins (`corroborate_java.py:33-35`). Go line counts are estimates; issues are opened
+when the previous phase closes (rule 9). Paths are under `research-sdd/toolbelt/`.
+
+| Unit | Python source | Go package | Needs first |
+|---|---|---|---|
+| U3.1 | lint_block.py | lint | core/gfm |
+| U3.2 | lint-block-packs/*.py (20 lookarounds to rewrite, rule 5) | lint/packs | U3.1 |
+| U4.1 | maint/kit-rdd-start.py, maint/kit-rdd-drive.py | maint | core/git, core/gh |
+| U6.1 | lib/adapter_core.py (sandbox + privilege checks; identity/stage/publish/run_bounded/canonical already in core) | adapter | core/fsx, proc, jsonout |
+| U6.2 | lib/isolation_profile.py, analysis_manifest.py | adapter | U6.1 |
+| U6.3 | lib/adapter_helpers.py (dead functions dropped) | adapter | U6.1 |
+| U6.4a/b | corroborate_java.py | corroborate | U6.1-3 |
+| U6.5 | corroborate_ghidra.py, corroborate_native.py | corroborate | U6.1-3 |
+| U6.6 | corroborate_firmware.py, firmware_carve.py | corroborate, extract | U6.1-3 |
+| U6.7 | zip_metadata.py, zip_stored.py | formats/zip | U6.1 |
+| U6.8-U6.10 | corroborate_capa.py, corroborate_floss.py, corroborate_unblob.py | corroborate | U6.1-3 |
+| U6.11 | corroborate_pcap.py, pcap_flows.py (one formats/pcap, shared with U7.6) | corroborate, formats/pcap | U6.1-3 |
+| U6.12-U6.13 | corroborate_kaitai.py, corroborate_ifc.py (Python drivers kept) | corroborate | U6.1-3 |
+| U6.14 | squashfs_extract.py, qnx6_read.py | formats | U6.1 |
+| U6.15-U6.22 | bog_nav, niagara_security_audit, station_modules, module_find, n4_type_catalog, niagara_hdb_read, px_render (a/b), palette_lexicon_agents | niagara (one shared bog reader) | core; U6.15 first |
+| U6.23-U6.25 | serial-frame_analyze.py, serial-frame_capture.py (go.bug.st/serial), corroborate_bacnet.py | serial, bacnet | core |
+| U7.1-U7.8 | lib/{gate,plan_common,vm_plan,vm_pin,vm_disk_policy,proc_common,docker_common,vm_boot_core,vm_exec_common,detonate_exec,trace_exec,capture_exec,capture_analyze,fact_exec,docker_exec,qemu_exec}.py, vm_receipt.py, the 7 `*_plan.py` / vm_run.py (one `rsdd plan <kind>` table) | plan, exec | U6.1, U6.3 |
+
+Delete instead of port: `lib/adapter_helpers.py:256` pcap_magic_check, `:297` squashfs_superblock;
+`lib/gate.py:73` require_capability; `lib/adapter_core.py:492` tree_size, `:509` stop_group; the `vm_receipt.py`
+CLI (library kept); `detonate_exec.py` + `trace_exec.py` merge into one evaluator.
+Fold into core (the main reduction): 8 private renameat2 publishes and `analysis_manifest.py:202` → core/fsx;
+4 `canonical()` copies → core/jsonout; 4 `run_bounded`/`stop_group` copies and `lib/proc_common.py:19` →
+core/proc; `_write_json`/`_sha256_fd`/`_open_wo_new` in 9 standalone readers → core/fsx + core/jsonout;
+43 argparse CLIs → the cli flag table.
 
 ### Phase 8 — Retirement and cutover
 Rewrite doctrine references to `rsdd <group> <cmd>` (~440 mentions, one PR per document), re-wire
@@ -333,3 +389,19 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
   phase-1 issues #2281–#2286 opened. Baseline: wall-time run aborted (machine under load); CPU-time + CI
   history baseline in progress, short quiet window pending.
 - Next: gate + merge #2277, then the stacked PRs in order.
+- 2026-11-01 (L-2026-11-01, user, verbatim): "Vamosa a trabajar con ODD + RDD(granted), si GENTLE-AI pide revision,
+  dale permisos para que revise. Ahora vamos a realizar lo siguiente: Primero, necesitamos pasar todo lo que tenemos
+  python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos
+  que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en
+  donde tener que hacer eso. [...] tambien tomen en cuenta que ya hemos tenido problemas en la aprte de tareas de
+  WSL2, que ocasionaban el colapsop o cierre de WSL2." Follow-ups: "Tiene que ser todo /research-sdd"; "pasarlo
+  directamente a /research-sdd y tambien tenemos que trabajar con gentle para mejroar todo lo que nos puede ayudar";
+  delete Go build output so it does not fill the laptop; "Trabajen con commit + push + pr + pr view + issues + merge".
+- 2026-11-01 state (origin/main d90b88d5): phase 1 #2281-#2286 merged; U0.4 remainder PR #2353; #2275 complete except
+  `make parity` (folded into #2292); #2287, #2292, #2293, #2321 in progress; #2371 opened (rsdd-exec.sh mtime staleness).
+  Four sessions: 1 orchestrates and owns this file and the heavy slot; 2, 3, 4 write (lanes above).
+- Decisions 2026-11-01: WSL2 safety: one heavy run (-race, gremlins, fuzz, run-all, whole-corpus --prove-teeth)
+  machine-wide, granted by session 1; focused runs use nice, timeout, GOMAXPROCS=4, GOFLAGS=-p=2, GOMEMLIMIT=3GiB.
+  Go build hygiene: GOTMPDIR per lane outside /tmp, no leftover binaries, worktree removed after merge, and only
+  session 1 runs `go clean -cache` (when GOCACHE > 5G).
+- Next: phase 0 close-out merges, then phase 2 lanes A/B/C in the order of the table above.
