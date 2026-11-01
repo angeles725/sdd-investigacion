@@ -20,7 +20,7 @@ var (
 // compared line by line with the original.
 type scriptScan struct {
 	tgt, home string
-	entries   int
+	sawEntry  bool // only ever compared with zero in the awk original
 	ok        int
 	unver     int
 }
@@ -91,7 +91,7 @@ func (sc *scriptScan) resolve(w string, hascd bool, widx int, prev string) strin
 	if strings.ContainsAny(tok, "$`*?\\") || strings.HasPrefix(tok, "~") || slash < 0 {
 		return resultUnv
 	}
-	if colon := strings.IndexByte(tok, ':'); colon >= 0 && colon < slash {
+	if strings.ContainsRune(tok[:slash], ':') {
 		return resultUnv // scheme or drive prefix (C:/x), not a local path
 	}
 	if !strings.HasPrefix(tok, "/") {
@@ -113,7 +113,7 @@ func (sc *scriptScan) resolve(w string, hascd bool, widx int, prev string) strin
 // returns the 1-based index of the closing quote (so the scanner can skip the string), or 0.
 func (sc *scriptScan) check(line string, pos int) int {
 	s := 0
-	for k := pos - 1; k >= 1; k-- {
+	for k := pos; k >= 1; k-- { // at pos is the 'r' of retro-gate, never a quote
 		if at(line, k) == '"' && !escAt(line, k) {
 			s = k
 			break
@@ -126,7 +126,7 @@ func (sc *scriptScan) check(line string, pos int) int {
 			break
 		}
 	}
-	sc.entries++
+	sc.sawEntry = true
 	if s == 0 || e == 0 {
 		sc.unver++
 		return 0
@@ -207,13 +207,13 @@ func ScriptState(e Env, target string) string {
 	}
 	sc := &scriptScan{tgt: AbsPath(e.Cwd, target), home: e.getenv(envHome)}
 	walkStop(data, func(line string, i int) int {
-		if end := sc.check(line, i+1); end > i+1 {
+		if end := sc.check(line, i+1); end != 0 { // a closing quote lies past the word
 			return end - 1
 		}
 		return i
 	})
 	switch {
-	case sc.entries == 0:
+	case !sc.sawEntry:
 		return ScriptNoEntry
 	case sc.ok > 0:
 		return ScriptPresent
