@@ -528,9 +528,9 @@ func TestLiveTimeoutValidation(t *testing.T) {
 		{"nan", 1, "ValueError: Invalid value NaN (not a number)"},
 		{"-1", 1, "ValueError: Timeout value out of range"},
 		{"-0.001", 1, "ValueError: Timeout value out of range"},
-		{"inf", 2, "timestamp too large to convert to C _PyTime_t"},
-		{"-inf", 2, "timestamp too large to convert to C _PyTime_t"},
-		{"1e10", 2, "timestamp too large to convert to C _PyTime_t"},
+		{"inf", 2, "timestamp out of range for C PyTime_t"},
+		{"-inf", 2, "timestamp out of range for C PyTime_t"},
+		{"1e10", 2, "timestamp out of range for C PyTime_t"},
 	}
 	for _, c := range cases {
 		f := &fakeLink{}
@@ -608,9 +608,9 @@ func TestRealSocketPortErrors(t *testing.T) {
 		{[]string{"--port", "70000"}, "sendto(): port must be 0-65535."},
 		{[]string{"--port", "-1"}, "sendto(): port must be 0-65535."},
 		{[]string{"--port", "65536"}, "sendto(): port must be 0-65535."},
-		{[]string{"--port", "2147483648"}, "signed integer is greater than maximum"},
-		{[]string{"--port", "-2147483649"}, "signed integer is less than minimum"},
-		{[]string{"--port", "9223372036854775808"}, "Python int too large to convert to C long"},
+		{[]string{"--port", "2147483648"}, "sendto(): port must be 0-65535."},
+		{[]string{"--port", "-2147483649"}, "sendto(): port must be 0-65535."},
+		{[]string{"--port", "9223372036854775808"}, "sendto(): port must be 0-65535."},
 		{[]string{"--src-port", "70000"}, "bind(): port must be 0-65535."},
 		{[]string{"--src-port", "-1"}, "bind(): port must be 0-65535."},
 	}

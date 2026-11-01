@@ -70,7 +70,7 @@ func checkTimeout(sec float64) *pyError {
 		return &pyError{kind: "ValueError", msg: "Invalid value NaN (not a number)"}
 	}
 	if ns := sec * 1e9; ns >= 9223372036854775808.0 || ns < -9223372036854775808.0 {
-		return &pyError{kind: "OverflowError", msg: "timestamp too large to convert to C _PyTime_t"}
+		return &pyError{kind: "OverflowError", msg: "timestamp out of range for C PyTime_t"}
 	}
 	if sec < 0 {
 		return &pyError{kind: "ValueError", msg: "Timeout value out of range"}

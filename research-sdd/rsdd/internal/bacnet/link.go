@@ -29,16 +29,10 @@ var lookupIPv4 = func(host string) ([]net.IP, error) {
 	return net.DefaultResolver.LookupIP(context.Background(), "ip4", host)
 }
 
-// checkPort is CPython's range check on a socket address port: the C int conversion first, then 0-65535.
+// checkPort is CPython's range check on a socket address port (any integer outside 0-65535 is an
+// OverflowError, whatever its size).
 func checkPort(p *big.Int, caller string) *pyError {
-	switch {
-	case !p.IsInt64():
-		return &pyError{kind: "OverflowError", msg: "Python int too large to convert to C long"}
-	case p.Int64() > 1<<31-1:
-		return &pyError{kind: "OverflowError", msg: "signed integer is greater than maximum"}
-	case p.Int64() < -(1 << 31):
-		return &pyError{kind: "OverflowError", msg: "signed integer is less than minimum"}
-	case p.Int64() < 0 || p.Int64() > 0xffff:
+	if p.Sign() < 0 || p.Cmp(big.NewInt(0xffff)) > 0 {
 		return &pyError{kind: "OverflowError", msg: caller + "(): port must be 0-65535."}
 	}
 	return nil
