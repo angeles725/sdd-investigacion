@@ -24,6 +24,7 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 		"gamma/g.go: os.LookupEnv",
 		"gamma/g.go: time.Now",
 		"gamma/g.go: os.Getwd",
+		"gamma/g.go: os.Environ",        // #2387
 		"cli/other.go: os.Getenv",       // only cli/stdio.go is exempt
 		"cmd/tool/main.go: time.Now",    // cmd/ is scanned too
 		"commands/c.go: os.Getenv",      // the registry tier is not exempt from the call ban
@@ -40,8 +41,8 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 			t.Errorf("exempt file was reported: %s", line)
 		}
 	}
-	if len(r.Violations) != 13 {
-		t.Errorf("want exactly 13 violations, got %d:\n%s", len(r.Violations), got)
+	if len(r.Violations) != 14 {
+		t.Errorf("want exactly 14 violations, got %d:\n%s", len(r.Violations), got)
 	}
 }
 

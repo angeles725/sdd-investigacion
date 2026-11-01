@@ -13,7 +13,7 @@ func main() {
 	// The rlimit re-exec helper is internal: dispatched before the command
 	// table, so it never appears in usage and never buffers the program's output.
 	if len(os.Args) > 1 && os.Args[1] == proc.HelperCommand {
-		os.Exit(proc.HelperMain(os.Args[2:], os.Environ(), os.Stderr))
+		os.Exit(proc.HelperMain(os.Args[2:], cli.Environ(), os.Stderr))
 	}
 	os.Exit(cli.RunProcess(commands.Table, os.Args[1:]))
 }

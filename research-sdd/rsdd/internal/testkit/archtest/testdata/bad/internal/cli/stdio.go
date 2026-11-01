@@ -8,3 +8,4 @@ import (
 var _ = os.Getenv("OK")
 var _ = time.Now
 var _, _ = os.Getwd()
+var _ = os.Environ

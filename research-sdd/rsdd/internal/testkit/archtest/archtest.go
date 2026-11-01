@@ -44,13 +44,13 @@ const stdioFile = "cli/stdio.go"
 
 // forbiddenCalls are the ambient reads that must stay inside stdioFile.
 var forbiddenCalls = map[string]map[string]bool{
-	"os":   {"Getenv": true, "LookupEnv": true, "Getwd": true},
+	"os":   {"Getenv": true, "LookupEnv": true, "Getwd": true, "Environ": true},
 	"time": {"Now": true},
 }
 
 // Check scans every .go file under root/internal and root/cmd (testdata
 // excluded) and applies two rules: the tier import rule, and the ban on
-// os.Getenv / os.LookupEnv / os.Getwd / time.Now outside internal/cli/stdio.go
+// os.Getenv / os.LookupEnv / os.Environ / os.Getwd / time.Now outside internal/cli/stdio.go
 // (test files are exempt). module is the module path used to recognise
 // internal imports. cmd/ packages are registry-tier: they may import
 // anything internal, but are still subject to the call ban.

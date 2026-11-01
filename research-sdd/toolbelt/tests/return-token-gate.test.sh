@@ -11,7 +11,7 @@
 # Fixtures: tests/fixtures/return-token-gate/ (two tiny corpora + transcript JSONL files). Every case runs on a
 # FRESH copy of a corpus under $TMP, because the gate writes its block-once marker under <target>/.claude.
 #
-# TEETH (--prove-teeth): one mutant per guard, built with lib/mutant.sh from the real gate.
+# TEETH: none here. The gate is `rsdd gate return-token`; its mutants are Go tests (internal/gate, kit issue #2366).
 #
 # Usage: return-token-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
 
@@ -29,9 +29,14 @@ ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # A toolbelt copy: the gate resolves its sibling research-sdd-status.sh and lib/ from its own directory, so a copy
-# lets a case swap the status script for a stub and lets the teeth build mutants that still find their siblings.
-TB="$TMP/tb"; mkdir -p "$TB"
+# lets a case swap the status script for a stub. The shim resolves rsdd from <toolbelt>/../rsdd (lib/rsdd-exec.sh),
+# so the copy sits in a kit-shaped dir whose rsdd/ links to the real module; any rebuild lands in $TMP/kit/bin.
+mkdir -p "$TMP/kit" && ln -s "$(CDPATH='' cd -P -- "$HERE/../../rsdd" && pwd -P)" "$TMP/kit/rsdd" \
+  || { echo "FATAL: could not link the rsdd module" >&2; exit 2; }
+TB="$TMP/kit/toolbelt"; mkdir -p "$TB"
 cp "$HERE"/../*.sh "$TB/" && cp -r "$HERE/../lib" "$TB/lib" || { echo "FATAL: could not copy the toolbelt" >&2; exit 2; }
+# Every case runs the copy, so an rsdd rebuild (RSDD_BIN unset, as in CI) lands in $TMP/kit/bin, never in the kit tree.
+SUT="$TB/return-token-gate.sh"
 
 # BSD/macOS-portable fixture helpers (kit issue #1757): `touch -d 'N minutes ago'` and `sed -i` without a suffix are
 # GNU-only. touch_ago computes a `touch -t` stamp from epoch seconds (GNU `date -d @N`, else BSD `date -r N`); sedi
@@ -269,101 +274,8 @@ run_gate "$c" "$(tr_ mismatch.jsonl)" s-herm
 cmp -s "$TMP/before.lst" "$TMP/after.lst" && [ -n "$(find "$c/.claude" -name '.rsdd-return-token-blocked-*' 2>/dev/null)" ] \
   && ok "G-HERMETIC: corpus files untouched; the marker lives under <target>/.claude" || no "G-HERMETIC: before/after differ or no marker"
 
-if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth-RTG: each guard is load-bearing --"
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_or_count mutant_chain_or_count || exit 2
-  RTG_CRASH="$(mutant_crash_re bash py)" || exit 2
-  # The tooth driver: a fresh corpus copy per run (the marker must not leak between the good and the mutant run).
-  # env: RTG_TWICE=1 runs the gate twice on one copy · RTG_BETWEEN=1 moves the corpus to a new expected token between
-  # the two runs · RTG_ACTIVE=true sets stop_hook_active · RTG_STOPONLY=1 drops the campaign queue · RTG_PATH replaces PATH.
-  cat > "$TMP/rtg-run.sh" <<'RUN'
-#!/usr/bin/env bash
-gate="$1" src="$2" tr="$3" sid="$4"
-. "$RTG_PORT"
-w="$(mktemp -d)"; cp -r "$src/." "$w/"
-[ -z "${RTG_STOPONLY:-}" ] || sedi '/^## Campaign queue/,$d' "$w/RESEARCH-STATE.md"
-j="$(jq -n --arg s "$sid" --arg t "$tr" --arg c "$w" --argjson a "${RTG_ACTIVE:-false}" '{session_id:$s,transcript_path:$t,cwd:$c,stop_hook_active:$a}')"
-if [ -n "${RTG_MARKERS:-}" ]; then
-  mkdir -p "$w/.claude"; k=0
-  while [ "$k" -lt "$RTG_MARKERS" ]; do k=$((k+1)); : > "$w/.claude/.rsdd-return-token-blocked-old$k"; touch_ago "${RTG_MARKER_AGE_MIN:-$k}" "$w/.claude/.rsdd-return-token-blocked-old$k"; done
-fi
-if [ -n "${RTG_NLFILE:-}" ]; then
-  mkdir -p "$w/.claude"; : > "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"; touch_ago 5 "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x"
-fi
-runs=1; [ -z "${RTG_TWICE:-}" ] || runs=2
-i=0
-while [ "$i" -lt "$runs" ]; do
-  i=$((i+1))
-  if [ -n "${RTG_PATH:-}" ]; then printf '%s' "$j" | PATH="$RTG_PATH" "$(type -P bash)" "$gate" "$w" 2>&1
-  else printf '%s' "$j" | bash "$gate" "$w" 2>&1; fi
-  echo "gate-rc=$?"
-  [ -z "${RTG_BETWEEN:-}" ] || sedi 's/reconstruct the shader pipeline/a different next gap/' "$w/RESEARCH-STATE.md"
-done
-[ -z "${RTG_MARKERS:-}" ] || echo "markers=$(find "$w/.claude" -name '.rsdd-return-token-blocked-*' | wc -l | tr -d '[:space:]')"
-[ -z "${RTG_NLFILE:-}" ] || { [ -e "$w/.claude/.rsdd-return-token-blocked-a"$'\n'"x" ] && echo "weird=kept" || echo "weird=gone"; }
-rm -rf "$w"
-RUN
-  # a second toolbelt copy whose status script always fails (for the status-degraded tooth)
-  TB2="$TMP/tb2"; mkdir -p "$TB2"; cp -r "$TB/." "$TB2/"
-  printf '#!/usr/bin/env bash\nexit 3\n' > "$TB2/research-sdd-status.sh"
-  rtg_t() { # <label> <sed-expr> <good-rc> <bad-rc> <corpus> <transcript> <session> <mutant_tooth match args...>
-    # the mutant is built from the REAL gate ($SUT) into $RTG_TBDIR (default $TB), so it finds the siblings there
-    local lbl="$1" expr="$2" grc="$3" brc="$4" corp="$5" trn="$6" sid="$7" dir="${RTG_TBDIR:-$TB}"; shift 7
-    mutant_chain_or_count fail "$lbl" "$SUT" "$dir/rtg.$lbl.MUTANT.sh" "$expr" || return 0
-    if mutant_tooth "$lbl" "$grc" "$brc" "$dir/rtg.$lbl.MUTANT.sh" --orig "$dir/return-token-gate.sh" "$@" -- bash "$TMP/rtg-run.sh" @SUT@ "$corp" "$trn" "$sid"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-  }
-  NX="$FX/corpus-next"; SQ="$FX/corpus-stop-queue"; BLOCK='"decision":"block"'
-  RTG_PATH="$nojq" rtg_t RTG-JQ-PROBE '/# RTG-JQ-PROBE$/s/if ! command -v jq/if false \&\& command -v jq/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'degraded \(jq missing' --bad-lacks "jq missing|$RTG_CRASH" --bad-has 'hook JSON unreadable'
-  RTG_ACTIVE=true rtg_t RTG-LOOP-SAFETY '/# RTG-LOOP-SAFETY$/s/= "true"/= "never"/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'branch=loop-safety' --good-lacks "$BLOCK" --bad-has "$BLOCK" --bad-lacks "loop-safety|$RTG_CRASH"
-  rtg_t RTG-NOT-TARGET '/# RTG-NOT-TARGET$/s/if \[ -z "\$_states" \]/if [ -z "$_states" ] \&\& false/' 0 0 "$TMP/empty-target" "$(tr_ mismatch.jsonl)" s1 \
-    --good-lacks 'state=' --bad-has 'state=allow branch=unavailable' --bad-lacks "$RTG_CRASH"
-  rtg_t RTG-TRANSCRIPT-DEGRADED '/# RTG-TRANSCRIPT-DEGRADED$/s/if \[ -z "\$_transcript" \] || \[ ! -r "\$_transcript" \]; then/if false; then/' 0 0 "$NX" "$TMP/does-not-exist.jsonl" s1 \
-    --good-has 'degraded \(transcript unreadable' --bad-lacks "transcript unreadable|$RTG_CRASH" --bad-has 'no assistant text'
-  rtg_t RTG-SIDECHAIN '/# RTG-SIDECHAIN$/s/ and (\.isSidechain != true)//' 0 0 "$NX" "$(tr_ sidechain-mismatch.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has 'branch=mismatch' --bad-lacks "branch=match|$RTG_CRASH"
-  rtg_t RTG-LAST-WINS '/# RTG-LAST-WINS$/s/_reported="\$_l"/[ -n "$_reported" ] || _reported="$_l"/' 0 0 "$NX" "$(tr_ lastwins.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has 'branch=mismatch' --bad-lacks "branch=match|$RTG_CRASH"
-  rtg_t RTG-OVERRIDE '/# RTG-OVERRIDE$/s/if \[ -n "\$_override" \]/if [ -n "" ]/' 0 0 "$NX" "$(tr_ override.jsonl)" s1 \
-    --good-has 'branch=override' --good-lacks "$BLOCK" --bad-has "$BLOCK" --bad-lacks "branch=override|$RTG_CRASH"
-  rtg_t RTG-OVERRIDE-REASON '/# RTG-OVERRIDE-REASON$/s/\[ -z "\$_why" \] || _override="\$_why"/_override="${_why:-empty}"/' 0 0 "$NX" "$(tr_ override-empty.jsonl)" s1 \
-    --good-has "$BLOCK" --bad-has 'branch=override' --bad-lacks "$BLOCK|$RTG_CRASH"
-  rtg_t RTG-UNAVAILABLE-ALLOW '/# RTG-UNAVAILABLE-ALLOW$/s/"return-token: unavailable"\*)/"return-token: never"*)/' 0 0 "$SQ" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'branch=unavailable' --good-lacks "$BLOCK" --bad-has "$BLOCK" --bad-lacks "branch=unavailable|$RTG_CRASH"
-  RTG_TBDIR="$TB2" rtg_t RTG-STATUS-DEGRADED '/# RTG-STATUS-DEGRADED$/s/if \[ -z "\$_emitted" \]; then/if false; then/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'degraded \(status produced no return-token line' --bad-lacks "status produced no|$RTG_CRASH" --bad-has 'branch=missing|branch=mismatch'
-  RTG_TWICE=1 rtg_t RTG-BLOCK-ONCE '/# RTG-BLOCK-ONCE$/s/-f "\$_marker" \]/-f "$_marker.never" ]/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'branch=block-once' --bad-lacks "branch=block-once|$RTG_CRASH" --bad-has "$BLOCK"
-  RTG_TWICE=1 RTG_BETWEEN=1 rtg_t RTG-ONCE-PER-TOKEN '/# RTG-BLOCK-ONCE$/s/ \&\& grep -qxF -- "\$_emitted" "\$_marker" 2>\/dev\/null//' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-lacks 'branch=block-once' --bad-has 'branch=block-once' --bad-lacks "$RTG_CRASH"
-  rtg_t RTG-COMPARE '/# RTG-COMPARE$/s/\[ "\$_reported" = "\$_expected" \]/[ -n "$_reported" ]/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has "$BLOCK" --bad-has 'branch=match' --bad-lacks "$BLOCK|$RTG_CRASH"
-  rtg_t RTG-MISSING-BRANCH '/# RTG-MISSING-BRANCH$/s/if \[ -z "\$_reported" \]; then/if false; then/' 0 0 "$NX" "$(tr_ notoken.jsonl)" s1 \
-    --good-has 'no continuation token' --bad-has "$BLOCK" --bad-lacks "no continuation token|$RTG_CRASH"
-  rtg_t RTG-QUOTE-EMITTED '/^\$_emitted$/d' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'next: reconstruct the shader pipeline' --bad-has "$BLOCK" --bad-lacks "reconstruct the shader pipeline|$RTG_CRASH"
-  rtg_t RTG-BULLET '/# RTG-BULLET$/s/_l:2/_l:0/' 0 0 "$NX" "$(tr_ match-decorated.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
-  rtg_t RTG-BACKTICK '/# RTG-BACKTICK$/d' 0 0 "$NX" "$(tr_ match-decorated.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
-  rtg_t RTG-PREFIX '/# RTG-PREFIX$/d' 0 0 "$NX" "$(tr_ match.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
-  rtg_t RTG-TRIM '/# RTG-TRIM/d' 0 0 "$NX" "$(tr_ match-decorated.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has "$BLOCK" --bad-lacks "branch=match|$RTG_CRASH"
-  RETURN_TOKEN_GATE_TAIL_BYTES=4096 rtg_t RTG-TAIL-BOUND '/# RTG-TAIL-BOUND$/s/-gt "\$_tail_bytes"/-gt 999999999999/' 0 0 "$NX" "$TMP/big-before.jsonl" s1 \
-    --good-has 'tail-bounded' --bad-has 'branch=match' --bad-lacks "tail-bounded|$RTG_CRASH"
-  RTG_MARKERS=5 RETURN_TOKEN_GATE_MARKER_KEEP=2 rtg_t RTG-PRUNE-COUNT '/# RTG-PRUNE-CAP$/s/i = keep/i = 99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'markers=2' --bad-has 'markers=6' --bad-lacks "markers=2|$RTG_CRASH"
-  RTG_MARKERS=3 RTG_MARKER_AGE_MIN=86400 rtg_t RTG-PRUNE-AGE '/# RTG-PRUNE-AGE$/s/-mtime +"\$max_age"/-mtime +99999/' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'markers=1' --bad-has 'markers=4' --bad-lacks "markers=1|$RTG_CRASH"
-  RTG_NLFILE=1 RETURN_TOKEN_GATE_MARKER_KEEP=1 rtg_t RTG-PRUNE-NAME '/# RTG-PRUNE-NAME$/d' 0 0 "$NX" "$(tr_ mismatch.jsonl)" s1 \
-    --good-has 'weird=kept' --bad-has 'weird=gone' --bad-lacks "weird=kept|$RTG_CRASH"
-  RTG_STOPONLY=1 rtg_t RTG-STOP-PATTERN '/# RTG-TOKEN-PATTERN$/s/"STOP: campaign"\*/"STOP: nothing"*/' 0 0 "$SQ" "$(tr_ stop-token.jsonl)" s1 \
-    --good-has 'branch=match' --bad-has 'branch=missing' --bad-lacks "branch=match|$RTG_CRASH"
-fi
+# --prove-teeth: the gate is the Go command `rsdd gate return-token` (kit issue #2366); its mutation controls
+# live in research-sdd/rsdd/internal/gate/returntoken_test.go, so this suite runs the shim black-box only.
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
