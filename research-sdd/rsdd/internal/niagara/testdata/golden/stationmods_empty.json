@@ -1,0 +1,30 @@
+{
+  "errors": [],
+  "input": {
+    "format": "plaintext-xml",
+    "sha256": "791a5f449aecc9867ee579c4ef937062b796959af8de4a591fe77a9911577047",
+    "size_bytes": 132
+  },
+  "install_root": "<ROOT>",
+  "limitations": [
+    "Install JAR scan capped at 2000 entries.",
+    "ZIP file.xml inflate capped at 32 MiB (zip-bomb protection).",
+    "Plaintext bog read capped at 32 MiB (zip-bomb defence).",
+    "Slot values are never emitted (secrets discipline).",
+    "Fix operations are not performed (read-only tool)."
+  ],
+  "missing_parts": {},
+  "modules": {},
+  "schema": "station-modules.v1",
+  "status": "complete",
+  "summary": {
+    "jars_scanned": 0,
+    "jars_skipped_oversized": 0,
+    "jars_total": 0,
+    "missing_parts": 0,
+    "modules_referenced": 0,
+    "types_unresolved": 0,
+    "unresolved_aliases": 1
+  },
+  "truncated": false
+}

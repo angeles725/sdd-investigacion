@@ -1,0 +1,68 @@
+{
+  "errors": [],
+  "input": {
+    "format": "zip-xml",
+    "sha256": "f1d48bc5d7c174ab50210579dcdf622a0e2942ca1d3741e4246a431a6cfe14f4",
+    "size_bytes": 290
+  },
+  "install_root": "<ROOT>",
+  "limitations": [
+    "Install JAR scan capped at 2000 entries.",
+    "ZIP file.xml inflate capped at 32 MiB (zip-bomb protection).",
+    "Plaintext bog read capped at 32 MiB (zip-bomb defence).",
+    "Slot values are never emitted (secrets discipline).",
+    "Fix operations are not performed (read-only tool)."
+  ],
+  "missing_parts": {
+    "honbac-util=hon-rt": "module honbac-util=hon referenced, no part installed",
+    "testmodule-rt": "module testmodule not installed (type TestService referenced)"
+  },
+  "modules": {
+    "baja": {
+      "installed_parts": [
+        "baja-rt",
+        "baja-ux"
+      ],
+      "types_referenced": [
+        "Gone",
+        "Station"
+      ],
+      "types_unresolved": [
+        "Gone"
+      ]
+    },
+    "honbac-util=hon": {
+      "installed_parts": [],
+      "types_referenced": [],
+      "types_unresolved": []
+    },
+    "nre": {
+      "installed_parts": [
+        "nre-rt"
+      ],
+      "types_referenced": [
+        "NetworkRuntime"
+      ],
+      "types_unresolved": []
+    },
+    "testmodule": {
+      "installed_parts": [],
+      "types_referenced": [
+        "TestService"
+      ],
+      "types_unresolved": []
+    }
+  },
+  "schema": "station-modules.v1",
+  "status": "complete",
+  "summary": {
+    "jars_scanned": 3,
+    "jars_skipped_oversized": 0,
+    "jars_total": 3,
+    "missing_parts": 2,
+    "modules_referenced": 4,
+    "types_unresolved": 1,
+    "unresolved_aliases": 1
+  },
+  "truncated": false
+}
