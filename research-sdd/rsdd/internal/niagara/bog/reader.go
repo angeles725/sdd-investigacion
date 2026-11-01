@@ -117,7 +117,7 @@ func OpenZipAt(r io.ReaderAt, size int64) (*Zip, error) {
 	}
 	z := &Zip{zr: zr, names: make([]string, len(zr.File))}
 	for i, f := range zr.File {
-		z.names[i] = zipName(f.Name)
+		z.names[i] = zipName(memberName(f))
 	}
 	return z, nil
 }
