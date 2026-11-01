@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/adapter"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 )
 
 func TestRunTruncationLiteral(t *testing.T) {

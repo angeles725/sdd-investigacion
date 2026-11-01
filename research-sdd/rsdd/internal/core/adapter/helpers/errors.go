@@ -8,7 +8,7 @@
 // constants stay because corroborate_pcap.py and pcap_flows.py import them.
 package helpers
 
-import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/adapter"
+import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 
 // Kind names which adapter_helpers exception class an Error stands for.
 type Kind string
