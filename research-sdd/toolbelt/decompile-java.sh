@@ -8,7 +8,7 @@
 #   decompile-java.sh --javap <Class.class>      # signatures + bytecode (javap -p -c)
 #
 # Class-file facts header (kit issue #1205): BEFORE any engine runs, STDERR gets one line read straight from the
-# class-file bytes (no javap dependency; see `rsdd corroborate classfile-facts`, whose fallback is corroborate_java.py classfile-facts). It is on stderr so the typed
+# class-file bytes (no javap dependency; see `rsdd corroborate classfile`, whose fallback is corroborate_java.py classfile-facts). It is on stderr so the typed
 # result stays the first stdout line:
 #     CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>
 #   major = class-file major version (52 = Java 8 ... 65 = Java 21; a range when the input mixes versions), lvt = whether
@@ -225,7 +225,7 @@ STAMP=""; WORK=""; CF_ERR=""
 cleanup() { rm -rf "$STAMP" "$WORK" "$CF_ERR"; }
 trap cleanup EXIT
 CLASSFILE_UNKNOWN="CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown"
-# Facts engine: `rsdd corroborate classfile-facts` (Go), resolved once through lib/rsdd-exec.sh INSIDE the helper's own
+# Facts engine: `rsdd corroborate classfile` (Go), resolved once through lib/rsdd-exec.sh INSIDE the helper's own
 # budget (so a rebuild of a stale binary is bounded too). When the binary cannot be resolved (no Go toolchain, no prebuilt
 # bin, unusable RSDD_BIN) the shell exits 97 and the Python helper (corroborate_java.py classfile-facts) takes over, so a
 # host without Go keeps working. Any OTHER failure of the binary is a typed facts-error, never a silent switch of engine.
@@ -261,7 +261,7 @@ else
   if [ -n "$CF_HAVE_RSDD" ]; then
     cf_rc=0
     CLASSFILE_LINE="$("$TIMEOUT_BIN" --kill-after="$KILL_AFTER" "$CF_TIMEOUT" bash -c \
-      '. "$1/lib/rsdd-exec.sh" 2>/dev/null && _rsdd_exec_resolve 2>/dev/null || exit 97; exec "$_RSDD_EXEC_BIN" corroborate classfile-facts "$2"' \
+      '. "$1/lib/rsdd-exec.sh" 2>/dev/null && _rsdd_exec_resolve 2>/dev/null || exit 97; exec "$_RSDD_EXEC_BIN" corroborate classfile "$2"' \
       _ "$HERE" "$IN" 2>"$CF_ERR")" || cf_rc=$?
   fi
   if [ "$cf_rc" -eq "$CF_RSDD_UNAVAILABLE" ] && [ -n "$CF_HAVE_PY" ]; then

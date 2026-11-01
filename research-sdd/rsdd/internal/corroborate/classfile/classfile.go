@@ -1,4 +1,4 @@
-// Package classfile implements `rsdd corroborate classfile-facts <in.jar|in.class>`: one CLASSFILE line read
+// Package classfile implements `rsdd corroborate classfile <in.jar|in.class>`: one CLASSFILE line read
 // straight from the class-file bytes (no javap, nothing executed), the Go port of corroborate_java.py's
 // classfile-facts mode that decompile-java.sh calls (kit issue #2419). The Python helper stays as the
 // fallback for a host without Go, so the observable contract is the helper's:
@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	usageLine = "usage: rsdd corroborate classfile-facts <in.jar|in.class>"
+	usageLine = "usage: rsdd corroborate classfile <in.jar|in.class>"
 
 	defaultMaxEntries  = 20000
 	defaultMaxExpanded = 1 << 30

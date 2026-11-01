@@ -155,7 +155,7 @@ func TestRunUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {}, {"a", "b"}, {"a", "b", "c"}} {
 		var out, errw bytes.Buffer
 		code := Run(args, cli.Stdio{Out: &out, Err: &errw, Env: func(string) string { return "" }})
-		if code != cli.ExitUsage || out.Len() != 0 || errw.String() != "usage: rsdd corroborate classfile-facts <in.jar|in.class>\n" {
+		if code != cli.ExitUsage || out.Len() != 0 || errw.String() != "usage: rsdd corroborate classfile <in.jar|in.class>\n" {
 			t.Errorf("args %q: code=%d stdout=%q stderr=%q", args, code, out.String(), errw.String())
 		}
 	}

@@ -73,7 +73,7 @@ touch "$FAKE_CLASS" "$FAKE_JAR"
 
 FAKE_OUT="$ROOT/out"
 
-# The class-file facts step runs `rsdd corroborate classfile-facts` (Go; parsing is pinned by the Go tests in
+# The class-file facts step runs `rsdd corroborate classfile` (Go; parsing is pinned by the Go tests in
 # rsdd/internal/corroborate/classfile). Every case here runs it against a STUB binary through RSDD_BIN, so no case builds
 # rsdd (an unset RSDD_BIN would rebuild it into research-sdd/bin, a kit-tree leak) and the step costs one tiny script,
 # not a Python start. The stub logs its argv to RSDD_STUB_LOG and behaves per RSDD_STUB_MODE. Cases that mean the
@@ -895,10 +895,10 @@ else no "H2 bytecode-evidence warning" "se=[$SE]"; fi
 # TestRunClassfileFactsLines/"jar: stored and deflated entries, mixed versions" and
 # TestRunClassfileFactsLines/"bad magic is unreadable, never a fake major" (rsdd/internal/corroborate/classfile).
 # H3r/H1r below keep one end-to-end check of the real binary behind the shell.
-# H13: the binary is invoked as `<rsdd> corroborate classfile-facts <input>`, exactly one argument.
+# H13: the binary is invoked as `<rsdd> corroborate classfile <input>`, exactly one argument.
 rm -f "$ROOT/stub-H13.log"
 rt H13 "$ROOT/Hdr.class" RSDD_STUB_LOG="$ROOT/stub-H13.log" -- --engine vineflower
-if [ "$(cat "$ROOT/stub-H13.log" 2>/dev/null)" = "corroborate classfile-facts $ROOT/Hdr.class" ]; then ok "H13 the binary is called as: corroborate classfile-facts <input>"
+if [ "$(cat "$ROOT/stub-H13.log" 2>/dev/null)" = "corroborate classfile $ROOT/Hdr.class" ]; then ok "H13 the binary is called as: corroborate classfile <input>"
 else no "H13 binary argv" "log=[$(cat "$ROOT/stub-H13.log" 2>/dev/null)]"; fi
 # H14: the binary FAILS (rc 1): that is a typed facts-error, NOT a silent switch to the Python helper (which would print a line).
 rt H14 "$ROOT/Hdr.class" RSDD_STUB_MODE=fail1 -- --engine vineflower
@@ -1491,10 +1491,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else no "teeth-mCF13: mutant still timed the binary out — H7b has no teeth" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
   fi
   # mCF14: the subcommand name is wrong → the stub's argv log differs (H13 bites).
-  if build_mut mCF14 's/corroborate classfile-facts "\$2"/corroborate classfile-fact "$2"/'; then
+  if build_mut mCF14 's/corroborate classfile "\$2"/corroborate classfile-fact "$2"/'; then
     rm -f "$ROOT/stub-mCF14.log"
     RT_SUT="$MUT" rt mCF14 "$ROOT/Hdr.class" RSDD_STUB_LOG="$ROOT/stub-mCF14.log" -- --engine vineflower
-    if [ "$(cat "$ROOT/stub-mCF14.log" 2>/dev/null)" != "corroborate classfile-facts $ROOT/Hdr.class" ]; then ok "teeth-mCF14: wrong-subcommand mutant changes the binary's argv → H13 bites"
+    if [ "$(cat "$ROOT/stub-mCF14.log" 2>/dev/null)" != "corroborate classfile $ROOT/Hdr.class" ]; then ok "teeth-mCF14: wrong-subcommand mutant changes the binary's argv → H13 bites"
     else no "teeth-mCF14: mutant still called the right subcommand — H13 has no teeth" "log=[$(cat "$ROOT/stub-mCF14.log" 2>/dev/null)]"; fi
   fi
   # mCF15: a failed binary resolution is ignored (exec of an empty path) instead of the typed "unavailable" exit → no Python line (H1p bites).
