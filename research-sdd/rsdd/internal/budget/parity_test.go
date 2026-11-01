@@ -280,6 +280,9 @@ func (c pcase) normFor(r result, root string) result {
 }
 
 func TestParity(t *testing.T) {
+	if !differentialOn {
+		t.Skip("legacy differential off under the nodiff tag (mutation run); goldens and behaviour tests still run")
+	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
