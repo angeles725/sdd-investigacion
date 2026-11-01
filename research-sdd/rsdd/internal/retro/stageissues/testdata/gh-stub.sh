@@ -11,7 +11,9 @@
 #   STUB_LABEL   label probe: exists (default) existsupper racewin fuzzyonly listfail listempty createfail failjson
 #                missing
 #   STUB_VIEW    `gh issue view <N> --json body` read-back: ok (default) nosig empty fail
-# State files in STUB_DIR (all optional): occ occfail occnoend occ2 (occurrence list), commentfail(.N)
+# Tracker lookups (the unclassifiable tracker, `--json number,state,body` and `--json state,body` with a `Unclassifiable`
+# needle): trkset answers the by-signature lookup (all issues of the retro's tracker), trksig the item-set lookup.
+# State files in STUB_DIR (all optional): trkset trksig occ occfail occnoend occ2 (occurrence list), commentfail(.N)
 # commentghost(.N) commentnourl commentfailwrote, viewfail viewfailafter.
 D="${STUB_DIR:?STUB_DIR is required}"
 MODE="${STUB_MODE:-nomatch}"; LABEL="${STUB_LABEL:-exists}"; VIEW="${STUB_VIEW:-ok}"; SIGPAT="${STUB_SIGPAT:-}"
@@ -126,6 +128,8 @@ case " $* " in
     if [ "$LABEL" = createfail ] || [ "$LABEL" = racewin ]; then printf 'gh: label create failed\n' >&2; exit 1; fi
     exit 0 ;;
   *" issue list "*" number,state,title "*) occ_list; exit $? ;;
+  *" issue list "*"Unclassifiable tracker:"*" number,state,body "*) [ -f "$D/trkset" ] && { cat "$D/trkset"; exit 0; } ;;&
+  *" issue list "*"Unclassifiable item set:"*) [ -f "$D/trksig" ] && { cat "$D/trksig"; exit 0; } ;;&
   *" issue comment "*) occ_comment "$@"; exit $? ;;
   *" issue view "*" --json comments "*) occ_view "$@"; exit $? ;;
   *" issue list "*)
