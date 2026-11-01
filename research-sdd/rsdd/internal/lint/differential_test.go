@@ -7,30 +7,10 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"testing"
 )
-
-func fixtureFiles(t *testing.T, dir string) []string {
-	t.Helper()
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, e := range ents {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
-			out = append(out, e.Name())
-		}
-	}
-	sort.Strings(out)
-	if len(out) < 60 {
-		t.Fatalf("empty-input: only %d fixtures in %s", len(out), dir)
-	}
-	return out
-}
 
 // Every fixture, in FAIL and --audit mode, in one legacy spawn per mode (the whole output is compared).
 func TestLintBlockDifferentialFixtures(t *testing.T) {

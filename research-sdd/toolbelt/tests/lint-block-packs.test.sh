@@ -31,7 +31,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 # The engine under test: the frozen wrapper next to the live helper, packs and lib (what lint-block.sh was before the port).
 ENG="$TMP/engine"; mkdir -p "$ENG/lib"
-cp "$LEGACY/lint-block.sh" "$HELPER" "$ENG/"; cp "$TOOLBELT/lib/block-files.sh" "$ENG/lib/"; cp -r "$TOOLBELT/lint-block-packs" "$ENG/"
+cp "$LEGACY/lint-block.sh" "$HELPER" "$ENG/"; cp "$TOOLBELT/lib/block-files.sh" "$ENG/lib/"; cp -r "$TOOLBELT/lint-block-packs" "$ENG/"   # stage-libs-ok: the frozen legacy wrapper sources only lib/block-files.sh, staged beside the frozen engine
 chmod +x "$ENG/lint-block.sh"
 SUT="$ENG/lint-block.sh"
 
@@ -224,7 +224,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mk_tree NAME -> fresh copy of wrapper + helper + lib in $TMP/mt/NAME; echoes the dir
   mk_tree() {
     local d="$TMP/mt/$1"
-    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/block-files.sh" "$d/lib/"   # the wrapper sources only this one lib
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/block-files.sh" "$d/lib/"   # stage-libs-ok: the legacy wrapper sources only this one lib
     cp "$LEGACY/lint-block.sh" "$TOOLBELT/lint_block.py" "$d/"
     cp -r "$TOOLBELT/lint-block-packs" "$d/"
     chmod +x "$d/lint-block.sh"

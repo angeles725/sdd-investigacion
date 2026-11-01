@@ -78,7 +78,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
   mk() {
     local d="$TMP/mt/$1"
-    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
     if mutant_sed "$SUT" "$d/lint-block.sh" "$2" 2>/dev/null; then MS="$d/lint-block.sh"; return 0; fi
     no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
   }
