@@ -66,6 +66,7 @@ func argparseTable() []argCase {
 		{"-h", []string{"-h"}, 0, wantHelp, ""},
 		{"abbreviated --he", []string{"--he"}, 0, wantHelp, ""},
 		{"abbreviated --h", []string{"--h"}, 0, wantHelp, ""},
+		{"-h glued to more text prints the help (CPython 3.15 runs the action first)", []string{"-hX"}, 0, wantHelp, ""},
 		{"help wins over a later unknown option", []string{"-h", "--bogus"}, 0, wantHelp, ""},
 		{"help after an unknown option still prints help", []string{"--bogus", "-h"}, 0, wantHelp, ""},
 		{"input only", []string{"--input", "a"}, 2, "", usageErr(missingOut)},

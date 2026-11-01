@@ -7,39 +7,41 @@ import (
 	"unicode/utf8"
 )
 
-// This file reproduces the argparse parser of the legacy bog_nav.py for its three options (-h/--help, --input,
-// --output), including the behaviours callers can trip over: unique-prefix abbreviations (--inp), --opt=value,
-// a later duplicate overriding an earlier one, "--" turning the rest into positionals, and the error precedence
-// (a missing required option is reported before unrecognised arguments). Reference: CPython 3.15 argparse,
-// COLUMNS=80. Two version-dependent argparse corners are not reproduced: the combined short form "-hX" and help
-// wrapping under a narrower terminal.
+// This file reproduces the argparse parser of the legacy Niagara scripts for a small option set: value-taking
+// long options, -h/--help and at most one positional argument. It keeps the behaviours callers can trip over:
+// unique-prefix abbreviations (--inp), --opt=value, a later duplicate overriding an earlier one, "--" turning the
+// rest into positionals, "-hX" printing the help, and the error precedence (a missing required argument is
+// reported before unrecognised arguments). Reference: CPython 3.15 argparse, COLUMNS=80. One version-dependent
+// argparse corner is not reproduced: help wrapping under a narrower terminal.
 
-const (
-	progName  = "bog-nav"
-	usageLine = "usage: bog-nav [-h] --input BOG --output JSON\n"
-	helpText  = usageLine + "\nNiagara N4 config.bog structural evidence extractor.\n\noptions:\n" +
-		"  -h, --help     show this help message and exit\n" +
-		"  --input BOG    config.bog (ZIP-compressed file.xml) or bare XML file\n" +
-		"  --output JSON  output JSON evidence file path (must not already exist)\n"
-)
+// optDef is one value-taking long option.
+type optDef struct {
+	name     string // "--input"
+	required bool
+}
 
-type option int
-
-const (
-	optNone option = iota
-	optHelp
-	optInput
-	optOutput
-)
-
-// longOptions are the long option strings in argparse's registration order (the order ambiguity errors list).
-var longOptions = []struct {
-	name string
-	opt  option
-}{{"--help", optHelp}, {"--input", optInput}, {"--output", optOutput}}
+// argSpec describes one command line: its program name, the usage and help texts argparse renders, the long
+// options in registration order and, when positional is not empty, the metavar of the one positional argument
+// (which argparse registers first, so its missing-argument name comes first too).
+type argSpec struct {
+	prog       string
+	usage      string // "usage: ...\n"
+	help       string // the full -h output, usage included
+	positional string
+	opts       []optDef
+}
 
 // parsed is the outcome of a successful parse.
-type parsed struct{ input, output string }
+type parsed struct {
+	input, output string // bog-nav's --input and --output
+}
+
+// parsedArgs is the outcome of a successful parse of an argSpec: the value of each option that was given and the
+// positional (empty when the spec has none). An option given with an empty value is present with "".
+type parsedArgs struct {
+	vals       map[string]string
+	positional string
+}
 
 // stop ends the run before any file is touched: help (exit 0) or a usage error (exit 2).
 type stop struct {
@@ -48,14 +50,21 @@ type stop struct {
 	err  string
 }
 
-func usageError(msg string) *stop {
-	return &stop{code: 2, err: usageLine + progName + ": error: " + msg + "\n"}
+func (sp argSpec) usageError(msg string) *stop {
+	return &stop{code: 2, err: sp.usage + sp.prog + ": error: " + msg + "\n"}
 }
+
+type option int
+
+const (
+	optNone option = -1 // an option string argparse does not know
+	optHelp option = -2
+)
 
 // token is one classified command-line word.
 type token struct {
 	isOption    bool   // argparse's 'O'; false is a positional-like 'A'
-	opt         option // optNone for an unknown option
+	opt         option // an index into spec.opts, optHelp or optNone
 	explicit    string
 	hasExplicit bool
 	ambiguous   []string
@@ -74,30 +83,32 @@ func looksNegative(s string) bool {
 	return rest != "" && unicode.IsDigit(r)
 }
 
+// exact resolves an option string argparse knows exactly.
+func (sp argSpec) exact(s string) option {
+	if s == "-h" || s == "--help" {
+		return optHelp
+	}
+	for i, o := range sp.opts {
+		if o.name == s {
+			return option(i)
+		}
+	}
+	return optNone
+}
+
 // classify mirrors ArgumentParser._parse_optional for this parser's option set.
-func classify(arg string) token {
+func (sp argSpec) classify(arg string) token {
 	if arg == "" || arg[0] != '-' {
 		return token{}
 	}
-	exact := func(s string) option {
-		switch s {
-		case "-h", "--help":
-			return optHelp
-		case "--input":
-			return optInput
-		case "--output":
-			return optOutput
-		}
-		return optNone
-	}
-	if o := exact(arg); o != optNone {
+	if o := sp.exact(arg); o != optNone {
 		return token{isOption: true, opt: o}
 	}
 	if len(arg) == 1 {
 		return token{}
 	}
 	if pre, val, ok := strings.Cut(arg, "="); ok {
-		if o := exact(pre); o != optNone {
+		if o := sp.exact(pre); o != optNone {
 			return token{isOption: true, opt: o, explicit: val, hasExplicit: true}
 		}
 	}
@@ -105,10 +116,11 @@ func classify(arg string) token {
 		pre, val, hasEq := strings.Cut(arg, "=")
 		var hits []string
 		var which option
-		for _, lo := range longOptions {
-			if strings.HasPrefix(lo.name, pre) {
-				hits = append(hits, lo.name)
-				which = lo.opt
+		names := append([]string{"--help"}, optNames(sp.opts)...)
+		for _, n := range names {
+			if strings.HasPrefix(n, pre) {
+				hits = append(hits, n)
+				which = sp.exact(n)
 			}
 		}
 		switch len(hits) {
@@ -118,74 +130,96 @@ func classify(arg string) token {
 		default:
 			return token{isOption: true, ambiguous: hits}
 		}
+	} else if arg[1] == 'h' {
+		// "-hX": the short help flag followed by anything. CPython 3.15 runs the help action first.
+		return token{isOption: true, opt: optHelp}
 	}
 	if looksNegative(arg) || strings.Contains(arg, " ") {
 		return token{}
 	}
-	return token{isOption: true}
+	return token{isOption: true, opt: optNone}
 }
 
-// parseArgs parses args. A non-nil stop means the run ends there.
-func parseArgs(args []string) (parsed, *stop) {
-	var p parsed
-	var haveIn, haveOut bool
+func optNames(opts []optDef) []string {
+	names := make([]string, len(opts))
+	for i, o := range opts {
+		names[i] = o.name
+	}
+	return names
+}
+
+// parse parses args. A non-nil stop means the run ends there.
+//
+// Positionals follow argparse's pattern matching: the first positional-like word (or "--" plus the word after
+// it) fills the positional; a "--" directly after that word is swallowed with it; every later word is extra.
+func (sp argSpec) parse(args []string) (parsedArgs, *stop) {
+	p := parsedArgs{vals: map[string]string{}}
+	havePos := sp.positional == ""
 	var extras []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			extras = append(extras, args[i:]...)
+			rest := args[i:]
+			if !havePos && len(rest) > 1 {
+				p.positional, havePos = rest[1], true
+				rest = rest[2:]
+			}
+			extras = append(extras, rest...)
 			break
 		}
-		tok := classify(arg)
+		tok := sp.classify(arg)
 		if !tok.isOption {
+			if !havePos {
+				p.positional, havePos = arg, true
+				if i+1 < len(args) && args[i+1] == "--" { // argparse's A- pattern takes the separator along
+					extras = append(extras, args[i+2:]...)
+					break
+				}
+				continue
+			}
 			extras = append(extras, arg)
 			continue
 		}
 		if tok.ambiguous != nil {
-			return p, usageError(fmt.Sprintf("ambiguous option: %s could match %s", arg, strings.Join(tok.ambiguous, ", ")))
+			return p, sp.usageError(fmt.Sprintf("ambiguous option: %s could match %s", arg, strings.Join(tok.ambiguous, ", ")))
 		}
 		switch tok.opt {
 		case optNone:
 			extras = append(extras, arg)
 		case optHelp:
 			if tok.hasExplicit {
-				return p, usageError(fmt.Sprintf("argument -h/--help: ignored explicit argument %s", pyQuote(tok.explicit)))
+				return p, sp.usageError(fmt.Sprintf("argument -h/--help: ignored explicit argument %s", pyQuote(tok.explicit)))
 			}
-			return p, &stop{out: helpText}
-		case optInput, optOutput:
-			name := "--input"
-			if tok.opt == optOutput {
-				name = "--output"
-			}
+			return p, &stop{out: sp.help}
+		default:
+			name := sp.opts[tok.opt].name
 			var val string
 			switch {
 			case tok.hasExplicit:
 				val = tok.explicit
-			case i+1 < len(args) && args[i+1] != "--" && !classify(args[i+1]).isOption:
+			case i+1 < len(args) && args[i+1] != "--" && !sp.classify(args[i+1]).isOption:
 				i++
 				val = args[i]
 			default:
-				return p, usageError("argument " + name + ": expected one argument")
+				return p, sp.usageError("argument " + name + ": expected one argument")
 			}
-			if tok.opt == optInput {
-				p.input, haveIn = val, true
-			} else {
-				p.output, haveOut = val, true
-			}
+			p.vals[name] = val
 		}
 	}
 	var missing []string
-	if !haveIn {
-		missing = append(missing, "--input")
+	if !havePos {
+		missing = append(missing, sp.positional)
 	}
-	if !haveOut {
-		missing = append(missing, "--output")
+	for _, o := range sp.opts {
+		if _, ok := p.vals[o.name]; o.required && !ok {
+			missing = append(missing, o.name)
+		}
 	}
 	if len(missing) > 0 {
-		return p, usageError("the following arguments are required: " + strings.Join(missing, ", "))
+		return p, sp.usageError("the following arguments are required: " + strings.Join(missing, ", "))
 	}
 	if len(extras) > 0 {
-		return p, usageError("unrecognized arguments: " + strings.Join(extras, " "))
+		return p, sp.usageError("unrecognized arguments: " + strings.Join(extras, " "))
 	}
 	return p, nil
 }
@@ -196,4 +230,27 @@ func pyQuote(s string) string {
 		return `"` + s + `"`
 	}
 	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", `\'`) + "'"
+}
+
+// bog-nav: bog_nav.py --input BOG --output JSON.
+const (
+	progName  = "bog-nav"
+	usageLine = "usage: bog-nav [-h] --input BOG --output JSON\n"
+	helpText  = usageLine + "\nNiagara N4 config.bog structural evidence extractor.\n\noptions:\n" +
+		"  -h, --help     show this help message and exit\n" +
+		"  --input BOG    config.bog (ZIP-compressed file.xml) or bare XML file\n" +
+		"  --output JSON  output JSON evidence file path (must not already exist)\n"
+)
+
+var bogNavSpec = argSpec{
+	prog: progName, usage: usageLine, help: helpText,
+	opts: []optDef{{"--input", true}, {"--output", true}},
+}
+
+func parseArgs(args []string) (parsed, *stop) {
+	p, st := bogNavSpec.parse(args)
+	if st != nil {
+		return parsed{}, st
+	}
+	return parsed{input: p.vals["--input"], output: p.vals["--output"]}, nil
 }
