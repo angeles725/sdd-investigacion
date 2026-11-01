@@ -1,0 +1,12 @@
+{
+ "legacy": [
+  "toolbelt/corroborate_java.py",
+  "classfile-facts",
+  "{{input}}/T.class"
+ ],
+ "rsdd": [
+  "corroborate",
+  "classfile-facts",
+  "{{input}}/T.class"
+ ]
+}
