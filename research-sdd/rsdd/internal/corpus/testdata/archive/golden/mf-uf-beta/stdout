@@ -1,0 +1,12 @@
+== research-sdd-archive: c  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : ok
+    undocumented_findings: REFUSE — RESEARCH-STATE-beta.md: undocumented_findings=2 must be 0 before closing (write the missing block(s), decrement the counter in the state file, then --sync-state)
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c
