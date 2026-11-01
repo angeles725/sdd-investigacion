@@ -255,6 +255,27 @@ function it replaces, called through a tiny bash driver over the same fixtures. 
 kit-run, catalog generator. Shims replace the old paths; `.claude/settings.json` and the pi extension
 keep calling the same paths. Measure against the baseline; decide on the parse cache.
 
+Phase 2 units (sized 2026-11-01 from origin/main d90b88d5; Go line counts are estimates). The hot path calls no
+Python. Each unit registers its command with one line in its domain's `commands.go` (one-line rebase conflicts
+accepted; no `init()` registration).
+
+| Unit | Issue | Source | Needs first | Lane |
+|---|---|---|---|---|
+| U2.1 hook emit + verify kit-clean | #2354 | lib/hook-emit.sh, verify-kit-clean(-hook).sh | — | A |
+| U2.2 pkill guard + kit-run | #2355 | templates/hook-pretool-pkill-guard.sh, templates/hook-kit-run.sh | — | A |
+| U2.3a/b hook-wiring lib | #2356, #2357 | lib/hook-wiring.sh (705, split in two) | — | B |
+| U2.4a/b sweep retros | #2358, #2359 | sweep-retros(-hook).sh | U2.1, U2.3b | B |
+| U2.5 sweep audits + breakthroughs | #2360 | sweep-audits(-hook).sh, sweep-breakthroughs(-hook).sh | U2.1 | A |
+| U2.6 sweep tools + verify tool-catalog | #2361 | sweep-tools(-hook).sh, verify-tool-catalog(-hook).sh | U2.1 | A |
+| U2.7a/b/c verify registry | #2362, #2363, #2364 | verify-registry(-hook).sh (874), lib/corpus-markers.sh | U2.1, U2.3b | B |
+| U2.8 verify skill-drift | #2365 | verify-skill-drift(-hook).sh | U2.1 | A |
+| U2.9 gate return-token | #2366 | return-token-gate.sh | — | C |
+| U2.10a/b gate retro | #2367, #2368 | retro-gate.sh (912), templates/hook-stop-retro-gate.sh | — | C |
+| U2.11 catalog generator | #2369 | templates/gen-catalog.py | — | C |
+| U2.12 session-start + sweep all | #2370 | sweep-all.sh, templates/hook-sessionstart.sh; baseline measurement | U2.4b, U2.5, U2.6, U2.7c, U2.8 | A |
+
+Lanes: A = session 2, B = session 4 (after #2292/#2293/#2321), C = session 3 (after #2287, #2371).
+
 ### Phase 3 — Loop instruments
 `verify {block,state,sources,corrections,parity,retro,cd-physical,gap-drift,doc-consistency}`,
 `status show` (research-sdd-status.sh, 2,642 lines, split into sub-units), `status resume*`,
@@ -333,3 +354,19 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
   phase-1 issues #2281–#2286 opened. Baseline: wall-time run aborted (machine under load); CPU-time + CI
   history baseline in progress, short quiet window pending.
 - Next: gate + merge #2277, then the stacked PRs in order.
+- 2026-11-01 (L-2026-11-01, user, verbatim): "Vamosa a trabajar con ODD + RDD(granted), si GENTLE-AI pide revision,
+  dale permisos para que revise. Ahora vamos a realizar lo siguiente: Primero, necesitamos pasar todo lo que tenemos
+  python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos
+  que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en
+  donde tener que hacer eso. [...] tambien tomen en cuenta que ya hemos tenido problemas en la aprte de tareas de
+  WSL2, que ocasionaban el colapsop o cierre de WSL2." Follow-ups: "Tiene que ser todo /research-sdd"; "pasarlo
+  directamente a /research-sdd y tambien tenemos que trabajar con gentle para mejroar todo lo que nos puede ayudar";
+  delete Go build output so it does not fill the laptop; "Trabajen con commit + push + pr + pr view + issues + merge".
+- 2026-11-01 state (origin/main d90b88d5): phase 1 #2281-#2286 merged; U0.4 remainder PR #2353; #2275 complete except
+  `make parity` (folded into #2292); #2287, #2292, #2293, #2321 in progress; #2371 opened (rsdd-exec.sh mtime staleness).
+  Four sessions: 1 orchestrates and owns this file and the heavy slot; 2, 3, 4 write (lanes above).
+- Decisions 2026-11-01: WSL2 safety: one heavy run (-race, gremlins, fuzz, run-all, whole-corpus --prove-teeth)
+  machine-wide, granted by session 1; focused runs use nice, timeout, GOMAXPROCS=4, GOFLAGS=-p=2, GOMEMLIMIT=3GiB.
+  Go build hygiene: GOTMPDIR per lane outside /tmp, no leftover binaries, worktree removed after merge, and only
+  session 1 runs `go clean -cache` (when GOCACHE > 5G).
+- Next: phase 0 close-out merges, then phase 2 lanes A/B/C in the order of the table above.
