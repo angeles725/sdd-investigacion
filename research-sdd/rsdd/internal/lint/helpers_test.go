@@ -18,7 +18,7 @@ type result struct {
 	rc       int
 }
 
-// toolbelt is the kit's toolbelt, home of the shared fixtures and of the pack engine (U3.2 owns its retirement).
+// toolbelt is the kit's toolbelt, home of the shared fixtures.
 const toolbelt = "../../../toolbelt"
 
 func fixtures(t *testing.T) string {
@@ -33,11 +33,14 @@ func fixtures(t *testing.T) string {
 	return d
 }
 
-func packEnv(t *testing.T) (helper, packs string) {
+// legacyPacks is the frozen copy of the pre-port Python packs the legacy script loads.
+func legacyPacks(t *testing.T) string {
 	t.Helper()
-	h, _ := filepath.Abs(filepath.Join(toolbelt, "lint_block.py"))
-	p, _ := filepath.Abs(filepath.Join(toolbelt, "lint-block-packs"))
-	return h, p
+	p, err := filepath.Abs("testdata/legacy/lint-block-packs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }
 
 // goRun runs the Go command in-process with cwd as its working directory.
@@ -49,8 +52,7 @@ func goRun(t *testing.T, cwd string, args ...string) result {
 // goRunEnv is goRun with extra environment overriding the defaults.
 func goRunEnv(t *testing.T, cwd string, extra map[string]string, args ...string) result {
 	t.Helper()
-	helper, packs := packEnv(t)
-	env := map[string]string{"LINT_BLOCK_HELPER": helper, "LINT_BLOCK_PACKS_DIR": packs}
+	env := map[string]string{}
 	for k, v := range extra {
 		env[k] = v
 	}
@@ -67,10 +69,9 @@ func goRunEnv(t *testing.T, cwd string, extra map[string]string, args ...string)
 func legacyRun(t *testing.T, cwd string, args ...string) result {
 	t.Helper()
 	script, _ := filepath.Abs("testdata/legacy/lint-block.sh")
-	_, packs := packEnv(t)
 	cmd := exec.Command("bash", append([]string{script}, args...)...)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "LINT_BLOCK_PACKS_DIR="+packs)
+	cmd.Env = append(os.Environ(), "LINT_BLOCK_PACKS_DIR="+legacyPacks(t))
 	var o, e bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &o, &e
 	err := cmd.Run()
