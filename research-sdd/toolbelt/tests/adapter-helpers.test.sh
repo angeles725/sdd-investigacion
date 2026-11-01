@@ -185,8 +185,7 @@ PY
   # teeth-surface: renaming run_truncation in a copy of the toolbelt lib makes the I-1 check fail
   _ah_mutant teeth-surface 'def run_truncation(' 'def run_truncation_mutant(' "$ROOT/m-surface.py"
   if [ $? -ne 0 ]; then (exit 2); else
-    mkdir -p "$ROOT/m-surface/lib" && cp "$HERE/../lib/adapter_core.py" "$ROOT/m-surface/lib/" \
-      && cp "$ROOT/m-surface.py" "$ROOT/m-surface/lib/adapter_helpers.py"
+    mkdir -p "$ROOT/m-surface/lib" && cp "$HERE/../lib/adapter_core.py" "$ROOT/m-surface/lib/" && cp "$ROOT/m-surface.py" "$ROOT/m-surface/lib/adapter_helpers.py"  # stage-libs-ok: the import check loads only adapter_core and the mutated adapter_helpers
     if surface_check "$ROOT/m-surface" 2>/dev/null; then (exit 0); else (exit 1); fi
   fi
   case $? in
