@@ -284,10 +284,12 @@ func derPublic(h string) bool {
 		if !ok || tag != "06" {
 			return false
 		}
-		// The OID is read from the AlgorithmIdentifier's own content, so one that overruns it is truncated and matches
-		// no known OID (none is a prefix of another). The bash refuses an overrun explicitly; the result is the same.
-		alg := sub(h, fo+fHdr, 2*fLen)
-		switch sub(alg, oHdr, 2*oLen) {
+		// The OID TLV must end inside the AlgorithmIdentifier (the bash refuses an overrun): a truncated OID would be
+		// a prefix of the declared one and could equal a known OID.
+		if oEnd, _ := next(h, fo+fHdr, "06"); oEnd > nxt {
+			return false
+		}
+		switch sub(h, fo+fHdr+oHdr, 2*oLen) {
 		case "2a864886f70d010101", "2a8648ce3d0201", "2b6570", "2b6571", "2b656e", "2b656f":
 		default:
 			return false

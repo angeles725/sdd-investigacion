@@ -259,3 +259,23 @@ func TestDEROIDOverrunningItsAlgorithmIsRefused(t *testing.T) {
 		t.Error("control: an Ed25519 SubjectPublicKeyInfo is public")
 	}
 }
+
+// The verifier's input: the OID declares 4 bytes and only 2b6570 fit inside the AlgorithmIdentifier. Truncating to the
+// algorithm's content would read a known OID (Ed25519); the bash refuses the overrun, so does the port.
+func TestDERDeclaredOIDLongerThanItsAlgorithmIsRefused(t *testing.T) {
+	const overrun = "300c" + "3005" + "06042b6570" + "030300dead"
+	if derPublic(overrun) {
+		t.Error("an OID longer than its AlgorithmIdentifier was accepted")
+	}
+	if got := classify([]byte(overrunDER(t))); got == classPublic {
+		t.Error("classify: the overrunning SPKI blob is public")
+	}
+	// the OID TLV ending exactly where the algorithm ends is accepted; one byte past it is refused
+	if !derPublic("300c" + "3005" + "06032b6570" + "030300dead") {
+		t.Error("an OID ending exactly at the end of its algorithm is public")
+	}
+}
+
+func overrunDER(t *testing.T) string {
+	return string(unhex(t, "300c300506042b6570030300dead"))
+}
