@@ -35,6 +35,8 @@ mkdir -p "$TMP/kit" && ln -s "$(CDPATH='' cd -P -- "$HERE/../../rsdd" && pwd -P)
   || { echo "FATAL: could not link the rsdd module" >&2; exit 2; }
 TB="$TMP/kit/toolbelt"; mkdir -p "$TB"
 cp "$HERE"/../*.sh "$TB/" && cp -r "$HERE/../lib" "$TB/lib" || { echo "FATAL: could not copy the toolbelt" >&2; exit 2; }
+# Every case runs the copy, so an rsdd rebuild (RSDD_BIN unset, as in CI) lands in $TMP/kit/bin, never in the kit tree.
+SUT="$TB/return-token-gate.sh"
 
 # BSD/macOS-portable fixture helpers (kit issue #1757): `touch -d 'N minutes ago'` and `sed -i` without a suffix are
 # GNU-only. touch_ago computes a `touch -t` stamp from epoch seconds (GNU `date -d @N`, else BSD `date -r N`); sedi
