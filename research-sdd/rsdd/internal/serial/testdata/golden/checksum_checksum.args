@@ -1,0 +1,1 @@
+["checksum", "--input", "testdata/frames/checksum.log", "--output", "{TMP}/out.json"]

@@ -1,0 +1,4 @@
+# Malformed frame log: all lines declare len=N but provide wrong byte count (mismatch)
+# Expected: status:failed / exit 1 when analyzed (BLOCKER 3)
+   0.000000  len=5  81 01 a0
+   0.100000  len=5  82 02 e0
