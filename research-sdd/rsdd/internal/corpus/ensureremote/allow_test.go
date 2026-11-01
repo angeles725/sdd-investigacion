@@ -99,6 +99,15 @@ func TestGlobMatch(t *testing.T) {
 		want       bool
 	}{
 		{"pub.der", "pub.der", true},
+		// a character is one rune, as in bash under a UTF-8 locale
+		{"?.pem", "é.pem", true},
+		{"??.pem", "é.pem", false},
+		{"é.pem", "é.pem", true},
+		{"?.pem", "\xff.pem", true},
+		{"??.pem", "\xff.pem", false},
+		{"*.pem", "日本.pem", true},
+		{"日?.pem", "日本.pem", true},
+		{"日??.pem", "日本.pem", false},
 		{"pub.der", "dir/pub.der", false},
 		{"*.der", "pub.der", true},
 		{"*.der", "deep/x/pub.der", true}, // '*' crosses '/', as git's pathspec does

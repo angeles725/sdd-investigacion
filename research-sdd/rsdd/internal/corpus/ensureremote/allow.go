@@ -1,6 +1,9 @@
 package ensureremote
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // The Layer 4c allow list (kit issue #1943): `<target>/.research-sdd/secret-files.conf`, one `allow <path-glob>`
 // per line, `#` comments and blank lines ignored.
@@ -100,20 +103,22 @@ func hasExtglob(g string) bool {
 }
 
 // globMatch is `[[ $p == $glob ]]` for a glob that holds only `*` (any run, `/` included), `?` (any one
-// character, `/` included) and backslash escapes.
+// character, `/` included) and backslash escapes. Like bash under a UTF-8 locale, a character is one rune; a byte
+// that is not valid UTF-8 is one character of its own that equals nothing but itself.
 func globMatch(glob, p string) bool {
+	gr, pr := runesOf(glob), runesOf(p)
 	g, s := 0, 0
 	star, mark := -1, 0
-	for s < len(p) {
+	for s < len(pr) {
 		switch {
-		case g < len(glob) && glob[g] == '*':
+		case g < len(gr) && gr[g] == '*':
 			star, mark = g, s
 			g++
-		case g < len(glob) && glob[g] == '?':
+		case g < len(gr) && gr[g] == '?':
 			g++
 			s++
-		case g < len(glob) && globLit(glob, g) == p[s]:
-			g += litWidth(glob, g)
+		case g < len(gr) && globLit(gr, g) == pr[s]:
+			g += litWidth(gr, g)
 			s++
 		case star >= 0:
 			g = star + 1
@@ -123,21 +128,35 @@ func globMatch(glob, p string) bool {
 			return false
 		}
 	}
-	for g < len(glob) && glob[g] == '*' {
+	for g < len(gr) && gr[g] == '*' {
 		g++
 	}
-	return g == len(glob)
+	return g == len(gr)
 }
 
-// globLit is the literal byte at glob[g]: the escaped one after a backslash, a lone trailing backslash included.
-func globLit(glob string, g int) byte {
+// runesOf splits s into characters; an invalid byte becomes a value above the Unicode range.
+func runesOf(s string) []rune {
+	out := make([]rune, 0, len(s))
+	for i := 0; i < len(s); {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && n <= 1 {
+			r = 0x110000 + rune(s[i])
+		}
+		out = append(out, r)
+		i += n
+	}
+	return out
+}
+
+// globLit is the literal character at glob[g]: the escaped one after a backslash, a lone trailing backslash included.
+func globLit(glob []rune, g int) rune {
 	if glob[g] == '\\' && g+1 < len(glob) {
 		return glob[g+1]
 	}
 	return glob[g]
 }
 
-func litWidth(glob string, g int) int {
+func litWidth(glob []rune, g int) int {
 	if glob[g] == '\\' && g+1 < len(glob) {
 		return 2
 	}
