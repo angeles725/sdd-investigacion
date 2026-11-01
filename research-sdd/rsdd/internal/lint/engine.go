@@ -30,8 +30,7 @@ type unit struct {
 func re(p string) *regexp.Regexp { return regexp.MustCompile(p) }
 
 var (
-	ws  = "[" + wsClass + "]"
-	nws = "[^" + wsClass + "]"
+	ws = "[" + wsClass + "]"
 
 	tableRowRE   = re(`^` + ws + `*\|(.+)\|` + ws + `*$`)
 	tableSepRE   = re(`^` + ws + `*\|[` + wsClass + `:|-]+\|` + ws + `*$`)
