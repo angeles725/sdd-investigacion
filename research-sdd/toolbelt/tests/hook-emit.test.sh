@@ -82,9 +82,11 @@ if [ "$r3" = 0 ]; then ok "8b rsdd_hook_emit returns 0 even when the write fails
 # 10. every hook that sources the lib must ANNOUNCE a missing lib (plain text, rc 0), never go silent.
 TB="$HERE/.."
 for hk in sweep-audits sweep-breakthroughs sweep-retros sweep-tools verify-kit-clean verify-registry verify-skill-drift verify-tool-catalog; do
+  # verify-kit-clean-hook.sh is a shim now (kit issue #2354): the lib it needs, and announces, is rsdd-exec.sh.
+  want_lib=hook-emit.sh; [ "$hk" = verify-kit-clean ] && want_lib=rsdd-exec.sh
   d="$TMP/nolib-$hk"; mkdir -p "$d"; cp "$TB/$hk-hook.sh" "$d/$hk-hook.sh"   # no lib/ beside it
   got="$(bash "$d/$hk-hook.sh" 2>/dev/null)"; grc=$?
-  if [ "$grc" = 0 ] && [ "$got" = "Research-SDD hook: lib/hook-emit.sh missing beside $d/$hk-hook.sh" ]; then
+  if [ "$grc" = 0 ] && [ "$got" = "Research-SDD hook: lib/$want_lib missing beside $d/$hk-hook.sh" ]; then
     ok "10 $hk-hook.sh with no lib/ → announces the missing lib (rc 0)"
   else
     no "10 $hk-hook.sh with no lib/ → rc=$grc out=[$got]"
@@ -134,7 +136,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mkdir -p "$TMP/mutG"
   if mk_mut "teeth G: guard removed" "$TB/verify-kit-clean-hook.sh" "$TMP/mutG/verify-kit-clean-hook.sh" 's/ 2>\/dev\/null || { printf .*exit 0; }//'; then
     gotg="$(bash "$TMP/mutG/verify-kit-clean-hook.sh" 2>/dev/null)"
-    if [ "$gotg" != "Research-SDD hook: lib/hook-emit.sh missing beside $TMP/mutG/verify-kit-clean-hook.sh" ]; then
+    if [ "$gotg" != "Research-SDD hook: lib/rsdd-exec.sh missing beside $TMP/mutG/verify-kit-clean-hook.sh" ]; then
       ok "teeth G: unguarded hook no longer announces a missing lib → case 10 would go RED"; else no "teeth G: mutant still announces"; fi
   fi
 fi
