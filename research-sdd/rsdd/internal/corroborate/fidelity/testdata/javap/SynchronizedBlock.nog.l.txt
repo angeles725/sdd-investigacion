@@ -1,0 +1,17 @@
+Compiled from "SynchronizedBlock.java"
+public class SynchronizedBlock {
+  private final java.lang.Object lock;
+
+  private int n;
+
+  public SynchronizedBlock();
+    LineNumberTable:
+      line 1: 0
+      line 2: 4
+
+  public int bump();
+    LineNumberTable:
+      line 6: 0
+      line 7: 7
+      line 8: 21
+}

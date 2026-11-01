@@ -1,0 +1,44 @@
+Compiled from "SynchronizedBlock.java"
+public class SynchronizedBlock {
+  private final java.lang.Object lock;
+
+  private int n;
+
+  public SynchronizedBlock();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: new           #2                  // class java/lang/Object
+       8: dup
+       9: invokespecial #1                  // Method java/lang/Object."<init>":()V
+      12: putfield      #7                  // Field lock:Ljava/lang/Object;
+      15: return
+
+  public int bump();
+    Code:
+       0: aload_0
+       1: getfield      #7                  // Field lock:Ljava/lang/Object;
+       4: dup
+       5: astore_1
+       6: monitorenter
+       7: aload_0
+       8: dup
+       9: getfield      #13                 // Field n:I
+      12: iconst_1
+      13: iadd
+      14: dup_x1
+      15: putfield      #13                 // Field n:I
+      18: aload_1
+      19: monitorexit
+      20: ireturn
+      21: astore_2
+      22: aload_1
+      23: monitorexit
+      24: aload_2
+      25: athrow
+    Exception table:
+       from    to  target type
+           7    20    21   any
+          21    24    21   any
+}
