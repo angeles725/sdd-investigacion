@@ -168,6 +168,32 @@ func scriptCases() []scriptCase {
 				wireSettings(t, d, st(d+"/retro-gate-dir"))
 				return d
 			}},
+		// Mutation-teeth cases (#2356): each pins one boundary of the string scanner.
+		{name: "script with content (non-empty first read) -> present", want: ScriptPresent,
+			setup: func(t *testing.T, r string) string {
+				d := filepath.Join(r, "tcontent")
+				writeFile(t, filepath.Join(d, "retro-gate-stop.sh"), "#!/bin/sh\nexit 0\n")
+				wireSettings(t, d, st(d+"/retro-gate-stop.sh"))
+				return d
+			}},
+		{name: "command string opens at column 1 of its line -> missing", want: ScriptMissing,
+			setup: withSettings("tq1", nil, fixed("{\"hooks\":{\"Stop\":[\n\"/nope/retro-gate-stop.sh\",\n\"x\"]}}"))},
+		{name: "command string closes on the last column of its line -> missing", want: ScriptMissing,
+			setup: withSettings("tqlast", nil, fixed("{\"hooks\":{\"Stop\":[{\n  \"command\": \"/nope/retro-gate-stop.sh\"\n}]}}"))},
+		{name: "closing quote after an even run of backslashes is a real quote -> missing", want: ScriptMissing,
+			setup: withSettings("tbs2", nil, fixed(st(`/nope/retro-gate-stop.sh a\\`)))},
+		{name: "closing quote after an odd run of backslashes is escaped -> unverifiable", want: ScriptUnverifiable,
+			setup: withSettings("tbs3", nil, fixed(`{"hooks":{"Stop":[{"command":"/nope/retro-gate-stop.sh a\\\" b"}]}}`))},
+		{name: "colon as the very first character of the word -> unverifiable", want: ScriptUnverifiable,
+			setup: withSettings("tcolon0", nil, fixed(st(`:/nope/retro-gate-stop.sh`)))},
+		{name: "JSON string never closes -> unverifiable", want: ScriptUnverifiable,
+			setup: withSettings("tnoclose", nil, fixed(`{"hooks":{"Stop":[{"command":"/nope/retro-gate-stop.sh`))},
+		{name: "retro-gate with no opening quote on its line -> unverifiable", want: ScriptUnverifiable,
+			setup: withSettings("tnoopen", nil, fixed("{\"hooks\":{\"Stop\":[\nretro-gate-stop.sh\n]}}"))},
+		{name: "brackets inside a command string do not close the Stop block -> present", want: ScriptPresent,
+			setup: withSettings("tbrk", []string{"ok-retro-gate.sh"}, fixed(`{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh }}"},{"command":"$CLAUDE_PROJECT_DIR/ok-retro-gate.sh"}]}]}}`))},
+		{name: "text right after the closing quote is still scanned (closes Stop) -> missing", want: ScriptMissing,
+			setup: withSettings("tafter", []string{"ok-retro-gate.sh"}, fixed(`{"hooks":{"Stop":[{"command":"/nope/retro-gate-a.sh"}],"X":[{"command":"$CLAUDE_PROJECT_DIR/ok-retro-gate.sh"}]}}`))},
 	}
 }
 
@@ -187,7 +213,7 @@ func TestScriptState(t *testing.T) {
 			r, _ := sandbox(t)
 			target := tt.setup(t, r)
 			e := envOf(r, map[string]string{envHome: homeOf(r, tt.home)})
-			if got := ScriptState(e, target); got != tt.want {
+			if got := within(t, func() string { return ScriptState(e, target) }); got != tt.want {
 				t.Errorf("ScriptState(%q) = %q, want %q", target, got, tt.want)
 			}
 		})

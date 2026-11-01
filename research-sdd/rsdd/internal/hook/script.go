@@ -21,7 +21,7 @@ var (
 type scriptScan struct {
 	tgt, home string
 	entries   int
-	ok, miss  int
+	ok        int
 	unver     int
 }
 
@@ -138,7 +138,7 @@ func (sc *scriptScan) check(line string, pos int) int {
 	var res []string
 	var q byte
 	w, prev := "", ""
-	anyGate, widx := false, 0
+	widx := 0
 	for k := 1; k <= n+1; k++ {
 		c := byte(' ')
 		if k <= n {
@@ -149,7 +149,6 @@ func (sc *scriptScan) check(line string, pos int) int {
 				widx++
 			}
 			if w != "" && strings.Contains(w, "retro-gate") {
-				anyGate = true
 				res = append(res, sc.resolve(w, hascd, widx, prev))
 			}
 			if w != "" {
@@ -169,15 +168,14 @@ func (sc *scriptScan) check(line string, pos int) int {
 		sc.unver++
 		return e
 	}
-	if !anyGate {
-		sc.unver++
-	}
+	// res is never empty here: "retro-gate" contains no whitespace, so it sits whole inside one word
+	// and the final flush above resolves it (an unterminated quote returned earlier).
 	for _, r := range res {
 		switch r {
 		case resultOK:
 			sc.ok++
 		case resultMis:
-			sc.miss++
+			// firmly absent: only a verdict with no ok and no unver is "missing", so nothing to count
 		default:
 			sc.unver++
 		}
