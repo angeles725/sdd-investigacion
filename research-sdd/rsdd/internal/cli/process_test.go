@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -76,5 +78,25 @@ func TestRunRefusesInvalidTable(t *testing.T) {
 	code := Run(table, []string{"x"}, Stdio{Out: &out, Err: &errBuf})
 	if code != ExitOperational || !strings.Contains(errBuf.String(), "rsdd: invalid command table") {
 		t.Errorf("got (%d, %q), want exit 1 and the typed line", code, errBuf.String())
+	}
+}
+
+// #2387: the boundary hands commands the whole environment list for child processes, as os.Environ
+// returns it, so no package below cli needs os.Environ.
+func TestOSStdioCarriesEnviron(t *testing.T) {
+	t.Setenv("RSDD_STDIO_ENVIRON_PROBE", "x=y")
+	s, err := osStdio(func() (string, error) { return "/here", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Environ == nil {
+		t.Fatal("Stdio.Environ is nil")
+	}
+	got := s.Environ()
+	if !slices.Contains(got, "RSDD_STDIO_ENVIRON_PROBE=x=y") {
+		t.Fatalf("Environ() lacks the probe variable: %d entries", len(got))
+	}
+	if !slices.Equal(got, os.Environ()) {
+		t.Fatal("Environ() differs from the process environment")
 	}
 }

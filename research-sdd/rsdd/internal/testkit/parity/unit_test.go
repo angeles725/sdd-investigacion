@@ -199,7 +199,7 @@ func TestResultDescribe(t *testing.T) {
 // os.Getenv here); an empty Config.Path falls back to defaultPath.
 func TestConfigFromEnvCarriesPath(t *testing.T) {
 	env := map[string]string{"PATH": "/opt/x/bin:/usr/bin"}
-	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, t.TempDir())
+	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, "/c", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

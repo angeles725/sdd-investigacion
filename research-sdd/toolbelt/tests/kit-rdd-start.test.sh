@@ -23,6 +23,28 @@ PY="$(command -v python3)" || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# The SUT is a compatibility shim over the Go binary (kit issue #2394, epic #2270): `rsdd maint rdd-start`. The
+# suite is the black-box check of the shim plus the Go command behind it. $RSDD_BIN wins; otherwise one binary
+# is built into the suite temp dir (never into the tree) and exported so the teeth's child runs reuse it.
+# The behaviour's mutation controls live in the Go tests (internal/maint, `make teeth`); the controls below
+# mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+[ "${1:-}" != "--guard-only" ] || { echo "guard-only: rsdd reachable"; exit 0; }
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -179,6 +201,27 @@ run_case refused-granted "$SUT" --consent granted
 if [ "$RC" = 14 ] && [[ "$OUT" != *'kit-rdd-start: started'* ]]; then ok "a refused granted START -> rc 14, never reported as started"
 else no "refused granted START reported: rc=$RC out=[$OUT]"; fi
 
+# The shim's own failure (lib/rsdd-exec.sh missing) is the kit's degraded state, rc 3, never 2 (the usage code).
+mkdir -p "$TMP/orphan/maint" && cp "$SUT" "$TMP/orphan/maint/kit-rdd-start.py"
+O="$(env -i PATH=/usr/bin:/bin "$PY" "$TMP/orphan/maint/kit-rdd-start.py" /x /y 2>&1)"; ORC=$?
+if [ "$ORC" = 3 ] && [[ "$O" == *'degraded: rsdd-unavailable'* ]]; then ok "shim without lib/rsdd-exec.sh -> rc 3 degraded (not the usage code 2)"
+else no "shim own failure: rc=$ORC out=[$O]"; fi
+
+# The rsdd guard must never read green when rsdd is unreachable: with no usable $RSDD_BIN and no go, the suite
+# prints a typed `SKIP <reason>` and ran nothing, or FAILs (rc 1) under RSDD_REQUIRE_GO=1.
+if PATH=/usr/bin:/bin command -v go >/dev/null 2>&1; then echo "  SKIP  rsdd guard cases: go is on the minimal PATH"
+else
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 0 ] && [[ "$G" == 'SKIP rsdd-unavailable: '*'RSDD_BIN is not an executable file'* ]] && [[ "$G" == *'== 0 passed · 0 failed =='* ]]; then
+    ok "no usable RSDD_BIN and no go -> typed 'SKIP <reason>' naming RSDD_BIN, nothing run"
+  else no "unusable RSDD_BIN guard: rc=$GRC out=[$G]"; fi
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" RSDD_REQUIRE_GO=1 bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 1 ] && [[ "$G" == *'  FAIL  rsdd-unavailable: '* ]] && [[ "$G" == *'== 0 passed · 1 failed =='* ]]; then
+    ok "RSDD_REQUIRE_GO=1 with no usable rsdd -> FAIL (rc 1), not green"
+  else no "RSDD_REQUIRE_GO guard: rc=$GRC out=[$G]"; fi
+fi
+
+
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="
   [ "$fail" -eq 0 ] && exit 0 || exit 1
@@ -186,22 +229,15 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: kit-rdd-start mutation controls --"
-MUT="$TMP/mut"; mkdir -p "$MUT"
+# a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$TMP/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
 tooth() { # LABEL OLD NEW GOOD_RC BAD_RC SCENARIO [tooth opts...]
   local label="$1" old="$2" new="$3" g="$4" b="$5" sc="$6"; shift 6
   local m="$MUT/${label// /_}.py"
   if ! mutant_py_replace "$label" "$SUT" "$old" "$new" "$m"; then no "tooth $label: mutant refused"; return; fi
   if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-tooth "consent gate removed" 'if args.consent != "granted":' 'if False:' 15 0 consent --bad-lacks 'consent-required'
-tooth "unique granted check weakened" 'if len(granted) != 1:' 'if len(granted) < 1:' 14 0 dup-granted
-tooth "argv0 check removed" 'if inv[:3] != ["gentle-ai", "review", "start"]:' 'if False:' 14 14 evil-granted --good-lacks 'PWNED=yes' --bad-has 'PWNED=yes'
-tooth "not-due gate removed" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if False:' 10 14 notdue
-tooth "envelope no longer lossless" 'print(json.dumps(env, indent=2, sort_keys=True))' 'print("envelope omitted")' 15 15 consent --good-has 'consent declined' --bad-lacks 'consent declined'
-tooth "not-due needs rc 0" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if assess.get("review_due") is False:' 14 10 assess-rc1
-tooth "not-due must be an exact bool" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if not assess.get("review_due"):' 14 10 assess-nokey
-tooth "STATUS allowlist removed" 'if status_cmd[:3] != ["gentle-ai", "review", "status"]:' 'if False:' 14 14 assess-shcmd --good-lacks 'PWNED=yes' --bad-has 'PWNED=yes'
-tooth "granted allowlist removed" 'if inv[:3] != ["gentle-ai", "review", "start"]:' 'if False:' 14 0 consent-wrongop+g
-tooth "refused START reported as started" 'if not isinstance(doc.get("next_transition") or doc.get("status_continuation"), dict):' 'if False:' 14 0 refused
+tooth "shim dispatches to the sibling command" 'rsdd_exec maint rdd-start' 'rsdd_exec maint rdd-drive' 15 14 consent
+tooth "shim drops the caller's arguments" '"$@"' '' 15 2 consent
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

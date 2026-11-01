@@ -3,7 +3,9 @@ check-gap-drift.sh
 coverage-map.sh
 ensure-remote.sh
 install/research-sdd-install.sh
+lint-block.sh
 migrate-backlogs.sh
+qnx6-read.sh
 reconcile-issues.sh
 research-sdd-archive.sh
 research-sdd-init.sh
@@ -12,6 +14,7 @@ resume-render.sh
 retro-gate.sh
 return-token-gate.sh
 scan-secrets.sh
+squashfs-extract.sh
 stage-retro-issues.sh
 stage-retro.sh
 state-update.sh

@@ -13,16 +13,19 @@ import (
 
 // Stdio carries every ambient dependency a command may use.
 type Stdio struct {
-	In    io.Reader
-	Out   io.Writer
-	Err   io.Writer
-	Env   func(key string) string
-	Clock func() time.Time
-	Cwd   string
+	In  io.Reader
+	Out io.Writer
+	Err io.Writer
+	Env func(key string) string
+	// Environ returns the whole environment as KEY=VALUE pairs (os.Environ's form), for a command that
+	// hands a child process the caller's environment.
+	Environ func() []string
+	Clock   func() time.Time
+	Cwd     string
 }
 
 // OSStdio builds the real Stdio. It is the only place that touches
-// os.Stdin/Stdout/Stderr, os.Getenv, time.Now and os.Getwd. A working
+// os.Stdin/Stdout/Stderr, os.Getenv, os.Environ, time.Now and os.Getwd. A working
 // directory that cannot be determined is an error, never an empty Cwd.
 func OSStdio() (Stdio, error) { return osStdio(os.Getwd) }
 
@@ -32,14 +35,19 @@ func osStdio(getwd func() (string, error)) (Stdio, error) {
 		return Stdio{}, fmt.Errorf("cannot determine working directory: %w", err)
 	}
 	return Stdio{
-		In:    os.Stdin,
-		Out:   os.Stdout,
-		Err:   os.Stderr,
-		Env:   os.Getenv,
-		Clock: time.Now,
-		Cwd:   cwd,
+		In:      os.Stdin,
+		Out:     os.Stdout,
+		Err:     os.Stderr,
+		Env:     os.Getenv,
+		Environ: os.Environ,
+		Clock:   time.Now,
+		Cwd:     cwd,
 	}, nil
 }
+
+// Environ is the process environment for the one caller that runs before a Stdio exists: main's
+// dispatch of the rlimit re-exec helper. Commands use Stdio.Environ.
+func Environ() []string { return os.Environ() }
 
 // RunProcess is what main calls: build the real Stdio, then dispatch.
 func RunProcess(table []Command, args []string) int {

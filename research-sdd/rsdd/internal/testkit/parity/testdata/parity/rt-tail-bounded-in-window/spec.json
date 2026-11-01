@@ -1,0 +1,14 @@
+{
+ "legacy": [
+  "toolbelt/return-token-gate.sh"
+ ],
+ "rsdd": [
+  "gate",
+  "return-token",
+  "--toolbelt",
+  "{{input}}/toolbelt"
+ ],
+ "env": {
+  "RETURN_TOKEN_GATE_TAIL_BYTES": "700"
+ }
+}

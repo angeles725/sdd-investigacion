@@ -4,9 +4,13 @@
 reads a raw QNX6 Power-Safe filesystem disk image, walks the directory tree,
 and emits a deterministic key-sorted JSON evidence envelope.
 
-Uses only Python stdlib; no external tools or network access required.
-Read-only: no writes, no subprocesses, no extraction to disk (use the `extract`
-subcommand separately when file content is needed).
+`qnx6-read.sh` is a compatibility shim over `rsdd formats qnx6-read` (Go, kit
+issue #2417; the Python `qnx6_read.py` is gone).  No external tools or network
+access are required.  Read-only: no subprocesses, no extraction to disk (use
+the `extract` subcommand separately when file content is needed).  The
+guard-to-test table is at the head of `rsdd/internal/formats/qnx6_test.go`;
+the legacy script is kept as the differential oracle under
+`rsdd/internal/formats/testdata/qnx6/legacy/`.
 
 ## Trust Boundary And Accepted Input
 
@@ -135,3 +139,23 @@ qnx6-read.sh list --input disk.img --partition-offset <OFFSET_BYTES> --output ev
 # Extract a single file
 qnx6-read.sh extract --input disk.img --fs-path /etc/passwd --output passwd.txt
 ```
+
+## Intended Differences From The Python Implementation
+
+Behavior is held against the legacy script by `TestQNX6ParityFixtures` (every
+fixture image, every listing and extraction path, partition offsets, input and
+output refusals) and `TestQNX6ParityMutants` (560 seeded corruptions of real
+images: same exit code, same stderr, same evidence bytes, same parse-error
+text).  The only differences replace a crash with a typed failure:
+
+| Area | Python script | `rsdd formats qnx6-read` |
+|---|---|---|
+| Block position >= 2**63 (crafted superblock) | uncaught `OverflowError`: traceback, exit 1, no evidence | `list` writes a `status: failed` document (exit 1) with a parse error; `extract` reports `qnx6-read: parse error: ...` (exit 1) |
+| `extract`: parse error while resolving the path or reading the file | uncaught exception: traceback, exit 1, no output file | `qnx6-read: parse error: <message>`, exit 1, no output file |
+| Usage errors | argparse text, exit 2 | Go flag text, exit 2; `-h` prints the usage to stdout and exits 0 |
+| Cwd | process cwd | the injected working directory (identical for the real binary) |
+
+Error texts that Python derives from its runtime are reproduced: the
+`struct.error` text for a short indirect block, `OSError` messages
+(`[Errno 17] File exists: '<path>'`), and the `strerror` text of an open
+failure.
