@@ -6,4 +6,4 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
-var Commands []cli.Command
+var Commands = []cli.Command{{Name: "kit-run", Group: "hook", Summary: "run a kit script with the kit resolved at run time (templates/hook-kit-run.sh)", Run: KitRun}}

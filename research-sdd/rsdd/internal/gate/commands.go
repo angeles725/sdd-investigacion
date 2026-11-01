@@ -6,4 +6,4 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
-var Commands []cli.Command
+var Commands = []cli.Command{{Name: "pkill", Group: "guard", Summary: "PreToolUse guard against self-matching pkill/pgrep -f (--strict-name-kill: every name-based kill)", Run: PkillGuard}}
