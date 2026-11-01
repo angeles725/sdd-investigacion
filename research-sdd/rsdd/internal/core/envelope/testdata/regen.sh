@@ -31,7 +31,7 @@ done
 fail() { echo "regen.sh: $*" >&2; return 1; }
 
 gen() {  # gen <outdir> ; every step is checked, the first failure aborts
-  local out="$1" ROOT W ENVV GITV KITDIR
+  local out="$1" ROOT W ENVV ENVBASE GITV KITDIR
   KITDIR="$(cd "$TOOLBELT/.." && pwd)" || return 1
   mkdir -p "$out" || return 1
   ROOT="$(mktemp -d)" || return 1
@@ -44,10 +44,13 @@ gen() {  # gen <outdir> ; every step is checked, the first failure aborts
 
   # RSDD_RETRO_AGE_DAYS=99999 turns the sweep's "ESCALATED" age tag off: a retro is escalated once older than
   # this many days, which would make the golden depend on today's date (the kit suites pin the same value).
-  ENVV=(env -i PATH="$PATH" HOME="$ROOT/home" RESEARCH_HOME="$ROOT/home" TMPDIR="$ROOT/tmp"
+  # ENVBASE is every variable except PATH; each environment below names its own PATH, so no caller indexes
+  # into the array to patch it.
+  ENVBASE=(HOME="$ROOT/home" RESEARCH_HOME="$ROOT/home" TMPDIR="$ROOT/tmp"
     RSDD_HOOK_WIRING_CEILING="$ROOT" RSDD_CLAUDE_PROJECTS_DIR=/nonexistent/rsdd-claude-history
     RSDD_RETRO_AGE_DAYS=99999 LC_ALL=C
     GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1)
+  ENVV=(env -i PATH="$PATH" "${ENVBASE[@]}")
   GITV=("${ENVV[@]}" git -c user.name=tester -c user.email=t@example.com -c commit.gpgsign=false)
 
   # run_json <label> <expected_rc> <stdin-file|-> <cmd...> : RAW = file holding stdout.
@@ -184,8 +187,7 @@ gen() {  # gen <outdir> ; every step is checked, the first failure aborts
       fi
     ) >"$ROOT/err.mkjt" 2>&1 || { echo "regen.sh: retro-gate fixture setup failed:" >&2; sed 's/^/  | /' "$ROOT/err.mkjt" >&2; return 1; }
   }
-  local hook gate_env=("${ENVV[@]}")
-  gate_env[2]="PATH=$ROOT/gh:$PATH"   # env -i PATH=... : the failing-gh shim goes first
+  local gate_env=(env -i PATH="$ROOT/gh:$PATH" "${ENVBASE[@]}")   # the failing-gh shim goes first
   for kind in block none; do
     mkjt "$W/rg-$kind/target" "j1-sess" "$kind" || return 1
     printf '%s' '{"session_id":"j1-sess","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' > "$ROOT/hook.json"
@@ -199,7 +201,7 @@ gen() {  # gen <outdir> ; every step is checked, the first failure aborts
   for t in bash sh env cat date sed awk grep tr sort head mktemp rm timeout dirname basename wc uname git cut; do
     p="$(command -v "$t" 2>/dev/null)" && ln -sf "$p" "$nojq/$t"
   done
-  local nojq_env=("${ENVV[@]}"); nojq_env[2]="PATH=$nojq"
+  local nojq_env=(env -i PATH="$nojq" "${ENVBASE[@]}")
   kit="$(mkkit dg-sr sweep-retros.sh retro-status target-paths block-files retro-grammar hook-wiring)" || return 1
   run_json dg-sr 3 - "${nojq_env[@]}" "$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" --json || return 1
   cp "$RAW" "$out/sweep-retros-degraded.compact.golden" || return 1
@@ -224,15 +226,27 @@ gen() {  # gen <outdir> ; every step is checked, the first failure aborts
   done < "$HERE/utf8.in"
 }
 
-# publish <scratch> : move a complete generated set next to this script, atomically per file.
+# publish <scratch> <dest> : publish a complete generated set by a directory swap. The whole new directory is
+# staged beside <dest> (a copy of it with the new goldens laid over, so the static inputs and this script
+# travel along and no stale golden survives), then <dest> is renamed away and the stage renamed into place.
+# A failure before the swap leaves <dest> untouched; a failed second rename puts the old directory back.
 publish() {
-  local src="$1" dest="$2" f b
-  mkdir -p "$dest" || return 1
+  local src="$1" dest="$2" f stage old
+  ls "$src"/*.golden >/dev/null 2>&1 || { echo "regen.sh: generation produced no goldens" >&2; return 1; }
+  if [ ! -d "$dest" ]; then
+    mkdir -p "$dest" || return 1
+  fi
+  stage="$(mktemp -d "$dest.new.XXXXXX")" || return 1
+  old="$dest.old.$$"
+  cp -a "$dest/." "$stage/" || { rm -rf "$stage"; return 1; }
+  rm -f "$stage"/*.golden || { rm -rf "$stage"; return 1; }
   for f in "$src"/*.golden; do
-    [ -e "$f" ] || { echo "regen.sh: generation produced no goldens" >&2; return 1; }
-    b="$(basename "$f")"
-    cp "$f" "$dest/.$b.tmp" && mv "$dest/.$b.tmp" "$dest/$b" || return 1
+    cp "$f" "$stage/" || { rm -rf "$stage"; return 1; }
   done
+  chmod --reference="$dest" "$stage" 2>/dev/null || true
+  mv "$dest" "$old" || { rm -rf "$stage"; return 1; }
+  mv "$stage" "$dest" || { mv "$old" "$dest"; rm -rf "$stage"; return 1; }
+  rm -rf "$old"
 }
 
 case "${1:-}" in

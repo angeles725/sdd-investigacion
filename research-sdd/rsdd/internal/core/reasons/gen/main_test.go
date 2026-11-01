@@ -145,3 +145,18 @@ func TestRenderRejectsReservedIdentifiers(t *testing.T) {
 		t.Errorf("classes: %v", err)
 	}
 }
+
+func TestRenderRejectsUncasedLeadingLetter(t *testing.T) {
+	// A leading letter with no upper-case form (CJK) cannot start an exported Go identifier.
+	for _, code := range []string{"degraded: 日本語 broke", "日本語"} {
+		rows := []row{{Code: code, Class: "input", Emitters: []string{"x"}, Meaning: "m", Continuation: "c"}}
+		_, err := render(rows)
+		if err == nil || !strings.Contains(err.Error(), "unusable identifier") {
+			t.Errorf("code %q: want an unusable-identifier error, got %v", code, err)
+		}
+	}
+	// Uncased letters after the first rune of a word stay valid.
+	if _, err := render([]row{{Code: "degraded: a日本", Class: "degraded", Emitters: []string{"x"}, Meaning: "m", Continuation: "c"}}); err != nil {
+		t.Errorf("trailing uncased letters must stay valid: %v", err)
+	}
+}

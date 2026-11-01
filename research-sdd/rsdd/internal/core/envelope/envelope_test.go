@@ -2,14 +2,17 @@ package envelope_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/envelope"
@@ -119,8 +122,10 @@ func fromGolden(t *testing.T, raw []byte) envelope.Envelope {
 }
 
 // goldens lists every recorded instrument output with the key order that instrument really prints
-// (retro-gate.sh:422-426 and resume-state.sh:163-173 put reason before counts; sweep-retros.sh:579-590 and
-// verify-registry.sh:83-91 put counts before reason; edge.golden is jq rendering of edge.in.json).
+// (search anchors, not line numbers: retro-gate.sh `{schema:"research-sdd.retro-gate/v1"` and resume-state.sh
+// `{schema:"research-sdd.resume-state/v1"` build reason before counts; sweep-retros.sh and verify-registry.sh
+// build counts first and then `.reason = (if .state == "absent-input"`; edge.golden is jq rendering of
+// edge.in.json).
 var goldens = []struct {
 	name    string
 	order   envelope.KeyOrder
@@ -424,6 +429,30 @@ func TestVerdictReasonInvalidUTF8BecomesReplacementCharacterLikeJq(t *testing.T)
 	}
 }
 
+// Validate is the contract gate: invalid UTF-8 anywhere but the repairable verdict reason is rejected
+// there, not only when the renderer happens to reach the string.
+func TestValidateRejectsInvalidUTF8ExceptTheVerdictReason(t *testing.T) {
+	bad := "a\xffb"
+	cases := map[string]envelope.Envelope{
+		"envelope reason":          {Schema: "research-sdd.a/v1", State: state.Degraded, Reason: bad},
+		"verdict branch":           {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", "verdict"}, {"branch", bad}}}},
+		"non-verdict item reason":  {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", "other"}, {"reason", bad}}}},
+		"verdict reason in a list": {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", "verdict"}, {"reasons", []any{bad}}}}},
+		"nested string":            {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", "k"}, {"o", envelope.Object{{"p", bad}}}}}},
+		"count key":                {Schema: "research-sdd.a/v1", State: state.OK, Counts: envelope.Object{{bad, 1}}, Items: []envelope.Object{{{"kind", "k"}}}},
+		"item key":                 {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", "k"}, {bad, 1}}}},
+		"kind itself":              {Schema: "research-sdd.a/v1", State: state.OK, Items: []envelope.Object{{{"kind", bad}}}},
+	}
+	for name, e := range cases {
+		if err := e.Validate(); err == nil || !strings.Contains(err.Error(), "UTF-8") {
+			t.Errorf("%s: Validate = %v, want a UTF-8 error", name, err)
+		}
+	}
+	if err := verdictWithReason(bad).Validate(); err != nil {
+		t.Errorf("a verdict reason is repaired at render and must stay valid: %v", err)
+	}
+}
+
 func TestInvalidUTF8OutsideTheVerdictReasonStaysAnError(t *testing.T) {
 	bad := "a\xffb"
 	cases := map[string]envelope.Envelope{
@@ -447,20 +476,57 @@ func TestInvalidUTF8OutsideTheVerdictReasonStaysAnError(t *testing.T) {
 	}
 }
 
+// runsSlowLane applies the repo's test-lane convention (toolbelt/tests/lib/test-lane.sh): RSDD_TEST_LANE is
+// fast (default, also when empty), slow or all, and any other value fails closed. The slow path spawns the
+// real shell instruments.
+func runsSlowLane(lane string) (bool, error) {
+	switch lane {
+	case "", "fast":
+		return false, nil
+	case "slow", "all":
+		return true, nil
+	}
+	return false, fmt.Errorf("invalid RSDD_TEST_LANE=%q (allowed: fast slow all)", lane)
+}
+
+func TestRunsSlowLane(t *testing.T) {
+	for lane, want := range map[string]bool{"": false, "fast": false, "slow": true, "all": true} {
+		if got, err := runsSlowLane(lane); err != nil || got != want {
+			t.Errorf("lane %q = %v, %v; want %v, nil", lane, got, err, want)
+		}
+	}
+	for _, lane := range []string{"SLOW", "garbage", " slow"} {
+		if _, err := runsSlowLane(lane); err == nil {
+			t.Errorf("lane %q must fail closed", lane)
+		}
+	}
+}
+
+// regenTimeout bounds one regen.sh --verify run (two full hermetic generations).
+const regenTimeout = 5 * time.Minute
+
 // TestRegenIsReproducible runs the golden generator in --verify mode: two hermetic runs of the real
-// instruments must be byte-identical to each other and to the committed goldens. A missing tool is a
-// failure with a clear message, never a skip; only -short skips (the run builds repositories and corpora).
+// instruments must be byte-identical to each other and to the committed goldens. It belongs to the slow
+// lane (RSDD_TEST_LANE=slow|all) because it spawns the shell instruments twice. In that lane a missing tool
+// is a failure with a clear message, never a skip.
 func TestRegenIsReproducible(t *testing.T) {
-	if testing.Short() {
-		t.Skip("regen.sh --verify runs the shell instruments twice; skipped under -short")
+	slow, err := runsSlowLane(os.Getenv("RSDD_TEST_LANE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slow {
+		t.Skip("regen.sh --verify runs the shell instruments twice; set RSDD_TEST_LANE=slow (or all) to run it")
 	}
 	for _, tool := range []string{"bash", "jq", "git"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Fatalf("regen.sh --verify needs %q on PATH and it is missing (%v); install it, the golden drift check cannot run without it", tool, err)
 		}
 	}
-	cmd := exec.Command("bash", filepath.Join("testdata", "regen.sh"), "--verify")
+	ctx, cancel := context.WithTimeout(context.Background(), regenTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", filepath.Join("testdata", "regen.sh"), "--verify")
 	cmd.Dir = here(t)
+	cmd.WaitDelay = 10 * time.Second
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("golden drift: regen.sh --verify failed: %v\n%s\nfix: bash testdata/regen.sh (in %s) and review the diff", err, out, cmd.Dir)
 	}
