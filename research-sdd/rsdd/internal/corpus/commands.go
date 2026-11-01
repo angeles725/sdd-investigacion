@@ -6,4 +6,6 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
-var Commands []cli.Command
+var Commands = []cli.Command{
+	{Name: "archive", Group: "corpus", Summary: archiveSummary, Run: archiveRun, Exit3IsRefusal: true}, // exit 3 = REFUSED
+}
