@@ -7,6 +7,7 @@
 #   abs    <path>... _hw_abspath                      -> HW_ABS_PATH
 #   launch <dir>...  hook_stop_launch_state_var       -> state (kit issue #2357; needs hook-wiring-half2.sh)
 #   exec   <dir>...  hook_wired_exec_report           -> its stdout, one NUL after each target's report
+#   cli-launch-state <dir> / cli-wired-exec <dir>     hook_stop_launch_state_var / hook_wired_exec_report as `rsdd hook launch-state|wired-exec`
 #   cli-wiring-state <dir> / cli-script-state <dir>   the same predicates, newline-terminated and single-target:
 #                    the exact shape of `rsdd hook wiring-state` / `rsdd hook script-state` (testkit/parity cases).
 set -u
@@ -24,6 +25,8 @@ for a in "$@"; do
     abs) _hw_abspath "$a"; printf '%s\0' "$HW_ABS_PATH" ;;
     launch) hook_stop_launch_state_var "$a"; printf '%s\0' "$HOOK_LAUNCH_STATE" ;;
     exec) hook_wired_exec_report "$a"; printf '\0' ;;
+    cli-launch-state) hook_stop_launch_state_var "$a"; printf '%s\n' "$HOOK_LAUNCH_STATE" ;;
+    cli-wired-exec) hook_wired_exec_report "$a" ;;
     cli-wiring-state) hook_stop_wiring_state_var "$a"; printf '%s\n' "$HOOK_WIRING_STATE" ;;
     cli-script-state) hook_stop_script_state_var "$a"; printf '%s\n' "$HOOK_SCRIPT_STATE" ;;
     *) echo "driver: unknown mode $mode" >&2; exit 2 ;;

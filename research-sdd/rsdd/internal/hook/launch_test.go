@@ -48,6 +48,8 @@ func launchCases() []launchCase {
 		{name: "27b no history dir for the target -> no-sessions", want: LaunchNoSessions, setup: withHist("t27b", nil)},
 		{name: "27c history dir without a transcript -> no-sessions", want: LaunchNoSessions,
 			setup: withHist("t27c", func(t *testing.T, _, tg, h string) { mkdirs(t, filepath.Join(h, encodeDir(tg), "memory")) })},
+		{name: "27c2 empty history dir -> no-sessions", want: LaunchNoSessions,
+			setup: withHist("t27c2", func(t *testing.T, _, tg, h string) { mkdirs(t, filepath.Join(h, encodeDir(tg))) })},
 		{name: "27d history root absent -> unknown", want: LaunchUnknown,
 			setup: func(t *testing.T, r string) (string, map[string]string) {
 				return filepath.Join(r, "t27d"), map[string]string{"RSDD_CLAUDE_PROJECTS_DIR": filepath.Join(r, "no-such-root")}
@@ -64,6 +66,8 @@ func launchCases() []launchCase {
 			}},
 		{name: "27g dot, underscore and space encode to '-' -> launched", want: LaunchLaunched,
 			setup: withHist("t27g.x_y z", func(t *testing.T, _, tg, h string) { transcript(t, h, tg, "a.jsonl") })},
+		{name: "27g2 upper-case letters and the digits 0 and 9 encode as themselves -> launched", want: LaunchLaunched,
+			setup: withHist("Az09AZ-Zz90", func(t *testing.T, _, tg, h string) { transcript(t, h, tg, "a.jsonl") })},
 		{name: "27h sessions only in a sub or parent directory -> no-sessions", want: LaunchNoSessions,
 			setup: withHist("t27h", func(t *testing.T, r, tg, h string) {
 				transcript(t, h, tg+"-sub", "s.jsonl")
