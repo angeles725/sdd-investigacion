@@ -127,11 +127,11 @@ func needDir(what, p string) (string, error) {
 
 // BuildBinary builds ./cmd/rsdd of the module at moduleRoot into dstDir.
 //
-// It inherits the caller's environment via os.Environ on purpose: go build
+// It inherits the caller's environment via cmd.Environ on purpose: go build
 // legitimately needs the caller's GOCACHE, GOMODCACHE, HOME, GOFLAGS and PATH.
 // That is the build step, not a side under test; the sides never see it (they
-// get the explicit env built in runSide). archtest forbids os.Getenv, not
-// os.Environ, and this is the only place the package reads the whole environment.
+// get the explicit env built in runSide). archtest forbids os.Environ outside
+// cli/stdio.go, and this is the only place the package passes the whole environment on.
 func BuildBinary(moduleRoot, dstDir string) (string, error) {
 	name := "rsdd"
 	if runtime.GOOS == "windows" {
@@ -140,7 +140,7 @@ func BuildBinary(moduleRoot, dstDir string) (string, error) {
 	out := filepath.Join(dstDir, name)
 	cmd := exec.Command("go", "build", "-o", out, "./cmd/rsdd")
 	cmd.Dir = moduleRoot
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Env = append(cmd.Environ(), "CGO_ENABLED=0")
 	b, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := clip(strings.TrimSpace(string(b)), maxBuildOutput)
