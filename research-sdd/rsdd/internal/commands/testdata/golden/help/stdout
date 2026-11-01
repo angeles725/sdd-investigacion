@@ -3,4 +3,5 @@ Usage:
   rsdd <group> <command> [args]
 
 Commands:
+  gate return-token        Stop hook: block once when the final report's continuation token is missing or wrong
   version                  print the module version and VCS revision
