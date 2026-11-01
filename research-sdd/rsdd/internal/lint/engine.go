@@ -14,7 +14,6 @@ package lint
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,7 +27,7 @@ type unit struct {
 	quoted bool
 }
 
-func re(p string) *regexp.Regexp { return regexp.MustCompile(p) }
+func re(p string) *lazyRE { return newLazyRE(p) }
 
 var (
 	ws = "[" + wsClass + "]"
@@ -184,7 +183,7 @@ func headingSections(lines []string, fenced map[int]bool) []section {
 	return out
 }
 
-func linesInSections(secs []section, pat *regexp.Regexp) (map[int]bool, int) {
+func linesInSections(secs []section, pat *lazyRE) (map[int]bool, int) {
 	out := map[int]bool{}
 	n := 0
 	for _, s := range secs {
