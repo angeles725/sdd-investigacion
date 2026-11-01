@@ -59,7 +59,7 @@ func TestDifferentialWiringFixtures(t *testing.T) {
 			target := tt.setup(t, r)
 			e := envOf(r, legacyEnv(r, ""))
 			want := legacyAsk(t, r, legacyEnv(r, ""), "wiring", target)
-			if got := WiringState(e, target); len(want) != 1 || got != want[0] {
+			if got := within(t, func() string { return WiringState(e, target) }); len(want) != 1 || got != want[0] {
 				t.Errorf("WiringState(%q) = %q, bash says %q", target, got, want)
 			}
 			root := legacyAsk(t, r, legacyEnv(r, ""), "root", target)
@@ -90,7 +90,7 @@ func TestDifferentialScriptFixtures(t *testing.T) {
 			home := homeOf(r, tt.home)
 			e := envOf(r, legacyEnv(r, home))
 			want := legacyAsk(t, r, legacyEnv(r, home), "script", target)
-			if got := ScriptState(e, target); len(want) != 1 || got != want[0] {
+			if got := within(t, func() string { return ScriptState(e, target) }); len(want) != 1 || got != want[0] {
 				t.Errorf("ScriptState(%q) = %q, bash says %q", target, got, want)
 			}
 		})

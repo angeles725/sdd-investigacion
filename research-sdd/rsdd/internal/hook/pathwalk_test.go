@@ -27,7 +27,7 @@ func TestAbsPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AbsPath(tt.cwd, tt.in); got != tt.want {
+			if got := within(t, func() string { return AbsPath(tt.cwd, tt.in) }); got != tt.want {
 				t.Errorf("AbsPath(%q, %q) = %q, want %q", tt.cwd, tt.in, got, tt.want)
 			}
 		})
@@ -134,6 +134,13 @@ func TestFindGitRoot(t *testing.T) {
 			want:   want{root: at("p")},
 		},
 		{
+			name:   "no repository above a target directly under the filesystem root terminates",
+			setup:  func(t *testing.T, r string) {},
+			target: "/rsdd-hook-teeth-no-such-dir",
+			noCeil: true,
+			want:   want{root: at("")},
+		},
+		{
 			name:   "15b: relative target, no repo, terminates",
 			setup:  func(t *testing.T, r string) { mkdirs(t, filepath.Join(r, "bare")) },
 			target: "bare",
@@ -212,7 +219,12 @@ func TestFindGitRoot(t *testing.T) {
 				kv[k] = sub(v)
 			}
 			e = envOf(cwd, kv)
-			gotRoot, gotIs := FindGitRoot(e, sub(tt.target))
+			type rootIs struct {
+				root string
+				is   bool
+			}
+			got := within(t, func() rootIs { r, is := FindGitRoot(e, sub(tt.target)); return rootIs{r, is} })
+			gotRoot, gotIs := got.root, got.is
 			if wr := tt.want.root(r); gotRoot != wr || gotIs != tt.want.isRoot {
 				t.Errorf("FindGitRoot(%q) = (%q, %v), want (%q, %v)", tt.target, gotRoot, gotIs, wr, tt.want.isRoot)
 			}

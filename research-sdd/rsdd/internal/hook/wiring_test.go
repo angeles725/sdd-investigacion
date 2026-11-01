@@ -164,7 +164,7 @@ func TestWiringState(t *testing.T) {
 			}
 			r, e := sandbox(t)
 			target := tt.setup(t, r)
-			if got := WiringState(e, target); got != tt.want {
+			if got := within(t, func() string { return WiringState(e, target) }); got != tt.want {
 				t.Errorf("WiringState(%q) = %q, want %q", target, got, tt.want)
 			}
 		})

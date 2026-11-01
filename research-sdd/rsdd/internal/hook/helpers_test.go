@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // envOf builds a hermetic Env: only the listed variables exist.
@@ -63,5 +64,20 @@ func symlink(t *testing.T, oldname, newname string) {
 	mkdirs(t, filepath.Dir(newname))
 	if err := os.Symlink(oldname, newname); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// within runs f and fails the test when it does not return in time. A scanner mutant that
+// stops making progress then fails fast instead of hanging until the package timeout.
+func within[T any](t *testing.T, f func() T) T {
+	t.Helper()
+	ch := make(chan T, 1)
+	go func() { ch <- f() }()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatal("call did not return within 10s (runaway loop)")
+		panic("unreachable")
 	}
 }
