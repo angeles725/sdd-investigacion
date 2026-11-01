@@ -73,6 +73,26 @@ touch "$FAKE_CLASS" "$FAKE_JAR"
 
 FAKE_OUT="$ROOT/out"
 
+# The class-file facts step runs `rsdd corroborate classfile-facts` (Go; parsing is pinned by the Go tests in
+# rsdd/internal/corroborate/classfile). Every case here runs it against a STUB binary through RSDD_BIN, so no case builds
+# rsdd (an unset RSDD_BIN would rebuild it into research-sdd/bin, a kit-tree leak) and the step costs one tiny script,
+# not a Python start. The stub logs its argv to RSDD_STUB_LOG and behaves per RSDD_STUB_MODE. Cases that mean the
+# Python fallback pass NO_RSDD (an unusable RSDD_BIN); the one end-to-end case with the real binary builds it once.
+STUB_RSDD="$ROOT/rsdd-stub"
+cat > "$STUB_RSDD" <<'STUB'
+#!/usr/bin/env bash
+[ -z "${RSDD_STUB_LOG:-}" ] || printf '%s\n' "$*" >> "$RSDD_STUB_LOG"
+case "${RSDD_STUB_MODE:-ok}" in
+  ok) echo "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 partial=0 truncated=none" ;;
+  crash) printf 'rsdd exploded\nsecond line\n' >&2; exit 3 ;;
+  fail1) echo "failed" >&2; exit 1 ;;
+  hang) sleep "${RSDD_STUB_HANG_SECS:-30}" ;;
+esac
+STUB
+chmod +x "$STUB_RSDD"
+export RSDD_BIN="$STUB_RSDD"
+NO_RSDD="RSDD_BIN=$ROOT/no-such-rsdd"
+
 # Helper: run a SUT (or mutant) and return the last ARGV line logged by the java stub.
 # The -version probe inside rsdd_java_21_usable exits before the logging path,
 # so the last ARGV line is always the actual decompile invocation.
@@ -871,21 +891,70 @@ if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_ris
 else no "H1 CLASSFILE header for a .class input" "rc=$RC so=[$SO] se=[$SE]"; fi
 if grep -q '^WARN: .*syntax-level.*javap -c -p' <<<"$SE"; then ok "H2 stderr warns that syntax-level claims need bytecode (javap -c -p) evidence"
 else no "H2 bytecode-evidence warning" "se=[$SE]"; fi
-rt H3 "$ROOT/hdr.jar" -- --engine vineflower
-if grep -qx "CLASSFILE major=52-65 lvt=mixed classes=2 resugar_risk=yes unreadable=0 partial=0 truncated=none" <<<"$SE"; then ok "H3 jar input: major range, lvt=mixed and resugar_risk=yes aggregated over the jar"
-else no "H3 aggregated CLASSFILE header for a jar" "rc=$RC se=[$SE]"; fi
-rt H4 "$FAKE_CLASS" -- --engine vineflower
-if grep -qx "CLASSFILE major=unknown lvt=unknown classes=1 resugar_risk=unknown unreadable=1 partial=0 truncated=none" <<<"$SE"; then ok "H4 unreadable class: typed unknown header, never a fake major 0"
-else no "H4 unreadable class header" "se=[$SE]"; fi
-# H5: helper missing (a copy of the SUT with no corroborate_java.py beside it) → typed unavailable, same field set, run continues.
+# H3/H4 (the aggregated jar line, the unreadable-class line) only pinned the parser's output: they are the Go tests
+# TestRunClassfileFactsLines/"jar: stored and deflated entries, mixed versions" and
+# TestRunClassfileFactsLines/"bad magic is unreadable, never a fake major" (rsdd/internal/corroborate/classfile).
+# H3r/H1r below keep one end-to-end check of the real binary behind the shell.
+# H13: the binary is invoked as `<rsdd> corroborate classfile-facts <input>`, exactly one argument.
+rm -f "$ROOT/stub-H13.log"
+rt H13 "$ROOT/Hdr.class" RSDD_STUB_LOG="$ROOT/stub-H13.log" -- --engine vineflower
+if [ "$(cat "$ROOT/stub-H13.log" 2>/dev/null)" = "corroborate classfile-facts $ROOT/Hdr.class" ]; then ok "H13 the binary is called as: corroborate classfile-facts <input>"
+else no "H13 binary argv" "log=[$(cat "$ROOT/stub-H13.log" 2>/dev/null)]"; fi
+# H14: the binary FAILS (rc 1): that is a typed facts-error, NOT a silent switch to the Python helper (which would print a line).
+rt H14 "$ROOT/Hdr.class" RSDD_STUB_MODE=fail1 -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-error rc=1" <<<"$SE" \
+   && grep -qx 'WARN: classfile-facts helper: failed' <<<"$SE" && ! grep -q 'major=52' <<<"$SE"; then
+  ok "H14 binary failure: reason=facts-error rc=1 plus its first stderr line, no fallback to Python"
+else no "H14 binary failure is not a fallback" "rc=$RC se=[$SE]"; fi
+# H6b: the binary crashes (rc 3, two stderr lines) → facts-error rc=3 with only the first line surfaced.
+rt H6b "$ROOT/Hdr.class" RSDD_STUB_MODE=crash -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-error rc=3" <<<"$SE" \
+   && grep -qx 'WARN: classfile-facts helper: rsdd exploded' <<<"$SE" && ! grep -q 'second line' <<<"$SE"; then
+  ok "H6b binary crash: reason=facts-error rc=3 plus its first stderr line"
+else no "H6b binary crash header" "rc=$RC se=[$SE]"; fi
+# H7b: the binary hangs → cut by the helper's own budget (RSDD_DECOMPILE_TIMEOUT=1 in rt floors it at 1 s).
+_t0=$SECONDS
+rt H7b "$ROOT/Hdr.class" RSDD_STUB_MODE=hang -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
+  ok "H7b hung binary: cut by the helper's budget, typed reason=facts-timeout, run continues"
+else no "H7b hung binary" "rc=$RC secs=$((SECONDS - _t0)) se=[$SE]"; fi
+# H15: with RSDD_BIN unset the binary is resolved from the kit root (<kit>/bin/rsdd beside a kit-shaped toolbelt).
+rsdd_stage_libs "$ROOT/kit15/toolbelt"; cp "$SUT" "$ROOT/kit15/toolbelt/decompile-java.sh"; mkdir -p "$ROOT/kit15/bin"; cp "$STUB_RSDD" "$ROOT/kit15/bin/rsdd"
+rm -f "$ROOT/stub-H15.log"
+RT_SUT="$ROOT/kit15/toolbelt/decompile-java.sh" rt H15 "$ROOT/Hdr.class" RSDD_BIN= RSDD_STUB_LOG="$ROOT/stub-H15.log" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 partial=0 truncated=none" <<<"$SE" && [ -s "$ROOT/stub-H15.log" ]; then
+  ok "H15 RSDD_BIN unset: the binary is resolved from <kit>/bin/rsdd (lib/rsdd-exec.sh)"
+else no "H15 kit-root resolution" "rc=$RC se=[$SE]"; fi
+# H1p: no usable binary → the Python helper answers with the same line (a host without Go keeps working).
+rt H1p "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 partial=0 truncated=none" <<<"$SE"; then
+  ok "H1p unusable RSDD_BIN: the Python helper takes over with the same CLASSFILE line"
+else no "H1p python fallback" "rc=$RC se=[$SE]"; fi
+# H1r/H3r: the REAL binary end to end (built once into the suite's temp dir; never into research-sdd/bin).
+REAL_RSDD="$ROOT/rsdd-real"
+if ! command -v go >/dev/null 2>&1; then
+  printf '  SKIP  %-60s %s\n' "H1r/H3r real rsdd binary" "go is not on PATH: only the stub and the Python fallback are exercised here"
+elif (cd "$HERE/../../rsdd" && go build -o "$REAL_RSDD" ./cmd/rsdd) 2>"$ROOT/go-build.err"; then
+  rt H1r "$ROOT/Hdr.class" RSDD_BIN="$REAL_RSDD" -- --engine vineflower
+  if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=52 lvt=yes classes=1 resugar_risk=no unreadable=0 partial=0 truncated=none" <<<"$SE" && ! grep -q '^CLASSFILE' <<<"$SO"; then
+    ok "H1r real rsdd binary: the .class line reaches stderr, stdout untouched"
+  else no "H1r real binary, .class input" "rc=$RC se=[$SE]"; fi
+  rt H3r "$ROOT/hdr.jar" RSDD_BIN="$REAL_RSDD" -- --engine vineflower
+  if grep -qx "CLASSFILE major=52-65 lvt=mixed classes=2 resugar_risk=yes unreadable=0 partial=0 truncated=none" <<<"$SE"; then
+    ok "H3r real rsdd binary: the jar line (major range, lvt=mixed, resugar_risk=yes)"
+  else no "H3r real binary, jar input" "rc=$RC se=[$SE]"; fi
+else
+  no "H1r/H3r the real rsdd binary could not be built" "$(head -3 "$ROOT/go-build.err" 2>/dev/null)"
+fi
+# H5: neither the binary nor the helper → typed unavailable, same field set, run continues.
 rsdd_stage_libs "$MUTANT_DIR/nohelper"; cp "$SUT" "$MUTANT_DIR/nohelper/decompile-java.sh"
-RT_SUT="$MUTANT_DIR/nohelper/decompile-java.sh" rt H5 "$ROOT/Hdr.class" -- --engine vineflower
-if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unavailable" <<<"$SE"; then ok "H5 helper missing: typed reason=facts-unavailable (full field set), decompilation still runs"
+RT_SUT="$MUTANT_DIR/nohelper/decompile-java.sh" rt H5 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
+if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unavailable" <<<"$SE"; then ok "H5 no binary and no helper: typed reason=facts-unavailable (full field set), decompilation still runs"
 else no "H5 facts-unavailable header" "rc=$RC se=[$SE]"; fi
 # H6: helper present but CRASHING (rc 3 + a stderr message) → reason=facts-error rc=3, first stderr line surfaced, never "unavailable".
 rsdd_stage_libs "$MUTANT_DIR/crashhelper"; cp "$SUT" "$MUTANT_DIR/crashhelper/decompile-java.sh"
 printf 'import sys\nsys.stderr.write("helper exploded\\nsecond line\\n")\nsys.exit(3)\n' > "$MUTANT_DIR/crashhelper/corroborate_java.py"
-RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.sh" rt H6 "$ROOT/Hdr.class" -- --engine vineflower
+RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.sh" rt H6 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
 if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-error rc=3" <<<"$SE" \
    && grep -qx 'WARN: classfile-facts helper: helper exploded' <<<"$SE" && ! grep -q 'second line' <<<"$SE" && ! grep -q 'facts-unavailable' <<<"$SE"; then
   ok "H6 helper crash: reason=facts-error rc=3 plus its first stderr line, distinct from facts-unavailable"
@@ -894,31 +963,31 @@ else no "H6 facts-error header" "rc=$RC se=[$SE]"; fi
 rsdd_stage_libs "$MUTANT_DIR/slowhelper"; cp "$SUT" "$MUTANT_DIR/slowhelper/decompile-java.sh"
 printf 'import time\ntime.sleep(30)\n' > "$MUTANT_DIR/slowhelper/corroborate_java.py"
 _t0=$SECONDS
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H7 "$ROOT/Hdr.class" -- --engine vineflower
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H7 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
 if [ "$RC" -eq 0 ] && grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
   ok "H7 hung helper: cut by the helper's own CF_TIMEOUT budget, typed reason=facts-timeout, run continues"
 else no "H7 facts-timeout" "rc=$RC secs=$((SECONDS - _t0)) se=[$SE]"; fi
 # H8: the helper has its OWN small budget (default min(30, TIMEOUT/8), min 1), not the engines' full timeout:
 # with --timeout 16 the hung helper is cut after ~2 s. RSDD_CLASSFACTS_TIMEOUT overrides; an invalid value warns and falls back.
 _t0=$SECONDS
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H8 "$ROOT/Hdr.class" -- --engine vineflower --timeout 16
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H8 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower --timeout 16
 if grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 10 ]; then
   ok "H8 helper budget is TIMEOUT/8 (not the full engine timeout): hung helper cut in $((SECONDS - _t0)) s with --timeout 16"
 else no "H8 helper budget derived from --timeout" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
 _t0=$SECONDS
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H9 "$ROOT/Hdr.class" RSDD_DECOMPILE_TIMEOUT=240 RSDD_CLASSFACTS_TIMEOUT=1 -- --engine vineflower
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H9 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_DECOMPILE_TIMEOUT=240 RSDD_CLASSFACTS_TIMEOUT=1 -- --engine vineflower
 if grep -q "reason=facts-timeout" <<<"$SE" && [ $((SECONDS - _t0)) -lt 10 ]; then ok "H9 RSDD_CLASSFACTS_TIMEOUT=1 overrides the budget"
 else no "H9 RSDD_CLASSFACTS_TIMEOUT override" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H11 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=$'\xd9\xa3' -- --engine vineflower
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H11 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_CLASSFACTS_TIMEOUT=$'\xd9\xa3' -- --engine vineflower
 if grep -q $'^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=\xd9\xa3' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H11 Unicode-digit RSDD_CLASSFACTS_TIMEOUT is rejected (ASCII digits only): warning + derived default"
 else no "H11 Unicode digit RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H10 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H10 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
 if grep -q '^WARN: invalid RSDD_CLASSFACTS_TIMEOUT=abc' <<<"$SE" && grep -q "reason=facts-timeout" <<<"$SE"; then ok "H10 invalid RSDD_CLASSFACTS_TIMEOUT: typed warning, derived default used"
 else no "H10 invalid RSDD_CLASSFACTS_TIMEOUT" "se=[$SE]"; fi
 # H12 (kit issue #1663 R3): no usable timeout binary → the helper is NOT run unbounded; it is skipped with a typed
 # reason=facts-unbounded (full unknown field set). The hung helper (sleeps 30 s) must not be waited for.
 _t0=$SECONDS
-RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H12 "$ROOT/Hdr.class" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.sh" rt H12 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
 if grep -qx "CLASSFILE major=unknown lvt=unknown classes=unknown resugar_risk=unknown unreadable=unknown partial=unknown truncated=unknown reason=facts-unbounded" <<<"$SE" \
    && ! grep -q 'facts-timeout\|facts-error' <<<"$SE" && [ $((SECONDS - _t0)) -lt 15 ]; then
   ok "H12 no timeout binary: helper skipped with typed reason=facts-unbounded (never run unbounded), $((SECONDS - _t0)) s"
@@ -1345,44 +1414,44 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
   # mCF3: the facts-unavailable fallback removed. The mutant runs with NO helper beside it, so only the fallback
   # branch decides what the first line is.
-  if build_mut mCF3 's/^  echo "\$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2$/  :/'; then
+  if build_mut mCF3 's/^    echo "\$CLASSFILE_UNKNOWN reason=facts-unavailable" >&2$/    :/'; then
     cp "$MUT" "$MUTANT_DIR/nohelper/decompile-java.mCF3.sh"
-    RT_SUT="$MUTANT_DIR/nohelper/decompile-java.mCF3.sh" rt mCF3 "$ROOT/Hdr.class" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/nohelper/decompile-java.mCF3.sh" rt mCF3 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
     if [ "$RC" -eq 0 ] && ! grep -q '^CLASSFILE' <<<"$SE" && grep -q '^OK' <<<"$SO"; then ok "teeth-mCF3: fallback-less mutant silently drops the header when the helper is missing → H5 bites"
     else no "teeth-mCF3: mutant still printed a typed header (or crashed) — H5 has no teeth" "rc=$RC so=[$SO] se=[$SE]"; fi
   fi
   # mCF4: the facts-error branch collapses to nothing → a crashing helper is silent (H6 bites).
   if build_mut mCF4 's/^    echo "\$CLASSFILE_UNKNOWN reason=facts-error rc=\$cf_rc" >&2$/    :/'; then
     cp "$MUT" "$MUTANT_DIR/crashhelper/decompile-java.mCF4.sh"
-    RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.mCF4.sh" rt mCF4 "$ROOT/Hdr.class" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.mCF4.sh" rt mCF4 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
     if [ "$RC" -eq 0 ] && ! grep -q 'facts-error' <<<"$SE" && grep -q '^OK' <<<"$SO"; then ok "teeth-mCF4: error-less mutant hides a helper crash → H6 bites"
     else no "teeth-mCF4: mutant still reported facts-error (or crashed) — H6 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF5: the first-stderr-line surfacing dropped (H6 bites).
   if build_mut mCF5 's/^    \[ -z "\$CF_FIRST" \] || echo "WARN: classfile-facts helper: \$CF_FIRST" >&2$/    :/'; then
     cp "$MUT" "$MUTANT_DIR/crashhelper/decompile-java.mCF5.sh"
-    RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.mCF5.sh" rt mCF5 "$ROOT/Hdr.class" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/crashhelper/decompile-java.mCF5.sh" rt mCF5 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
     if [ "$RC" -eq 0 ] && grep -q 'reason=facts-error rc=3' <<<"$SE" && ! grep -q 'helper exploded' <<<"$SE"; then ok "teeth-mCF5: stderr-less mutant keeps facts-error but drops the helper message → H6 bites"
     else no "teeth-mCF5: mutant still surfaced the helper message (or crashed) — H6 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF6: timeout-code branch removed → a killed helper is mislabelled facts-error rc=124 (H7 bites).
   if build_mut mCF6 's/^  elif \[ "\$cf_rc" -eq 124 \] || \[ "\$cf_rc" -eq 137 \]; then$/  elif false; then/'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF6.sh"
-    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF6.sh" rt mCF6 "$ROOT/Hdr.class" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF6.sh" rt mCF6 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
     if [ "$RC" -eq 0 ] && grep -q 'reason=facts-error rc=124' <<<"$SE" && ! grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF6: timeout-blind mutant mislabels a killed helper as facts-error → H7 bites"
     else no "teeth-mCF6: mutant still said facts-timeout (or crashed) — H7 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF7: helper not run under the timeout → the hung helper is not killed (bounded here: it sleeps 30 s, then exits 0 with no line).
-  if build_mut mCF7 's/^  CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" python3 /  CLASSFILE_LINE="$(python3 /'; then
+  if build_mut mCF7 's/^    CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" python3 /    CLASSFILE_LINE="$(python3 /'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh"
-    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh" rt mCF7 "$ROOT/Hdr.class" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF7.sh" rt mCF7 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
     if ! grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF7: timeout-less mutant lets the hung helper run to its own end → H7 bites"
     else no "teeth-mCF7: mutant still timed the helper out — H7 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
   # mCF10: the no-timeout-binary skip removed → the helper is attempted with the missing binary: facts-error rc=127 instead of the typed facts-unbounded (H12 bites).
   if build_mut mCF10 's/^elif ! command -v "\$TIMEOUT_BIN" >\/dev\/null 2>&1; then$/elif false; then/'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF10.sh"
-    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF10.sh" rt mCF10 "$ROOT/Hdr.class" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF10.sh" rt mCF10 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_TIMEOUT_BIN="$ROOT/no-such-timeout" -- --engine vineflower
     if ! grep -q 'facts-unbounded' <<<"$SE" && grep -q 'reason=facts-error rc=127' <<<"$SE"; then ok "teeth-mCF10: skip-less mutant loses reason=facts-unbounded (falls to facts-error rc=127) → H12 bites"
     else no "teeth-mCF10: mutant still said facts-unbounded (or crashed) — H12 has no teeth" "rc=$RC se=[$SE]"; fi
   fi
@@ -1390,16 +1459,49 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if build_mut mCF8 's|^      CF_TIMEOUT=\$((TIMEOUT / 8))$|      CF_TIMEOUT=$TIMEOUT|'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF8.sh"
     _t0=$SECONDS
-    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF8.sh" rt mCF8 "$ROOT/Hdr.class" -- --engine vineflower --timeout 16
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF8.sh" rt mCF8 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower --timeout 16
     if [ $((SECONDS - _t0)) -ge 10 ]; then ok "teeth-mCF8: full-timeout mutant keeps the hung helper $((SECONDS - _t0)) s → H8 bites"
     else no "teeth-mCF8: mutant still cut the helper early — H8 has no teeth" "secs=$((SECONDS - _t0))"; fi
   fi
   # mCF9: an invalid RSDD_CLASSFACTS_TIMEOUT is silently accepted-by-ignoring (no warning) → H10 bites.
   if build_mut mCF9 's/^    \[ -z "\$CF_TIMEOUT" \] || echo "WARN: invalid RSDD_CLASSFACTS_TIMEOUT=.*$/  :/'; then
     cp "$MUT" "$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh"
-    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh" rt mCF9 "$ROOT/Hdr.class" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
+    RT_SUT="$MUTANT_DIR/slowhelper/decompile-java.mCF9.sh" rt mCF9 "$ROOT/Hdr.class" "$NO_RSDD" RSDD_CLASSFACTS_TIMEOUT=abc -- --engine vineflower
     if ! grep -q 'invalid RSDD_CLASSFACTS_TIMEOUT' <<<"$SE" && grep -q 'facts-timeout' <<<"$SE"; then ok "teeth-mCF9: warning-less mutant swallows a bad RSDD_CLASSFACTS_TIMEOUT → H10 bites"
     else no "teeth-mCF9: mutant still warned — H10 has no teeth" "se=[$SE]"; fi
+  fi
+
+  # mCF11: the Python helper takes over after ANY binary failure, not only "unavailable" → the failing binary (H14) is masked by a line.
+  if build_mut mCF11 's/^  if \[ "\$cf_rc" -eq "\$CF_RSDD_UNAVAILABLE" \] && \[ -n "\$CF_HAVE_PY" \]; then$/  if [ "$cf_rc" -ne 0 ] \&\& [ -n "$CF_HAVE_PY" ]; then/'; then
+    RT_SUT="$MUT" rt mCF11 "$ROOT/Hdr.class" RSDD_STUB_MODE=fail1 -- --engine vineflower
+    if [ "$RC" -eq 0 ] && grep -q 'major=52' <<<"$SE" && ! grep -q 'facts-error rc=1' <<<"$SE"; then ok "teeth-mCF11: fall-back-on-any-failure mutant hides a failing binary behind the Python line → H14 bites"
+    else no "teeth-mCF11: mutant still reported the binary failure — H14 has no teeth" "rc=$RC se=[$SE]"; fi
+  fi
+  # mCF12: no Python fallback at all → an unusable binary leaves no line (H1p bites).
+  if build_mut mCF12 's/^  if \[ "\$cf_rc" -eq "\$CF_RSDD_UNAVAILABLE" \] && \[ -n "\$CF_HAVE_PY" \]; then$/  if false; then/'; then
+    RT_SUT="$MUT" rt mCF12 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
+    if [ "$RC" -eq 0 ] && ! grep -q 'major=52' <<<"$SE" && grep -q 'facts-unavailable' <<<"$SE"; then ok "teeth-mCF12: fallback-less mutant loses the Python line when the binary is unusable → H1p bites"
+    else no "teeth-mCF12: mutant still produced the Python line — H1p has no teeth" "rc=$RC se=[$SE]"; fi
+  fi
+  # mCF13: the binary is not run under the timeout → the hung binary (stub sleeps 4 s here) is waited for (H7b bites).
+  if build_mut mCF13 's/CLASSFILE_LINE="\$("\$TIMEOUT_BIN" --kill-after="\$KILL_AFTER" "\$CF_TIMEOUT" bash -c/CLASSFILE_LINE="$(bash -c/'; then
+    _t0=$SECONDS
+    RT_SUT="$MUT" rt mCF13 "$ROOT/Hdr.class" RSDD_STUB_MODE=hang RSDD_STUB_HANG_SECS=4 -- --engine vineflower
+    if ! grep -q 'facts-timeout' <<<"$SE" && [ $((SECONDS - _t0)) -ge 4 ]; then ok "teeth-mCF13: timeout-less mutant waits for the hung binary → H7b bites"
+    else no "teeth-mCF13: mutant still timed the binary out — H7b has no teeth" "secs=$((SECONDS - _t0)) se=[$SE]"; fi
+  fi
+  # mCF14: the subcommand name is wrong → the stub's argv log differs (H13 bites).
+  if build_mut mCF14 's/corroborate classfile-facts "\$2"/corroborate classfile-fact "$2"/'; then
+    rm -f "$ROOT/stub-mCF14.log"
+    RT_SUT="$MUT" rt mCF14 "$ROOT/Hdr.class" RSDD_STUB_LOG="$ROOT/stub-mCF14.log" -- --engine vineflower
+    if [ "$(cat "$ROOT/stub-mCF14.log" 2>/dev/null)" != "corroborate classfile-facts $ROOT/Hdr.class" ]; then ok "teeth-mCF14: wrong-subcommand mutant changes the binary's argv → H13 bites"
+    else no "teeth-mCF14: mutant still called the right subcommand — H13 has no teeth" "log=[$(cat "$ROOT/stub-mCF14.log" 2>/dev/null)]"; fi
+  fi
+  # mCF15: a failed binary resolution is ignored (exec of an empty path) instead of the typed "unavailable" exit → no Python line (H1p bites).
+  if build_mut mCF15 's#_rsdd_exec_resolve 2>/dev/null || exit 97;#_rsdd_exec_resolve 2>/dev/null || true;#'; then
+    RT_SUT="$MUT" rt mCF15 "$ROOT/Hdr.class" "$NO_RSDD" -- --engine vineflower
+    if [ "$RC" -eq 0 ] && ! grep -q 'major=52' <<<"$SE"; then ok "teeth-mCF15: resolve-failure-blind mutant loses the Python fallback → H1p bites"
+    else no "teeth-mCF15: mutant still fell back to Python — H1p has no teeth" "rc=$RC se=[$SE]"; fi
   fi
 
   # teeth-RETRIED: drop the typed RETRIED line from rt(); the A1c scenario must then carry no note (A1c would go RED).
