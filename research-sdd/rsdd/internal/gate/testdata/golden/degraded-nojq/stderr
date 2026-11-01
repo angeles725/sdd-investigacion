@@ -1,0 +1,1 @@
+return-token-gate: state=allow branch=degraded (jq missing — cannot read hook JSON) target=?
