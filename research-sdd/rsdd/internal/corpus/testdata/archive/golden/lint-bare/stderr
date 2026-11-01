@@ -1,0 +1,1 @@
+WARN: malformed review-status in 2026-07-25-bad-format.md — bare text marker in first 10 lines; wrap in '<!-- review-status: ... -->'

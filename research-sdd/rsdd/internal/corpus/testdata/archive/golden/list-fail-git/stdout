@@ -1,0 +1,12 @@
+== research-sdd-archive: c  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : ERROR — the packaging list could not be computed (find failed) — refusing rather than scanning an unknown file set
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c   # working tree (dirty/untracked/ignored — file scope: *.md + config)
+    @ROOT@/tb/scan-secrets.sh --committed @ROOT@/work/case/c   # + committed history
