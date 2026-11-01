@@ -1,0 +1,18 @@
+verify-session-budget: @ROOT@/fix/capped
+source startup:
+hook[1] chars=n/a status=degraded(timeout 1s: this script's cap; the hook allows 600s) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh
+aggregate[startup]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+source resume:
+hook[1] chars=n/a status=degraded(timeout, not re-run: hit the 1s script cap in an earlier source) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh
+aggregate[resume]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+source clear:
+hook[1] chars=n/a status=degraded(timeout, not re-run: hit the 1s script cap in an earlier source) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh
+aggregate[clear]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+source compact:
+hook[1] chars=n/a status=degraded(timeout, not re-run: hit the 1s script cap in an earlier source) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh
+aggregate[compact]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+source fork:
+hook[1] chars=n/a status=degraded(timeout, not re-run: hit the 1s script cap in an earlier source) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/hang.sh
+aggregate[fork]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+aggregate: 0 chars (budget < 8000) OK (partial: 5 degraded in startup,resume,clear,compact,fork) worst-source=startup
+state: degraded (5 of 5 hook runs could not be measured; 0 timed-out)

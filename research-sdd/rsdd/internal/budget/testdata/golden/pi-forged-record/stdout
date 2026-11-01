@@ -1,0 +1,7 @@
+verify-session-budget: @ROOT@/fix/pi-none
+harness: pi (kit extension research-sdd-hooks.ts + <target>/.pi/extensions/*; sections added on before_agent_start after a startup session_start)
+limits: fake pi (no-op API, no ctx.mode/model/tools); session_start handlers run in parallel, before_agent_start one after another; counted: sections, returned message content; unmeasured (typed): returned systemPrompt, event.systemPrompt edits
+kit: @ROOT@/stubkit
+harness: degraded(1 unauthenticated or malformed record line(s) ignored: an extension wrote to the helper's stdout)
+aggregate[pi]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+state: degraded (1 of 2 pi records could not be fully measured)

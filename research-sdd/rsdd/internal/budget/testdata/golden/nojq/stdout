@@ -1,0 +1,2 @@
+verify-session-budget: @ROOT@/fix/mixed
+state: degraded (jq unavailable; no hook was run)

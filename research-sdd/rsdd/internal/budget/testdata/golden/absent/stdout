@@ -1,0 +1,2 @@
+verify-session-budget: @ROOT@/fix/absent
+state: absent-input (no @ROOT@/fix/absent/.claude/settings.json)
