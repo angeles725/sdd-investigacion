@@ -307,3 +307,34 @@ func TestKitCleanHookEnvelope(t *testing.T) {
 		t.Errorf("not a repo: rc=%d stdout=%s", rc, stdout)
 	}
 }
+
+// git's environment-borne configuration reaches every git run as the script's whole environment did:
+// GIT_CONFIG_COUNT with its GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> pairs, and GIT_CONFIG_PARAMETERS (what
+// `git -c` hands its children). A count without its pairs makes git die, which read as "not a git repo".
+func TestKitCleanHonoursGitConfigEnvironment(t *testing.T) {
+	sb := newSandbox(t)
+	clean := sb.repo("clean", true, nil)
+	hidden := sb.repo("hidden", true, nil)
+	sb.write(filepath.Join(hidden, "untracked.txt"), "u\n")
+
+	sb.env["GIT_CONFIG_COUNT"] = "2"
+	sb.env["GIT_CONFIG_KEY_0"] = "core.quotePath"
+	sb.env["GIT_CONFIG_VALUE_0"] = "false"
+	sb.env["GIT_CONFIG_KEY_1"] = "status.showUntrackedFiles"
+	sb.env["GIT_CONFIG_VALUE_1"] = "no"
+	out, errOut, rc := sb.run("verify", "kit-clean", clean)
+	if rc != 0 || !strings.Contains(out, "working tree : CLEAN") {
+		t.Fatalf("GIT_CONFIG_COUNT pairs: rc=%d stdout=%q stderr=%q, want rc 0 and a CLEAN tree", rc, out, errOut)
+	}
+	if out, errOut, rc = sb.run("verify", "kit-clean", hidden); rc != 0 || !strings.Contains(out, "working tree : CLEAN") {
+		t.Fatalf("GIT_CONFIG_VALUE_1 not applied: rc=%d stdout=%q stderr=%q, want the untracked file hidden", rc, out, errOut)
+	}
+
+	for _, k := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1"} {
+		delete(sb.env, k)
+	}
+	sb.env["GIT_CONFIG_PARAMETERS"] = "'status.showUntrackedFiles'='no'"
+	if out, errOut, rc = sb.run("verify", "kit-clean", hidden); rc != 0 || !strings.Contains(out, "working tree : CLEAN") {
+		t.Fatalf("GIT_CONFIG_PARAMETERS not applied: rc=%d stdout=%q stderr=%q, want the untracked file hidden", rc, out, errOut)
+	}
+}

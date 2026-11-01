@@ -41,7 +41,7 @@ import (
 var gitEnvKeys = []string{
 	"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR",
 	"XDG_CONFIG_HOME", "GIT_EXEC_PATH", "GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES",
-	"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_COUNT",
+	"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_PARAMETERS",
 	"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
 }
 
@@ -55,7 +55,36 @@ func gitRunner(s cli.Stdio) git.Runner {
 			env = append(env, k+"="+v)
 		}
 	}
-	return git.Runner{Env: env, Timeout: gitTimeout, Now: s.Clock}
+	return git.Runner{Env: append(env, gitConfigCountEnv(s)...), Timeout: gitTimeout, Now: s.Clock}
+}
+
+// maxGitConfigCount bounds how many GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> pairs are read.
+const maxGitConfigCount = 1000
+
+// gitConfigCountEnv hands git GIT_CONFIG_COUNT together with every pair it counts: a count without its pairs
+// makes git die ("missing config key"), which would read as "not a git repo". A count that is not a
+// non-negative integer within the bound is passed alone, so git reports it exactly as it did for the script.
+// Limit: cli.Stdio.Env cannot tell an empty value from an unset one (TODO(#2387)), so an empty
+// GIT_CONFIG_VALUE_<n> is not passed and git reports that pair as missing.
+func gitConfigCountEnv(s cli.Stdio) []string {
+	raw := s.Env("GIT_CONFIG_COUNT")
+	if raw == "" {
+		return nil
+	}
+	env := []string{"GIT_CONFIG_COUNT=" + raw}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 || n > maxGitConfigCount {
+		return env
+	}
+	for i := 0; i < n; i++ {
+		for _, k := range []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"} {
+			k += strconv.Itoa(i)
+			if v := s.Env(k); v != "" {
+				env = append(env, k+"="+v)
+			}
+		}
+	}
+	return env
 }
 
 // RunKitClean is the `verify kit-clean` command.
