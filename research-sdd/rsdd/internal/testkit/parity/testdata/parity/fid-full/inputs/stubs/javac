@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stub javac for the java-fidelity parity cases: a "class file" is the source text plus the -g marker.
+if [ "$1" = -version ]; then echo "javac 21.0.1"; exit 0; fi
+lvt=no; while [ "$1" != -d ]; do [ "$1" = -g ] && lvt=yes; shift; done
+out="$2"; src="$3"; base="$(basename "$src" .java)"; body="$(cat "$src")"
+case "$body" in *SYNTAX*) echo "error: illegal start of expression" >&2; exit 1 ;; esac
+printf 'src:%s\nlvt:%s\n' "$body" "$lvt" > "$out/$base.class"
+case "$body" in *INNER*) printf 'src:%s\nlvt:%s\n' "$body" "$lvt" > "$out/$base\$In.class" ;; esac

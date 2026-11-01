@@ -1,0 +1,16 @@
+{
+ "legacy": [
+  "toolbelt/java-fidelity-experiment.sh",
+  "--bogus"
+ ],
+ "rsdd": [
+  "corroborate",
+  "java-fidelity",
+  "--bogus"
+ ],
+ "env": {
+  "RSDD_FIDELITY_JAVAC": "{{input}}/stubs/javac",
+  "RSDD_FIDELITY_JAVAP": "{{input}}/stubs/javap",
+  "RSDD_FIDELITY_DECOMPILER": "{{input}}/stubs/decompiler.sh"
+ }
+}
