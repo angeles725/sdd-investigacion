@@ -177,7 +177,7 @@ else
 fi
 
 # stage_shim DEST_TOOLBELT [SHIM] — a sandbox toolbelt holding the shim (the real one, or a mutant) and lib/rsdd-exec.sh.
-stage_shim() { mkdir -p "$1"; cp "${2:-$SUT}" "$1/verify-kit-clean.sh"; chmod +x "$1/verify-kit-clean.sh"; mkdir -p "$1/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$1/lib/" || exit 2; }
+stage_shim() { mkdir -p "$1"; cp "${2:-$SUT}" "$1/verify-kit-clean.sh"; chmod +x "$1/verify-kit-clean.sh"; mkdir -p "$1/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$1/lib/" || exit 2; }   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 16
 
 # 14 — the default repository is the script's OWN directory (never the caller's cwd). The shim sits in a repo,
 #      committed; run from a non-repo cwd it reports that repo, and turns DIRTY when the repo does.
