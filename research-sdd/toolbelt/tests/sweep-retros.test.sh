@@ -4528,73 +4528,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     unset _mutant_ws _mutation_ws _outm_ws _anchor_ws _content_ws
   fi
 
-  # Tooth WG: remove the Stop-block scoping from the awk — change
-  #   'if (in_stop && $0 ~ /retro-gate/) { found=1 }  # RSDD_WS_STOP_SCOPE'
-  # to a whole-file match (no 'in_stop' guard). The wrong-event fixture (case 78: retro-gate
-  # under SessionStart, not Stop) must now report WIRED (no WARN), proving the Stop-scoping
-  # awk is the deciding factor, not mere file membership.
-  # kit issue #1108/#1109: this check now lives in lib/hook-wiring.sh (single source of truth
-  # shared with verify-registry.sh and research-sdd-status.sh) — the mutation targets the
-  # sandboxed KIT's copy of the LIB, not the SUT, since the SUT now only dispatches on the
-  # lib's printed token.
-  echo "-- teeth WG: remove Stop-scoping from awk; wrong-event fixture must false-wire (case 78 has teeth) --"
-  _anchor_wg='          } else if (in_stop && substr($0,i,10)=="retro-gate") {'
-  _content_wg="$(cat "$HERE/../lib/hook-wiring.sh")"
-  if [[ "$_content_wg" != *"$_anchor_wg"* ]]; then
-    no "teeth WG: locate Stop-scope anchor in lib/hook-wiring.sh" "anchor not found — lib drifted?"
-  else
-    kit="$(mkkit teeth-wg)"; tgt="$kit/targetA"
-    mkdir -p "$tgt/.claude"
-    # wrong-event fixture: retro-gate under SessionStart only
-    printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}],"Stop":[]}}\n' \
-      > "$tgt/.claude/settings.json"
-    write_targets "$kit" "$tgt"
-    _mutant_wg="$kit/toolbelt/lib/hook-wiring.sh"
-    # Mutant: drop the in_stop guard — whole-file match, no Stop scoping
-    _mutation_wg='          } else if (substr($0,i,10)=="retro-gate") {   # (mutated: no Stop scope)'
-    printf '%s\n' "${_content_wg/"$_anchor_wg"/"$_mutation_wg"}" > "$_mutant_wg"
-    _outm_wg="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
-    # Without Stop-scoping: retro-gate found in SessionStart → false-wired (no WARN, 1 wired)
-    if ! grep -q 'WARN.*retro-gate not wired' <<<"$_outm_wg" && grep -q 'Wiring:.*1 wired' <<<"$_outm_wg"; then
-      ok "teeth WG: stop-scope-removed mutant false-wires wrong-event fixture — case 78 has teeth" "()"
-    else
-      no "teeth WG: stop-scope-removed mutant must false-wire wrong-event fixture — case 78 is THEATER" "out=[$_outm_wg]"
-    fi
-    unset _anchor_wg _content_wg _mutant_wg _mutation_wg _outm_wg
-  fi
-
-  # Tooth WU: remove the unreadable branch (the '[ ! -r "$settings" ]' guard + its echo) inside
-  # lib/hook-wiring.sh → a chmod-000 settings.json falls through to the awk check. awk cannot
-  # read it → exit 1 (not found) → the caller's default case fires: UNWIRED WARN instead of
-  # UNREADABLE WARN. Case 80 expects WARN.*retro-gate wiring unknown; without the branch it gets
-  # WARN.*retro-gate not wired → RED. Skipped when EUID=0: root reads any file, so the
-  # unreadable branch is never reachable there.
-  echo "-- teeth WU: remove unreadable branch; chmod-000 file must get unwired WARN instead (case 80 has teeth) --"
-  _anchor_wu='if \[ ! -r "\$settings" \]; then'
-  if ! grep -qE "$_anchor_wu" "$HERE/../lib/hook-wiring.sh"; then
-    no "teeth WU: locate unreadable branch in lib/hook-wiring.sh" "anchor not found — lib drifted?"
-  elif [ "$EUID" -eq 0 ]; then
-    ok "teeth WU → SKIPPED (running as root; root reads any file — unreadable branch unreachable)" "EUID=0"
-  else
-    kit="$(mkkit teeth-wu)"; tgt="$kit/targetA"
-    mkdir -p "$tgt/.claude"
-    printf '{"hooks":{"Stop":[]}}\n' > "$tgt/.claude/settings.json"
-    chmod 000 "$tgt/.claude/settings.json"
-    write_targets "$kit" "$tgt"
-    _mutant_wu="$kit/toolbelt/lib/hook-wiring.sh"
-    # Delete the 3-line unreadable branch: if condition + echo + closing brace
-    sed '/if \[ ! -r "\$settings" \]; then/,+2d' "$HERE/../lib/hook-wiring.sh" > "$_mutant_wu"
-    _outm_wu="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
-    chmod 644 "$tgt/.claude/settings.json"  # restore for cleanup
-    # Without the unreadable branch: awk tries to read → fails → else fires → unwired WARN
-    if grep -q 'WARN.*retro-gate not wired in' <<<"$_outm_wu" \
-       && ! grep -q 'WARN.*retro-gate wiring unknown' <<<"$_outm_wu"; then
-      ok "teeth WU: unreadable-branch-removed mutant → unwired WARN, not unreadable — case 80 has teeth" "()"
-    else
-      no "teeth WU: unreadable-branch-removed mutant must give unwired WARN — case 80 is THEATER" "out=[$_outm_wu]"
-    fi
-    unset _mutant_wu _outm_wu _anchor_wu
-  fi
+  # Teeth WG (Stop-scope) and WU (unreadable branch) mutated the awk inside lib/hook-wiring.sh. Since kit issue
+  # #2356 that logic is Go (internal/hook/stopscan.go, wiring.go): its teeth are TestWiringState cases
+  # "4 retro-gate under SessionStart only -> unwired" and "6 unreadable settings.json -> unreadable", under
+  # make teeth. Cases 78 and 80 above still pin the end-to-end WARN lines through the shim.
 
   # Tooth WOR: remove the SUT's 'wired-off-root)' case branch entirely — a wired-off-root target
   # then falls into the default '*)' branch (misclassified as plain unwired: WARN 'not wired in',
