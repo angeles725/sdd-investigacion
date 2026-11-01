@@ -164,7 +164,8 @@ selftest_teeth() {
   if grep -q '^VERDICT: SKIP gremlins did not run (rc=2): cause: --- FAIL: TestX' <<<"$g"; then
     ok "gremlins: the cause also leads the typed SKIP"; else no "gremlins: SKIP lacks the cause: $g"; fi
   # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
-  c="$(make -n -C "$MOD" teeth 2>&1)"
+  # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
+  c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG make -n -C "$MOD" teeth 2>&1)"
   if grep -Eq 'unleash --timeout-coefficient 6 --workers 4 --test-cpu 1 \.$' <<<"$c"; then
     ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
@@ -510,7 +511,16 @@ else
     echo "teeth scope: changed vs $RSDD_TEETH_BASE — $(wc -l <<<"$pkgs" | tr -d ' ') package(s): $(tr '\n' ' ' <<<"$pkgs")"
     : > "$ROOT/verdicts.txt"
     while IFS= read -r p; do
-      make -C "$MOD" teeth TEETH_PKG="$p" >"$ROOT/gremlins.out" 2>&1; mrc=$?
+      # The path reaches an unquoted $(TEETH_PKG) in the Makefile recipe: accept only plain package paths.
+      case "$p" in
+        .|./*) ;;
+        *) echo "VERDICT: FAIL [$p] not a ./-relative package path" >> "$ROOT/verdicts.txt"; continue ;;
+      esac
+      if [[ "$p" == *[!A-Za-z0-9_./-]* ]]; then
+        echo "VERDICT: FAIL [$p] package path has characters outside [A-Za-z0-9_./-]" >> "$ROOT/verdicts.txt"; continue
+      fi
+      # </dev/null: make must not read the package list this loop is consuming from stdin.
+      make -C "$MOD" teeth TEETH_PKG="$p" >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
       one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
       echo "--- teeth: $p"
       echo "$one" | grep -v '^VERDICT:'
