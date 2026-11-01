@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown\nverify-skill-drift: fix: research-sdd-install.sh --harness pi --force-skill  # deployed: ~/.pi/agent/skills/research-sdd/SKILL.md\nverify-skill-drift: all: checked=3 in-sync=1 diverged=1 absent=1 could-not-run=0"
+  }
+}

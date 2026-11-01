@@ -1,0 +1,1 @@
+verify-skill-drift: ERROR: deployed path exists but is not a regular file: @ROOT@/home/.claude/skills/research-sdd/SKILL.md

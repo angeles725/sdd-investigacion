@@ -1,0 +1,3 @@
+verify-skill-drift: fix: research-sdd-install.sh --harness claude --force-skill  # deployed: ~/.claude/skills/research-sdd/SKILL.md
+verify-skill-drift: also diverged: pi, gentle-shell (same fix with --harness <name>)
+verify-skill-drift: all: checked=3 in-sync=0 diverged=3 absent=0 could-not-run=0

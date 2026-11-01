@@ -1,0 +1,1 @@
+verify-skill-drift: diverged harness=pi deployed=@ROOT@/home/.pi/agent/skills/research-sdd/SKILL.md

@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "ERROR: verify-skill-drift.sh could not run for one or more harnesses — check kit install/adapters.sh\n"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit-stale status=degraded reason=kit dir sits inside an unrelated repo; its upstream is not the kit's"
+  }
+}

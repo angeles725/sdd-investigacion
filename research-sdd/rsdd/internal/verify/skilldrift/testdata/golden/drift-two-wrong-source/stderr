@@ -1,0 +1,2 @@
+verify-skill-drift: fix: research-sdd-install.sh --harness harness_b --force-skill  # deployed: ~/.harness_b/skills/research-sdd/SKILL.md
+verify-skill-drift: all: checked=2 in-sync=1 diverged=1 absent=0 could-not-run=0

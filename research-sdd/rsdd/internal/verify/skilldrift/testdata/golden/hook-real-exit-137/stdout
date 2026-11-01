@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify: install --verify exited 137 with no typed line"
+  }
+}

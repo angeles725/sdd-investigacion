@@ -1,0 +1,2 @@
+verify-skill-drift: fix: research-sdd-install.sh --harness pi --force-skill  # deployed: ~/@ROOT@/piagent/skills/research-sdd/SKILL.md
+verify-skill-drift: all: checked=3 in-sync=0 diverged=1 absent=2 could-not-run=0

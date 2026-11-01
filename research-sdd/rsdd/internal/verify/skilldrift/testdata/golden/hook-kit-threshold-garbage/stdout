@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit-stale: invalid RESEARCH_SDD_KIT_STALE_MAX_COMMITS='atouchk-pwned', using 20\nverify kit-stale: invalid RESEARCH_SDD_KIT_STALE_MAX_DAYS='1x', using 7\nverify kit-stale status=stale fix (no live session): git -C ~/k25 pull --ff-only; behind=25 (max 20) fetch_age=0d (max 7d); local refs, may understate"
+  }
+}

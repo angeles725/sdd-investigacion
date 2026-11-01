@@ -1,0 +1,1 @@
+verify-skill-drift: absent harness=claude deployed=--all/.claude/skills/research-sdd/SKILL.md

@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown\nquote \" backslash \\ tab\t ctl \u0001 del \u007f accents é — emoji 😀 <&>   end"
+  }
+}

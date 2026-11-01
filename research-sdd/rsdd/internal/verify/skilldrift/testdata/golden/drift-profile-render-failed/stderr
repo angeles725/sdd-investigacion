@@ -1,0 +1,3 @@
+verify-skill-drift: render-profile.sh failed for profile "general": render out line
+render err line
+verify-skill-drift: ERROR: could not render profile for harness "pi"

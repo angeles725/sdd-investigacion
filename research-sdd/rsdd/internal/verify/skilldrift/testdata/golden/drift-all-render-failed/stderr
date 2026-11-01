@@ -1,0 +1,4 @@
+verify-skill-drift: render-profile.sh failed for profile "general": render out line
+render err line
+verify-skill-drift: could-not-run harness=pi (profile render failed)
+verify-skill-drift: all: checked=3 in-sync=0 diverged=0 absent=2 could-not-run=1

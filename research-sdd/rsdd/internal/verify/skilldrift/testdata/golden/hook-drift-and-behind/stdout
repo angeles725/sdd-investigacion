@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd SKILL.md stale for one or more harnesses — run the fix command(s) shown\nverify-skill-drift: diverged harness=claude\nverify kit status=behind ref=origin/main behind=47 (local ref, no fetch — may understate) fix: git -C /k pull --ff-only"
+  }
+}

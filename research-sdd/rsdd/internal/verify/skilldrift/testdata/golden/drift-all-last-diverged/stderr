@@ -1,0 +1,2 @@
+verify-skill-drift: fix: research-sdd-install.sh --harness gentle-shell --force-skill  # deployed: ~/.gentle-shell/agent/skills/research-sdd/SKILL.md
+verify-skill-drift: all: checked=3 in-sync=1 diverged=1 absent=1 could-not-run=0

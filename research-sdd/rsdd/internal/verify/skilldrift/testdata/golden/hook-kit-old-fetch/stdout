@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit-stale status=stale fix (no live session): git -C ~/kold pull --ff-only; behind=0 (max 20) fetch_age=10d (max 7d); local refs, may understate"
+  }
+}

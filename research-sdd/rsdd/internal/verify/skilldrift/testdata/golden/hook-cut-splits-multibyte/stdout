@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify harness=pi status=degraded reason=éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé�"
+  }
+}

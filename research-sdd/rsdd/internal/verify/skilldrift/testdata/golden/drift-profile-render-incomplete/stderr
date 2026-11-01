@@ -1,0 +1,1 @@
+verify-skill-drift: could-not-run harness=pi (render dir incomplete: @ROOT@/home/.pi/agent/research-sdd/profile/general)

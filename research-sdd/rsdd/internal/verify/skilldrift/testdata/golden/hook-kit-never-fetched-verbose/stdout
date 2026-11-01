@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit-stale status=degraded reason=no FETCH_HEAD (never fetched): age criterion skipped, judged by commit count only (behind=0 of max 20)"
+  }
+}

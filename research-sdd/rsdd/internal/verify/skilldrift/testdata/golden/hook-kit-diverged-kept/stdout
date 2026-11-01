@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit status=behind ref=origin/main behind=25 ahead=2 (diverged: local commits, a fast-forward is not possible — reconcile by hand; local ref, no fetch)"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify harness=gentle-shell status=drift\n  - research-sdd/profile/general/BREAKTHROUGHS.md (extra: kit file written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/BREAKTHROUGHS.md by hand)\n  - research-sdd/profile/general/TARGETS.md (extra: registry edits written into the rendered profile — reconcile them into /home/u/code/research-sdd-kit/research-sdd/TARGETS.md by hand)"
+  }
+}

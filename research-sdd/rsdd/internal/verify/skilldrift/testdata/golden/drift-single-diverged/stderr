@@ -1,0 +1,1 @@
+verify-skill-drift: diverged harness=claude deployed=@ROOT@/home/.claude/skills/research-sdd/SKILL.md

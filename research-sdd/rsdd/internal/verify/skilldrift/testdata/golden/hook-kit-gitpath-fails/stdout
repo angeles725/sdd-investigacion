@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "WARN: research-sdd install --verify reports issues — see lines below\nverify kit status=behind ref=origin/main behind=3 (local ref, no fetch — may understate) fix: git -C @FIX@/k3 pull --ff-\nverify kit-stale status=degraded reason=could not locate FETCH_HEAD (git rev-parse --git-path failed)"
+  }
+}

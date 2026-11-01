@@ -1,0 +1,2 @@
+verify-skill-drift: could-not-run harness=claude (unknown profile)
+verify-skill-drift: all: checked=3 in-sync=0 diverged=0 absent=2 could-not-run=1

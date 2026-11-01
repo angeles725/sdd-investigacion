@@ -1,0 +1,1 @@
+verify-skill-drift: could-not-run harness=claude (dangling symlink: @ROOT@/home/.claude/skills/research-sdd/SKILL.md)

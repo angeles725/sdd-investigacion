@@ -1,0 +1,2 @@
+rsdd_field: GENTLE_PI_AGENT_HOME must be an absolute path other than / (got 'relative/dir')
+rsdd_field: GENTLE_PI_AGENT_HOME must be an absolute path other than / (got 'relative/dir')

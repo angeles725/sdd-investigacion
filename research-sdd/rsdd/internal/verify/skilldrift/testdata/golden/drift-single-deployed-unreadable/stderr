@@ -1,0 +1,1 @@
+verify-skill-drift: ERROR: deployed skill not readable: @ROOT@/home/.claude/skills/research-sdd/SKILL.md

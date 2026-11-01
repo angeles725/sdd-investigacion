@@ -1,0 +1,1 @@
+verify-skill-drift: diverged harness=harness_b deployed=@ROOT@/home/.harness_b/skills/research-sdd/SKILL.md

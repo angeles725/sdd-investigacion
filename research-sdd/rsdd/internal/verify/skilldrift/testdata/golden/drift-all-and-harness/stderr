@@ -1,0 +1,1 @@
+verify-skill-drift: --all and --harness are mutually exclusive
