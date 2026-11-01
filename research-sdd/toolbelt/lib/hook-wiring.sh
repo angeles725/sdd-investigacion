@@ -22,8 +22,7 @@
 #   hook_stop_wiring_state_var <target-dir>
 #     Sets the GLOBAL $HOOK_WIRING_STATE to exactly one of: wired | wired-off-root | unwired |
 #     absent-settings | unreadable. COST: one nested subshell and one rsdd exec per call (kit issue #2356; it was one
-#     awk fork before the port). sweep-retros.sh's WIRING-STATUS fleet pass pays it per target until that sweep is
-#     ported (U2.4); the git-root / off-root check is part of the same rsdd call.
+#     awk fork before the port). sweep-retros.sh's WIRING-STATUS fleet pass uses the batch form below instead (one rsdd for the fleet); the git-root / off-root check is part of the same rsdd call.
 #     Always returns 0 — callers branch on $HOOK_WIRING_STATE, never on exit status.
 #
 #     NARROWER than the TARGETS.md legend's 'hook' flag definition (kit issue #1108 round 2):
@@ -115,6 +114,13 @@
 #     wired" bucket that would hide which one actually happened. (Before the Go port the Stop scan was
 #     one awk fork per call and the walk-up that detects wired-off-root added none; both now run inside the single rsdd call.)
 #
+#   hook_stop_wiring_states_var <target-dir>...
+#     Batch form (kit issue #2356): ONE rsdd exec for every target. Sets the ARRAY $HOOK_WIRING_STATES, one element per
+#     target in argument order, each exactly one of the five states above. If rsdd fails, answers a different number of
+#     lines than targets, or any line is not one of the five states, EVERY element reads "unreadable" (wiring unknown, never
+#     a silent wired/unwired; the typed `degraded: rsdd-unavailable` line is on stderr when rsdd could not be resolved).
+#     No targets: an empty array and no rsdd call. Always returns 0. sweep-retros.sh's WIRING-STATUS pass uses it.
+#
 #   hook_stop_wiring_state <target-dir>
 #     Convenience wrapper: calls hook_stop_wiring_state_var, then prints $HOOK_WIRING_STATE to
 #     stdout. For a caller that only needs the state ONCE (verify-registry.sh's per-row
@@ -157,7 +163,7 @@ if ! declare -F _hw_rsdd >/dev/null 2>&1; then
     }
   }
 
-  # _hw_rsdd <cmd> <arg> : runs `rsdd hook <cmd> <arg>`; sets _HW_OUT to its stdout minus the ONE trailing newline the
+  # _hw_rsdd <cmd> <arg>... : runs `rsdd hook <cmd> <arg>...`; sets _HW_OUT to its stdout minus the ONE trailing newline the
   # command adds (embedded and further trailing newlines of a payload are kept) and _HW_RC to its exit status.
   # rsdd_exec ends in `exec`, so it runs in its own subshell; the status is appended after the output so that $(...)
   # cannot strip a payload's trailing newlines. RSDD_HOOK_WIRING_CEILING is handed over explicitly: the bash lib read it
@@ -165,7 +171,7 @@ if ! declare -F _hw_rsdd >/dev/null 2>&1; then
   _hw_rsdd() {
     local out
     declare -F rsdd_exec >/dev/null 2>&1 || _hw_rsdd_load
-    out="$( ( RSDD_HOOK_WIRING_CEILING="${RSDD_HOOK_WIRING_CEILING:-}" rsdd_exec hook "$1" "$2" ); printf '|%s' "$?")"
+    out="$( ( RSDD_HOOK_WIRING_CEILING="${RSDD_HOOK_WIRING_CEILING:-}" rsdd_exec hook "$@" ); printf '|%s' "$?")"
     _HW_RC="${out##*|}"
     out="${out%|*}"
     _HW_OUT="${out%$'\n'}"   # HW-ONE-NEWLINE
@@ -268,6 +274,41 @@ if ! declare -F hook_stop_wiring_state_var >/dev/null 2>&1; then
       0:wired|0:wired-off-root|0:unwired|0:absent-settings|0:unreadable) HOOK_WIRING_STATE="$_HW_OUT" ;;
       *) HOOK_WIRING_STATE="unreadable" ;;
     esac
+    return 0
+  }
+fi
+
+if ! declare -F hook_stop_wiring_states_var >/dev/null 2>&1; then
+  # BATCH SHIM (kit issue #2356): `rsdd hook wiring-state <target>...` once for every target. Sets the array
+  # HOOK_WIRING_STATES, one element per target in argument order. The answer is accepted only as a whole: a failing rsdd, a
+  # line count that differs from the target count, or ANY line outside the five states reads "unreadable" for EVERY
+  # element (the wiring is unknown; it never reads a silent wired/unwired). No targets: an empty array, rsdd not called.
+  hook_stop_wiring_states_var() {
+    local _hw_n=0 _hw_rest _hw_line _hw_i _hw_ok=1 _hw_last=0
+    HOOK_WIRING_STATES=()
+    [ "$#" -gt 0 ] || return 0
+    _hw_rsdd wiring-state "$@"
+    if [ "$_HW_RC" = 0 ]; then
+      _hw_rest="$_HW_OUT"
+      while :; do
+        case "$_hw_rest" in
+          *$'\n'*) _hw_line="${_hw_rest%%$'\n'*}"; _hw_rest="${_hw_rest#*$'\n'}" ;;
+          *)        _hw_line="$_hw_rest"; _hw_rest=""; _hw_last=1 ;;
+        esac
+        case "$_hw_line" in
+          wired|wired-off-root|unwired|absent-settings|unreadable) HOOK_WIRING_STATES[_hw_n]="$_hw_line" ;;
+          *) _hw_ok=0 ;;
+        esac
+        _hw_n=$(( _hw_n + 1 ))
+        [ "$_hw_last" = 0 ] || break
+      done
+    fi
+    # an empty line (also a trailing one) counts as a line and fails the vocabulary check
+    if [ "$_HW_RC" = 0 ] && [ "$_hw_n" = "$#" ] && [ "$_hw_ok" = 1 ]; then  # HW-BATCH-GUARD
+      return 0
+    fi
+    HOOK_WIRING_STATES=()
+    for _hw_i in "$@"; do HOOK_WIRING_STATES+=("unreadable"); done
     return 0
   }
 fi

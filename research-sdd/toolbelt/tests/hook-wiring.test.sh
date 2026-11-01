@@ -678,6 +678,40 @@ err="$(PATH="$ROOT/emptybin" "$BASH_BIN" -c '. "$1"; declare -F hook_stop_launch
 if [ "$rc" -eq 0 ] && [ -z "$err" ]; then ok "28k sourcing under a PATH with no external commands is silent and defines every function"
 else no "28k sourcing under an empty PATH is silent" "rc=$rc stderr=[$err]"; fi
 
+# --- 29 - THE BATCH SHIM (kit issue #2356): hook_stop_wiring_states_var <target>... asks `rsdd hook wiring-state <t>...`
+#      ONCE and sets the array HOOK_WIRING_STATES in argument order. Any doubt (rsdd failing, a line count that differs from the
+#      target count, a line outside the five states) reads EVERY element "unreadable": the wiring is unknown, never a silent
+#      wired/unwired. sweep-retros.sh calls it once per fleet instead of forking rsdd per target.
+B_CODE='hook_stop_wiring_states_var "${@:2}"; printf "%d:" "${#HOOK_WIRING_STATES[@]}"; printf "[%s]" "${HOOK_WIRING_STATES[@]}"'
+got="$(shim_run "$LIB" 'wired\nunwired\nabsent-settings\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b c" "$ROOT/d")"
+check_eq "29a each target gets its own line's state, in argument order" "$got" "3:[wired][unwired][absent-settings]"
+check_eq "29a' ONE rsdd call carries every target as its own argument" "$(shim_log | sed 's/|ceiling=.*//')" "args=hook wiring-state $ROOT/a $ROOT/b c $ROOT/d"
+got="$(shim_run "$LIB" 'wired-off-root\n' 0 "$B_CODE" "$ROOT/a")"
+check_eq "29b a single target works and accepts wired-off-root" "$got" "1:[wired-off-root]"
+got="$(shim_run "$LIB" 'unreadable\nwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "29b' a genuine unreadable answer stays in its slot" "$got" "2:[unreadable][wired]"
+got="$(shim_run "$LIB" 'wired\nwired\n' 0 "$B_CODE")"
+check_eq "29c zero targets: empty array" "$got" "0:[]"
+check_eq "29c' zero targets: rsdd is not called at all" "$(shim_log)" ""
+got="$(shim_run "$LIB" 'wired\nwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
+check_eq "29d fewer lines than targets: EVERY element reads unreadable" "$got" "3:[unreadable][unreadable][unreadable]"
+got="$(shim_run "$LIB" 'wired\n\n' 0 "$B_CODE" "$ROOT/a")"
+check_eq "29d-trail an extra EMPTY trailing line: EVERY element reads unreadable" "$got" "1:[unreadable]"
+got="$(shim_run "$LIB" 'wired\nwired\nwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "29d' more lines than targets: EVERY element reads unreadable" "$got" "2:[unreadable][unreadable]"
+got="$(shim_run "$LIB" '' 0 "$B_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "29d'' an empty answer: EVERY element reads unreadable" "$got" "2:[unreadable][unreadable]"
+got="$(shim_run "$LIB" 'wired\nbogus\nunwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
+check_eq "29e one line outside the five states: EVERY element reads unreadable" "$got" "3:[unreadable][unreadable][unreadable]"
+got="$(shim_run "$LIB" 'wired\nwired\n' 1 "$B_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "29f a failing rsdd with valid-looking lines: EVERY element reads unreadable" "$got" "2:[unreadable][unreadable]"
+got="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; shift; hook_stop_wiring_states_var "$@"; printf "%d:" "${#HOOK_WIRING_STATES[@]}"; printf "[%s]" "${HOOK_WIRING_STATES[@]}"' _ "$LIB" "$ROOT/a" "$ROOT/b" 2>/dev/null)"
+check_eq "29g rsdd unavailable: EVERY element reads unreadable" "$got" "2:[unreadable][unreadable]"
+err="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; shift; hook_stop_wiring_states_var "$@"' _ "$LIB" "$ROOT/a" "$ROOT/b" 2>&1 >/dev/null)"
+if [[ "$err" == *"degraded: rsdd-unavailable"* ]]; then ok "29g' rsdd unavailable is announced on stderr with the typed degraded line"; else no "29g' rsdd unavailable is announced on stderr" "stderr=[$err]"; fi
+got="$(shim_run "$LIB" 'unwired\n' 0 'HOOK_WIRING_STATES=(stale stale stale); hook_stop_wiring_states_var "$2"; printf "%d:[%s]" "${#HOOK_WIRING_STATES[@]}" "${HOOK_WIRING_STATES[0]}"' "$ROOT/a")"
+check_eq "29h a previous array is replaced, not appended to" "$got" "1:[unwired]"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell -
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL function
@@ -788,6 +822,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mut_s7="$ROOT/hook-wiring.MUTANT-shim-no-target.sh"
   if mk "teeth: argument hand-over anchor in lib" "$LIB" "$mut_s7" 's/rsdd_exec hook "\$1" "\$2"/rsdd_exec hook "$1" ""/'; then
     shim_tooth "target not passed to rsdd" "$mut_s7" "args=hook wiring-state $ROOT/t28|ceiling=$RSDD_HOOK_WIRING_CEILING" 'wired\n' 0 "$W_CODE" "$ROOT/t28" "case 28a" log
+  fi
+
+  mut_s8="$ROOT/hook-wiring.MUTANT-shim-batch-guard.sh"
+  if mk "teeth: batch count/vocabulary guard anchor in lib" "$LIB" "$mut_s8" 's/if \[ "\$_HW_RC" = 0 \] \&\& \[ "\$_hw_n" = "\$#" \]; then  # HW-BATCH-GUARD/if true; then  # MUTANT: guard dropped/'; then
+    got="$(shim_run "$mut_s8" 'wired\nwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
+    if [ "$got" = "3:[unreadable][unreadable][unreadable]" ]; then no "teeth: batch line-count mismatch NOT caught (theater)" "case 29d still [$got]"
+    else ok "teeth: batch line-count mismatch caught (real sourced lib)" "case 29d read [$got]"; fi
   fi
 
   echo "-- teeth (#1157 launch history): one mutant per rule of hook_stop_launch_state_var --"
