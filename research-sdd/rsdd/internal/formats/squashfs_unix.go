@@ -272,18 +272,6 @@ func validateClosed(stage string, expectedFiles, expectedDirs map[string]bool) e
 	return nil
 }
 
-func sameSet(a, b map[string]bool) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k := range a {
-		if !b[k] {
-			return false
-		}
-	}
-	return true
-}
-
 // ---------------------------------------------------------------- host checks
 
 // requirePrivate is adapter_core.require_private: the deepest mount point containing path (by path
