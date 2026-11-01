@@ -15,7 +15,20 @@
 // {{corpus}} and {{input}} point at that copy, and what the side did to it is
 // diffed against a pristine copy and compared as a fourth stream, "effect".
 // The real corpus is fingerprinted before and after each side as a tripwire
-// that should be unreachable.
+// that should be unreachable. A fingerprint is mode|size|mtime plus a sha256
+// of the content for regular files up to 1 MiB (larger files: mode|size|mtime
+// only, so a same-size rewrite with a restored mtime goes unseen there).
+//
+// Process containment: each side runs in its own process group, killed whole on
+// timeout. A timeout is reported only when that kill actually fired; a run that
+// exited on its own just as the deadline passed keeps its real exit code. On
+// Linux every case also tags both sides with a random RSDD_PARITY_RUN=<nonce>
+// environment entry; after each side ends (normally or by timeout) /proc is
+// scanned for processes carrying that exact entry, which means they left the
+// group (setsid) or outlived the run. They are SIGKILLed and the case fails
+// with the typed kind "leaked-process" naming their pids; a /proc that cannot
+// be scanned is a "degraded" failure. Other unix systems keep the group kill
+// only (no scan, no leaked-process kind).
 //
 // Symlink refusal: before either side runs, every scratch copy (corpus and
 // fixture inputs/) is scanned. A symlink whose resolution can leave the copy
@@ -35,8 +48,10 @@
 // nothing on either side.
 //
 // Anti-silent-zero: every non-pass state is typed. A missing legacy root or
-// binary is "absent-input", zero specs is "empty-input", an absent corpus
-// directory is counted and reported, a declared divergence that no longer
+// binary is "absent-input", zero specs is "empty-input", zero corpus targets in
+// corpus mode is "empty-input", all corpus targets absent is "absent-input", a
+// partly absent set is counted and reported but not a failure, an invalid
+// RSDD_PARITY_TIMEOUT is "config-invalid", a declared divergence that no longer
 // diverges is a "stale-declaration" failure, and a corpus whose fingerprint
 // changed is a "corpus-modified" failure.
 //

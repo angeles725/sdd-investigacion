@@ -1,8 +1,11 @@
 package parity
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -400,5 +403,55 @@ func TestEffectLabelsTreesOnlyWhenThereAreSeveral(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(two), "[input]\n") || !strings.Contains(string(two), "\n[corpus]\n") {
 		t.Fatalf("several trees label each part: %q", two)
+	}
+}
+
+func TestClassifyRunTimeoutNeedsCancelToHaveFired(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctxErr  error
+		fired   bool
+		wantOut bool
+	}{
+		{"deadline seen, run exited on its own", context.DeadlineExceeded, false, false},
+		{"deadline seen, cancel killed it", context.DeadlineExceeded, true, true},
+		{"no deadline", nil, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			timedOut, exit, startErr := classifyRun(c.ctxErr, c.fired, nil)
+			if timedOut != c.wantOut || exit != 0 || startErr != nil {
+				t.Fatalf("got timedOut=%v exit=%d startErr=%v, want timedOut=%v", timedOut, exit, startErr, c.wantOut)
+			}
+		})
+	}
+	// A real exit code survives an expired context when cancel never fired.
+	_, exit, _ := classifyRun(context.DeadlineExceeded, false, exitErr(t, 3))
+	if exit != 3 {
+		t.Fatalf("exit code lost: %d", exit)
+	}
+}
+
+func exitErr(t *testing.T, code int) error {
+	t.Helper()
+	needSh(t)
+	err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	if err == nil {
+		t.Fatal("want an exit error")
+	}
+	return err
+}
+
+func TestConfigFromEnvBadTimeoutIsConfigInvalid(t *testing.T) {
+	for _, v := range []string{"abc", "0", "-5s"} {
+		_, err := ConfigFromEnv(func(k string) string {
+			if k == "RSDD_PARITY_TIMEOUT" {
+				return v
+			}
+			return ""
+		}, "w")
+		if err == nil || !strings.HasPrefix(err.Error(), KindConfigInvalid+":") {
+			t.Fatalf("RSDD_PARITY_TIMEOUT=%q: want a %s error, got %v", v, KindConfigInvalid, err)
+		}
 	}
 }

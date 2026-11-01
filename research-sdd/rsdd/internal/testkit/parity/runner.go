@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,7 +31,9 @@ type Config struct {
 }
 
 // defaultPath is the PATH both sides get when Config.Path is empty. The caller's
-// PATH arrives only through ConfigFromEnv's getenv (archtest: no ambient reads).
+// PATH arrives only through ConfigFromEnv's getenv (archtest: no ambient reads
+// of the process environment by the runner itself; BuildBinary is the one
+// deliberate exception, see there).
 const defaultPath = "/usr/local/bin:/usr/bin:/bin"
 
 // Degraded is a typed "could not run" result (absent-input or degraded). It
@@ -42,14 +45,15 @@ func (d *Degraded) Error() string { return d.Kind + ": " + d.Detail }
 // Runner executes cases. Cfg.Timeout may be adjusted between runs.
 type Runner struct{ Cfg Config }
 
-// ConfigFromEnv reads RSDD_PARITY_LEGACY, RSDD_BIN and RSDD_PARITY_TIMEOUT.
-// Unset roots stay empty so NewRunner can type them as absent-input.
+// ConfigFromEnv reads RSDD_PARITY_LEGACY, RSDD_BIN, RSDD_PARITY_TIMEOUT and
+// PATH (handed to both sides). Unset roots stay empty so NewRunner can type
+// them as absent-input; a bad timeout is a config-invalid error.
 func ConfigFromEnv(getenv func(string) string, work string) (Config, error) {
 	cfg := Config{LegacyRoot: getenv("RSDD_PARITY_LEGACY"), Bin: getenv("RSDD_BIN"), Work: work, Timeout: defaultTimeout, Path: getenv("PATH")}
 	if s := getenv("RSDD_PARITY_TIMEOUT"); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil || d <= 0 {
-			return Config{}, fmt.Errorf("%s: RSDD_PARITY_TIMEOUT=%q is not a positive duration", KindSpecInvalid, s)
+			return Config{}, fmt.Errorf("%s: RSDD_PARITY_TIMEOUT=%q is not a positive duration", KindConfigInvalid, s)
 		}
 		cfg.Timeout = d
 	}
@@ -104,6 +108,12 @@ func needDir(what, p string) (string, error) {
 }
 
 // BuildBinary builds ./cmd/rsdd of the module at moduleRoot into dstDir.
+//
+// It inherits the caller's environment via os.Environ on purpose: go build
+// legitimately needs the caller's GOCACHE, GOMODCACHE, HOME, GOFLAGS and PATH.
+// That is the build step, not a side under test; the sides never see it (they
+// get the explicit env built in runSide). archtest forbids os.Getenv, not
+// os.Environ, and this is the only place the package reads the whole environment.
 func BuildBinary(moduleRoot, dstDir string) (string, error) {
 	name := "rsdd"
 	if runtime.GOOS == "windows" {
@@ -198,8 +208,12 @@ func (r *Runner) RunCase(c Case, corpus string) Result {
 		return fail(Problem{KindSandbox, "pristine copy: " + err.Error()})
 	}
 	var obs [2]Observed
+	nonce, err := newNonce()
+	if err != nil {
+		return fail(Problem{KindSandbox, "run marker: " + err.Error()})
+	}
 	for i, side := range []string{"legacy", "rsdd"} {
-		o, probs := r.runSide(c, side, trees)
+		o, probs := r.runSide(c, side, trees, nonce)
 		obs[i] = o
 		if corpus != "" {
 			probs = append(probs, checkCorpus(side, corpus, before)...)
@@ -257,7 +271,7 @@ func (r *Runner) makePristine(trees []treeSpec) error {
 
 // runSide wipes and rebuilds the sandbox (fresh scratch copies at the same
 // paths for both sides), runs one side in it and computes its effect.
-func (r *Runner) runSide(c Case, side string, trees []treeSpec) (Observed, []Problem) {
+func (r *Runner) runSide(c Case, side string, trees []treeSpec, nonce string) (Observed, []Problem) {
 	sb := r.sandbox()
 	if err := r.prepareSandbox(sb, trees); err != nil {
 		return Observed{}, []Problem{{KindSandbox, fmt.Sprintf("%s: %v", side, err)}}
@@ -294,7 +308,7 @@ func (r *Runner) runSide(c Case, side string, trees []treeSpec) (Observed, []Pro
 	if pathEnv == "" {
 		pathEnv = defaultPath
 	}
-	env := []string{"PATH=" + pathEnv, "LC_ALL=C", "TZ=UTC", "HOME=" + filepath.Join(sb, "home"), "TMPDIR=" + filepath.Join(sb, "tmp")}
+	env := []string{"PATH=" + pathEnv, "LC_ALL=C", "TZ=UTC", "HOME=" + filepath.Join(sb, "home"), "TMPDIR=" + filepath.Join(sb, "tmp"), runMarkerEnv + "=" + nonce}
 	keys := make([]string, 0, len(c.Spec.Env))
 	for k := range c.Spec.Env {
 		keys = append(keys, k)
@@ -305,13 +319,18 @@ func (r *Runner) runSide(c Case, side string, trees []treeSpec) (Observed, []Pro
 	}
 
 	o := r.execute(path, args, env, sb, c.Stdin)
+	// A leak is reported alongside any other run problem, never instead of it.
+	var probs []Problem
 	switch {
 	case o.timedOut:
-		return Observed{}, []Problem{{KindTimeout, fmt.Sprintf("the %s run exceeded %s and was killed", side, r.Cfg.Timeout)}}
+		probs = append(probs, Problem{KindTimeout, fmt.Sprintf("the %s run exceeded %s and was killed", side, r.Cfg.Timeout)})
 	case o.startErr != nil:
-		return Observed{}, []Problem{{KindExecFailed, fmt.Sprintf("the %s run: %v", side, o.startErr)}}
+		probs = append(probs, Problem{KindExecFailed, fmt.Sprintf("the %s run: %v", side, o.startErr)})
 	case o.truncated:
-		return Observed{}, []Problem{{KindOutputTooBig, fmt.Sprintf("the %s run wrote more than %d bytes to a stream", side, maxOutput)}}
+		probs = append(probs, Problem{KindOutputTooBig, fmt.Sprintf("the %s run wrote more than %d bytes to a stream", side, maxOutput)})
+	}
+	if probs = append(probs, reapLeaked(side, nonce)...); len(probs) > 0 {
+		return Observed{}, probs
 	}
 	effect, err := r.effect(trees)
 	if err != nil {
@@ -391,6 +410,17 @@ func (r *Runner) execute(path string, args, env []string, dir string, stdin []by
 	var so, se = &capBuf{max: maxOutput}, &capBuf{max: maxOutput}
 	cmd.Stdout, cmd.Stderr = io.Writer(so), io.Writer(se)
 	started := setProcAttrs(cmd)
+	// A timeout is real only when Cancel actually killed the run: a run that
+	// exited on its own just before Wait saw the deadline is not one.
+	var fired atomic.Bool
+	cancel0 := cmd.Cancel
+	cmd.Cancel = func() error {
+		err := cancel0()
+		if err == nil {
+			fired.Store(true)
+		}
+		return err
+	}
 	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Start()
 	if err == nil {
@@ -399,15 +429,21 @@ func (r *Runner) execute(path string, args, env []string, dir string, stdin []by
 	}
 
 	o := outcome{stdout: so.buf.Bytes(), stderr: se.buf.Bytes(), truncated: so.truncated || se.truncated}
+	o.timedOut, o.exit, o.startErr = classifyRun(ctx.Err(), fired.Load(), err)
+	return o
+}
+
+// classifyRun maps the end of a run to its outcome. The deadline alone never
+// makes a timeout: cancelFired must say the kill really happened.
+func classifyRun(ctxErr error, cancelFired bool, waitErr error) (timedOut bool, exit int, startErr error) {
 	var ee *exec.ExitError
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		o.timedOut = true
-	case err == nil:
-	case errors.As(err, &ee):
-		o.exit = ee.ExitCode()
-	default:
-		o.startErr = err
+	case cancelFired && errors.Is(ctxErr, context.DeadlineExceeded):
+		return true, 0, nil
+	case waitErr == nil:
+		return false, 0, nil
+	case errors.As(waitErr, &ee):
+		return false, ee.ExitCode(), nil
 	}
-	return o
+	return false, 0, waitErr
 }

@@ -13,20 +13,22 @@ import (
 
 // Typed problem kinds. Every failure the runner reports carries one.
 const (
-	KindUndeclared   = "undeclared-divergence"
-	KindStale        = "stale-declaration"
-	KindNoReason     = "intended-no-reason"
-	KindTimeout      = "timeout"
-	KindCorpusMod    = "corpus-modified"
-	KindCorpusRead   = "corpus-unreadable"
-	KindSpecInvalid  = "spec-invalid"
-	KindExecFailed   = "exec-failed"
-	KindOutputTooBig = "output-too-large"
-	KindSandbox      = "sandbox-error"
-	KindUnsafeLink   = "unsafe-symlink"
-	KindEmptyInput   = "empty-input"
-	KindAbsentInput  = "absent-input"
-	KindDegraded     = "degraded"
+	KindUndeclared    = "undeclared-divergence"
+	KindStale         = "stale-declaration"
+	KindNoReason      = "intended-no-reason"
+	KindTimeout       = "timeout"
+	KindCorpusMod     = "corpus-modified"
+	KindCorpusRead    = "corpus-unreadable"
+	KindSpecInvalid   = "spec-invalid"
+	KindExecFailed    = "exec-failed"
+	KindOutputTooBig  = "output-too-large"
+	KindSandbox       = "sandbox-error"
+	KindUnsafeLink    = "unsafe-symlink"
+	KindEmptyInput    = "empty-input"
+	KindAbsentInput   = "absent-input"
+	KindDegraded      = "degraded"
+	KindConfigInvalid = "config-invalid"
+	KindLeaked        = "leaked-process"
 )
 
 const (
