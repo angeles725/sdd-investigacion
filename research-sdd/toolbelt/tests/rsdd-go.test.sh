@@ -199,6 +199,8 @@ if grep -q 'test timed out after 3s' <<<"$c" && ! grep -q 'HANG-SURVIVED' <<<"$c
 else no "containment: hang not bounded by TEST_TIMEOUT: $(tail -n 5 <<<"$c")"; fi
 # `make race` is wired through the same CAPPED wrapper with its own, larger cap (RACE_MEM_KB). Dry run only:
 # a real -race run is far too heavy for this suite, so the wiring is judged from `make -n` output.
+# The numbers below mirror the Makefile defaults (RACE_MEM_KB, TEST_MEM_KB, RACE_TIMEOUT): a changed default
+# fails here on purpose and must be updated in both places.
 r="$(make -n -C "$MOD" race 2>&1)"
 if grep -q 'capexec' <<<"$r" && grep -q 'ulimit -v 8388608' <<<"$r" && grep -q -e 'go test .*-race' <<<"$r"; then
   ok "containment: make race runs under the CAPPED wrapper with the default RACE_MEM_KB"
@@ -207,6 +209,14 @@ r="$(make -n -C "$MOD" race RACE_MEM_KB=12345 2>&1)"
 if grep -q 'ulimit -v 12345' <<<"$r" && ! grep -q 'ulimit -v 8388608' <<<"$r"; then
   ok "containment: RACE_MEM_KB overrides the race cap"
 else no "containment: RACE_MEM_KB did not reach make race: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" race 2>&1)"
+if grep -q -e 'go test -timeout 30m .*-race' <<<"$r"; then
+  ok "containment: make race uses its own RACE_TIMEOUT (default 30m), not the plain TEST_TIMEOUT"
+else no "containment: make race timeout is not RACE_TIMEOUT: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" race RACE_TIMEOUT=7m 2>&1)"
+if grep -q -e 'go test -timeout 7m .*-race' <<<"$r"; then
+  ok "containment: RACE_TIMEOUT overrides the race timeout"
+else no "containment: RACE_TIMEOUT did not reach make race: $(tail -n 3 <<<"$r")"; fi
 r="$(make -n -C "$MOD" test 2>&1)"
 if grep -q 'ulimit -v 1048576' <<<"$r"; then
   ok "containment: make test keeps the TEST_MEM_KB cap (the race cap is target-specific)"

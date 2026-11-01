@@ -42,13 +42,16 @@ test:
 	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
 
 # -race needs cgo, so this target overrides the CGO_ENABLED=0 default. It runs under the same CAPPED
-# wrapper and timeout as `test`, but with RACE_MEM_KB (default 8 GiB, KiB units) as the address-space cap:
-# the race runtime reserves far more than a plain test binary. RACE_MEM_KB=unlimited opts out; the cap is
-# target-specific, so `test` and `teeth` keep TEST_MEM_KB.
-RACE_MEM_KB ?= 8388608
+# wrapper as `test`, with its own knobs because a -race run uses several times the memory and time:
+# RACE_MEM_KB (default 8 GiB, KiB units) is the address-space cap and RACE_TIMEOUT the per-binary timeout.
+# A race binary was checked to start under the 8 GiB cap. RACE_MEM_KB=unlimited opts out. The cap is a
+# target-specific TEST_MEM_KB, so `test` and `teeth` keep their own; a TEST_MEM_KB given on the make
+# command line still wins over it (GNU make precedence), so set RACE_MEM_KB, not TEST_MEM_KB, for race.
+RACE_MEM_KB  ?= 8388608
+RACE_TIMEOUT ?= 30m
 race: TEST_MEM_KB = $(RACE_MEM_KB)
 race:
-	@export CGO_ENABLED=1; $(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) -race ./...
+	@export CGO_ENABLED=1; $(CAPPED) go test -timeout $(RACE_TIMEOUT) $(TESTFLAGS) -race ./...
 
 lint:
 	go run $(STATICCHECK) ./...
