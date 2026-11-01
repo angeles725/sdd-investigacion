@@ -41,9 +41,14 @@ vet:
 test:
 	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
 
-# -race needs cgo, so this target overrides the CGO_ENABLED=0 default.
+# -race needs cgo, so this target overrides the CGO_ENABLED=0 default. It runs under the same CAPPED
+# wrapper and timeout as `test`, but with RACE_MEM_KB (default 8 GiB, KiB units) as the address-space cap:
+# the race runtime reserves far more than a plain test binary. RACE_MEM_KB=unlimited opts out; the cap is
+# target-specific, so `test` and `teeth` keep TEST_MEM_KB.
+RACE_MEM_KB ?= 8388608
+race: TEST_MEM_KB = $(RACE_MEM_KB)
 race:
-	CGO_ENABLED=1 go test -race ./...
+	@export CGO_ENABLED=1; $(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) -race ./...
 
 lint:
 	go run $(STATICCHECK) ./...
@@ -58,8 +63,10 @@ lint:
 # TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/retro/grammar
 # takes ~80 s per run), which `make check` still runs once; gremlins reruns a whole package per mutant.
 TEETHTAGS ?= nodiff
+# TEETH_PKG narrows the mutation run to one package (e.g. TEETH_PKG=./internal/cli); the default is the whole module.
+TEETH_PKG ?= .
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 .
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 $(TEETH_PKG)
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
