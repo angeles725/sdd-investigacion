@@ -16,12 +16,11 @@ import (
 // Run is `rsdd lint block`, the port of lint-block.sh + lint_block.py. Exit: 0 clean (or --audit) · 1 findings or
 // an empty block in FAIL mode · 2 usage / absent / unreadable / degraded (the legacy contract, not cli's 3).
 //
-// A run with --pack still needs the Python packs (U3.2, #2393): the packs are exec'd against the lint_block.py
-// module as their API. Those runs do the listing here and hand the file list to `python3 lint_block.py`
-// unchanged (delegate.go); a run without --pack never touches Python.
+// The rule packs (--pack NAME: jvm, multi-version, native-binary, child-gap) are compiled in (U3.2, #2393); no run
+// needs Python.
 func Run(args []string, s cli.Stdio) int {
 	audit := false
-	var paths, packArgs []string
+	var paths, packVals []string
 parse:
 	for len(args) > 0 {
 		a := args[0]
@@ -33,14 +32,14 @@ parse:
 				fmt.Fprintln(s.Err, "lint-block: --pack needs a name")
 				return 2
 			}
-			packArgs = append(packArgs, "--pack", args[1])
+			packVals = append(packVals, args[1])
 			args = args[1:]
 		case strings.HasPrefix(a, "--pack="):
 			if v := strings.TrimPrefix(a, "--pack="); v == "" || strings.HasPrefix(v, "-") {
 				fmt.Fprintln(s.Err, "lint-block: --pack needs a name")
 				return 2
 			}
-			packArgs = append(packArgs, a)
+			packVals = append(packVals, strings.TrimPrefix(a, "--pack="))
 		case a == "-h" || a == "--help":
 			usage(s.Err)
 			return 0
@@ -61,15 +60,26 @@ parse:
 		return 2
 	}
 
-	var py *pyEngine
-	if len(packArgs) > 0 {
-		var rc int
-		if py, rc = newPyEngine(s); py == nil {
-			return rc
+	// Packs are validated and loaded before anything is listed or linted: a pack that did not load must never read as
+	// a clean run (lint_block.py checked every --pack value first, then loaded the names in order).
+	lt := newLinter()
+	var names []string
+	for _, v := range packVals {
+		var ns []string
+		for _, n := range strings.Split(v, ",") {
+			if n != "" {
+				ns = append(ns, n)
+			}
 		}
-		if rc := py.run(s, append(append([]string(nil), packArgs...), "--check-packs"), ""); rc != 0 {
+		if len(ns) == 0 {
+			fmt.Fprintln(s.Err, "lint-block: --pack needs a name")
 			return 2
 		}
+		names = append(names, ns...)
+	}
+	if err := lt.loadPacks(names); err != nil {
+		fmt.Fprintf(s.Err, "lint-block: %s\n", err)
+		return 2
 	}
 
 	var list strings.Builder
@@ -109,19 +119,7 @@ parse:
 			files = append(files, f)
 		}
 	}
-	var rc int
-	if py != nil {
-		var pa []string
-		if audit {
-			pa = append(pa, "--audit")
-		}
-		if rcOps != 0 {
-			pa = append(pa, "--partial")
-		}
-		rc = py.run(s, append(append(pa, packArgs...), "--files-from", "-"), list.String())
-	} else {
-		rc = lintFiles(s, files, audit, rcOps != 0)
-	}
+	rc := lintFiles(s, files, audit, rcOps != 0, lt)
 	if rcOps != 0 && rc < 2 {
 		rc = 2
 	}
@@ -211,11 +209,11 @@ func walk(dir, shown string, out *[]string) bool {
 	return ok
 }
 
-// lintFiles is lint_block.main for a file list, without packs.
-func lintFiles(s cli.Stdio, files []string, audit, partial bool) int {
+// lintFiles is lint_block.main for a file list.
+func lintFiles(s cli.Stdio, files []string, audit, partial bool, lt *linter) int {
 	counts := map[string]int{}
-	var cov coverage
-	read, empty, unreadable, total, warn, inactive := 0, 0, 0, 0, 0, 0
+	cov := coverage{pack: map[string]int{}}
+	read, empty, unreadable, total, warn, inactive, crashed := 0, 0, 0, 0, 0, 0, 0
 	for _, path := range files {
 		data, err := os.ReadFile(abs(s, path))
 		if err != nil {
@@ -235,11 +233,20 @@ func lintFiles(s cli.Stdio, files []string, audit, partial bool) int {
 			fmt.Fprintf(s.Out, "EMPTY-INPUT %s\n", path)
 			continue
 		}
-		findings, warns, infos, c := lintText(text)
+		res, crash := lt.lint(text)
+		if crash != "" { // a crashing rule is an operational failure, never "findings" (exit 1)
+			fmt.Fprintf(s.Err, "RULE-CRASH %s: panic: %s\n", path, crash)
+			crashed++
+			continue
+		}
+		findings, warns, infos, c := res.findings, res.warns, res.infos, res.cov
 		cov.selfverifySections += c.selfverifySections
 		cov.certHwLive += c.certHwLive
 		cov.r6Triggers += c.r6Triggers
 		cov.certInline += c.certInline
+		for k, v := range c.pack {
+			cov.pack[k] += v
+		}
 		for _, i := range infos {
 			fmt.Fprintf(s.Out, "INFO %s:%d: %s\n", path, i.line, i.msg)
 			inactive++
@@ -258,10 +265,36 @@ func lintFiles(s cli.Stdio, files []string, audit, partial bool) int {
 	if audit {
 		mode = "AUDIT"
 	}
-	perRule := fmt.Sprintf("R0=%d R3=%d R6=%d", counts["R0"], counts["R3"], counts["R6"])
-	fmt.Fprintf(s.Out, "SUMMARY %s files=%d empty=%d unreadable=%d findings=%d warn=%d inactive-waivers=%d %s | inspected: selfverify-sections=%d cert-hw-live-items=%d r6-trigger-clauses=%d cert-inline-items=%d\n",
-		mode, read, empty, unreadable, total, warn, inactive, perRule, cov.selfverifySections, cov.certHwLive, cov.r6Triggers, cov.certInline)
-	if unreadable > 0 {
+	perRule := fmt.Sprintf("R0=%d", counts["R0"])
+	for _, id := range lt.ids {
+		perRule += fmt.Sprintf(" %s=%d", id, counts[id])
+	}
+	crashedCov := ""
+	if crashed > 0 {
+		crashedCov = fmt.Sprintf(" crashed=%d", crashed)
+	}
+	packCov := ""
+	if len(lt.loaded) > 0 {
+		var trig []string
+		for _, id := range lt.packed {
+			k := strings.ToLower(id)
+			trig = append(trig, fmt.Sprintf("%s-triggers=%d", k, cov.pack[k+"_triggers"]))
+		}
+		packCov = " packs=" + strings.Join(lt.loaded, ",") + " " + strings.Join(trig, " ")
+		var keys []string
+		for k := range cov.pack {
+			if strings.HasSuffix(k, "_quoted_skipped") || strings.HasSuffix(k, "_unscoped") {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			packCov += fmt.Sprintf(" %s=%d", strings.ReplaceAll(k, "_", "-"), cov.pack[k])
+		}
+	}
+	fmt.Fprintf(s.Out, "SUMMARY %s files=%d empty=%d unreadable=%d findings=%d warn=%d inactive-waivers=%d %s | inspected: selfverify-sections=%d cert-hw-live-items=%d r6-trigger-clauses=%d cert-inline-items=%d%s%s\n",
+		mode, read, empty, unreadable, total, warn, inactive, perRule, cov.selfverifySections, cov.certHwLive, cov.r6Triggers, cov.certInline, crashedCov, packCov)
+	if unreadable > 0 || crashed > 0 {
 		return 2
 	}
 	switch {
