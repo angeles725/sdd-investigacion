@@ -1,0 +1,12 @@
+verify-session-budget: @ROOT@/fix/escape
+source startup:
+hook[1] chars=23 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/writes.sh
+hook[2] chars=1 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/net.sh
+hook[3] chars=0 status=ok cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/envs.sh
+aggregate[startup]: 24 chars (budget < 8000) OK
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 24 chars (budget < 8000) OK worst-source=startup
+state: ok (3 hook runs, 0 truncated, 0 timed-out)

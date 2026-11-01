@@ -1,0 +1,2 @@
+verify-session-budget: @ROOT@/fix/empty
+state: empty-input (no SessionStart command hook matches startup, resume, clear, compact or fork in @ROOT@/fix/empty/.claude/settings.json)

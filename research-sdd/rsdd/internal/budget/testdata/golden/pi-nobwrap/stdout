@@ -1,0 +1,6 @@
+verify-session-budget: @ROOT@/fix/pi-card
+harness: pi (kit extension research-sdd-hooks.ts + <target>/.pi/extensions/*; sections added on before_agent_start after a startup session_start)
+limits: fake pi (no-op API, no ctx.mode/model/tools); session_start handlers run in parallel, before_agent_start one after another; counted: sections, returned message content; unmeasured (typed): returned systemPrompt, event.systemPrompt edits
+kit: @ROOT@/stubkit
+pi: DEGRADED — no-sandbox: bwrap not installed
+state: degraded (no-sandbox: bwrap not installed; nothing was measured on pi)

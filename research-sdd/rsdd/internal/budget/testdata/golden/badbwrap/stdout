@@ -1,0 +1,13 @@
+verify-session-budget: @ROOT@/fix/mixed
+source startup:
+hook[1] chars=n/a status=degraded(no-sandbox: bwrap cannot start: bwrap: No permissions to create new namespace) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/plain500.sh
+hook[2] chars=n/a status=degraded(no-sandbox: bwrap cannot start: bwrap: No permissions to create new namespace) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/plain10500.sh
+hook[3] chars=n/a status=degraded(no-sandbox: bwrap cannot start: bwrap: No permissions to create new namespace) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/json500.sh
+hook[4] chars=n/a status=degraded(no-sandbox: bwrap cannot start: bwrap: No permissions to create new namespace) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/writer.sh
+aggregate[startup]: 0 chars (budget < 8000) OK (partial: 4 degraded)
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 0 chars (budget < 8000) OK (partial: 4 degraded in startup) worst-source=startup
+state: degraded (4 of 4 hook runs could not be measured; 0 timed-out)

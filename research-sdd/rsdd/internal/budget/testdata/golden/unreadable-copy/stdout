@@ -1,0 +1,10 @@
+verify-session-budget: @ROOT@/fix/utf8
+source startup:
+hook[1] chars=n/a status=degraded(incomplete-sandbox-copy: cp: cannot open '@ROOT@/fix/utf8/.claude/unreadable' for reading: Permission denied) cmd=$CLAUDE_PROJECT_DIR/.claude/hooks/accents.sh
+aggregate[startup]: 0 chars (budget < 8000) OK (partial: 1 degraded)
+source resume: (no matching SessionStart hooks)
+source clear: (no matching SessionStart hooks)
+source compact: (no matching SessionStart hooks)
+source fork: (no matching SessionStart hooks)
+aggregate: 0 chars (budget < 8000) OK (partial: 1 degraded in startup) worst-source=startup
+state: degraded (1 of 1 hook runs could not be measured; 0 timed-out)
