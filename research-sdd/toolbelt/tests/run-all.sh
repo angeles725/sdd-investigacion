@@ -808,13 +808,20 @@ _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report ar
     fi
   done
   for v in $(compgen -e | LC_ALL=C sort); do
-    [[ "$v" == RSDD_* ]] && env_sig+="env $v=$(printf '%q' "${!v}")"$'\n'
+    # SENTINEL-RSDD-BIN-CACHE: RSDD_BIN is a path (a temp path when run-all built it), never key material; the binary's
+    # bytes (caller-set) or the module sources (built by run-all, below) are.
+    [[ "$v" == RSDD_* && "$v" != RSDD_BIN ]] && env_sig+="env $v=$(printf '%q' "${!v}")"$'\n'
   done
+  if [[ -n "${RSDD_BIN:-}" ]]; then
+    h="$("$sha" "$RSDD_BIN" 2>/dev/null)" && h="${h%% *}" || h="unreadable"
+    env_sig+="rsdd-bin external ${h:-unreadable}"$'\n'
+  fi
   # SENTINEL-CACHE-GLOBAL: inputs every suite may lean on
   while IFS= read -r f; do
     case "$f" in
       "$rel_tests"/lib/*|"$rel_tests"/run-all.sh|"$rel_tests"/suite-impact.sh|"$rel_tests"/impact-*.txt|"$rel_tests"/suite-tiers.txt|"$rel_tests"/teeth-helper-waivers.txt|"$rel_tests"/shard-join.sh|research-sdd/templates/*)
         glob_sig+="global $f ${chash[$f]}"$'\n' ;;
+      research-sdd/rsdd/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;   # SENTINEL-RSDD-BIN-CACHE-SRC: the module sources run-all builds RSDD_BIN from
       research-sdd/install/tests/*.test.sh|research-sdd/install/tests/*.test.mjs) ;;
       research-sdd/install/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;
     esac
@@ -1297,6 +1304,54 @@ if [[ "$JOBS" -gt 1 && ${#all_suites[@]} -gt 0 ]]; then
   export RSDD_JOB_SLOTS="$JOB_SLOTS_DIR/slots" RSDD_JOB_SLOTS_LIB="$SCRIPT_DIR/lib/job-slots.sh"
   [[ -n "$JOBS_ACTIVE" ]] || _job_budget_hold
 fi
+# --- rsdd binary, built ONCE per run (kit issue #2422) --------------------------------------------
+# lib/rsdd-exec.sh rebuilds rsdd into <kit>/bin when RSDD_BIN is unset, which the kit-tree hermeticity check
+# (SENTINEL-KIT-TREE-CHECK) then reports as a leak. So the runner builds the binary ONCE into its own temp root and
+# exports RSDD_BIN to every suite (serial, -j and --shard alike: the build happens here, before any suite starts, and
+# the workers inherit the environment). A caller-set RSDD_BIN is used as-is. Never built for --list-suites or a
+# refused flag (both exit before this point). Every outcome is ONE aggregate line (RSDD_LINE):
+#   built      -> `rsdd: built — ...`
+#   caller-set -> `rsdd: RSDD_BIN set by the caller — ...`
+#   DEGRADED   -> go absent, no usable temp root, or the build failed; RSDD_BIN stays unset (the shims then degrade or
+#                 build on their own) and the run exits 1 under RSDD_REQUIRE_GO=1 (CI sets it), never a silent pass
+#   SKIPPED    -> no Go module next to this runner (a fixture or partial tree): nothing to build, never fails
+RSDD_LINE=""
+RSDD_FAIL=""
+_rsdd_bin_prepare() {
+  local kit mod sym hash out why="" log
+  if [[ -n "${RSDD_BIN:-}" ]]; then   # SENTINEL-RSDD-BIN-CALLER
+    RSDD_LINE="rsdd: RSDD_BIN set by the caller — used as-is, not built"
+    return 0
+  fi
+  kit="$(cd -P -- "$SCRIPT_DIR/../.." 2>/dev/null && pwd -P)" || kit=""
+  mod="$kit/rsdd"
+  if [[ -z "$kit" || ! -f "$mod/go.mod" ]]; then
+    RSDD_LINE="rsdd: SKIPPED — no Go module at ${mod:-research-sdd/rsdd}; RSDD_BIN left unset"
+    return 0
+  fi
+  if [[ -z "$RUN_TMP_ROOT" ]]; then why="no per-run temp root to build into"
+  elif ! command -v go >/dev/null 2>&1; then why="go not found on PATH"
+  elif ! sym="$(sed -n 's/^SOURCE_HASH_SYM := //p' "$mod/Makefile" 2>/dev/null)" || [[ -z "$sym" ]]; then why="no SOURCE_HASH_SYM in $mod/Makefile"
+  elif ! mkdir -p -- "$RUN_TMP_ROOT/rsdd-bin"; then why="cannot create $RUN_TMP_ROOT/rsdd-bin"
+  else
+    out="$RUN_TMP_ROOT/rsdd-bin/rsdd"; log="$RUN_TMP_ROOT/rsdd-bin/build.log"
+    # The Makefile `build` target: stamp the source hash so the binary reads as fresh to rsdd-exec.sh's checks.
+    if ! hash="$(cd -- "$mod" && go run ./cmd/rsdd-srchash . 2>"$log")" || [[ -z "$hash" ]]; then why="go run ./cmd/rsdd-srchash failed ($(head -n 1 "$log" 2>/dev/null))"
+    elif ! (cd -- "$mod" && go build -ldflags "-s -w -X $sym=$hash" -o "$out" ./cmd/rsdd 2>"$log"); then why="go build failed ($(head -n 1 "$log" 2>/dev/null))"   # SENTINEL-RSDD-BIN-BUILD
+    elif [[ ! -f "$out" || ! -x "$out" ]]; then why="go build produced no executable at $out"
+    fi
+  fi
+  if [[ -n "$why" ]]; then
+    RSDD_LINE="rsdd: DEGRADED — $why; RSDD_BIN left unset (the shims then degrade or build on their own)"
+    echo "run-all.sh: $RSDD_LINE" >&2
+    [[ "${RSDD_REQUIRE_GO:-}" != 1 ]] || RSDD_FAIL=1
+    return 0
+  fi
+  export RSDD_BIN="$out"   # SENTINEL-RSDD-BIN-EXPORT
+  RSDD_LINE="rsdd: built — RSDD_BIN exported to every suite (one build per run; source hash $hash)"
+}
+_rsdd_bin_prepare
+
 _rsdd_snapshot
 if [[ -n "$JOBS_ACTIVE" ]]; then
   PAR_DIR="$(mktemp -d)"; _par_dir_created=1
@@ -1593,6 +1648,7 @@ if [[ -n "$TIER_DEGRADED" ]]; then
 else
   echo "Tier: $TIER — $tier_selected of $discovered_suites suites (excluded: $((discovered_suites - tier_selected)))"
 fi
+echo "$RSDD_LINE"
 if [[ -n "$IMPACTED_REF" ]]; then
   echo "Impacted: $total_suites of $tier_selected suites (base $IMPACTED_REF, merge-base $IMPACTED_SHA)"
   if [[ "$IMPACTED_ESC" == "no" ]]; then
@@ -1814,6 +1870,10 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] && [[ -z "$TIER_DEGRADED" ]]; then
   final_rc=0
+  # SENTINEL-RSDD-BIN-REQUIRE: a failed rsdd build under RSDD_REQUIRE_GO=1 (RSDD_FAIL) fails the run
+  if [[ -n "$RSDD_FAIL" ]]; then
+    final_rc=1
+  fi
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
   if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
     final_rc=1
