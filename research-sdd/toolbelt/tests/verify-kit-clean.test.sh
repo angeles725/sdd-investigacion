@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# verify-kit-clean.test.sh — RED-FIRST harness for verify-kit-clean.sh (kit-audit Addendum B).
+# verify-kit-clean.test.sh — harness for verify-kit-clean.sh (kit-audit Addendum B), now a shim to
+# `rsdd verify kit-clean` (kit issue #2354).
 #
 # The discriminating behaviour: is the kit repo in a CLEAN, committed, pushed state (safe to stage a retro
-# or start clean work)? DIRTY working tree OR unpushed local commits → exit 1. --prove-teeth neuters the
-# dirty check and asserts the dirty fixture then reports clean.
+# or start clean work)? DIRTY working tree OR unpushed local commits → exit 1. Cases 1-13 run the SHIM
+# end to end against the real Go binary (RSDD_BIN, else built once from research-sdd/rsdd); the report text
+# itself is also pinned byte for byte against the old bash script by the Go differential tests
+# (internal/verify, `make test`). The old case 12 (a `grep -c` that exits 2) is gone with grep: counting
+# lines in Go cannot fail. Cases 14-17 pin the shim: own-directory default, explicit argument, missing lib,
+# unusable binary (a typed degraded state, never a silent pass).
+# --prove-teeth mutates the SHIM (each mutant must lose its case); the Go source has its own mutation gate
+# (`make teeth` in research-sdd/rsdd).
 #
-# Usage: verify-kit-clean.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+# Usage: verify-kit-clean.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-kit-clean.sh"
@@ -15,6 +22,13 @@ pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+
+# The Go binary the shim execs: the caller's RSDD_BIN, else one build into the temp dir.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$TMP/rsdd"
+fi
 
 # a committed, clean repo with a pushed upstream (bare origin) on branch main
 mkrepo() {
@@ -78,8 +92,8 @@ else no "no-upstream-ahead missed: exit=$(runrc "$d") :: $out"; fi
 #     the WARN is ADDITIVE — independent of the clean/dirty verdict.
 d="$TMP/withaudits"; mkrepo "$d"; mkdir -p "$d/audits"
 out="$(runout "$d")"
-if grep -qiE 'audits/ exists at the kit/supervisor root' <<<"$out"; then ok "audits/ at kit root → advisory WARN fires"
-else no "audits/ WARN missing :: $out"; fi
+if grep -qiE 'audits/ exists at the kit/supervisor root' <<<"$out" && [ "$(runrc "$d")" = 0 ]; then ok "audits/ at kit root → advisory WARN fires (verdict unchanged)"
+else no "audits/ WARN missing or verdict changed :: $out"; fi
 
 # 9 — NEGATIVE control: no `audits/` dir at the root → the audits-WARN does NOT fire (no false positive).
 d="$TMP/noaudits"; mkrepo "$d"
@@ -139,39 +153,7 @@ else
   no "11 contradiction WARN missing (out=[$out11])"
 fi
 
-# 12 — grep exits 2 (counter failure) → WARN: count FAILED fires.
-_stub12="$TMP/stub-bin-12"; mkdir -p "$_stub12"
-cat > "$_stub12/git" << 'STUB12'
-#!/usr/bin/env bash
-case "$*" in
-  *rev-parse*--show-toplevel*)            echo "/tmp/fake-r12"; exit 0 ;;
-  *rev-parse*--abbrev-ref*HEAD*)          echo "main";          exit 0 ;;
-  *status*--porcelain*)                   printf 'M  modified.txt\n'; exit 0 ;;
-  *diff*--cached*--name-only*)            printf 'modified.txt\n'; exit 0 ;;
-  *diff*--name-only*)                     exit 0 ;;
-  *ls-files*--others*--exclude-standard*) exit 0 ;;
-  *rev-list*)                             echo "0"; exit 0 ;;
-  *rev-parse*upstream*)                   exit 1 ;;
-  *)                                      exit 0 ;;
-esac
-STUB12
-chmod +x "$_stub12/git"
-cat > "$_stub12/grep" << 'STUBGREP'
-#!/usr/bin/env bash
-# Exit 2 (grep error) for -c (count) calls; pass through all others.
-case "$*" in
-  *-c*) exit 2 ;;
-  *)    /usr/bin/grep "$@" ;;
-esac
-STUBGREP
-chmod +x "$_stub12/grep"
-d12="$TMP/greparr"; mkdir -p "$d12"
-out12="$(PATH="$_stub12:$PATH" bash "$SUT" "$d12" 2>&1)"
-if <<<"$out12" grep -qi 'count FAILED\|grep exit'; then
-  ok "12 grep exit 2 on counter → 'count FAILED' WARN fires"
-else
-  no "12 count-FAILED WARN missing (out=[$out12])"
-fi
+# 12 — (retired) the old case 12 stubbed `grep` to exit 2; the Go port counts lines without grep.
 
 # 13 — kit issue #1820: every git read carries GIT_OPTIONAL_LOCKS=0 (a SessionStart read must never take
 #       index.lock while a sibling session commits). A recording PATH-stub git logs the env it receives and
@@ -194,64 +176,70 @@ else
   no "13 git reads without GIT_OPTIONAL_LOCKS=0: calls=$n13 unlocked=$bad13 :: $(grep -v 'LOCKS=0 ::' "$TMP/git13.log" | head -3 | tr '\n' '|')"
 fi
 
-# NEGATIVE CONTROL — neuter the dirty check; the dirty fixture must then report clean (exit 0).
+# stage_shim DEST_TOOLBELT [SHIM] — a sandbox toolbelt holding the shim (the real one, or a mutant) and lib/rsdd-exec.sh.
+stage_shim() { mkdir -p "$1"; cp "${2:-$SUT}" "$1/verify-kit-clean.sh"; chmod +x "$1/verify-kit-clean.sh"; mkdir -p "$1/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$1/lib/" || exit 2; }   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 16
+
+# 14 — the default repository is the script's OWN directory (never the caller's cwd). The shim sits in a repo,
+#      committed; run from a non-repo cwd it reports that repo, and turns DIRTY when the repo does.
+d14="$TMP/selfrepo"; mkrepo "$d14"; stage_shim "$d14"
+git -C "$d14" add -A; git -C "$d14" commit -q -m shim; git -C "$d14" push -q origin main 2>/dev/null
+out14="$(cd "$TMP" && bash "$d14/verify-kit-clean.sh" 2>&1)"; rc14=$?
+echo dirt > "$d14/zz.txt"
+(cd "$TMP" && bash "$d14/verify-kit-clean.sh" >/dev/null 2>&1); rc14b=$?
+if [ "$rc14" = 0 ] && [ "$rc14b" = 1 ] && grep -q '== verify-kit-clean: selfrepo (branch: main) ==' <<<"$out14"; then
+  ok "14 no argument → checks the shim's own directory, not the cwd"
+else no "14 default repo wrong: rc=$rc14/$rc14b :: $out14"; fi
+rm -f "$d14/zz.txt"
+
+# 15 — an explicit argument wins over the own-directory default.
+d15="$TMP/arg-dirty"; mkrepo "$d15"; echo changed > "$d15/f.txt"
+bash "$d14/verify-kit-clean.sh" "$d15" >/dev/null 2>&1; rc15=$?
+if [ "$rc15" = 1 ]; then ok "15 explicit repo argument overrides the own-directory default"; else no "15 argument ignored (rc=$rc15, want 1)"; fi
+
+# 16 — the shim's own lib missing → a typed degraded line, rc 2, nothing on stdout (never a silent pass).
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/verify-kit-clean.sh"
+out16="$(bash "$TMP/nolib/verify-kit-clean.sh" 2>"$TMP/err16")"; rc16=$?
+if [ "$rc16" = 2 ] && [ -z "$out16" ] && grep -q "^degraded: rsdd-unavailable — rsdd-exec.sh missing beside $TMP/nolib/verify-kit-clean.sh\$" "$TMP/err16"; then
+  ok "16 missing rsdd-exec.sh → typed degraded line, rc 2"
+else no "16 missing lib: rc=$rc16 out=[$out16] err=[$(cat "$TMP/err16")]"; fi
+
+# 17 — an unusable RSDD_BIN → typed degraded line, rc 2 (the gate could not run: not clean, not a pass).
+out17="$(RSDD_BIN="$TMP/does-not-exist" bash "$SUT" "$TMP/clean" 2>"$TMP/err17")"; rc17=$?
+if [ "$rc17" = 2 ] && [ -z "$out17" ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err17"; then
+  ok "17 unusable RSDD_BIN → typed degraded line, rc 2"
+else no "17 unusable binary: rc=$rc17 out=[$out17] err=[$(cat "$TMP/err17")]"; fi
+
+# NEGATIVE CONTROL — each shim mutation must lose its case.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
-  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
-  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  # A bad side that is only an exit code must not be a crash: these never read as a bite.
-  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  echo "-- teeth: neuter the porcelain dirty-check, expect the dirty fixture to pass as clean --"
-  mutant="$TMP/verify-kit-clean.MUTANT.sh"
-  if mk_mut "teeth: dirty-check-neutered" "$SUT" "$mutant" 's/status --porcelain/status --porcelain --untracked-files=no/' 's/\[ -n "\$porcelain" \]/[ -n "" ]/'; then
-    d="$TMP/teeth"; mkrepo "$d"; echo "changed" > "$d/f.txt"
-    tt "teeth: dirty-check-neutered mutant reports clean → check has teeth" 1 0 "$mutant" --orig "$SUT" \
-      --good-has 'working tree : DIRTY' --bad-has 'working tree : CLEAN' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
-  fi
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Additional mutation control: neuter the git-status rc-check; the git-fail stub must then exit 0 (CLEAN).
-  echo "-- teeth: neuter the git_rc check, expect git-status failure to pass silently as clean --"
-  mutant2="$TMP/verify-kit-clean.MUTANT2.sh"
-  if mk_mut "teeth: git-rc-check-neutered" "$SUT" "$mutant2" 's/git_rc=\$?/git_rc=0/'; then
-    d_tf="$TMP/teeth-gitfail"; mkdir -p "$d_tf"
-    tt "teeth: git-rc-check-neutered mutant exits 0 (silently clean) → rc-check has teeth" 1 0 "$mutant2" --orig "$SUT" \
-      --good-has 'git status failed' --bad-lacks "$CRASH" -- env PATH="$_stub10:$PATH" bash @SUT@ "$d_tf"
+  # A: the argument is dropped (always the own directory) → case 15.
+  if mk_mut "teeth A: argument ignored" "$SUT" "$TMP/mutA.sh" 's/"\${1:-\$_RSDD_SELF}"/"$_RSDD_SELF"/'; then
+    stage_shim "$TMP/mA" "$TMP/mutA.sh"   # not a repo: an ignored argument falls back to it → rc 2
+    bash "$TMP/mA/verify-kit-clean.sh" "$d15" >/dev/null 2>&1; mrc=$?
+    if [ "$mrc" != 1 ]; then ok "teeth A: argument ignored → case 15 would go RED (rc $mrc)"; else no "teeth A: mutant still honours the argument"; fi
   fi
-
-  # Tooth: reintroduce || true on one counter + stub grep to exit 2 → contradiction/failed WARN disappears.
-  echo "-- teeth: || true on counter + grep exit 2 → WARNs must disappear (tests 11+12 go RED) --"
-  mutant3="$TMP/verify-kit-clean.MUTANT3.sh"
-  # Neuter the _sgrc check by replacing grep -c . with 'grep -c . || true' style:
-  # Replace '; _sgrc=$?' with '|| true); _sgrc=$?' and remove the WARN checks.
-  if mk_mut "teeth: || true counter" "$SUT" "$mutant3" 's/grep -c \./grep -c . || true/g' '/WARN: DIRTY but all three counters/ s/.*/    :/' '/WARN: staged count FAILED/d' '/WARN: unstaged count FAILED/d' '/WARN: untracked count FAILED/d'; then
-    # (The contradiction WARN is blanked to ':', not deleted: deleting it would leave an empty if-body and a
-    # syntax-broken mutant that lib/mutant.sh refuses — the old hand-made mutant was exactly that, biting for the wrong reason.)
-    # Run the contradiction scenario (stub11) against mutant3 — WARN must be absent.
-    # The original warns (contradiction/count FAILED); the mutant must stay on the DIRTY path (same exit) yet go silent.
-    out_o3="$(PATH="$_stub11:$PATH" bash "$SUT" "$d11" 2>&1)"; rc_o3=$?
-    out_m3="$(PATH="$_stub11:$PATH" bash "$mutant3" "$d11" 2>&1)"; rc_m3=$?
-    if [ "$rc_o3" = "$rc_m3" ] && grep -qiE 'counters disagree|count FAILED' <<<"$out_o3" \
-       && grep -qE '^ *working tree : DIRTY' <<<"$out_m3" && ! grep -qiE 'counters disagree|count FAILED' <<<"$out_m3" \
-       && ! grep -qE "$CRASH" <<<"$out_m3"; then
-      ok "teeth: || true mutant silences contradiction/failed WARNs → tests 11+12 would catch it (RED)"
-    else
-      no "teeth: || true mutant tooth failed (orig rc=$rc_o3, mutant rc=$rc_m3) — WARNs not silenced on a still-DIRTY report"
-    fi
+  # B: the default becomes the cwd instead of the own directory → case 14.
+  if mk_mut "teeth B: default is cwd" "$SUT" "$TMP/mutB.sh" 's/"\${1:-\$_RSDD_SELF}"/"${1:-}"/'; then
+    stage_shim "$TMP/mB" "$TMP/mutB.sh"
+    ( cd "$TMP" && bash "$TMP/mB/verify-kit-clean.sh" >/dev/null 2>&1 ); mrc=$?
+    if [ "$mrc" = 2 ]; then ok "teeth B: cwd default from a non-repo cwd → rc 2, case 14 would go RED"; else no "teeth B: mutant rc=$mrc (want 2)"; fi
   fi
-
-  # Tooth (kit issue #1820): drop the GIT_OPTIONAL_LOCKS export -> case 13's recorded git calls lose LOCKS=0.
-  echo "-- teeth: drop the GIT_OPTIONAL_LOCKS=0 export, expect git reads WITHOUT it (case 13 RED) --"
-  mutant4="$TMP/verify-kit-clean.MUTANT4.sh"
-  if mk_mut "teeth: optional-locks-dropped" "$SUT" "$mutant4" 's/^export GIT_OPTIONAL_LOCKS=0$/:/'; then
-    : > "$TMP/git13.log"
-    env -u GIT_OPTIONAL_LOCKS PATH="$_stub13:$PATH" bash "$mutant4" "$d13" >/dev/null 2>&1
-    if grep -q 'LOCKS=UNSET ::' "$TMP/git13.log"; then ok "teeth: mutant's git reads lack GIT_OPTIONAL_LOCKS → case 13 has teeth"
-    else no "teeth: mutant still carries GIT_OPTIONAL_LOCKS=0 — case 13 is THEATER"; fi
+  # C: the shim runs the hook command instead of the check → no report, case 1 loses 'verdict'.
+  if mk_mut "teeth C: wrong command" "$SUT" "$TMP/mutC.sh" 's/verify kit-clean /verify kit-clean-hook /'; then
+    stage_shim "$TMP/mC" "$TMP/mutC.sh"
+    outc="$(bash "$TMP/mC/verify-kit-clean.sh" "$TMP/dirty" 2>&1)"
+    if [ "${outc:0:1}" = "{" ] && grep -q hookSpecificOutput <<<"$outc"; then ok "teeth C: wrong command → report replaced by an envelope, cases 2/4 would go RED"; else no "teeth C: mutant still prints the report"; fi
+  fi
+  # D: the missing-lib guard stripped → no typed degraded line → case 16.
+  if mk_mut "teeth D: guard removed" "$SUT" "$TMP/mutD.sh" 's/ 2>\/dev\/null || { printf .*exit 2; }//'; then
+    mkdir -p "$TMP/mD"; cp "$TMP/mutD.sh" "$TMP/mD/verify-kit-clean.sh"
+    bash "$TMP/mD/verify-kit-clean.sh" >/dev/null 2>"$TMP/errD"; mrc=$?
+    if ! grep -q 'rsdd-exec.sh missing beside' "$TMP/errD"; then ok "teeth D: unguarded shim no longer announces a missing lib → case 16 would go RED"; else no "teeth D: mutant still announces"; fi
   fi
 fi
 

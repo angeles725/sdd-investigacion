@@ -131,16 +131,22 @@ func parseTable(r io.Reader) ([]row, error) {
 
 // identName derives a Go identifier from a code text: "<v>" becomes the word "V", every other run of
 // non-alphanumerics separates words, and each word gets an upper-case first letter.
-func identName(code string) string {
+// A word whose first character is a letter with no upper-case form (CJK, for example) is an error: the
+// result could not start an exported identifier and a silently kept lower-case word would hide the word
+// boundary.
+func identName(code string) (string, error) {
 	code = strings.ReplaceAll(code, "<v>", " V ")
 	words := strings.FieldsFunc(code, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 	var b strings.Builder
 	for _, w := range words {
 		rs := []rune(w)
+		if unicode.IsLetter(rs[0]) && unicode.ToUpper(rs[0]) == rs[0] && !unicode.IsUpper(rs[0]) {
+			return "", fmt.Errorf("code %q yields unusable identifier: word %q starts with %q, which has no upper-case form", code, w, rs[0])
+		}
 		rs[0] = unicode.ToUpper(rs[0])
 		b.WriteString(string(rs))
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 // render produces the formatted Go source for rows.
@@ -148,7 +154,10 @@ func render(rows []row) ([]byte, error) {
 	names := make([]string, len(rows))
 	used := map[string]string{}
 	for i, r := range rows {
-		n := identName(r.Code)
+		n, err := identName(r.Code)
+		if err != nil {
+			return nil, err
+		}
 		if n == "" || unicode.IsDigit([]rune(n)[0]) {
 			return nil, fmt.Errorf("code %q yields unusable identifier %q", r.Code, n)
 		}

@@ -1,0 +1,11 @@
+{
+ "legacy": [
+  "toolbelt/return-token-gate.sh"
+ ],
+ "rsdd": [
+  "gate",
+  "return-token",
+  "--toolbelt",
+  "{{input}}/toolbelt"
+ ]
+}

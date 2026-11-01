@@ -1,0 +1,7 @@
+Usage:
+  rsdd <command> [args]
+  rsdd <group> <command> [args]
+
+Commands:
+  grp alpha                a grouped command
+  version                  print the module version and VCS revision
