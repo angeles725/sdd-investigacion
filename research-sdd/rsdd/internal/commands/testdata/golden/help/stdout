@@ -1,8 +1,0 @@
-Usage:
-  rsdd <command> [args]
-  rsdd <group> <command> [args]
-
-Commands:
-  verify kit-clean         is the kit repo clean, committed and pushed (port of verify-kit-clean.sh)
-  verify kit-clean-hook    SessionStart hook: emit the kit-clean report when the kit is not clean
-  version                  print the module version and VCS revision

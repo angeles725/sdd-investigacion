@@ -1,0 +1,5 @@
+Usage:
+  rsdd grp <command> [args]
+
+Commands:
+  alpha                    a grouped command

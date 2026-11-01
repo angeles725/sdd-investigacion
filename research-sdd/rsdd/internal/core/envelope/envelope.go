@@ -66,13 +66,17 @@ var schemaSyntax = regexp.MustCompile(`^research-sdd\.[a-z0-9][a-z0-9-]*/v[0-9]+
 
 // Validate checks the invariants of json-envelope.v1.md: a well-formed schema id, a valid state, a null
 // reason exactly for OK, integer counters, items that each lead with a string "kind", and items non-empty
-// if and only if the state is OK.
+// if and only if the state is OK, and valid UTF-8 in every key and string (a retro-gate verdict's reason is
+// the one exception: the renderer repairs it to U+FFFD, as the contract specifies).
 func (e Envelope) Validate() error {
 	if !schemaSyntax.MatchString(e.Schema) {
 		return fmt.Errorf("envelope: schema %q is not research-sdd.<instrument>/v<N>", e.Schema)
 	}
 	if _, err := e.State.ExitCode(); err != nil {
 		return fmt.Errorf("envelope: %w", err)
+	}
+	if !utf8.ValidString(e.Reason) {
+		return errors.New("envelope: reason is not valid UTF-8")
 	}
 	if e.State == state.OK {
 		if e.Reason != "" {
@@ -107,7 +111,7 @@ func (e Envelope) Validate() error {
 		if kind, ok := it[0].Value.(string); !ok || kind == "" {
 			return fmt.Errorf("envelope: %s kind must be a non-empty string", where)
 		}
-		if err := checkObject(it, where); err != nil {
+		if err := checkObject(sanitizeVerdict(it), where); err != nil {
 			return err
 		}
 	}
@@ -120,6 +124,9 @@ func checkObject(o Object, where string) error {
 	for _, f := range o {
 		if f.Key == "" {
 			return fmt.Errorf("envelope: %s has an empty key", where)
+		}
+		if !utf8.ValidString(f.Key) {
+			return fmt.Errorf("envelope: %s has a key that is not valid UTF-8: %q", where, f.Key)
 		}
 		if seen[f.Key] {
 			return fmt.Errorf("envelope: %s has duplicate key %q", where, f.Key)
@@ -134,6 +141,10 @@ func checkObject(o Object, where string) error {
 
 func checkValue(v any, where string) error {
 	switch x := v.(type) {
+	case string:
+		if !utf8.ValidString(x) {
+			return fmt.Errorf("envelope: %s is not valid UTF-8: %q", where, x)
+		}
 	case Object:
 		return checkObject(x, where)
 	case []Object:
