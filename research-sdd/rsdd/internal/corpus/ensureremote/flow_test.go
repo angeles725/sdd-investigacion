@@ -751,7 +751,7 @@ func TestHardAbortRemovalFailureWithNoOriginIsSilent(t *testing.T) {
 // ---- create failures and timeouts ---------------------------------------------------------------------------
 
 func TestCreateFailure(t *testing.T) {
-	for _, st := range []gh.State{gh.StateError, gh.StateMissing, gh.StateOutputCap, gh.StateProbeFailed} {
+	for _, st := range []gh.State{gh.StateError, gh.StateMissing} {
 		w := newWorld(t)
 		w.createState, w.createRC = st, 1
 		rc := w.ok()
@@ -1060,5 +1060,32 @@ func TestRelativePathsNeverTouchTheProcessCwd(t *testing.T) {
 	}
 	if !w.called("-C "+w.target+" rev-parse") || !w.called("bash "+filepath.Join(w.toolbelt, "scan-secrets.sh")+" --committed") {
 		t.Errorf("paths printed/passed must be the absolute Cwd-resolved ones: %v", w.calls)
+	}
+}
+
+// A create that was cut at the output cap or whose probe failed has an UNKNOWN outcome, like a timeout: the repo and the
+// origin may exist, so visibility is read back and the origin is removed unless it is confirmed PRIVATE.
+func TestCreateOutcomeUnknownStatesAreReadBackAndCleanedUp(t *testing.T) {
+	unknown := gh.Visibility{State: gh.StateError, RC: 1}
+	for _, st := range []gh.State{gh.StateOutputCap, gh.StateProbeFailed} {
+		t.Run(string(st)+"-unreadable", func(t *testing.T) {
+			w := newWorld(t)
+			w.createState, w.createRC, w.createAdds = st, 1, true
+			w.vis = []gh.Visibility{unknown}
+			rc := w.ok()
+			if rc != 7 || w.origin != "" || w.pushed() || !w.called("probe tester/research-target") ||
+				!strings.Contains(w.err(), "DEGRADED: gh repo create did not finish ("+string(st)+") after 20s — PARTIAL-STATE local origin=configured") ||
+				strings.Contains(w.err(), "REFUSED: gh repo create failed.") {
+				t.Errorf("rc=%d origin=%q err=%q calls=%v", rc, w.origin, w.err(), w.calls)
+			}
+		})
+		t.Run(string(st)+"-public-aborts", func(t *testing.T) {
+			w := newWorld(t)
+			w.createState, w.createRC = st, 1
+			w.vis = []gh.Visibility{visOf(gh.StatePublic)}
+			if rc := w.ok(); rc != 6 || w.pushed() || !strings.Contains(w.err(), "HARD ABORT") {
+				t.Errorf("rc=%d err=%q", rc, w.err())
+			}
+		})
 	}
 }
