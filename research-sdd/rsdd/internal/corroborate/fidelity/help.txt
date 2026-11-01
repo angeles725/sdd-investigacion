@@ -1,0 +1,59 @@
+# java-fidelity-experiment.sh — the reproducible experiment to run BEFORE restating a tool-behaviour rule
+# about Java decompilation fidelity (kit issue #1488, code half of #1215; METHODOLOGY §11b "Run an
+# experiment before restating a tool-behavior rule").
+#
+# Usage:
+#   java-fidelity-experiment.sh [--fixtures DIR] [--work DIR]
+#     --fixtures DIR  directory of small synthetic fixtures, one top-level class per <Name>.java in the
+#                     default package, each compiling to EXACTLY one .class (default:
+#                     tests/fixtures/java-fidelity-experiment next to this script)
+#     --work DIR      scratch directory (default: a mktemp dir removed on exit)
+#   Env overrides: RSDD_FIDELITY_JAVAC, RSDD_FIDELITY_JAVAP (default: PATH lookup),
+#                  RSDD_FIDELITY_DECOMPILER (default: decompile-java.sh next to this script).
+#
+# Design decision (recorded here and in METHODOLOGY §11b): the experiment does NOT call a decompiler
+# directly. It goes through the kit's own wrapper (decompile-java.sh: Vineflower, CFR/Procyon fallback), so
+# the verdict describes what the kit's pipeline preserves, not what one engine could do in isolation.
+# The wrapper's combined output is captured per cell (dec.log): its exit status types the cell and its status
+# line ("(engine=<e>)") feeds the engine provenance; the rest (the JDK module scan log) is not interpreted.
+#
+# What it does, per fixture and per mode (g = javac -g, nog = javac with no -g flag):
+#   1. javac the fixture;   2. decompile the .class with the wrapper;   3. recompile the decompiled .java
+#   with the same javac flags;   4. compare `javap -c -p` of the original and recompiled class, constant-pool
+#   indices (#N, or #N followed by ", N" as in "#7, 3") and the "Compiled from" line removed (everything else, including instruction
+#   offsets, must match).   Verdicts (one line per cell):
+#     FIDELITY <Name> mode=<g|nog> verdict=GOOD       recompiles, normalised bytecode identical
+#     FIDELITY <Name> mode=<g|nog> verdict=DIVERGED   recompiles, bytecode differs (a finding, not a failure)
+#     FIDELITY <Name> mode=<g|nog> verdict=FAILED reason=<compile|multi-class|decompile|no-output|
+#                                        multi-output|timeout|recompile|recompile-no-class|javap-original|
+#                                        javap-recompiled>
+#   Plus one DEBUGINFO line per fixture: whether `javap -l -p` shows a LocalVariableTable with -g and
+#   without it (the "-g vs no -g" half of the matrix).
+#   (DEBUGINFO values: yes | no | unmeasured — unmeasured means the original did not compile or javap failed.)
+#   Summary: RESULT: DONE jdk=<v|unknown> engines=<e[,e]|unknown> engine_degraded_cells=N [timeout=unavailable]
+#                         constructs=N cells=M good=a diverged=b failed=c
+#   engines= is the engine name the wrapper's own status line reported per cell (the ENGINE VERSION is not
+#   exposed by the wrapper and is not recorded); engine_degraded_cells counts wrapper exit 4 (fallback ran).
+#   Every such cell also prints `FALLBACK <Name> mode=<g|nog> labelled-engine=<e|unknown>` before its verdict, so a
+#   verdict produced through a fallback is attributable to its cell. labelled-engine is the engine label on the
+#   wrapper's status line, which is the PRIMARY engine even when a unit fell back; it is NOT the engine that
+#   produced the output (the wrapper's UNIT lines in that cell's dec.log say which units fell back).
+#
+# Exit codes (anti-silent-zero, CLAUDE.md §7 — three states stay distinguishable):
+#   0  experiment ran; every cell measured (DIVERGED / FAILED cells are findings, read the lines)
+#   1  fixtures directory exists but holds no *.java (empty-input, nothing was measured)
+#   2  usage error or fixtures directory absent
+#   4  DEGRADED: a runtime dependency is missing, nothing is reported as measured. One line:
+#        DEGRADED: reason=javac-missing|javap-missing|decompiler-missing [detail]
+#      A DEGRADED run never prints a verdict for the cell that could not run and never prints RESULT: DONE.
+#
+# Env: RSDD_FIDELITY_TIMEOUT (positive integer seconds, default 720; anything else exits 2) is the OUTER bound on
+#      each wrapper run (typed FAILED reason=timeout). The wrapper bounds its primary engine at 240 s
+#      (RSDD_DECOMPILE_TIMEOUT) and then runs a fallback engine, so the outer bound is deliberately larger:
+#      an equal bound would kill the wrapper mid-fallback and hide the fallback behind reason=timeout.
+#
+# Limits (stated, not hidden): GOOD means "same bytecode for this fixture on this JDK and this engine
+# version", not "faithful in general"; one construct per fixture, default package only; the experiment
+# says nothing about an engine the wrapper did not run; a cell the wrapper completed through its fallback
+# engine is counted and named (FALLBACK line); the wrapper labels such a run with its PRIMARY engine, so for
+# those cells the verdict covers a mix of primary and fallback output (see dec.log).
