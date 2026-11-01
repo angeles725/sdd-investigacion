@@ -41,6 +41,31 @@ func runScriptState(args []string, s cli.Stdio) int {
 	return cli.ExitOK
 }
 
+// launch-state takes one or more targets and prints one state per line in argument order (kit issue #2357), like
+// wiring-state: a fleet loop forks rsdd once. Zero targets is a usage error.
+func runLaunchState(args []string, s cli.Stdio) int {
+	if len(args) == 0 {
+		fmt.Fprintln(s.Err, "usage: rsdd hook launch-state <target-dir>...")
+		return cli.ExitUsage
+	}
+	env := EnvFrom(s)
+	for _, target := range args {
+		fmt.Fprintln(s.Out, LaunchState(env, target))
+	}
+	return cli.ExitOK
+}
+
+// wired-exec prints the findings of WiredExecReport for one target, one tab-separated line each, and nothing when
+// there are none. Findings are the answer, never a failure: it exits 0 like the bash report did.
+func runWiredExec(args []string, s cli.Stdio) int {
+	target, ok := oneArg("wired-exec", "<target-dir>", args, s)
+	if !ok {
+		return cli.ExitUsage
+	}
+	fmt.Fprint(s.Out, FormatFindings(WiredExecReport(EnvFrom(s), target)))
+	return cli.ExitOK
+}
+
 // git-root prints "1" or "0" (the target is its own root, from the raw-target check) on line 1 and
 // the root, or an empty line, on line 2. The root is the last line and is newline-terminated; a
 // consumer that must keep an embedded or trailing newline of the path appends a sentinel before

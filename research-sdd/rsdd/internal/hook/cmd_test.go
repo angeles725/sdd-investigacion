@@ -30,7 +30,7 @@ func TestCommandsValidate(t *testing.T) {
 	if err := cli.Validate(Commands); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state", "launch-state", "wired-exec"} {
 		found := false
 		for _, c := range Commands {
 			if c.Group == "hook" && c.Name == name {
@@ -126,10 +126,10 @@ func TestGitRootCommand(t *testing.T) {
 }
 
 func TestCommandsUsage(t *testing.T) {
-	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state", "launch-state", "wired-exec"} {
 		cases := [][]string{{"hook", name}, {"hook", name, "a", "b"}}
-		if name == "wiring-state" {
-			cases = cases[:1] // wiring-state takes one or more targets; only zero is a usage error
+		if name == "wiring-state" || name == "launch-state" {
+			cases = cases[:1] // these take one or more targets; only zero is a usage error
 		}
 		for _, args := range cases {
 			out, errOut, code := run(t, "/w", nil, args...)
@@ -145,7 +145,7 @@ func TestHookGroupHelpListsTheCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state", "launch-state", "wired-exec"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("hook --help does not list %s:\n%s", name, out)
 		}
