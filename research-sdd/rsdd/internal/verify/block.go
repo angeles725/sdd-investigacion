@@ -74,9 +74,6 @@ func (v *vb) abs(p string) string {
 	return filepath.Join(v.cwd, p)
 }
 
-// join is `$root/$f` for a file test: relative roots resolve against the working directory.
-func (v *vb) join(root, f string) string { return v.abs(root + "/" + f) }
-
 func (v *vb) isFile(p string) bool {
 	if p == "" {
 		return false
