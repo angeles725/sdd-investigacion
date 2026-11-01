@@ -8,4 +8,5 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 // its entries here and never edits internal/commands.
 var Commands = []cli.Command{
 	{Name: "qnx6-read", Group: "formats", Summary: "list or extract from a raw QNX6 Power-Safe image (read-only)", Run: QNX6Read},
+	{Name: "squashfs-extract", Group: "formats", Summary: "extract a SquashFS v4 image under bubblewrap and validate the tree", Run: SquashfsExtract},
 }
