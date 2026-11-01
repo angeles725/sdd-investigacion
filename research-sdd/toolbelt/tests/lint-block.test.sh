@@ -4,7 +4,8 @@
 # lint-block.sh is a compatibility shim over `rsdd lint block` (Go). The linter's behaviour — every rule, the typed
 # states, the listing, the SUMMARY — is covered by the Go tests in research-sdd/rsdd/internal/lint (unit tests, and
 # a differential against the frozen pre-port script over the fixtures, a generated corpus and the typed-state
-# inputs). The Python packs behind `--pack` are covered by lint-block-packs.test.sh until U3.2 (kit issue #2393).
+# inputs). The four rule packs behind `--pack` are compiled in too (kit issue #2393) and covered there by the table,
+# oracle and differential tests of lookaround_test.go, packs_test.go and packs_diff_test.go.
 # This suite checks only what the shim itself owns: it forwards arguments, the exit code and stderr unchanged, and
 # it degrades through rsdd-exec (typed, exit 2) when rsdd cannot run. Mutation controls under --prove-teeth.
 #
