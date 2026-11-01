@@ -82,15 +82,12 @@ func FindGitRoot(e Env, target string) (root string, targetIsRoot bool) {
 		if d == "/" {
 			return "", false
 		}
-		next := d // ${d%/*}: unchanged when there is no "/" to strip
-		if i := strings.LastIndexByte(d, '/'); i > 0 {
-			next = d[:i]
-		} else if i == 0 {
-			next = "/"
-		}
-		if next == d { // no progress: fail closed
+		if !strings.Contains(d, "/") { // ${d%/*} would not progress: fail closed
 			return "", false
 		}
-		d = next
+		d = d[:strings.LastIndexByte(d, '/')] // ${d%/*}
+		if d == "" {
+			d = "/"
+		}
 	}
 }
