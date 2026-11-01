@@ -27,6 +27,7 @@ func osToolFor(t *testing.T, path string) osTool {
 		}
 		return ""
 	}
+	s.Environ = os.Environ
 	return newOSTool(s)
 }
 
@@ -116,5 +117,20 @@ func TestFinishMapsErrors(t *testing.T) {
 	}
 	if rc := finish(os.ErrNotExist, s, "rdd-drive"); rc != 1 || e.String() != "rsdd: maint rdd-drive: file does not exist\n" {
 		t.Fatalf("rc=%d err=%q", rc, e.String())
+	}
+}
+
+func TestOSToolTakesItsEnvironmentFromStdio(t *testing.T) {
+	s, _, _ := stdio(t.TempDir())
+	s.Env = func(k string) string {
+		if k == "PATH" {
+			return "/custom/bin"
+		}
+		return ""
+	}
+	s.Environ = func() []string { return []string{"PATH=/ignored", "RDD_FROM_STDIO=yes"} }
+	env := newOSTool(s).env
+	if len(env) != 2 || env[0] != "PATH=/custom/bin" || env[1] != "RDD_FROM_STDIO=yes" {
+		t.Fatalf("env=%v", env)
 	}
 }

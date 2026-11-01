@@ -319,3 +319,20 @@ func TestDriveCannotRun(t *testing.T) {
 		t.Fatalf("rc=%d out=%q err=%q", rc, o.String(), e.String())
 	}
 }
+
+func TestDriveFailedCaptureKeepsSiblingResults(t *testing.T) {
+	f := newFake()
+	f.on("review status", 0, fixture(t, "status-collect.json"))
+	f.on("review capture-result --lens risk", 0, "").err = errors.New("provider crashed")
+	f.on("review capture-result --lens resilience", 0, fixture(t, "capture-final-approved.json"))
+	out, errs, rc := runDrive(t, f, fixture(t, "start-granted.json"))
+	if rc == 0 {
+		t.Fatalf("a failed capture must not read as success; out=\n%s", out)
+	}
+	if !strings.Contains(errs, "provider crashed") {
+		t.Fatalf("the capture error is not reported: %q", errs)
+	}
+	if !strings.Contains(out, `CAPTURE rc=0 {"schema": "gentle-ai.review-capture/v1", "status": "approved"`) {
+		t.Fatalf("the sibling capture result was dropped; out=\n%s", out)
+	}
+}

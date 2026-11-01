@@ -285,9 +285,14 @@ func (d *driver) collect(nt *obj, lastStatus []string) (any, []string, error) {
 	}
 	wg.Wait()
 	var terminal any
+	var firstErr error
 	for _, r := range res {
 		if r.err != nil {
-			return nil, nil, r.err
+			// Report every sibling's result before failing: a crashed capture must not hide the others.
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
 		if r.note != "" {
 			d.log(r.note)
@@ -315,6 +320,9 @@ func (d *driver) collect(nt *obj, lastStatus []string) (any, []string, error) {
 		if term {
 			terminal = cd
 		}
+	}
+	if firstErr != nil {
+		return nil, nil, firstErr
 	}
 	if terminal != nil {
 		return terminal, lastStatus, nil

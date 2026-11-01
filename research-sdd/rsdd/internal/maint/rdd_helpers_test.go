@@ -33,6 +33,7 @@ type rule struct {
 	times   int // 0: unlimited
 	barrier int // >0: wait until this many callers are inside at once
 	hits    int
+	err     error // when set, the call fails with it instead of answering
 }
 
 // fake is the in-process gentle-ai.
@@ -91,6 +92,9 @@ func (f *fake) run(argv []string, dir string) (result, error) {
 		} else {
 			f.mu.Unlock()
 		}
+		if r.err != nil {
+			return result{}, r.err
+		}
 		return result{stdout: r.out, rc: r.rc}, nil
 	}
 	f.mu.Unlock()
@@ -103,7 +107,7 @@ type outcome struct{ out, err string }
 
 func stdio(cwd string) (cli.Stdio, *bytes.Buffer, *bytes.Buffer) {
 	var o, e bytes.Buffer
-	return cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: func(string) string { return "" },
+	return cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: func(string) string { return "" }, Environ: func() []string { return nil },
 		Clock: time.Now, Cwd: cwd}, &o, &e
 }
 

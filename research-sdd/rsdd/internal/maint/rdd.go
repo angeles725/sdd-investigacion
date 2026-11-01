@@ -32,12 +32,6 @@ const (
 	toolMaxBytes = 256 << 20
 )
 
-// ambientEnviron is the process environment handed to every provider command. The legacy tools let
-// gentle-ai inherit the whole environment, and cli.Stdio can only look a key up, never list them, so this one
-// read of os.Environ is a deliberate, flagged exception to the Stdio rule (the archtest bans only Getenv,
-// LookupEnv, Getwd and time.Now). Unit tests never reach it: they inject a fake tool.
-var ambientEnviron = os.Environ
-
 const defaultPath = "/bin:/usr/bin"
 
 // result is what one provider command produced.
@@ -66,7 +60,7 @@ func newOSTool(s cli.Stdio) osTool {
 		path = defaultPath
 	}
 	env := []string{"PATH=" + path}
-	for _, kv := range ambientEnviron() {
+	for _, kv := range s.Environ() {
 		if !strings.HasPrefix(kv, "PATH=") {
 			env = append(env, kv)
 		}
