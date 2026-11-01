@@ -70,7 +70,7 @@ jobs:
     # each of 4 shards should take ~7-9 min of suite time plus ~1-2 min setup. timeout-minutes 25 leaves ~2.5x headroom per shard and a
     # cancelled shard fails the join (needs.result != success), so a timeout can never read as green.
     # History of the single-job cap: 12 -> 20 (2026-10-01) -> 35 (2026-10-02, #1437) -> 50 (2026-10-10, #2114/#2115).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       # Every shard must finish so the join reports ALL missing/failed suites in one pass.
@@ -86,9 +86,15 @@ jobs:
       RSDD_REQUIRE_NODE_TS: "1"
       # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
       RSDD_REQUIRE_GO: "1"
+      # Kit issue #2381: on a pull_request, rsdd-go.test.sh runs gremlins only on the Go packages changed since
+      # the merge base with the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
+      RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - name: Check the matrix length matches SHARD_COUNT
         run: |
@@ -177,7 +183,7 @@ jobs:
     # ci_missing. GitHub names matrix jobs `toolbelt-shard (1)` by itself.
     needs: toolbelt-shard
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -211,7 +217,7 @@ jobs:
     # of the required `toolbelt-tests` check; a red nightly is a signal to fix or retire the suite. It has NO
     # `name:` line (see the shard job note about merge-gate's parser).
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # Same prerequisite-must-not-skip flags as the shard job (kit issue #2138).
@@ -247,7 +253,7 @@ jobs:
             || { echo "::error::run-all did not run in parallel mode (see DEGRADED line above)"; exit 1; }
 
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout
