@@ -85,7 +85,7 @@ func TestPTYSweep(t *testing.T) {
 func TestPTYConfiguration(t *testing.T) {
 	_, slave := openPTY(t)
 	for _, baud := range []int64{9600, 115200, 4000000, 12345} {
-		p, err := openSerialPort(slave, baud)
+		p, err := openSerialPort(slave, baud, time.Now)
 		if err != nil {
 			t.Fatalf("baud %d: %v", baud, err)
 		}
@@ -125,7 +125,7 @@ func TestPTYOpenErrors(t *testing.T) {
 		{"/dev/null", 9600, "Could not configure port: (25, 'Inappropriate ioctl for device')"},
 		{"/dev/null", -1, "Not a valid baudrate: -1"},
 	} {
-		_, err := openSerialPort(tc.port, tc.baud)
+		_, err := openSerialPort(tc.port, tc.baud, time.Now)
 		if err == nil || err.Error() != tc.want {
 			t.Errorf("%s @ %d: err = %v, want %q", tc.port, tc.baud, err, tc.want)
 		}
@@ -157,7 +157,7 @@ func TestPTYHangup(t *testing.T) {
 
 func TestTTYReadTimeout(t *testing.T) {
 	_, slave := openPTY(t)
-	p, err := openSerialPort(slave, 9600)
+	p, err := openSerialPort(slave, 9600, time.Now)
 	if err != nil {
 		t.Fatal(err)
 	}

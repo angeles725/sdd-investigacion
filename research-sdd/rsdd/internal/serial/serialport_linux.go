@@ -53,15 +53,21 @@ func ioctl(fd int, req uintptr, arg unsafe.Pointer) error {
 	return nil
 }
 
+// portError is a pyserial-worded failure text (kept verbatim, capitalised as pyserial words it).
+type portError string
+
+func (e portError) Error() string { return string(e) }
+
 type ttyPort struct {
-	f *os.File
+	f   *os.File
+	now func() time.Time // the command's clock
 }
 
 // openSerialPort opens path read-write (O_NOCTTY|O_NONBLOCK, as pyserial does) and configures it raw 8N1 at
 // baud. Failures read like pyserial's SerialException texts.
-func openSerialPort(path string, baud int64) (serialPort, error) {
+func openSerialPort(path string, baud int64, now func() time.Time) (serialPort, error) {
 	if baud < 0 {
-		return nil, fmt.Errorf("Not a valid baudrate: %d", baud)
+		return nil, portError(fmt.Sprintf("Not a valid baudrate: %d", baud))
 	}
 	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 	if err != nil {
@@ -72,7 +78,7 @@ func openSerialPort(path string, baud int64) (serialPort, error) {
 		_ = syscall.Close(fd)
 		return nil, err
 	}
-	return &ttyPort{f: os.NewFile(uintptr(fd), path)}, nil
+	return &ttyPort{f: os.NewFile(uintptr(fd), path), now: now}, nil
 }
 
 // configureRaw is pyserial's _reconfigure_port for 8 data bits, no parity, one stop bit, no flow control.
@@ -123,13 +129,13 @@ func setCustomBaud(fd int, t *syscall.Termios, baud int64) error {
 // for device')".
 func termiosError(err error) error {
 	en, _ := errnoOf(err)
-	return fmt.Errorf("Could not configure port: (%d, %s)", int(en), pyRepr(strerror(en)))
+	return portError(fmt.Sprintf("Could not configure port: (%d, %s)", int(en), pyRepr(strerror(en))))
 }
 
 // Read collects up to n bytes, returning when n bytes arrived or timeout has elapsed in total. Like pyserial it
 // waits for readiness first (the descriptor is non-blocking and VMIN is 0, so a bare read would return at once).
 func (p *ttyPort) Read(n int, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
+	deadline := p.now().Add(timeout)
 	rc, err := p.f.SyscallConn()
 	if err != nil {
 		return nil, err
@@ -166,7 +172,7 @@ func (p *ttyPort) Read(n int, timeout time.Duration) ([]byte, error) {
 			return out, errors.New("device reports readiness to read but returned no data (device disconnected or multiple access on port?)")
 		}
 		out = append(out, buf[:got]...)
-		if !time.Now().Before(deadline) {
+		if !p.now().Before(deadline) {
 			break
 		}
 	}

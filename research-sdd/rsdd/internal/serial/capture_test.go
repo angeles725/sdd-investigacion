@@ -20,6 +20,7 @@ package serial
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,7 @@ func (p *scriptedPort) Read(n int, timeout time.Duration) ([]byte, error) {
 func (p *scriptedPort) Close() error { p.closed = true; return nil }
 
 // withPorts swaps openPort for the duration of a test: open is called with (path, baud).
-func withPorts(t *testing.T, open func(path string, baud int64) (serialPort, error)) {
+func withPorts(t *testing.T, open func(path string, baud int64, _ func() time.Time) (serialPort, error)) {
 	t.Helper()
 	old := openPort
 	openPort = open
@@ -132,7 +133,10 @@ const capturePlanWant = `{
 `
 
 func TestCapturePlanOnly(t *testing.T) {
-	withPorts(t, func(string, int64) (serialPort, error) { t.Fatal("plan-only opened a port"); return nil, nil })
+	withPorts(t, func(string, int64, func() time.Time) (serialPort, error) {
+		t.Fatal("plan-only opened a port")
+		return nil, nil
+	})
 	dir := t.TempDir()
 	for _, tc := range []struct {
 		name string
@@ -163,7 +167,7 @@ func TestCapturePlanOnly(t *testing.T) {
 
 func TestCapturePlanOnlyOpensNothing(t *testing.T) {
 	opened := false
-	withPorts(t, func(string, int64) (serialPort, error) { opened = true; return nil, errors.New("no") })
+	withPorts(t, func(string, int64, func() time.Time) (serialPort, error) { opened = true; return nil, errors.New("no") })
 	out := filepath.Join(t.TempDir(), "o.json")
 	if rc, _, _ := capCmd(t, newClock(), "sweep", "--port", "/dev/ttySTUB0", "--output", out); rc != 3 || opened {
 		t.Errorf("rc = %d opened = %v, want exit 3 and no open", rc, opened)
@@ -220,7 +224,7 @@ func TestCaptureUsage(t *testing.T) {
 
 func TestSweepAllFail(t *testing.T) {
 	var opened []int64
-	withPorts(t, func(path string, baud int64) (serialPort, error) {
+	withPorts(t, func(path string, baud int64, _ func() time.Time) (serialPort, error) {
 		opened = append(opened, baud)
 		return nil, errors.New("stub: cannot open " + path)
 	})
@@ -253,7 +257,7 @@ func TestSweepAllFail(t *testing.T) {
 func sweepPorts(t *testing.T, clk *fakeClock, byBaud map[int64][]portStep) (opened *[]*scriptedPort) {
 	t.Helper()
 	var ports []*scriptedPort
-	withPorts(t, func(_ string, baud int64) (serialPort, error) {
+	withPorts(t, func(_ string, baud int64, _ func() time.Time) (serialPort, error) {
 		p := &scriptedPort{clk: clk, steps: byBaud[baud]}
 		ports = append(ports, p)
 		return p, nil
@@ -367,7 +371,7 @@ func TestSweepReadCapAndWindow(t *testing.T) {
 
 func TestSweepOpenErrorPerBaud(t *testing.T) {
 	clk := newClock()
-	withPorts(t, func(_ string, baud int64) (serialPort, error) {
+	withPorts(t, func(_ string, baud int64, _ func() time.Time) (serialPort, error) {
 		if baud == 9600 {
 			return &scriptedPort{clk: clk, steps: []portStep{{data: make([]byte, 50)}}}, nil
 		}
@@ -396,7 +400,7 @@ func captureRun(t *testing.T, clk *fakeClock, steps []portStep, extra ...string)
 	t.Helper()
 	p = &scriptedPort{clk: clk, steps: steps}
 	var openedBaud int64 = -1
-	withPorts(t, func(_ string, baud int64) (serialPort, error) { openedBaud = baud; return p, nil })
+	withPorts(t, func(_ string, baud int64, _ func() time.Time) (serialPort, error) { openedBaud = baud; return p, nil })
 	out := filepath.Join(t.TempDir(), "o.json")
 	args := append([]string{"capture", "--port", "/dev/ttyUSB0", "--baud", "19200", "--allow-live-probe", "--output", out}, extra...)
 	rc, _, stderr = capCmd(t, clk, args...)
@@ -531,7 +535,7 @@ func TestCaptureReadError(t *testing.T) {
 	clk := newClock()
 	out := filepath.Join(t.TempDir(), "o.json")
 	p := &scriptedPort{clk: clk, steps: []portStep{{data: []byte{1}, advance: time.Millisecond}, {err: errors.New("read failed: boom")}}}
-	withPorts(t, func(string, int64) (serialPort, error) { return p, nil })
+	withPorts(t, func(string, int64, func() time.Time) (serialPort, error) { return p, nil })
 	rc, _, stderr := capCmd(t, clk, "capture", "--port", "/dev/ttyUSB0", "--baud", "9600", "--allow-live-probe", "--output", out)
 	if rc != 2 || stderr != "serial-frame-capture: /dev/ttyUSB0: read failed: boom\n" || !p.closed {
 		t.Errorf("rc = %d stderr = %q closed = %v", rc, stderr, p.closed)
@@ -542,7 +546,7 @@ func TestCaptureReadError(t *testing.T) {
 }
 
 func TestCaptureOpenError(t *testing.T) {
-	withPorts(t, func(path string, _ int64) (serialPort, error) {
+	withPorts(t, func(path string, _ int64, _ func() time.Time) (serialPort, error) {
 		return nil, errors.New("[Errno 2] could not open port " + path)
 	})
 	out := filepath.Join(t.TempDir(), "o.json")
@@ -556,7 +560,7 @@ func TestCaptureOpenError(t *testing.T) {
 }
 
 func TestCaptureBadBaud(t *testing.T) {
-	withPorts(t, func(string, int64) (serialPort, error) { t.Fatal("opened"); return nil, nil })
+	withPorts(t, func(string, int64, func() time.Time) (serialPort, error) { t.Fatal("opened"); return nil, nil })
 	out := filepath.Join(t.TempDir(), "o.json")
 	for _, baud := range []string{"-5", "123456789012345678901234567890"} {
 		rc, _, stderr := capCmd(t, newClock(), "capture", "--port", "/dev/x", "--baud", baud, "--allow-live-probe", "--output", out)
@@ -610,7 +614,7 @@ func TestCaptureOutputExists(t *testing.T) {
 	clk := newClock()
 	out := filepath.Join(t.TempDir(), "o.json")
 	_ = os.WriteFile(out, []byte("keep"), 0o600)
-	withPorts(t, func(string, int64) (serialPort, error) {
+	withPorts(t, func(string, int64, func() time.Time) (serialPort, error) {
 		return &scriptedPort{clk: clk, steps: []portStep{{data: []byte{1}, advance: time.Millisecond}}}, nil
 	})
 	rc, _, stderr := capCmd(t, clk, "capture", "--port", "/dev/x", "--baud", "9600", "--seconds", "1", "--allow-live-probe", "--output", out)
@@ -620,8 +624,11 @@ func TestCaptureOutputExists(t *testing.T) {
 }
 
 func TestEntropyAndTextLog(t *testing.T) {
-	if entropy(nil) != 0 || entropy([]byte{7, 7, 7}) != 0 {
-		t.Error("entropy of constant data is 0")
+	if e := entropy(nil); e != 0 || math.Signbit(e) {
+		t.Errorf("entropy(nil) = %v, want +0", e)
+	}
+	if e := entropy([]byte{7, 7, 7}); e != 0 || !math.Signbit(e) {
+		t.Errorf("entropy of constant data = %v, want -0 as the Python expression gives", e)
 	}
 	if e := entropy([]byte{0, 1}); e != 1 {
 		t.Errorf("entropy = %v, want 1 bit", e)
