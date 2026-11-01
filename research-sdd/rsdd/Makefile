@@ -28,7 +28,7 @@ printf '#!/bin/sh\nulimit -v %s || exit 97\nexec "$$@"\n' '$(TEST_MEM_KB)' >"$$d
 GOFLAGS="$$GOFLAGS -exec=$$d/capexec"
 endef
 
-.PHONY: check fmt-check vet test race lint teeth cross parity build
+.PHONY: check fmt-check vet test race lint teeth cross parity build clean
 
 check: fmt-check vet test
 
@@ -67,12 +67,15 @@ cross:
 	GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd && \
 	GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd
 
-# Placeholder: the legacy-vs-Go differential runner (testkit/parity) lands
-# in U0.5. Nothing is ported yet, so there is nothing to compare; this
-# target says so instead of pretending to have checked something.
+# Legacy-vs-Go differential harness (testkit/parity). The caller sets RSDD_PARITY_LEGACY.
 parity:
-	@echo "parity: no ported commands yet"
+	$(CAPPED) go test -count=1 -run '^TestParity$$' ./internal/testkit/parity
 
 build:
 	mkdir -p $(BIN_DIR)
 	h=$$(go run ./cmd/rsdd-srchash .) && go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o $(BIN_DIR)/rsdd ./cmd/rsdd
+
+# Removes only what this Makefile builds. gremlins has no fixed workdir here, and the Go build and
+# module caches (GOCACHE, GOMODCACHE) are deliberately left alone.
+clean:
+	rm -rf $(BIN_DIR)
