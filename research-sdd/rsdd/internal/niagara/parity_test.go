@@ -41,10 +41,18 @@ var declared = map[string]struct {
 	reason    string
 	normalise func(string) string
 }{
-	"corrupt_deflate.bog": {"the text after 'Error -3 while decompressing data: ' is zlib's internal reason; Go's inflater words its own", zlibReason},
+	"stored_claims_more_than_the_file_holds": {"CPython >= 3.13.x refuses a member whose compressed size overlaps the next header (\"Overlapped entries\") before reading; older ones, and Go, reach the bare EOF the read would hit", entryErrorText},
+	"truncated_deflate_forged_csize":         {"CPython >= 3.13.x refuses a member whose compressed size overlaps the next header (\"Overlapped entries\") before reading; older ones, and Go, reach the bare EOF the read would hit", entryErrorText},
+	"corrupt_deflate.bog":                    {"the text after 'Error -3 while decompressing data: ' is zlib's internal reason; Go's inflater words its own", zlibReason},
 }
 
 var zlibRE = regexp.MustCompile(`(Error -\d+ while decompressing data: )[^"]*`)
+
+var entryErrRE = regexp.MustCompile(`"ZIP entry read error: [^"]*"`)
+
+func entryErrorText(s string) string {
+	return entryErrRE.ReplaceAllString(s, `"ZIP entry read error: <reason>"`)
+}
 
 func zlibReason(s string) string { return zlibRE.ReplaceAllString(s, "${1}<inflater reason>") }
 
@@ -206,6 +214,8 @@ func parityCases(t *testing.T) []pcase {
 	zipCase("link_edges", []byte("<p n='C' h='1' t='b:X'>\n<p n='L1' t='b:Link'>\n<p n='sourceOrd' v='h:'/>\n</p>\n<p n='L2' t='b:Link'>\n<p n='sourceOrd' v='h:1'/>\n<p n='sourceSlotName' v=''/>\n<p n='targetSlotName' v='t'/>\n</p>\n<p n='L3' t='b:Link'>\n<p n='x' t='b:Y'>\n</p>\n<p n='sourceOrd' v='h:1'/>\n</p>\n</p>"))
 	zipCase("same_line_tags", []byte("<p n='A' h='1' t='b:X'><p n='B' h='2' t='b:X'><p n='C' h='3' t='b:X'/></p></p>"))
 	zipCase("deep_nesting", []byte(strings.Repeat("<p n='n' h='1' t='b:X'>\n", 3000)+strings.Repeat("</p>\n", 3000)))
+	zipCase("zip_name_with_nul", bogtest.Zip(bogtest.Entry{Name: "file.xml\x00junk", Data: []byte(bogtest.ValidXML)}))
+	zipCase("equal_paths_at_scale", []byte(repeatTags(300, "<p n='same' h='%[1]d' t='x:T'/>\n<p n='o%[1]d' h='x%[2]d' t='x:T'/>\n")))
 	zipCase("unbalanced_closers", []byte("</p></p></a></a>\n<p n='A' h='1' t='b:X'/>"))
 	zipCase("component_cap", []byte(repeatTags(maxComponents+1, "<p n='c%06d' h='%d' t='b:X'/>\n")))
 	zipCase("component_cap_exact", []byte(repeatTags(maxComponents, "<p n='c%06d' h='%d' t='b:X'/>\n")))
@@ -216,6 +226,16 @@ func parityCases(t *testing.T) []pcase {
 		fmt.Fprintf(&links, "<p n='L%d' t='b:Link'>\n<p n='sourceOrd' v='h:1'/>\n</p>\n", i)
 	}
 	zipCase("link_cap", []byte(links.String()))
+	var exact strings.Builder
+	exact.WriteString("<p n='C' h='1' t='b:X'>\n")
+	for i := 0; i < maxLinks; i++ {
+		fmt.Fprintf(&exact, "<p n='L%d' t='b:Link'>\n<p n='sourceOrd' v='h:1'/>\n</p>\n", i)
+	}
+	zipCase("link_cap_exact", []byte(exact.String()))
+	zipCase("truncated_deflate", bogtest.TruncatedDeflate())
+	zipCase("truncated_deflate_forged_csize", bogtest.TruncatedDeflateForgedCSize())
+	zipCase("stored_claims_more_than_the_file_holds", bogtest.Zip(bogtest.Entry{Name: "file.xml", Data: []byte("<a/>"), Method: bogtest.Stored, Size: u(1 << 20), CSize: u(1 << 20)}))
+	zipCase("stored_compressed_size_below_size", bogtest.Zip(bogtest.Entry{Name: "file.xml", Data: []byte(bogtest.ValidXML), Method: bogtest.Stored, CSize: u(30)}))
 
 	cases = append(cases,
 		pcase{"absent_input", func(t *testing.T, dir string) []string {

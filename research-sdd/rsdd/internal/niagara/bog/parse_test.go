@@ -113,6 +113,7 @@ func TestParseLinkEdgeCases(t *testing.T) {
 	}{
 		{"empty source handle is kept (a falsy but present value)", "<p n='L' t='b:Link'>\n<p n='sourceOrd' v='h:'/>\n</p>", "", "<nil>", "<nil>"},
 		{"a non-h: source ord is ignored", "<p n='L' t='b:Link'>\n<p n='sourceOrd' v='slot:Foo'/>\n</p>", "<nil>", "<nil>", "<nil>"},
+		{"an h: that is not at the start of the source ord is ignored", "<p n='L' t='b:Link'>\n<p n='sourceOrd' v='xh:5'/>\n</p>", "<nil>", "<nil>", "<nil>"},
 		{"empty slot values are ignored", "<p n='L' t='b:Link'>\n<p n='sourceSlotName' v=''/>\n<p n='targetSlotName' v='t'/>\n</p>", "<nil>", "<nil>", "t"},
 		{"the last duplicate wins", "<p n='L' t='b:Link'>\n<p n='sourceSlotName' v='a'/>\n<p n='sourceSlotName' v='b'/>\n</p>", "<nil>", "b", "<nil>"},
 		{"unrelated fields inside a link are ignored", "<p n='L' t='b:Link'>\n<p n='enabled' v='true'/>\n</p>", "<nil>", "<nil>", "<nil>"},
@@ -150,5 +151,33 @@ func TestParseNeverCapturesSlotValues(t *testing.T) {
 	}
 	if strings.Contains(dump, "PLAINSECRET") {
 		t.Error("a slot value leaked into the parsed structure")
+	}
+}
+
+func TestParsePrefixesSplitOnAnyWhitespace(t *testing.T) {
+	s := Parse(lines("<p n='A' h='1' t='b:X' m='a=1\tb=2   c=3\u3000d=4\u00a0e=5'/>"))
+	want := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5"}
+	if !reflect.DeepEqual(s.Prefixes, want) {
+		t.Errorf("prefixes = %v, want %v", s.Prefixes, want)
+	}
+}
+
+func TestAttrExported(t *testing.T) {
+	tests := []struct {
+		text, name, want string
+		ok               bool
+	}{
+		{"<p n='A' h=\"1\">", "n", "A", true},
+		{"<p n='A' h=\"1\">", "h", "1", true},
+		{"<p xn='Z'>", "n", "", false},
+		{"<p n='unterminated", "n", "", false},
+		{"<p n=\"it's\">", "n", "it's", true},
+		{"<p n=''>", "n", "", true},
+	}
+	for _, tt := range tests {
+		got, ok := Attr(tt.text, tt.name)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("Attr(%q, %q) = %q, %v; want %q, %v", tt.text, tt.name, got, ok, tt.want, tt.ok)
+		}
 	}
 }

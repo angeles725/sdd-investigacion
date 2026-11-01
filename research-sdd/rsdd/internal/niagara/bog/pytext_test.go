@@ -85,3 +85,16 @@ func TestSplitLines(t *testing.T) {
 		t.Errorf("trailing newline produced %d lines, want 3", len(got))
 	}
 }
+
+func TestIsWordFollowsPythonRegexW(t *testing.T) {
+	for _, r := range []rune{'a', 'Z', '0', '_', 'é', '\u0660', '\u00b2', '\u2160', '\u4e2d'} { // letters, Nd, No, Nl, CJK
+		if !IsWord(r) {
+			t.Errorf("IsWord(%U) = false, want true", r)
+		}
+	}
+	for _, r := range []rune{'-', ' ', '.', '=', '\'', '\u0301', '\u2014'} { // punctuation, space, combining mark
+		if IsWord(r) {
+			t.Errorf("IsWord(%U) = true, want false", r)
+		}
+	}
+}

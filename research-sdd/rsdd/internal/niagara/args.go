@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // This file reproduces the argparse parser of the legacy bog_nav.py for its three options (-h/--help, --input,
@@ -60,24 +61,17 @@ type token struct {
 	ambiguous   []string
 }
 
-var negativeNumber = func(s string) bool { // '^-\d+$|^-\d*\.\d+$' with Unicode digits, like Python's \d
-	if len(s) < 2 || s[0] != '-' {
+// looksNegative is argparse's _negative_number_matcher, re.match(r'-\.?\d', arg) in CPython 3.15 (a prefix test,
+// with Unicode digits like Python's \d). Older interpreters (<= 3.12) used '^-\d+$|^-\d*\.\d+$', which agrees
+// on every plain number but treats forms such as "-5." and "-5x" as options.
+func looksNegative(s string) bool {
+	rest, ok := strings.CutPrefix(s, "-")
+	if !ok {
 		return false
 	}
-	body := s[1:]
-	digits := func(t string) bool {
-		for _, r := range t {
-			if !unicode.IsDigit(r) {
-				return false
-			}
-		}
-		return true
-	}
-	if digits(body) {
-		return true
-	}
-	intPart, frac, ok := strings.Cut(body, ".")
-	return ok && digits(intPart) && frac != "" && digits(frac)
+	rest = strings.TrimPrefix(rest, ".")
+	r, _ := utf8.DecodeRuneInString(rest)
+	return rest != "" && unicode.IsDigit(r)
 }
 
 // classify mirrors ArgumentParser._parse_optional for this parser's option set.
@@ -125,7 +119,7 @@ func classify(arg string) token {
 			return token{isOption: true, ambiguous: hits}
 		}
 	}
-	if negativeNumber(arg) || strings.Contains(arg, " ") {
+	if looksNegative(arg) || strings.Contains(arg, " ") {
 		return token{}
 	}
 	return token{isOption: true}

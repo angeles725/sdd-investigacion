@@ -440,3 +440,52 @@ func TestGoldenEvidenceMatchesLegacyBytes(t *testing.T) {
 		})
 	}
 }
+
+// Equal paths must keep handle-map order however many there are: a non-stable sort reorders a long run of
+// equal keys (small inputs are insertion-sorted and would hide it).
+func TestEqualPathsKeepHandleOrderAtScale(t *testing.T) {
+	var sb strings.Builder
+	var want []string
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&sb, "<p n='same' h='%d' t='x:T'/>\n<p n='other%d' h='x%d' t='x:T'/>\n", i, i%3, i)
+		want = append(want, fmt.Sprint(i))
+	}
+	p := filepath.Join(t.TempDir(), "stable.bog")
+	if err := os.WriteFile(p, []byte(sb.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, doc, _ := evidence(t, p)
+	var got []string
+	for _, c := range doc["components"].([]any) {
+		m := c.(map[string]any)
+		if m["path"] == "same" {
+			got = append(got, m["handle"].(string))
+		}
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("components with an equal path were reordered: %v", got)
+	}
+}
+
+// A list exactly at its cap is complete, not truncated: the boundary is inclusive.
+func TestCapsAreInclusive(t *testing.T) {
+	var comps strings.Builder
+	for i := 0; i < maxComponents; i++ {
+		fmt.Fprintf(&comps, "<p n='c%06d' h='%d' t='b:X'/>\n", i, i)
+	}
+	var links strings.Builder
+	links.WriteString("<p n='C' h='1' t='b:X'>\n")
+	for i := 0; i < maxLinks; i++ {
+		fmt.Fprintf(&links, "<p n='L%d' t='b:Link'>\n<p n='sourceOrd' v='h:1'/>\n</p>\n", i)
+	}
+	for name, xml := range map[string]string{"components": comps.String(), "links": links.String()} {
+		p := filepath.Join(t.TempDir(), name+".bog")
+		if err := os.WriteFile(p, []byte(xml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, _, doc, _ := evidence(t, p)
+		if code != 0 || doc["truncated"] != false || len(doc["errors"].([]any)) != 0 {
+			t.Errorf("%s at exactly the cap: code=%d truncated=%v errors=%v", name, code, doc["truncated"], doc["errors"])
+		}
+	}
+}

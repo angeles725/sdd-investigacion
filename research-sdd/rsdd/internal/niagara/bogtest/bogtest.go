@@ -22,6 +22,8 @@ type Entry struct {
 	CRC *uint32
 	// Size overrides the uncompressed size recorded in the central directory when non-nil.
 	Size *uint32
+	// CSize overrides the compressed size recorded in both headers when non-nil.
+	CSize *uint32
 	// Raw, when non-nil, is the stored/compressed payload written as-is instead of compressing Data.
 	Raw []byte
 }
@@ -70,6 +72,10 @@ func Zip(entries ...Entry) []byte {
 		if e.Size != nil {
 			usize = *e.Size
 		}
+		csize := uint32(len(payload))
+		if e.CSize != nil {
+			csize = *e.CSize
+		}
 		off := uint32(out.Len())
 		lfh := make([]byte, 30)
 		le.PutUint32(lfh[0:], 0x04034b50)
@@ -79,7 +85,7 @@ func Zip(entries ...Entry) []byte {
 		le.PutUint16(lfh[10:], dosTime)
 		le.PutUint16(lfh[12:], dosDate)
 		le.PutUint32(lfh[14:], crc)
-		le.PutUint32(lfh[18:], uint32(len(payload)))
+		le.PutUint32(lfh[18:], csize)
 		le.PutUint32(lfh[22:], usize)
 		le.PutUint16(lfh[26:], uint16(len(e.Name)))
 		out.Write(lfh)
@@ -95,7 +101,7 @@ func Zip(entries ...Entry) []byte {
 		le.PutUint16(ch[12:], dosTime)
 		le.PutUint16(ch[14:], dosDate)
 		le.PutUint32(ch[16:], crc)
-		le.PutUint32(ch[20:], uint32(len(payload)))
+		le.PutUint32(ch[20:], csize)
 		le.PutUint32(ch[24:], usize)
 		le.PutUint16(ch[28:], uint16(len(e.Name)))
 		le.PutUint32(ch[42:], off)
@@ -175,6 +181,21 @@ func corruptTiny() []byte { return Bog(tinyXML) }
 // rejects (the original suite xor-ed payload bytes, whose effect depends on the compressor that wrote them).
 func CorruptDeflate() []byte {
 	return Zip(Entry{Name: "file.xml", Data: []byte(tinyXML), Raw: []byte{0x07, 0x00, 0x00, 0x00}})
+}
+
+// TruncatedDeflate stores only the first bytes of a valid deflate stream, with honest header sizes: the
+// compressed bytes run out before the stream ends.
+func TruncatedDeflate() []byte {
+	full := deflate([]byte(ValidXML))
+	return Zip(Entry{Name: "file.xml", Data: []byte(ValidXML), Raw: full[:len(full)/2]})
+}
+
+// TruncatedDeflateForgedCSize is TruncatedDeflate with a compressed size that runs far past the end of the
+// file, so the decoder keeps reading the central directory as if it were deflate data.
+func TruncatedDeflateForgedCSize() []byte {
+	full := deflate([]byte(ValidXML))
+	huge := uint32(1 << 24)
+	return Zip(Entry{Name: "file.xml", Data: []byte(ValidXML), Raw: full[:len(full)/2], CSize: &huge})
 }
 
 // FlippedDeflate is the original suite's corruption: payload bytes xor-ed in place. Whether the inflater

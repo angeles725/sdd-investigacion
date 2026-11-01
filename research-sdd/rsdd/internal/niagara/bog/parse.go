@@ -140,11 +140,11 @@ func Parse(lines []string) *Structure {
 				continue
 			}
 
-			n, _ := attr(full, "n")
-			h, hasH := attr(full, "h")
-			t, _ := attr(full, "t")
-			v, hasV := attr(full, "v")
-			mAttr, _ := attr(full, "m")
+			n, _ := Attr(full, "n")
+			h, hasH := Attr(full, "h")
+			t, _ := Attr(full, "t")
+			v, hasV := Attr(full, "v")
+			mAttr, _ := Attr(full, "m")
 
 			for _, part := range Fields(mAttr) {
 				if k, val, ok := strings.Cut(part, "="); ok {
@@ -219,9 +219,9 @@ func Parse(lines []string) *Structure {
 
 func ptr(s string) *string { return &s }
 
-// attr reads one attribute from tag text the way the legacy reader does: the first single-quoted occurrence
+// Attr reads one attribute from tag text the way the legacy reader does: the first single-quoted occurrence
 // wins over any double-quoted one, and the name must start at a word boundary (Unicode word characters).
-func attr(text, name string) (string, bool) {
+func Attr(text, name string) (string, bool) {
 	if v, ok := attrQuoted(text, name, '\''); ok {
 		return v, true
 	}

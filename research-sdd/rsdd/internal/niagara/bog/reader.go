@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/flate"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -57,25 +58,19 @@ func Extract(data []byte, maxInflate int) Extracted {
 }
 
 func extractZip(data []byte, maxInflate int) Extracted {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil && err != zip.ErrInsecurePath {
-		// CPython distinguishes several central-directory faults; Go reports them all as ErrFormat, so every
-		// one maps to the message of the most common fault (no end record).
-		return Extracted{Format: FormatUnknown, Err: "not a valid ZIP: File is not a zip file"}
-	}
-	names := make([]string, len(zr.File))
-	for i, f := range zr.File {
-		names[i] = zipName(f.Name)
+	z, err := OpenZip(data)
+	if err != nil {
+		return Extracted{Format: FormatUnknown, Err: "not a valid ZIP: " + err.Error()}
 	}
 	want := ""
-	for _, n := range names {
+	for _, n := range z.names {
 		if n == "file.xml" {
 			want = n
 			break
 		}
 	}
 	if want == "" {
-		for _, n := range names {
+		for _, n := range z.names {
 			if strings.HasSuffix(n, "file.xml") {
 				want = n
 				break
@@ -85,22 +80,70 @@ func extractZip(data []byte, maxInflate int) Extracted {
 	if want == "" {
 		return Extracted{Format: FormatUnknown, Err: "ZIP contains no file.xml entry"}
 	}
-	var entry *zip.File
-	for i, n := range names { // NameToInfo semantics: the last entry with a name wins
-		if n == want {
-			entry = zr.File[i]
-		}
-	}
 
-	body, truncated, msg := readEntry(entry, want, maxInflate)
-	if msg != "" {
-		return Extracted{Format: FormatZip, Err: "ZIP entry read error: " + msg}
+	body, truncated, err := z.ReadMember(want, maxInflate)
+	if err != nil {
+		return Extracted{Format: FormatZip, Err: "ZIP entry read error: " + err.Error()}
 	}
 	if truncated {
 		return Extracted{Format: FormatZip, Truncated: true,
 			Err: fmt.Sprintf("bog XML exceeded inflate cap (%d bytes); file.xml was not parsed", maxInflate)}
 	}
 	return Extracted{Format: FormatZip, Text: DecodeReplace(body)}
+}
+
+// ErrNotZip is the failure of OpenZip. Its text is CPython's BadZipFile message for the most common fault, which
+// is what the legacy tools print; Go reports every central-directory fault as one error, so the finer CPython
+// messages ("Bad magic number for central directory", ...) are not distinguished.
+var ErrNotZip = errors.New("File is not a zip file")
+
+// Zip is a ZIP archive held in memory: the shared member reader of the Niagara tools. A .bog (file.xml), a
+// module JAR (module.xml) and a distribution archive are all read through it, always under an inflate cap.
+type Zip struct {
+	zr    *zip.Reader
+	names []string
+}
+
+// OpenZip reads the central directory of data.
+func OpenZip(data []byte) (*Zip, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil && err != zip.ErrInsecurePath {
+		return nil, ErrNotZip
+	}
+	z := &Zip{zr: zr, names: make([]string, len(zr.File))}
+	for i, f := range zr.File {
+		z.names[i] = zipName(f.Name)
+	}
+	return z, nil
+}
+
+// Names lists the member names in central-directory order, each cut at its first NUL byte (ZipInfo's
+// sanitised name), directories included.
+func (z *Zip) Names() []string { return append([]string(nil), z.names...) }
+
+// ErrNoMember is returned by ReadMember for a name that is not in the archive.
+var ErrNoMember = errors.New("no such member")
+
+// MemberError is a member that could not be read; its text is the CPython zipfile message the legacy tools
+// embed after "ZIP entry read error: ".
+type MemberError struct{ Msg string }
+
+func (e *MemberError) Error() string { return e.Msg }
+
+// ReadMember inflates the member called name, reading at most maxInflate+1 bytes whatever sizes the headers
+// claim. When the member is larger than maxInflate, truncated is true and body is nil. If several members share
+// the name the last one wins, like ZipFile.NameToInfo.
+func (z *Zip) ReadMember(name string, maxInflate int) (body []byte, truncated bool, err error) {
+	var entry *zip.File
+	for i, n := range z.names {
+		if n == name {
+			entry = z.zr.File[i]
+		}
+	}
+	if entry == nil {
+		return nil, false, ErrNoMember
+	}
+	return readEntry(entry, name, maxInflate)
 }
 
 // zipName is ZipInfo's sanitised file name: terminated at the first NUL byte.
@@ -133,21 +176,21 @@ func (c *countReader) Read(p []byte) (int, error) {
 // checks and their order follow CPython's ZipFile.open and ZipExtFile: local header, flag bits, encryption,
 // compression method, then a read limited to the central directory's declared size whose CRC-32 is checked
 // whenever the member's end was reached.
-func readEntry(f *zip.File, name string, maxInflate int) ([]byte, bool, string) {
+func readEntry(f *zip.File, name string, maxInflate int) ([]byte, bool, error) {
 	raw, err := f.OpenRaw()
 	if err != nil {
 		if err == zip.ErrFormat {
-			return nil, false, "Bad magic number for file header"
+			return nil, false, &MemberError{Msg: "Bad magic number for file header"}
 		}
-		return nil, false, "Truncated file header"
+		return nil, false, &MemberError{Msg: "Truncated file header"}
 	}
 	switch {
 	case f.Flags&flagCompressedPatch != 0:
-		return nil, false, "compressed patched data (flag bit 5)"
+		return nil, false, &MemberError{Msg: "compressed patched data (flag bit 5)"}
 	case f.Flags&flagStrongEncryption != 0:
-		return nil, false, "strong encryption (flag bit 6)"
+		return nil, false, &MemberError{Msg: "strong encryption (flag bit 6)"}
 	case f.Flags&flagEncrypted != 0:
-		return nil, false, fmt.Sprintf("File %s is encrypted, password required for extraction", pyRepr(name))
+		return nil, false, &MemberError{Msg: fmt.Sprintf("File %s is encrypted, password required for extraction", pyRepr(name))}
 	}
 
 	cr := &countReader{r: raw}
@@ -158,7 +201,7 @@ func readEntry(f *zip.File, name string, maxInflate int) ([]byte, bool, string) 
 	case zip.Deflate:
 		src = flate.NewReader(cr)
 	default:
-		return nil, false, "That compression method is not supported"
+		return nil, false, &MemberError{Msg: "That compression method is not supported"}
 	}
 
 	left := f.UncompressedSize64
@@ -167,24 +210,30 @@ func readEntry(f *zip.File, name string, maxInflate int) ([]byte, bool, string) 
 	var buf bytes.Buffer
 	sum := crc32.NewIEEE()
 	n, err := io.Copy(io.MultiWriter(&buf, sum), io.LimitReader(src, int64(want)))
-	if err != nil {
-		switch {
-		case err == io.ErrUnexpectedEOF && cr.n >= int64(f.CompressedSize64):
-			// The compressed bytes ran out mid-stream: the member ends here and the CRC decides.
-		case err == io.ErrUnexpectedEOF:
-			return nil, false, "" // CPython raises a bare EOFError: an empty message
-		default:
-			return nil, false, "Error -3 while decompressing data: " + err.Error()
+	// short: the file ended before the member's declared compressed bytes did. CPython then raises a bare
+	// EOFError (an empty message) the moment it needs more input; a member whose compressed bytes were all
+	// consumed simply ends there and the CRC decides.
+	short := cr.n < int64(f.CompressedSize64)
+	switch {
+	case err == nil:
+		if f.Method == zip.Store && uint64(n) < want && short {
+			return nil, false, &MemberError{}
 		}
+	case err == io.ErrUnexpectedEOF && short:
+		return nil, false, &MemberError{}
+	case err == io.ErrUnexpectedEOF:
+		// The compressed bytes ran out mid-stream: the member ends here and the CRC decides.
+	default:
+		return nil, false, &MemberError{Msg: "Error -3 while decompressing data: " + err.Error()}
 	}
 	reachedEnd := uint64(n) < want || uint64(n) == left
 	if reachedEnd && sum.Sum32() != f.CRC32 {
-		return nil, false, fmt.Sprintf("Bad CRC-32 for file %s", pyRepr(name))
+		return nil, false, &MemberError{Msg: fmt.Sprintf("Bad CRC-32 for file %s", pyRepr(name))}
 	}
 	if uint64(buf.Len()) > uint64(maxInflate) {
-		return nil, true, ""
+		return nil, true, nil
 	}
-	return buf.Bytes(), false, ""
+	return buf.Bytes(), false, nil
 }
 
 // pyRepr renders s like Python's repr(str): single quotes unless the text holds a single and no double quote,

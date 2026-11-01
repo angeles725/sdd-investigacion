@@ -3,6 +3,7 @@ package bog
 import (
 	"bytes"
 	"compress/flate"
+	"errors"
 	"hash/crc32"
 	"runtime"
 	"strings"
@@ -34,6 +35,9 @@ func TestExtractContainers(t *testing.T) {
 		{name: "three bytes starting with PK stay plaintext", data: []byte("PK<"), format: "unknown", errSub: "content is neither a ZIP nor XML", errExact: true},
 		{name: "zip without file.xml", data: bogtest.Zip(bogtest.Entry{Name: "other.xml", Data: []byte("<a/>")}), format: "unknown", errSub: "ZIP contains no file.xml entry", errExact: true},
 		{name: "corrupt deflate stream", data: bogtest.CorruptDeflate(), format: "zip-xml", errSub: "ZIP entry read error: Error -3 while decompressing data: "},
+		{name: "compressed bytes that end mid-stream fail the CRC, not the inflater", data: bogtest.TruncatedDeflate(), format: "zip-xml", errSub: "ZIP entry read error: Bad CRC-32 for file 'file.xml'", errExact: true},
+		{name: "a stored member that claims more bytes than the file holds is a bare EOF", data: bogtest.Zip(bogtest.Entry{Name: "file.xml", Data: []byte("<a/>"), Method: bogtest.Stored, Size: u32(1 << 20), CSize: u32(1 << 20)}), format: "zip-xml", errSub: "ZIP entry read error: ", errExact: true},
+		{name: "a deflate member whose compressed bytes run out at end of file is a bare EOF", data: bogtest.TruncatedDeflateForgedCSize(), format: "zip-xml", errSub: "ZIP entry read error: ", errExact: true},
 		{name: "crc mismatch", data: bogtest.CRCMismatch(), format: "zip-xml", errSub: "ZIP entry read error: Bad CRC-32 for file 'file.xml'", errExact: true},
 		{name: "encrypted member", data: bogtest.Encrypted(), format: "zip-xml", errSub: "ZIP entry read error: File 'file.xml' is encrypted, password required for extraction", errExact: true},
 		{name: "unsupported compression method", data: bogtest.Method99(), format: "zip-xml", errSub: "ZIP entry read error: That compression method is not supported", errExact: true},
@@ -50,6 +54,7 @@ func TestExtractContainers(t *testing.T) {
 			bogtest.Entry{Name: "file.xml", Data: []byte("<aaaaaaaaaaaaaaaa/>"), Size: u32(4)}), format: "zip-xml", errSub: "ZIP entry read error: Bad CRC-32 for file 'file.xml'", errExact: true},
 		{name: "a declared size above the real size is harmless", data: bogtest.Zip(
 			bogtest.Entry{Name: "file.xml", Data: []byte("<a/>"), Size: u32(9999)}), format: "zip-xml", textSub: "<a/>"},
+		{name: "a name is terminated at its first NUL byte", data: bogtest.Zip(bogtest.Entry{Name: "file.xml\x00junk", Data: []byte("<nul/>")}), format: "zip-xml", textSub: "<nul/>"},
 		{name: "invalid UTF-8 inside the xml is replaced, not an error", data: bogtest.Zip(bogtest.Entry{Name: "file.xml", Data: []byte("<a n='\xff'/>")}), format: "zip-xml", textSub: "�"},
 	}
 	for _, tt := range tests {
@@ -115,5 +120,38 @@ func TestExtractBoundedReadDoesNotTrustTheDeclaredSize(t *testing.T) {
 	}
 	if grew := after.TotalAlloc - before.TotalAlloc; grew > 24<<20 {
 		t.Errorf("reading a bomb under a 1 MiB cap allocated %d MiB; the read is not length-bounded", grew>>20)
+	}
+}
+
+func TestZipSharedMemberReader(t *testing.T) {
+	data := bogtest.Zip(
+		bogtest.Entry{Name: "a/", Data: nil},
+		bogtest.Entry{Name: "module.xml", Data: []byte("<module/>")},
+		bogtest.Entry{Name: "x\x00hidden", Data: []byte("<x/>")},
+	)
+	z, err := OpenZip(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(z.Names(), "|"); got != "a/|module.xml|x" {
+		t.Errorf("Names() = %q, want the central-directory order with NUL-cut names", got)
+	}
+	body, truncated, err := z.ReadMember("module.xml", 1<<10)
+	if err != nil || truncated || string(body) != "<module/>" {
+		t.Errorf("ReadMember = %q, %v, %v", body, truncated, err)
+	}
+	if _, _, err := z.ReadMember("missing", 1<<10); err != ErrNoMember {
+		t.Errorf("a missing member = %v, want ErrNoMember", err)
+	}
+	if body, truncated, err := z.ReadMember("module.xml", 4); err != nil || !truncated || body != nil {
+		t.Errorf("a 9-byte member under a 4-byte cap = %q, %v, %v; want truncated and no body", body, truncated, err)
+	}
+	var me *MemberError
+	z2, _ := OpenZip(bogtest.Encrypted())
+	if _, _, err := z2.ReadMember("file.xml", 1<<10); !errors.As(err, &me) || !strings.Contains(me.Msg, "encrypted") {
+		t.Errorf("an encrypted member = %v, want a *MemberError", err)
+	}
+	if _, err := OpenZip([]byte("PK\x03\x04 junk")); err != ErrNotZip {
+		t.Errorf("OpenZip(junk) = %v, want ErrNotZip", err)
 	}
 }
