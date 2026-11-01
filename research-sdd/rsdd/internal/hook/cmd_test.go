@@ -62,6 +62,24 @@ func TestWiringStateCommand(t *testing.T) {
 	}
 }
 
+// Batch form (kit issue #2356): several targets in one process, one state per line in argument order, so
+// sweep-retros.sh pays one rsdd fork for the whole fleet instead of one per target.
+func TestWiringStateCommandBatch(t *testing.T) {
+	r, _ := sandbox(t)
+	w := settingsAt("w", stopWired)(t, r)
+	u := settingsAt("u", `{"hooks":{}}`)(t, r)
+	a := filepath.Join(r, "absent")
+	env := map[string]string{envCeiling: filepath.Dir(r)}
+	out, errOut, code := run(t, r, env, "hook", "wiring-state", w, u, a, w)
+	if out != "wired\nunwired\nabsent-settings\nwired\n" || errOut != "" || code != 0 {
+		t.Errorf("batch = (%q, %q, %d), want one state per line in argument order, exit 0", out, errOut, code)
+	}
+	// a single target prints exactly what it printed before the batch form existed
+	if out, errOut, code := run(t, r, env, "hook", "wiring-state", u); out != "unwired\n" || errOut != "" || code != 0 {
+		t.Errorf("single = (%q, %q, %d), want (\"unwired\\n\", \"\", 0)", out, errOut, code)
+	}
+}
+
 func TestWiringStateCommandRelativeTargetUsesCwd(t *testing.T) {
 	r, _ := sandbox(t)
 	settingsAt("proj", stopWired)(t, r)
@@ -109,7 +127,11 @@ func TestGitRootCommand(t *testing.T) {
 
 func TestCommandsUsage(t *testing.T) {
 	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
-		for _, args := range [][]string{{"hook", name}, {"hook", name, "a", "b"}} {
+		cases := [][]string{{"hook", name}, {"hook", name, "a", "b"}}
+		if name == "wiring-state" {
+			cases = cases[:1] // wiring-state takes one or more targets; only zero is a usage error
+		}
+		for _, args := range cases {
 			out, errOut, code := run(t, "/w", nil, args...)
 			if out != "" || code != cli.ExitUsage || !strings.Contains(errOut, "usage: rsdd hook "+name+" ") {
 				t.Errorf("%v = (%q, %q, %d), want usage on stderr and exit 2", args, out, errOut, code)

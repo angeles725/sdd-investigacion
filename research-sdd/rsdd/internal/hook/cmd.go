@@ -18,12 +18,17 @@ func oneArg(name, arg string, args []string, s cli.Stdio) (string, bool) {
 // The state commands print the state and a newline and always exit 0, like the bash predicates
 // ("callers branch on the state, never on exit status"). The bash shim captures them with $(...).
 
+// wiring-state takes one or more targets and prints one state per line in argument order (kit issue #2356: the
+// batch form lets sweep-retros.sh fork rsdd once for the whole fleet). Zero targets is a usage error.
 func runWiringState(args []string, s cli.Stdio) int {
-	target, ok := oneArg("wiring-state", "<target-dir>", args, s)
-	if !ok {
+	if len(args) == 0 {
+		fmt.Fprintln(s.Err, "usage: rsdd hook wiring-state <target-dir>...")
 		return cli.ExitUsage
 	}
-	fmt.Fprintln(s.Out, WiringState(EnvFrom(s), target))
+	env := EnvFrom(s)
+	for _, target := range args {
+		fmt.Fprintln(s.Out, WiringState(env, target))
+	}
 	return cli.ExitOK
 }
 
