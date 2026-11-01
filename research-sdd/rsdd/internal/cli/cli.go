@@ -29,8 +29,9 @@ type Command struct {
 }
 
 // Validate rejects a table that would shadow or cannot dispatch: an empty
-// name, a missing Run, a duplicate (group, name), or a group whose name is
-// also an ungrouped command.
+// name, a missing Run, a name or group that is a help alias (Run answers
+// those before dispatching), a duplicate (group, name), or a group whose name
+// is also an ungrouped command.
 func Validate(table []Command) error {
 	seen := map[[2]string]bool{}
 	ungrouped := map[string]bool{}
@@ -38,6 +39,8 @@ func Validate(table []Command) error {
 		switch {
 		case c.Name == "":
 			return fmt.Errorf("command with empty name (group %q)", c.Group)
+		case isHelp(c.Name) || isHelp(c.Group):
+			return fmt.Errorf("command %q uses a help alias (help, --help, -h) as its name or group; Run would shadow it", label(c))
 		case c.Run == nil:
 			return fmt.Errorf("command %q has no Run", label(c))
 		case seen[[2]string{c.Group, c.Name}]:
@@ -103,7 +106,7 @@ func Run(table []Command, args []string, s Stdio) int {
 // exec runs one command behind the panic boundary and the output contract.
 func exec(cmd Command, args []string, s Stdio) (code int) {
 	var out bytes.Buffer
-	errw := &lineTracker{w: s.Err}
+	errw := &degradedSniffer{w: s.Err}
 	inner := s
 	inner.Out, inner.Err = &out, errw
 	defer func() {
@@ -133,13 +136,16 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 	return cmd.Run(args, inner)
 }
 
-// lineTracker forwards writes and records whether a "DEGRADED:" line passed.
-type lineTracker struct {
+// degradedSniffer forwards writes and records whether any write carried the
+// "DEGRADED:" marker. It is a substring check per Write call, not a line
+// parser: the marker split across two writes is not seen (commands emit the
+// line with one Fprintf).
+type degradedSniffer struct {
 	w           io.Writer
 	sawDegraded bool
 }
 
-func (l *lineTracker) Write(p []byte) (int, error) {
+func (l *degradedSniffer) Write(p []byte) (int, error) {
 	if bytes.Contains(p, []byte("DEGRADED:")) {
 		l.sawDegraded = true
 	}

@@ -13,5 +13,5 @@ func InputReason(err error) (reasons.Code, bool) {
 	if errors.Is(err, ErrAbsentInput) || errors.Is(err, ErrUnreadable) {
 		return reasons.AbsentInput, true
 	}
-	return reasons.Code{}, false
+	return 0, false
 }

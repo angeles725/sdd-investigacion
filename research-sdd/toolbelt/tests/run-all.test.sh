@@ -26,6 +26,9 @@ TMP="$(mktemp -d)"
 # dir for the whole suite so no case reads the real /tmp/rsdd (live sessions write there; it may be 0700 and
 # owned by someone else). Cases that exercise the check set their own root.
 export RUN_ALL_DEFAULT_RSDD_ROOT="$TMP/default-rsdd-private"
+# run-all builds rsdd once and exports RSDD_BIN (kit issue #2422): an ambient RSDD_BIN / RSDD_REQUIRE_GO (CI sets the
+# latter) must never change what a fixture case sees. The rsdd cases below set both explicitly when they need them.
+unset RSDD_BIN RSDD_REQUIRE_GO
 # Files a case chmods to 000: registered here so the EXIT trap restores them even when the case dies
 # before its own restore line (a leftover 000 file would otherwise break cleanup and later runs).
 LOCKED_FILES=()
@@ -3057,6 +3060,185 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   imp_tooth escalation-unchanged escfull 's/^  if \[\[ "\$IMPACTED_ESC" != "no" \]\]; then$/  if false; then/'
   imp_tooth suite-count mcheck 's/^  \[\[ "\$_imp_m" -eq "\$discovered_suites" \]\] ||/  true ||/'
   imp_tooth merge-base mbase 's/\$(git -C "\$SCRIPT_DIR" merge-base "\$IMPACTED_REF" HEAD 2>\/dev\/null)/$(git -C "$SCRIPT_DIR" rev-parse "$IMPACTED_REF" 2>\/dev\/null)/'
+fi
+
+# --- run-all builds rsdd ONCE and exports RSDD_BIN (kit issue #2422) ---------------------------------------
+# A fake `go` on PATH (writes an executable stub to the -o target, logs its invocations) keeps these cases fast and
+# hermetic: no real build ever runs here. Each tree carries a stub Go module at research-sdd/rsdd.
+RB_LOG="$TMP/rb-suite.log"; FAKE_GO_LOG="$TMP/rb-go.log"; RB_FG="$TMP/rb-fakego"; RB_PATH=""; RB_ENVX=()
+mkdir -p "$RB_FG"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "go $*" >> "$FAKE_GO_LOG"\n'
+  printf 'case "${1:-}" in\n'
+  printf '  run) echo fakehash; exit 0 ;;\n'
+  printf '  build) out=""; while [ "$#" -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+  printf '    [ -z "${FAKE_GO_FAIL:-}" ] || { echo "fake go: boom" >&2; exit 1; }\n'
+  printf '    printf "#!/bin/sh\\necho stub\\n" > "$out" && chmod 755 "$out"; exit 0 ;;\n'
+  printf 'esac\n'
+} > "$RB_FG/go"
+chmod 755 "$RB_FG/go"
+RB_PATH="$RB_FG:$PATH"
+# rb_suite <file> — records RSDD_BIN as <path>|<x if executable>|<in if under the run's temp root> and passes.
+rb_suite(){
+  { printf '#!/usr/bin/env bash\n'
+    printf 'p="${RSDD_BIN-UNSET}"; x=n; [ -x "$p" ] && x=x; u=out; case "$p" in "$RUN_TMP_ROOT"/*) u=in ;; esac\n'
+    printf 'echo "$p|$x|$u" >> "$RB_LOG"\n'
+    printf 'echo "$0" >> "${RB_RAN:-/dev/null}"\n'
+    printf ': "$TB/alpha.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+# rb_tree <name> — a repo-shaped tree: two suites, a stub Go module + Makefile under research-sdd/rsdd, a git repo
+# (the --cache cases need suite-impact.sh). Prints the tests dir.
+rb_tree(){
+  local w root; w="$(newdir "$1")"; root="${w%/research-sdd/toolbelt/tests}"
+  [ -z "${2:-}" ] || cp -- "$2" "$w/run-all.sh"   # a mutant runner for the teeth cases
+  mkdir -p "$root/research-sdd/rsdd/cmd/rsdd" "$root/research-sdd/rsdd/cmd/rsdd-srchash" "$root/research-sdd/rsdd/internal" "$root/research-sdd/toolbelt"
+  printf 'module example.test/rsdd\n' > "$root/research-sdd/rsdd/go.mod"
+  printf 'package main\n' > "$root/research-sdd/rsdd/cmd/rsdd/main.go"
+  printf 'package main\n' > "$root/research-sdd/rsdd/cmd/rsdd-srchash/main.go"
+  printf 'package x\n' > "$root/research-sdd/rsdd/internal/x.go"
+  printf 'SOURCE_HASH_SYM := example.test/rsdd/internal/commands.sourceHash\n' > "$root/research-sdd/rsdd/Makefile"
+  printf '#!/usr/bin/env bash\necho alpha\n' > "$root/research-sdd/toolbelt/alpha.sh"
+  rb_suite "$w/a.test.sh"; rb_suite "$w/b.test.sh"
+  cp "$HERE/suite-impact.sh" "$w/suite-impact.sh"
+  printf '# fixture: no blind-spot suites\n' > "$w/impact-blindspot.txt"
+  printf 'b fixture always-run suite\n' > "$w/impact-always.txt"
+  printf '%s' "$w"
+}
+rb_git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -c init.defaultBranch=main "$@"; }
+# rb_run <tests-dir> [run-all args...] — sets OUT, RC. RB_PATH / RB_ENVX are the caller's knobs.
+rb_run(){
+  local t="$1"; shift
+  : > "$RB_LOG"; : > "$FAKE_GO_LOG"
+  OUT="$(env PATH="$RB_PATH" RB_LOG="$RB_LOG" FAKE_GO_LOG="$FAKE_GO_LOG" "${RB_ENVX[@]}" bash "$t/run-all.sh" "$@" 2>&1)"; RC=$?
+}
+rb_builds(){ local n; n="$(grep -c '^go build' "$FAKE_GO_LOG")"; printf '%s' "${n:-0}"; }
+# rb_once <label> <tests-dir> <expected-suites> [run-all args...] — the full "built once, same exported path" check.
+rb_once(){
+  local lbl="$1" t="$2" n="$3" lines uniq bad rl; shift 3
+  rb_run "$t" "$@"
+  lines="$(wc -l < "$RB_LOG")"; uniq="$(cut -d'|' -f1 "$RB_LOG" | sort -u | wc -l)"
+  bad="$(grep -vc '|x|in$' "$RB_LOG")"; rl="$(grep -c '^rsdd: built' <<<"$OUT")"
+  if [ "$RC" -eq 0 ] && [ "$lines" -eq "$n" ] && [ "$uniq" -eq 1 ] && [ "${bad:-0}" -eq 0 ] && [ "$(rb_builds)" -eq 1 ] && [ "$rl" -eq 1 ] \
+     && [ ! -e "${t%/toolbelt/tests}/bin" ]; then
+    ok "rsdd-bin $lbl: one go build, one executable RSDD_BIN under the run's temp root, the same path for all $n suite(s), one 'rsdd: built' line"
+  else
+    no "rsdd-bin $lbl: rc=$RC suites-logged=$lines distinct-paths=$uniq not-exec-or-outside-root=${bad:-0} builds=$(rb_builds) built-lines=$rl :: $(head -3 "$RB_LOG" | tr '\n' ' ')"
+  fi
+}
+w="$(rb_tree rb-serial)"; rb_once serial "$w" 2
+if [ "$have_gnu_parallel" -eq 1 ]; then w="$(rb_tree rb-j)"; rb_once "-j 2" "$w" 2 -j 2; else skip_j "rsdd-bin -j 2"; fi
+w="$(rb_tree rb-shard)"; rb_once "--shard 1/2" "$w" 1 --shard 1/2
+
+# (b) a caller-set RSDD_BIN is used as-is, with no build
+w="$(rb_tree rb-caller)"; mkdir -p "$TMP/rb-caller"; printf '#!/bin/sh\necho mine\n' > "$TMP/rb-caller/rsdd"; chmod 755 "$TMP/rb-caller/rsdd"
+RB_ENVX=(RSDD_BIN="$TMP/rb-caller/rsdd"); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && [ "$(sort -u "$RB_LOG" | wc -l)" -eq 1 ] && grep -qxF "$TMP/rb-caller/rsdd|x|out" "$RB_LOG" \
+   && grep -qF 'rsdd: RSDD_BIN set by the caller' <<<"$OUT"; then
+  ok "rsdd-bin caller: a caller-set RSDD_BIN reaches every suite unchanged and no go build ran"
+else no "rsdd-bin caller: rc=$RC builds=$(rb_builds) :: $(head -2 "$RB_LOG" | tr '\n' ' ') :: $(grep '^rsdd:' <<<"$OUT")"; fi
+
+# (c) a failing build / absent go: typed DEGRADED, the run completes, RSDD_BIN stays unset; RSDD_REQUIRE_GO=1 fails it
+w="$(rb_tree rb-fail)"; RB_ENVX=(FAKE_GO_FAIL=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: DEGRADED — ' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ] && ! grep -qv '^UNSET|' "$RB_LOG"; then
+  ok "rsdd-bin failed build: 'rsdd: DEGRADED — ...' printed, both suites still ran with RSDD_BIN unset, rc 0 without RSDD_REQUIRE_GO"
+else no "rsdd-bin failed build: rc=$RC :: $(grep '^rsdd:' <<<"$OUT") :: $(head -2 "$RB_LOG" | tr '\n' ' ')"; fi
+RB_ENVX=(FAKE_GO_FAIL=1 RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 1 ] && grep -qF 'rsdd: DEGRADED — ' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ]; then
+  ok "rsdd-bin failed build + RSDD_REQUIRE_GO=1: the run exits 1 (never a silent pass) after running the suites"
+else no "rsdd-bin failed build + RSDD_REQUIRE_GO=1: rc=$RC :: $(grep '^rsdd:' <<<"$OUT")"; fi
+RB_PATH="$(mkbin_without "$TMP/rb-nogo" go)"; w="$(rb_tree rb-nogo)"; rb_run "$w"
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: DEGRADED — go not found' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ]; then
+  ok "rsdd-bin go absent: 'rsdd: DEGRADED — go not found...' and the suites still run"
+else no "rsdd-bin go absent: rc=$RC :: $(grep '^rsdd:' <<<"$OUT")"; fi
+RB_ENVX=(RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 1 ] && grep -qF 'rsdd: DEGRADED — go not found' <<<"$OUT"; then ok "rsdd-bin go absent + RSDD_REQUIRE_GO=1: exits 1"
+else no "rsdd-bin go absent + RSDD_REQUIRE_GO=1: rc=$RC"; fi
+RB_PATH="$RB_FG:$PATH"
+w="$(rb_tree rb-reqok)"; RB_ENVX=(RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: built' <<<"$OUT"; then ok "rsdd-bin RSDD_REQUIRE_GO=1 with a working build: rc 0"
+else no "rsdd-bin RSDD_REQUIRE_GO=1 with a working build: rc=$RC"; fi
+
+# (d) --cache: the key must not carry the RSDD_BIN path, and must follow the module sources
+rb_cache_tree(){ # name -> tests dir, a git repo with the rb_tree layout
+  local w root; w="$(rb_tree "$1" "${2:-}")"; root="${w%/research-sdd/toolbelt/tests}"
+  rm -f "$w/b.test.sh"; printf '# fixture: no always-run suites\n' > "$w/impact-always.txt"; mkdir -p "$root/research-sdd/install/tests"
+  rb_git -C "$root" init -q && rb_git -C "$root" add -A && rb_git -C "$root" commit -q -m base || return 1
+  printf '%s' "$w"
+}
+rb_ran(){ local n; n="$(grep -c . "$RB_RAN" 2>/dev/null)"; printf '%s' "${n:-0}"; }
+RB_RAN="$TMP/rb-ran.log"; mkdir -p "$TMP/rb-xdg"
+cache_scn(){ # <scenario> <tests-dir>: prints held | broken...
+  local t="$2" r1 r2 xd="$TMP/rb-xdg-$$-$RANDOM"; mkdir -p "$xd"; mkdir -p "$TMP/rb-bin2"
+  printf '#!/bin/sh\necho mine\n' > "$TMP/rb-bin2/one"; cp "$TMP/rb-bin2/one" "$TMP/rb-bin2/two"; chmod 755 "$TMP/rb-bin2/one" "$TMP/rb-bin2/two"
+  case "$1" in
+    extbin) : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN" RSDD_BIN="$TMP/rb-bin2/one"); rb_run "$t" --cache; r1="$(rb_ran)"
+            : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN" RSDD_BIN="$TMP/rb-bin2/two"); rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 0 ] && echo held || echo "broken first=$r1 second=$r2 (the second run must reuse the cached PASS)" ;;
+    tmpbin) : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN"); rb_run "$t" --cache; r1="$(rb_ran)"
+            : > "$RB_RAN"; rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 0 ] && echo held || echo "broken first=$r1 second=$r2" ;;
+    src)    : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN"); rb_run "$t" --cache; r1="$(rb_ran)"
+            printf 'package x\nvar Changed = 1\n' > "${t%/toolbelt/tests}/rsdd/internal/x.go"
+            : > "$RB_RAN"; rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 1 ] && echo held || echo "broken first=$r1 second=$r2 (a must run again after the module source changed)" ;;
+  esac
+}
+for scn in extbin tmpbin src; do
+  w="$(rb_cache_tree "rb-cache-$scn")" || { no "rsdd-bin cache $scn: could not build the fixture repo"; continue; }
+  v="$(cache_scn "$scn" "$w")"
+  case "$scn" in
+    extbin) lbl="two caller-set RSDD_BIN paths with the same bytes share one cache key" ;;
+    tmpbin) lbl="the per-run built RSDD_BIN temp path does not change the cache key between runs" ;;
+    src)    lbl="a change under research-sdd/rsdd changes the cache key" ;;
+  esac
+  if [ "$v" = held ]; then ok "rsdd-bin cache: $lbl"; else no "rsdd-bin cache: $lbl :: $v"; fi
+done
+
+# (e) --list-suites performs no build
+w="$(rb_tree rb-list)"; rb_run "$w" --list-suites
+if [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && [ ! -s "$FAKE_GO_LOG" ] && ! grep -q '^rsdd:' <<<"$OUT"; then ok "rsdd-bin --list-suites: no go invocation and no rsdd line"
+else no "rsdd-bin --list-suites: rc=$RC go-log=$(cat "$FAKE_GO_LOG")"; fi
+# a refused flag combination exits before any build
+w="$(rb_tree rb-refuse)"; rb_run "$w" --shard 1/2 --impacted HEAD
+if [ "$RC" -eq 2 ] && [ ! -s "$FAKE_GO_LOG" ]; then ok "rsdd-bin refused flags: exit 2 before any go invocation"
+else no "rsdd-bin refused flags: rc=$RC go-log=$(cat "$FAKE_GO_LOG")"; fi
+
+# --- Teeth for run-all's single rsdd build (kit issue #2422) -----------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # rb_scn <scenario> <tree-name> [mutant-runner]: prints held | broken...
+  rb_scn(){
+    local scn="$1" nm="$2" mutf="${3:-}" t lines uniq bad
+    case "$scn" in
+      serial)  t="$(rb_tree "$nm" "$mutf")"; rb_run "$t"
+               lines="$(wc -l < "$RB_LOG")"; uniq="$(cut -d'|' -f1 "$RB_LOG" | sort -u | wc -l)"; bad="$(grep -vc '|x|in$' "$RB_LOG")"
+               [ "$RC" -eq 0 ] && [ "$lines" -eq 2 ] && [ "$uniq" -eq 1 ] && [ "${bad:-0}" -eq 0 ] && [ "$(rb_builds)" -eq 1 ] && echo held || echo "broken rc=$RC rows=$(head -1 "$RB_LOG")" ;;
+      failreq) t="$(rb_tree "$nm" "$mutf")"; RB_ENVX=(FAKE_GO_FAIL=1 RSDD_REQUIRE_GO=1); rb_run "$t"; RB_ENVX=()
+               [ "$RC" -eq 1 ] && echo held || echo "broken rc=$RC (RSDD_REQUIRE_GO=1 with a failed build must exit 1)" ;;
+      caller)  t="$(rb_tree "$nm" "$mutf")"; RB_ENVX=(RSDD_BIN="$TMP/rb-caller/rsdd"); rb_run "$t"; RB_ENVX=()
+               [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && grep -qxF "$TMP/rb-caller/rsdd|x|out" "$RB_LOG" && echo held || echo "broken builds=$(rb_builds) rows=$(head -1 "$RB_LOG")" ;;
+      extbin|src) t="$(rb_cache_tree "$nm" "$mutf")" || { echo "broken: fixture repo"; return; }; cache_scn "$scn" "$t" ;;
+    esac
+  }
+  rb_tooth(){ # <label> <scenario> <sed-expr>
+    local lbl="$1" scn="$2" expr="$3" g m mf="$TMP/rb-mut-$1.sh"
+    g="$(rb_scn "$scn" "teeth-rb-$lbl-good")"
+    if [ "$g" != held ]; then no "teeth-rb-$lbl: the real runner does not hold scenario '$scn' ($g) — the tooth cannot discriminate"; return; fi
+    if ! mutant_sed "$SUT" "$mf" "$expr" 2>"$TMP/rb-mut-$lbl.err"; then no "teeth-rb-$lbl: no mutant: $(cat "$TMP/rb-mut-$lbl.err")"; return; fi
+    m="$(rb_scn "$scn" "teeth-rb-$lbl-mut" "$mf")"
+    case "$m" in
+      broken*) ok "teeth-rb-$lbl: the mutant breaks scenario '$scn' ($m) -> the case has real teeth" ;;
+      *)       no "teeth-rb-$lbl: the mutant still holds scenario '$scn' (THEATER)" ;;
+    esac
+  }
+  echo "-- teeth: run-all's single rsdd build and RSDD_BIN export (kit issue #2422) — each guard removed in turn; its scenario must then break --"
+  rb_tooth build serial '/SENTINEL-RSDD-BIN-BUILD/s/go build -ldflags/go version -ldflags/'
+  rb_tooth export serial '/SENTINEL-RSDD-BIN-EXPORT/s/export RSDD_BIN=/RSDD_BIN=/'
+  rb_tooth caller caller '/SENTINEL-RSDD-BIN-CALLER/s/if \[\[ -n "\${RSDD_BIN:-}" \]\]/if false/'
+  rb_tooth require failreq '/SENTINEL-RSDD-BIN-REQUIRE/,+3s/^  if \[\[ -n "\$RSDD_FAIL" \]\]; then$/  if false; then/'
+  rb_tooth cache-env extbin '/RSDD_\* \&\& "\$v" != RSDD_BIN/s/ \&\& "\$v" != RSDD_BIN//'
+  rb_tooth cache-src src '/SENTINEL-RSDD-BIN-CACHE-SRC/s/research-sdd\/rsdd\/\*)/research-sdd\/rsdd-never\/*)/'
 fi
 
 echo "== $pass passed $MID $fail failed =="

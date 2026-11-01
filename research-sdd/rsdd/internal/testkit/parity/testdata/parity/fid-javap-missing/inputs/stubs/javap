@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Stub javap for the java-fidelity parity cases: the listing carries a path-dependent pool index, like a real one.
+flag="$1"; cls="${*: -1}"; name="$(basename "$cls" .class)"; text="$(cat "$cls")" || exit 2
+if [ "$flag" = -l ]; then echo "class $name"; case "$text" in *lvt:yes*) echo "      LocalVariableTable:" ;; esac; exit 0; fi
+src="${text#src:}"; src="${src%%$'\n'*}"
+printf 'Compiled from "%s.java"\nclass %s {\n  0: ldc #%d, 3 // %s\n}\n' "$name" "$name" "$(( ${#cls} % 50 + 1 ))" "$src"

@@ -4,6 +4,14 @@
 extracts a SquashFS filesystem into a private staging tree, validates the
 tree before publication, and emits a deterministic evidence report.
 
+`squashfs-extract.sh` is a compatibility shim over `rsdd formats squashfs-extract`
+(Go, kit issue #2417; the Python `squashfs_extract.py` is gone).  The shim adds
+`--manifest-cli <toolbelt>/analysis_manifest.py` ahead of the caller's
+arguments; exit codes and stderr pass through unchanged (0 published, 2 any
+refusal or failure).  The guard-to-test table is at the head of
+`rsdd/internal/formats/squashfs_test.go`; the legacy script is kept as the
+differential oracle under `rsdd/internal/formats/testdata/squashfs/legacy/`.
+
 ## Accepted Input
 
 Raw SquashFS blobs (header at offset 0) and firmware images containing an
@@ -31,7 +39,9 @@ extraction directory every ~250 ms; if aggregate on-disk bytes exceed
 `--max-extracted-bytes`, the process group receives SIGKILL and extraction
 fails closed — preventing disk exhaustion during extraction, before
 post-extraction tree validation.  `RLIMIT_FSIZE` is retained as a per-file
-defense-in-depth backup; if unavailable, a warning is emitted to stderr.
+defense-in-depth backup, set by re-executing the binary as the rlimit helper
+(`rsdd __exec`); a limit the kernel refuses fails the run ("unsquashfs failed")
+instead of printing a warning and relying on the watchdog alone.
 
 ## Post-Extraction Tree Validation
 
@@ -62,3 +72,23 @@ All files and directories are synced, the tree is validated as a closed set
 published by Linux `renameat2(RENAME_NOREPLACE)` followed by parent-directory
 sync.  Existing destinations are never replaced.  On any error, only owned
 staging is removed; the destination is never partially published.
+
+## Intended Differences From The Python Implementation
+
+Behavior is held against the legacy script by `TestSquashfsParity*` (same
+exit code, same stderr text, same published tree and evidence bytes, same
+manifest apart from the fields below).  The differences are all stricter or
+crash-free:
+
+| Area | Python script | `rsdd formats squashfs-extract` |
+|---|---|---|
+| Symlink to a directory | `os.walk` filed it under `dirnames`, so `walk_tree` never saw it; the refusal came later from a `chmod` through the link (`Operation not permitted`, Python-version dependent) | refused where it first appears: `symlink in extracted tree (rejected): <path>` |
+| Unlistable directory, missing `extracted/` | skipped silently (`os.walk` ignores errors): an incomplete tree could be published as complete | an error, nothing published |
+| Pre-existing `.<name>.stage` | the failed `mkdir` was followed by `rmtree(stage)`, deleting another run's stage | the error `[Errno 17] File exists: ...`; a stage this run did not create is never deleted |
+| FIFO as `--input` | blocks forever in `open` | `source is not a regular file` |
+| Manifest `tool` / `argv` | launcher = python, artifact = `squashfs_extract.py`, argv `[python, script, ...]` | launcher = the rsdd binary, no script artifact, argv `[rsdd, formats, squashfs-extract, ...]`; every other manifest field is identical |
+| Sandbox environment | the caller's environment | `PATH` only (the sandbox sets its own `PATH`, `HOME`, `TMPDIR` as before) |
+| Manifest tool failure | Python `CalledProcessError` text | the tool's own stderr, then `squashfs-extract: manifest create failed (exit N)` (or `verify`) |
+| Extracted name that is not valid UTF-8 | escaped as `\udcXX` in the JSON | refused: `extracted path is not valid UTF-8` |
+| Usage errors | argparse text, exit 2 | Go flag text, exit 2; `-h` prints the usage to stdout and exits 0 |
+| Cwd | process cwd | the injected working directory (identical for the real binary) |

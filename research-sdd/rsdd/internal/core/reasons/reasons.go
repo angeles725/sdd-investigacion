@@ -22,8 +22,10 @@ const (
 	ClassInput    Class = "input"
 )
 
-// Code identifies one registry row. The zero value is invalid.
-type Code struct{ n int }
+// Code identifies one registry row by its 1-based registry position. The zero value is invalid, and any
+// value outside the registry is rejected by every method (row reports false), so a converted integer
+// cannot select a row the registry does not have.
+type Code int
 
 type entry struct {
 	text         string
@@ -35,12 +37,12 @@ type entry struct {
 
 const placeholder = "<v>"
 
-// row returns the table entry of c, or false for the zero or a forged Code.
+// row returns the table entry of c, or false for the zero or an out-of-range Code.
 func (c Code) row() (entry, bool) {
-	if c.n < 1 || c.n > len(table) {
+	if c < 1 || int(c) > len(table) {
 		return entry{}, false
 	}
-	return table[c.n-1], true
+	return table[c-1], true
 }
 
 // Text returns the code column of the row, or "" for the zero Code.
@@ -83,7 +85,7 @@ func (c Code) Placeholders() int {
 func All() []Code {
 	out := make([]Code, len(table))
 	for i := range table {
-		out[i] = Code{i + 1}
+		out[i] = Code(i + 1)
 	}
 	return out
 }
@@ -92,10 +94,10 @@ func All() []Code {
 func Lookup(text string) (Code, bool) {
 	for i := range table {
 		if table[i].text == text {
-			return Code{i + 1}, true
+			return Code(i + 1), true
 		}
 	}
-	return Code{}, false
+	return 0, false
 }
 
 // Render returns the degraded line for c with one arg per "<v>" placeholder, in order. A wrong argument
