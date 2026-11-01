@@ -121,6 +121,7 @@ var hookCases = []hcase{
 	{name: "kit-current", legacy: "K1", kit: "stub", kdir: "k0", silent: true, oracle: true},
 	{name: "kit-3-behind-silent", legacy: "K2", kit: "stub", kdir: "k3", silent: true, oracle: true},
 	{name: "kit-25-behind-stale", legacy: "K3 K3b K3c", kit: "stub", kdir: "k25", has: []string{"verify kit-stale status=stale fix (no live session): git -C ~/k25 pull --ff-only", "behind=25", "may understate", "WARN"}, not: []string{"kit status=behind"}, oracle: true},
+	{name: "kit-threshold-commits-equal", legacy: "K4 boundary", kit: "stub", kdir: "k3", env: E("RESEARCH_SDD_KIT_STALE_MAX_COMMITS=3"), silent: true, oracle: true}, // behind == max is not stale
 	{name: "kit-threshold-commits", legacy: "K4", kit: "stub", kdir: "k3", env: E("RESEARCH_SDD_KIT_STALE_MAX_COMMITS=2"), has: []string{"behind=3"}, oracle: true},
 	{name: "kit-threshold-garbage", legacy: "K5", kit: "stub", kdir: "k25", env: E("RESEARCH_SDD_KIT_STALE_MAX_COMMITS=a[$(touch k-pwned)]", "RESEARCH_SDD_KIT_STALE_MAX_DAYS=1x"),
 		has: []string{"behind=25", "invalid RESEARCH_SDD_KIT_STALE_MAX_COMMITS='atouchk-pwned', using 20", "invalid RESEARCH_SDD_KIT_STALE_MAX_DAYS='1x', using 7"}, oracle: true},
