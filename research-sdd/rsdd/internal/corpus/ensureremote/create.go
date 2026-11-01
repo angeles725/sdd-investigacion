@@ -35,10 +35,12 @@ func (c *command) createAndPush() int {
 		c.errf("   note: %s='%s' is not a positive integer — using the default %ds\n", createKnob, c.s.Env(createKnob), createDefault)
 	}
 	if cr.State != gh.StateOK {
-		if cr.State != gh.StateTimeout {
+		// A timeout, an output cap or a probe failure leave the outcome UNKNOWN (the repo and the origin may exist):
+		// they are read back and cleaned up like a timeout. Any other state is a plain failure.
+		if cr.State != gh.StateTimeout && cr.State != gh.StateOutputCap && cr.State != gh.StateProbeFailed {
 			return c.refuse(exitTooling, "REFUSED: gh repo create failed.")
 		}
-		if code, done := c.createTimedOut(slugName); done {
+		if code, done := c.createTimedOut(slugName, cr); done {
 			return code
 		}
 	}
@@ -86,14 +88,18 @@ func (c *command) createAndPush() int {
 // and `--source --remote origin` may already have added the local origin. Observe both READ-ONLY, name the partial
 // state, and never assume either way. done is false when the run falls through to the normal verify-then-push guard
 // (an origin was added and the repo is not UNKNOWN).
-func (c *command) createTimedOut(slugName string) (code int, done bool) {
+func (c *command) createTimedOut(slugName string, cr gh.RunResult) (code int, done bool) {
 	cur, hasOrigin := c.originURL()
 	have := "absent"
 	if hasOrigin {
 		have = "configured"
 	}
 	tvis, bound := c.readVis()
-	c.errf("DEGRADED: gh repo create timed out after %ds — PARTIAL-STATE local origin=%s, remote %s visibility=%s\n", bound, have, slugName, tvis)
+	what := "timed out"
+	if cr.State != gh.StateTimeout {
+		what = "did not finish (" + string(cr.State) + ")"
+	}
+	c.errf("DEGRADED: gh repo create %s after %ds — PARTIAL-STATE local origin=%s, remote %s visibility=%s\n", what, bound, have, slugName, tvis)
 	if strings.HasPrefix(tvis, "UNKNOWN") {
 		// Visibility could not be read: the repo may exist with ANY visibility. Never adopt it and never call a
 		// re-run safe. Remove the origin the create may have added so a re-run cannot short-circuit onto an unverified
