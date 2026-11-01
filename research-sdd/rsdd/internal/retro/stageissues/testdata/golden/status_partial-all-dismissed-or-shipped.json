@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 0 (none: 3 row(s) examined)\n",
+  "stderr": "no-match: dismissed (row 2)\nno-match: dismissed (row 3)\nno-match: delta section found but all rows are shipped or dismissed (skipped: 3)\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

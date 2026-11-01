@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 1 (retro-level=0 row-level=1)\n| # | where | head | reason |\n|---|---|---|---|\n| 1 | r.md:8 | 1: short one | no usable title (a title under 12 characters) |\n\nplanned-tracking-issue: Unclassifiable retro deltas in target-foo/retros/r.md\n  labels: status:needs-review,target:target-foo,type:docs,priority:medium\n  body:\n    stage-retro-issues.sh could not classify 1 item(s) in this retro, so no delta issue was staged for them (they would otherwise be lost). Each needs manual review: restate it in the canonical row-table or `### D\u003cN\u003e —` entry form, or dismiss it.\n    \n    | # | where | head | reason |\n    |---|---|---|---|\n    | 1 | r.md:8 | 1: short one | no usable title (a title under 12 characters) |\n    \n    ---\n    Unclassifiable tracker: target-foo/retros/r.md\n    Unclassifiable item set: 1992872157\n    Part of backlog-first rollout #557\n  redactions: 0\n\n",
+  "stderr": "unclassifiable-row: row 1 has no usable title (got 'short one': a title under 12 characters) — needs manual review, no issue staged\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}
