@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stderr",
+  "reason": "cli.Run appends 'DEGRADED: command reported a degraded state without a reason' to every command that ends on exit 3 (internal/cli/cli.go); the bash exits 3 for 'no consent' with only the REFUSED lines"
+ }
+]

@@ -1,0 +1,13 @@
+{
+ "legacy": [
+  "toolbelt/ensure-remote.sh",
+  "{{input}}/absent",
+  "--yes"
+ ],
+ "rsdd": [
+  "corpus",
+  "ensure-remote",
+  "{{input}}/absent",
+  "--yes"
+ ]
+}

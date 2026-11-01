@@ -1,0 +1,11 @@
+{
+ "legacy": [
+  "toolbelt/ensure-remote.sh",
+  "-h"
+ ],
+ "rsdd": [
+  "corpus",
+  "ensure-remote",
+  "-h"
+ ]
+}
