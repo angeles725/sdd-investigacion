@@ -29,7 +29,6 @@ type world struct {
 	root  string
 	stubs string
 	repos map[string]string // key -> directory
-	sha   map[string]string // "<key>:<rev>" -> full sha
 	files int
 	runs  int
 }
@@ -51,7 +50,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	w := &world{t: t, root: t.TempDir(), repos: map[string]string{}, sha: map[string]string{}}
+	w := &world{t: t, root: t.TempDir(), repos: map[string]string{}}
 	abs, err := filepath.Abs(stubDir)
 	if err != nil {
 		t.Fatal(err)
@@ -79,17 +78,7 @@ func (w *world) initRepo(key string) string {
 	return dir
 }
 
-func (w *world) rev(repo, rev string) string {
-	k := repo + ":" + rev
-	if s, ok := w.sha[k]; ok {
-		return s
-	}
-	s := w.git(repo, "rev-parse", rev)
-	w.sha[k] = s
-	return s
-}
-
-// revOpt is rev, or "" when the revision does not exist (an unborn HEAD, a missing tag).
+// revOpt is the full sha of rev in repo, or "" when the revision does not exist (an unborn HEAD, a missing tag).
 func (w *world) revOpt(repo, rev string) string {
 	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", rev)
 	cmd.Dir = w.repos[repo]
