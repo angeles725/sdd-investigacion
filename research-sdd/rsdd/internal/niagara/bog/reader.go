@@ -10,6 +10,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Format names the container a .bog arrived in. The values are part of the bog-nav.v1 evidence schema.
@@ -105,8 +106,12 @@ type Zip struct {
 }
 
 // OpenZip reads the central directory of data.
-func OpenZip(data []byte) (*Zip, error) {
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+func OpenZip(data []byte) (*Zip, error) { return OpenZipAt(bytes.NewReader(data), int64(len(data))) }
+
+// OpenZipAt reads the central directory of the size-byte archive in r. Member reads touch only the bytes of the
+// member, so an archive on disk is never held in memory.
+func OpenZipAt(r io.ReaderAt, size int64) (*Zip, error) {
+	zr, err := zip.NewReader(r, size)
 	if err != nil && err != zip.ErrInsecurePath {
 		return nil, ErrNotZip
 	}
@@ -238,14 +243,27 @@ func readEntry(f *zip.File, name string, maxInflate int) ([]byte, bool, error) {
 
 // pyRepr renders s like Python's repr(str): single quotes unless the text holds a single and no double quote,
 // with the usual escapes.
-func pyRepr(s string) string {
+func pyRepr(s string) string { return reprString(s, false) }
+
+// PyReprPath is repr() of a path as Python holds it: the bytes of a name that are not valid UTF-8 are
+// surrogate-escaped (os.fsdecode), so they print as \udcXX. It is the filename in the text of an OSError.
+func PyReprPath(s string) string { return reprString(s, true) }
+
+func reprString(s string, escapeInvalid bool) string {
 	q := '\''
 	if strings.ContainsRune(s, '\'') && !strings.ContainsRune(s, '"') {
 		q = '"'
 	}
 	var b strings.Builder
 	b.WriteRune(q)
-	for _, r := range s {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 && escapeInvalid {
+			fmt.Fprintf(&b, `\udc%02x`, s[i])
+			i++
+			continue
+		}
+		i += size
 		switch {
 		case r == q || r == '\\':
 			b.WriteByte('\\')

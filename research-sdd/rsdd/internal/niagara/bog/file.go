@@ -35,32 +35,92 @@ type ReadError struct {
 
 func (e *ReadError) Error() string { return e.Path + ": " + e.Msg }
 
-// ReadFile opens path read-only without following a final symlink and without blocking on a FIFO
-// (fsx.OpenRO), refuses anything that is not a regular file, and reads it whole. The digest is taken over the
-// same bytes that are returned, so the evidence hash and the parsed content cannot disagree.
-func ReadFile(path string) (File, error) {
+// readError maps an fsx failure to the strerror-style ReadError of the legacy tools.
+func readError(path string, err error) *ReadError {
+	switch {
+	case errors.Is(err, fsx.ErrNotRegular):
+		return &ReadError{Path: path, Msg: "not a regular file (rejected)"}
+	case errors.Is(err, fsx.ErrOpen):
+		if errors.Is(err, syscall.ELOOP) {
+			return &ReadError{Path: path, Msg: "is a symbolic link (rejected)"}
+		}
+		return &ReadError{Path: path, Msg: StrError(err)}
+	default:
+		return &ReadError{Path: path, Msg: StrError(err), IO: true}
+	}
+}
+
+// Handle is an open regular file that can be read at any offset: the reader for files that may be far larger
+// than the part a tool inspects (a module JAR, a station backup whose central directory sits at the end).
+type Handle struct {
+	f *os.File
+	// Size is the length the kernel reported for the open file.
+	Size int64
+}
+
+// Open opens path read-only without following a final symlink and without blocking on a FIFO (fsx.OpenRO) and
+// refuses anything that is not a regular file. The refusals are the *ReadError values ReadFile returns.
+func Open(path string) (*Handle, error) {
 	fd, st, err := fsx.OpenRO(path)
 	if err != nil {
-		switch {
-		case errors.Is(err, fsx.ErrNotRegular):
-			return File{}, &ReadError{Path: path, Msg: "not a regular file (rejected)"}
-		case errors.Is(err, fsx.ErrOpen):
-			if errors.Is(err, syscall.ELOOP) {
-				return File{}, &ReadError{Path: path, Msg: "is a symbolic link (rejected)"}
-			}
-			return File{}, &ReadError{Path: path, Msg: StrError(err)}
-		default:
-			return File{}, &ReadError{Path: path, Msg: StrError(err), IO: true}
-		}
+		return nil, readError(path, err)
 	}
-	f := os.NewFile(uintptr(fd), path)
-	defer f.Close()
-	data, err := io.ReadAll(f)
+	return &Handle{f: os.NewFile(uintptr(fd), path), Size: st.Size}, nil
+}
+
+// Close releases the file.
+func (h *Handle) Close() error { return h.f.Close() }
+
+// Head reads the first min(Size, max) bytes. The buffer grows with what is actually read, so a file that is
+// larger than max (or lies about its size) never costs more than max bytes.
+func (h *Handle) Head(max int64) ([]byte, error) {
+	if max < 0 {
+		max = 0
+	}
+	data, err := io.ReadAll(io.NewSectionReader(h.f, 0, min(h.Size, max)))
+	if err != nil {
+		return nil, &ReadError{Path: h.f.Name(), Msg: StrError(err), IO: true}
+	}
+	return data, nil
+}
+
+// Zip reads the central directory of the file without loading the archive into memory.
+func (h *Handle) Zip() (*Zip, error) { return OpenZipAt(h.f, h.Size) }
+
+// ReadFile opens path (see Open) and reads it whole. The digest is taken over the same bytes that are returned,
+// so the evidence hash and the parsed content cannot disagree.
+func ReadFile(path string) (File, error) {
+	h, err := Open(path)
+	if err != nil {
+		return File{}, err
+	}
+	defer h.Close()
+	data, err := io.ReadAll(h.f)
 	if err != nil {
 		return File{}, &ReadError{Path: path, Msg: StrError(err), IO: true}
 	}
+	return fileOf(data, h.Size), nil
+}
+
+// ReadFileCapped is ReadFile for a tool that inspects only the first max bytes (the 4 MiB plaintext cap of the
+// security audit, its 512 KiB properties cap). Data and SHA256 cover the bytes read; Size is the file's full
+// size, so a caller sees truncation as len(Data) < Size.
+func ReadFileCapped(path string, max int64) (File, error) {
+	h, err := Open(path)
+	if err != nil {
+		return File{}, err
+	}
+	defer h.Close()
+	data, err := h.Head(max)
+	if err != nil {
+		return File{}, err
+	}
+	return fileOf(data, h.Size), nil
+}
+
+func fileOf(data []byte, size int64) File {
 	sum := sha256.Sum256(data)
-	return File{Data: data, Size: st.Size, SHA256: hex.EncodeToString(sum[:])}, nil
+	return File{Data: data, Size: size, SHA256: hex.EncodeToString(sum[:])}
 }
 
 // StrError renders an error the way Python's OSError.strerror does for the legacy messages: the C library's
