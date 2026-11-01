@@ -64,6 +64,9 @@ func execHooks(t *testing.T, target string) {
 	t.Helper()
 	hooks := filepath.Join(target, ".claude", "hooks")
 	mkdirs(t, filepath.Join(hooks, "dir-noexec"))
+	if err := os.Chmod(filepath.Join(hooks, "dir-noexec"), 0o600); err != nil { // a directory without +x: skipped, not reported
+		t.Fatal(err)
+	}
 	for f, m := range map[string]os.FileMode{filepath.Join(hooks, "ok-exec"): 0o755, filepath.Join(hooks, "noexec"): 0o644} {
 		writeFile(t, f, "#!/usr/bin/env bash\nexit 0\n")
 		if err := os.Chmod(f, m); err != nil {
@@ -219,6 +222,8 @@ func execCases() []execCase {
 			{name: "S9 a newline in the command reads as a blank", settings: `{"hooks":{"Stop":[{"hooks":[{"command":"nice\nx"}]}]}}`, want: unv("nice x", reasonChain)},
 			{name: "S9 escaped quote and unicode escapes", settings: `{"hooks":{"Stop":[{"hooks":[{"command":"\"/n/é x\""}]}]}}`, want: "missing\t/n/é x\tStop" + nl},
 			{name: "S9 an event key holding a tab", settings: `{"hooks":{"A\tB":[{"hooks":[{"command":"/n/t"}]}]}}`, want: unv("B\t/n/t", reasonChain)},
+			{name: "S9 an event key holding a newline splits into two lines; a line without a tab is both event and command", settings: `{"hooks":{"/n/zz\nB":[{"hooks":[{"command":"true"}]}]}}`,
+				want: "missing\t/n/zz\t/n/zz" + nl},
 			{name: "S10 UTF-8 BOM before the document", settings: "\ufeff" + `{"hooks":{"Stop":[{"hooks":[{"command":"/n/bom"}]}]}}`, want: "missing\t/n/bom\tStop" + nl},
 			{name: "S11 two top-level documents are both read", settings: `{"hooks":{"A":[{"hooks":[{"command":"/n/1"}]}]}} {"hooks":{"B":[{"hooks":[{"command":"/n/2"}]}]}}`,
 				want: "missing\t/n/1\tA" + nl + "missing\t/n/2\tB" + nl},
@@ -336,6 +341,18 @@ func TestWiredExecRelativeTarget(t *testing.T) {
 	// a missing settings.json under a relative target prints nothing
 	if got := goExec(t, e, "nothing-here"); got != "" {
 		t.Errorf("absent settings printed %q", got)
+	}
+}
+
+// A settings.json that passes the stat and access checks but fails to read is the same typed finding as invalid JSON.
+func TestWiredExecReadFailureIsTyped(t *testing.T) {
+	r, _ := sandbox(t)
+	target, _ := execFixture(t, r)
+	wireSettings(t, target, stopSettings(t, pdir+"/noexec"))
+	e := Env{Cwd: r, ReadFile: func(string) ([]byte, error) { return nil, os.ErrInvalid }}
+	got := FormatFindings(WiredExecReport(e, target))
+	if want := "unverifiable\t" + target + "/.claude/settings.json\tsettings.json is not valid JSON (or jq failed)\n"; got != want {
+		t.Errorf("report = %q, want %q", got, want)
 	}
 }
 
