@@ -16,12 +16,9 @@ export CGO_ENABLED := 0
 # FAILURE - KILLED for gremlins - instead of starving the host. The cap is RLIMIT_AS (ulimit -v, KiB) set
 # by a generated `go test -exec` wrapper: only test binaries and what they spawn are capped, never the
 # compiler or linker, so the cap cannot turn into a build failure. The Go runtime alone reserves ~512 MiB
-# of address space at start and the largest clean test binary peaks at ~70 MB RSS. 1 GiB left ~100 MiB of
-# headroom: the formats test binary died locally at 896 MiB, and a Go child it spawns (rsdd, via the
-# analysis_manifest shim) crashed out of memory on CI (#2463). 1.5 GiB keeps 4 parallel runaways (-p=4)
-# under the 7 GB runner. TEST_MEM_KB=unlimited
+# of address space at start and the largest clean test binary peaks at ~70 MB RSS. TEST_MEM_KB=unlimited
 # opts out explicitly (for a platform without ulimit -v); a cap that cannot be set fails the target.
-TEST_MEM_KB  ?= 1572864
+TEST_MEM_KB  ?= 1048576
 TEST_TIMEOUT ?= 5m
 TESTFLAGS    ?=
 define CAPPED
