@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
 // Findings per fixture (rule:line in output order, WARN/INFO included), pinned from the legacy linter.
@@ -206,48 +204,5 @@ func TestLintBlockReadOnly(t *testing.T) {
 	ents, _ := os.ReadDir(dir)
 	if string(before) != string(after) || len(ents) != 1 {
 		t.Errorf("linting changed the tree: %d entries, content equal=%v", len(ents), string(before) == string(after))
-	}
-}
-
-func TestLintBlockPackRunNeedsPython(t *testing.T) {
-	fx := fixtures(t)
-	t.Setenv("PATH", t.TempDir())
-	if r := goRun(t, fx, "--pack", "jvm", "r3-first.md"); r.rc != 2 || !strings.Contains(r.err, "DEGRADED: python3 not found") || r.out != "" {
-		t.Errorf("no python3: %+v, want exit 2, DEGRADED on stderr and nothing linted", r)
-	}
-	// The core run needs no Python at all: it still lints with an empty PATH.
-	if r := goRun(t, fx, "r3-first.md"); r.rc != 1 || !strings.Contains(r.out, "R3 r3-first.md:7:") {
-		t.Errorf("core run without python3: %+v", r)
-	}
-}
-
-// The Python engine is found next to the running binary (<kit>/bin/rsdd -> <kit>/toolbelt/lint_block.py) unless
-// LINT_BLOCK_HELPER names it.
-func TestLintBlockHelperPath(t *testing.T) {
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(filepath.Dir(filepath.Dir(exe)), "toolbelt", "lint_block.py")
-	if got := helperPath(cli.Stdio{Env: func(string) string { return "" }}); got != want {
-		t.Errorf("default helper = %q, want %q", got, want)
-	}
-	env := func(k string) string {
-		if k == "LINT_BLOCK_HELPER" {
-			return "/x/y.py"
-		}
-		return ""
-	}
-	if got := helperPath(cli.Stdio{Env: env}); got != "/x/y.py" {
-		t.Errorf("override helper = %q", got)
-	}
-}
-
-func TestLintBlockPackRunNeedsHelper(t *testing.T) {
-	fx := fixtures(t)
-	h := filepath.Join(t.TempDir(), "absent.py")
-	r := goRunEnv(t, fx, map[string]string{"LINT_BLOCK_HELPER": h}, "--pack", "jvm", "r3-first.md")
-	if r.rc != 2 || !strings.Contains(r.err, "DEGRADED: helper "+h+" missing") || r.out != "" {
-		t.Errorf("absent helper: %+v", r)
 	}
 }

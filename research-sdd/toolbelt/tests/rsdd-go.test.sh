@@ -32,7 +32,8 @@
 #                        `teeth: n/a - no Go package changed vs <ref>` (ok, never teeth); an unresolvable <ref> is
 #                        FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
 #                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
-#                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run; both pass
+#                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run (as GOMAXPROCS,
+#                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
 #                    through the environment to make.
 set -uo pipefail
 
@@ -166,10 +167,10 @@ selftest_teeth() {
   # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
   # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
   c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG make -n -C "$MOD" teeth 2>&1)"
-  if grep -Eq 'unleash --timeout-coefficient 6 --workers 4 --test-cpu 1 \.$' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=1;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \.$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
     ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
-  if grep -Eq 'unleash --timeout-coefficient 6 --workers 2 --test-cpu 3 \./internal/cli$' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=3;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli$' <<<"$c"; then
     ok "teeth wiring: TEETH_WORKERS, TEETH_TEST_CPU and TEETH_PKG override"; else no "teeth wiring: override wrong: $c"; fi
 
   # Package scoping on a scratch repo: the module is a subdirectory, so --relative matters.
@@ -472,7 +473,7 @@ if MUTANT_SYNTAX=none mutant_chain_or_count fail "workers-wiring mutation" "$MOD
     's/ --workers \$(TEETH_WORKERS)//'; then
   if mutant_tooth "teeth: a teeth recipe without --workers (unbounded mutant workers) is caught" 0 0 \
       "$MUTDIR/Makefile.workers" --orig "$MOD/Makefile" \
-      --good-has '--workers 4 --test-cpu 1' --bad-lacks '--workers' -- \
+      --good-has '--workers 4 .' --bad-lacks '--workers' -- \
       make -n -f @SUT@ -C "$MOD" teeth; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
@@ -488,6 +489,43 @@ if MUTANT_SYNTAX=none mutant_chain_or_count fail "memory-cap mutation" "$MOD/Mak
       make -s -f @SUT@ -C "$FIX" test 'TESTFLAGS=-count=1 -v -run TestRunaway' TEST_MEM_KB=786432; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
+fi
+
+# Gremlins on a real fixture (#2427's false verdicts): package ./a has a negative control (a boundary no test
+# pins, so its mutant MUST read LIVED) and a subpackage ./a/b whose mutants its own tests kill.
+# scope_fixture MAKEFILE prints "control=<status> sub=<lived count>", or "ran=no" when gremlins did not run.
+scope_fixture() {
+  local mk="$1" w
+  w="$(mktemp -d "$ROOT/scope-fx.XXXXXX")" || { echo "ran=no"; return; }
+  mkdir -p "$w/a/b"
+  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
+  printf 'package a\n\n// Pos: no test pins the boundary.\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
+  printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
+  printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/a/b/b.go"
+  printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
+  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG=./a TEETH_WORKERS=2 2>&1 </dev/null)"
+  if ! grep -q '^Killed: ' <<<"$o"; then echo "ran=no"; return; fi
+  local c="none"
+  if grep -Eq 'LIVED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="LIVED"
+  elif grep -Eq 'KILLED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="KILLED"; fi
+  echo "control=$c sub=$(grep -cE 'LIVED .* at b/' <<<"$o")"
+}
+sf="$(scope_fixture "$MOD/Makefile")"
+case "$sf" in
+  "control=LIVED sub=0") ok "teeth scope: a live mutant reads LIVED and a subpackage's mutants are killed by its own tests" ;;
+  "ran=no") if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "teeth scope: gremlins did not run on the fixture (RSDD_REQUIRE_GO=1)"
+            else echo "SKIP: teeth scope: gremlins did not run on the fixture"; fi ;;
+  *) no "teeth scope: want control=LIVED sub=0, got $sf" ;;
+esac
+if [ "$sf" = "control=LIVED sub=0" ]; then
+  # Tooth: gremlins --test-cpu back in the recipe turns the parent's live mutant into a false KILLED.
+  sed 's/ --workers \$(TEETH_WORKERS)/ --workers $(TEETH_WORKERS) --test-cpu 1/' "$MOD/Makefile" > "$MUTDIR/Makefile.testcpu"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.testcpu"; then no "teeth scope tooth: --test-cpu mutant is identical to the Makefile"
+  else
+    sf2="$(scope_fixture "$MUTDIR/Makefile.testcpu")"
+    case "$sf2" in "control=KILLED"*) ok "teeth scope tooth: gremlins --test-cpu makes the live control read KILLED (why the recipe never passes it)" ;;
+      *) no "teeth scope tooth: --test-cpu mutant should read control=KILLED, got $sf2" ;; esac
+  fi
 fi
 
 # Mutation testing (gremlins, pinned in the Makefile): the gate is zero LIVED mutants among covered ones.
