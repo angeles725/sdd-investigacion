@@ -1,0 +1,14 @@
+Compiled from "LambdaCapture.java"
+public class LambdaCapture {
+  public LambdaCapture();
+    LineNumberTable:
+      line 1: 0
+
+  public static java.util.function.IntSupplier make(int);
+    LineNumberTable:
+      line 3: 0
+
+  private static int lambda$make$0(int);
+    LineNumberTable:
+      line 3: 0
+}

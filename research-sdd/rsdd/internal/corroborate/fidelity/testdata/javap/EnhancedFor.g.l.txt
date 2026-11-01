@@ -1,0 +1,22 @@
+Compiled from "EnhancedFor.java"
+public class EnhancedFor {
+  public EnhancedFor();
+    LineNumberTable:
+      line 1: 0
+    LocalVariableTable:
+      Start  Length  Slot  Name   Signature
+          0       5     0  this   LEnhancedFor;
+
+  public static int sum(int[]);
+    LineNumberTable:
+      line 3: 0
+      line 4: 2
+      line 5: 22
+      line 4: 27
+      line 7: 33
+    LocalVariableTable:
+      Start  Length  Slot  Name   Signature
+         22       5     5     x   I
+          0      35     0    xs   [I
+          2      33     1 total   I
+}

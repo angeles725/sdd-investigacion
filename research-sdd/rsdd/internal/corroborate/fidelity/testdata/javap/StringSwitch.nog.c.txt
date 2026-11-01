@@ -1,0 +1,47 @@
+Compiled from "StringSwitch.java"
+public class StringSwitch {
+  public StringSwitch();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static int code(java.lang.String);
+    Code:
+       0: aload_0
+       1: astore_1
+       2: iconst_m1
+       3: istore_2
+       4: aload_1
+       5: invokevirtual #7                  // Method java/lang/String.hashCode:()I
+       8: lookupswitch  { // 2
+               3020272: 50
+              92909918: 36
+               default: 61
+          }
+      36: aload_1
+      37: ldc           #13                 // String alpha
+      39: invokevirtual #15                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      42: ifeq          61
+      45: iconst_0
+      46: istore_2
+      47: goto          61
+      50: aload_1
+      51: ldc           #19                 // String beta
+      53: invokevirtual #15                 // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      56: ifeq          61
+      59: iconst_1
+      60: istore_2
+      61: iload_2
+      62: lookupswitch  { // 2
+                     0: 88
+                     1: 90
+               default: 92
+          }
+      88: iconst_1
+      89: ireturn
+      90: iconst_2
+      91: ireturn
+      92: iconst_0
+      93: ireturn
+}

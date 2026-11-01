@@ -1,0 +1,21 @@
+Compiled from "LambdaCapture.java"
+public class LambdaCapture {
+  public LambdaCapture();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static java.util.function.IntSupplier make(int);
+    Code:
+       0: iload_0
+       1: invokedynamic #7,  0              // InvokeDynamic #0:getAsInt:(I)Ljava/util/function/IntSupplier;
+       6: areturn
+
+  private static int lambda$make$0(int);
+    Code:
+       0: iload_0
+       1: iconst_1
+       2: iadd
+       3: ireturn
+}
