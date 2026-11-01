@@ -28,7 +28,7 @@ printf '#!/bin/sh\nulimit -v %s || exit 97\nexec "$$@"\n' '$(TEST_MEM_KB)' >"$$d
 GOFLAGS="$$GOFLAGS -exec=$$d/capexec"
 endef
 
-.PHONY: check fmt-check vet test race lint teeth cross parity build
+.PHONY: check fmt-check vet test race lint teeth cross parity build clean
 
 check: fmt-check vet test
 
@@ -41,9 +41,17 @@ vet:
 test:
 	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
 
-# -race needs cgo, so this target overrides the CGO_ENABLED=0 default.
+# -race needs cgo, so this target overrides the CGO_ENABLED=0 default. It runs under the same CAPPED
+# wrapper as `test`, with its own knobs because a -race run uses several times the memory and time:
+# RACE_MEM_KB (default 8 GiB, KiB units) is the address-space cap and RACE_TIMEOUT the per-binary timeout.
+# A race binary was checked to start under the 8 GiB cap. RACE_MEM_KB=unlimited opts out. The cap is a
+# target-specific TEST_MEM_KB, so `test` and `teeth` keep their own; a TEST_MEM_KB given on the make
+# command line still wins over it (GNU make precedence), so set RACE_MEM_KB, not TEST_MEM_KB, for race.
+RACE_MEM_KB  ?= 8388608
+RACE_TIMEOUT ?= 30m
+race: TEST_MEM_KB = $(RACE_MEM_KB)
 race:
-	CGO_ENABLED=1 go test -race ./...
+	@export CGO_ENABLED=1; $(CAPPED) go test -timeout $(RACE_TIMEOUT) $(TESTFLAGS) -race ./...
 
 lint:
 	go run $(STATICCHECK) ./...
@@ -60,7 +68,9 @@ lint:
 TEETHTAGS ?= nodiff
 # Gremlins defaults to one mutant worker per CPU, each running `go test` on every core: on a small shared CI runner
 # that starves the baseline coverage run (it then prints only `exit status 1`). TEETH_WORKERS bounds the parallel
-# mutant workers and TEETH_TEST_CPU the CPUs each mutant's test run may use (gremlins --workers / --test-cpu).
+# mutant workers (gremlins --workers) and TEETH_TEST_CPU the CPUs each mutant's test run may use, exported as
+# GOMAXPROCS (gremlins passes its environment to `go test`). Never gremlins --test-cpu: v0.6.0 hands `go test`
+# the single argument "-cpu N", the test run then fails to set up, and every mutant reads as KILLED.
 # TEETH_PKG scopes the run to one package ("./internal/cli"); the default "." is the whole module, which the
 # bridge suite narrows to the packages a PR changed when RSDD_TEETH_BASE is set. Like TEST_MEM_KB, all three
 # are overridable on the command line or in the environment.
@@ -68,7 +78,7 @@ TEETH_WORKERS  ?= 4
 TEETH_TEST_CPU ?= 1
 TEETH_PKG      ?= .
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) --test-cpu $(TEETH_TEST_CPU) $(TEETH_PKG)
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_PKG)
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
@@ -76,12 +86,15 @@ cross:
 	GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd && \
 	GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o /dev/null ./cmd/rsdd
 
-# Placeholder: the legacy-vs-Go differential runner (testkit/parity) lands
-# in U0.5. Nothing is ported yet, so there is nothing to compare; this
-# target says so instead of pretending to have checked something.
+# Legacy-vs-Go differential harness (testkit/parity). The caller sets RSDD_PARITY_LEGACY.
 parity:
-	@echo "parity: no ported commands yet"
+	$(CAPPED) go test -count=1 -run '^TestParity$$' ./internal/testkit/parity
 
 build:
 	mkdir -p $(BIN_DIR)
 	h=$$(go run ./cmd/rsdd-srchash .) && go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o $(BIN_DIR)/rsdd ./cmd/rsdd
+
+# Removes only what this Makefile builds. gremlins has no fixed workdir here, and the Go build and
+# module caches (GOCACHE, GOMODCACHE) are deliberately left alone.
+clean:
+	rm -rf $(BIN_DIR)

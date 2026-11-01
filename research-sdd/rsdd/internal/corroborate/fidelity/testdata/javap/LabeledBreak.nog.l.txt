@@ -1,0 +1,18 @@
+Compiled from "LabeledBreak.java"
+public class LabeledBreak {
+  public LabeledBreak();
+    LineNumberTable:
+      line 1: 0
+
+  public static int find(int[][], int);
+    LineNumberTable:
+      line 3: 0
+      line 5: 2
+      line 6: 24
+      line 7: 50
+      line 8: 56
+      line 9: 59
+      line 6: 62
+      line 5: 68
+      line 13: 74
+}

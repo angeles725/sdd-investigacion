@@ -4,8 +4,10 @@ coverage-map.sh
 decompile-java.sh
 ensure-remote.sh
 install/research-sdd-install.sh
+java-fidelity-experiment.sh
 lint-block.sh
 migrate-backlogs.sh
+qnx6-read.sh
 reconcile-issues.sh
 research-sdd-archive.sh
 research-sdd-init.sh
@@ -14,6 +16,7 @@ resume-render.sh
 retro-gate.sh
 return-token-gate.sh
 scan-secrets.sh
+squashfs-extract.sh
 stage-retro-issues.sh
 stage-retro.sh
 state-update.sh
@@ -40,3 +43,5 @@ verify-skill-drift.sh
 verify-state.sh
 verify-tool-catalog-hook.sh
 verify-tool-catalog.sh
+zip-metadata.sh
+zip-stored.sh

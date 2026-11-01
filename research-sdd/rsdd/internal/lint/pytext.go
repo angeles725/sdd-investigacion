@@ -176,3 +176,29 @@ func pyRepr(s string) string {
 	b.WriteByte(q)
 	return b.String()
 }
+
+// ---- boundary helpers for the rewrites of `\b`, `(?<!\w)` and `\s+` -----------------------------------------------
+
+// skipSpace returns the index of the first byte at or after i that does not start a Python whitespace rune.
+func skipSpace(s string, i int) int {
+	for i < len(s) {
+		r, n := utf8.DecodeRuneInString(s[i:])
+		if !isPySpace(r) {
+			break
+		}
+		i += n
+	}
+	return i
+}
+
+// wordBefore reports whether the rune that ends at byte i is a Python word rune (false at the start of s).
+func wordBefore(s string, i int) bool {
+	r, n := utf8.DecodeLastRuneInString(s[:i])
+	return n > 0 && isPyWord(r)
+}
+
+// wordAfter reports whether the rune that starts at byte i is a Python word rune (false at the end of s).
+func wordAfter(s string, i int) bool {
+	r, n := utf8.DecodeRuneInString(s[i:])
+	return n > 0 && isPyWord(r)
+}

@@ -1,0 +1,14 @@
+Compiled from "TryWithResources.java"
+public class TryWithResources {
+  public TryWithResources();
+    LineNumberTable:
+      line 1: 0
+
+  public static java.lang.String first(java.io.StringReader) throws java.io.IOException;
+    LineNumberTable:
+      line 3: 0
+      line 4: 9
+      line 5: 14
+      line 4: 18
+      line 3: 20
+}

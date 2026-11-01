@@ -6,7 +6,7 @@
  ],
  "rsdd": [
   "corroborate",
-  "classfile-facts",
+  "classfile",
   "{{input}}/absent.jar"
  ]
 }
