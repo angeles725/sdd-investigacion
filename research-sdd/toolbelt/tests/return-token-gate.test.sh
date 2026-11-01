@@ -29,8 +29,11 @@ ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 # A toolbelt copy: the gate resolves its sibling research-sdd-status.sh and lib/ from its own directory, so a copy
-# lets a case swap the status script for a stub.
-TB="$TMP/tb"; mkdir -p "$TB"
+# lets a case swap the status script for a stub. The shim resolves rsdd from <toolbelt>/../rsdd (lib/rsdd-exec.sh),
+# so the copy sits in a kit-shaped dir whose rsdd/ links to the real module; any rebuild lands in $TMP/kit/bin.
+mkdir -p "$TMP/kit" && ln -s "$(CDPATH='' cd -P -- "$HERE/../../rsdd" && pwd -P)" "$TMP/kit/rsdd" \
+  || { echo "FATAL: could not link the rsdd module" >&2; exit 2; }
+TB="$TMP/kit/toolbelt"; mkdir -p "$TB"
 cp "$HERE"/../*.sh "$TB/" && cp -r "$HERE/../lib" "$TB/lib" || { echo "FATAL: could not copy the toolbelt" >&2; exit 2; }
 
 # BSD/macOS-portable fixture helpers (kit issue #1757): `touch -d 'N minutes ago'` and `sed -i` without a suffix are
