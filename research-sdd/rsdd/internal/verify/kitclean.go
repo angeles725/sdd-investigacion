@@ -37,6 +37,7 @@ import (
 
 // gitEnvKeys are the environment keys handed to git: what it needs to find itself, its configuration and its
 // identity. GIT_OPTIONAL_LOCKS is not listed: it is always set to 0 (kit issue #1820), never inherited.
+// TODO(#2387): replace the fixed key list with the cli.Stdio Environ accessor.
 var gitEnvKeys = []string{
 	"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR",
 	"XDG_CONFIG_HOME", "GIT_EXEC_PATH", "GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES",

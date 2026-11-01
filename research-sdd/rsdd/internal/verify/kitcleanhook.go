@@ -22,8 +22,8 @@ import (
 // Difference, by design: the script printed plain text when jq was missing; the envelope is built here with
 // no jq, so it is always the JSON contract of the harness.
 //
-// The envelope encoder duplicates internal/hook (a domain package cannot import another domain); both are
-// pinned to jq's output by their own tests.
+// The envelope encoder is pinned to jq's output by differential_test.go; it moves to core/jsonout in #2386
+// (lib/hook-emit.sh stays bash: it is the degraded path when rsdd cannot run).
 
 const (
 	hdrNotClean = "Research-SDD KIT is NOT clean — commit/stash + push before staging §18 retros (else the retro branch/PR mixes unrelated history):"
@@ -55,6 +55,7 @@ func writeSessionStart(w io.Writer, ctx string) {
 // jqString is jq's string encoding: the short escapes for " \ \b \f \n \r \t, \u00xx (lowercase hex) for the
 // other control characters and DEL, every other character as is (no <>& escaping, no U+2028), and U+FFFD for
 // each byte that is not valid UTF-8.
+// TODO(#2386): delete this private copy once core/jsonout has the jq-compatible encoder.
 func jqString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
