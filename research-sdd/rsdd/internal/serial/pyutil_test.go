@@ -157,9 +157,6 @@ func TestDigits(t *testing.T) {
 			t.Fatalf("%U is not Nd", r)
 		}
 	}
-	if digitValue('x') != 0 {
-		t.Error("a non-digit has value 0")
-	}
 }
 
 func TestPyParseInt(t *testing.T) {

@@ -64,6 +64,10 @@ DIFF_B = "0.0 len=3 81 00 09\n0.1 len=3 81 00 02\n0.2 len=3 81 00 09\n0.3 len=3 
 EXTRA["diff_a.log"] = DIFF_A
 EXTRA["diff_b.log"] = DIFF_B
 # two shared types of the same length told apart by the first byte, and a representative chosen among equals
+EXTRA["hist.log"] = "0.0 len=5 01 02 03 04 05\n0.1 len=3 0a 0b 0c\n0.2 len=3 0a 0b 0d\n0.3 len=3 0a 0b 0e\n0.4 len=2 aa bb\n0.5 len=2 aa bc\n"
+# the most frequent frame of a group is not the first one seen
+EXTRA["diff_e.log"] = "0.0 len=3 81 00 01\n0.1 len=3 81 00 02\n0.2 len=3 81 00 02\n"
+EXTRA["diff_f.log"] = "0.0 len=3 81 00 02\n"
 EXTRA["diff_c.log"] = "0.0 len=3 81 00 01\n0.1 len=3 81 00 02\n0.2 len=3 20 05 06\n0.3 len=3 20 07 08\n0.4 len=2 aa bb\n"
 EXTRA["diff_d.log"] = "0.0 len=3 20 05 09\n0.1 len=3 20 07 08\n0.2 len=3 81 00 02\n0.3 len=3 81 00 01\n0.4 len=2 aa cc\n"
 # every checksum family once, with a mixed-in bad frame, a short frame and a skip-first checksum
@@ -94,13 +98,13 @@ CASES = {}
 def case(name, *args):
     CASES[name] = list(args)
 
-for log in ["basic", "empty", "malformed", "ties", "variab", "badhex", "junk", "endings", "nofinalnl", "unicode",
+for log in ["hist", "basic", "empty", "malformed", "ties", "variab", "badhex", "junk", "endings", "nofinalnl", "unicode",
             "second", "invalid_utf8", "nul", "cr_only", "onlyshort"]:
     case(f"stats_{log}", "stats", "--input", F + log + ".log", "--output", "{TMP}/out.json")
 for log in ["basic", "checksum", "crc-modbus", "crc-ccitt", "empty", "malformed", "badhex", "mixed_sums", "skip_sum",
             "onlyshort", "ties", "unicode", "invalid_utf8"]:
     case(f"checksum_{log}", "checksum", "--input", F + log + ".log", "--output", "{TMP}/out.json")
-for a, b in [("basic", "basic_b"), ("basic", "basic"), ("diff_a", "diff_b"), ("diff_b", "diff_a"), ("diff_c", "diff_d"), ("diff_d", "diff_c"), ("empty", "empty"),
+for a, b in [("basic", "basic_b"), ("basic", "basic"), ("diff_a", "diff_b"), ("diff_b", "diff_a"), ("diff_c", "diff_d"), ("diff_e", "diff_f"), ("diff_f", "diff_e"), ("diff_d", "diff_c"), ("empty", "empty"),
              ("empty", "basic"), ("basic", "empty"), ("malformed", "basic"), ("basic", "malformed"),
              ("badhex", "basic"), ("junk", "empty"), ("ties", "variab")]:
     case(f"diff_{a}_{b}", "diff", "--input-a", F + a + ".log", "--input-b", F + b + ".log", "--output", "{TMP}/out.json")
