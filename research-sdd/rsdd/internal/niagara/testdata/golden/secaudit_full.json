@@ -1,0 +1,157 @@
+{
+  "checks": [
+    {
+      "id": "SEC-01",
+      "note": "low allows an unsigned module requesting NETWORK_COMMUNICATION to load",
+      "observed": "low",
+      "secure": "high",
+      "severity": "crit",
+      "title": "moduleVerificationMode",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-02",
+      "note": "password check requires keytool: keytool -list -keystore <path> -storepass changeit",
+      "observed": "present",
+      "secure": "non-default store password",
+      "severity": "crit",
+      "title": "truststore.jks default password",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-03",
+      "note": "ACL check requires icacls.exe (Windows); verify with icacls <home>\\security",
+      "observed": "directory present",
+      "secure": "Admin/SYSTEM only",
+      "severity": "crit",
+      "title": "security/ filesystem ACLs",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-04",
+      "note": "use --host with the source tool for live TLS check on ports 443 and 5011",
+      "observed": "not checked (requires live port probe)",
+      "secure": "CA-issued certificate replacing the factory self-signed default",
+      "severity": "crit",
+      "title": "station TLS certificate",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-05",
+      "note": "-Dniagara.classLoader.skipModuleValidation can disable chain validation at launch",
+      "observed": "partial (missing skip levers)",
+      "secure": "includes skipModuleValidation + commissioning.ignoreVerificationMode",
+      "severity": "high",
+      "title": "commandLinePropertyBlacklist covers skip levers",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-06",
+      "note": "dev.license:smDeveloperMode",
+      "observed": "1 relaxation attribute(s) found",
+      "secure": "no developer/unreleased/smDeveloper flags in any license",
+      "severity": "high",
+      "title": "license attributes relaxing signature validation",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-07",
+      "note": "superuser BProgram runs arbitrary bytecode unsigned when false or absent",
+      "observed": "true",
+      "secure": "true",
+      "severity": "high",
+      "title": "program.requireSigning (BProgram bytecode)",
+      "verdict": "PASS"
+    },
+    {
+      "id": "SEC-08",
+      "note": "Runtime.exec() from BProgram is permitted when true",
+      "observed": "true",
+      "secure": "false",
+      "severity": "high",
+      "title": "allowProgramRuntimeExec",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-09",
+      "note": "use --host with the source tool for live port check",
+      "observed": "not checked (requires live port probe)",
+      "secure": "sslOnly=true (port 5011 only)",
+      "severity": "high",
+      "title": "platform daemon plaintext port 3011",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-10",
+      "note": "the only tamper-resistance for the local audit/history record",
+      "observed": "enabled",
+      "secure": "enabled with serverHost and TLS transport configured",
+      "severity": "high",
+      "title": "syslog offload to external SIEM",
+      "verdict": "PASS"
+    },
+    {
+      "id": "SEC-11",
+      "note": "key size check requires keytool; FIPS indicator: jre/lib/security/cacerts.bcfks",
+      "observed": "truststore.jks: present; FIPS indicator (cacerts.bcfks): present",
+      "secure": "all keys >= 2048 bit; FIPS keystore (cacerts.bcfks) present",
+      "severity": "med",
+      "title": "weak signing keys / FIPS",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-12",
+      "note": "reversibleEncodingKeySource=none leaves reversible passwords in the clear",
+      "observed": "none (plaintext)",
+      "secure": "reversibleEncodingKeySource set to external or equivalent",
+      "severity": "med",
+      "title": "config.bog at-rest encoding",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-14",
+      "note": "use --host with the source tool for live port check on 1911 and 80",
+      "observed": "not checked (requires live port probe)",
+      "secure": "TLS-only endpoints (4911/443)",
+      "severity": "med",
+      "title": "Fox/HTTP plaintext ports (1911/80)",
+      "verdict": "MANUAL"
+    },
+    {
+      "id": "SEC-15",
+      "note": "1 unsigned wildcard holder(s) detected",
+      "observed": "2 module(s) declare KeyRingPermission; 2 wildcard (name=*); 1 wildcard AND unsigned; scanned 3 of 3 JAR(s)",
+      "secure": "no wildcard KeyRingPermission in an unsigned module",
+      "severity": "med",
+      "title": "KeyRingPermission wildcard in unsigned module",
+      "verdict": "FAIL"
+    },
+    {
+      "id": "SEC-16",
+      "note": "Niagara signs code modules but not data records; no configuration toggle exists",
+      "observed": "unsigned by design (architectural limitation)",
+      "secure": "syslog offload to external SIEM (see SEC-10) provides tamper-resistance",
+      "severity": "med",
+      "title": "local data record integrity (audit/history/backup)",
+      "verdict": "FAIL"
+    }
+  ],
+  "errors": [],
+  "install_root": "<ROOT>",
+  "limitations": [
+    "Network-dependent checks (SEC-04, SEC-09, SEC-14) are always MANUAL.",
+    "Keystore password and key-size checks (SEC-02 partial, SEC-11) require keytool.",
+    "Filesystem ACL checks (SEC-03) require platform tooling (icacls on Windows).",
+    "Station-config checks (SEC-08, SEC-10, SEC-12) require --station <config.bog>.",
+    "SEC-13 is not defined by the source corpus check set."
+  ],
+  "schema": "niagara-audit.v1",
+  "status": "complete",
+  "summary": {
+    "checks_fail": 7,
+    "checks_manual": 6,
+    "checks_na": 0,
+    "checks_pass": 2,
+    "checks_run": 15
+  }
+}
