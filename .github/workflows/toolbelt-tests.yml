@@ -58,7 +58,7 @@ env:
   # Number of shards of the toolbelt gate (kit issue #2114). MUST equal the length of the matrix
   # below: the shard job asserts it against strategy.job-total and the join job passes it to
   # shard-join.sh --shards, so a matrix edit that forgets this value fails loudly.
-  SHARD_COUNT: "4"
+  SHARD_COUNT: "8"
 
 jobs:
   toolbelt-shard:
@@ -67,7 +67,9 @@ jobs:
     # a matrix of SHARD_COUNT shards, each `run-all.sh --shard I/N` (a deterministic round-robin slice of the
     # full sorted suite list across BOTH corpora), and the `toolbelt-tests` job below joins them.
     # Measured before sharding: the whole list took 25-34 min of wall time at -j 4 on one runner, so
-    # each of 4 shards should take ~7-9 min of suite time plus ~1-2 min setup. timeout-minutes 25 leaves ~2.5x headroom per shard and a
+    # each of 4 shards should take ~7-9 min of suite time plus ~1-2 min setup. Measured on 2026-11-01 with 4
+    # shards: 7-17 min per shard, so the matrix went to 8 to roughly halve the PR wall time (the runners are
+    # GitHub's, so more shards cost no local CPU). timeout-minutes 25 leaves ~2.5x headroom per shard and a
     # cancelled shard fails the join (needs.result != success), so a timeout can never read as green.
     # History of the single-job cap: 12 -> 20 (2026-10-01) -> 35 (2026-10-02, #1437) -> 50 (2026-10-10, #2114/#2115).
     runs-on: ubuntu-24.04
@@ -76,7 +78,7 @@ jobs:
       # Every shard must finish so the join reports ALL missing/failed suites in one pass.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
       # Kit issue #2138 / CLAUDE.md section 7: a suite whose prerequisite is missing must FAIL in CI, never
       # print a typed SKIP that reads as coverage. Suites honouring these flags fail instead of skipping:

@@ -124,7 +124,7 @@ JAR archive validation inside `rsdd_probe_java_jar()`.
 `.github/workflows/toolbelt-tests.yml` defines three kinds of job running on
 `ubuntu-latest` (the gate is sharded, kit issue #2114):
 
-**Job 1 — `toolbelt-shard`** (matrix of 4 shards, 25 min timeout each):
+**Job 1 — `toolbelt-shard`** (matrix of 8 shards, 25 min timeout each):
 1. Check out repo
 2. Set up Node.js 24 (via `setup-node`; >= 22.18 for native type stripping) and install `bubblewrap` (unprivileged user namespaces enabled; `RSDD_REQUIRE_BWRAP=1` / `RSDD_REQUIRE_NODE_TS=1` make the dependent suites FAIL instead of SKIP; the pi-hooks suites honour `RSDD_REQUIRE_NODE_TS` (PR #2137).)
 3. Sanity-check `python3 --version` (`python3`, `bash`, `git` are preinstalled)
