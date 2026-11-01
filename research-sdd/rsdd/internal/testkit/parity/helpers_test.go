@@ -31,6 +31,7 @@ for a in "$@"; do
     rm=*) rm -rf "${a#rm=}" ;;
     rl=*) readlink "${a#rl=}" ;;
     ctx) pwd; printf '%s\n%s\n' "$HOME" "$TMPDIR" ;;
+    leak=*) setsid sleep 30 </dev/null >/dev/null 2>&1 & echo "$!" > "${a#leak=}" ;;
     cat) cat ;;
   esac
 done
