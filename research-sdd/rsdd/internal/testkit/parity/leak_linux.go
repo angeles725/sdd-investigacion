@@ -4,6 +4,7 @@ package parity
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -22,31 +23,49 @@ const maxReapPasses = 5
 // skipped; a /proc that cannot be listed is reported, never a silent pass.
 func reapLeaked(side, nonce string) []Problem {
 	want := []byte(runMarkerEnv + "=" + nonce)
-	killed := map[int]bool{}
+	killed, failed := map[int]bool{}, map[int]bool{}
+	var scanErr error
 	for pass := 0; pass < maxReapPasses; pass++ {
 		pids, err := markedPids(want)
 		if err != nil {
-			return []Problem{{KindDegraded, fmt.Sprintf("the %s run: cannot scan /proc for leaked processes: %v", side, err)}}
+			scanErr = err
+			break
 		}
 		if len(pids) == 0 {
 			break
 		}
 		for _, pid := range pids {
-			if !hasMarker(pid, want) { // re-verify right before the kill
+			// Take the handle (a pidfd on Linux) first, then re-verify the
+			// marker, then kill through that same handle: a pid reused after
+			// the check cannot be the one signalled.
+			p, err := os.FindProcess(pid)
+			if err != nil || !hasMarker(pid, want) {
 				continue
 			}
-			if p, err := os.FindProcess(pid); err == nil {
-				_ = p.Kill()
+			if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				failed[pid] = true
+				continue
 			}
 			killed[pid] = true
 		}
 		time.Sleep(20 * time.Millisecond) // let the kills land before rescanning
 	}
-	if len(killed) == 0 {
-		return nil
+	var out []Problem
+	if len(killed) > 0 {
+		out = append(out, Problem{KindLeaked, fmt.Sprintf("the %s run left %d process(es) running after it ended (outside its group or surviving it; killed): pids %s", side, len(killed), pidList(killed))})
 	}
-	list := make([]int, 0, len(killed))
-	for pid := range killed {
+	if len(failed) > 0 {
+		out = append(out, Problem{KindLeaked, fmt.Sprintf("the %s run left %d process(es) running that could NOT be killed: pids %s", side, len(failed), pidList(failed))})
+	}
+	if scanErr != nil { // reported with, never instead of, the pids already found
+		out = append(out, Problem{KindDegraded, fmt.Sprintf("the %s run: cannot scan /proc for leaked processes: %v", side, scanErr)})
+	}
+	return out
+}
+
+func pidList(set map[int]bool) string {
+	list := make([]int, 0, len(set))
+	for pid := range set {
 		list = append(list, pid)
 	}
 	sort.Ints(list)
@@ -54,8 +73,7 @@ func reapLeaked(side, nonce string) []Problem {
 	for i, pid := range list {
 		ids[i] = strconv.Itoa(pid)
 	}
-	// A survivor of the final pass is still reported (and was SIGKILLed).
-	return []Problem{{KindLeaked, fmt.Sprintf("the %s run left %d process(es) outside its process group (killed): pids %s", side, len(list), strings.Join(ids, ", "))}}
+	return strings.Join(ids, ", ")
 }
 
 func markedPids(want []byte) ([]int, error) {

@@ -47,9 +47,25 @@ type Runner struct{ Cfg Config }
 
 // ConfigFromEnv reads RSDD_PARITY_LEGACY, RSDD_BIN, RSDD_PARITY_TIMEOUT and
 // PATH (handed to both sides). Unset roots stay empty so NewRunner can type
-// them as absent-input; a bad timeout is a config-invalid error.
-func ConfigFromEnv(getenv func(string) string, work string) (Config, error) {
-	cfg := Config{LegacyRoot: getenv("RSDD_PARITY_LEGACY"), Bin: getenv("RSDD_BIN"), Work: work, Timeout: defaultTimeout, Path: getenv("PATH")}
+// them as absent-input; a bad timeout is a config-invalid error. Relative
+// RSDD_PARITY_LEGACY and RSDD_BIN are joined with cwd, which the caller's
+// process boundary supplies (the package itself never asks the OS for it); a
+// relative root with an empty or relative cwd is config-invalid.
+func ConfigFromEnv(getenv func(string) string, cwd, work string) (Config, error) {
+	cfg := Config{Work: work, Timeout: defaultTimeout, Path: getenv("PATH")}
+	for _, f := range []struct {
+		name string
+		dst  *string
+	}{{"RSDD_PARITY_LEGACY", &cfg.LegacyRoot}, {"RSDD_BIN", &cfg.Bin}} {
+		v := getenv(f.name)
+		if v != "" && !filepath.IsAbs(v) {
+			if !filepath.IsAbs(cwd) {
+				return Config{}, fmt.Errorf("%s: %s=%q is relative and the working directory %q is not absolute", KindConfigInvalid, f.name, v, cwd)
+			}
+			v = filepath.Join(cwd, v)
+		}
+		*f.dst = v
+	}
 	if s := getenv("RSDD_PARITY_TIMEOUT"); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil || d <= 0 {
@@ -61,7 +77,8 @@ func ConfigFromEnv(getenv func(string) string, work string) (Config, error) {
 }
 
 // NewRunner validates the configuration. A missing legacy root, binary or
-// work dir is a typed *Degraded error.
+// work dir is a typed *Degraded error; a relative one is config-invalid
+// (ConfigFromEnv or the caller resolves paths, this package never does).
 func NewRunner(cfg Config) (*Runner, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
@@ -76,9 +93,10 @@ func NewRunner(cfg Config) (*Runner, error) {
 	if cfg.Bin == "" {
 		return nil, &Degraded{KindAbsentInput, "rsdd binary not configured (RSDD_BIN)"}
 	}
-	if cfg.Bin, err = filepath.Abs(cfg.Bin); err != nil {
-		return nil, &Degraded{KindAbsentInput, err.Error()}
+	if !filepath.IsAbs(cfg.Bin) {
+		return nil, &Degraded{KindConfigInvalid, fmt.Sprintf("rsdd binary %q is not an absolute path", cfg.Bin)}
 	}
+	cfg.Bin = filepath.Clean(cfg.Bin)
 	st, err := os.Stat(cfg.Bin)
 	switch {
 	case err != nil:
@@ -93,10 +111,10 @@ func needDir(what, p string) (string, error) {
 	if p == "" {
 		return "", &Degraded{KindAbsentInput, what + " not configured"}
 	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		return "", &Degraded{KindAbsentInput, fmt.Sprintf("%s %s: %v", what, p, err)}
+	if !filepath.IsAbs(p) {
+		return "", &Degraded{KindConfigInvalid, fmt.Sprintf("%s %q is not an absolute path", what, p)}
 	}
+	abs := filepath.Clean(p)
 	st, err := os.Stat(abs)
 	if err != nil {
 		return "", &Degraded{KindAbsentInput, fmt.Sprintf("%s %s: %v", what, abs, err)}
@@ -429,16 +447,18 @@ func (r *Runner) execute(path string, args, env []string, dir string, stdin []by
 	}
 
 	o := outcome{stdout: so.buf.Bytes(), stderr: se.buf.Bytes(), truncated: so.truncated || se.truncated}
-	o.timedOut, o.exit, o.startErr = classifyRun(ctx.Err(), fired.Load(), err)
+	o.timedOut, o.exit, o.startErr = classifyRun(ctx.Err(), fired.Load(), endedBySigkill(cmd.ProcessState), err)
 	return o
 }
 
 // classifyRun maps the end of a run to its outcome. The deadline alone never
-// makes a timeout: cancelFired must say the kill really happened.
-func classifyRun(ctxErr error, cancelFired bool, waitErr error) (timedOut bool, exit int, startErr error) {
+// makes a timeout: Cancel must have fired AND the run must have ended by
+// SIGKILL (killed), so a run that exited on its own as the deadline passed
+// keeps its real exit code even when Cancel then hit its zombie group.
+func classifyRun(ctxErr error, cancelFired, killed bool, waitErr error) (timedOut bool, exit int, startErr error) {
 	var ee *exec.ExitError
 	switch {
-	case cancelFired && errors.Is(ctxErr, context.DeadlineExceeded):
+	case cancelFired && killed && errors.Is(ctxErr, context.DeadlineExceeded):
 		return true, 0, nil
 	case waitErr == nil:
 		return false, 0, nil

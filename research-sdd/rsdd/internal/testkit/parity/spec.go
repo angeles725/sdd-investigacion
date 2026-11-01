@@ -73,7 +73,7 @@ type Case struct {
 }
 
 // reservedEnv are the keys the runner fixes for isolation.
-var reservedEnv = map[string]bool{"PATH": true, "LC_ALL": true, "TZ": true, "HOME": true, "TMPDIR": true}
+var reservedEnv = map[string]bool{"PATH": true, "LC_ALL": true, "TZ": true, "HOME": true, "TMPDIR": true, runMarkerEnv: true}
 
 var placeholderRe = regexp.MustCompile(`\{\{[^}]*\}\}`)
 

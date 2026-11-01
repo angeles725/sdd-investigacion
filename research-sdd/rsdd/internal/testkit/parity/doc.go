@@ -20,15 +20,19 @@
 // only, so a same-size rewrite with a restored mtime goes unseen there).
 //
 // Process containment: each side runs in its own process group, killed whole on
-// timeout. A timeout is reported only when that kill actually fired; a run that
-// exited on its own just as the deadline passed keeps its real exit code. On
+// timeout. A timeout is reported only when that kill fired and the run's wait
+// status shows SIGKILL; a run that exited on its own just as the deadline
+// passed keeps its real exit code. On
 // Linux every case also tags both sides with a random RSDD_PARITY_RUN=<nonce>
 // environment entry; after each side ends (normally or by timeout) /proc is
 // scanned for processes carrying that exact entry, which means they left the
 // group (setsid) or outlived the run. They are SIGKILLed and the case fails
 // with the typed kind "leaked-process" naming their pids; a /proc that cannot
-// be scanned is a "degraded" failure. Other unix systems keep the group kill
-// only (no scan, no leaked-process kind).
+// be scanned is a "degraded" failure. The marker is reserved: a spec cannot set
+// it. The scan cannot see a descendant that cleared its environment (env -i,
+// bwrap --clearenv) or whose /proc environ is unreadable (setuid, another
+// user). Other unix systems keep the group kill only (no scan, no
+// leaked-process kind).
 //
 // Symlink refusal: before either side runs, every scratch copy (corpus and
 // fixture inputs/) is scanned. A symlink whose resolution can leave the copy
@@ -56,6 +60,6 @@
 // changed is a "corpus-modified" failure.
 //
 // Placeholders usable in argv and env values: {{input}} (the sandbox copy of
-// inputs/), {{corpus}} (the real corpus path, corpus-mode specs only) and
+// inputs/), {{corpus}} (the sandbox copy of the corpus, corpus-mode specs only) and
 // {{sandbox}}.
 package parity

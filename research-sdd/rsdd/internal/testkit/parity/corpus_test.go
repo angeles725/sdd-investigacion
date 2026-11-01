@@ -140,7 +140,7 @@ func TestFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, _ := Fingerprint(dir)
+	again := mustFingerprint(t, dir)
 	if d := base.Diff(again); len(d) != 0 {
 		t.Fatalf("an untouched tree must not differ: %v", d)
 	}
@@ -153,14 +153,17 @@ func TestFingerprint(t *testing.T) {
 		t.Fatalf("fingerprint looks empty: %v", base)
 	}
 
+	// cur is the (sub)test whose step is running, so a failed step stops that
+	// subtest instead of calling FailNow on the parent from a subtest.
+	cur := t
 	must := func(err error) {
-		t.Helper()
+		cur.Helper()
 		if err != nil {
-			t.Fatal(err)
+			cur.Fatal(err)
 		}
 	}
 	write := func(rel, body string) {
-		t.Helper()
+		cur.Helper()
 		must(os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644))
 	}
 	mutations := []struct {
@@ -182,6 +185,8 @@ func TestFingerprint(t *testing.T) {
 	}
 	for _, m := range mutations {
 		t.Run(m.name, func(t *testing.T) {
+			cur = t
+			defer func() { cur = nil }()
 			before, err := Fingerprint(dir)
 			if err != nil {
 				t.Fatal(err)
@@ -198,9 +203,11 @@ func TestFingerprint(t *testing.T) {
 		})
 	}
 	// .git changes are ignored.
-	before, _ := Fingerprint(dir)
-	os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("different"), 0o644)
-	after, _ := Fingerprint(dir)
+	before := mustFingerprint(t, dir)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("different"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after := mustFingerprint(t, dir)
 	if d := before.Diff(after); len(d) != 0 {
 		t.Fatalf(".git edits must be invisible: %v", d)
 	}
