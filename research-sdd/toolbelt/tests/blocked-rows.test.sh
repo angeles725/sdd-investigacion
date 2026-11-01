@@ -94,13 +94,6 @@ for mode in all child; do
   if [ "$rc" = 3 ] && [ -z "$out" ] && grep -q '^blocked-rows: degraded ' "$TMP/err"; then ok "broken awk ($mode): rc 3, empty stdout, typed degraded stderr"
   else no "broken awk ($mode): rc=$rc out=[$out] err=[$(cat "$TMP/err")]"; fi
 done
-{
-  s=verify-state
-  d="$TMP/deg-$s"; mkdir -p "$d"; cp "$FIX/child-single-open.expect1.md" "$d/RESEARCH-STATE.md"
-  out="$(PATH="$TMP/stub-child:$PATH" bash "$TOOLBELT/$s.sh" "$d" 2>&1)"; rc=$?
-  if [ "$rc" != 0 ] && grep -q 'blocked_open derivation degraded' <<<"$out"; then ok "$s with a broken awk: non-zero exit + typed degraded FAIL line"
-  else no "$s with a broken awk: rc=$rc :: $(grep -m1 -i 'blocked' <<<"$out")"; fi
-}
 
 # research-sdd-status.sh (#2017): both call sites of derive_blocked_open must keep the degraded state loud.
 {
@@ -152,13 +145,6 @@ for n in 1 2 3; do
   if [ "$rc" = 3 ] && [ -z "$out" ]; then ok "blocked_open_count: extractor $n of 3 failing is degraded rc 3, empty stdout"; else no "blocked_open_count: extractor $n failing: rc=$rc out=[$out]"; fi
 done
 
-# W1 (#2017): verify-state must FAIL typed when the blocked sections cannot be extracted, never count against an empty list.
-{
-  d="$TMP/deg-vs-body"; mkdir -p "$d"; cp "$FIX/standard-and-child-mixed.expect5.md" "$d/RESEARCH-STATE.md"
-  out="$(PATH="$TMP/stub-body1:$PATH" bash "$VS" "$d" 2>&1)"; rc=$?
-  if [ "$rc" != 0 ] && grep -q 'investigable_open derivation degraded' <<<"$out"; then ok "verify-state with a failing non-last extractor: FAIL investigable_open derivation degraded"
-  else no "verify-state with a failing non-last extractor: rc=$rc :: $(grep -m2 -i 'investigable\|degraded' <<<"$out")"; fi
-}
 
 echo "-- 3d. --next and the multi-focus display refuse a degraded blocked-rows derivation (#2024) --"
 # The --next STALE gate runs verify-state first (CHECK C FAILs on the SAME degraded blocked count, over the same file set,
@@ -230,14 +216,7 @@ else no "reason-codes blocked_open row does not name the rc-2 stderr line"; fi
 mkdir -p "$TMP/chkh"; sed 's/^known_gaps: 1$/known_gaps: 7/' "$FIX/next-blocked-gap.md" > "$TMP/chkh/RESEARCH-STATE.md"
 out="$(bash "$VS" "$TMP/chkh" 2>&1)"
 if grep -q 'stale denominator' <<<"$out"; then ok "CHECK H control: a healthy read with a wrong known_gaps does WARN 'stale denominator'"; else no "CHECK H control lost its stale-denominator WARN: $(grep -m2 'known_gaps' <<<"$out")"; fi
-out="$(PATH="$TMP/stub-body1:$PATH" bash "$VS" "$TMP/chkh" 2>&1)"
-if grep -q 'identity-check: could not extract the blocked sections' <<<"$out" && ! grep -q 'stale denominator\|!= sum of declared' <<<"$out"; then ok "CHECK H with a failing body read: 'unverifiable' WARN only, no identity sum"
-else no "CHECK H with a failing body read still sums: $(grep -m3 'identity\|known_gaps' <<<"$out")"; fi
 
-# W1 (#2024 review): with the REAL verify-state a repeatable failure is STALE (exit 0), not DEGRADED
-out="$(PATH="$TMP/stub-child:$PATH" bash "$ST" "$TMP/nsingle" --next 2>/dev/null)"; rc=$?
-if [ "$rc" = 0 ] && grep -q '^STALE .*blocked_open derivation degraded' <<<"$out"; then ok "--next with the real verify-state and a repeatable failure: STALE naming the degraded derivation, exit 0"
-else no "--next real verify-state, repeatable failure: rc=$rc out=[$out]"; fi
 # S1: a degraded NON-head focus sets the reason-codes footer too
 out="$(PATH="$TMP/stub-fb:$PATH" bash "$ST" "$TMP/nmulti" 2>/dev/null)"
 if [ "$(grep -c '^  reason codes    : ' <<<"$out")" = 1 ]; then ok "display, NON-head focus degraded: exactly one reason-codes footer"; else no "display non-head degraded: footer count $(grep -c '^  reason codes    : ' <<<"$out")"; fi
@@ -265,6 +244,9 @@ mk_count_stub "$TMP/stub-late8" 8
 nx "$TMP/stub-late8" "$TMP/npaused"
 if dg && grep -q 'read failed while counting' <<<"$out"; then ok "--next, blocked read failing while counting a PAUSED focus: DEGRADED, exit 3 (not an inflated 'no active focus' count)"; else no "--next late failure in the paused count: rc=$rc out=[$out]"; fi
 
+# (kit issue #2457) verify-state.sh is a shim to `rsdd verify state`: it has no awk and no blocked-rows lib to sabotage, so
+# its sabotage cases (broken awk, failing extractor, missing or empty lib, CHECK H with a failing read) and TOOTH-7/9/14/23
+# for it are gone. Its healthy behaviour is pinned by TestDifferentialState and TestDifferentialStateRandom (internal/verify).
 echo "-- 4. a missing or function-less lib fails each consumer loudly --"
 mk_kit() { # DIR [lib-state: ok|missing|empty]
   local k="$1" st="${2:-ok}"; rm -rf "$k"; mkdir -p "$k"
@@ -274,7 +256,7 @@ mk_kit() { # DIR [lib-state: ok|missing|empty]
 cp "$FIX/child-single-open.expect1.md" "$TMP/RESEARCH-STATE.md"; mkdir -p "$TMP/corpus"; cp "$FIX/child-single-open.expect1.md" "$TMP/corpus/RESEARCH-STATE.md"
 for state in missing empty; do
   mk_kit "$TMP/kit-$state" "$state"
-  for s in verify-state research-sdd-status; do
+  for s in research-sdd-status; do
     out="$(bash "$TMP/kit-$state/$s.sh" "$TMP/corpus" 2>&1)"; rc=$?
     if [ "$rc" = 1 ] && grep -q 'blocked-rows' <<<"$out"; then ok "$s with $state lib: exit 1 + typed message naming blocked-rows"
     else no "$s with $state lib: rc=$rc :: $(head -1 <<<"$out")"; fi
@@ -397,12 +379,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
          --orig "$ST" --good-has 'investigable=DEGRADED' --bad-lacks 'investigable=DEGRADED' \
          -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>/dev/null' _ @SUT@ "$TMP/stub-child" "$TMP/deg-status"
 
-  # TOOTH-14 (#2017 W1, verify-state): the body rc reaches derive_investigable.
-  mkdir -p "$MD/g14/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g14/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g14/mut/"
-  mk "TOOTH-14 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g14/mut/verify-state.sh" 's#_bn_body="$(blocked_rows_body "$1")" || return 3#_bn_body="$(blocked_rows_body "$1")"#' \
-    && tt "TOOTH-14: verify-state names a degraded investigable_open derivation; without the body rc it counts against an empty list" 1 1 "$MD/g14/mut/verify-state.sh" \
-         --orig "$TOOLBELT/verify-state.sh" --good-has 'investigable_open derivation degraded' --bad-lacks 'investigable_open derivation degraded' \
-         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>&1' _ @SUT@ "$TMP/stub-body1" "$TMP/deg-vs-body"
 
   # TOOTH-15..25 (#2024): --next and the multi-focus display refuse a degraded blocked-rows derivation.
   # mkpair DIR: orig/ and mut/ kit copies whose verify-state.sh always passes (so the STALE gate does not pre-empt the path).
@@ -480,24 +456,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-22: a degraded blocked_open sets the reason-codes flag (both sites, which back each other up); without them the footer is missing" 0 0 "$MD/g21/mut/research-sdd-status.sh" \
          --orig "$ST" --good-has '^  reason codes    : ' --bad-lacks '^  reason codes    : ' \
          -- "${DSP_CMD[@]}" "$TMP/stub-child" "$TMP/deg-status"
-  # TOOTH-23 (#2024 item 3): verify-state skips the known_gaps identity when the body read failed.
-  mkdir -p "$MD/g23/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g23/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g23/mut/"
-  mk "TOOTH-23 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g23/mut/verify-state.sh" 's#\[ "\$_ipb_unreadable" != 1 \] \&\& ##' \
-    && tt "TOOTH-23: no identity sum with an unreadable body; with the skip dropped a spurious stale-denominator WARN appears" 0 0 "$MD/g23/mut/verify-state.sh" \
-         --orig "$TOOLBELT/verify-state.sh" --good-lacks 'stale denominator' --bad-has 'stale denominator' \
-         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3" 2>&1; true' _ @SUT@ "$TMP/stub-body1" "$TMP/chkh"
 
   # TOOTH-8: the degraded guard -- without it a failing awk collapses into a confident 0 with rc 0.
   mk "TOOTH-8 mutant build" "$LIB" "$MD/t8.sh" '/^  \[ "\$_rc" -eq 0 \] || { echo "blocked-rows: degraded child-gap counter/d; /^  case "\$_d2" in/d' \
     && tt "TOOTH-8: a failing child-gap awk reads as a bare number when the degraded guard is dropped" 3 0 "$MD/t8.sh" --orig "$LIB" \
          --good-lacks '^[0-9]' --bad-has '^[0-9]+$' -- bash -c 'PATH="$2:$PATH"; . "$1"; blocked_open_count "$3"' _ @SUT@ "$TMP/stub-child" "$FIX/child-single-open.expect1.md"
 
-  # TOOTH-9: verify-state names a degraded derivation instead of comparing the declared count to an empty string.
-  mkdir -p "$MD/g9/mut/lib"; cp "$TOOLBELT"/lib/*.sh "$MD/g9/mut/lib/"; cp "$TOOLBELT"/*.sh "$MD/g9/mut/"
-  mk "TOOTH-9 mutant build" "$TOOLBELT/verify-state.sh" "$MD/g9/mut/verify-state.sh" 's# || d_blocked="DEGRADED"##' \
-    && tt "TOOTH-9: a degraded blocked_open derivation is named by verify-state; without the capture it is an unnamed mismatch" 1 1 "$MD/g9/mut/verify-state.sh" \
-         --orig "$TOOLBELT/verify-state.sh" --good-has 'derivation degraded' --bad-lacks 'derivation degraded' \
-         -- bash -c 'PATH="$2:$PATH"; bash "$1" "$3"' _ @SUT@ "$TMP/stub-child" "$TMP/deg-verify-state"
 
   # TOOTH-5: the `## Blocked /` family is part of the body (METHODOLOGY §21.1).
   mk "TOOTH-5 mutant build" "$LIB" "$MD/t5.sh" "s|'## Non-investigable gaps' '## Blocked /'|'## Non-investigable gaps'|" \
@@ -512,7 +476,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH-7: the consumer's fail-closed guard turns a function-less lib into a loud exit 1 at source time.
   # Mutant exit codes differ by consumer: verify-state runs on and FAILs the envelope (rc 1, but WITHOUT the typed
   # message); status runs on and exits 0. The message is what the guard adds, so every tooth also checks it.
-  for s in verify-state research-sdd-status; do
+  for s in research-sdd-status; do
     case "$s" in verify-state) _bad_rc=1 ;; *) _bad_rc=0 ;; esac
     mkdir -p "$MD/g-$s/orig/lib" "$MD/g-$s/mut/lib"
     cp "$TOOLBELT"/lib/*.sh "$MD/g-$s/orig/lib/"; : > "$MD/g-$s/orig/lib/blocked-rows.sh"
