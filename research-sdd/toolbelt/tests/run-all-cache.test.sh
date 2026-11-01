@@ -296,7 +296,7 @@ echo "  SKIP  one case needs a missing tool"'; cgit -C "${t%/$CT}" commit -qam t
   tooth key-manifest manifest 's/"\$rel_tests"\/impact-\*\.txt|//'
   tooth key-install install 's/^      research-sdd\/install\/\*) glob_sig/      research-sdd\/NOPE\/*) glob_sig/'
   tooth key-mode mode 's/prove=\${PROVE_TEETH:-none}/prove=x/'
-  tooth key-env env 's/\[\[ "\$v" == RSDD_\* \]\]/[[ "$v" == NOPE_* ]]/'
+  tooth key-env env 's/\[\[ "\$v" == RSDD_\* /[[ "$v" == NOPE_* /'
   tooth key-tool tool 's/tool_sig+="tool \$t \$v \$h"/tool_sig+="tool $t"/'
   tooth key-outside outside 's/km+="outside \${g_path\[\$gi\]} \${ghash\[\$gi\]}"/:/'
   tooth always-run-uncacheable always 's/if \[\[ -n "\${calways\[\$rel\]+set}" \]\]; then reason="always-run"/if false; then reason="always-run"/'
