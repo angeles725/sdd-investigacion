@@ -82,7 +82,10 @@ func snapshot(t *testing.T, dir string) string {
 	var lines []string
 	err := filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			// A directory a case made unreadable is part of the state both sides must leave behind.
+			rel, _ := filepath.Rel(dir, p)
+			lines = append(lines, fmt.Sprintf("%s unreadable: %v", rel, err))
+			return nil
 		}
 		rel, _ := filepath.Rel(dir, p)
 		switch {
