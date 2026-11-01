@@ -118,6 +118,16 @@ func ReadFileCapped(path string, max int64) (File, error) {
 	return fileOf(data, h.Size), nil
 }
 
+// SHA256 is the bare lowercase hex digest of the whole file, streamed: the evidence hash of a station backup
+// that may be far larger than the part a tool reads.
+func (h *Handle) SHA256() (string, error) {
+	sum := sha256.New()
+	if _, err := io.Copy(sum, io.NewSectionReader(h.f, 0, h.Size)); err != nil {
+		return "", &ReadError{Path: h.f.Name(), Msg: StrError(err), IO: true}
+	}
+	return hex.EncodeToString(sum.Sum(nil)), nil
+}
+
 func fileOf(data []byte, size int64) File {
 	sum := sha256.Sum256(data)
 	return File{Data: data, Size: size, SHA256: hex.EncodeToString(sum[:])}

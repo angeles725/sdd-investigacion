@@ -63,6 +63,12 @@ func extractZip(data []byte, maxInflate int) Extracted {
 	if err != nil {
 		return Extracted{Format: FormatUnknown, Err: "not a valid ZIP: " + err.Error()}
 	}
+	return z.ExtractFile(maxInflate)
+}
+
+// ExtractFile is Extract for an archive that is already open: the member called file.xml, or else the first
+// member whose name ends in file.xml, read under the inflate cap with Extract's error strings.
+func (z *Zip) ExtractFile(maxInflate int) Extracted {
 	want := ""
 	for _, n := range z.names {
 		if n == "file.xml" {
