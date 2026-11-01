@@ -3,6 +3,7 @@ check-gap-drift.sh
 coverage-map.sh
 ensure-remote.sh
 install/research-sdd-install.sh
+lint-block.sh
 migrate-backlogs.sh
 reconcile-issues.sh
 research-sdd-archive.sh
