@@ -13,5 +13,5 @@ when the Go sources are newer) and never runs anything itself.
 import os
 import sys
 
-_SH = '. "$1/../lib/rsdd-exec.sh" 2>/dev/null || { echo "degraded: rsdd-unavailable - lib/rsdd-exec.sh missing" >&2; exit 2; }; shift; rsdd_exec maint rdd-drive "$@"'
+_SH = '. "$1/../lib/rsdd-exec.sh" 2>/dev/null || { echo "degraded: rsdd-unavailable - lib/rsdd-exec.sh missing" >&2; exit 3; }; shift; rsdd_exec maint rdd-drive "$@"'
 os.execvp("bash", ["bash", "-c", _SH, "kit-rdd-drive", os.path.dirname(os.path.realpath(__file__))] + sys.argv[1:])

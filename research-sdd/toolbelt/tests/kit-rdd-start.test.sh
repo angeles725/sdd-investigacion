@@ -31,8 +31,12 @@ trap 'rm -rf "$TMP"' EXIT
 # mutate the shim itself.
 if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
   if ! command -v go >/dev/null 2>&1; then
-    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "FATAL: go not in PATH and RSDD_REQUIRE_GO=1" >&2; exit 2; fi
-    echo "SKIP: go not in PATH - the shim cannot reach rsdd (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
     echo "== 0 passed · 0 failed =="; exit 0
   fi
   RSDD_BIN="$TMP/rsdd"
@@ -40,6 +44,7 @@ if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
     || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
 fi
 export RSDD_BIN
+[ "${1:-}" != "--guard-only" ] || { echo "guard-only: rsdd reachable"; exit 0; }
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -195,6 +200,27 @@ else no "refused START reported: rc=$RC out=[$OUT]"; fi
 run_case refused-granted "$SUT" --consent granted
 if [ "$RC" = 14 ] && [[ "$OUT" != *'kit-rdd-start: started'* ]]; then ok "a refused granted START -> rc 14, never reported as started"
 else no "refused granted START reported: rc=$RC out=[$OUT]"; fi
+
+# The shim's own failure (lib/rsdd-exec.sh missing) is the kit's degraded state, rc 3, never 2 (the usage code).
+mkdir -p "$TMP/orphan/maint" && cp "$SUT" "$TMP/orphan/maint/kit-rdd-start.py"
+O="$(env -i PATH=/usr/bin:/bin "$PY" "$TMP/orphan/maint/kit-rdd-start.py" /x /y 2>&1)"; ORC=$?
+if [ "$ORC" = 3 ] && [[ "$O" == *'degraded: rsdd-unavailable'* ]]; then ok "shim without lib/rsdd-exec.sh -> rc 3 degraded (not the usage code 2)"
+else no "shim own failure: rc=$ORC out=[$O]"; fi
+
+# The rsdd guard must never read green when rsdd is unreachable: with no usable $RSDD_BIN and no go, the suite
+# prints a typed `SKIP <reason>` and ran nothing, or FAILs (rc 1) under RSDD_REQUIRE_GO=1.
+if PATH=/usr/bin:/bin command -v go >/dev/null 2>&1; then echo "  SKIP  rsdd guard cases: go is on the minimal PATH"
+else
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 0 ] && [[ "$G" == 'SKIP rsdd-unavailable: '*'RSDD_BIN is not an executable file'* ]] && [[ "$G" == *'== 0 passed · 0 failed =='* ]]; then
+    ok "no usable RSDD_BIN and no go -> typed 'SKIP <reason>' naming RSDD_BIN, nothing run"
+  else no "unusable RSDD_BIN guard: rc=$GRC out=[$G]"; fi
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" RSDD_REQUIRE_GO=1 bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 1 ] && [[ "$G" == *'  FAIL  rsdd-unavailable: '* ]] && [[ "$G" == *'== 0 passed · 1 failed =='* ]]; then
+    ok "RSDD_REQUIRE_GO=1 with no usable rsdd -> FAIL (rc 1), not green"
+  else no "RSDD_REQUIRE_GO guard: rc=$GRC out=[$G]"; fi
+fi
+
 
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="

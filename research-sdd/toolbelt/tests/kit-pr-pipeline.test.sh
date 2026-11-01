@@ -32,8 +32,12 @@ trap 'rm -rf "$TMP"' EXIT
 # ../lib/rsdd-exec.sh.
 if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
   if ! command -v go >/dev/null 2>&1; then
-    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "FATAL: go not in PATH and RSDD_REQUIRE_GO=1" >&2; exit 2; fi
-    echo "SKIP: go not in PATH - the RDD shims cannot reach rsdd (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
     echo "== 0 passed · 0 failed =="; exit 0
   fi
   RSDD_BIN="$TMP/rsdd"
@@ -41,6 +45,7 @@ if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
     || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
 fi
 export RSDD_BIN
+[ "${1:-}" != "--guard-only" ] || { echo "guard-only: rsdd reachable"; exit 0; }
 ln -s "$TB/lib" "$TMP/lib"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -327,6 +332,21 @@ OUT="$(cd "$KH_WT" && PATH="$KH_BIN" KIT_RETRY_SLEEP=0 KIT_POLL_SLEEP=0 KIT_MERG
 CALLS="$(kh_calls)"
 if [ "$RC" = 0 ] && [ "$(count '^gh pr checks 7')" = 3 ] && [ "$(count '^gh pr view')" = 2 ]; then ok "kit-wait-merge polls pending checks, retries a gh blip on pr view, then merges"
 else no "wait-merge rc=$RC checks=$(count '^gh pr checks 7') view=$(count '^gh pr view') out=[$OUT]"; fi
+
+# The rsdd guard must never read green when rsdd is unreachable: with no usable $RSDD_BIN and no go, the suite
+# prints a typed `SKIP <reason>` and ran nothing, or FAILs (rc 1) under RSDD_REQUIRE_GO=1.
+if PATH=/usr/bin:/bin command -v go >/dev/null 2>&1; then echo "  SKIP  rsdd guard cases: go is on the minimal PATH"
+else
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 0 ] && [[ "$G" == 'SKIP rsdd-unavailable: '*'RSDD_BIN is not an executable file'* ]] && [[ "$G" == *'== 0 passed · 0 failed =='* ]]; then
+    ok "no usable RSDD_BIN and no go -> typed 'SKIP <reason>' naming RSDD_BIN, nothing run"
+  else no "unusable RSDD_BIN guard: rc=$GRC out=[$G]"; fi
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" RSDD_REQUIRE_GO=1 bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 1 ] && [[ "$G" == *'  FAIL  rsdd-unavailable: '* ]] && [[ "$G" == *'== 0 passed · 1 failed =='* ]]; then
+    ok "RSDD_REQUIRE_GO=1 with no usable rsdd -> FAIL (rc 1), not green"
+  else no "RSDD_REQUIRE_GO guard: rc=$GRC out=[$G]"; fi
+fi
+
 
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="
