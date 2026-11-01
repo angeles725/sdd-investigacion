@@ -82,7 +82,6 @@ sweep-retros reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file vi
 sweep-retros-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 sweep-tools-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 table-reader-parity reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
-verify-block reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
 verify-corrections reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 verify-corrections-binding reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 verify-corrections-precision reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)

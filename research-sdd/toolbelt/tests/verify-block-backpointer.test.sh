@@ -13,7 +13,11 @@
 # (BACKPTR-AMBIGUOUS), unreadable / failed scan / missing helper (DEGRADED). Every sentence a filter suppresses is COUNTED in
 # the summary. The EPHEMERAL! default-FAIL (#1660) is untouched.
 #
-# Usage: verify-block-backpointer.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+# verify-block.sh is a shim over `rsdd verify block` (kit issue #2456): this suite runs the behaviour end to end through it.
+# The mutation controls that edited the script text are gone with the script; the guards are pinned by the Go tests in
+# research-sdd/rsdd/internal/verify (block_*_test.go, mutation-checked by `make teeth`).
+#
+# Usage: verify-block-backpointer.test.sh   Exit: 0 all held · 1 regression.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-block.sh"
@@ -295,11 +299,8 @@ if [ "$(warns "$od")" = 1 ] && grep -q 'block 5' <<<"$od" && grep -qE '1 low-con
    && [ "$(warns "$oo")" = 0 ] && grep -q 'back-pointer check off' <<<"$oo" && [ "$rcb" = 2 ]; then ok "default = high-confidence lines + one low-confidence count; all lists both; off skips; bad value rc 2"
 else no "modes: default=$(warns "$od") all=$(warns "$oa") off=$(warns "$oo") bad-rc=$rcb :: $(grep -i back-pointer <<<"$od")"; fi
 
-# 27 — DEGRADED paths: the helper missing, and a candidate directory that cannot be listed.
-mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/verify-block.sh"
-out="$(bash "$TMP/nolib/verify-block.sh" "$TMP/c1/x-block11.md" 2>/dev/null)"
-if grep -qE '^ +DEGRADED backptr: helper lib/block-files\.sh unavailable' <<<"$out" && [ "$(warns "$out")" = 0 ]; then ok "helper missing → typed DEGRADED"
-else no "helper-missing state :: $(grep -i backptr <<<"$out")"; fi
+# 27 — DEGRADED path: a candidate directory that cannot be listed. (The block-files helper is compiled into rsdd
+# now, so the shell script's "helper missing" state cannot occur any more.)
 mkdir -p "$TMP/c27b" "$TMP/c27t"
 mkblk "$TMP/c27b/x-block11.md" 11 "This corrects [Block 5] outright."
 chmod 111 "$TMP/c27t"
@@ -366,68 +367,6 @@ mkblk "$c/x-block11.md" 11 "We refute the idea in B9 here." "" "We refute the id
 o1="$(rund "$c/x-block11.md")"
 if grep -qE '^ +INFO +backptr: line [0-9]+ cites block 9 ' <<<"$o1" && grep -qE '^ +BACKPTR-AMBIGUOUS +line [0-9]+: block 5 ' <<<"$o1"; then ok "not-found / ambiguous low-confidence cites still print their own lines in default mode"
 else no "typed states in default mode :: $(grep -i backptr <<<"$o1")"; fi
-
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  # the mutants live in $TMP, so the SUT's lib/ must resolve beside them (as verify-block.test.sh does)
-  ln -s "$HERE/../lib" "$TMP/lib"
-  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  # teeth <mode> <sentinel> <label> <fixture> <sed-expr> <regex> [flag] [target]
-  #   lose: the original prints <regex>, the mutant must NOT.   gain: the original lacks it, the mutant must print it.
-  #   flag defaults to --backptr=all (every candidate listed); pass "-" for the DEFAULT (high) mode.
-  teeth(){
-    local mode="$1" s="$2" l="$3" fx="$4" ex="$5" re="$6" fl="${7:---backptr=all}" tg="${8:-}" m="$TMP/vb.mut-$3.sh"
-    local -a av=(bash @SUT@); [ "$fl" = "-" ] || av+=("$fl"); av+=("$fx"); [ -z "$tg" ] || av+=("$tg")
-    if ! grep -q "# $s" "$SUT"; then no "teeth-$l: sentinel $s missing from the SUT"; return; fi
-    mk_mut "teeth-$l" "$SUT" "$m" "$ex" || return
-    if [ "$mode" = lose ]; then
-      tt "teeth-$l" 0 0 "$m" --orig "$SUT" --good-has "$re" --bad-lacks "$re|$CRASH" -- "${av[@]}"
-    else
-      tt "teeth-$l" 0 0 "$m" --orig "$SUT" --good-lacks "$re" --bad-has "$re" -- "${av[@]}"
-    fi
-  }
-  echo "-- teeth: each defence neutered; the matching fixture must change verdict --"
-  teeth lose BP-VERBS verbs "$TMP/c1/x-block11.md" '/# BP-VERBS/ s/refut|corrig/zzzzzz|zzzzzz/' '^ +BACKPTR\? '
-  teeth lose BP-POINTER pointer "$TMP/c1/x-block11.md" '/# BP-POINTER/ s/elif grep -Eq /elif true; : /' '^ +BACKPTR\? '
-  teeth gain BP-BOUNDARY boundary "$TMP/c10/x-block11.md" '/# BP-BOUNDARY/ s/(\[^0-9A-Za-z_]|/(.|/' '^ +backptr-ok'
-  teeth lose BP-POINTER rmodeptr "$TMP/c25/x-block11.md" '/# BP-BOUNDARY/ s/|B)0\*/|[BR])0*/' '^ +BACKPTR\? '
-  teeth lose BP-NOTFOUND notfound "$TMP/c5/x-block11.md" '/# BP-NOTFOUND/ s/INFO    backptr:/note/' '^ +INFO +backptr: line'
-  teeth lose BP-AMBIG ambig "$TMP/c6/x-block11.md" '/# BP-AMBIG/ s/-gt 1/-gt 99/' '^ +BACKPTR-AMBIGUOUS'
-  teeth gain BP-FORWARD forward "$TMP/c9/x-block5.md" '/# BP-FORWARD/ s/>= self/> 99999/' '^ +(BACKPTR\?|INFO +backptr:|BACKPTR-AMBIGUOUS)'
-  teeth lose BP-FORWARD forwardseries "$TMP/c24/x-block3.md" '/# BP-FORWARD/ s/ds\[i\] == selfser && //' '^ +BACKPTR\? .*block R9'
-  teeth gain BP-LIST list "$TMP/c18/x-block11.md" '/# BP-LIST/ s/nd >= 3 ||/0 \&\&/' '^ +BACKPTR\? '
-  teeth gain BP-LIST list3 "$TMP/c18/x-block14.md" '/# BP-LIST/ s/nd >= 3 ||/nd >= 99 ||/' '^ +BACKPTR\? '
-  teeth gain BP-CORRIGEND corrigend "$TMP/c17/x-block11.md" '/# BP-CORRIGEND/ s/corrigend\[a-z\]\*/zzzzzz/' '^ +(BACKPTR\? |INFO +backptr:|backptr-ok)'
-  teeth gain BP-CORRECTOR corrector "$TMP/c19/x-block11.md" '/# BP-CORRECTOR/ s/ctx ~ /ctx ~ \/zzzz\/ \&\& ctx ~ /' '^ +BACKPTR\? '
-  teeth gain BP-NEG neg "$TMP/c20/x-block11.md" '/# BP-NEG:/ s/(no|not a|without|ninguna?)/(zzzz)/' '^ +BACKPTR\? '
-  teeth gain BP-NEG2 neg2 "$TMP/c20/x-block12.md" '/# BP-NEG2/ s/(nothing|without|never|rather than/(zzzzzzz|zzzzzzz|zzzzzzz|zzzzzzzzzzz/' '^ +BACKPTR\? '
-  teeth gain BP-NEG3 neg3 "$TMP/c20/x-block15.md" '/# BP-NEG3/ s/nothing|nada/zzzzzzz|zzzz/' '^ +BACKPTR\? '
-  teeth lose BP-NEG2 notonly "$TMP/c20/x-block16.md" '/# BP-NEG2/ s/\[^a-z\]not (only|just|merely)/[^a-z]zzz (only|just|merely)/' '^ +BACKPTR\? '
-  teeth lose BP-NEG2 leftbound "$TMP/c20/x-block17.md" '/# BP-NEG2/ s/"\[^a-z\](nothing/"(nothing/' '^ +BACKPTR\? '
-  teeth gain BP-SELF self "$TMP/c20/x-block14.md" '/# BP-SELF/ s/self-correct\[a-z\]\*|auto/zzzzzz|auto/' '^ +BACKPTR\? '
-  teeth gain BP-PASSIVE passive "$TMP/c20/x-block13.md" '/# BP-PASSIVE/ s/(was|were|been/(zzzz|zzzz|zzzz/' '^ +BACKPTR\? '
-  teeth lose BP-PASSIVE passiveaux "$TMP/c20/x-block18.md" '/# BP-PASSIVE/ s/(was|were|been|/(was|were|been|later|/' '^ +BACKPTR\? '
-  teeth gain BP-PROXIMITY proximity "$TMP/c21/x-block11.md" '/# BP-PROXIMITY/ s/mg > 60/mg > 99999/' '^ +BACKPTR\? '
-  teeth gain BP-RMODE rmode "$TMP/c13b/r-block11.md" '/# BP-RMODE/ s/!rmode/0/' '^ +BACKPTR\? '
-  teeth gain BP-PRETOK pretok "$TMP/c28/x-block11.md" '/# BP-PRETOK/ s/isw(pre)/0/' '^ +BACKPTR\? '
-  teeth gain BP-POSTTOK posttok "$TMP/c28/x-block12.md" '/# BP-POSTTOK/ s/post ~ \/\[A-Za-z_\]\//post ~ \/zzzzzz\//' '^ +BACKPTR\? '
-  teeth gain BP-PREFIX prefix "$TMP/c7/x-block11.md" '/# BP-PREFIX/ s/pass" = same/pass" = nosuch/' '^ +BACKPTR-AMBIGUOUS'
-  teeth gain BP-SERIES series "$TMP/c23/n-block11.md" '/# BP-SERIES/ s/!= "\$_vb_bp_ser"/!= "$_vb_bp_fs"/' '^ +BACKPTR-AMBIGUOUS'
-  teeth gain BP-CONF confdir "$TMP/c29/x-block11.md" '/# BP-CONF/ s/(before ||/(1 ||/' '^ +BACKPTR\? ' -
-  teeth gain BP-NEG negwide "$TMP/c30/x-block11.md" '/# BP-NEG:/ s/(\[^\[:space:]]+\[\[:space:]]+)?(\[^\[:space:]]+\[\[:space:]]+)?(correction/(correction/' '^ +BACKPTR\? '
-  teeth gain BP-MAXCONF maxconf "$TMP/c32/x-block11.md" '/# BP-MAXCONF/ { s/dc\[i\] == "high" \&\&/0 \&\&/ }' 'low-confidence candidate' -
-  teeth lose BP-TYPED typed "$TMP/c33/x-block11.md" '/# BP-TYPED/ s/ || { \[ "\$_vb_bp_state" != missing \] \&\& \[ "\$_vb_bp_state" != ok \]; }//' '^ +INFO +backptr: line' -
-  teeth lose BP-CONF conf "$TMP/c26/x-block11.md" '/# BP-CONF/ s/mg <= 25/mg <= 0/' '^ +BACKPTR\? .*block 5' -
-  if ls "$TMP/c27t" >/dev/null 2>&1; then echo "  (teeth-scanbad skipped: this process can list a mode-111 directory)"
-  else teeth gain BP-SCANBAD scanbad "$TMP/c27b/x-block11.md" '/# BP-SCANBAD/ s/scanbad" = 1/scanbad" = 99/' '^ +INFO +backptr: line' - "$TMP/c27t"; fi
-  teeth gain BP-GREPRC greprc "$TMP/c1/x-block11.md" '/# BP-POINTER/ s/"\$_vb_bp_old" 2>/"$_vb_bp_old.nope" 2>/' '^ +DEGRADED backptr: line [0-9]+: block 5 .*could not be read by grep'
-  if [ -r "$TMP/c8/x-block5.md" ]; then echo "  (teeth-unreadable skipped: this process can read a mode-000 file)"
-  else teeth gain BP-UNREADABLE unreadable "$TMP/c8/x-block11.md" '/# BP-UNREADABLE/ s/\[ ! -r "\$_vb_bp_old" \]/false/' 'could not be read by grep'; fi
-fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

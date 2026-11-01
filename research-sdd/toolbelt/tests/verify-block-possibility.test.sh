@@ -9,7 +9,11 @@
 # ("physically impossible value") must NOT fire. `--possibility-sweep <dir>` lists every bare verdict in a
 # corpus (propose-never-apply: read-only, exit 0) so existing "can't" verdicts can be reopened as child gaps.
 #
-# Usage: verify-block-possibility.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
+# verify-block.sh is a shim over `rsdd verify block` (kit issue #2456): this suite runs the behaviour end to end through it.
+# The mutation controls that edited the script text are gone with the script; the guards are pinned by the Go tests in
+# research-sdd/rsdd/internal/verify (block_*_test.go, mutation-checked by `make teeth`).
+#
+# Usage: verify-block-possibility.test.sh   Exit: 0 all held · 1 regression.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-block.sh"
@@ -106,36 +110,6 @@ else no "sweep line shape :: $out"; fi
 # 12 — sweep with a bad dir → exit 2.
 bash "$SUT" --possibility-sweep "$TMP/nope" >/dev/null 2>&1; rc=$?
 if [ "$rc" = "2" ]; then ok "sweep bad dir → exit 2"; else no "sweep bad dir rc=$rc"; fi
-
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
-  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
-  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  # A bad side that is only an exit code must not be a crash: these never read as a bite.
-  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  echo "-- teeth: neuter the ladder acceptance; the laddered fixture must start to WARN --"
-  mut="$TMP/verify-block.mut-ladder.sh"
-  if grep -q '# PF-LADDER-ACCEPT' "$SUT"; then
-    if mk_mut "teeth-ladder" "$SUT" "$mut" '/# PF-LADDER-ACCEPT/ s/routes >= 3/routes >= 99/'; then
-      # Advisory lint: exit 0 on both sides; the original must stay silent, the mutant must print the typed WARN line.
-      tt "teeth-ladder: neutered threshold → ladder fixture flagged" 0 0 "$mut" --orig "$SUT" \
-        --good-lacks 'WARN +possibility-first' --bad-has '^ *WARN +possibility-first' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/ladder.md"
-    fi
-  else no "teeth-ladder: PF-LADDER-ACCEPT sentinel missing"; fi
-  echo "-- teeth: neuter the measurement exclusion; the §11a fixture must start to WARN --"
-  mut2="$TMP/verify-block.mut-meas.sh"
-  if grep -q '# PF-MEASURE-EXCLUDE' "$SUT"; then
-    if mk_mut "teeth-meas" "$SUT" "$mut2" '/# PF-MEASURE-EXCLUDE/ s/.*/      l = l  # PF-MEASURE-EXCLUDE [NEUTERED]/'; then
-      tt "teeth-meas: neutered exclusion → measurement fixture flagged" 0 0 "$mut2" --orig "$SUT" \
-        --good-lacks 'WARN +possibility-first' --bad-has '^ *WARN +possibility-first' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/meas.md"
-    fi
-  else no "teeth-meas: PF-MEASURE-EXCLUDE sentinel missing"; fi
-fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1
