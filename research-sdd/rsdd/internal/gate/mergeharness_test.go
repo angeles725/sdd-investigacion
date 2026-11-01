@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -277,9 +278,15 @@ func (w *world) environFor(sc dsc, repoDir, runDir string) []string {
 }
 
 // prepare creates the run directory and, for a fresh scenario, the private clone.
+// prepMu serialises the run counter: the differential runs its scenarios in parallel.
+var prepMu sync.Mutex
+
 func (w *world) prepare(sc dsc, kind string) (repoDir, runDir string) {
+	prepMu.Lock()
 	w.runs++
-	runDir = filepath.Join(w.root, fmt.Sprintf("run-%s-%04d", kind, w.runs))
+	n := w.runs
+	prepMu.Unlock()
+	runDir = filepath.Join(w.root, fmt.Sprintf("run-%s-%04d", kind, n))
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		w.t.Fatal(err)
 	}

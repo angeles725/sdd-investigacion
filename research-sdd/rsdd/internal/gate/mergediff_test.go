@@ -64,8 +64,9 @@ func TestDifferentialAgainstLegacy(t *testing.T) {
 	r.closure()
 	t.Logf("%d scenarios", len(r.cases))
 	for _, sc := range r.cases {
+		sc := sc
 		t.Run(sc.name, func(t *testing.T) {
-			w.t = t
+			t.Parallel()
 			want, got := w.runLegacy(sc), w.runGo(sc)
 			if normMoved(got.out) != normMoved(want.out) || got.rc != want.rc || normMoved(dropDegraded(got.err, got.out)) != normMoved(dropJQ(want.err)) || got.log != want.log || fmt.Sprint(got.side) != fmt.Sprint(want.side) {
 				t.Fatalf("legacy and Go differ\nlegacy rc=%d out=%q err=%q\n   go  rc=%d out=%q err=%q\nlegacy log=%q\n   go  log=%q\nlegacy side=%q\n   go  side=%q",
