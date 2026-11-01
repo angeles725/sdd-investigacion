@@ -528,9 +528,9 @@ func TestLiveTimeoutValidation(t *testing.T) {
 		{"nan", 1, "ValueError: Invalid value NaN (not a number)"},
 		{"-1", 1, "ValueError: Timeout value out of range"},
 		{"-0.001", 1, "ValueError: Timeout value out of range"},
-		{"inf", 2, "timestamp out of range for C PyTime_t"},
-		{"-inf", 2, "timestamp out of range for C PyTime_t"},
-		{"1e10", 2, "timestamp out of range for C PyTime_t"},
+		{"inf", 2, "timeout value out of range"},
+		{"-inf", 2, "timeout value out of range"},
+		{"1e10", 2, "timeout value out of range"},
 	}
 	for _, c := range cases {
 		f := &fakeLink{}

@@ -192,8 +192,8 @@ func TestE2EParityPlanOnlyAndErrors(t *testing.T) {
 		{"port below C int", []string{"--host", "127.0.0.1", "--port", "-2147483649", "--allow-live-probe", "--timeout", "0.1"}, 2, false, false, true},
 		{"port above C long", []string{"--host", "127.0.0.1", "--port", "9223372036854775808", "--allow-live-probe", "--timeout", "0.1"}, 2, false, false, true},
 		{"src port overflow", []string{"--host", "127.0.0.1", "--src-port", "70000", "--allow-live-probe", "--timeout", "0.1"}, 2, false, false, true},
-		{"timeout inf", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "inf"}, 2, false, false, true},
-		{"timeout too large", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "1e10"}, 2, false, false, true},
+		{"timeout inf", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "inf"}, 2, false, false, false},        // stderr wording is CPython-version specific; exit code only
+		{"timeout too large", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "1e10"}, 2, false, false, false}, // stderr wording is CPython-version specific; exit code only
 		{"timeout nan", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "nan"}, 1, false, false, false},
 		{"timeout negative", []string{"--host", "127.0.0.1", "--allow-live-probe", "--timeout", "-1"}, 1, false, false, false},
 		{"missing host", []string{}, 2, false, false, false},

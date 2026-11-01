@@ -126,6 +126,8 @@ builders and parsers over a seeded corpus, and end-to-end runs against loopback 
 - A negative or NaN `--timeout` with `--allow-live-probe` exits `1` with a one-line `ValueError: ...` message where
   the Python tool died with a traceback (also exit `1`). The wording of operating-system and name-resolution
   errors (`[Errno N] ...`) follows CPython 3.15; the exit codes are unchanged.
+- An infinite or too-large `--timeout` exits `2` with `OverflowError: timeout value out of range`; CPython words
+  this error per version (3.12 `platform time_t`, 3.15 `C PyTime_t`), so the Go text is its own.
 - A `--host` holding bytes that are not valid UTF-8 cannot be encoded in the evidence file (Python wrote `\udcXX`
   escapes); the command exits `2`. Host names are resolved with the Go resolver (IPv4 only).
 - The frame builders emit only what the tool uses: a Who-Is without a device range.

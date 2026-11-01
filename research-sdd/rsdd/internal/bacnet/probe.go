@@ -64,13 +64,13 @@ func sortedInts(set map[int]bool) []int {
 }
 
 // checkTimeout is what socket.settimeout does with the value: NaN and negative values are a ValueError, a value
-// that does not fit a 64-bit nanosecond count is an OverflowError.
+// that does not fit a 64-bit nanosecond count is an OverflowError. Its text is ours: CPython words it per version (3.12 "platform time_t", 3.15 "C PyTime_t").
 func checkTimeout(sec float64) *pyError {
 	if math.IsNaN(sec) {
 		return &pyError{kind: "ValueError", msg: "Invalid value NaN (not a number)"}
 	}
 	if ns := sec * 1e9; ns >= 9223372036854775808.0 || ns < -9223372036854775808.0 {
-		return &pyError{kind: "OverflowError", msg: "timestamp out of range for C PyTime_t"}
+		return &pyError{kind: "OverflowError", msg: "timeout value out of range"}
 	}
 	if sec < 0 {
 		return &pyError{kind: "ValueError", msg: "Timeout value out of range"}
