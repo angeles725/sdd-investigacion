@@ -557,9 +557,32 @@ func TestNoToolbeltAndNoKit(t *testing.T) {
 
 func TestToolbeltFlagNeedsAValue(t *testing.T) {
 	w := newWorld(t)
-	rc := execute([]string{w.target, "--toolbelt"}, w.stdio(), w.deps())
+	rc := execute([]string{"--toolbelt"}, w.stdio(), w.deps())
 	if rc != 2 || w.err() != "REFUSED: --toolbelt requires a value\n" {
 		t.Errorf("rc=%d err=%q", rc, w.err())
+	}
+}
+
+// Layer 4b cannot be swapped: the shim injects --toolbelt FIRST; a user-supplied one (anywhere else, or a second one)
+// is the bash's unknown-flag error, and the scanner is never run from a directory the user named.
+func TestToolbeltIsHonouredOnlyAsTheShimsFirstArgument(t *testing.T) {
+	for name, args := range map[string][]string{
+		"after-the-target":  {"{T}", "--yes", "--toolbelt", "/x"},
+		"before-the-target": {"--yes", "--toolbelt", "/x", "{T}"},
+		"second-toolbelt":   {"--toolbelt", "{TB}", "{T}", "--yes", "--toolbelt", "/x"},
+		"toolbelt-twice":    {"--toolbelt", "{TB}", "--toolbelt", "/x", "{T}", "--yes"},
+		"trailing-no-value": {"--toolbelt", "{TB}", "{T}", "--yes", "--toolbelt"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			for i, a := range args {
+				args[i] = strings.NewReplacer("{T}", w.target, "{TB}", w.toolbelt).Replace(a)
+			}
+			rc := execute(args, w.stdio(), w.deps())
+			if rc != 2 || w.err() != "unknown flag: --toolbelt\n" || w.called("scan-secrets.sh") || w.created() {
+				t.Errorf("rc=%d err=%q calls=%v", rc, w.err(), w.calls)
+			}
+		})
 	}
 }
 

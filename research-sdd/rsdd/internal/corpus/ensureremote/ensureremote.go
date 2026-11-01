@@ -22,8 +22,13 @@
 // working tree.
 //
 // Differences from the bash, none of them a loosened guard:
-//   - the command is `rsdd corpus ensure-remote`; the shim passes --toolbelt (its own directory) so the sibling
-//     scan-secrets.sh is found beside the shim; without it the kit is resolved as for every ported command;
+//   - the command is `rsdd corpus ensure-remote`; the shim passes --toolbelt (its own directory) as the VERY FIRST
+//     argument so the sibling scan-secrets.sh is found beside the shim. Anywhere else --toolbelt is an unknown flag
+//     (exit 2), as in the bash where the scanner can never be swapped. Calling `rsdd corpus ensure-remote` directly,
+//     without --toolbelt, resolves the kit as for every ported command, so the scanner is that kit's;
+//   - the exit-3 (no consent) path gets one extra `DEGRADED: command reported a degraded state without a reason`
+//     stderr line from the rsdd dispatcher; it is a declared divergence (parity case er-no-consent);
+//   - the "looks like text" test uses the ASCII class [[:alnum:]], stricter than the locale-dependent bash one;
 //   - git, the scanner and the `gh api` owner lookups were unbounded in the bash and are bounded here (git and the
 //     scanner one hour, the owner lookups by RSDD_GH_TIMEOUT); a bound hit fails closed like any other failure;
 //   - blobs are classified in memory, so the mktemp copy, its EXIT/INT/TERM cleanup trap and the base64/od/mktemp
@@ -118,20 +123,24 @@ func execute(args []string, s cli.Stdio, d deps) int {
 	c := &command{s: s, d: d, environ: s.Environ()}
 	var target, name, toolbelt string
 	consent := false
+	// --toolbelt DIR is the shim's own injection, so it is honoured ONLY as the very first argument; anywhere else
+	// it is an unknown flag, exactly as in the bash, where the scanner is always the one beside the script.
+	if len(args) > 0 && args[0] == "--toolbelt" {
+		if len(args) < 2 {
+			return c.refuse(exitUsage, "REFUSED: --toolbelt requires a value")
+		}
+		toolbelt, args = args[1], args[2:]
+	}
 	for i := 0; i < len(args); {
 		switch a := args[i]; {
 		case a == "--yes":
 			consent = true
 			i++
-		case a == "--name" || a == "--toolbelt":
+		case a == "--name":
 			if len(args)-i < 2 {
 				return c.refuse(exitUsage, "REFUSED: "+a+" requires a value")
 			}
-			if a == "--name" {
-				name = args[i+1]
-			} else {
-				toolbelt = args[i+1]
-			}
+			name = args[i+1]
 			i += 2
 		case strings.HasPrefix(a, "-"):
 			return c.refuse(exitUsage, "unknown flag: "+a)
