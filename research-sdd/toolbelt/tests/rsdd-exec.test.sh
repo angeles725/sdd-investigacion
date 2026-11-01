@@ -3,8 +3,12 @@
 #
 # Hermetic: every case builds a temp kit layout (<tmp>/<case>/k it/{toolbelt/lib,rsdd,bin}) holding a COPY of
 # the library, a FAKE `rsdd` binary (echoes its argv as `%q` lines, stdin and a chosen exit code) and a FAKE
-# `go` (writes a binary to the -o path, fails, or is slow). Nothing touches the real research-sdd/ tree and Go
-# itself is never needed. The kit path contains a space on purpose.
+# `go` (`go run ./cmd/rsdd-srchash .` prints a controllable hash; `go build -ldflags ... -o` writes a binary
+# stamped with the -X value, fails, or is slow). The fake binary answers `version --source-hash` like the real one.
+# Staleness is a source-hash comparison, so the expected tree hash comes from ref_hash(), the verbatim README
+# pipeline of rsdd/internal/commands/testdata/source-hash, never from the library under test. Nothing touches the
+# real research-sdd/ tree (the hash fixture and the Makefile are only READ) and Go itself is never needed. The kit
+# path contains a space on purpose.
 #
 # Each scenario runs in a child process (`--scenario NAME LIB`) and prints a report (`## label`, `RC=`, `o| `
 # stdout lines, `e| ` stderr lines, probes). The main run asserts on the report of the real library; the
@@ -28,13 +32,20 @@ setup_world() {   # LIB_PATH
   SCLIB="$1"
   FARM="$SCRATCH/farm"; GOBIN="$SCRATCH/gobin"; JQD="$SCRATCH/jqd"; mkdir -p "$FARM" "$GOBIN" "$JQD"
   local t p
-  for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls readlink; do
+  FARMNF="$SCRATCH/farm-noflock"; FARMNS="$SCRATCH/farm-nosha"; mkdir -p "$FARMNF" "$FARMNS"
+  for t in bash env mktemp mv rm find mkdir dirname cat sleep touch chmod ls readlink sort sha256sum flock; do
     p="$(type -P "$t")" || { echo "FATAL: tool $t missing" >&2; exit 2; }
     ln -s "$p" "$FARM/$t"
+    [ "$t" = flock ] || ln -s "$p" "$FARMNF/$t"
+    [ "$t" = sha256sum ] || ln -s "$p" "$FARMNS/$t"
   done
   p="$(type -P jq)" && ln -s "$p" "$JQD/jq"
+  MK_SYM="$(awk '$1 == "SOURCE_HASH_SYM" && $2 == ":=" { print $3 }' "$HERE/../../rsdd/Makefile")"
+  [ -n "$MK_SYM" ] || { echo "FATAL: SOURCE_HASH_SYM not found in rsdd/Makefile" >&2; exit 2; }
+  H_OLD="sha256:$(printf '%064d' 0)"
   cat >"$SCRATCH/body" <<'EOF'
 #!/usr/bin/env bash
+if [ "$1" = version ] && [ "$2" = --source-hash ]; then echo "@HASH@"; exit "${FAKE_HASH_RC:-0}"; fi
 echo "FAKE-@TAG@"
 printf 'n=%s\n' "$#"
 for a in "$@"; do printf 'arg=%q\n' "$a"; done
@@ -43,12 +54,24 @@ exit "${FAKE_RC:-0}"
 EOF
   cat >"$GOBIN/go" <<'EOF'
 #!/usr/bin/env bash
-if [ "$#" -ne 4 ] || [ "$1" != build ] || [ "$2" != -o ] || [ "$4" != ./cmd/rsdd ]; then echo "fake go: unexpected args: $*" >&2; exit 64; fi
-out="$3"
+case "$1" in
+  run)
+    if [ "$#" -ne 3 ] || [ "$2" != ./cmd/rsdd-srchash ] || [ "$3" != . ]; then echo "fake go: unexpected args: $*" >&2; exit 64; fi
+    printf '%s\n' "$PWD" >> "$FAKE_GO_RUNLOG"
+    if [ "${FAKE_SRC_MODE:-ok}" = fail ]; then echo "SRCHASH-NOISE-STDERR" >&2; exit 1; fi
+    printf '%s\n' "$FAKE_SRCHASH"; exit 0 ;;
+  build) ;;
+  *) echo "fake go: unexpected args: $*" >&2; exit 64 ;;
+esac
+if [ "$#" -ne 6 ] || [ "$2" != -ldflags ] || [ "$4" != -o ] || [ "$6" != ./cmd/rsdd ]; then echo "fake go: unexpected args: $*" >&2; exit 64; fi
+ld="$3"; out="$5"
+case "$ld" in *" -X $FAKE_GO_SYM="*) ;; *) echo "fake go: -ldflags lack -X $FAKE_GO_SYM=: $ld" >&2; exit 65 ;; esac
+h="${ld##*-X "$FAKE_GO_SYM"=}"; h="${h%% *}"
 printf '%s\n' "$PWD" >> "$FAKE_GO_LOG"
+printf '%s\n' "$h" >> "$FAKE_GO_LDLOG"
 echo "BUILDNOISE-STDOUT"
 echo "BUILDNOISE-STDERR" >&2
-body="$(<"$FAKE_BODY")"; body="${body//@TAG@/"${FAKE_GO_TAG:-NEW}"}"
+body="$(<"$FAKE_BODY")"; body="${body//@TAG@/"${FAKE_GO_TAG:-NEW}"}"; body="${body//@HASH@/"$h"}"
 case "${FAKE_GO_MODE:-ok}" in
   fail) printf 'half-written junk' > "$out"; exit 1 ;;
   slow) : > "$out"; chmod 755 "$out"
@@ -102,25 +125,43 @@ EOF
 . "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec_hook "$@"
 EOF
   touch -d '2020-01-01 00:00:00' "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go" "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum"
-  : >"$SCRATCH/go.log"
+  : >"$SCRATCH/go.log"; : >"$SCRATCH/run.log"; : >"$SCRATCH/ld.log"
 }
 
-putbin() {   # TAG [DATE] — fake rsdd at KIT/bin/rsdd; DATE absent = now
+# ref_hash DIR — the tree hash by the README's independent shell pipeline (rsdd/internal/commands/testdata/source-hash)
+ref_hash() {
+  ( cd -- "$1" 2>/dev/null && find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum \
+      -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) \
+      ! -path './testdata/*' ! -path '*/testdata/*' \
+    | sed 's|^\./||' | LC_ALL=C sort \
+    | while IFS= read -r p; do printf '%s\0%s\n' "$p" "$(sha256sum < "$p" | cut -d' ' -f1)"; done \
+    | sha256sum | awk '{print "sha256:" $1}' ) 2>/dev/null
+}
+
+putbin() {   # TAG [HASH] [DATE] — fake rsdd at KIT/bin/rsdd; HASH = what `version --source-hash` prints (absent/empty = the hash of the CURRENT tree); DATE absent = now
   mkdir -p "$KIT/bin"
-  local body; body="$(<"$SCRATCH/body")"; printf '%s\n' "${body//@TAG@/"$1"}" >"$KIT/bin/rsdd"
+  local body h="${2:-}"; [ -n "$h" ] || h="$(ref_hash "$KIT/rsdd")"
+  body="$(<"$SCRATCH/body")"; body="${body//@TAG@/"$1"}"; printf '%s\n' "${body//@HASH@/"$h"}" >"$KIT/bin/rsdd"
   chmod 755 "$KIT/bin/rsdd"
-  if [ -n "${2:-}" ]; then touch -d "$2" "$KIT/bin/rsdd"; fi
+  if [ -n "${3:-}" ]; then touch -d "$3" "$KIT/bin/rsdd"; fi
 }
 
-# dorun LABEL SCRIPT PM args... — PM go|nogo. Env knobs: GOMODE GOTAG GOSLEEP FAKE_RC READ_STDIN STDIN_FILE USE_RSDD_BIN
+# dorun LABEL SCRIPT PM args... — PM go|gojq|nogojq|nogo|goNF (no flock)|nosha (go, no sha tool)|nosha_nogo.
+# Env knobs: GOMODE GOTAG GOHASH (what `go run rsdd-srchash` prints; default = the tree hash) SRCMODE=fail FAKE_RC
+# FAKE_HASH_RC READ_STDIN STDIN_FILE USE_RSDD_BIN DORUN_TIMEOUT
 dorun() {
-  local label="$1" script="$2" pm="$3" p; shift 3
-  case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; *) p="$FARM" ;; esac
+  local label="$1" script="$2" pm="$3" p gh; shift 3
+  case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; goNF) p="$GOBIN:$FARMNF" ;;
+    nosha) p="$GOBIN:$FARMNS" ;; nosha_nogo) p="$FARMNS" ;; *) p="$FARM" ;; esac
   local sp="$KIT/toolbelt/$script"; case "$script" in /*) sp="$script" ;; esac
-  local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$SCRATCH/body"
-    FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}")
+  if [ -n "${GOHASH+x}" ]; then gh="$GOHASH"; else gh="$(ref_hash "$KIT/rsdd")"; fi
+  local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_RUNLOG="$SCRATCH/run.log" FAKE_GO_LDLOG="$SCRATCH/ld.log" FAKE_GO_SYM="$MK_SYM"
+    FAKE_SRCHASH="$gh" FAKE_SRC_MODE="${SRCMODE:-ok}" FAKE_HASH_RC="${FAKE_HASH_RC:-0}"
+    FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$SCRATCH/body"
+    FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}"
+    RSDD_TEST_LABEL="$label" RSDD_TEST_SCRATCH="$SCRATCH")
   if [ -n "${USE_RSDD_BIN+x}" ]; then ev+=(RSDD_BIN="$USE_RSDD_BIN"); fi
-  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
+  ${DORUN_TIMEOUT:+timeout "$DORUN_TIMEOUT"} env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
   echo "$?" >"$SCRATCH/$label.rc"
 }
 prefixed() {   # PREFIX FILE
@@ -131,11 +172,18 @@ show() {   # LABEL
   printf '## %s\nRC=%s\n' "$1" "$(<"$SCRATCH/$1.rc")"
   prefixed o "$SCRATCH/$1.out"; prefixed e "$SCRATCH/$1.err"
 }
-probes() {   # build-side probes: how often fake go ran, where, what is left in bin/
+probes() {   # build-side probes: how often fake go built / ran srchash, where, what is left in bin/
   printf 'GOCALLS=%s\n' "$(grep -c . "$SCRATCH/go.log")"
   printf 'GOCWD=%s\n' "$(head -n 1 "$SCRATCH/go.log" 2>/dev/null)"
+  printf 'SRCRUNS=%s\n' "$(grep -c . "$SCRATCH/run.log")"
+  printf 'STAMP=%s\n' "$(head -n 1 "$SCRATCH/ld.log" 2>/dev/null)"
   printf 'KIT=%s\n' "$KIT"
-  printf 'TMPLEFT=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd.*' 2>/dev/null | grep -c .)"
+  printf 'TMPLEFT=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd.*' ! -name .rsdd.lock 2>/dev/null | grep -c .)"
+  printf 'LOCK=%s\n' "$([ -e "$KIT/bin/.rsdd.lock" ] && echo yes || echo no)"
+}
+hashprobe() {   # TREE = the reference hash of the tree now · BINHASH = what the binary on disk reports
+  printf 'TREE=%s\n' "$(ref_hash "$KIT/rsdd")"
+  printf 'BINHASH=%s\n' "$("$KIT/bin/rsdd" version --source-hash 2>&1)"
 }
 doshow() { dorun "$@"; show "$1"; }   # LABEL SCRIPT PM args...
 
@@ -165,26 +213,154 @@ sc_stdin() {
   READ_STDIN=1 STDIN_FILE="$SCRATCH/in.txt" doshow stdin shim.sh go
   probes
 }
-sc_stale() {   # VARIANT: gomod | gosum | deepgo | maingo
+sc_stale() {   # VARIANT: gomod | gosum | deepgo | maingo — the CONTENT of one source changes, its mtime stays OLDER than the binary
   local v="${1:-gomod}" f
-  mkkit "stale-$v"; putbin OLD '2021-01-01 00:00:00'
+  mkkit "stale-$v"; putbin OLD
   case "$v" in
     gomod) f="$KIT/rsdd/go.mod" ;; gosum) f="$KIT/rsdd/go.sum" ;;
     deepgo) f="$KIT/rsdd/internal/deep/deep.go" ;; *) f="$KIT/rsdd/cmd/rsdd/main.go" ;;
   esac
-  touch -d '2022-01-01 00:00:00' "$f"
+  printf '// changed\n' >>"$f"; touch -d '2019-01-01 00:00:00' "$f"
   doshow stale shim.sh go x
   probes
+  hashprobe
 }
 sc_stale_strict() {
-  mkkit stalestrict; putbin OLD '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"
+  mkkit stalestrict; putbin OLD "$H_OLD"
   doshow strict strict.sh go x
   probes
   doshow lenient direct.sh go verify block y
 }
-sc_equal() {   # a source with the SAME mtime as the binary is not newer
-  mkkit equal; putbin OLD '2021-01-01 00:00:00'; touch -d '2021-01-01 00:00:00' "$KIT/rsdd/go.mod"
-  doshow equal shim.sh go
+sc_fresh() {   # the binary's hash equals the tree hash: no build, no go, no lock, silent
+  mkkit fresh; putbin OLDBIN '' '2021-01-01 00:00:00'
+  doshow fresh shim.sh go x
+  probes
+}
+sc_touched() {   # every source touched NOW (newer than the binary), same bytes: still fresh
+  mkkit touched; putbin OLDBIN '' '2021-01-01 00:00:00'
+  touch "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum" "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go"
+  doshow touched shim.sh go x
+  probes
+}
+sc_unselected() {   # changes outside the hashed set (a _test.go, testdata/, a README) never rebuild
+  mkkit unsel; putbin OLDBIN
+  printf 'package main\n// t\n' >"$KIT/rsdd/cmd/rsdd/main_test.go"
+  mkdir -p "$KIT/rsdd/testdata"; printf 'package x\n' >"$KIT/rsdd/testdata/x.go"; printf 'notes\n' >"$KIT/rsdd/README.md"
+  doshow unsel shim.sh go x
+  probes
+}
+sc_mismatch() {   # same sources, the binary was stamped with another hash
+  mkkit mism; putbin OLD "$H_OLD"
+  doshow mism shim.sh go x
+  probes
+  hashprobe
+}
+sc_unknown() {   # an unstamped binary prints sha256:unknown: stale
+  mkkit unk; putbin OLD sha256:unknown
+  doshow unk shim.sh go x
+  probes
+  hashprobe
+}
+sc_garbage() {   # any other answer is stale
+  mkkit garb; putbin OLD 'not a hash at all'
+  doshow garb shim.sh go x
+  probes
+}
+sc_hashrc() {   # the right hash but a non-zero exit is stale
+  mkkit hrc; putbin OLD
+  FAKE_HASH_RC=1 doshow hrc shim.sh go x
+  probes
+}
+sc_symbol() {   # the -X symbol of the library equals SOURCE_HASH_SYM of rsdd/Makefile
+  # shellcheck source=/dev/null
+  . "$SCLIB"
+  printf 'LIBSYM=%s\n' "$_RSDD_EXEC_HASH_SYM"
+  printf 'MAKESYM=%s\n' "$MK_SYM"
+  mkkit sym
+  doshow sym shim.sh go x
+  probes
+}
+sc_fixture() {   # the shell tree hash over the Go fixture equals the hash the Go side pins (expected-hash.txt)
+  local fx="$HERE/../../rsdd/internal/commands/testdata/source-hash" want
+  # shellcheck source=/dev/null
+  . "$SCLIB"
+  [ -f "$fx/expected-hash.txt" ] || { echo "FIXTURE=ABSENT"; return; }
+  want="$(<"$fx/expected-hash.txt")"
+  if _rsdd_exec_shell_hash "$fx"; then
+    if [ "$_RSDD_EXEC_TREE" = "$want" ]; then echo "FIXTURE=OK"; else echo "FIXTURE=DIFF got=$_RSDD_EXEC_TREE want=$want"; fi
+  else
+    echo "FIXTURE=UNAVAILABLE why=$_RSDD_EXEC_HWHY"
+  fi
+  printf 'REF=%s\n' "$(ref_hash "$fx")"
+  printf 'WANT=%s\n' "$want"
+}
+sc_nosha() {   # no sha tool: go run rsdd-srchash stands in for the shell hash
+  mkkit nosha; putbin OLD
+  doshow fresh shim.sh nosha x
+  probes
+  mkkit noshastale; putbin OLD "$H_OLD"
+  doshow stale shim.sh nosha x
+  probes
+  hashprobe
+}
+sc_hash_unavailable() {   # the hash cannot be computed anywhere: typed line, the existing binary runs, no build
+  mkkit hu1; putbin OLD
+  SRCMODE=fail doshow nosha shim.sh nosha x
+  probes
+  mkkit hu2; putbin OLD
+  doshow nosha_nogo shim.sh nosha_nogo x
+  probes
+  mkkit hu3; putbin OLD "$H_OLD"
+  SRCMODE=fail doshow stale_unknown shim.sh nosha x
+  probes
+}
+sc_weirdpath() {   # [VARIANT] a selected path with a backslash or a newline: shell hash unavailable, never fresh by accident
+  local v
+  for v in ${1:-backslash newline}; do
+    mkkit "weird-$v"; putbin OLD
+    case "$v" in backslash) printf 'package x\n' >"$KIT/rsdd/bad\\name.go" ;; *) printf 'package x\n' >"$KIT/rsdd/bad"$'\n'"name.go" ;; esac
+    SRCMODE=fail doshow "$v-fail" shim.sh go x
+    probes
+    GOHASH="$H_OLD" doshow "$v-go" shim.sh go x
+    probes
+  done
+}
+sc_empty_sel() {   # nothing selected: the hash of nothing proves nothing
+  mkkit emptysel; putbin OLD
+  rm -f "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum" "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go"
+  SRCMODE=fail doshow empty shim.sh go x
+  probes
+}
+sc_stampfail() {   # a failed stamp computation is a failed build
+  mkkit sf1
+  SRCMODE=fail doshow none shim.sh go x
+  probes
+  mkkit sf2; putbin OLD "$H_OLD"
+  SRCMODE=fail doshow old shim.sh go x
+  probes
+  mkkit sf3
+  GOHASH='not-a-hash' doshow garbage shim.sh go x
+  probes
+}
+sc_noflock() {   # flock absent: one notice, the rebuild still happens (unlocked)
+  mkkit nf1; putbin OLD "$H_OLD"
+  doshow stale shim.sh goNF x
+  probes
+  mkkit nf2
+  doshow missing shim.sh goNF x
+  probes
+  mkkit nf3; putbin OLD
+  doshow fresh shim.sh goNF x
+}
+sc_lockfree() {   # the lock is held by someone else: a fresh binary still runs at once (no lock on the fresh path)
+  mkkit lf; putbin OLD
+  mkdir -p "$KIT/bin"; : >"$KIT/bin/.rsdd.lock"
+  ( exec 9>"$KIT/bin/.rsdd.lock"; flock -x 9 && exec sleep 30 ) &
+  local holder=$!
+  _held() { ! flock -n "$KIT/bin/.rsdd.lock" true; }
+  if ! wait_until _held; then echo "HANDSHAKE-TIMEOUT=lock-never-held"; kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; return; fi
+  DORUN_TIMEOUT=8 doshow fresh shim.sh go x
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
   probes
 }
 sc_missing() {
@@ -194,7 +370,7 @@ sc_missing() {
   printf 'BINMODE=%s\n' "$([ -x "$KIT/bin/rsdd" ] && echo exec || echo noexec)"
 }
 sc_buildfail_old() {
-  mkkit bfo; putbin OLD '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"
+  mkkit bfo; putbin OLD "$H_OLD"
   GOMODE=fail doshow bf shim.sh go
   probes
 }
@@ -204,7 +380,7 @@ sc_buildfail_none() {
   probes
 }
 sc_nogo_old() {
-  mkkit ngo; putbin OLD '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"
+  mkkit ngo; putbin OLD "$H_OLD"
   doshow nogo shim.sh nogo
   probes
 }
@@ -219,12 +395,12 @@ sc_nosrc() {
   probes
 }
 sc_binonly() {   # binary present, sources directory absent: the binary runs, no build attempt
-  mkkit binonly; putbin SOLO '2021-01-01 00:00:00'; rm -rf "$KIT/rsdd"
+  mkkit binonly; putbin SOLO; rm -rf "$KIT/rsdd"
   doshow solo shim.sh nogo
   probes
 }
 sc_rsddbin() {
-  mkkit rb; putbin KITBIN '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"
+  mkkit rb; putbin KITBIN "$H_OLD"
   mkdir -p "$SCRATCH/own"; local body; body="$(<"$SCRATCH/body")"; printf '%s\n' "${body//@TAG@/ENV}" >"$SCRATCH/own/my rsdd"; chmod 755 "$SCRATCH/own/my rsdd"
   USE_RSDD_BIN="$SCRATCH/own/my rsdd" doshow env shim.sh go q
   probes
@@ -253,14 +429,22 @@ wait_until() {   # FN — poll FN up to ~5 s; rc 1 = typed timeout
   return 1
 }
 _ready() { [ -e "$SCRATCH/ready" ]; }
-_b_settled() { [ -e "$SCRATCH/B.rc" ] || [ "$(grep -c . "$SCRATCH/go.log")" -ge 2 ]; }
-sc_race() {
+_b_waiting() {   # B's flock child is blocked: a process `flock` carrying B's environment marker
+  local d c
+  for d in /proc/[0-9]*; do
+    IFS= read -r -d '' c <"$d/cmdline" 2>/dev/null || continue
+    case "$c" in */flock | flock) ;; *) continue ;; esac
+    if grep -qaF "RSDD_TEST_LABEL=B" "$d/environ" 2>/dev/null && grep -qaF "RSDD_TEST_SCRATCH=$SCRATCH" "$d/environ" 2>/dev/null; then return 0; fi
+  done
+  return 1
+}
+sc_race() {   # A builds (slow); B starts meanwhile and must WAIT on the lock, then find A's binary fresh: one build
   mkkit race
   ( GOMODE=slow READY_FILE="$SCRATCH/ready" RELEASE_FILE="$SCRATCH/release" dorun A shim.sh go ra ) &
   if ! wait_until _ready; then echo "HANDSHAKE-TIMEOUT=A-never-signalled-ready"; : >"$SCRATCH/release"; wait; return; fi
   ( GOMODE=slow READY_FILE="$SCRATCH/ready" RELEASE_FILE="$SCRATCH/release" dorun B shim.sh go rb ) &
-  # B either finished (it ran the half-written file) or reached its own go build: only then release A.
-  wait_until _b_settled || echo "HANDSHAKE-TIMEOUT=B-never-settled"
+  # only when B is blocked on the lock (or, with no lock, never) is A released
+  wait_until _b_waiting || echo "HANDSHAKE-TIMEOUT=B-never-blocked-on-the-lock"
   : >"$SCRATCH/release"
   wait
   show A; show B
@@ -269,6 +453,17 @@ sc_race() {
   local final=""
   if [ -x "$KIT/bin/rsdd" ]; then final="$("$KIT/bin/rsdd" 2>&1 | head -n 1)"; fi
   printf 'FINAL=%s\n' "$final"
+}
+sc_midbuild() {   # while A rebuilds a stale binary, the binary on disk is still the old COMPLETE one (atomic rename)
+  mkkit mid; putbin OLD "$H_OLD"
+  ( GOMODE=slow READY_FILE="$SCRATCH/ready" RELEASE_FILE="$SCRATCH/release" dorun A shim.sh go ra ) &
+  if ! wait_until _ready; then echo "HANDSHAKE-TIMEOUT=A-never-signalled-ready"; : >"$SCRATCH/release"; wait; return; fi
+  printf 'MID=%s\n' "$("$KIT/bin/rsdd" 2>&1 | head -n 1)"
+  : >"$SCRATCH/release"
+  wait
+  show A
+  probes
+  printf 'FINAL=%s\n' "$("$KIT/bin/rsdd" 2>&1 | head -n 1)"
 }
 
 # hook scenarios
@@ -337,19 +532,25 @@ sc_bin_ro() {   # a non-writable <kit>/bin: the reason is named, the raw mktemp 
   doshow none shim.sh go
   probes
   chmod u+w "$KIT/bin"
-  mkkit ro2; putbin OLD '2021-01-01 00:00:00'; touch -d '2022-01-01 00:00:00' "$KIT/rsdd/go.mod"; chmod a-w "$KIT/bin"
+  mkkit ro2; putbin OLD "$H_OLD"; chmod a-w "$KIT/bin"
   doshow stale shim.sh go
   probes
   chmod u+w "$KIT/bin"
   mkkit ro3; chmod a-w "$KIT"
   doshow nobindir shim.sh go
   chmod u+w "$KIT"
+  mkkit ro4; mkdir -p "$KIT/bin"; : >"$KIT/bin/.rsdd.lock"; chmod a-w "$KIT/bin"
+  doshow lockonly shim.sh go
+  chmod u+w "$KIT/bin"
 }
-sc_scan_fail() {   # an unreadable subdirectory under rsdd/: the scan fails, a failed scan counts as stale
+sc_scan_fail() {   # an unreadable subdirectory under rsdd/: the shell scan fails, the hash is UNAVAILABLE (never fresh)
   if [ "$(id -u)" = 0 ]; then echo "SKIP-ROOT=1"; return; fi
   mkkit sf; putbin FRESH
+  local h; h="$(ref_hash "$KIT/rsdd")"
   chmod 000 "$KIT/rsdd/internal/deep"
-  doshow scan shim.sh go x
+  GOHASH="$h" doshow viago shim.sh go x
+  probes
+  SRCMODE=fail doshow degraded shim.sh go x
   probes
   chmod 755 "$KIT/rsdd/internal/deep"
 }
@@ -384,6 +585,7 @@ if [ "${1:-}" = "--scenario" ]; then
   setup_world "$3"
   case "$2" in
     stale-*) sc_stale "${2#stale-}" ;;
+    weirdpath-*) sc_weirdpath "${2#weirdpath-}" ;;
     *) "sc_${2//-/_}" ;;
   esac
   exit 0
@@ -416,6 +618,13 @@ nchk() {   # NAME REPORT LABEL REGEX  — section does NOT match
 }
 pchk() {   # NAME REPORT REGEX — the probe lines match
   if grep -qE -- "$3" <<<"$2"; then ok "$1"; else no "$1" "report lacks /$3/"; fi
+}
+val_of() {   # REPORT KEY -> the value of the KEY=value probe line
+  grep -m1 "^$2=" <<<"$1" | cut -d= -f2-
+}
+eqchk() {   # NAME REPORT KEY1 KEY2 — both probes hold the SAME well-formed sha256:<hex> hash
+  local a b; a="$(val_of "$2" "$3")"; b="$(val_of "$2" "$4")"
+  if [[ "$a" =~ ^sha256:[0-9a-f]{64}$ ]] && [ "$a" = "$b" ]; then ok "$1"; else no "$1" "$3=[$a] $4=[$b]"; fi
 }
 stdout_of() { sect "$1" "$2" | grep '^o| ' | cut -c4-; }
 stderr_of() { sect "$1" "$2" | grep '^e| ' | cut -c4-; }
@@ -453,17 +662,74 @@ R="$(scen stdin "$LIB")"
 want="stdin=$(printf '%q' $'line1\nline2 x')"
 chk "stdin reaches the binary" "$R" stdin "^o\| $(sed 's/[][\\.*^$|]/\\&/g' <<<"$want")\$"
 
-# 3. staleness (every trigger file, mtime via touch -d) and its boundary
+# 3. staleness is a SOURCE-HASH comparison (the mtime of files plays no part)
 for v in gomod gosum deepgo maingo; do
   R="$(scen "stale-$v" "$LIB")"
-  chk "stale ($v newer than binary) -> rebuilt, new binary runs" "$R" stale '^o\| FAKE-NEW$'
+  chk "stale ($v content changed, mtime OLDER than the binary) -> rebuilt, new binary runs" "$R" stale '^o\| FAKE-NEW$'
   pchk "stale ($v) -> exactly one go build" "$R" '^GOCALLS=1$'
   pchk "stale ($v) -> go ran inside <kit>/rsdd" "$R" '^GOCWD=.*/k it/rsdd$'
   pchk "stale ($v) -> no temp file left in bin/" "$R" '^TMPLEFT=0$'
+  pchk "stale ($v) -> the rebuild took the lock file" "$R" '^LOCK=yes$'
+  eqchk "stale ($v) -> the build was stamped with the NEW tree hash" "$R" STAMP TREE
+  eqchk "stale ($v) -> the rebuilt binary reports the new tree hash" "$R" BINHASH TREE
+  nchk "stale ($v) -> no source-hash-unavailable line" "$R" stale 'source-hash-unavailable'
 done
-R="$(scen equal "$LIB")"
-chk "source with the same mtime as the binary is fresh" "$R" equal '^o\| FAKE-OLD$'
-pchk "same-mtime source -> no build" "$R" '^GOCALLS=0$'
+R="$(scen fresh "$LIB")"
+chk "matching hash -> the binary runs" "$R" fresh '^o\| FAKE-OLDBIN$'
+nchk "matching hash -> stderr silent" "$R" fresh '^e\| '
+pchk "matching hash -> no go build" "$R" '^GOCALLS=0$'
+pchk "matching hash -> no go run either (the shell hash is enough)" "$R" '^SRCRUNS=0$'
+pchk "matching hash -> no lock file taken (the fresh path is lock-free)" "$R" '^LOCK=no$'
+R="$(scen touched "$LIB")"
+chk "touched but unchanged (mtime newer than the binary, same bytes) -> binary runs" "$R" touched '^o\| FAKE-OLDBIN$'
+pchk "touched but unchanged -> NO rebuild" "$R" '^GOCALLS=0$'
+nchk "touched but unchanged -> no rebuild attempt (stderr silent)" "$R" touched '^e\| '
+R="$(scen unselected "$LIB")"
+chk "changes outside the hashed set (_test.go, testdata/, README) -> binary runs" "$R" unsel '^o\| FAKE-OLDBIN$'
+pchk "changes outside the hashed set -> no rebuild" "$R" '^GOCALLS=0$'
+nchk "changes outside the hashed set -> no rebuild attempt (stderr silent)" "$R" unsel '^e\| '
+R="$(scen mismatch "$LIB")"
+chk "different hash -> rebuilt, new binary runs" "$R" mism '^o\| FAKE-NEW$'
+pchk "different hash -> exactly one build" "$R" '^GOCALLS=1$'
+eqchk "different hash -> the rebuild stamps the tree hash" "$R" STAMP TREE
+eqchk "different hash -> the rebuilt binary reports the tree hash" "$R" BINHASH TREE
+R="$(scen unknown "$LIB")"
+chk "sha256:unknown -> rebuilt, new binary runs" "$R" unk '^o\| FAKE-NEW$'
+pchk "sha256:unknown -> exactly one build" "$R" '^GOCALLS=1$'
+eqchk "sha256:unknown -> the rebuild stamps the tree hash" "$R" STAMP TREE
+R="$(scen garbage "$LIB")"
+chk "a non-hash answer -> rebuilt" "$R" garb '^o\| FAKE-NEW$'
+R="$(scen hashrc "$LIB")"
+chk "the right hash with a non-zero exit -> rebuilt" "$R" hrc '^o\| FAKE-NEW$'
+pchk "the right hash with a non-zero exit -> one build" "$R" '^GOCALLS=1$'
+R="$(scen symbol "$LIB")"
+LS="$(val_of "$R" LIBSYM)"; MS="$(val_of "$R" MAKESYM)"
+if [ -n "$LS" ] && [ "$LS" = "$MS" ]; then ok "the -X symbol equals SOURCE_HASH_SYM of rsdd/Makefile"; else no "the -X symbol equals SOURCE_HASH_SYM of rsdd/Makefile" "lib=[$LS] makefile=[$MS]"; fi
+R="$(scen fixture "$LIB")"
+pchk "shell tree hash over the Go fixture equals expected-hash.txt" "$R" '^FIXTURE=OK$'
+eqchk "the README pipeline (ref_hash) agrees with expected-hash.txt on the fixture" "$R" REF WANT
+R="$(scen nosha "$LIB")"
+chk "no sha tool + matching go hash -> binary runs" "$R" fresh '^o\| FAKE-OLD$'
+pchk "no sha tool + matching go hash -> go run stood in, no build" "$R" '^SRCRUNS=1$'
+nchk "no sha tool + go fallback worked -> no degraded line" "$R" fresh 'source-hash-unavailable'
+chk "no sha tool + stale go hash -> rebuilt" "$R" stale '^o\| FAKE-NEW$'
+R="$(scen hash_unavailable "$LIB")"
+chk "hash unavailable (no sha tool, go fails) -> typed line" "$R" nosha '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — .+'
+chk "hash unavailable -> the existing binary runs" "$R" nosha '^o\| FAKE-OLD$'
+chk "hash unavailable -> rc 0" "$R" nosha '^RC=0$'
+chk "hash unavailable, go absent -> typed line names the fallback" "$R" nosha_nogo '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — .*go not found'
+chk "hash unavailable, go absent -> the existing binary runs" "$R" nosha_nogo '^o\| FAKE-OLD$'
+[ "$(sect "$R" nosha | grep -c '^e| .*degraded: ')" = 1 ] && ok "hash unavailable -> exactly one degraded line" || no "hash unavailable -> exactly one degraded line"
+pchk "hash unavailable -> never a rebuild (an unknown is not stale)" "$R" '^GOCALLS=0$'
+chk "hash unavailable on an unknown-stale binary -> the old one still runs, typed line" "$R" stale_unknown '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — '
+R="$(scen weirdpath "$LIB")"
+for v in backslash newline; do
+  chk "path with a $v: shell hash unavailable, go fails -> typed line" "$R" "$v-fail" '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — .*(newline or a backslash|out of step)'
+  chk "path with a $v: shell hash unavailable, go fallback answers -> stale detected, rebuilt" "$R" "$v-go" '^o\| FAKE-NEW$'
+done
+R="$(scen empty_sel "$LIB")"
+chk "empty selection -> typed line, never fresh" "$R" empty '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — .*no source files matched'
+chk "empty selection -> the existing binary runs" "$R" empty '^o\| FAKE-OLD$'
 
 # 4. missing binary -> build; build output stays off stdout; temp file gone; binary executable
 R="$(scen missing "$LIB")"
@@ -486,6 +752,14 @@ chk "build failed + no binary -> exact degraded line" "$R" bf '^e\| degraded: rs
 nchk "build failed + no binary -> nothing on stdout" "$R" bf '^o\| '
 pchk "build failed + no binary -> junk temp removed" "$R" '^TMPLEFT=0$'
 [ "$(sect "$R" bf | grep -c '^e| degraded: ')" = 1 ] && ok "exactly one degraded line" || no "exactly one degraded line"
+
+R="$(scen stampfail "$LIB")"
+chk "stamp computation fails + no binary -> rc 2" "$R" none '^RC=2$'
+chk "stamp computation fails + no binary -> build failed" "$R" none '^e\| degraded: rsdd-unavailable — build failed$'
+chk "stamp computation fails + old binary -> notice, old runs" "$R" old '^e\| rsdd-exec: notice: rebuild failed; running a binary older than its sources: '
+chk "stamp computation fails + old binary -> old one runs" "$R" old '^o\| FAKE-OLD$'
+chk "a stamp that is not a hash is a failed build" "$R" garbage '^e\| degraded: rsdd-unavailable — build failed$'
+pchk "failed stamp -> go build never ran" "$R" '^GOCALLS=0$'
 
 # 6. go absent
 R="$(scen nogo_old "$LIB")"
@@ -537,16 +811,35 @@ chk "caller without options: unchanged and runs" "$R" lenient '^o\| FAKE-NEW$|^o
 nchk "caller without options: unchanged" "$R" lenient 'OPTS-CHANGED'
 chk "strict caller: rc 0" "$R" strict '^RC=0$'
 
-# 10. concurrent rebuild safety (deterministic handshake: A signals ready, B starts, A is released afterwards)
+# 10. concurrent rebuild safety: flock serialises, the re-check after the lock avoids a second build, the rename is atomic
 R="$(scen race "$LIB")"
-if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "race: handshake completed" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "race: handshake completed (no typed timeout)"; fi
+if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "race: handshake completed" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "race: handshake completed (B was blocked on the lock)"; fi
 for l in A B; do
   chk "race: shim $l execs a COMPLETE binary" "$R" "$l" '^o\| FAKE-NEW$'
   chk "race: shim $l exit 0" "$R" "$l" '^RC=0$'
 done
 pchk "race: shim B ran a complete binary (B-COMPLETE)" "$R" '^B-COMPLETE=yes$'
+pchk "race: two racing shims build exactly once" "$R" '^GOCALLS=1$'
 pchk "race: no temp file left behind" "$R" '^TMPLEFT=0$'
 pchk "race: the final binary on disk runs and prints the full marker" "$R" '^FINAL=FAKE-NEW$'
+R="$(scen midbuild "$LIB")"
+if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "midbuild: handshake completed" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "midbuild: handshake completed"; fi
+pchk "midbuild: while A builds, the binary on disk is still the old COMPLETE one" "$R" '^MID=FAKE-OLD$'
+pchk "midbuild: after A the binary on disk is the new one" "$R" '^FINAL=FAKE-NEW$'
+R="$(scen noflock "$LIB")"
+chk "flock absent + stale -> one notice" "$R" stale '^e\| rsdd-exec: notice: flock not found; rebuilding without a lock$'
+chk "flock absent + stale -> still rebuilt" "$R" stale '^o\| FAKE-NEW$'
+chk "flock absent + no binary -> built" "$R" missing '^o\| FAKE-NEW$'
+nchk "flock absent + fresh binary -> no notice (no lock is wanted)" "$R" fresh 'flock'
+for l in stale missing; do
+  if [ "$(sect "$R" "$l" | grep -c 'flock not found')" = 1 ]; then ok "flock absent [$l] -> the notice appears exactly once"; else no "flock absent [$l] -> the notice appears exactly once"; fi
+done
+R="$(scen stale_strict "$LIB")"
+nchk "flock present -> no flock notice" "$R" strict 'flock not found'
+R="$(scen lockfree "$LIB")"
+if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "lockfree: lock holder started" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "lockfree: lock holder started"; fi
+chk "fresh binary + the lock held by another process -> still runs (not blocked)" "$R" fresh '^o\| FAKE-OLD$'
+chk "fresh binary + the lock held by another process -> rc 0 (no timeout)" "$R" fresh '^RC=0$'
 
 # 11. hook mode: sweep / guard / gate
 rt_chk() {   # NAME REPORT LABEL — jq round trip probe: ok, or a typed SKIP when jq is absent
@@ -646,13 +939,17 @@ else
   chk "bin not writable, stale binary: notice names the bin dir" "$R" stale '^e\| rsdd-exec: notice: bin dir not writable: .*/k it/bin; running a binary older than its sources: '
   nchk "bin not writable, stale binary: raw mktemp error is silenced" "$R" stale 'mktemp'
   chk "kit dir not writable (bin/ cannot be created): reason is the bin dir" "$R" nobindir '^e\| degraded: rsdd-unavailable — bin dir not writable: .*/k it/bin$'
+  chk "lock file exists but bin not writable (mktemp fails): reason is the bin dir" "$R" lockonly '^e\| degraded: rsdd-unavailable — bin dir not writable: .*/k it/bin$'
+  nchk "lock file exists but bin not writable: raw mktemp error is silenced" "$R" lockonly 'mktemp'
 fi
 R="$(scen scan_fail "$LIB")"
 if grep -q '^SKIP-ROOT=1$' <<<"$R"; then
-  skip "failed staleness scan counts as stale" "running as root (typed SKIP: root can read every directory)"
+  skip "failed shell scan is an unavailable hash" "running as root (typed SKIP: root can read every directory)"
 else
-  chk "unreadable subdir under rsdd/: the failed scan counts as stale -> rebuilt" "$R" scan '^o\| FAKE-NEW$'
-  pchk "unreadable subdir under rsdd/: exactly one build ran" "$R" '^GOCALLS=1$'
+  chk "unreadable subdir: shell scan fails, the go fallback proves it fresh -> binary runs" "$R" viago '^o\| FAKE-FRESH$'
+  pchk "unreadable subdir -> the go fallback ran once, no build" "$R" '^SRCRUNS=1$'
+  chk "unreadable subdir + go fails -> typed line (never silently fresh)" "$R" degraded '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — scanning the sources failed'
+  pchk "unreadable subdir + go fails -> no rebuild" "$R" '^GOCALLS=0$'
 fi
 R="$(scen nocd "$LIB")"
 chk "kit root unresolvable (cd fails at source time) -> rc 2" "$R" nocd '^RC=2$'
@@ -713,14 +1010,73 @@ tt() {
   if mutant_tooth "teeth $n" 0 0 "$MUT/$n.sh" "$@" -- "$BASH_BIN" "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
 
-mk skip-stale 's#\[ "\$rc" -ne 0 \] || \[ -n "\$hit" \]#false#' &&
-  tt skip-stale stale-gomod --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
-mk stale-no-gomod 's# -o -name go.mod -o -name go.sum##' &&
-  tt stale-no-gomod stale-gomod --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
-mk stale-inverted 's#-newer "\$1"#! -newer "$1"#' &&
-  tt stale-inverted equal --good-has '^o\| FAKE-OLD$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
-mk no-atomic-rename 's#go build -o "\$tmp" ./cmd/rsdd \&\& chmod 755 "\$tmp" \&\& mv -f "\$tmp" "\$bin"#go build -o "$bin" ./cmd/rsdd \&\& chmod 755 "$bin"#' &&
-  tt no-atomic-rename race --good-has '^B-COMPLETE=yes$' --bad-has '^B-COMPLETE=no$' --bad-lacks '^HANDSHAKE-TIMEOUT' --bad-lacks "$CRASH"
+# --- the source-hash comparison (original: equal hash = fresh, any other answer = stale)
+CMP='\[ "\$got" = "\$_RSDD_EXEC_TREE" \] || return 1'
+mk hash-inverted "s#$CMP#[ \"\$got\" != \"\$_RSDD_EXEC_TREE\" ] || return 1#" &&
+  tt hash-inverted fresh --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+mk hash-always-fresh "s#$CMP#:#" &&
+  tt hash-always-fresh mismatch --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
+mk hash-always-stale "s#$CMP#return 1#" &&
+  tt hash-always-stale fresh --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+mk unknown-is-fresh "s#$CMP#[ \"\$got\" = \"\$_RSDD_EXEC_TREE\" ] || [ \"\$got\" = sha256:unknown ] || return 1#" &&
+  tt unknown-is-fresh unknown --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
+mk hash-exit-ignored 's#2>/dev/null </dev/null)" || return 1#2>/dev/null </dev/null)"#' &&
+  tt hash-exit-ignored hashrc --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
+# mtime logic back in place of the hash: touched-but-unchanged rebuilds, a same-content-old-mtime change does not
+mk mtime-fresh-touched "s#$CMP#[ -z \"\$(find \"\$2\" -type f -newer \"\$1\" -print -quit)\" ] || return 1#" &&
+  tt mtime-fresh-touched touched --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+mk mtime-fresh-content "s#$CMP#[ -z \"\$(find \"\$2\" -type f -newer \"\$1\" -print -quit)\" ] || return 1#" &&
+  tt mtime-fresh-content stale-gomod --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
+# --- unavailable hash: typed, and never a rebuild
+mk unavailable-rebuilds 's#^        \*) echo "rsdd-exec: degraded: rsdd-source-hash-unavailable#        *) need=1; echo "rsdd-exec: degraded: rsdd-source-hash-unavailable#' &&
+  tt unavailable-rebuilds hash_unavailable --good-lacks 'rsdd-exec: notice: ' --bad-has 'rsdd-exec: notice: ' --bad-lacks "$CRASH"
+mk unavailable-silent 's#echo "rsdd-exec: degraded: rsdd-source-hash-unavailable — \$_RSDD_EXEC_HWHY" >&2 ;;#: ;;#' &&
+  tt unavailable-silent hash_unavailable --good-has '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — ' --bad-lacks '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable' --bad-lacks "$CRASH"
+mk go-fallback-skipped 's#_rsdd_exec_go_hash "\$1" && return 0#false#' &&
+  tt go-fallback-skipped nosha --good-has '^SRCRUNS=1$' --bad-lacks '^SRCRUNS=1$' --bad-lacks "$CRASH"
+mk find-failure-reason 's#FIND-FAILED) _RSDD_EXEC_HWHY="scanning the sources failed"; return 1 ;;#FIND-FAILED) ;;#' &&
+  tt find-failure-reason scan_fail --good-has 'scanning the sources failed' --bad-lacks 'scanning the sources failed' --bad-lacks "$CRASH"
+mk unsafe-path-accepted 's#_RSDD_EXEC_HWHY="a source path contains a newline or a backslash"; return 1#:#' 's#if \[ "\${line:64:1}" != " " \] || \[ "\${line:66}" != "\${files\[i\]}" \]; then _RSDD_EXEC_HWHY="\${sha\[0\]} answered out of step"; return 1; fi#:#' &&
+  tt unsafe-path-accepted weirdpath-backslash --good-has '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — ' --bad-lacks '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable' --bad-lacks "$CRASH"
+mk empty-selection-accepted 's|if \[ "\${#files\[@\]}" -eq 0 \]; then _RSDD_EXEC_HWHY="no source files matched"; return 1; fi|:|' 's|if \[ "\${#lines\[@\]}" -ne "\${#files\[@\]}" \]; then _RSDD_EXEC_HWHY="\${sha\[0\]} answered out of step"; return 1; fi|:|' &&
+  tt empty-selection-accepted empty_sel --good-has '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — ' --bad-lacks '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable' --bad-lacks "$CRASH"
+# --- the shell hash must keep equal to the Go side: each rule of the selection / manifest, on the shared fixture
+FXG=(--good-has '^FIXTURE=OK$' --bad-lacks '^FIXTURE=OK$' --bad-lacks "$CRASH")
+mk fixture-test-files "s# ! -name '\\*_test.go'##" && tt fixture-test-files fixture "${FXG[@]}"
+mk fixture-embed "s# -o -path './embed/\\*' -o -path '\\*/embed/\\*'##" && tt fixture-embed fixture "${FXG[@]}"
+mk fixture-vendor "s# -o -path './vendor/\\*'##" && tt fixture-vendor fixture "${FXG[@]}"
+mk fixture-testdata "s# ! -path './testdata/\\*' ! -path '\\*/testdata/\\*'##" && tt fixture-testdata fixture "${FXG[@]}"
+mk fixture-gomod "s# -o -path ./go.mod -o -path ./go.sum##" && tt fixture-gomod fixture "${FXG[@]}"
+mk fixture-sort 's#LC_ALL=C sort -z#LC_ALL=C sort -rz#' && tt fixture-sort fixture "${FXG[@]}"
+mk fixture-nul "s|printf '%s\\\\0%s\\\\n'|printf '%s %s\\\\n'|" && tt fixture-nul fixture "${FXG[@]}"
+mk fixture-prefix 's|"${files\[i\]#./}"|"${files[i]}"|' && tt fixture-prefix fixture "${FXG[@]}"
+mk unselected-rebuilds "s# ! -name '\\*_test.go'##" && tt unselected-rebuilds unselected --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+# --- the stamp
+mk stamp-dropped 's# -X \$_RSDD_EXEC_HASH_SYM=\$h##' &&
+  tt stamp-dropped mismatch --good-has '^STAMP=sha256:[0-9a-f]{64}$' --bad-lacks '^STAMP=sha256:[0-9a-f]{64}$' --bad-lacks "$CRASH"
+mk stamp-wrong-value 's#-X \$_RSDD_EXEC_HASH_SYM=\$h#-X $_RSDD_EXEC_HASH_SYM=sha256:0000000000000000000000000000000000000000000000000000000000000000#' &&
+  tt stamp-wrong-value mismatch --good-lacks '^STAMP=sha256:0{64}$' --bad-has '^STAMP=sha256:0{64}$' --bad-lacks "$CRASH"
+mk stamp-wrong-symbol 's#commands.sourceHash#commands.otherHash#' &&
+  tt stamp-wrong-symbol symbol --good-has '^LIBSYM=.*\.sourceHash$' --bad-lacks '^LIBSYM=.*\.sourceHash$' --bad-lacks "$CRASH"
+mk stamp-unvalidated 's#&& _rsdd_exec_valid_hash "\$h" && go build#\&\& go build#' &&
+  tt stamp-unvalidated stampfail --good-lacks '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
+mk stamp-failure-ignored 's#h="\$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "\$h" && go build#h="$(go run ./cmd/rsdd-srchash .)"; go build#' &&
+  tt stamp-failure-ignored stampfail --good-lacks '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
+# --- the lock
+mk no-lock 's#flock -x "\$lfd" || exit 1#:#' &&
+  tt no-lock race --good-lacks '^HANDSHAKE-TIMEOUT' --good-has '^GOCALLS=1$' --bad-has '^HANDSHAKE-TIMEOUT=B-never-blocked' --bad-lacks "$CRASH"
+mk no-recheck 's#&& _rsdd_exec_check "\$bin" "\$kit/rsdd"; then exit 10#\&\& false; then exit 10#' &&
+  tt no-recheck race --good-has '^GOCALLS=1$' --bad-has '^GOCALLS=2$' --bad-lacks "$CRASH"
+mk recheck-rc-unmapped 's#if \[ "\$brc" -eq 10 \]; then brc=0; fi#:#' &&
+  tt recheck-rc-unmapped race --good-has '^B-COMPLETE=yes$' --bad-has '^B-COMPLETE=no$' --bad-lacks "$CRASH"
+mk lock-on-fresh-path 's#_rsdd_exec_check "\$bin" "\$src" || crc=\$?#{ flock -x 9 \&\& _rsdd_exec_check "$bin" "$src"; } 9>>"$kit/bin/.rsdd.lock" || crc=$?#' &&
+  tt lock-on-fresh-path lockfree --good-has '^RC=0$' --bad-has '^RC=124$' --bad-lacks "$CRASH"
+mk flock-notice-swallowed 's#echo "rsdd-exec: notice: flock not found; rebuilding without a lock" >&2#:#' &&
+  tt flock-notice-swallowed noflock --good-has '^e\| rsdd-exec: notice: flock not found; rebuilding without a lock$' --bad-lacks 'flock not found' --bad-lacks "$CRASH"
+mk lock-create-rc 's#{ : >>"\$lock"; } 2>/dev/null || return 3#{ : >>"$lock"; } 2>/dev/null || return 1#' &&
+  tt lock-create-rc bin_ro --good-lacks 'degraded: rsdd-unavailable — build failed' --bad-has 'degraded: rsdd-unavailable — build failed' --bad-lacks "$CRASH"
+mk no-atomic-rename 's#-o "\$tmp" ./cmd/rsdd && chmod 755 "\$tmp" && mv -f "\$tmp" "\$bin"#-o "$bin" ./cmd/rsdd \&\& chmod 755 "$bin"#' &&
+  tt no-atomic-rename midbuild --good-has '^MID=FAKE-OLD$' --bad-lacks '^MID=FAKE-OLD$' --bad-lacks '^HANDSHAKE-TIMEOUT' --bad-lacks "$CRASH"
 mk swallow-degraded 's#printf '"'"'degraded: rsdd-unavailable — %s\\n'"'"' "\$1" >&2; return 2;#return 2;#' &&
   tt swallow-degraded nogo_none --good-has '^e\| degraded: rsdd-unavailable — go not found$' --bad-lacks '^e\| degraded: ' --bad-lacks "$CRASH"
 mk degrade-rc0 's#"\$1" >&2; return 2; }#"$1" >\&2; return 0; }#' &&
@@ -795,10 +1151,8 @@ if [ "$(id -u)" != 0 ]; then
     tt bin-ro-build-failed bin_ro --good-has 'bin dir not writable: ' --bad-has 'degraded: rsdd-unavailable — build failed' --bad-lacks "$CRASH"
   mk bin-ro-raw-error 's#mktemp "\$kit/bin/.rsdd.XXXXXX" 2>/dev/null#mktemp "$kit/bin/.rsdd.XXXXXX"#' &&
     tt bin-ro-raw-error bin_ro --good-lacks 'mktemp: ' --bad-has 'mktemp: ' --bad-lacks "$CRASH"
-  mk scan-failure-not-stale 's#\[ "\$rc" -ne 0 \] || ##' &&
-    tt scan-failure-not-stale scan_fail --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-FRESH$' --bad-lacks "$CRASH"
 else
-  skip "teeth bin-ro / scan-failure" "running as root (typed SKIP)"
+  skip "teeth bin-ro" "running as root (typed SKIP)"
 fi
 mk kit-root-unchecked 's#if \[ -z "\$kit" \]; then _RSDD_EXEC_WHY="cannot resolve the kit root"; return 2; fi#:#' &&
   tt kit-root-unchecked nocd --good-has 'cannot resolve the kit root' --bad-lacks 'cannot resolve the kit root' --bad-lacks "$CRASH"
