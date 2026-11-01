@@ -55,19 +55,31 @@ func sysSeekStart(fd int) error {
 }
 
 // sysResolveFD returns the kernel's canonical path of the open fd (the
-// /proc/self/fd link), falling back to the cleaned absolute path when /proc is
-// unavailable.
+// /proc/self/fd link), falling back to resolveFallback (no working-directory
+// read) when /proc is unavailable.
 func sysResolveFD(fd int, path string) string {
 	if p, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(fd)); err == nil {
 		return p
 	}
-	if abs, err := filepath.Abs(path); err == nil {
-		if r, err := filepath.EvalSymlinks(abs); err == nil {
-			return r
-		}
-		return abs
+	return resolveFallback(path)
+}
+
+// resolveFallback is the /proc-less answer for sysResolveFD. It reads no
+// process state: an absolute path is cleaned and symlink-resolved; a relative
+// or empty path is returned cleaned/as given, never joined to the working
+// directory (that would be an implicit Getwd, which only cli.Stdio may do).
+func resolveFallback(path string) string {
+	if path == "" {
+		return ""
 	}
-	return path
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) {
+		return clean
+	}
+	if r, err := filepath.EvalSymlinks(clean); err == nil {
+		return r
+	}
+	return clean
 }
 
 func sysWrite(fd int, p []byte) (int, error) {
