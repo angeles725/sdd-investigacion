@@ -60,7 +60,7 @@ jobs:
     # containing `${{`); GitHub names matrix jobs `flake-hunt (1)` by itself.
     # Forks run neither the schedule nor a dispatch of this workflow: it files issues in THIS repository only.
     if: github.repository == 'angeles725/sdd-investigacion'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     strategy:
       # Every shard reports; one red shard must not hide the others.

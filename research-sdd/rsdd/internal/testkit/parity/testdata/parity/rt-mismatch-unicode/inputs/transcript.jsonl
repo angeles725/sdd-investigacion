@@ -1,0 +1,1 @@
+{"type": "assistant", "message": {"content": [{"type": "text", "text": "done\nreturn-token: next: t\u00e9st \u2028 \u007f \u0001 \"q\" \\\\ <&>"}]}}

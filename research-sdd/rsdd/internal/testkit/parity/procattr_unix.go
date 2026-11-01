@@ -3,6 +3,7 @@
 package parity
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 
@@ -26,4 +27,15 @@ func setProcAttrs(cmd *exec.Cmd) (started func()) {
 		return g.Signal(cmd.Process.Pid, syscall.SIGKILL)
 	}
 	return func() { g.Record(cmd.Process.Pid) }
+}
+
+// endedBySigkill reports whether the run ended by SIGKILL. A Cancel that hit a
+// group whose leader had already exited (a zombie not yet reaped) "succeeds"
+// without killing anything; the wait status tells the two apart.
+func endedBySigkill(ps *os.ProcessState) bool {
+	if ps == nil {
+		return false
+	}
+	ws, ok := ps.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled() && ws.Signal() == syscall.SIGKILL
 }
