@@ -75,9 +75,10 @@ func (c *command) createAndPush() int {
 	// Push is textually AFTER and GUARDED BY the confirmed-private check above. --no-follow-tags keeps annotated tag
 	// messages (which may contain secrets) from being pushed when push.followTags=true is set.
 	c.out(">> confirmed PRIVATE — pushing corpus\n")
-	push := c.gitBound(longBound, nil, "push", "-u", "origin", "HEAD", "--no-follow-tags")
-	c.pass(push)
-	if push.RC != 0 {
+	// The push is the one run with no bound and no buffering: like the bash it streams straight to the caller's
+	// stdout and stderr and reads the caller's stdin, so a slow push or a credential prompt behaves as before.
+	argv := []string{"git", "-C", c.target, "push", "-u", "origin", "HEAD", "--no-follow-tags"}
+	if rc := c.d.stream(argv, c.environ, c.s.In, c.s.Out, c.s.Err); rc != 0 {
 		return c.refuse(exitTooling, "REFUSED: push failed.")
 	}
 	c.out("== ensure-remote: private remote ready at https://github.com/%s ==\n", slugName)

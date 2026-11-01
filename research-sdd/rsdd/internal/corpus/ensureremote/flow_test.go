@@ -1,6 +1,7 @@
 package ensureremote
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1087,5 +1088,45 @@ func TestCreateOutcomeUnknownStatesAreReadBackAndCleanedUp(t *testing.T) {
 				t.Errorf("rc=%d err=%q", rc, w.err())
 			}
 		})
+	}
+}
+
+// The final push is unbounded and unbuffered: it gets the caller's real stdin, stdout and stderr (credential prompts,
+// live progress), the caller's whole environment, and runs through the Streamer, never the bounded runner.
+func TestPushGetsTheCallersRealStdio(t *testing.T) {
+	w := newWorld(t)
+	in := strings.NewReader("password\n")
+	s := w.stdio()
+	s.In = in
+	if rc := execute([]string{"--toolbelt", w.toolbelt, w.target, "--yes"}, s, w.deps()); rc != 0 {
+		t.Fatalf("rc=%d err=%q", rc, w.err())
+	}
+	if len(w.streamed) != 1 {
+		t.Fatalf("pushes streamed: %d", len(w.streamed))
+	}
+	got := w.streamed[0]
+	if got.in != io.Reader(in) || got.out != io.Writer(&w.stdout) || got.err != io.Writer(&w.stderr) {
+		t.Errorf("the push did not get the caller's stdin/stdout/stderr: %+v", got)
+	}
+	if len(got.env) == 0 {
+		t.Error("the push must get the caller's environment")
+	}
+}
+
+func TestStreamRunStreamsAndReportsTheShellStatus(t *testing.T) {
+	var out, errb strings.Builder
+	in := strings.NewReader("from-stdin\n")
+	if rc := streamRun([]string{"/bin/sh", "-c", "cat; echo out; echo err >&2; exit 3"}, []string{"PATH=/bin:/usr/bin"}, in, &out, &errb); rc != 3 ||
+		out.String() != "from-stdin\nout\n" || errb.String() != "err\n" {
+		t.Errorf("rc=%d out=%q err=%q", rc, out.String(), errb.String())
+	}
+	if rc := streamRun([]string{"/bin/sh", "-c", "kill -TERM $$"}, []string{"PATH=/bin"}, strings.NewReader(""), io.Discard, io.Discard); rc != 143 {
+		t.Errorf("signal rc=%d, want 143", rc)
+	}
+	if rc := streamRun([]string{"/nonexistent/prog"}, nil, strings.NewReader(""), io.Discard, io.Discard); rc != 127 {
+		t.Errorf("spawn failure rc=%d, want 127", rc)
+	}
+	if rc := streamRun([]string{"/bin/true"}, nil, strings.NewReader(""), io.Discard, io.Discard); rc != 0 {
+		t.Errorf("rc=%d", rc)
 	}
 }
