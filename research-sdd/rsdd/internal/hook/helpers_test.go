@@ -16,7 +16,14 @@ func envOf(cwd string, kv map[string]string) Env {
 // bleed-in hazard of hook-wiring.test.sh case 13a).
 func sandbox(t *testing.T) (string, Env) {
 	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	// Not t.TempDir(): its name embeds the test name, and a "$" in the path changes the verdict
+	// of the script resolver (a variable in the path is unverifiable).
+	dir, err := os.MkdirTemp("", "hw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700); _ = os.RemoveAll(dir) })
+	root, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
