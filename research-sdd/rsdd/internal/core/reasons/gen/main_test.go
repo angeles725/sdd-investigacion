@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"strings"
@@ -158,5 +159,40 @@ func TestRenderRejectsUncasedLeadingLetter(t *testing.T) {
 	// Uncased letters after the first rune of a word stay valid.
 	if _, err := render([]row{{Code: "degraded: a日本", Class: "degraded", Emitters: []string{"x"}, Meaning: "m", Continuation: "c"}}); err != nil {
 		t.Errorf("trailing uncased letters must stay valid: %v", err)
+	}
+}
+
+// #2375: a generated Code identifier must be a constant, so no caller can reassign it.
+func TestRenderEmitsCodesAsConstants(t *testing.T) {
+	rows := []row{
+		{Code: "degraded: jq not found on PATH", Class: "degraded", Emitters: []string{"a.sh"}, Meaning: "m", Continuation: "c"},
+		{Code: "absent-input", Class: "input", Emitters: []string{"a.sh"}, Meaning: "m", Continuation: "c"},
+	}
+	src, err := render(rows)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), "table_gen.go", src, 0)
+	if err != nil {
+		t.Fatalf("generated source does not parse: %v", err)
+	}
+	kind := map[string]token.Token{}
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, s := range g.Specs {
+			if v, ok := s.(*ast.ValueSpec); ok {
+				for _, n := range v.Names {
+					kind[n.Name] = g.Tok
+				}
+			}
+		}
+	}
+	for _, name := range []string{"DegradedJqNotFoundOnPATH", "AbsentInput"} {
+		if tok, ok := kind[name]; !ok || tok != token.CONST {
+			t.Errorf("%s declared as %v (found %v), want const", name, tok, ok)
+		}
 	}
 }
