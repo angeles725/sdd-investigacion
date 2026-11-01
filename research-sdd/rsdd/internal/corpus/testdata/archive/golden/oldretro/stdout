@@ -1,0 +1,12 @@
+== research-sdd-archive: c  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : ok
+    MISSING-RETRO  : REFUSE — corpus advanced past the newest §18 retro (2020-01-01) — delegate a retro before closing (propose-never-apply)
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c
