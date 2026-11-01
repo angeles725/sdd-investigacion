@@ -266,7 +266,7 @@ fi
 if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ]; then
   no "go test ran zero test packages - refusing to read that as a pass"
 fi
-if [ "$fail" -ne 0 ]; then tail -n 30 "$out"; fi
+if [ "$fail" -ne 0 ]; then grep -a -n -B3 -A25 -e "fatal error" -e "^panic" -e "runtime: " -e "--- FAIL" "$out" | head -200; tail -n 30 "$out"; fi
 
 # Self-check of the bridge's own counter: canned FAILING go test output must count as a failure and exit
 # 1; canned green output must not. Without this a parser that silently reads 0 failures would pass any run.
