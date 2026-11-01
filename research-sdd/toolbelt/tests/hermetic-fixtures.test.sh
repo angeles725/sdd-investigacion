@@ -81,10 +81,11 @@ mut_no(){ echo "  FAIL(mut)  $1"; MUT_FAIL=$((MUT_FAIL+1)); }
 # mutated niagara-security-audit.test.sh, deleted by kit issue #2405). Trap cleans up the probe dir.
 MUTDIR="$(mktemp -d)"
 _probe="$COMMITTED_DIR/hermetic-fixtures-probe"
+_probe_ours=0  # set only once this run has created the probe: a pre-existing path is never removed
 _m1_cleanup() {
   rm -rf "$MUTDIR"
-  # The probe dir is never committed, so everything under it is untracked and safe to remove.
-  rm -rf "$_probe"
+  [ "$_probe_ours" -eq 1 ] && rm -rf "$_probe"
+  return 0
 }
 trap '_m1_cleanup' EXIT
 if [ -e "$_probe" ]; then
@@ -98,6 +99,7 @@ mkdir -p "$1"
 printf 'generated\n' >"$1/generated.txt"
 echo "== 1 passed · 0 failed =="
 LEAK
+  _probe_ours=1
   _m1_out="$(bash "$MUTDIR/leaky-suite.sh" "$_probe" 2>&1 || true)"
   if ! grep -Eq '^== [0-9]+ passed' <<<"$_m1_out"; then
     mut_no "M1 probe did not run to its summary line: $(tail -n 3 <<<"$_m1_out" | tr '\n' ' ')"
@@ -109,7 +111,7 @@ LEAK
     <(printf '%s\n' "$_before_filtered" | grep -v '^$' | sort) \
     <(printf '%s\n' "$_mut_after_filtered" | grep -v '^$' | sort) \
     2>/dev/null || true)"
-  rm -rf "$_probe"
+  rm -rf "$_probe"; _probe_ours=0
   if [ -n "$_mut_new_dirt" ]; then
     mut_ok "M1 probe writing into the committed tree: guard detects the dirt — has teeth"
   else
