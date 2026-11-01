@@ -605,7 +605,7 @@ assert_state "27n wiring state is history-blind (still wired with no history)" "
 
 # --- 28 — THE SHIM CONTRACT (kit issue #2356, U2.3a). hook_stop_wiring_state_var, hook_stop_script_state_var and
 #      _hw_find_git_root ask `rsdd hook wiring-state|script-state|git-root <arg>`; the logic is pinned by the Go tests
-#      (internal/hook) and the cases above run it end to end. A STUB binary pins what only the shim decides: the exact
+#      (internal/core/hookwiring) and the cases above run it end to end. A STUB binary pins what only the shim decides: the exact
 #      call, the environment it hands over, how an answer is accepted, and what a failure reads as.
 STUB="$ROOT/stub-rsdd"
 cat > "$STUB" <<'EOS'
@@ -715,7 +715,7 @@ got="$(shim_run "$LIB" 'unwired\n' 0 'HOOK_WIRING_STATES=(stale stale stale); ho
 check_eq "29h a previous array is replaced, not appended to" "$got" "1:[unwired]"
 
 # --- 30 - THE LAUNCH SHIM (kit issue #2357, U2.3b): hook_stop_launch_state_var asks `rsdd hook launch-state <target>`; the rules
-#      are Go now (internal/hook launch.go, differential-tested against the frozen bash) and case 27 above runs them end to end.
+#      are Go now (internal/core/hookwiring launch.go, differential-tested against the frozen bash) and case 27 above runs them end to end.
 #      The stub pins what only the shim decides: the call, the history variables it hands over, the accepted vocabulary and what
 #      a failure reads as - "unknown" (could not look), never no-sessions.
 L_CODE='hook_stop_launch_state_var "$2"; printf %s "$HOOK_LAUNCH_STATE"'
@@ -772,7 +772,7 @@ check_eq "31h a previous array is replaced, not appended to" "$got" "1:[no-sessi
 
 # --- 32 - THE WIRED-EXEC SHIM: hook_wired_exec_report asks `rsdd hook wired-exec <target>` and prints its report; a rsdd that
 #      cannot answer is ONE unverifiable finding for the settings file, never an empty (clean) report. The report rules are
-#      Go (internal/hook wiredexec.go) and tests/verify-registry-wired-exec.test.sh runs its command-shape table end to end.
+#      Go (internal/core/hookwiring wiredexec.go) and tests/verify-registry-wired-exec.test.sh runs its command-shape table end to end.
 X_CODE='out="$(hook_wired_exec_report "$2"; printf x)"; printf %s "${out%x}"'
 TBX=$'\t'
 REP="missing${TBX}/a b${TBX}Stop"$'\n'"not-executable${TBX}/c${TBX}PreToolUse"$'\n'
@@ -801,7 +801,7 @@ check_eq "32f rsdd unavailable: ONE unverifiable finding" "$got" "$FALLBACK"
 # _hw_find_git_root is Go now, so the bash mutants that edited those functions (the awk Stop scan, the
 # absent/unreadable assignments, the wired-off-root downgrade and its guards, the .git / ceiling / raw-target checks,
 # every script-resolution rule, the degraded arm) cannot apply to this file any more. Each of them is a
-# case of the Go tests in research-sdd/rsdd/internal/hook (wiring_test.go, script_test.go, pathwalk_test.go), killed
+# case of the Go tests in research-sdd/rsdd/internal/core/hookwiring (wiring_test.go, script_test.go, pathwalk_test.go), killed
 # there by a hand mutation of the Go source recorded in odd/tasks/u2.3a-hook-wiring.md, and the black-box cases
 # 1-26 above still run end to end through the shim. What stays here: mutants of what this file still owns -
 # the shims themselves (the call they make, the environment they hand over, what they accept and how a failure reads).

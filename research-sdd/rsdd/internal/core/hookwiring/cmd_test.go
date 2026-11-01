@@ -1,4 +1,4 @@
-package hook
+package hookwiring
 
 import (
 	"bytes"
@@ -10,7 +10,17 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
-// run dispatches one `rsdd hook ...` invocation through the real table.
+// cmdTable dispatches the handlers under the names internal/hook registers them with; internal/hook's own tests
+// check that registration.
+var cmdTable = []cli.Command{
+	{Name: "wiring-state", Group: "hook", Summary: "x", Run: RunWiringState},
+	{Name: "script-state", Group: "hook", Summary: "x", Run: RunScriptState},
+	{Name: "launch-state", Group: "hook", Summary: "x", Run: RunLaunchState},
+	{Name: "wired-exec", Group: "hook", Summary: "x", Run: RunWiredExec},
+	{Name: "git-root", Group: "hook", Summary: "x", Run: RunGitRoot},
+}
+
+// run dispatches one `rsdd hook ...` invocation through cmdTable.
 func run(t *testing.T, cwd string, env map[string]string, args ...string) (out, errOut string, code int) {
 	t.Helper()
 	var o, e bytes.Buffer
@@ -22,25 +32,8 @@ func run(t *testing.T, cwd string, env map[string]string, args ...string) (out, 
 		Clock: func() time.Time { return time.Unix(0, 0) },
 		Cwd:   cwd,
 	}
-	code = cli.Run(Commands, args, s)
+	code = cli.Run(cmdTable, args, s)
 	return o.String(), e.String(), code
-}
-
-func TestCommandsValidate(t *testing.T) {
-	if err := cli.Validate(Commands); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"git-root", "wiring-state", "script-state", "launch-state", "wired-exec"} {
-		found := false
-		for _, c := range Commands {
-			if c.Group == "hook" && c.Name == name {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("hook %s is not registered", name)
-		}
-	}
 }
 
 func TestWiringStateCommand(t *testing.T) {
@@ -136,18 +129,6 @@ func TestCommandsUsage(t *testing.T) {
 			if out != "" || code != cli.ExitUsage || !strings.Contains(errOut, "usage: rsdd hook "+name+" ") {
 				t.Errorf("%v = (%q, %q, %d), want usage on stderr and exit 2", args, out, errOut, code)
 			}
-		}
-	}
-}
-
-func TestHookGroupHelpListsTheCommands(t *testing.T) {
-	out, _, code := run(t, "/w", nil, "hook", "--help")
-	if code != 0 {
-		t.Fatalf("exit %d", code)
-	}
-	for _, name := range []string{"git-root", "wiring-state", "script-state", "launch-state", "wired-exec"} {
-		if !strings.Contains(out, name) {
-			t.Errorf("hook --help does not list %s:\n%s", name, out)
 		}
 	}
 }

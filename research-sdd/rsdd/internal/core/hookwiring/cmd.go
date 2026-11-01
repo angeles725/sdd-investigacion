@@ -1,4 +1,4 @@
-package hook
+package hookwiring
 
 import (
 	"fmt"
@@ -18,9 +18,9 @@ func oneArg(name, arg string, args []string, s cli.Stdio) (string, bool) {
 // The state commands print the state and a newline and always exit 0, like the bash predicates
 // ("callers branch on the state, never on exit status"). The bash shim captures them with $(...).
 
-// wiring-state takes one or more targets and prints one state per line in argument order (kit issue #2356: the
+// RunWiringState handles `rsdd hook wiring-state`. It takes one or more targets and prints one state per line in argument order (kit issue #2356: the
 // batch form lets sweep-retros.sh fork rsdd once for the whole fleet). Zero targets is a usage error.
-func runWiringState(args []string, s cli.Stdio) int {
+func RunWiringState(args []string, s cli.Stdio) int {
 	if len(args) == 0 {
 		fmt.Fprintln(s.Err, "usage: rsdd hook wiring-state <target-dir>...")
 		return cli.ExitUsage
@@ -32,7 +32,8 @@ func runWiringState(args []string, s cli.Stdio) int {
 	return cli.ExitOK
 }
 
-func runScriptState(args []string, s cli.Stdio) int {
+// RunScriptState handles `rsdd hook script-state`.
+func RunScriptState(args []string, s cli.Stdio) int {
 	target, ok := oneArg("script-state", "<target-dir>", args, s)
 	if !ok {
 		return cli.ExitUsage
@@ -41,9 +42,9 @@ func runScriptState(args []string, s cli.Stdio) int {
 	return cli.ExitOK
 }
 
-// launch-state takes one or more targets and prints one state per line in argument order (kit issue #2357), like
+// RunLaunchState handles `rsdd hook launch-state`. It takes one or more targets and prints one state per line in argument order (kit issue #2357), like
 // wiring-state: a fleet loop forks rsdd once. Zero targets is a usage error.
-func runLaunchState(args []string, s cli.Stdio) int {
+func RunLaunchState(args []string, s cli.Stdio) int {
 	if len(args) == 0 {
 		fmt.Fprintln(s.Err, "usage: rsdd hook launch-state <target-dir>...")
 		return cli.ExitUsage
@@ -55,9 +56,9 @@ func runLaunchState(args []string, s cli.Stdio) int {
 	return cli.ExitOK
 }
 
-// wired-exec prints the findings of WiredExecReport for one target, one tab-separated line each, and nothing when
+// RunWiredExec handles `rsdd hook wired-exec`. It prints the findings of WiredExecReport for one target, one tab-separated line each, and nothing when
 // there are none. Findings are the answer, never a failure: it exits 0 like the bash report did.
-func runWiredExec(args []string, s cli.Stdio) int {
+func RunWiredExec(args []string, s cli.Stdio) int {
 	target, ok := oneArg("wired-exec", "<target-dir>", args, s)
 	if !ok {
 		return cli.ExitUsage
@@ -66,11 +67,11 @@ func runWiredExec(args []string, s cli.Stdio) int {
 	return cli.ExitOK
 }
 
-// git-root prints "1" or "0" (the target is its own root, from the raw-target check) on line 1 and
+// RunGitRoot handles `rsdd hook git-root`. It prints "1" or "0" (the target is its own root, from the raw-target check) on line 1 and
 // the root, or an empty line, on line 2. The root is the last line and is newline-terminated; a
 // consumer that must keep an embedded or trailing newline of the path appends a sentinel before
 // stripping the terminator.
-func runGitRoot(args []string, s cli.Stdio) int {
+func RunGitRoot(args []string, s cli.Stdio) int {
 	dir, ok := oneArg("git-root", "<dir>", args, s)
 	if !ok {
 		return cli.ExitUsage

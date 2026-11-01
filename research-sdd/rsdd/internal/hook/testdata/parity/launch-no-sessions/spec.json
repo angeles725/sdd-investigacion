@@ -1,6 +1,6 @@
 {
   "legacy": [
-    "rsdd/internal/hook/testdata/legacy/driver.sh",
+    "rsdd/internal/core/hookwiring/testdata/legacy/driver.sh",
     "cli-launch-state",
     "{{input}}"
   ],

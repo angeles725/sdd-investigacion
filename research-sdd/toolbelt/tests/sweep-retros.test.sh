@@ -4556,7 +4556,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 
   # Teeth WG (Stop-scope) and WU (unreadable branch) mutated the awk inside lib/hook-wiring.sh. Since kit issue
-  # #2356 that logic is Go (internal/hook/stopscan.go, wiring.go): its teeth are TestWiringState cases
+  # #2356 that logic is Go (internal/core/hookwiring/stopscan.go, wiring.go): its teeth are TestWiringState cases
   # "4 retro-gate under SessionStart only -> unwired" and "6 unreadable settings.json -> unreadable", under
   # make teeth. Cases 78 and 80 above still pin the end-to-end WARN lines through the shim.
 

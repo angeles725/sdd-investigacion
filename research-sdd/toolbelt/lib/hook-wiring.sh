@@ -11,8 +11,8 @@
 #
 # PORTED TO GO (kit issue #2356, U2.3a): the first half of this library - hook_stop_wiring_state(_var),
 # hook_stop_script_state(_var) and _hw_find_git_root - is a set of shims over `rsdd hook wiring-state|script-state|git-root
-# <arg>` (research-sdd/rsdd/internal/hook, resolved through lib/rsdd-exec.sh). The rules below are unchanged and now live in
-# Go, pinned by internal/hook's tests and by a differential test against a frozen copy of the bash they replace. What the
+# <arg>` (research-sdd/rsdd/internal/core/hookwiring, resolved through lib/rsdd-exec.sh). The rules below are unchanged and now live in
+# Go, pinned by internal/core/hookwiring's tests and by a differential test against a frozen copy of the bash they replace. What the
 # shims decide themselves: the environment handed to rsdd, which answers are accepted, and how a failure reads. When rsdd is
 # unavailable (or answers anything outside the documented states, or exits non-zero) the typed
 # `degraded: rsdd-unavailable` line goes to stderr and the state reads "unreadable" (wiring: the wiring is UNKNOWN; it never
@@ -21,10 +21,10 @@
 #
 # PORTED TO GO (kit issue #2357, U2.3b): the second half - hook_stop_launch_state(_var), hook_stop_launch_states_var and
 # hook_wired_exec_report - is the same kind of shim over `rsdd hook launch-state|wired-exec` (_hw_abspath, _hw_split_cmd,
-# _hw_unv and _hw_check_command are gone: Go owns them, internal/hook AbsPath / splitCommand / checkCommand). A failing or
+# _hw_unv and _hw_check_command are gone: Go owns them, internal/core/hookwiring AbsPath / splitCommand / checkCommand). A failing or
 # unavailable rsdd reads "unknown" for the launch state (the instrument could not look) and as ONE unverifiable finding for the
 # wired-exec report; neither ever reads as a clean answer. The Go entry points another tool can call in process are
-# internal/hook LaunchState and WiredExecReport. Differences from the shell original, all deliberate: settings.json is
+# internal/core/hookwiring LaunchState and WiredExecReport. Differences from the shell original, all deliberate: settings.json is
 # always parsed natively (the old "jq not on PATH" text-match fallback and its note no longer exist), and the launch-history
 # root is taken literally (it was a glob pattern).
 #
@@ -222,7 +222,7 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # the fleet as measured, not symlinks, so this gap's incidence is 0 of 17 reachable targets today
   # (measure-before-remediate, kit §7) — flagged here rather than fixed with a fork every caller
   # would pay for a case that has not occurred.
-  # SHIM (kit issue #2356): the walk-up is `rsdd hook git-root <dir>` (internal/hook/pathwalk.go); line 1 of its answer is
+  # SHIM (kit issue #2356): the walk-up is `rsdd hook git-root <dir>` (internal/core/hookwiring/pathwalk.go); line 1 of its answer is
   # HW_TARGET_IS_ROOT, the rest is HW_GIT_ROOT. A failing rsdd leaves no root (flag 0, root "") after the typed
   # `degraded: rsdd-unavailable` line; the function still returns 0.
   # shellcheck disable=SC2034  # the HW_* results are read by the callers and by tests/hook-wiring.test.sh

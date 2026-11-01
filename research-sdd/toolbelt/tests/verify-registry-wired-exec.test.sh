@@ -11,7 +11,7 @@
 # The integration fixture is tests/fixtures/wired-hook-exec/ (settings.json + hooks/), copied into a
 # sandbox target as .claude/ so the suite never writes into the kit tree.
 #
-# U2.3b (kit issue #2357): the report itself is Go now (research-sdd/rsdd/internal/hook, WiredExecReport), reached through the
+# U2.3b (kit issue #2357): the report itself is Go now (research-sdd/rsdd/internal/core/hookwiring, WiredExecReport), reached through the
 # hook_wired_exec_report shim; this suite runs the table against the real rsdd (RSDD_BIN, or the built binary) and keeps the
 # teeth of what stays in bash: the shim's failure arm and the verify-registry call sites. The bash teeth that mutated the moved
 # parser (one per rule of _hw_split_cmd / _hw_check_command) are Go mutants now: each is killed by a case of the Go table

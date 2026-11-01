@@ -1,7 +1,7 @@
 # testkit/parity cases for the hook-wiring port (kit issue #2356)
 
 Each directory is one case: `spec.json` (legacy argv relative to the legacy kit root, `rsdd` argv, env) and the
-fixture target under `inputs/`. The legacy side is `testdata/legacy/driver.sh`, which sources a frozen verbatim copy
+fixture target under `inputs/`. The legacy side is `internal/core/hookwiring/testdata/legacy/driver.sh`, which sources a frozen verbatim copy
 of the first half of the old `lib/hook-wiring.sh`, so any checkout that holds these files is a valid legacy root.
 
 Run from `research-sdd/rsdd` (the runner builds `rsdd` itself unless `RSDD_BIN` is set):

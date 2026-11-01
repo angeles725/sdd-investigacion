@@ -1,4 +1,4 @@
-package hook
+package hookwiring
 
 // The states hook_stop_wiring_state_var can report.
 const (
