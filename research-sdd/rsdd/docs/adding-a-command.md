@@ -108,6 +108,17 @@ three-line shim until the retirement phase (plan section 4.4):
 newer, and emits a typed `degraded: rsdd-unavailable` instead of passing silently when no binary and no Go
 toolchain exist. Hook contracts (stdout JSON, exit codes, stderr tokens) are preserved verbatim.
 
+A hook shim copies its template from the DOCUMENTATION block of `lib/rsdd-exec.sh` and changes only the `# Ported to Go`
+line and the last line. When the Go command still calls a sibling bash script that is not ported yet (the gate needs
+`research-sdd-status.sh`), the last line passes the shim's own directory so a copied or stubbed toolbelt keeps working:
+`rsdd_exec_hook gate gate return-token --toolbelt "$_RSDD_SELF" "$@"`. The command resolves the sibling from that flag
+and falls back to the kit resolution (`core/kit` `ResolveKitScript`) when it is run directly.
+
+A suite that builds its mutants by editing the text of the ported script (`lib/mutant.sh`) cannot mutate a shim. Pin
+each guard in a Go test, mutation-check it by hand (one mutant per guard must turn `go test` red), put the guard-to-test
+table at the head of the test file, and make the suite skip its mutants when the SUT is a shim. A domain package cannot
+import `internal/commands`, so its golden test dispatches through its own `Commands` (`cli.Run(Commands, ...)`).
+
 ## 6. Gates
 
 From `research-sdd/rsdd`: `make check` (gofmt, vet, tests), `make race`, `make lint` (pinned
