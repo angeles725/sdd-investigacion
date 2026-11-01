@@ -15,7 +15,8 @@
 # the CLASSFILE header cases H1 H2 H5-H15 -> TestClassfileHeader, TestFactsBudget, TestFactsRunner (H5 H13 H15 H1p and the
 # mCF* mutants about the Python fallback and the binary lookup went with those: the facts are read in process now).
 #
-# TEETH: none here. The mutation controls are Go tests (internal/corroborate/decompile), not mutants of this script.
+# TEETH (--prove-teeth, tests/lib/mutant.sh): one mutant of the SHIM, dispatching to another rsdd command, must break
+# case 10's legacy usage contract. The engine's mutation controls are Go tests (internal/corroborate/decompile).
 #
 # Usage: decompile-java.test.sh [--prove-teeth]     Exit: 0 = all pass · 1 = regression · 2 = harness error
 set -uo pipefail
@@ -140,6 +141,23 @@ OUT="$(cd "$ROOT/elsewhere" && env JAVA_HOME="$JH" VINEFLOWER_JAR="$ROOT/vineflo
 # --prove-teeth: the wrapper is the Go command `rsdd corroborate decompile` (kit issue #2419); its mutation controls
 # live in research-sdd/rsdd/internal/corroborate/decompile (table at the head of decompile_test.go), so this suite runs
 # the shim black-box only.
+
+# ---- TEETH ----------------------------------------------------------------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain || exit 2
+  echo "-- teeth 1: the shim dispatches to another command, expect case 10's usage contract to break --"
+  MTB="$ROOT/kitm/toolbelt"; mkdir -p "$MTB/lib" && ln -s "$(readlink "$ROOT/kit/rsdd")" "$ROOT/kitm/rsdd" \
+    && cp "$TB/lib/rsdd-exec.sh" "$MTB/lib/" || { echo "FATAL: could not stage the mutant kit" >&2; exit 2; }
+  if mutant_chain teeth1-wrong-command "$SHIM" "$MTB/decompile-java.sh" 's|rsdd_exec corroborate decompile|rsdd_exec corroborate nonesuch|'; then
+    real_shim="$SHIM"; SHIM="$MTB/decompile-java.sh"
+    run -- "$ROOT/Test.class" "$ROOT/o8m" --bogus
+    SHIM="$real_shim"
+    if [ "$RC" = 2 ] && hasE '^unknown option: --bogus$'; then no "teeth1: case 10 still passes under a wrong dispatch — case 10 is THEATER" "rc=$RC"
+    else ok "teeth1: a wrong dispatch loses the legacy unknown-option line — case 10 has teeth" "rc=$RC"; fi
+  else no "teeth1: mutant refused by lib/mutant.sh" "tooth not run"; fi
+fi
 
 echo
 echo "== $pass passed · $fail failed =="
