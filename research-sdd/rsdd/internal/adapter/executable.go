@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"os"
-	"syscall"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 )
@@ -33,7 +32,7 @@ func Executable(h Host, name string, configured *string, search string) (string,
 	}
 	fi, serr := os.Stat(candidate)
 	isFile := serr == nil && fi.Mode().IsRegular()
-	if !isFile || syscall.Access(candidate, 0x1) != nil {
+	if !isFile || !canExec(candidate) {
 		return "", fsx.Record{}, mismatch(name)
 	}
 	a, err := os.Stat(candidate)

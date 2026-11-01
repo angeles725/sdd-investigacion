@@ -152,5 +152,5 @@ func accessExec(name, cwd string) bool {
 		abs = cwd + "/" + name
 	}
 	fi, err := os.Stat(abs)
-	return err == nil && syscall.Access(abs, 0x1) == nil && !fi.IsDir()
+	return err == nil && canExec(abs) && !fi.IsDir()
 }
