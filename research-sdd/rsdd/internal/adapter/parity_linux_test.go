@@ -79,6 +79,16 @@ func sameFailure(t *testing.T, label string, py pyOut, goErr error) bool {
 		t.Errorf("%s: python %s(%q), go ok", label, py.Class, py.Msg)
 		return false
 	}
+	// Declared divergence: Python < 3.13 raises RuntimeError("Symlink loop
+	// from ...") from Path.resolve(strict=True), which adapter_core does not
+	// wrap; 3.13+ raises OSError (ELOOP) and adapter_core reports AdapterError.
+	// The port follows 3.13+, so on an older oracle only the class is held.
+	if py.Class == "RuntimeError" && strings.HasPrefix(py.Msg, "Symlink loop") {
+		if class(goErr) != "AdapterError" {
+			t.Errorf("%s: python<3.13 symlink loop, go %s (%v), want AdapterError", label, class(goErr), goErr)
+		}
+		return false
+	}
 	pyClass := py.Class
 	if pyClass != "AdapterError" {
 		pyClass = "OSError"
@@ -175,7 +185,7 @@ var mountinfoCases = []struct{ name, path, mi string }{
 	{"malformed-after-valid", "/m/x", "1 0 8:1 / /m rw - tmpfs t rw\ngarbage\n"},
 	{"repr-double-quote", "/m/x", "say \"hi\" - \n"},
 	{"repr-both-quotes", "/m/x", "it's \"x\" - \n"},
-	{"repr-backslash-control", "/m/x", "a\\b\x01\x7f​ é\U0001F600 - \n"},
+	{"repr-backslash-control", "/m/x", "a\\b\x01\x7f\u200b é\U0001F600 - \n"},
 	{"repr-nul", "/m/x", "x\x00y - \n"},
 }
 
@@ -220,8 +230,8 @@ func TestParityPrivateFSSet(t *testing.T) {
 
 func TestParityPathHelpers(t *testing.T) {
 	strs := []string{"", ".", "/", "//", "///", "//a", "///a/b", "a", "a/", "a//b/./c", "/a/./b/", "/a/../b", "../a", "a/..",
-		"it's", "say \"hi\"", "it's \"x\"", "tab\there", "nl\nx", "\\", "\x00", "\x7f", "é", "​", " ", "\U0001F600", " ", "\x1c\x1d\x1e\x1f",
-		"a b\tc\x0bd\x0ce\rf\x85g h i j k l m n o　p\x1cq\x1fr", "  lead and trail  ", "​z"}
+		"it's", "say \"hi\"", "it's \"x\"", "tab\there", "nl\nx", "\\", "\x00", "\x7f", "é", "\u200b", " ", "\U0001F600", " ", "\x1c\x1d\x1e\x1f",
+		"a b\tc\x0bd\x0ce\rf\x85g h i j k l m n o　p\x1cq\x1fr", "  lead and trail  ", "\u200bz"}
 	type in struct {
 		S string `json:"s"`
 	}
