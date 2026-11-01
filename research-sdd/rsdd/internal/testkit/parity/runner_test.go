@@ -1,8 +1,12 @@
 package parity
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -232,6 +236,7 @@ func TestSpecValidation(t *testing.T) {
 		{"empty rsdd", `{"legacy":["a.sh"],"rsdd":[]}`, "rsdd argv is empty", nil},
 		{"empty legacy", `{"rsdd":["x"]}`, "legacy argv is empty", nil},
 		{"reserved env", `{"legacy":["a.sh"],"rsdd":["x"],"env":{"HOME":"/x"}}`, "fixed by the runner", nil},
+		{"reserved run marker", `{"legacy":["a.sh"],"rsdd":["x"],"env":{"RSDD_PARITY_RUN":"x"}}`, "fixed by the runner", nil},
 		{"unknown field", `{"legacy":["a.sh"],"rsdd":["x"],"bogus":1}`, "unknown field", nil},
 		{"input without inputs dir", `{"legacy":["a.sh","{{input}}"],"rsdd":["x"]}`, "no inputs/ directory", nil},
 		{"not json", `nope`, "spec.json", nil},
@@ -317,11 +322,11 @@ func TestNewRunnerDegraded(t *testing.T) {
 
 func TestConfigFromEnv(t *testing.T) {
 	env := map[string]string{"RSDD_PARITY_LEGACY": "/k", "RSDD_BIN": "/b", "RSDD_PARITY_TIMEOUT": "7s"}
-	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, "/w")
+	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, "/c", "/w")
 	if err != nil || cfg.LegacyRoot != "/k" || cfg.Bin != "/b" || cfg.Work != "/w" || cfg.Timeout != 7*time.Second {
 		t.Fatalf("%+v %v", cfg, err)
 	}
-	cfg, err = ConfigFromEnv(func(string) string { return "" }, "/w")
+	cfg, err = ConfigFromEnv(func(string) string { return "" }, "/c", "/w")
 	if err != nil || cfg.LegacyRoot != "" || cfg.Timeout <= 0 {
 		t.Fatalf("unset env must leave roots empty (NewRunner types it) and use a default timeout: %+v %v", cfg, err)
 	}
@@ -331,7 +336,7 @@ func TestConfigFromEnv(t *testing.T) {
 				return bad
 			}
 			return ""
-		}, "/w")
+		}, "/c", "/w")
 		if err == nil {
 			t.Fatalf("timeout %q must be rejected", bad)
 		}
@@ -400,5 +405,90 @@ func TestEffectLabelsTreesOnlyWhenThereAreSeveral(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(two), "[input]\n") || !strings.Contains(string(two), "\n[corpus]\n") {
 		t.Fatalf("several trees label each part: %q", two)
+	}
+}
+
+func TestClassifyRunTimeoutNeedsCancelToHaveFired(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctxErr  error
+		fired   bool
+		killed  bool // the run ended by SIGKILL, not by its own exit
+		wantOut bool
+	}{
+		{"deadline seen, run exited on its own", context.DeadlineExceeded, false, false, false},
+		{"deadline seen, cancel killed it", context.DeadlineExceeded, true, true, true},
+		{"cancel fired at a run that had already exited (zombie group)", context.DeadlineExceeded, true, false, false},
+		{"no deadline", nil, false, false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			timedOut, exit, startErr := classifyRun(c.ctxErr, c.fired, c.killed, nil)
+			if timedOut != c.wantOut || exit != 0 || startErr != nil {
+				t.Fatalf("got timedOut=%v exit=%d startErr=%v, want timedOut=%v", timedOut, exit, startErr, c.wantOut)
+			}
+		})
+	}
+	// A real exit code survives an expired context when cancel never fired.
+	_, exit, _ := classifyRun(context.DeadlineExceeded, true, false, exitErr(t, 3))
+	if exit != 3 {
+		t.Fatalf("exit code lost: %d", exit)
+	}
+}
+
+func exitErr(t *testing.T, code int) error {
+	t.Helper()
+	needSh(t)
+	err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	if err == nil {
+		t.Fatal("want an exit error")
+	}
+	return err
+}
+
+func TestConfigFromEnvBadTimeoutIsConfigInvalid(t *testing.T) {
+	for _, v := range []string{"abc", "0", "-5s"} {
+		_, err := ConfigFromEnv(func(k string) string {
+			if k == "RSDD_PARITY_TIMEOUT" {
+				return v
+			}
+			return ""
+		}, "/c", "w")
+		if err == nil || !strings.HasPrefix(err.Error(), KindConfigInvalid+":") {
+			t.Fatalf("RSDD_PARITY_TIMEOUT=%q: want a %s error, got %v", v, KindConfigInvalid, err)
+		}
+	}
+}
+
+func TestConfigFromEnvJoinsRelativeRootsWithCwd(t *testing.T) {
+	env := map[string]string{"RSDD_PARITY_LEGACY": "kit", "RSDD_BIN": "bin/rsdd"}
+	cfg, err := ConfigFromEnv(func(k string) string { return env[k] }, "/c", "/w")
+	if err != nil || cfg.LegacyRoot != "/c/kit" || cfg.Bin != "/c/bin/rsdd" {
+		t.Fatalf("relative roots resolve against the injected cwd: %+v %v", cfg, err)
+	}
+	env = map[string]string{"RSDD_PARITY_LEGACY": "/abs/kit", "RSDD_BIN": "/abs/rsdd"}
+	if cfg, err = ConfigFromEnv(func(k string) string { return env[k] }, "/c", "/w"); err != nil || cfg.LegacyRoot != "/abs/kit" || cfg.Bin != "/abs/rsdd" {
+		t.Fatalf("absolute roots stay as they are: %+v %v", cfg, err)
+	}
+	env = map[string]string{"RSDD_BIN": "bin/rsdd"}
+	for _, cwd := range []string{"", "rel"} {
+		if _, err := ConfigFromEnv(func(k string) string { return env[k] }, cwd, "/w"); err == nil || !strings.HasPrefix(err.Error(), KindConfigInvalid+":") {
+			t.Fatalf("cwd %q cannot anchor a relative root: want %s, got %v", cwd, KindConfigInvalid, err)
+		}
+	}
+}
+
+func TestNewRunnerRefusesRelativePaths(t *testing.T) {
+	r := newRig(t)
+	for name, cfg := range map[string]Config{
+		"legacy": {LegacyRoot: ".", Bin: r.bin, Work: r.work},
+		"work":   {LegacyRoot: r.root, Bin: r.bin, Work: "."},
+		"bin":    {LegacyRoot: r.root, Bin: "./rsdd", Work: r.work},
+	} {
+		_, err := NewRunner(cfg)
+		var d *Degraded
+		if !errors.As(err, &d) || d.Kind != KindConfigInvalid {
+			t.Fatalf("%s: a relative path is %s (the caller resolves it), got %v", name, KindConfigInvalid, err)
+		}
 	}
 }
