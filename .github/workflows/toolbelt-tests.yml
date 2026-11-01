@@ -86,9 +86,15 @@ jobs:
       RSDD_REQUIRE_NODE_TS: "1"
       # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
       RSDD_REQUIRE_GO: "1"
+      # Kit issue #2381: on a pull_request, rsdd-go.test.sh runs gremlins only on the Go packages changed since
+      # the merge base with the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
+      RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - name: Check the matrix length matches SHARD_COUNT
         run: |
@@ -248,7 +254,9 @@ jobs:
 
   shellcheck:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Kit issue #2413: the serial run reached ~4m55s against a 5-minute cap and was cancelled
+    # intermittently; the lint is now parallel (xargs -P) and the cap keeps headroom.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -256,7 +264,7 @@ jobs:
       - name: Lint toolbelt shell scripts (warning+)
         run: |
           shellcheck --version
-          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 -n 16 -P "$(nproc)" shellcheck -S warning
 
       - name: Lint shell-portability defect classes (unquoted subst replacement, awk intervals)
         # Unwired-mechanisms audit 2026-10-05: lint-substitution.sh (kit issue #1121/#1142) scans

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# verify-kit-clean.sh — is the Research-SDD KIT repo clean + committed + pushed? (kit-audit Addendum B)
+#
+# WHY: staging a §18 retro (or starting clean kit work) on a DIRTY tree mixes uncommitted edits into the
+# retro branch; UNPUSHED main commits fold into the retro PR's squash (mixed history — the lesson baked into
+# stage-retro.sh's inline guard). This is the STANDALONE gate: stage-retro guards inline, and the SessionStart
+# hook (verify-kit-clean-hook.sh) surfaces this each session so a dirty kit is noticed before work starts.
+#
+# Usage: verify-kit-clean.sh [<kit-repo>]     (default: the git repo containing this script)
+# Exit: 0 = clean (committed + pushed, or no upstream to push to) · 1 = dirty tree OR unpushed commits ·
+#       2 = not a git repo / bad args.
+set -uo pipefail
+# Read-only at SessionStart (kit issue #1820): no git call may refresh the index or take an optional lock
+# (index.lock) while a sibling session commits — the same guarantee resume-state.sh gives.
+export GIT_OPTIONAL_LOCKS=0
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+here="$_RSDD_SELF"
+repo="${1:-$here}"
+[ -d "$repo" ] || { echo "usage: verify-kit-clean.sh [<kit-repo>]" >&2; exit 2; }
+root="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)" || { echo "verify-kit-clean: not a git repo: $repo" >&2; exit 2; }
+branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+echo "== verify-kit-clean: $(basename "$root") (branch: ${branch:-?}) =="
+rc=0
+
+# 1. Working tree — any staged / unstaged / untracked change makes it DIRTY.
+porcelain="$(git -C "$root" status --porcelain 2>/dev/null)"
+git_rc=$?
+if [ "$git_rc" -ne 0 ]; then
+  echo "   git status failed (rc=$git_rc) — cannot determine cleanliness" >&2
+  exit 1
+fi
+if [ -n "$porcelain" ]; then
+  _staged_out=$(git -C "$root" diff --cached --name-only 2>/dev/null); _src=$?
+  _unstaged_out=$(git -C "$root" diff --name-only 2>/dev/null); _urc=$?
+  _untracked_out=$(git -C "$root" ls-files --others --exclude-standard 2>/dev/null); _trc=$?
+  staged=$(printf '%s\n' "$_staged_out" | grep -c .); _sgrc=$?; [ "$_sgrc" -ge 2 ] && staged=0
+  unstaged=$(printf '%s\n' "$_unstaged_out" | grep -c .); _ugrc=$?; [ "$_ugrc" -ge 2 ] && unstaged=0
+  untracked=$(printf '%s\n' "$_untracked_out" | grep -c .); _tgrc=$?; [ "$_tgrc" -ge 2 ] && untracked=0
+  _plines=$(printf '%s\n' "$porcelain" | grep -c .)
+  if [ "$staged" -eq 0 ] && [ "$unstaged" -eq 0 ] && [ "$untracked" -eq 0 ]; then
+    echo "   WARN: DIRTY but all three counters read 0 — porcelain has ${_plines} line(s); counters disagree"
+  fi
+  [ "$_sgrc" -ge 2 ] && echo "   WARN: staged count FAILED (grep exit $_sgrc) — cleanliness report incomplete"
+  [ "$_ugrc" -ge 2 ] && echo "   WARN: unstaged count FAILED (grep exit $_ugrc) — cleanliness report incomplete"
+  [ "$_tgrc" -ge 2 ] && echo "   WARN: untracked count FAILED (grep exit $_tgrc) — cleanliness report incomplete"
+  echo "   working tree : DIRTY — uncommitted: ${staged} staged · ${unstaged} unstaged · ${untracked} untracked"
+  rc=1
+else
+  echo "   working tree : CLEAN"
+fi
+
+# 2. Sync — local commits not on the upstream would fold into a retro PR's squash (mixed history).
+# Prefer the configured tracking ref (@{upstream}); if none is set but a remote branch exists (e.g. the repo
+# was pushed WITHOUT -u), fall back to origin/<branch> — a commit missing from it is still "unpushed".
+upstream="$(git -C "$root" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
+if [ -z "$upstream" ] && [ -n "$branch" ] && [ "$branch" != "HEAD" ] \
+   && git -C "$root" rev-parse --verify -q "origin/$branch" >/dev/null 2>&1; then
+  upstream="origin/$branch"
+fi
+if [ -n "$upstream" ]; then
+  ahead=$(git -C "$root" rev-list --count "${upstream}..HEAD" 2>/dev/null || echo 0)
+  if [ "${ahead:-0}" -gt 0 ]; then
+    echo "   sync         : ${ahead} local commit(s) NOT pushed to ${upstream}"
+    rc=1
+  else
+    echo "   sync         : up to date with ${upstream}"
+  fi
+else
+  echo "   sync         : (no upstream configured for ${branch:-HEAD} — nothing to be un-pushed against)"
+fi
+
+# 3. Audits location (ADVISORY, §13 / PROMPT-AUDIT) — audits are TARGET-scoped only. A tracked/untracked
+# `audits/` dir at the kit/supervisor REPO ROOT ($root == git rev-parse --show-toplevel) is almost always
+# mis-committed target evidence — a documented-recurring misplacement that only PROSE currently forbids.
+# This is an ADDITIVE advisory WARN: it does NOT change the clean/dirty verdict or the exit-code contract
+# (rc stays driven solely by the working-tree/sync checks above).
+if [ -d "$root/audits" ]; then
+  echo "   WARN: audits/ exists at the kit/supervisor root — audits are TARGET-scoped only (§13 / PROMPT-AUDIT); this is likely mis-committed target evidence — relocate to <target>/audits/ or remove."
+fi
+
+if [ "$rc" = 0 ]; then
+  echo "   verdict      : clean — safe to stage a retro / start clean kit work"
+else
+  echo "   verdict      : NOT clean — commit/stash + push before staging a retro (else mixed history)"
+fi
+echo "== exit $rc =="
+exit $rc

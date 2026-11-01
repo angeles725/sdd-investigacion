@@ -58,8 +58,17 @@ lint:
 # TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/retro/grammar
 # takes ~80 s per run), which `make check` still runs once; gremlins reruns a whole package per mutant.
 TEETHTAGS ?= nodiff
+# Gremlins defaults to one mutant worker per CPU, each running `go test` on every core: on a small shared CI runner
+# that starves the baseline coverage run (it then prints only `exit status 1`). TEETH_WORKERS bounds the parallel
+# mutant workers and TEETH_TEST_CPU the CPUs each mutant's test run may use (gremlins --workers / --test-cpu).
+# TEETH_PKG scopes the run to one package ("./internal/cli"); the default "." is the whole module, which the
+# bridge suite narrows to the packages a PR changed when RSDD_TEETH_BASE is set. Like TEST_MEM_KB, all three
+# are overridable on the command line or in the environment.
+TEETH_WORKERS  ?= 4
+TEETH_TEST_CPU ?= 1
+TEETH_PKG      ?= .
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 .
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)"; $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) --test-cpu $(TEETH_TEST_CPU) $(TEETH_PKG)
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
