@@ -51,6 +51,22 @@ count_go_output() {
 #     SKIP - or FAIL under RSDD_REQUIRE_GO=1; a SKIP is never counted as teeth;
 #   - anything else (a "Killed:"/"Timed out:" line that is not numeric, only one of the two lines, or no
 #     summary at all after rc=0): gremlins ran but its output cannot be read - typed FAIL, never a pass.
+# fail_heads FILE N -> the first N output lines of every package that FAILed, so a runtime crash names its
+# cause: go test prints each package's output as one block that ends with its ok / FAIL / ? line, and a
+# "fatal error:" header leads the block while the goroutine dump fills its tail (kit issue #2454).
+fail_heads() {
+  awk -v n="$2" '
+    function flush(pkg,   i, m) {
+      m = (cnt < n ? cnt : n)
+      print "--- head of failing " pkg " (" m " of " cnt " lines) ---" # SENTINEL-GO-FAIL-HEAD
+      for (i = 1; i <= m; i++) print "    | " buf[i]
+    }
+    ($1 == "ok" || $1 == "?") && NF >= 2 { cnt = 0; next }
+    $1 == "FAIL" && $2 != "" { flush($2); cnt = 0; next }
+    { buf[++cnt] = $0 }
+  ' "$1"
+}
+
 decide_gremlins() {
   local f="$1" rc="$2" counts l
   counts="$(awk '
@@ -123,6 +139,11 @@ combine_verdicts() {
 if [ "${1:-}" = "--decide-gremlins" ]; then
   [ -r "${2:-}" ] || { echo "FATAL: --decide-gremlins needs a readable FILE" >&2; exit 2; }
   decide_gremlins "$2" "${3:-0}"; exit 0
+fi
+
+if [ "${1:-}" = "--fail-heads" ]; then
+  [ -r "${2:-}" ] || { echo "FATAL: --fail-heads needs a readable FILE" >&2; exit 2; }
+  fail_heads "$2" "${3:-40}"; exit 0
 fi
 
 if [ "${1:-}" = "--parse" ]; then
@@ -259,6 +280,7 @@ npass="${counts#pass=}"; npass="${npass%% *}"
 nfail="${counts##*fail=}"
 while read -r _ pkg _; do ok "go test: $pkg"; done < <(awk '$1=="ok"{print}' "$out")
 while read -r _ pkg _; do no "go test: $pkg"; done < <(awk '$1=="FAIL" && $2!=""{print}' "$out")
+if [ "$nfail" -gt 0 ]; then fail_heads "$out" 40; fi
 if [ "$rc" -ne 0 ] && [ "$nfail" -eq 0 ]; then
   no "go test exited $rc with no per-package FAIL line (build/setup error); tail follows"
   tail -n 15 "$out"
@@ -286,6 +308,18 @@ if [ "$bad" = "pass=1 fail=1" ] && [ "$badrc" -eq 1 ] && [ "$good" = "pass=1 fai
 else
   no "counter: got bad='$bad' rc=$badrc good='$good' rc=$goodrc"
 fi
+
+# The head of a failing package: a runtime crash prints "fatal error:" first and a long goroutine dump after,
+# so the tail alone loses the cause (#2454). Canned: a passing package, then a crash block of 60 lines.
+{ printf 'ok  \texample.test/m/a\t0.004s\n'; printf 'fatal error: out of memory\n'
+  for i in $(seq 1 59); do printf 'goroutine %d [GC worker (idle)]:\n' "$i"; done
+  printf 'FAIL\texample.test/m/b\t0.711s\n'; } > "$ROOT/canned-crash.out"
+heads="$(bash "$0" --fail-heads "$ROOT/canned-crash.out" 40)"
+if grep -qx -- '--- head of failing example.test/m/b (40 of 60 lines) ---' <<<"$heads" \
+   && grep -qx '    | fatal error: out of memory' <<<"$heads" && ! grep -q 'goroutine 45 ' <<<"$heads" \
+   && ! grep -q 'example.test/m/a' <<<"$heads"; then
+  ok "fail heads: a failing package's first lines (the fatal-error header) are printed, bounded, for that package only"
+else no "fail heads: got: $(head -3 <<<"$heads")"; fi
 
 # Toolchain gate, via a fake `go` that reports an old version (never runs a test).
 FAKEBIN="$ROOT/fakebin"; mkdir -p "$FAKEBIN"
@@ -442,6 +476,17 @@ if MUTANT_SYNTAX=none mutant_chain_or_count fail "panic-boundary mutation" "$ORI
       "$MUTDIR/cli.go" --orig "$ORIG_GO" \
       --good-has '^ok' --bad-has 'kaboom' --bad-lacks 'SETUP-FAILED|build failed|undefined:' -- \
       bash "$MUTDIR/run_cli_tests.sh" "$MOD" @SUT@; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Tooth for the fail heads: printing the LAST lines of the block (the tail) loses the fatal-error header.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "fail-heads mutation" "$0" "$MUTDIR/rsdd-go-heads.test.sh" \
+    's/for (i = 1; i <= m; i++) print "    | " buf\[i\]/for (i = cnt - m + 1; i <= cnt; i++) print "    | " buf[i]/'; then
+  if mutant_tooth "teeth: printing the tail instead of the head loses the fatal-error header" 0 0 \
+      "$MUTDIR/rsdd-go-heads.test.sh" --orig "$0" \
+      --good-has '| fatal error: out of memory' --bad-lacks 'fatal error' -- \
+      bash @SUT@ --fail-heads "$ROOT/canned-crash.out" 40; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
