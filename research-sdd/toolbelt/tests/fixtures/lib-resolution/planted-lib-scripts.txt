@@ -41,3 +41,5 @@ verify-skill-drift.sh
 verify-state.sh
 verify-tool-catalog-hook.sh
 verify-tool-catalog.sh
+zip-metadata.sh
+zip-stored.sh
