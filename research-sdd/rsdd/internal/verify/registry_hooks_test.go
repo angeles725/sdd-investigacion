@@ -49,8 +49,12 @@ func TestRegistryHookSections(t *testing.T) {
 			[]string{"WARN  alpha — row claims 'hook yes' but the Stop hook is unwired at @H" + sf + " " + note + "; refresh the row or wire the hook (propose-never-apply).\n"}, nil, "1 attention", false},
 		{"yes-off-root", "(1 md / hook yes)", fakeHooks{wiring: "wired-off-root", script: "present", launch: "launched"},
 			[]string{"row claims 'hook yes' but @H is not its own git root; the hook is expected to fire only for a session launched in exactly that directory"}, nil, "1 attention", false},
-		{"yes-never-loaded", "(1 md / hook yes)", fakeHooks{wiring: "wired", script: "missing"},
+		{"yes-never-loaded", "(1 md / hook yes)", fakeHooks{wiring: "wired", script: "missing", launch: "no-sessions"},
+			[]string{"registered-never-loaded; checked path only"}, []string{"is not its own git root", "no retained Claude Code transcript"}, "1 attention", false},
+		{"yes-off-root-script-missing", "(1 md / hook yes)", fakeHooks{wiring: "wired-off-root", script: "missing"},
 			[]string{"registered-never-loaded; checked path only"}, []string{"is not its own git root"}, "1 attention", false},
+		{"yes-absent-settings-has-no-script-check", "(1 md / hook yes)", fakeHooks{wiring: "absent-settings", script: "missing", launch: "no-sessions"},
+			[]string{"the Stop hook is absent-settings at"}, []string{"registered-never-loaded", "no retained Claude Code transcript"}, "1 attention", false},
 		{"yes-script-degraded", "(1 md / hook yes)", fakeHooks{wiring: "wired", script: "degraded", launch: "launched"},
 			[]string{"the script-resolution check degraded (awk unavailable or failed)"}, nil, "1 attention", false},
 		{"yes-no-sessions", "(1 md / hook yes)", fakeHooks{wiring: "wired", script: "present", launch: "no-sessions"},
@@ -60,6 +64,8 @@ func TestRegistryHookSections(t *testing.T) {
 		{"yes-not-a-word", "(1 md / hook yesterday)", fakeHooks{wiring: "unwired"}, nil, []string{"row claims"}, "0 attention", false},
 		{"file-unreg-stale-nosess", "(1 md / hook file yes / unregistered)", fakeHooks{wiring: "wired", script: "present", launch: "no-sessions"},
 			[]string{"row claims 'unregistered' but the Stop hook IS registered at @H" + sf + " " + note + "; there is no retained Claude Code transcript for a session launched from exactly @H, so the accurate token is 'registered-no-sessions'; refresh the row (propose-never-apply).\n"}, nil, "1 attention", false},
+		{"file-unreg-stale-case", "(1 md / Hook File YES / unregistered)", fakeHooks{wiring: "wired", script: "present", launch: "launched"},
+			[]string{"row claims 'unregistered' but the Stop hook IS registered"}, nil, "1 attention", false},
 		{"file-unreg-stale-launched", "(1 md / hook file yes / unregistered)", fakeHooks{wiring: "wired", script: "present", launch: "launched"},
 			[]string{"the accurate claim is likely 'hook yes'; refresh the row"}, nil, "1 attention", false},
 		{"file-unreg-stale-unknown", "(1 md / hook file yes / unregistered)", fakeHooks{wiring: "wired", script: "present", launch: "unknown"},
@@ -128,6 +134,16 @@ func TestRegistrySessionBudget(t *testing.T) {
 		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 		withHooks(t, fakeHooks{budgetOK: true, budget: "status=TRUNCATED\n"})
 		wantNot(t, k.run(nil).stdout, "SessionStart")
+	})
+	t.Run("off-unless-exactly-1", func(t *testing.T) {
+		for _, v := range []string{"0", "yes", "11"} {
+			k := newVRKit(t)
+			k.blocks("alpha", 1)
+			k.put("alpha/.claude/settings.json", "{}\n")
+			k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
+			withHooks(t, fakeHooks{budgetOK: true, budget: "status=TRUNCATED\n"})
+			wantNot(t, k.run(map[string]string{"RSDD_REGISTRY_SESSION_BUDGET": v}).stdout, "SessionStart")
+		}
 	})
 	t.Run("missing-script", func(t *testing.T) {
 		r := run(t, fakeHooks{}, true)

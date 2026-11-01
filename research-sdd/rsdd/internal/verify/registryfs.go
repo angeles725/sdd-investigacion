@@ -76,18 +76,17 @@ func retroEntries(p string, skipIndex bool) []string {
 	return out
 }
 
-// globRetros is fnmatch of '*/retros/*.md' as find -path applies it: `*` crosses slashes, so any "/retros/"
-// followed by something ending in ".md" matches (the earliest occurrence leaves the longest remainder).
+// globRetros is fnmatch of '*/retros/*.md' as find -path applies it: `*` crosses slashes, so a "/retros/"
+// anywhere in a path that ends in ".md" matches (the suffix cannot overlap the slash-terminated "/retros/").
 func globRetros(p string) bool {
-	i := strings.Index(p, "/retros/")
-	return i >= 0 && len(p)-(i+len("/retros/")) >= len(".md") && strings.HasSuffix(p, ".md")
+	return strings.Contains(p, "/retros/") && strings.HasSuffix(p, ".md")
 }
 
-// globIndexMD is -iname '*index*.md': "index" (ASCII case-insensitive) followed, later, by a final ".md".
+// globIndexMD is -iname '*index*.md': "index" (ASCII case-insensitive) in a name that ends in ".md" (the two
+// cannot overlap, "index" holds no '.').
 func globIndexMD(name string) bool {
 	l := strings.ToLower(name)
-	i := strings.Index(l, "index")
-	return i >= 0 && strings.HasSuffix(l, ".md") && len(l)-(i+len("index")) >= len(".md")
+	return strings.Contains(l, "index") && strings.HasSuffix(l, ".md")
 }
 
 // bashBasename is `basename p`: trailing slashes dropped, the text after the last slash, "/" for an all-slash

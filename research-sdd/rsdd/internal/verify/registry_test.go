@@ -147,6 +147,14 @@ func TestRegistryDrift(t *testing.T) {
 	r = k.run(nil)
 	want(t, r.stdout, "claims 08 md but the corpus has 5 real block file(s) (drift 3 > tol 2)")
 
+	// "5 mdx" is not an md count: the word boundary skips it and the next count stands
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(5 mdx / 5 md)")))
+	r = k.run(nil)
+	wantNot(t, r.stdout, "claims")
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(5 mdx / 9 md)")))
+	r = k.run(nil)
+	want(t, r.stdout, "row claims 9 md but the corpus has 5 real block file(s)")
+
 	// no claimed count
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 focus)")))
 	r = k.run(nil)
@@ -180,17 +188,17 @@ func TestRegistryAbsent(t *testing.T) {
 func TestRegistryTruncated(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
-	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)"), "| 2 | cut | `@H@/long/path/...` | (1 md) | x | en |"))
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)"), "| 2 | cut | `@H@/long/path/...` | (1 md) | x | en |", "| 3 | mid | `@H@/mid...dle` | (1 md) | x | en |"))
 	r := k.run(nil)
 	rcIs(t, r, 0)
-	want(t, r.stdout, "WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ...\n")
+	want(t, r.stdout, "WARN: 2 target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ..., mid...dle\n")
 	wantNot(t, r.stdout, "Registry consistent")
 }
 
 func TestRegistryMaturity(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
-	ok := "(1 md @2026-01-02, ACTIVE / 2 focuses / 3 runs / 4 retros + 1 corpus §18 / 2-of-5 gaps / git yes / remote no / hook anything here / unregistered / registered-no-sessions)"
+	ok := "(1 md @2026-01-02, ACTIVE / 2 focuses / 3 runs / 4 retros + 1 corpus §18 / 2-of-5 gaps / git yes / git no / remote no / hook anything here / unregistered / registered-no-sessions)"
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", ok)))
 	r := k.run(nil)
 	wantNot(t, r.stdout, "not in schema")
@@ -244,6 +252,30 @@ func TestRegistryNC(t *testing.T) {
 	want(t, r.stdout, "WARN  tool — row carries the nc flag but a RESEARCH-STATE.md was found at "+k.home+"/tool/RESEARCH-STATE.md; remove nc if this is a real corpus target.\n")
 }
 
+func TestRegistryNCTerminators(t *testing.T) {
+	// the nc flag ends at a space, '/', ';', ')' or '|'; a longer word is not the flag
+	for _, c := range []struct {
+		cell string
+		nc   bool
+	}{
+		{"| 1 | tool | `@H@/tool` | (9 md / nc ) | x |", true},
+		{"| 1 | tool | `@H@/tool` | (9 md / nc/x) | x |", true},
+		{"| 1 | tool | `@H@/tool` | (9 md / nc;x) | x |", true},
+		{"| 1 | tool | `@H@/tool` | (9 md / nc) | x |", true},
+		{"| 1 | tool | `@H@/tool` | 9 md / nc| x |", true},
+		{"| 1 | tool | `@H@/tool` | (9 md / ncx) | x |", false},
+		{"| 1 | tool | `@H@/tool` | (9 md /nc) | x |", false},
+	} {
+		k := newVRKit(t)
+		k.put("tool/a.md", "x\n")
+		k.targets(vrTable(c.cell))
+		r := k.run(nil)
+		if got := strings.Contains(r.stdout, "non-corpus target has"); got != c.nc {
+			t.Errorf("%q: nc recognised = %v, want %v\n%s", c.cell, got, c.nc, r.stdout)
+		}
+	}
+}
+
 func TestRegistryMarkers(t *testing.T) {
 	t.Run("no-marker", func(t *testing.T) {
 		k := newVRKit(t)
@@ -289,6 +321,11 @@ func TestRegistryRetros(t *testing.T) {
 		"· 1 retro drift(s) ·",
 		"For each retro drift: recount non-excluded retros and refresh the 'N retros' field in $KIT/TARGETS.md by hand (WARN-only; never auto-edited).\n")
 
+	// "5retros" (no space) is not a retro count
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md / 5retros)")))
+	r = k.run(nil)
+	wantNot(t, r.stdout, "non-excluded retro(s) found")
+
 	// a BOM before the opt-out marker still opts out; a marker after the leading block does not
 	k.put("alpha/retros/r4.md", "\xef\xbb\xbf<!-- kit-retro: exclude -->\n")
 	k.put("alpha/retros/r5.md", "<!-- a -->\ntext\n<!-- kit-retro: exclude -->\n")
@@ -319,7 +356,7 @@ func (k *vrKit) catalog(rel string, header string, rows int) {
 	k.t.Helper()
 	k.put(rel+"/tools/gen-catalog.py", "#\n")
 	var b strings.Builder
-	b.WriteString(header + "\n| id | name |\n|---|---|\n")
+	b.WriteString(header + "\n| id | name |\n|---|---|\n| --- | --- |\n")
 	for i := 0; i < rows; i++ {
 		b.WriteString("| " + string(rune('a'+i%26)) + " | n |\n")
 	}
@@ -342,6 +379,36 @@ func TestRegistryCatalog(t *testing.T) {
 		{"unparseable", "no digits here", 6, 5, "5", []string{"WARN  alpha — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (5).\n"}, nil},
 		{"blocks-token", "12 bloques", 12, 5, "12", []string{"CATALOG.md total 12 vs on-disk discriminator 5"}, nil},
 	}
+	t.Run("no-table-clamps-rows-at-zero", func(t *testing.T) {
+		k := newVRKit(t)
+		k.blocks("alpha", 0)
+		k.put("alpha/retros/r.md", "x\n")
+		k.put("alpha/tools/gen-catalog.py", "#\n")
+		k.put("alpha/CATALOG.md", "Total: 0\n")
+		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(0 md)")))
+		r := k.run(nil)
+		wantNot(t, r.stdout, "stale header", "CATALOG")
+	})
+	t.Run("tol-below-zero-total-zero", func(t *testing.T) {
+		k := newVRKit(t)
+		k.blocks("alpha", 0)
+		k.put("alpha/retros/r.md", "x\n")
+		k.catalog("alpha", "Total: 0", 0)
+		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(0 md)")))
+		r := k.run(map[string]string{"RSDD_REGISTRY_TOL": "-1"})
+		want(t, r.stdout, "CATALOG.md total 0 vs on-disk discriminator 0 (diff 0 > tol -1)")
+		wantNot(t, r.stdout, "discriminator found 0 classifiable")
+	})
+	t.Run("disc-zero-with-unclassifiable-keeps-the-block-noun", func(t *testing.T) {
+		k := newVRKit(t)
+		k.blocks("alpha", 0)
+		k.put("alpha/block1.md", "x\n")
+		k.catalog("alpha", "Total: 12", 12)
+		k.targets(vrTable(vrRow("1", "alpha", "alpha", "(12 md)")))
+		r := k.run(nil)
+		want(t, r.stdout, "1 unclassifiable candidate block file(s)", "INFO  alpha — 12 block(s) on disk but no retros/*.md reachable")
+		wantNot(t, r.stdout, "(unclassifiable) on disk")
+	})
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			k := newVRKit(t)
@@ -387,6 +454,11 @@ func TestRegistryRowHygiene(t *testing.T) {
 	want(t, r.stdout, "WARN  TARGETS row wordy master cell is 30 chars (> 25) — collapse to one line; narrative belongs in the detail section.\n")
 	r = k.run(nil)
 	wantNot(t, r.stdout, "TARGETS row")
+
+	// only a line that STARTS with the pipe is a master row: an indented one is not linted
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")) + "  | 7 | wordy | `@H@/alpha` | (1 md) | " + long + " | en |\n")
+	r = k.run(map[string]string{"RSDD_ROW_MAXLEN": "25"})
+	wantNot(t, r.stdout, "TARGETS row wordy")
 
 	// the last line without a newline is not read (`while read` drops it)
 	k.write("kit/TARGETS.md", strings.NewReplacer("@K@", k.kit).Replace(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))+"| 8 | tail | `/x` | (1) | "+long+" | en |")
