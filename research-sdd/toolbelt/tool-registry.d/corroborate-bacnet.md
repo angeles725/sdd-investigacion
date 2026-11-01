@@ -1,0 +1,5 @@
+### corroborate-bacnet (#2438)
+
+| Tool | Description |
+|---|---|
+| `rsdd bacnet corroborate-bacnet --host <ip> --output <new-dir> [--port N] [--src-port N] [--local-bcast <ip>] [--bbmd <ip>] [--timeout S] [--allow-live-probe] [--json]` | Go port (kit issue #2438, epic #2270) of `corroborate_bacnet.py`; the registry row `corroborate-bacnet.sh` above and its contract ([`bacnet-evidence.v1`](../bacnet-evidence.v1.md)) still describe the behaviour. `corroborate-bacnet.sh` is a compatibility shim that hands over to `lib/rsdd-exec.sh`; it is removed in phase 8. The legacy `corroborate_bacnet.py` is no longer called by anything: it stays only as the parity oracle of the Go tests (`internal/bacnet`, `testdata/parity_driver.py` and the loopback end-to-end tests) until phase 8. Read-only by construction (Who-Is, Read-BDT, Read-FDT); plan-only exit 3 without `--allow-live-probe`. Intended differences from the Python tool are listed in the contract under "Intended differences from the Python tool". |
