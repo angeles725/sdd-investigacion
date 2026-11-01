@@ -19,6 +19,13 @@ done
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass, without go).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -213,15 +220,6 @@ c_apply_closed_changed() {
     && grep -qE '^Unclassifiable item set: [0-9]+$' "$b/bin/gh.body" && return 0
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
 }
-# The privacy scrub failing on the tracker is a refusal that FAILS the run: exit 2, failed=1, nothing written.
-c_scrub_fail() {
-  local b r; b="$(mkbox "scrubfail$1")" || return 1; r="$(sec_retro "$b" r.md)"
-  printf '%s\n' 'scrub_issue_text() { cat >/dev/null; return 1; }' 'scrub_issue_text_count() { cat >/dev/null; echo "redactions: 0"; }' > "$b/research-sdd/toolbelt/lib/scrub-issue-text.sh"
-  run "$b" "$r" --apply
-  [ "$RC" = 2 ] && grep -qF 'privacy scrub failed for the unclassifiable tracker' <<<"$OUT" && grep -qF 'failed=1' <<<"$OUT" \
-    && ! grep -q 'gh issue create' "$b/bin/gh.log" && return 0
-  echo "rc=$RC out=[${OUT:0:600}]"; return 1
-}
 # Row-level line lookup is confined to the table rows: a bare token like LOW in prose above the table is not the
 # row, and an ambiguous (repeated) row prints `?` instead of a wrong line.
 c_row_line() {
@@ -256,7 +254,7 @@ c_scrub() {
   echo "rc=$RC out=[${OUT:0:600}]"; return 1
 }
 
-CHECKS="c_normal_no_outcome_word c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_closed_changed c_apply_fanout c_apply_multi_open c_scrub_fail c_row_line c_apply_createfail c_apply_readback c_scrub"
+CHECKS="c_normal_no_outcome_word c_dry_section c_dry_row c_zero_states c_apply_create c_apply_occurrence c_apply_closed c_apply_closed_changed c_apply_fanout c_apply_multi_open c_row_line c_apply_createfail c_apply_readback c_scrub"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
@@ -273,23 +271,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth $label: mutant breaks $chk" "()"; fi
     MUT=()
   }
-  tooth c_normal_no_outcome_word zero-label-no-match 's/(\$1)"; return 0/(\$1)"; return 0/;s/"none: \$((open_count/"no-match: $((open_count/'
-  tooth c_dry_section    sec-record   '/"proposal-like heading not in a countable delta form"$/s/.*/    :/'
-  tooth c_dry_row        row-record   '/"no usable title (\$_title_reason)"$/s/.*/    :/'
-  tooth c_zero_states    zero-line    '/^    echo "unclassifiable-items: 0 (\$1)"; return 0$/s/.*/    return 0/'
-  tooth c_dry_section    dry-banner   "s/planned-tracking-issue: /planned-tracker: /"
-  tooth c_apply_closed   closed-dedup '/^  if grep -q .*OPEN.*CLOSED.*<<<"\$_lk"; then$/s/.*/  if false; then/'
-  tooth c_apply_occurrence occ-find   '/^  if \[ -n "\$_open_nums" \]; then$/s/.*/  if false; then/'
-  tooth c_apply_occurrence fingerprint 's/ #\${_fp} -->/ -->/'
-  tooth c_apply_readback readback     's/ || ! grep -qxF -- "\$_sig" <<<"\$_rb"; then/; then/'
-  tooth c_apply_fanout   title-lookup   '/^  _open_nums=/s/.*/  _open_nums=""/'
-  tooth c_apply_fanout   comment-table-off 's/(%d item(s)):\\n\\n%s\\n\\n%s\\n%s\\n%s/(%d item(s)):\\n\\n%.0s\\n\\n%s\\n%s\\n%s/'
-  tooth c_apply_multi_open oldest-not-newest '/^    _newest=/s/tail -n 1/head -n 1/'
-  tooth c_apply_multi_open multi-warn-off '/^    if \[ "\$(printf .%s\\n. "\$_open_nums" | wc -l)" -gt 1 \]; then$/s/.*/    if false; then/'
-  tooth c_apply_closed_changed closed-set-ignored '/^  _unc_lookup sig "\$_sigfp" || return 0$/s/.*/  _lk="[{\\"state\\":\\"CLOSED\\"}]"/'
-  tooth c_scrub_fail     failed-uncounted '/^  echo "ERROR: \$2" >&2; failed=\$((failed+1))$/s/; failed=.*//'
-  tooth c_row_line       row-line-anywhere 's/_unc_add row "\$(_unc_row_line "\$_rid" "\$_delta")"/_unc_add row "$(_unc_line_of "$_delta")"/'
-  tooth c_scrub          scrub-body   's/"\$_tmp" | scrub_issue_text)" && _tn=/"$_tmp" | cat)" \&\& _tn=/'
+  # The script's logic lives in Go (mutation-tested there); a shim mutant that cannot reach it must turn the checks red.
+  tooth c_dry_section shim-wrong-command 's#rsdd_exec retro stage-issues#rsdd_exec retro stage-issuez#'
+  tooth c_apply_create shim-args-dropped 's#--toolbelt "\$_RSDD_SELF" "\$@"#--toolbelt "\$_RSDD_SELF"#'
   echo "-- prove-teeth done --"
 fi
 
