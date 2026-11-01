@@ -820,16 +820,22 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     shim_tooth "target-is-root flag dropped" "$mut_s6" "1|/r/root" '1\n/r/root\n' 0 "$G_CODE" "$ROOT/t28" "case 28h"
   fi
   mut_s7="$ROOT/hook-wiring.MUTANT-shim-no-target.sh"
-  if mk "teeth: argument hand-over anchor in lib" "$LIB" "$mut_s7" 's/rsdd_exec hook "\$1" "\$2"/rsdd_exec hook "$1" ""/'; then
+  if mk "teeth: argument hand-over anchor in lib" "$LIB" "$mut_s7" 's/rsdd_exec hook "\$@"/rsdd_exec hook "$1" ""/'; then
     shim_tooth "target not passed to rsdd" "$mut_s7" "args=hook wiring-state $ROOT/t28|ceiling=$RSDD_HOOK_WIRING_CEILING" 'wired\n' 0 "$W_CODE" "$ROOT/t28" "case 28a" log
   fi
 
-  mut_s8="$ROOT/hook-wiring.MUTANT-shim-batch-guard.sh"
-  if mk "teeth: batch count/vocabulary guard anchor in lib" "$LIB" "$mut_s8" 's/if \[ "\$_HW_RC" = 0 \] \&\& \[ "\$_hw_n" = "\$#" \]; then  # HW-BATCH-GUARD/if true; then  # MUTANT: guard dropped/'; then
-    got="$(shim_run "$mut_s8" 'wired\nwired\n' 0 "$B_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
-    if [ "$got" = "3:[unreadable][unreadable][unreadable]" ]; then no "teeth: batch line-count mismatch NOT caught (theater)" "case 29d still [$got]"
-    else ok "teeth: batch line-count mismatch caught (real sourced lib)" "case 29d read [$got]"; fi
-  fi
+  # batch_tooth LABEL SED-EXPR STUB_OUT WANT CASE ARG... : the mutant lib must no longer answer WANT (the all-unreadable array).
+  batch_tooth() {
+    local label="$1" expr="$2" out="$3" want="$4" cs="$5" mut got
+    shift 5
+    mut="$ROOT/hook-wiring.MUTANT-batch-${cs// /-}.sh"
+    mk "teeth: $label anchor in lib" "$LIB" "$mut" "$expr" || return 0
+    got="$(shim_run "$mut" "$out" 0 "$B_CODE" "$@")"
+    if [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$cs still [$got]"
+    else ok "teeth: $label caught (real sourced lib)" "$cs read [$got]"; fi
+  }
+  batch_tooth "batch line-count check dropped" 's/&& \[ "\$_hw_n" = "\$#" \]/\&\& true/' 'wired\nwired\n' "3:[unreadable][unreadable][unreadable]" "case 29d" "$ROOT/a" "$ROOT/b" "$ROOT/c"
+  batch_tooth "batch vocabulary check dropped" 's/&& \[ "\$_hw_ok" = 1 \]/\&\& true/' 'wired\nbogus\nunwired\n' "3:[unreadable][unreadable][unreadable]" "case 29e" "$ROOT/a" "$ROOT/b" "$ROOT/c"
 
   echo "-- teeth (#1157 launch history): one mutant per rule of hook_stop_launch_state_var --"
   launch_tooth() { # <label> <sed-expr> <fixture-dir> <pristine-state> <case> [history-root]
