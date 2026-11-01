@@ -203,8 +203,17 @@ func piReport(e env, target, toCap, self string, w io.Writer) {
 	}
 	nonce := hex.EncodeToString(nb)
 	recsPath, errPath := filepath.Join(pw, "recs"), filepath.Join(pw, "err")
-	recsF, _ := os.Create(recsPath)
-	errF, _ := os.Create(errPath)
+	recsF, err := os.Create(recsPath)
+	if err != nil {
+		piDegraded(r, "cannot create the helper's record file")
+		return
+	}
+	errF, err := os.Create(errPath)
+	if err != nil {
+		_ = recsF.Close()
+		piDegraded(r, "cannot create the helper's error file")
+		return
+	}
 	argv := append([]string{"-k", "2", strconv.Itoa(pcap)}, bargs...)
 	argv = append(argv, "node", helper, target)
 	argv = append(argv, exts...)
