@@ -1,0 +1,13 @@
+== research-sdd-archive: git-warn-rel  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : ok
+    MISSING-RETRO  : REFUSE — corpus advanced past the newest §18 retro (2026-01-10) — delegate a retro before closing (propose-never-apply)
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/git-warn-rel
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/git-warn-rel
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/git-warn-rel
+    find @ROOT@/work/case/git-warn-rel \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/git-warn-rel   # working tree (dirty/untracked/ignored — file scope: *.md + config)
+    @ROOT@/tb/scan-secrets.sh --committed @ROOT@/work/case/git-warn-rel   # + committed history
