@@ -1,9 +1,13 @@
 package ensureremote
 
 import (
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
@@ -34,14 +38,20 @@ type GH struct {
 	Probe func(gh.Options, string) (gh.Visibility, error)
 }
 
+// Streamer runs one program with the caller's own stdin, stdout and stderr and no time bound, as the bash runs the
+// final push: output appears as it is produced and a credential prompt can read the terminal. It returns the shell's
+// exit status (127 when the program cannot start, 128+N for signal N).
+type Streamer func(argv, env []string, in io.Reader, out, errw io.Writer) int
+
 type deps struct {
 	run     Runner
+	stream  Streamer
 	gh      GH
 	hasTool func(name string, environ []string) bool // `command -v`
 }
 
 func realDeps() deps {
-	return deps{run: procRun, gh: GH{Run: gh.Run, Probe: gh.Probe}, hasTool: onPath}
+	return deps{run: procRun, stream: streamRun, gh: GH{Run: gh.Run, Probe: gh.Probe}, hasTool: onPath}
 }
 
 // The bash runs git and the scanner unbounded. Every run is bounded here, long enough that no sane corpus hits it;
@@ -93,4 +103,23 @@ func onPath(name string, environ []string) bool {
 		}
 	}
 	return false
+}
+
+// streamRun is the production Streamer. core/proc buffers and bounds every run, so the push goes through os/exec.
+func streamRun(argv, env []string, in io.Reader, out, errw io.Writer) int {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Env = env
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errw
+	err := cmd.Run()
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return 127
+	}
+	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal())
+	}
+	return ee.ExitCode()
 }

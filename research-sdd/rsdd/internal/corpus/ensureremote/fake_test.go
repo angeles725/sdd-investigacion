@@ -3,6 +3,7 @@ package ensureremote
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,7 @@ type world struct {
 	pushRC      int
 	pushOut     string
 	pushErr     string
+	streamed    []streamCall
 	tracked     []string
 	history     map[string][]string // path -> raw lines
 	logFail     map[string]bool
@@ -117,6 +119,7 @@ func (w *world) stdio() cli.Stdio {
 func (w *world) deps() deps {
 	return deps{
 		run:     w.run,
+		stream:  w.streamRun,
 		gh:      GH{Run: w.ghRun, Probe: w.ghProbe},
 		hasTool: func(name string, _ []string) bool { return name != "gh" || !w.noGH },
 	}
@@ -286,7 +289,7 @@ func (w *world) run(c Cmd) Out {
 		}
 		return fail(128)
 	case "push":
-		return Out{RC: w.pushRC, Stdout: []byte(w.pushOut), Stderr: []byte(w.pushErr)}
+		panic("the push must go through the Streamer, never the buffered runner")
 	}
 	return Out{}
 }
@@ -346,4 +349,20 @@ func (w *world) optsOf(prefix string) gh.Options {
 	}
 	w.t.Fatalf("no gh call %q in %v", prefix, w.calls)
 	return gh.Options{}
+}
+
+// streamCall is what the push was handed.
+type streamCall struct {
+	in       io.Reader
+	out, err io.Writer
+	env      []string
+}
+
+// streamRun is the fake Streamer: the push is logged like any git call and its output goes to the writers it was given.
+func (w *world) streamRun(argv, env []string, in io.Reader, out, errw io.Writer) int {
+	w.calls = append(w.calls, strings.Join(argv, " "))
+	w.streamed = append(w.streamed, streamCall{in, out, errw, env})
+	_, _ = io.WriteString(out, w.pushOut)
+	_, _ = io.WriteString(errw, w.pushErr)
+	return w.pushRC
 }
