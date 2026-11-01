@@ -1,0 +1,2 @@
+{"type": "user", "message": {"role": "user", "content": "go"}}
+{"type": "assistant", "message": {"role": "assistant", "content": "status: done\ngap closed: shader pipeline\nblock: blocks/b1.md\nreturn-token: next: reconstruct the shader pipeline"}}
