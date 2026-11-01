@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,24 @@ func TestStdoutWriteFailureIsOperational(t *testing.T) {
 		}
 		if !strings.Contains(e.String(), "rsdd: stdout-write-failed: broken pipe") {
 			t.Errorf("ret=%d: stderr = %q, want the typed stdout-write-failed line", ret, e.String())
+		}
+	}
+}
+
+// A legacy instrument whose exit 3 means a gate refusal (research-sdd-archive:
+// REFUSED) opts out of the degraded contract: its 3 passes through with no
+// DEGRADED: line added, and a mapped 3 is treated the same way.
+func TestRefusalExitThreeGetsNoDegradedLine(t *testing.T) {
+	table := []cli.Command{
+		{Name: "refuse", Summary: "x", Exit3IsRefusal: true,
+			Run: func(_ []string, s cli.Stdio) int { fmt.Fprintln(s.Err, "REFUSED: gate"); return 3 }},
+		{Name: "mapped", Summary: "x", Exit3IsRefusal: true, ExitMap: map[int]int{10: 3},
+			Run: func([]string, cli.Stdio) int { return 10 }},
+	}
+	for _, name := range []string{"refuse", "mapped"} {
+		code, _, errOut := run(t, table, name)
+		if code != 3 || strings.Contains(errOut, "DEGRADED:") {
+			t.Errorf("%s: got (%d, %q), want 3 with no DEGRADED: line", name, code, errOut)
 		}
 	}
 }

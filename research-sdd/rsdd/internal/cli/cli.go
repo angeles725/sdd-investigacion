@@ -26,6 +26,10 @@ type Command struct {
 	// code, for legacy instruments whose contract differs from the default
 	// (e.g. verify-state: 1 = stale). Codes absent from the map pass through.
 	ExitMap map[int]int
+	// Exit3IsRefusal marks a legacy instrument whose exit 3 means a gate
+	// refusal, not a degraded run (research-sdd-archive: REFUSED). The
+	// dispatcher then adds no DEGRADED: line to a final 3.
+	Exit3IsRefusal bool
 }
 
 // Validate rejects a table that would shadow or cannot dispatch: an empty
@@ -125,11 +129,12 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 		// Precedence: ExitMap translates the code Run returned first; the
 		// degraded contract then judges the FINAL code. So a degraded 3 is
 		// never remapped unless the map explicitly lists 3, and any command
-		// that ends on 3 (returned or mapped) carries a DEGRADED: line.
+		// that ends on 3 (returned or mapped) carries a DEGRADED: line, unless
+		// it declares Exit3IsRefusal.
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
 		}
-		if code == ExitDegraded && !errw.sawDegraded {
+		if code == ExitDegraded && !cmd.Exit3IsRefusal && !errw.sawDegraded {
 			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
 		}
 	}()
