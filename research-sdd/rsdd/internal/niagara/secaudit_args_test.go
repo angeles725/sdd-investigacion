@@ -64,6 +64,7 @@ func auditArgTable() []argCase {
 		{"-- as the root", []string{"--output", "o.json", "--", "--"}, 2, "", noFile("--")},
 		{"-- then -- then more", []string{"--output", "o.json", "--", "--", "x"}, 2, "", saUsageErr("unrecognized arguments: x")},
 		{"a root then -- swallows the separator", []string{"foo", "--", "--output", "o.json"}, 2, "", saUsageErr(missingOut)},
+		{"a root then -- leaves the words after it as extras", []string{"--output", "o.json", "foo", "--", "x"}, 2, "", saUsageErr("unrecognized arguments: x")},
 		{"everything after -- is positional", []string{"--", "foo", "--output", "o.json"}, 2, "", saUsageErr(missingOut)},
 		{"-- then the options are positional", []string{"--", "--output", "o.json"}, 2, "", saUsageErr(missingOut)},
 		{"option followed by -- has no value", []string{"foo", "--output", "--", "x"}, 2, "", saUsageErr(oneArgOut)},

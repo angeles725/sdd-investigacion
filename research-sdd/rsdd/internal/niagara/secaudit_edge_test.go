@@ -225,6 +225,18 @@ func TestPlaintextBogIsReadOnlyUpToTheCap(t *testing.T) {
 	if v := runAudit(t, fixtures(t).secure, "--station", outside).verdict(t, "SEC-08"); v != "PASS" {
 		t.Errorf("an attribute past the cap must not be seen: SEC-08 = %s", v)
 	}
+	// the cap is exact: the read stops two bytes into the closing `e"`, leaving `tru`, which is no match
+	const attr = `allowProgramRuntimeExec="true"`
+	cut := filepath.Join(dir, "cut.xml")
+	saWrite(t, cut, []byte(strings.Repeat(" ", 4*1024*1024-len(attr)+2)+attr))
+	if v := runAudit(t, fixtures(t).secure, "--station", cut).verdict(t, "SEC-08"); v != "PASS" {
+		t.Errorf("a match cut by the cap must not be seen: SEC-08 = %s", v)
+	}
+	whole := filepath.Join(dir, "whole.xml")
+	saWrite(t, whole, []byte(strings.Repeat(" ", 4*1024*1024-len(attr))+attr))
+	if v := runAudit(t, fixtures(t).secure, "--station", whole).verdict(t, "SEC-08"); v != "FAIL" {
+		t.Errorf("a match that ends exactly at the cap must be seen: SEC-08 = %s", v)
+	}
 }
 
 func TestStationFormatEdges(t *testing.T) {
@@ -462,6 +474,33 @@ func TestNetworkChecksAreAlwaysManual(t *testing.T) {
 		c := a.check(t, id)
 		if c["verdict"] != "MANUAL" || c["observed"] != "not checked (requires live port probe)" {
 			t.Errorf("%s = %v", id, c)
+		}
+	}
+}
+
+// A ZIP without file.xml is an unrecognised bog; it must not fall through to the plaintext reader.
+func TestZipWithoutFileXMLIsUnrecognised(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "other.zip")
+	saWrite(t, p, bogtest.Zip(bogtest.Entry{Name: "other.xml", Data: []byte(`<p allowProgramRuntimeExec="true"/>`)}))
+	for _, id := range []string{"SEC-08", "SEC-10", "SEC-12"} {
+		c := runAudit(t, fixtures(t).secure, "--station", p).check(t, id)
+		if c["verdict"] != "MANUAL" || c["observed"] != "not checked (station file format unrecognized: not a ZIP bog or plaintext)" {
+			t.Errorf("%s = %v", id, c)
+		}
+	}
+}
+
+// firstChars is TextIOWrapper.read(n): n characters, not bytes.
+func TestFirstChars(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"héllo", 0, ""}, {"héllo", 1, "h"}, {"héllo", 2, "hé"}, {"héllo", 5, "héllo"}, {"héllo", 9, "héllo"}, {"", 3, ""},
+	} {
+		if got := firstChars(tc.in, tc.n); got != tc.want {
+			t.Errorf("firstChars(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
 		}
 	}
 }
