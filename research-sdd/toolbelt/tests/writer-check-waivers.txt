@@ -7,3 +7,4 @@
 # suite gains mutation controls (run-all.sh --prove-teeth lists suites without teeth).
 research-sdd/toolbelt/tests/hook-kit-run.test.sh prints no teeth banner under --prove-teeth (no mutation controls yet; run-all.sh lists it under "Suites with teeth but no banner")
 research-sdd/toolbelt/tests/return-token-gate.test.sh the gate is a Go command now (rsdd gate return-token): the suite's mutants edit the text of the old bash script and cannot apply to the shim; the mutation controls moved to research-sdd/rsdd/internal/gate/returntoken_test.go (table at its head; kit issue #2366)
+research-sdd/toolbelt/tests/java-fidelity-experiment.test.sh the experiment is a Go command now (rsdd corroborate java-fidelity): the suite's mutants edited the text of the old bash script and cannot apply to the shim; the mutation controls moved to research-sdd/rsdd/internal/corroborate/fidelity/fidelity_test.go (old-tooth table at its head; kit issue #2419)
