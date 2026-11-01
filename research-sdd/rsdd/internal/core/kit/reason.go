@@ -31,5 +31,5 @@ func InputReason(err error) (reasons.Code, bool) {
 			return r.code, true
 		}
 	}
-	return reasons.Code{}, false
+	return 0, false
 }

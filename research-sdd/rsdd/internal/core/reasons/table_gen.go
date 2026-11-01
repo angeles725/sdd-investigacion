@@ -3,124 +3,124 @@
 
 package reasons
 
-// One Code per registry row, in registry order.
-var (
+// One Code per registry row, in registry order. Constants, so no caller can reassign one.
+const (
 	// DegradedRemoteVisibilityGitNotFound is the registry row "degraded: remote-visibility: git not found".
-	DegradedRemoteVisibilityGitNotFound = Code{1}
+	DegradedRemoteVisibilityGitNotFound Code = 1
 	// DegradedRemoteVisibilityGhNotFound is the registry row "degraded: remote-visibility: gh not found".
-	DegradedRemoteVisibilityGhNotFound = Code{2}
+	DegradedRemoteVisibilityGhNotFound Code = 2
 	// DegradedRemoteVisibilityVUrlEmptyOrUnreadable is the registry row "degraded: remote-visibility: <v> url empty or unreadable".
-	DegradedRemoteVisibilityVUrlEmptyOrUnreadable = Code{3}
+	DegradedRemoteVisibilityVUrlEmptyOrUnreadable Code = 3
 	// DegradedRemoteVisibilityVNotAGithubOwnerRepo is the registry row "degraded: remote-visibility: <v> not a github owner/repo".
-	DegradedRemoteVisibilityVNotAGithubOwnerRepo = Code{4}
+	DegradedRemoteVisibilityVNotAGithubOwnerRepo Code = 4
 	// DegradedRemoteVisibilityGhProbeCouldNotRunVForRemote is the registry row "degraded: remote-visibility: gh probe could not run (<v>) for remote".
-	DegradedRemoteVisibilityGhProbeCouldNotRunVForRemote = Code{5}
+	DegradedRemoteVisibilityGhProbeCouldNotRunVForRemote Code = 5
 	// DegradedRemoteVisibilityLibGhVisibilityShUnavailable is the registry row "degraded: remote-visibility: lib/gh-visibility.sh unavailable".
-	DegradedRemoteVisibilityLibGhVisibilityShUnavailable = Code{6}
+	DegradedRemoteVisibilityLibGhVisibilityShUnavailable Code = 6
 	// DegradedRemoteVisibilityGhTimedOutForRemote is the registry row "degraded: remote-visibility: gh timed out for remote".
-	DegradedRemoteVisibilityGhTimedOutForRemote = Code{7}
+	DegradedRemoteVisibilityGhTimedOutForRemote Code = 7
 	// DegradedRemoteVisibilitySkippedAfterTimeoutForRemote is the registry row "degraded: remote-visibility: skipped after timeout for remote".
-	DegradedRemoteVisibilitySkippedAfterTimeoutForRemote = Code{8}
+	DegradedRemoteVisibilitySkippedAfterTimeoutForRemote Code = 8
 	// DegradedRemoteVisibilityGhFailedRcVForRemote is the registry row "degraded: remote-visibility: gh failed (rc=<v>) for remote".
-	DegradedRemoteVisibilityGhFailedRcVForRemote = Code{9}
+	DegradedRemoteVisibilityGhFailedRcVForRemote Code = 9
 	// DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote is the registry row "degraded: remote-visibility: unrecognised gh answer [<v>] for remote".
-	DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote = Code{10}
+	DegradedRemoteVisibilityUnrecognisedGhAnswerVForRemote Code = 10
 	// DegradedBlockedOpenBlockedOpenCountRc is the registry row "degraded: blocked_open: blocked_open_count rc".
-	DegradedBlockedOpenBlockedOpenCountRc = Code{11}
+	DegradedBlockedOpenBlockedOpenCountRc Code = 11
 	// DegradedMissingRuntimeDependency is the registry row "degraded: missing runtime dependency:".
-	DegradedMissingRuntimeDependency = Code{12}
+	DegradedMissingRuntimeDependency Code = 12
 	// DegradedMissingRuntimeDependencies is the registry row "degraded: missing runtime dependencies:".
-	DegradedMissingRuntimeDependencies = Code{13}
+	DegradedMissingRuntimeDependencies Code = 13
 	// DegradedGhNotFoundOnPATH is the registry row "degraded: gh not found on PATH".
-	DegradedGhNotFoundOnPATH = Code{14}
+	DegradedGhNotFoundOnPATH Code = 14
 	// DegradedGitNotFoundOnPATH is the registry row "degraded: git not found on PATH".
-	DegradedGitNotFoundOnPATH = Code{15}
+	DegradedGitNotFoundOnPATH Code = 15
 	// DegradedVIsNotAGitRepository is the registry row "degraded: <v> is not a git repository".
-	DegradedVIsNotAGitRepository = Code{16}
+	DegradedVIsNotAGitRepository Code = 16
 	// DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed is the registry row "degraded: ref <v> is not known locally in <v> (no fetch is performed)".
-	DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed = Code{17}
+	DegradedRefVIsNotKnownLocallyInVNoFetchIsPerformed Code = 17
 	// DegradedRetrosDirectoryNotListable is the registry row "degraded: retros directory not listable:".
-	DegradedRetrosDirectoryNotListable = Code{18}
+	DegradedRetrosDirectoryNotListable Code = 18
 	// DegradedLaterRetroNotReadable is the registry row "degraded: later retro not readable:".
-	DegradedLaterRetroNotReadable = Code{19}
+	DegradedLaterRetroNotReadable Code = 19
 	// DegradedGhIssueListClosedOldGhFallbackFailedExitV is the registry row "degraded: gh issue list (closed, old-gh fallback) failed (exit <v>)".
-	DegradedGhIssueListClosedOldGhFallbackFailedExitV = Code{20}
+	DegradedGhIssueListClosedOldGhFallbackFailedExitV Code = 20
 	// DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField is the registry row "degraded: gh api state_reason listing failed (this gh has no stateReason --json field)".
-	DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField = Code{21}
+	DegradedGhApiStateReasonListingFailedThisGhHasNoStateReasonJsonField Code = 21
 	// DegradedGhIsNotAuthenticated is the registry row "degraded: gh is not authenticated".
-	DegradedGhIsNotAuthenticated = Code{22}
+	DegradedGhIsNotAuthenticated Code = 22
 	// DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV is the registry row "degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')".
-	DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV = Code{23}
+	DegradedRECONCILEISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 23
 	// DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV is the registry row "degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got '<v>')".
-	DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV = Code{24}
+	DegradedSTAGERETROISSUESLISTLIMITMustBeAPositiveIntegerGotV Code = 24
 	// DegradedClosedCacheFileNotReadable is the registry row "degraded: --closed-cache file not readable:".
-	DegradedClosedCacheFileNotReadable = Code{25}
+	DegradedClosedCacheFileNotReadable Code = 25
 	// DegradedIssuesCacheFileNotReadable is the registry row "degraded: --issues-cache file not readable:".
-	DegradedIssuesCacheFileNotReadable = Code{26}
+	DegradedIssuesCacheFileNotReadable Code = 26
 	// DegradedGhIssueListClosedFailedForVExitV is the registry row "degraded: gh issue list (closed) failed for <v> (exit <v>)".
-	DegradedGhIssueListClosedFailedForVExitV = Code{27}
+	DegradedGhIssueListClosedFailedForVExitV Code = 27
 	// DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor is the registry row "degraded: gh issue list (closed) returned <v> results = the --limit <v> cap for".
-	DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor = Code{28}
+	DegradedGhIssueListClosedReturnedVResultsTheLimitVCapFor Code = 28
 	// DegradedGhIssueListFailedForVExitV is the registry row "degraded: gh issue list failed for <v> (exit <v>)".
-	DegradedGhIssueListFailedForVExitV = Code{29}
+	DegradedGhIssueListFailedForVExitV Code = 29
 	// DegradedGhIssueListReturnedVResultsTheLimitVCapFor is the registry row "degraded: gh issue list returned <v> results = the --limit <v> cap for".
-	DegradedGhIssueListReturnedVResultsTheLimitVCapFor = Code{30}
+	DegradedGhIssueListReturnedVResultsTheLimitVCapFor Code = 30
 	// DegradedRetroNotReadable is the registry row "degraded: retro not readable:".
-	DegradedRetroNotReadable = Code{31}
+	DegradedRetroNotReadable Code = 31
 	// DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV is the registry row "degraded: cannot resolve a registered target name for <v> (target_name_for_retro rc=<v>)".
-	DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV = Code{32}
+	DegradedCannotResolveARegisteredTargetNameForVTargetNameForRetroRcV Code = 32
 	// DegradedCannotResolveKitIssueRepoV is the registry row "degraded: cannot resolve kit issue repo (<v>)".
-	DegradedCannotResolveKitIssueRepoV = Code{33}
+	DegradedCannotResolveKitIssueRepoV Code = 33
 	// DegradedCouldNotProbeLabelVOnVGhLabelListExitV is the registry row "degraded: could not probe label '<v>' on <v> (gh label list exit <v>):".
-	DegradedCouldNotProbeLabelVOnVGhLabelListExitV = Code{34}
+	DegradedCouldNotProbeLabelVOnVGhLabelListExitV Code = 34
 	// DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray is the registry row "degraded: gh label list returned an unexpected reply for '<v>' on <v> (expected a JSON array):".
-	DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray = Code{35}
+	DegradedGhLabelListReturnedAnUnexpectedReplyForVOnVExpectedAJSONArray Code = 35
 	// DegradedTargetVIsUnregisteredInVBasenameFallback is the registry row "degraded: target '<v>' is unregistered in <v> (basename fallback)".
-	DegradedTargetVIsUnregisteredInVBasenameFallback = Code{36}
+	DegradedTargetVIsUnregisteredInVBasenameFallback Code = 36
 	// DegradedLabelVIsMissingOnVAndCouldNotBeCreated is the registry row "degraded: label '<v>' is missing on <v> and could not be created:".
-	DegradedLabelVIsMissingOnVAndCouldNotBeCreated = Code{37}
+	DegradedLabelVIsMissingOnVAndCouldNotBeCreated Code = 37
 	// DegradedIconvIsMissingOrUnusable is the registry row "degraded: iconv is missing or unusable".
-	DegradedIconvIsMissingOrUnusable = Code{38}
+	DegradedIconvIsMissingOrUnusable Code = 38
 	// DegradedJqNotFoundOnPATH is the registry row "degraded: jq not found on PATH".
-	DegradedJqNotFoundOnPATH = Code{39}
+	DegradedJqNotFoundOnPATH Code = 39
 	// DegradedJqFailedOn is the registry row "degraded: jq failed on".
-	DegradedJqFailedOn = Code{40}
+	DegradedJqFailedOn Code = 40
 	// DegradedMigrateBacklogsRequiredToolVNotFound is the registry row "degraded: migrate-backlogs: required tool '<v>' not found".
-	DegradedMigrateBacklogsRequiredToolVNotFound = Code{41}
+	DegradedMigrateBacklogsRequiredToolVNotFound Code = 41
 	// DegradedMigrateBacklogsCannotFindHelper is the registry row "degraded: migrate-backlogs: cannot find helper".
-	DegradedMigrateBacklogsCannotFindHelper = Code{42}
+	DegradedMigrateBacklogsCannotFindHelper Code = 42
 	// DegradedMigrateBacklogsHelperVFailedToDefineListStateFiles is the registry row "degraded: migrate-backlogs: helper <v> failed to define list_state_files".
-	DegradedMigrateBacklogsHelperVFailedToDefineListStateFiles = Code{43}
+	DegradedMigrateBacklogsHelperVFailedToDefineListStateFiles Code = 43
 	// DegradedMigrateBacklogsMktempFailed is the registry row "degraded: migrate-backlogs: mktemp failed".
-	DegradedMigrateBacklogsMktempFailed = Code{44}
+	DegradedMigrateBacklogsMktempFailed Code = 44
 	// DegradedMigrateBacklogsCannotRead is the registry row "degraded: migrate-backlogs: cannot read".
-	DegradedMigrateBacklogsCannotRead = Code{45}
+	DegradedMigrateBacklogsCannotRead Code = 45
 	// DegradedMigrateBacklogsAwkFailedOn is the registry row "degraded: migrate-backlogs: awk failed on".
-	DegradedMigrateBacklogsAwkFailedOn = Code{46}
+	DegradedMigrateBacklogsAwkFailedOn Code = 46
 	// DegradedMigrateBacklogsDiffFailedStatusVOn is the registry row "degraded: migrate-backlogs: diff failed (status <v>) on".
-	DegradedMigrateBacklogsDiffFailedStatusVOn = Code{47}
+	DegradedMigrateBacklogsDiffFailedStatusVOn Code = 47
 	// DegradedMigrateBacklogsVIsNotReadableTraversable is the registry row "degraded: migrate-backlogs: <v> is not readable/traversable".
-	DegradedMigrateBacklogsVIsNotReadableTraversable = Code{48}
+	DegradedMigrateBacklogsVIsNotReadableTraversable Code = 48
 	// DegradedMigrateBacklogsFindFailedWhileScanningVUnreadableSubdirectory is the registry row "degraded: migrate-backlogs: find failed while scanning <v> (unreadable subdirectory?)".
-	DegradedMigrateBacklogsFindFailedWhileScanningVUnreadableSubdirectory = Code{49}
+	DegradedMigrateBacklogsFindFailedWhileScanningVUnreadableSubdirectory Code = 49
 	// DegradedMigrateBacklogsScanningVForRESEARCHSTATEMdFailedStatusV is the registry row "degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)".
-	DegradedMigrateBacklogsScanningVForRESEARCHSTATEMdFailedStatusV = Code{50}
+	DegradedMigrateBacklogsScanningVForRESEARCHSTATEMdFailedStatusV Code = 50
 	// DegradedMigrateBacklogsScanningVForFOCUSESMdFailedStatusV is the registry row "degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)".
-	DegradedMigrateBacklogsScanningVForFOCUSESMdFailedStatusV = Code{51}
+	DegradedMigrateBacklogsScanningVForFOCUSESMdFailedStatusV Code = 51
 	// DegradedMigrateBacklogsAwkFailedReading is the registry row "degraded: migrate-backlogs: awk failed reading".
-	DegradedMigrateBacklogsAwkFailedReading = Code{52}
+	DegradedMigrateBacklogsAwkFailedReading Code = 52
 	// DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt is the registry row "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at".
-	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt = Code{53}
+	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt Code = 53
 	// DegradedRsddUnavailable is the registry row "degraded: rsdd-unavailable".
-	DegradedRsddUnavailable = Code{54}
+	DegradedRsddUnavailable Code = 54
 	// AbsentInput is the registry row "absent-input".
-	AbsentInput = Code{55}
+	AbsentInput Code = 55
 	// EmptyInput is the registry row "empty-input".
-	EmptyInput = Code{56}
+	EmptyInput Code = 56
 	// Unclassifiable is the registry row "unclassifiable".
-	Unclassifiable = Code{57}
+	Unclassifiable Code = 57
 	// NoMatch is the registry row "no-match".
-	NoMatch = Code{58}
+	NoMatch Code = 58
 )
 
 var table = []entry{

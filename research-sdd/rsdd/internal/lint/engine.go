@@ -1,18 +1,19 @@
 package lint
 
 // Port of lint_block.py's generic core (kit #1206): units, fences, waivers, R0, R3 and R6. The per-target packs
-// (R1 R4 R5 R7 R8 R9) stay in Python until U3.2 (#2393); see run.go for how a --pack run is handed over.
+// (R1 R4 R5 R7 R8 R9) are ported too (U3.2, #2393); packs.go holds the loader and the pack files the rules.
 //
 // Python's `re` has lookarounds and Unicode classes that Go's regexp lacks. Every such construct is rewritten here
 // as explicit code and pinned by a targeted test (rewrite_test.go):
 //   - R6_CLAIM `\.(?=\S)`           -> claimFiller (the dot is a filler only when a non-space char follows)
 //   - R6_CLAIM `\b` x2              -> boundary checks on the rune before the verdict and after its suffix
-//   - CLAUSE_SPLIT lookbehind/ahead -> clauses() scan (used by the packs only; kept for U3.2)
+//   - CLAUSE_SPLIT lookbehind/ahead -> clauseSplit() scan (packs.go)
 //   - WAIVER_BODY `(R\d+)\b`        -> waiverBody (maximal digit run must end at a non-word rune)
 //   - R3_BLOCKFILE `\.md\b`         -> the match consumes one non-word rune or the end
 //   - `\s \w \d` Unicode            -> wsClass / wordClass / \p{Nd}
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -205,11 +206,7 @@ var (
 	waiverReason  = "reason="
 )
 
-var (
-	ruleIDs             = []string{"R3", "R6"}
-	reservedPackRuleIDs = []string{"R1", "R2", "R4", "R5", "R7", "R8", "R9"}
-	activeRuleList      = "R3, R6"
-)
+var reservedPackRuleIDs = []string{"R1", "R2", "R4", "R5", "R7", "R8", "R9"}
 
 func inList(l []string, s string) bool {
 	for _, x := range l {
@@ -231,9 +228,15 @@ type info struct {
 	msg  string
 }
 
-type coverage struct{ selfverifySections, certHwLive, r6Triggers, certInline int }
+// coverage holds the counters a run proves it looked with. The core ones are fixed; pack rules add `r<N>_triggers`,
+// `r<N>_quoted_skipped` and `r4_unscoped` on demand: a key is present once a rule has run on a document, even at 0.
+type coverage struct {
+	selfverifySections, certHwLive, r6Triggers, certInline int
+	pack                                                   map[string]int
+}
 
 type doc struct {
+	lt      *linter
 	lines   []string
 	fenced  map[int]bool
 	units   []unit
@@ -259,8 +262,9 @@ func waiverBody(s string) (id, rest string, ok bool) {
 	return s[loc[2]:loc[3]], strings.TrimLeftFunc(s[end:], isPySpace), true
 }
 
-func newDoc(text string) *doc {
-	d := &doc{}
+func newDoc(text string, lt *linter) *doc {
+	d := &doc{lt: lt}
+	d.cov.pack = map[string]int{}
 	d.lines = pySplitLines(strings.ReplaceAll(text, "**", ""))
 	var unclosed [][2]int
 	d.fenced, unclosed = scanFences(d.lines)
@@ -292,9 +296,9 @@ func (d *doc) parseWaivers() {
 				d.r0 = append(d.r0, finding{i, "R0", "waiver rule id must be upper-case (" + rule + ", not " + rawID + "); it does NOT waive"})
 				continue
 			}
-			inactive := inList(reservedPackRuleIDs, rule) && !inList(ruleIDs, rule)
-			if !inList(ruleIDs, rule) && !inactive {
-				d.r0 = append(d.r0, finding{i, "R0", "waiver names unknown rule " + rule + " (active: " + activeRuleList + "); it does NOT waive"})
+			inactive := inList(reservedPackRuleIDs, rule) && !inList(d.lt.ids, rule)
+			if !inList(d.lt.ids, rule) && !inactive {
+				d.r0 = append(d.r0, finding{i, "R0", "waiver names unknown rule " + rule + " (active: " + strings.Join(d.lt.ids, ", ") + "); it does NOT waive"})
 				continue
 			}
 			reason := ""
@@ -341,17 +345,31 @@ func (d *doc) unitEnd(u unit) int {
 	return end
 }
 
-// lintText runs R0, R3 and R6 over one document: sorted findings, warnings, infos and the coverage counters.
-func lintText(text string) ([]finding, []info, []info, coverage) {
-	d := newDoc(text)
+type lintResult struct {
+	findings     []finding
+	warns, infos []info
+	cov          coverage
+}
+
+// lint runs R0, the core rules and the loaded packs over one document: sorted findings, warnings, infos and the
+// coverage counters. A rule that panics is an operational failure, not a finding: crash is its message (lint_block.py
+// reported RULE-CRASH for any exception a rule raised) and the result must not be used.
+func (lt *linter) lint(text string) (res lintResult, crash string) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, crash = lintResult{}, fmt.Sprint(r)
+		}
+	}()
+	d := newDoc(text, lt)
 	fs := append([]finding(nil), d.r0...)
-	fs = append(fs, ruleR3(d)...)
-	fs = append(fs, ruleR6(d)...)
+	for _, r := range lt.rules {
+		fs = append(fs, r.fn(d)...)
+	}
 	sort.SliceStable(fs, func(a, b int) bool {
 		if fs[a].line != fs[b].line {
 			return fs[a].line < fs[b].line
 		}
 		return fs[a].rule < fs[b].rule
 	})
-	return fs, d.warns, d.infos, d.cov
+	return lintResult{fs, d.warns, d.infos, d.cov}, ""
 }
