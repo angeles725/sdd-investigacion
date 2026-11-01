@@ -2984,11 +2984,11 @@ _normalize_awk_body() {
   sed 's/# SS-/# BP-/g; s/# VS-/# BP-/g'
 }
 _mirror_status="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$SUT" | _normalize_awk_body)"
-_mirror_vs="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$HERE/../verify-state.sh" | _normalize_awk_body)"
+_mirror_vs="$(awk '/# BACKLOG-ROWS-AWK-START/{p=1} p{print} /OOB-WARN-EOF/{p=0}' "$HERE/../../rsdd/internal/verify/testdata/state-legacy/verify-state.sh" | _normalize_awk_body)"   # the frozen oracle of the Go port (kit issue #2457)
 if [ -z "$_mirror_status" ]; then
   no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from $SUT (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ -z "$_mirror_vs" ]; then
-  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from verify-state.sh (BACKLOG-ROWS-AWK-START marker missing)"
+  no "T-BACKLOG-ROWS-MIRROR: could not extract awk body from the frozen verify-state.sh oracle (BACKLOG-ROWS-AWK-START marker missing)"
 elif [ "$_mirror_status" = "$_mirror_vs" ]; then
   ok "T-BACKLOG-ROWS-MIRROR: awk logic identical in backlog_rows (status.sh) and _backlog_rows (verify-state.sh) after sentinel-prefix normalisation"
 else
@@ -3928,15 +3928,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
 
   # ---- ISSUE #143 teeth -----------------------------------------------------------------------
   # T54 targets copy-2 (verify-state.sh) via --next; T59-T62 target copy-1 (SUT::backlog_rows) via --sync-state.
-  # teeth-T54: neuter BP-INVALID-PRIORITY-FAIL in verify-state.sh; laundered io=0 fixture must return STOP.
-  echo "-- teeth-T54: neuter BP-INVALID-PRIORITY-FAIL in verify-state.sh; laundered fixture must return STOP --"
-  if grep -q '# BP-INVALID-PRIORITY-FAIL' "$HERE/../verify-state.sh"; then
-    sed 's/if \[ -n "\$_bparse_invalid" \]; then  # BP-INVALID-PRIORITY-FAIL/if false; then  # MUTANT-T54/' \
-      "$HERE/../verify-state.sh" > "$TMP/verify-state.sh"; cp "$SUT" "$TMP/status.T54.MUTANT.sh"
-    t54m="$(bash "$TMP/status.T54.MUTANT.sh" "$TMP/bp-laundered" --next 2>/dev/null)"
-    [ "${t54m%%\ *}" = "STOP" ] && ok "teeth-T54: neutered BP-INVALID-PRIORITY-FAIL → STOP — guard is load-bearing" \
-      || no "teeth-T54: mutant returned [$t54m] (want STOP)"
-  else no "teeth-T54: BP-INVALID-PRIORITY-FAIL not found in verify-state.sh"; fi
+  # (kit issue #2457) teeth-T54 mutated verify-state.sh's source; that script is a shim to the Go `rsdd verify state` now and its checks
+  # are pinned by the Go differential tests and `make teeth` (internal/verify).
 
   # T55: neuter BP-SYNC-INVALID-REFUSE; sync must exit 0 (proceeds) — refusal is load-bearing.
   echo "-- teeth-T55: neuter sync-state refusal; unknown-priority fixture must exit 0 (no longer refused) --"
@@ -4377,33 +4370,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth-905-SG-ZERO-WARN: SG-ZERO-WARN sentinel not found in SUT"
   fi
 
-  # ---- teeth-907: the scoped / positive assertions of T53 and T-905 must bite (kit #907) ----
-  # Both mutants are verify-state.sh copies. The OLD assertions (unscoped `grep INFO`, absence-of-FAIL only)
-  # would still pass on them; the new ones must not. Judged by the SAME predicates the tests use.
-  echo "-- teeth-907-T53: verify-state without the unverifiable INFO still prints other INFO lines; scoped assertion must go red --"
-  mu_907a="$TMP/verify-state.907a.MUTANT.sh"
-  sed '/echo "   INFO   covered_blocks unverifiable under shared-global/s/.*/      : # MUTANT-907-INFO/' "$HERE/../verify-state.sh" > "$mu_907a"
-  if ! grep -q 'MUTANT-907-INFO' "$mu_907a" || cmp -s "$HERE/../verify-state.sh" "$mu_907a"; then
-    no "teeth-907-T53: could not build mutant (INFO echo not found — did verify-state.sh change?)"
-  else
-    mkdir -p "$TMP/vs907a/lib"; cp "$HERE/../lib/"*.sh "$TMP/vs907a/lib/"; cp "$mu_907a" "$TMP/vs907a/verify-state.sh"
-    _o907_real="$(bash "$HERE/../verify-state.sh" "$d52" 2>/dev/null)"; _o907_mut="$(bash "$TMP/vs907a/verify-state.sh" "$d52" 2>/dev/null)"
-    if _sg_unverifiable_info "$_o907_real" && ! _sg_unverifiable_info "$_o907_mut" && grep -qF 'INFO' <<<"$_o907_mut"; then
-      ok "teeth-907-T53: mutant still prints INFO (old unscoped grep would pass) but the scoped assertion fails → T53 is load-bearing"
-    else no "teeth-907-T53: real-scoped=$(_sg_unverifiable_info "$_o907_real" && echo y || echo n) mutant-scoped=$(_sg_unverifiable_info "$_o907_mut" && echo y || echo n) — THEATER"; fi
-  fi
-  echo "-- teeth-907-T905: verify-state without the 'envelope validated' line is FAIL-free yet must fail the positive assertion --"
-  mu_907b="$TMP/verify-state.907b.MUTANT.sh"
-  sed '/envelope validated + summary consistent/s/.*/  : # MUTANT-907-OK/' "$HERE/../verify-state.sh" > "$mu_907b"
-  if ! grep -q 'MUTANT-907-OK' "$mu_907b" || cmp -s "$HERE/../verify-state.sh" "$mu_907b"; then
-    no "teeth-907-T905: could not build mutant (envelope-validated echo not found — did verify-state.sh change?)"
-  else
-    mkdir -p "$TMP/vs907b/lib"; cp "$HERE/../lib/"*.sh "$TMP/vs907b/lib/"; cp "$mu_907b" "$TMP/vs907b/verify-state.sh"
-    _o905_real="$(bash "$HERE/../verify-state.sh" "$d_905" 2>&1)"; _o905_mut="$(bash "$TMP/vs907b/verify-state.sh" "$d_905" 2>&1)"
-    if _sg_attr_positive "$_o905_real" && ! grep -qF 'FAIL' <<<"$_o905_mut" && ! _sg_attr_positive "$_o905_mut"; then
-      ok "teeth-907-T905: mutant is FAIL-free (old negative-only check would pass) but the positive assertion fails → T-905 is load-bearing"
-    else no "teeth-907-T905: real-positive=$(_sg_attr_positive "$_o905_real" && echo y || echo n) mutant-fail-free=$(grep -qF FAIL <<<"$_o905_mut" && echo n || echo y) mutant-positive=$(_sg_attr_positive "$_o905_mut" && echo y || echo n) — THEATER"; fi
-  fi
+  # (kit issue #2457) teeth-907-T53 and teeth-907-T905 mutated verify-state.sh's source; that script is a shim to the Go `rsdd verify state` now and its checks
+  # are pinned by the Go differential tests and `make teeth` (internal/verify).
 
   # ---- teeth-SS-634-BOLD: remove ** stripping from BOTH layers; pending** must NOT count as investigable ----
   # SS-634-BOLD-STRIP (backlog_rows) and BOLD-STRIP (count_investigable) form a two-layer defense.
@@ -5564,28 +5532,8 @@ open(sys.argv[2], 'w').write(out)
     no "teeth-T-N3-COVERED-PIPE-WARN-5COL: SS-COVERED-PIPE-WARN sentinel not found in SUT"
   fi
 
-  # teeth-T-M1-DENOM-UNSPACED: restore spaces-required grep → unspaced fractions not detected →
-  # T-M1-DENOM-UNSPACED goes RED (no contradictory-denominators WARN for 7/8 vs 7/7).
-  echo "-- teeth-T-M1-DENOM-UNSPACED: revert to spaces-required grep → unspaced fractions missed --"
-  _m1_mutant_vs="$TMP/verify-state.M1.MUTANT.sh"
-  if grep -q 'space.*\*.*\/.*space\|match.*space.*\*.*\/' "$HERE/../verify-state.sh" 2>/dev/null || grep -q 'awk.*match.*RSTART.*RLENGTH' "$HERE/../verify-state.sh"; then
-    cp "$HERE/../verify-state.sh" "$_m1_mutant_vs"
-    sed -i "s|LC_ALL=C awk 'match.*RSTART.*RLENGTH[^']*'|grep -oE '[0-9]+[[:space:]]+/[[:space:]]+[0-9]+'|" "$_m1_mutant_vs"
-    if cmp -s "$_m1_mutant_vs" "$HERE/../verify-state.sh"; then
-      no "teeth-T-M1-DENOM-UNSPACED: mutant identical to SUT — sed did not apply mutation"
-    elif ! bash -n "$_m1_mutant_vs" 2>/dev/null; then
-      no "teeth-T-M1-DENOM-UNSPACED: mutant has syntax error (bash -n)"
-    else
-      _m1_mut_out="$(bash "$_m1_mutant_vs" "$d_m1" 2>&1)"
-      if ! grep -qi 'contradictory' <<<"$_m1_mut_out"; then
-        ok "teeth-T-M1-DENOM-UNSPACED: mutant (spaces-required grep) → unspaced 7/8 vs 7/7 not detected → T-M1-DENOM-UNSPACED goes RED"
-      else
-        no "teeth-T-M1-DENOM-UNSPACED: mutant still detects contradictory denominators — THEATER"
-      fi
-    fi
-  else
-    no "teeth-T-M1-DENOM-UNSPACED: awk-match sentinel not found in verify-state.sh"
-  fi
+  # (kit issue #2457) teeth-T-M1-DENOM-UNSPACED mutated verify-state.sh's source; that script is a shim to the Go `rsdd verify state` now and its checks
+  # are pinned by the Go differential tests and `make teeth` (internal/verify).
 
 fi
 
