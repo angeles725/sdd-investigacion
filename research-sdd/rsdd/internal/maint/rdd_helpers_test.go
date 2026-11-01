@@ -103,8 +103,6 @@ func (f *fake) run(argv []string, dir string) (result, error) {
 
 func (f *fake) callLines() string { return strings.Join(f.calls, "\n") }
 
-type outcome struct{ out, err string }
-
 func stdio(cwd string) (cli.Stdio, *bytes.Buffer, *bytes.Buffer) {
 	var o, e bytes.Buffer
 	return cli.Stdio{In: strings.NewReader(""), Out: &o, Err: &e, Env: func(string) string { return "" }, Environ: func() []string { return nil },
