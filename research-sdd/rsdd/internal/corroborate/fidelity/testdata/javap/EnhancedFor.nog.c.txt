@@ -1,0 +1,35 @@
+Compiled from "EnhancedFor.java"
+public class EnhancedFor {
+  public EnhancedFor();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static int sum(int[]);
+    Code:
+       0: iconst_0
+       1: istore_1
+       2: aload_0
+       3: astore_2
+       4: aload_2
+       5: arraylength
+       6: istore_3
+       7: iconst_0
+       8: istore        4
+      10: iload         4
+      12: iload_3
+      13: if_icmpge     33
+      16: aload_2
+      17: iload         4
+      19: iaload
+      20: istore        5
+      22: iload_1
+      23: iload         5
+      25: iadd
+      26: istore_1
+      27: iinc          4, 1
+      30: goto          10
+      33: iload_1
+      34: ireturn
+}
