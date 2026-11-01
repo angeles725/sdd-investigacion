@@ -39,6 +39,9 @@ func TestTitleUnusable(t *testing.T) {
 		{"éééééééééééé", false, ""},                          // 12 characters, 24 bytes
 		{"ééééééééééé", true, "a title under 12 characters"}, // 11 characters, 22 bytes
 		{"regression in the parser", false, ""},
+		{"€€€€€€€€€€€€", false, ""},                                     // 12 characters, 36 bytes
+		{"€€€€€€€€€€€", true, "a title under 12 characters"},            // 11 characters, 33 bytes: a byte count would accept it
+		{"\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9", false, ""}, // not UTF-8: counted in bytes, 12 of them
 	} {
 		bad, why := titleUnusable(c.title)
 		if bad != c.bad || why != c.reason {
