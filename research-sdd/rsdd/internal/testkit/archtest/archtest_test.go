@@ -24,10 +24,11 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 		"gamma/g.go: os.LookupEnv",
 		"gamma/g.go: time.Now",
 		"gamma/g.go: os.Getwd",
-		"cli/other.go: os.Getenv",       // only cli/stdio.go is exempt
-		"cmd/tool/main.go: time.Now",    // cmd/ is scanned too
-		"commands/c.go: os.Getenv",      // the registry tier is not exempt from the call ban
-		"dotimp/d.go: dot-import of os", // `import . "os"` would hide every ambient read
+		"cli/other.go: os.Getenv",         // only cli/stdio.go is exempt
+		"cmd/tool/main.go: time.Now",      // cmd/ is scanned too
+		"commands/c.go: os.Getenv",        // the registry tier is not exempt from the call ban
+		"gamma/abs.go: path/filepath.Abs", // implicit cwd read
+		"dotimp/d.go: dot-import of os",   // `import . "os"` would hide every ambient read
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("violation %q not reported; got:\n%s", want, got)
@@ -40,8 +41,8 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 			t.Errorf("exempt file was reported: %s", line)
 		}
 	}
-	if len(r.Violations) != 13 {
-		t.Errorf("want exactly 13 violations, got %d:\n%s", len(r.Violations), got)
+	if len(r.Violations) != 14 {
+		t.Errorf("want exactly 14 violations, got %d:\n%s", len(r.Violations), got)
 	}
 }
 

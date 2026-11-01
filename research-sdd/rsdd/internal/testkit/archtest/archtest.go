@@ -46,11 +46,13 @@ const stdioFile = "cli/stdio.go"
 var forbiddenCalls = map[string]map[string]bool{
 	"os":   {"Getenv": true, "LookupEnv": true, "Getwd": true},
 	"time": {"Now": true},
+	// Abs of a relative path joins it to the process cwd: an implicit Getwd.
+	"path/filepath": {"Abs": true},
 }
 
 // Check scans every .go file under root/internal and root/cmd (testdata
 // excluded) and applies two rules: the tier import rule, and the ban on
-// os.Getenv / os.LookupEnv / os.Getwd / time.Now outside internal/cli/stdio.go
+// os.Getenv / os.LookupEnv / os.Getwd / time.Now / filepath.Abs outside internal/cli/stdio.go
 // (test files are exempt). module is the module path used to recognise
 // internal imports. cmd/ packages are registry-tier: they may import
 // anything internal, but are still subject to the call ban.
@@ -118,7 +120,7 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 				return fmt.Errorf("archtest: %s: bad import literal %s: %w", path, imp.Path.Value, err)
 			}
 			if _, watched := forbiddenCalls[p]; watched {
-				local := p
+				local := p[strings.LastIndex(p, "/")+1:] // default import name: last path element
 				if imp.Name != nil {
 					local = imp.Name.Name
 				}
