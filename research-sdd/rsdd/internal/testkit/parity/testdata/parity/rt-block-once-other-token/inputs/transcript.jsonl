@@ -1,0 +1,2 @@
+{"type": "user", "message": {"role": "user", "content": "go"}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "status: done\ngap closed: shader pipeline\nblock: blocks/b1.md\nnext: trivia"}]}}
