@@ -41,6 +41,9 @@ var stationRefsCases = []struct {
 	{"the module keeps later equals signs", `<p m='a=b=c' t='a:X'/>`, refs{"b=c": {"X"}}, 0},
 	{"a type name with a dash does not match", `<p m='a=mod' t='a:X-Y'/>`, refs{"mod": {}}, 0},
 	{"a type with two colons does not match", `<p m='a=mod' t='a:b:C'/>`, refs{"mod": {}}, 0},
+	{"an alias with a tab does not match", "<p m='a=mod' t='a\tb:X'/>", refs{"mod": {}}, 0},
+	{"an alias with a no-break space does not match", "<p m='a=mod' t='a\u00a0b:X'/>", refs{"mod": {}}, 0},
+	{"an alias with a C0 separator does not match", "<p m='a=mod' t='a\x1cb:X'/>", refs{"mod": {}}, 0},
 	{"an alias with a space does not match", `<p m='a=mod' t='a b:X'/>`, refs{"mod": {}}, 0},
 	{"a hyphenated alias", `<p m='honbac-util=hon' t='honbac-util:Net'/>`, refs{"hon": {"Net"}}, 0},
 	{"a non-ASCII alias", `<p m='é=mod' t='é:X'/>`, refs{"mod": {"X"}}, 0},
@@ -425,5 +428,55 @@ func TestSMDocumentCarriesTheLimitationsAndNeverASlotValue(t *testing.T) {
 	}
 	if got := r.strs(t, r.doc["limitations"]); !reflect.DeepEqual(got, want) {
 		t.Errorf("limitations = %v", got)
+	}
+}
+
+// sorted() orders os.listdir() names by code point, a byte that is not UTF-8 counting as the lone surrogate
+// U+DC00+byte. The later of two JARs declaring one part wins, so the order is observable.
+func TestSMJarOrderFollowsPythonSurrogateEscape(t *testing.T) {
+	fx := smFix(t)
+	p := filepath.Join(fx.dir, "baja.bog")
+	smWrite(t, p, bogtest.Bog(`<p m='b=baja' t='b:Station'/>`))
+	for _, tt := range []struct {
+		other      string
+		bajaIsLast bool
+	}{
+		{"\u00e9.jar", true},      // U+00E9 < U+DCFF: the invalid name sorts after it
+		{"\uf000.jar", false},     // U+F000 > U+DCFF
+		{"\U0001f600.jar", false}, // an astral character is above every surrogate
+	} {
+		t.Run(fmt.Sprintf("%q", tt.other), func(t *testing.T) {
+			root := smInstall(t, map[string][]byte{
+				"\xff.jar": smJar("baja", "dup-rt", "Station"),
+				tt.other:   smJar("other", "dup-rt", "Station"),
+			})
+			r := runModules(t, p, root)
+			got := r.strs(t, r.obj(t, "modules", "baja")["installed_parts"])
+			if (len(got) == 1) != tt.bajaIsLast {
+				t.Errorf("installed_parts = %v; the winner must be the name Python sorts last", got)
+			}
+		})
+	}
+}
+
+func TestSMModuleXMLIsDecodedLeniently(t *testing.T) {
+	fx := smFix(t)
+	root := smInstall(t, map[string][]byte{"p.jar": moduleXMLJar("<module name=\"p\xff-rt\" moduleName=\"baja\"/>")})
+	r := runModules(t, fx.bog["valid.bog"], root)
+	got := r.strs(t, r.obj(t, "modules", "baja")["installed_parts"])
+	if !reflect.DeepEqual(got, []string{"p\ufffd-rt"}) {
+		t.Errorf("installed_parts = %q", got)
+	}
+}
+
+func TestSMPartWithoutANameIsScannedButNotIndexed(t *testing.T) {
+	fx := smFix(t)
+	root := smInstall(t, map[string][]byte{"p.jar": moduleXMLJar(`<module moduleName="baja"/>`)})
+	r := runModules(t, fx.bog["valid.bog"], root)
+	if got := r.strs(t, r.obj(t, "modules", "baja")["installed_parts"]); len(got) != 0 || r.num(t, "jars_scanned") != 1 {
+		t.Errorf("installed_parts = %q, summary = %v", got, r.obj(t, "summary"))
+	}
+	if _, ok := r.obj(t, "missing_parts")["baja-rt"]; !ok {
+		t.Errorf("missing_parts = %v", r.obj(t, "missing_parts"))
 	}
 }
