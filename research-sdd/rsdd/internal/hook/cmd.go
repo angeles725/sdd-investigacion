@@ -53,13 +53,3 @@ func runGitRoot(args []string, s cli.Stdio) int {
 	fmt.Fprintf(s.Out, "%d\n%s\n", flag, root)
 	return cli.ExitOK
 }
-
-// abspath prints the collapsed absolute path and a newline (same terminator convention as git-root).
-func runAbsPath(args []string, s cli.Stdio) int {
-	p, ok := oneArg("abspath", "<path>", args, s)
-	if !ok {
-		return cli.ExitUsage
-	}
-	fmt.Fprintln(s.Out, AbsPath(s.Cwd, p))
-	return cli.ExitOK
-}

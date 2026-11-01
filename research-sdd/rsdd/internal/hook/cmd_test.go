@@ -30,7 +30,7 @@ func TestCommandsValidate(t *testing.T) {
 	if err := cli.Validate(Commands); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"abspath", "git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
 		found := false
 		for _, c := range Commands {
 			if c.Group == "hook" && c.Name == name {
@@ -86,13 +86,6 @@ func TestScriptStateCommand(t *testing.T) {
 	}
 }
 
-func TestAbsPathCommand(t *testing.T) {
-	out, errOut, code := run(t, "/w", nil, "hook", "abspath", "a/../b/./c\nd")
-	if out != "/w/b/c\nd\n" || errOut != "" || code != 0 {
-		t.Errorf("abspath = (%q, %q, %d)", out, errOut, code)
-	}
-}
-
 func TestGitRootCommand(t *testing.T) {
 	r, _ := sandbox(t)
 	gitInit(t, filepath.Join(r, "p"))
@@ -115,7 +108,7 @@ func TestGitRootCommand(t *testing.T) {
 }
 
 func TestCommandsUsage(t *testing.T) {
-	for _, name := range []string{"abspath", "git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
 		for _, args := range [][]string{{"hook", name}, {"hook", name, "a", "b"}} {
 			out, errOut, code := run(t, "/w", nil, args...)
 			if out != "" || code != cli.ExitUsage || !strings.Contains(errOut, "usage: rsdd hook "+name+" ") {
@@ -130,7 +123,7 @@ func TestHookGroupHelpListsTheCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, name := range []string{"abspath", "git-root", "wiring-state", "script-state"} {
+	for _, name := range []string{"git-root", "wiring-state", "script-state"} {
 		if !strings.Contains(out, name) {
 			t.Errorf("hook --help does not list %s:\n%s", name, out)
 		}
