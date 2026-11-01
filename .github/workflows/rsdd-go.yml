@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   rsdd-go:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
     timeout-minutes: 15
     defaults:
       run:
