@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,7 +38,11 @@ func runLegacy(t *testing.T, bash string, b *box, c dcase) result {
 		}
 		rc = ee.ExitCode()
 	}
-	return collect(b, stub, rc, so.String(), se.String())
+	r := collect(b, stub, rc, so.String(), se.String())
+	// Declared divergence: legacy-only gawk locale noise (see dropGawkNoise); the Go port never emits it.
+	r.Stderr = dropGawkNoise(r.Stderr)
+	r.Stderr = dropBashNoise(c.name, r.Stderr)
+	return r
 }
 
 func TestDifferential(t *testing.T) {
@@ -52,11 +57,14 @@ func TestDifferential(t *testing.T) {
 			b := mkBox(t, c)
 			want := runLegacy(t, bash, b, c)
 			got := runGo(t, b, c)
+			if c.name == "titles/invalid-utf8-over-120-utf8" && !strings.Contains(want.Stderr, "note: covers_through") {
+				t.Errorf("the gawk-noise filter must leave the rest of stderr to be compared byte for byte; legacy stderr: %q", want.Stderr)
+			}
 			if d := diffResult(want, got); d != "" {
 				t.Errorf("Go differs from the legacy script:\n%s", d)
 			}
 			if updateGoldens() {
-				data, _ := json.MarshalIndent(want, "", "  ")
+				data, _ := json.MarshalIndent(want.packed(), "", "  ")
 				if err := os.WriteFile(goldenPath(c.name), append(data, '\n'), 0o644); err != nil {
 					t.Fatal(err)
 				}

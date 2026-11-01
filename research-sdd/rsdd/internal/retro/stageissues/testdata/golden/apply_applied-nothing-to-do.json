@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "unclassifiable-items: 0 (retro-closed: applied)\n",
+  "stderr": "no-match: retro is 'applied' — all rows shipped\n",
+  "ghlog": "gh auth status\n"
+}

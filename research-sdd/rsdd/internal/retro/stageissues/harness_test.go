@@ -231,8 +231,23 @@ func runGo(t *testing.T, b *box, c dcase) result {
 	}
 	args := append([]string{"retro", "stage-issues", "--toolbelt", b.toolbt}, c.argList(b)...)
 	rc := cli.Run([]cli.Command{Command}, args, s)
-	return collect(b, stub, rc, out.String(), errb.String())
+	r := collect(b, stub, rc, out.String(), errb.String())
+	// Declared divergence: rsdd's cli appends this exact line to every exit-3 run that printed no `DEGRADED:` line.
+	// Here exit 3 means an unknown mutation outcome, which the bash never reported as degraded. Dropped only when
+	// it is the LAST stderr line and the exit code is 3.
+	r.Stderr = stripCLIDegraded(rc, r.Stderr)
+	return r
 }
+
+// stripCLIDegraded drops cliDegradedLine only when rc is 3 and it is the last stderr line.
+func stripCLIDegraded(rc int, stderr string) string {
+	if rc != 3 {
+		return stderr
+	}
+	return strings.TrimSuffix(stderr, cliDegradedLine)
+}
+
+const cliDegradedLine = "DEGRADED: command reported a degraded state without a reason\n"
 
 func seedStub(t *testing.T, dir string, c dcase) {
 	t.Helper()
@@ -245,7 +260,10 @@ func seedStub(t *testing.T, dir string, c dcase) {
 }
 
 func collect(b *box, stub string, rc int, stdout, stderr string) result {
-	norm := func(s string) string { return strings.ReplaceAll(s, b.root, "@BOX@") }
+	// the box's parent is named in the enclosing-checkout messages, so it is normalised too (after the box itself)
+	norm := func(s string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(s, b.root, "@BOX@"), filepath.Dir(b.root), "@BOXPARENT@")
+	}
 	r := result{RC: rc, Stdout: norm(stdout), Stderr: norm(stderr)}
 	if log, err := os.ReadFile(filepath.Join(stub, "gh.log")); err == nil {
 		r.GHLog = norm(string(log))
@@ -278,7 +296,7 @@ func readGolden(t *testing.T, name string) result {
 	if err := json.Unmarshal(data, &r); err != nil {
 		t.Fatalf("golden %s: %v", name, err)
 	}
-	return r
+	return r.unpacked()
 }
 
 func diffResult(a, b result) string {
