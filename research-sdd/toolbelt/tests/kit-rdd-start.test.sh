@@ -23,6 +23,23 @@ PY="$(command -v python3)" || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# The SUT is a compatibility shim over the Go binary (kit issue #2394, epic #2270): `rsdd maint rdd-start`. The
+# suite is the black-box check of the shim plus the Go command behind it. $RSDD_BIN wins; otherwise one binary
+# is built into the suite temp dir (never into the tree) and exported so the teeth's child runs reuse it.
+# The behaviour's mutation controls live in the Go tests (internal/maint, `make teeth`); the controls below
+# mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "FATAL: go not in PATH and RSDD_REQUIRE_GO=1" >&2; exit 2; fi
+    echo "SKIP: go not in PATH - the shim cannot reach rsdd (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -186,22 +203,15 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: kit-rdd-start mutation controls --"
-MUT="$TMP/mut"; mkdir -p "$MUT"
+# a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$TMP/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
 tooth() { # LABEL OLD NEW GOOD_RC BAD_RC SCENARIO [tooth opts...]
   local label="$1" old="$2" new="$3" g="$4" b="$5" sc="$6"; shift 6
   local m="$MUT/${label// /_}.py"
   if ! mutant_py_replace "$label" "$SUT" "$old" "$new" "$m"; then no "tooth $label: mutant refused"; return; fi
   if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-tooth "consent gate removed" 'if args.consent != "granted":' 'if False:' 15 0 consent --bad-lacks 'consent-required'
-tooth "unique granted check weakened" 'if len(granted) != 1:' 'if len(granted) < 1:' 14 0 dup-granted
-tooth "argv0 check removed" 'if inv[:3] != ["gentle-ai", "review", "start"]:' 'if False:' 14 14 evil-granted --good-lacks 'PWNED=yes' --bad-has 'PWNED=yes'
-tooth "not-due gate removed" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if False:' 10 14 notdue
-tooth "envelope no longer lossless" 'print(json.dumps(env, indent=2, sort_keys=True))' 'print("envelope omitted")' 15 15 consent --good-has 'consent declined' --bad-lacks 'consent declined'
-tooth "not-due needs rc 0" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if assess.get("review_due") is False:' 14 10 assess-rc1
-tooth "not-due must be an exact bool" 'if assess_rc == 0 and assess.get("review_due") is False:' 'if not assess.get("review_due"):' 14 10 assess-nokey
-tooth "STATUS allowlist removed" 'if status_cmd[:3] != ["gentle-ai", "review", "status"]:' 'if False:' 14 14 assess-shcmd --good-lacks 'PWNED=yes' --bad-has 'PWNED=yes'
-tooth "granted allowlist removed" 'if inv[:3] != ["gentle-ai", "review", "start"]:' 'if False:' 14 0 consent-wrongop+g
-tooth "refused START reported as started" 'if not isinstance(doc.get("next_transition") or doc.get("status_continuation"), dict):' 'if False:' 14 0 refused
+tooth "shim dispatches to the sibling command" 'rsdd_exec maint rdd-start' 'rsdd_exec maint rdd-drive' 15 14 consent
+tooth "shim drops the caller's arguments" '"$@"' '' 15 2 consent
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

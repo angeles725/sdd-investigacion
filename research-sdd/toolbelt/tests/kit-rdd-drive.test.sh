@@ -23,6 +23,23 @@ PY="$(command -v python3)" || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# The SUT is a compatibility shim over the Go binary (kit issue #2394, epic #2270): `rsdd maint rdd-drive`. The
+# suite is the black-box check of the shim plus the Go command behind it. $RSDD_BIN wins; otherwise one binary
+# is built into the suite temp dir (never into the tree) and exported so the teeth's child runs reuse it.
+# The behaviour's mutation controls live in the Go tests (internal/maint, `make teeth`); the controls below
+# mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "FATAL: go not in PATH and RSDD_REQUIRE_GO=1" >&2; exit 2; fi
+    echo "SKIP: go not in PATH - the shim cannot reach rsdd (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -160,19 +177,15 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: kit-rdd-drive mutation controls --"
-MUT="$TMP/mut"; mkdir -p "$MUT"
+# a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$TMP/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
 tooth() { # LABEL OLD NEW GOOD_RC BAD_RC SCENARIO [tooth opts...]
   local label="$1" old="$2" new="$3" g="$4" b="$5" sc="$6"; shift 6
   local m="$MUT/${label// /_}.py"
   if ! mutant_py_replace "$label" "$SUT" "$old" "$new" "$m"; then no "tooth $label: mutant refused"; return; fi
   if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-tooth "captures run serially" 'max_workers=len(cmds)' 'max_workers=1' 0 0 approve --good-lacks 'barrier timeout' --bad-has 'barrier timeout'
-tooth "captures launched out of order" 'for i in inputs]' 'for i in inputs][::-1]' 0 0 approve --good-has 'LAUNCH-ORDER=risk,resilience' --bad-lacks 'LAUNCH-ORDER=risk,resilience'
-tooth "non-capture collect no longer stops" 'if odd:' 'if False:' 13 13 correction-collect --good-has 'rdd-stop: non-capture-collect' --bad-lacks 'rdd-stop: non-capture-collect'
-tooth "operation allowlist removed" 'not op.startswith("review.")' 'False' 14 13 badop-nonreview
-tooth "every stop treated as success" 'sys.exit(0 if reason == "target_already_acknowledged" else 13)' 'sys.exit(0)' 13 0 budget
-tooth "consent document no longer stops" 'sys.exit(15)' 'sys.exit(0)' 15 0 consent
-tooth "step limit cut to two" 'for step in range(args.max_steps):' 'for step in range(2):' 0 13 approve
+tooth "shim dispatches to the sibling command" 'rsdd_exec maint rdd-drive' 'rsdd_exec maint rdd-start' 13 14 budget
+tooth "shim drops the caller's arguments" '"$@"' '' 13 2 budget
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

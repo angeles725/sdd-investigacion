@@ -25,6 +25,23 @@ for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh ki
 done
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# kit-rdd-start.py / kit-rdd-drive.py are compatibility shims over the Go binary (kit issue #2394): $RSDD_BIN
+# wins, otherwise one binary is built into the suite temp dir (never into the tree) and exported so the
+# scenario children reuse it. $TMP/lib lets the shims of a staged copy of maint/ (the teeth) find
+# ../lib/rsdd-exec.sh.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "FATAL: go not in PATH and RSDD_REQUIRE_GO=1" >&2; exit 2; fi
+    echo "SKIP: go not in PATH - the RDD shims cannot reach rsdd (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+ln -s "$TB/lib" "$TMP/lib"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }

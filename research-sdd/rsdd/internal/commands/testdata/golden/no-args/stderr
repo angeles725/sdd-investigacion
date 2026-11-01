@@ -3,4 +3,6 @@ Usage:
   rsdd <group> <command> [args]
 
 Commands:
+  maint rdd-drive          follow the provider-issued review transitions to acknowledgement
+  maint rdd-start          assess the committed range and start the native review (explicit consent)
   version                  print the module version and VCS revision
