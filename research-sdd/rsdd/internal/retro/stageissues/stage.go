@@ -64,7 +64,7 @@ func (a *app) stage() int {
 		if raw := grammar.ShippedRaw(a.markerLine); raw != "" {
 			ids, err := grammar.ShippedIDs(raw)
 			if err != nil {
-				a.errf("degraded: the review-status marker of %s lists a shipped: range too large to expand (%v)\n", a.retroBase, err)
+				a.errf("degraded: the review-status marker of %s lists a shipped: range too large to expand (%s)\n", a.retroBase, err.Error())
 				return 1
 			}
 			a.shipped = ids
