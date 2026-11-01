@@ -1,0 +1,18 @@
+== research-sdd-archive: c  ·  corpus: (flat)  ·  DRY-RUN ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : OVERRIDDEN — 1 one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s) (--allow-unreciprocated-corrections given; gate NOT enforced)
+      FAIL   B2 corrects [Block 1] but t-block1.md has no reciprocal backlink to B2 (accepted: 'corrected in'/'corregido en'/'refined in'/corrigendum/erratum/'CORRECCIÓN — [Block 2]' naming it) (§14) [correcting: t-block2.md]
+    scan-secrets  : ok
+  -- consolidate --
+    catalog        : would regenerate via kit generator (@ROOT@/tb/../templates/gen-catalog.py)
+    index          : would touch INDEX.md
+  -- mirror facts (for the TARGETS.md row refresh; not applied here) --
+    blocks on disk : 2 · retros: 1 · iteration-history rows: 1
+  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --
+    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal.
+    · RETRO (§18): delegate a fresh-context retro agent → @ROOT@/work/case/c/retros/<date>-<focus>.md (review-status: pending).
+    · MIRROR: refresh this target's row in $KIT/TARGETS.md with the counts above (blocks=2, retros=1).
+    · COMMIT (corpus only): git -C @ROOT@/work/case/c add -A && git -C @ROOT@/work/case/c commit  (orchestrator artifacts stay gitignored, §15).
+  archived (dry-run — nothing mutated).
