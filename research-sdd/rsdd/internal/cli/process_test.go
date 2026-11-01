@@ -55,6 +55,11 @@ func TestValidateRejectsShadowing(t *testing.T) {
 		{"group shadows command", []Command{{Name: "g", Summary: "s", Run: run}, ok}, "collides"},
 		{"empty name", []Command{{Summary: "s", Run: run}}, "empty name"},
 		{"nil run", []Command{{Name: "n", Summary: "s"}}, "no Run"},
+		{"ungrouped help alias", []Command{{Name: "help", Summary: "s", Run: run}}, "help"},
+		{"ungrouped --help", []Command{{Name: "--help", Summary: "s", Run: run}}, "help"},
+		{"ungrouped -h", []Command{{Name: "-h", Summary: "s", Run: run}}, "help"},
+		{"grouped help alias", []Command{{Name: "help", Group: "g", Summary: "s", Run: run}}, "help"},
+		{"group named help", []Command{{Name: "a", Group: "help", Summary: "s", Run: run}}, "help"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
