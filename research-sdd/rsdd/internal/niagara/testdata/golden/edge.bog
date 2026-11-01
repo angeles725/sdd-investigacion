@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<bajaObjectGraph version='4.0'>
+ <p n='Zoë' h='9' t='ü:Type' m='ü=mödule b=baja'>
+  <p n='Dup' h='1' t='b:First'/>
+  <p n='Other' h='2' t='b:Other'/>
+  <p n='Dup' h='1' t='b:Second'/>
+  <p n="dq" h="3" t="b:Dq" />
+  <p n='emoji😀' h='4' t='b:E'/>
+  <p n='Facets'>
+   <p n='Deep' h='5' t='b:Deep'/>
+  </p>
+  <a n='act'><p n='arg' v='x'/></a>
+  <p n='Tail' h='6' t='b:Tail'/>
+  <p n='Unresolved' t='b:Link'>
+   <p n='sourceOrd' v='h:404'/>
+   <p n='targetSlotName' v='in'/>
+  </p>
+  <p n='Resolved' t='b:Link'>
+   <p n='sourceOrd' v='h:2'/>
+   <p n='sourceSlotName' v='out'/>
+  </p>
+ </p>
+</bajaObjectGraph>

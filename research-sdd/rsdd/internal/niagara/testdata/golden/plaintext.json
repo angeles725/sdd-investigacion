@@ -1,0 +1,53 @@
+{
+  "components": [
+    {
+      "handle": "1",
+      "module": "baja",
+      "path": "Station",
+      "type": "b:Station"
+    },
+    {
+      "handle": "3",
+      "module": "control",
+      "path": "Station/Logic",
+      "type": "c:BooleanWritable"
+    },
+    {
+      "handle": "2",
+      "module": "baja",
+      "path": "Station/Services",
+      "type": "b:ServiceContainer"
+    }
+  ],
+  "errors": [],
+  "input": {
+    "format": "plaintext-xml",
+    "sha256": "ceeaa5ac8bcdccfe84c7a06c59d023edb5411b065cdb333f12f2f13fff9047d2",
+    "size_bytes": 435
+  },
+  "limitations": [
+    "Component list capped at 50000 entries.",
+    "Link list capped at 20000 entries.",
+    "ZIP file.xml inflate capped at 32 MiB (zip-bomb protection).",
+    "Slot values are never emitted (secrets discipline)."
+  ],
+  "links": [
+    {
+      "link_name": "Link",
+      "source": "Station/Services.out",
+      "src_resolved": true,
+      "target": "Station/Logic.in10"
+    }
+  ],
+  "schema": "bog-nav.v1",
+  "status": "complete",
+  "summary": {
+    "components": 3,
+    "links": 1,
+    "prefixes": {
+      "b": "baja",
+      "c": "control"
+    }
+  },
+  "truncated": false
+}

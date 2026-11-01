@@ -1,0 +1,83 @@
+{
+  "components": [
+    {
+      "handle": "9",
+      "module": "m\u00f6dule",
+      "path": "Zo\u00eb",
+      "type": "\u00fc:Type"
+    },
+    {
+      "handle": "1",
+      "module": "baja",
+      "path": "Zo\u00eb/Dup",
+      "type": "b:Second"
+    },
+    {
+      "handle": "5",
+      "module": "baja",
+      "path": "Zo\u00eb/Facets/Deep",
+      "type": "b:Deep"
+    },
+    {
+      "handle": "2",
+      "module": "baja",
+      "path": "Zo\u00eb/Other",
+      "type": "b:Other"
+    },
+    {
+      "handle": "6",
+      "module": "baja",
+      "path": "Zo\u00eb/Tail",
+      "type": "b:Tail"
+    },
+    {
+      "handle": "3",
+      "module": "baja",
+      "path": "Zo\u00eb/dq",
+      "type": "b:Dq"
+    },
+    {
+      "handle": "4",
+      "module": "baja",
+      "path": "Zo\u00eb/emoji\ud83d\ude00",
+      "type": "b:E"
+    }
+  ],
+  "errors": [],
+  "input": {
+    "format": "plaintext-xml",
+    "sha256": "7435efdddd2e2c552ebba49573c184591b72fc13c94882555837318b51cd4702",
+    "size_bytes": 651
+  },
+  "limitations": [
+    "Component list capped at 50000 entries.",
+    "Link list capped at 20000 entries.",
+    "ZIP file.xml inflate capped at 32 MiB (zip-bomb protection).",
+    "Slot values are never emitted (secrets discipline)."
+  ],
+  "links": [
+    {
+      "link_name": "Unresolved",
+      "source": "h:404.None",
+      "src_resolved": false,
+      "target": "Zo\u00eb.in"
+    },
+    {
+      "link_name": "Resolved",
+      "source": "Zo\u00eb/Other.out",
+      "src_resolved": true,
+      "target": "Zo\u00eb.None"
+    }
+  ],
+  "schema": "bog-nav.v1",
+  "status": "complete",
+  "summary": {
+    "components": 7,
+    "links": 2,
+    "prefixes": {
+      "b": "baja",
+      "\u00fc": "m\u00f6dule"
+    }
+  },
+  "truncated": false
+}
