@@ -9,4 +9,5 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 var Commands = []cli.Command{
 	{Name: "bog-nav", Group: "niagara", Summary: "extract structural evidence from a Niagara config.bog", Run: RunBogNav},
 	{Name: "security-audit", Group: "niagara", Summary: "audit a Niagara install directory's security posture", Run: RunSecurityAudit},
+	{Name: "station-modules", Group: "niagara", Summary: "check a station's module references against a Niagara install", Run: RunStationModules},
 }
