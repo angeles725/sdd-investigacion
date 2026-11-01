@@ -324,7 +324,9 @@ planted_run() {
   PR_WHY=""; PR_REACHED=0; rm -f "$mark" "$TMP/run.out"
   command -v "${RSDD_LR_TIMEOUT_BIN:-timeout}" >/dev/null 2>&1 || { PR_WHY="timeout not on PATH (DEGRADED: the behavioural run cannot be bounded)"; return 1; }   # SENTINEL-LRL-TIMEOUT
   [ -f "$1/$2" ] || { PR_WHY="script not found: $1/$2"; return 1; }   # SENTINEL-LRL-EXISTS
-  ( cd "$planted" && RSDD_LR_MARK="$mark" HOME="$TMP/home" RESEARCH_HOME="$TMP/rh" PATH="$1:$PATH" \
+  # RSDD_BIN names a path that does not exist: an rsdd shim still sources lib/rsdd-exec.sh (what this check looks for) and then
+  # exits typed degraded, instead of building research-sdd/bin/rsdd inside the live kit tree (kit-tree hermeticity, #1156).
+  ( cd "$planted" && RSDD_LR_MARK="$mark" HOME="$TMP/home" RESEARCH_HOME="$TMP/rh" RSDD_BIN="$TMP/no-rsdd-bin" PATH="$1:$PATH" \
       "${RSDD_LR_TIMEOUT_BIN:-timeout}" "$PR_TIMEOUT" bash -x "$2" </dev/null >"$TMP/run.out" 2>&1 )
   rc=$?
   case "$rc" in 124) PR_WHY="timed out after ${PR_TIMEOUT}s"; return 1 ;; 126|127) PR_WHY="could not run (rc $rc)"; return 1 ;; esac   # SENTINEL-LRL-RC
