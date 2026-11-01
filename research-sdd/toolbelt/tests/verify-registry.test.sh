@@ -479,15 +479,21 @@ else
   no "3s6 hook yes + one missing + one present entry → no never-loaded WARN" "exit=$RC out=[$OUT]"
 fi
 
-# 3t — script resolution DEGRADED (awk cannot run inside the lib's script-state probe): a typed WARN,
-#      never silence. The kit copy of the lib is rewired to a failing command.
+# 3t — script resolution DEGRADED (the lib's script-state probe cannot run): a typed WARN, never silence.
+#      The probe is `rsdd hook script-state` since kit issue #2356. The fault is an RSDD_BIN stub that fails that
+#      one subcommand and runs the real rsdd for everything else, so the wiring check still answers and only the
+#      script-state probe degrades (an RSDD_BIN naming no file would also make the wiring read "unreadable").
+c3t_stub="$ROOT/c3t-rsdd-stub"
+c3t_real="${RSDD_BIN:?verify-registry.test.sh needs RSDD_BIN}"
+c3t_real="'${c3t_real//\'/\'\\\'\'}'"  # POSIX sh single-quoting (the stub runs under /bin/sh, not bash: no %q)
+printf '#!/bin/sh\n[ "$1 $2" = "hook script-state" ] && exit 1\nexec %s "$@"\n' "$c3t_real" > "$c3t_stub"
+chmod +x "$c3t_stub"
 kit="$(mkkit c3t-degraded)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
-sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
-run "$kit"
+RSDD_BIN="$c3t_stub" run "$kit"
 if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — .*script-resolution check degraded" <<<"$OUT" && ! grep -q 'does not exist' <<<"$OUT"; then
   ok "3t script-state degraded → typed degraded WARN, no false missing" "(exit $RC)"
 else
@@ -3233,13 +3239,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-hook-script-degraded: neuter HOOK-SCRIPT-DEGRADED-CHECK; test 3t must go silent --"
   kit="$(mkkit teeth-script-degraded)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
-  sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   if vr_mut "teeth-hook-script-degraded" "$kit" 's/if \[ "\$_vr_script_state" = "degraded" \]; then  # HOOK-SCRIPT-DEGRADED-CHECK/if false; then  # HOOK-SCRIPT-DEGRADED-CHECK (mutated)/'; then
     vr_run "teeth-hook-script-degraded: neutered check silences test 3t — has teeth" "$kit" 0 0 \
-      --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded'
+      --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded' \
+      -- env RSDD_BIN="$c3t_stub" "$BASH_BIN" @SUT@
   fi
 
   echo "-- teeth-hook-no-sessions: neuter HOOK-NO-SESSIONS-CHECK; test 3ns1 must go silent --"
