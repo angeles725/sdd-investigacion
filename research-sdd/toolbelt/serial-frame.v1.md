@@ -8,9 +8,10 @@ Shared evidence schema for two complementary serial-protocol wrappers:
   port and emits captured frames (requires `--allow-live-probe` after the
   subcommand; offline plan without it).
 
-Uses only Python stdlib; no external tools required for `serial-frame-analyze`.
-`serial-frame-capture` additionally requires `pyserial` for live probing; the
-plan-only path works without it.
+Both wrappers are compatibility shims over the Go `rsdd` binary
+(`rsdd serial frame-analyze`, `rsdd serial frame-capture`); no Python
+or external tool is needed. `serial-frame-capture` drives the port through termios
+(Linux); the plan-only path never opens a port.
 
 ## Canonical Text Log Format
 
@@ -314,7 +315,7 @@ lines but none passed validation (len=N mismatch or bad hex).
 |---|---|---|
 | Maximum read per file | `serial-frame-analyze` | 10 MB |
 | Maximum frames parsed | `serial-frame-analyze` | 10 000 |
-| Maximum frames captured | `serial-frame-capture` | 1 001 (off-by-one: `_MAX_FRAMES=1000` with post-append `>=` check; `truncated: true` is set) |
+| Maximum frames captured | `serial-frame-capture` | 1 001 (off-by-one: the loop stops at 1000 closed frames and the frame then in progress is appended; `truncated: true` is set) |
 | Read buffer per baud sweep | `serial-frame-capture` | 64 KB |
 | Read chunk size (capture) | `serial-frame-capture` | 256 bytes |
 
