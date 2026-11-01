@@ -12,25 +12,25 @@ import (
 )
 
 var (
-	r9MarkerRE = regexp.MustCompile(`\[CERT(?:-hw|-live)?\]`)
+	r9MarkerRE = newLazyRE(`\[CERT(?:-hw|-live)?\]`)
 
 	// R9_NATIVE_RE, case-sensitive. The first alternative is
 	//   \b[\w.+-]+\.(?:dll|so(?:\.\d+)*|exe|dylib)\b(?![\w/-]|\.[A-Za-z])
 	// A file-name token: some word rune must precede the dot inside its [\w.+-] run (the first one gives the leading
 	// \b), the extension is followed by a non-word rune (the \b), which is not `/` or `-`, and not a `.` that is
 	// followed by an ASCII letter (a longer name such as foo.dll.bak).
-	r9NativeRE = regexp.MustCompile(alt(
+	r9NativeRE = newLazyRE(alt(
 		`[`+wcls+`][`+wcls+`.+-]*\.(?:dll|so(?:\.\p{Nd}+)*|exe|dylib)(?:$|[^`+wcls+`/.-]|\.(?:$|[^A-Za-z]))`,
 		lb+`PE32`, lb+`ELF(?:32|64)?`+rb, lb+`Mach-O`+rb,
 		lb+`PE`+ws+`+(?:binary|binaries|file|image|header|section)s?`+rb, lb+`Authenticode`+rb,
 	))
 
-	r9HexRunRE = regexp.MustCompile(`[0-9A-Fa-f]+`)
+	r9HexRunRE = newLazyRE(`[0-9A-Fa-f]+`)
 	// R9_ANCHOR_RE: `\b0x[0-9A-Fa-f]{3,}\b` here; the VA / RVA / offset form is anchorKeyRE plus anchorHex.
-	r9HexAnchorRE = regexp.MustCompile(lb + `0x[0-9A-Fa-f]{3,}` + rb)
-	r9AnchorKeyRE = regexp.MustCompile(`(?:VA|RVA|offset)` + ws + `*[:=]?` + ws + `*`)
+	r9HexAnchorRE = newLazyRE(lb + `0x[0-9A-Fa-f]{3,}` + rb)
+	r9AnchorKeyRE = newLazyRE(`(?:VA|RVA|offset)` + ws + `*[:=]?` + ws + `*`)
 
-	r9CodeSpanRE = regexp.MustCompile("`([^`]*)`")
+	r9CodeSpanRE = newLazyRE("`([^`]*)`")
 )
 
 // r9Instruments are matched case-insensitively; `nm` and `strings` are ordinary words and count only inside a
@@ -42,7 +42,7 @@ var (
 		"dumpbin", "otool", "ldd", "gdb", "lldb", "capstone", "xxd", "hexdump", "binwalk", "debug/pe", "debug/gosym", "debug/elf", "gosym",
 	}
 	r9CodeOnly     = []string{"nm", "strings"}
-	r9InstrumentRE *regexp.Regexp
+	r9InstrumentRE *lazyRE
 )
 
 func init() {
