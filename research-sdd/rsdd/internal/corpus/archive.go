@@ -60,10 +60,8 @@ func (e *archiveEnv) warn(format string, a ...any) { fmt.Fprintf(e.s.Err, format
 
 // init adds the command to the domain table from this file, so commands.go (shared with the other corpus ports) stays
 // untouched.
-func init() {
-	Commands = append(Commands, cli.Command{Name: "archive", Group: "corpus",
-		Summary: "gated close of a research corpus: refuse an inconsistent one, regenerate CATALOG, print the close checklist", Run: archiveRun})
-}
+// archiveSummary is the help line of `rsdd corpus archive` (registered in commands.go).
+const archiveSummary = "gated close of a research corpus: refuse an inconsistent one, regenerate CATALOG, print the close checklist"
 
 func archiveRun(args []string, s cli.Stdio) int { return archiveRunWith(args, s, nil) }
 

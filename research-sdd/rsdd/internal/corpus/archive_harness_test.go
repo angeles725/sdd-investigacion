@@ -423,7 +423,7 @@ func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveR
 	if _, err := rand.Read(rnd[:]); err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(os.Getenv("TMPDIR"), "arch-"+hex.EncodeToString(rnd[:]))
+	root := filepath.Join(os.TempDir(), "arch-"+hex.EncodeToString(rnd[:]))
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -502,8 +502,14 @@ func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveR
 // archiveRootCut matches a root path that git cut short in a message (messages are limited to 160 bytes).
 var archiveRootCut = regexp.MustCompile(`/arch-[0-9a-f]{0,8}\b`)
 
+// archiveGitPathTail matches the rest of a git fatal message that quotes a path under the test root.
+// git cuts messages at 160 bytes, so where the cut lands depends on the length of $TMPDIR: a golden
+// cannot pin that tail. The legacy-vs-Go comparison in the same run still compares it byte for byte.
+var archiveGitPathTail = regexp.MustCompile(`(fatal: (?:detected dubious ownership in repository at '|bad config line [0-9]+ in file ))[^\n]*`)
+
 func archiveNorm(s, root string) string {
 	s = strings.ReplaceAll(s, root, "@ROOT@")
+	s = archiveGitPathTail.ReplaceAllString(s, "${1}@PATH-CUT@")
 	// a root cut at 160 bytes keeps only part of its random suffix: collapse what is left of it too
 	return archiveRootCut.ReplaceAllString(s, "/arch-@CUT@")
 }

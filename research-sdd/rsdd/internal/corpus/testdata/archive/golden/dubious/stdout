@@ -3,7 +3,7 @@
     verify-state   : ok
     verify-sources : ok
     verify-corrections : ok
-    scan-secrets  : ERROR — could not determine whether $target is a git repository (git rev-parse --show-toplevel: fatal: detected dubious ownership in repository at '/tmp/claude-1000/-home-cristian-investigacion-sdd-investigacion/e515062b-3175-430c-9190-72b0db2dea3f/scratch) — refusing rather than guessing
+    scan-secrets  : ERROR — could not determine whether $target is a git repository (git rev-parse --show-toplevel: fatal: detected dubious ownership in repository at '@PATH-CUT@
   REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
     @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
     @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c

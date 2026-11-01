@@ -110,16 +110,9 @@ func TestArchiveShimMatchesLegacy(t *testing.T) {
 			sc := archiveExit(t, c.Run())
 			st := archiveTree(t, f.cdir)
 
-			// KNOWN DIVERGENCE (reported out of surface): cli.Run appends a generic DEGRADED: line to every command that
-			// ends on exit 3, and for this tool 3 means REFUSED by a gate. Nothing else may differ.
-			const generic = "DEGRADED: command reported a degraded state without a reason\n"
+			// exit 3 is REFUSED here, so the command opts out of the dispatcher's degraded line (Exit3IsRefusal):
+			// a refused run's stderr must match the legacy byte for byte.
 			shimErr := e.String()
-			if sc == 3 {
-				if !strings.HasSuffix(shimErr, generic) {
-					t.Errorf("a refused run must end with the dispatcher's generic line, stderr %q", shimErr)
-				}
-				shimErr = strings.TrimSuffix(shimErr, generic)
-			}
 
 			// the legacy ran from the toolbelt copy, the shim from the real toolbelt: only that path differs
 			norm := func(s string) string {
