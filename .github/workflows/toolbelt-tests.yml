@@ -254,7 +254,9 @@ jobs:
 
   shellcheck:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    # Kit issue #2413: the serial run reached ~4m55s against a 5-minute cap and was cancelled
+    # intermittently; the lint is now parallel (xargs -P) and the cap keeps headroom.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -262,7 +264,7 @@ jobs:
       - name: Lint toolbelt shell scripts (warning+)
         run: |
           shellcheck --version
-          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 -n 16 -P "$(nproc)" shellcheck -S warning
 
       - name: Lint shell-portability defect classes (unquoted subst replacement, awk intervals)
         # Unwired-mechanisms audit 2026-10-05: lint-substitution.sh (kit issue #1121/#1142) scans
