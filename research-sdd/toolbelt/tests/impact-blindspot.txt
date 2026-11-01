@@ -94,8 +94,6 @@ verify-registry-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib
 verify-registry-json reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 verify-registry-wired-exec reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 verify-session-budget reach=research-sdd/toolbelt/lib/* builds a script name at run time (${x}.sh)
-verify-skill-drift copies or links the whole toolbelt/kit into a fixture; also stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
-verify-skill-drift-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 verify-state reach=research-sdd/toolbelt/lib/* uses eval on built text; the script it runs is not a literal name; also stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 verify-state-inplace-blocked reach=research-sdd/toolbelt/*.sh,research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 suite-impact uses eval on built text inside its fixture suites (the audit detector flags the literal)
