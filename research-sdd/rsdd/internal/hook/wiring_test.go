@@ -105,6 +105,15 @@ func wiringCases() []wiringCase {
 				symlink(t, filepath.Join(q, "z"), filepath.Join(r, "P", "sub", "link"))
 				return filepath.Join(r, "P", "sub", "link") + "/.."
 			}},
+		{name: "23 spelled link/.. whose collapsed path is a git root equal to the target string stays wired", want: WiringWired,
+			setup: func(t *testing.T, r string) string {
+				gitInit(t, filepath.Join(r, "P"))
+				q := filepath.Join(r, "Q", "y")
+				mkdirs(t, filepath.Join(q, "z"))
+				wireSettings(t, q, stopWired)
+				symlink(t, filepath.Join(q, "z"), filepath.Join(r, "P", "link"))
+				return filepath.Join(r, "P", "link") + "/.."
+			}},
 		{name: "19 embedded newline nested in a repo -> wired-off-root", want: WiringWiredOffRoot,
 			setup: func(t *testing.T, r string) string {
 				gitInit(t, filepath.Join(r, "t19"))

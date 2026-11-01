@@ -117,6 +117,8 @@ func scriptCases() []scriptCase {
 			setup: withSettings("t25q", nil, fixed(st(`cd sub && ./retro-gate-stop.sh`)))},
 		{name: "25r same relative path without cd -> joined to the target -> missing", want: ScriptMissing,
 			setup: withSettings("t25r", nil, fixed(st(`./retro-gate-stop.sh`)))},
+		{name: "25r' a cd anywhere in the command makes even a first-slot relative path unverifiable", want: ScriptUnverifiable,
+			setup: withSettings("t25r2", nil, fixed(st(`./retro-gate-stop.sh && cd sub`)))},
 		{name: "25s one missing + one unresolvable -> unverifiable", want: ScriptUnverifiable,
 			setup: withSettings("t25s", nil, fixed(`{"hooks":{"Stop":[{"hooks":[{"command":"/nope/retro-gate-a.sh"},{"command":"retro-gate-b"}]}]}}`))},
 		{name: "25t one unresolvable + one present -> present", want: ScriptPresent,
