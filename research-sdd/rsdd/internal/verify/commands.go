@@ -1,9 +1,12 @@
 // Package verify owns the rsdd commands for verification instruments (verify block, registry, state, ...).
-// It is a stub until a porting unit fills it; see docs/adding-a-command.md.
+// See docs/adding-a-command.md.
 package verify
 
 import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
-var Commands []cli.Command
+var Commands = []cli.Command{
+	{Name: "kit-clean", Group: "verify", Summary: "is the kit repo clean, committed and pushed (port of verify-kit-clean.sh)", Run: RunKitClean},
+	{Name: "kit-clean-hook", Group: "verify", Summary: "SessionStart hook: emit the kit-clean report when the kit is not clean", Run: RunKitCleanHook},
+}
