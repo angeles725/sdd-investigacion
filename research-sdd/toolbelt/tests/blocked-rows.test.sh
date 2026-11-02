@@ -256,6 +256,7 @@ mk_kit() { # DIR [lib-state: ok|missing|empty]
 cp "$FIX/child-single-open.expect1.md" "$TMP/RESEARCH-STATE.md"; mkdir -p "$TMP/corpus"; cp "$FIX/child-single-open.expect1.md" "$TMP/corpus/RESEARCH-STATE.md"
 for state in missing empty; do
   mk_kit "$TMP/kit-$state" "$state"
+  # shellcheck disable=SC2043 # one consumer left since verify-state moved to Go; the loop keeps the shape for a second one
   for s in research-sdd-status; do
     out="$(bash "$TMP/kit-$state/$s.sh" "$TMP/corpus" 2>&1)"; rc=$?
     if [ "$rc" = 1 ] && grep -q 'blocked-rows' <<<"$out"; then ok "$s with $state lib: exit 1 + typed message naming blocked-rows"
@@ -476,6 +477,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TOOTH-7: the consumer's fail-closed guard turns a function-less lib into a loud exit 1 at source time.
   # Mutant exit codes differ by consumer: verify-state runs on and FAILs the envelope (rc 1, but WITHOUT the typed
   # message); status runs on and exits 0. The message is what the guard adds, so every tooth also checks it.
+  # shellcheck disable=SC2043 # one consumer left since verify-state moved to Go; the loop keeps the shape for a second one
   for s in research-sdd-status; do
     case "$s" in verify-state) _bad_rc=1 ;; *) _bad_rc=0 ;; esac
     mkdir -p "$MD/g-$s/orig/lib" "$MD/g-$s/mut/lib"
