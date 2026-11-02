@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stderr",
+  "reason": "the legacy shim let realpath(1) print its own diagnostic for the missing launcher before the typed line; rsdd prints only the typed line 'corroborate-ghidra: Bubblewrap unavailable'; the exit status 2 and the empty stdout are identical"
+ }
+]

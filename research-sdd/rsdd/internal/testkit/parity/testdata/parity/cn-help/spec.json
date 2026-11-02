@@ -1,0 +1,11 @@
+{
+ "legacy": [
+  "toolbelt/corroborate-native.sh",
+  "--help"
+ ],
+ "rsdd": [
+  "corroborate",
+  "native",
+  "--help"
+ ]
+}

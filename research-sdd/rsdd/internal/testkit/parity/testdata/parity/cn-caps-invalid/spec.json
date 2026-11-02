@@ -1,0 +1,21 @@
+{
+ "legacy": [
+  "toolbelt/corroborate-native.sh",
+  "--input",
+  "{{input}}/target.elf",
+  "--output",
+  "{{input}}/out",
+  "--max-files",
+  "5"
+ ],
+ "rsdd": [
+  "corroborate",
+  "native",
+  "--input",
+  "{{input}}/target.elf",
+  "--output",
+  "{{input}}/out",
+  "--max-files",
+  "5"
+ ]
+}
