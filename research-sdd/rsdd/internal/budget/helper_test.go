@@ -22,7 +22,7 @@ func runHelper(t *testing.T, env []string, dir string, exts ...string) string {
 	}
 	cmd := exec.Command("node", append([]string{helper, dir}, exts...)...)
 	cmd.Stdin = strings.NewReader("N\n")
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(append(os.Environ(), "NODE_OPTIONS="+testNodeOptions), env...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	_ = cmd.Run()

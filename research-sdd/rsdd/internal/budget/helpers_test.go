@@ -142,6 +142,11 @@ func (sb *sbx) cp(src, dst string) {
 
 // environ is the environment of a run: the test's PATH, a private HOME and TMPDIR, then overrides (KEY=VALUE;
 // a bare "-KEY" removes the key).
+// testNodeOptions lets node instantiate WebAssembly (its TypeScript stripper) under `make test`'s RLIMIT_AS cap:
+// the wasm trap handler reserves several GB of address space per instance, which fails as "WebAssembly.Instance():
+// Out of memory" below the cap (seen in CI). Both the frozen script and the port run node with it.
+const testNodeOptions = "--disable-wasm-trap-handler"
+
 func (sb *sbx) environ(extra ...string) []string {
 	env := map[string]string{
 		"PATH":                     os.Getenv("PATH"),
@@ -149,6 +154,7 @@ func (sb *sbx) environ(extra ...string) []string {
 		"TMPDIR":                   filepath.Join(sb.root, "tmp"),
 		"LANG":                     "C.UTF-8",
 		"RSDD_BUDGET_HOOK_TIMEOUT": "10",
+		"NODE_OPTIONS":             testNodeOptions,
 	}
 	for _, kv := range extra {
 		if k, ok := strings.CutPrefix(kv, "-"); ok && !strings.Contains(k, "=") {
