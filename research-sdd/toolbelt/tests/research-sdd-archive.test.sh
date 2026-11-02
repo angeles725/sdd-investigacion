@@ -16,6 +16,24 @@ SUT="$HERE/../research-sdd-archive.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 pass=0; fail=0
+# verify-state.sh is a shim over the Go `rsdd verify state` (#2457), so the archive gates need the binary. Copied
+# toolbelts (the AR-VCORR stubs, the --prove-teeth mutants) see no Go sources beside their lib/, so the whole suite
+# runs with RSDD_BIN = one real binary: the caller's, else one built into the suite temp dir (never into the tree).
+# Without go the suite SKIPs, or FAILS under RSDD_REQUIRE_GO=1. Case 5f's stub forwards to it too.
+RSDD_REAL="${RSDD_BIN:-}"
+if [ -z "$RSDD_REAL" ] || [ ! -x "$RSDD_REAL" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: go not in PATH (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: go not in PATH (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_REAL="$TMP/rsdd-real"
+  ( cd "$HERE/../../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_REAL" ./cmd/rsdd ) >"$TMP/rsdd-build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/rsdd-build.log" >&2; exit 2; }
+fi
+export RSDD_BIN="$RSDD_REAL"
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 # skip() counts toward NEITHER pass nor fail — a skip is not a pass. The "  SKIP  " prefix (two
@@ -238,11 +256,11 @@ if grep -q '^Total: \*\*1 blocks\*\*$' "$d/CATALOG.md" 2>/dev/null && grep -q 'v
   ok "dangling tools/gen-catalog.py symlink falls through to the Go command"
 else no "dangling-symlink: $(grep -i catalog <<<"$out" | head -1)"; fi
 
-# 5f — a FAILING Go command (RSDD_BIN = a stub that exits 1): the report names the Go command, not gen-catalog.py,
+# 5f — a FAILING Go command (RSDD_BIN = a stub whose `corpus catalog` exits 1): the report names the Go command, not gen-catalog.py,
 # CATALOG.md stays STALE (the stub writes nothing), the checklist carries the rerun hint, and the close still exits 0
 # (consolidate is best-effort).
 d="$TMP/kitgofail"; mkgood "$d"; printf 'STALE CATALOG\n' > "$d/CATALOG.md"
-printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/failing-rsdd"; chmod +x "$TMP/failing-rsdd"
+printf '#!/usr/bin/env bash\n[ "$1 $2" = "corpus catalog" ] && exit 1\nexec %q "$@"\n' "$RSDD_REAL" > "$TMP/failing-rsdd"; chmod +x "$TMP/failing-rsdd"  # only the catalog command fails
 out="$(RSDD_BIN="$TMP/failing-rsdd" bash "$SUT" "$d" 2>&1)"; rc=$?
 if [ "$rc" = 0 ] && [ "$(cat "$d/CATALOG.md")" = "STALE CATALOG" ] && grep -q 'ERROR — kit generator (rsdd corpus catalog) failed' <<<"$out" \
    && ! grep -q 'gen-catalog.py failed' <<<"$out" && grep -q 'run: rsdd corpus catalog ' <<<"$out"; then
