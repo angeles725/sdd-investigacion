@@ -28,8 +28,5 @@ research-sdd/toolbelt/tests/serial-frame-analyze.test.sh extras unused adapter (
 research-sdd/toolbelt/tests/serial-frame-capture.test.sh extras strict-zero usage (#2203)
 research-sdd/toolbelt/tests/trace-exec.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/trace-plan.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/vm-determinism.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/vm-disk-policy.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/vm-receipt.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/vm-run.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/rsdd-go.test.sh dedicated runs in the rsdd-go-bridge job of .github/workflows/rsdd-go.yml (#2488)
