@@ -35,7 +35,7 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     local kit="$1" bin="$1/bin/rsdd" tmp
     mkdir -p -- "$kit/bin" 2>/dev/null || return 3
     tmp="$(mktemp "$kit/bin/.rsdd.XXXXXX" 2>/dev/null)" || return 3
-    ( trap 'rm -f -- "$tmp"' EXIT; cd -- "$kit/rsdd" && go build -o "$tmp" ./cmd/rsdd && chmod 755 "$tmp" && mv -f "$tmp" "$bin" ) >&2 || return 1
+    ( trap 'rm -f -- "$tmp"' EXIT; cd -- "$kit/rsdd" && CGO_ENABLED=0 go build -o "$tmp" ./cmd/rsdd && chmod 755 "$tmp" && mv -f "$tmp" "$bin" ) >&2 || return 1
   }
 
   # _rsdd_exec_resolve — sets _RSDD_EXEC_BIN and returns 0, or sets _RSDD_EXEC_WHY and returns 2.
@@ -196,7 +196,7 @@ fi
 #       2. <kit>/bin/rsdd, where <kit> is derived from THIS file (lib -> toolbelt -> kit). Stale = any
 #          *.go, go.mod or go.sum under <kit>/rsdd newer than the binary (mtime). A scan that FAILS (for
 #          example an unreadable subdirectory) counts as stale: when the scan cannot prove the binary fresh,
-#          it is rebuilt. A missing or stale binary is rebuilt with `go build -o <tmp> ./cmd/rsdd` (inside
+#          it is rebuilt. A missing or stale binary is rebuilt with `CGO_ENABLED=0 go build -o <tmp> ./cmd/rsdd` (inside
 #          <kit>/rsdd; <tmp> is a mktemp file in <kit>/bin, renamed onto <kit>/bin/rsdd so a racing shim
 #          never execs a half-written file). Build output goes to stderr only. If <kit>/bin cannot be
 #          created or written, the reason is `bin dir not writable: <dir>` (not `build failed`).

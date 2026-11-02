@@ -8,4 +8,5 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 // its entries here and never edits internal/commands.
 var Commands = []cli.Command{
 	{Name: "return-token", Group: "gate", Summary: "Stop hook: block once when the final report's continuation token is missing or wrong", Run: RunReturnToken},
+	{Name: "merge", Group: "gate", Summary: "pre-merge check: refuse a review-due head, a head not bound to its PR and red CI; --merge squash-merges", Run: RunMerge},
 }

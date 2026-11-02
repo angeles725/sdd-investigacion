@@ -1337,7 +1337,7 @@ _rsdd_bin_prepare() {
     out="$RUN_TMP_ROOT/rsdd-bin/rsdd"; log="$RUN_TMP_ROOT/rsdd-bin/build.log"
     # The Makefile `build` target: stamp the source hash so the binary reads as fresh to rsdd-exec.sh's checks.
     if ! hash="$(cd -- "$mod" && go run ./cmd/rsdd-srchash . 2>"$log")" || [[ -z "$hash" ]]; then why="go run ./cmd/rsdd-srchash failed ($(head -n 1 "$log" 2>/dev/null))"
-    elif ! (cd -- "$mod" && go build -ldflags "-s -w -X $sym=$hash" -o "$out" ./cmd/rsdd 2>"$log"); then why="go build failed ($(head -n 1 "$log" 2>/dev/null))"   # SENTINEL-RSDD-BIN-BUILD
+    elif ! (cd -- "$mod" && CGO_ENABLED=0 go build -ldflags "-s -w -X $sym=$hash" -o "$out" ./cmd/rsdd 2>"$log"); then why="go build failed ($(head -n 1 "$log" 2>/dev/null))"   # SENTINEL-RSDD-BIN-BUILD
     elif [[ ! -f "$out" || ! -x "$out" ]]; then why="go build produced no executable at $out"
     fi
   fi

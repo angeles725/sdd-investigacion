@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+echo "gh $* cwd:$PWD" >> "${STUB_LOG:-/dev/null}"
+case "$1 $2" in
+  "pr view")
+    # mimic gh 2.45: baseRefOid is NOT a pr-view JSON field -> field drift must show up
+    for f in $(printf '%s' "$*" | sed -n 's/.*--json \([^ ]*\).*/\1/p' | tr ',' ' '); do
+      case "$f" in headRefOid|baseRefName|number|state|title|url) ;; *) echo "Unknown JSON field: \"$f\"" >&2; exit 1 ;; esac
+    done
+    printf '{"headRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}"; exit 0 ;;
+  "api repos/{owner}/{repo}/commits/"*"/check-runs"*)
+    # REST check-runs for ONE commit sha. Only --paginate is accepted: any --json/--jq (field-name
+    # drift) or other flag fails loudly. A sha other than the PR head gets an EMPTY set, so a gate bound
+    # to the wrong sha shows up as ci_pending, never as a lucky pass.
+    ckpath="$2"; shift 2
+    pag=""; for a in "$@"; do case "$a" in --paginate) pag=1 ;; *) echo "stub gh: unsupported api argument: $a" >&2; exit 1 ;; esac; done
+    [ -n "$pag" ] || { echo "stub gh: check-runs read without --paginate (would silently truncate at one page)" >&2; exit 1; }
+    [ -n "${STUB_CHECKS_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    cksha="${ckpath#repos/\{owner\}/\{repo\}/commits/}"; cksha="${cksha%%/*}"
+    if [ "$cksha" != "${STUB_PR_HEAD:-}" ]; then echo '{"total_count":0,"check_runs":[]}'; exit 0; fi
+    if [ -n "${STUB_CHECKS_JSON:-}" ]; then cat "$STUB_CHECKS_JSON"; exit 0; fi
+    echo '{"total_count":3,"check_runs":[{"id":5,"name":"shellcheck","status":"completed","conclusion":"success"},{"id":5,"name":"toolbelt-tests","status":"completed","conclusion":"success"},{"id":5,"name":"pr-validation","status":"completed","conclusion":"success"}]}'
+    exit 0 ;;
+  "api graphql")
+    # closure evidence (kit issue #1812): the closing-issue read. The stub insists on EXPLICIT owner/name (never the
+    # {owner}/{repo} placeholders, which re-resolve from the cwd remote) and on the query text; it records the repo asked.
+    case " $* " in *"-F owner={owner}"*|*"-F name={repo}"*) echo "stub gh: graphql used placeholders: $*" >&2; exit 1 ;; esac
+    case " $* " in *" -F owner="*" -F name="*" -F pr="*closingIssuesReferences*) ;; *) echo "stub gh: unexpected graphql call: $*" >&2; exit 1 ;; esac
+    printf '%s\n' "$*" | sed -n 's/.* -F owner=\([^ ]*\) -F name=\([^ ]*\) -F pr=.*/\1\/\2/p' >> "${STUB_COMMENTS:-/dev/null}.gqlrepo"
+    echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.gqlcwd"
+    [ -n "${STUB_GQL_SLEEP:-}" ] && sleep "$STUB_GQL_SLEEP"
+    [ -n "${STUB_GQL_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    [ -n "${STUB_GQL_JSON:-}" ] && cat "$STUB_GQL_JSON"
+    exit 0 ;;
+  "repo view")
+    # the cwd-remote resolution used when GH_REPO is unset
+    [ "${STUB_REPO_VIEW_RC:-0}" -ne 0 ] && { echo "gh: repo view failed" >&2; exit "$STUB_REPO_VIEW_RC"; }
+    echo "${STUB_REPO_VIEW:-o/r}"; exit 0 ;;
+  "api repos/"*"/pulls/"*"/files"*)
+    echo "$2" >> "${STUB_COMMENTS:-/dev/null}.filesrepo"
+    # closure evidence (kit issue #1812): the PR files list, raw JSON pages (no --jq).
+    [ -n "${STUB_FILES_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }
+    case " $* " in *" --jq "*) echo "stub gh: files read with --jq" >&2; exit 1 ;; esac
+    case " $* " in *" --paginate "*) ;; *) echo "stub gh: files read without --paginate (would truncate at one page)" >&2; exit 1 ;; esac
+    if [ -n "${STUB_FILES_JSON:-}" ]; then cat "$STUB_FILES_JSON"; else echo '[]'; fi
+    exit 0 ;;
+  "api repos/{owner}/{repo}/pulls/"*|api\ repos/*)
+    [ -n "${STUB_API_FAIL:-}" ] && exit 1
+    printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
+  "issue comment")
+    # record the issue number and the exact body (never the network); STUB_COMMENT_RC simulates a failing post
+    n="$3"; shift 3; body=""; crepo="(none)"; while [ $# -gt 0 ]; do case "$1" in --body) body="$2"; shift 2 ;; --repo) crepo="$2"; shift 2 ;; *) shift ;; esac; done
+    echo "$crepo" >> "${STUB_COMMENTS:-/dev/null}.repo"
+    printf 'ISSUE %s\n%s\n---\n' "$n" "$body" >> "${STUB_COMMENTS:-/dev/null}"
+    echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.cwd"
+    [ "${STUB_COMMENT_RC:-0}" -ne 0 ] && echo "gh: HTTP 403 forbidden" >&2
+    exit "${STUB_COMMENT_RC:-0}" ;;
+  "pr merge") [ -n "${STUB_MERGE_ERR:-}" ] && echo "$STUB_MERGE_ERR" >&2; exit "${STUB_MERGE_RC:-0}" ;;
+esac
+exit 9
