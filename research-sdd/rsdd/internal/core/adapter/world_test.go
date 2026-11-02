@@ -176,13 +176,16 @@ func (w *world) tree(root string) map[string]string {
 		switch {
 		case d.Type()&fs.ModeSymlink != 0:
 			t, _ := os.Readlink(p)
-			snap[rel] = "link " + strings.ReplaceAll(t, root, "@")
+			snap[rel] = "link " + showRoot(t, root)
 		case d.IsDir():
 			snap[rel] = "dir"
 		default:
 			b, _ := os.ReadFile(p)
-			sum := sha256.Sum256(b)
-			snap[rel] = "file " + info.Mode().Perm().String() + " " + hexenc.EncodeToString(sum[:8]) + " " + strings.ReplaceAll(string(b), root, "@")
+			// The digest is taken over the text with the root shown as "@" and the manifest identity (a hash
+			// over absolute paths) masked, so a tree is comparable across roots and recorded goldens stay valid.
+			text := identityHash.ReplaceAllString(showRoot(string(b), root),`"identity":"sha256:ID"`)
+			sum := sha256.Sum256([]byte(text))
+			snap[rel] = "file " + info.Mode().Perm().String() + " " + hexenc.EncodeToString(sum[:8]) + " " + text
 		}
 		return nil
 	})
@@ -192,9 +195,17 @@ func (w *world) tree(root string) map[string]string {
 
 var randomTemp = regexp.MustCompile(`\.[a-z0-9_]{8}\.tmp`)
 
+// showRoot shows a world's root as "@" and its parent (where the cases put files outside the root) as
+// "@@", so output and trees compare across roots and a recorded golden stays valid.
+func showRoot(s, root string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, root, "@"), filepath.Dir(root), "@@")
+}
+
+var identityHash =regexp.MustCompile(`"identity":"sha256:[0-9a-f]{64}"`)
+
 // norm shows a root as "@" and the random part of mkstemp names as "RAND".
 func norm(s, root string) string {
-	return randomTemp.ReplaceAllString(strings.ReplaceAll(s, root, "@"), ".RAND.tmp")
+	return randomTemp.ReplaceAllString(showRoot(s, root),".RAND.tmp")
 }
 
 func lastLine(s string) string {
@@ -207,8 +218,17 @@ type pyWorld struct {
 	Steps []step `json:"steps"`
 }
 
-// compareWorlds replays every recorded world under the real Python and requires the same
-// exit code, stdout, stderr (last traceback line for an uncaught exception) and final tree.
+// pyOutcome is what the Python port produced for one world: the result of every run (the root shown as
+// "@") and the final tree it left under its root.
+type pyOutcome struct {
+	Results []runResult       `json:"results"`
+	Tree    map[string]string `json:"tree"`
+}
+
+// compareWorlds checks every recorded world against the Python port's outcome and requires the same
+// exit code, stdout, stderr (last traceback line for an uncaught exception) and final tree. The outcome
+// comes from replaying the world under the frozen Python (pythonOutcomes in world_oracle_test.go) or,
+// in a nodiff build, from the golden recorded from that replay (world_golden_test.go).
 func compareWorlds(t *testing.T, worlds map[string]*world) {
 	t.Helper()
 	names := make([]string, 0, len(worlds))
@@ -219,22 +239,17 @@ func compareWorlds(t *testing.T, worlds map[string]*world) {
 	// The Python replay runs under the SAME root path as the Go world, so every path (and every
 	// identity hash computed over paths) is byte-comparable. The Go tree is snapshotted first and
 	// removed, which leaves the path free for the replay.
-	var cases []pyWorld
-	pyRoots := map[string]string{}
 	goTrees := map[string]map[string]string{}
 	for _, n := range names {
 		w := worlds[n]
 		goTrees[n] = w.tree(w.root)
 		w.fatal(os.RemoveAll(w.root))
-		pyRoots[n] = w.root
-		cases = append(cases, pyWorld{Root: w.root, Steps: w.steps})
 	}
-	toolbeltAbs = mustAbs(t, toolbeltDir)
-	all := runDriverParallel[[]runResult](t, "script", cases, 4)
+	outcomes := pythonOutcomes(t, names, worlds)
 	diverged := map[string]bool{}
-	for i, n := range names {
+	for _, n := range names {
 		w := worlds[n]
-		py := all[i]
+		py := outcomes[n].Results
 		if len(py) != len(w.results) {
 			t.Errorf("%s: %d runs in go, %d in python", n, len(w.results), len(py))
 			continue
@@ -247,26 +262,26 @@ func compareWorlds(t *testing.T, worlds map[string]*world) {
 				continue
 			}
 			if g.RC != p.RC {
-				t.Errorf("%s: exit go %d python %d\n go stderr: %s\n py stderr: %s", label, g.RC, p.RC, norm(g.Err, w.root), norm(p.Err, pyRoots[n]))
+				t.Errorf("%s: exit go %d python %d\n go stderr: %s\n py stderr: %s", label, g.RC, p.RC, norm(g.Err, w.root), p.Err)
 				continue
 			}
-			if norm(g.Out, w.root) != norm(p.Out, pyRoots[n]) {
-				t.Errorf("%s: stdout\n go     %q\n python %q", label, norm(g.Out, w.root), norm(p.Out, pyRoots[n]))
+			if norm(g.Out, w.root) != p.Out {
+				t.Errorf("%s: stdout\n go     %q\n python %q", label, norm(g.Out, w.root), p.Out)
 			}
 			if p.Crash != "" {
-				if got := lastLine(g.Err); got != norm(p.Crash, pyRoots[n]) && got != p.Crash {
+				if got := lastLine(g.Err); got != p.Crash && norm(got, w.root) != p.Crash {
 					t.Errorf("%s: uncaught exception\n go     %q\n python %q", label, got, p.Crash)
 				}
 				continue
 			}
-			if norm(g.Err, w.root) != norm(p.Err, pyRoots[n]) {
-				t.Errorf("%s: stderr\n go     %q\n python %q", label, norm(g.Err, w.root), norm(p.Err, pyRoots[n]))
+			if norm(g.Err, w.root) != p.Err {
+				t.Errorf("%s: stderr\n go     %q\n python %q", label, norm(g.Err, w.root), p.Err)
 			}
 		}
 		if diverged[n] {
 			continue // the runs ended differently by a declared divergence, so the trees are not comparable
 		}
-		gt, pt := goTrees[n], w.tree(pyRoots[n])
+		gt, pt := goTrees[n], outcomes[n].Tree
 		for k, v := range gt {
 			if pt[k] != v {
 				t.Errorf("%s: %s differs\n go     %.200q\n python %.200q", n, k, v, pt[k])

@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !nodiff
 
 package adapter
 
@@ -22,7 +22,7 @@ type pyOut struct {
 	Value json.RawMessage `json:"value"`
 }
 
-const toolbeltDir = "../../../../toolbelt"
+const toolbeltDir = "testdata/frozen" // frozen oracle copies of the toolbelt Python modules
 
 // runPy runs the real Python adapter_core through the driver for a batch of
 // cases. A missing python3 FAILS the test: a skipped parity test proves nothing.
