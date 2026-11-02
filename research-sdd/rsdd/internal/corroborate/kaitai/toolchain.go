@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter/helpers"
 )
@@ -142,7 +141,7 @@ func (e *env) kscExeFor() (string, error) {
 		}
 		raw = found
 	}
-	if syscall.Access(raw, 1) != nil {
+	if !canExec(raw) {
 		return "", errors.New("ksc not executable: " + raw)
 	}
 	return resolveStrict(raw)
