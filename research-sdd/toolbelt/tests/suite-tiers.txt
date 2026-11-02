@@ -8,9 +8,6 @@
 # Suites listed here run only on demand (`run-all.sh --tier extras|all`, or --require-teeth, which implies
 # all) and in the nightly/manual `toolbelt-extras` CI job. Nothing is deleted. Every other suite is core
 # and runs in the default gate. Reasons: category E VM/dynamic sandbox, unused adapter, strict-zero usage.
-research-sdd/toolbelt/tests/capture-analyze.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/capture-exec.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/capture-plan.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/corroborate-bacnet.test.sh extras strict-zero usage (#2203)
 research-sdd/toolbelt/tests/corroborate-firmware.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/corroborate-pcap.test.sh extras unused adapter (#2203)
