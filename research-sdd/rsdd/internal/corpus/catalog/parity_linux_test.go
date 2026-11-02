@@ -152,7 +152,6 @@ func fill(format string, n int) string {
 	return fmt.Sprintf(format, n, n)
 }
 
-// All Nd characters: the number a file name encodes must equal Python's int() of it.
 // pythonDigits is the set of Nd runes the python3 in use knows. Its Unicode tables follow the Python version
 // (3.12 knows fewer digits than Go's tables), so parity is only defined over the runes both sides know; the
 // Go-only digits are pinned by the unit tests against Go's own tables (the declared deviation).
@@ -174,6 +173,8 @@ func pythonDigits(t *testing.T) map[rune]bool {
 	return set
 }
 
+// All Nd characters: the number a file name encodes must equal Python's int() of it.
+// The 600-rune floor below keeps the shared set from being vacuous.
 func TestParityEveryDecimalDigit(t *testing.T) {
 	py := pythonDigits(t)
 	var runes []rune
