@@ -18,7 +18,7 @@ Branch: chore/2443-retire-* (one per PR, based on origin/main). Delivery: chaine
 - T3 S1,S6 inline — B0 re-point fsx parity driver, delete niagara-hdb-read — done (B0)
 - T4 S1 inline — B delete bog-nav, n4-type-catalog, module-find, security-audit, px-render, station-modules (+hermetic-fixtures.test.sh last, NIAGARA-N4-FRAMEWORK.md:207) — done (f23d99a0..71ef12db)
 - T5 S2,S7 — C delete VM/Docker leaf-first (~12 commits), openspec/invariants.md + open openspec changes, mutant.sh VM kit, Go plan/exec stubs — done 78d7ca54..ff0fbf65 (19 commits; RDD: 14 approved, 5 not due)
-- T6 — deferred: PROFILE_BWRAP_UNBLOB/IFC_OFFLINE in lib/isolation_profile.py + internal/adapter/profile.go after #2453 merges — pending
+- T6 — inline: PROFILE_BWRAP_UNBLOB/IFC_OFFLINE removed from lib/isolation_profile.py, internal/core/adapter/profile.go, isolation-profile.v1.md and isolation-profile.test.sh — done
 
 ## Log
 - L1 (user, 2026-11-02): "necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, ... que el codgio de progrmaacion sea modular ... Si sabes alguna manera de optimizar o reducir el codigo." Session 1 assigned #2443 retirement to session 4.
@@ -27,3 +27,5 @@ Branch: chore/2443-retire-* (one per PR, based on origin/main). Delivery: chaine
 - L4 (2026-11-02): B pushed as one PR stacked on A; 10 RDD slices (each <=1.57k lines) all approved+acknowledged. Advisory WARNINGs: suites removed with their SUTs (inherent); open_wo_new oracle may drift when serial-frame_analyze.py is ported — freeze it in the driver then. Session 1 rules: no local full run-all, push once per ready branch, <=1 background writer per session.
 
 - L5 (2026-11-02): C done. process-integrity gained a `retired` status (INV-1..INV-7 retired with reasons); run-all-default-root.test.sh retired with its VM allocator; the generic python-SUT tooth kit kept (self-tested only). RDD captures run one at a time after the concurrent-ack lock loss on #2488. Palette ported in #2496; follow-up #2497 (XML depth/element caps).
+
+- L6 (2026-11-02): A, B, C merged (#2486, #2507, #2522 55b93f9e). T6 closed after #2453 merged: the two orphan profile constants are gone from Python, Go, the contract table and the parity test; the Go count assertion is 8. Comments citing unblob as an adapter updated. Feature closed.
