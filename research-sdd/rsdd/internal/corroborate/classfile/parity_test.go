@@ -1,4 +1,4 @@
-//go:build !noparity
+//go:build !nodiff
 
 package classfile
 
