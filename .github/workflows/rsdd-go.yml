@@ -11,6 +11,16 @@ on:
       - "research-sdd/rsdd/**"
       - ".github/workflows/rsdd-go.yml"
 
+# A newer push to the same PR, or a newer merge to main, supersedes the in-flight run of the same ref:
+# cancel it, so the shared concurrent-job cap (GitHub queues everything beyond it) is spent on current
+# heads only. On main this coalesces a burst of merges into one run of the newest commit (measured
+# 2026-11-02: 21 full toolbelt runs on main pushes in ~22 h, ~46 job-minutes each); every merged commit
+# was already gated by its PR run. The event name is in the group, so a merge never cancels the nightly
+# schedule or a manual dispatch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
