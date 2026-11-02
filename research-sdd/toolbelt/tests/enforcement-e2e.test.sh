@@ -534,6 +534,16 @@ else
   no "R3-TOOTH: mutant (threshold=999) should match the below-threshold control (rc=$_r3c_rc out=[$_r3c_out]) but got rc=$_r3t_rc out=[$_r3t_out]"
 fi
 
+# The gate is `rsdd gate retro` now (kit issues #2367, #2368) and retro-gate.sh a shim: the sentinel mutants below edit
+# the text of the old bash script and cannot apply. Their controls (seeding call skipped, gh-auth warning dropped) are
+# Go tests in research-sdd/rsdd/internal/gate (retrogate_cases_seed_test.go, run against the frozen original too).
+if grep -q 'rsdd_exec' "$GATE_SUT"; then
+  echo "-- R5-TOOTH / R7-TOOTH: the gate is a Go command; mutants live in internal/gate tests --"
+  echo
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
+fi
+
 # ── R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not called ─────────
 # Proves R5 check catches a gate that skips calling stage-retro-issues.
 MUT_GATE_R5="$MUT_KIT/toolbelt/mutant-gate-r5.sh"

@@ -1,24 +1,18 @@
 #!/usr/bin/env bash
-# retro-gate.test.sh — RED-FIRST regression harness for retro-gate.sh (U17 / #479 PR2).
+# retro-gate.test.sh — black-box harness for the retro-gate.sh SHIM (U17 / #479; ported to Go in kit issues #2367, #2368).
 #
-# Exercises the Stop-hook body: loop-safety (stop_hook_active), block-once, no-change
-# early exit, MISSING-RETRO block, non-conforming retro block, conforming retro allow.
+# retro-gate.sh is a compatibility shim over `rsdd gate retro` now. What stays here is what only a shell can prove:
+#   - the shim passes its own directory (--toolbelt), so a COPIED toolbelt decides the kit root, the verify-retro.sh
+#     it runs and the stage-retro-issues.sh it seeds with (the siblings are still bash);
+#   - the hook contract survives a missing binary: the default mode never fails the Stop it guards (exit 0, typed
+#     stderr line), --json keeps the CLI degrade (rc 2);
+#   - the shim runs through a symlink (RSDD-SELF-DIR) and templates/hook-stop-retro-gate.sh still execs it;
+#   - one end-to-end Stop per verdict through the real binary: BLOCK, block-once, loop-safety, --json, seeding.
+# Every behaviour of the gate itself (the scans, the session-sha scope, nested worktrees, directory symlinks, the
+# stop log, the envelope, issue-seeding accounting, signals) is a Go test: research-sdd/rsdd/internal/gate/retrogate_*_test.go,
+# each one run against the frozen original (testdata/legacy/retro-gate.sh) by the differential test.
 #
-# TEETH (--prove-teeth): sentinel-based mutants prove each guard actually bites.
-#   blocks-twice          mutant ignores block-once state file → blocks second call
-#   allows-unmarked       mutant skips verify-retro → allows non-conforming retro
-#   ignores-stop_hook_active  mutant removes stop_hook_active check → blocks loop
-#   reason-not-actionable mutant reduces reason to bare "retro pending"
-#   nojq-path-dirname-leak  old dirname logic leaks jq via /bin→/usr/bin duplicate
-#   nw-* / catalog-not-excluded  (#1223, #1229) nested-worktree guards and the CATALOG.md skip
-#   hb-*                  (#1161) hermetic-bin builder: skip glob, first-wins, excluded name, batch ln
-#   esc-*                 (#1167 item 2) _json_escape_reason replacement operand; esc-ctrl* (#1301-6)
-#   l-*                   (#1301) one mutant per `find -H` scan site (symlinked target)
-#   dirlink-*, bp-read-unbraced  (#1311) directory-symlink scan; back-pointer read stderr
-#   dirlink-untracked-leg, -timeout-validation, -newline-split, -fallback-print  (#1352) Part C follow-ups
-#   nw-backpointer-dropped, p-*  (#1301) worktree back-pointer proof; probe-failure fail-safe
-#   j-*                   (#1711) one mutant per --json guard: block/allow envelope sites, counts, check_mode,
-#                         usage/operational/degraded/build-failure exit codes, degraded envelope, default-mode decision
+# TEETH: none here. The gate is `rsdd gate retro`; its mutants are Go tests (internal/gate, kit issue #2367).
 #
 # Usage: retro-gate.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
 
@@ -28,289 +22,127 @@ export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../retro-gate.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-# shellcheck source=lib/stage-libs.sh
-. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture kit toolbelt
+command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required (the gate reads the hook JSON with it)" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-# verify-retro.sh must exist (merged in PR1)
-VR="$HERE/../verify-retro.sh"
-[ -f "$VR" ] || { echo "FATAL: verify-retro.sh not found (PR1 must be merged): $VR" >&2; exit 2; }
-
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# Hermetic git: no user or system config, fixed identity and dates.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
-# ── Fixture helpers ───────────────────────────────────────────────────────────
+# A kit-shaped copy: the shim resolves rsdd from <toolbelt>/../rsdd (lib/rsdd-exec.sh), so the copy sits in a kit dir
+# whose rsdd/ links to the real module; a rebuild (RSDD_BIN unset, as in CI) lands in $TMP/kit/bin, never in the tree.
+mkdir -p "$TMP/kit/templates" && ln -s "$(CDPATH='' cd -P -- "$HERE/../../rsdd" && pwd -P)" "$TMP/kit/rsdd" \
+  || { echo "FATAL: could not link the rsdd module" >&2; exit 2; }
+cp "$HERE/../../templates/hook-stop-retro-gate.sh" "$TMP/kit/templates/" || { echo "FATAL: hook template missing" >&2; exit 2; }
+TB="$TMP/kit/toolbelt"; mkdir -p "$TB"
+cp "$HERE"/../*.sh "$TB/" && cp -r "$HERE/../lib" "$TB/lib" || { echo "FATAL: could not copy the toolbelt" >&2; exit 2; }
+GATE="$TB/retro-gate.sh"
+# Mock gh: authenticated, every call a no-op. Stub seeder (swapped in per case): logs its arguments.
+MOCKBIN="$TMP/mockbin"; mkdir -p "$MOCKBIN"; printf '#!/usr/bin/env bash\nexit 0\n' > "$MOCKBIN/gh"; chmod +x "$MOCKBIN/gh"
+SEED_LOG="$TMP/seed.log"; export SEED_LOG
 
-# mkgit <dir>: init a hermetic git repo with one baseline commit (idempotent)
-mkgit() {
-  local d="$1"
-  mkdir -p "$d"
-  if [ ! -d "$d/.git" ]; then
-    git -C "$d" init -q -b main
-    git -C "$d" config user.email t@example.com
-    git -C "$d" config user.name tester
-    touch "$d/.gitkeep"
-    git -C "$d" add -A
-    GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" \
-      git -C "$d" commit -q -m "init"
-  fi
+# mktarget <name>: a git target with a session start at HEAD, then one block committed (research advanced).
+mktarget() {
+  local d="$TMP/$1"
+  mkdir -p "$d"; git -C "$d" init -q -b main; : > "$d/.gitkeep"; git -C "$d" add -A
+  GIT_AUTHOR_DATE="2026-01-01T00:00:00" GIT_COMMITTER_DATE="2026-01-01T00:00:00" git -C "$d" commit -q -m init
+  mkdir -p "$d/.claude"; git -C "$d" rev-parse HEAD > "$d/.claude/.rsdd-session-s1"
+  printf '# Block\n' > "$d/niagara-block1.md"; git -C "$d" add niagara-block1.md
+  GIT_AUTHOR_DATE="2026-09-05T10:00:00" GIT_COMMITTER_DATE="2026-09-05T10:00:00" git -C "$d" commit -q -m block
+  printf '%s' "$d"
 }
-
-# mksessionfile <target> <session_id> [<mtime-touch-arg>]:
-# records current HEAD sha as session-start; optionally sets explicit mtime.
-# MUST be called BEFORE mkblock so the session sha precedes the block commit.
-mksessionfile() {
-  local tgt="$1" sid="$2" mtime="${3:-}"
-  mkdir -p "$tgt/.claude"
-  git -C "$tgt" rev-parse HEAD > "$tgt/.claude/.rsdd-session-$sid"
-  [ -n "$mtime" ] && touch -t "$mtime" "$tgt/.claude/.rsdd-session-$sid"
+hookjson() { printf '{"session_id":"%s","stop_hook_active":%s}' "$1" "${2:-false}"; }
+# run <sut> <target> <json> [args...] → OUT ERR RC
+run() {
+  local sut="$1" tgt="$2" json="$3"; shift 3
+  [ "$tgt" = "-" ] && set -- "$@" || set -- "$@" "$tgt"   # "-" = no target argument at all
+  OUT="$(printf '%s' "$json" | PATH="$MOCKBIN:$PATH" "$BASH_BIN" "$sut" "$@" 2>"$TMP/err")"; RC=$?; ERR="$(cat "$TMP/err")"
 }
-
-# mkblock <target> <name> <gdate>: create and commit a block file
-mkblock() {
-  local tgt="$1" name="$2" gdate="$3"
-  printf '# Block — test\n\nContent.\n' > "$tgt/$name"
-  git -C "$tgt" add "$name"
-  GIT_AUTHOR_DATE="$gdate" GIT_COMMITTER_DATE="$gdate" \
-    git -C "$tgt" commit -q -m "add $name"
-}
-
-# mkretro <target> <fname> <conforming:1|0>: create a retro file (in retros/)
-mkretro() {
-  local tgt="$1" fname="$2" ok_retro="$3"
-  mkdir -p "$tgt/retros"
-  if [ "$ok_retro" -eq 1 ]; then
-    printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta fixture row | file.sh | evidence | fix | low |\n' \
-      > "$tgt/retros/$fname"
-  else
-    # non-conforming: missing marker and delta section
-    printf '# Retro — test\n\nSome notes.\n' > "$tgt/retros/$fname"
-  fi
-}
-
-# mkjson <session_id> <stop_hook_active:true|false>: generate Stop-hook JSON
-mkjson() {
-  printf '{"session_id":"%s","stop_hook_active":%s,"hook_event_name":"Stop","cwd":"/tmp"}' "$1" "$2"
-}
-
-# run_gate <target> <json_str> → sets OUT RC ERR
-run_gate() {
-  local tgt="$1" json="$2" errf
-  errf="$ROOT/err.$$"
-  OUT="$(printf '%s' "$json" | "$BASH_BIN" "$SUT" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
-
-# run_mutant <mutant_path> <target> <json_str> → sets OUT RC ERR
-run_mutant() {
-  local m="$1" tgt="$2" json="$3" errf
-  errf="$ROOT/merr.$$"
-  OUT="$(printf '%s' "$json" | "$BASH_BIN" "$m" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
-
-# build_hermetic_nojq_bin <src_path> <out_dir>
-# Populate <out_dir> with symlinks to every executable reachable from <src_path> except jq.
-# <src_path> is a colon-separated PATH string. First-wins across dirs prevents duplicate-dir
-# entries (e.g. /bin→/usr/bin on Ubuntu) from leaking jq through a second path entry.
-# Used by both the main NOJQ_PATH setup and TOOTH 9, so both exercise the same code path
-# and TOOTH 9 proves the function handles duplicate dirs correctly (#910 refactor).
-#
-# #1161 — cost: on WSL the ambient PATH carries the Windows PATH (63 /mnt/c/... entries, and
-# /mnt/c/WINDOWS/system32 alone has ~5,300 entries on a 9P mount), and the old body forked
-# `basename` plus `ln` once per executable. Now (a) source dirs matching HERMETIC_BIN_SKIP_GLOB
-# (default '/mnt/*' = WSL Windows drive mounts; nothing the SUT or this suite runs lives there)
-# are never walked, (b) the name comes from ${_exe##*/} (no fork), (c) links are created with ONE
-# `ln -s -t` per source dir. First-wins semantics are unchanged.
-build_hermetic_nojq_bin() {
-  local src_path="$1" out_dir="$2" _oifs _pd _exe _n _batch _skip="${HERMETIC_BIN_SKIP_GLOB:-/mnt/*}"
-  _oifs="$IFS"; IFS=':'
-  for _pd in $src_path; do
-    IFS="$_oifs"
-    [ -d "$_pd" ] || continue
-    # SENTINEL-HB-SKIP-START
-    # shellcheck disable=SC2254
-    case "$_pd" in $_skip) continue ;; esac
-    # SENTINEL-HB-SKIP-END
-    _batch=()
-    while IFS= read -r -d '' _exe; do
-      _n="${_exe##*/}"
-      [ "$_n" = "jq" ] && continue
-      [ -e "$out_dir/$_n" ] && continue   # SENTINEL-HB-FIRSTWINS
-      _batch+=("$_exe")
-    done < <(find "$_pd" -maxdepth 1 \( -type f -o -type l \) -executable -print0 2>/dev/null)
-    if [ "${#_batch[@]}" -gt 0 ]; then ln -s -t "$out_dir" -- "${_batch[@]}"; fi
-  done
-  IFS="$_oifs"
-}
-
-# Build NOJQ_PATH: a hermetic single-dir PATH with symlinks to every executable on
-# the current PATH except jq.  Resolving by name (first-wins across dirs) prevents
-# /bin→/usr/bin duplicates from leaking jq even when jq lives in the canonical target.
-_NOJQ_BIN="$ROOT/nojq_bin"
-mkdir -p "$_NOJQ_BIN"
-if command -v jq >/dev/null 2>&1; then
-  build_hermetic_nojq_bin "$PATH" "$_NOJQ_BIN"
-  NOJQ_PATH="$_NOJQ_BIN"
-else
-  NOJQ_PATH="$PATH"  # jq already absent
-fi
-
-# Build FAIL_AUTH_GH_DIR: a bin dir with a fake gh that fails auth status.
-# This simulates gh present-but-not-authenticated (more portable than truly hiding gh).
-FAIL_AUTH_GH_DIR="$ROOT/failauthbin"
-mkdir -p "$FAIL_AUTH_GH_DIR"
-cat > "$FAIL_AUTH_GH_DIR/gh" << 'FAILGHEOF'
-#!/usr/bin/env bash
-# fake gh: auth status always fails (not authenticated), other ops succeed
-case "${1:-} ${2:-}" in
-  "auth status") exit 1 ;;
-  *) exit 0 ;;
-esac
-FAILGHEOF
-chmod +x "$FAIL_AUTH_GH_DIR/gh"
-
-# run_gate_nojq <target> <json_str> → sets OUT RC ERR; hides jq from PATH
-run_gate_nojq() {
-  local tgt="$1" json="$2" errf
-  errf="$ROOT/err_nojq.$$"
-  OUT="$(printf '%s' "$json" | PATH="$NOJQ_PATH" "$BASH_BIN" "$SUT" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
-
-# run_mutant_nojq <mutant_path> <target> <json_str> → sets OUT RC ERR; hides jq from PATH
-run_mutant_nojq() {
-  local m="$1" tgt="$2" json="$3" errf
-  errf="$ROOT/merr_nojq.$$"
-  OUT="$(printf '%s' "$json" | PATH="$NOJQ_PATH" "$BASH_BIN" "$m" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
-
-# ── EN3: fixture-kit helpers (seeding tests) ──────────────────────────────────
-# FKIT mirrors the real toolbelt but uses a stub stage-retro-issues.sh that logs
-# calls to SEED_LOG (env var).  A mock-gh dir is prepended to PATH so gh probes pass.
-FKIT="$ROOT/fkit"
-rsdd_stage_libs "$FKIT/toolbelt"
-cp "$HERE/../verify-retro.sh"       "$FKIT/toolbelt/"
-# Stub seeder: logs "<retro> <flags>" to SEED_LOG, emits real summary: format, exits 0
-cat > "$FKIT/toolbelt/stage-retro-issues.sh" << 'STUBEOF'
-#!/usr/bin/env bash
-# EN3 test stub: log all arguments to SEED_LOG (env var); emit real summary: line
-printf '%s\n' "$*" >> "${SEED_LOG:-/dev/null}"
-printf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0\n'
-exit 0
-STUBEOF
-chmod +x "$FKIT/toolbelt/stage-retro-issues.sh"
-# Copy the SUT into FKIT so SELF_DIR-relative KIT path points to stub seeder
-cp "$SUT" "$FKIT/toolbelt/retro-gate.sh"
-# Mock gh: auth status always succeeds, other calls are no-ops
-MOCK_GH_DIR="$ROOT/mockbin"
-mkdir -p "$MOCK_GH_DIR"
-cat > "$MOCK_GH_DIR/gh" << 'GHEOF'
-#!/usr/bin/env bash
-case "${1:-} ${2:-}" in
-  "auth status") exit 0 ;;
-  *) exit 0 ;;
-esac
-GHEOF
-chmod +x "$MOCK_GH_DIR/gh"
-
-SEED_LOG_EN3="$ROOT/en3-seed.log"
-
-# run_fkit_gate <target> <json_str> → sets OUT RC ERR; uses FKIT SUT + stub seeder + mock gh
-run_fkit_gate() {
-  local tgt="$1" json="$2" errf
-  errf="$ROOT/fkit_err.$$"
-  OUT="$(printf '%s' "$json" | SEED_LOG="$SEED_LOG_EN3" \
-    PATH="$MOCK_GH_DIR:$PATH" "$BASH_BIN" "$FKIT/toolbelt/retro-gate.sh" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
-
-# run_gate_nogh <target> <json_str> → sets OUT RC ERR; uses fake-auth-failing gh (real SUT)
-# simulates gh present but not authenticated → triggers the not-authenticated WARN
-run_gate_nogh() {
-  local tgt="$1" json="$2" errf
-  errf="$ROOT/err_nogh.$$"
-  OUT="$(printf '%s' "$json" | PATH="$FAIL_AUTH_GH_DIR:$PATH" "$BASH_BIN" "$SUT" "$tgt" 2>"$errf")"; RC=$?
-  ERR="$(cat "$errf")"; rm -f "$errf"
-}
+has() { case "$1" in *"$2"*) return 0 ;; esac; return 1; }
 
 echo "== retro-gate.test.sh (SUT: $(basename "$SUT")) =="
 
-# ─── BAD ARGS ────────────────────────────────────────────────────────────────
-printf '' | "$BASH_BIN" "$SUT" >/dev/null 2>&1; _rc=$?
-[ "$_rc" -eq 0 ] && ok "BAD: no arg → exit 0 (hook contract)" || no "BAD: no arg — want exit 0, got $_rc"
+# S1: the script is a shim, not a second implementation.
+{ grep -q 'rsdd_exec_hook gate gate retro --toolbelt "\$_RSDD_SELF"' "$SUT" && grep -q 'rsdd_exec gate retro --toolbelt "\$_RSDD_SELF"' "$SUT" \
+    && [ "$(grep -vc '^#' "$SUT")" -lt 20 ]; } \
+  && ok "S1: retro-gate.sh is a shim over rsdd gate retro (passes --toolbelt, no gate logic left)" || no "S1: retro-gate.sh is not a shim"
 
-printf '' | "$BASH_BIN" "$SUT" "/nonexistent-target-$$" >/dev/null 2>&1; _rc=$?
-[ "$_rc" -eq 0 ] && ok "BAD: nonexistent target → exit 0 (hook contract)" || no "BAD: nonexistent — want 0, got $_rc"
+# S2: argument errors keep the hook contract.
+run "$GATE" "-" ""; { [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "missing <target>"; } && ok "S2a: no argument → exit 0, typed error on stderr" || no "S2a: rc=$RC err=$ERR"
+run "$GATE" "$TMP/nope" ""; { [ "$RC" -eq 0 ] && has "$ERR" "target not found"; } && ok "S2b: nonexistent target → exit 0, typed error" || no "S2b: rc=$RC err=$ERR"
 
-# ─── (1) stop_hook_active=true → always allow, even with changed block ───────
-T1="$ROOT/t1"; mkgit "$T1"; SID1="sess-001"
-mksessionfile "$T1" "$SID1" "202609050800"  # session sha before block; mtime 08:00
-mkblock "$T1" "niagara-block1.md" "2026-09-05T10:00:00"
-# Mtime: session=08:00, block=now (after 08:00 → detectable); stop_hook_active=true overrides
+# S3: BLOCK end to end; the kit root and the toolbelt are the COPY's (the shim's --toolbelt), not the live kit's.
+T3="$(mktarget t3)"
+run "$GATE" "$T3" "$(hookjson s1)"
+{ [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.decision == "block"' >/dev/null && has "$OUT" "$TMP/kit/templates/retro.template.md"; } \
+  && ok "S3a: BLOCK end to end through the shim; the reason names the copy's kit templates" || no "S3a: rc=$RC out=$OUT err=$ERR"
+has "$ERR" "state=block branch=retro-pending changed=1 changed retro=(none) target=t3" && ok "S3b: typed state line on stderr" || no "S3b: $ERR"
+LASTLOG="$(tail -n1 "$T3/.claude/.rsdd-retro-gate-stops.log")"
+[ -f "$T3/.claude/.rsdd-retro-blocked-s1" ] && has "$LASTLOG" 'branch=retro-pending' \
+  && ok "S3c: block-once state file and stop-log line written under .claude" || no "S3c: state files missing"
+run "$GATE" "$T3" "$(hookjson s1)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "branch=block-once"; } && ok "S3d: the second Stop of the session allows (block-once)" || no "S3d: rc=$RC out=$OUT err=$ERR"
+run "$GATE" "$T3" "$(hookjson s2 true)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "branch=loop-safety"; } && ok "S3e: stop_hook_active allows (loop-safety)" || no "S3e: rc=$RC out=$OUT err=$ERR"
 
-_j1="$(mkjson "$SID1" "true")"
-run_gate "$T1" "$_j1"
-[ "$RC" -eq 0 ] && ok "ALLOW: stop_hook_active=true → exit 0" || no "ALLOW: stop_hook_active=true — want 0, got $RC"
-[ -z "$OUT" ] && ok "ALLOW: stop_hook_active=true → no block JSON on stdout" || no "ALLOW: stop_hook_active=true — unexpected stdout: $OUT"
-<<<"$ERR" grep -q 'loop-safety' && ok "ALLOW: stop_hook_active stderr says loop-safety" \
-  || no "ALLOW: stop_hook_active — stderr missing 'loop-safety': $ERR"
+# S4: siblings resolve beside the shim: a stub verify-retro.sh decides conformance, a stub seeder is called with --apply.
+T4="$(mktarget t4)"; mkdir -p "$T4/retros"; printf '# Retro\n' > "$T4/retros/2026-09-05-r.md"
+git -C "$T4" add retros && GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" git -C "$T4" commit -q -m retro
+printf '#!/usr/bin/env bash\necho "STUBFINDING: nothing conforms"\nexit 1\n' > "$TB/verify-retro.sh"
+run "$GATE" "$T4" "$(hookjson s1)"
+{ printf '%s' "$OUT" | jq -e '.decision == "block" and (.reason | contains("missing elements: STUBFINDING: nothing conforms"))' >/dev/null; } \
+  && ok "S4a: the sibling verify-retro.sh beside the shim decides conformance" || no "S4a: out=$OUT err=$ERR"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TB/verify-retro.sh"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "$SEED_LOG"\nprintf "summary: created=1 skipped-duplicate=0\\n"\n' > "$TB/stage-retro-issues.sh"
+rm -f "$SEED_LOG" "$T4/.claude/.rsdd-retro-blocked-s1"
+run "$GATE" "$T4" "$(hookjson s1)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "branch=retro-conforming" && has "$ERR" "issue-seeding: ran=1 created=1" && grep -q -- "--apply" "$SEED_LOG"; } \
+  && ok "S4b: a conforming close seeds through the sibling stage-retro-issues.sh --apply (ran=1 created=1)" || no "S4b: rc=$RC out=$OUT err=$ERR"
+cp "$HERE/../verify-retro.sh" "$HERE/../stage-retro-issues.sh" "$TB/"
 
-# ─── (2) First call with block + no retro → blocks ───────────────────────────
-T2="$ROOT/t2"; mkgit "$T2"; SID2="sess-002"
-mksessionfile "$T2" "$SID2" "202609050800"
-mkblock "$T2" "niagara-block1.md" "2026-09-05T10:00:00"
+# S5: --json through the shim: one envelope, rc 0.
+T5="$(mktarget t5)"
+run "$GATE" "$T5" "$(hookjson s1)" --json
+{ [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.schema == "research-sdd.retro-gate/v1" and .items[0].verdict == "block" and .counts.blocked == 1' >/dev/null; } \
+  && ok "S5: --json prints ONE research-sdd.retro-gate/v1 envelope (block), rc 0" || no "S5: rc=$RC out=$OUT err=$ERR"
 
-_j2="$(mkjson "$SID2" "false")"
-run_gate "$T2" "$_j2"
-[ "$RC" -eq 0 ] && ok "BLOCK: no retro → exit 0 (hook contract)" || no "BLOCK: no retro — want exit 0, got $RC"
-<<<"$OUT" grep -qF '"decision":"block"' && ok "BLOCK: no retro → decision=block in stdout" \
-  || no "BLOCK: no retro — missing decision:block in stdout: $OUT"
-<<<"$OUT" grep -qF 'retro.template.md' && ok "BLOCK: no retro → reason has template ref" \
-  || no "BLOCK: no retro — reason missing template ref: $OUT"
+# S6: the binary is unavailable. A hook never fails its Stop; --json is a machine reader and says rc 2.
+RSDD_BIN="$TMP/no-such-rsdd" run "$GATE" "$T5" "$(hookjson s9)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "degraded: rsdd-unavailable" && has "$ERR" "rsdd-exec-gate: state=allow branch=degraded"; } \
+  && ok "S6a: binary unavailable → the hook degrades to an allow (exit 0, typed stderr)" || no "S6a: rc=$RC out=$OUT err=$ERR"
+RSDD_BIN="$TMP/no-such-rsdd" run "$GATE" "$T5" "$(hookjson s9)" --json
+{ [ "$RC" -eq 2 ] && [ -z "$OUT" ] && has "$ERR" "degraded: rsdd-unavailable"; } \
+  && ok "S6b: binary unavailable with --json → rc 2, nothing on stdout" || no "S6b: rc=$RC out=$OUT err=$ERR"
+mkdir -p "$TMP/nolib/toolbelt" && cp "$GATE" "$TMP/nolib/toolbelt/retro-gate.sh"
+run "$TMP/nolib/toolbelt/retro-gate.sh" "$T5" "$(hookjson s9)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "rsdd-exec.sh missing beside"; } && ok "S6c: lib/rsdd-exec.sh missing → exit 0, typed stderr (hook)" || no "S6c: rc=$RC err=$ERR"
+run "$TMP/nolib/toolbelt/retro-gate.sh" "$T5" "$(hookjson s9)" --json
+[ "$RC" -eq 2 ] && ok "S6d: lib/rsdd-exec.sh missing with --json → rc 2" || no "S6d: rc=$RC"
 
-# ─── (3) Block-once: second call in same session → allow ─────────────────────
-run_gate "$T2" "$_j2"
-[ "$RC" -eq 0 ] && ok "ALLOW: block-once second call → exit 0" || no "ALLOW: block-once — want 0, got $RC"
-[ -z "$OUT" ] && ok "ALLOW: block-once second call → no block JSON" || no "ALLOW: block-once — expected no block, got: $OUT"
-<<<"$ERR" grep -q 'block-once' && ok "ALLOW: block-once stderr says block-once" \
-  || no "ALLOW: block-once — stderr missing 'block-once': $ERR"
+# S7: through a symlink (RSDD-SELF-DIR): the shim finds its toolbelt, the copy decides again.
+T7="$(mktarget t7)"; ln -s "$GATE" "$TMP/link-retro-gate.sh"
+run "$TMP/link-retro-gate.sh" "$T7" "$(hookjson s1)"
+{ printf '%s' "$OUT" | jq -e '.decision == "block"' >/dev/null && has "$OUT" "$TMP/kit/templates/retro.template.md"; } \
+  && ok "S7: the shim runs through a symlink and still resolves its own toolbelt" || no "S7: out=$OUT err=$ERR"
 
-# ─── (4) No research files changed → allow ───────────────────────────────────
-T3="$ROOT/t3"; mkgit "$T3"; SID3="sess-003"
-# Commit a non-research file, then take snapshot AFTER that commit
-printf 'readme\n' > "$T3/README.txt"
-git -C "$T3" add README.txt
-GIT_AUTHOR_DATE="2026-09-05T09:00:00" GIT_COMMITTER_DATE="2026-09-05T09:00:00" \
-  git -C "$T3" commit -q -m "add readme"
-mksessionfile "$T3" "$SID3"  # records sha AFTER readme commit
-# No research files after session start → both git-diff and find-newer return empty
+# S8: the installable hook wrapper (templates/hook-stop-retro-gate.sh) still execs the shim unchanged.
+T8="$(mktarget t8)"
+sed -e "s#<KIT>#$TMP/kit#" -e "s#<TARGET>#$T8#" "$TMP/kit/templates/hook-stop-retro-gate.sh" > "$T8/hook.sh"; chmod +x "$T8/hook.sh"
+OUT="$(printf '%s' "$(hookjson s1)" | PATH="$MOCKBIN:$PATH" "$BASH_BIN" "$T8/hook.sh" 2>"$TMP/err")"; RC=$?; ERR="$(cat "$TMP/err")"
+{ [ "$RC" -eq 0 ] && printf '%s' "$OUT" | jq -e '.decision == "block"' >/dev/null; } && ok "S8: the Stop-hook wrapper execs the shim and BLOCKS end to end" || no "S8: rc=$RC out=$OUT err=$ERR"
 
-_j3="$(mkjson "$SID3" "false")"
-run_gate "$T3" "$_j3"
-[ "$RC" -eq 0 ] && ok "ALLOW: no research change → exit 0" || no "ALLOW: no change — want 0, got $RC"
-[ -z "$OUT" ] && ok "ALLOW: no research change → no block JSON" || no "ALLOW: no change — unexpected stdout: $OUT"
-<<<"$ERR" grep -q 'no-change' && ok "ALLOW: no-change branch in stderr" \
-  || no "ALLOW: no-change — stderr missing 'no-change': $ERR"
+# S9: the real sibling seeder (itself a shim) still runs under the gate: whatever it says, the verdict stays an allow.
+T9="$(mktarget t9)"; mkdir -p "$T9/retros"
+printf '<!-- review-status: pending -->\n# Retro — test\n\n## Proposed kit deltas\n\n| # | change | target | evidence | type | priority |\n|---|---|---|---|---|---|\n| 1 | test delta fixture row | file.sh | evidence | fix | low |\n' > "$T9/retros/2026-09-05-r.md"
+git -C "$T9" add retros && GIT_AUTHOR_DATE="2026-09-05T12:00:00" GIT_COMMITTER_DATE="2026-09-05T12:00:00" git -C "$T9" commit -q -m retro
+HOME="$TMP/nohome" run "$GATE" "$T9" "$(hookjson s1)"
+{ [ "$RC" -eq 0 ] && [ -z "$OUT" ] && has "$ERR" "branch=retro-conforming" && has "$ERR" "retro-gate: issue-seeding: ran=1 "; } \
+  && ok "S9: a conforming close runs the real sibling seeder; the verdict is still an allow (exit 0)" || no "S9: rc=$RC out=$OUT err=$ERR"
 
-# ─── (5) Conforming retro newer than block → allow ───────────────────────────
-T4="$ROOT/t4"; mkgit "$T4"; SID4="sess-004"
-mksessionfile "$T4" "$SID4" "202609050800"   # session mtime: 08:00
-mkblock "$T4" "niagara-block1.md" "2026-09-05T10:00:00"
-touch -t 202609051000 "$T4/niagara-block1.md"   # block mtime: 10:00
-mkretro "$T4" "2026-09-05-good-retro.md" 1
-touch -t 202609051200 "$T4/retros/2026-09-05-good-retro.md"  # retro mtime: 12:00
+# --prove-teeth: the gate is the Go command `rsdd gate retro` (kit issues #2367, #2368); its mutation controls live in
+# research-sdd/rsdd/internal/gate (retrogate_*_test.go), so this suite runs the shim black-box only.
 
-_j4="$(mkjson "$SID4" "false")"
-run_gate "$T4" "$_j4"
-[ "$RC" -eq 0 ] && ok "ALLOW: conforming retro newer than block → exit 0" || no "ALLOW: conform — want 0, got $RC"
-[ -z "$OUT" ] && ok "ALLOW: conforming retro → no block JSON" || no "ALLOW: conform — unexpected stdout: $OUT"
-<<<"$ERR" grep -q 'retro-conforming' && ok "ALLOW: conforming retro branch in stderr" \
-  || no "ALLOW: conform — stderr missing 'retro-conforming': $ERR"
-
-# ─── Summary ─────────────────────────────────────────────────────────────────
-echo
 echo "== $pass passed · $fail failed =="
-[ "$fail" -eq 0 ] && exit 0 || exit 1
+[ "$fail" -eq 0 ] || exit 1
