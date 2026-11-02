@@ -28,7 +28,7 @@ type pyOut struct {
 	Stderr  string          `json:"stderr"`
 }
 
-const toolbeltDir = "../../../../toolbelt"
+const toolbeltDir = "../../../../../toolbelt"
 
 func pythonPath(t *testing.T) string {
 	t.Helper()
