@@ -648,12 +648,13 @@ mutant_jobs_end() {
 }
 
 # ── Shared python-SUT tooth kit (kit issue #2053 WU1) ────────────────────────────────────────────
-# For the suites whose SUT is a python module loaded from lib/ (plan_common.py, proc_common.py, ...). The suite
+# For suites whose SUT is a python module loaded from lib/ (its first users, the plan-common and proc-common
+# suites, were retired by #2443; mutant.test.sh still pins the kit). The suite
 # re-runs ITSELF in a child mode against a staged copy of the SUT tree that carries ONE mutated module.
 # Child mode contract (the suite implements it before its plain run, no helper needed there):
 #     --teeth-child <path>   use <path> as the SUT; exit 2 when it is not a file; print `TEETH-CHILD: SUT=<path>`
 # HERE is the suite's tests/ dir, SELF the suite script, MUT a temp root the caller owns, REL the module path
-# relative to the toolbelt dir (e.g. lib/plan_common.py). Tooth LABELs must be unique per MUT.
+# relative to the toolbelt dir (e.g. lib/<module>.py). Tooth LABELs must be unique per MUT.
 #
 #   mutant_py_crash_strict                 prints the strict crash regex (grep -E): the exception CLASS names
 #                                          (Traceback|ImportError|ModuleNotFoundError|SyntaxError|
