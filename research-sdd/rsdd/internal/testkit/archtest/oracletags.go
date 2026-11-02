@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/build/constraint"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -93,18 +93,41 @@ func CheckOracleTags(root string, allow map[string]string) (OracleResult, error)
 	return r, nil
 }
 
+// teethBuild is the build `make teeth` runs: linux/amd64 with -tags nodiff.
+// MatchFile applies both the //go:build line and the _GOOS/_GOARCH file-name
+// suffix, exactly as the go command does.
+var teethBuild = func() build.Context {
+	c := build.Default
+	c.GOOS, c.GOARCH, c.BuildTags = "linux", "amd64", []string{"nodiff"}
+	return c
+}()
+
 // classify parses one test file and reports whether it execs an oracle and
-// whether the nodiff tag is what keeps it out of a linux build.
+// whether the teeth build leaves it out.
 func classify(path string) (oracle, excluded bool, err error) {
-	f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
+	in, err := teethBuild.MatchFile(filepath.Dir(path), filepath.Base(path))
 	if err != nil {
 		return false, false, err
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return false, false, err
+	}
+	// The local name of os/exec, whatever the file imports it as.
+	execName := ""
+	for _, im := range f.Imports {
+		if im.Path.Value == `"os/exec"` {
+			execName = "exec"
+			if im.Name != nil {
+				execName = im.Name.Name
+			}
+		}
 	}
 	execs, marker := false, false
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
-			if id, ok := n.X.(*ast.Ident); ok && id.Name == "exec" && (n.Sel.Name == "Command" || n.Sel.Name == "CommandContext") {
+			if id, ok := n.X.(*ast.Ident); ok && id.Name == execName && (n.Sel.Name == "Command" || n.Sel.Name == "CommandContext") {
 				execs = true
 			}
 		case *ast.BasicLit:
@@ -116,7 +139,7 @@ func classify(path string) (oracle, excluded bool, err error) {
 		}
 		return true
 	})
-	return execs && marker, nodiffExcludes(f), nil
+	return execs && marker, !in, nil
 }
 
 func isOracleMarker(s string) bool {
@@ -124,29 +147,4 @@ func isOracleMarker(s string) bool {
 		return true
 	}
 	return strings.HasSuffix(s, ".py") || strings.Contains(s, "testdata/legacy")
-}
-
-// nodiffExcludes reports whether the file's //go:build line keeps it out of the
-// linux/amd64 build that `make teeth` runs with -tags nodiff. Any //go:build
-// line counts: gofmt (make fmt-check) moves each one above the package clause.
-func nodiffExcludes(f *ast.File) bool {
-	for _, g := range f.Comments {
-		for _, c := range g.List {
-			if !constraint.IsGoBuild(c.Text) {
-				continue
-			}
-			expr, err := constraint.Parse(c.Text)
-			if err != nil {
-				return false
-			}
-			return !expr.Eval(func(tag string) bool {
-				switch tag {
-				case "nodiff", "linux", "unix", "amd64", "gc":
-					return true
-				}
-				return false
-			})
-		}
-	}
-	return false
 }

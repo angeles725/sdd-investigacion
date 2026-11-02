@@ -38,8 +38,8 @@ func TestOracleTagsFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Scanned != 8 {
-		t.Errorf("Scanned = %d, want 8", r.Scanned)
+	if r.Scanned != 11 {
+		t.Errorf("Scanned = %d, want 11", r.Scanned)
 	}
 	check := func(name string, got, want []string) {
 		t.Helper()
@@ -55,11 +55,12 @@ func TestOracleTagsFixture(t *testing.T) {
 		return out
 	}
 	// comment_test.go names an oracle only in a comment; literal_only_test.go has a
-	// marker but never execs: neither is an oracle file.
-	check("Oracles", r.Oracles, p("allowed", "legacy", "other_nodiff", "script", "tagged", "untagged"))
+	// marker but never execs; shadow_test.go calls Command on a local `exec` that is
+	// not os/exec: none is an oracle file. alias_test.go imports os/exec as osexec.
+	check("Oracles", r.Oracles, p("alias", "allowed", "legacy", "other_nodiff", "script", "tagged", "untagged", "winonly_windows"))
 	// legacy_test.go's `!windows` keeps it in a linux nodiff build; other_nodiff_test.go's
-	// `!nodiff || windows` does not.
-	check("Untagged", r.Untagged, p("legacy", "script", "untagged"))
+	// `!nodiff || windows` does not, and winonly_windows_test.go is not built on linux at all.
+	check("Untagged", r.Untagged, p("alias", "legacy", "script", "untagged"))
 	check("Stale", r.Stale, p("gone", "tagged"))
 }
 
