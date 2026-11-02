@@ -106,7 +106,6 @@ func (v *verifier) echo(format string, a ...any) { fmt.Fprintf(v.s.Out, format+"
 var (
 	reCoverageMetric = regexp.MustCompile(`(?i)\*{0,2}coverage metric\*{0,2}:`)
 	reRatio          = regexp.MustCompile(`[0-9]+[ \t\n\v\f\r]*/[ \t\n\v\f\r]*[0-9]+`)
-	reDigits         = regexp.MustCompile(`[0-9]+`)
 	reBacklogAny     = regexp.MustCompile(`(?i)^##[ \t\n\v\f\r].*backlog`)
 	reCoveredBlocks  = regexp.MustCompile(`(?i)covered blocks`)
 	reBlockID        = regexp.MustCompile(`\bB[0-9]+\b`)
