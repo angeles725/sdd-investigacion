@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 0 (empty-input: no delta section and no proposal-like heading)\n",
+  "stderr": "empty-input: no delta section found in @BOX@/rh/target-foo/retros/r.md\n",
+  "ghlog": ""
+}

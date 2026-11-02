@@ -120,8 +120,9 @@ type registry struct {
 	human strings.Builder // the report; printed unless --json mutes it
 	items []regItem
 
-	checked, drift, retroDrift, unresolved, dirReached, attention, absentPaths int
-	skippedCount, ntargets, rowlint                                            int
+	checked, drift, retroDrift, unresolved, attention, absentPaths int
+	dirReached                                                     bool
+	skippedCount, ntargets, rowlint                                int
 }
 
 func (r *registry) env(k string) string { return r.s.Env(k) }
@@ -225,7 +226,7 @@ func (r *registry) run(kitFlag string) int {
 		r.target(p, pairs, tlines, &absentRowIDs, &absentNames)
 	}
 
-	if r.dirReached == 0 {
+	if !r.dirReached {
 		fmt.Fprintf(r.s.Err, "verify-registry: ERROR — no registered corpus path exists as a directory on disk.\n")
 		fmt.Fprintf(r.s.Err, "verify-registry: Check RESEARCH_HOME (%s) and that corpora exist at the registered paths.\n", orDefault(r.env("RESEARCH_HOME"), "(unset)"))
 		if r.json {
@@ -259,12 +260,7 @@ func leadingInt(digits string) int {
 	return int(n)
 }
 
-func absDiff(a, b int) int {
-	if a < b {
-		return b - a
-	}
-	return a - b
-}
+func absDiff(a, b int) int { return max(a-b, b-a) }
 
 // drifts is `[ "$d" -gt "$tol" ]` after the shell's integer test: a tol that is not an integer is false.
 func (r *registry) drifts(d int) bool { return r.gtTol(d) }
@@ -364,7 +360,7 @@ func (r *registry) target(p string, pairs []kit.Pair, tlines []string, absentRow
 		}
 		return
 	}
-	r.dirReached++
+	r.dirReached = true
 
 	inner := reParen.FindString(row)
 	inner = strings.TrimPrefix(inner, "(")
@@ -549,10 +545,7 @@ func (r *registry) catalog(name, catMD string, disc int) (real int, authority st
 			seps++
 		}
 	}
-	rows := pipes - seps - 1
-	if rows < 0 {
-		rows = 0
-	}
+	rows := max(pipes-seps-1, 0)
 	if catTotal != strconv.Itoa(rows) { // string comparison, as `[ "$a" != "$b" ]`
 		r.finding("catalog-stale-header", "WARN", name, fmt.Sprintf("%s — CATALOG.md header total %s ≠ its own %d block rows (stale header); using disk discriminator %d — regenerate CATALOG.md.", name, catTotal, rows, disc))
 		r.attention++
@@ -581,9 +574,7 @@ func (r *registry) catalog(name, catMD string, disc int) (real int, authority st
 func (r *registry) rowHygiene(src string) {
 	rowMax := orDefault(r.env("RSDD_ROW_MAXLEN"), "200")
 	lines := strings.Split(src, "\n")
-	if n := len(lines); n > 0 {
-		lines = lines[:n-1] // the fragment after the last newline is not a terminated line
-	}
+	lines = lines[:len(lines)-1] // Split never returns an empty slice; the fragment after the last newline is not a terminated line
 	for _, line := range lines {
 		if !reMasterRow.MatchString(line) {
 			continue
@@ -624,7 +615,7 @@ func cellLonger(n int, max string) bool {
 		f, err := strconv.ParseFloat(trimSpace(max), 64)
 		return err == nil && float64(n) > f
 	}
-	return strconv.Itoa(n) > max
+	return strings.Compare(strconv.Itoa(n), max) == 1
 }
 
 // kitSelfRegistration warns when the kit repo itself is absent from TARGETS.md (kit-sup #6).

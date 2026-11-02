@@ -1,0 +1,16 @@
+{
+  "legacy": [
+    "rsdd/internal/core/hookwiring/testdata/legacy/driver.sh",
+    "cli-launch-state",
+    "{{input}}"
+  ],
+  "rsdd": [
+    "hook",
+    "launch-state",
+    "{{input}}"
+  ],
+  "env": {
+    "RSDD_CLAUDE_PROJECTS_DIR": "",
+    "CLAUDE_CONFIG_DIR": "{{sandbox}}/no-such-config"
+  }
+}

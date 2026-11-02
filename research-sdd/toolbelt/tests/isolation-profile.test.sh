@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # isolation-profile.test.sh — black-box tests of lib/isolation_profile.py, the Python entry point.
 #
-# The module was ported to Go (internal/adapter, kit issue #2390) and its behaviour is pinned there by
+# The module was ported to Go (internal/core/adapter, kit issues #2390, #2421) and its behaviour is pinned there by
 # parity tests that load THIS module and compare every make_profile() outcome and every PROFILE_*
 # constant with the Go port (TestMakeProfile*, TestParityMakeProfile, TestParityNamedProfileConstants).
 # What stays here is what the Go tests cannot see: the Python module itself, imported the way the ten
@@ -51,7 +51,6 @@ expected = [
     ("PROFILE_BWRAP_CAPA_OFFLINE",          "bubblewrap-capa-offline",          True,  False, False),
     ("PROFILE_BWRAP_FLOSS_OFFLINE",         "bubblewrap-floss-offline",         True,  False, False),
     ("PROFILE_BWRAP_KAITAI_OFFLINE",        "bubblewrap-kaitai-offline",        True,  False, False),
-    ("PROFILE_BWRAP_UNBLOB_OFFLINE",        "bubblewrap-unblob-offline",        True,  False, False),
     ("PROFILE_BWRAP_UNSQUASHFS",            "bwrap-unsquashfs",                 True,  False, False),
     ("PROFILE_INPROCESS_ZIP_METADATA",      "in-process-metadata-only",         True,  False, False),
     ("PROFILE_INPROCESS_ZIP_STORED",        "in-process-static-stored-copy",    True,  False, False),

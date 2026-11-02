@@ -11,6 +11,12 @@
 # The integration fixture is tests/fixtures/wired-hook-exec/ (settings.json + hooks/), copied into a
 # sandbox target as .claude/ so the suite never writes into the kit tree.
 #
+# U2.3b (kit issue #2357): the report itself is Go now (research-sdd/rsdd/internal/core/hookwiring, WiredExecReport), reached through the
+# hook_wired_exec_report shim; this suite runs the table against the real rsdd (RSDD_BIN, or the built binary) and keeps the
+# teeth of what stays in bash: the shim's failure arm and the verify-registry call sites. The bash teeth that mutated the moved
+# parser (one per rule of _hw_split_cmd / _hw_check_command) are Go mutants now: each is killed by a case of the Go table
+# test TestWiredExecReport / TestSplitCommand / TestHeadOfCommand (wiredexec_test.go) and recorded in odd/tasks/hook-wiring-part2.md.
+#
 # Usage: verify-registry-wired-exec.test.sh [--prove-teeth]
 # Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
 
@@ -112,11 +118,15 @@ tc_absent() { local l="$1" out; rm -f "$LT/.claude/settings.json"; out="$(lt_run
 tc_unreadable() { local l="$1" out; lt_settings "$P/noexec"; chmod 000 "$LT/.claude/settings.json"; out="$(lt_run "$l")"; chmod 644 "$LT/.claude/settings.json"
   [[ "$out" == "unverifiable${TB}"*"not a readable file"* ]]; }
 # shellcheck disable=SC1090
-tc_nojq() { local l="$1" out nb="$ROOT/nojq-bin" t   # jq absent from PATH: typed note + the text-match fallback still finds the file
-  if [ ! -d "$nb" ]; then mkdir -p "$nb"; for t in grep sed; do ln -sf "$(command -v "$t")" "$nb/$t"; done; fi
+tc_nojq() { local l="$1" out nb="$ROOT/nojq-bin" t   # jq absent from PATH: Go parses the file itself, so nothing changes (no note, no fallback)
+  if [ ! -d "$nb" ]; then mkdir -p "$nb"; for t in dirname readlink; do ln -sf "$(command -v "$t")" "$nb/$t"; done; fi
   lt_settings "$P/noexec"; out="$( ( PATH="$nb"; HOME="$LT/home"; . "$l"; hook_wired_exec_report "$LT" ) )"
-  [[ "$out" == "unverifiable${TB}"*"jq not on PATH"*"not-executable${TB}$LT/.claude/hooks/noexec${TB}?" ]]; }
-tc_force_fallback() { tc_nextline "$1"; }   # next-line values are read by jq only: the text fallback (and its note) must not be taken when jq exists
+  [[ "$out" == "not-executable${TB}$LT/.claude/hooks/noexec${TB}Stop" ]]; }
+# rsdd cannot answer: ONE typed unverifiable line for the settings file, never an empty (clean) report.
+# shellcheck disable=SC1090
+tc_rsdd_down() { local l="$1" out
+  lt_settings "$P/noexec"; out="$( ( export RSDD_BIN="$ROOT/no-such-rsdd"; HOME="$LT/home"; . "$l"; hook_wired_exec_report "$LT" ) 2>/dev/null)"
+  [[ "$out" == "unverifiable${TB}$LT/.claude/settings.json${TB}rsdd could not produce"* ]] && [ "$(wc -l <<<"$out")" = 1 ]; }
 
 echo "== verify-registry-wired-exec.test.sh =="
 if [ "$HAVE_JQ" = 1 ]; then
@@ -152,9 +162,12 @@ if [ "$HAVE_JQ" = 1 ]; then
   tc_absent "$LIB"       && ok "L30 absent settings.json prints nothing (nothing wired)"               || no "L30 absent settings"
   if [ "$(id -u)" = 0 ]; then skip "L31 unreadable settings.json" "(running as root: chmod 000 is still readable)"
   else tc_unreadable "$LIB" && ok "L31 unreadable settings.json is typed unverifiable"                   || no "L31 unreadable"; fi
-  tc_nojq "$LIB"         && ok "L32 no jq: typed note + text-match fallback still reports"             || no "L32 no-jq fallback"
+  tc_nojq "$LIB"         && ok "L32 no jq on PATH: the report is the same (rsdd parses settings.json itself)" || no "L32 no-jq"
 else
   skip "L1-L32 lib command-shape table" "(jq not on PATH: the table writes settings.json with jq)"
+fi
+if [ "$HAVE_JQ" = 1 ]; then
+  tc_rsdd_down "$LIB"    && ok "L33 rsdd unavailable: one typed unverifiable line, not a clean report"   || no "L33 rsdd down"
 fi
 
 # ---------------------------------------------------------------- verify-registry integration
@@ -286,39 +299,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if "$fn" "$mk"; then no "teeth $label: mutant survived — case is THEATER"; else ok "teeth $label: mutant breaks the case (has teeth)"; fi
   }
   if [ "$HAVE_JQ" = 1 ]; then
-    lteeth OPERATOR-STOP-DROPPED tc_ops '/# HW-OPERATOR-STOP$/d'
-    lteeth NAMEVAL-NOT-SKIPPED tc_nameval 's/\[A-Za-z_\]\*=\*) case/NOPE) case/'
-    lteeth WRAP-EXEC-NOT-SKIPPED tc_exec 's/^        exec|nohup|command)/        NOEXEC)/'
-    lteeth WRAP-OPTION-GUESSED tc_exec_opt 's/-\*) _hw_unv "\$head" "\$w followed by an option"/-NOPE*) _hw_unv "$head" "$w followed by an option"/'
-    lteeth WRAP-TIMEOUT-NOT-SKIPPED tc_timeout 's/^        timeout)   # HW-WRAP-TIMEOUT$/        NOTIMEOUT)/'
-    lteeth TIMEOUT-DURATION-NOT-CONSUMED tc_timeout 's/^          i=\$((i + 2)) ;;/          i=$((i + 1)) ;;/'
-    lteeth TIMEOUT-OPTIONS-ACCEPTED tc_timeout_opt 's/\^\[0-9\]+\[smh\]?\$ \]\]/^.*$ ]]/'
-    lteeth INTERP-REQUIRES-EXEC tc_interp 's/mode=interp; arg=/mode=direct; arg=/'
-    lteeth INTERP-OPTION-TAKEN-AS-SCRIPT tc_interp_opt '/# HW-INTERP-OPT$/d'
-    lteeth INTERP-RELATIVE-ACCEPTED tc_interp_rel 's/case "\$arg" in \/\*) ;; \*) _hw_unv/case "$arg" in *) ;; *) _hw_unv/'
-    lteeth QUOTED-INTERP-ACCEPTED tc_quoted_interp '/# HW-QUOTED-INTERP$/d'
-    lteeth ENV-OPTIONS-GUESSED tc_env_opt 's/if \[ "\${cw##\*\/}" = env \]; then/if false; then/'
-    lteeth CHAIN-NOT-REPORTED tc_chain '/# HW-CHAIN$/d'
-    lteeth BARE-ALONE-REPORTED tc_bare_alone 's/\[ "\$n" -eq 1 \] && \[ "\$i" -eq 0 \] && \[ "\$HW_OP" = 0 \]/false/'
-    lteeth BACKSLASH-IGNORED tc_bs '/# HW-BACKSLASH$/d'
-    lteeth UNTERMINATED-IGNORED tc_unterm '/# HW-UNTERM$/d'
-    lteeth NO-COMMAND-WORD-IGNORED tc_noword '/# HW-NOWORD$/d'
-    lteeth VARGLOB-IGNORED tc_varglob '/# HW-VARGLOB$/d'
-    lteeth SQUOTE-EXPANDED tc_squote '/# HW-SQUOTE$/d'
-    lteeth DQ-TILDE-EXPANDED tc_dqtilde '/# HW-DQ-TILDE$/d'
-    lteeth HOME-BRACE-UNEXPANDED tc_home_brace '/# HW-HOME-BRACE$/d'
-    lteeth HOME-PLAIN-UNEXPANDED tc_home_plain '/# HW-HOME-PLAIN$/d'
-    lteeth HOME-TILDE-UNEXPANDED tc_home_tilde '/# HW-HOME-TILDE$/d'
-    lteeth DIR-NOT-SKIPPED tc_dir 's/if \[ -d "\$arg" \]; then return 0/if false; then return 0/'
-    lteeth EVENT-DROPPED tc_event 's/printf .missing\\t%s\\t%s\\n. "\$arg" "\$ev"/printf "missing\\t%s\\t\\n" "$arg"/'
-    lteeth NOJQ-NOTE-DROPPED tc_nojq '/# HW-NOJQ-NOTE$/d'
-    lteeth JQ-NOT-USED tc_force_fallback 's/command -v jq >\/dev\/null 2>&1/false/'
-    lteeth HOOKS-SCOPE-WIDENED tc_scope 's/(\.hooks? \/\/ {}) | objects | to_entries\[\] | \.key as \$e | \.value | arrays | \.\[\] | objects | \.hooks | arrays | \.\[\] | objects | \.command | strings | \$e + "\\t" + gsub("\\n"; " ")/.. | objects | .command? | strings | "Stop\\t" + ./'
-    if [ "$(id -u)" != 0 ]; then lteeth UNREADABLE-NOT-TYPED tc_unreadable 's/\[ ! -r "\$settings" \]/false/'; fi
+    lteeth RSDD-FAILURE-SILENT tc_rsdd_down '/# HW-EXEC-FALLBACK$/d'
   fi
-  steeth NOEXEC-TEST-DROPPED case_all lib 's/if \[ "\$mode" = direct \] && \[ ! -x "\$arg" \]; then/if false; then/'
-  steeth MISSING-NOT-REPORTED case_all lib 's/printf .missing[^"]*"\$arg"/:/'
-  steeth PROJECT-DIR-UNEXPANDED case_all lib 's/\${CLAUDE_PROJECT_DIR}/\${NOT_THE_VAR}/g'
   steeth CALLSITE-REMOVED case_all sut 's/hook_wired_exec_report "\$p"/true/'
   steeth UNVERIFIABLE-NOT-REPORTED case_unv sut 's/"\$_vr_we_kind" = "unverifiable"/"$_vr_we_kind" = "nope"/'
   steeth DEDUP-EVENT-IGNORED case_dedup sut 's/ && \[ "\$_vr_we_x3" = "Stop" \]//'

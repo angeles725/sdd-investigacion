@@ -6,10 +6,30 @@ on:
     paths:
       - "research-sdd/rsdd/**"
       - ".github/workflows/rsdd-go.yml"
+      # The Go bridge suite (kit issue #2488) and the mutation helper it sources.
+      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
+      - "research-sdd/toolbelt/tests/lib/mutant.sh"
   pull_request:
     paths:
       - "research-sdd/rsdd/**"
       - ".github/workflows/rsdd-go.yml"
+      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
+      - "research-sdd/toolbelt/tests/lib/mutant.sh"
+  # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty off pull_request).
+  # The toolbelt nightly used to cover this through its core tier; the suite is now `dedicated` (suite-tiers.txt).
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+# A newer push to the same PR, or a newer merge to main, supersedes the in-flight run of the same ref:
+# cancel it, so the shared concurrent-job cap (GitHub queues everything beyond it) is spent on current
+# heads only. On main this coalesces a burst of merges into one run of the newest commit (measured
+# 2026-11-02: 21 full toolbelt runs on main pushes in ~22 h, ~46 job-minutes each); every merged commit
+# was already gated by its PR run. The event name is in the group, so a merge never cancels the nightly
+# schedule or a manual dispatch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -26,7 +46,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          # The module has no go.sum, so setup-go's own cache (keyed on go.mod) never refreshed ("Cache hit occurred on
+          # the primary key ... not saving cache"). The explicit cache step below is keyed on the Go sources (kit issue #2488).
+          cache: false
+      - name: Cache Go build and module caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # One key family per job: a shared key would let the first job to save win and starve the others of their own artifacts.
+          key: ${{ runner.os }}-go-check-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-check-
       - name: gofmt
         run: make fmt-check
       - name: go vet
@@ -37,3 +69,37 @@ jobs:
         run: make race
       - name: cross build (CGO_ENABLED=0)
         run: make cross
+
+  rsdd-go-bridge:
+    # Kit issue #2488: research-sdd/toolbelt/tests/rsdd-go.test.sh (tier `dedicated` in suite-tiers.txt, so the
+    # toolbelt shards no longer run it) = `make test` + the panic-boundary mutation control + gremlins teeth.
+    # It used to run inside every toolbelt shard run (469-729 s, 10 of 14 measured toolbelt failures) even when no
+    # Go file changed. Same environment it had there.
+    runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
+    timeout-minutes: 25
+    env:
+      # A missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage (CLAUDE.md section 7).
+      RSDD_REQUIRE_GO: "1"
+      # Kit issue #2381: on a pull_request, gremlins runs only on the Go packages changed since the merge base with
+      # the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
+      RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache: false # see the rsdd-go job: go.mod-only keys never refresh (kit issue #2488)
+      - name: Cache Go build and module caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-bridge-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-bridge-
+      - name: rsdd-go.test.sh with mutation teeth
+        run: bash research-sdd/toolbelt/tests/rsdd-go.test.sh --prove-teeth
