@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 0 (none: 1 row(s) examined)\n",
+  "stderr": "skipped-wrong-kit: row 1 targets another kit ('other-kit/x.md') — skipping\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

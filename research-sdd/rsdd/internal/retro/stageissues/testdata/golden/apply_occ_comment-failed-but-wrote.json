@@ -1,0 +1,12 @@
+{
+  "rc": 3,
+  "stdout": "redactions: 0 (row 1)\nmutation_outcome: unknown (row 1)\nunclassifiable-items: 0 (none: 1 row(s) examined)\nsummary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=1 failed=0\nmutation-summary: confirmed=0 no_write=0 unknown=1\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "unknown-outcome: gh issue comment failed for row 1 (#55) but the marker is present on re-read: gh: timeout\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\nmutation-unknown: 1 row(s) with an unconfirmed mutation outcome — NOT retried; verify on GitHub before re-running\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\ngh issue view 55 --repo test-owner/test-kit --json comments --jq .comments[].body\ngh issue comment 55 --repo test-owner/test-kit --body Another retro carries this exact delta.\n\nSource retro: target-foo/retros/r.md · 1\n\u003c!-- stage-retro-issues:occurrence Source retro: target-foo/retros/r.md · 1 --\u003e\ngh issue view 55 --repo test-owner/test-kit --json comments --jq .comments[].body\n",
+  "state": {
+    "commentfailwrote": "",
+    "comments.55": "Another retro carries this exact delta.\n\nSource retro: target-foo/retros/r.md · 1\n\u003c!-- stage-retro-issues:occurrence Source retro: target-foo/retros/r.md · 1 --\u003e\n",
+    "occ": "[{\"number\":55,\"state\":\"OPEN\",\"title\":\"first delta of the retro\"}]\n",
+    "occn": "1\n"
+  }
+}

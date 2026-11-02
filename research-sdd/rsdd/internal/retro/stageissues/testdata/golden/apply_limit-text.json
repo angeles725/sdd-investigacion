@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "degraded: STAGE_RETRO_ISSUES_LIST_LIMIT must be a positive integer (got 'ten')\n",
+  "ghlog": "gh auth status\n"
+}
