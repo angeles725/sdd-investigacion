@@ -1,0 +1,9 @@
+{
+  "rc": 1,
+  "stdout": "redactions: 0 (row 1)\n",
+  "stderr": "degraded: label 'target:target-foo' is missing on test-owner/test-kit and could not be created: gh: label create failed — no issue was created\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\ngh label list --repo test-owner/test-kit --search target:target-foo --limit 100 --json name\ngh label create target:target-foo --repo test-owner/test-kit --description Fleet target: target-foo --color d4c5f9\ngh label list --repo test-owner/test-kit --search target:target-foo --limit 100 --json name\n",
+  "state": {
+    "occn": "1\n"
+  }
+}
