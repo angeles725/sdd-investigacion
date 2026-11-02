@@ -1,457 +1,139 @@
 #!/usr/bin/env bash
-# tests/capa.test.sh — capa evidence adapter test suite (lane-aware)
+# capa.test.sh — the end-to-end check of the corroborate-capa.sh compatibility shim (kit issue #2483, epic #2270).
 #
-# Lane contract (tests/lib/test-lane.sh):
-#   fast (default) — fixture-based schema/cap/isolation assertions + unit tests.
-#                    No capa spawn.  Always emits "== N passed · N failed ==".
-#   slow           — real capa run; requires capa + bwrap + python3 + rules dir.
-#   all            — both fast and slow paths.
+# The adapter moved to Go: `rsdd corroborate capa` (research-sdd/rsdd/internal/corroborate/capa). Its cases (every
+# logic case of the former suite, the legacy Python as the oracle for exit codes, stderr, evidence and manifest, and
+# the Go mutation controls) live in the Go tests (`go test ./internal/corroborate/capa`). This suite keeps the cases
+# that only exist through the shim - degraded mode, argument pass-through, the manifest tool the shim supplies - over a
+# fake sandbox, a slow lane that runs the real capa, and the mutation controls of the shim itself.
 #
-# Exit 2 when SUT is missing (RED discipline for strict TDD).
+# Lane contract (tests/lib/test-lane.sh): fast (default) = the fake sandbox; slow = real capa + bwrap + rules dir;
+# all = both.
+# Usage: capa.test.sh [--prove-teeth]     Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
-
-HERE="$(cd "$(dirname "$0")" && pwd)"
-TOOLBELT="$(dirname "$HERE")"
-SUT="$TOOLBELT/corroborate-capa.sh"
-MANIFEST="$TOOLBELT/analysis_manifest.py"
-
-# Source lane helper (idempotent; aborts on invalid RSDD_TEST_LANE value).
+HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
+SUT="$TB/corroborate-capa.sh"
 # shellcheck source=lib/test-lane.sh
 source "$HERE/lib/test-lane.sh"
-
-# RED guard — exit 2 when the script-under-test does not exist yet.
-[ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-
-pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
-no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
-run(){ "$SUT" --input "$1" --output "$2" "${@:3}"; }
-
-# Determine active lane (aborts on invalid value per §7 anti-silent-zero).
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || exit 2
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 _lane="$(rsdd_lane)"
+ROOT="$(mktemp -d)" || exit 2
+trap 'rm -rf "$ROOT"' EXIT
+pass=0; fail=0
+ok() { echo "  PASS  $1"; pass=$((pass+1)); }
+no() { echo "  FAIL  $1"; fail=$((fail+1)); }
 
-# Fixture paths resolved here; existence is checked in the fast section.
-_HAPPY_FIX="$(rsdd_lane_fixture capa happy)"
-_CAPPED_FIX="$(rsdd_lane_fixture capa capped)"
+# The SUT hands over to the Go binary. $RSDD_BIN wins; otherwise one binary is built into the suite temp dir (never
+# into the tree). A suite that cannot get rsdd says so with a typed SKIP, or FAILS under RSDD_REQUIRE_GO=1.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$ROOT/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (the analysis manifest tool needs it)" >&2; exit 2; }
 
-# ---------------------------------------------------------------------------
-# SLOW LANE — real capa run (tool required)
-# ---------------------------------------------------------------------------
+# A fake sandbox: a bwrap that runs the command after "--", and a capa inside a venv-shaped directory.
+mkdir -p "$ROOT/bin" "$ROOT/venv/bin" "$ROOT/rules/lib" "$ROOT/in" "$ROOT/out" "$ROOT/home" || exit 2
+printf '%s\n' '#!/bin/sh' 'while [ "$#" -gt 0 ]; do [ "$1" = "--" ] && { shift; break; }; shift; done' 'exec "$@"' >"$ROOT/bin/bwrap"
+printf '%s\n' '#!/bin/sh' 'if [ "$1" = "--version" ]; then echo "capa 9.4.0"; exit 0; fi' \
+  'cat "$(dirname "$0")/../out.json"' >"$ROOT/venv/bin/capa"
+chmod 755 "$ROOT/bin/bwrap" "$ROOT/venv/bin/capa"
+echo 'home = /usr/bin' >"$ROOT/venv/pyvenv.cfg"
+echo 'rule: {}' >"$ROOT/rules/lib/a.yml"
+echo 'MZ sample bytes' >"$ROOT/in/sample.bin"
+cat >"$ROOT/venv/out.json" <<'JSON'
+{"rules": {
+ "write file": {"meta": {"namespace": "host-interaction/file-system/write", "attack": [{"id": "T1105"}]}, "matches": [[1, {}]]},
+ "delete file": {"meta": {"namespace": "host-interaction/file-system/delete"}, "matches": [[1, {}]]}}}
+JSON
+fake_env() { env HOME="$ROOT/home" PATH="$ROOT/venv/bin:$ROOT/bin:$PATH" "$@"; }
+run() { fake_env "$SUT" --input "$ROOT/in/sample.bin" --rules "$ROOT/rules" --output "$1" "${@:2}"; }
+
+if [[ "$_lane" == "fast" || "$_lane" == "all" ]]; then
+  # degraded: no rsdd binary and no way to build one - a typed state, never a silent pass
+  RSDD_BIN=/nonexistent/rsdd "$SUT" --input "$ROOT/in/sample.bin" --output "$ROOT/out/degraded" >"$ROOT/d.out" 2>"$ROOT/d.err"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -q '^degraded: rsdd-unavailable' "$ROOT/d.err" && [ ! -e "$ROOT/out/degraded" ]; then
+    ok "rsdd missing: typed degraded state, exit 2, nothing published"; else no "degraded mode (exit $rc): $(cat "$ROOT/d.err")"; fi
+
+  if run "$ROOT/out/a" 2>"$ROOT/a.err" && run "$ROOT/out/b" 2>/dev/null && cmp -s "$ROOT/out/a/capa-evidence.v1.json" "$ROOT/out/b/capa-evidence.v1.json" \
+    && grep -q '"schema":"capa-evidence.v1"' "$ROOT/out/a/capa-evidence.v1.json" && grep -q '"status":"complete"' "$ROOT/out/a/capa-evidence.v1.json" \
+    && grep -q '"total_count":2' "$ROOT/out/a/capa-evidence.v1.json"; then
+    ok "the shim publishes deterministic capa-evidence.v1 through the Go command"
+  else no "shim happy path: $(cat "$ROOT/a.err" 2>/dev/null)"; fi
+
+  run "$ROOT/out/capped" --max-capabilities 1 2>/dev/null
+  if grep -q '"total_sampled":1' "$ROOT/out/capped/capa-evidence.v1.json" 2>/dev/null && grep -q '"truncated":true' "$ROOT/out/capped/capa-evidence.v1.json"; then
+    ok "the caller's arguments reach the Go command (the capability cap bites)"; else no "argument pass-through"; fi
+
+  if python3 "$TB/analysis_manifest.py" validate "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1 \
+    && python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/a" "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
+    ok "the published analysis manifest validates and verifies with the Python manifest tool"; else no "analysis manifest"; fi
+
+  mkdir "$ROOT/out/taken"
+  run "$ROOT/out/taken" 2>"$ROOT/t.err"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -q '^corroborate-capa: output must be a new non-colliding path' "$ROOT/t.err" && [ ! -e "$ROOT/out/taken/capa-evidence.v1.json" ]; then
+    ok "an existing output is refused fail-closed with exit 2"; else no "output collision (exit $rc)"; fi
+
+  "$SUT" --bogus >/dev/null 2>"$ROOT/u.err"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -q '^usage: corroborate-capa ' "$ROOT/u.err" && grep -q 'the following arguments are required: --input, --output$' "$ROOT/u.err"; then
+    ok "the shim supplies --manifest-cli: a usage error names only --input and --output"; else no "usage error (exit $rc): $(cat "$ROOT/u.err")"; fi
+fi
+
+# SLOW LANE - the real capa (tool required; informational skip when absent)
 if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
-
-  # Tool-availability guard — informational skip for slow lane only.
   _slow_skip=0
   for _cmd in capa bwrap python3; do
-    if ! command -v "$_cmd" >/dev/null 2>&1; then
-      echo "SLOW lane: '$_cmd' not found; slow-lane tests skipped." >&2
-      _slow_skip=1; break
-    fi
+    command -v "$_cmd" >/dev/null 2>&1 || { echo "SLOW lane: '$_cmd' not found; slow-lane tests skipped." >&2; _slow_skip=1; break; }
   done
-
-  if [[ "$_slow_skip" -eq 0 ]]; then
-    _RULES_DIR="${RSDD_CAPA_RULES:-$HOME/.local/share/capa-rules}"
-    if ! [ -d "$_RULES_DIR" ]; then
-      echo "SLOW lane: rules dir absent: $_RULES_DIR; slow-lane tests skipped." >&2
-      _slow_skip=1
-    fi
+  _RULES_DIR="${RSDD_CAPA_RULES:-$HOME/.local/share/capa-rules}"
+  if [ "$_slow_skip" -eq 0 ] && ! [ -d "$_RULES_DIR" ]; then echo "SLOW lane: rules dir absent: $_RULES_DIR; slow-lane tests skipped." >&2; _slow_skip=1; fi
+  if [ "$_slow_skip" -eq 0 ]; then
+    cp /bin/true "$ROOT/in/happy.elf"
+    if "$SUT" --input "$ROOT/in/happy.elf" --rules "$_RULES_DIR" --output "$ROOT/out/real" --timeout 300 2>/dev/null \
+      && grep -q '"schema":"capa-evidence.v1"' "$ROOT/out/real/capa-evidence.v1.json"; then
+      ok "T1: real capa through the shim: evidence JSON produced"; else no "T1: real capa"; fi
+    if python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/real" "$ROOT/out/real/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
+      ok "T13: real capa: the analysis manifest verifies"; else no "T13: real capa manifest"; fi
   fi
-
-  if [[ "$_slow_skip" -eq 0 ]]; then
-    _SLOW_ROOT="$(mktemp -d)"
-    # shellcheck disable=SC2064
-    trap 'rm -rf "$_SLOW_ROOT"' EXIT
-    cp /bin/true "$_SLOW_ROOT/happy.elf"
-
-    # T1: Happy path.
-    _T1_OUT="$_SLOW_ROOT/out_t1"
-    if run "$_SLOW_ROOT/happy.elf" "$_T1_OUT" --timeout 300 2>/dev/null \
-      && [ -f "$_T1_OUT/capa-evidence.v1.json" ]; then
-      ok "T1: happy path: evidence JSON produced"
-    else
-      no "T1: happy path"
-    fi
-
-    # T2: Evidence schema.
-    if python3 - "$_T1_OUT/capa-evidence.v1.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("schema") == "capa-evidence.v1", f"schema={d.get('schema')}"
-assert d.get("status") in ("complete", "failed"), f"status={d.get('status')}"
-assert "capabilities" in d, "capabilities domain key missing"
-c = d["capabilities"]
-assert "total_count" in c and "total_sampled" in c, "count/sampled missing"
-assert isinstance(c.get("truncated"), bool), "top-level truncated must be bool"
-assert "items" in c, "items list missing"
-for item in c.get("items", []):
-    assert "name" in item and "namespace" in item, f"name/namespace missing: {item}"
-    assert isinstance(item.get("attack_ids"), list), f"attack_ids must be list: {item}"
-    assert isinstance(item.get("mbc_ids"), list), f"mbc_ids must be list: {item}"
-    assert isinstance(item.get("match_count"), int), f"match_count must be int: {item}"
-assert c.get("capa_version"), "capa_version must be non-empty"
-assert c.get("rules_path_digest", "").startswith("sha256:"), "rules_path_digest bad"
-for k in ("input", "isolation", "limitations", "errors"):
-    assert k in d, f"{k} key missing"
-assert isinstance(d["limitations"], list) and isinstance(d["errors"], list)
-assert c["total_count"] >= 1, f"expected >=1 capability on /bin/true, got {c['total_count']}"
-print(f"OK: schema={d['schema']} status={d['status']} total_count={c['total_count']}")
-PY
-    then ok "T2: evidence schema: required fields, capabilities structure, envelope"
-    else no "T2: evidence schema"
-    fi
-
-    # T3: Determinism.
-    _T3_OUT="$_SLOW_ROOT/out_t3"
-    if run "$_SLOW_ROOT/happy.elf" "$_T3_OUT" --timeout 300 2>/dev/null \
-      && cmp -s "$_T1_OUT/capa-evidence.v1.json" "$_T3_OUT/capa-evidence.v1.json"; then
-      ok "T3: determinism: two runs produce byte-identical evidence"
-    else
-      no "T3: determinism"
-    fi
-
-    # T4: Capability cap.
-    _T4_OUT="$_SLOW_ROOT/out_t4"
-    if run "$_SLOW_ROOT/happy.elf" "$_T4_OUT" --max-capabilities 1 --timeout 300 2>/dev/null \
-      && python3 - "$_T4_OUT/capa-evidence.v1.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-c = d["capabilities"]; lims = d.get("limitations", [])
-assert c["total_sampled"] <= 1, f"cap not enforced: total_sampled={c['total_sampled']}"
-assert c["truncated"] == True, f"truncated must be True, got {c['truncated']!r}"
-assert any("capability cap" in l or "max-capabilities" in l for l in lims), \
-    f"no cap limitation: {lims}"
-print(f"OK: total_sampled={c['total_sampled']}, truncated=True, limitation present")
-PY
-    then ok "T4: capability cap: bounded, truncated=True, limitation recorded"
-    else no "T4: capability cap"
-    fi
-
-    # T8: Output-dir-exists.
-    mkdir -p "$_SLOW_ROOT/already_exists"
-    if ! run "$_SLOW_ROOT/happy.elf" "$_SLOW_ROOT/already_exists" --timeout 10 2>/dev/null \
-      && [ ! -f "$_SLOW_ROOT/already_exists/capa-evidence.v1.json" ]; then
-      ok "T8: output-dir-exists rejected fail-closed"
-    else no "T8: output-dir-exists"; fi
-
-    # T9: Rules-dir missing.
-    if ! run "$_SLOW_ROOT/happy.elf" "$_SLOW_ROOT/out_t9" \
-        --rules /nonexistent/capa-rules --timeout 10 2>/dev/null \
-      && [ ! -f "$_SLOW_ROOT/out_t9/capa-evidence.v1.json" ]; then
-      ok "T9: rules-dir missing: fail-closed"
-    else no "T9: rules-dir missing"; fi
-
-    # T10: Rules-dir symlink.
-    ln -s "$_RULES_DIR" "$_SLOW_ROOT/rules_symlink"
-    if ! run "$_SLOW_ROOT/happy.elf" "$_SLOW_ROOT/out_t10" \
-        --rules "$_SLOW_ROOT/rules_symlink" --timeout 10 2>/dev/null \
-      && [ ! -f "$_SLOW_ROOT/out_t10/capa-evidence.v1.json" ]; then
-      ok "T10: rules-dir symlink: fail-closed"
-    else no "T10: rules-dir symlink"; fi
-
-    # T11: Rules-dir without .yml files.
-    mkdir -p "$_SLOW_ROOT/empty_rules_dir"
-    if ! run "$_SLOW_ROOT/happy.elf" "$_SLOW_ROOT/out_t11" \
-        --rules "$_SLOW_ROOT/empty_rules_dir" --timeout 10 2>/dev/null \
-      && [ ! -f "$_SLOW_ROOT/out_t11/capa-evidence.v1.json" ]; then
-      ok "T11: rules-dir without .yml files: fail-closed"
-    else no "T11: rules-dir not a capa rules dir"; fi
-
-    # T12: Isolation profile (CONTAINMENT).
-    if python3 - "$_T1_OUT/capa-evidence.v1.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-iso = d.get("isolation", {}); profile = iso.get("profile", {})
-assert profile.get("network_access") == False, f"network_access not False: {profile}"
-assert profile.get("target_execution") == False, f"target_execution not False: {profile}"
-assert iso.get("launcher", {}).get("path"), "launcher.path missing"
-c = d.get("capabilities", {})
-assert c.get("capa_version"), "capa_version must be non-empty"
-print(f"OK: isolation profile={profile}, capa_version={c['capa_version']!r}")
-PY
-    then ok "T12: isolation: network-denial profile, launcher identity, capa_version"
-    else no "T12: isolation profile"
-    fi
-
-    # T13: Analysis manifest.
-    if python3 "$MANIFEST" validate "$_T1_OUT/engine/analysis-manifest.v1.json" >/dev/null 2>&1 \
-      && python3 "$MANIFEST" verify --root "$_T1_OUT" \
-          "$_T1_OUT/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
-      ok "T13: analysis manifest validates and verifies"
-    else no "T13: analysis manifest"; fi
-
-    # T14: Timeout visibility (flake-proof: skip when capa finishes in <1s).
-    _T14_OUT="$_SLOW_ROOT/out_t14"; _T14_EXIT=0
-    run "$_SLOW_ROOT/happy.elf" "$_T14_OUT" --timeout 1 2>/dev/null || _T14_EXIT=$?
-    if [ "$_T14_EXIT" -eq 0 ]; then
-      echo "  SKIP  T14: capa finished in <1s (flake-proof skip)"
-    elif [ "$_T14_EXIT" -eq 2 ]; then
-      no "T14: adapter fatal error (exit 2)"
-    elif [ -f "$_T14_OUT/capa-evidence.v1.json" ]; then
-      if python3 - "$_T14_OUT/capa-evidence.v1.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("status") == "failed", f"expected status=failed on timeout, got {d.get('status')!r}"
-assert "timeout" in d.get("errors", []), f"timeout not in errors: {d.get('errors')}"
-c = d.get("capabilities", {})
-assert c.get("truncated") == True, f"capabilities.truncated must be True on timeout"
-assert any("timeout" in l for l in d.get("limitations", [])), "no timeout limitation"
-print("OK: status=failed, timeout in errors, capabilities.truncated=True")
-PY
-      then ok "T14: --timeout 1: status=failed, capabilities.truncated=True, limitation"
-      else no "T14: timeout visibility"
-      fi
-    else
-      no "T14: evidence not published after timeout (exit $_T14_EXIT)"
-    fi
-  fi # _slow_skip == 0
-fi # slow | all
-
-# ---------------------------------------------------------------------------
-# FAST LANE — fixture-based assertions (no tool spawn; sub-second)
-# ---------------------------------------------------------------------------
-if [[ "$_lane" == "fast" || "$_lane" == "all" ]]; then
-
-  # Anti-silent-zero §7: fixtures must exist before asserting against them.
-  if [[ ! -f "$_HAPPY_FIX" ]]; then
-    echo "FATAL: fixture missing: $_HAPPY_FIX" >&2
-    echo "  Run: bash research-sdd/toolbelt/tests/regen-lane-fixtures.sh --suite capa" >&2
-    exit 1
-  fi
-  if [[ ! -f "$_CAPPED_FIX" ]]; then
-    echo "FATAL: fixture missing: $_CAPPED_FIX" >&2
-    echo "  Run: bash research-sdd/toolbelt/tests/regen-lane-fixtures.sh --suite capa" >&2
-    exit 1
-  fi
-
-  # T2-fast: Evidence schema from fixture.
-  if python3 - "$_HAPPY_FIX" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-assert d.get("schema") == "capa-evidence.v1", f"schema={d.get('schema')}"
-assert d.get("status") in ("complete", "failed"), f"status={d.get('status')}"
-assert "capabilities" in d, "capabilities domain key missing"
-c = d["capabilities"]
-assert "total_count" in c and "total_sampled" in c, "count/sampled missing"
-assert isinstance(c.get("truncated"), bool), "top-level truncated must be bool"
-assert "items" in c, "items list missing"
-for item in c.get("items", []):
-    assert "name" in item and "namespace" in item, f"name/namespace missing: {item}"
-    assert isinstance(item.get("attack_ids"), list), f"attack_ids must be list: {item}"
-    assert isinstance(item.get("mbc_ids"), list), f"mbc_ids must be list: {item}"
-    assert isinstance(item.get("match_count"), int), f"match_count must be int: {item}"
-assert c.get("capa_version"), "capa_version must be non-empty"
-assert c.get("rules_path_digest", "").startswith("sha256:"), "rules_path_digest bad"
-for k in ("input", "isolation", "limitations", "errors"):
-    assert k in d, f"{k} key missing"
-assert isinstance(d["limitations"], list) and isinstance(d["errors"], list)
-assert c["total_count"] >= 1, f"expected >=1 capability in fixture, got {c['total_count']}"
-print(f"OK: schema={d['schema']} status={d['status']} total_count={c['total_count']}")
-PY
-  then ok "T2-fast: evidence schema (fixture): required fields, capabilities, envelope"
-  else no "T2-fast: evidence schema (fixture)"
-  fi
-
-  # T4-fast: Capability cap from fixture.
-  if python3 - "$_CAPPED_FIX" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-c = d["capabilities"]; lims = d.get("limitations", [])
-assert c["total_sampled"] <= 1, f"cap not enforced: total_sampled={c['total_sampled']}"
-assert c["truncated"] == True, f"truncated must be True, got {c['truncated']!r}"
-assert any("capability cap" in l or "max-capabilities" in l for l in lims), \
-    f"no cap limitation: {lims}"
-print(f"OK: total_sampled={c['total_sampled']}, truncated=True, limitation present")
-PY
-  then ok "T4-fast: capability cap (fixture): bounded, truncated=True, limitation"
-  else no "T4-fast: capability cap (fixture)"
-  fi
-
-  # T12-fast: Isolation profile (CONTAINMENT guard) from fixture.
-  # Anti-#128: preserved in fast lane — checks the isolation profile recorded in the
-  # evidence JSON, proving the SUT configured network denial and no code execution.
-  if python3 - "$_HAPPY_FIX" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-iso = d.get("isolation", {}); profile = iso.get("profile", {})
-assert profile.get("network_access") == False, f"network_access not False: {profile}"
-assert profile.get("target_execution") == False, f"target_execution not False: {profile}"
-assert iso.get("launcher", {}).get("path"), "launcher.path missing"
-c = d.get("capabilities", {})
-assert c.get("capa_version"), "capa_version must be non-empty"
-print(f"OK: isolation profile={profile}, capa_version={c['capa_version']!r}")
-PY
-  then ok "T12-fast: isolation (fixture): network-denial, no-exec profile (CONTAINMENT)"
-  else no "T12-fast: isolation (fixture)"
-  fi
-
-fi # fast | all
-
-# ---------------------------------------------------------------------------
-# UNIT TESTS — run in all lanes (pure Python; no tool spawn; always sub-second)
-# ---------------------------------------------------------------------------
-
-# T5: Malformed JSON → (None, err_str); empty file → (None, None).
-if python3 - "$TOOLBELT" <<'PY'
-import sys, tempfile, importlib.util
-from pathlib import Path
-toolbelt = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(toolbelt))
-spec = importlib.util.spec_from_file_location("corroborate_capa", toolbelt / "corroborate_capa.py")
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-with tempfile.TemporaryDirectory() as tmp:
-    p = Path(tmp) / "stdout.txt"
-    p.write_bytes(b'not json at all {{{{')
-    val, err = m._read_stdout_json(p)
-    assert val is None and isinstance(err, str) and err, f"malformed: expected (None, err), got {(val,err)!r}"
-    e = Path(tmp) / "empty.txt"; e.write_bytes(b'')
-    val2, err2 = m._read_stdout_json(e)
-    assert val2 is None and err2 is None, f"empty: expected (None, None), got {(val2,err2)!r}"
-    print("OK: (None, err) for malformed; (None, None) for empty")
-PY
-then ok "T5: malformed JSON: (None,err_str); empty file: (None,None)"
-else no "T5: malformed JSON / empty file handling"
 fi
 
-# T6: Empty/no-capability inventory — _build_inventory(None) yields total_count=0.
-if python3 - "$TOOLBELT" <<'PY'
-import sys, importlib.util
-from pathlib import Path
-toolbelt = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(toolbelt))
-spec = importlib.util.spec_from_file_location("corroborate_capa", toolbelt / "corroborate_capa.py")
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-inv, lims = m._build_inventory(None, max_capabilities=100)
-assert inv["total_count"] == 0 and inv["total_sampled"] == 0, f"expected 0 counts"
-assert inv["truncated"] == False and inv["items"] == [] and lims == [], f"unexpected: {inv}"
-inv2, _ = m._build_inventory({"rules": {}}, max_capabilities=100)
-assert inv2["total_count"] == 0, f"empty-rules: expected 0"
-print(f"OK: empty inventory total_count=0, truncated=False, items=[]")
-PY
-then ok "T6: empty/no-capability inventory: total_count=0, truncated=False"
-else no "T6: empty/no-capability inventory code path"
+if [ "${1:-}" != "--prove-teeth" ]; then
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
 fi
+[ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
-# T7: O_NOFOLLOW — symlink at capa stdout path raises CapaError.
-if python3 - "$TOOLBELT" <<'PY'
-import sys, tempfile, importlib.util
-from pathlib import Path
-toolbelt = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(toolbelt))
-spec = importlib.util.spec_from_file_location("corroborate_capa", toolbelt / "corroborate_capa.py")
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-with tempfile.TemporaryDirectory() as tmp:
-    real = Path(tmp) / "real.txt"; real.write_bytes(b'{}')
-    link = Path(tmp) / "stdout.txt"; link.symlink_to(real)
-    try:
-        m._read_stdout_json(link)
-        print("FAIL: expected CapaError for symlink", file=sys.stderr); sys.exit(1)
-    except m.CapaError:
-        print("OK: CapaError raised for symlink at stdout path")
-PY
-then ok "T7: O_NOFOLLOW: symlink at stdout path raises CapaError"
-else no "T7: O_NOFOLLOW symlink rejection"
-fi
-
-# T15-16: Scope guard + plausibility; run-truncation OR-wiring; non-dict rules.
-if python3 - "$TOOLBELT" <<'PY'
-import sys, tempfile, importlib.util
-from pathlib import Path
-toolbelt = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(toolbelt))
-spec = importlib.util.spec_from_file_location("corroborate_capa", toolbelt / "corroborate_capa.py")
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-sys.path.insert(0, str(toolbelt / "lib"))
-from adapter_helpers import run_truncation
-
-# T15a: /home and /home/<user> must be shape-rejected by scope guard.
-for broad in ["/home", "/home/someuser"]:
-    try:
-        m._rules_scope_guard(Path(broad))
-        print(f"FAIL: {broad!r} not rejected", file=sys.stderr); sys.exit(1)
-    except m.CapaError:
-        pass
-
-# T15b: stray-.yml dir (<50 ymls, no structural subdirs) — plausibility rejects.
-with tempfile.TemporaryDirectory() as tmp:
-    (Path(tmp) / "ci.yml").write_text("# stray\n")
-    try:
-        m._validate_rules_dir(Path(tmp))
-        print("FAIL: stray-yml dir not rejected", file=sys.stderr); sys.exit(1)
-    except m.CapaError:
-        pass
-
-# T16a: run-truncation OR-wiring: synthetic timeout → truncated=True.
-inv, _ = m._build_inventory(None, max_capabilities=100)
-run_trunc, trunc_lims = run_truncation(["timeout"], "capa")
-inv["truncated"] = inv["truncated"] or run_trunc
-assert inv["truncated"] is True and any("timeout" in l for l in trunc_lims)
-
-# T16b: non-dict rules field → schema-drift error, no AttributeError.
-inv2, extra_lims = m._build_inventory({"rules": ["list"]}, max_capabilities=100)
-assert inv2["total_count"] == 0 and extra_lims, f"expected schema-drift error"
-
-print(f"OK: scope/plausibility guards; run-trunc wiring; non-dict schema-drift")
-PY
-then ok "T15-16: scope guard + plausibility; run-truncation wiring; non-dict rules"
-else no "T15-16: scope guard + plausibility / run-truncation wiring / non-dict rules"
-fi
-
-# ---------------------------------------------------------------------------
-# --prove-teeth: mutation controls
-# ---------------------------------------------------------------------------
-if [[ "${1:-}" == "--prove-teeth" ]]; then
-  echo "-- prove-teeth: mutation controls (fast-lane scope-guard assertion bites) --"
-
-  # teeth-1: disable scope guard in corroborate_capa.py.
-  # Mutation: the raise inside _rules_scope_guard becomes a return (no-op).
-  # The harness then reports "scope guard ALLOWED /home" instead of "rejects broad paths"; the
-  # original must report the latter (mutant_tooth asserts both verdict lines).
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  # The mutant is a python file: skip the bash -n check (empty, identical, live-tree, symlink and
-  # dead-stage refusals still apply).
-  _MUT_DIR="$(mktemp -d)"
-  _MUT_PY="$_MUT_DIR/corroborate_capa.py"
-
-  if MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-1" "$TOOLBELT/corroborate_capa.py" "$_MUT_PY" \
-      's|raise CapaError(f"--rules path rejected by bind-scope guard: {exc}") from exc|return  # mutant: scope guard disabled|g'; then
-    cat > "$_MUT_DIR/harness.py" <<'PY'
-import sys, importlib.util
-from pathlib import Path
-
-toolbelt = Path(sys.argv[1]).resolve()
-module_path = Path(sys.argv[2]).resolve()
-
-# Add real toolbelt so lib/ imports resolve; the module under test may insert its own dir.
-sys.path.insert(0, str(toolbelt))
-
-spec = importlib.util.spec_from_file_location("corroborate_capa_under_test", module_path)
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-
-# T15a: /home and /home/someuser must be rejected (CapaError).
-for broad in ["/home", "/home/someuser"]:
-    try:
-        m._rules_scope_guard(Path(broad))
-    except m.CapaError:
-        continue
-    print(f"VERDICT: scope guard ALLOWED {broad}")
-    sys.exit(0)
-print("VERDICT: scope guard rejects broad paths")
-PY
-
-    # The same harness runs on the original (GOOD verdict) and on the mutant (BAD verdict);
-    # both exit 0, so the verdict line is what discriminates them.
-    if mutant_tooth "teeth-1: T15a goes RED with mutant scope guard: fast-lane assertion bites" 0 0 "$_MUT_PY" --orig "$TOOLBELT/corroborate_capa.py" \
-        --good-has 'VERDICT: scope guard rejects broad paths' --bad-has 'VERDICT: scope guard ALLOWED /home' --bad-lacks 'VERDICT: scope guard rejects broad paths' -- \
-        python3 "$_MUT_DIR/harness.py" "$TOOLBELT" @SUT@; then
-      pass=$((pass+1))
-    else fail=$((fail+1)); fi
-  fi
-
-  rm -rf "$_MUT_DIR"
-  echo "-- prove-teeth done --"
-fi
-
+echo "-- teeth: corroborate-capa.sh shim mutation controls --"
+# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+# each tooth run publishes into a fresh name; an exit 0 that did not publish this tool's report is exit 9
+# (a sibling command succeeding is not this command)
+printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' \
+  'env HOME="$3/home" PATH="$3/venv/bin:$3/bin:$PATH" "$1" --input "$3/in/sample.bin" --rules "$3/rules" --output "$out"; rc=$?' \
+  '[ "$rc" -ne 0 ] || [ -f "$out/capa-evidence.v1.json" ] || exit 9' 'exit "$rc"' >"$ROOT/tooth-run.sh"
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4"; shift 4
+  local m="$KC/${label// /_}.sh"
+  if ! mutant_chain "$label" "$SUT" "$m" "$expr" >"$ROOT/mutant.log"; then cat "$ROOT/mutant.log"; no "tooth $label: mutant refused"; return; fi
+  chmod +x "$m"
+  if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$ROOT/tooth-run.sh" @SUT@ "$ROOT/out" "$ROOT"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+}
+tooth "shim dispatches to the sibling command" 's/rsdd_exec corroborate capa/rsdd_exec corroborate java-fidelity/' 0 2
+tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
+tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
 echo "== $pass passed · $fail failed =="
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] && exit 0 || exit 1

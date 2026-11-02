@@ -8,9 +8,10 @@ on:
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
-      # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
-      # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
-      - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
+      # The catalog generator is load-bearing for the toolbelt discriminator; changes to either copy
+      # (the Go command rsdd corpus catalog, covered by research-sdd/rsdd/** below, or the repo-specialized tool)
+      # must run the guarding tests so BLOCK_RE can't rot.
+      - "research-sdd/templates/**"   # templates the suites read (the generator no longer lives here)
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
       # Go module rsdd: run-all.sh builds the rsdd binary the shell suites exec (rsdd-go.test.sh itself now runs in

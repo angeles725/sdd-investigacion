@@ -1363,7 +1363,7 @@ trap rollback ERR
 mk()  { if [ ! -e "$1" ]; then local top="$1"; while [ ! -e "$(dirname "$top")" ]; do top="$(dirname "$top")"; done; created+=("$top"); fi; mkdir -p "$1"; }  # track the TOPMOST newly-created ancestor so rollback leaves no orphaned empty dir
 cpf() { [ -e "$2" ] || created+=("$2"); cp "$1" "$2"; }
 # eje #2 — NO per-target tools/gen-catalog.py copy: research-sdd-archive.sh regenerates CATALOG.md by
-# driving the KIT generator (research-sdd/templates/gen-catalog.py) over the corpus root. Seeding a copy
+# driving the KIT generator (the Go command `rsdd corpus catalog`, kit issue #2535) over the corpus root. Seeding a copy
 # only re-created the drift eje #2 eliminates (the recent BLOCK_RE change never reached seeded targets).
 # tools/ IS now scaffolded as a PROVENANCE LEDGER (tools/README.md — kit-sup #5): WHY each tool exists
 # (used-as-is / adapted / downloaded / created / updated-in-use). This is a different purpose from the

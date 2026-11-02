@@ -546,11 +546,17 @@ consolidate_err=""
 # BESPOKE generator that catalogs corpus-specific structures the generic kit generator cannot express: non-
 # numbered thematic blocks (e.g. "Bloque TI"), consolidated blocks ("1-3"), and snapshots in their own section.
 # ALWAYS using the kit generic silently DROPPED those (niagara -2 blocks, logosoft -1) — a real regression.
-# So: prefer the local generator; fall back to the kit generic (resolved from THIS script's location —
-# archive.sh lives in research-sdd/toolbelt/ → generator is ../templates/). A local copy that is merely a
-# stale duplicate of the kit is harmless: it produces the same catalog, so preferring it changes nothing.
-gen_kit="$here/../templates/gen-catalog.py"
+# So: prefer the local generator; fall back to the kit generic, which is the Go command `rsdd corpus catalog`
+# (kit issue #2535; it replaced templates/gen-catalog.py), run through the toolbelt's rsdd-exec helper that sits
+# beside THIS script (lib/rsdd-exec.sh). A local copy that is merely a stale duplicate of the kit is harmless: it
+# produces the same catalog, so preferring it changes nothing. A dangling symlink to the removed template does not
+# count as a local generator (-f is false), so such a corpus falls through to the Go command.
+gen_kit="$here/lib/rsdd-exec.sh"
 gen_local="$corpus/tools/gen-catalog.py"
+gen_hint=""
+# rsdd_exec replaces the process it runs in, so the kit generator runs in a subshell.
+# shellcheck source=lib/rsdd-exec.sh
+_gen_kit_catalog() { ( . "$gen_kit" && rsdd_exec corpus catalog "$1" ); }
 if [ -f "$gen_local" ]; then
   # Invoke by TYPE of local copy so the catalog always lands in the corpus without assuming argv support:
   #   • SYMLINK (to the shared kit gen, to avoid duplicating an unchanged script): pass the corpus as argv —
@@ -562,19 +568,19 @@ if [ -f "$gen_local" ]; then
   if [ -L "$gen_local" ]; then gen_cmd=(python3 "$gen_local" "$corpus"); else gen_cmd=(python3 "$gen_local"); fi
   gen_desc="local generator ($gen_local)"
 elif [ -f "$gen_kit" ]; then
-  gen_desc="kit generator ($gen_kit)";     gen_cmd=(python3 "$gen_kit" "$corpus")
+  gen_desc="kit generator (rsdd corpus catalog)"; gen_cmd=(_gen_kit_catalog "$corpus"); gen_hint="rsdd corpus catalog $corpus"
 else
   gen_desc=""
 fi
 if [ -z "$gen_desc" ]; then
-  catalog="skipped (no generator: neither $gen_local nor $gen_kit)"
+  catalog="skipped (no generator: neither $gen_local nor $gen_kit for rsdd corpus catalog)"
 elif [ "$dry" = 1 ]; then
   catalog="would regenerate via $gen_desc"
 elif "${gen_cmd[@]}" >/dev/null 2>&1; then
   catalog="regenerated CATALOG.md (via $gen_desc)"
 else
-  catalog="ERROR — gen-catalog.py failed (CATALOG.md NOT regenerated / left stale)"
-  consolidate_err="CATALOG regen failed — run: ${gen_cmd[*]}"
+  catalog="ERROR — $gen_desc failed (CATALOG.md NOT regenerated / left stale)"
+  consolidate_err="CATALOG regen failed — run: ${gen_hint:-${gen_cmd[*]}}"
   echo "WARNING: $consolidate_err" >&2
 fi
 # Touch the CANONICAL INDEX.md when present (prefer the exact name over an INDEX-*.md sibling), guarded so a
