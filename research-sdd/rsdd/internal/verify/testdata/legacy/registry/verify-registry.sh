@@ -1,0 +1,874 @@
+#!/usr/bin/env bash
+# verify-registry.sh — living-mirror reconciler for the MASTER registry (KIT/TARGETS.md) vs REALITY.
+#
+# WHY: the per-corpus mirror is already linted (verify-state.sh: RESEARCH-STATE.md vs on-disk blocks),
+# but the FLEET-WIDE master table in TARGETS.md drifts SILENTLY. Its Maturity column claims "N md" per
+# target, and nothing recomputes that against the real corpus — e.g. the three.js row claimed "40 md"
+# while the corpus held 44 blocks. research-sdd-archive.sh only PRINTS an unverified "refresh the row"
+# reminder; it is CORPUS-scoped and never edits the kit. This closes that gap: it RECOMPUTES each row's
+# block count from disk with the SAME canonical discriminator the rest of the toolbelt uses and WARNs on
+# drift. It is the fleet analog of verify-state's per-corpus check.
+#
+# Mirror of the sweeps (sweep-retros.sh / sweep-audits.sh): reads the target list from TARGETS.md as
+# backtick-wrapped absolute paths, DROPS truncated '...' paths and WARNs the sweep is PARTIAL.
+#
+# PROPOSE-NEVER-APPLY: WARN-only, READ-ONLY. It NEVER edits TARGETS.md or any corpus. Findings (drift,
+# maturity schema) are advisory — exit is 0. OPERATIONAL failures (TARGETS.md absent, a lib/ helper that
+# fails to define its required function) exit 1, matching the sibling sweeps' contract (issue #140).
+#
+# Usage: verify-registry.sh [--json]
+#   --json  opt-in: print ONE research-sdd.verify-registry/v1 envelope (json-envelope.v1.md) on stdout
+#           instead of the human report. Needs jq; without it a typed degraded envelope is printed and
+#           the exit code is 3. The default (no flag) output is unchanged.
+# Exit: 0 on clean or advisory findings; 1 on operational failure (missing registry or broken lib helper);
+#       2 on a usage error (any argument other than --json; usage on stderr, nothing on stdout).
+#       --json adds: 3 = degraded (jq missing / too old); an all-absent registry is an absent-input
+#       envelope (rc 0) and a registry with no usable path is rc 1 (the default mode keeps exit 1 / exit 0).
+# Env: RSDD_REGISTRY_TOL (default 2) — |claimed-real| must EXCEED this to WARN.
+#      RSDD_REGISTRY_SESSION_BUDGET=1 — opt-in (it RUNS each target's SessionStart hooks, sandboxed): WARN on a hook
+#      over Claude Code's 10,000-char cap or hooks over the 8,000-char kit budget (verify-session-budget.sh, #2129).
+set -uo pipefail
+
+# --json (opt-in, json-envelope.v1.md). Parsed and probed BEFORE anything else so a missing jq is a
+# typed degraded result, never a silent pass. The human report is muted onto /dev/null (fd 3 keeps the
+# real stdout) and the envelope is the only thing written to fd 3, at the end. stderr is untouched.
+VR_JSON=0
+# Any other argument is a usage error (#1780): exit 2 with usage on stderr, nothing on stdout. Callers
+# (sweep-all.sh, verify-registry-hook.sh, the test suites) pass no argument or exactly --json.
+for _vr_a in "$@"; do
+  case "$_vr_a" in
+    --json) VR_JSON=1 ;;
+    *) printf 'verify-registry: unknown argument: %s\nusage: verify-registry.sh [--json]\n' "$_vr_a" >&2; exit 2 ;;
+  esac
+done
+unset _vr_a
+if [ "$VR_JSON" = 1 ]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    printf 'DEGRADED: jq not found on PATH — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.verify-registry/v1","state":"degraded","reason":"jq not found on PATH","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  # Capability probe: the envelope hands data to jq with --rawfile (jq >= 1.6); presence alone is not enough.
+  if ! jq -n --rawfile _vr_probe /dev/null 1 >/dev/null 2>&1; then
+    printf 'DEGRADED: jq lacks --rawfile (jq >= 1.6 required) — cannot build the --json envelope\n' >&2
+    printf '{"schema":"research-sdd.verify-registry/v1","state":"degraded","reason":"jq lacks --rawfile (jq >= 1.6 required)","counts":{},"items":[]}\n'
+    exit 3
+  fi
+  exec 3>&1 >/dev/null
+fi
+_json_items=""   # --json accumulator, initialised so an inherited env value cannot leak in
+# _vr_record KIND SEVERITY TARGET TEXT : record-only — under --json append one named name=value row to the
+# envelope accumulator; prints nothing. The single owner of the row encoding.
+_vr_record() {
+  [ "$VR_JSON" = 1 ] || return 0
+  _json_items="${_json_items}$(printf 'kind=%s\x1fseverity=%s\x1ftarget=%s\x1fmessage=%s' "$1" "$2" "$3" "$4")"$'\n'
+}
+# _vr_finding KIND SEVERITY TARGET TEXT : print the human finding line (byte-identical to the former
+# inline echo) and record it via _vr_record.
+_vr_finding() {
+  printf '%s\n' "$2  $4"
+  _vr_record "$1" "$2" "$3" "$4"
+}
+# _vr_json_emit ALL_ABSENT : build and print the envelope on fd 3 from the accumulators and counters.
+# Accumulators go to jq as FILES (process substitution of a builtin printf), never as argv: a large
+# backlog would exceed MAX_ARG_STRLEN (128 KiB per argument) and fail with E2BIG.
+_vr_json_emit() {
+  jq -n --rawfile items <(printf '%s' "$_json_items") --argjson allabsent "$1" \
+    --argjson targets "$_vr_ntargets" --argjson tabsent "$absent_paths" --argjson tskipped "$skipped_count" \
+    --argjson checked "$checked" --argjson drift "$drift" --argjson rdrift "$retro_drift" \
+    --argjson unres "$unresolved" --argjson rowlint "${rowlint:-0}" --argjson attention "$attention" '
+    def lines(s): s | split("\n") | map(select(length > 0));
+    def row: split("\u001f") | map(capture("^(?<k>[^=]*)=(?<v>.*)$"; "s") | {(.k): .v}) | add;
+    ( lines($items) | map(row | {kind: .kind, severity: .severity, target: .target, message: .message}) ) as $it
+    | { schema: "research-sdd.verify-registry/v1",
+        state: (if $allabsent then "absent-input" elif ($it | length) > 0 then "ok" else "no-match" end),
+        counts: { targets: $targets, targets_absent: $tabsent, targets_skipped: $tskipped, reconciled: $checked,
+                  count_drift: $drift, retro_drift: $rdrift, unresolved: $unres, oversized_rows: $rowlint,
+                  attention: $attention } }
+    | .reason = (if .state == "absent-input" then "every registered target directory is absent on disk"
+                 elif .state == "no-match" then "targets reconciled, no findings"
+                 else null end)
+    | . + {items: (if .state == "absent-input" then [] else $it end)}' >&3 \
+    || { echo "verify-registry: --json envelope build failed" >&2; exit 1; }
+}
+
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue
+# #1024). Reproduced here specifically: without -P, KIT landed one level short of the real kit
+# root through a render dir's symlinked toolbelt/, so TARGETS_MD pointed at a path that does not
+# exist and this tool falsely WARNed "kit repo is NOT in its own TARGETS.md".
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
+TARGETS_MD="$KIT/TARGETS.md"
+
+# Source the shared retro helper for retro_is_excluded so the §18 reachability check can
+# filter excluded retros (WARN-only tool: a missing lib falls back to a no-op that never
+# excludes, which may suppress the INFO for targets with only excluded retros — documented
+# conservative fallback; verify-registry never aborts on a missing helper).
+_vr_lib="$_RSDD_SELF/lib/retro-status.sh"
+# shellcheck source=lib/retro-status.sh
+[ -f "$_vr_lib" ] && . "$_vr_lib"
+declare -F retro_is_excluded >/dev/null 2>&1 || retro_is_excluded() { return 1; }  # no-op fallback
+unset _vr_lib
+
+# Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
+# Dual contract: a missing helper file (file-existence guard below) and a broken sourced lib
+# (missing-function guards) are OPERATIONAL failures that exit 1, matching the sibling scripts
+# (issue #140). Advisory findings (drift, schema) remain WARN-only and always exit 0.
+_vr_tp_lib="$_RSDD_SELF/lib/target-paths.sh"
+if [ ! -f "$_vr_tp_lib" ]; then
+  echo "verify-registry: cannot find helper $_vr_tp_lib" >&2; exit 1  # VR-TP-FILE-CHECK
+fi
+# shellcheck source=lib/target-paths.sh
+. "$_vr_tp_lib"
+# Fail closed: source must DEFINE both functions — a partial source is otherwise swallowed.
+declare -F target_paths_all >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_all" >&2; exit 1; }  # VR-TP-ALL-CHECK
+declare -F target_paths_pairs >/dev/null 2>&1 || { echo "verify-registry: helper $_vr_tp_lib failed to define target_paths_pairs" >&2; exit 1; }  # VR-TP-PAIRS-CHECK
+unset _vr_tp_lib
+
+_vr_bf_lib="$_RSDD_SELF/lib/block-files.sh"
+if [ ! -f "$_vr_bf_lib" ]; then echo "verify-registry: cannot find helper $_vr_bf_lib" >&2; exit 1; fi
+# shellcheck source=lib/block-files.sh
+. "$_vr_bf_lib"
+declare -F block_file_filter >/dev/null 2>&1 || { echo "verify-registry: helper lib/block-files.sh failed to define block_file_filter" >&2; exit 1; }
+unset _vr_bf_lib
+
+# Shared state-file resolver (kit issue #1818): single definition of "which RESEARCH-STATE does a consumer act on".
+_vr_sf_lib="$_RSDD_SELF/lib/state-files.sh"
+if [ ! -f "$_vr_sf_lib" ]; then echo "verify-registry: cannot find helper $_vr_sf_lib" >&2; exit 1; fi
+# shellcheck source=lib/state-files.sh
+. "$_vr_sf_lib"
+declare -F resolve_state_file >/dev/null 2>&1 || { echo "verify-registry: helper lib/state-files.sh failed to define resolve_state_file" >&2; exit 1; }
+unset _vr_sf_lib
+
+# Shared corpus-marker predicate (kit issue #1108): single source of truth with
+# research-sdd-init.sh's --wire anti-implicit-scaffold guard.
+_vr_cm_lib="$_RSDD_SELF/lib/corpus-markers.sh"
+if [ ! -f "$_vr_cm_lib" ]; then echo "verify-registry: cannot find helper $_vr_cm_lib" >&2; exit 1; fi
+# shellcheck source=lib/corpus-markers.sh
+. "$_vr_cm_lib"
+declare -F corpus_marker_present >/dev/null 2>&1 || { echo "verify-registry: helper lib/corpus-markers.sh failed to define corpus_marker_present" >&2; exit 1; }
+unset _vr_cm_lib
+
+# Shared Stop-hook wiring predicate (kit issue #1108/#1109): single source of truth with
+# sweep-retros.sh's WIRING-STATUS fleet pass and research-sdd-status.sh's self-report line.
+_vr_hw_lib="$_RSDD_SELF/lib/hook-wiring.sh"
+if [ ! -f "$_vr_hw_lib" ]; then echo "verify-registry: cannot find helper $_vr_hw_lib" >&2; exit 1; fi
+# shellcheck source=lib/hook-wiring.sh
+. "$_vr_hw_lib"
+declare -F hook_stop_wiring_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_wiring_state" >&2; exit 1; }
+declare -F hook_stop_script_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_script_state" >&2; exit 1; }
+declare -F hook_stop_launch_state >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_stop_launch_state" >&2; exit 1; }
+declare -F hook_wired_exec_report >/dev/null 2>&1 || { echo "verify-registry: helper lib/hook-wiring.sh failed to define hook_wired_exec_report" >&2; exit 1; }
+unset _vr_hw_lib
+
+if [ ! -f "$TARGETS_MD" ]; then
+  echo "verify-registry: cannot find $TARGETS_MD" >&2
+  exit 1  # OPERATIONAL failure: cannot proceed without the registry.  # TARGETS-MISSING-CHECK
+fi
+
+# Tolerance: a small count drift is expected between a mid-run corpus and its last-committed row, so only
+# a drift STRICTLY GREATER than this WARNs. Env-overridable for a stricter/looser fleet policy.
+tol="${RSDD_REGISTRY_TOL:-2}"
+
+# Absolute target paths live in the TARGETS.md table as backtick-wrapped paths (same derivation as the
+# sweeps). target_paths_pairs emits "<raw>\t<expanded>" per entry so we can use the expanded path for
+# all filesystem operations while recovering the raw (as-written) token for row lookup — needed when
+# TARGETS.md stores `$RESEARCH_HOME/...` forms that do not match an expanded-path needle.
+# Truncated '...' entries pass through so the summary can WARN this reconcile is PARTIAL.
+all_pairs=$(target_paths_pairs "$TARGETS_MD")
+paths=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep -v '\.\.\.')
+skipped=$(printf '%s\n' "$all_pairs" | awk -F'\t' '{print $2}' | grep '\.\.\.')
+_vr_ntargets=$(printf '%s\n' "$paths" | grep -c .)   # computed once; read by _vr_json_emit
+# ANTI-SILENT-ZERO: zero usable paths is a loud error, not a silent empty reconcile.
+if [ -z "$paths" ]; then
+  echo "verify-registry: ERROR — no usable target paths in $TARGETS_MD" >&2
+  echo "verify-registry: check TARGETS.md has backtick-wrapped absolute or \$RESEARCH_HOME/... paths" >&2
+  [ "$VR_JSON" = 1 ] && exit 1  # --json: a machine caller must not read "no usable path" as a clean pass (json-envelope.v1.md)
+  exit 0  # WARN-only contract: never signals failure, but the error is explicit.
+fi
+
+skipped_names=""; skipped_count=0
+for s in $skipped; do
+  [ -n "$s" ] || continue
+  skipped_count=$((skipped_count + 1))
+  skipped_names="${skipped_names:+$skipped_names, }$(basename "$s")"
+done
+
+# A single backtick, built without triggering command substitution, so we can grep for the EXACT
+# backtick-wrapped path — the master-table row. (Per-target detail headers use the target NAME, not the
+# backtick path, so a backtick path resolves to exactly one row.)
+bt='`'
+
+checked=0; drift=0; retro_drift=0; unresolved=0; dir_reached=0; attention=0; absent_paths=0
+_vr_absent_row_ids=""   # space-delimited row numbers of already-counted absent rows (dedup)
+absent_paths_names=""   # comma-separated needles for INFO output (capped at 3 for hook budget)
+_vr_absent_names_shown=0  # how many names have been added to absent_paths_names
+
+# Word-split on $paths is intentional: TARGETS.MD paths must not contain spaces.
+# shellcheck disable=SC2043,SC2086
+for p in $paths; do
+  [ -n "$p" ] || continue
+  # The master-table row is the line carrying the EXACT backtick-wrapped path. Use the raw
+  # (as-written) token from TARGETS.md as the needle — not the expanded path — so rows written
+  # in `$RESEARCH_HOME/...` form are matched even after $RESEARCH_HOME has been expanded.
+  raw_p="$(printf '%s\n' "$all_pairs" | awk -F'\t' -v p="$p" '$2==p{print $1;exit}')"  # RH-ROW-LOOKUP
+  needle="${bt}${raw_p:-$p}${bt}"
+  row="$(grep -F -- "$needle" "$TARGETS_MD" 2>/dev/null | head -1)"
+
+  # Claimed count: the Maturity column's leading "N md" (or "N blocks") token in that row.
+  claimed="$(printf '%s' "$row" | grep -oiE '[0-9]+[[:space:]]*(md|blocks)\b' | head -1 | grep -oE '[0-9]+' | head -1)"
+
+  # Per-row absence rule (§7 three-state: absent ≠ empty ≠ no-match): a TARGETS.MD row is absent
+  # only when NONE of its backtick path tokens (`/abs`, `$RESEARCH_HOME/rest`, `${RESEARCH_HOME}/rest`) resolves to a directory. A non-directory token in a
+  # row that also has a present corpus path is a companion non-path token (e.g., `/mrdoob/three.js`
+  # alongside a real corpus directory) — it is NOT counted as absent. If ALL tokens in the row are
+  # absent, the row is counted once (dedup by row number) and added to the absent_paths names list.
+  if [ ! -d "$p" ]; then  # ABSENT-PATHS-CHECK
+    # Check whether any backtick token in this row — `/abs`, `$RESEARCH_HOME/rest` or
+    # `${RESEARCH_HOME}/rest` (mirrors lib/target-paths.sh's accepted forms) — is a real directory.
+    # Issue #1039: the old `/[^`]+` -only extraction never matched a $RESEARCH_HOME row token, so a
+    # row whose ONLY present corpus path used that portable form (every TARGETS.md row does) was
+    # false-counted absent whenever it also carried a companion non-path token (e.g. a GitHub slug
+    # like `/mrdoob/three.js`) — the slug's own iteration of this loop never found the real directory.
+    # Word-split on tokens from $row is intentional; paths in TARGETS.MD must not contain spaces.
+    # shellcheck disable=SC2043,SC2086
+    _vr_row_any_dir=0
+    for _vr_rt in $(printf '%s\n' "$row" | grep -oE '`(/|\$(\{RESEARCH_HOME\}|RESEARCH_HOME)/)[^`]+`' | tr -d '`'); do  # RH-ROW-TOKEN-MATCH
+      # kit issue #1142 review: the replacement operand must be quoted — bash gives an
+      # unescaped '&' inside an UNQUOTED replacement special meaning (expands to the matched
+      # text), regardless of the outer quoting, so an unquoted $HOME/$RESEARCH_HOME containing
+      # '&' silently corrupted the expanded path here (e.g. HOME='/home/a&b' -> '/home/a$RESEARCH_HOMEb').
+      _vr_rt_exp="${_vr_rt/\$RESEARCH_HOME/"${RESEARCH_HOME:-$HOME}"}"
+      _vr_rt_exp="${_vr_rt_exp/\$\{RESEARCH_HOME\}/"${RESEARCH_HOME:-$HOME}"}"
+      [ -d "$_vr_rt_exp" ] && { _vr_row_any_dir=1; break; }
+    done
+    if [ "$_vr_row_any_dir" -eq 0 ]; then
+      # No directory found in this row — count it as an absent target (dedup by row number).
+      _vr_row_num="$(printf '%s' "$row" | grep -oE '^[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|' | grep -oE '[0-9]+' | head -1)"
+      _vr_dedup_key="${_vr_row_num:-$p}"
+      case " ${_vr_absent_row_ids} " in  # ABSENT-ROW-DEDUP
+        *" ${_vr_dedup_key} "*) : ;;
+        *)
+          absent_paths=$((absent_paths + 1))
+          _vr_record absent-target INFO "$p" "registered target absent on disk — NOT checked"
+          _vr_absent_row_ids="${_vr_absent_row_ids} ${_vr_dedup_key}"
+          if [ "$_vr_absent_names_shown" -lt 3 ]; then
+            absent_paths_names="${absent_paths_names}${absent_paths_names:+, }${needle}"
+            _vr_absent_names_shown=$((_vr_absent_names_shown + 1))
+          fi
+          ;;
+      esac
+    fi
+    continue
+  fi
+  dir_reached=$((dir_reached + 1))
+
+  # MATURITY PARENTHETICAL EXTRACTION: find the FIRST '(...)' in the row — always the maturity-field
+  # parenthetical. Using the whole row (not a fixed column index) makes this column-order-agnostic:
+  # it works with both the real 7-column TARGETS.md and the 4-column test-fixture tables without
+  # requiring the caller to know the column layout. The artifact column may also have parentheticals
+  # (e.g., '(.class)') but they appear AFTER the maturity parenthetical, so head -1 selects correctly.
+  # _vr_inner is kept for the retro reconciliation below (non-nc path).
+  _vr_paren="$(printf '%s' "$row" | grep -oE '\([^)]+\)' | head -1)"
+  _vr_inner="${_vr_paren#(}"; _vr_inner="${_vr_inner%)}"
+
+  # NON-CONFORMING MATURITY FIELD CHECK (WARN-only, runs for all non-truncated directory rows):
+  # tokenise _vr_inner by '/' and verify each token against the documented schema (TARGETS.md legend
+  # §Maturity cell field schema). A token that does not match any known pattern is surfaced verbatim.
+  # This mirrors the unclassifiable-block guard pattern: the instrument declares what it could not
+  # classify rather than silently passing.
+  # Known patterns: N md|blocks [@date[,...]] · N focuses · N runs|run · N retros[+...] ·
+  # N-of-N gaps · nc · git yes|no · remote yes|no · hook <anything> · unregistered · registered-no-sessions.
+  # Absent parenthetical → no check (the row has no schema-validated fields; not an error).
+  if [ -n "$_vr_inner" ]; then
+    while IFS= read -r _vr_tok || [ -n "$_vr_tok" ]; do  # TOKENIZER-LAST-TOKEN-FIX
+      # trim leading/trailing whitespace
+      _vr_tok="${_vr_tok#"${_vr_tok%%[![:space:]]*}"}"; _vr_tok="${_vr_tok%"${_vr_tok##*[![:space:]]}"}"
+      [ -z "$_vr_tok" ] && continue
+      # Block count: N md / N blocks / N blocks @YYYY-MM-DD / N blocks @YYYY-MM-DD, ACTIVE
+      # The @date form is tightened to require an ISO date so loose garbage after @ is caught.
+      grep -qiE '^[0-9]+[[:space:]]+(md|blocks?)[[:space:]]*(@[0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]*,[[:space:]]*ACTIVE)?)?$' <<<"$_vr_tok" && continue
+      # Focus count: N focuses / N focus (singular consistent with N run / N runs)
+      grep -qiE '^[0-9]+[[:space:]]+focus(es)?$' <<<"$_vr_tok" && continue
+      # Run count: N runs / N run
+      grep -qiE '^[0-9]+[[:space:]]+runs?$' <<<"$_vr_tok" && continue
+      # Retro field: N retros / N retros + M corpus §18 + K client retros
+      # Anchored at end: '3 retrograde motion' must not pass (previously unanchored pattern did).
+      grep -qiE '^[0-9]+[[:space:]]+retros?([[:space:]]+\+.*)?$' <<<"$_vr_tok" && continue
+      # Gap count: N-of-N gaps
+      grep -qiE '^[0-9]+-of-[0-9]+[[:space:]]+gaps?$' <<<"$_vr_tok" && continue
+      # nc flag (bare, exact)
+      [ "$_vr_tok" = "nc" ] && continue
+      # git status
+      grep -qE '^git[[:space:]]+(yes|no)$' <<<"$_vr_tok" && continue
+      # remote status
+      grep -qE '^remote[[:space:]]+(yes|no)$' <<<"$_vr_tok" && continue
+      # hook (any form: hook yes / hook no / hook file yes / hook deferred / hook yes ×2 / …)
+      grep -qE '^hook[[:space:]]' <<<"$_vr_tok" && continue
+      # unregistered · registered-no-sessions (kit issue #1157: registered in settings, never loaded)
+      [ "$_vr_tok" = "unregistered" ] && continue
+      [ "$_vr_tok" = "registered-no-sessions" ] && continue  # NONCONFORM-NOSESSIONS-TOKEN
+      # Unknown field — surface verbatim; same pattern as unclassifiable-block guard.
+      _vr_finding nonconform-field WARN "$(basename "$p")" "$(basename "$p") — maturity field not in schema: '${_vr_tok}'; check the legend for valid forms or update the legend (propose-never-apply)."  # NONCONFORM-FIELD-CHECK
+      unresolved=$((unresolved + 1))
+    done < <(printf '%s' "$_vr_inner" | tr '/' '\n')
+  fi
+
+  # SESSIONSTART BUDGET (kit issue #2129), OPT-IN: RSDD_REGISTRY_SESSION_BUDGET=1 executes the target's
+  # wired SessionStart hooks (sandboxed, read-only toward the target — see verify-session-budget.sh) and
+  # WARNs when a hook's output is over Claude Code's 10,000-char cap (silently truncated) or the aggregate
+  # is over the 8,000-char kit budget. Off by default: it RUNS hooks, which costs seconds per target.
+  if [ "${RSDD_REGISTRY_SESSION_BUDGET:-0}" = 1 ] && [ -f "$p/.claude/settings.json" ]; then  # SESSION-BUDGET-CHECK
+    if [ ! -f "$_RSDD_SELF/verify-session-budget.sh" ]; then
+      _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — SessionStart budget check could not run: verify-session-budget.sh is missing beside verify-registry.sh (a degraded measurement, not a zero)."
+    else
+      _vr_sb="$(bash "$_RSDD_SELF/verify-session-budget.sh" "$p" 2>&1)"
+      if grep -q 'status=TRUNCATED' <<<"$_vr_sb"; then
+        _vr_finding session-budget-truncated WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook emits more than 10,000 characters, so Claude Code truncates it to a path plus a 2,000-char preview Claude is not told to read; shrink or split the hook (run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if grep -q 'status=timed-out' <<<"$_vr_sb"; then  # SESSION-BUDGET-TIMED-OUT
+        _vr_finding session-budget-timed-out WARN "$(basename "$p")" "$(basename "$p") — a SessionStart hook outlives its own configured timeout, so Claude Code kills it and it contributes nothing (the budget numbers do not show this); fix or raise the hook's timeout (run verify-session-budget.sh ${p} for the hook; propose-never-apply)."
+      fi
+      if grep -q 'OVER BUDGET' <<<"$_vr_sb"; then
+        _vr_finding session-budget-over WARN "$(basename "$p")" "$(basename "$p") — SessionStart hooks total $(sed -n 's/^aggregate: \([0-9]*\) chars.*/\1/p' <<<"$_vr_sb") characters, over the kit's 8,000-char budget (worst session source: $(sed -n 's/^aggregate: .* worst-source=//p' <<<"$_vr_sb"); run verify-session-budget.sh ${p} for per-hook numbers; propose-never-apply)."
+      fi
+      if ! grep -q '^state:' <<<"$_vr_sb"; then  # SESSION-BUDGET-NO-STATE
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — the SessionStart budget check produced no 'state:' line (crashed, was killed or exited early), so nothing was measured; this is a degraded result, not a clean one (run verify-session-budget.sh ${p})."
+      elif grep -q '^state: degraded' <<<"$_vr_sb"; then
+        _vr_finding session-budget-degraded WARN "$(basename "$p")" "$(basename "$p") — at least one SessionStart hook could not be measured (timeout, non-zero exit, unresolvable, no usable sandbox or locale); the figures are partial, not zero (run verify-session-budget.sh ${p})."
+      fi
+    fi
+  fi
+
+  # HOOK-WIRING RECONCILIATION (kit issue #1108): a row whose maturity cell claims 'hook yes'
+  # (the SPECIFIC claim that the hook "will fire" per the TARGETS.md legend — distinct from
+  # 'hook no', 'hook deferred', or 'hook file yes / unregistered', none of which assert active
+  # wiring) is reconciled against the SAME Stop-scoped check sweep-retros.sh's WIRING-STATUS pass
+  # uses (lib/hook-wiring.sh — single source of truth). Runs for BOTH nc and non-nc rows: a
+  # tooling/nc target can still register a Stop hook. WARN-only; never fires for any other hook
+  # token, including 'hook file yes / unregistered' (which already admits it is unregistered).
+  #
+  # NARROWER than the legend (kit issue #1108 round 2): the legend also recognizes
+  # <target>/.claude/settings.local.json and a user-level ~/.claude/settings.json as valid
+  # registration paths — this reconciliation checks only <target>/.claude/settings.json (see
+  # lib/hook-wiring.sh's own header for why: preserving sweep-retros.sh's byte-identical
+  # behavior). A row correctly wired only via one of those two other paths gets a WARN here that
+  # the legend would not justify; verify by hand before refreshing such a row. Measured on the
+  # real fleet at #1108 round 2: 0 of 17 reachable targets affected.
+  # WIRED-OFF-ROOT (kit issue #1135): lib/hook-wiring.sh's own 'wired-off-root' state (settings.json
+  # IS Stop-scoped-wired at the registered path, but that path is NOT its own git root — a
+  # STRUCTURAL fact only) already falls through the generic '!= "wired"' branch below and would
+  # WARN with the generic wording. This tailored branch fires FIRST, for that one state only, with
+  # wording that names the real cause (settings.json IS already wired; the row's claim is not
+  # stale, the PATH may be the wrong one) WITHOUT prescribing a fix (kit issue #1140 round-2
+  # review, Blocking 1 — a false claim once shipped here: an earlier revision said "move the hook
+  # registration to the git root", which would not have worked for the one real case this has ever
+  # flagged, three.js, whose sessions launch from neither the registered path nor its git root).
+  # The maintainer decides which directory to register — this tool cannot (kit issue #1134). Three.js
+  # (TARGETS.md row 13) no longer claims 'hook yes' post-#1133, so this branch has zero effect on
+  # the real fleet today; it exists for the NEXT row that does.
+  _vr_nl_emitted=0   # set below when hook-registered-never-loaded fires for this target (the wired-hook-missing block skips the duplicate, kit issue #2141)
+  _vr_hook_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+yes([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-CLAIM-EXTRACT
+  if [ -n "$_vr_hook_claim" ]; then
+    _vr_hook_state="$(hook_stop_wiring_state "$p")"
+    # REGISTERED-NEVER-LOADED (kit issue #1157): 'wired' / 'wired-off-root' are a TEXT match on the
+    # settings file; they say nothing about whether the registered script exists. Ask the separate
+    # script-resolution question (lib/hook-wiring.sh hook_stop_script_state) and surface a script that
+    # cannot load as its OWN finding kind, before the off-root wording (a missing script is the
+    # stronger fact: the hook cannot fire from ANY launch directory). 'unverifiable' (bare command
+    # name, unresolved variable) makes no claim and stays silent; 'degraded' is surfaced, never zero.
+    _vr_script_state=""
+    case "$_vr_hook_state" in wired|wired-off-root) _vr_script_state="$(hook_stop_script_state "$p")" ;; esac
+    if [ "$_vr_script_state" = "degraded" ]; then  # HOOK-SCRIPT-DEGRADED-CHECK
+      _vr_finding hook-script-degraded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but the script-resolution check degraded (awk unavailable or failed); whether the hook can load is unknown, not confirmed (propose-never-apply)."
+      attention=$((attention + 1))
+    fi
+    if [ "$_vr_script_state" = "missing" ]; then  # HOOK-NEVER-LOADED-CHECK
+      _vr_nl_emitted=1
+      _vr_finding hook-registered-never-loaded WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json but EVERY registered retro-gate command names a script that does not exist (one present entry would let it load), so the hook can never load (registered-never-loaded; checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected; executable bit and launch directory are not checked); restore the script or refresh the row (propose-never-apply)."
+      attention=$((attention + 1))
+    elif [ "$_vr_hook_state" = "wired-off-root" ]; then  # HOOK-WIRING-OFF-ROOT-CHECK
+      _vr_finding hook-off-root WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but ${p} is not its own git root; the hook is expected to fire only for a session launched in exactly that directory (observed Claude Code behavior, not a cited spec; kit issue #1134). Confirm which directory sessions actually launch from and register/wire that directory (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row accordingly (propose-never-apply)."
+      attention=$((attention + 1))
+    elif [ "$_vr_hook_state" != "wired" ]; then  # HOOK-WIRING-CHECK
+      _vr_finding hook-unwired WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' but the Stop hook is ${_vr_hook_state} at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); refresh the row or wire the hook (propose-never-apply)."
+      attention=$((attention + 1))
+    fi
+    # REGISTERED-NO-SESSIONS (kit issue #1157), ADDITIVE to the findings above: the hook is registered
+    # and its script is not firmly missing, but no retained Claude Code transcript exists for exactly this
+    # directory (project settings load from the launch directory only), so 'hook yes' ("will fire")
+    # over-claims. launch 'unknown' (no Claude history to read) makes no claim and stays silent.
+    if [ "$_vr_script_state" != "" ] && [ "$_vr_script_state" != "missing" ]; then
+      if [ "$(hook_stop_launch_state "$p")" = "no-sessions" ]; then  # HOOK-NO-SESSIONS-CHECK
+        _vr_finding hook-registered-no-sessions WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_claim}' and the Stop hook is registered at ${p}/.claude/settings.json, but there is no retained Claude Code transcript for a session launched from exactly ${p} (Claude Code prunes old transcripts; the Stop hook in .claude/settings.json is Claude-Code-specific, so a target worked in another harness reads the same), so it is not known to have loaded (registered-no-sessions; launch directory is a maintainer decision, kit issue #1134); refresh the row to 'hook file yes / registered-no-sessions' or launch Claude Code sessions there (propose-never-apply)."
+        attention=$((attention + 1))
+      fi
+    fi
+  fi
+
+  # UNREGISTERED / REGISTERED-NO-SESSIONS ROW RECONCILIATION (kit issue #1157): the reverse direction
+  # for rows that claim 'hook file yes'. 'unregistered' is defined as "not referenced by any loaded
+  # settings file"; a row carrying it while <target>/.claude/settings.json DOES register the hook (and
+  # the script can load) uses the wrong word. The cure depends on the launch state: no sessions ->
+  # 'registered-no-sessions'; sessions exist -> 'hook yes'. A row carrying 'registered-no-sessions' is
+  # stale when the hook is no longer registered/loadable or sessions now exist. Launch 'unknown' never
+  # produces a finding for the second case and is named in the message for the first.
+  _vr_hook_toks="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  if grep -qiE '^hook[[:space:]]+file[[:space:]]+yes([^a-zA-Z0-9]|$)' <<<"$_vr_hook_toks"; then  # HOOK-FILE-CLAIM-EXTRACT
+    _vr_is_unreg=0; _vr_is_nosess=0
+    grep -qx 'unregistered' <<<"$_vr_hook_toks" && _vr_is_unreg=1
+    grep -qx 'registered-no-sessions' <<<"$_vr_hook_toks" && _vr_is_nosess=1
+    if [ "$_vr_is_unreg" = 1 ] || [ "$_vr_is_nosess" = 1 ]; then
+      _vr_hf_state="$(hook_stop_wiring_state "$p")"; _vr_hf_script=""
+      case "$_vr_hf_state" in wired|wired-off-root) _vr_hf_script="$(hook_stop_script_state "$p")" ;; esac
+      if [ -n "$_vr_hf_script" ] && [ "$_vr_hf_script" != "missing" ]; then
+        _vr_hf_launch="$(hook_stop_launch_state "$p")"
+        if [ "$_vr_is_unreg" = 1 ]; then  # HOOK-UNREGISTERED-STALE-CHECK
+          case "$_vr_hf_launch" in
+            no-sessions) _vr_hf_cure="there is no retained Claude Code transcript for a session launched from exactly ${p}, so the accurate token is 'registered-no-sessions'" ;;
+            launched)    _vr_hf_cure="a retained Claude Code transcript exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired) and the accurate claim is likely 'hook yes'" ;;
+            *)           _vr_hf_cure="the launch history could not be read (launch unknown), so verify by hand whether the accurate token is 'registered-no-sessions' or 'hook yes'" ;;
+          esac
+          _vr_finding hook-unregistered-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'unregistered' but the Stop hook IS registered at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); ${_vr_hf_cure}; refresh the row (propose-never-apply)."
+          attention=$((attention + 1))
+        fi
+        if [ "$_vr_is_nosess" = 1 ] && [ "$_vr_hf_launch" = "launched" ]; then  # HOOK-NO-SESSIONS-STALE-CHECK
+          _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but a retained Claude Code transcript now exists for a session launched from exactly ${p} (it may predate the registration, so verify the hook has fired); the accurate claim is likely 'hook yes'; refresh the row (propose-never-apply)."
+          attention=$((attention + 1))
+        fi
+      elif [ "$_vr_is_nosess" = 1 ]; then
+        _vr_finding hook-no-sessions-stale WARN "$(basename "$p")" "$(basename "$p") — row claims 'registered-no-sessions' but the Stop hook is not registered with a loadable script at ${p}/.claude/settings.json (wiring ${_vr_hf_state}, script ${_vr_hf_script:-n/a}); refresh the row (propose-never-apply)."
+        attention=$((attention + 1))
+      fi
+    fi
+  fi
+
+  # SYMMETRIC HOOK-WIRING RECONCILIATION (kit issue #1128): the INVERSE direction of the check
+  # above. A row claiming 'hook no' (no research-loop hook file under the target AT ALL) whose
+  # Stop hook IS actually registered at the target's own path is registry drift the OTHER way —
+  # the row UNDER-claims, not over-claims. Mutually exclusive with HOOK-CLAIM-EXTRACT above (a row
+  # carries exactly one hook token), so this never double-WARNs a 'hook yes' row. WARN-only,
+  # propose-never-apply; TARGETS.md is never auto-edited (§8) — the maintainer refreshes the row by
+  # hand from this WARN's output.
+  #
+  # SCOPED TO 'hook no' ONLY (kit issue #1141 round-3 review, Blocking 1 — narrowed from an earlier
+  # revision that also matched 'hook file yes'): per the TARGETS.md legend, 'hook file yes /
+  # unregistered' asserts a hook FILE exists but is not loaded/effective — a claim about whether
+  # the hook FIRES, which depends on where sessions launch from, a decision this tool does not
+  # make (kit issue #1134). Kit PR #1147 deliberately set exactly the 3 real rows this reverse
+  # check used to WARN on (fluke-177x-datos, nave-panccadia, panccadia-3d-viewer) to 'hook file
+  # yes / unregistered' for that reason; re-WARNing on them was a false positive the maintainer
+  # could never clear (the only "refresh" the old wording implied was 'hook yes', which PR #1147
+  # explicitly rejected for these rows — the same defect class #1140 round-2 Blocking 1 already
+  # removed from the forward check). A row claiming 'hook no' carries no such ambiguity: it
+  # asserts NO hook file exists at all under the target, which the target's own Stop-wired
+  # settings.json contradicts outright. Covering 'hook file yes' again needs a doctrine decision
+  # first (§6: a vocabulary/calibration change is its own unit) — tracked as kit issue #1157.
+  #
+  # STRICT '= "wired"' — NOT 'wired-off-root' (kit issue #1135): a nested target whose registered
+  # path is not its own git root is Stop-scoped-wired syntactically, but a real session never
+  # launches from the nested path — this check does not decide launch site (kit issue #1134) even
+  # for a 'hook no' row, so wired-off-root stays out of scope exactly like a 'hook file yes' claim
+  # does. Equality with the literal string 'wired' (never '!= "unwired"' or a 'wired*' pattern) is
+  # what keeps this exclusion correct — see the pinned fixture (3s) and mutation tooth in
+  # verify-registry.test.sh.
+  #
+  # Measured on the real fleet (2026-09-25, post-PR #1147, at kit sha c961e67's rebase): 0 of 17
+  # reachable targets mismatch under this narrowed scope — PR #1147 already refreshed every row this
+  # check used to WARN on. The check still guards future drift.
+  _vr_hook_no_claim="$(printf '%s' "$_vr_inner" | tr '/' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -iE '^hook[[:space:]]+no([^a-zA-Z0-9]|$)' | head -1)"  # HOOK-NO-CLAIM-EXTRACT
+  if [ -n "$_vr_hook_no_claim" ]; then
+    _vr_hook_state2="$(hook_stop_wiring_state "$p")"
+    # A registration whose script does not exist (kit issue #1157) is consistent with 'hook no': no
+    # usable hook exists. Only a registration that CAN load contradicts the row.
+    _vr_script_state2=""
+    [ "$_vr_hook_state2" = "wired" ] && _vr_script_state2="$(hook_stop_script_state "$p")"
+    if [ "$_vr_hook_state2" = "wired" ]; then  # HOOK-WIRING-REVERSE-CHECK
+     if [ "$_vr_script_state2" != "missing" ]; then  # HOOK-REVERSE-SCRIPT-GUARD
+      _vr_finding hook-wired-contradiction WARN "$(basename "$p")" "$(basename "$p") — row claims '${_vr_hook_no_claim}' but the Stop hook IS wired at ${p}/.claude/settings.json (checked path only — settings.local.json and user-level ~/.claude/settings.json are not inspected); at minimum this needs 'hook file yes ...' — whether it becomes 'hook yes' depends on where sessions actually launch from (kit issue #1134); refresh the row (propose-never-apply)."
+      attention=$((attention + 1))
+     fi
+    fi
+  fi
+
+  # WIRED-HOOK EXECUTE BIT (kit issue #2141): independent of any row claim, every hook command wired in
+  # <target>/.claude/settings.json whose first word is a file path must be runnable as a bare command.
+  # A mode-644 script exits 126 under Claude Code, so its protocol card / guard never loads. Read-only,
+  # WARN-only (propose-never-apply); lib/hook-wiring.sh hook_wired_exec_report decides what is a claim.
+  if [ -d "$p/.claude" ]; then
+    while IFS=$'\t' read -r _vr_we_kind _vr_we_path _vr_we_x3; do
+      [ -n "$_vr_we_kind" ] || continue
+      if [ "$_vr_we_kind" = "unverifiable" ]; then
+        _vr_finding wired-hook-unverifiable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-unverifiable: ${_vr_we_path} (${_vr_we_x3}); whether this wired hook can run was NOT determined (checked path only: ${p}/.claude/settings.json; propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ] && [ "$_vr_nl_emitted" = 1 ] && [ "$_vr_we_x3" = "Stop" ] && [[ "$_vr_we_path" == *retro-gate* ]]; then
+        continue   # already reported as hook-registered-never-loaded for this target: do not double count
+      elif [ "$_vr_we_kind" = "not-executable" ]; then
+        _vr_finding wired-hook-not-executable WARN "$(basename "$p")" "$(basename "$p") — wired-hook-not-executable: ${_vr_we_path} is registered in ${p}/.claude/settings.json as a bare command but has no execute bit, so Claude Code exits 126 and the hook never loads; chmod +x it or wire it as 'bash <path>' (propose-never-apply)."
+      elif [ "$_vr_we_kind" = "missing" ]; then
+        _vr_finding wired-hook-missing WARN "$(basename "$p")" "$(basename "$p") — wired-hook-missing: ${_vr_we_path} is registered in ${p}/.claude/settings.json but no such file exists, so the hook can never run; restore it or remove the registration (propose-never-apply)."
+      else
+        continue
+      fi
+      attention=$((attention + 1))
+    done < <(hook_wired_exec_report "$p")  # WIRED-EXEC-CALLSITE
+  fi
+
+  # NON-CORPUS SHORT-CIRCUIT: check for the 'nc' flag BEFORE the expensive state-finding find, so
+  # nc-marked targets (tooling, doc, production app) never trigger a deep filesystem search.
+  # Convention: 'N md' for nc rows counts root-level .md only (maxdepth 1 — package-manager-safe;
+  # excludes .venv/node_modules without any hardcoded exclusion list). Targets WITHOUT the nc flag
+  # and no RESEARCH-STATE still receive the 'not resolvable' WARN — the anti-blank-silencer guarantee
+  # enforced by tests 6 and 13. '/ nc' is detected by the ERE below; the sentinel comment is the
+  # mutation target for the --prove-teeth nc teeth test.
+  # fixed under #1444: here-string, no printf | grep -q pipe, so no SIGPIPE race is possible.
+  if grep -qE '/ nc[ /;)|]' <<<"$row"; then  # NC-EXEMPT-CHECK
+    name="$(basename "$p")"
+    checked=$((checked + 1))
+    # NC-CONTRADICTION CHECK: the nc flag asserts there is no corpus here. If a RESEARCH-STATE.md
+    # is resolvable under the target, the assertion contradicts disk — flag it so the operator
+    # can correct either the row (remove nc) or the repository layout. Uses the same find params
+    # as the regular state resolver; the sentinel comment is the mutation target for teeth-nc-contradiction.
+    _nc_state="$(resolve_state_file "$p")"  # rc 1 absent (empty) · rc 2 tie across dirs still yields a pick; either way the -f test below decides
+    if [ -n "$_nc_state" ] && [ -f "$_nc_state" ]; then  # NC-CONTRADICTION-CHECK
+      _vr_finding nc-contradiction WARN "$name" "$name — row carries the nc flag but a RESEARCH-STATE.md was found at ${_nc_state}; remove nc if this is a real corpus target."
+      unresolved=$((unresolved + 1))
+      continue
+    fi
+    real="$(find "$p" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    if [ -z "$claimed" ]; then
+      _vr_finding nc-no-count WARN "$name" "$name — non-corpus (nc) target has no claimed 'N md' count in TARGETS.md row (real root-level: $real); add the count."
+      unresolved=$((unresolved + 1))
+    else
+      d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
+      if [ "$d" -gt "$tol" ]; then
+        _vr_finding count-drift WARN "$name" "$name — TARGETS.md row claims ${claimed} md but the non-corpus target has ${real} real .md file(s) at root (drift ${d} > tol ${tol}) — refresh the row."
+        drift=$((drift + 1))
+      fi
+    fi
+    continue
+  fi
+
+  # REGISTERED-PATH MARKER CHECK (kit issue #1108): does the registered path itself carry a
+  # corpus marker, at the SAME granularity research-sdd-init.sh's --wire anti-implicit-scaffold
+  # guard checks — root-level INDEX.md/CATALOG.md/RESEARCH-STATE*.md at $p, or one level nested
+  # at $p/corpus (lib/corpus-markers.sh; single source of truth with that guard). This is
+  # DELIBERATELY narrower than the maxdepth-3 corpus-root search a few lines below: that deep
+  # search exists to tolerate a nested-corpus layout (e.g. <target>/research/RESEARCH-STATE.md)
+  # and papers over exactly the defect this WARNs about — a registered row pointing at a
+  # CONTAINER directory, not the actual corpus root, even when downstream tooling still manages
+  # to locate the corpus somewhere inside it (three.js repro: `$RESEARCH_HOME/prototipos/three.js`
+  # registered; the real corpus lives two levels deeper, under a nested git repo's own research/).
+  # WARN-only; never fires for nc rows (already handled and `continue`d above).
+  if ! corpus_marker_present "$p" "$p/corpus"; then  # REGISTERED-PATH-MARKER-CHECK
+    _vr_finding no-corpus-marker WARN "$(basename "$p")" "$(basename "$p") — registered path has no corpus marker (no INDEX.md/CATALOG.md/RESEARCH-STATE*.md at ${p} or ${p}/corpus); the row may be pointing at a container directory rather than the corpus root — verify against research-sdd-init.sh's --wire marker check (propose-never-apply)."
+    attention=$((attention + 1))
+  fi
+
+  # Resolve the corpus root EXACTLY like research-sdd-archive.sh / verify-state.sh: the shallowest
+  # RESEARCH-STATE*.md under the target, deterministically. This transparently handles a flat corpus
+  # (<path>/) or the canonical nested convention (<path>/corpus/, METHODOLOGY "Use the name
+  # `corpus/` (not `research/`)") — the corpus is wherever the state file lives, no per-layout
+  # guessing. It ALSO tolerates a non-canonical deep layout such as three.js's own
+  # threejs-hvac-prototipos/research/ (found via the maxdepth-3 walk below), which is precisely
+  # what makes that tolerance the wrong signal for "is this row registered correctly" — see the
+  # REGISTERED-PATH MARKER CHECK a few lines below, which enforces the canonical convention.
+  state="$(resolve_state_file "$p")"  # rc 1 absent (empty) · rc 2 tie across dirs still yields a pick (split layout)
+  if [ -z "$state" ] || [ ! -f "$state" ]; then
+    _vr_finding corpus-unresolvable WARN "$p" "$p — corpus layout not resolvable (no RESEARCH-STATE*.md under target); cannot recount blocks."
+    unresolved=$((unresolved + 1))
+    continue
+  fi
+  corpus="$(dirname "$state")"
+
+  # Count real block files with the CANONICAL discriminator (gen-catalog.py's BLOCK_RE == archive ==
+  # verify-state): `<prefix>-(block|bloque)<N>[-suffix].md` at the corpus root. NOT a loose `*block*`
+  # glob — a decoy like `blocked-notes.md` must not inflate the count. Single definition, no drift.
+  real="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null | block_file_filter | wc -l | tr -d ' ')"
+
+  # LOCAL-GENERATOR AUTHORITY (Feature #37): a target with its OWN catalog generator
+  # (<corpus>/tools/gen-catalog.py) legitimately produces a CATALOG total that differs from the raw
+  # canonical discriminator (niagara: CATALOG 239 vs discriminator 237 — the generator counts blocks the
+  # flat root-glob does not, e.g. sub-series or nested block files). When that generator EXISTS and
+  # CATALOG.md carries a "Total: N" (or "N bloques/blocks") line, trust THAT N as the authoritative real
+  # count so a justified local total reconciles against its OWN authority instead of false-drifting.
+  # Otherwise keep the canonical discriminator count. WARN-only/read-only is unchanged.
+  #
+  # CATALOG FRESHNESS CHECK: reading the CATALOG total without verifying it against disk means a sweep
+  # can transcribe a stale number and stamp [CERT] on it — confirmed defect (issue #104 §2). For each
+  # CATALOG-authority target, compare the CATALOG total against the on-disk discriminator count already
+  # computed above. A diff within tolerance is treated as disk-consistent (fresh). Beyond tolerance the
+  # CATALOG may be stale OR the generator legitimately counts differently (sub-series blocks, etc.) —
+  # both require operator verification. PROPOSE-NEVER-APPLY: never regenerate; report for the operator.
+  # Five distinguishable states: (1) CATALOG absent → discriminator used, silent; (2) CATALOG present +
+  # parseable total + SELF-CONSISTENCY GATE fails (header≠own-row-count) → stale header WARN, real stays
+  # at disk discriminator; (3) self-consistent + diff ≤ tol → fresh, disk-consistent annotation;
+  # (4) self-consistent + diff > tol → WARN fires, sub-cases: (4a) discriminator > 0 → CATALOG plausibly
+  # stale; (4b) discriminator == 0 → cannot prove which side is wrong; (5) CATALOG present + no
+  # parseable total → freshness undeterminable, WARN fires.
+  #
+  # SELF-CONSISTENCY GATE (Feature #37 extension): adopt CATALOG total ONLY when cat_total == cat_rows.
+  # cat_rows = count of data rows in CATALOG.md markdown table (all |lines − separator lines − 1 header).
+  # A stale header (cat_total ≠ cat_rows) falls back to the disk discriminator + WARN.
+  # Validated: niagara header=722, cat_rows=720 (720 data rows + 1 header + 1 sep = 722 |lines; 722−1−1=720).
+  _vr_disc_was_zero=0   # set to 1 when disc=0 overrides real; signals the unclassifiable guard
+  cat_authority=""
+  gen="$corpus/tools/gen-catalog.py"
+  cat_md="$corpus/CATALOG.md"
+  if [ -f "$gen" ] && [ -f "$cat_md" ]; then
+    _cat_discriminator="$real"   # save before CATALOG may override; used for freshness check
+    _cat_name="$(basename "$p")" # name not yet assigned at this point in the loop
+    # A "Total: N" line first; else the first "N bloques/blocks" token anywhere in CATALOG.md.
+    cat_total="$(grep -iE 'total' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+    [ -n "$cat_total" ] || cat_total="$(grep -oiE '[0-9]+[[:space:]]*(bloques?|blocks?)' "$cat_md" 2>/dev/null | grep -oE '[0-9]+' | head -1)"
+    if [ -n "$cat_total" ]; then
+      # SELF-CONSISTENCY GATE: count actual data rows in CATALOG.md table (exclude |---| separator and header).
+      # cat_rows = (all markdown-table lines) - (separator lines starting with |[space]*-) - 1 (header row).
+      # Adopt the CATALOG total ONLY when cat_total == cat_rows (self-consistent header).
+      # A stale header (cat_total ≠ cat_rows) falls back to the disk discriminator + WARN.
+      # Validated: niagara header=722, cat_rows=720 (720 data rows + 1 header + 1 sep = 722 |lines; 722−1−1=720).
+      _cat_pipe_lines=0; _cat_sep_lines=0
+      _cat_pipe_lines=$(grep -cE '^[[:space:]]*\|' "$cat_md" 2>/dev/null) || _cat_pipe_lines=0
+      _cat_sep_lines=$(grep -cE '^[[:space:]]*\|[[:space:]]*-' "$cat_md" 2>/dev/null) || _cat_sep_lines=0
+      cat_rows=$(( _cat_pipe_lines - _cat_sep_lines - 1 ))
+      [ "$cat_rows" -lt 0 ] && cat_rows=0
+      if [ "${cat_total}" != "${cat_rows}" ]; then  # CATALOG-SELFCONSISTENCY-CHECK
+        # Stale header: CATALOG.md header total disagrees with its own row count. Do NOT adopt.
+        _vr_finding catalog-stale-header WARN "$_cat_name" "$_cat_name — CATALOG.md header total ${cat_total} ≠ its own ${cat_rows} block rows (stale header); using disk discriminator ${_cat_discriminator} — regenerate CATALOG.md."  # CATALOG-STALE-HEADER
+        attention=$((attention + 1))
+        # cat_authority left empty; real stays at disk discriminator (_cat_discriminator)
+      else
+        _cat_diff=$(( 10#${cat_total} - 10#${_cat_discriminator:-0} ))
+        [ "$_cat_diff" -lt 0 ] && _cat_diff=$(( -_cat_diff ))
+        if [ "$_cat_diff" -le "$tol" ]; then
+          cat_authority=" (CATALOG.md total via local gen-catalog.py; disk-consistent: discriminator=${_cat_discriminator})"
+        elif [ "$_cat_discriminator" -eq 0 ] && [ "$cat_total" -gt 0 ]; then
+          # Discriminator classified nothing; CATALOG claims a positive count. The two candidates have
+          # OPPOSITE remedies: non-canonical naming (discriminator requires <prefix>-(block|bloque)<N>.md)
+          # fixes with a rename; a stale CATALOG fixes with regeneration. Asserting either without proof
+          # is false inference — state the discrepancy and name both. Leave cat_authority empty so the
+          # unclassifiable guard can run and provide concrete file-level evidence.
+          _vr_finding catalog-disc-zero WARN "$_cat_name" "$_cat_name — discriminator found 0 classifiable blocks; CATALOG.md claims ${cat_total}; possible causes: non-canonical block naming (discriminator requires <prefix>-(block|bloque)<N>.md) or stale CATALOG — verify before trusting this count."  # CATALOG-DISC-ZERO
+          attention=$((attention + 1))
+          _vr_disc_was_zero=1  # tell the unclassifiable guard to run despite real > 0
+          # cat_authority intentionally left empty so the unclassifiable guard condition triggers
+        else
+          _vr_finding catalog-stale WARN "$_cat_name" "$_cat_name — CATALOG.md total ${cat_total} vs on-disk discriminator ${_cat_discriminator} (diff ${_cat_diff} > tol ${tol}); CATALOG may be stale — regenerate and recheck before trusting this count."  # CATALOG-FRESHNESS-CHECK
+          attention=$((attention + 1))
+          cat_authority=" (CATALOG.md total via local gen-catalog.py; catalog-disk diff=${_cat_diff} — verify freshness)"
+        fi
+        real="$cat_total"
+      fi
+    else
+      # CATALOG.md present but no parseable total — freshness undeterminable; use discriminator.
+      _vr_finding catalog-unparseable WARN "$_cat_name" "$_cat_name — CATALOG.md present (gen-catalog.py registered) but no parseable total found; freshness undeterminable; using discriminator count (${_cat_discriminator})."  # CATALOG-NOPARSE
+      attention=$((attention + 1))
+    fi
+  fi
+
+  checked=$((checked + 1))
+  name="$(basename "$p")"
+
+  # RETRO RECONCILIATION: if the maturity cell declares an 'N retros' count, compare it against
+  # the actual non-excluded retros under the target (maxdepth 4, same as sweep-retros.sh — the
+  # single authority; maxdepth 2 was a dual-authority drift that would miss depth-3 retros such
+  # as <target>/research/retros/*.md). Reuses retro_is_excluded from lib/retro-status.sh (already
+  # sourced above). WARN-only: a drift is a finding; exit stays 0. Absent retro field is legal.
+  # nc rows are skipped (handled above).
+  _vr_retro_claimed="$(printf '%s' "$_vr_inner" | grep -oiE '[0-9]+[[:space:]]+retros?' | head -1 | grep -oE '[0-9]+' | head -1)"
+  if [ -n "$_vr_retro_claimed" ]; then
+    _vr_retro_real=0
+    _vr_retros_dir="$p/retros"
+    # §7 ANTI-SILENT-ZERO: distinguish four states for the primary retros/ directory.
+    # An unreadable dir is an OPERATIONAL condition — 2>/dev/null would convert it to a
+    # confident zero, manufacturing false drift (or false pass when claimed=0 but retros exist).
+    if [ -d "$_vr_retros_dir" ] && { [ ! -r "$_vr_retros_dir" ] || [ ! -x "$_vr_retros_dir" ]; }; then  # RETRO-UNREADABLE-CHECK
+      # Unreadable: surface as a distinct WARN; skip reconciliation so no false count fires.
+      _vr_finding retros-unreadable WARN "$name" "$name — retros/ at ${_vr_retros_dir} is not accessible (permission error); retro count cannot be verified — check filesystem permissions."  # RETRO-UNREADABLE-WARN
+      attention=$((attention + 1))
+    else
+      # Absent (legitimately 0 retros found), empty, or readable: count non-excluded retros.
+      # maxdepth 4 finds: depth 2 = <target>/retros/*.md; depth 3 = <target>/research/retros/*.md.
+      # 2>/dev/null guards only against spurious errors from intermediate dirs during deep traversal
+      # (primary retros/ accessibility already confirmed above; this does not suppress its errors).
+      while IFS= read -r _vr_rfile; do
+        [ -n "$_vr_rfile" ] || continue
+        retro_is_excluded "$_vr_rfile" && continue
+        _vr_retro_real=$((_vr_retro_real + 1))
+      done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+      if [ "$_vr_retro_real" -ne "${_vr_retro_claimed:-0}" ]; then
+        _vr_finding retro-drift WARN "$name" "$name — row claims ${_vr_retro_claimed} retro(s) but ${_vr_retro_real} non-excluded retro(s) found (maxdepth 4) — refresh the 'N retros' field (propose-never-apply)."  # RETRO-DRIFT-CHECK
+        retro_drift=$((retro_drift + 1))
+      fi
+    fi
+  fi
+
+  if [ -z "$claimed" ]; then
+    _vr_finding no-claimed-count WARN "$name" "$name — no claimed '<N> md' count in its TARGETS.md row (real: $real blocks); add the count so it can be reconciled."
+    unresolved=$((unresolved + 1))
+    continue
+  fi
+
+  # Absolute drift. Force base-10 (10#) so a leading-zero claimed count (e.g. "08") is never
+  # misparsed as octal by bash arithmetic, which would error/misdrift on 08/09.
+  d=$(( 10#${claimed:-0} - 10#${real:-0} )); [ "$d" -lt 0 ] && d=$(( -d ))
+  if [ "$d" -gt "$tol" ]; then
+    _vr_finding count-drift WARN "$name" "$name — TARGETS.md row claims ${claimed} md but the corpus has ${real} real block file(s)${cat_authority} (drift ${d} > tol ${tol}) — refresh the row (propose-never-apply; not auto-edited)."
+    drift=$((drift + 1))
+  fi
+
+  # UNCLASSIFIABLE-BLOCK GUARD: when the canonical discriminator returns 0 yet the corpus root
+  # holds files whose names contain "block"/"bloque" but do not satisfy the canonical
+  # <prefix>-(block|bloque)<N>.md form, those files are completely invisible to the drift and §18
+  # checks — "could not classify" is indistinguishable from "nothing here" and the silence is total.
+  #
+  # First filter: require the basename to start with block/bloque followed by an optional separator
+  # (_/-) and a DIGIT. This admits bare numbered blocks (block1.md, bloque3.md, block_07.md) while
+  # correctly excluding plausible corpus documents — the ACTUAL false-positive surface, all of which
+  # the old '/(block|bloque)' rule fired on:
+  #   blocking-issues.md     — 'block' then 'i', no digit → excluded ✓
+  #   block-diagram.md       — 'block' then '-d', no digit after separator → excluded ✓
+  #   bloques-pendientes.md  — 'bloque' then 's', not a digit → excluded ✓
+  #   roadblock.md           — path separator is before 'roadblock', not before 'block'; this name
+  #                            never fired even under the old rule (the old comment was wrong).
+  # Residual false-positive: block-01.md fires (block + separator + digit). That shape looks like an
+  # attempt at a numbered block without a canonical prefix; the rename advisory is appropriate.
+  # Residual false-negative: un-numbered names (block-intro.md) do not fire; out of scope for a guard
+  # targeting the numbered-block corpus convention.
+  #
+  # No '|| true' on the first grep: the script runs set -uo pipefail WITHOUT -e, so grep exit-1
+  # (no match) does not abort the assignment and ${unclassifiable:-0} absorbs empty output. Adding
+  # '|| true' would convert grep exit-2 (ENOMEM/SIGPIPE) into silent success — exactly the confident
+  # zero this guard exists to prevent, reintroduced inside the guard itself.
+  #
+  # The check runs when the discriminator found 0 AND no authority has set cat_authority. Two triggers:
+  # (a) real==0 with no CATALOG authority (original case — bare discriminator returns 0, no CATALOG);
+  # (b) _vr_disc_was_zero==1 (CATALOG present but discriminator=0 — cannot classify; both candidates
+  #     named in the freshness WARN; cat_authority left empty so this guard runs to add concrete evidence).
+  unclassifiable=0
+  if { [ "$real" -eq 0 ] || [ "$_vr_disc_was_zero" -eq 1 ]; } && [ -z "$cat_authority" ]; then
+    unclassifiable="$(find "$corpus" -maxdepth 1 -type f -name '*.md' 2>/dev/null \
+      | grep -iE '/(block|bloque)[_-]?[0-9]' \
+      | block_file_filter -v \
+      | wc -l | tr -d ' ')"
+    unclassifiable="${unclassifiable:-0}"
+    if [ "$unclassifiable" -gt 0 ]; then  # UNCLASSIFIABLE-CHECK
+      _vr_finding unclassifiable-blocks WARN "$name" "$name — ${unclassifiable} unclassifiable candidate block file(s): names contain 'block'/'bloque' but do not match the canonical discriminator (<prefix>-(block|bloque)<N>.md); the block counter returns 0 — rename to make them visible to drift and §18 checks."
+      attention=$((attention + 1))
+    fi
+  fi
+
+  # Reachability sanity: a corpus with blocks but NO §18 kit retros anywhere means the §18 feedback
+  # loop can't be reached from this target. Advisory only (incipient targets legitimately have none)
+  # — fires solely when the corpus actually advanced (real > tol) yet no non-excluded retro exists.
+  # Files carrying '<!-- kit-retro: exclude -->' are not §18 kit retros and are filtered out, so a
+  # target with ONLY excluded retros correctly fires this INFO.
+  # Also fires when the canonical discriminator sees 0 but unclassifiable candidates exist: a target
+  # with 13 bare block files and no retro must not be silenced by its own non-canonical naming.
+  if [ "$real" -gt "$tol" ] || [ "$unclassifiable" -gt 0 ]; then
+    _vr_has_kit_retro=0
+    while IFS= read -r _vr_rf; do
+      [ -n "$_vr_rf" ] || continue
+      retro_is_excluded "$_vr_rf" && continue
+      _vr_has_kit_retro=1; break
+    done < <(find "$p" -maxdepth 4 -path '*/retros/*.md' -not -path '*/.git/*' 2>/dev/null)
+    if [ "$_vr_has_kit_retro" -eq 0 ]; then
+      # When canonical count is 0 but unclassifiable candidates exist, substitute both the count
+      # AND the noun so the INFO line is true standing alone. Reading "0 block(s) on disk" while
+      # the drift WARN above says 0 misleads the operator into editing TARGETS.md to 0 rather than
+      # renaming files. Reading "13 block(s) on disk" while the drift WARN says 0 suggests the drift
+      # is stale. Both half-readings produce the wrong action; changing the noun eliminates the
+      # contradiction: "13 candidate block file(s) (unclassifiable)" is unambiguous.
+      # When real > 0 (canonical case) the noun and count are unchanged — existing assertions hold.
+      _vr_effective_count="$real"
+      _vr_count_noun="block(s) on disk"
+      if [ "$real" -eq 0 ] && [ "$unclassifiable" -gt 0 ]; then  # SUBST-COUNT-CHECK
+        _vr_effective_count="$unclassifiable"
+        _vr_count_noun="candidate block file(s) (unclassifiable) on disk"
+      fi
+      _vr_finding no-retros-wired INFO "$name" "$name — ${_vr_effective_count} ${_vr_count_noun} but no retros/*.md reachable under the target (§18 feedback not wired)."
+    fi
+  fi
+done
+
+# ANTI-SILENT-ZERO (all-absent guard): paths was non-empty but no registered path exists as a
+# directory on disk. Every backtick token resolved to an absent or non-directory path — the most
+# common cause is a wrong RESEARCH_HOME that doubles a path segment. This is an OPERATIONAL
+# FAILURE (§7): a zero dir_reached from a non-empty path list means the instrument looked at
+# nothing, so "Registry consistent with reality" would be a false PASS. Distinct from the case
+# where dirs EXIST but lack corpus state — in that case dir_reached >= 1, advisory WARNs fire, and
+# the exit stays 0. This guard covers only the absent-dir case (dir_reached == 0).
+if [ "$dir_reached" -eq 0 ]; then
+  echo "verify-registry: ERROR — no registered corpus path exists as a directory on disk." >&2
+  echo "verify-registry: Check RESEARCH_HOME (${RESEARCH_HOME:-(unset)}) and that corpora exist at the registered paths." >&2
+  # --json: every target absent is the absent-input state (rc 0); the default mode keeps exit 1 below.
+  if [ "$VR_JSON" = 1 ]; then _vr_json_emit true; exit 0; fi
+  exit 1  # ALL-ABSENT-CHECK
+fi
+
+# --- Master-table ROW HYGIENE lint (WARN-only) --------------------------------------------------------
+# CONVENTION (TARGETS.md legend): a master-table row is ONE scannable line per target
+# (name · path · maturity · artifact · language). SKILL.md renders this table as the first-run
+# target-picker, so an oversized cell (run-by-run narrative crammed into the master row) makes it
+# unusable — that narrative belongs in the target's detail `###` section. This lints each master-table
+# row's cells and WARNs when a single cell exceeds RSDD_ROW_MAXLEN (default 200). A master-table row is
+# the only line whose FIRST cell is the numeric '#' column (`| N | ... |`); the header (`| # |`), the
+# separator (`|---|`), and detail-section prose never match. PROPOSE-NEVER-APPLY: WARN-only, exit stays 0
+# — the over-long content is human-tracked state and is the human's to collapse, never auto-edited.
+row_max="${RSDD_ROW_MAXLEN:-200}"
+rowlint=0
+while IFS= read -r line; do
+  [[ "$line" =~ ^\|[[:space:]]*[0-9]+[[:space:]]*\| ]] || continue
+  # Report the FIRST cell exceeding the threshold; the 2nd cell (awk $3) is the target name label.
+  reported="$(printf '%s' "$line" | awk -F'|' -v max="$row_max" '
+    { name=$3; gsub(/^ +| +$/,"",name);
+      for (i=2;i<=NF;i++){ c=$i; gsub(/^ +| +$/,"",c); if (length(c) > max){ print name "\t" length(c); exit } } }')"
+  if [ -n "$reported" ]; then
+    rname="${reported%%$'\t'*}"; rlen="${reported##*$'\t'}"
+    _vr_finding oversized-row WARN "${rname:-?}" "TARGETS row ${rname:-?} master cell is ${rlen} chars (> ${row_max}) — collapse to one line; narrative belongs in the detail section."
+    rowlint=$((rowlint + 1))
+  fi
+done < "$TARGETS_MD"
+
+# KIT-SELF-REGISTRATION GATE (kit-sup #6): warn if the kit repo itself is absent from TARGETS.md.
+# A fleet supervisor that omits itself is blind to its own state and cannot be supervised by the
+# same instruments it runs over all other corpora. WARN-only, PROPOSE-NEVER-APPLY (exit stays 0).
+_kit_parent="$(dirname "$KIT")"
+_kit_found=0
+while IFS=$'\t' read -r _rv_raw _rv_expanded; do
+  { [ "$_rv_expanded" = "$KIT" ] || [ "$_rv_expanded" = "$_kit_parent" ]; } && { _kit_found=1; break; }  # KIT-PARENT-MATCH
+done <<< "$all_pairs"
+if [ "$_kit_found" -eq 0 ]; then
+  _vr_finding kit-not-registered WARN "$(basename "$KIT")" "$(basename "$KIT") — kit repo is NOT in its own TARGETS.md; fleet instruments cannot supervise it. Add a row with the kit's path (kit-sup #6 gate)."  # KIT-SELF-REG-CHECK
+  attention=$((attention + 1))
+fi
+
+echo ""
+echo "Summary: reconciled ${checked} target(s) · ${absent_paths} absent target(s) · ${drift} count drift(s) · ${retro_drift} retro drift(s) · ${unresolved} unresolvable · ${rowlint} oversized row(s) · ${attention} attention."  # ABSENT-SUMMARY-FIELD
+if [ "$absent_paths" -gt 0 ]; then
+  _vr_extra=$((absent_paths - _vr_absent_names_shown))
+  if [ "$_vr_extra" -gt 0 ]; then
+    _vr_names_suffix="${absent_paths_names} ...and ${_vr_extra} more"
+  else
+    _vr_names_suffix="${absent_paths_names}"
+  fi
+  echo "INFO: ${absent_paths} registered target(s) absent on disk — NOT checked: ${_vr_names_suffix}. Verify RESEARCH_HOME (${RESEARCH_HOME:-$HOME}) and that corpora exist at the registered paths."
+fi
+if [ "$skipped_count" -gt 0 ]; then
+  echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this reconcile is PARTIAL: ${skipped_names}"
+fi
+if [ "$drift" -eq 0 ] && [ "$retro_drift" -eq 0 ] && [ "$unresolved" -eq 0 ] && [ "$rowlint" -eq 0 ] && [ "$attention" -eq 0 ] && [ "$skipped_count" -eq 0 ] && [ "$absent_paths" -eq 0 ]; then
+  echo "Registry consistent with reality (within tolerance ${tol})."
+else
+  [ "$drift" -gt 0 ] && echo "For each count drift: recount the corpus and refresh that target's 'N md' in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
+  [ "$retro_drift" -gt 0 ] && echo "For each retro drift: recount non-excluded retros and refresh the 'N retros' field in \$KIT/TARGETS.md by hand (WARN-only; never auto-edited)."
+fi
+
+# Advisory findings (drift, schema) are never failures. Operational failure already exited 1 above.
+if [ "$VR_JSON" = 1 ]; then
+  _vr_json_emit false
+fi
+exit 0
