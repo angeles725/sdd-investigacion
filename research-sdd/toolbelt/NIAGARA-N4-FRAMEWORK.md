@@ -204,7 +204,7 @@ copies against the source per the METHODOLOGY §12 hash-verify rule, and only th
 The automated CHECK for install-vs-daemon parity is **deferred**: there is no substrate to build it
 on yet and incidence is a single target. The recurrence (B1217 §1217.2; B1215 §1215.3; B1202/B1203
 lineage) is recorded here as prose until a second target shows the same shape. Revisit trigger: when a second target shows the problem,
-add a `--daemon-home` option to `niagara-security-audit.sh`. Refs #2034.
+add a `--daemon-home` check to niagara-go's security audit (the kit's `niagara-security-audit.sh` was retired by #2443). Refs #2034.
 
 ## 7. Module-load oracle: direct `station.exe <name>` launch `[#1902]`
 
