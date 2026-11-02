@@ -31,10 +31,9 @@ var mtTools = []string{"bash", "env", "cat", "grep", "sed", "awk", "sleep", "dat
 
 // mtCase is one scenario's world: CASE/{origin.git,repo,sq,bin,state,...}.
 type mtCase struct {
-	t    *testing.T
-	dir  string
-	env  []string
-	orig bool
+	t   *testing.T
+	dir string
+	env []string
 }
 
 func mtHostEnv() []string {
