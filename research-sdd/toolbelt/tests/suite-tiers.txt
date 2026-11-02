@@ -17,7 +17,6 @@ research-sdd/toolbelt/tests/detonate-exec.test.sh extras category E VM/dynamic s
 research-sdd/toolbelt/tests/detonate-plan.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/docker-exec.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/dynamic.test.sh extras unused adapter (#2203)
-research-sdd/toolbelt/tests/fact-exec.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/kaitai-driver-walk-memcap.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/kaitai.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/pcap-flows.test.sh extras unused adapter (#2203)
