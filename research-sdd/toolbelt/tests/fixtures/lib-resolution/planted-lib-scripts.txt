@@ -6,6 +6,7 @@ corroborate-firmware.sh
 corroborate-ghidra.sh
 corroborate-kaitai.sh
 corroborate-native.sh
+corroborate-pcap.sh
 coverage-map.sh
 decompile-java.sh
 ensure-remote.sh
@@ -15,6 +16,7 @@ lint-block.sh
 merge-gate.sh
 migrate-backlogs.sh
 palette-lexicon-agents.sh
+pcap-flows.sh
 qnx6-read.sh
 reconcile-issues.sh
 research-sdd-archive.sh

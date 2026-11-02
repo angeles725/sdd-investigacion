@@ -71,3 +71,31 @@ Default caps: 30 s timeout, 1 MiB combined output.  The output must be a new
 path below an existing owned directory on an allowlisted Linux-private
 filesystem.  Publication uses `renameat2 RENAME_NOREPLACE` (atomic,
 no-replace).  Failures before rename publish nothing and clean the stage.
+
+## Intended differences from the Python tool
+
+The tool is now `rsdd corroborate pcap` (Go, kit issue #2485); `corroborate-pcap.sh` is a compatibility shim. Outputs are
+byte-identical to the former `corroborate_pcap.py` for the evidence, the staged files, the file modes, the exit codes and the
+messages, over about a hundred scenarios compared against the frozen legacy script as the oracle
+(`internal/corroborate/pcap`, `go test`). The differences:
+
+- The command-line parser reproduces argparse (the program name stays `corroborate_pcap.py` in usage lines, unambiguous prefixes
+  of long options work, `--name=value`, `-h` prints the help on stdout and exits `0`, every error prints the usage
+  block and `corroborate_pcap.py: error: ...` on stderr and exits `2`), so a command line means what it meant.
+- The caps are arbitrary-size integers; a value beyond what the OS accepts is clamped, never an error.
+- A manifest-tool failure (for example an empty `tshark -v` banner) prints the tool's own line and
+  `corroborate-pcap: manifest-cli 'create' failed (exit 2)` and exits `2`; the Python script died with a traceback and exit `1`
+  there, because `ManifestError` subclassed a second copy of `AdapterError` that its handler did not catch.
+- A stage directory that already exists (another run in flight, or a leftover) is never deleted by the run that
+  failed to create it; the script's cleanup removed it. The run exits `2` with `[Errno 17] File exists: '<stage>'`.
+- A FIFO or device as the capture is refused ("not a pcap/pcapng file ...") instead of blocking on open.
+- Numbers read from `capinfos` and `tshark` use ASCII digits only; the script also took other Unicode decimal digits
+  and crashed on digit-like characters `int()` refuses. A `capinfos` duration of `nan` or `inf` is refused (no JSON
+  form) where the script wrote `NaN` / `Infinity`.
+- The analyzers' output reaches the runner through pipes, not files: a run stopped at the output cap ends on SIGTERM
+  where the script's file-fed run ended on SIGXFSZ, so the manifest's `run.exit_code` / `run.signal` differ in that
+  one case. The captured bytes, the truncation and the `output-cap` error are the same.
+- Output that is not valid UTF-8 is decoded with one U+FFFD per ill-formed sequence (the `tshark -v` banner included,
+  where the script crashed).
+- The analysis manifest is still created, validated and verified by `analysis_manifest.py`, run with `python3` from
+  `PATH`; its stdout and stderr are relayed.
