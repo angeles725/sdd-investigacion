@@ -36,7 +36,6 @@ WRAPPERS=(
   corroborate-kaitai.sh
   corroborate-native.sh
   corroborate-pcap.sh
-  corroborate-unblob.sh
   decompile-java.sh
   decompile-native.sh
   decompile-net.sh

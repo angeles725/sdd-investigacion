@@ -4539,8 +4539,8 @@ B63 §63.5 — following the drafter's leader line resolved 71 bodies and reprod
 - PCAP / PCAPng: `pcap-flows.sh → corroborate-pcap.sh → capinfos` — flow reconstruction (conversations +
   per-stream sha256 digests) first, then the offline summary + protocol hierarchy, then a bare `capinfos`
   summary. No rung replays or captures live traffic.
-- Firmware / opaque blob: `corroborate-unblob.sh → scan-firmware.sh carve → scan-firmware.sh evidence` —
-  recursive extraction inventory first, then validated exact-byte carving (uImage / SquashFS v4 LE only),
+- Firmware / opaque blob: `scan-firmware.sh carve → scan-firmware.sh evidence` —
+  validated exact-byte carving (uImage / SquashFS v4 LE only),
   then a non-extracting binwalk signature + entropy map; `squashfs-extract.sh` is the specialized branch
   once a SquashFS filesystem is confirmed. Encrypted inner archives are a blocker WITH an attack path
   (bkcrack known-plaintext, tool-registry), not a wall.
