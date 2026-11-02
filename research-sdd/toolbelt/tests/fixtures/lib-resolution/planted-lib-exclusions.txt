@@ -3,6 +3,8 @@
 install/install.sh | sources no lib/, runs only the sibling research-sdd-install.sh (itself listed) and installs system packages so running it here is unsafe
 maint/kit-flake-hunt.sh | sources no lib/ and resolves only run-all.sh by absolute repo path, and running it executes every suite
 maint/kit-gate.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it drives a full test gate
+maint/kit-rdd-drive.sh | an rsdd shim (kit issue #2394) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it drives a native review
+maint/kit-rdd-start.sh | an rsdd shim (kit issue #2394) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it starts a native review
 maint/kit-merge-train.sh | an rsdd shim (kit issue #2499) that sources ../lib/rsdd-exec.sh from maint/, which the planted fixture does not model, and running it merges pull requests
 maint/kit-pr-pipeline.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it drives git and gh
 maint/kit-wait-merge.sh | sources no lib/, only the sibling kit-maint-common.sh through its resolved real directory, and running it polls and merges through gh

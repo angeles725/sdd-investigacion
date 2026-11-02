@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kit-rdd-start.test.sh — kit issue #2212: maint/kit-rdd-start.py (assess -> STATUS -> START -> explicit consent).
+# kit-rdd-start.test.sh — kit issue #2212: maint/kit-rdd-start.sh (assess -> STATUS -> START -> explicit consent).
 #
 # Hermetic: the case PATH holds only shims (fixtures/kit-pr-pipeline/shim.sh + harness.sh) that record every
 # gentle-ai call and answer from JSON fixtures. Nothing reaches the real gentle-ai, gh or git.
@@ -13,13 +13,12 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
 SELF="$HERE/kit-rdd-start.test.sh"
 TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
-SUT="$TB/maint/kit-rdd-start.py"
+SUT="$TB/maint/kit-rdd-start.sh"
 # shellcheck source=fixtures/kit-pr-pipeline/harness.sh
 . "$HERE/fixtures/kit-pr-pipeline/harness.sh" || exit 2
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
-mutant_bootstrap mutant_py_replace mutant_tooth || exit 2
-PY="$(command -v python3)" || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
+mutant_bootstrap mutant_sed mutant_tooth || exit 2
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
@@ -88,9 +87,9 @@ run_case() {
     usage) ;;
   esac
   if [ "$name" = usage ]; then
-    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" "$PY" -I "$sut" 2>&1)"; RC=$?
+    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$sut" 2>&1)"; RC=$?
   else
-    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" "$PY" -I "$sut" "$@" "$KH_WT" "$OUTF" 2>&1)"; RC=$?
+    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$sut" "$@" "$KH_WT" "$OUTF" 2>&1)"; RC=$?
   fi
   CALLS="$(kh_calls)"
 }
@@ -202,8 +201,8 @@ if [ "$RC" = 14 ] && [[ "$OUT" != *'kit-rdd-start: started'* ]]; then ok "a refu
 else no "refused granted START reported: rc=$RC out=[$OUT]"; fi
 
 # The shim's own failure (lib/rsdd-exec.sh missing) is the kit's degraded state, rc 3, never 2 (the usage code).
-mkdir -p "$TMP/orphan/maint" && cp "$SUT" "$TMP/orphan/maint/kit-rdd-start.py"
-O="$(env -i PATH=/usr/bin:/bin "$PY" "$TMP/orphan/maint/kit-rdd-start.py" /x /y 2>&1)"; ORC=$?
+mkdir -p "$TMP/orphan/maint" && cp "$SUT" "$TMP/orphan/maint/kit-rdd-start.sh"
+O="$(env -i PATH=/usr/bin:/bin bash "$TMP/orphan/maint/kit-rdd-start.sh" /x /y 2>&1)"; ORC=$?
 if [ "$ORC" = 3 ] && [[ "$O" == *'degraded: rsdd-unavailable'* ]]; then ok "shim without lib/rsdd-exec.sh -> rc 3 degraded (not the usage code 2)"
 else no "shim own failure: rc=$ORC out=[$O]"; fi
 
@@ -231,13 +230,13 @@ fi
 echo "-- teeth: kit-rdd-start mutation controls --"
 # a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
 KC="$TMP/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
-tooth() { # LABEL OLD NEW GOOD_RC BAD_RC SCENARIO [tooth opts...]
-  local label="$1" old="$2" new="$3" g="$4" b="$5" sc="$6"; shift 6
-  local m="$MUT/${label// /_}.py"
-  if ! mutant_py_replace "$label" "$SUT" "$old" "$new" "$m"; then no "tooth $label: mutant refused"; return; fi
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC SCENARIO [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4" sc="$5"; shift 5
+  local m="$MUT/${label// /_}.sh"
+  if ! mutant_sed "$SUT" "$m" "$expr"; then no "tooth $label: mutant refused"; return; fi
   if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-tooth "shim dispatches to the sibling command" 'rsdd_exec maint rdd-start' 'rsdd_exec maint rdd-drive' 15 14 consent
-tooth "shim drops the caller's arguments" '"$@"' '' 15 2 consent
+tooth "shim dispatches to the sibling command" 's/^rsdd_exec maint rdd-start /rsdd_exec maint rdd-drive /' 15 14 consent
+tooth "shim drops the caller's arguments" 's/^rsdd_exec maint rdd-start "\$@"$/rsdd_exec maint rdd-start/' 15 2 consent
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1
