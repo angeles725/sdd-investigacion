@@ -5,9 +5,9 @@ package serial
 // Guard-to-test table for serial-frame-analyze. Behaviour is held two ways: TestAnalyzeGolden replays 50 cases
 // (testdata/golden, generated from the frozen legacy script by testdata/gen_analyze.py) and requires the same
 // exit code, stderr and evidence bytes; the named tests below pin each guard on its own. The differential half
-// against the live legacy script is analyze_parity_test.go.
+// against the live legacy script is parity_test.go.
 //
-//	bash suite case (serial-frame-analyze.test.sh, pre-port)   Go test
+//	behaviour (pre-port bash suite; numbered for this table)    Go test
 //	T1  absent input: exit 2, no JSON                           TestAnalyzeAbsentInput
 //	T2  symlink input rejected (O_NOFOLLOW)                     TestAnalyzeSymlinkInput
 //	T3  empty log: complete, frame_count 0                      TestAnalyzeGolden/stats_empty
@@ -19,6 +19,8 @@ package serial
 //	T9  caps: 10000 frames, 10 MB                               TestAnalyzeFrameCap, TestAnalyzeReadCap
 //	T10 FIFO / directory input: no hang                         TestAnalyzeFIFOInput, TestAnalyzeDirectoryInput
 //	T11 usage errors: exit 2                                    TestAnalyzeUsage
+//	T12 zero-byte log: complete, frame_count 0                  TestAnalyzeZeroByteInput
+//	T13 only line has a non-hex byte: exit 1, failed            TestAnalyzeNonHexOnlyLine
 
 import (
 	"bytes"
@@ -373,5 +375,52 @@ func TestAnalyzeStdoutEmptyOnSuccess(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(out); !bytes.HasSuffix(b, []byte("}\n")) {
 		t.Errorf("evidence does not end with a closing brace and newline: %q", b)
+	}
+}
+
+// A zero-byte log is not malformed: the run completes with no frames and empty results (pre-port T17).
+func TestAnalyzeZeroByteInput(t *testing.T) {
+	dir := t.TempDir()
+	in, out := filepath.Join(dir, "zero.log"), filepath.Join(dir, "o.json")
+	if err := os.WriteFile(in, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rc, stdout, stderr := analyze(t, "stats", "--input", in, "--output", out); rc != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("rc = %d stdout = %q stderr = %q", rc, stdout, stderr)
+	}
+	doc := evidence(t, out)
+	input, sum, res := obj(doc["input"]), obj(doc["summary"]), obj(doc["results"])
+	if doc["status"] != "complete" || doc["truncated"] != false || doc["errors"] != nil {
+		t.Errorf("status = %v truncated = %v errors = %v", doc["status"], doc["truncated"], doc["errors"])
+	}
+	if input["sha256"] != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" || input["line_count"] != 0.0 || input["frame_count"] != 0.0 {
+		t.Errorf("input = %v", input)
+	}
+	if sum["frame_count"] != 0.0 || sum["distinct_lengths"] != 0.0 || sum["line_count"] != 0.0 {
+		t.Errorf("summary = %v", sum)
+	}
+	if len(arr(res["length_histogram"])) != 0 || res["most_common_length"] != nil || len(arr(res["variability"])) != 0 {
+		t.Errorf("results = %v", res)
+	}
+}
+
+// One frame line whose hex column holds a non-hex token is unrecognized, so a log with nothing else fails (pre-port T14).
+func TestAnalyzeNonHexOnlyLine(t *testing.T) {
+	dir := t.TempDir()
+	in, out := filepath.Join(dir, "zz.log"), filepath.Join(dir, "o.json")
+	if err := os.WriteFile(in, []byte("len=3 81 00 zz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rc, _, stderr := analyze(t, "stats", "--input", in, "--output", out); rc != 1 {
+		t.Fatalf("rc = %d stderr = %q", rc, stderr)
+	}
+	doc := evidence(t, out)
+	errs := arr(doc["errors"])
+	if doc["status"] != "failed" || doc["line_count"] != 1.0 || doc["skipped_line_count"] != 1.0 || len(errs) != 1 ||
+		errs[0] != "line 1: unrecognized format: 'len=3 81 00 zz'" {
+		t.Errorf("evidence = %v", doc)
+	}
+	if _, ok := doc["summary"]; ok {
+		t.Error("a failed run carries a summary")
 	}
 }
