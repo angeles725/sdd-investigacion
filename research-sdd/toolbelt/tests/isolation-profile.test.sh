@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # isolation-profile.test.sh — black-box tests of lib/isolation_profile.py, the Python entry point.
 #
-# The module was ported to Go (internal/adapter, kit issue #2390) and its behaviour is pinned there by
+# The module was ported to Go (internal/core/adapter, kit issues #2390, #2421) and its behaviour is pinned there by
 # parity tests that load THIS module and compare every make_profile() outcome and every PROFILE_*
 # constant with the Go port (TestMakeProfile*, TestParityMakeProfile, TestParityNamedProfileConstants).
 # What stays here is what the Go tests cannot see: the Python module itself, imported the way the ten

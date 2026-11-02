@@ -11,7 +11,7 @@
 # signal, stat, struct, subprocess, sys, threading, time, typing, zipfile,
 # urllib, unicodedata, ...) are standard library and need no installation.
 #
-# Internal modules (adapter_core, gate, vm_*, docker_*, proc_common,
+# Internal modules (adapter_core, adapter_helpers, isolation_profile,
 # squashfs_extract, corroborate_*, etc.) are local files — not packages.
 #
 # ── VENV 1: $RESEARCH_SDD_VENV (default ~/.local/share/research-sdd-tools/venv) ──

@@ -23,7 +23,7 @@ block is run through `$RESEARCH_SDD_VENV/bin/python` — a separate project
 venv — never through system Python. Two third-party packages are therefore
 required; both are declared in `requirements.txt`.
 
-Internal modules (`adapter_core`, `gate`, `vm_*`, `docker_*`, `proc_common`,
+Internal modules (`adapter_core`, `adapter_helpers`, `isolation_profile`,
 `squashfs_extract`, `corroborate_*`, etc.) are local files within this tree —
 not packages to install.
 
@@ -105,11 +105,6 @@ then PATH. The binary name is `r2`, not `radare2`.
 **`kaitaistruct`** (Python module) is loaded via the rsdd-kaitai venv.
 `RSDD_KAITAI_PY` defaults to `$HOME/.local/share/rsdd-kaitai/bin/python`
 (set at `tests/kaitai.test.sh:19`).
-
-**`ifcopenshell`** (Python module) is loaded via the rsdd-ifc venv.
-`RSDD_IFC_PY` defaults to `$HOME/.local/share/rsdd-ifc/bin/python`.
-Provision with `python3 -m venv ~/.local/share/rsdd-ifc && ~/.local/share/rsdd-ifc/bin/pip install ifcopenshell`.
-`RSDD_IFC_DRIVER` overrides the inner driver script path (test use only; defaults to `lib/ifc_driver.py`).
 
 **`frida` / `frida-trace`** are resolved via `FRIDA_BIN` / `FRIDA_TRACE_BIN`
 env vars in `dynamic.sh`, defaulting to the bare command names on PATH.
@@ -204,7 +199,7 @@ python3 (3.9+), node (18+), bash (4+)
 bwrap, qemu-system-x86_64/arm, docker        # VM + sandbox
 tshark, capinfos, dumpcap                    # PCAP
 binwalk (major 2; root-owned PATH binwalk, or an explicit user-owned RSDD_BINWALK=<abs path>)
-unblob, unsquashfs                           # firmware extraction
+unsquashfs                                   # firmware extraction
 r2, objdump, readelf, file, strings          # native RE
 floss, capa + rules dir                      # string/capability RE
 yara                                         # signature scanning
@@ -224,19 +219,6 @@ unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
 parallel (GNU parallel, OPTIONAL)            # batch parallelism; REQUIRED for `bats -j N` (without it bats runs 0 tests silently — METHODOLOGY §11b R7); the kit's own gate does not need it
 ```
-
-For unblob corroboration: `corroborate-unblob.sh` runs unblob inside a hardened
-bwrap sandbox with a **minimal `/usr`-only PATH** (`/usr/bin:/usr/sbin:/bin:/sbin`),
-deliberately excluding linuxbrew. unblob's external extractors must therefore
-resolve under `/usr`: an extractor installed **only** under linuxbrew (e.g. `lz4`,
-`zstd`) is invisible inside the sandbox, so the format it handles is not extracted
-(reported as `ExtractorDependencyNotFoundReport`, exit 1). Install unblob's
-extractors as distro packages so they land under `/usr` with their own libraries —
-`apt install zstd lz4 squashfs-tools`, plus `sasquatch` / `jefferson` /
-`ubi_reader` / erofs tools as the target formats require. Do NOT bind linuxbrew
-into the sandbox: it breaks the minimal profile and pulls in the Cellar
-dependency closure. Verify with `unblob --show-external-dependencies` and confirm
-each reported tool resolves under `/usr`, not linuxbrew.
 
 For Java decompiler JARs: `rsdd_resolve_java_jar()` checks env var overrides
 FIRST (authoritative — an invalid override fails hard, it never falls through),
