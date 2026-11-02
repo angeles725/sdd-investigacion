@@ -73,6 +73,15 @@ decide_gremlins() {
     /^Killed:/ { kl++; gsub(/,/,""); if ($3=="Lived:" && $5=="Not" && $6=="covered:" && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $7 ~ /^[0-9]+$/) { k=$2; l=$4; n=$7; kok=1 } }
     /^Timed out:/ { tl++; gsub(/,/,""); if ($3 ~ /^[0-9]+$/) { t=$3; tok=1 } }
     END { if (kl==1 && tl==1 && kok && tok) printf "killed=%d lived=%d timed_out=%d not_covered=%d\n", k, l, t, n }' "$f")"
+  # A package with no mutable expression (e.g. a command table): gremlins exits 0, prints no summary and says
+  # "No results to report.". That is a typed no-mutants PASS with explicit zero counts, never a silent one; the
+  # same text after a non-zero exit, or beside a (garbled) summary line, falls through to the failure paths below.
+  if [ -z "$counts" ] && [ "$rc" -eq 0 ] && grep -qx 'No results to report\.' "$f" \
+     && ! grep -q -e '^Killed:' -e '^Timed out:' "$f"; then # SENTINEL-GREMLINS-NO-MUTANTS
+    echo "gremlins: no-mutants killed=0 lived=0"
+    echo "VERDICT: PASS no-mutants (gremlins: No results to report.)"
+    return 0
+  fi
   if [ -z "$counts" ]; then
     local why cause; why="$(tail -n 3 "$f" | tr '\n' ' ')"
     # The make trailer alone hides the real cause (a failing baseline `go test` prints only `exit status 1`),
@@ -127,11 +136,11 @@ combine_verdicts() {
   awk '
     /^VERDICT: FAIL/ { f++; if (ff=="") ff=substr($0, 10) }
     /^VERDICT: SKIP/ { k++; if (kk=="") kk=substr($0, 10) }
-    /^VERDICT: PASS/ { p++ }
+    /^VERDICT: PASS/ { p++; if ($3=="no-mutants") nm++ }
     END {
       if (f > 0) printf "VERDICT: FAIL %d of %d package run(s) failed; first: %s\n", f, f+k+p, ff
       else if (k > 0) printf "VERDICT: SKIP %d of %d package run(s) skipped; first: %s\n", k, k+p, kk
-      else if (p > 0) printf "VERDICT: PASS no lived mutants in %d package run(s)\n", p
+      else if (p > 0) printf "VERDICT: PASS no lived mutants in %d package run(s)%s\n", p, (nm > 0 ? "; no-mutants: " nm : "")
       else print "VERDICT: FAIL no package verdict to combine"
     }' "$1"
 }
@@ -435,6 +444,23 @@ done
 g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$ROOT/gr-garbled.out" 1)"
 if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=1)' <<<"$g"; then
   ok "gremlins: a garbled summary is a FAIL even when rc is non-zero (gremlins did run)"; else no "gremlins: garbled rc=1 wrong: $g"; fi
+# A package with no mutable expression (e.g. a command table): gremlins exits 0 and prints "No results to report."
+# That is a typed no-mutants PASS with explicit zero counts; the same text after a non-zero exit is never a PASS.
+printf 'Starting...\nGathering coverage... done in 372ms\n\nNo results to report.\n' > "$ROOT/gr-nomutants.out"
+g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-nomutants.out" 0)"
+if grep -q '^VERDICT: PASS no-mutants' <<<"$g" && grep -q '^gremlins: no-mutants killed=0 lived=0' <<<"$g"; then
+  ok "gremlins: rc=0 + 'No results to report.' -> typed no-mutants PASS with zero counts"; else no "gremlins: no-mutants case wrong: $g"; fi
+g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-nomutants.out" 1)"
+if grep -q '^VERDICT: FAIL' <<<"$g" && ! grep -q '^VERDICT: PASS' <<<"$g"; then
+  ok "gremlins: 'No results to report.' after rc=1 stays a FAIL"; else no "gremlins: no-mutants rc=1 wrong: $g"; fi
+printf 'No results to report.\nKilled: x, Lived: 0, Not covered: 0\n' > "$ROOT/gr-nomutants-garbled.out"
+g="$(bash "$0" --decide-gremlins "$ROOT/gr-nomutants-garbled.out" 0)"
+if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=0)' <<<"$g"; then
+  ok "gremlins: 'No results to report.' beside a garbled summary stays unparseable"; else no "gremlins: no-mutants garbled wrong: $g"; fi
+printf 'VERDICT: PASS no lived mutants (killed=1 lived=0 timed_out=0 not_covered=0)\nVERDICT: PASS no-mutants (gremlins: No results to report.)\n' > "$ROOT/v-nomutants"
+g="$(bash "$0" --combine-verdicts "$ROOT/v-nomutants")"
+if grep -q '^VERDICT: PASS no lived mutants in 2 package run(s); no-mutants: 1$' <<<"$g"; then
+  ok "gremlins: the combined PASS names the no-mutants packages"; else no "gremlins: combined no-mutants wrong: $g"; fi
 g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)"
 if grep -q '^VERDICT: FAIL gremlins did not run (rc=1, RSDD_REQUIRE_GO=1)' <<<"$g"; then
   ok "gremlins: tool unavailable under RSDD_REQUIRE_GO=1 -> FAIL"; else no "gremlins: required-unavailable case wrong: $g"; fi
@@ -512,6 +538,18 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-unparseable mutation"
       "$MUTDIR/rsdd-go-gr.test.sh" --orig "$0" \
       --good-has 'VERDICT: FAIL gremlins summary unparseable' --bad-has 'VERDICT: SKIP gremlins summary unparseable' -- \
       bash @SUT@ --decide-gremlins "$ROOT/gr-garbled.out" 0; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Tooth for the no-mutants verdict: "No results to report." is a PASS only after rc=0. The mutant drops the rc
+# guard, so the same text after a failed gremlins run reads as a PASS (a silent zero).
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-no-mutants mutation" "$0" "$MUTDIR/rsdd-go-nm.test.sh" \
+    's/if \[ -z "\$counts" \] \&\& \[ "\$rc" -eq 0 \] \&\& /if [ -z "$counts" ] \&\& /'; then
+  if mutant_tooth "teeth: a no-mutants PASS without the rc=0 guard is caught" 0 0 \
+      "$MUTDIR/rsdd-go-nm.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL gremlins did not run' --bad-has 'VERDICT: PASS no-mutants' -- \
+      env RSDD_REQUIRE_GO=1 bash @SUT@ --decide-gremlins "$ROOT/gr-nomutants.out" 1; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
