@@ -6,16 +6,17 @@ The Go parity test runs the same operation on the same fixture and compares.
 Ops: identity, identity_append, stage, publish, exchange, write, open_ro,
 open_wo_new, sha256_fd.
 
-open_wo_new and sha256_fd run the live helpers of serial-frame_analyze.py. open_ro
-has no live Python oracle left (niagara_hdb_read.py was retired by kit issue #2443;
-serial-frame_analyze's _open_ro omits O_NONBLOCK and would block on a FIFO), so its
-reference is the retired helper's contract, frozen below as open_ro_reference.
+open_wo_new and sha256_fd use open_wo_new_reference and sha256_fd_reference, frozen
+copies of serial-frame_analyze.py's helpers (the script was ported to Go and deleted by
+kit issue #2437). open_ro has no live Python oracle left (niagara_hdb_read.py was retired
+by kit issue #2443; serial-frame_analyze's _open_ro omits O_NONBLOCK and would block on a
+FIFO), so its reference is the retired helper's contract, frozen below as open_ro_reference.
 exchange uses renameat2_reference, a frozen copy of corroborate_java.renameat2, so this
 driver does not depend on a tool that the Go port will delete.
 """
 import ctypes
 import errno
-import importlib.util
+import hashlib
 import json
 import os
 import stat
@@ -27,10 +28,27 @@ sys.path.insert(0, os.path.join(toolbelt, "lib"))
 import adapter_core  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location(
-    "serial_frame_analyze", os.path.join(toolbelt, "serial-frame_analyze.py"))
-serial_frame_analyze = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(serial_frame_analyze)
+
+
+def open_wo_new_reference(path):
+    """Frozen copy of the retired serial-frame_analyze._open_wo_new (kit issue #2437)."""
+    return os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+
+
+def sha256_fd_reference(fd):
+    """Frozen copy of the retired serial-frame_analyze._sha256_fd (kit issue #2437)."""
+    h = hashlib.sha256()
+    os.lseek(fd, 0, os.SEEK_SET)
+    while True:
+        chunk = os.read(fd, 65536)
+        if not chunk:
+            break
+        h.update(chunk)
+    return h.hexdigest()
 
 
 def open_ro_reference(path):
@@ -98,7 +116,7 @@ def run():
         finally:
             os.close(fd)
     if op == "open_wo_new":
-        fd = serial_frame_analyze._open_wo_new(args[0])
+        fd = open_wo_new_reference(args[0])
         try:
             os.write(fd, b"x")
             return {"ok": True, "mode": stat.S_IMODE(os.fstat(fd).st_mode)}
@@ -108,7 +126,7 @@ def run():
         fd = os.open(args[0], os.O_RDONLY)
         try:
             os.read(fd, 1000)
-            return {"ok": True, "sha256": serial_frame_analyze._sha256_fd(fd)}
+            return {"ok": True, "sha256": sha256_fd_reference(fd)}
         finally:
             os.close(fd)
     if op == "publish":

@@ -1,0 +1,62 @@
+{
+  "input": {
+    "frame_count": 4,
+    "line_count": 4,
+    "path": "testdata/frames/basic.log",
+    "sha256": "a33e925fa9cff56d3cfd27735a19bd550cb51969b66dd76c6d23e0946f54e2e2",
+    "skipped_line_count": 0
+  },
+  "mode": "stats",
+  "results": {
+    "length_histogram": [
+      {
+        "count": 3,
+        "length": 3
+      },
+      {
+        "count": 1,
+        "length": 5
+      }
+    ],
+    "most_common_length": 3,
+    "variability": [
+      {
+        "distinct_count": 1,
+        "is_constant": true,
+        "position": 0,
+        "sample_hex": [
+          "81"
+        ]
+      },
+      {
+        "distinct_count": 1,
+        "is_constant": true,
+        "position": 1,
+        "sample_hex": [
+          "00"
+        ]
+      },
+      {
+        "distinct_count": 3,
+        "is_constant": false,
+        "position": 2,
+        "sample_hex": [
+          "17",
+          "18",
+          "19"
+        ]
+      }
+    ]
+  },
+  "schema": "serial-frame.v1",
+  "status": "complete",
+  "summary": {
+    "distinct_lengths": 2,
+    "frame_count": 4,
+    "line_count": 4,
+    "skipped_line_count": 0,
+    "truncated": false
+  },
+  "tool": "serial-frame-analyze",
+  "truncated": false
+}
