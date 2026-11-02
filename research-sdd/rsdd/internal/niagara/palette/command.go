@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"unicode"
@@ -267,14 +266,8 @@ func insideRoot(root, sub string) bool {
 	return c == r || strings.HasPrefix(c, strings.TrimRight(r, "/")+"/")
 }
 
-func sortedNames(dir string) ([]os.DirEntry, error) {
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
-	return ents, nil
-}
+// sortedNames lists dir in byte order; os.ReadDir already returns entries sorted by filename.
+func sortedNames(dir string) ([]os.DirEntry, error) { return os.ReadDir(dir) }
 
 // findArtifacts lists the non-symlink artifact subdirs that hold a non-symlink extracted/ directory.
 func findArtifacts(root string) []string {

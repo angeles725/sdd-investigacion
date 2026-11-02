@@ -468,3 +468,136 @@ func mustAbs(t *testing.T, p string) string {
 	}
 	return a
 }
+
+// TestBoundaries pins the exact edges of each cap, comparison and span in the port.
+func TestBoundaries(t *testing.T) {
+	t.Run("exactly maxArtifacts artifacts is not truncated", func(t *testing.T) {
+		for _, n := range []int{maxArtifacts, maxArtifacts + 1} {
+			mod := t.TempDir()
+			for i := 0; i < n; i++ {
+				mustMkdir(t, filepath.Join(mod, "art"+pad(i), "extracted"))
+			}
+			_, doc, _ := scanInto(t, mod)
+			want := n > maxArtifacts
+			if doc["truncated"] != want || len(doc["artifacts"].([]any)) != maxArtifacts {
+				t.Errorf("n=%d truncated=%v artifacts=%d", n, doc["truncated"], len(doc["artifacts"].([]any)))
+			}
+		}
+	})
+	t.Run("readBounded truncates only past max", func(t *testing.T) {
+		dir := t.TempDir()
+		for n, want := range map[int]bool{9: false, 10: false, 11: true} {
+			p := filepath.Join(dir, "f"+itoa(n))
+			mustWrite(t, p, strings.Repeat("x", n))
+			data, trunc, ok := readBounded(p, 10)
+			if !ok || trunc != want || len(data) != min(n, 10) {
+				t.Errorf("size %d: len=%d trunc=%v ok=%v", n, len(data), trunc, ok)
+			}
+		}
+	})
+	t.Run("realpath resolves symlinked ancestors of a missing tail", func(t *testing.T) {
+		dir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustMkdir(t, filepath.Join(dir, "real"))
+		if err := os.Symlink(filepath.Join(dir, "real"), filepath.Join(dir, "link")); err != nil {
+			t.Fatal(err)
+		}
+		got := realpath(filepath.Join(dir, "link", "missing", "deeper"))
+		if want := filepath.Join(dir, "real", "missing", "deeper"); got != want {
+			t.Errorf("realpath = %q, want %q", got, want)
+		}
+		if got := realpath("/"); got != "/" {
+			t.Errorf("realpath(/) = %q", got)
+		}
+	})
+	t.Run("abbreviations after a positional are still expanded", func(t *testing.T) {
+		code, _, stderr := run(t, t.TempDir(), "extra", "--inp", "d")
+		if code != 2 || !strings.HasSuffix(stderr, "unrecognized arguments: extra --input d\n") {
+			t.Errorf("exit %d stderr %q", code, stderr)
+		}
+	})
+	t.Run("artifacts are listed in name order", func(t *testing.T) {
+		mod := t.TempDir()
+		for _, n := range []string{"b", "a", "ab", "c"} {
+			mustMkdir(t, filepath.Join(mod, n, "extracted"))
+		}
+		got := findArtifacts(mod)
+		if strings.Join(got, ",") != "a,ab,b,c" {
+			t.Errorf("order %v", got)
+		}
+	})
+	t.Run("invalidSpan covers a full sequence and stops at the edges", func(t *testing.T) {
+		for _, c := range []struct {
+			in   string
+			want int
+		}{
+			{"\xc3\xa9", 2},      // complete 2-byte sequence: need+1
+			{"\xe1\x80", 2},      // truncated at end of input
+			{"\xe0\xa0(", 2},     // lower bound of E0 second byte is valid
+			{"\xe0\x9f(", 1},     // one below it is not
+			{"\xe1\x80(", 2},     // generic lower bound 0x80
+			{"\xed\x9f(", 2},     // upper bound of ED second byte is valid
+			{"\xed\xa0(", 1},     // one above it is not
+			{"\xe1\xbf(", 2},     // generic upper bound 0xBF
+			{"\xf0\x90\x80", 3},  // F0 lower bound, truncated
+			{"\xf4\x8f\xbf(", 3}, // F4 upper bound
+			{"\xf4\x90", 1},      // above F4 upper bound
+		} {
+			if got := invalidSpan([]byte(c.in)); got != c.want {
+				t.Errorf("invalidSpan(%q) = %d, want %d", c.in, got, c.want)
+			}
+		}
+		for in, want := range map[string]string{"\xe1\x80": "�", "\xe0\xa0(": "�(", "\xed\x9f(": "�("} {
+			if got := pyDecode([]byte(in)); got != want {
+				t.Errorf("pyDecode(%q) = %q, want %q", in, got, want)
+			}
+		}
+	})
+	t.Run("pySpace edges", func(t *testing.T) {
+		for r, want := range map[rune]bool{0x1b: false, 0x1c: true, 0x1f: true, 0x20: true, 0x21: false} {
+			if got := pySpace(r); got != want {
+				t.Errorf("pySpace(%#x) = %v, want %v", r, got, want)
+			}
+		}
+	})
+	t.Run("splitlines CR at the end and before LF", func(t *testing.T) {
+		for in, want := range map[string]string{
+			"a\r":     "a",
+			"a\r\n":   "a",
+			"a\r\nb":  "a|b",
+			"a\rb":    "a|b",
+			"a\r\r\n": "a|",
+			"\r":      "",
+		} {
+			if got := strings.Join(pySplitLines(in), "|"); got != want {
+				t.Errorf("pySplitLines(%q) = %q, want %q", in, got, want)
+			}
+		}
+	})
+}
+
+// TestLimitationsReportOnlyMeasured pins the report-only-measured rule: no unmeasured numeric claim ships in
+// limitations, and each cap that is quoted is the real constant.
+func TestLimitationsReportOnlyMeasured(t *testing.T) {
+	_, doc, _ := scanInto(t, mustAbs(t, "testdata/modules/valid-module"))
+	lims, ok := doc["limitations"].([]any)
+	if !ok || len(lims) == 0 {
+		t.Fatalf("limitations missing: %v", doc["limitations"])
+	}
+	all := ""
+	for _, l := range lims {
+		all += l.(string) + "\n"
+	}
+	for _, banned := range []string{"~22x", "14.7 MiB"} {
+		if strings.Contains(all, banned) {
+			t.Errorf("limitations carries the unmeasured claim %q", banned)
+		}
+	}
+	for _, want := range []string{"capped at 16777216 bytes", "capped at 4194304 bytes per file", "capped at 500 per module"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("limitations lost %q:\n%s", want, all)
+		}
+	}
+}
