@@ -555,6 +555,7 @@ gen_kit="$here/lib/rsdd-exec.sh"
 gen_local="$corpus/tools/gen-catalog.py"
 gen_hint=""
 # rsdd_exec replaces the process it runs in, so the kit generator runs in a subshell.
+# shellcheck source=lib/rsdd-exec.sh
 _gen_kit_catalog() { ( . "$gen_kit" && rsdd_exec corpus catalog "$1" ); }
 if [ -f "$gen_local" ]; then
   # Invoke by TYPE of local copy so the catalog always lands in the corpus without assuming argv support:

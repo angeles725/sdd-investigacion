@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1090  # $LIB is lib/rsdd-exec.sh, sourced in subshells; its path is resolved at run time
 # gen-catalog.test.sh — cross-checks between the Go catalog generator (`rsdd corpus catalog`) and the rest of the toolbelt.
 #
 # WHY THIS SHAPE: the catalog generator's block discriminator is LOAD-BEARING for the whole toolbelt. verify-state.sh,
