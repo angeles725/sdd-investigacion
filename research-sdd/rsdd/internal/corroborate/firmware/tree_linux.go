@@ -25,15 +25,7 @@ func processTree(root int) int {
 		if err != nil {
 			continue
 		}
-		i := bytes.LastIndexByte(b, ')')
-		if i < 0 {
-			continue
-		}
-		fields := strings.Fields(string(b[i+1:]))
-		if len(fields) < 2 {
-			continue
-		}
-		if ppid, err := strconv.Atoi(fields[1]); err == nil {
+		if ppid, ok := parentOf(b); ok {
 			parents[pid] = ppid
 		}
 	}
@@ -53,4 +45,19 @@ func processTree(root int) int {
 		}
 	}
 	return n
+}
+
+// parentOf is the parent pid in the text of a /proc/<pid>/stat file: the second field after the last ")" (the
+// command name may itself contain parentheses and spaces). ok is false when the text does not hold one.
+func parentOf(stat []byte) (ppid int, ok bool) {
+	i := bytes.LastIndexByte(stat, ')')
+	if i < 0 {
+		return 0, false
+	}
+	fields := strings.Fields(string(stat[i+1:]))
+	if len(fields) < 2 {
+		return 0, false
+	}
+	ppid, err := strconv.Atoi(fields[1])
+	return ppid, err == nil
 }

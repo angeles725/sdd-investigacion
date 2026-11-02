@@ -33,7 +33,10 @@ const (
 	reasonProcs   = "process-cap"
 )
 
-const pollEvery = 20 * time.Millisecond
+const (
+	pollEvery = 20 * time.Millisecond
+	stopPoll  = 10 * time.Millisecond // how often stopGroup looks for the group to be gone
+)
 
 // runBounded runs the command as the leader of a new process group with its output going straight to the
 // two files, and watches it: wall clock >= timeout, the two files together >= maxBytes, or more than maxProcs
@@ -109,8 +112,8 @@ wait:
 		budget := sp.maxBytes
 		for _, f := range []*os.File{out, errf} {
 			keep := budget
-			if fi, err := f.Stat(); err == nil && fi.Size() < keep {
-				keep = fi.Size()
+			if fi, err := f.Stat(); err == nil {
+				keep = min(keep, fi.Size())
 			}
 			if err := f.Truncate(keep); err != nil {
 				return runRecord{}, nil, osError(err, f.Name())
@@ -143,18 +146,15 @@ func exitCode(ps *os.ProcessState) int {
 	return ps.ExitCode()
 }
 
-// stopGroup signals the group TERM then KILL, giving each half a second to empty. A group with no member left
-// (or one the kill-safety guard refuses) ends it at once.
+// stopGroup signals the group TERM, gives it half a second to empty, then signals KILL. A group with no member
+// left (or one the kill-safety guard refuses) ends it at once. The caller reaps the leader, so nothing waits after
+// KILL.
 func stopGroup(g *proc.Group, pid int, now func() time.Time) {
-	for _, step := range []struct {
-		sig  syscall.Signal
-		wait time.Duration
-	}{{syscall.SIGTERM, 500 * time.Millisecond}, {syscall.SIGKILL, 500 * time.Millisecond}} {
-		if err := g.Signal(pid, step.sig); err != nil {
-			return
-		}
-		for deadline := now().Add(step.wait); now().Before(deadline) && processTree(pid) > 0; {
-			time.Sleep(10 * time.Millisecond)
-		}
+	if err := g.Signal(pid, syscall.SIGTERM); err != nil {
+		return
 	}
+	for deadline := now().Add(500 * time.Millisecond); now().Before(deadline) && processTree(pid) > 0; {
+		time.Sleep(stopPoll)
+	}
+	_ = g.Signal(pid, syscall.SIGKILL)
 }

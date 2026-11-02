@@ -29,6 +29,12 @@ func TestCompleteRunPublishesTruthfulDeterministicEvidence(t *testing.T) {
 	if len(a) == 0 || !bytes.Equal(a, b) {
 		t.Errorf("two runs over the same input differ:\n%s\n%s", a, b)
 	}
+	for _, f := range []string{"engine/signatures.json", "engine/entropy.json"} {
+		fa, fb := mustRead(t, w.path("a/"+f)), mustRead(t, w.path("b/"+f))
+		if len(fa) == 0 || !bytes.Equal(fa, fb) {
+			t.Errorf("%s differs between two runs over the same input:\n%s\n%s", f, fa, fb)
+		}
+	}
 	r := w.report("a")
 	if at(t, r, "schema") != "firmware-static.v1" || at(t, r, "status") != "complete" || at(t, r, "engine", "version") != "2.3.3" {
 		t.Fatalf("report = %v", r)

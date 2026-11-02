@@ -167,15 +167,14 @@ func resolveParent(output, cwd string) (parent, name string, err error) {
 			parts = append(parts, p)
 		}
 	}
-	dir := "."
-	if len(parts) > 1 {
-		dir = strings.Join(parts[:len(parts)-1], "/")
+	var dirParts []string
+	if n := len(parts); n > 0 {
+		dirParts, name = parts[:n-1], parts[n-1]
 	}
+	// No directory part means the working directory, which an empty path resolves to as "." does.
+	dir := strings.Join(dirParts, "/")
 	if strings.HasPrefix(output, "/") {
 		dir = "/" + strings.TrimPrefix(dir, ".")
-	}
-	if len(parts) > 0 {
-		name = parts[len(parts)-1]
 	}
 	parent, err = resolveStrict(dir, cwd)
 	return parent, name, err

@@ -1,9 +1,10 @@
 package firmware
 
 import (
+	"cmp"
 	"math/big"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -53,16 +54,8 @@ func parseFindings(text string) (signatures, entropy []finding) {
 			signatures = append(signatures, item)
 		}
 	}
-	less := func(list []finding) func(i, j int) bool {
-		return func(i, j int) bool {
-			if c := list[i].Offset.Cmp(list[j].Offset); c != 0 {
-				return c < 0
-			}
-			return list[i].Description < list[j].Description
-		}
-	}
-	sort.SliceStable(signatures, less(signatures))
-	sort.SliceStable(entropy, less(entropy))
+	slices.SortStableFunc(signatures, compareFindings)
+	slices.SortStableFunc(entropy, compareFindings)
 	return signatures, entropy
 }
 
@@ -78,15 +71,17 @@ func decimal(text string) *big.Int {
 
 // digitValue is the numeric value of a Unicode decimal digit: the position inside its block of ten.
 func digitValue(r rune) int {
-	if r <= 0xffff {
-		for _, rg := range unicode.Nd.R16 {
-			if uint16(r) >= rg.Lo && uint16(r) <= rg.Hi {
-				return int(uint16(r)-rg.Lo) % 10
-			}
+	if !unicode.Is(unicode.Nd, r) {
+		return 0
+	}
+	// The ranges are sorted, so the first one ending at or after r is the one holding it.
+	for _, rg := range unicode.Nd.R16 {
+		if uint32(r) <= uint32(rg.Hi) {
+			return int(uint32(r)-uint32(rg.Lo)) % 10
 		}
 	}
 	for _, rg := range unicode.Nd.R32 {
-		if uint32(r) >= rg.Lo && uint32(r) <= rg.Hi {
+		if uint32(r) <= rg.Hi {
 			return int(uint32(r)-rg.Lo) % 10
 		}
 	}
@@ -120,4 +115,9 @@ func pySplitlines(s string) []string {
 		lines = append(lines, s[start:])
 	}
 	return lines
+}
+
+// compareFindings orders by offset, then by description.
+func compareFindings(a, b finding) int {
+	return cmp.Or(a.Offset.Cmp(b.Offset), strings.Compare(a.Description, b.Description))
 }
