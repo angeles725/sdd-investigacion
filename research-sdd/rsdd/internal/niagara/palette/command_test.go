@@ -58,6 +58,23 @@ var detail = regexp.MustCompile(`(parse error: ).*"`)
 
 func mask(b []byte) []byte { return detail.ReplaceAll(b, []byte(`${1}<detail>"`)) }
 
+// The goldens are the Python oracle's bytes. The port deliberately changes one limitation sentence:
+// the oracle claimed "MemoryError is caught and reported as status:failed", which Go cannot do (an
+// out-of-memory condition is fatal to the runtime). applyOracleDeviation asserts that the oracle text
+// is present exactly once and rewrites it to the Go wording, so any other drift still fails the test.
+const (
+	oracleMemoryText = "a pathological XML tree can still exceed available memory during parse; MemoryError is caught and reported as status:failed."
+	goMemoryText     = "a pathological XML tree can still exceed available memory during parse and terminate the process."
+)
+
+func applyOracleDeviation(t *testing.T, golden []byte) []byte {
+	t.Helper()
+	if n := bytes.Count(golden, []byte(oracleMemoryText)); n != 1 {
+		t.Fatalf("oracle golden holds the MemoryError limitation %d times, want exactly 1", n)
+	}
+	return bytes.Replace(golden, []byte(oracleMemoryText), []byte(goMemoryText), 1)
+}
+
 func TestFixtureGolden(t *testing.T) {
 	cases := []struct {
 		name string
@@ -77,6 +94,7 @@ func TestFixtureGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			want = applyOracleDeviation(t, want)
 			if !bytes.Equal(mask(got), mask(want)) {
 				t.Errorf("document differs from golden %s.json:\n got: %s\nwant: %s", c.name, mask(got), mask(want))
 			}
