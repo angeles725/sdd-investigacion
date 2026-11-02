@@ -104,7 +104,7 @@ then PATH. The binary name is `r2`, not `radare2`.
 
 **`kaitaistruct`** (Python module) is loaded via the rsdd-kaitai venv.
 `RSDD_KAITAI_PY` defaults to `$HOME/.local/share/rsdd-kaitai/bin/python`
-(set at `tests/kaitai.test.sh:19`).
+(read by `rsdd corroborate kaitai`; the package test is `rsdd/internal/corroborate/kaitai`).
 
 **`ifcopenshell`** (Python module) is loaded via the rsdd-ifc venv.
 `RSDD_IFC_PY` defaults to `$HOME/.local/share/rsdd-ifc/bin/python`.

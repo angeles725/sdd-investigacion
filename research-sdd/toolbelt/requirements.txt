@@ -40,9 +40,9 @@ PyMuPDF       # extract-pdf.sh Tier 1 — fitz C extension (bundled with pymupdf
 #
 # INSTALLED on this host (verified 2026-07-24):
 #   kaitaistruct 0.11 at ~/.local/share/rsdd-kaitai/bin/python
-#   This is the exact default of RSDD_KAITAI_PY in tests/kaitai.test.sh:19.
+#   This is the exact default of RSDD_KAITAI_PY (rsdd corroborate kaitai).
 #   Import verified: python -c "import kaitaistruct; print(kaitaistruct.__version__)"
-#   Test suite: tests/kaitai.test.sh → 19 passed · 0 failed
+#   Tests: go test ./internal/corroborate/kaitai/ (research-sdd/rsdd; the toolchain is faked there)
 #
 # Override the venv python path with: RSDD_KAITAI_PY=<path>
 
