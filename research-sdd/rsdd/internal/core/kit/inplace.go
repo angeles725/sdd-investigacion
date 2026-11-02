@@ -12,7 +12,7 @@ const cSpace = " \t\n\v\f\r" // [[:space:]]
 // [A-Za-z0-9][A-Za-z0-9.-]* holding a digit or at most 3 characters; false otherwise (a plain word is never an ID).
 func InplaceGapID(text string) (string, bool) {
 	t := strings.TrimPrefix(strings.TrimLeft(text, cSpace), "**")
-	if i := strings.IndexAny(t, cSpace); i >= 0 {
+	if i := strings.IndexAny(t, cSpace); i != -1 {
 		t = t[:i]
 	}
 	t = strings.TrimSuffix(t, "**")
@@ -90,7 +90,7 @@ func blockedBulletNames(body string) []string {
 	var out []string
 	for _, line := range strings.Split(body, "\n") {
 		rest := strings.TrimLeft(line, cSpace)
-		if !strings.HasPrefix(rest, "-") || len(rest) < 2 || !strings.ContainsRune(cSpace, rune(rest[1])) || needsAt(rest[2:]) < 0 {
+		if !strings.HasPrefix(rest, "-") || len(rest) == 1 || !strings.ContainsRune(cSpace, rune(rest[1])) || needsAt(rest[2:]) < 0 {
 			continue
 		}
 		name := strings.TrimLeft(rest[1:], cSpace)
