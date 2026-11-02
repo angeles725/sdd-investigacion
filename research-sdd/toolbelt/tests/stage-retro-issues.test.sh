@@ -1,87 +1,116 @@
 #!/usr/bin/env bash
-# stage-retro-issues.test.sh — TDD harness for stage-retro-issues.sh.
+# stage-retro-issues.test.sh — shim contract of stage-retro-issues.sh (kit issue #2435).
 #
-# Covers: dry-run output for pending retro; partial marker (deferred rows only);
-# empty-input (no delta section); no-match (all shipped/applied); wrong-kit row;
-# no-priority row (label omitted); --apply dedup (stub returns existing match);
-# --apply creates issue (stub records the call); absent-input (file not found);
-# degraded on missing gh under --apply.
+# stage-retro-issues.sh is a compatibility shim over `rsdd retro stage-issues` (Go). The stager's behaviour (the
+# review-status gate, every delta form, the unclassifiable tracker, the scrub, the kit-repo resolution, the --apply
+# dedup / occurrence / create / read-back machinery and every typed state) is covered by the Go tests in
+# research-sdd/rsdd/internal/retro/stageissues: recorded goldens from the frozen pre-port script, a live
+# differential against it, and unit tests. This suite checks only what the shim itself owns: it passes its own
+# directory as `--toolbelt <dir>` before the caller's arguments, forwards arguments, the exit code and stderr
+# unchanged, and degrades through rsdd-exec (typed, exit 2) when rsdd cannot run. Mutation controls under
+# --prove-teeth.
 #
-# Usage: stage-retro-issues.test.sh                (run the suite)
-#        stage-retro-issues.test.sh --prove-teeth  (run suite + mutation teeth)
-# Exit: 0 = all pass · 1 = failure · 2 = harness error
+# Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
-# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
-export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../stage-retro-issues.sh"
-[ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-RETRO_STATUS_LIB="$HERE/../lib/retro-status.sh"
-[ -f "$RETRO_STATUS_LIB" ] || { echo "FATAL: retro-status helper not found" >&2; exit 2; }
-RETRO_GRAMMAR_LIB="$HERE/../lib/retro-grammar.sh"
-[ -f "$RETRO_GRAMMAR_LIB" ] || { echo "FATAL: retro-grammar helper not found" >&2; exit 2; }
-TARGET_PATHS_LIB="$HERE/../lib/target-paths.sh"
-[ -f "$TARGET_PATHS_LIB" ] || { echo "FATAL: target-paths helper not found" >&2; exit 2; }
-SCRUB_LIB="$HERE/../lib/scrub-issue-text.sh"
-[ -f "$SCRUB_LIB" ] || { echo "FATAL: scrub-issue-text helper not found" >&2; exit 2; }
-BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-command -v awk  >/dev/null 2>&1 || { echo "FATAL: awk not on PATH" >&2; exit 2; }
-command -v grep >/dev/null 2>&1 || { echo "FATAL: grep not on PATH" >&2; exit 2; }
+TOOLBELT="$(cd "$HERE/.." && pwd -P)"
+SUT="$TOOLBELT/stage-retro-issues.sh"
 
-# Pre-resolve coreutil paths for hermetic PATH construction in degraded test
-_AWK_BIN="$(type -P awk)"; _GREP_BIN="$(type -P grep)"
-_SED_BIN="$(type -P sed)"; _TR_BIN="$(type -P tr)"
-_DIRNAME_BIN="$(type -P dirname)"; _BASENAME_BIN="$(type -P basename)"
-_HEAD_BIN="$(type -P head)"; _SORT_BIN="$(type -P sort)"
-_CUT_BIN="$(type -P cut)"; _PRINTF_BIN="$(type -P printf 2>/dev/null)" || _PRINTF_BIN=""
-
-# mk_hermetic_bin <box>: populate $box/bin with symlinks to essential coreutils
-# but WITHOUT gh — used for the degraded test case.
-mk_hermetic_bin() {
-  local box="$1"
-  mkdir -p "$box/bin"
-  ln -sf "$BASH_BIN"     "$box/bin/bash"
-  ln -sf "$_AWK_BIN"     "$box/bin/awk"
-  ln -sf "$_GREP_BIN"    "$box/bin/grep"
-  ln -sf "$_SED_BIN"     "$box/bin/sed"
-  ln -sf "$_TR_BIN"      "$box/bin/tr"
-  ln -sf "$_DIRNAME_BIN" "$box/bin/dirname"
-  ln -sf "$_BASENAME_BIN" "$box/bin/basename"
-  ln -sf "$_HEAD_BIN"    "$box/bin/head"
-  ln -sf "$_SORT_BIN"    "$box/bin/sort"
-  ln -sf "$_CUT_BIN"     "$box/bin/cut"
-  # No gh symlink — that is the point of this helper
-}
-
-# mk_no_git_bin <box>: populate $box/nogit-bin with symlinks to essential
-# coreutils AND $box/bin/gh (if it exists) but WITHOUT git — used for the
-# "git missing" degraded-message tests (kit issue #1045). Unlike
-# mk_hermetic_bin, gh IS included here so the --apply gh-probe passes and the
-# test actually exercises the git-missing branch of kit-issue-repo resolution,
-# not the earlier gh-missing probe.
-mk_no_git_bin() {
-  local box="$1"
-  mkdir -p "$box/nogit-bin"
-  ln -sf "$BASH_BIN"      "$box/nogit-bin/bash"
-  ln -sf "$_AWK_BIN"      "$box/nogit-bin/awk"
-  ln -sf "$_GREP_BIN"     "$box/nogit-bin/grep"
-  ln -sf "$_SED_BIN"      "$box/nogit-bin/sed"
-  ln -sf "$_TR_BIN"       "$box/nogit-bin/tr"
-  ln -sf "$_DIRNAME_BIN"  "$box/nogit-bin/dirname"
-  ln -sf "$_BASENAME_BIN" "$box/nogit-bin/basename"
-  ln -sf "$_HEAD_BIN"     "$box/nogit-bin/head"
-  ln -sf "$_SORT_BIN"     "$box/nogit-bin/sort"
-  ln -sf "$_CUT_BIN"      "$box/nogit-bin/cut"
-  [ -x "$box/bin/gh" ] && ln -sf "$box/bin/gh" "$box/nogit-bin/gh"
-  # No git symlink — that is the point of this helper
-}
-
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
 pass=0; fail=0
-ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
+echo "== stage-retro-issues.test.sh =="
+
+[ -f "$SUT" ] && [ -x "$SUT" ] && [ -f "$TOOLBELT/lib/rsdd-exec.sh" ] || { echo "FATAL: absent-input: shim or lib/rsdd-exec.sh" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+# A stand-in rsdd: prints one argument per line, says something on stderr and exits with a chosen code.
+STUB="$TMP/rsdd-stub"
+cat > "$STUB" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do printf 'ARG[%s]\n' "$a"; done
+echo "stub-stderr" >&2
+exit "${STUB_RC:-7}"
+EOF
+chmod +x "$STUB"
+
+# check SHIM -> runs the forwarding checks against SHIM (the real shim, or a mutant of it)
+shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}" 2>"$TMP/serr")"; SRC=$?; SERR="$(cat "$TMP/serr")"; }
+
+check_forward() {
+  local shim="$1" tag="$2" want
+  shim_run "$shim" 'a b.md' --apply ''
+  want=$'ARG[retro]\nARG[stage-issues]\nARG[--toolbelt]\nARG['"$(dirname "$shim")"$']\nARG[a b.md]\nARG[--apply]\nARG[]'
+  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd verbatim after 'retro stage-issues --toolbelt <own dir>' (spaces and an empty argument kept)"
+  else no "$tag arguments (out=[$SOUT])"; fi
+  if [ "$SRC" -eq 7 ]; then ok "$tag exit code of rsdd is the shim's exit code"; else no "$tag exit code (rc=$SRC)"; fi
+  if [ "$SERR" = "stub-stderr" ]; then ok "$tag stderr of rsdd passes through"; else no "$tag stderr (err=[$SERR])"; fi
+}
+
+check_degrade() {
+  local shim="$1" tag="$2" out rc
+  out="$(RSDD_BIN="$TMP/does-not-exist" bash "$shim" x.md --apply 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && ! grep -q 'planned-issue' <<< "$out"; then
+    ok "$tag rsdd cannot run -> typed 'degraded: rsdd-unavailable', exit 2, nothing staged (never a clean 0)"
+  else no "$tag degrade (rc=$rc out=[$out])"; fi
+}
+
+check_forward "$SUT" "1"
+check_degrade "$SUT" "2"
+
+# 3. A shim whose lib/rsdd-exec.sh is missing says so and exits 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/stage-retro-issues.sh"
+out="$(bash "$TMP/nolib/stage-retro-issues.sh" x.md 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -qF 'rsdd-exec.sh missing beside' <<< "$out"; then
+  ok "3 library missing -> 'rsdd-exec.sh missing beside <shim>', exit 2"
+else no "3 missing lib (rc=$rc out=[$out])"; fi
+
+# 4. The shim is the template and nothing else: no Python, no listing, no rule logic left behind.
+if grep -qF 'rsdd_exec retro stage-issues --toolbelt "$_RSDD_SELF" "$@"' "$SUT" && ! grep -qE 'awk|gh issue|python3|scrub_issue_text|retro_grammar' "$SUT"; then
+  ok "4 shim body is 'rsdd_exec retro stage-issues --toolbelt \"\$_RSDD_SELF\" \"\$@\"' with no awk / gh / scrub / grammar logic left"
+else no "4 shim body"; fi
+
+# ---- Teeth (mutation proof) -------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: mutation controls for stage-retro-issues.sh (shim) --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
+  mk() {
+    local d="$TMP/mt/$1"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
+    if mutant_sed "$SUT" "$d/stage-retro-issues.sh" "$2" 2>/dev/null; then MS="$d/stage-retro-issues.sh"; return 0; fi
+    no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
+  }
+  # A: arguments no longer forwarded
+  if mk A 's#^rsdd_exec retro stage-issues --toolbelt "\$_RSDD_SELF" "\$@"#rsdd_exec retro stage-issues --toolbelt "\$_RSDD_SELF"#'; then
+    shim_run "$MS" x.md
+    [[ "$SOUT" != *'ARG[x.md]'* ]] && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
+  fi
+  # B: wrong subcommand
+  if mk B 's#^rsdd_exec retro stage-issues#rsdd_exec retro stage-issuez#'; then
+    shim_run "$MS" x.md
+    [[ "$SOUT" != *'ARG[stage-issues]'* ]] && ok "teeth B: wrong command name -> forwarding check goes red" || no "teeth B: mutant still forwards — THEATER"
+  fi
+  # C: the degraded path swallowed (library guard replaced by a bare true)
+  if mk C 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#'; then
+    mkdir -p "$TMP/mt/C-nolib"; cp "$MS" "$TMP/mt/C-nolib/stage-retro-issues.sh"
+    out="$(bash "$TMP/mt/C-nolib/stage-retro-issues.sh" x.md 2>&1)"; rc=$?
+    [ "$rc" -ne 2 ] && ok "teeth C: missing-library guard exits 0 -> case 3 goes red" || no "teeth C: mutant still exits 2 — THEATER"
+  fi
+  # D: the exit code is laundered (exec replaced by a call that returns 0)
+  if mk D 's#^rsdd_exec retro stage-issues --toolbelt "\$_RSDD_SELF" "\$@"#( rsdd_exec retro stage-issues --toolbelt "$_RSDD_SELF" "$@" ); exit 0#'; then
+    shim_run "$MS" x.md
+    [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
+  fi
+  # E: the shim's own directory is no longer handed over (the Go command would have no kit root)
+  if mk E 's#--toolbelt "\$_RSDD_SELF" ##'; then
+    shim_run "$MS" x.md
+    [[ "$SOUT" != *'ARG[--toolbelt]'* ]] && ok "teeth E: --toolbelt dropped -> forwarding check goes red" || no "teeth E: mutant still passes --toolbelt — THEATER"
+  fi
+fi
 
 echo "== $pass passed · $fail failed =="
-[ "$fail" -eq 0 ] || exit 1
+[ "$fail" -eq 0 ]
