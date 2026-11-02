@@ -2693,10 +2693,13 @@ if command -v jq >/dev/null 2>&1; then
   d="$TMP/u7-l7"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
   bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l7 wire-only creation: installed hook mode 755" || no "U7-l7 installed hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
-  # L7u. the installed hook mode follows the caller's umask (kit issue #2539): under umask 002 it is group-writable 775
+  # L7u. the installed hook mode follows the caller's umask (kit issue #2539): the template's mode in THIS checkout (it
+  # depends on the umask at clone time: 755 or 775), minus umask 002, plus the execute bits chmod +x adds
   d="$TMP/u7-l7u"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  _u7_tm="$(_u7_mode "$HERE/../../templates/hook-sessionstart.sh")"
+  _u7_want="$(printf '%o' $(( (8#$_u7_tm & ~8#002) | 8#111 )))"
   ( umask 002; bash "$SUT" "$d" --wire >/dev/null 2>&1 )
-  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 775 ] && ok "U7-l7u umask 002: installed hook mode 775 (umask respected, still executable)" || no "U7-l7u umask 002: hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh"), want 775"
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = "$_u7_want" ] && ok "U7-l7u umask 002: installed hook mode $_u7_want (template $_u7_tm minus the umask, executable)" || no "U7-l7u umask 002: hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh"), want $_u7_want (template $_u7_tm)"
   # L8. no hard links (ln stub fails with a non-EEXIST error): exclusive-create fallback installs the hook, mode carried
   _u7_noln="$TMP/u7-noln"; mkdir -p "$_u7_noln"; printf '#!/bin/sh\necho "ln: failed to create hard link: Operation not permitted" >&2\nexit 1\n' > "$_u7_noln/ln"; chmod +x "$_u7_noln/ln"
   d="$TMP/u7-l8"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
