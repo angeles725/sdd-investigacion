@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "degraded: gh is not authenticated — run 'gh auth login' before using --apply\n",
+  "ghlog": "gh auth status\n"
+}

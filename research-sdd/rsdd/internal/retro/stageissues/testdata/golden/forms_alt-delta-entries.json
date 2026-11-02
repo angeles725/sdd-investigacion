@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: Alt entry delta title here\n  labels: status:needs-review,target:target-foo,type:feature,priority:high\n  body:\n    Alt entry delta title here\n    \n    **Target:** \n    **Evidence:** \n    \n    ---\n    Source retro: target-foo/retros/r.md · A\n    Part of backlog-first rollout #557\n  redactions: 0\n\nplanned-issue: Alt entry second title here\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Alt entry second title here\n    \n    **Target:** \n    **Evidence:** \n    \n    ---\n    Source retro: target-foo/retros/r.md · B\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 2 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

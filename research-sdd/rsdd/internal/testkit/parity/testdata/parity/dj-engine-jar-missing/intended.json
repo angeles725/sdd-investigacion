@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stderr",
+  "reason": "the rsdd command contract requires every exit 3 to carry a DEGRADED: line; the legacy script printed only the 'jar not found' message"
+ }
+]

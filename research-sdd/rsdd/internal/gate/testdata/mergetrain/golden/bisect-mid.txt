@@ -1,0 +1,65 @@
+rc: 26
+--- stdout
+kit-gate: gate rc=1 log=<CASE>/state/gate-train-<TS>.log
+kit-merge-train: bisect: gating the first 2 of 4 PRs
+kit-gate: gate rc=0 log=<CASE>/state/gate-train-<TS>-bisect-2.log
+kit-merge-train: bisect: gating the first 3 of 4 PRs
+kit-gate: gate rc=1 log=<CASE>/state/gate-train-<TS>-bisect-3.log
+kit-merge-train: bisect: first red prefix ends at #3 (the base is assumed green; may be an interaction)
+kit-merge-train: receipt=<CASE>/state/train-<TS>.json
+kit-merge-train: train-gate-failed: the combined gate was red; culprit #3; nothing merged (log <CASE>/state/gate-train-<TS>.log)
+--- stderr
+--- calls
+gh pr view 1 --json state,isDraft,headRefOid,baseRefName
+gh pr view 2 --json state,isDraft,headRefOid,baseRefName
+gh pr view 3 --json state,isDraft,headRefOid,baseRefName
+gh pr view 4 --json state,isDraft,headRefOid,baseRefName
+GATE 384a7fe81eecfd17da0db253a0567b5451307e70 pr-1.txt pr-2.txt pr-3.txt pr-4.txt 
+GATE dd83d3259f34d4abff3ba96d61d9494bc53c6aef pr-1.txt pr-2.txt 
+GATE 20a47694e19e6a825ba547c3cd6dc2971d37d65c pr-1.txt pr-2.txt pr-3.txt 
+--- receipt
+{
+  "state": "train-gate-failed",
+  "base_sha": "e1cd0c5ecf75e916ef4652aee3a648842d80a6da",
+  "train_branch": "train/<TS>",
+  "train_sha": "384a7fe81eecfd17da0db253a0567b5451307e70",
+  "gate": {
+    "rc": 1,
+    "log": "<CASE>/state/gate-train-<TS>.log",
+    "cmd": "echo \"GATE $(git rev-parse HEAD) $(ls pr-*.txt 2>/dev/null | tr \"\\n\" \" \")\" >> \"$CASE/calls.log\"; [ ! -e bad.txt ]"
+  },
+  "culprit": 3,
+  "prs": [
+    {
+      "pr": 1,
+      "head": "21e775e84ba8f15c31e14e1cb57f12e2ba0c7318",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "pr": 2,
+      "head": "6b8e0de0747b6824392ae002a09d44c26abeaf28",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "pr": 3,
+      "head": "35acb54ff8ff212547bbaf60c63376e5c7ba02c3",
+      "status": "culprit",
+      "reason": "first-red-prefix"
+    },
+    {
+      "pr": 4,
+      "head": "eee0eb19e7bbe7db4f37be8145c6976e2dfb18ee",
+      "status": "pending",
+      "reason": ""
+    }
+  ]
+}
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: gate-train-<TS>-bisect-2.log gate-train-<TS>-bisect-3.log gate-train-<TS>.log gate.lock train-<TS>.json

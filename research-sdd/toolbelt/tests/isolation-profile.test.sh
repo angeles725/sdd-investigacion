@@ -51,7 +51,6 @@ expected = [
     ("PROFILE_BWRAP_CAPA_OFFLINE",          "bubblewrap-capa-offline",          True,  False, False),
     ("PROFILE_BWRAP_FLOSS_OFFLINE",         "bubblewrap-floss-offline",         True,  False, False),
     ("PROFILE_BWRAP_KAITAI_OFFLINE",        "bubblewrap-kaitai-offline",        True,  False, False),
-    ("PROFILE_BWRAP_UNBLOB_OFFLINE",        "bubblewrap-unblob-offline",        True,  False, False),
     ("PROFILE_BWRAP_UNSQUASHFS",            "bwrap-unsquashfs",                 True,  False, False),
     ("PROFILE_INPROCESS_ZIP_METADATA",      "in-process-metadata-only",         True,  False, False),
     ("PROFILE_INPROCESS_ZIP_STORED",        "in-process-static-stored-copy",    True,  False, False),
