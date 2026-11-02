@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../lib/adapter_helpers.py"
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 
-# The Go port (rsdd/internal/adapter/helpers, kit issue #2391) replaced the cases for emit_evidence, warn_evidence,
+# The Go port (rsdd/internal/core/adapter/helpers, kit issue #2391) replaced the cases for emit_evidence, warn_evidence,
 # run_truncation, assert_safe_bind_root, venv_root_for and bind_venv (A-*, D-*, E-*, F-*, G-*): its parity tests
 # drive this very module. What Go cannot cover stays here: the two dead functions the port drops
 # (pcap_magic_check B-*, squashfs_superblock C-*) and how the live importers reach this module (I-1).

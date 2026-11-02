@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/nope/retro-gate-a.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"/x/other.sh"}]}]}}
