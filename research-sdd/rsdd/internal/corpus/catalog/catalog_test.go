@@ -177,10 +177,44 @@ func TestDigitValue(t *testing.T) {
 	}
 }
 
+// A rune that is not an Nd digit has no value, in particular the one just below the start of every Nd range (a
+// range check without its lower bound would give it that range's offset), and the first digit of a range is 0.
+func TestDigitValueRejectsNonDigits(t *testing.T) {
+	var starts []rune
+	for _, rg := range unicode.Nd.R16 {
+		starts = append(starts, rune(rg.Lo))
+	}
+	for _, rg := range unicode.Nd.R32 {
+		starts = append(starts, rune(rg.Lo))
+	}
+	if len(starts) < 10 {
+		t.Fatalf("only %d Nd ranges", len(starts))
+	}
+	for _, lo := range starts {
+		if v := digitValue(lo); v != 0 {
+			t.Errorf("digitValue(%U), the first digit of its range = %d, want 0", lo, v)
+		}
+		if unicode.Is(unicode.Nd, lo-1) {
+			continue // adjacent ranges: lo-1 is itself a digit
+		}
+		if v := digitValue(lo - 1); v != -1 {
+			t.Errorf("digitValue(%U) just below a range = %d, want -1", lo-1, v)
+		}
+	}
+	for _, r := range []rune{'a', '/', ':', '²', 0x10FFFF, 0} {
+		if v := digitValue(r); v != -1 {
+			t.Errorf("digitValue(%U) = %d, want -1", r, v)
+		}
+	}
+	if got, ok := decimal("1a"); ok || got != "" {
+		t.Errorf("decimal(1a) = %q, %v; want a refusal", got, ok)
+	}
+}
+
 func TestDecimal(t *testing.T) {
 	for in, want := range map[string]string{"0": "0", "00": "0", "007": "7", "10": "10", "٠٠٧": "7", "１２": "12", "100": "100"} {
-		if got := decimal(in); got != want {
-			t.Errorf("decimal(%q) = %q, want %q", in, got, want)
+		if got, ok := decimal(in); !ok || got != want {
+			t.Errorf("decimal(%q) = %q, %v; want %q", in, got, ok, want)
 		}
 	}
 }

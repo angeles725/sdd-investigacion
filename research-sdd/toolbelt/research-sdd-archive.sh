@@ -578,7 +578,7 @@ elif [ "$dry" = 1 ]; then
 elif "${gen_cmd[@]}" >/dev/null 2>&1; then
   catalog="regenerated CATALOG.md (via $gen_desc)"
 else
-  catalog="ERROR — gen-catalog.py failed (CATALOG.md NOT regenerated / left stale)"
+  catalog="ERROR — $gen_desc failed (CATALOG.md NOT regenerated / left stale)"
   consolidate_err="CATALOG regen failed — run: ${gen_hint:-${gen_cmd[*]}}"
   echo "WARNING: $consolidate_err" >&2
 fi

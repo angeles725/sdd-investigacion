@@ -22,36 +22,45 @@ func matchBlock(name string) (prefix, num string, ok bool) {
 	if m == nil {
 		return "", "", false
 	}
-	return m[1], decimal(m[2]), true
+	num, ok = decimal(m[2])
+	if !ok {
+		return "", "", false
+	}
+	return m[1], num, true
 }
 
-// decimal renders a run of Nd characters as an ASCII decimal without leading zeros ("0" for zero).
-func decimal(digits string) string {
+// decimal renders a run of Nd characters as an ASCII decimal without leading zeros ("0" for zero). ok is false when
+// a character is not an Nd digit, which the block pattern never lets through.
+func decimal(digits string) (string, bool) {
 	var b []byte
 	for _, r := range digits {
-		b = append(b, byte('0'+digitValue(r)))
+		v := digitValue(r)
+		if v < 0 {
+			return "", false
+		}
+		b = append(b, byte('0'+v))
 	}
 	for len(b) > 1 && b[0] == '0' {
 		b = b[1:]
 	}
-	return string(b)
+	return string(b), true
 }
 
-// digitValue is the decimal value of an Nd character (callers pass only Nd runes). Every Nd range of the Unicode
-// tables is a whole number of runs of ten digits that start at zero, so the offset from the range start modulo ten is
-// the value; the tables are ascending, so the first range that ends at or after r is r's.
+// digitValue is the decimal value of an Nd character, or -1 for any other rune. Every Nd range of the Unicode tables
+// is a whole number of runs of ten digits that start at zero, so the offset from the range start modulo ten is the
+// value.
 func digitValue(r rune) int {
 	for _, rg := range unicode.Nd.R16 {
-		if r <= rune(rg.Hi) {
+		if r >= rune(rg.Lo) && r <= rune(rg.Hi) {
 			return int(r-rune(rg.Lo)) % 10
 		}
 	}
 	for _, rg := range unicode.Nd.R32 {
-		if r <= rune(rg.Hi) {
+		if r >= rune(rg.Lo) && r <= rune(rg.Hi) {
 			return int(r-rune(rg.Lo)) % 10
 		}
 	}
-	return 0
+	return -1
 }
 
 // lessNum orders two normalized decimals numerically: a shorter one is smaller, equal lengths compare as text.

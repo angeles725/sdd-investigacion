@@ -27,7 +27,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$(cd "$HERE/../.." && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; tests run from the kit checkout, never through a rendered/symlinked toolbelt (kit issue #1024 round 5)
 LIB="$KIT/toolbelt/lib/rsdd-exec.sh"
 GOSRC="$KIT/rsdd/internal/corpus/catalog/match.go"     # holds the Go TITLE_RE
-TOOLS_COPY="$KIT/../tools/gen-catalog.py"              # repo-specialized copy (parity target)
+TOOLS_COPY="${GEN_CATALOG_TOOLS_COPY:-$KIT/../tools/gen-catalog.py}"   # repo-specialized copy (parity target); the env knob lets a test point it at a missing file
 [ -f "$LIB" ] || { echo "FATAL: rsdd-exec.sh not found: $LIB" >&2; exit 2; }
 [ -f "$GOSRC" ] || { echo "FATAL: Go catalog source not found: $GOSRC" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
@@ -165,9 +165,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # TEETH C — editing the Go TITLE_RE (a copy of the source) must make the parity guard go red.
   echo "-- teeth: edit TITLE_RE in a copy of the Go source; expect check C to go red --"
   mc="$TMP/teethC"; mkdir -p "$mc"
-  if ! MUTANT_SYNTAX=none mutant_sed "$GOSRC" "$mc/match.go" '/titleRE = regexp/s/\\p{Nd}+/\\p{Nd}*/'; then
+  if [ ! -f "$TOOLS_COPY" ]; then
+    ok "teeth(C): tools/ copy absent (shipped kit) → skipped, like check C"
+  elif ! MUTANT_SYNTAX=none mutant_sed "$GOSRC" "$mc/match.go" '/titleRE = regexp/s/\\p{Nd}+/\\p{Nd}*/'; then
     no "teeth(C): could not build the mutant (the titleRE line changed shape — did the SUT change?)"
-  elif [ -f "$TOOLS_COPY" ] && ! title_parity "$mc/match.go" "$TOOLS_COPY"; then
+  elif ! title_parity "$mc/match.go" "$TOOLS_COPY"; then
     ok "teeth(C): an edited TITLE_RE trips the parity guard"
   else no "teeth(C): edited TITLE_RE did NOT trip the parity guard — check C is THEATER"; fi
 fi
