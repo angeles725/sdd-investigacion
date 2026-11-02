@@ -2,6 +2,7 @@
 check-gap-drift.sh
 corroborate-bacnet.sh
 corroborate-capa.sh
+corroborate-floss.sh
 corroborate-ghidra.sh
 corroborate-kaitai.sh
 corroborate-native.sh
