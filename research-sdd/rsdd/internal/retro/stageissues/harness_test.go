@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,12 +115,69 @@ func mkBox(t *testing.T, c dcase) *box {
 
 func copyFile(t *testing.T, src, dst string, mode os.FileMode) {
 	t.Helper()
+	if mode&0o111 != 0 {
+		linkExecutable(t, src, dst, mode)
+		return
+	}
 	data, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(dst, data, mode); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// execCache holds one written-and-closed copy of each executable the boxes need. Writing an executable in a box
+// while parallel tests fork lets a child inherit the open write descriptor, and exec of that file then fails with
+// ETXTBSY ("text file busy", golang/go#22315): seen in CI as a fake gh that "is not authenticated". Every box
+// hard-links the cached copy instead, which opens nothing for writing; the link keeps the box's own directory as
+// the script's location.
+var execCache struct {
+	sync.Mutex
+	dir   string
+	files map[string]string
+}
+
+// execSources are the executables a box holds; TestMain writes them before any test starts (and forks).
+var execSources = []string{"testdata/legacy/stage-retro-issues.sh", "testdata/gh-stub.sh"}
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "stageissues-exec-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "exec cache:", err)
+		os.Exit(2)
+	}
+	execCache.dir, execCache.files = dir, map[string]string{}
+	for i, src := range execSources {
+		data, err := os.ReadFile(src)
+		if err == nil {
+			p := filepath.Join(dir, strconv.Itoa(i)+"-"+filepath.Base(src))
+			if err = os.WriteFile(p, data, 0o755); err == nil {
+				execCache.files[src] = p
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "exec cache:", err)
+			os.RemoveAll(dir)
+			os.Exit(2)
+		}
+	}
+	rc := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(rc)
+}
+
+func linkExecutable(t *testing.T, src, dst string, mode os.FileMode) {
+	t.Helper()
+	execCache.Lock()
+	cached, ok := execCache.files[src]
+	execCache.Unlock()
+	if !ok {
+		t.Fatalf("%s is not in execSources: add it so TestMain writes it before the tests fork", src)
+	}
+	if err := os.Link(cached, dst); err != nil {
+		t.Fatalf("link %s -> %s: %v (the exec cache must share the boxes' file system)", dst, cached, err)
 	}
 }
 
