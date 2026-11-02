@@ -13,10 +13,10 @@ import (
 	"testing"
 )
 
-// The legacy corroborate_bacnet.py is the oracle: testdata/parity_driver.py runs its real frame builders and
+// The frozen legacy corroborate_bacnet.py (testdata/legacy) is the oracle: testdata/parity_driver.py runs its real frame builders and
 // parsers over a batch of cases in one process and the Go functions must agree on every one of them.
 
-const toolbelt = "../../../toolbelt"
+const legacyDir = "testdata/legacy" // frozen copy of the retired corroborate_bacnet.py
 
 // runPy runs the legacy driver; a missing python3 FAILS the test (a skipped parity test proves nothing).
 func runPy(t testing.TB, op string, cases any, into any) {
@@ -25,7 +25,7 @@ func runPy(t testing.TB, op string, cases any, into any) {
 	if err != nil {
 		t.Fatalf("python3 is required for the parity tests and was not found: %v", err)
 	}
-	tb, err := filepath.Abs(toolbelt)
+	tb, err := filepath.Abs(legacyDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Wire constants (ANSI/ASHRAE 135 BACnet/IP), as in the legacy corroborate_bacnet.py.
+// Wire constants (ANSI/ASHRAE 135 BACnet/IP), as in the retired legacy corroborate_bacnet.py (frozen under testdata/legacy).
 const (
 	bvlcType            = 0x81
 	fnOriginalUnicast   = 0x0A

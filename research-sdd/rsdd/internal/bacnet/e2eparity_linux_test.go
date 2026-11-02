@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-// End-to-end parity: the real legacy corroborate_bacnet.py and the Go command probe the same loopback
+// End-to-end parity: the real frozen legacy corroborate_bacnet.py (testdata/legacy) and the Go command probe the same loopback
 // responders and must leave the same evidence bytes, stdout and exit code. Nothing leaves the machine: the
 // responders are UDP sockets on 127.0.0.1 and 127.0.1.1 (both are loopback on Linux).
 
@@ -100,7 +100,7 @@ func runPyE2E(t *testing.T, args []string) outcome {
 	if err != nil {
 		t.Fatalf("python3 is required for the parity tests: %v", err)
 	}
-	tb, _ := filepath.Abs(toolbelt)
+	tb, _ := filepath.Abs(legacyDir)
 	dir := t.TempDir()
 	cmd := exec.Command(py, append([]string{"-I", filepath.Join(tb, "corroborate_bacnet.py")}, append(args, "--output", filepath.Join(dir, "out"))...)...)
 	var out, errb bytes.Buffer
@@ -252,7 +252,7 @@ func TestE2EParityOutputFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tb, _ := filepath.Abs(toolbelt)
+	tb, _ := filepath.Abs(legacyDir)
 	for _, out := range []string{file, filepath.Join(file, "sub"), filepath.Join(dir, "isdir")} {
 		args := []string{"--host", "h", "--output", out}
 		var perr bytes.Buffer

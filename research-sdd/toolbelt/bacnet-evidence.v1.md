@@ -114,7 +114,7 @@ output-dir/
 
 The probe is now `rsdd bacnet corroborate-bacnet` (Go, kit issue #2438); `corroborate-bacnet.sh` is a compatibility
 shim that hands over to `lib/rsdd-exec.sh`. The evidence file, the `--json` stdout and the exit codes are
-byte-identical to the former `corroborate_bacnet.py`; the legacy script is the oracle of the Go tests (frame
+byte-identical to the former `corroborate_bacnet.py`; the legacy script, frozen under `rsdd/internal/bacnet/testdata/legacy/`, is the oracle of the Go tests (frame
 builders and parsers over a seeded corpus, and end-to-end runs against loopback responders). The differences:
 
 - Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes and refused
