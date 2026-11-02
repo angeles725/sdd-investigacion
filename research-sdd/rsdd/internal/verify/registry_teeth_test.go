@@ -301,10 +301,3 @@ func TestGitConfigCountEnvBoundaries(t *testing.T) {
 		}
 	})
 }
-
-// teeth: equivalent mutant registry.go:263:7 — absDiff(a, a) is 0 on either branch (a<b vs a<=b)
-// teeth: equivalent mutant registry.go:367:14 — dirReached is only compared with 0 and only ever incremented, so -- also never returns to 0
-// teeth: equivalent mutant registry.go:553:10 — rows<=0 assigns 0 to a rows that is already 0
-// teeth: equivalent mutant registry.go:584:24 — strings.Split always returns at least one element, so n>0 and n>=0 agree
-// teeth: equivalent mutant registry.go:627:25 — max is non-numeric here and Itoa(n) is digits only, so the two strings are never equal and > equals >=
-// teeth: equivalent mutant kitclean.go:76:21 — n<=0 only adds n==0, whose loop body never runs, so the env is the count alone either way
