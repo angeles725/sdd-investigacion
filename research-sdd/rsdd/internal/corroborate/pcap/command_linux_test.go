@@ -326,6 +326,29 @@ func TestUsageErrorsExitTwoOnStderr(t *testing.T) {
 	}
 }
 
+// A manifest tool that refuses ends the run with exit 2, its own message relayed and the failing verb named; nothing
+// is published and no stage is left behind. The legacy tools died with a stack dump and exit 1 here.
+func TestManifestToolFailureIsRelayedAndNothingIsPublished(t *testing.T) {
+	hostReady(t)
+	for _, c := range commands {
+		for _, verb := range []string{"create", "validate", "verify"} {
+			t.Run(c.name+"/"+verb, func(t *testing.T) {
+				r, cwd := newRig(t), workdir(t)
+				r.fakeManifest()
+				r.set("fail-manifest-"+verb, "analysis-manifest: refused\n")
+				code, out, errs := goRun(c.run, cwd, r.env(""), "--input", "in.pcap", "--output", "out", "--manifest-cli", filepath.Join(r.dir, "manifest-cli"))
+				want := "analysis-manifest: refused\n" + c.prog + ": manifest-cli '" + verb + "' failed (exit 2)\n"
+				if code != 2 || out != "" || errs != want {
+					t.Fatalf("exit %d stdout %q stderr %q, want exit 2 and %q", code, out, errs, want)
+				}
+				if entries, _ := os.ReadDir(cwd); len(entries) != 1 {
+					t.Fatalf("the working directory holds %v, want only the input", entries)
+				}
+			})
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------- real tools
 
 // mintTCPCapture writes a capture with one TCP stream: a SYN and a PSH|ACK carrying "HELLO".
