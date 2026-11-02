@@ -45,7 +45,7 @@ func findSpec(name string) (int, bool) {
 			return i, true
 		}
 	}
-	return -1, false
+	return 0, false
 }
 
 // argKind is argparse's option-string pattern letter.
@@ -163,7 +163,7 @@ const pyIntMaxDigits = 4300
 
 // parsePyInt is int(str): surrounding whitespace, a sign, ASCII digits with single underscores between them.
 func parsePyInt(s string) (*big.Int, bool) {
-	t := strings.TrimFunc(s, func(r rune) bool { return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f) })
+	t := strings.TrimFunc(s, unicode.IsSpace)
 	neg := false
 	if t != "" && (t[0] == '+' || t[0] == '-') {
 		neg = t[0] == '-'

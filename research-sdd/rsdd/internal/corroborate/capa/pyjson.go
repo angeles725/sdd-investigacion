@@ -21,8 +21,15 @@ type jsonError struct{ msg string }
 
 func (e *jsonError) Error() string { return e.msg }
 
-// maxJSONDepth stands in for CPython's recursion limit while decoding nested containers.
-const maxJSONDepth = 990
+// The two documented limits of the port: Python decodes these, the port reports an internal error.
+const (
+	msgWideEncoding  = "json.loads: UTF-16/UTF-32 documents are not supported by the port"
+	msgLoneSurrogate = "a JSON string holds a lone surrogate, which the port cannot represent"
+)
+
+// maxJSONDepth is how deep CPython 3.12's C scanner nests containers before it raises RecursionError (measured on
+// the pinned oracle interpreter, arrays and objects alike; other interpreter versions differ).
+const maxJSONDepth = 9997
 
 // maxIntDigits is CPython's int/str conversion limit.
 const maxIntDigits = 4300
@@ -31,7 +38,7 @@ const maxIntDigits = 4300
 // []any, integers to json.Number (normalized), other numbers to float64.
 func decodeJSON(raw []byte) (any, error) {
 	if len(raw) >= 2 && (raw[0] == 0xff && raw[1] == 0xfe || raw[0] == 0xfe && raw[1] == 0xff) || len(raw) >= 4 && (raw[0] == 0 || raw[1] == 0) {
-		return nil, &crash{"json.loads: UTF-16/UTF-32 documents are not supported by the port"}
+		return nil, &crash{msgWideEncoding}
 	}
 	raw = bytes.TrimPrefix(raw, []byte{0xef, 0xbb, 0xbf})
 	if !utf8.Valid(raw) {
@@ -47,19 +54,23 @@ func decodeJSON(raw []byte) (any, error) {
 	if d.i != len(d.s) {
 		return nil, d.errAt("Extra data", d.i)
 	}
+	if d.lone {
+		return nil, &crash{msgLoneSurrogate}
+	}
 	return v, nil
 }
 
 type jsonDecoder struct {
-	s []rune
-	i int
+	lone bool // a string held a lone surrogate
+	s    []rune
+	i    int
 }
 
 // errAt is JSONDecodeError(msg, doc, pos).
 func (d *jsonDecoder) errAt(msg string, pos int) error {
 	line, col := 1, pos+1
 	last := -1
-	for k := 0; k < pos && k < len(d.s); k++ {
+	for k := 0; k < pos; k++ { // pos never exceeds len(d.s)
 		if d.s[k] == '\n' {
 			line++
 			last = k
@@ -136,8 +147,8 @@ func isDigit(r rune) bool { return r >= '0' && r <= '9' }
 
 // number matches (-?(?:0|[1-9]\d*))(\.\d+)?([eE][-+]?\d+)? at d.i.
 func (d *jsonDecoder) number() (any, error) {
-	start, j := d.i, d.i
-	if j < len(d.s) && d.s[j] == '-' {
+	start, j := d.i, d.i // value() peeked d.s[d.i], so it is in range
+	if d.s[j] == '-' {
 		j++
 	}
 	switch {
@@ -181,16 +192,10 @@ func (d *jsonDecoder) number() (any, error) {
 		n, _ := new(big.Int).SetString(text, 10)
 		return json.Number(n.String()), nil
 	}
-	f, err := strconv.ParseFloat(text, 64)
-	if err != nil && !isRange(err) {
-		return nil, &crash{err.Error()}
-	}
+	// The grammar above only admits well-formed floats, so the one error ParseFloat can return is a range
+	// error, and it still returns the +-Inf (or 0) Python's float() gives.
+	f, _ := strconv.ParseFloat(text, 64)
 	return f, nil
-}
-
-func isRange(err error) bool {
-	ne, ok := err.(*strconv.NumError)
-	return ok && ne.Err == strconv.ErrRange
 }
 
 var jsonEscapes = map[rune]rune{'"': '"', '\\': '\\', '/': '/', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t'}
@@ -230,29 +235,37 @@ func (d *jsonDecoder) str() (any, error) {
 			d.i += 2
 			continue
 		}
+		// scanstring (_json.c) wants at least one character after the four digits of an escape.
+		if d.i+6 >= len(d.s) {
+			return nil, d.errAt("Invalid \\uXXXX escape", d.i+1)
+		}
 		u, ok := d.hex4(d.i + 2)
 		if !ok {
 			return nil, d.errAt("Invalid \\uXXXX escape", d.i+1)
 		}
 		d.i += 6
-		if u >= 0xd800 && u <= 0xdbff && d.i+1 < len(d.s) && d.s[d.i] == '\\' && d.s[d.i+1] == 'u' {
-			if u2, ok := d.hex4(d.i + 2); ok && u2 >= 0xdc00 && u2 <= 0xdfff {
+		// A high surrogate followed (with room to spare) by another \u escape is joined with it when that one is
+		// a low surrogate; a malformed second escape is an error of its own.
+		if u >= 0xd800 && u <= 0xdbff && d.i+6 < len(d.s) && d.s[d.i] == '\\' && d.s[d.i+1] == 'u' {
+			u2, ok := d.hex4(d.i + 2)
+			if !ok {
+				return nil, d.errAt("Invalid \\uXXXX escape", d.i+1)
+			}
+			if u2 >= 0xdc00 && u2 <= 0xdfff {
 				u = 0x10000 + ((u-0xd800)<<10 | (u2 - 0xdc00))
 				d.i += 6
 			}
 		}
 		if u >= 0xd800 && u <= 0xdfff {
-			return nil, &crash{"a JSON string holds a lone surrogate, which the port cannot represent"}
+			d.lone = true // Python keeps it; the port reports it once the whole document has parsed
+			u = utf8.RuneError
 		}
 		b.WriteRune(rune(u))
 	}
 }
 
-// hex4 reads four hex digits at pos.
+// hex4 reads four hex digits at pos; the caller has checked that they are inside the document.
 func (d *jsonDecoder) hex4(pos int) (int, bool) {
-	if pos+4 > len(d.s) {
-		return 0, false
-	}
 	n := 0
 	for _, r := range d.s[pos : pos+4] {
 		var v int

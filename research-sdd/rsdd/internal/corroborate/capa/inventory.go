@@ -4,11 +4,13 @@ package capa
 // arrives in. Reports COUNTS and a BOUNDED, sorted capability list - never raw disassembly or match trees.
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
-	"sort"
+	"slices"
 	"syscall"
 	"unicode/utf8"
 )
@@ -41,12 +43,11 @@ func readStdoutJSON(path string) (any, string, error) {
 	if err != nil {
 		return nil, "", &fail{osErrorText(err, path)}
 	}
-	raw := make([]byte, max(1, fi.Size()+1))
-	n, err := f.Read(raw)
-	if err != nil && n == 0 && fi.Size() > 0 {
+	// one byte more than lstat saw, so a file that grew is noticed by the identity check below
+	raw, err := io.ReadAll(io.LimitReader(f, fi.Size()+1))
+	if err != nil {
 		return nil, "", &fail{osErrorText(err, path)}
 	}
-	raw = raw[:n]
 	after, err := f.Stat()
 	if err != nil {
 		return nil, "", &fail{osErrorText(err, path)}
@@ -54,6 +55,12 @@ func readStdoutJSON(path string) (any, string, error) {
 	if !sameFile(before, after) {
 		return nil, "", failf("capa stdout changed while reading (TOCTOU)")
 	}
+	return parseCapaOutput(raw)
+}
+
+// parseCapaOutput is the part of the reader after the bytes are in memory: an empty document is
+// (nil, ""), malformed JSON is (nil, message) and anything the legacy tool would die on is a *crash.
+func parseCapaOutput(raw []byte) (any, string, error) {
 	if len(raw) == 0 {
 		return nil, "", nil
 	}
@@ -236,27 +243,26 @@ func buildInventory(capaJSON any, maxCapabilities *big.Int) (inventory, []string
 	}
 	total := len(rows)
 	var sortErr error
-	sort.SliceStable(rows, func(i, j int) bool {
-		a, b := rows[i], rows[j]
+	slices.SortStableFunc(rows, func(a, b row) int {
 		as, aok := a.namespace.(string)
 		bs, bok := b.namespace.(string)
 		switch {
 		case aok && bok:
-			if as != bs {
-				return as < bs
+			if c := cmp.Compare(as, bs); c != 0 {
+				return c
 			}
 		case !aok && !bok && fmt.Sprint(a.namespace) == fmt.Sprint(b.namespace):
 		default:
 			sortErr = &crash{"TypeError: '<' not supported between namespaces of different types"}
 		}
-		return a.name < b.name
+		return cmp.Compare(a.name, b.name)
 	})
 	if sortErr != nil {
 		return empty, nil, sortErr
 	}
 	limit := total
-	if maxCapabilities.IsInt64() && maxCapabilities.Int64() < int64(total) {
-		limit = int(maxCapabilities.Int64())
+	if maxCapabilities.IsInt64() {
+		limit = int(min(maxCapabilities.Int64(), int64(total)))
 	}
 	capHit := maxCapabilities.Cmp(big.NewInt(int64(total))) < 0
 	inv := inventory{totalCount: total, totalSampled: limit, truncated: capHit, items: make([]map[string]any, limit)}

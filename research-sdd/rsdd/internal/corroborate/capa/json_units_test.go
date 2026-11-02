@@ -59,7 +59,7 @@ func TestDecodeJSONValues(t *testing.T) {
 }
 
 func TestDecodeJSONRefusesWhatPythonRaisesElsewhere(t *testing.T) {
-	for _, doc := range []string{`"\ud800"`, strings.Repeat("[", 2000) + strings.Repeat("]", 2000), "\xff\xfe[\x00]\x00", "\xc3\x28"} {
+	for _, doc := range []string{`"\ud800"`, strings.Repeat("[", 10000) + strings.Repeat("]", 10000), "\xff\xfe[\x00]\x00", "\xc3\x28"} {
 		if _, err := decodeJSON([]byte(doc)); err == nil {
 			t.Errorf("%.20q: want a crash", doc)
 		} else {

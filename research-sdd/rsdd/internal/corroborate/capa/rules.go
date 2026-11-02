@@ -75,15 +75,8 @@ func expandUser(p string, home func() (string, bool)) (string, error) {
 		dir = u.HomeDir
 	}
 	dir = strings.TrimRight(dir, "/")
-	rest := ""
-	if len(parts) > 1 {
-		rest = "/" + strings.Join(parts[1:], "/")
-	}
-	out := dir + rest
-	if out == "" {
-		out = "/"
-	}
-	return pyNorm(out), nil
+	// parts[0] is the "~" component being replaced; pyNorm drops the trailing slash of a bare "~".
+	return pyNorm(dir + "/" + strings.Join(parts[1:], "/")), nil
 }
 
 // rulesEnv is what the rules checks read from the process.

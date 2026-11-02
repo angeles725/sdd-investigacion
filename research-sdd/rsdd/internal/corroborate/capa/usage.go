@@ -40,10 +40,8 @@ func terminalWidth(columns string) int {
 func usageText(width int) string {
 	const prefix = "usage: "
 	textWidth := max(width, 11)
-	oneLine := prog + " " + strings.Join(usageParts, " ")
-	if utf8.RuneCountInString(prefix)+utf8.RuneCountInString(oneLine) <= textWidth {
-		return prefix + oneLine + "\n"
-	}
+	// argparse returns the one-line form when it fits; packing the parts greedily gives the same text then, so
+	// there is no separate fast path. The first part of every line always fits (textWidth is at least 11).
 	getLines := func(parts []string, indent string, withPrefix bool) []string {
 		var lines, line []string
 		lineLen := len(indent) - 1
@@ -51,23 +49,22 @@ func usageText(width int) string {
 			lineLen = len(prefix) - 1
 		}
 		for _, p := range parts {
-			if lineLen+1+len(p) > textWidth && len(line) > 0 {
+			if lineLen+1+len(p) > textWidth {
 				lines = append(lines, indent+strings.Join(line, " "))
 				line, lineLen = nil, len(indent)-1
 			}
 			line = append(line, p)
 			lineLen += len(p) + 1
 		}
-		if len(line) > 0 {
-			lines = append(lines, indent+strings.Join(line, " "))
-		}
+		lines = append(lines, indent+strings.Join(line, " "))
 		if withPrefix {
 			lines[0] = lines[0][len(indent):]
 		}
 		return lines
 	}
 	var lines []string
-	if float64(len(prefix)+len(prog)) <= 0.75*float64(textWidth) {
+	// len(prefix)+len(prog) <= 0.75*textWidth, as the smallest textWidth that satisfies it.
+	if textWidth >= (4*(len(prefix)+len(prog))+2)/3 {
 		lines = getLines(append([]string{prog}, usageParts...), strings.Repeat(" ", len(prefix)+len(prog)+1), true)
 	} else {
 		indent := strings.Repeat(" ", len(prefix))
@@ -104,17 +101,18 @@ func helpText(width int) string {
 // broken, leading whitespace of a continuation line dropped).
 func wrapText(text string, width int) []string {
 	var chunks [][]rune
-	for i, w := range strings.Fields(text) {
-		if i > 0 {
+	words := strings.Fields(text)
+	for i, w := range words {
+		chunks = append(chunks, splitHyphens([]rune(w))...)
+		if i < len(words)-1 {
 			chunks = append(chunks, []rune(" "))
 		}
-		chunks = append(chunks, splitHyphens([]rune(w))...)
 	}
 	var lines []string
 	for len(chunks) > 0 {
 		var cur [][]rune
 		curLen := 0
-		if string(chunks[0]) == " " && len(lines) > 0 {
+		if string(chunks[0]) == " " {
 			chunks = chunks[1:]
 		}
 		for len(chunks) > 0 && curLen+len(chunks[0]) <= width {
@@ -123,38 +121,31 @@ func wrapText(text string, width int) []string {
 			chunks = chunks[1:]
 		}
 		if len(chunks) > 0 && len(chunks[0]) > width { // handle_long_word
-			spaceLeft := max(width-curLen, 1)
+			// width is at least 11 here. spaceLeft may be 0: textwrap then appends an empty piece and ends the line.
+			spaceLeft := width - curLen
 			end := spaceLeft
 			chunk := chunks[0]
-			if len(chunk) > spaceLeft {
-				if h := lastIndexRune(chunk[:spaceLeft], '-'); h > 0 && anyNot(chunk[:h], '-') {
-					end = h + 1
-				}
+			// the chunk is longer than the width, so longer than spaceLeft: break after the last hyphen of the
+			// space left when something other than hyphens precedes it (no hyphen, or one at index 0, finds none)
+			s := string(chunk[:spaceLeft])
+			if h := utf8.RuneCountInString(s[:max(strings.LastIndexByte(s, '-'), 0)]); anyNot(chunk[:h], '-') {
+				end = h + 1
 			}
 			cur = append(cur, chunk[:end])
 			chunks[0] = chunk[end:]
 		}
-		if n := len(cur); n > 0 && string(cur[n-1]) == " " {
+		// cur is never empty here: a line starts with a word (leading spaces are dropped) and a word that does
+		// not fit is broken by the long-word branch above.
+		if n := len(cur); strings.TrimSpace(string(cur[n-1])) == "" {
 			cur = cur[:n-1]
 		}
-		if len(cur) > 0 {
-			var b strings.Builder
-			for _, c := range cur {
-				b.WriteString(string(c))
-			}
-			lines = append(lines, b.String())
+		var b strings.Builder
+		for _, c := range cur {
+			b.WriteString(string(c))
 		}
+		lines = append(lines, b.String())
 	}
 	return lines
-}
-
-func lastIndexRune(rs []rune, r rune) int {
-	for i := len(rs) - 1; i >= 0; i-- {
-		if rs[i] == r {
-			return i
-		}
-	}
-	return -1
 }
 
 func anyNot(rs []rune, r rune) bool {
@@ -167,7 +158,8 @@ func anyNot(rs []rune, r rune) bool {
 }
 
 // splitHyphens cuts a word after a hyphen that follows two letters (or letter-hyphen-letter) and precedes a
-// letter pair (textwrap's wordsep_re), keeping the hyphen with the left chunk.
+// letter pair (textwrap's wordsep_re), keeping the hyphen with the left chunk. The em-dash alternative of that
+// regexp (a word immediately followed by two or more hyphens) is not modelled: no help text has one.
 func splitHyphens(rs []rune) [][]rune {
 	letter := func(i int) bool { return i >= 0 && i < len(rs) && (unicode.IsLetter(rs[i]) || rs[i] == '_') }
 	var out [][]rune
@@ -176,8 +168,8 @@ func splitHyphens(rs []rune) [][]rune {
 		if rs[i] != '-' {
 			continue
 		}
-		behind := letter(i-1) && letter(i-2) || letter(i-1) && i >= 3 && rs[i-2] == '-' && letter(i-3)
-		ahead := letter(i+1) && (letter(i+2) || i+3 < len(rs) && rs[i+2] == '-' && letter(i+3))
+		behind := letter(i-1) && letter(i-2) || letter(i-1) && letter(i-3) && rs[i-2] == '-'
+		ahead := letter(i+1) && (letter(i+2) || letter(i+3) && rs[i+2] == '-')
 		if behind && ahead {
 			out = append(out, rs[start:i+1])
 			start = i + 1

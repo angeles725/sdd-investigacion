@@ -25,10 +25,10 @@ const versionTimeout = 15 * time.Second
 // clampTimeout converts the wall-clock seconds to a Duration, saturating instead of overflowing.
 func clampTimeout(seconds *big.Int) time.Duration {
 	const maxSeconds = int64(1<<63-1) / int64(time.Second)
-	if !seconds.IsInt64() || seconds.Int64() > maxSeconds {
+	if !seconds.IsInt64() {
 		return time.Duration(maxSeconds) * time.Second
 	}
-	return time.Duration(seconds.Int64()) * time.Second
+	return time.Duration(min(seconds.Int64(), maxSeconds)) * time.Second
 }
 
 // isoformat is datetime.isoformat() for a UTC time with "+00:00" replaced by "Z".
@@ -78,13 +78,8 @@ func runBounded(cmd []string, dir string, env []string, timeout *big.Int, maxByt
 		}
 		return nil, nil, &fail{err.Error()}
 	}
+	// proc.Run already truncates the two streams jointly to maxBytes, stdout first.
 	stdout, stderr := res.Stdout, res.Stderr
-	if res.Reason != "" {
-		budget := maxBytes
-		stdout = stdout[:min(len(stdout), budget)]
-		budget -= len(stdout)
-		stderr = stderr[:min(len(stderr), budget)]
-	}
 	if err := os.WriteFile(outPath, stdout, 0o666); err != nil {
 		return nil, nil, &fail{osErrorText(err, outPath)}
 	}
