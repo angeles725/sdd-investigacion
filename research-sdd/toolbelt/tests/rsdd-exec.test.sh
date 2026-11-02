@@ -46,6 +46,7 @@ EOF
 if [ "$#" -ne 4 ] || [ "$1" != build ] || [ "$2" != -o ] || [ "$4" != ./cmd/rsdd ]; then echo "fake go: unexpected args: $*" >&2; exit 64; fi
 out="$3"
 printf '%s\n' "$PWD" >> "$FAKE_GO_LOG"
+printf '%s\n' "${CGO_ENABLED-unset}" >> "$FAKE_GO_LOG.cgo"
 echo "BUILDNOISE-STDOUT"
 echo "BUILDNOISE-STDERR" >&2
 body="$(<"$FAKE_BODY")"; body="${body//@TAG@/"${FAKE_GO_TAG:-NEW}"}"
@@ -102,7 +103,7 @@ EOF
 . "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec_hook "$@"
 EOF
   touch -d '2020-01-01 00:00:00' "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go" "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum"
-  : >"$SCRATCH/go.log"
+  : >"$SCRATCH/go.log"; : >"$SCRATCH/go.log.cgo"
 }
 
 putbin() {   # TAG [DATE] — fake rsdd at KIT/bin/rsdd; DATE absent = now
@@ -120,7 +121,7 @@ dorun() {
   local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_MODE="${GOMODE:-ok}" FAKE_GO_TAG="${GOTAG:-NEW}" FAKE_BODY="$SCRATCH/body"
     FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}")
   if [ -n "${USE_RSDD_BIN+x}" ]; then ev+=(RSDD_BIN="$USE_RSDD_BIN"); fi
-  env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
+  env -u RSDD_BIN -u CGO_ENABLED "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
   echo "$?" >"$SCRATCH/$label.rc"
 }
 prefixed() {   # PREFIX FILE
@@ -134,6 +135,7 @@ show() {   # LABEL
 probes() {   # build-side probes: how often fake go ran, where, what is left in bin/
   printf 'GOCALLS=%s\n' "$(grep -c . "$SCRATCH/go.log")"
   printf 'GOCWD=%s\n' "$(head -n 1 "$SCRATCH/go.log" 2>/dev/null)"
+  printf 'GOCGO=%s\n' "$(head -n 1 "$SCRATCH/go.log.cgo" 2>/dev/null)"
   printf 'KIT=%s\n' "$KIT"
   printf 'TMPLEFT=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd.*' 2>/dev/null | grep -c .)"
 }
@@ -459,6 +461,7 @@ for v in gomod gosum deepgo maingo; do
   chk "stale ($v newer than binary) -> rebuilt, new binary runs" "$R" stale '^o\| FAKE-NEW$'
   pchk "stale ($v) -> exactly one go build" "$R" '^GOCALLS=1$'
   pchk "stale ($v) -> go ran inside <kit>/rsdd" "$R" '^GOCWD=.*/k it/rsdd$'
+  pchk "stale ($v) -> go build runs with CGO_ENABLED=0 (a cgo binary aborts in pthread_create under the test RLIMIT_AS cap)" "$R" '^GOCGO=0$'
   pchk "stale ($v) -> no temp file left in bin/" "$R" '^TMPLEFT=0$'
 done
 R="$(scen equal "$LIB")"
@@ -717,6 +720,8 @@ mk skip-stale 's#\[ "\$rc" -ne 0 \] || \[ -n "\$hit" \]#false#' &&
   tt skip-stale stale-gomod --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
 mk stale-no-gomod 's# -o -name go.mod -o -name go.sum##' &&
   tt stale-no-gomod stale-gomod --good-has '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-OLD$' --bad-lacks "$CRASH"
+mk cgo-on 's#CGO_ENABLED=0 go build#go build#' &&
+  tt cgo-on stale-gomod --good-has '^GOCGO=0$' --bad-has '^GOCGO=unset$' --bad-lacks "$CRASH"
 mk stale-inverted 's#-newer "\$1"#! -newer "$1"#' &&
   tt stale-inverted equal --good-has '^o\| FAKE-OLD$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
 mk no-atomic-rename 's#go build -o "\$tmp" ./cmd/rsdd \&\& chmod 755 "\$tmp" \&\& mv -f "\$tmp" "\$bin"#go build -o "$bin" ./cmd/rsdd \&\& chmod 755 "$bin"#' &&
