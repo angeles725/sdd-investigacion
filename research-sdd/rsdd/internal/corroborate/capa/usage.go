@@ -100,60 +100,88 @@ func helpText(width int) string {
 	return b.String()
 }
 
-// wrapText is textwrap.wrap(text, width) with its default word separators (whitespace and hyphens).
+// wrapText is textwrap.wrap(text, width) with its defaults (whitespace and hyphen word breaks, long words
+// broken, leading whitespace of a continuation line dropped).
 func wrapText(text string, width int) []string {
-	var lines []string
-	cur, glue := "", false
-	for _, w := range strings.Fields(text) {
-		pieces := splitHyphens(w)
-		for i, c := range pieces {
-			sep := " "
-			if glue {
-				sep = ""
-			}
-			if cur == "" {
-				cur = c
-			} else if utf8.RuneCountInString(cur)+len(sep)+utf8.RuneCountInString(c) <= width {
-				cur += sep + c
-			} else {
-				lines = append(lines, cur)
-				cur = c
-			}
-			glue = i < len(pieces)-1
+	var chunks [][]rune
+	for i, w := range strings.Fields(text) {
+		if i > 0 {
+			chunks = append(chunks, []rune(" "))
 		}
+		chunks = append(chunks, splitHyphens([]rune(w))...)
 	}
-	if cur != "" {
-		lines = append(lines, cur)
+	var lines []string
+	for len(chunks) > 0 {
+		var cur [][]rune
+		curLen := 0
+		if string(chunks[0]) == " " && len(lines) > 0 {
+			chunks = chunks[1:]
+		}
+		for len(chunks) > 0 && curLen+len(chunks[0]) <= width {
+			cur = append(cur, chunks[0])
+			curLen += len(chunks[0])
+			chunks = chunks[1:]
+		}
+		if len(chunks) > 0 && len(chunks[0]) > width { // handle_long_word
+			spaceLeft := max(width-curLen, 1)
+			end := spaceLeft
+			chunk := chunks[0]
+			if len(chunk) > spaceLeft {
+				if h := lastIndexRune(chunk[:spaceLeft], '-'); h > 0 && anyNot(chunk[:h], '-') {
+					end = h + 1
+				}
+			}
+			cur = append(cur, chunk[:end])
+			chunks[0] = chunk[end:]
+		}
+		if n := len(cur); n > 0 && string(cur[n-1]) == " " {
+			cur = cur[:n-1]
+		}
+		if len(cur) > 0 {
+			var b strings.Builder
+			for _, c := range cur {
+				b.WriteString(string(c))
+			}
+			lines = append(lines, b.String())
+		}
 	}
 	return lines
 }
 
-// splitHyphens cuts a word after a hyphen that sits between two letters (textwrap's wordsep_re), keeping
-// the hyphen with the left part.
-func splitHyphens(w string) []string {
-	rs := []rune(w)
-	var out []string
+func lastIndexRune(rs []rune, r rune) int {
+	for i := len(rs) - 1; i >= 0; i-- {
+		if rs[i] == r {
+			return i
+		}
+	}
+	return -1
+}
+
+func anyNot(rs []rune, r rune) bool {
+	for _, c := range rs {
+		if c != r {
+			return true
+		}
+	}
+	return false
+}
+
+// splitHyphens cuts a word after a hyphen that follows two letters (or letter-hyphen-letter) and precedes a
+// letter pair (textwrap's wordsep_re), keeping the hyphen with the left chunk.
+func splitHyphens(rs []rune) [][]rune {
+	letter := func(i int) bool { return i >= 0 && i < len(rs) && (unicode.IsLetter(rs[i]) || rs[i] == '_') }
+	var out [][]rune
 	start := 0
-	isWord := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
-	for i := 1; i < len(rs)-1; i++ {
-		if rs[i] != '-' || !(isWord(rs[i-1]) && !unicode.IsDigit(rs[i-1])) {
+	for i := 1; i < len(rs); i++ {
+		if rs[i] != '-' {
 			continue
 		}
-		j := i + 1
-		for j < len(rs) && isWord(rs[j]) {
-			j++
-		}
-		run := rs[i+1 : j]
-		ok := false
-		for k := 1; k < len(run); k++ {
-			if !unicode.IsDigit(run[k]) {
-				ok = true
-			}
-		}
-		if ok {
-			out = append(out, string(rs[start:i+1]))
+		behind := letter(i-1) && letter(i-2) || letter(i-1) && i >= 3 && rs[i-2] == '-' && letter(i-3)
+		ahead := letter(i+1) && (letter(i+2) || i+3 < len(rs) && rs[i+2] == '-' && letter(i+3))
+		if behind && ahead {
+			out = append(out, rs[start:i+1])
 			start = i + 1
 		}
 	}
-	return append(out, string(rs[start:]))
+	return append(out, rs[start:])
 }

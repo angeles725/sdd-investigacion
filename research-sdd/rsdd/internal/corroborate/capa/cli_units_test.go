@@ -70,13 +70,13 @@ func TestParseArgsHelpAndNegativeNumbers(t *testing.T) {
 }
 
 func TestParsePyInt(t *testing.T) {
-	good := map[string]int64{"0": 0, " 12 ": 12, "-3": -3, "+4": 4, "1_000": 1000, "00": 0}
+	good := map[string]int64{"٣": 3, "١٢": 12, "0": 0, " 12 ": 12, "-3": -3, "+4": 4, "1_000": 1000, "00": 0}
 	for s, want := range good {
 		if n, ok := parsePyInt(s); !ok || n.Int64() != want {
 			t.Errorf("%q: %v %v", s, n, ok)
 		}
 	}
-	for _, s := range []string{"", "_1", "1_", "1__0", "1.0", "0x10", "1e3", "--1", "٣", strings.Repeat("9", 4301)} {
+	for _, s := range []string{"", "_1", "1_", "1__0", "1.0", "0x10", "1e3", "--1", strings.Repeat("9", 4301)} {
 		if _, ok := parsePyInt(s); ok {
 			t.Errorf("%q must be rejected", s)
 		}

@@ -149,6 +149,15 @@ func classify(arg string) (classified, error) {
 	return classified{kind: kindOpt, spec: -1}, nil
 }
 
+// decimalValue is the value (0-9) of a Unicode decimal digit: its offset in its block of ten.
+func decimalValue(r rune) rune {
+	start := r
+	for unicode.IsDigit(start - 1) {
+		start--
+	}
+	return (r - start) % 10
+}
+
 // pyIntMaxDigits is CPython's int/str conversion limit.
 const pyIntMaxDigits = 4300
 
@@ -167,8 +176,8 @@ func parsePyInt(s string) (*big.Int, bool) {
 	prevUnderscore := false
 	for _, r := range t {
 		switch {
-		case r >= '0' && r <= '9':
-			digits.WriteRune(r)
+		case unicode.IsDigit(r):
+			digits.WriteRune('0' + decimalValue(r))
 			prevUnderscore = false
 		case r == '_' && !prevUnderscore:
 			prevUnderscore = true
