@@ -35,6 +35,16 @@ func TestParseLimitsRejectsMalformedSpecs(t *testing.T) {
 func runHelper(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], append([]string{HelperCommand}, args...)...)
+	// The helper is this test binary. Under `go test -cover` (gremlins' baseline run) it inherits GOCOVERDIR, and
+	// the coverage runtime then writes its counters at exit, which needs a fresh mapping: under an address-space
+	// limit below the helper's own size that is a runtime out-of-memory crash the production binary can never
+	// have. Measured on go1.27.2: 5 of 10 runs of the AS-limit test failed with GOCOVERDIR passed through, 0 of
+	// 10 without it.
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GOCOVERDIR=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
