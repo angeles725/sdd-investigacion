@@ -9,6 +9,23 @@ palette-lexicon-agents.sh --input <module-dir> --output <evidence.json>
 `<module-dir>` is the top-level directory for one N4 module (non-symlink, non-file).
 It contains artifact subdirs, each of which must have an `extracted/` subdirectory.
 
+The command is `rsdd niagara palette-lexicon --input <module-dir> --output <evidence.json>`;
+`palette-lexicon-agents.sh` is a compatibility shim over it (removed in phase 8). Flags, exit codes
+(0 complete, 1 malformed artifact file with `status:"failed"` JSON written, 2 I/O or usage error) and the
+JSON document are unchanged from the former Python tool.
+
+## Port notes (Go)
+
+- The wording after `XML parse error:` / `module.xml parse error:` in `errors[]` is now the Go XML
+  decoder's own text (the Python tool printed expat's). The prefix, the artifact-relative path and the
+  `status:"failed"` / exit 1 behaviour are unchanged. Go checks single root, no junk after the root and
+  duplicate attributes explicitly; an unbound namespace prefix is not rejected.
+- The first `limitations[]` entry still says `MemoryError is caught`; the text is kept byte-identical for
+  consumers of the document, but Go cannot catch an out-of-memory condition, so a pathological XML tree
+  within the 16 MiB cap can terminate the process instead.
+- Long options accept argparse-style unique prefixes (`--inp`, `--out`); a single-dash form (`-input`)
+  is also accepted by the Go flag parser.
+
 ## One-Line Bounds
 
 Input directory: max 500 artifact subdirs. Per-artifact reads: `module.palette` capped at

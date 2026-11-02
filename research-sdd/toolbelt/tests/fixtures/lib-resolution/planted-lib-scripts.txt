@@ -6,6 +6,7 @@ ensure-remote.sh
 install/research-sdd-install.sh
 java-fidelity-experiment.sh
 lint-block.sh
+palette-lexicon-agents.sh
 merge-gate.sh
 migrate-backlogs.sh
 qnx6-read.sh
