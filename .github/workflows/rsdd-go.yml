@@ -15,7 +15,7 @@ on:
       - ".github/workflows/rsdd-go.yml"
       - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
       - "research-sdd/toolbelt/tests/lib/mutant.sh"
-  # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty off pull_request).
+  # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty on schedule/dispatch).
   # The toolbelt nightly used to cover this through its core tier; the suite is now `dedicated` (suite-tiers.txt).
   schedule:
     - cron: "47 3 * * *"
@@ -76,18 +76,33 @@ jobs:
     # It used to run inside every toolbelt shard run (469-729 s, 10 of 14 measured toolbelt failures) even when no
     # Go file changed. Same environment it had there.
     runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
-    timeout-minutes: 25
+    # pull_request and push scope gremlins to the changed packages (fits 25 min); schedule/workflow_dispatch run the whole
+    # module: a verify-only whole-module run measured 2h54m locally (4 CPUs, heavy-run caps, 2026-11-02), so it gets
+    # 360 min (GitHub's maximum, ~2x margin) instead of sharding the suite, which has no shard mode.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 25 }}
     env:
       # A missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage (CLAUDE.md section 7).
       RSDD_REQUIRE_GO: "1"
       # Kit issue #2381: on a pull_request, gremlins runs only on the Go packages changed since the merge base with
-      # the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
+      # the target branch. On push the step below sets it to the pushed range; empty on schedule/dispatch, which keeps
+      # the whole-module run.
       RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
     steps:
       - uses: actions/checkout@v5
         with:
-          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          # Full history on a pull_request or push so origin/<base> / github.event.before and their merge base with HEAD
+          # resolve (RSDD_TEETH_BASE).
+          fetch-depth: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '0' || '1' }}
+      - name: Scope teeth to the pushed range (push)
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A first push (all-zero sha) or a force push leaves `before` unresolvable: fall back to the parent commit.
+          base="$BEFORE"
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base="$(git rev-parse HEAD~1)"; fi
+          echo "RSDD_TEETH_BASE=$base" >> "$GITHUB_ENV"
+          echo "teeth base for this push: $base"
       - uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
