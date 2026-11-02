@@ -50,12 +50,12 @@ func drainDiagnostic(src *os.File, target string, b *budget, exceeded *atomic.Bo
 	buf := make([]byte, 64*1024)
 	for {
 		n, rerr := src.Read(buf)
-		if n > 0 {
-			kept := b.take(n)
-			_, _ = out.Write(buf[:kept])
-			if kept != n {
-				exceeded.Store(true)
-			}
+		// A read of n == 0 bytes needs no guard: take(0) keeps 0 (the budget is never negative), the write is empty and
+		// kept == n, so exceeded is untouched. The unguarded form has no n == 0 boundary to flip.
+		kept := b.take(n)
+		_, _ = out.Write(buf[:kept])
+		if kept != n {
+			exceeded.Store(true)
 		}
 		if rerr != nil {
 			return

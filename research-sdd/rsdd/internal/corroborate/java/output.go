@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -170,9 +171,10 @@ func (e *env) outputInventory(stage, output string, maxFiles, maxBytes int64) ([
 	if err != nil {
 		return nil, false, err
 	}
-	sort.SliceStable(dirs, func(i, j int) bool {
-		return strings.Count(dirs[i], "/") > strings.Count(dirs[j], "/")
-	})
+	// walk lists a directory before everything below it (filepath.WalkDir is pre-order), so the reverse order removes
+	// every directory after all of its descendants: the same deepest-first removal the depth sort gave, with no
+	// comparator whose equal-depth case could matter.
+	slices.Reverse(dirs)
 	for _, d := range dirs {
 		_ = os.Remove(d) // a directory that still holds something stays
 	}
