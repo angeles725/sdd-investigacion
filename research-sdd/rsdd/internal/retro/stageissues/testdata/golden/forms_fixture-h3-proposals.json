@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: Retro-debt counter in the loop state\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Retro-debt counter in the loop state\n    \n    **Target:** \n    **Evidence:** Track blocks_since_retro in the state file and return a typed\n    \n    ---\n    Source retro: target-foo/retros/r.md · 1\n    Part of backlog-first rollout #557\n  redactions: 0\n\nplanned-issue: Incremental retro-debt sink\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Incremental retro-debt sink\n    \n    **Target:** \n    **Evidence:** Each block appends one line to a running debt file at close.\n    \n    ---\n    Source retro: target-foo/retros/r.md · 2\n    Part of backlog-first rollout #557\n  redactions: 0\n\nplanned-issue: Cadence hook\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Cadence hook\n    \n    **Target:** \n    **Evidence:** The self-paced reschedule step inserts a retro iteration when due.\n    \n    ---\n    Source retro: target-foo/retros/r.md · 3\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 3 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}
