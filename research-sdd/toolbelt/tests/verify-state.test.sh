@@ -3817,7 +3817,7 @@ stage_vs "$TMP/vs1"
 out="$(bash "$TMP/vs1/verify-state.sh" "$d" 2>&1)"
 if ! grep -q 'gap-drift: degraded' <<<"$out"; then ok "SHIM-1 the shim hands its own directory over: check-gap-drift.sh is found beside it"
 else no "SHIM-1 gap-drift reported missing :: $(grep gap-drift <<<"$out")"; fi
-mkdir -p "$TMP/vs2/lib"; cp "$SUT" "$TMP/vs2/verify-state.sh"; cp "$HERE/../lib/rsdd-exec.sh" "$TMP/vs2/lib/"
+mkdir -p "$TMP/vs2"; rsdd_stage_libs "$TMP/vs2"; cp "$SUT" "$TMP/vs2/verify-state.sh"
 out="$(bash "$TMP/vs2/verify-state.sh" "$d" 2>&1)"
 if grep -q 'gap-drift: degraded — check-gap-drift.sh not found' <<<"$out"; then ok "SHIM-2 no check-gap-drift.sh beside the shim → typed degraded WARN, never a silent pass"
 else no "SHIM-2 missing checker not reported :: $out"; fi
