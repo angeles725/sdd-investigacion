@@ -54,7 +54,7 @@ func realDeps() deps {
 	return deps{run: procRun, stream: streamRun, gh: GH{Run: gh.Run, Probe: gh.Probe}, hasTool: onPath}
 }
 
-// The bash runs git and the scanner unbounded. Every run is bounded here, long enough that no sane corpus hits it;
+// The bash runs git and the scanner unbounded. Every run except the final `git push` is bounded here, long enough that no sane corpus hits it;
 // a bound hit reads as exit 124, which every caller treats as a failure (fail closed).
 const (
 	shortBound = 10 * time.Minute
