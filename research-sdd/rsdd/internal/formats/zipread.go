@@ -14,8 +14,8 @@ import (
 
 // This file is a small reusable classic-ZIP reader: the central directory (with the EOCD search), the local
 // header, and a bounded, CRC-checked member reader for STORED and DEFLATE entries. It is the port of
-// zip_metadata.inventory and of the local-header handling of zip_stored.inspect; the two commands in
-// zipmetadata.go and zipstored.go are thin callers.
+// zip_metadata.inventory and of the local-header handling of zip_stored.inspect (the retired Python tools, frozen
+// under testdata/zip/legacy); the two commands in zipmetadata.go and zipstored.go are thin callers.
 //
 // Follow-up: internal/niagara/bog (PR #2404) carries a second zip member reader built on archive/zip. The
 // two should be folded into ONE shared reader (this one, or that one); the exported surface here is the

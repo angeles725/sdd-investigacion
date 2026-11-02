@@ -44,7 +44,7 @@ access. ZIP64, spanning, damaged-archive recovery, and unknown methods are unsup
 ## Intended differences from the Python tool
 
 The tool is now `rsdd formats zip-stored` (Go, kit issue #2416); `zip-stored.sh` is a compatibility shim. Outputs are
-byte-identical to the former `zip_stored.py` for the report, the staged files and the modes; the legacy parser is the
+byte-identical to the former `zip_stored.py` for the report, the staged files and the modes; the legacy parser, frozen under `rsdd/internal/formats/testdata/zip/legacy/`, is the
 oracle of the Go parity tests over every fixture and every single-byte corruption of them. The differences:
 
 - Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes), `-h`

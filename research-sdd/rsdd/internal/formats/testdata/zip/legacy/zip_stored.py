@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 import zip_metadata as zm
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[6] / "toolbelt"))  # frozen copy: lib/ still lives in the toolbelt
 from lib.adapter_core import refuse_privileged_execution
 from lib.isolation_profile import PROFILE_INPROCESS_ZIP_STORED
 
