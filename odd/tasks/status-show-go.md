@@ -15,7 +15,7 @@ Each spec is the verbatim slice-table row of issue #2549 (columns: slice, script
 - S8: S8 | `rsdd_exec` shim, differential against the frozen script, suite reduction | ~300 + deletions | all, with the cases that have no Go equivalent kept |
 
 ## Tasks
-- [ ] T1 (S1) route: delegated — commit: pending
+- [x] T1 (S1) route: delegated — commits: 964ab5c0 (frozen head + goldens), b94b0ca7 (args, pick, --emit-token), 686dda46 (is_blocked); RED: replay failed on a stub (rc 99) for all 114 scenarios and is_blocked stub (rc 7) failed the replay
 - [ ] T2 (S2) route: inline — commit: pending
 - [ ] T3 (S3) route: inline — commit: pending
 - [ ] T4 (S4) route: inline — commit: pending
