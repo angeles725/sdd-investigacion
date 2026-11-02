@@ -13,7 +13,7 @@ import (
 // allCases is the scenario table shared by the differential and the golden test. The groups live in cases_*.go.
 func allCases() []dcase {
 	var all []dcase
-	for _, g := range [][]dcase{casesInput(), casesStatus(), casesForms(), casesTitles(), casesRepo(), casesApply(), casesOccurrence()} {
+	for _, g := range [][]dcase{casesInput(), casesStatus(), casesForms(), casesTitles(), casesRepo(), casesApply(), casesOccurrence(), casesTracker(), casesScrub()} {
 		all = append(all, g...)
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].name < all[j].name })
