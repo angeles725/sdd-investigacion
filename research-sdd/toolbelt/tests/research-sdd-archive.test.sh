@@ -244,7 +244,7 @@ else no "dangling-symlink: $(grep -i catalog <<<"$out" | head -1)"; fi
 d="$TMP/kitgofail"; mkgood "$d"; printf 'STALE CATALOG\n' > "$d/CATALOG.md"
 printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/failing-rsdd"; chmod +x "$TMP/failing-rsdd"
 out="$(RSDD_BIN="$TMP/failing-rsdd" bash "$SUT" "$d" 2>&1)"; rc=$?
-if [ "$(cat "$d/CATALOG.md")" = "STALE CATALOG" ] && grep -q 'ERROR — kit generator (rsdd corpus catalog) failed' <<<"$out" \
+if [ "$rc" = 0 ] && [ "$(cat "$d/CATALOG.md")" = "STALE CATALOG" ] && grep -q 'ERROR — kit generator (rsdd corpus catalog) failed' <<<"$out" \
    && ! grep -q 'gen-catalog.py failed' <<<"$out" && grep -q 'run: rsdd corpus catalog ' <<<"$out"; then
   ok "failing Go command: error names 'rsdd corpus catalog', CATALOG.md left stale, rerun hint printed (rc=$rc)"
 else no "kit-go-fail rc=$rc catalog=$(head -1 "$d/CATALOG.md") :: $(grep -i catalog <<<"$out" | head -2 | tr '\n' '|')"; fi
