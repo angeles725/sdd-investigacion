@@ -282,8 +282,9 @@ func TestJqQuoteMatchesJQ(t *testing.T) {
 }
 
 // TestFindStatesByteOrder pins the walk order: byte order within each directory, a directory's subtree before the
-// next entry, whatever order the filesystem returns (#2477). Names are created in reverse so creation order and
-// byte order disagree.
+// next entry, whatever order the filesystem returns (#2477). The files are created in a shuffled order whose root
+// entries (c, zz, a, sub, e, RESEARCH-STATE.md, b, d) are neither byte order nor its reverse, so a filesystem
+// that lists by creation (ext4 without dir_index) or newest-first (tmpfs) cannot hand back byte order by chance.
 func TestFindStatesByteOrder(t *testing.T) {
 	d := t.TempDir()
 	rel := []string{
@@ -291,7 +292,7 @@ func TestFindStatesByteOrder(t *testing.T) {
 		"RESEARCH-STATE-e.md", "RESEARCH-STATE.md", "sub/RESEARCH-STATE-ui.md", "sub/deeper/RESEARCH-STATE.md",
 		"zz/RESEARCH-STATE-z.md",
 	}
-	for i := len(rel) - 1; i >= 0; i-- {
+	for _, i := range []int{2, 8, 0, 7, 4, 5, 6, 1, 3} {
 		sdWrite(t, filepath.Join(d, rel[i]), "x")
 	}
 	got := fsView{cwd: d}.findStates(d)
