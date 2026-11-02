@@ -1,0 +1,1 @@
+{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash -c \"/nope/retro-gate-stop.sh && echo ok\""}]}]}}

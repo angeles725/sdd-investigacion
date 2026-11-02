@@ -1,0 +1,5 @@
+{
+  "legacy": ["rsdd/internal/hook/testdata/legacy/driver.sh", "cli-wiring-state", "{{input}}"],
+  "rsdd": ["hook", "wiring-state", "{{input}}"],
+  "env": {"RSDD_HOOK_WIRING_CEILING": "{{sandbox}}"}
+}
