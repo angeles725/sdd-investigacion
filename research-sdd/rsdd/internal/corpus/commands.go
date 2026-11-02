@@ -10,5 +10,5 @@ import (
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
 var Commands = []cli.Command{
-	{Name: "ensure-remote", Group: "corpus", Summary: "create a PRIVATE-by-construction GitHub remote for a corpus and push it", Run: ensureremote.Run},
+	{Name: "ensure-remote", Group: "corpus", Summary: "create a PRIVATE-by-construction GitHub remote for a corpus and push it", Run: ensureremote.Run, PlainExit3: true}, // 3 = no consent (bash contract), not degraded
 }
