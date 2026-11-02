@@ -1,8 +1,10 @@
 # Measured per-suite seconds, read by run-all.sh --shard I/N to balance the CI shards by duration (kit issue #2488).
 #
 # Format: "<repo-relative suite path> <seconds>", one suite per line ('#' comments and blank lines ignored). Parsed
-# strictly: a line that is not "<path> <positive integer>", a duplicate, or a path that names no discovered suite is a
-# typed `Shard: INVALID` and exits 1 BEFORE any suite runs (a renamed suite must not silently lose its weight). A selected
+# strictly: a line that is not "<path> <positive integer>" or a duplicate is a typed `Shard: INVALID` and exits 1 BEFORE
+# any suite runs. An entry whose path names no discovered suite (a suite renamed or removed, which port PRs do all the
+# time) is NOT invalid: it is ignored and named on one aggregate line `Shard: stale duration entries N — [paths]`, exit
+# unaffected; a stale weight costs balance, never correctness, so deleting a suite need not touch this file. A selected
 # suite listed here is weighted by its seconds; one that is not listed weighs 6 s (the measured median) and is named on
 # stderr. An absent/unreadable/empty file is a typed `Shard: DEGRADED` note and the round-robin-by-name assignment.
 # Only --shard reads this file; the weights steer WHICH shard runs a suite, never WHETHER it runs (shard-join.sh still

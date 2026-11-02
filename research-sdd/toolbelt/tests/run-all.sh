@@ -43,8 +43,10 @@
 #                    line) weights each suite; suites go longest-first (ties by path) to the least-loaded shard
 #                    (ties: lowest shard number), a disjoint, complete cover of the list for every N. A selected
 #                    suite the manifest omits weighs 6 s and is named on stderr; an invalid line (not "<path>
-#                    <positive integer>", a duplicate, a path naming no suite) is `Shard: INVALID` and exits 1
-#                    before any suite runs; an absent/unreadable/empty manifest is a `Shard: DEGRADED` note and
+#                    <positive integer>" or a duplicate) is `Shard: INVALID` and exits 1 before any suite runs; an
+#                    entry naming no discovered suite (a renamed or removed suite) is ignored and named on one
+#                    aggregate line `Shard: stale duration entries N — [paths]`, exit unaffected;
+#                    an absent/unreadable/empty manifest is a `Shard: DEGRADED` note and
 #                    the older assignment (position k (0-based) in the sorted list belongs to shard (k mod N) + 1). Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
 #                    (#1126/#1144) still judge the FULL discovered set. The aggregate gains one
 #                    `Shard: I/N — K of T suites` line; K = 0 (N > T) is reported as EMPTY SHARD and exits 1
@@ -730,14 +732,16 @@ if [[ -n "$SHARD_N" ]]; then
   # ("<repo-relative suite path> <seconds>"; '#' comments and blank lines ignored). Suites are assigned greedily,
   # longest first (ties: path, LC_ALL=C), to the least-loaded shard (ties: lowest shard number), so the cover of the
   # selected list stays disjoint and complete for every N and is the same on every shard. Strict like suite-tiers.txt:
-  # a line that is not "<path> <positive integer>", a duplicate, or a path naming no discovered suite is a typed
-  # `Shard: INVALID` and exits 1 BEFORE any suite runs. An absent/unreadable/empty manifest is a typed
+  # a line that is not "<path> <positive integer>" or a duplicate is a typed
+  # `Shard: INVALID` and exits 1 BEFORE any suite runs; a path naming no discovered suite (stale weight) is ignored and named
+  # on one aggregate line. An absent/unreadable/empty manifest is a typed
   # `Shard: DEGRADED` note and the previous round-robin-by-name assignment (still a disjoint cover; no exit change).
   # SENTINEL-SHARD-DURATIONS
   SHARD_DEFAULT_WEIGHT=6   # seconds for a selected suite the manifest does not list (the measured median)
   SHARD_DURATIONS="$SCRIPT_DIR/suite-durations.txt"
   declare -A _sw=()
   _sd_invalid=()
+  _sd_stale=()
   if [[ ! -e "$SHARD_DURATIONS" ]]; then
     SHARD_DEGRADED="suite-durations.txt absent"
   elif [[ ! -f "$SHARD_DURATIONS" || ! -r "$SHARD_DURATIONS" ]]; then
@@ -758,12 +762,15 @@ if [[ -n "$SHARD_N" ]]; then
       elif [[ "${_sw[$_sd_path]+set}" == "set" ]]; then
         _sd_invalid+=("line $_sd_n: '$_sd_path' is listed twice")
       elif [[ "${_rel_known[$_sd_path]+set}" != "set" ]]; then
-        _sd_invalid+=("line $_sd_n: '$_sd_path' names no discovered suite (renamed or removed?)")
+        # A stale weight (suite renamed or removed, which port PRs do all the time) costs balance, never correctness:
+        # ignored and named on one aggregate line, not INVALID.
+        _sd_stale+=("$_sd_path")
       else
         _sw["$_sd_path"]="$_sd_sec"
       fi
     done < "$SHARD_DURATIONS"
-    [[ ${#_sd_invalid[@]} -gt 0 || ${#_sw[@]} -gt 0 ]] || SHARD_DEGRADED="suite-durations.txt lists no suite"
+    [[ ${#_sd_invalid[@]} -gt 0 || ${#_sw[@]} -gt 0 || ${#_sd_stale[@]} -gt 0 ]] || SHARD_DEGRADED="suite-durations.txt lists no suite"
+    if [[ ${#_sd_invalid[@]} -eq 0 && ${#_sw[@]} -eq 0 && ${#_sd_stale[@]} -gt 0 ]]; then SHARD_DEGRADED="suite-durations.txt lists no discovered suite"; fi
   fi
   if [[ ${#_sd_invalid[@]} -gt 0 ]]; then
     for _si in "${_sd_invalid[@]}"; do echo "Shard: INVALID — $SHARD_DURATIONS $_si" >&2; done
@@ -1764,6 +1771,7 @@ if [[ -n "$SHARD_N" ]]; then
     echo "Shard: EMPTY SHARD — $SHARD_I/$SHARD_N selected 0 of $total_suites suites (N exceeds the suite count); nothing ran, so this shard is not a pass"
   fi
   if [[ -n "$SHARD_DEGRADED" ]]; then echo "Shard: DEGRADED — $SHARD_DEGRADED; round-robin by name"; else echo "$SHARD_BALANCE_LINE"; fi
+  [[ ${#_sd_stale[@]} -eq 0 ]] || echo "Shard: stale duration entries ${#_sd_stale[@]} — [$(printf '%s\n' "${_sd_stale[@]}" | paste -sd, - | sed 's/,/, /g')]"
   [[ -z "$SHARD_MANIFEST" ]] || echo "Shard manifest: $SHARD_MANIFEST"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then

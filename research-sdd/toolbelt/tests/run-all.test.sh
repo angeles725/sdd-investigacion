@@ -3008,10 +3008,22 @@ negative-first|$TR/t1.test.sh -3|$TR/t2.test.sh 5|# c
 float-middle|# a|$TR/t2.test.sh 1.5|# c
 extra-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/t3.test.sh 5 seconds
 dup-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/t1.test.sh 7
-unknown-first|$TR/gone.test.sh 5|$TR/t2.test.sh 5|# c
-unknown-middle|$TR/t1.test.sh 5|$TR/gone.test.sh 5|$TR/t3.test.sh 5
-unknown-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/gone.test.sh 5
 EOF2
+# stale entries (a path naming no discovered suite) are NOT invalid: ignored, named on ONE aggregate line, exit and assignment unaffected
+sbad=""
+for pos in first middle last; do
+  w="$(dur_tree "c41stale-$pos")"; dur_std "$w"; cp "$w/suite-durations.txt" "$w/std.txt"
+  case "$pos" in
+    first)  { echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; cat "$w/std.txt"; } > "$w/suite-durations.txt" ;;
+    middle) { head -n 3 "$w/std.txt"; echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; tail -n +4 "$w/std.txt"; } > "$w/suite-durations.txt" ;;
+    last)   { cat "$w/std.txt"; echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; } > "$w/suite-durations.txt" ;;
+  esac
+  out="$(bash "$w/run-all.sh" --shard 1/2 2>&1)"; rc=$?; s1="$(dur_set "$w" 1/2)"; s2="$(dur_set "$w" 2/2)"
+  { [ "$rc" -eq 0 ] && [ "$s1" = "t1.test.sh,t4.test.sh,t5.test.sh,t8.test.sh" ] && [ "$s2" = "i1.test.sh,t2.test.sh,t3.test.sh,t6.test.sh,t7.test.sh" ] \
+    && grep -qxF "Shard: stale duration entries 2 — [$TR/gone1.test.sh, $TR/gone2.test.sh]" <<<"$out" && ! grep -qF 'Shard: INVALID' <<<"$out"; } || sbad="$sbad [$pos rc=$rc s1=[$s1] line=[$(grep -E '^Shard: stale' <<<"$out")]]"
+done
+[ -z "$sbad" ] && ok "shard durations stale: entries naming no discovered suite (first / middle / last) are ignored and named on one aggregate line — exit 0, assignment unchanged, no INVALID" || no "shard durations stale:$sbad"
+
 w="$(dur_tree c41plain)"; dur_man "$w" "$TR/t1.test.sh nope"
 out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; lout="$(bash "$w/run-all.sh" --list-suites 2>&1)"; lrc=$?
 { [ "$rc" -eq 0 ] && [ "$lrc" -eq 0 ] && ! grep -qF 'Shard:' <<<"$out$lout"; } || bad="$bad [plain run read the manifest rc=$rc lrc=$lrc]"
@@ -3103,8 +3115,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
                 [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
       dup)      dur_man "$t" "$TR/t1.test.sh 5" "$TR/t1.test.sh 7"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
                 [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
-      unknown)  dur_man "$t" "$TR/gone.test.sh 5" "$TR/t2.test.sh 5"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
-                [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      unknown)  { echo "$TR/gone.test.sh 5"; cat "$t/suite-durations.txt"; } > "$t/sd.tmp"; cp "$t/sd.tmp" "$t/suite-durations.txt"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 0 ] && grep -qxF "Shard: stale duration entries 1 — [$TR/gone.test.sh]" <<<"$out" && echo held || echo "broken rc=$rc" ;;
       extra)    dur_man "$t" "$TR/t1.test.sh 5 sec"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
                 [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
       degraded) rm -f "$t/suite-durations.txt"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"
@@ -3135,7 +3147,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   dur_tooth seconds-check noseconds 's/^      if \[\[ -z "\$_sd_sec" \]\]; then$/      if false; then/'
   dur_tooth positive-int zero 's/^      elif \[\[ ! "\$_sd_sec" =~ \^\[1-9\]\[0-9\]{0,5}\$ \]\]; then$/      elif false; then/'
   dur_tooth dup-check dup 's/^      elif \[\[ "\${_sw\[\$_sd_path\]+set}" == "set" \]\]; then$/      elif false; then/'
-  dur_tooth unknown-check unknown 's/^      elif \[\[ "\${_rel_known\[\$_sd_path\]+set}" != "set" \]\]; then$/      elif false; then/'
+  dur_tooth stale-ignored unknown 's/_sd_stale+=("\$_sd_path")/_sd_invalid+=("line \$_sd_n: stale")/'
   dur_tooth extra-check extra 's/^      elif \[\[ -n "\$_sd_extra" \]\]; then$/      elif false; then/'
   dur_tooth degraded-note degraded 's/Shard: DEGRADED — \$SHARD_DEGRADED; assigning round-robin/Shard: degraded — $SHARD_DEGRADED; assigning round-robin/'
   dur_tooth unlisted-note unlisted 's/not in suite-durations.txt, weighted/not in the manifest, weighted/'
