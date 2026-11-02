@@ -122,7 +122,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          cache: false # go.mod-only keys never refresh (no go.sum); the explicit cache step below is keyed on the Go sources (kit issue #2488)
+
+      - name: Cache Go build and module caches
+        # run-all.sh builds the rsdd binary once per shard; a warm GOCACHE turns that into a link step.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-toolbelt-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-toolbelt-
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE

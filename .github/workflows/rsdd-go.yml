@@ -46,7 +46,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          # The module has no go.sum, so setup-go's own cache (keyed on go.mod) never refreshed ("Cache hit occurred on
+          # the primary key ... not saving cache"). The explicit cache step below is keyed on the Go sources (kit issue #2488).
+          cache: false
+      - name: Cache Go build and module caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # One key family per job: a shared key would let the first job to save win and starve the others of their own artifacts.
+          key: ${{ runner.os }}-go-check-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-check-
       - name: gofmt
         run: make fmt-check
       - name: go vet
@@ -79,6 +91,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          cache: false # see the rsdd-go job: go.mod-only keys never refresh (kit issue #2488)
+      - name: Cache Go build and module caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-bridge-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-bridge-
       - name: rsdd-go.test.sh with mutation teeth
         run: bash research-sdd/toolbelt/tests/rsdd-go.test.sh --prove-teeth
