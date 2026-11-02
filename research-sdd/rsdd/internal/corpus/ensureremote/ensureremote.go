@@ -24,8 +24,9 @@
 // Differences from the bash, none of them a loosened guard:
 //   - the command is `rsdd corpus ensure-remote`; the shim passes --toolbelt (its own directory) as the VERY FIRST
 //     argument so the sibling scan-secrets.sh is found beside the shim. Anywhere else --toolbelt is an unknown flag
-//     (exit 2), as in the bash where the scanner can never be swapped. Calling `rsdd corpus ensure-remote` directly,
-//     without --toolbelt, resolves the kit as for every ported command, so the scanner is that kit's;
+//     (exit 2), as in the bash where the scanner can never be swapped. A call without --toolbelt is refused (exit 2,
+//     before any git or gh call), and a --toolbelt directory without ensure-remote.sh is refused (exit 7): the
+//     scanner is only ever the one beside the shim, never one found through RESEARCH_SDD_KIT;
 //   - the exit-3 (no consent) path gets one extra `DEGRADED: command reported a degraded state without a reason`
 //     stderr line from the rsdd dispatcher; it is a declared divergence (parity case er-no-consent);
 //   - the "looks like text" test uses the ASCII class [[:alnum:]], stricter than the locale-dependent bash one;
@@ -51,7 +52,6 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/gh"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // Exit statuses of the legacy script.
@@ -160,6 +160,10 @@ func execute(args []string, s cli.Stdio, d deps) int {
 		return c.refuse(exitUsage, usageLine)
 	}
 	c.target = filepath.Clean(target)
+	if toolbelt == "" {
+		// The scanner is only ever the one beside the shim: no RESEARCH_SDD_KIT or default-checkout fallback.
+		return c.refuse(exitUsage, "REFUSED: --toolbelt DIR missing — run toolbelt/ensure-remote.sh; the secret scanner is only the one beside that script.")
+	}
 
 	// the target must already be a git repo (research-sdd-init.sh runs `git init` in it)
 	if o := c.git("rev-parse", "--git-dir"); o.RC != 0 {
@@ -311,17 +315,13 @@ func (c *command) seedGitignore() {
 
 // scan is LAYER 4b: the pre-push secret sweep (fail closed: no scanner means we cannot verify, so we refuse).
 func (c *command) scan(toolbelt string) int {
-	var scan string
-	if toolbelt != "" {
-		if !filepath.IsAbs(toolbelt) {
-			toolbelt = filepath.Join(c.s.Cwd, toolbelt)
-		}
-		scan = filepath.Join(toolbelt, "scan-secrets.sh")
-	} else if p, _, err := kit.ResolveKitScript("toolbelt/scan-secrets.sh", kit.Getenv(c.s.Env)); err == nil {
-		scan = p
-	} else {
-		return c.refuse(exitTooling, "REFUSED: scan-secrets.sh not found (pass --toolbelt DIR or set RESEARCH_SDD_KIT) — cannot verify committed content before push.")
+	if !filepath.IsAbs(toolbelt) {
+		toolbelt = filepath.Join(c.s.Cwd, toolbelt)
 	}
+	if fi, err := os.Stat(filepath.Join(toolbelt, "ensure-remote.sh")); err != nil || !fi.Mode().IsRegular() {
+		return c.refuse(exitTooling, "REFUSED: "+toolbelt+" holds no ensure-remote.sh — the secret scanner must sit beside that script.")
+	}
+	scan := filepath.Join(toolbelt, "scan-secrets.sh")
 	if fi, err := os.Stat(scan); err != nil || !fi.Mode().IsRegular() {
 		return c.refuse(exitTooling, "REFUSED: scan-secrets.sh not found at "+scan+" — cannot verify committed content before push.")
 	}

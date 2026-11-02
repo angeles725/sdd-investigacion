@@ -535,24 +535,29 @@ func TestScannerMissing(t *testing.T) {
 	}
 }
 
-func TestScannerFromTheKitWhenNoToolbeltFlag(t *testing.T) {
+// The scanner is only ever the one beside the shim (kit issue #2460, verifier finding 2): a direct call without
+// --toolbelt is refused before any git or gh call, even when RESEARCH_SDD_KIT names a kit with a scanner.
+func TestDirectCallWithoutToolbeltIsRefused(t *testing.T) {
 	w := newWorld(t)
 	kit := filepath.Join(w.root, "kit")
 	os.MkdirAll(filepath.Join(kit, "toolbelt"), 0o755)
 	os.WriteFile(filepath.Join(kit, "toolbelt", "scan-secrets.sh"), []byte("#!/bin/sh\n"), 0o755)
 	w.env["RESEARCH_SDD_KIT"] = kit
 	rc := execute([]string{w.target, "--yes"}, w.stdio(), w.deps())
-	if rc != 0 || !w.called("bash "+kit+"/toolbelt/scan-secrets.sh --committed "+w.target) {
+	want := "REFUSED: --toolbelt DIR missing — run toolbelt/ensure-remote.sh; the secret scanner is only the one beside that script.\n"
+	if rc != 2 || w.err() != want || len(w.calls) != 0 || w.created() {
 		t.Errorf("rc=%d err=%q calls=%v", rc, w.err(), w.calls)
 	}
 }
 
-func TestNoToolbeltAndNoKit(t *testing.T) {
+// A --toolbelt directory that does not hold the shim cannot supply the scanner: refused, nothing scanned or pushed.
+func TestToolbeltWithoutTheShimIsRefused(t *testing.T) {
 	w := newWorld(t)
-	w.env["HOME"] = w.root // no default kit checkout under it
-	rc := execute([]string{w.target, "--yes"}, w.stdio(), w.deps())
-	if rc != 7 || !strings.HasPrefix(w.err(), "REFUSED: scan-secrets.sh not found") || w.created() {
-		t.Errorf("rc=%d err=%q", rc, w.err())
+	os.Remove(filepath.Join(w.toolbelt, "ensure-remote.sh"))
+	rc := w.ok()
+	want := "REFUSED: " + w.toolbelt + " holds no ensure-remote.sh — the secret scanner must sit beside that script.\n"
+	if rc != 7 || w.err() != want || w.called("bash ") || w.created() {
+		t.Errorf("rc=%d err=%q calls=%v", rc, w.err(), w.calls)
 	}
 }
 

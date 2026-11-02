@@ -4,6 +4,8 @@
  ],
  "rsdd": [
   "corpus",
-  "ensure-remote"
+  "ensure-remote",
+  "--toolbelt",
+  "{{input}}"
  ]
 }
