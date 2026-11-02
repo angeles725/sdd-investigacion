@@ -85,7 +85,7 @@ func hasTranscript(dir string) bool {
 		return false
 	}
 	defer f.Close()
-	names, _ := f.Readdirnames(-1) // entries read before an error still count, like a partial glob
+	names, _ := f.Readdirnames(0) // n <= 0 reads every entry; entries read before an error still count, like a partial glob
 	for _, n := range names {
 		if !strings.HasPrefix(n, ".") && strings.HasSuffix(n, ".jsonl") {
 			return true
