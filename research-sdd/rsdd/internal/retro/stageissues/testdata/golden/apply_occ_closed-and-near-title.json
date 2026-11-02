@@ -1,0 +1,11 @@
+{
+  "rc": 0,
+  "stdout": "redactions: 0 (row 1)\ncreated: https://github.com/r/issues/99 (row 1)\nmutation_outcome: confirmed (row 1)\nunclassifiable-items: 0 (none: 1 row(s) examined)\nsummary: created=1 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=0\nmutation-summary: confirmed=1 no_write=0 unknown=0\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\ngh label list --repo test-owner/test-kit --search target:target-foo --limit 100 --json name\ngh issue create --repo test-owner/test-kit --title first delta of the retro --label status:needs-review --label target:target-foo --label type:feature --label priority:high --body first delta of the retro\n\n**Target:** CLAUDE.md\n**Evidence:** B1\n\n---\nSource retro: target-foo/retros/r.md · 1\nPart of backlog-first rollout #557\ngh issue view 99 --repo test-owner/test-kit --json body --jq .body\n",
+  "state": {
+    "body": "first delta of the retro\n\n**Target:** CLAUDE.md\n**Evidence:** B1\n\n---\nSource retro: target-foo/retros/r.md · 1\nPart of backlog-first rollout #557",
+    "occ": "[{\"number\":9,\"state\":\"CLOSED\",\"title\":\"first delta of the retro\"},{\"number\":8,\"state\":\"OPEN\",\"title\":\"first delta of the retro x\"}]\n",
+    "occn": "1\n"
+  }
+}
