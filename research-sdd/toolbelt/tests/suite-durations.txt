@@ -28,7 +28,6 @@ research-sdd/toolbelt/tests/ci-workflow-doc-consistency.test.sh 3
 research-sdd/toolbelt/tests/ci-workflow-lint-substitution.test.sh 1
 research-sdd/toolbelt/tests/corpus-markers.test.sh 1
 research-sdd/toolbelt/tests/corroborate-ghidra.test.sh 1
-research-sdd/toolbelt/tests/corroborate-ifc.test.sh 1
 research-sdd/toolbelt/tests/corroborate-native-r2.test.sh 1
 research-sdd/toolbelt/tests/coverage-map.test.sh 5
 research-sdd/toolbelt/tests/decompile-java.test.sh 193
