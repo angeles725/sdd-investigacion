@@ -97,8 +97,9 @@ func CheckOracleTags(root string, allow map[string]string) (OracleResult, error)
 // MatchFile applies both the //go:build line and the _GOOS/_GOARCH file-name
 // suffix, exactly as the go command does.
 var teethBuild = func() build.Context {
-	c := build.Default
-	c.GOOS, c.GOARCH, c.BuildTags = "linux", "amd64", []string{"nodiff"}
+	c := build.Default // only for ReleaseTags (go1.N), which follow the toolchain
+	c.GOOS, c.GOARCH, c.Compiler, c.BuildTags = "linux", "amd64", "gc", []string{"nodiff"}
+	c.CgoEnabled, c.ToolTags = false, nil // never the host's CGO_ENABLED or GOEXPERIMENT
 	return c
 }()
 
