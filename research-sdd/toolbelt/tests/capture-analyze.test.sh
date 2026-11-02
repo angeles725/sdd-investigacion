@@ -3,6 +3,8 @@
 # RED: exits 2 (SUT not found) before lib/capture_analyze.py exists.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# The real toolbelt: the teeth mini-tree stages only *.py, so T-DEFAULTS looks for the shims here.
+export CA_REAL_TOOLBELT="$HERE/.."
 ROOT="$HERE/.."
 if [ "${1:-}" = "--teeth-child" ]; then   # argument-selected SUT for the mutation teeth (fails closed below)
   ARG="${2:-}"
@@ -138,7 +140,17 @@ try:
     ok("T-STATIC: no 'import corroborate_pcap/pcap_flows' in capture_exec or capture_analyze")
 except Exception as e: nok("T-STATIC", str(e))
 
-# ── T-BEHAVIORAL: argv[0]==sys.executable, argv[1] endswith analyzer script path ─────
+# ── T-DEFAULTS: the default analyzers are the executable rsdd shims (the .py tools are gone, #2485) ──
+try:
+    for d in (m._DEFAULT_CORROBORATE, m._DEFAULT_PCAP_FLOWS):
+        name = os.path.basename(d)
+        assert name in ("corroborate-pcap.sh", "pcap-flows.sh"), f"default analyzer {d!r} is not a shim"
+        real = os.path.join(os.environ["CA_REAL_TOOLBELT"], name)
+        assert os.path.isfile(real) and os.access(real, os.X_OK), f"default analyzer {real!r} missing or not executable"
+    ok("T-DEFAULTS: default analyzers are existing executable .sh shims")
+except Exception as e: nok("T-DEFAULTS", str(e))
+
+# ── T-BEHAVIORAL: argv[0] is the analyzer itself (exec-of-file, no interpreter prefix) ─────
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td)
     pcap = tmp / "test.pcap"; pcap.write_bytes(PCAP_MAGIC)
@@ -150,9 +162,9 @@ with tempfile.TemporaryDirectory() as td:
         assert res.get("attempted") is True, f"attempted={res.get('attempted')}"
         for entry in res.get("analyzers", []):
             argv = entry["argv"]
-            assert argv[0] == sys.executable, f"argv[0]={argv[0]!r} != sys.executable"
-            assert argv[1].endswith(".py"), f"argv[1]={argv[1]!r} not a .py script"
-        ok("T-BEHAVIORAL: argv[0]==sys.executable AND argv[1] endswith .py (exec-of-file)")
+            assert argv[0] == stub, f"argv[0]={argv[0]!r} != analyzer {stub!r}"
+            assert argv[1] == "--input", f"argv[1]={argv[1]!r} != '--input'"
+        ok("T-BEHAVIORAL: argv[0] is the analyzer and argv[1] is --input (exec-of-file)")
     except Exception as e: nok("T-BEHAVIORAL", str(e))
     finally: _restore_env(old)
 
@@ -295,6 +307,7 @@ if mutant_py_stage_control teeth-control "$HERE" "$SELF" "$MUT" "lib/capture_ana
 tt teeth-exit-code lib/capture_analyze.py '"exit_code":      exit_code,' '"exit_code":      0,' 'FAIL  T-FIRST-FAILS: corr exit=0'
 tt teeth-timed-out lib/capture_analyze.py '            timed_out = True' '            timed_out = False' 'FAIL  T-TIMEOUT: a.0..timed_out=False'
 tt teeth-empty-pcap lib/capture_analyze.py 'p.stat().st_size == 0' 'p.stat().st_size < 0' 'FAIL  T-EMPTY: attempted=True'
+tt teeth-default-shim lib/capture_analyze.py '"corroborate-pcap.sh"' '"corroborate_pcap.py"' 'FAIL  T-DEFAULTS'
 tt teeth-gate-allow capture_plan.py 'run_gate_epilogue(CAP_LIVE_CAPTURE, args.allow_live_capture, plan' 'run_gate_epilogue(CAP_LIVE_CAPTURE, True, plan' 'FAIL  T-GATE: rc='
 
 echo "== $pass passed · $fail failed =="

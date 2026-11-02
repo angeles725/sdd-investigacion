@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Offline pcap corroboration handoff (C2).
 
-Spawns corroborate_pcap.py and pcap_flows.py as SEPARATE unprivileged child
-processes after live capture completes.  NEVER imports those modules — exec-of-file
+Spawns the corroborate-pcap.sh and pcap-flows.sh shims (rsdd corroborate pcap /
+pcap-flows) as SEPARATE unprivileged child processes after live capture completes.  NEVER imports those modules — exec-of-file
 only (start_new_session=True).  Analyzers self-sandbox via adapter_core.sandbox.
 
 Env seams (mirror RSDD_TSHARK idiom):
@@ -16,8 +16,8 @@ from typing import Any
 
 _TOOLBELT = Path(__file__).parent.parent          # lib/ → toolbelt root
 _MANIFEST  = str(_TOOLBELT / "analysis_manifest.py")
-_DEFAULT_CORROBORATE = str(_TOOLBELT / "corroborate_pcap.py")
-_DEFAULT_PCAP_FLOWS  = str(_TOOLBELT / "pcap_flows.py")
+_DEFAULT_CORROBORATE = str(_TOOLBELT / "corroborate-pcap.sh")
+_DEFAULT_PCAP_FLOWS  = str(_TOOLBELT / "pcap-flows.sh")
 _OUTER_TIMEOUT_DEFAULT: int = 300
 _CHILD_TIMEOUT_S:   str = "30"
 _CHILD_MAX_BYTES:   str = "1000000"
@@ -41,7 +41,7 @@ def _run_one(name: str, script: str, pcap_path: str, output_path: str,
              timeout_s: int) -> dict[str, Any]:
     """Spawn one analyzer child.  Never raises — failure is DATA."""
     argv: list[str] = [
-        sys.executable, script,
+        script,
         "--input",           pcap_path,
         "--output",          output_path,
         "--timeout-seconds", _CHILD_TIMEOUT_S,
