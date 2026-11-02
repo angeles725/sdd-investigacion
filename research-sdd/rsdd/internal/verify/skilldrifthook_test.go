@@ -269,6 +269,22 @@ func TestSkillDriftHookKitStaleness(t *testing.T) {
 	w.wantHook(hdrInstall + "\nverify: install --verify exited 4 with no typed line\n" + staleLine(disp, "pull --ff-only", "3", "0", "0", "7"))
 }
 
+// The thresholds are "more than": exactly the limit is not stale, one past it is.
+func TestSkillDriftHookKitStalenessLimitsAreExclusive(t *testing.T) {
+	w := hookWorld(t)
+	kit := w.gitKit(2)
+	w.env["RESEARCH_SDD_KIT_STALE_MAX_COMMITS"] = "2"
+	w.wantHook("") // behind == max
+	w.env["RESEARCH_SDD_KIT_STALE_MAX_COMMITS"] = "1"
+	w.wantHook(hdrInstall + "\n" + staleLine("~/kitrepo", "pull --ff-only", "2", "1", "0", "7")) // behind > max
+
+	delete(w.env, "RESEARCH_SDD_KIT_STALE_MAX_COMMITS")
+	w.ageFetchHead(kit, 7)
+	w.wantHook("") // age == max days
+	w.ageFetchHead(kit, 8)
+	w.wantHook(hdrInstall + "\n" + staleLine("~/kitrepo", "pull --ff-only", "2", "20", "8", "7")) // age > max days
+}
+
 func staleLine(disp, fix, behind, max, age, maxDays string) string {
 	head := "verify kit-stale status=stale fix (no live session): git -C " + disp + " " + fix
 	tail := "; behind=" + behind + " (max " + max + ") fetch_age=" + age + "d (max " + maxDays + "d); local refs, may understate"
