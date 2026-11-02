@@ -1,0 +1,15 @@
+rc: 0
+--- stdout
+kit-merge-train: plan: PRs 1 2 in order onto origin/main; one gate (echo "GATE $(git rev-parse HEAD) $(ls pr-*.txt 2>/dev/null | tr "\n" " ")" >> "$CASE/calls.log"; [ ! -e bad.txt ]); bisect=0
+kit-merge-train: plan: train worktree under <CASE>/repo-worktrees, state dir <CASE>/state; each PR needs --rdd-ok; nothing was run
+--- stderr
+--- calls
+
+--- receipt
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: 
