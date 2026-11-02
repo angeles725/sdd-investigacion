@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+echo "$*" >> "${STUB_LOG:-/dev/null}"
+[ -n "${STUB_JSON:-}" ] && cat "$STUB_JSON"
+[ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
+[ -n "${STUB_MOVE:-}" ] && git -C "$STUB_MOVE" -c user.email=t@t -c user.name=t commit -q --allow-empty -m moved
+exit "${STUB_RC:-0}"
