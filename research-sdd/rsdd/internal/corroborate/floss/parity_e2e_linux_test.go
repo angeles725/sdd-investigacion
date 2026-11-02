@@ -80,7 +80,7 @@ type treeEntry struct {
 
 // tree lists a directory: relative path, kind, permission bits and content. The manifest's run times and its
 // identity digest (a hash over them) are the only timing-dependent bytes; they are blanked.
-func tree(t *testing.T, root string) map[string]treeEntry {
+func tree(t *testing.T, root string, racy bool) map[string]treeEntry {
 	t.Helper()
 	out := map[string]treeEntry{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -104,7 +104,7 @@ func tree(t *testing.T, root string) map[string]treeEntry {
 			}
 			e.Body = string(b)
 			if filepath.Base(p) == "analysis-manifest.v1.json" {
-				e.Body = normalizeManifest(t, b)
+				e.Body = normalizeManifest(t, b, racy)
 			}
 		default:
 			e.Kind = info.Mode().Type().String()
@@ -116,7 +116,7 @@ func tree(t *testing.T, root string) map[string]treeEntry {
 	return out
 }
 
-func normalizeManifest(t *testing.T, b []byte) string {
+func normalizeManifest(t *testing.T, b []byte, racy bool) string {
 	t.Helper()
 	var m map[string]any
 	must(t, json.Unmarshal(b, &m))
@@ -125,15 +125,19 @@ func normalizeManifest(t *testing.T, b []byte) string {
 		for _, k := range []string{"started_at", "ended_at", "duration_ms"} {
 			delete(run, k)
 		}
+		if racy { // the output cap kills a process that may already have exited: its code is a race
+			delete(run, "exit_code")
+			delete(run, "signal")
+		}
 	}
 	out, err := jsonout.Canonical(m)
 	must(t, err)
 	return string(out)
 }
 
-func compareTrees(t *testing.T, w *world, tag string) {
+func compareTrees(t *testing.T, w *world, tag string, racy bool) {
 	t.Helper()
-	a, b := tree(t, w.out("py-"+tag)), tree(t, w.out("go-"+tag))
+	a, b := tree(t, w.out("py-"+tag), racy), tree(t, w.out("go-"+tag), racy)
 	if len(a) < 5 {
 		t.Fatalf("%s: the legacy script published %d entries: the comparison would prove nothing", tag, len(a))
 	}
@@ -181,7 +185,7 @@ func TestParityEndToEnd(t *testing.T) {
 			if legacy != port {
 				t.Fatalf("legacy %+v\nport   %+v", legacy, port)
 			}
-			compareTrees(t, w, sc.name)
+			compareTrees(t, w, sc.name, sc.name == "flood")
 		})
 	}
 }
