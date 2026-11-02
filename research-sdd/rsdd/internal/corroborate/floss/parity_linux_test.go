@@ -93,7 +93,7 @@ func TestParityArgparse(t *testing.T) {
 	py := oraclePython(t)
 	cases := argparseCorpus()
 	in, _ := json.Marshal(cases)
-	stdout, stderr, code := pyRun(t, py, argparseProgram, string(in), os.Environ(), absPath(t, "../../../../toolbelt"), absPath(t, legacyScript))
+	stdout, stderr, code := pyRun(t, py, argparseProgram, string(in), os.Environ(), absPath(t, "../../core/adapter/testdata/frozen"), absPath(t, legacyScript))
 	if code != 0 {
 		t.Fatalf("oracle: %s", stderr)
 	}

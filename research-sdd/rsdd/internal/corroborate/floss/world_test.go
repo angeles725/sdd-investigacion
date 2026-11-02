@@ -84,7 +84,7 @@ func newWorld(t *testing.T, script string) *world {
 	w.python = filepath.Join(root, "pybin", "python3")
 	w.input = filepath.Join(root, "in.bin")
 	must(t, os.WriteFile(w.input, []byte("MZ\x90\x00 some binary bytes"), 0o644))
-	manifest, err := filepath.Abs("../../../../toolbelt/analysis_manifest.py")
+	manifest, err := filepath.Abs("../../core/adapter/testdata/frozen/analysis_manifest.py")
 	must(t, err)
 	w.manifest = manifest
 	return w
