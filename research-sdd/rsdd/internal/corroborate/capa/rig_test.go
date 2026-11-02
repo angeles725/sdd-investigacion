@@ -24,6 +24,9 @@ type rig struct {
 	outDir  string
 	home    string
 	extraEv []string
+	// manifestCLI is the --manifest-cli argument: a placeholder file here (the port runs the manifest steps
+	// in-process), the real analysis_manifest.py in the parity tests (the legacy tool runs it).
+	manifestCLI string
 }
 
 const fakeBwrap = `#!/bin/sh
@@ -64,7 +67,8 @@ func newRig(t *testing.T) *rig {
 	r.write(filepath.Join(r.venv, "pyvenv.cfg"), "home = /usr/bin\n", 0o644)
 	r.write(filepath.Join(r.rules, "lib", "a.yml"), "rule: {}\n", 0o644)
 	r.write(filepath.Join(root, "sample.bin"), "MZ sample bytes", 0o644)
-	r.write(filepath.Join(root, "manifest-cli"), "# stands in for analysis_manifest.py: validated, never executed\n", 0o644)
+	r.manifestCLI = filepath.Join(root, "manifest-cli")
+	r.write(r.manifestCLI, "# stands in for analysis_manifest.py: validated, never executed\n", 0o644)
 	r.capaOutput(sampleJSON)
 	return r
 }
@@ -87,7 +91,7 @@ func (r *rig) output(name string) string { return filepath.Join(r.outDir, name) 
 
 // base is the arguments every run needs; extra arguments follow.
 func (r *rig) args(outName string, extra ...string) []string {
-	a := []string{"--input", r.input(), "--output", r.output(outName), "--rules", r.rules, "--manifest-cli", filepath.Join(r.root, "manifest-cli")}
+	a := []string{"--input", r.input(), "--output", r.output(outName), "--rules", r.rules, "--manifest-cli", r.manifestCLI}
 	return append(a, extra...)
 }
 
