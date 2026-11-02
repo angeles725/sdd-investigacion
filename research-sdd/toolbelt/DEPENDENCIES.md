@@ -99,7 +99,7 @@ accepted. `DOTNET_ROLL_FORWARD=Major` is still exported for resilience.
 function used by `decompile-net.sh`) before reporting availability, so the two
 agree: a working ilspycmd is reported AVAILABLE in both places.
 
-**`r2`** is resolved by `corroborate_native.py:154` via `RSDD_R2` env var
+**`r2`** is resolved by `rsdd corroborate native` (`internal/corroborate/native`) via `RSDD_R2` env var
 then PATH. The binary name is `r2`, not `radare2`.
 
 **`kaitaistruct`** (Python module) is loaded via the rsdd-kaitai venv.

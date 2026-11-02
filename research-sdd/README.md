@@ -22,7 +22,7 @@ The toolbelt is written for **Linux / GNU userland**:
 - **bash ≥ 4** and **GNU coreutils** — scripts use `mapfile`, `grep -P`/`grep -E`, and other GNU-isms.
   WSL is fine. macOS/BSD is **not supported** out of the box (install GNU tools — `coreutils`,
   `grep` — and a modern bash first, or expect failures).
-- **python3** — used by the catalog generator (`templates/gen-catalog.py`) and sanity-checked in CI.
+- **python3** — used by the remaining Python helpers and by a corpus-local `tools/gen-catalog.py`, and sanity-checked in CI (the kit catalog generator is the Go command `rsdd corpus catalog`).
 - **Node.js** (CI uses 20) — required only for the adversarial-verify pair
   (`toolbelt/adversarial-verify.js`, `toolbelt/adversarial-verdict.mjs`).
 - **Optional, per-workflow only** — the decompile/extract/ingest tools (Ghidra, radare2, Vineflower/CFR/Procyon,
@@ -42,7 +42,7 @@ research-sdd/
 ├── PROMPT-REFRESH.md           # the refresh-mode prompt (rewrite a block whose subject has DRIFTED)
 ├── TARGETS.md                  # master table of registered research targets
 ├── skills/research-sdd/SKILL.md# launcher / depth classifier (quick · light · exhaustive)
-├── templates/                  # block, INDEX, RESEARCH-STATE, SOURCES, CONTRADICTIONS, retro, audit templates + gen-catalog.py + hook-sessionstart.sh
+├── templates/                  # block, INDEX, RESEARCH-STATE, SOURCES, CONTRADICTIONS, retro, audit templates + hook-sessionstart.sh
 └── toolbelt/                   # the ~two-dozen scripts that mechanize the gates
     └── tests/                  # regression suites + run-all.sh runner
 ```

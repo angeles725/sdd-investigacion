@@ -111,12 +111,15 @@ An overflow reads
 `truncated=<cap>` and `reason=facts-truncated:<cap>`, never a silent partial count. The wrapper
 runs it under its own budget, `RSDD_CLASSFACTS_TIMEOUT` or `min(30, --timeout/8)` seconds (at least 1;
 30 when the engines are unbounded; an invalid override warns and falls back), so the worst-case extra
-wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the helper cannot report, the line keeps the same
-field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
-python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
-line follows as a `WARN:`). A fourth token, `facts-unbounded`, means no usable `timeout` binary was
-found: the wrapper skips the helper rather than run it without a budget (the run is also
-typed `timeout-unavailable` unless `--timeout 0` asked for unbounded engines).
+wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the class-file
+reader cannot report, the line keeps the same field set with every value `unknown` and one typed
+reason: `facts-timeout` (the budget ran out) or `facts-error rc=<n>` (the reader failed; its first
+stderr line follows as a `WARN: classfile-facts helper:` line). A third token, `facts-unbounded`,
+means no usable `timeout` binary was found (`RSDD_TIMEOUT_BIN`): the wrapper skips the facts step
+rather than run it without a budget (the run is also typed `timeout-unavailable` unless
+`--timeout 0` asked for unbounded engines). The facts are read in process by
+`rsdd corroborate decompile` (`internal/corroborate/classfile`), with no Python fallback, so the
+former `facts-unavailable` reason (helper or python3 absent) is no longer emitted.
 
 ## Trust and isolation
 

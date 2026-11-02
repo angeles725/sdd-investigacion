@@ -312,7 +312,7 @@ decompilation)`, `document / runbook` — 8 of 763 niagara blocks declared any t
 no instrument could ever read it (the same free-form-cell failure as the TARGETS.md maturity cell and the FOCUSES.md
 status cell). **Instrument (as of kit issue #422, extended by T-VB2, P9 added by #956):** `verify-block.sh` reads the leading `Type` token. **P6** (zero citations): for `synthesis`, `capture`, `document`, `absence-centred`, and `decision` blocks the "[CERT] markers present but ZERO file:line citations resolved" WARN becomes INFO `expected for declared type <t>`; a block with no `Type:` line keeps the WARN plus a one-line hint naming this grammar; an unrecognised token WARNs by name, never silently. **P9** (citations attempted but none resolved): after bt-cite and artifact-cite resolution, the script prints `resolved N of M` (M = bt + art cites attempted; short-form, probe, jar, and `[BNNN]` cites excluded); when N=0 and M>0 it emits a graded WARN using the same Type: taxonomy — `resolved 0 of M` with INFO for declared low-citation types and WARN otherwise (WARN-only: exit code never changed).
 
-> **Block file naming.** The canonical catalog/discriminator (`templates/gen-catalog.py`, `verify-state.sh`,
+> **Block file naming.** The canonical catalog/discriminator (`rsdd corpus catalog`, `verify-state.sh`,
 > `research-sdd-archive.sh`) requires a focus/subject prefix — `<prefix>-blockN.md` (or `bloqueN.md`) — so a
 > no-prefix `blockN.md` is silently dropped. A single-focus corpus that names its files `blockN.md` with NO
 > prefix therefore needs a LOCAL optional-prefix `tools/gen-catalog.py` (the `impresora-samsung-m2070` target

@@ -1,0 +1,22 @@
+{
+ "legacy": [
+  "toolbelt/corroborate-ghidra.sh",
+  "--input",
+  "{{input}}/target.elf",
+  "--output",
+  "{{input}}/out"
+ ],
+ "rsdd": [
+  "corroborate",
+  "ghidra",
+  "--input",
+  "{{input}}/target.elf",
+  "--output",
+  "{{input}}/out"
+ ],
+ "env": {
+  "ANALYZE_HEADLESS": "{{input}}/gh/support/analyzeHeadless",
+  "JAVA_HOME": "{{input}}/jdk",
+  "RSDD_BWRAP": "{{input}}/absent-bwrap"
+ }
+}
