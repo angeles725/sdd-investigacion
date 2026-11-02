@@ -266,6 +266,29 @@ func TestPostRenameSyncFailureAcknowledgesTheDestination(t *testing.T) {
 	}
 }
 
+// The worker binary is bound read-only into the sandbox after the private /tmp, and the worker runs from that
+// guest path: a host binary under /tmp (run-all's RSDD_BIN, go test's binary) is hidden behind the tmpfs.
+func TestWorkerBinaryIsBoundIntoTheSandbox(t *testing.T) {
+	argv := append(sandbox("/usr/bin/bwrap", "/stage", "/tmp/build/rsdd"), workerArgs(workerGuest, config{}, inputRecord{}, "/usr/bin/bwrap", "d")...)
+	tmpfs, bind, sep := -1, -1, -1
+	for i, a := range argv {
+		switch {
+		case a == "--tmpfs" && i+1 < len(argv) && argv[i+1] == "/tmp":
+			tmpfs = i
+		case a == "--ro-bind" && i+2 < len(argv) && argv[i+1] == "/tmp/build/rsdd" && argv[i+2] == workerGuest:
+			bind = i
+		case a == "--" && sep < 0:
+			sep = i
+		}
+	}
+	if tmpfs < 0 || bind < tmpfs || sep < bind {
+		t.Fatalf("want --tmpfs /tmp, then --ro-bind <self> %s, then --: tmpfs=%d bind=%d sep=%d argv=%q", workerGuest, tmpfs, bind, sep, argv)
+	}
+	if argv[sep+1] != workerGuest {
+		t.Errorf("worker argv[0] = %q, want the guest path %q", argv[sep+1], workerGuest)
+	}
+}
+
 func TestWorkerIsLaunchedUnderTheCapsInsideTheSandbox(t *testing.T) {
 	w := newWorld(t)
 	in := w.write("firmware.bin", firmwareImage())
@@ -282,8 +305,8 @@ func TestWorkerIsLaunchedUnderTheCapsInsideTheSandbox(t *testing.T) {
 	line := strings.Join(got.argv, " ")
 	for _, want := range []string{
 		"/usr/bin/bwrap --die-with-parent --new-session --unshare-net --unshare-pid --cap-drop ALL --ro-bind / / --tmpfs /tmp",
-		"--bind " + got.dir + " /tmp/work --proc /proc --dev /dev --setenv PATH /usr/bin:/bin --setenv LANG C.UTF-8",
-		"-- /rsdd corroborate carve --worker --input /tmp/work/input.bin --output /tmp/work/output --stage /tmp/work --input-record",
+		"--bind " + got.dir + " /tmp/work --ro-bind /rsdd " + workerGuest + " --proc /proc --dev /dev --setenv PATH /usr/bin:/bin --setenv LANG C.UTF-8",
+		"-- " + workerGuest + " corroborate carve --worker --input /tmp/work/input.bin --output /tmp/work/output --stage /tmp/work --input-record",
 		"--max-input-bytes 1073741824 --max-output-bytes 1073741824 --max-carves 16 --max-files 17 --timeout-seconds 7 --max-processes 3 --max-memory-bytes 134217728",
 	} {
 		if !strings.Contains(line, want) {

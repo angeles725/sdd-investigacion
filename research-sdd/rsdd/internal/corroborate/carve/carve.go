@@ -161,7 +161,7 @@ func carve(c config, s cli.Stdio, d deps) (stage string, err error) {
 	if err != nil {
 		return stage, err
 	}
-	argv := append(sandbox(bwrap, stage), workerArgs(self, c, rec, bwrap, digest)...)
+	argv := append(sandbox(bwrap, stage, self), workerArgs(workerGuest, c, rec, bwrap, digest)...)
 	spec := launchSpec{argv: argv, dir: stage, self: self, timeout: time.Duration(c.timeout) * time.Second,
 		maxProcs: int(min(c.maxProcs, 1<<30)), memory: uint64(c.maxMemory) + runtimeAddressSpace, now: s.Clock}
 	if s.Environ != nil {
@@ -315,12 +315,17 @@ func osError(err error, path string) error {
 	return err
 }
 
+// workerGuest is where the worker binary is bound inside the sandbox (under its private /tmp).
+const workerGuest = "/tmp/rsdd-worker"
+
 // sandbox is the bubblewrap prefix: no network, no capabilities, a read-only view of the host, a private /tmp
-// holding only the stage mounted read-write, and a fixed environment.
-func sandbox(bwrap, stage string) []string {
+// holding only the stage mounted read-write and this binary bound read-only at workerGuest (a host binary under
+// /tmp is hidden by the tmpfs), and a fixed environment.
+func sandbox(bwrap, stage, self string) []string {
 	env := [][2]string{{"PATH", "/usr/bin:/bin"}, {"LANG", "C.UTF-8"}, {"LC_ALL", "C.UTF-8"}, {"TZ", "UTC"}, {"HOME", "/tmp/home"}, {"TMPDIR", "/tmp"}}
 	cmd := []string{bwrap, "--die-with-parent", "--new-session", "--unshare-net", "--unshare-pid", "--cap-drop", "ALL",
 		"--ro-bind", "/", "/", "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/tmp/work", "--bind", stage, "/tmp/work",
+		"--ro-bind", self, workerGuest,
 		"--proc", "/proc", "--dev", "/dev"}
 	for _, kv := range env {
 		cmd = append(cmd, "--setenv", kv[0], kv[1])

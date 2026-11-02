@@ -11,8 +11,8 @@ import (
 
 // TestRealBubblewrapCarvesWithTheWorkerInsideTheSandbox runs the whole command with the real bubblewrap, the
 // production dependencies and this test binary as the sandboxed worker (TestMain serves `corroborate carve`).
-// It is skipped when bubblewrap is absent or cannot create its namespaces here, or when the test binary lives
-// under /tmp, which the sandbox hides behind its own tmpfs.
+// It is skipped when bubblewrap is absent or cannot create its namespaces here. A test binary under /tmp is
+// a required case, not a skip: the sandbox hides the host /tmp behind its own tmpfs, so the worker must be bound in.
 func TestRealBubblewrapCarvesWithTheWorkerInsideTheSandbox(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs the real sandbox")
@@ -21,9 +21,7 @@ func TestRealBubblewrapCarvesWithTheWorkerInsideTheSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if self == "/tmp" || strings.HasPrefix(self, "/tmp/") {
-		t.Skip("the test binary is under /tmp, which the sandbox replaces with a tmpfs; set GOTMPDIR outside /tmp")
-	}
+	_ = self
 	if out, err := exec.Command("/usr/bin/bwrap", "--ro-bind", "/", "/", "--unshare-net", "--unshare-pid", "--cap-drop", "ALL", "true").CombinedOutput(); err != nil {
 		t.Skipf("bubblewrap is not usable here: %v: %s", err, out)
 	}
