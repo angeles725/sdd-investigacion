@@ -388,14 +388,26 @@ func TestWallTimeoutTermsTheLeaderBeforeKilling(t *testing.T) {
 }
 
 func TestDescendantsGetTermBeforeKill(t *testing.T) {
+	// The handler waits before it writes, so it only finishes inside a real grace: with no pause between SIGTERM and
+	// SIGKILL the marker can never appear, whatever the machine load. The grace is widened so a slow CI host still
+	// gives the handler its 0.1 s.
+	saved := descendantGrace
+	t.Cleanup(func() { descendantGrace = saved })
+	descendantGrace = 600 * time.Millisecond
 	w := newWorld(t)
-	w.rawHeadless("( trap 'echo term >" + shellQuote(w.path("desc.term")) + "; exit 0' TERM; : >" + shellQuote(w.path("desc.ready")) +
+	w.rawHeadless("( trap 'sleep 0.1; echo term >" + shellQuote(w.path("desc.term")) + "; exit 0' TERM; : >" + shellQuote(w.path("desc.ready")) +
 		"; sleep 30 & wait ) &\nwhile [ ! -e " + shellQuote(w.path("desc.ready")) + " ]; do sleep 0.01; done\nexit 9")
 	if rc := w.run("out"); rc != 1 {
 		t.Fatalf("rc=%d", rc)
 	}
 	if !w.exists("desc.term") {
 		t.Fatal("the descendant was killed without a SIGTERM grace")
+	}
+}
+
+func TestDescendantGraceIsFiftyMilliseconds(t *testing.T) {
+	if descendantGrace != 50*time.Millisecond {
+		t.Errorf("descendantGrace = %v, want 50ms", descendantGrace)
 	}
 }
 
