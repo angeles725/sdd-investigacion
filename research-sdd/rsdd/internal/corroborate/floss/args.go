@@ -197,7 +197,7 @@ func parseArgs(args []string, width int, out, errw io.Writer) (opts options, cod
 		if err != nil {
 			return fail(err)
 		}
-		if next < 0 {
+		if next == helpPrinted {
 			return opts, 0, true // help printed
 		}
 		i = next
@@ -228,8 +228,14 @@ func parseArgs(args []string, width int, out, errw io.Writer) (opts options, cod
 	return opts, 0, false
 }
 
-// consume is consume_optional for the option at index i. It returns the next index to read, or -1 after the
-// help was printed.
+// Sentinels: consume returns helpPrinted after the help was printed; noSuchFlag is "no spec matches".
+const (
+	helpPrinted = -1
+	noSuchFlag  = -1
+)
+
+// consume is consume_optional for the option at index i. It returns the next index to read, or helpPrinted
+// after the help was printed.
 func consume(args []string, kinds []byte, i int, t optTuple, seen map[int]bool, vals map[string]string, ints map[string]*big.Int, width int, out io.Writer) (int, error) {
 	type action struct {
 		spec int
@@ -263,7 +269,7 @@ loop:
 			}
 			actions = append(actions, action{cur.spec, nil})
 			opt := "-" + string(r[0])
-			next := -1
+			next := noSuchFlag
 			for k, sp := range specs {
 				for _, f := range sp.flags {
 					if f == opt {
@@ -271,7 +277,7 @@ loop:
 					}
 				}
 			}
-			if next < 0 { // an unknown bundled flag is left over; the flags before it still run
+			if next == noSuchFlag { // an unknown bundled flag is left over; the flags before it still run
 				break loop
 			}
 			cur = optTuple{spec: next, option: opt}
@@ -294,7 +300,7 @@ loop:
 		switch s.kind {
 		case kindHelp:
 			_, _ = io.WriteString(out, formatHelp(width))
-			return -1, nil
+			return helpPrinted, nil
 		case kindString:
 			vals[s.dest] = a.arg[0]
 		case kindInt:
@@ -371,10 +377,6 @@ var usageParts = []string{"[-h]", "--input", "INPUT", "--output", "OUTPUT", "[--
 func formatUsage(width int) string {
 	const prefix = "usage: "
 	textWidth := max(width, 11)
-	line := prog + " " + strings.Join(usageParts, " ")
-	if len(prefix)+len(line) <= textWidth {
-		return prefix + line + "\n"
-	}
 	getLines := func(parts []string, indent string, withPrefix bool) []string {
 		var lines, cur []string
 		var lineLen int
@@ -384,17 +386,16 @@ func formatUsage(width int) string {
 			lineLen = len(indent) - 1
 		}
 		for _, p := range parts {
-			if lineLen+1+len(p) > textWidth && len(cur) > 0 {
+			// argparse also requires a non-empty current line; the first part always fits here, so it is implied.
+			if lineLen+1+len(p) > textWidth {
 				lines = append(lines, indent+strings.Join(cur, " "))
 				cur, lineLen = nil, len(indent)-1
 			}
 			cur = append(cur, p)
 			lineLen += len(p) + 1
 		}
-		if len(cur) > 0 {
-			lines = append(lines, indent+strings.Join(cur, " "))
-		}
-		if withPrefix && len(lines) > 0 {
+		lines = append(lines, indent+strings.Join(cur, " ")) // parts is never empty, so cur is not either
+		if withPrefix {
 			lines[0] = lines[0][len(indent):]
 		}
 		return lines
@@ -413,13 +414,9 @@ func formatUsage(width int) string {
 func formatHelp(width int) string {
 	const indent = 2
 	maxHelpPosition := min(24, max(width-20, 4))
-	longest := 0
-	for _, s := range specs {
-		if s.help != "" {
-			longest = max(longest, len(invocation(s))+indent)
-		}
-	}
-	helpPosition := min(longest+2, maxHelpPosition)
+	// argparse takes min(longest invocation + 2, maxHelpPosition); the longest invocation here
+	// (--max-string-len MAX_STRING_LEN) is wider than any cap, so the cap is always the position.
+	helpPosition := maxHelpPosition
 	helpWidth := max(width-helpPosition, 11)
 	actionWidth := helpPosition - indent - 2
 	var b strings.Builder

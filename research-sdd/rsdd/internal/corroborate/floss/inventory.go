@@ -36,7 +36,7 @@ func clampInt(text string) int64 {
 	n, ok := new(big.Int).SetString(text, 10)
 	switch {
 	case !ok || !n.IsInt64():
-		if ok && n.Sign() < 0 {
+		if ok && n.Sign() == -1 {
 			return math.MinInt64
 		}
 		return math.MaxInt64
@@ -96,7 +96,7 @@ func buildInventory(floss any, c invCaps) (map[string]any, []string, error) {
 		}
 		sort.SliceStable(entries, func(i, j int) bool {
 			if k := entries[i].rank.Cmp(entries[j].rank); k != 0 {
-				return k < 0
+				return k == -1
 			}
 			return entries[i].value < entries[j].value
 		})

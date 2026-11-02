@@ -90,7 +90,7 @@ func detectUTF8(b []byte) ([]byte, error) {
 // errorAt is JSONDecodeError(msg, doc, pos): "msg: line L column C (char P)".
 func (sc *scanner) errorAt(msg string, pos int) error {
 	line, col := 1, pos+1
-	for i := 0; i < pos && i < len(sc.doc); i++ {
+	for i := 0; i < min(pos, len(sc.doc)); i++ {
 		if sc.doc[i] == '\n' {
 			line++
 			col = pos - i

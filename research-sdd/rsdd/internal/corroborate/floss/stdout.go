@@ -50,9 +50,8 @@ func readStdoutJSON(path string) (any, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	buf := make([]byte, max(int64(1), fi.Size()+1))
-	n, err := f.Read(buf)
-	if err != nil && n == 0 && !errors.Is(err, io.EOF) {
+	buf, err := readFirst(f, fi.Size())
+	if err != nil {
 		return nil, "", err
 	}
 	if afterRead != nil {
@@ -65,10 +64,10 @@ func readStdoutJSON(path string) (any, string, error) {
 	if !os.SameFile(before, after) || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
 		return nil, "", flossErr("floss stdout changed while reading (TOCTOU)")
 	}
-	if n == 0 {
+	if len(buf) == 0 {
 		return nil, "", nil
 	}
-	v, err := decodePyJSON(buf[:n])
+	v, err := decodePyJSON(buf)
 	if err != nil {
 		var je *jsonError
 		if errors.As(err, &je) {
@@ -77,4 +76,16 @@ func readStdoutJSON(path string) (any, string, error) {
 		return nil, "", flossErr(err.Error())
 	}
 	return v, "", nil
+}
+
+// readFirst makes the single bounded read of the stdout file: at most size+1 bytes, so a file that grew since
+// the lstat is still seen as longer than it was. A read error counts only when nothing was read (an EOF means
+// the file was emptied after the stat, which reads as "floss printed nothing").
+func readFirst(r io.Reader, size int64) ([]byte, error) {
+	buf := make([]byte, max(int64(1), size+1))
+	n, err := r.Read(buf)
+	if err != nil && n == 0 && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return buf[:n], nil
 }
