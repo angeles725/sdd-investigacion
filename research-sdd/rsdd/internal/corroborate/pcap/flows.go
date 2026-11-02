@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
-	"sort"
+	"slices"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
@@ -65,7 +65,7 @@ func streamIDs(text string) []*big.Int {
 	for _, n := range seen {
 		ids = append(ids, n)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].Cmp(ids[j]) < 0 })
+	slices.SortFunc(ids, (*big.Int).Cmp)
 	return ids
 }
 
@@ -73,11 +73,11 @@ func streamIDs(text string) []*big.Int {
 func firstN(ids []*big.Int, n *big.Int) []*big.Int {
 	switch {
 	case n.Sign() < 0:
-		keep := new(big.Int).Add(big.NewInt(int64(len(ids))), n)
-		if keep.Sign() <= 0 {
-			return nil
+		drop := new(big.Int).Neg(n)
+		if !drop.IsInt64() {
+			return ids[:0]
 		}
-		return ids[:keep.Int64()]
+		return ids[:int64(len(ids))-min(drop.Int64(), int64(len(ids)))]
 	case !n.IsInt64() || n.Int64() >= int64(len(ids)):
 		return ids
 	}

@@ -1,12 +1,13 @@
 package pcap
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math/big"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -103,12 +104,11 @@ func parseHierarchy(text string) []protocolRow {
 			continue
 		}
 		indent, rest := leadingSpace(line)
-		end := strings.IndexFunc(rest, isSpace)
-		if end <= 0 {
+		proto, afterProto, found := cutSpace(rest)
+		if !found {
 			continue
 		}
-		proto := rest[:end]
-		frames, after, ok := labelled(pyLstrip(rest[end:]), "frames:")
+		frames, after, ok := labelled(pyLstrip(afterProto), "frames:")
 		if !ok || len(pyLstrip(after)) == len(after) {
 			continue
 		}
@@ -121,11 +121,8 @@ func parseHierarchy(text string) []protocolRow {
 			Frames: number(frames), Bytes: number(bytes),
 		})
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].Level != rows[j].Level {
-			return rows[i].Level < rows[j].Level
-		}
-		return rows[i].Protocol < rows[j].Protocol
+	slices.SortStableFunc(rows, func(a, b protocolRow) int {
+		return cmp.Or(cmp.Compare(a.Level, b.Level), cmp.Compare(a.Protocol, b.Protocol))
 	})
 	return rows
 }
@@ -172,10 +169,8 @@ func parseConversations(text, proto string) []conversation {
 		left, right, _ := strings.Cut(line, "<->")
 		a := pyStrip(left)
 		right = pyLstrip(right)
-		b, rest := right, ""
-		if i := strings.IndexFunc(right, isSpace); i >= 0 {
-			b, rest = right[:i], right[i:]
-		}
+		b, rest, _ := cutSpace(right)
+
 		var nums []string
 		for _, tok := range pyFields(strings.ReplaceAll(rest, "|", " ")) {
 			if asciiDigits(tok) {
@@ -195,11 +190,8 @@ func parseConversations(text, proto string) []conversation {
 			FramesTotal: number(nums[4]), BytesTotal: number(nums[5]),
 		})
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].EndpointA != rows[j].EndpointA {
-			return rows[i].EndpointA < rows[j].EndpointA
-		}
-		return rows[i].EndpointB < rows[j].EndpointB
+	slices.SortStableFunc(rows, func(a, b conversation) int {
+		return cmp.Or(cmp.Compare(a.EndpointA, b.EndpointA), cmp.Compare(a.EndpointB, b.EndpointB))
 	})
 	return rows
 }
@@ -245,4 +237,15 @@ func parseFollow(text string, index json.Number) streamFollow {
 	}
 	f.SHA256 = "sha256:" + hex.EncodeToString(h.Sum(nil))
 	return f
+}
+
+// cutSpace splits s at its first whitespace character (str.split's boundary): the text before it, the text from
+// it on, and whether there was one. Without whitespace the whole of s comes back as the first part.
+func cutSpace(s string) (before, after string, found bool) {
+	for i, r := range s {
+		if isSpace(r) {
+			return s[:i], s[i:], true
+		}
+	}
+	return s, "", false
 }

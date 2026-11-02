@@ -224,7 +224,7 @@ func number(digits string) json.Number {
 // fromHex is bytes.fromhex(s): pairs of hex digits, ASCII whitespace allowed between pairs, anything else
 // (an odd digit, a non-hex byte, a non-ASCII character) refused.
 func fromHex(s string) ([]byte, bool) {
-	out := make([]byte, 0, len(s)/2)
+	out := []byte{}
 	for i := 0; i < len(s); {
 		switch s[i] {
 		case ' ', '\t', '\n', '\r', '\v', '\f':

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
 // Each expected value below is what CPython 3.12 answers for the same input.
@@ -237,3 +239,56 @@ func bigOf(t *testing.T, s string) *big.Int {
 	}
 	return n
 }
+
+func TestIsSpaceIsStrIsspace(t *testing.T) {
+	for r, want := range map[rune]bool{
+		' ': true, '\t': true, '\n': true, '\v': true, '\f': true, '\r': true,
+		0x1b: false, 0x1c: true, 0x1d: true, 0x1e: true, 0x1f: true, 0x21: false, 0x00: false, 'a': false, '0': false,
+		0x85: true, 0xa0: true, 0x1680: true, 0x2003: true, 0x2028: true, 0x3000: true, 0x200b: false, 0x180e: false,
+	} {
+		if got := isSpace(r); got != want {
+			t.Errorf("isSpace(%#x) = %v, want %v", r, got, want)
+		}
+	}
+}
+
+func TestHelpGluedFollowsArgparse(t *testing.T) {
+	const prefix = "argument -h/--help: ignored explicit argument "
+	str := func(s string) *string { return &s }
+	for _, c := range []struct {
+		name     string
+		arg      string
+		explicit *string
+		sep      bool
+		want     string // "" means help runs
+	}{
+		{"no glued text", "-h", nil, false, ""},
+		{"long form with value", "--help=x", str("x"), true, prefix + "'x'"},
+		{"short, another option letter", "-hx", str("x"), false, ""},
+		{"short, a dash after another letter", "-hx-y", str("x-y"), false, ""},
+		{"short, equals after another letter", "-hx=y", str("x=y"), false, ""},
+		{"short, repeated h", "-hh", str("h"), false, ""},
+		{"short, repeated h then a dash", "-hh-x", str("h-x"), false, prefix + "'-x'"},
+		{"short, repeated h then equals", "-hh=x", str("h=x"), false, prefix + "'x'"},
+		{"short, equals", "-h=x", str("x"), true, prefix + "'x'"},
+		{"short, dash", "-h-x", str("-x"), false, prefix + "'-x'"},
+		{"short, three h then a dash", "-hhh-x", str("hh-x"), false, prefix + "'-x'"},
+	} {
+		got, refused := helpGlued(c.arg, classified{explicit: c.explicit, sep: c.sep})
+		if got != c.want || refused != (c.want != "") {
+			t.Errorf("%s: helpGlued(%q) = %q, %v; want %q", c.name, c.arg, got, refused, c.want)
+		}
+	}
+}
+
+func TestEnvLookupIsOsEnvironGet(t *testing.T) {
+	s := cli.Stdio{Environ: func() []string { return []string{"A=1", "EMPTY=", "AB=x", "SHORT", "A"} }}
+	for key, want := range map[string]*string{"A": ptr("1"), "EMPTY": ptr(""), "AB": ptr("x"), "SHORT": nil, "B": nil, "": nil} {
+		got := envLookup(s, key)
+		if (got == nil) != (want == nil) || (got != nil && *got != *want) {
+			t.Errorf("envLookup(%q) = %v, want %v", key, got, want)
+		}
+	}
+}
+
+func ptr(s string) *string { return &s }

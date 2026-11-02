@@ -45,11 +45,23 @@ func workdir(t *testing.T) string {
 	return dir
 }
 
-// invoke runs a command with the default fakes and the real manifest tool.
+// invoke runs a command with the default fakes and the fake manifest tool, so it needs no Python.
 func invoke(t *testing.T, c commandUnderTest, r *rig, cwd string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	hostReady(t)
-	return goRun(c.run, cwd, r.env(python(t)), append(args, "--manifest-cli", manifestCLI(t))...)
+	r.fakeManifest()
+	return goRun(c.run, cwd, r.env(""), append(args, "--manifest-cli", filepath.Join(r.dir, "manifest-cli"))...)
+}
+
+// invokeReal is invoke with the real analysis_manifest.py; without python3 the test skips (typed, never a pass).
+func invokeReal(t *testing.T, c commandUnderTest, r *rig, cwd string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	hostReady(t)
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("SKIP tool-missing: python3 is not in PATH")
+	}
+	return goRun(c.run, cwd, r.env(py), append(args, "--manifest-cli", manifestCLI(t))...)
 }
 
 func readJSON(t *testing.T, path string) map[string]any {
@@ -149,7 +161,7 @@ func TestPublishedManifestValidatesAndItsHashesVerify(t *testing.T) {
 	for _, c := range commands {
 		t.Run(c.name, func(t *testing.T) {
 			r, cwd := newRig(t), workdir(t)
-			if code, _, errs := invoke(t, c, r, cwd, "--input", "in.pcap", "--output", "out"); code != 0 {
+			if code, _, errs := invokeReal(t, c, r, cwd, "--input", "in.pcap", "--output", "out"); code != 0 {
 				t.Fatalf("exit %d: %s", code, errs)
 			}
 			manifest := filepath.Join(cwd, "out", "engine", "analysis-manifest.v1.json")
@@ -323,6 +335,64 @@ func TestUsageErrorsExitTwoOnStderr(t *testing.T) {
 				t.Errorf("%s %q: exit %d stdout %q stderr %q", c.name, tc.args, code, out, errs)
 			}
 		}
+	}
+}
+
+func TestMaxStreamsEqualToTheStreamCountIsNotATruncation(t *testing.T) {
+	r, cwd := newRig(t), workdir(t)
+	code, _, errs := invoke(t, commands[1], r, cwd, "--input", "in.pcap", "--output", "out", "--max-streams", "2")
+	if code != 0 || errs != "" {
+		t.Fatalf("exit %d stderr %q, want a silent success", code, errs)
+	}
+	d := readJSON(t, filepath.Join(cwd, "out", "pcap-flows.v1.json"))
+	if d["streams_truncated"] != false || d["streams_analyzed"] != float64(2) || d["stream_count_total"] != float64(2) {
+		t.Fatalf("evidence = %v", d)
+	}
+}
+
+// A negative --max-streams drops that many streams from the end, as a Python slice does.
+func TestNegativeMaxStreamsDropsFromTheEnd(t *testing.T) {
+	for n, analyzed := range map[string]float64{"-1": 1, "-2": 0, "-3": 0, "-99999999999999999999": 0} {
+		r, cwd := newRig(t), workdir(t)
+		if code, _, errs := invoke(t, commands[1], r, cwd, "--input", "in.pcap", "--output", "out", "--max-streams="+n); code != 0 && errs == "" {
+			t.Fatalf("--max-streams=%s: exit %d", n, code)
+		}
+		d := readJSON(t, filepath.Join(cwd, "out", "pcap-flows.v1.json"))
+		if d["streams_analyzed"] != analyzed {
+			t.Errorf("--max-streams=%s analyzed %v streams, want %v", n, d["streams_analyzed"], analyzed)
+		}
+	}
+}
+
+// A capture the process cannot read is an OSError of the read, not a "not a pcap" refusal. /proc/self/mem is a
+// regular file whose first read fails with EIO.
+func TestUnreadableCaptureReportsTheReadError(t *testing.T) {
+	if _, err := os.Open("/proc/self/mem"); err != nil {
+		t.Skipf("SKIP tool-missing: /proc/self/mem is not readable here: %v", err)
+	}
+	for _, c := range commands {
+		t.Run(c.name, func(t *testing.T) {
+			r, cwd := newRig(t), workdir(t)
+			code, _, errs := invoke(t, c, r, cwd, "--input", "/proc/self/mem", "--output", "out")
+			if code != 2 || errs != c.prog+": [Errno 5] Input/output error\n" {
+				t.Fatalf("exit %d stderr %q", code, errs)
+			}
+		})
+	}
+}
+
+// A tool killed by a signal is recorded by its signal number and no exit code.
+func TestToolKilledBySignalIsRecordedWithItsSignal(t *testing.T) {
+	r, cwd := newRig(t), workdir(t)
+	killer := "#!/bin/sh\ncase \"$*\" in\n  -v) echo 'TShark (Wireshark) 4.2.0 (fake)' ;;\n  *) kill -9 $$ ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(r.dir, "tshark"), []byte(killer), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	invoke(t, commands[0], r, cwd, "--input", "in.pcap", "--output", "out")
+	spec := readJSON(t, filepath.Join(cwd, "out", "engine", "analysis-manifest.v1.json"))
+	run := spec["run"].(map[string]any)
+	if run["signal"] != float64(9) || run["exit_code"] != nil {
+		t.Fatalf("run = %v, want signal 9 and no exit code", run)
 	}
 }
 

@@ -67,17 +67,11 @@ type toolRun struct {
 // clampSeconds keeps a caller's huge timeout inside what a time.Duration holds.
 func clampSeconds(n int64) time.Duration {
 	const limit = 1 << 31
-	if n > limit {
-		n = limit
-	}
-	return time.Duration(n) * time.Second
+	return time.Duration(min(n, limit)) * time.Second
 }
 
 func clampInt(n int64) int {
-	if n > math.MaxInt64/2 {
-		return math.MaxInt64 / 2
-	}
-	return int(n)
+	return int(min(n, math.MaxInt64/2))
 }
 
 // isoZ is datetime.isoformat() of a UTC time with "+00:00" written as "Z": no fraction when it is zero.
