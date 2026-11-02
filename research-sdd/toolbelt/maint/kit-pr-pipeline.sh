@@ -4,7 +4,7 @@
 # Kit-maintenance tool (kit issue #2212; outside the research toolbelt core): take one open kit PR to merged:
 #   restack onto the base -> push -> [size-check hook] -> RDD (native review) -> ONE flock'd full gate
 #   -> CI wait -> merge-gate --merge.
-# Each step is also callable on its own: kit-rdd-start.py, kit-rdd-drive.py, kit-gate.sh, kit-wait-merge.sh.
+# Each step is also callable on its own: kit-rdd-start.sh, kit-rdd-drive.sh, kit-gate.sh, kit-wait-merge.sh.
 #
 # Options:
 #   --consent granted   record the maintainer's STANDING grant to start the native review for this candidate.
@@ -48,7 +48,7 @@
 #   not-merged          19   merge-gate refused or the PR is still not MERGED
 #   size-check-failed   20   the --size-check hook exited non-zero
 #   fetch-failed        21   `git fetch` still failing after 3 tries
-#   (rdd-not-due is informational: no review is due, the pipeline goes on; kit-rdd-start.py itself exits 10)
+#   (rdd-not-due is informational: no review is due, the pipeline goes on; kit-rdd-start.sh itself exits 10)
 # Never edit this file, or a sibling tool, in place while a pipeline started from it is running: bash reads a
 # script incrementally, so an in-place edit corrupts the live run. Copy, edit the copy, start new runs from it.
 set -u
@@ -136,24 +136,24 @@ fi
 rdd_json="$state/rdd-$pr.json"
 start_args=(--base-ref "$base")
 [ "$consent" = granted ] && start_args+=(--consent granted)
-python3 -I "$_RSDD_SELF/kit-rdd-start.py" "${start_args[@]}" "$wt" "$rdd_json"
+bash "$_RSDD_SELF/kit-rdd-start.sh" "${start_args[@]}" "$wt" "$rdd_json"
 rc=$?
 case "$rc" in
   0)
     drive_log="$state/rdd-drive-$pr.log"
-    python3 -I "$_RSDD_SELF/kit-rdd-drive.py" "$wt" "$rdd_json" > "$drive_log" 2>&1
+    bash "$_RSDD_SELF/kit-rdd-drive.sh" "$wt" "$rdd_json" > "$drive_log" 2>&1
     drc=$?
     if [ "$drc" -eq 15 ]; then cat "$drive_log"; else grep -vE '^(RUN|LAUNCH)' "$drive_log" | cut -c1-300 | tail -6; fi
     case "$drc" in
       0) ;;
-      3) kit_fail 3 degraded "kit-rdd-drive.py reported a missing dependency" ;;
+      3) kit_fail 3 degraded "kit-rdd-drive.sh reported a missing dependency" ;;
       15) kit_fail 15 consent-required "the review document is a consent envelope (#$pr)" ;;
       *) kit_fail 13 rdd-not-approved "#$pr: the review did not reach acknowledgement (rc=$drc, log $drive_log)" ;;
     esac ;;
   10) kit_say "rdd-not-due: #$pr needs no native review; continuing" ;;
   15) kit_fail 15 consent-required "#$pr: re-run with --consent granted to record the maintainer's standing grant" ;;
-  3) kit_fail 3 degraded "kit-rdd-start.py reported a missing dependency" ;;
-  *) kit_fail 14 rdd-start-error "#$pr: kit-rdd-start.py exited $rc" ;;
+  3) kit_fail 3 degraded "kit-rdd-start.sh reported a missing dependency" ;;
+  *) kit_fail 14 rdd-start-error "#$pr: kit-rdd-start.sh exited $rc" ;;
 esac
 
 # 5. gate

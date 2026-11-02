@@ -3,8 +3,8 @@
 
 Run as:  python3 -I gen_tables.py > ../../zipdata_gen.go   (then gofmt -w)
 
-Emits the tables the Go ports need so that a ZIP entry name is judged exactly as the legacy
-zip_metadata.py / zip_stored.py judged it:
+Emits the tables the Go ports need so that a ZIP entry name is judged exactly as
+the retired zip_metadata.py / zip_stored.py (frozen in legacy/) judged it:
   zipCP437       bytes 0x80-0xff decoded with the cp437 codec (names without general-purpose flag 11)
   zipCanonDecomp one-level canonical decompositions (unicodedata.decomposition without a <tag>)
   zipCCC         canonical combining classes, as ranges

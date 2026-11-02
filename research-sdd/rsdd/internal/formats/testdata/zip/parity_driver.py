@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run the REAL legacy zip_metadata.py / zip_stored.py parsers over a batch of cases for the Go parity tests.
+"""Run the REAL frozen legacy zip_metadata.py / zip_stored.py parsers over a batch of cases for the Go parity tests.
 
-Usage:  python3 -I parity_driver.py <toolbelt-dir> <op>      (JSON array on stdin, JSON array on stdout)
+Usage:  python3 -I parity_driver.py <legacy-dir> <op>      (JSON array on stdin, JSON array on stdout)
 
 Ops (one result per input case, same order):
   inventory      {path, max_cd, max_entries, max_field, max_report}
@@ -21,8 +21,8 @@ import sys
 import types
 import unicodedata
 
-toolbelt, op = sys.argv[1], sys.argv[2]
-sys.path.insert(0, toolbelt)
+legacy_dir, op = sys.argv[1], sys.argv[2]
+sys.path.insert(0, legacy_dir)
 import zip_metadata as zm  # noqa: E402
 import zip_stored as zs  # noqa: E402
 

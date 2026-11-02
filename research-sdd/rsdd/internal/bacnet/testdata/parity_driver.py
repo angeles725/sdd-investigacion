@@ -1,5 +1,5 @@
-"""Parity driver for the Go bacnet tests: runs the REAL legacy corroborate_bacnet.py frame builders and parsers
-over a batch of cases in one process (argv: <toolbelt dir> <op>; stdin: JSON list of cases; stdout: JSON list)."""
+"""Parity driver for the Go bacnet tests: runs the REAL frozen legacy corroborate_bacnet.py frame builders and parsers
+over a batch of cases in one process (argv: <legacy dir> <op>; stdin: JSON list of cases; stdout: JSON list)."""
 import importlib
 import json
 import sys
