@@ -2761,6 +2761,27 @@ printf '%s\n' "$TR/c.test.sh extras r" "# between" "" "$IR/i.test.sh extras r" >
 out="$(bash "$w/run-all.sh" 2>&1)"; [ "$(ran_of "$out")" = "b" ] || bad="$bad [multi (unsorted, blank, comment, last line unterminated) ran=$(ran_of "$out")]"
 [ -z "$bad" ] && ok "tier edges: an extras entry first / middle / last, a single-entry manifest, an unterminated last line and unsorted order are all honoured" || no "tier edges:$bad"
 
+# 39b — `dedicated` tier word (kit issue #2488): a suite that runs in its own CI job is in NEITHER core nor extras, only in all.
+w="$(tier_tree c39ded)"; tier_man "$w" "$TR/b.test.sh dedicated runs in its own CI job" "$TR/c.test.sh extras category E VM/dynamic sandbox"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; core_ran="$(ran_of "$out")"; core_ok=""; grep -qxF 'Tier: core — 2 of 4 suites (excluded: 2)' <<<"$out" && core_ok=1
+out="$(bash "$w/run-all.sh" --tier extras 2>&1)"; rc2=$?; ex_ran="$(ran_of "$out")"
+out="$(bash "$w/run-all.sh" --tier all 2>&1)"; rc3=$?; all_ran="$(ran_of "$out")"
+cl="$(bash "$w/run-all.sh" --list-suites 2>/dev/null)"; el="$(bash "$w/run-all.sh" --list-suites --tier extras 2>/dev/null)"; al="$(bash "$w/run-all.sh" --list-suites --tier all 2>/dev/null)"
+if [ "$rc" -eq 0 ] && [ "$core_ran" = "ai" ] && [ -n "$core_ok" ] && [ "$rc2" -eq 0 ] && [ "$ex_ran" = "c" ] && [ "$rc3" -eq 0 ] && [ "$all_ran" = "abci" ] \
+   && ! grep -qF "$TR/b.test.sh" <<<"$cl$el" && grep -qF "$TR/b.test.sh" <<<"$al" && [ "$(wc -l <<<"$al")" -eq 4 ]; then
+  ok "tier: a dedicated suite is in neither core nor extras (run or list) and only runs under --tier all"
+else no "tier dedicated wrong: rc=$rc core=$core_ran ok=$core_ok extras=$ex_ran all=$all_ran list=[$(tr '\n' ' ' <<<"$cl")|$el]"; fi
+w="$(tier_tree c39ded2)"; tier_man "$w" "$TR/a.test.sh dedicated r" "$TR/b.test.sh dedicated r" "$TR/c.test.sh dedicated r" "$IR/i.test.sh dedicated r"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; out2="$(bash "$w/run-all.sh" --tier extras 2>&1)"; rc2=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: EMPTY' <<<"$out" && [ "$rc2" -eq 1 ] && [ -z "$(ran_of "$out2")" ] && grep -qF 'Tier: EMPTY' <<<"$out2"; then
+  ok "tier: all-dedicated leaves core and extras empty — typed EMPTY, exit 1, nothing ran"
+else no "tier dedicated empty wrong: rc=$rc rc2=$rc2"; fi
+w="$(tier_tree c39ded3)"; tier_man "$w" "$TR/b.test.sh dedicated" "$TR/c.test.sh dedicated r" "$TR/gone.test.sh dedicated r"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: INVALID' <<<"$out"; then
+  ok "tier: a dedicated line without a reason, or naming no suite, is a typed INVALID before any suite runs"
+else no "tier dedicated invalid wrong: rc=$rc ran=$(ran_of "$out")"; fi
+
 # 40 — run-all.sh --impacted <ref> (kit issue #2201 part 1b): run only the suites suite-impact.sh selects (worktree mode, so
 #      uncommitted writer changes count), intersected with the --tier selection; an escalation runs the whole tier selection;
 #      every state suite-impact cannot answer is a typed `Impacted: DEGRADED` + exit 2 BEFORE any suite runs (never a silent
@@ -2969,11 +2990,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   echo "-- teeth: suite tiers (kit issue #2203) — each branch removed in turn; its scenario must then break --"
   tier_tooth filter default 's/^elif \[\[ "\$TIER" != "all" \]\]; then$/elif false; then/'
-  tier_tooth extras-select extras 's/\[\[ "\$TIER" == "extras" \]\] \&\& _tier_sel+=("\$f")/:/'
+  tier_tooth extras-select extras 's/\[\[ "\$TIER" == "extras" \&\& "\${_tier_word\[\${suite_rel\[\$f\]}\]}" == "extras" \]\] \&\& _tier_sel+=("\$f")/:/'
   tier_tooth value badvalue 's/^    core|extras|all) TIER=/    *) TIER=/'
   tier_tooth invalid-exit noreason 's/^if \[\[ \${#_tier_invalid\[@\]} -gt 0 \]\]; then$/if false; then/'
   tier_tooth noreason-check noreason 's/^    elif \[\[ -z "\$_tl_why" \]\]; then$/    elif false; then/'
-  tier_tooth tierword badword 's/^    elif \[\[ "\$_tl_word" != "extras" \]\]; then$/    elif false; then/'
+  tier_tooth tierword badword 's/^    elif \[\[ "\$_tl_word" != "extras" \&\& "\$_tl_word" != "dedicated" \]\]; then$/    elif false; then/'
   tier_tooth duplicate dup 's/^    elif \[\[ "\${_extras_reason\[\$_tl_path\]+set}" == "set" \]\]; then$/    elif false; then/'
   tier_tooth unknown-suite unknown 's/^    elif \[\[ "\${_rel_known\[\$_tl_path\]+set}" != "set" \]\]; then$/    elif false; then/'
   tier_tooth degraded-exit absent 's/ \&\& \[\[ -z "\$TIER_DEGRADED" \]\]; then$/; then/'

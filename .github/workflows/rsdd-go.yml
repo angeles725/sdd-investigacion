@@ -6,10 +6,20 @@ on:
     paths:
       - "research-sdd/rsdd/**"
       - ".github/workflows/rsdd-go.yml"
+      # The Go bridge suite (kit issue #2488) and the mutation helper it sources.
+      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
+      - "research-sdd/toolbelt/tests/lib/mutant.sh"
   pull_request:
     paths:
       - "research-sdd/rsdd/**"
       - ".github/workflows/rsdd-go.yml"
+      - "research-sdd/toolbelt/tests/rsdd-go.test.sh"
+      - "research-sdd/toolbelt/tests/lib/mutant.sh"
+  # Nightly whole-module run of the bridge suite (whole-module gremlins; RSDD_TEETH_BASE is empty off pull_request).
+  # The toolbelt nightly used to cover this through its core tier; the suite is now `dedicated` (suite-tiers.txt).
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
 
 # A newer push to the same PR, or a newer merge to main, supersedes the in-flight run of the same ref:
 # cancel it, so the shared concurrent-job cap (GitHub queues everything beyond it) is spent on current
@@ -47,3 +57,28 @@ jobs:
         run: make race
       - name: cross build (CGO_ENABLED=0)
         run: make cross
+
+  rsdd-go-bridge:
+    # Kit issue #2488: research-sdd/toolbelt/tests/rsdd-go.test.sh (tier `dedicated` in suite-tiers.txt, so the
+    # toolbelt shards no longer run it) = `make test` + the panic-boundary mutation control + gremlins teeth.
+    # It used to run inside every toolbelt shard run (469-729 s, 10 of 14 measured toolbelt failures) even when no
+    # Go file changed. Same environment it had there.
+    runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
+    timeout-minutes: 25
+    env:
+      # A missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage (CLAUDE.md section 7).
+      RSDD_REQUIRE_GO: "1"
+      # Kit issue #2381: on a pull_request, gremlins runs only on the Go packages changed since the merge base with
+      # the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
+      RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache-dependency-path: research-sdd/rsdd/go.mod
+      - name: rsdd-go.test.sh with mutation teeth
+        run: bash research-sdd/toolbelt/tests/rsdd-go.test.sh --prove-teeth

@@ -21,9 +21,12 @@
 #
 #   --tier <t>       Suite tier (kit issue #2203), default `core`. suite-tiers.txt (next to this script) lists
 #                    the EXTRAS suites, one `<repo-relative suite path> extras <reason>` per line ('#' comments,
-#                    blank lines ignored): category E VM/dynamic-sandbox suites and unused adapters. `core` runs
-#                    everything not listed, `extras` only the listed ones, `all` both. The manifest is parsed
-#                    strictly: a line without a reason, a tier word other than `extras`, a duplicate, or a path
+#                    blank lines ignored): category E VM/dynamic-sandbox suites and unused adapters. A line may
+#                    also carry the word `dedicated` (kit issue #2488): a suite that runs in its own CI job
+#                    (rsdd-go.test.sh in rsdd-go.yml) and so belongs to NEITHER core nor extras. `core` runs
+#                    everything not listed, `extras` only the `extras` ones, `all` every suite (dedicated
+#                    included, so --require-teeth still judges them). The manifest is parsed
+#                    strictly: a line without a reason, a tier word other than `extras|dedicated`, a duplicate, or a path
 #                    that names no discovered suite is `Tier: INVALID` and exits 1 BEFORE any suite runs (a
 #                    renamed suite must never silently drop out of the gate). An ABSENT or unreadable manifest
 #                    is `Tier: DEGRADED`: every suite runs and the run exits 1 (anti-silent-zero). A tier that
@@ -572,6 +575,7 @@ discovered_suites=${#all_suites[@]}
 declare -A _rel_known=()
 for f in "${all_suites[@]}"; do _rel_known["${suite_rel[$f]}"]=1; done
 declare -A _extras_reason=()
+declare -A _tier_word=()
 _tier_invalid=()
 if [[ ! -e "$TIER_MANIFEST" ]]; then
   TIER_DEGRADED="suite-tiers.txt absent"
@@ -586,8 +590,8 @@ else
     read -r _tl_path _tl_word _tl_why <<<"$_tl"
     if [[ -z "$_tl_word" ]]; then
       _tier_invalid+=("line $_tl_n: '$_tl_path' has no tier word and no reason")
-    elif [[ "$_tl_word" != "extras" ]]; then
-      _tier_invalid+=("line $_tl_n: unknown tier '$_tl_word' for '$_tl_path' (only 'extras' is listed; core is the default)")
+    elif [[ "$_tl_word" != "extras" && "$_tl_word" != "dedicated" ]]; then
+      _tier_invalid+=("line $_tl_n: unknown tier '$_tl_word' for '$_tl_path' (only 'extras' and 'dedicated' are listed; core is the default)")
     elif [[ -z "$_tl_why" ]]; then
       _tier_invalid+=("line $_tl_n: '$_tl_path' has no reason")
     elif [[ "${_extras_reason[$_tl_path]+set}" == "set" ]]; then
@@ -596,6 +600,7 @@ else
       _tier_invalid+=("line $_tl_n: '$_tl_path' names no discovered suite (renamed or removed?)")
     else
       _extras_reason["$_tl_path"]="$_tl_why"
+      _tier_word["$_tl_path"]="$_tl_word"
     fi
   done < "$TIER_MANIFEST"
 fi
@@ -610,7 +615,8 @@ elif [[ "$TIER" != "all" ]]; then
   _tier_sel=()
   for f in "${all_suites[@]}"; do
     if [[ "${_extras_reason[${suite_rel[$f]}]+set}" == "set" ]]; then
-      [[ "$TIER" == "extras" ]] && _tier_sel+=("$f")
+      # `dedicated` (kit issue #2488) runs in its own CI job: in neither core nor extras, only under --tier all.
+      [[ "$TIER" == "extras" && "${_tier_word[${suite_rel[$f]}]}" == "extras" ]] && _tier_sel+=("$f")
     else
       [[ "$TIER" == "core" ]] && _tier_sel+=("$f")
     fi
