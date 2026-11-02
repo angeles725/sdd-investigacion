@@ -1,6 +1,7 @@
 # `floss-evidence.v1`
 
-`corroborate-floss.sh --input <binary> --output <new-out-dir> [caps]` runs
+`corroborate-floss.sh --input <binary> --output <new-out-dir> [caps]` (a compatibility shim over
+`rsdd corroborate floss`, see "The Go port" below) runs
 [FLOSS](https://github.com/mandiant/flare-floss) (FLARE Labs Obfuscated String
 Solver v3.1.1) in a network-denied Bubblewrap sandbox, builds a **bounded
 obfuscated-string inventory** of a PE/ELF binary, and emits a deterministic
@@ -40,7 +41,7 @@ written.
 
 ### Venv bind validation
 
-`adapter_helpers.bind_venv` validates the floss venv root before binding:
+`bind_venv` (Go: `core/adapter/helpers.BindVenv`) validates the floss venv root before binding:
 
 - Resolves symlinks (`os.path.realpath`) so wrapper scripts at shallow system
   paths (e.g. `~/bin/floss` where venv root = `~`) are detected and rejected.
@@ -53,7 +54,7 @@ If the guard fails, the adapter exits 2 with a descriptive error and publishes
 no evidence.  Fix: point `RSDD_FLOSS` at the venv's `bin/floss` directly.
 
 A wall-clock timeout (`--timeout`, default 120 s) is enforced by
-`adapter_core.run_bounded()`, which kills the bwrap process group on breach.
+`run_bounded` (Go: `core/proc.Run`), which kills the bwrap process group on breach.
 
 ## floss JSON Output
 
@@ -149,9 +150,9 @@ output-dir/
 
 ## Safety Invariants
 
-- `stage_file()` opens the input with `O_NOFOLLOW`; symlink inputs are rejected.
-- `_read_stdout_json()` opens stdout.txt with `O_NOFOLLOW` + `lstat`/`S_ISREG`;
-  symlinks planted by a malicious binary are rejected with `FlossError`.
+- The staging copy (`fsx.StageFile`) opens the input with `O_NOFOLLOW`; symlink inputs are rejected.
+- The stdout reader (`readStdoutJSON`) opens stdout.txt with `O_NOFOLLOW` + `lstat`/`S_ISREG`;
+  symlinks planted by a malicious binary are rejected with a fail-closed error (exit 2).
 - A before/after `fstat` detects TOCTOU modification of stdout.txt while reading.
 - Output directory must not pre-exist; `renameat2 RENAME_NOREPLACE` ensures
   atomic, collision-safe publication.
@@ -161,3 +162,41 @@ output-dir/
   tool tree.
 - `/etc/passwd` and `/etc/group` are bound read-only (for `getpwuid`); no
   other credential or home-directory paths are exposed.
+
+## The Go port
+
+The tool is now `rsdd corroborate floss` (Go, kit issue #2484, package
+`rsdd/internal/corroborate/floss`); `corroborate-floss.sh` is a compatibility
+shim that adds `--manifest-cli` and hands over. Exit codes (0 complete, 1
+evidence published with errors, 2 refusal or usage error), stderr lines, the
+evidence JSON, `engine/stdout.txt`, `engine/stderr.txt`, the file modes and the
+manifest (run times aside) are byte-identical to the former script on every
+case of the differential tests, which run the frozen script
+(`rsdd/internal/corroborate/floss/testdata/legacy/corroborate_floss.py`) under
+Python 3.12 as the oracle: a 3 000-line command-line corpus (usage, help at
+several terminal widths, abbreviations, `--opt=value`, integers), a 4 000-input
+JSON corpus (the exact `json.loads` messages and positions the script copies
+into `errors`) and whole runs against a stand-in floss and the real bwrap. The
+differences, all stricter or crash-free:
+
+- A stage directory that already exists (another run in flight, or a leftover)
+  is never deleted by the run that failed to create it; the script's cleanup
+  removed it.
+- A floss executable that fails the venv guard (`tool executable is not inside
+  a 'bin/' directory`, a bind scope error) exits 2 with
+  `corroborate-floss: <reason>` as this document always promised; the script
+  let the exception escape (a traceback, exit 1).
+- floss output the script crashes on (a document that is not an object, a
+  category that is not an array, entries that are not objects, a non-string
+  `string`, a non-numeric `offset`), output that is not UTF-8 JSON text
+  (UTF-16/32 included), a lone surrogate, and NaN, Infinity or a float beyond
+  the double range end the run with `corroborate-floss: <reason>` and exit 2
+  where the script printed a traceback and exited 1 (or published evidence).
+- The manifest tool is run with the `python3` found on `PATH` (the script used
+  its own interpreter); the integers `--timeout`, `--max-strings` and
+  `--max-string-len` keep Python's unbounded range, and beyond 4 300 digits are
+  a usage error as in Python 3.12.
+- An explicit `--opt=--` value is kept as the text `--` (argparse drops it and
+  the script then crashes).
+- The `--help` and usage layout follow `COLUMNS` (80 when unset or invalid)
+  like argparse's formatter; the terminal size itself is not queried.

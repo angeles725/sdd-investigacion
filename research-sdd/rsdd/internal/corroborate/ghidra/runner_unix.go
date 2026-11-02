@@ -64,6 +64,11 @@ func (s runSpec) command() *exec.Cmd {
 		SysProcAttr: &syscall.SysProcAttr{Setsid: true}}
 }
 
+// descendantGrace is how long the analyzer's remaining process group gets between SIGTERM and SIGKILL once the
+// analyzer itself has exited. It is a variable only so a test can widen it and make the TERM handler's window
+// deterministic; TestDescendantGraceIsFiftyMilliseconds pins the production value.
+var descendantGrace = 50 * time.Millisecond
+
 // stopGroup is TERM, a short wait for the leader, then KILL: the guard in core/proc refuses any group that is not
 // the child's recorded one, and a group already gone ends the stop.
 func stopGroup(g *proc.Group, pid int, done <-chan error) {
@@ -217,7 +222,7 @@ loop:
 		rc = -int(ws.Signal())
 	}
 	_ = g.Signal(pid, syscall.SIGTERM)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(descendantGrace)
 	_ = g.Signal(pid, syscall.SIGKILL)
 	reap(pid)
 

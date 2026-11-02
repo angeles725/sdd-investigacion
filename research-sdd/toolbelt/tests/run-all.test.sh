@@ -292,6 +292,7 @@ cp "$SUT" "$_c12root/tests/run-all.sh"
 printf '# fixture: no extras\n' > "$_c12root/tests/suite-tiers.txt"   # kit issue #2203
 cp "$HERE/corroborate-pcap.test.sh" "$_c12root/tests/"
 cp "$HERE/pcap-flows.test.sh" "$_c12root/tests/"
+cp -R "$HERE/lib" "$_c12root/tests/lib"   # both suites now source "$HERE/lib/mutant.sh" (#2485); without it they exit 2, not SKIP
 printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/corroborate-pcap.sh"; chmod +x "$_c12root/corroborate-pcap.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/pcap-flows.sh";      chmod +x "$_c12root/pcap-flows.sh"
 touch "$_c12root/analysis_manifest.py"

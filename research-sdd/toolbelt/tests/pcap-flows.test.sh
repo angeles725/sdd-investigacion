@@ -1,211 +1,131 @@
 #!/usr/bin/env bash
+# pcap-flows.test.sh — the end-to-end check of the pcap-flows.sh compatibility shim (kit issue #2485, epic #2270).
+#
+# The tool moved to Go: `rsdd corroborate pcap-flows` (research-sdd/rsdd/internal/corroborate/pcap). Its cases (every
+# legacy case of this suite, a ~100-scenario byte-for-byte comparison against the frozen legacy Python as the oracle,
+# the parsers fuzzed against the legacy functions, and the Go mutation controls) live in the Go tests
+# (`go test ./internal/corroborate/pcap`, `make teeth`). This suite keeps a few end-to-end cases through the shim
+# with the real tshark and Bubblewrap, and the mutation controls of the shim itself.
+#
+# Usage: pcap-flows.test.sh [--prove-teeth]     Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../pcap-flows.sh"; MANIFEST="$HERE/../analysis_manifest.py"
-TOOLBELT="$(dirname "$HERE")"; PYSUT="$TOOLBELT/pcap_flows.py"
-# --prove-teeth child run: `--teeth-child <staged pcap_flows.py>` points the suite at a staged mutant
-# tree. An argument, not an environment variable, so a caller's ambient env can never swap the SUT of a plain run.
-if [ "${1:-}" = "--teeth-child" ]; then
-  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
-  SUT="$(dirname "$2")/pcap-flows.sh"; PYSUT="$2"
-  echo "TEETH-CHILD: SUT=$PYSUT"
-fi
-[ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
+SUT="$TB/pcap-flows.sh"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || exit 2
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 if ! command -v tshark >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
   echo "SKIP: tshark or bwrap not in PATH — suite skipped (tool-missing)"
   echo "== 0 passed · 0 failed =="; exit 0
 fi
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
-run(){ "$SUT" --input "$ROOT/fixture.pcap" --output "$1" "${@:2}"; }
+ROOT="$(mktemp -d)" || exit 2
+trap 'rm -rf "$ROOT"' EXIT
+pass=0; fail=0
+ok() { echo "  PASS  $1"; pass=$((pass+1)); }
+no() { echo "  FAIL  $1"; fail=$((fail+1)); }
 
-# Mint a deterministic pcap with one TCP stream carrying payload "HELLO".
-# Two packets: SYN (seq=1000) + PSH|ACK (seq=1001, data=b"HELLO").
-# tshark dissects streams regardless of checksum validity, so we skip them.
-python3 - "$ROOT/fixture.pcap" <<'PY'
-import struct,sys
-E=bytes(6)*2+b'\x08\x00'; S=bytes([192,168,1,1]); D=bytes([192,168,1,2])
-def mk(ts,sp,dp,sq,ak,fl,data):
-    t=struct.pack('>HHIIHHHH',sp,dp,sq,ak,(5<<12)|fl,65535,0,0)+data
-    i=struct.pack('>BBHHHBBH4s4s',0x45,0,20+len(t),1,0x4000,64,6,0,S,D)
-    f=E+i+t; return struct.pack('<IIII',ts,0,len(f),len(f))+f
-H=struct.pack('<IHHiIII',0xa1b2c3d4,2,4,0,0,65535,1)
-open(sys.argv[1],'wb').write(H+mk(1,4321,80,1000,0,0x002,b'')+mk(2,4321,80,1001,1001,0x018,b'HELLO'))
+# The SUT hands over to the Go binary. $RSDD_BIN wins; otherwise one binary is built into the suite temp dir (never
+# into the tree). A suite that cannot get rsdd says so with a typed SKIP, or FAILS under RSDD_REQUIRE_GO=1.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$ROOT/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (the fixtures and the manifest tool need it)" >&2; exit 2; }
+
+# Mint two deterministic pcaps. fixture.pcap: one TCP stream carrying "HELLO" (a SYN, then a PSH|ACK with the data;
+# tshark dissects streams regardless of checksum validity). multi.pcap: three such streams.
+python3 - "$ROOT" <<'PY' || exit 2
+import struct, sys
+E = bytes(6) * 2 + b'\x08\x00'; S = bytes([192, 168, 1, 1]); D = bytes([192, 168, 1, 2])
+def mk(ts, sp, dp, sq, ak, fl, data):
+    t = struct.pack('>HHIIHHHH', sp, dp, sq, ak, (5 << 12) | fl, 65535, 0, 0) + data
+    i = struct.pack('>BBHHHBBH4s4s', 0x45, 0, 20 + len(t), 1, 0x4000, 64, 6, 0, S, D)
+    f = E + i + t
+    return struct.pack('<IIII', ts, 0, len(f), len(f)) + f
+H = struct.pack('<IHHiIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1)
+open(sys.argv[1] + '/fixture.pcap', 'wb').write(H + mk(1, 4321, 80, 1000, 0, 0x002, b'') + mk(2, 4321, 80, 1001, 1001, 0x018, b'HELLO'))
+multi = b''
+for n, payload in enumerate((b'A', b'B', b'C')):
+    multi += mk(1 + 2 * n, 4321 + n, 80, 1000 * (n + 1), 0, 0x002, b'') + mk(2 + 2 * n, 4321 + n, 80, 1000 * (n + 1) + 1, 1000 * (n + 1) + 1, 0x018, payload)
+open(sys.argv[1] + '/multi.pcap', 'wb').write(H + multi)
 PY
+run() { "$SUT" --input "$ROOT/fixture.pcap" --output "$1" "${@:2}"; }
 
-# T1: determinism — two runs on the same fixture must be byte-identical
-if run "$ROOT/a" && run "$ROOT/b" \
-  && cmp -s "$ROOT/a/pcap-flows.v1.json" "$ROOT/b/pcap-flows.v1.json"; then
-  ok "two runs on same fixture produce byte-identical evidence"
-else no "determinism"; fi
+if run "$ROOT/a" && run "$ROOT/b" && cmp -s "$ROOT/a/pcap-flows.v1.json" "$ROOT/b/pcap-flows.v1.json"; then
+  ok "the shim publishes deterministic evidence"
+else no "the shim publishes deterministic evidence"; fi
 
-# T2: evidence schema — conversations list and per-stream follow digest present
 if python3 - "$ROOT/a/pcap-flows.v1.json" <<'PY'
-import json,sys; d=json.load(open(sys.argv[1]))
-assert d['schema']=='pcap-flows.v1' and d['status']=='complete', d['status']
-c=d['conversations']['tcp']; assert c and 'endpoint_a' in c[0] and isinstance(c[0]['frames_total'],int)
-f=d['tcp_stream_follows']; assert f and f[0]['payload_sha256'].startswith('sha256:') and isinstance(f[0]['payload_bytes'],int)
+import hashlib, json, re, sys
+d = json.load(open(sys.argv[1]))
+assert d['schema'] == 'pcap-flows.v1' and d['status'] == 'complete', d['status']
+c = d['conversations']['tcp']; assert c and 'endpoint_a' in c[0] and isinstance(c[0]['frames_total'], int)
+f = d['tcp_stream_follows']
+assert len(f) == 1 and f[0]['payload_sha256'] == 'sha256:' + hashlib.sha256(b'HELLO').hexdigest(), f
+assert re.match(r'^sha256:[0-9a-f]{64}$', f[0]['payload_sha256']) and f[0]['payload_bytes'] == 5
 PY
-then ok "evidence schema: conversations and stream follow digest fields present"
-else no "evidence schema"; fi
+then ok "a real TCP stream's reassembled payload reaches the evidence as its SHA-256"; else no "evidence contract"; fi
 
-# T3: analysis manifest — validate structure and verify artifact hashes
-if python3 "$MANIFEST" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
-  && python3 "$MANIFEST" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
-  ok "analysis-manifest validates and all artifact hashes verify"
+if python3 "$TB/analysis_manifest.py" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
+  && python3 "$TB/analysis_manifest.py" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
+  ok "the published analysis manifest validates and all artifact hashes verify"
 else no "manifest verification"; fi
 
-# T4: network isolation — argv must contain bwrap markers
-if python3 - "$ROOT/a/pcap-flows.v1.json" <<'PY'
-import json,sys; d=json.load(open(sys.argv[1])); a=d['conversations']['argv']
-assert '--unshare-net' in a, "--unshare-net missing from argv"
-assert '--cap-drop' in a, "--cap-drop missing from argv"
-PY
-then ok "bwrap network-denial markers present in recorded conversations argv"
-else no "isolation markers in argv"; fi
-
-# T5: payload stored as sha256 digest (sha256:<64 hex chars>), not raw bytes
-if python3 - "$ROOT/a/pcap-flows.v1.json" <<'PY'
-import json,re,sys; d=json.load(open(sys.argv[1]))
-p=re.compile(r'^sha256:[0-9a-f]{64}$')
-assert all(p.match(f['payload_sha256']) for f in d['tcp_stream_follows'])
-PY
-then ok "per-stream payload stored as sha256 digest, not raw bytes"
-else no "payload digest format"; fi
-
-# T6: negative — non-pcap input rejected with clean error message
 printf 'not a pcap file\n' > "$ROOT/garbage.txt"
-if ! "$SUT" --input "$ROOT/garbage.txt" --output "$ROOT/garbage-out" 2>"$ROOT/err.txt" \
-   && grep -q 'pcap-flows:.*not a pcap' "$ROOT/err.txt"; then
-  ok "non-pcap input rejected with clean AdapterError message"
-else no "non-pcap rejection"; fi
+"$SUT" --input "$ROOT/garbage.txt" --output "$ROOT/garbage-out" 2>"$ROOT/err.txt"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q '^pcap-flows: not a pcap/pcapng file' "$ROOT/err.txt" && [ ! -e "$ROOT/garbage-out" ] && [ ! -e "$ROOT/.garbage-out.stage" ]; then
+  ok "a non-pcap input exits 2 with the typed message and publishes nothing"; else no "non-pcap rejection (exit $rc): $(cat "$ROOT/err.txt")"; fi
 
-# ── Unit: directional count swap + payload_complete (T7-T10) ─────────────────
-# RED: T7 fails before the endpoint-swap fix; T9/T10 fail before payload_complete fix.
-# T8 is a triangulation control that verifies the no-swap path is already correct.
-if python3 - "$PYSUT" <<'PY'
-import sys, importlib.util
-spec = importlib.util.spec_from_file_location("pcap_flows", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-# T7: left endpoint sorts greater → directional counts must be swapped with endpoints
-SYNTH = "===\nTCP Conversations\n192.168.1.9:80 <-> 192.168.1.2:4321 5 1000 3 200 8 1200\n===\n"
-c = m._parse_conversations(SYNTH, "tcp")[0]
-assert c['endpoint_a'] == '192.168.1.2:4321', f"endpoint_a={c['endpoint_a']}"
-assert c['frames_a2b'] == 5, f"frames_a2b={c['frames_a2b']} want 5 (was b2a before swap)"
-assert c['bytes_a2b'] == 1000 and c['frames_b2a'] == 3 and c['bytes_b2a'] == 200
-# T8: left endpoint already smaller → no swap, counts unchanged (triangulation)
-SYNTH2 = "===\nTCP Conversations\n192.168.1.2:4321 <-> 192.168.1.9:80 5 1000 3 200 8 1200\n===\n"
-c2 = m._parse_conversations(SYNTH2, "tcp")[0]
-assert c2['frames_b2a'] == 5 and c2['frames_a2b'] == 3, f"no-swap: b2a={c2['frames_b2a']} a2b={c2['frames_a2b']}"
-# T9: odd-length hex line → bytes.fromhex raises ValueError → payload_complete=False
-SYNTH3 = "===\nNode 0: 127.0.0.1:1\nNode 1: 127.0.0.1:2\nabc\n===\n"
-r = m._parse_follow(SYNTH3, 0)
-assert 'payload_complete' in r, "payload_complete field missing from _parse_follow result"
-assert r['payload_complete'] is False, f"expected False, got {r['payload_complete']}"
-# T10: valid even-length hex → payload_complete=True (triangulation for T9)
-SYNTH4 = "===\nNode 0: 127.0.0.1:1\nNode 1: 127.0.0.1:2\n48454c4c4f\n===\n"
-r2 = m._parse_follow(SYNTH4, 0)
-assert r2.get('payload_complete') is True, f"expected True, got {r2.get('payload_complete')}"
-assert r2['client_bytes'] == 5, f"client_bytes={r2['client_bytes']} want 5"
-PY
-then ok "unit: directional count swap + payload_complete flag"
-else no "unit: directional count swap or payload_complete (CRITICAL+WARNING)"; fi
-
-# ── Integration: per-stream follow capped by --max-streams (T11) ─────────────
-# RED: fails before MAX_STREAMS fix (--max-streams arg not recognized).
-python3 - "$ROOT/multi.pcap" <<'PY'
-import struct, sys
-E=bytes(6)*2+b'\x08\x00'; S=bytes([192,168,1,1]); D=bytes([192,168,1,2])
-def mk(ts,sp,dp,sq,ak,fl,d):
-    t=struct.pack('>HHIIHHHH',sp,dp,sq,ak,(5<<12)|fl,65535,0,0)+d
-    i=struct.pack('>BBHHHBBH4s4s',0x45,0,20+len(t),1,0x4000,64,6,0,S,D)
-    f=E+i+t; return struct.pack('<IIII',ts,0,len(f),len(f))+f
-H=struct.pack('<IHHiIII',0xa1b2c3d4,2,4,0,0,65535,1)
-pkts=(mk(1,4321,80,1000,0,0x002,b'')+mk(2,4321,80,1001,1001,0x018,b'A')+
-      mk(3,4322,80,2000,0,0x002,b'')+mk(4,4322,80,2001,2001,0x018,b'B')+
-      mk(5,4323,80,3000,0,0x002,b'')+mk(6,4323,80,3001,3001,0x018,b'C'))
-open(sys.argv[1],'wb').write(H+pkts)
-PY
-if "$SUT" --input "$ROOT/multi.pcap" --output "$ROOT/multi-out" --max-streams 2 \
+"$SUT" --input "$ROOT/multi.pcap" --output "$ROOT/multi-out" --max-streams 2 2>"$ROOT/err.txt"; rc=$?
+if [ "$rc" -eq 0 ] && grep -q '^pcap-flows: warning: 3 TCP streams found; analyzing only the first 2' "$ROOT/err.txt" \
   && python3 - "$ROOT/multi-out/pcap-flows.v1.json" <<'PY'
-import json, sys; d=json.load(open(sys.argv[1]))
-assert d.get('streams_truncated') is True, f"streams_truncated={d.get('streams_truncated')}"
-assert d.get('streams_analyzed') == 2, f"streams_analyzed={d.get('streams_analyzed')}"
-assert d.get('stream_count_total') == 3, f"stream_count_total={d.get('stream_count_total')}"
-assert len(d['tcp_stream_follows']) == 2, f"follows={len(d['tcp_stream_follows'])}"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d['streams_truncated'] is True and d['streams_analyzed'] == 2 and d['stream_count_total'] == 3
+assert len(d['tcp_stream_follows']) == 2
 PY
-then ok "--max-streams cap: streams_truncated=true + counts visible in evidence"
-else no "--max-streams cap + streams_truncated evidence (CRITICAL DoS fix)"; fi
+then ok "the caller's arguments reach the Go command (--max-streams caps the follow passes)"; else no "--max-streams pass-through (exit $rc)"; fi
 
-# T12: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
-# RED: fails before refuse_privileged_execution() is added to pcap_flows (no guard, message absent).
-if python3 - "$PYSUT" <<'PY'
-import importlib.util, io, sys
-from contextlib import redirect_stderr
-spec = importlib.util.spec_from_file_location("pcap_flows", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-m.os.geteuid = lambda: 0
-buf = io.StringIO()
-with redirect_stderr(buf):
-    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
-assert result == 2, f"expected exit 2 for root, got {result}"
-msg = buf.getvalue()
-assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
-PY
-then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
-else no "root refusal"; fi
+mkdir "$ROOT/collision" "$ROOT/.occupied.stage"; echo keep >"$ROOT/collision/keep"; echo stage >"$ROOT/.occupied.stage/keep"
+if ! run "$ROOT/collision" 2>/dev/null && ! run "$ROOT/occupied" 2>/dev/null \
+  && [ -f "$ROOT/collision/keep" ] && [ -f "$ROOT/.occupied.stage/keep" ]; then
+  ok "destination and stage collisions are preserved"; else no "path collisions"; fi
 
-
-# ---------------------------------------------------------------------------
-# --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
-# pcap_flows.py (wrapper, manifest CLI and lib/ staged beside it); the whole suite is re-run with
-# `--teeth-child <staged py>` and the named case must FAIL for its own reason: the bite pattern is
-# the case's FAIL label or the exact assertion text of the targeted check, and any crash-class
-# output (ImportError, SyntaxError, NameError, AttributeError, ...) disqualifies the mutant.
-# ---------------------------------------------------------------------------
-if [[ "${1:-}" == "--prove-teeth" ]]; then
-  echo "-- teeth: mutation controls (bwrap markers, digest format, direction swap, --max-streams, root refusal) --"
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_py_crash_strict || exit 2
-  _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
-  _builds_failed=0
-  _CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
-  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
-  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
-  # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates a staged copy of pcap_flows.py.
-  _tooth() {
-    local label="$1" want="$2" d; shift 2
-    d="$_MUT/${label%%:*}"; mkdir -p "$d"
-    cp "$TOOLBELT/pcap-flows.sh" "$TOOLBELT/analysis_manifest.py" "$d/"; ln -s "$TOOLBELT/lib" "$d/lib"
-    MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/pcap_flows.py" "$d/pcap_flows.py" "$@" || return 1
-    mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/pcap_flows.py" --orig "$TOOLBELT/pcap_flows.py" \
-      --bad-has "$want" --bad-lacks "$_CRASH" -- \
-      bash "$HERE/pcap-flows.test.sh" --teeth-child @SUT@
-  }
-  _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  _t "pf-net-open: --unshare-net dropped from the sandbox argv" "AssertionError: --unshare-net missing from argv" \
-    's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
-  _t "pf-digest-truncated: payload digest no longer a full sha256" "FAIL  payload digest format" \
-    's/"payload_sha256": "sha256:" + h.hexdigest(),/"payload_sha256": "sha256:" + h.hexdigest()[:32],/'
-  _t "pf-no-swap: directional counts not swapped with the endpoints" "frames_a2b=3 want 5" \
-    's/^            nums\[:4\] = nums\[2:4\] + nums\[0:2\].*/            pass/'
-  _t "pf-no-cap: --max-streams slice removed" "streams_analyzed=3" \
-    's/^            stream_ids = stream_ids\[:args.max_streams\]$/            pass/'
-  _t "pf-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
-    's/^        refuse_privileged_execution()$/        pass/'
-  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
-  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
-  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
-  _ctl_out="$(_tooth "pf-ctl-nameerror: sandbox misspelled (NameError)" "FAIL  isolation markers in argv" \
-    's/prefix = sandbox(bwrap, env)/prefix = sandboxX(bwrap, env)/' 2>&1)"; _ctl_rc=$?
-  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
-     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
-    echo "  PASS  pf-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
-  else
-    echo "  FAIL  pf-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
-  fi
-  rm -rf "$_MUT"
+if [ "${1:-}" != "--prove-teeth" ]; then
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
 fi
+[ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
-echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
+echo "-- teeth: pcap-flows.sh shim mutation controls --"
+# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+# each tooth run publishes into a fresh name: the original and the mutant must not collide on one destination
+# and an exit 0 that did not publish this tool's report is exit 9 (a sibling command succeeding is not this command)
+printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' '"$1" --input "$3" --output "$out"; rc=$?' \
+  '[ "$rc" -ne 0 ] || [ -f "$out/pcap-flows.v1.json" ] || exit 9' 'exit "$rc"' >"$ROOT/tooth-run.sh"
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4"; shift 4
+  local m="$KC/${label// /_}.sh"
+  if ! mutant_chain "$label" "$SUT" "$m" "$expr" >"$ROOT/mutant.log"; then cat "$ROOT/mutant.log"; no "tooth $label: mutant refused"; return; fi
+  chmod +x "$m"
+  if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$ROOT/tooth-run.sh" @SUT@ "$ROOT" "$ROOT/fixture.pcap"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+}
+tooth "shim dispatches to another command" 's/rsdd_exec corroborate pcap-flows /rsdd_exec corroborate java-fidelity /' 0 2
+tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
+tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ] && exit 0 || exit 1

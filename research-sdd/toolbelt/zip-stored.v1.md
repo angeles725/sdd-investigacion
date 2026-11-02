@@ -49,8 +49,8 @@ oracle of the Go parity tests over every fixture and every single-byte corruptio
 
 - Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes), `-h`
   prints the usage on stderr and exits `0`, a bad value or an unknown flag is a usage error (exit `2`). The hidden
-  `--manifest-cli` stays required; the Go command runs it with `python3` from `PATH` and a 10-minute bound, and
-  relays its output when it ends.
+  `--manifest-cli` stays required; the Go command checks that the file exists (otherwise it fails as the
+  interpreter did) and creates and verifies the manifest in process, so `python3` is not needed.
 - `--metadata-parser` is gone: the Python tool checked that the parser module it was handed was the module it had
   imported, which has no meaning in one binary. Passing it is a usage error.
 - Exit `3` prints `DEGRADED: zip-stored: published with uncertain durability: <reason>` (the `rsdd` contract

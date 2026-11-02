@@ -566,9 +566,16 @@ else
   elif ! grep -q '~2 proposed deltas' <<<"$_sw_mut" && ! grep -q 'proposed deltas' <<<"$_sw_mut"; then
     _sw_flipped=1
   fi
-  [ "$_sw_flipped" = 1 ] \
-    && ok "FLIP-SW: mutant lib flips sweep-retros (delta section gone/zero)" "(both-consumers-flip has teeth for sweep)" \
-    || no "FLIP-SW: mutant lib must flip sweep-retros delta count" "base=[$_sw_base] mut=[$_sw_mut]"
+  # sweep-retros is an rsdd_exec shim since #2358: `rsdd sweep retros` reads the grammar through the Go
+  # internal/core/retrogrammar package, not lib/retro-grammar.sh, so a lib mutant cannot reach it. The
+  # Go/bash grammar agreement it relied on is pinned by discriminator-parity.test.sh and the Go tests.
+  if grep -q 'rsdd_exec' "$SWEEP_SUT"; then
+    printf '  SKIP  FLIP-SW: sweep-retros is an rsdd_exec shim; its grammar is Go (parity: discriminator-parity.test.sh)\n'
+  elif [ "$_sw_flipped" = 1 ]; then
+    ok "FLIP-SW: mutant lib flips sweep-retros (delta section gone/zero)" "(both-consumers-flip has teeth for sweep)"
+  else
+    no "FLIP-SW: mutant lib must flip sweep-retros delta count" "base=[$_sw_base] mut=[$_sw_mut]"
+  fi
 
   # verify-retro must change: baseline was 0 (conforming), mutant must be 1 (FAIL)
   [ "$_vr_rc_mut" = 1 ] \

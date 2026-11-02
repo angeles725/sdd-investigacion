@@ -15,8 +15,11 @@ import (
 	"testing"
 )
 
-// Build tag nodiff drops the bash-driven tests (this file, fleet_test.go, gen_test.go) for mutation runs, where
-// the package test repeats per mutant; `make check` always runs them.
+// The bash-driven tests (this file, markerdiff_test.go, fleet_test.go, gen_test.go, oracle_live_test.go) are the
+// LIVE differential: opt-in (RSDD_LIVE_DIFF=1, see `make retrogrammar-live`), because forking bash per case takes
+// about 80 s. The default `go test` replays the same inputs from the frozen goldens (oracle_test.go). Build tag
+// nodiff drops the live files entirely; the replay stays, so mutation runs (the package repeats per mutant) still
+// check every case. RETROGRAMMAR_UPDATE=1 rewrites the goldens from this live oracle.
 //
 // Differential tests: the REAL lib/retro-grammar.sh (testdata/diff-driver.sh) and the Go port must agree byte for
 // byte on stdout, stderr and the return code for every input. Bash runs under LC_ALL=C, the locale the port
@@ -31,18 +34,18 @@ const (
 // driverSlots caps concurrent bash drivers: the parallel mode subtests share a loaded host.
 var driverSlots = make(chan struct{}, 4)
 
-type bashOut struct {
-	stdout, stderr string
-	rc             int
-}
-
 // bashBatch runs one driver mode over inputs (one per line on stdin) and returns one result per input.
 func bashBatch(t *testing.T, mode string, inputs []string) []bashOut {
 	t.Helper()
 	driverSlots <- struct{}{}
 	defer func() { <-driverSlots }() // released on t.Fatal/t.Skip too (both unwind through defers)
-	so := runDriver(t, mode, strings.Join(inputs, "\n")+"\n")
-	out := make([]bashOut, 0, len(inputs))
+	return parseFrames(t, mode, runDriver(t, mode, strings.Join(inputs, "\n")+"\n"), len(inputs))
+}
+
+// parseFrames decodes n driver frames from so.
+func parseFrames(t *testing.T, mode string, so []byte, n int) []bashOut {
+	t.Helper()
+	out := make([]bashOut, 0, n)
 	for len(so) > 0 {
 		var r bashOut
 		var no, ne int
@@ -61,8 +64,8 @@ func bashBatch(t *testing.T, mode string, inputs []string) []bashOut {
 		out = append(out, r)
 		so = body[no+ne:]
 	}
-	if len(out) != len(inputs) {
-		t.Fatalf("differential %s: %d frames for %d inputs", mode, len(out), len(inputs))
+	if len(out) != n {
+		t.Fatalf("differential %s: %d frames for %d inputs", mode, len(out), n)
 	}
 	return out
 }
@@ -99,127 +102,12 @@ func runDriver(t *testing.T, mode, stdin string) []byte {
 	return so.Bytes()
 }
 
-// rcOf is the shell return code of a Go predicate.
-func rcOf(ok bool) int {
-	if ok {
-		return 0
-	}
-	return 1
-}
-
-// joinLines renders records the way awk prints them: each one "\n"-terminated.
-func joinLines(xs []string) string {
-	var b strings.Builder
-	for _, x := range xs {
-		b.WriteString(x)
-		b.WriteByte('\n')
-	}
-	return b.String()
-}
-
-// fileModes maps a driver file mode to the Go rendering of the same call. Every mode reads through Read, so an
-// absent or unreadable path takes the typed-error branch the mode documents.
-var fileModes = map[string]func(path string) bashOut{
-	"defenced": func(p string) bashOut {
-		d, err := Read(p)
-		if err != nil {
-			return bashOut{rc: 1}
-		}
-		return bashOut{stdout: joinLines(d.Lines), stderr: d.FenceWarning()}
-	},
-	// delta_info: bash prints a zero line for an absent file (rc 0, the silent zero Go reports as ErrAbsentInput)
-	// and a typed stderr line plus the zero line, rc 1, for an unreadable one.
-	"delta": func(p string) bashOut {
-		d, err := Read(p)
-		switch {
-		case errors.Is(err, ErrAbsentInput):
-			return bashOut{stdout: DeltaInfo{Form: FormNone}.Line()}
-		case err != nil:
-			return bashOut{stdout: DeltaInfo{Form: FormNone}.Line(), rc: 1,
-				stderr: "retro-grammar: cannot read " + p + " (unreadable) — delta count is UNKNOWN, not zero\n"}
-		}
-		return bashOut{stdout: Delta(d).Line(), stderr: d.FenceWarning()}
-	},
-	"canon": func(p string) bashOut {
-		d, err := Read(p)
-		if err != nil {
-			return bashOut{rc: 1}
-		}
-		h, ok := CanonicalHeading(d)
-		if !ok {
-			return bashOut{}
-		}
-		return bashOut{stdout: h + "\n"}
-	},
-	"unrec":     readThen(func(d *Doc) []string { return UnrecHeadings(d) }),
-	"entryrows": readThen(func(d *Doc) []string { return rowLines(EntryRows(d)) }),
-	// entry_ids prints nothing for no entries; its read failure is entry_rows' rc 1.
-	"entryids": readThen(EntryIDs),
-	// entry_warn always returns 0; on an unreadable file only its delta_info call speaks.
-	"entrywarn": func(p string) bashOut {
-		d, err := Read(p)
-		switch {
-		case errors.Is(err, ErrUnreadable):
-			return bashOut{stderr: "retro-grammar: cannot read " + p + " (unreadable) — delta count is UNKNOWN, not zero\n"}
-		case err != nil:
-			return bashOut{}
-		}
-		return bashOut{stdout: EntryWarn(d)}
-	},
-}
-
-// awkCannotOpen stands for gawk's own fatal line (it names the awk program line, so it is not pinned byte for
-// byte): retro_grammar_has_honesty does not guard readability, so an unreadable file is an untyped rc 2.
-const awkCannotOpen = "<awk: fatal: cannot open file>"
-
 // normalize applies the one declared normalizer to a bash result before comparison.
 func normalize(b bashOut) bashOut {
 	if b.rc == 2 && strings.Contains(b.stderr, "fatal: cannot open file") && strings.Count(b.stderr, "\n") == 1 {
 		b.stderr = awkCannotOpen
 	}
 	return b
-}
-
-func init() {
-	fileModes["honesty"] = func(p string) bashOut {
-		d, err := Read(p)
-		switch {
-		case errors.Is(err, ErrUnreadable):
-			return bashOut{rc: 2, stderr: awkCannotOpen}
-		case err != nil:
-			return bashOut{rc: 1}
-		}
-		return bashOut{rc: rcOf(HasHonesty(d))}
-	}
-	fileModes["rowtitles"] = func(p string) bashOut {
-		d, err := Read(p)
-		if err != nil {
-			return bashOut{rc: 1}
-		}
-		var b strings.Builder
-		for _, r := range RowTitles(d) {
-			b.WriteString(r.Line())
-		}
-		return bashOut{stdout: b.String()}
-	}
-	// The marker readers print nothing (or return 1) for an absent path and, silently, for an unreadable one:
-	// the bash reader discards its read error (finding F3 in doc.go).
-	fileModes["rstatus"] = markerMode(func(d *Doc) bashOut { return lineOut(ReviewStatus(d)) }, bashOut{})
-	fileModes["mscope"] = markerMode(func(d *Doc) bashOut { return lineOut(MarkerScopeLine(d)) }, bashOut{})
-	fileModes["excluded"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsExcluded(d))} }, bashOut{rc: 1})
-	fileModes["waived"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(IsWaived(d))} }, bashOut{rc: 1})
-	fileModes["mline"] = markerMode(func(d *Doc) bashOut { return lineOut(markerLine(d)) }, bashOut{})
-	fileModes["oos"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(MarkerOutOfScope(d))} }, bashOut{rc: 1})
-	fileModes["bare"] = markerMode(func(d *Doc) bashOut { return bashOut{rc: rcOf(HasBareMarker(d))} }, bashOut{rc: 1})
-	fileModes["altrows"] = readThen(func(d *Doc) []string { return rowLines(AltEntryRows(d)) })
-	fileModes["altheads"] = readThen(AltHeads)
-}
-
-// tokenModes maps a driver token mode to the Go verdict, rendered the way the driver frames it.
-var tokenModes = map[string]func(tok string) bashOut{
-	"deltaid": func(tok string) bashOut { return bashOut{stdout: strconv.Itoa(b2i(DeltaID(tok))) + "\n"} },
-	"idskip":  func(tok string) bashOut { return bashOut{stdout: strconv.Itoa(b2i(TableIDSkip(tok))) + "\n"} },
-	"idsafe":  func(tok string) bashOut { return bashOut{rc: rcOf(IDSignatureSafe(tok))} },
 }
 
 // tokenCorpus is a hand list of id edges plus every blank- or pipe-separated word of the generated vocabulary
@@ -259,6 +147,7 @@ func tokenCorpus(t *testing.T) []string {
 }
 
 func TestDifferentialTokens(t *testing.T) {
+	liveOnly(t)
 	toks := tokenCorpus(t)
 	for mode, f := range tokenModes {
 		t.Run(mode, func(t *testing.T) {
@@ -269,6 +158,7 @@ func TestDifferentialTokens(t *testing.T) {
 				if bash[i].rc == 0 && bash[i].stdout != "0\n" {
 					yes++
 				}
+				record(t, mode, "t:"+tok, "", bash[i])
 				if got := f(tok); got != bash[i] {
 					if bad++; bad <= 5 {
 						t.Errorf("%s %q: go=%+v bash=%+v", mode, tok, got, bash[i])
@@ -286,6 +176,7 @@ func TestDifferentialTokens(t *testing.T) {
 // TestDifferentialTitleIdentity runs retro_grammar_title_has_identity over every table cell of the fixtures and
 // the vocabulary plus UTF-8 edges (11/12-character boundaries, surrogates, overlongs, beyond U+10FFFF).
 func TestDifferentialTitleIdentity(t *testing.T) {
+	liveOnly(t)
 	set := map[string]bool{}
 	for _, tok := range tokenCorpus(t) {
 		set[tok] = true
@@ -334,6 +225,7 @@ func TestDifferentialTitleIdentity(t *testing.T) {
 		if bash[i].rc == 0 {
 			yes++
 		}
+		record(t, "titleid", "t:"+title, "", bash[i])
 		if got != bash[i] {
 			t.Errorf("titleid %q: go=%+v bash=%+v", title, got, bash[i])
 		}
@@ -346,53 +238,15 @@ func TestDifferentialTitleIdentity(t *testing.T) {
 
 // TestDifferentialDupIDs feeds whole id lists on stdin, the way the consumers pipe item ids.
 func TestDifferentialDupIDs(t *testing.T) {
+	liveOnly(t)
 	for _, ids := range [][]string{
 		{"1", "2", "1"}, {"b", "B", "a", "b", "B", "B"}, {"", "x", ""}, {"10", "9", "10", "9"}, {"é", "e", "é"}, {"z"},
 	} {
-		so := runDriver(t, "dupids", strings.Join(ids, "\n")+"\n")
-		want := fmt.Sprintf("0 %d 0\n%s", len(joinLines(DupIDs(ids))), joinLines(DupIDs(ids)))
-		if string(so) != want {
-			t.Errorf("DupIDs(%q): bash frame %q, go %q", ids, so, want)
+		bash := parseFrames(t, "dupids", runDriver(t, "dupids", strings.Join(ids, "\n")+"\n"), 1)[0]
+		record(t, "dupids", "t:"+strings.Join(ids, "\n"), "", bash)
+		if got := (bashOut{stdout: joinLines(DupIDs(ids))}); got != bash {
+			t.Errorf("DupIDs(%q): go=%+v bash=%+v", ids, got, bash)
 		}
-	}
-}
-
-// markerMode renders a marker reader: failed reads answer onFail whatever the failure.
-func markerMode(f func(*Doc) bashOut, onFail bashOut) func(string) bashOut {
-	return func(p string) bashOut {
-		d, err := Read(p)
-		if err != nil {
-			return onFail
-		}
-		return f(d)
-	}
-}
-
-// lineOut renders a reader that prints one line or nothing.
-func lineOut(s string) bashOut {
-	if s == "" {
-		return bashOut{}
-	}
-	return bashOut{stdout: s + "\n"}
-}
-
-// rowLines renders rows as their bash records, without the trailing newline joinLines adds back.
-func rowLines(rows []Row) []string {
-	out := make([]string, len(rows))
-	for i, r := range rows {
-		out[i] = strings.TrimSuffix(r.Line(), "\n")
-	}
-	return out
-}
-
-// readThen renders a mode that prints one line per result and returns 1, silently, on a failed read.
-func readThen(f func(*Doc) []string) func(string) bashOut {
-	return func(p string) bashOut {
-		d, err := Read(p)
-		if err != nil {
-			return bashOut{rc: 1}
-		}
-		return bashOut{stdout: joinLines(f(d))}
 	}
 }
 
@@ -416,6 +270,9 @@ func checkFileModes(t *testing.T, label string, paths []string, requireSignal bo
 			bad := 0
 			for i, p := range paths {
 				distinct[bash[i]] = true
+				if label != "fleet" { // the fleet corpus is machine-specific: live only, never frozen
+					record(t, mode, fileKey(t, p), p, bash[i])
+				}
 				if got := fileModes[mode](p); got != bash[i] {
 					if bad++; bad <= 5 {
 						t.Errorf("%s %s %s:\n  go=%+v\nbash=%+v", label, mode, p, got, bash[i])
@@ -454,12 +311,14 @@ func fixturePaths(t *testing.T) []string {
 }
 
 func TestDifferentialFixtures(t *testing.T) {
+	liveOnly(t)
 	paths := fixturePaths(t)
 	checkFileModes(t, "fixture", paths, false)
 	t.Logf("fixtures: %d files x %d modes", len(paths), len(fileModes))
 }
 
 func TestDifferentialGenerated(t *testing.T) {
+	liveOnly(t)
 	dir := t.TempDir()
 	docs := generatedDocs(200)
 	paths := make([]string, len(docs))
@@ -473,6 +332,7 @@ func TestDifferentialGenerated(t *testing.T) {
 }
 
 func TestDifferentialAbsentAndEmpty(t *testing.T) {
+	liveOnly(t)
 	dir := t.TempDir()
 	empty := filepath.Join(dir, "empty.md")
 	if err := os.WriteFile(empty, nil, 0o644); err != nil {

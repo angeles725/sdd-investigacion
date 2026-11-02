@@ -52,38 +52,10 @@ func markerLines(t *testing.T) []string {
 	return out
 }
 
-// idsOut renders an id list the way the bash helpers print it.
-func idsOut(ids []string, err error) bashOut {
-	if err != nil {
-		return bashOut{rc: -1, stderr: err.Error()}
-	}
-	return bashOut{stdout: joinLines(ids)}
-}
-
-// lineModes maps a driver line mode to the Go rendering of the same call on one marker line.
-var lineModes = map[string]func(line string) bashOut{
-	"sfml":    func(l string) bashOut { return lineOut(StatusFromMarkerLine(l)) },
-	"partial": func(l string) bashOut { return bashOut{rc: rcOf(MarkerIsPartial(l))} },
-	// shipped_raw prints its (possibly empty) list line whenever the keyword matched.
-	"shraw": func(l string) bashOut {
-		if l == "" || grepO(l, reShippedList) == "" {
-			return bashOut{}
-		}
-		return bashOut{stdout: ShippedRaw(l) + "\n"}
-	},
-	"shids": func(l string) bashOut { return idsOut(ShippedIDs(l)) },
-	"dism": func(l string) bashOut {
-		ids, malformed, err := dismissedIDs(l)
-		if malformed {
-			return bashOut{rc: 3}
-		}
-		return idsOut(ids, err)
-	},
-}
-
 // TestDifferentialRowState asks every PARTIAL marker line (and a sample of the others) about six row ids. Bash
 // forks about ten processes per call, so the non-partial lines are sampled 1 in 10.
 func TestDifferentialRowState(t *testing.T) {
+	liveOnly(t)
 	var inputs []string
 	for i, l := range markerLines(t) {
 		if !MarkerIsPartial(l) && i%10 != 0 {
@@ -98,6 +70,7 @@ func TestDifferentialRowState(t *testing.T) {
 	for i, in := range inputs {
 		line, rid, _ := strings.Cut(in, "\x1f")
 		got := bashOut{stdout: string(MarkerRowState(line, rid)) + "\n"}
+		record(t, "rowstate", "t:"+in, "", bash[i])
 		seen[bash[i].stdout] = true
 		if got != bash[i] {
 			t.Errorf("rowstate %q %q: go=%+v bash=%+v", line, rid, got, bash[i])
@@ -109,7 +82,10 @@ func TestDifferentialRowState(t *testing.T) {
 	t.Logf("rowstate: %d (line, id) pairs, %d distinct answers", len(inputs), len(seen))
 }
 
-func TestDifferentialMarkerLines(t *testing.T) { checkLineModes(t, "synthetic", markerLines(t), true) }
+func TestDifferentialMarkerLines(t *testing.T) {
+	liveOnly(t)
+	checkLineModes(t, "synthetic", markerLines(t), true)
+}
 
 // checkLineModes runs every line mode over lines (the id normaliser over their shipped lists, as the consumers
 // feed it) on both sides. With requireSignal a mode with a single bash outcome fails as vacuous.
@@ -126,6 +102,9 @@ func checkLineModes(t *testing.T, label string, lines []string, requireSignal bo
 			distinct, bad := map[bashOut]bool{}, 0
 			for i, in := range inputs {
 				distinct[bash[i]] = true
+				if label != "fleet" { // machine-specific: live only, never frozen
+					record(t, mode, "t:"+in, "", bash[i])
+				}
 				if got := f(in); got != bash[i] {
 					if bad++; bad <= 5 {
 						t.Errorf("%s %s %q:\n  go=%+v\nbash=%+v", label, mode, in, got, bash[i])
