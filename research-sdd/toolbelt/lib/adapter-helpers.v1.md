@@ -1,7 +1,7 @@
 # adapter-helpers.v1 — Research-SDD Shared Adapter Helpers
 
 Contract for `lib/adapter_helpers.py`.  Higher-level helpers built on
-`adapter_core` primitives.  New adapters (unblob, floss, capa, kaitai) import
+`adapter_core` primitives.  New adapters (floss, capa, kaitai) import
 from here.  Item-24 migrates existing adapters by replacing inline
 duplications with these imports.
 
@@ -223,7 +223,7 @@ LDAP-only systems) is silently skipped rather than aborting bubblewrap.
 ### Writable directories — deliberate bypass of `_RO_INPUT_BLOCKED_ROOTS`
 
 Writable `host_dir` paths may live under `/home` (the adapter's private
-output/temp directories, e.g. the unblob extraction dir).  They bypass
+output/temp directories, e.g. an extraction dir).  They bypass
 `_RO_INPUT_BLOCKED_ROOTS` because they are adapter-controlled, not arbitrary
 user paths.  The guard instead requires:
 
