@@ -22,7 +22,6 @@ type sdScenario struct {
 
 // sdSingle and sdAll are the argument sets most scenarios run.
 var (
-	sdNone   = [][]string{nil}
 	sdSingle = [][]string{nil, {"--harness", "claude"}, {"--harness", "pi"}, {"--harness", "gentle-shell"}}
 	sdAll    = [][]string{{"--all"}}
 	sdBoth   = append(append([][]string{}, sdSingle...), sdAll...)
