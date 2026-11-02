@@ -95,10 +95,10 @@ else no "B case drift: gen=[$(cat_set "$d" | tr '\n' ' ')] grep=[$(grep_set "$d"
 # C — PARITY GUARD: the Go command and tools/gen-catalog.py are NOT the same generator BY DESIGN — Go is the generic
 #     prefix-aware kit generator, tools/ is corpus-specialized to `sdd-mental-model-bloqueN`. We do NOT force the
 #     patterns equal; we lock the ONE that MUST stay shared (TITLE_RE, the heading parser). The Go pattern is the
-#     Python one with `\s` spelled as a Unicode class constant and `\d` as `\p{Nd}`, so both are normalised to the
+#     Python one with `\s` spelled as a {S} placeholder for a Unicode class and `\d` as `\p{Nd}`, so both are normalised to the
 #     Python spelling before comparing. (If the tools/ copy is absent from a shipped kit, skip cleanly.)
-go_title_re(){ grep -F 'titleRE = regexp.MustCompile(' "$1" | sed -e 's/^[^`]*`//' -e 's/`)[[:space:]]*$//' \
-  -e 's/\[` + pySpace + `\]/\\s/g' -e 's/\\p{Nd}/\\d/g'; }
+go_title_re(){ grep -F 'titleRE = regexp.MustCompile(' "$1" | sed -e 's/^[^`]*`//' -e 's/`, "{S}".*$//' \
+  -e 's/{S}/\\s/g' -e 's/\\p{Nd}/\\d/g'; }
 py_title_re(){ grep '^TITLE_RE = ' "$1" | sed -e 's/^TITLE_RE = re\.compile(r"//' -e 's/")[[:space:]]*$//'; }
 title_parity(){ local g p; g="$(go_title_re "$1")"; p="$(py_title_re "$2")"; [ -n "$g" ] && [ "$g" = "$p" ]; }
 if [ -f "$TOOLS_COPY" ]; then
