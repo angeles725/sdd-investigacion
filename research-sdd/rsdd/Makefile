@@ -80,13 +80,17 @@ TEETHTAGS ?= nodiff
 # GOMAXPROCS (gremlins passes its environment to `go test`). Never gremlins --test-cpu: v0.6.0 hands `go test`
 # the single argument "-cpu N", the test run then fails to set up, and every mutant reads as KILLED.
 # TEETH_PKG scopes the run to one package ("./internal/cli"); the default "." is the whole module, which the
-# bridge suite narrows to the packages a PR changed when RSDD_TEETH_BASE is set. Like TEST_MEM_KB, all three
+# bridge suite narrows to the packages a PR changed when RSDD_TEETH_BASE is set. Like TEST_MEM_KB, all four
 # are overridable on the command line or in the environment.
+# TEETH_EXCLUDE is a gremlins --exclude-files regexp matched on the path relative to TEETH_PKG; the bridge passes "/" so a
+# changed package mutates only its own files, not its subpackages (a changed subpackage is in the list on its own).
 TEETH_WORKERS  ?= 4
 TEETH_TEST_CPU ?= 1
 TEETH_PKG      ?= .
+TEETH_EXCLUDE  ?=
+TEETH_EXCLUDE_ARG = $(if $(TEETH_EXCLUDE),--exclude-files '$(TEETH_EXCLUDE)' )
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_PKG)
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG)
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
