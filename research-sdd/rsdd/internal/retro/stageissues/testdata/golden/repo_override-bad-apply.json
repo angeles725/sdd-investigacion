@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "degraded: cannot resolve kit issue repo (invalid repo shape 'bad' — expected [HOST/]OWNER/REPO) — set RESEARCH_SDD_ISSUE_REPO=\u003cowner\u003e/\u003cname\u003e, or configure a git remote 'origin' at @BOX@ — refusing to create issues against an unresolved/foreign repo\n",
+  "ghlog": "gh auth status\n"
+}

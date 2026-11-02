@@ -2338,6 +2338,15 @@ run_u "$ROOT/ukit_fail2/toolbelt/retro-gate.sh" "$ROOT/tu_fail2" k3-sess; ERR_K3
 if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K3" && ! grep -q 'UNKNOWN outcome' <<<"$ERR_K3"; then
   ok "#1705 K3: seeder exit 2 keeps the failed path (no UNKNOWN line)"
 else no "#1705 K3: exit 2 failed path" "got: $ERR_K3"; fi
+# (#2435) The reason the gate logs is independent of how the seeder's stdout and stderr interleave in `seeder 2>&1`:
+# the Go seeder releases its stdout only when it returns, so its degraded line (stderr) comes BEFORE its stdout lines.
+U_ORDER_BODY="printf 'degraded: target x is unregistered (basename fallback)\n' >&2; printf 'redactions: 0 (row 1)\n'; exit 1"
+mk_u_kit "$ROOT/ukit_order" "$U_ORDER_BODY"; mk_u_target "$ROOT/tu_order" k7-sess
+run_u "$ROOT/ukit_order/toolbelt/retro-gate.sh" "$ROOT/tu_order" k7-sess; ERR_K7="$ERR"
+if grep -qF 'seeder failed (exit 1) for 2026-09-05-u.md: degraded: target x is unregistered' <<<"$ERR_K7" \
+   && ! grep -qF 'seeder failed (exit 1) for 2026-09-05-u.md: redactions' <<<"$ERR_K7"; then
+  ok "#2435 K7: a degraded line printed to stderr BEFORE the stdout lines is still the logged reason (stream order does not matter)"
+else no "#2435 K7: reason depends on stream order" "got: $ERR_K7"; fi
 run_u "$ROOT/ukit_mix/toolbelt/retro-gate.sh" "$ROOT/tu_mix" k5-sess; ERR_K5="$ERR"
 if grep -qE 'WARN: 1 issue create\(s\) failed across 1 retro\(s\)' <<<"$ERR_K5" \
    && grep -qE 'WARN: 2 issue create\(s\) have an UNKNOWN outcome across 1 retro\(s\)' <<<"$ERR_K5" \

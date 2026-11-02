@@ -1,0 +1,14 @@
+rc: 2
+--- stdout
+kit-merge-train: usage: a PR is listed twice
+--- stderr
+--- calls
+
+--- receipt
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: 

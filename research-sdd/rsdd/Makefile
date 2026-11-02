@@ -63,7 +63,7 @@ lint:
 # reported, not failed; the raised timeout coefficient keeps a loaded machine
 # from turning kills into timeouts. Each mutant's test binary runs under the CAPPED wrapper (GOFLAGS
 # reaches the `go test` gremlins starts); `go run -exec=env` keeps gremlins itself and its builds uncapped.
-# TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/retro/grammar
+# TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/core/retrogrammar
 # takes ~80 s per run), which `make check` still runs once; gremlins reruns a whole package per mutant.
 TEETHTAGS ?= nodiff
 # Gremlins defaults to one mutant worker per CPU, each running `go test` on every core: on a small shared CI runner
