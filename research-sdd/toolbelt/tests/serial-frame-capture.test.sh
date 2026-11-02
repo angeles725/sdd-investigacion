@@ -129,13 +129,20 @@ PY
 
   # 10. pipeline round trip over a pseudo-terminal: capture --log, then serial-frame-analyze reads the log back
   rc=0; RSDD_BIN="$real_rsdd" python3 - "$SUT" "$W/t10.log" "$W/t10.json" <<'PY' || rc=$?
-import os, pty, subprocess, sys, time
+import os, pty, subprocess, sys, termios, time
 shim, log, out = sys.argv[1:4]
 master, slave = pty.openpty()
 port = os.ttyname(slave)
 proc = subprocess.Popen(["bash", shim, "capture", "--port", port, "--baud", "19200", "--seconds", "1.5",
                          "--allow-live-probe", "--log", log, "--output", out], stderr=subprocess.DEVNULL)
-time.sleep(0.5); os.write(master, b"\x81\x00\x17")
+# Wait until rsdd has put the port in raw mode: a fresh pty is canonical, where 0x17 is VWERASE and the
+# first frame would be erased. A fixed sleep raced on loaded hosts.
+deadline = time.monotonic() + 10
+while termios.tcgetattr(slave)[3] & termios.ICANON:
+    if time.monotonic() > deadline or proc.poll() is not None:
+        sys.exit(9)
+    time.sleep(0.02)
+os.write(master, b"\x81\x00\x17")
 time.sleep(0.4); os.write(master, b"\x82\x01")
 sys.exit(proc.wait())
 PY

@@ -13,6 +13,21 @@ Both wrappers are compatibility shims over the Go `rsdd` binary
 or external tool is needed. `serial-frame-capture` drives the port through termios
 (Linux); the plan-only path never opens a port.
 
+**Intended differences from the retired Python scripts** (kit issue #2437). The
+evidence schema, caps and success exit codes are unchanged; these paths differ on purpose:
+
+- A non-regular analyze input (FIFO, device, socket) is refused with exit 2
+  instead of blocking or reading without end.
+- Plan-only exit 3 also prints one `DEGRADED: plan-only: ...` line on stderr
+  (the rsdd exit-3 contract); stdout and the document are as before.
+- `--seconds` / `--gap-ms` refuse `inf` and `nan`, which would put non-JSON
+  tokens in the document.
+- A negative `--baud` with `--allow-live-probe` is a typed exit 2 instead of a
+  traceback.
+- Usage errors use the Go parser's argparse-style wording (still exit 2).
+- A path argument that is not valid UTF-8 cannot be encoded into the document
+  and is refused.
+
 ## Canonical Text Log Format
 
 Frames are exchanged between the two wrappers via a plain-text log.  Each
