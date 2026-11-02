@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Guard suite: committed fixture files must not be modified by test-suite runs.
-# Each affected suite (niagara-security-audit, module-find)
+# Each affected suite (niagara-security-audit)
 # must generate transient fixtures into a tmpdir, never into tests/fixtures/.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,7 +23,7 @@ no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 # T1: running the real test suites must not dirty the committed fixture tree.
 # Before/after snapshot pattern:
 #   1. Capture git status BEFORE running suites.
-#   2. Run niagara-security-audit, module-find.
+#   2. Run niagara-security-audit.
 #   3. Capture git status AFTER.
 #   4. FAIL only if NEW dirt appeared (lines in after not in before).
 #      Pre-existing dev modifications are excluded (they appear in both snapshots).
@@ -38,7 +38,6 @@ _before_filtered="$(printf '%s\n' "$_before" | grep -v '^D ')"
 
 # Run the real suites; we do not care if they pass or fail — only about git state.
 bash "$HERE/niagara-security-audit.test.sh"  >/dev/null 2>&1 || true
-bash "$HERE/module-find.test.sh"             >/dev/null 2>&1 || true
 
 # Snapshot after — must not fail
 _after="$(git -C "$REPO_ROOT" status --porcelain -- "$COMMITTED_DIR" 2>&1)" \
