@@ -72,7 +72,11 @@ func TestDifferentialPiDegradedWithoutSandbox(t *testing.T) {
 	})
 	t.Run("temp dir cannot be created", func(t *testing.T) {
 		needTS(t)
-		env := sb.piEnv("TMPDIR=" + sb.root + "/no/such/tmp")
+		// a fake bwrap that passes the probe: the temp-dir check comes after the sandbox check, so a host without
+		// bwrap (the CI rsdd-go job) would otherwise stop at "no-sandbox" and never reach it
+		bin := sb.mkbin("pbin-tmpdir", "bwrap")
+		sb.shim(bin, "bwrap", "#!/bin/sh\nif [ \"$*\" = \"--ro-bind / / true\" ]; then exit 0; fi\nexit 0\n")
+		env := sb.piEnv("TMPDIR="+sb.root+"/no/such/tmp", "PATH="+bin)
 		l, g := sb.legacy(env, "--harness", "pi", card), sb.golang(env, "--harness", "pi", card)
 		if l.stdout != g.stdout || l.rc != g.rc || !has(g.stdout, `pi: DEGRADED — cannot create a temp dir`) {
 			t.Errorf("legacy %+v\n    go %+v", l, g)
