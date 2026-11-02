@@ -57,6 +57,8 @@ func casesApply() []dcase {
 		applyCase("limit-3-page-not-full", one, "STUB_MODE", "page2", "STAGE_RETRO_ISSUES_LIST_LIMIT", "3"),
 		applyCase("limit-full-but-exact-hit", one, "STUB_MODE", "fuzzyplusexact", "STAGE_RETRO_ISSUES_LIST_LIMIT", "2"),
 		applyCase("limit-zero", one, "STAGE_RETRO_ISSUES_LIST_LIMIT", "0"),
+		// one open row whose create fails: failed=1 exactly and exit 2 (old suite 16b, kit issue #949 item 4)
+		applyCase("single-createfail", one, "STUB_MODE", "createfail"),
 		applyCase("limit-text", one, "STAGE_RETRO_ISSUES_LIST_LIMIT", "ten"),
 		applyCase("limit-negative", one, "STAGE_RETRO_ISSUES_LIST_LIMIT", "-5"),
 		applyCase("limit-leading-zeros", one, "STAGE_RETRO_ISSUES_LIST_LIMIT", "007"),
