@@ -18,7 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 const legacyScript = "testdata/legacy/corroborate_floss.py"

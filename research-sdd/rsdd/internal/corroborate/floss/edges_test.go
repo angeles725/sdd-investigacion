@@ -78,7 +78,6 @@ func TestReadFirst(t *testing.T) {
 	}
 }
 
-
 // jsonStr builds a JSON string literal from escapes and plain text: the part "u:d83d" is the escape for U+D83D.
 func jsonStr(parts ...string) string {
 	return `"` + jsonStrBody(parts...) + `"`
