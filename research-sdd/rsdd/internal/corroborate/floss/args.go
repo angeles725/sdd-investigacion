@@ -244,7 +244,6 @@ loop:
 		if cur.explicit == nil {
 			if s.kind == kindHelp {
 				actions = append(actions, action{cur.spec, nil})
-				stop = i + 1
 			} else {
 				if i+1 >= len(args) || kinds[i+1] != 'A' {
 					return 0, argErr(s, "expected one argument")
@@ -273,7 +272,6 @@ loop:
 				}
 			}
 			if next < 0 { // an unknown bundled flag is left over; the flags before it still run
-				stop = i + 1
 				break loop
 			}
 			cur = optTuple{spec: next, option: opt}
@@ -285,7 +283,6 @@ loop:
 			}
 		case s.kind != kindHelp:
 			actions = append(actions, action{cur.spec, []string{exp}})
-			stop = i + 1
 			break loop
 		default:
 			return 0, argErr(s, "ignored explicit argument %s", pyRepr(exp))
