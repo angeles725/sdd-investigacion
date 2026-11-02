@@ -56,16 +56,6 @@ type oracleResult struct {
 	Msg   string `json:"msg"`
 }
 
-// python runs the oracle; a missing python3 FAILS the test (a skipped parity test proves nothing).
-func python(t testing.TB) string {
-	t.Helper()
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		t.Fatalf("python3 is required for the parity tests and was not found: %v", err)
-	}
-	return py
-}
-
 func runOracle(t testing.TB, op string, cases []oracleCase) []oracleResult {
 	t.Helper()
 	in, err := json.Marshal(map[string]any{"op": op, "cases": cases})
