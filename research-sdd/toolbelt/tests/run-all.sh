@@ -1081,8 +1081,8 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
 }
 
 # --- Default rsdd root (kit issue #2164) ---------------------------------------------------------
-# The VM/Docker tools fall back to the literal host root /tmp/rsdd when $RSDD_VM_ROOT is unset
-# (docker_common._DEFAULT_RSDD_ROOT; deliberately not derived from TMPDIR). That path is neither
+# The VM/Docker tools (retired by kit issue #2443; the check stays as a guard) fell back to the literal
+# host root /tmp/rsdd when $RSDD_VM_ROOT was unset (not derived from TMPDIR). That path is neither
 # under a suite's per-suite TMPDIR nor under research-sdd/, so a suite writing there was invisible
 # to every other check. Snapshot its entry names around each suite and report NEW entries in the
 # same `TMPDIR leftovers` line. Absent root = empty (production hosts may not have it); a root that

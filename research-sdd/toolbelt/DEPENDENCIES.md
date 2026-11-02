@@ -23,7 +23,7 @@ block is run through `$RESEARCH_SDD_VENV/bin/python` — a separate project
 venv — never through system Python. Two third-party packages are therefore
 required; both are declared in `requirements.txt`.
 
-Internal modules (`adapter_core`, `gate`, `vm_*`, `docker_*`, `proc_common`,
+Internal modules (`adapter_core`, `adapter_helpers`, `isolation_profile`,
 `squashfs_extract`, `corroborate_*`, etc.) are local files within this tree —
 not packages to install.
 

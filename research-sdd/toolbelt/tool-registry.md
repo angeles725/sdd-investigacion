@@ -4,7 +4,7 @@ Map of **artifact type → tool → wrapper**. The loop runs `profile-target.sh`
 over the target's binaries (uses `file`) and picks the wrapper. All paths are
 verified in this environment (WSL Ubuntu, 2026-06-28).
 
-> **Tests:** the suites of the VM/dynamic-sandbox rows below (vm, qemu, fact, detonate, trace, docker, capture, ...) and of a few unused adapters (kaitai, pcap, qnx6, serial-frame, ...) are in the opt-in **extras** test tier (kit issue #2203), listed in `tests/suite-tiers.txt`. The default `run-all.sh` gate skips them; run them with `bash research-sdd/toolbelt/tests/run-all.sh --tier extras` (or `--tier all`).
+> **Tests:** the suites of a few unused adapters (kaitai, pcap, qnx6, serial-frame, ...) are in the opt-in **extras** test tier (kit issue #2203), listed in `tests/suite-tiers.txt`. The default `run-all.sh` gate skips them; run them with `bash research-sdd/toolbelt/tests/run-all.sh --tier extras` (or `--tier all`).
 
 **Scope: KIT wrappers only.** This registry documents scripts that live in `toolbelt/`. A tool a target
 writes for itself (`<target>/tools/*.py`, documented in that target's `tools/README.md`) is TARGET tooling:
@@ -144,8 +144,6 @@ Use `scan-firmware.sh evidence <file> <new-out-dir>` for bounded, non-extracting
 Use `scan-firmware.sh carve <file> <new-out-dir>` only for validated uImage or SquashFS v4 LE byte ranges; use a disposable VM for hostile inputs.
 Use `zip-metadata.sh --input <zip> --output <new-out-dir>` for bounded metadata-only ZIP inventory; ZIP64 and multi-disk archives fail closed.
 Use `zip-stored.sh --input <zip> --output <new-out-dir>` only for strict all-STORED extraction; mixed archives and unsafe paths fail closed.
-
-**VM-spine plan adapters** (`vm_run.py`, `trace_plan.py`, `qemu_plan.py`, `detonate_plan.py`, `capture_plan.py`, `emba_plan.py`, `fact_plan.py`): each emits an offline JSON plan and exits 3 (authorization-required) when its gate flag is absent. Gate is default-off and fail-closed. Authorization contract: [`gate-authorization.v1`](gate-authorization.v1.md). Determinism record emitted alongside each plan: [`vm-determinism.v1`](vm-determinism.v1.md). **Live executors shipped**: `emba_plan.py --allow-docker` → [`emba-run.v1`](emba-plan.v1.md) via `lib/docker_exec.py`; `fact_plan.py --allow-docker` → [`fact-run.v1`](fact-run.v1.md) via `lib/fact_exec.py`; `capture_plan.py --allow-live-capture` → [`capture-run.v1`](capture-run.v1.md) via `lib/capture_exec.py` (C1; requires `CAP_NET_RAW` + `RSDD_CAPTURE_IFACES`); `qemu_plan.py --allow-exec --mode qemu-system` → [`vm-boot-run.v1`](vm-boot-run.v1.md) via `lib/qemu_exec.py` (V1b); `detonate_plan.py --allow-exec` → [`detonate-run.v1`](detonate-run.v1.md) via `lib/detonate_exec.py` (D2; real in-guest detonation is the human's gated manual step — NEVER automated in CI); `trace_plan.py --allow-exec` → [`trace-run.v1`](trace-run.v1.md) via `lib/trace_exec.py` (D3; containment identical to detonate; tracer selection guest-side only; real in-guest tracing is the human's gated manual step — NEVER automated in CI). Remaining adapter (`vm_run.py`) is plan-only; live executor deferred to a future authorized release.
 
 ### Ghidra batch routes
 
