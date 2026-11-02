@@ -1,0 +1,74 @@
+rc: 0
+--- stdout
+kit-gate: gate rc=0 log=<CASE>/state/gate-train-<TS>.log
+merge-gate: allow (merged)
+kit-wait-merge: merged: #1 (merge commit mc1)
+Automatic merge went well; stopped before committing as requested
+merge-gate: allow (merged)
+kit-wait-merge: merged: #2 (merge commit mc2)
+Automatic merge went well; stopped before committing as requested
+merge-gate: allow (merged)
+kit-wait-merge: merged: #3 (merge commit mc3)
+kit-merge-train: receipt=<CASE>/state/train-<TS>.json
+kit-merge-train: merged: all 3 PRs merged after one gate on train b80bdfb0d23b09301f2933b96c382c7f6b748f96
+--- stderr
+--- calls
+gh pr view 1 --json state,isDraft,headRefOid,baseRefName
+gh pr view 2 --json state,isDraft,headRefOid,baseRefName
+gh pr view 3 --json state,isDraft,headRefOid,baseRefName
+GATE b80bdfb0d23b09301f2933b96c382c7f6b748f96 pr-1.txt pr-2.txt pr-3.txt 
+gh pr checks 1
+MERGE 1 head=21e775e84ba8f15c31e14e1cb57f12e2ba0c7318
+CWD 1 <CASE>/repo-worktrees/train-<TS>-pr1
+gh pr view 1 --json state -q .state
+gh pr view 1 --json headRefOid,mergeCommit -q .headRefOid + " " + (.mergeCommit.oid // "")
+gh pr checks 2
+MERGE 2 head=6b8e0de0747b6824392ae002a09d44c26abeaf28
+CWD 2 <CASE>/repo-worktrees/train-<TS>-pr2
+gh pr view 2 --json state -q .state
+gh pr view 2 --json headRefOid,mergeCommit -q .headRefOid + " " + (.mergeCommit.oid // "")
+gh pr checks 3
+MERGE 3 head=aafa295c924c89559f2294d9fd4ded9e41889335
+CWD 3 <CASE>/repo-worktrees/train-<TS>-pr3
+gh pr view 3 --json state -q .state
+gh pr view 3 --json headRefOid,mergeCommit -q .headRefOid + " " + (.mergeCommit.oid // "")
+--- receipt
+{
+  "state": "merged",
+  "base_sha": "e1cd0c5ecf75e916ef4652aee3a648842d80a6da",
+  "train_branch": "train/<TS>",
+  "train_sha": "b80bdfb0d23b09301f2933b96c382c7f6b748f96",
+  "gate": {
+    "rc": 0,
+    "log": "<CASE>/state/gate-train-<TS>.log",
+    "cmd": "echo \"GATE $(git rev-parse HEAD) $(ls pr-*.txt 2>/dev/null | tr \"\\n\" \" \")\" >> \"$CASE/calls.log\"; [ ! -e bad.txt ]"
+  },
+  "culprit": null,
+  "prs": [
+    {
+      "pr": 1,
+      "head": "21e775e84ba8f15c31e14e1cb57f12e2ba0c7318",
+      "status": "merged",
+      "reason": ""
+    },
+    {
+      "pr": 2,
+      "head": "6b8e0de0747b6824392ae002a09d44c26abeaf28",
+      "status": "merged",
+      "reason": ""
+    },
+    {
+      "pr": 3,
+      "head": "aafa295c924c89559f2294d9fd4ded9e41889335",
+      "status": "merged",
+      "reason": ""
+    }
+  ]
+}
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: gate-train-<TS>.log gate.lock train-<TS>.json

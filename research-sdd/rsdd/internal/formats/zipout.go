@@ -1,6 +1,7 @@
 package formats
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,16 +11,17 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
-// The helpers below are what zip_metadata.py and zip_stored.py each carried a private copy of: the output
-// path policy, the staged closed tree, the analysis-manifest hand-off and the no-replace publication.
+// The helpers below are what zip_metadata.py and zip_stored.py (retired, frozen under testdata/zip/legacy) each carried a
+// private copy of: the output path policy, the staged closed tree, the analysis-manifest hand-off and the no-replace publication.
 
 // zipCreds are the process ids the privilege guard reads; a test replaces it.
 var zipCreds = func() (uid, euid, gid, egid int) {
@@ -225,19 +227,19 @@ func zipISONow(t time.Time) string {
 	return s + "Z"
 }
 
-// zipRunManifest runs `python3 <manifest-cli> <verb> ...` (the trusted analysis_manifest tool). Its output
-// is relayed; a non-zero exit is an error.
+// zipRunManifest runs one analysis-manifest verb in process (core/adapter) and relays its output. The
+// --manifest-cli file is only checked for existence, with the message the interpreter gave when it was
+// exec'd; it is not executed. A non-zero exit is an error.
 func zipRunManifest(s cli.Stdio, zipManifestCLI string, args ...string) error {
-	env := s.Environ()
-	argv := append([]string{"python3", zipManifestCLI}, args...)
-	res, err := proc.Run(proc.Spec{Argv: argv, Dir: s.Cwd, Env: env, Timeout: 10 * time.Minute, MaxBytes: 16 << 20})
-	if err != nil {
-		return err
+	if _, err := os.Stat(pyPathJoin(s.Cwd, zipManifestCLI)); err != nil {
+		var en syscall.Errno
+		if errors.As(err, &en) {
+			fmt.Fprintf(s.Err, "python3: can't open file %s: %s\n", pyRepr(zipManifestCLI), osErrorText(en, ""))
+		}
+		return fmt.Errorf("analysis manifest %s failed (exit status 2, stop reason %q)", verbOf(args), "")
 	}
-	_, _ = s.Out.Write(res.Stdout)
-	_, _ = s.Err.Write(res.Stderr)
-	if res.Reason != "" || res.ReturnCode != 0 {
-		return fmt.Errorf("analysis manifest %s failed (exit status %d, stop reason %q)", verbOf(args), res.ReturnCode, res.Reason)
+	if rc := adapter.ManifestRun(args, s); rc != 0 {
+		return fmt.Errorf("analysis manifest %s failed (exit status %d, stop reason %q)", verbOf(args), rc, "")
 	}
 	return nil
 }

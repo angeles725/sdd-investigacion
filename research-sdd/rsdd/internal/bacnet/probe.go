@@ -34,9 +34,7 @@ func collect(l link, clock func() time.Time, window time.Duration, wantIAm bool)
 		if rem <= 0 {
 			break
 		}
-		if rem < minRead {
-			rem = minRead
-		}
+		rem = max(rem, minRead)
 		ip, data, err := l.recv(clock().Add(rem))
 		if err != nil {
 			break

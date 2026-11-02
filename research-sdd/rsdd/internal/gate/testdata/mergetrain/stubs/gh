@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# gh stub of the merge-train tests: answers from files under $CASE and logs every call to $CASE/calls.log.
+echo "gh $*" >> "$CASE/calls.log"
+case "$*" in
+  "pr view "*"--json state,isDraft,headRefOid,baseRefName") [ -e "$CASE/gh-fail-$3" ] && exit 1; cat "$CASE/pr-$3.json" ;;
+  "pr view "*"--json state -q .state") if [ -e "$CASE/merged-$3" ]; then echo MERGED; else echo OPEN; fi ;;
+  "pr view "*"--json headRefOid,mergeCommit -q "*)
+    if [ -e "$CASE/oob-$3" ]; then echo "$(cat "$CASE/oob-$3") mc$3"; else echo "$(cat "$CASE/head-$3") mc$3"; fi ;;
+  "pr checks "*) if [ -e "$CASE/ci-fail-$3" ]; then echo "lint fail"; exit 1; fi; echo "all checks pass"; exit 0 ;;
+  *) exit 1 ;;
+esac

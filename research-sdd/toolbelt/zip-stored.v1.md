@@ -44,13 +44,13 @@ access. ZIP64, spanning, damaged-archive recovery, and unknown methods are unsup
 ## Intended differences from the Python tool
 
 The tool is now `rsdd formats zip-stored` (Go, kit issue #2416); `zip-stored.sh` is a compatibility shim. Outputs are
-byte-identical to the former `zip_stored.py` for the report, the staged files and the modes; the legacy parser is the
+byte-identical to the former `zip_stored.py` for the report, the staged files and the modes; the legacy parser, frozen under `rsdd/internal/formats/testdata/zip/legacy/`, is the
 oracle of the Go parity tests over every fixture and every single-byte corruption of them. The differences:
 
 - Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes), `-h`
   prints the usage on stderr and exits `0`, a bad value or an unknown flag is a usage error (exit `2`). The hidden
-  `--manifest-cli` stays required; the Go command runs it with `python3` from `PATH` and a 10-minute bound, and
-  relays its output when it ends.
+  `--manifest-cli` stays required; the Go command checks that the file exists (otherwise it fails as the
+  interpreter did) and creates and verifies the manifest in process, so `python3` is not needed.
 - `--metadata-parser` is gone: the Python tool checked that the parser module it was handed was the module it had
   imported, which has no meaning in one binary. Passing it is a usage error.
 - Exit `3` prints `DEGRADED: zip-stored: published with uncertain durability: <reason>` (the `rsdd` contract

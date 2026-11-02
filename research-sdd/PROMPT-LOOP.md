@@ -944,8 +944,9 @@ Always read first, in this order:
          iteration that introduced it, instead of letting it survive until STOP. The STOP run (step 7) stays as
          the final backstop. A linter that FAILS may still report a true finding in a different
          check — read every line of its output before dismissing any of it.
-       - Regenerate CATALOG.md: python3 $KIT/templates/gen-catalog.py $CORPUS (the kit generator over the corpus
-         root — no per-target copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress). If the
+       - Regenerate CATALOG.md: ( . $KIT/toolbelt/lib/rsdd-exec.sh && rsdd_exec corpus catalog $CORPUS ) (the Go
+         kit generator `rsdd corpus catalog` over the corpus root; the helper builds rsdd on first use — no per-target
+         copy; research-sdd-archive.sh does this on close). Mirror to engram (research/<target>/gaps, .../progress). If the
          MCP `mem_save` fails under concurrent sessions (`multiple active runtime sessions match`), use the engram
          CLI (`engram save ... --project ... --topic ...`) as the fallback — never drop the mirror.
        - NEXT-ITERATION ARCHIVE AUDIT (orchestrated-auto): each iteration is a FRESH sub-agent that reads

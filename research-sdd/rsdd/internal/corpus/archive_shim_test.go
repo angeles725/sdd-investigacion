@@ -110,7 +110,7 @@ func TestArchiveShimMatchesLegacy(t *testing.T) {
 			sc := archiveExit(t, c.Run())
 			st := archiveTree(t, f.cdir)
 
-			// exit 3 is REFUSED here, so the command opts out of the dispatcher's degraded line (Exit3IsRefusal):
+			// exit 3 is REFUSED here, so the command opts out of the dispatcher's degraded line (PlainExit3):
 			// a refused run's stderr must match the legacy byte for byte.
 			shimErr := e.String()
 

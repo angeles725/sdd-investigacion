@@ -3,8 +3,8 @@
 
 Contract: lib/adapter-helpers.v1.md
 
-Built on top of adapter_core primitives.  New adapters (unblob, floss, capa,
-kaitai) import from here instead of re-deriving the evidence envelope, the
+Built on top of adapter_core primitives.  New adapters (floss, capa, kaitai)
+import from here instead of re-deriving the evidence envelope, the
 manifest-CLI tail, and the format parsers that are duplicated across the
 three modern adapters (corroborate_pcap.py, pcap_flows.py, squashfs_extract.py).
 

@@ -221,6 +221,11 @@ def parse_entries(text: str):
             r'-\s*\*\*Asserted by:\*\*\s*(.*?)(?=\n-\s*\*\*|\Z)', block, re.DOTALL)
         entry['asserted_by'] = mab.group(1).strip() if mab else ''
 
+        # Retired by: why a retired invariant no longer applies (its code was deleted).
+        mrb = re.search(
+            r'-\s*\*\*Retired by:\*\*\s*(.*?)(?=\n-\s*\*\*|\Z)', block, re.DOTALL)
+        entry['retired_by'] = mrb.group(1).strip() if mrb else ''
+
         entries.append(entry)
 
     return entries if entries else None
@@ -294,8 +299,10 @@ def check_registry(reg_path: Path, repo_root: Path) -> tuple:
             if not entry.get(field):
                 errors.append(f"{eid}: missing required field '{field}'")
         st = entry.get('status', '')
-        if st and st not in ('enforced', 'pending'):
-            errors.append(f"{eid}: invalid status '{st}' (must be enforced or pending)")
+        if st and st not in ('enforced', 'pending', 'retired'):
+            errors.append(f"{eid}: invalid status '{st}' (must be enforced, pending or retired)")
+        if st == 'retired' and not entry.get('retired_by'):
+            errors.append(f"{eid}: retired but no 'Retired by' reason")
 
     if errors:
         return False, errors
@@ -404,7 +411,7 @@ with tempfile.TemporaryDirectory() as td:
 **Statement:** Every entry must declare its enforcement status.
 
 - **Origin:** fixture for missing-field test.
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ## Open invariants map to open issues
 
@@ -422,7 +429,7 @@ No open invariants remain.
 
 - **Origin:** fixture for invalid-status test.
 - **Status:** `bogus`
-- **Asserted by:** `tests/gate.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ## Open invariants map to open issues
 
@@ -459,7 +466,7 @@ No open invariants remain.
 
 - **Origin:** fixture for missing-test-id test (design extension).
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` (RED-NONEXISTENT-9999).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED-NONEXISTENT-9999).
 
 ## Open invariants map to open issues
 
@@ -496,7 +503,7 @@ No open invariants remain.
 
 - **Origin:** fixture for enforced-in-map test.
 - **Status:** `enforced`
-- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ## Open invariants map to open issues
 
@@ -507,7 +514,7 @@ No open invariants remain.
     # RED08 — enforced entry names a test ID that exists in the file only as
     # a comment token, not as a real test label.  The old raw-substring check
     # accepted this; the label-aware check (F4) must reject it.
-    # "Popen" appears in tests/detonate-exec.test.sh only inside # comments.
+    # "Popen" appears in tests/fixtures/process-integrity/labels.test.sh only inside a # comment.
     fix08 = write_fixture(td, "fix08.md", """\
 ## Registry
 
@@ -517,7 +524,7 @@ No open invariants remain.
 
 - **Origin:** fixture for prose-only test-id test (F4 regression guard).
 - **Status:** `enforced`
-- **Asserted by:** `tests/detonate-exec.test.sh` (Popen).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (Popen).
 
 ## Open invariants map to open issues
 
@@ -526,8 +533,8 @@ No open invariants remain.
     assert_fails_with("RED08-prose-only-id", fix08, "Popen")
 
     # RED09 — enforced entry names test files but zero parseable test IDs.
-    # gate.test.sh labels are all prose-style (lowercase first word), so none
-    # pass is_test_id().  The F2 check must fire before the per-ID loop runs.
+    # The Asserted-by segment names the file but no test ID, so the F2 check
+    # must fire before the per-ID loop runs.
     fix09 = write_fixture(td, "fix09.md", """\
 ## Registry
 
@@ -537,7 +544,7 @@ No open invariants remain.
 
 - **Origin:** fixture for no-parseable-ids test (F2 regression guard).
 - **Status:** `enforced`
-- **Asserted by:** `tests/gate.test.sh` — authorization contract tests.
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` — authorization contract tests.
 
 ## Open invariants map to open issues
 
@@ -584,7 +591,7 @@ No open invariants remain.
 
 - **Origin:** fixture for unknown-id-in-open-map test.
 - **Status:** `enforced`
-- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ## Open invariants map
 
@@ -594,7 +601,7 @@ No open invariants remain.
 
     # RED13-dup-id — two ### INV-1 entries → duplicate id error (P2-4)
     _blk = ("**Statement:** S.\n- **Origin:** f.\n"
-            "- **Status:** `enforced`\n- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).\n")
+            "- **Status:** `enforced`\n- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).\n")
     fix13 = write_fixture(td, "fix13.md",
         "## Registry\n\n### INV-1 — a\n\n" + _blk
         + "\n### INV-1 — b\n\n" + _blk
@@ -610,20 +617,56 @@ No open invariants remain.
 **Statement:** S1.
 - **Origin:** f.
 - **Status:** `enforced`
-- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ### INV-3 — third
 
 **Statement:** S3.
 - **Origin:** f.
 - **Status:** `enforced`
-- **Asserted by:** `tests/qemu-exec.test.sh` (RED1).
+- **Asserted by:** `tests/fixtures/process-integrity/labels.test.sh` (RED1).
 
 ## Open invariants map
 
 No open invariants remain.
 """)
     assert_fails_with("RED14-gap", fix14, "non-contiguous")
+
+    # GREEN-retired — a retired entry may name test files that no longer exist:
+    # its code was deleted, so REQ-3 does not apply, but the history stays.
+    fix16 = write_fixture(td, "fix16.md", """\
+## Registry
+
+### INV-1 — retired entry
+
+**Statement:** A guarantee about code that was later deleted.
+- **Origin:** fixture for the retired status.
+- **Status:** `retired`
+- **Retired by:** kit issue #2443 deleted the tool this guarded.
+- **Asserted by:** `tests/nonexistent-xyz-abc.test.sh` (RED1).
+
+## Open invariants map
+
+No open invariants remain.
+""")
+    assert_passes("GREEN-retired-entry", fix16)
+
+    # RED16 — a retired entry must say why it was retired
+    fix17 = write_fixture(td, "fix17.md", """\
+## Registry
+
+### INV-1 — retired entry
+
+**Statement:** A guarantee about code that was later deleted.
+- **Origin:** fixture for the retired-without-reason test.
+- **Status:** `retired`
+- **Asserted by:** `tests/nonexistent-xyz-abc.test.sh` (RED1).
+
+## Open invariants map
+
+No open invariants remain.
+""")
+    assert_fails_with("RED16-retired-no-reason", fix17, "retired but no 'Retired by' reason")
 
 # Temp dir cleaned up; RED fixtures removed from disk.
 
@@ -701,7 +744,9 @@ tooth_py REQ1-unparseable 'return entries if entries else None' 'return entries 
 tooth_py REQ2-duplicate-id 'if eid in seen_ids:' 'if False:' "  FAIL  RED13-dup-id: $PASSED"
 tooth_py REQ2-contiguity 'if i not in inv_set:' 'if False:' "  FAIL  RED14-gap: $PASSED"
 tooth_py REQ2-required-field 'if not entry.get(field):' 'if False:' "  FAIL  RED02-missing-field: $PASSED"
-tooth_py REQ2-status-value $'if st and st not in (\'enforced\', \'pending\'):' 'if False:' "  FAIL  RED03-invalid-status: $PASSED"
+tooth_py REQ2-status-value $'if st and st not in (\'enforced\', \'pending\', \'retired\'):' 'if False:' "  FAIL  RED03-invalid-status: $PASSED"
+tooth_py REQ2-retired-reason $'if st == \'retired\' and not entry.get(\'retired_by\'):' 'if False:' "  FAIL  RED16-retired-no-reason: $PASSED"
+tooth_py REQ2-retired-allowed $'(\'enforced\', \'pending\', \'retired\')' $'(\'enforced\', \'pending\')' "  FAIL  GREEN-retired-entry: check FAILED unexpectedly"
 tooth_py REQ3-no-test-files 'if not file_ids:' 'if False:' "  FAIL  RED11-no-test-files: $PASSED"
 tooth_py REQ3-no-parseable-ids 'if not all_mjs and sh_total_ids == 0:' 'if False:' "  FAIL  RED09-no-test-ids: $PASSED"
 tooth_py REQ3-file-exists 'errors.append(f"{eid}: named test file not found: {rel_path}")' 'pass' "  FAIL  RED04-missing-testfile: $PASSED"

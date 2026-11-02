@@ -48,7 +48,13 @@ func legacy(t testing.TB, script string, args ...string) (code int, stderr strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	argv := append([]string{filepath.Join(tb, script)}, args...)
+	dir := tb
+	if script != "analysis_manifest.py" { // the retired tools live in their frozen copy, the manifest CLI in the toolbelt
+		if dir, err = filepath.Abs(zipLegacyDir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	argv := append([]string{filepath.Join(dir, script)}, args...)
 	cmd := exec.Command(py, argv...)
 	cmd.Dir = tb
 	var errb bytes.Buffer
@@ -83,8 +89,8 @@ func storedArgs(t testing.TB, in, out string, extra ...string) []string {
 }
 
 func legacyStoredArgs(t testing.TB, in, out string, extra ...string) []string {
-	tb, _ := filepath.Abs(zipToolbelt)
-	return append(storedArgs(t, in, out, extra...), "--metadata-parser", filepath.Join(tb, "zip_metadata.py"))
+	ld, _ := filepath.Abs(zipLegacyDir)
+	return append(storedArgs(t, in, out, extra...), "--metadata-parser", filepath.Join(ld, "zip_metadata.py"))
 }
 
 // tree lists every path under root with its mode, and every regular file's bytes.

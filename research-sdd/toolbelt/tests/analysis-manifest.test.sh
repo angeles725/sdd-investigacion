@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # analysis-manifest.test.sh — black-box tests of the analysis_manifest.py entry point.
 #
-# analysis_manifest.py was ported to Go (internal/adapter, `rsdd adapter manifest`, kit issue #2390). The
+# analysis_manifest.py was ported to Go (internal/core/adapter, `rsdd adapter manifest`, kit issues #2390, #2421). The
 # contract itself (every fail-closed rule, the canonical bytes, the argparse surface and its exit codes) is
 # pinned by Go parity tests that drive THIS module as the oracle (TestParityManifest*, TestParity*Path,
 # TestParitySafeArgv, ...) and by Go-only tests (descriptor-change and launcher-swap hooks, the 0600 atomic

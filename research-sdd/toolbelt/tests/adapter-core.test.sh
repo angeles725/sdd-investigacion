@@ -440,7 +440,8 @@ then ok "refuse_privileged_execution: SGID branch (getgid!=getegid, geteuid==get
 # 26. Convention: every adapter with an args.worker dispatch branch must call
 #     refuse_privileged_execution() in main() BEFORE that dispatch, checked via
 #     AST — comments, docstrings, and if-False dead branches do not satisfy the
-#     requirement.  Anti-vacuity: zero adapters discovered triggers failure.
+#     requirement.  Anti-vacuity: no toolbelt/*.py at all fails; *.py files with no
+#     args.worker dispatch (every adapter ported to Go) print a typed no-match line.
 if python3 - "$HERE/.." <<'PY'
 import ast, sys
 from pathlib import Path
@@ -482,15 +483,18 @@ def check_adapter(src, name):
     )
 
 toolbelt = Path(sys.argv[1])
-adapters = [p for p in sorted(toolbelt.glob("*.py")) if "args.worker" in p.read_text()]
-assert adapters, (
-    f"vacuity: no adapter with args.worker dispatch found under {toolbelt} — "
-    "glob broken or all adapters moved"
-)
+sources = sorted(toolbelt.glob("*.py"))
+# absent/empty input is a failure (the glob looked at nothing); no-match is typed, never a silent pass.
+assert sources, f"vacuity: no toolbelt/*.py found under {toolbelt} — glob broken or path wrong"
+adapters = [p for p in sources if "args.worker" in p.read_text()]
 for p in adapters:
     check_adapter(p.read_text(), p.name)
+if adapters:
+    print(f"checked {len(adapters)} adapter(s)")
+else:
+    print(f"no-match: 0 of {len(sources)} toolbelt/*.py have an args.worker dispatch (the Go ports own the guard)")
 PY
-then ok "convention: all adapters call guard (live AST Call) before dispatch in main()"; else no "adapter guard convention (AST)"; fi
+then ok "convention: every Python adapter calls the guard (live AST Call) before dispatch in main()"; else no "adapter guard convention (AST)"; fi
 
 # 9. read_single_fd: the shared single-fd core (#2088). _rsf_cases SUT prints one PASS/FAIL line per case so
 #    the SAME cases run against the real SUT and against every mutant (--prove-teeth).
@@ -614,8 +618,12 @@ dl = [n.lineno for n in ast.walk(m) if isinstance(n, ast.Attribute) and n.attr =
 sys.exit(1 if gl and dl and min(gl) < min(dl) else 0)
 PYEOF
 
-  _FC="$HERE/../firmware_carve.py"
-  [ -f "$_FC" ] || { no "teeth-setup: firmware_carve.py not found at $_FC"; }
+  # The mutants are built from a frozen source sample (the adapters it was modelled on are being ported to Go).
+  _FC="$HERE/fixtures/adapter-core/guard-dispatch-sample.pysrc"
+  [ -f "$_FC" ] || { no "teeth-setup: guard sample not found at $_FC"; }
+  # Positive control: the unmutated sample must PASS the check (exit 1), or every tooth below is vacuous.
+  if python3 "$_PT_TMP/ast_check.py" "$_FC" 2>/dev/null; then no "teeth-setup: the convention check rejects the unmutated sample"
+  else ok "teeth-setup: the convention check accepts the unmutated guard sample"; fi
 
   # Mutants are built in bash through lib/mutant.sh (refuses empty / byte-identical / live-tree /
   # symlink OUT). MUTANT_SYNTAX=none because the SUT is Python; a py compile check replaces `bash -n`
@@ -624,7 +632,7 @@ PYEOF
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_py_replace || exit 2
   _ANCHOR=$'        refuse_privileged_execution()\n        if args.worker: return worker(args)'
-  # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in firmware_carve.py with NEW through the
+  # _ac_mutant LABEL NEW OUT -- replace the first _ANCHOR in the guard sample with NEW through the
   # shared lib/mutant.sh builder (rc 2 = anchor absent, rc 3 = refused / not valid Python).
   _ac_mutant() { mutant_py_replace "$1" "$_FC" "$_ANCHOR" "$2" "$3"; }
   # _ac_tooth LABEL NEW OUT OKMSG NOMSG -- build the mutant, then ast_check.py must REJECT it (exit 0).

@@ -1,10 +1,13 @@
 package corpus
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	catalogpkg "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corpus/catalog"
 )
 
 // archiveConsolidate is the best-effort bookkeeping: regenerate CATALOG.md and touch INDEX.md. A failure is surfaced
@@ -15,7 +18,6 @@ import (
 // handed the corpus as argv (else it resolves its own location and writes into the kit tree); a real file is run with
 // no argument, its parent.parent being the corpus.
 func (e *archiveEnv) archiveConsolidate() {
-	genKit := e.here + "/../templates/gen-catalog.py"
 	genLocal := e.corpus + "/tools/gen-catalog.py"
 	var cmd []string
 	desc := ""
@@ -27,22 +29,31 @@ func (e *archiveEnv) archiveConsolidate() {
 			cmd = []string{"python3", genLocal}
 		}
 		desc = "local generator (" + genLocal + ")"
-	case archiveIsFile(genKit):
-		desc = "kit generator (" + genKit + ")"
-		cmd = []string{"python3", genKit, e.corpus}
+	default:
+		// The kit generator is the Go command `rsdd corpus catalog` (kit issue #2535), run in process. A dangling
+		// symlink at tools/gen-catalog.py is not a local generator (archiveIsFile is false), so it lands here.
+		desc = "kit generator (rsdd corpus catalog)"
 	}
 	var catalog string
 	switch {
-	case desc == "":
-		catalog = "skipped (no generator: neither " + genLocal + " nor " + genKit + ")"
 	case e.dry:
 		catalog = "would regenerate via " + desc
 	default:
-		if _, rc := e.archiveRunArgv(cmd, false); rc == 0 {
+		var rc int
+		hint := strings.Join(cmd, " ")
+		if cmd == nil {
+			quiet := e.s
+			quiet.Out, quiet.Err = io.Discard, io.Discard
+			rc = catalogpkg.Run([]string{e.corpus}, quiet)
+			hint = "rsdd corpus catalog " + e.corpus
+		} else {
+			_, rc = e.archiveRunArgv(cmd, false)
+		}
+		if rc == 0 {
 			catalog = "regenerated CATALOG.md (via " + desc + ")"
 		} else {
-			catalog = "ERROR — gen-catalog.py failed (CATALOG.md NOT regenerated / left stale)"
-			e.consolidateErr = "CATALOG regen failed — run: " + strings.Join(cmd, " ")
+			catalog = "ERROR — " + desc + " failed (CATALOG.md NOT regenerated / left stale)"
+			e.consolidateErr = "CATALOG regen failed — run: " + hint
 			e.warn("WARNING: %s", e.consolidateErr)
 		}
 	}

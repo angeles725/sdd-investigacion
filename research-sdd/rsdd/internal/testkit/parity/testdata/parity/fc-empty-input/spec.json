@@ -1,0 +1,4 @@
+{
+ "legacy": ["toolbelt/scan-firmware.sh","carve","{{input}}/firmware.bin","{{input}}/out"],
+ "rsdd": ["corroborate","carve","--input","{{input}}/firmware.bin","--output","{{input}}/out"]
+}

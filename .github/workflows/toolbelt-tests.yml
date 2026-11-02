@@ -8,12 +8,14 @@ on:
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
-      # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
-      # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
-      - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
+      # The catalog generator is load-bearing for the toolbelt discriminator; changes to either copy
+      # (the Go command rsdd corpus catalog, covered by research-sdd/rsdd/** below, or the repo-specialized tool)
+      # must run the guarding tests so BLOCK_RE can't rot.
+      - "research-sdd/templates/**"   # templates the suites read (the generator no longer lives here)
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
-      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      # Go module rsdd: run-all.sh builds the rsdd binary the shell suites exec (rsdd-go.test.sh itself now runs in
+      # rsdd-go.yml, kit issue #2488).
       - "research-sdd/rsdd/**"
       # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
       # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
@@ -36,7 +38,8 @@ on:
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
-      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      # Go module rsdd: run-all.sh builds the rsdd binary the shell suites exec (rsdd-go.test.sh itself now runs in
+      # rsdd-go.yml, kit issue #2488).
       - "research-sdd/rsdd/**"
       - ".claude/settings.json"
       - "research-sdd/METHODOLOGY.md"
@@ -59,6 +62,16 @@ env:
   # below: the shard job asserts it against strategy.job-total and the join job passes it to
   # shard-join.sh --shards, so a matrix edit that forgets this value fails loudly.
   SHARD_COUNT: "4"
+
+# A newer push to the same PR, or a newer merge to main, supersedes the in-flight run of the same ref:
+# cancel it, so the shared concurrent-job cap (GitHub queues everything beyond it) is spent on current
+# heads only. On main this coalesces a burst of merges into one run of the newest commit (measured
+# 2026-11-02: 21 full toolbelt runs on main pushes in ~22 h, ~46 job-minutes each); every merged commit
+# was already gated by its PR run. The event name is in the group, so a merge never cancels the nightly
+# schedule or a manual dispatch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   toolbelt-shard:
@@ -84,17 +97,13 @@ jobs:
       # honoured once PR #2137 lands).
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
-      # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
+      # run-all.sh builds the rsdd binary once per invocation: a missing Go toolchain must FAIL, never degrade silently.
+      # (rsdd-go.test.sh, the Go bridge suite with the gremlins teeth, is tier `dedicated` and runs in rsdd-go.yml,
+      # kit issue #2488: 469-729 s of every shard and 10 of 14 measured toolbelt failures.)
       RSDD_REQUIRE_GO: "1"
-      # Kit issue #2381: on a pull_request, rsdd-go.test.sh runs gremlins only on the Go packages changed since
-      # the merge base with the target branch. Empty on push/schedule/dispatch, which keeps the whole-module run.
-      RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          # Full history on a pull_request so origin/<base> and its merge base with HEAD resolve (RSDD_TEETH_BASE).
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       - name: Check the matrix length matches SHARD_COUNT
         run: |
@@ -114,7 +123,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          cache: false # go.mod-only keys never refresh (no go.sum); the explicit cache step below is keyed on the Go sources (kit issue #2488)
+
+      - name: Cache Go build and module caches
+        # run-all.sh builds the rsdd binary once per shard; a warm GOCACHE turns that into a link step.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-toolbelt-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-toolbelt-
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE

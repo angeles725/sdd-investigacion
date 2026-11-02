@@ -1,0 +1,1 @@
+["diff", "--input-a", "testdata/frames/diff_c.log", "--input-b", "testdata/frames/diff_d.log", "--output", "{TMP}/out.json"]

@@ -11,7 +11,7 @@ import (
 )
 
 // RddDrive is `rsdd maint rdd-drive [--max-steps N] <cwd> <first-json-file>`, the Go port of
-// toolbelt/maint/kit-rdd-drive.py (kit issue #2212).
+// the former toolbelt/maint/kit-rdd-drive.py (kit issue #2212; now the shim maint/kit-rdd-drive.sh).
 //
 // It follows gentle-ai next_transition / status_continuation from the document rdd-start wrote until the
 // review is acknowledged or something needs a human. Only provider-issued operations named review.<name>
