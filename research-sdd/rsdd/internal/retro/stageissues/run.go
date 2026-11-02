@@ -44,7 +44,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro/grammar"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 // Command is the registry entry of `rsdd retro stage-issues`.
@@ -85,7 +85,7 @@ type app struct {
 	repo                   string
 	listLimit              string
 	listLimitN             int64
-	doc                    *grammar.Doc
+	doc                    *retrogrammar.Doc
 	markerLine             string
 	isPartial              bool
 	shipped                []string

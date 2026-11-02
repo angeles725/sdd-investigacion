@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro/grammar"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 func sprintf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
@@ -23,14 +23,14 @@ func titleUnusable(title string) (unusable bool, reason string) {
 	if slices.Contains(bareTokens, lowerASCII(t)) {
 		return true, "a bare priority/type token"
 	}
-	if !grammar.TitleHasIdentity(t) {
+	if !retrogrammar.TitleHasIdentity(t) {
 		return true, "a title under 12 characters"
 	}
 	return false, ""
 }
 
 // stageRow handles one delta record: skips, guards, scrub, then the dry-run plan or the --apply writes.
-func (a *app) stageRow(r grammar.Row) {
+func (a *app) stageRow(r retrogrammar.Row) {
 	rid, delta := trimSpace(r.ID), trimSpace(r.Change)
 	targetCell, evidence := trimSpace(r.Target), trimSpace(r.Evidence)
 	typeCell, priorityCell := trimSpace(r.Type), trimSpace(r.Priority)
@@ -49,7 +49,7 @@ func (a *app) stageRow(r grammar.Row) {
 	}
 	// Any other character outside [A-Za-z0-9_-] (a backslash left by a `6\ |` cell, a dot, markup) cannot
 	// round-trip either: unclassifiable, never staged (kit issue #2135).
-	if !grammar.IDSignatureSafe(rid) {
+	if !retrogrammar.IDSignatureSafe(rid) {
 		a.errf("unclassifiable-row: row %s has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review, no issue staged\n", rid)
 		a.unclassifiable++
 		a.uncAdd(false, a.uncRowLine(rid, delta), rid+": "+cut60(), "id-not-signature-safe")
@@ -64,13 +64,13 @@ func (a *app) stageRow(r grammar.Row) {
 			return
 		}
 		// Kit issue #1944: a row the marker resolves as DISMISSED (rejected, not shipped) is closed too: never seeded.
-		switch grammar.MarkerRowState(a.markerLine, rid) {
-		case grammar.RowDismissed:
+		switch retrogrammar.MarkerRowState(a.markerLine, rid) {
+		case retrogrammar.RowDismissed:
 			a.errf("no-match: dismissed (row %s)\n", rid)
 			a.skippedShipped++
 			a.skippedDismissed++
 			return
-		case grammar.RowMalformed: // never seeded, never dropped silently
+		case retrogrammar.RowMalformed: // never seeded, never dropped silently
 			a.errf("unclassifiable-row: row %s cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review, no issue staged\n", rid)
 			a.unclassifiable++
 			a.uncAdd(false, a.uncRowLine(rid, delta), rid+": "+cut60(), "marker DISMISSED: list is malformed (empty or only a parenthetical)")

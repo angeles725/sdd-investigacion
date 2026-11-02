@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro/grammar"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 var (
@@ -36,9 +36,9 @@ func headOr(h string) string {
 // stage is everything after the retro, the kit and the target are known: the review-status gate, the delta
 // section verdicts, the parse, and the staging loop.
 func (a *app) stage() int {
-	d, err := grammar.Read(a.retro)
+	d, err := retrogrammar.Read(a.retro)
 	if err != nil {
-		if errors.Is(err, grammar.ErrAbsentInput) {
+		if errors.Is(err, retrogrammar.ErrAbsentInput) {
 			a.errf("absent-input: retro not found: %s\n", a.retro)
 		} else {
 			a.errf("degraded: retro not readable: %s\n", a.retro)
@@ -48,21 +48,21 @@ func (a *app) stage() int {
 	a.doc = d
 	// retro_marker_scope_line is the ONE marker scope reconcile-issues.sh, retro-gate.sh and sweep-retros.sh
 	// share: the leading block, tolerating exactly one H1 line at the top.
-	a.markerLine = grammar.MarkerScopeLine(d)
+	a.markerLine = retrogrammar.MarkerScopeLine(d)
 	// An empty scope-scan result does NOT necessarily mean "no marker": a whole-file scan may still find one outside
 	// the leading-block scope. Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape (status
 	// read as "", every row seeded). Fail CLOSED: refuse to seed and say why (kit issue #1099).
-	if a.markerLine == "" && grammar.MarkerOutOfScope(d) {
+	if a.markerLine == "" && retrogrammar.MarkerOutOfScope(d) {
 		a.errf("out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in %s — refusing to seed (kit issue #1099); move the marker into the leading block\n", a.retroBase)
 		return 0
 	}
-	status := grammar.StatusFromMarkerLine(a.markerLine)
+	status := retrogrammar.StatusFromMarkerLine(a.markerLine)
 	// PARTIAL is a STATUS TOKEN, detected only in the marker's STRUCTURED segment (kit issue #1090), never a
 	// case-insensitive whole-line grep, which let prose like "(P1 partial)" false-positive.
-	if grammar.MarkerIsPartial(a.markerLine) {
+	if retrogrammar.MarkerIsPartial(a.markerLine) {
 		a.isPartial = true
-		if raw := grammar.ShippedRaw(a.markerLine); raw != "" {
-			ids, err := grammar.ShippedIDs(raw)
+		if raw := retrogrammar.ShippedRaw(a.markerLine); raw != "" {
+			ids, err := retrogrammar.ShippedIDs(raw)
 			if err != nil {
 				a.errf("degraded: the review-status marker of %s lists a shipped: range too large to expand (%s)\n", a.retroBase, err.Error())
 				return 1
@@ -89,7 +89,7 @@ func (a *app) stage() int {
 	}
 
 	uncEarly := false
-	info := grammar.Delta(d)
+	info := retrogrammar.Delta(d)
 	if w := d.FenceWarning(); w != "" { // the first read (delta_info) speaks; the secondary reads are quiet
 		a.errf("%s", w)
 	}
@@ -99,10 +99,10 @@ func (a *app) stage() int {
 		// from the backlog. Kit issues #1895 #1932 #1933 #1934 #1938 #1939: a heading the canonical grammar does not
 		// know can still carry a delta form the shared lib recognises. The unclassifiable record is suppressed ONLY
 		// when EVERY unrecognised heading produced items.
-		altEarly := grammar.AltEntryRows(d)
-		altHeads := grammar.AltHeads(d)
+		altEarly := retrogrammar.AltEntryRows(d)
+		altHeads := retrogrammar.AltHeads(d)
 		missing := ""
-		unrecList := grammar.UnrecHeadings(d)
+		unrecList := retrogrammar.UnrecHeadings(d)
 		for _, uh := range unrecList {
 			if uh != "" && !slices.Contains(altHeads, uh) {
 				missing = uh
@@ -137,20 +137,20 @@ func (a *app) stage() int {
 		}
 	}
 
-	var rows []grammar.Row
+	var rows []retrogrammar.Row
 	if !uncEarly {
 		rows = tableRows(d.Lines)
 		// no table rows -> the doctrine-valid `### D<N> —` entry form (kit issue #1332 N1)
 		if len(rows) == 0 {
-			rows = grammar.EntryRows(d)
+			rows = retrogrammar.EntryRows(d)
 			if len(rows) > 0 {
-				a.errf("%s", grammar.EntryWarn(d)) // entries whose heading token is not a usable ID (N6)
+				a.errf("%s", retrogrammar.EntryWarn(d)) // entries whose heading token is not a usable ID (N6)
 			}
 		}
 		// no table and no entry -> the fleet's other real forms (numbered prose items, `## Delta <ID> —` entries, a
 		// `### Proposals` list), classified by the shared grammar lib; the id is the item number / the delta id.
 		if len(rows) == 0 {
-			rows = grammar.AltEntryRows(d)
+			rows = retrogrammar.AltEntryRows(d)
 			if len(rows) > 0 {
 				ids := make([]string, len(rows))
 				for i, r := range rows {
@@ -158,15 +158,15 @@ func (a *app) stage() int {
 				}
 				// A numbered list restarts at 1: two lists would share ids and the signature (keyed on the id) would
 				// merge them. Typed refusal, not a silent loss.
-				if dups := strings.Join(grammar.DupIDs(ids), " "); dups != "" {
+				if dups := strings.Join(retrogrammar.DupIDs(ids), " "); dups != "" {
 					a.errf("unclassifiable: delta items in %s share ids (%s) across two lists — needs manual review, no issue auto-staged\n", a.retro, dups)
 					h := a.firstHeading(reHeadingAny)
 					a.uncAdd(true, a.uncLineOf(h), headOr(h), "delta items share ids ("+dups+") across two lists")
 					rows, uncEarly = nil, true
 				} else {
 					// The first delta heading of the file must be one that produced items; else it stays unclassifiable.
-					h, _ := grammar.CanonicalHeading(d)
-					if info.Found && h != "" && !slices.Contains(grammar.AltHeads(d), h) {
+					h, _ := retrogrammar.CanonicalHeading(d)
+					if info.Found && h != "" && !slices.Contains(retrogrammar.AltHeads(d), h) {
 						a.errf("unclassifiable: delta section found but it produced no items in %s — needs manual review (items elsewhere in the file are staged)\n", a.retro)
 						a.uncAdd(true, a.uncLineOf(h), h, "delta section has neither row-table rows nor '### D<N> —' entries nor numbered items")
 					}
@@ -176,7 +176,7 @@ func (a *app) stage() int {
 		if len(rows) == 0 && !uncEarly {
 			// An HONEST §18 zero first (kit issue #1129): a canonical section whose only body content is the accepted
 			// honesty phrase has genuinely nothing to count.
-			if grammar.HasHonesty(d) {
+			if retrogrammar.HasHonesty(d) {
 				a.errf("empty-input: delta section found but contains no data rows (honest §18 zero) in %s\n", a.retro)
 				a.outf("unclassifiable-items: 0 (empty-input: honest §18 zero, no data rows)\n")
 				return 0

@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro/grammar"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 // The row-table reader: the awk program of stage-retro-issues.sh (the `_rows` block). It reads the DEFENCED
@@ -64,9 +64,9 @@ func cell(cells []string, k int) string { // awk f[k]: "" past the end (k is 1-b
 }
 
 // tableRows is the `_rows` awk over the defenced lines.
-func tableRows(lines []string) []grammar.Row {
-	var out []grammar.Row
-	var pend *grammar.Row
+func tableRows(lines []string) []retrogrammar.Row {
+	var out []retrogrammar.Row
+	var pend *retrogrammar.Row
 	flush := func() {
 		if pend != nil {
 			out = append(out, *pend)
@@ -103,14 +103,14 @@ func tableRows(lines []string) []grammar.Row {
 			line = reTailPipe.ReplaceAllString(line, "")
 			f := splitCells(line)
 			rid := removeSpace(cell(f, 1))
-			if grammar.TableIDSkip(rid) {
+			if retrogrammar.TableIDSkip(rid) {
 				continue
 			}
 			flush()
 			if ct != 0 {
-				pend = &grammar.Row{ID: cell(f, 1), Change: cell(f, ct), Target: roleCell(f, cg), Evidence: roleCell(f, ce), Type: roleCell(f, cy), Priority: roleCell(f, cp)}
+				pend = &retrogrammar.Row{ID: cell(f, 1), Change: cell(f, ct), Target: roleCell(f, cg), Evidence: roleCell(f, ce), Type: roleCell(f, cy), Priority: roleCell(f, cp)}
 			} else {
-				pend = &grammar.Row{ID: cell(f, 1), Change: cell(f, 2), Target: cell(f, 3), Evidence: cell(f, 4), Type: cell(f, 5), Priority: cell(f, 6)}
+				pend = &retrogrammar.Row{ID: cell(f, 1), Change: cell(f, 2), Target: cell(f, 3), Evidence: cell(f, 4), Type: cell(f, 5), Priority: cell(f, 6)}
 			}
 			continue
 		}
