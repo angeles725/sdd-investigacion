@@ -10,7 +10,7 @@ import (
 )
 
 // RddStart is `rsdd maint rdd-start [--consent granted] [--base-ref REF] [--agent NAME] <cwd> <outfile>`,
-// the Go port of toolbelt/maint/kit-rdd-start.py (kit issue #2212).
+// the Go port of the former toolbelt/maint/kit-rdd-start.py (kit issue #2212; now the shim maint/kit-rdd-start.sh).
 //
 // It assesses the committed range <REF>..HEAD of <cwd>; when a native review is due it runs the
 // provider-issued STATUS, then the provider-issued START, and writes the START output to <outfile>.

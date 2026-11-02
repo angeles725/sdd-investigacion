@@ -3,7 +3,7 @@
 // It reproduces, byte for byte, the Python json.dumps forms used across the toolbelt:
 //
 //   - Canonical: sort_keys, separators (",", ":"), ensure_ascii (research-sdd/toolbelt/lib/adapter_core.py).
-//   - CanonicalUnicode: the same with ensure_ascii=False (analysis_manifest.py, zip_metadata.py).
+//   - CanonicalUnicode: the same with ensure_ascii=False (analysis_manifest.py, the retired zip_metadata.py).
 //   - Indented: indent=2, sort_keys, ensure_ascii (the _write_json helpers).
 //
 // Every form ends with a single newline.

@@ -48,14 +48,14 @@ These profiles are defined as constants in `lib/isolation_profile.py`.
 
 | Constant | `name` | `static_only` | `network_access` | Used by |
 |---|---|---|---|---|
-| `PROFILE_BWRAP_STATIC_NETWORK_DENIED` | `bubblewrap-static-network-denied` | `true` | `false` | `corroborate_firmware`, `corroborate_java`, `corroborate_native` |
+| `PROFILE_BWRAP_STATIC_NETWORK_DENIED` | `bubblewrap-static-network-denied` | `true` | `false` | `corroborate_firmware`, `rsdd corroborate java` (Go), `corroborate_native` |
 | `PROFILE_BWRAP_PCAP_OFFLINE` | `bubblewrap-pcap-offline` | `true` | `false` | `corroborate_pcap`, `pcap_flows` |
 | `PROFILE_BWRAP_CAPA_OFFLINE` | `bubblewrap-capa-offline` | `true` | `false` | `corroborate_capa` |
 | `PROFILE_BWRAP_FLOSS_OFFLINE` | `bubblewrap-floss-offline` | `true` | `false` | `corroborate_floss` |
 | `PROFILE_BWRAP_KAITAI_OFFLINE` | `bubblewrap-kaitai-offline` | `true` | `false` | `rsdd corroborate kaitai` (Go) |
 | `PROFILE_BWRAP_UNSQUASHFS` | `bwrap-unsquashfs` | `true` | `false` | `squashfs_extract` |
-| `PROFILE_INPROCESS_ZIP_METADATA` | `in-process-metadata-only` | `true` | `false` | `zip_metadata` |
-| `PROFILE_INPROCESS_ZIP_STORED` | `in-process-static-stored-copy` | `true` | `false` | `zip_stored` |
+| `PROFILE_INPROCESS_ZIP_METADATA` | `in-process-metadata-only` | `true` | `false` | `zip_metadata` (frozen legacy oracle, `rsdd/internal/formats/testdata/zip/legacy/`) |
+| `PROFILE_INPROCESS_ZIP_STORED` | `in-process-static-stored-copy` | `true` | `false` | `zip_stored` (frozen legacy oracle, same dir) |
 
 ## Dynamic profiles
 

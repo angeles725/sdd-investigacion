@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
-# sweep-retros-hook.test.sh — red-first harness for sweep-retros-hook.sh.
-# Covers: existence, executable, operational-failure banner, success header,
-#         summary mode (absent collapse, "N more" limit, Summary: byte-identity, --full passthrough),
-#         mutation proof.
+# sweep-retros-hook.test.sh — harness for sweep-retros-hook.sh, now a shim to `rsdd sweep retros --hook`
+# (kit issue #2359).
+#
+# Covers the SHIM contract: existence and the executable bit; the arguments handed to the binary (`sweep retros
+# --hook --kit <own kit>`, then every caller argument, `--full` included); output and exit code passed through; a
+# symlinked invocation; an unusable binary → the SessionStart DEGRADED headline and exit 0 (a hook never fails the
+# session), a missing lib → an announced line, never silence; and the real Go binary end to end on a mini kit
+# (the envelope, the five-block summary with its "N more" line, --full, the failure banner).
+# The filtering, the headers, the Summary: byte-identity, the exit-0 rule and the 8,000-character budget are
+# pinned in Go (rsdd/internal/sweep, retroshook_test.go, plus a differential against the frozen script, which
+# also covers the envelope bytes), not here. The old suite stubbed sweep-retros.sh beside the hook; the sweep
+# runs in process now, so that seam is gone and the pure functions are tested directly.
+# --prove-teeth mutates the SHIM (each mutant must lose its case); the Go source has its own mutation gate
+# (`make teeth` in research-sdd/rsdd).
+#
 # Exit: 0 all held · 1 regression · 2 harness error
-
 set -uo pipefail
+# HERMETICITY (kit issue #1157): never read the developer's real ~/.claude/projects launch history.
+export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/stage-libs.sh
 . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
@@ -17,188 +29,154 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "== sweep-retros-hook.test.sh =="
 
-# 1. Existence
-[ -f "$SUT" ] \
-  && ok "1 hook exists at $SUT" \
-  || no "1 hook NOT found at $SUT"
+# 1. Existence and 2. executable
+[ -f "$SUT" ] && ok "1 hook exists at $SUT" || no "1 hook NOT found at $SUT"
+[ -f "$SUT" ] && [ -x "$SUT" ] && ok "2 hook is executable" || no "2 hook NOT executable (missing +x bit)"
+if [ ! -f "$SUT" ]; then echo "== $pass passed · $fail failed =="; exit 2; fi
 
-# 2. Executable
-[ -f "$SUT" ] && [ -x "$SUT" ] \
-  && ok "2 hook is executable" \
-  || no "2 hook NOT executable (missing +x bit)"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The wiring pass walks up from a target to its git root: stop at the sandbox (kit issue #1140).
+RSDD_HOOK_WIRING_CEILING="$(dirname "$TMP")"; export RSDD_HOOK_WIRING_CEILING
+unset RSDD_PROFILE RSDD_RETRO_AGE_DAYS RSDD_MISSING_RETRO_GRACE_HOURS RESEARCH_HOME
 
-if [ ! -f "$SUT" ]; then
-  for n in 3 4 5 6 7 8 9; do no "$n (skipped: hook missing)"; done
-  echo "== $pass passed · $fail failed =="; exit 2
+# The real binary for the end-to-end cases: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
 fi
 
-# ---- Temp workspace ---------------------------------------------------------
-MUT=""; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
-
-# write_stub <exit_code> <output_text> — creates TMP/sweep-retros.sh + refreshes hook copy.
-write_stub() {
-  local rc="$1" txt="$2"
-  printf '%s\n' "$txt" > "$TMP/stub-out.txt"
-  printf '#!/usr/bin/env bash\ncat "%s"\nexit %s\n' "$TMP/stub-out.txt" "$rc" \
-    > "$TMP/sweep-retros.sh"
-  chmod +x "$TMP/sweep-retros.sh"
-  cp "$SUT" "$TMP/sweep-retros-hook.sh"
-  rsdd_stage_libs "$TMP"  # the hook sources lib/hook-emit.sh beside itself (#1877)
-  chmod +x "$TMP/sweep-retros-hook.sh"
+# stage_kit DEST [SHIM] — a mini kit: the hook shim (the real one, or a mutant) and every toolbelt lib (the shim
+# sources lib/rsdd-exec.sh and, when degraded, lib/hook-emit.sh). The toolbelt is DEST/toolbelt.
+stage_kit() {
+  mkdir -p "$1/toolbelt"
+  cp "${2:-$SUT}" "$1/toolbelt/sweep-retros-hook.sh"; chmod +x "$1/toolbelt/sweep-retros-hook.sh"
+  rsdd_stage_libs "$1/toolbelt" || exit 2
 }
-
-# 3. Operational failure (sweep exits non-zero) → "could not run" banner, NOT normal header.
-write_stub 1 "sweep-retros: cannot find TARGETS.md"
-OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
-  && ok "3 sweep failure (rc=1) → operational-failure banner emitted" \
-  || no "3 sweep failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
-
-# 4. Success (sweep exits 0) → normal header present in output.
-write_stub 0 "TARGET  demo  · 0 open retros"
-OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'retro sweep\|§18' \
-  && ok "4 success (rc=0) → normal retro header emitted" \
-  || no "4 success → expected normal header (exit=$RC out=[$OUT])"
-
-# 5. Failure banner uses singular "retro sweep" (not "retros sweep").
-write_stub 1 "sweep-retros: cannot find TARGETS.md"
-OUT="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'retro sweep could not run' \
-  && ok "5 failure banner wording: 'retro sweep could not run' (singular, not 'retros')" \
-  || no "5 failure banner wording: expected 'retro sweep could not run' (exit=$RC out=[$OUT])"
-
-# ---- Summary mode tests -----------------------------------------------------
-
-# Helper: build a sweep stub with N PENDING rows + 2 absent targets.
-_build_sweep_out() {
-  local n_pending="$1"
-  local i ep txt
-  ep=1000  # base epoch for oldest-first ordering
-  txt=""
-  txt="${txt}INFO: corpus not found (absent-input): /targets/absent-a"$'\n'
-  txt="${txt}INFO: corpus not found (absent-input): /targets/absent-b"$'\n'
-  for i in $(seq 1 "$n_pending"); do
-    txt="${txt}PENDING  /targets/t/retros/retro${i}.md"$'\n'
-    txt="${txt}         target: /targets/t  ·  ~${i} proposed deltas  ·  status: pending  ·  age: ${i}d"$'\n'
-    ep=$((ep + 86400))
-  done
-  txt="${txt}"$'\n'
-  txt="${txt}Summary: ${n_pending} pending / $((n_pending + 3)) retros across targets."$'\n'
-  txt="${txt}INFO: 2 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above."$'\n'
-  printf '%s' "$txt"
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
+# ctx JSON — the decoded additionalContext of a SessionStart envelope.
+ctx() { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext'; }
 
-# Helper: extract additionalContext from jq-wrapped hook output (or pass through on fallback).
-_hook_content() { printf '%s\n' "$1" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || printf '%s\n' "$1"; }
+stage_kit "$TMP/kit"; SHIM="$TMP/kit/toolbelt/sweep-retros-hook.sh"
+PHYS="$(cd -P "$TMP/kit/toolbelt" && pwd -P)"
 
-# 6. Summary mode (default, 0 pending + absent targets): absent collapse line still prints.
-#    A silent clean run is the defect — sentinel/collapse lines MUST appear.
-write_stub 0 "$(_build_sweep_out 0)"
-OUT6="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-_content6="$(_hook_content "$OUT6")"
-<<<"$_content6" grep -qE 'INFO: 2 target\(s\) not traversed' \
-  && ok "6 summary mode, 0 pending + 2 absent: absent collapse line present (no silent clean)" \
-  || no "6 summary mode, 0 pending + 2 absent: absent collapse line MISSING"
+# 3 — the binary gets `sweep retros --hook --kit <own kit>` and then the caller's arguments, byte for byte.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" --full >/dev/null 2>&1
+want="$(printf '%s\n' sweep retros --hook --kit "$PHYS/.." --full)"
+if [ "$(cat "$TMP/args")" = "$want" ]; then ok "3 binary called as 'sweep retros --hook --kit <own kit>' + the caller's arguments verbatim"
+else no "3 arguments differ: [$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# 7. Summary mode: absent collapse line says "run --full to list them" (not "see INFO lines above").
-<<<"$_content6" grep -q 'run --full to list them' \
-  && ok "7 summary mode: absent collapse line says 'run --full to list them'" \
-  || no "7 summary mode: absent collapse line missing --full hint"
+# 4 — output and exit code pass through unchanged.
+stub_bin 0 "from the binary
+"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ "$OUT" = "from the binary" ]; then ok "4 output and exit code pass through"; else no "4 passthrough differs (rc=$RC out=[$OUT])"; fi
 
-# 8. Summary mode with >5 pending: only 5 PENDING lines shown + "N more" message.
-write_stub 0 "$(_build_sweep_out 8)"
-OUT8="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-_content8="$(_hook_content "$OUT8")"
-_cnt8="$(printf '%s\n' "$_content8" | grep -c '^PENDING')" || _cnt8=0
-[ "$_cnt8" -eq 5 ] \
-  && ok "8 summary mode, 8 pending: exactly 5 PENDING lines shown (got $_cnt8)" \
-  || no "8 summary mode, 8 pending: expected 5 PENDING lines, got $_cnt8"
+# 5 — invoked through a symlink in another directory, the shim still names its REAL kit.
+mkdir -p "$TMP/elsewhere"; ln -s "$SHIM" "$TMP/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(sed -n 5p "$TMP/args")" = "$PHYS/.." ]; then ok "5 symlinked shim → binary gets the physical own kit"; else no "5 symlink: args=[$(tr '\n' '|' < "$TMP/args")]"; fi
 
-<<<"$_content8" grep -q 'and 3 more' \
-  && ok "8b summary mode: '… and 3 more' message present" \
-  || no "8b summary mode: '… and 3 more' message MISSING"
+# 6 — an unusable RSDD_BIN → exit 0 (a hook never fails the session), the typed degraded line on stderr and the
+# SessionStart DEGRADED headline on stdout.
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$SHIM" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" = 0 ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6" \
+   && [ "$(ctx "$OUT")" = "Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $TMP/does-not-exist" ]; then
+  ok "6 unusable RSDD_BIN → exit 0, typed degraded line, DEGRADED headline as additionalContext"
+else no "6 unusable binary: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
 
-# 9. Summary: line is byte-identical in default (summary) mode and --full mode.
-_sweep9_out="$(_build_sweep_out 7)"
-write_stub 0 "$_sweep9_out"
-OUT9_SUMM="$(bash "$TMP/sweep-retros-hook.sh" 2>&1)"
-OUT9_FULL="$(bash "$TMP/sweep-retros-hook.sh" --full 2>&1)"
-_sum_summ="$(printf '%s\n' "$(_hook_content "$OUT9_SUMM")" | grep '^Summary:')"
-_sum_full="$(printf '%s\n' "$(_hook_content "$OUT9_FULL")" | grep '^Summary:')"
-[ "$_sum_summ" = "$_sum_full" ] \
-  && ok "9 Summary: line byte-identical in summary and --full modes" \
-  || no "9 Summary: line differs: summary=[$_sum_summ] full=[$_sum_full]"
+# 7 — the shim's own lib missing → the missing-lib line on stdout, exit 0, never an empty stdout.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/sweep-retros-hook.sh"
+OUT="$(bash "$TMP/nolib/sweep-retros-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ "$OUT" = "Research-SDD hook: lib/rsdd-exec.sh missing beside $TMP/nolib/sweep-retros-hook.sh" ]; then
+  ok "7 missing rsdd-exec.sh → announced on stdout, exit 0"
+else no "7 missing lib: rc=$RC out=[$OUT]"; fi
 
-# ---- Teeth (mutation proof) -------------------------------------------------
-# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
-# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by the shared
-# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant and a dead sed
-# stage; each control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the
-# mutant (exact rc on both sides: a crashing mutant is not teeth).
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (mutant_chain refuses a dead
-# stage); a refusal is counted as a failure here, the helper itself never touches the counters.
-mk_sed(){
-  local out="$2"
-  mkdir -p "$(dirname "$out")"
-  mutant_chain_or_count fail "$1" "$SUT" "$out" "${@:3}" || return 1
-}
-# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
-# Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line). The pre-migration
-# local helper matched patterns case-insensitively, so MUTANT_TOOTH_ICASE keeps that behaviour exactly.
-tooth(){
-  if MUTANT_TOOTH_ICASE=1 mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-}
-# hook_tooth LABEL GOOD_RC BAD_RC MUTANT [tooth opts] -- ARGV...   the hook locates its sweep stub next to
-# itself, so the stub currently in $TMP (set by write_stub for this scenario) is copied beside the mutant;
-# the ORIGINAL runs from $TMP's hook copy (also refreshed by write_stub).
-hook_tooth(){
-  local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
-  cp "$TMP/sweep-retros.sh" "$(dirname "$mut")/sweep-retros.sh"
-  rsdd_stage_libs "$(dirname "$mut")"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
-  tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-retros-hook.sh" "$@"
-}
+# ---- the real binary, end to end on the mini kit ----
+real() { env RSDD_BIN="$REAL_BIN" bash "$SHIM" "$@"; }
+T1="$TMP/t1"; mkdir -p "$T1/retros" "$T1/.claude"
+for i in 1 2 3 4 5 6 7; do
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | delta | rationale |\n|---|---|---|\n| 1 | d1 | because |\n' > "$T1/retros/r$i.md"
+  touch -d "$((10 - i)) days ago" "$T1/retros/r$i.md"
+done
+printf '{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}\n' > "$T1/.claude/settings.json"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | `%s` |\n| 2 | t2 | `%s/absent` |\n' "$T1" "$TMP" > "$TMP/kit/TARGETS.md"
 
+# 8 — summary mode: a SessionStart envelope; five PENDING blocks (the oldest), the "N more" line before the
+# unchanged Summary:, the absent targets collapsed to one line that points at --full, findings dropped.
+OUT="$(real 2>"$TMP/err8")"; RC=$?
+C="$(ctx "$OUT")"
+if [ "$RC" = 0 ] && [ ! -s "$TMP/err8" ] && [ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName')" = SessionStart ] \
+   && [ "$(grep -c '^PENDING  ' <<<"$C")" = 5 ] && grep -q '^… and 2 more — run sweep-retros.sh --full$' <<<"$C" \
+   && grep -q '^Summary: 7 pending / 7 retros across targets\.$' <<<"$C" \
+   && grep -q 'run --full to list them\.$' <<<"$C" && ! grep -q '^WARN' <<<"$C" && ! grep -q 'corpus not found' <<<"$C" \
+   && [ "$(head -n 1 <<<"$C")" = 'Research-SDD retro sweep (supervisor project):' ]; then
+  ok "8 end to end: envelope, five oldest blocks, 'and 2 more', collapsed absent line, no findings"
+else no "8 summary mode: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
+
+# 9 — --full: every PENDING block, the per-target INFO line, the WARN lines; the Summary: line is byte-identical.
+OUTF="$(real --full 2>/dev/null)"; CF="$(ctx "$OUTF")"
+if [ "$(grep -c '^PENDING  ' <<<"$CF")" = 7 ] && grep -q '^INFO: corpus not found (absent-input): ' <<<"$CF" \
+   && [ "$(grep '^Summary:' <<<"$CF")" = "$(grep '^Summary:' <<<"$C")" ]; then
+  ok "9 --full: all 7 blocks and the INFO line; Summary: byte-identical to summary mode"
+else no "9 --full: out=[$CF]"; fi
+
+# 10 — a sweep that cannot run (no TARGETS.md) → exit 0 and the failure banner with the sweep's own message.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+OUT="$(real 2>/dev/null)"; RC=$?
+KITPHYS="$(cd -P "$TMP/kit" && pwd -P)"
+if [ "$RC" = 0 ] && [ "$(ctx "$OUT")" = "Research-SDD retro sweep could not run (exit 1 — check TARGETS.md and lib/ helper):
+sweep-retros: cannot find $KITPHYS/TARGETS.md" ]; then
+  ok "10 failing sweep → exit 0 and the 'retro sweep could not run' banner"
+else no "10 failing sweep: rc=$RC out=[$OUT]"; fi
+mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
+
+# NEGATIVE CONTROL — each shim mutation must lose its case.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  MUT="$(mktemp -d)"
-  echo "-- teeth: hook must go red when rc-check is neutered --"
-  H='sweep-retros-hook.sh'
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Tooth A: mutant hook never checks rc — always takes the success path. Test 3 must go RED.
-  write_stub 1 "sweep-retros: cannot find TARGETS.md"
-  mk_sed "teeth A" "$MUT/A/$H" 's/if \[ "\$rc" -ne 0 \]/if false/' \
-    && hook_tooth "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)" 0 0 "$MUT/A/$H" \
-         --good-has 'retro sweep could not run' --bad-lacks 'could not run|exit 1' \
-         --bad-has 'Research-SDD retro sweep \(supervisor project\)' -- bash @SUT@
-
-  # Tooth B: revert failure-banner wording to "retros sweep" → test 5 goes RED.
-  write_stub 1 "sweep-retros: cannot find TARGETS.md"
-  mk_sed "teeth B" "$MUT/B/$H" 's/retro sweep could not run/retros sweep could not run/' \
-    && hook_tooth "teeth B: reverted to 'retros sweep' mutant → test 5 would catch it (RED)" 0 0 "$MUT/B/$H" \
-         --good-has 'retro sweep could not run' --bad-lacks 'retro sweep could not run' \
-         --bad-has 'retros sweep could not run' -- bash @SUT@
-
-  # Tooth C: mutant drops the absent-collapse line (ABSENT-COLLAPSE-PRINT) → test 6 goes RED.
-  echo "-- teeth C: absent-collapse line dropped → test 6 must catch it --"
-  write_stub 0 "$(_build_sweep_out 0)"
-  mk_sed "teeth C" "$MUT/C/$H" 's/print; next  # ABSENT-COLLAPSE-PRINT/next/' \
-    && hook_tooth "teeth C: absent-collapse-drop mutant suppresses collapse line → test 6 would catch it (RED)" 0 0 "$MUT/C/$H" \
-         --good-has 'INFO: 2 target\(s\) not traversed' --bad-lacks 'INFO: 2 target\(s\) not traversed' \
-         --bad-has 'Summary: 0 pending' -- bash @SUT@
-
-  # Tooth D: mutant alters the Summary: line in summary mode only → test 9 byte-equality goes RED.
-  # The argv extracts the Summary: line in summary mode and in --full mode and prints SAME, or DIFFER
-  # plus the summary-mode line, or EMPTY when either extraction is empty (a crashed mutant is not teeth).
-  echo "-- teeth D: Summary: line mutated in summary mode → test 9 must catch it --"
-  write_stub 0 "$(_build_sweep_out 7)"
-  mk_sed "teeth D" "$MUT/D/$H" 's/print; next  # SUMMARY-LINE-PRINT/$0 = $0 " MUTATED"; print; next/' \
-    && hook_tooth "teeth D: Summary-altered mutant → summary mode differs from --full → test 9 would catch it (RED)" 0 0 "$MUT/D/$H" \
-         --good-has '^SAME$' --bad-lacks '^SAME$' --bad-has 'MUTATED' -- \
-         bash -c 'c(){ o="$(bash "$1" ${2:-} 2>&1)"; j="$(printf "%s\n" "$o" | jq -r ".hookSpecificOutput.additionalContext" 2>/dev/null)" || j="$o"; printf "%s\n" "$j" | grep "^Summary:"; }
-                  a="$(c "$1")"; b="$(c "$1" --full)"; if [ -z "$a" ] || [ -z "$b" ]; then echo EMPTY; elif [ "$a" = "$b" ]; then echo SAME; else echo DIFFER; printf "%s\n" "$a"; fi' _ @SUT@
+  # A: the hook mode is no longer asked for → case 3 (the binary would print the CLI report, not an envelope).
+  if mk_mut "teeth A: --hook dropped" "$SUT" "$TMP/mutA.sh" 's/ --hook --kit/ --kit/'; then
+    stage_kit "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/toolbelt/sweep-retros-hook.sh" >/dev/null 2>&1
+    if ! grep -qx -- '--hook' "$TMP/args"; then ok "teeth A: --hook dropped → case 3 would go RED"; else no "teeth A: mutant still passes --hook"; fi
+  fi
+  # B: the own kit is no longer handed over → case 3.
+  if mk_mut "teeth B: --kit dropped" "$SUT" "$TMP/mutB.sh" 's/ --kit "\$_RSDD_SELF\/\.\."//'; then
+    stage_kit "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/toolbelt/sweep-retros-hook.sh" >/dev/null 2>&1
+    if ! grep -qx -- '--kit' "$TMP/args"; then ok "teeth B: --kit dropped → case 3 would go RED"; else no "teeth B: mutant still passes --kit"; fi
+  fi
+  # C: the caller's arguments are dropped → case 3 (and --full in case 9 would no longer reach the binary).
+  if mk_mut "teeth C: arguments dropped" "$SUT" "$TMP/mutC.sh" 's/"\$@"$//'; then
+    stage_kit "$TMP/mC" "$TMP/mutC.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mC/toolbelt/sweep-retros-hook.sh" --full >/dev/null 2>&1
+    if ! grep -qx -- '--full' "$TMP/args"; then ok "teeth C: arguments dropped → case 3 would go RED"; else no "teeth C: mutant still passes the arguments"; fi
+  fi
+  # D: the hook runs as a plain exec (the degraded mode of rsdd_exec_hook is lost) → case 6 sees exit 2, no headline.
+  if mk_mut "teeth D: not a hook exec" "$SUT" "$TMP/mutD.sh" 's/rsdd_exec_hook sweep sweep retros/rsdd_exec sweep retros/'; then
+    stage_kit "$TMP/mD" "$TMP/mutD.sh"
+    OUTD="$(RSDD_BIN="$TMP/does-not-exist" bash "$TMP/mD/toolbelt/sweep-retros-hook.sh" 2>/dev/null)"; RCD=$?
+    if [ "$RCD" != 0 ] || [ -z "$OUTD" ]; then ok "teeth D: plain rsdd_exec loses the exit-0 DEGRADED headline → case 6 would go RED"; else no "teeth D: mutant still degrades like a hook"; fi
+  fi
+  # E: the missing-lib guard stripped → nothing announced → case 7.
+  if mk_mut "teeth E: guard removed" "$SUT" "$TMP/mutE.sh" 's/ 2>\/dev\/null || { printf .*exit 0; }//'; then
+    mkdir -p "$TMP/mE"; cp "$TMP/mutE.sh" "$TMP/mE/sweep-retros-hook.sh"
+    OUTE="$(bash "$TMP/mE/sweep-retros-hook.sh" 2>&1)"
+    if ! grep -q 'lib/rsdd-exec.sh missing beside' <<<"$OUTE"; then ok "teeth E: unguarded shim no longer announces a missing lib → case 7 would go RED"; else no "teeth E: mutant still announces"; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

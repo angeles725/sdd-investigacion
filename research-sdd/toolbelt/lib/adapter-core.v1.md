@@ -127,4 +127,4 @@ Known divergences fixed at migration time:
 | `corroborate_native.py::require_linux_private` | blacklist (fail-open) | whitelist (fail-closed) |
 | `corroborate_ghidra.py::private_fs` | blacklist, no error handling | whitelist, AdapterError on malformed |
 | `corroborate_native.py::isolation_prefix` | missing `--cap-drop ALL`, `--unshare-pid` | both present via `isolation_prefix` alias |
-| `corroborate_java.py::isolation_prefix` | missing `--cap-drop ALL`, `--unshare-pid` | both present via `isolation_prefix` alias |
+| `corroborate_java.py::isolation_prefix` (retired; now Go `rsdd corroborate java`) | missing `--cap-drop ALL`, `--unshare-pid` | both present via `isolation_prefix` alias |

@@ -1,4 +1,4 @@
-//go:build !noparity
+//go:build !nodiff
 
 package classfile
 
@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-// Differential tests against the real Python helper (corroborate_java.py classfile-facts). Every input of the
+// Differential tests against the frozen Python helper (java/testdata/legacy/corroborate_java.py classfile-facts). Every input of the
 // unit tests, plus a seeded fuzz corpus of damaged archives and class files, is run through both the helper
 // and Run, and the exit code, stdout and (when the helper warned about its environment) stderr must agree.
 // The helper is imported once per interpreter and driven in-process, so a batch costs one Python start; a few
@@ -27,7 +27,9 @@ import (
 // zipfile (strictness of is_zipfile, the order of equal offsets) and are only compared on interpreters older
 // than 3.13, where the Go port follows the 3.12 semantics.
 
-const helperPath = "../../../../toolbelt/corroborate_java.py"
+// helperPath is the frozen copy of the legacy helper (corroborate_java.py was retired when rsdd corroborate java
+// replaced it); the oracle is no longer the live toolbelt script.
+const helperPath = "../java/testdata/legacy/corroborate_java.py"
 
 const driver = `
 import base64, contextlib, io, json, os, sys
@@ -284,13 +286,7 @@ func TestParityWithPythonHelper(t *testing.T) {
 		spec[i] = map[string]any{"path": paths[i], "env": e}
 	}
 	specJSON, _ := json.Marshal(spec)
-	toolbelt, err := filepath.Abs(filepath.Dir(helperPath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(helperPath); err != nil {
-		t.Fatalf("the legacy helper is missing: %v", err)
-	}
+	toolbelt := filepath.Dir(stagedHelper(t))
 	driverPath := filepath.Join(dir, "driver.py")
 	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 		t.Fatal(err)
@@ -301,7 +297,7 @@ func TestParityWithPythonHelper(t *testing.T) {
 			if err := os.WriteFile(specPath, specJSON, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			cmd := exec.Command(py, "-I", driverPath, toolbelt, specPath)
+			cmd := exec.Command(py, "-I", "-B", driverPath, toolbelt, specPath)
 			ver, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("driver: %v\n%s", err, ver)
@@ -359,7 +355,7 @@ func TestParityWithPythonHelper(t *testing.T) {
 // The in-process driver must behave like the command line it stands for.
 func TestParityDriverMatchesCommandLine(t *testing.T) {
 	py := pythons(t)[0]
-	helper, _ := filepath.Abs(helperPath)
+	helper := stagedHelper(t)
 	dir := t.TempDir()
 	for name, input := range map[string][]byte{"jar": buildZip(twoClasses(), zopts{}), "class": c52, "junk": []byte("junk"), "empty-jar": buildZip(nil, zopts{})} {
 		p := filepath.Join(dir, name)
@@ -367,7 +363,7 @@ func TestParityDriverMatchesCommandLine(t *testing.T) {
 			t.Fatal(err)
 		}
 		var stdout, stderr bytes.Buffer
-		cmd := exec.Command(py, "-I", helper, "classfile-facts", p)
+		cmd := exec.Command(py, "-I", "-B", helper, "classfile-facts", p)
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("%s: %v\n%s", name, err, stderr.String())
@@ -379,7 +375,7 @@ func TestParityDriverMatchesCommandLine(t *testing.T) {
 	}
 	// The usage error and a missing file, through the real command line.
 	var stderr bytes.Buffer
-	cmd := exec.Command(py, "-I", helper, "classfile-facts")
+	cmd := exec.Command(py, "-I", "-B", helper, "classfile-facts")
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 || !strings.HasPrefix(stderr.String(), "usage: corroborate_java.py classfile-facts") {
@@ -398,4 +394,27 @@ func TestCP437TableMatchesPython(t *testing.T) {
 	if string(out) != cp437High {
 		t.Fatalf("cp437High differs from Python's cp437 codec")
 	}
+}
+
+// stagedHelper copies the frozen helper into a fresh directory next to a `lib` link to the live toolbelt/lib (only
+// the script is frozen; the helpers it imports stay on main) and returns the copy's path.
+func stagedHelper(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatalf("the legacy helper is missing: %v", err)
+	}
+	lib, err := filepath.Abs("../../../../toolbelt/lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(lib, filepath.Join(dir, "lib")); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(dir, filepath.Base(helperPath))
+	if err := os.WriteFile(helper, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return helper
 }

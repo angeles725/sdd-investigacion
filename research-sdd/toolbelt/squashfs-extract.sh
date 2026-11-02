@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ported to Go: `rsdd formats squashfs-extract`. Compatibility shim (removed in phase 8, kit issue #2270; ported in #2417).
 # Usage: squashfs-extract.sh --input <file> --output <new-out-dir> [caps]   (the contract is squashfs-extract.v1.md)
-# The shim passes the sibling analysis_manifest.py (still Python until U6.2) as --manifest-cli, ahead of the
+# The shim passes the sibling analysis_manifest.py (validated, not executed: the manifest is built in process) as --manifest-cli, ahead of the
 # caller's arguments, so a caller's own --manifest-cli still wins. Exit codes pass through unchanged.
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0

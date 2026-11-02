@@ -89,7 +89,8 @@ func sqfsValidSuperblock(sb []byte, offset, size int64) bool {
 // r. Every position holding the magic is a candidate, in order; a failed candidate resumes the search one byte
 // later. The scan streams in 1 MiB chunks (the script maps the whole file), so memory stays bounded.
 func findSquashfsOffset(r io.ReaderAt, size int64) (int64, error) {
-	buf := make([]byte, sqfsScanChunk+len(sqfsMagic)-1)
+	// Sized to the input, not the chunk: a small input must not pay a 1 MiB buffer per call.
+	buf := make([]byte, min(int64(sqfsScanChunk), max(size, 0))+int64(len(sqfsMagic))-1)
 	sb := make([]byte, sqfsSBSize)
 	for base := int64(0); base < size; base += sqfsScanChunk {
 		n, err := r.ReadAt(buf, base)

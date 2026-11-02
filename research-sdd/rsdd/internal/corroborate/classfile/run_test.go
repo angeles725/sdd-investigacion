@@ -95,6 +95,12 @@ func lineCases() []lineCase {
 		{"directory and resource entries are not classes", buildZip([]zent{ent("p/", nil, 0), ent("p/data.bin", c65, 0), ent("p/A.class", c52, 0)}, zopts{}), nil, line("52", "yes", 1, "no", 0, 0, "none")},
 		{"a name that merely contains .class is not a class", buildZip([]zent{ent("p/A.class.txt", c65, 0), ent("p/B.classx", c65, 0)}, zopts{}), nil, lineEmptyJar},
 		{"unreadable class inside a jar counts, the rest still do", buildZip([]zent{ent("a/Bad.class", []byte("junk junk junk"), 0), ent("b/Ok.class", c65, 8)}, zopts{}), nil, line("65", "no", 2, "yes", 1, 0, "none")},
+		{"a deflated class whose data is not deflate is unreadable, never a crash", buildZip([]zent{func() zent {
+			e := ent("p/Bad.class", c65, 8)
+			e.comp = []byte{0xff, 0xff, 0xff, 0xff}
+			e.csize = uint32(len(e.comp))
+			return e
+		}()}, zopts{}), nil, lineOneBad},
 		{"partial class inside a jar", buildZip([]zent{ent("a/Cut.class", c52[:len(c52)-3], 0), ent("b/Ok.class", c65, 8)}, zopts{}), nil, line("52-65", "no", 2, "yes", 0, 1, "none")},
 		{"central directory with a wrong signature", cdByte(0), nil, unreadableInput("BadZipFile")},
 		{"version needed 6.3 still reads", buildZip([]zent{func() zent { e := ent("A.class", c52, 0); e.version = 63; return e }()}, zopts{}), nil, line("52", "yes", 1, "no", 0, 0, "none")},

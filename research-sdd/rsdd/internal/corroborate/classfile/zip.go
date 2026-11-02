@@ -56,15 +56,16 @@ var errCrash = errors.New("an entry name is not valid UTF-8")
 var cp437Runes = []rune(cp437High)
 
 type zipEntry struct {
-	orig   string // central-directory name as decoded (Python's ZipInfo.orig_filename)
-	name   string // orig cut at the first NUL, or the Info-ZIP unicode path when one applies
-	flags  uint16
-	method uint16
-	crc    uint32
-	csize  uint64
-	usize  uint64
-	hoff   int64 // header offset plus the prepended-data correction
-	endOff int64 // where the next local header (or the central directory) starts
+	orig    string // central-directory name as decoded (Python's ZipInfo.orig_filename)
+	name    string // orig cut at the first NUL, or the Info-ZIP unicode path when one applies
+	flags   uint16
+	method  uint16
+	crc     uint32
+	extAttr uint32 // external_attr: the Unix mode is its high 16 bits
+	csize   uint64
+	usize   uint64
+	hoff    int64 // header offset plus the prepended-data correction
+	endOff  int64 // where the next local header (or the central directory) starts
 }
 
 type archive struct {
@@ -163,7 +164,7 @@ func decodeName(raw []byte, utf8Flag bool) (string, error) {
 		if c < 0x80 {
 			sb = append(sb, rune(c))
 		} else {
-			sb = append(sb, cp437Runes[c-0x80])
+			sb = append(sb, cp437Runes[c&0x7f]) // c >= 0x80 here, so c&0x7f == c-0x80 (a byte subtraction the mutants cannot tell from c+0x80)
 		}
 	}
 	return string(sb), nil
@@ -248,7 +249,7 @@ func openArchive(r io.ReaderAt, size int64, rec eocd) (*archive, error) {
 			return nil, err
 		}
 		e := &zipEntry{
-			orig: orig, name: sanitize(orig), flags: flags, method: le16(hdr[10:]), crc: le32(hdr[16:]),
+			orig: orig, name: sanitize(orig), flags: flags, method: le16(hdr[10:]), crc: le32(hdr[16:]), extAttr: le32(hdr[38:]),
 			csize: uint64(le32(hdr[20:])), usize: uint64(le32(hdr[24:])),
 		}
 		if hdr[6] > maxExtractMajor {
@@ -299,36 +300,49 @@ func (a *archive) classNames() []string {
 // both end as one unreadable class in the CLASSFILE line, so one error carries them here.
 var errBadEntry = errors.New("entry is unreadable")
 
+// entryError is errBadEntry carrying the Python exception class zipfile raises for it: BadZipFile,
+// NotImplementedError, EOFError and "error" (zlib.error) are what read_class_facts calls corrupt-entry;
+// RuntimeError (an encrypted entry) and OSError (a seek before the start of the file) are unreadable-entry.
+type entryError struct{ class string }
+
+func (e *entryError) Error() string        { return "entry is unreadable: " + e.class }
+func (e *entryError) Is(target error) bool { return target == errBadEntry }
+
+func bad(class string) error { return &entryError{class} }
+
 // read returns the bytes of an entry the way ZipFile.read does: header checks, then the data, truncated to the
 // declared size and verified against the declared CRC-32. Only stored and deflated entries are decoded; any
 // other method reads as corrupt (the legacy helper also decodes bzip2 and LZMA, which jars do not use).
 func (a *archive) read(e *zipEntry) ([]byte, error) {
+	if e.hoff < 0 {
+		return nil, bad("OSError") // seek before the start of the file
+	}
 	hdr := readAt(a.r, e.hoff, localHeaderLen)
 	if len(hdr) != localHeaderLen || string(hdr[:4]) != sigLocalHeader {
-		return nil, errBadEntry
+		return nil, bad("BadZipFile")
 	}
 	fname := readAt(a.r, e.hoff+localHeaderLen, int(le16(hdr[26:])))
 	pos := e.hoff + localHeaderLen + int64(len(fname)) + int64(le16(hdr[28:]))
 	if e.flags&(flagPatched|flagStrongEnc) != 0 {
-		return nil, errBadEntry
+		return nil, bad("NotImplementedError")
 	}
 	local, err := decodeName(fname, le16(hdr[6:])&flagUTF8Name != 0)
 	if err != nil {
 		return nil, errCrash
 	}
 	if local != e.orig {
-		return nil, errBadEntry
+		return nil, bad("BadZipFile")
 	}
 	if end, carry := bits.Add64(uint64(pos), e.csize, 0); carry != 0 || end > uint64(e.endOff) {
-		return nil, errBadEntry // overlapped entries (possible zip bomb)
+		return nil, bad("BadZipFile") // overlapped entries (possible zip bomb)
 	}
 	if e.flags&flagEncrypted != 0 {
-		return nil, errBadEntry
+		return nil, bad("RuntimeError")
 	}
 	avail := max(a.size-pos, 0)
 	got := min(e.csize, uint64(avail)) // compressed bytes the file really holds
 	if e.csize > 0 && got == 0 {
-		return nil, errBadEntry // the file ends before the entry's data
+		return nil, bad("EOFError") // the file ends before the entry's data
 	}
 	var data []byte
 	switch e.method {
@@ -336,7 +350,7 @@ func (a *archive) read(e *zipEntry) ([]byte, error) {
 		// One read returns `got` bytes. It is the whole entry when everything declared was there or the declared
 		// uncompressed size is already covered; otherwise the next read finds the file exhausted.
 		if e.csize != got && e.usize > got {
-			return nil, errBadEntry
+			return nil, bad("EOFError")
 		}
 		data = readAt(a.r, pos, int(min(e.usize, got)))
 	case methodDeflated:
@@ -345,15 +359,20 @@ func (a *archive) read(e *zipEntry) ([]byte, error) {
 		_, err := io.Copy(&out, flate.NewReader(io.NewSectionReader(a.r, pos, int64(got))))
 		// Input that ends before the final block is fine when the whole declared stream was read (the output
 		// so far is CRC-checked) or the declared size was reached; a damaged stream is not.
-		if err != nil && (!errors.Is(err, io.ErrUnexpectedEOF) || (e.csize != got && uint64(len(out.buf)) < e.usize)) {
-			return nil, errBadEntry
+		if err != nil {
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil, bad("error") // zlib.error
+			}
+			if e.csize != got && uint64(len(out.buf)) < e.usize {
+				return nil, bad("EOFError")
+			}
 		}
 		data = out.buf
 	default:
-		return nil, errBadEntry
+		return nil, bad("NotImplementedError")
 	}
 	if crc32.ChecksumIEEE(data) != e.crc {
-		return nil, errBadEntry
+		return nil, bad("BadZipFile")
 	}
 	return data, nil
 }
@@ -366,10 +385,7 @@ type capped struct {
 }
 
 func (c *capped) Write(p []byte) (int, error) {
-	if room := c.limit - uint64(len(c.buf)); uint64(len(p)) <= room {
-		c.buf = append(c.buf, p...)
-	} else {
-		c.buf = append(c.buf, p[:room]...)
-	}
+	// Keeps min(len(p), room) bytes: the old len(p) <= room split was the same copy in both arms at equality.
+	c.buf = append(c.buf, p[:min(uint64(len(p)), c.limit-uint64(len(c.buf)))]...)
 	return len(p), nil
 }
