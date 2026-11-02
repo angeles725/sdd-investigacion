@@ -1,5 +1,3 @@
-//go:build !nodiff
-
 package kit
 
 import (

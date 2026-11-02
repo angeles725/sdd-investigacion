@@ -1,4 +1,4 @@
-//go:build linux && !nodiff
+//go:build linux
 
 package fsx
 
