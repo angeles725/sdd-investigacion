@@ -147,7 +147,7 @@ grace_secs=$(( grace_hours * 3600 ))
 # EPOCHREALTIME is bash 5+ only; on bash 4 the unavailable sentinel is emitted instead.
 # ZERO behaviour change when RSDD_PROFILE is unset or 0: stdout is byte-identical.
 _rsdd_prof=0
-_rsdd_prof_us_pend=0; _rsdd_prof_us_waiv=0
+_rsdd_prof_us_pend=0; _rsdd_prof_us_waiv=0; _rsdd_prof_us_wire=0; _rsdd_prof_t0_wire=0
 _rsdd_prof_us_rn=0; _rsdd_prof_us_bn=0   # retro-newest / block-newest sub-timers
 _rsdd_prof_t0=0; _rsdd_prof_t0_waiv=0; _rsdd_prof_t0_sub=0; _rsdd_prof_t0_total=0
 _rsdd_now=0  # global set by _rsdd_prof_us — avoids subshell overhead on every timer call
@@ -496,11 +496,12 @@ fi
 # The actual awk-based Stop-scope check — and the wired-off-root session-root check (kit issue
 # #1135) — lives in lib/hook-wiring.sh (kit issue #1108/#1109: single source of truth shared with
 # verify-registry.sh's 'hook yes' claim check and research-sdd-status.sh's per-target self-report
-# line) — sourced at the top with the other libs. Uses hook_stop_wiring_state_var (sets
-# $HOOK_WIRING_STATE, no subshell) rather than $(hook_stop_wiring_state "$p") — this pass runs
-# once per fleet target, and a redundant fork per target was measured to matter here (kit issue
-# #1108 round 2, RSDD_PROFILE regression). Non-directory paths (GitHub slugs) are skipped via
-# [ -d ] — same guard as the fleet passes.
+# line) — sourced at the top with the other libs. Uses hook_stop_wiring_states_var (ONE rsdd
+# call for the whole fleet, sets the array $HOOK_WIRING_STATES in target order) rather than a
+# call per target: a fork per target was measured to matter here (kit issue #1108 round 2,
+# RSDD_PROFILE regression) and the rsdd port (kit issue #2356) made each per-target call an
+# exec again (sweep-retros.test.sh case 68 caught it). Non-directory paths (GitHub slugs) are
+# skipped via [ -d ] — same guard as the fleet passes.
 #
 # wired-off-root (kit issue #1135): settings.json IS Stop-scoped-wired at the registered path, but
 # that path is NOT its own git root (STRUCTURAL fact only — see lib/hook-wiring.sh's own header,
@@ -512,12 +513,20 @@ fi
 # (never silently folded into the silent 'wired' count) with its own dedicated summary field, so a
 # fleet operator can see it without reading every WARN line. Kit issue #1135's own measured
 # incidence: 1 of 17 reachable targets (three.js, TARGETS.md row 13).
+# The wiring pass is its own profiled phase (kit issue #2356): since the port it is one rsdd process for the whole fleet,
+# a fixed cost a small fixture cannot absorb, so it is measured and reported instead of hiding in the un-named gap.
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_t0_wire="$_rsdd_now"; }  # RSDD_PROFILE_WIRE_START
 _ws_wired=0; _ws_wired_off_root=0; _ws_unwired=0; _ws_absent=0; _ws_unreadable=0
+_ws_targets=()
 for p in $paths; do
   [ -d "$p" ] || continue
+  _ws_targets+=("$p")
+done
+hook_stop_wiring_states_var ${_ws_targets[@]+"${_ws_targets[@]}"}
+_ws_i=0
+for p in ${_ws_targets[@]+"${_ws_targets[@]}"}; do
   _ws_settings="$p/.claude/settings.json"
-  hook_stop_wiring_state_var "$p"
-  case "$HOOK_WIRING_STATE" in
+  case "${HOOK_WIRING_STATES[_ws_i]}" in
     absent-settings)                                                # RSDD_WS_ABSENT_CHECK
       echo "WARN: retro-gate hook absent-settings — no .claude/settings.json: $p"
       _ws_absent=$(( _ws_absent + 1 )) ;;
@@ -533,11 +542,13 @@ for p in $paths; do
       echo "WARN: retro-gate not wired in $p/.claude/settings.json"
       _ws_unwired=$(( _ws_unwired + 1 )) ;;
   esac
+  _ws_i=$(( _ws_i + 1 ))
 done
-unset _ws_settings HOOK_WIRING_STATE
+unset _ws_settings _ws_targets _ws_i HOOK_WIRING_STATES HOOK_WIRING_STATE
 _ws_total=$(( _ws_wired + _ws_wired_off_root + _ws_unwired + _ws_absent + _ws_unreadable ))
 echo "Wiring: ${_ws_wired} wired / ${_ws_wired_off_root} wired-off-root / ${_ws_unwired} unwired / ${_ws_absent} absent-settings / ${_ws_unreadable} unreadable — ${_ws_total} targets checked."
 unset _ws_total _ws_wired _ws_wired_off_root _ws_unwired _ws_absent _ws_unreadable
+[ "$_rsdd_prof" = 1 ] && { _rsdd_prof_us; _rsdd_prof_us_wire=$(( _rsdd_now - _rsdd_prof_t0_wire )); }  # RSDD_PROFILE_WIRE_ACC
 
 # Clean-verdict sentinel — relocated AFTER the MISSING-RETRO pass so the whole run is
 # visible before the claim. Gated on missing==0 (no MISSING-RETRO findings) AND
@@ -554,6 +565,7 @@ if [ "$_rsdd_prof" = 1 ]; then
   printf 'profile: waiver-pass %s\n'       "$(_rsdd_prof_sec "$_rsdd_prof_us_waiv")" >&2
   printf 'profile: retro-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_rn")"   >&2
   printf 'profile: block-newest-pass %s\n' "$(_rsdd_prof_sec "$_rsdd_prof_us_bn")"   >&2
+  printf 'profile: wiring-pass %s\n'       "$(_rsdd_prof_sec "$_rsdd_prof_us_wire")" >&2  # RSDD_PROFILE_WIRE_PRINT
   printf 'profile: total %s\n'             "$(_rsdd_prof_sec "$_rsdd_prof_us_total")" >&2
 fi
 
