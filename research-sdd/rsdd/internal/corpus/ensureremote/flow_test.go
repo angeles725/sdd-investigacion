@@ -569,6 +569,25 @@ func TestToolbeltFlagNeedsAValue(t *testing.T) {
 	}
 }
 
+// A direct call with no argument at all (no shim-injected --toolbelt) is the usage refusal, never an index past the
+// end of args.
+func TestDirectCallWithNoArgumentsIsTheUsage(t *testing.T) {
+	w := newWorld(t)
+	rc := execute(nil, w.stdio(), w.deps())
+	if rc != 2 || w.err() != "usage: ensure-remote.sh <target-dir> [--yes] [--name <repo>]\n" {
+		t.Errorf("rc=%d err=%q", rc, w.err())
+	}
+}
+
+// --toolbelt DIR with nothing after it has its value: the refusal is the missing target, not "requires a value".
+func TestToolbeltFlagWithItsValueAndNoTarget(t *testing.T) {
+	w := newWorld(t)
+	rc := execute([]string{"--toolbelt", w.toolbelt}, w.stdio(), w.deps())
+	if rc != 2 || w.err() != "usage: ensure-remote.sh <target-dir> [--yes] [--name <repo>]\n" {
+		t.Errorf("rc=%d err=%q", rc, w.err())
+	}
+}
+
 // Layer 4b cannot be swapped: the shim injects --toolbelt FIRST; a user-supplied one (anywhere else, or a second one)
 // is the bash's unknown-flag error, and the scanner is never run from a directory the user named.
 func TestToolbeltIsHonouredOnlyAsTheShimsFirstArgument(t *testing.T) {

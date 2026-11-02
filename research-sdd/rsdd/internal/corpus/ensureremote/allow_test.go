@@ -105,6 +105,13 @@ func TestGlobMatch(t *testing.T) {
 		{"é.pem", "é.pem", true},
 		{"?.pem", "\xff.pem", true},
 		{"??.pem", "\xff.pem", false},
+		// an invalid byte is its own character, never the valid U+FFFD that decoding reports for it, and never a
+		// code point inside the Unicode range (0x110000-0xff would be the valid U+10FF01)
+		{"\uFFFD.pem", "\xff.pem", false},
+		{"\uFFFD.pem", "\uFFFD.pem", true},
+		{"\U0010FF01.pem", "\xff.pem", false},
+		{"\xff.pem", "\xff.pem", true},
+		{"\xfe.pem", "\xff.pem", false},
 		{"*.pem", "日本.pem", true},
 		{"日?.pem", "日本.pem", true},
 		{"日??.pem", "日本.pem", false},
