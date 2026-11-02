@@ -1,6 +1,7 @@
 package pcap
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -145,8 +146,8 @@ func (r *runner) probeVersion(tshark string) (string, error) {
 		return "", runError(err)
 	}
 	if res.Reason == proc.ReasonTimeout {
-		// subprocess.TimeoutExpired.__str__
-		return "", fmt.Errorf("Command '%s' timed out after 10 seconds", pyListRepr(argv))
+		// subprocess.TimeoutExpired.__str__, verbatim (capitalized), so the published error text matches the legacy tool.
+		return "", errors.New("Command '" + pyListRepr(argv) + "' timed out after 10 seconds")
 	}
 	out := decodeReplace(res.Stdout)
 	if pyStrip(out) == "" {
