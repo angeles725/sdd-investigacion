@@ -46,7 +46,7 @@ bash research-sdd/toolbelt/detect-tools.sh
 The script emits a 37-row capability report — covering the major RE/decompile
 tools the toolbelt depends on, including PATH binaries, JVM tools, Java decompiler JARs (whose
 SHA256 digests it *reports* — it does NOT compare them against the pins in
-`corroborate_java.py`; that comparison is manual), Python packages,
+`java.DefaultPins` in `rsdd/internal/corroborate/java/trusted.go`; that comparison is manual), Python packages,
 and Hyperscan (`libhs` via `rsdd_pkg_config`) — with per-tool resolution results
 and AVAILABLE / UNUSABLE / MISSING classification. It is the only trustworthy
 answer for a given host at a given moment.
@@ -227,5 +227,5 @@ then `$RESEARCH_SDD_TOOL_HOME/java/` (default:
 the Homebrew `opt` path. There are no per-user fallback paths. Provision the
 JARs into the tool_home path with `install-tool.sh <name>` and no env var
 export is required. SHA256 pins are recorded in
-`corroborate_java.py` (`DEFAULT_PINS`); use those to verify the correct
+`java.DefaultPins` (`rsdd/internal/corroborate/java/trusted.go`); use those to verify the correct
 versions.

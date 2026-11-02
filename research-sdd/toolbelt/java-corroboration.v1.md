@@ -91,14 +91,14 @@ javac lowering a decompiler reverses on the way back: JEP 280 compiles `a + b` s
 concatenation to an `invokedynamic` `makeConcatWithConstants`, which Vineflower turns back
 into `+`. Later majors add more re-sugared constructs (nestmates at 55, records at 60/61,
 pattern-matching `switch` at 65). The threshold is deliberately conservative (it flags
-every class from Java 9 up) and is the constant `RESUGAR_MIN_MAJOR` in
-`corroborate_java.py`. The flag means decompiled *syntax-level* claims need bytecode
+every class from Java 9 up) and is the Go constant `ResugarMinMajor` in
+`rsdd/internal/corroborate/classfile`. The flag means decompiled *syntax-level* claims need bytecode
 evidence (`javap -c -p`); it does not say the decompilation is wrong. Classes at or below
 major 52 are not flagged, but that is not a fidelity guarantee either.
 
 `decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
 `OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
-available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`, which prints only the line:
+available as `rsdd corroborate classfile <in.jar|in.class>`, which prints only the line:
 `CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`.
 The `WARN:` that syntax-level claims need bytecode evidence is printed by the `decompile-java.sh`
 wrapper, not by the standalone mode.
