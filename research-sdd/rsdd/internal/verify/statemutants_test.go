@@ -280,3 +280,26 @@ func TestJqQuoteMatchesJQ(t *testing.T) {
 		t.Errorf("jqQuote = %s, want %s", b.String(), want)
 	}
 }
+
+// TestFindStatesByteOrder pins the walk order: byte order within each directory, a directory's subtree before the
+// next entry, whatever order the filesystem returns (#2477). Names are created in reverse so creation order and
+// byte order disagree.
+func TestFindStatesByteOrder(t *testing.T) {
+	d := t.TempDir()
+	rel := []string{
+		"RESEARCH-STATE-a.md", "RESEARCH-STATE-b.md", "RESEARCH-STATE-c.md", "RESEARCH-STATE-d.md",
+		"RESEARCH-STATE-e.md", "RESEARCH-STATE.md", "sub/RESEARCH-STATE-ui.md", "sub/deeper/RESEARCH-STATE.md",
+		"zz/RESEARCH-STATE-z.md",
+	}
+	for i := len(rel) - 1; i >= 0; i-- {
+		sdWrite(t, filepath.Join(d, rel[i]), "x")
+	}
+	got := fsView{cwd: d}.findStates(d)
+	want := make([]string, len(rel))
+	for i, r := range rel {
+		want[i] = d + "/" + r
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("findStates order:\n got %q\nwant %q", got, want)
+	}
+}

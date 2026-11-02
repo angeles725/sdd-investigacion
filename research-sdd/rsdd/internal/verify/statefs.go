@@ -189,8 +189,10 @@ func basename(p string) string {
 }
 
 // findStates is `find -H TARGET -maxdepth 3 -name 'RESEARCH-STATE*.md' -not -name '*.template.md'
-// -not -path '*/.git/*'` in the order find prints: directory order, a directory before the next entry.
-// Symlinks below the start are not followed, unreadable directories are skipped, and nothing is filtered by type.
+// -not -path '*/.git/*'` in the order find prints, a directory before the next entry. Entries within a directory are
+// visited in byte order, not readdir order: find's own order depends on the filesystem (ext4 hashes names with a
+// per-filesystem seed), so the report order differed between machines (#2477); byte order is one of the orders find
+// can print, and it is the same everywhere. Symlinks below the start are not followed, unreadable directories are skipped, and nothing is filtered by type.
 func (v fsView) findStates(target string) []string {
 	var out []string
 	visit := func(p, name string) {
@@ -211,6 +213,7 @@ func (v fsView) findStates(target string) []string {
 		}
 		names, _ := f.Readdirnames(-1)
 		f.Close()
+		sort.Strings(names)
 		for _, n := range names {
 			ep := p + "/" + n
 			if strings.HasSuffix(p, "/") {
