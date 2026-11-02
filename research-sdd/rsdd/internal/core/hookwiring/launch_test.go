@@ -68,6 +68,8 @@ func launchCases() []launchCase {
 			setup: withHist("t27g.x_y z", func(t *testing.T, _, tg, h string) { transcript(t, h, tg, "a.jsonl") })},
 		{name: "27g2 upper-case letters and the digits 0 and 9 encode as themselves -> launched", want: LaunchLaunched,
 			setup: withHist("Az09AZ-Zz90", func(t *testing.T, _, tg, h string) { transcript(t, h, tg, "a.jsonl") })},
+		{name: "27g3 a tilde, the last printable ASCII character, passes the guard -> launched", want: LaunchLaunched,
+			setup: withHist("t27g~3", func(t *testing.T, _, tg, h string) { transcript(t, h, tg, "a.jsonl") })},
 		{name: "27h sessions only in a sub or parent directory -> no-sessions", want: LaunchNoSessions,
 			setup: withHist("t27h", func(t *testing.T, r, tg, h string) {
 				transcript(t, h, tg+"-sub", "s.jsonl")

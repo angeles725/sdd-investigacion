@@ -78,8 +78,8 @@ func WiredExecReport(e Env, target string) []Finding {
 	var out []Finding
 	for _, line := range entryLines(entries) {
 		ev, cmd := line, line // ${line%%$'\t'*} and ${line#*$'\t'} when there is no tab
-		if i := strings.IndexByte(line, '\t'); i >= 0 {
-			ev, cmd = line[:i], line[i+1:]
+		if before, after, found := strings.Cut(line, "\t"); found {
+			ev, cmd = before, after
 		}
 		out = append(out, checkCommand(e, target, ev, cmd)...)
 	}
@@ -102,21 +102,21 @@ func isSpaceClass(r rune) bool {
 }
 
 func trimLeadingSpace(s string) string {
-	for len(s) > 0 {
+	for {
+		// An empty s and an invalid byte both decode to U+FFFD, which is not a space, so the loop ends on them.
 		r, n := utf8.DecodeRuneInString(s)
-		if r == utf8.RuneError && n <= 1 || !isSpaceClass(r) {
-			break
+		if !isSpaceClass(r) {
+			return s
 		}
 		s = s[n:]
 	}
-	return s
 }
 
 // headOf is the first 60 characters of cmd with tabs read as blanks, what the report quotes of a command it could
 // not analyse. A byte that is not valid UTF-8 counts as one character, like bash in a UTF-8 locale.
 func headOf(cmd string) string {
 	i := 0
-	for n := 0; n < 60 && i < len(cmd); n++ {
+	for n := 0; n < 60; n++ { // past the end DecodeRuneInString consumes nothing
 		_, w := utf8.DecodeRuneInString(cmd[i:])
 		i += w
 	}
@@ -131,12 +131,12 @@ func isNameVal(w string) (matches, valid bool) {
 	if w == "" || !(w[0] == '_' || w[0] >= 'a' && w[0] <= 'z' || w[0] >= 'A' && w[0] <= 'Z') {
 		return false, false
 	}
-	eq := strings.IndexByte(w, '=')
-	if eq < 0 {
+	name, _, found := strings.Cut(w, "=")
+	if !found {
 		return false, false
 	}
-	for i := 0; i < eq; i++ {
-		c := w[i]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
 		if !(c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
 			return true, false
 		}
