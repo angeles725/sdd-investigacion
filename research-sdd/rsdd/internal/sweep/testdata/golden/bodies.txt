@@ -1,0 +1,3635 @@
+@@case c100-empty-tbl-hv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 173
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | delta | rationale |
+|---|---|---|
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c101-inline-comment-bullet
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 140
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+- Fix foo <!-- see doc -->
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c102-form3-ascii-after-canon
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 187
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## Notes
+
+## Delta D1 - something that might be a delta
+
+- evidence item
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c103-template-scaffold
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 482
+<!-- review-status: pending -->
+# Retro — TARGET · FOCUS · DATE · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c104-ford-scaffold
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 462
+<!-- review-status: pending -->
+# Retro — ford·update-notice·2026-09-10·Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/§ · evidence · priority.
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c105-niagara
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 290
+<!-- review-status: pending -->
+# Retro — niagara · tools-search-innovation · 2026-09-17 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c106-nontpl-blockquote
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 243
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+> - add X to lib §3
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c107-table-marker
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 234
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+> | 1 | x |
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c108-warnb-h2-proposed
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 159
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## Notes
+
+## Proposed changes
+
+- some change
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c109-warnb-h3-delta
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 152
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## Notes
+
+### Delta summary
+
+- detail
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c110-post-table-block
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 232
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+> some post-table blockquote
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c111-short-guidance
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 303
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+> Only genuinely NEW items. Anything already encoded is under "Already covered".
+
+| # | Proposed change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c112-ford-real
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/ford-retro.md 5530
+<!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — ford-bms-panel · update-notice · 2026-09-10 · Research-SDD self-retrospective
+
+> Run reviewed: ford-bms-panel B1–B3 (document-mode §20, focus complete, outline 3/3).
+> Trigger: §20 document-mode completion.
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then
+> the run's blocks (ford-bms-block1..3.md), INDEX.md, RESEARCH-STATE.md, RUNBOOK-AVISO-VERSION.md,
+> and the probe at `sources/probes/`, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/§ · evidence · priority.
+
+| # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+
+no new deltas; the kit already covers this run.
+
+## Already covered (dedupe — proof the retro read the kit first)
+
+- **Subject version stamp on all blocks** → already covered by `METHODOLOGY §20` ("FREEZE THE LIVE SUBJECT FIRST") and the block anatomy (`§4` required `Subject version:` line).
+- **`Type: capture` on document-mode blocks** → already covered by `§4` closed block grammar (token `capture` / alias `document`).
+- **`[CERT-hw]` for own-deployed Cloudflare Pages service (not `[CERT-live]`)** → already covered by `§3` taxonomy ruling ("A service you deploy and own is not `[CERT-live]`; use `[CERT-hw]` there") and the §12c explicit reference the driver cited in B3's header.
+- **Playwright banner verification cited `[INFER]` (session not preserved)** → already covered by `§20 DOCUMENT CYCLE step 2` ("Documenting a PROCEDURE → the SESSION itself is the evidence … PRESERVED under `sources/probes/`"). The driver made an honest choice: no probe file → `[INFER]` is correct per §3.
+- **Engram mirror executed at STOP** → already covered by `§20 step 5` ("MANDATORY ENGRAM MIRROR — non-negotiable").
+- **RUNBOOK produced as subject deliverable** → already covered by `§20 step 6` ("write the human-readable product — RUNBOOK.md subject deliverables under `$CORPUS`").
+- **No delegation for 3-item outline** → already covered by PROMPT-LOOP orchestration rules (inline is correct when the outline is tiny and every source is already understood).
+- **`research-sdd-archive.sh` not run at STOP → CATALOG.md absent** → the rule is already encoded in `PROMPT-LOOP DOCUMENT CYCLE step 7` ("CLOSURE OBLIGATIONS — `research-sdd-archive.sh`: run it (gates linters, regenerates CATALOG, prints the close-checklist)"). This was a rule *skipped in practice*, not a missing rule. See Anti-patterns below.
+
+## Anti-patterns observed
+
+- **`research-sdd-archive.sh` skipped at document-mode STOP**: CATALOG.md is absent in the completed corpus. PROMPT-LOOP DOCUMENT CYCLE step 7 already mandates running archive.sh as part of the outline-completion STOP closure obligations. No new delta needed — the rule exists; the driver did not run the mechanized close. → No kit gap; covered by the existing closure obligations rule.
+- **`<!-- kit-retro: exclude -->` applied to a non-retros file**: `corpus/RUNBOOK-AVISO-VERSION.md` carries this opt-out marker, but the sweeper's scope is `find … -path '*/retros/*.md'` — the RUNBOOK is not in a retros/ directory and is invisible to sweep-retros.sh regardless of any marker. The marker is superfluous and suggests a misreading of the scope marker's purpose (§18: "When a file in *such a directory* is NOT a §18 kit self-retrospective" — "such a directory" = a retros/ subdirectory). No harm done; the marker on a non-retros file is a no-op. No delta proposed: the kit's existing opt-out design section (§18 "Scope marker (opt-out)") already explains the scope.
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | — | — | — | — | — (no tools built; the run probed the live edge with curl and observed the banner in Playwright, both inline, no reusable tool produced) |
+
+## Metrics
+
+- **Blocks reviewed**: 3  ·  **§14 cross-block corrections in this run**: 0  ·  **Rules skipped in practice**: 1 (`research-sdd-archive.sh` at STOP)
+- **Deltas proposed (new)**: 0  ·  **Already-covered lessons**: 8
+
+## Honest verdict
+
+No new deltas; the kit already covers this run. The ford-bms-panel #31 corpus is a clean, minimal §20 document-mode run: 3 outline items, 3 capture blocks, all markers correct, probe archived, Engram mirror complete, RUNBOOK produced. Every technique the driver used — subject freeze, `[CERT-hw]` for an own-deployed service, `[INFER]` for a non-preserved session observation, no delegation for a tiny outline — has an explicit rule in the kit. The only anti-pattern (skipped `research-sdd-archive.sh` → absent CATALOG.md) is already caught by DOCUMENT CYCLE step 7's closure obligations, not a gap in the kit rules.
+
+@@out 710
+PENDING  {kit}/targetA/retros/ford-retro.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c113-niagara-real
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/niagara-retro.md 3592
+<!-- review-status: pending -->
+# Retro — 2026-09-17 tooling: search core, ranking, semantic, unified 3-source, preview auto-mock, kit lints
+
+**Trigger:** operator hit `corpus-nav find "No matches"` on valid multi-word queries; root-caused to a literal-whole-query-substring matcher. Audit found the SAME bug in `niagara_help`. Operator then asked to innovate/improve the tools (chain #1–#7, high→low).
+
+## What shipped (all verified by RUNNING)
+
+| # | Change | Files | Verify |
+|---|---|---|---|
+| 1 | **Shared search core** `parse_query / file_matches(and\|or) / line_hits / score` | `tools/lib/textsearch.py` (+`test_textsearch.py`, 24 tests) | 24/24 pass |
+| 2 | **Self-tests** on the search tools | `corpus-nav.py selftest`, `niagara_help.py selftest` | all assertions pass |
+| 3 | **Relevance ranking + `--and/--or`** | `corpus-nav.py`, `niagara_help_lib/{find,guide}_search.py`, `niagara_help.py` | best-first; single-word unchanged |
+| 4 | **Unified 3-source search** (FUENTE 1 blocks + 2 docs + 3 code), typed unavailable (never silent-zero) | `tools/find3.py` (new) | 3 sources return / typed `[!]` |
+| 5 | **Semantic ranking** (TF-IDF cosine, pure-Python, ~1s/1005 blocks) | `corpus-nav.py semantic\|rank` | B1015/B736 rank high on concept queries |
+| 6 | **`dashboard-preview --auto-mock`** (mock from the reader's slot arrays) + `--live` proxy | `tools/dashboard-preview.py` | 80-key mock auto-generated for UmbrellaDashboard |
+| 7 | **build-n4 kit lints**: `lint-lexicon-ascii` (new), plano SKIP on 3D SPA, phantom-dep recognizes `project(:X)`, build.sh hints | kit `toolbelt/*`, `tests/*` | 58/58 bats, shellcheck OK, report-module CLEAN |
+
+## Root cause + fix (the class)
+Two independent tools matched the ENTIRE query as one literal case-insensitive substring (`query in line`), so any non-verbatim multi-word query returned zero. Fixed by tokenizing and matching by TERMS: corpus-nav = OR-any (small corpus, ranked); niagara_help = AND-per-file (huge doc corpus, no flood). Consolidated into ONE `textsearch.py` so it can never drift/re-appear, guarded by self-tests.
+
+## Evidence (before → after)
+- `corpus-nav find "BStatus overridden"` 0 → 50 (ranked). `guide-search "alarm fault"` 0 → 603. `devguide-search "servlet override"` 0 → 8. `find "setpoint override"` 19 → 209.
+- `corpus-nav semantic "point health fault override status"` → B808/B1017/B736 top (BStatus concept surfaced by IDF weighting).
+
+## Lessons
+- The same search bug lived in TWO tools because search logic was duplicated — a shared core + self-tests is the systemic fix, not per-tool patches.
+- Semantics should match corpus size: OR-ranked for ~1000 small blocks; AND-per-file for thousands of docs; TF-IDF cosine when you want concept-relevance without neural deps.
+- A search tool must return a TYPED unavailable (tool missing/timeout/error) — never fold it into "no results", or a negative becomes a false "does not exist" (METHODOLOGY §wall).
+- Neural embeddings were NOT available (no torch/sklearn/sentence-transformers); TF-IDF pure-Python keeps corpus-nav stdlib-pure and fast. True embeddings = a future dependency decision.
+
+## Open follow-ups
+- `find3` runs the 3 sources serially; `module_nav grep` is slow (~30–60s over 1046 files) → run the sources in parallel threads (proposed).
+- Optional: neural-embedding `semantic` backend behind a flag if a local model is ever installed.
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+no new deltas; the kit already covers this run.
+
+@@out 713
+PENDING  {kit}/targetA/retros/niagara-retro.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c114-tmpl-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 6756
+<!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
+
+> Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
+> run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+
+<!-- Journal source: deltas in the table below may originate from session journal entries
+     consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
+     mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),
+     deduplicates entries, and promotes worthwhile ones. No auto-promotion — the pending
+     review-status marker (consumed by sweep-retros.sh) is unchanged.
+     Note: a capability-proposal slot (tool-idea / algorithm-idea / formula-idea + measurement
+     criterion) is not part of this template; see METHODOLOGY §18 journal mode for the per-entry
+     category taxonomy. -->
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally; any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
+> (`no new deltas; …`) placed here, or under `## Honest verdict`, is counted as a deliberate `~0`
+> — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
+>
+> **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
+> `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
+> and makes this entire section invisible to supervision. The failure symptom visible to the author
+> is `empty-input: no delta section found` in `sweep-retros.sh` output — the delta table is
+> present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
+> or an accepted alias listed in METHODOLOGY §18.
+
+no new deltas; the kit already covers this run.
+
+## Already covered (dedupe — proof the retro read the kit first)
+
+> Lessons this run surfaced that the kit ALREADY encodes. Listing them proves the dedupe ran and prevents
+> re-proposing baked-in rules.
+
+- <lesson> → already covered by `<PROMPT-LOOP rule / METHODOLOGY §n>`.
+- <lesson> → already covered by `<...>`.
+
+## Anti-patterns observed (optional)
+
+- <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
+
+## Tools built, adapted, or outgrown
+
+> A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
+> tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
+> failure mode. Each column is answerable from the corpus and the run's commits alone.
+>
+> **ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> **recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
+> a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
+> length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
+> Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
+> candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
+>
+> **Why T-prefix in the first column:** the tools table lives under a different heading from
+> `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
+> is a human-readability convention — it makes tool rows visually distinct from delta rows when both
+> tables are visible side by side.
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | `nave-panccadia/tools/cad-view.py` · renders DXF regions exactly as AutoCAD draws them | — | — | `cad-view.py` · renders a DXF region as AutoCAD draws it; caught a region AutoCAD clips while every length check passed | `promote` · generic DXF visual oracle; not target-specific; needs test under `toolbelt/tests/` |
+| T2 | `niagara-research/tools/gen-catalog.py` · bespoke fork of the kit catalog generator | `$KIT/tools/gen-catalog.py` · silently dropped blocks not in its hard-coded list | kit's gen-catalog.py retired in this target; `archive.sh` already prefers the local fork | — | `absorb` · fold per-target block-type support into the kit version |
+| T3 | — | — | — | — | `keep-local` · example: a target-specific parser tuned to one binary's quirks — useful here, not promotable without generalising the format layer |
+| T4 | — | — | — | — | `no` · example: a throwaway one-liner written during probing that has no reuse value and is already superseded by the block's findings |
+
+## Metrics
+
+- **Blocks reviewed**: <N>  ·  **§14 cross-block corrections in this run**: <x>  ·  **Rules skipped in practice**: <x>
+- **Deltas proposed (new)**: <x>  ·  **Already-covered lessons**: <x>
+
+## Honest verdict
+
+<Did this run genuinely surface anything new for the kit, or does the kit already cover it? Be specific.
+If NOTHING new: say exactly that — "no new deltas; the kit already covers this run." A retro that always
+finds something is noise, not signal (METHODOLOGY §18 honesty clause).>
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c115-tmpl-honesty-nobold
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 6746
+<!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
+
+> Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
+> run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+
+<!-- Journal source: deltas in the table below may originate from session journal entries
+     consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
+     mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),
+     deduplicates entries, and promotes worthwhile ones. No auto-promotion — the pending
+     review-status marker (consumed by sweep-retros.sh) is unchanged.
+     Note: a capability-proposal slot (tool-idea / algorithm-idea / formula-idea + measurement
+     criterion) is not part of this template; see METHODOLOGY §18 journal mode for the per-entry
+     category taxonomy. -->
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally; any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
+> (`no new deltas; …`) placed here, or under `## Honest verdict`, is counted as a deliberate `~0`
+> — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
+>
+> The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
+> `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
+> and makes this entire section invisible to supervision. The failure symptom visible to the author
+> is `empty-input: no delta section found` in `sweep-retros.sh` output — the delta table is
+> present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
+> or an accepted alias listed in METHODOLOGY §18.
+
+no new deltas; the kit already covers this run.
+
+## Already covered (dedupe — proof the retro read the kit first)
+
+> Lessons this run surfaced that the kit ALREADY encodes. Listing them proves the dedupe ran and prevents
+> re-proposing baked-in rules.
+
+- <lesson> → already covered by `<PROMPT-LOOP rule / METHODOLOGY §n>`.
+- <lesson> → already covered by `<...>`.
+
+## Anti-patterns observed (optional)
+
+- <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
+
+## Tools built, adapted, or outgrown
+
+> A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
+> tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
+> failure mode. Each column is answerable from the corpus and the run's commits alone.
+>
+> ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
+> a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
+> length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
+> Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
+> candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
+>
+> Why T-prefix in the first column:** the tools table lives under a different heading from
+> `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
+> is a human-readability convention — it makes tool rows visually distinct from delta rows when both
+> tables are visible side by side.
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | `nave-panccadia/tools/cad-view.py` · renders DXF regions exactly as AutoCAD draws them | — | — | `cad-view.py` · renders a DXF region as AutoCAD draws it; caught a region AutoCAD clips while every length check passed | `promote` · generic DXF visual oracle; not target-specific; needs test under `toolbelt/tests/` |
+| T2 | `niagara-research/tools/gen-catalog.py` · bespoke fork of the kit catalog generator | `$KIT/tools/gen-catalog.py` · silently dropped blocks not in its hard-coded list | kit's gen-catalog.py retired in this target; `archive.sh` already prefers the local fork | — | `absorb` · fold per-target block-type support into the kit version |
+| T3 | — | — | — | — | `keep-local` · example: a target-specific parser tuned to one binary's quirks — useful here, not promotable without generalising the format layer |
+| T4 | — | — | — | — | `no` · example: a throwaway one-liner written during probing that has no reuse value and is already superseded by the block's findings |
+
+## Metrics
+
+- **Blocks reviewed**: <N>  ·  **§14 cross-block corrections in this run**: <x>  ·  **Rules skipped in practice**: <x>
+- **Deltas proposed (new)**: <x>  ·  **Already-covered lessons**: <x>
+
+## Honest verdict
+
+<Did this run genuinely surface anything new for the kit, or does the kit already cover it? Be specific.
+If NOTHING new: say exactly that — "no new deltas; the kit already covers this run." A retro that always
+finds something is noise, not signal (METHODOLOGY §18 honesty clause).>
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c116-tmpl-hv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 6757
+<!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
+
+> Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
+> run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+
+<!-- Journal source: deltas in the table below may originate from session journal entries
+     consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
+     mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),
+     deduplicates entries, and promotes worthwhile ones. No auto-promotion — the pending
+     review-status marker (consumed by sweep-retros.sh) is unchanged.
+     Note: a capability-proposal slot (tool-idea / algorithm-idea / formula-idea + measurement
+     criterion) is not part of this template; see METHODOLOGY §18 journal mode for the per-entry
+     category taxonomy. -->
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally; any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
+> (`no new deltas; …`) placed here, or under `## Honest verdict`, is counted as a deliberate `~0`
+> — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
+>
+> **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
+> `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
+> and makes this entire section invisible to supervision. The failure symptom visible to the author
+> is `empty-input: no delta section found` in `sweep-retros.sh` output — the delta table is
+> present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
+> or an accepted alias listed in METHODOLOGY §18.
+
+## Already covered (dedupe — proof the retro read the kit first)
+
+> Lessons this run surfaced that the kit ALREADY encodes. Listing them proves the dedupe ran and prevents
+> re-proposing baked-in rules.
+
+- <lesson> → already covered by `<PROMPT-LOOP rule / METHODOLOGY §n>`.
+- <lesson> → already covered by `<...>`.
+
+## Anti-patterns observed (optional)
+
+- <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
+
+## Tools built, adapted, or outgrown
+
+> A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
+> tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
+> failure mode. Each column is answerable from the corpus and the run's commits alone.
+>
+> **ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> **recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
+> a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
+> length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
+> Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
+> candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
+>
+> **Why T-prefix in the first column:** the tools table lives under a different heading from
+> `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
+> is a human-readability convention — it makes tool rows visually distinct from delta rows when both
+> tables are visible side by side.
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | `nave-panccadia/tools/cad-view.py` · renders DXF regions exactly as AutoCAD draws them | — | — | `cad-view.py` · renders a DXF region as AutoCAD draws it; caught a region AutoCAD clips while every length check passed | `promote` · generic DXF visual oracle; not target-specific; needs test under `toolbelt/tests/` |
+| T2 | `niagara-research/tools/gen-catalog.py` · bespoke fork of the kit catalog generator | `$KIT/tools/gen-catalog.py` · silently dropped blocks not in its hard-coded list | kit's gen-catalog.py retired in this target; `archive.sh` already prefers the local fork | — | `absorb` · fold per-target block-type support into the kit version |
+| T3 | — | — | — | — | `keep-local` · example: a target-specific parser tuned to one binary's quirks — useful here, not promotable without generalising the format layer |
+| T4 | — | — | — | — | `no` · example: a throwaway one-liner written during probing that has no reuse value and is already superseded by the block's findings |
+
+## Metrics
+
+- **Blocks reviewed**: <N>  ·  **§14 cross-block corrections in this run**: <x>  ·  **Rules skipped in practice**: <x>
+- **Deltas proposed (new)**: <x>  ·  **Already-covered lessons**: <x>
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+
+<Did this run genuinely surface anything new for the kit, or does the kit already cover it? Be specific.
+If NOTHING new: say exactly that — "no new deltas; the kit already covers this run." A retro that always
+finds something is noise, not signal (METHODOLOGY §18 honesty clause).>
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c117-r926-h3num
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 216
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## What went well
+
+### 1. Fast loop
+
+text
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c118-r926-numhv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 198
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## 6. Proposed kit deltas
+
+## 7. Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c119-h2-num
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 153
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## 1. Add X to METHODOLOGY
+
+body
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c120-i-h3num
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 143
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## Notes
+
+### 1 add X
+
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c121-applied-retro
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 6547
+<!-- review-status: applied 2026-09-16 · kit 31608f4 · shipped: row 1 (#543), row 2 (#543), row 3 (#545) -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — niagara-research · optimizer-docs · 2026-09-15 · Research-SDD self-retrospective
+
+> Run reviewed: optimizer-docs B970–B972 (3 blocks, focus PAUSED by operator direction; BD4–BD13 deferred).
+> Trigger: operator-directed pause after substantive product/module docs done; retro checkpoint fires because
+> research files were changed (RETRO CHECKPOINT EXIT CONDITION — PROMPT-LOOP §7 terminal trigger).
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
+> run's RESEARCH-STATE and context, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+>
+> **FOCUS STATUS**: PAUSED (2026-09-15, operator-directed). 3 gaps closed (BD1–BD3, substantive product/module
+> docs). 10 gaps still investigable (BD4–BD13, 64 MtgWiring hardware install/spec sheets grouped into ~10
+> hardware-family blocks). NOT at STOP (investigable_open = 10). BD4–BD13 are a seeded backlog for a future
+> `/loop` session.
+
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is free-form** — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally; any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
+
+no new deltas; the kit already covers this run.
+
+## Already covered (dedupe — proof the retro read the kit first)
+
+- PDF extraction before authoring (`extract-pdf.sh` before block 1) → already covered by `PROMPT-LOOP.md BOOTSTRAP e4` (run extract-pdf.sh over preserved PDFs before authoring block 1 — checked and confirmed; all 3 blocks used page-anchored `.md` extraction).
+- `[CERT-doc]` with `sources/...pdf :p.N` page anchors as the citation discipline for PDF-heavy corpora → already covered by `PROMPT-LOOP.md BOOTSTRAP e4` + `METHODOLOGY.md §3` (`[CERT-doc]` marker).
+- Multi-focus corpus `block_scope: shared-global` declaration → already covered by `METHODOLOGY.md §7` (shared-global mode; this focus declared it correctly).
+- Budget-cap pause ≠ STOP vocabulary → already covered by `METHODOLOGY.md §8` ("PAUSED (budget-cap) ≠ STOPPED" paragraph); this run extended the concept to operator-directed (proposed as delta #3, a refinement).
+- Operator note on granularity in RESEARCH-STATE → the kit doesn't prescribe this specific note form, but surfacing unconfirmed choices to the operator is consistent with `PROMPT-LOOP.md BOOTSTRAP b2` (ANGLE — "surface it for the orchestrator/user to pick rather than guessing"); the delta (#1) codifies the documentation-corpus-specific version.
+- Engram mirror under target project `niagara-research` → `METHODOLOGY.md §7` ("Engram project convention").
+- Retro checkpoint triggered by changed research files → `PROMPT-LOOP.md §7` RETRO CHECKPOINT EXIT CONDITION (mandatory rule; this retro satisfies it).
+
+## Anti-patterns observed (optional)
+
+- The operator initially requested "one block per sheet" for the 64 hardware sheets, but the loop silently grouped them into families without confirming the granularity change before the first bulk gap. → delta #1 (surface the choice and confirm before the bulk sweep begins, not after seeding the backlog).
+- The corpus-level relevance triage happened informally (the loop noticed the 3 substantive docs were done and raised the hardware bulk for deferral) but there is no kit step that makes this a standard checkpoint. → delta #2.
+
+## Tools built, adapted, or outgrown
+
+> No new tools created, adapted, or outgrown in this run (3-block documentation run; extract-pdf.sh used as-is).
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | — | — | — | — | `no` — 3-block documentation run; all tooling was standard kit (extract-pdf.sh, verify-block.sh); no new tools needed |
+
+## Metrics
+
+- **Blocks reviewed**: 3 (B970–B972) · **§14 cross-block corrections in this run**: 0 · **Rules skipped in practice**: 0
+- **Deltas proposed (new)**: 2 (new) + 1 (refinement) = 3 total · **Already-covered lessons**: 6
+- **Focus state**: PAUSED (operator-directed); investigable_open = 10 (BD4–BD13, 64 MtgWiring sheets); NOT at STOP
+
+## Honest verdict
+
+This run produced 3 genuinely new deltas. The two new deltas (#1, #2) surface real gaps in the kit's PDF-heavy documentation guidance: the kit tells the loop to use `extract-pdf.sh` and `[CERT-doc]` page anchors, but gives no guidance on how to choose granularity for a large corpus of near-identical terse spec sheets, and no explicit step for triaging a mixed-relevance PDF corpus by goal-relevance before bulk processing. Both gaps were visible in this run (the granularity choice required an improvised RESEARCH-STATE note and an operator confirmation note; the relevance triage was done informally without a kit-prescribed step).
+
+Delta #3 is a refinement rather than a new concept — the RETRO CHECKPOINT EXIT CONDITION already makes the retro mandatory when files changed, but the §8 "MAY" language in the budget-cap pause passage creates a reading that could exempt any pause from the retro. The refinement names "operator-directed" as a distinct pause type and resolves the "MAY" scope.
+
+The 6 already-covered lessons confirm the dedupe ran: all standard `[CERT-doc]` discipline, `extract-pdf.sh`, multi-focus `shared-global`, and engram-mirror rules were followed correctly from existing kit guidance.
+
+@@out 171
+
+Summary: 0 pending / 1 retros across targets.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+Nothing to review.
+
+@@end
+@@case c122-hon-except
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 130
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+no new deltas — except: add X to METHODOLOGY §4 (HIGH).
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c123-paren-num
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 326
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> 1) add X to METHODOLOGY §4
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c124-nested-bullet
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 323
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> > - add X to METHODOLOGY
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c125-nested-tbl
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 347
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> > | D1 | add X | METHODOLOGY | ev | new | HIGH |
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c126-letter-paren
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 307
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> a) add X
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c127-bullet-u
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 327
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> • add X to METHODOLOGY §4
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c128-nbsp-dash
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 307
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> - add X
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c129-h2-id
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 157
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## D1 — add X to METHODOLOGY
+
+body
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c130-navepan-d11
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 3954
+<!-- review-status: pending -->
+<!-- kit-retro -->
+# Retro — nave-panccadia · v14→v18 refinements + IFC→viewer · 2026-08-07
+
+**review-status: pending**
+
+> **Declared deviation from §18.** Written by the loop DRIVER (document-mode capture, not a
+> fresh-context agent) — the session forbade spawning sub-agents without an explicit request, as in
+> run 2. Discount the JUDGEMENT accordingly; the factual claims are citable to [Block 43], its probes,
+> and `tools/build-viewer.py`/`tools/ifc-to-viewer.py`. READ-ONLY on the kit: this PROPOSES a kit
+> delta, it does NOT apply it. Deduped against the four prior retros (D1–D10 + openings/facade + v9).
+
+## Run summary
+
+| | |
+|---|---|
+| Phase | §19 applied build, on a CLOSED corpus (STOP 39/39) — refinements v14→v18, captured via document mode (§20) |
+| Block | [Block 43] — clean corners + realistic render |
+| New sources | `Plantas.ifc` (operator Revit IFC4 export, benchmark), `ifcopenshell`, blueprint3d, three.js docs — registered in `sources/SOURCES.md` |
+| New tool | `tools/ifc-to-viewer.py` — IFC → self-contained three.js viewer (ifcopenshell tessellate → base64-embed → IBL/ACES render) |
+| Gate | every version 0 visible defects; `verify-block.sh` on B43 exit 0 |
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## D11 — ⚠️ PROMOTE the IFC→viewer capability to the KIT toolbelt — REQUIRES OPERATOR AUTHORIZATION
+
+The operator DEFERRED this to review (2026-08-07): "la dejamos como propuesta para la sesión de
+revisión". **Nothing has been written to `$KIT` — this is the authorization gate.** Promoting the
+IFC→viewer capability to `$KIT/toolbelt/` + `tool-registry.md` is the action awaiting your go-ahead.
+
+- **What:** `tools/ifc-to-viewer.py` (currently in the target) turns any IFC into the same
+  self-contained three.js viewer used for the nave — `ifcopenshell` world-coord tessellation of
+  walls/columns/slabs/doors → base64-embedded position+index buffers → per-class materials +
+  `RoomEnvironment` IBL + `ACESFilmicToneMapping`. IFC Z-up → three Y-up as `(x,z,y)`.
+- **Why reusable (not target-specific):** it views ANY reference model (a Revit/IFC export) beside our
+  own reconstruction — a general "benchmark against a clean model" capability, exactly the toolchain
+  genre §20 routes to `$KIT/toolbelt/` + `tool-registry.md`. It is the readable bridge past an opaque
+  `.rvt` (proprietary OLE; only a 128×128 wireframe preview is extractable).
+- **How to promote (the review action):**
+  1. Copy `tools/ifc-to-viewer.py` → `$KIT/toolbelt/` (generalise: drop nave-specific defaults if any).
+  2. Add a `tool-registry.md` row: `IFC model (BIM) | file: 'ISO-10303-21' / '.ifc' | ifcopenshell 0.8.5 tessellation | ifc-to-viewer.sh (or .py) | ✅`.
+  3. Optional companion how-to under `$KIT/toolbelt/` (a short `IFC-VIEWER.md`).
+  4. Kit-level Engram pointer so it stays recall-findable (the §20 mirror rule — a real session
+     re-discovered Ghidra setup because no Engram pointer existed).
+- **Dependency to note in the registry:** `pip install ifcopenshell` (0.8.5 used here).
+
+**Until authorized:** the capability stays documented in the target ([Block 43] §43.6 +
+`tools/ifc-to-viewer.py` + Engram `research/nave-panccadia`); the kit is UNCHANGED.
+
+## Other observations (no kit delta proposed)
+
+- **v14→v18 lesson (belongs to the corpus, already in B43):** "looks like real life" = clean geometry
+  (regularise + extend-to-corner) + realistic rendering (IBL + ACES), NOT textures. This is a §19
+  build lesson, not a methodology gap — no kit change.
+- **A cleaning move must be constrained + anchored** (lateral-only onto the doorway host; axial-only to
+  the shared corner). The free weld that moved endpoints dropped walls and broke jambs — the audit
+  caught it (0→3 visible) and it was reverted. Reinforces the existing "audit is the guardrail" rule;
+  no new kit delta.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c131-c-flush
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 164
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+> - add X to METHODOLOGY
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c132-hv-fenced
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 112
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+## Honest verdict
+
+```
+no new deltas
+```
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c133-r926-rationale
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 230
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+Every technique used is already encoded in §4 and §20.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c134-r926-seebelow
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 212
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+See verdict below.
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c135-d-plus
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 130
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+> + add X
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c136-d-star
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 130
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+> * add X
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c137-n-hash
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 135
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+> ### D1 add X
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c138-e-num
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 131
+<!-- review-status: pending -->
+# Retro — t
+
+## Proposed kit deltas
+
+> 1. add X
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c139-num-dot
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 307
+<!-- review-status: pending -->
+# Retro — t · f · 2026-09-23 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+> Only genuinely NEW items.
+> 1. add X
+> Each delta: the change.
+
+no new deltas; the kit already covers this run.
+
+## Honest verdict
+
+No new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c140-tmpl-drift
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 10060
+<!-- review-status: pending -->
+<!-- Marker lifecycle: the maintainer flips 'pending' above to 'applied <date> · kit <sha>' once this retro's proposed deltas are reviewed and applied (or 'dismissed') in the kit; sweep-retros.sh reads this marker to report which retros are still open (METHODOLOGY §18). -->
+# Retro — <TARGET> · <FOCUS> · <DATE> · Research-SDD self-retrospective
+
+> Run reviewed: <focus / block range, e.g. nmodsreflow B138-B150>. Trigger: <focus-completion | corpus-STOP | every-N-blocks>.
+> Method: a FRESH-CONTEXT agent read the current kit (`PROMPT-LOOP.md` + `METHODOLOGY.md`) FIRST, then the
+> run's blocks/commits/§14 corrections, and proposes kit deltas. READ-ONLY on the kit — this report only
+> PROPOSES; kit changes are human-reviewed and human-committed (METHODOLOGY §18).
+<!-- Variant (kit #1991): if a coordinator/operator forbade delegation, replace the Method paragraph above with
+     `> Method: inline (coordinator forbade delegation)` plus how the run was reviewed, so readers discount its self-review. -->
+
+> **Provenance:** base `<base sha>` · head `<head sha>` · gate-run `<AGGREGATE timestamp (UTC) + Suites run/passed line, or "none"; run-all.sh prints no run id>` · reruns `<none | each rerun of a suite/gate and why>`
+> One line, REQUIRED (kit issue #1712): the commits the run's claims were measured on and which gate run backs them. A rerun that changed a verdict is disclosed here, never silently replaced.
+
+covers_through: B<n>
+
+> **Coverage checkpoint (kit issue #1640):** replace `B<n>` with the id of the newest block this retro reviewed (e.g. `covers_through: B140`).
+> The line is machine-read, one per line at column 0, outside any code fence (``` or ~~~): `research-sdd-status.sh --next` derives
+> `blocks_since_retro` as `max(0, newest block id on disk − covers_through)` and uses it for RETRO-DUE only when it is LOWER than the
+> declared counter, so a counter left stale across a session close cannot fire early. Coverage may only ever LOWER the counter when the
+> evidence unambiguously belongs to the focus, so anything ambiguous keeps the declared counter (RETRO-DUE keeps firing):
+> - An unscoped line counts only when the corpus's single state file is the root `RESEARCH-STATE.md`; with more than one `RESEARCH-STATE*.md` file, or a lone slugged one, it is ignored. Scope every line with ` focus=<slug>`: the
+>   `RESEARCH-STATE-<slug>.md` suffix, or `focus=root` for the un-suffixed `RESEARCH-STATE.md` (e.g. `covers_through: B140 focus=alpha`).
+>   The same slug in two directories (a split layout) is ambiguous and also keeps the declared counter.
+> - A value ABOVE the newest block on disk is excluded (a typo such as `B1400` must not hide a due retro); it is never clamped to 0.
+> - `stage-retro-issues.sh` only PRINTS a `blocks_since_retro: 0` reset line naming the exact `RESEARCH-STATE` file, for a human to apply
+>   (propose-never-apply); an ambiguous line prints a WARN and no proposal.
+> After renumbering or restructuring blocks, rewrite `covers_through` so it names ids that still exist on disk.
+> Prose such as "coverage through B140" is NOT parsed; a retro without the line, or with an unfilled `B<n>`, keeps the declared counter
+> and the tools say so on stderr.
+
+<!-- Journal source: deltas in the table below may originate from session journal entries
+     consolidated at §18 (METHODOLOGY §18 journal mode). The retro agent queries
+     mem_search(query: "research/<target>/journal/<YYYY-MM-DD>", project: "<target>", limit: 20),
+     deduplicates entries, and promotes worthwhile ones. No auto-promotion — the pending
+     review-status marker (consumed by sweep-retros.sh) is unchanged.
+     Note: a capability-proposal slot (tool-idea / algorithm-idea / formula-idea + measurement
+     criterion) is not part of this template; see METHODOLOGY §18 journal mode for the per-entry
+     category taxonomy. -->
+## Proposed kit deltas
+
+> Only genuinely NEW items — anything the kit already encodes is listed under "Already covered", not here.
+> Each delta: the concrete change · the target file/section · evidence · priority.
+>
+> **Canonical form (machine-counted by sweep-retros.sh):** a table under this heading, one row per
+> delta. The **first column (ID) is any label matching `^[A-Za-z0-9][A-Za-z0-9_-]*$`** (ASCII, alphanumeric first character; no Greek letters like `Δ`, no markdown emphasis) — `| 1 |`, `| D1 |`, `| W1 |`, `| PN-A |` all count
+> equally (reconcile reads ids back with that grammar, so any other id can never be tracked; stage-retro-issues.sh and reconcile-issues.sh type it `id-not-signature-safe` (PR #2147)); any non-separator table row is one delta. The counter skips the header row and every
+> `|---|` separator row automatically. Non-table content (prose, sub-headings only) under this heading
+> triggers a WARN — the reviewer must count by hand. **Exception:** a §18 honesty line
+> (`no new deltas; …`) placed here, or under `## Honest verdict`, is counted as a deliberate `~0`
+> — see §18 for accepted variants and location rules. Heading-style declarations **outside** this
+> section are non-conforming. Use the table below to stay machine-countable.
+>
+> **The heading text is matched literally — do not insert qualifier words.** Writing the kit's own
+> name between `Proposed` and `kit deltas` (e.g. `## Proposed research-sdd kit deltas`) or between
+> `Proposed` and `deltas` (e.g. `## Proposed research-sdd deltas`) breaks every recognised pattern
+> and makes this entire section invisible to supervision. The failure symptom visible to the author
+> is `empty-input: no delta section found` in `sweep-retros.sh` output — the delta table is
+> present and well-formed, yet the sweeper reports nothing. Use `## Proposed kit deltas` verbatim,
+> or an accepted alias listed in METHODOLOGY §18.
+
+
+
+
+no new deltas; the kit already covers this run.
+## Already covered (dedupe — proof the retro read the kit first)
+
+> Lessons this run surfaced that the kit ALREADY encodes. Listing them proves the dedupe ran and prevents
+> re-proposing baked-in rules.
+
+- <lesson> → already covered by `<PROMPT-LOOP rule / METHODOLOGY §n>`.
+- <lesson> → already covered by `<...>`.
+
+## Anti-patterns observed (optional)
+
+- <what went wrong / broke / was done against the kit> → the delta above that would prevent it: #<n>.
+
+## Every 'no' said in this run → its route ladder and whether it was reopened
+
+> Optional (kit issue #1270; possibility-first, METHODOLOGY §1 and §8c). One row per feasibility "no" said or
+> inherited in the run (find them with `verify-block.sh --possibility-sweep <corpus>`): where it was said, the
+> route ladder it should have been (>=3 routes of different classes), and whether it was reopened as a child
+> gap. A run with none writes `none — no feasibility "no" said`. Routes here are proposals, never findings.
+
+| # | "No" said (block / gap) | Route ladder (>=3 classes · cheapest next step) | Reopened? (child gap / block / not yet) |
+|---|---|---|---|
+| N1 | `<B### / G##>` · "<the verdict as worded>" | <own-surface · other instrument class · provisioning · live · build · operator> → `<cheapest step>` | `B<n>-G<m>` / `no — <why>` |
+
+## Tools built, adapted, or outgrown
+
+> A run that builds, forks, or abandons a tool carries a signal about the kit's fitness. Record every
+> tool here — "we wrote a throwaway script" IS a CREATED entry, not nothing; under-reporting is the
+> failure mode. Each column is answerable from the corpus and the run's commits alone.
+>
+> **ORACLE column** — an oracle is a tool that can **SEE** whether a result is correct rather than
+> **recompute** it: it observes from the viewer's or consumer's perspective (renders, displays, runs)
+> instead of repeating the same arithmetic path that produced the result. Example: a tool that renders
+> a 3D model exactly as the viewer will draw it can detect a mirror-flip that passes all 21
+> length/area/angle checks — because reflection preserves magnitudes, no symmetric check can see it.
+> Generic analysis tools belong in CREATED/ADAPTED, not ORACLE. Oracles are the highest-value promotion
+> candidates (METHODOLOGY §18); flag one even when the run did not label it explicitly.
+>
+> **Why T-prefix in the first column:** the tools table lives under a different heading from
+> `## Proposed kit deltas`, so the delta counter does not see it regardless of column ID. The T-prefix
+> is a human-readability convention — it makes tool rows visually distinct from delta rows when both
+> tables are visible side by side.
+
+| # | CREATED (path · purpose) | ADAPTED (kit tool · what the kit version could not express) | OUTGREW (kit tool · why stopped) | ORACLE (tool · what it SEEs, not recomputes) | VERDICT (decision · evidence) |
+|---|---|---|---|---|---|
+| T1 | `nave-panccadia/tools/cad-view.py` · renders DXF regions exactly as AutoCAD draws them | — | — | `cad-view.py` · renders a DXF region as AutoCAD draws it; caught a region AutoCAD clips while every length check passed | `promote` · generic DXF visual oracle; not target-specific; needs test under `toolbelt/tests/` |
+| T2 | `niagara-research/tools/gen-catalog.py` · bespoke fork of the kit catalog generator | `$KIT/tools/gen-catalog.py` · silently dropped blocks not in its hard-coded list | kit's gen-catalog.py retired in this target; `archive.sh` already prefers the local fork | — | `absorb` · fold per-target block-type support into the kit version |
+| T3 | — | — | — | — | `keep-local` · example: a target-specific parser tuned to one binary's quirks — useful here, not promotable without generalising the format layer |
+| T4 | — | — | — | — | `no` · example: a throwaway one-liner written during probing that has no reuse value and is already superseded by the block's findings |
+
+## Metrics
+
+- **Blocks reviewed**: <N>  ·  **§14 cross-block corrections in this run**: <x>  ·  **Rules skipped in practice**: <x>
+- **Deltas proposed (new)**: <x>  ·  **Already-covered lessons**: <x>
+
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c141-spanish-alias
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 165
+<!-- review-status: pending -->
+# retro
+
+## PROPUESTA de deltas al kit (revisar antes de aplicar)
+
+| # | delta | rationale |
+|---|---|---|
+| 1 | delta 1 | because |
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c142-hyphen-kitdelta
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 130
+<!-- review-status: pending -->
+# retro
+
+## B. Campaign-8 kit-delta backlog (the overdue roll-up)
+
+some prose, no table rows here
+
+@@out 768
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c143-h3-proposals
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 149
+<!-- review-status: pending -->
+# retro
+
+## A. THE DEFECT
+
+### Proposals (propose-never-apply) — make it automatic
+
+some prose, no table rows here
+
+@@out 768
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c29-headingdeltas
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 146
+<!-- review-status: pending -->
+# Retro
+
+## D1 — first delta
+
+Rationale.
+
+## D2 — second delta
+
+Rationale.
+
+## D3 — third delta
+
+Rationale.
+
+@@out 850
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c33-dedup-nooverlap
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 196
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | delta | rationale |
+|---|---|-|
+| 1 | d1 | r |
+| 2 | d2 | r |
+| 3 | d3 | r |
+
+## D4 — heading four
+
+## D5 — heading five
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~3 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c34-dedup-overlap
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 253
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | delta | rationale |
+|---|---|-|
+| 1 | d1 | r |
+| 2 | d2 | r |
+| 3 | d3 | r |
+
+## D1 — heading (same as row 1)
+
+## D2 — heading (same as row 2)
+
+## D3 — heading (same as row 3)
+
+@@out 784
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~3 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c36-pprefix
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 155
+<!-- review-status: pending -->
+# Retro
+
+## P1 — first proposal
+
+Rationale.
+
+## P2 — second proposal
+
+Rationale.
+
+## P3 — third proposal
+
+Rationale.
+
+@@out 850
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c37-barenum
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 143
+<!-- review-status: pending -->
+# Retro
+
+## 1. First proposal
+
+Something.
+
+## 2. Second proposal
+
+Something.
+
+## 3. Third proposal
+
+Something.
+
+@@out 850
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c38-pprefix6
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/p-prefix-headings-6.md 538
+<!-- review-status: pending -->
+# Retro — target-01 · focus-a · 2026-07-25
+
+## P1 — Add a hard rule: re-measure a dramatic negative before reporting it `[high]`
+
+## P2 — Toolbelt: a documented pattern for driving PowerShell over SSH `[medium]`
+
+## P3 — `verify-block.sh` reports `ratio n/a` for synthesis blocks `[low]`
+
+## P4 — `profile-target.sh` misroutes plain-text config with opaque extensions `[low]`
+
+## P5 — Consider a `live-install` pre-flight checklist `[medium]`
+
+## P6 — What worked well (no change proposed)
+
+@@out 867
+PENDING  {kit}/targetA/retros/p-prefix-headings-6.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c39-pprefix23
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/p-prefix-headings-23.md 2075
+<!-- review-status: pending -->
+# Retro — target-01 · focus-b · 2026-07-26
+
+## P1 — MISSING PATTERN: protocol / binary-format reconstruction `priority: high`
+
+## P2 — STATISTICS-ONLY INFERENCE MUST NEVER BE `[CERT]` `priority: high`
+
+## P3 — DISCOVERY SHOULD ENUMERATE EVERY CHANNEL BEFORE COMMITTING TO ONE `priority: high`
+
+## P4 — MISSING PATTERN: hypothesis falsification as a first-class move `priority: medium`
+
+## P5 — TOOLBELT BUG: `decompile-net.sh` uses a flag that does not exist `priority: medium`
+
+## P6 — `verify-block.sh` misses citations in table cells and short form `priority: low`
+
+## P7 — Corpus-hygiene drift the run inherited `priority: low`
+
+## P8 — `verify-state.sh` CANNOT certify a multi-focus corpus `priority: high`
+
+## P9 — MISSING TECHNIQUE: known-plaintext attack on an undocumented binary format `priority: medium`
+
+## P10 — AUDIT-FIRST MUST INVENTORY BY FILE TYPE `priority: CRITICAL`
+
+## P11 — PATTERN: sample-and-propagate when semantics belong to a CLASS, not an instance `priority: high`
+
+## P12 — PATTERN: find an INTERNAL ORACLE for geometric/heuristic inference `priority: high`
+
+## P13 — CHOOSE THRESHOLDS BY SWEEP, AND LEAVE THE TABLE IN THE CODE `priority: medium`
+
+## P14 — A BADLY FRAMED SUCCESS METRIC HIDES THE RESULT `priority: medium`
+
+## P15 — NETWORK EVIDENCE HAS STATE: `Reachable` is not `Stale` `priority: medium`
+
+## P16 — VERIFY BEFORE PROPOSING, not just before executing `priority: medium`
+
+## P17 — PATTERN: learn the rule from the records that ALREADY satisfy it `priority: high`
+
+## P18 — NORMALISE CATEGORIES BEFORE MEASURING AGREEMENT `priority: high`
+
+## P19 — NEGATIVE RESULTS ARE WORTH THE SAME RIGOUR AS POSITIVE ONES `priority: medium`
+
+## P20 — SELF-CRITICISM: the §19 phase drifted out of the loop `priority: high`
+
+## P21 — DOCUMENTATION DRIFT IS RECURRENT, NOT A ONE-OFF `priority: CRITICAL`
+
+## P22 — CIRCULAR BUFFERS: PHYSICAL ORDER IS NOT CHRONOLOGICAL ORDER `priority: medium`
+
+## P23 — THE KIT'S PURPOSE IS TO REFUSE THE DEAD END `priority: high`
+
+@@out 868
+PENDING  {kit}/targetA/retros/p-prefix-headings-23.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c40-dprefix12
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/d-prefix-headings-12.md 1037
+<!-- review-status: pending -->
+<!-- target: target-01 · focus: focus-c · run: B1-B10 · date: 2026-07-26 -->
+
+# Retro — target-01 · focus-c (B1-B10)
+
+## D1 — CRITICAL: "absence" found only in a vendor overlay is not absence
+
+## D2 — CRITICAL: on a routed protocol, a reply is not evidence of WHO replied
+
+## D3 — Preserve falsified artifacts, labelled as non-evidence
+
+## D4 — `verify-sources.sh` LEVEL-4 is focus-blind (multi-focus corpora)
+
+## D5 — Toolchain knowledge worth promoting to `toolbelt/` (§20 auto-route)
+
+## D6 — Licensing boundary for a §19 deliverable derived from decompiled code
+
+## D11 — CRITICAL: medir la POBLACIÓN, no la muestra
+
+## D12 — Los reportes de subagente se verifican; los de AUSENCIA, siempre
+
+## D7 — CRITICAL: instrument BEFORE theorising, in any live or build phase
+
+## D8 — A patch applied by string replacement can silently NOT apply
+
+## D9 — Copy the vendor's BATCHING, not only its sequence
+
+## D10 — Extends D5: three more Windows/PowerShell gotchas, all SILENT
+
+@@out 868
+PENDING  {kit}/targetA/retros/d-prefix-headings-12.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c41-dprefix7
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/d-prefix-headings-7.md 769
+<!-- review-status: pending -->
+<!-- target: target-01 · focus: focus-c · run: B11-B17 · date: 2026-07-26 -->
+
+# Retro — target-01 · focus-c (B11-B17)
+
+## D13 — [high] Un error determinista produce evidencia indistinguible de una ley del sistema
+
+## D14 — [high] La sonda contrafáctica: medir una característica desactivándola
+
+## D15 — [high] El testigo independiente: un valor que el propio equipo computa
+
+## D16 — [medium] Un mapeo derivado como contraste, no como traductor
+
+## D17 — [medium] Copiar el valor de un vendedor no es copiar su contexto
+
+## D18 — [low] La auditoría de documentación no-corpus al cerrar un run no la pide el kit
+
+## D19 — [low] PowerShell sobre SSH: `Out-String -Width` al final del pipe retiene toda la salida
+
+@@out 867
+PENDING  {kit}/targetA/retros/d-prefix-headings-7.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c42-dprefix4
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/d-prefix-headings-4.md 499
+<!-- review-status: pending -->
+# Retro — target-01 · focus-c · B18+ (native-RE) · 2026-07-26
+
+## D20 — CRÍTICO: el launcher no recuerda el TOOLBELT NATIVO al delegar RE de binarios `[high]`
+
+## D21 — `decompile-native.sh ghidra` REVIENTA con un out-dir cuyo componente empieza con '.' `[medium]`
+
+## D22 — El escaneo CIEGO de constantes tipo-CTL_CODE es un anti-patrón; documentarlo `[low]`
+
+## D23 — Una prueba de "la puerta abre" NO es viabilidad de una vía multi-paso `[medium]`
+
+@@out 867
+PENDING  {kit}/targetA/retros/d-prefix-headings-4.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c43-lettersuffix4
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/delta-table-letter-suffix-2.md 776
+<!-- review-status: pending -->
+# Retro — target-01 · focus-b · 2026-07-26 · Research-SDD self-retrospective
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+| 1 | (redacted — only the row SHAPE matters to the counter) | (redacted) | (redacted) | (redacted) | (redacted) |
+| 1b | (redacted — the letter-suffixed first cell does NOT match the counter's numeric table form, which is why this file counts 2 and not 4) | (redacted) | (redacted) | (redacted) | (redacted) |
+| 1c | (redacted — second letter-suffixed row, also uncounted) | (redacted) | (redacted) | (redacted) | (redacted) |
+| 2 | (redacted — second counted row) | (redacted) | (redacted) | (redacted) | (redacted) |
+
+@@out 809
+PENDING  {kit}/targetA/retros/delta-table-letter-suffix-2.md
+         target: {kit}/targetA  ·  ~4 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c44-barenum5
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/bare-number-headings-5.md 491
+<!-- review-status: pending -->
+# Retro — target-01 · focus-d · 2026-07-27
+
+## 1. `verify-sources.sh` resuelve el nombre de bloque de forma ambigua en corpus multi-focus · BUG
+
+## 2. `research-sdd-status.sh --sync-state` deriva mal el envelope por focus · BUG
+
+## 3. El kit no tiene doctrina sobre **verificar el verificador** · FALTANTE
+
+## 4. El patrón "el verificador afirma más de lo que mira" merece nombre propio · FALTANTE
+
+## 5. Lo que el kit hizo bien y conviene no tocar
+
+@@out 870
+PENDING  {kit}/targetA/retros/bare-number-headings-5.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c45-plaindelta5
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/delta-table-plain-5.md 549
+<!-- review-status: pending -->
+
+# §18 Self-retrospective — target-02 applied run (2026-07-12)
+
+## Proposed kit deltas
+
+| # | Proposed change | Target (file · §) | Evidence | Priority |
+|---|---|---|---|---|
+| 1 | (redacted — only the row SHAPE matters to the counter) | (redacted) | (redacted) | (redacted) |
+| 2 | (redacted) | (redacted) | (redacted) | (redacted) |
+| 3 | (redacted) | (redacted) | (redacted) | (redacted) |
+| 4 | (redacted) | (redacted) | (redacted) | (redacted) |
+| 5 | (redacted) | (redacted) | (redacted) | (redacted) |
+
+@@out 801
+PENDING  {kit}/targetA/retros/delta-table-plain-5.md
+         target: {kit}/targetA  ·  ~5 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c46-spaceless-dash
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 147
+<!-- review-status: pending -->
+# Retro
+
+## P1—spaceless em-dash separator
+
+## D2–spaceless en-dash separator
+
+## 3—bare number with em-dash
+
+@@out 850
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: non-conforming delta declaration — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c5-zero
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 105
+<!-- review-status: pending -->
+# retro
+
+## Proposed kit deltas
+
+| # | delta | rationale |
+|---|---|---|
+
+@@out 865
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c55-nodelta
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 166
+<!-- review-status: pending -->
+# Retro — target · focus · 2026-08-01
+
+## Already covered
+
+- lesson A → already in kit
+
+## Notes
+
+Nothing notable this session.
+
+@@out 720
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  no delta section found (empty-input)  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c56-proposed-deltas
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 103
+<!-- review-status: pending -->
+# Retro
+
+## Proposed deltas
+
+| # | Change |
+|---|---|
+| 1 | delta W1 |
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c57-delta-word
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 95
+<!-- review-status: pending -->
+# Retro
+
+## Delta W1 — some fix
+
+## Delta W2 — another fix
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~2 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c59-dprefix-table
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 330
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | Change | Target | Evidence | Type | Priority |
+|---|---|---|---|---|---|
+| D1 | first delta | METHODOLOGY.md §5 | B01 | new | HIGH |
+| D2 | second delta | PROMPT-LOOP.md | B02 | refinement | MED |
+| D3 | third delta | METHODOLOGY.md §12 | B03 | new | LOW |
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~3 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c65-depr-summary
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 138
+<!-- review-status: pending -->
+# Retro
+
+## Summary of proposed deltas
+
+| # | delta | rationale |
+|---|---|---|
+| 1 | fix foo | because |
+
+@@out 905
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: deprecated delta heading [## Summary of proposed deltas] — migrate to '## Proposed kit deltas' per §18
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c66-numbered-trailing
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/retros/r1.md 172
+<!-- review-status: pending -->
+# Retro
+
+## 1. Proposed kit deltas for the next version — mega session
+
+| # | delta | rationale |
+|---|---|---|
+| 1 | fix foo | because |
+
+@@out 784
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+WARN: retro-gate hook absent-settings — no .claude/settings.json: {kit}/targetA
+Wiring: 0 wired / 0 wired-off-root / 0 unwired / 1 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c81-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 161
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | Proposed change | Target |
+|---|---|---|
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c82-fakerow
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 175
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | Proposed change | Target |
+|---|---|---|
+| — | no new deltas; the kit already covers this run | — |
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c83-honesty-hv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 152
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+## Already covered
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c84-mixed
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 191
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+| # | Proposed change | Target |
+|---|---|---|
+| 1 | fix foo | METHODOLOGY |
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~1 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c85-no-section-hv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 128
+<!-- review-status: pending -->
+# Retro
+
+## Already covered
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c86-emdash
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 135
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+## Honest verdict
+
+No new deltas — the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c87-nothing-to-add
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 115
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+## Honest verdict
+
+No new deltas; nothing to add.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c88-form3-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 171
+<!-- review-status: pending -->
+# Retro
+
+## Delta W1 — something might have changed
+
+- evidence
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c89-warnb-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 168
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+no new deltas; the kit already covers this run.
+
+## Notes
+
+### D1. some delta-shaped heading
+
+- detail
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c90-honesty-notes
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 171
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+## Notes
+
+no new deltas; the kit already covers this run.
+
+## Already covered
+
+- lesson A: already in kit
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c91-honesty-fenced
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 121
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+```
+no new deltas; the kit already covers this run.
+```
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c92-honesty-comment
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 122
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+<!-- no new deltas; the kit already covers this run. -->
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c93-bullets-canon-hv
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 177
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+- add feature X to lib
+- fix bug Y in sweep
+
+## Honest verdict
+
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c94-mlc-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 118
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+<!--
+no new deltas; the kit already covers this run.
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c95-tilde-fence
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 121
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+~~~
+no new deltas; the kit already covers this run.
+~~~
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c96-indented-fence
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 125
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+  ```
+no new deltas; the kit already covers this run.
+  ```
+
+@@out 783
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~? proposed deltas  ·  status: pending  ·  age: 0d
+         WARN: delta section present but not in countable form — count by hand
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c97-bullet-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 115
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+- no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c98-bold-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 117
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+**no new deltas; the kit already covers this run.**
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
+@@case c99-blockquote-honesty
+@@file TARGETS.md 74
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{kit}/targetA` |
+
+@@file targetA/.claude/settings.json 96
+{"hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}]}}
+
+@@file targetA/retros/r1.md 115
+<!-- review-status: pending -->
+# Retro
+
+## Proposed kit deltas
+
+> no new deltas; the kit already covers this run.
+
+@@out 702
+PENDING  {kit}/targetA/retros/r1.md
+         target: {kit}/targetA  ·  ~0 proposed deltas  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 retros across targets.
+For each PENDING retro: review it, apply or dismiss its deltas in the kit,
+then set the top marker to '<!-- review-status: applied <date> · kit <sha> -->'.
+Note: the count above tracks the review-status MARKER, not whether each delta is open work.
+A kit commit may have applied a delta without flipping the marker — an ESCALATED retro is worth
+verifying against the kit before treating its full delta count as unresolved.
+Wiring: 1 wired / 0 wired-off-root / 0 unwired / 0 absent-settings / 0 unreadable — 1 targets checked.
+
+@@end
