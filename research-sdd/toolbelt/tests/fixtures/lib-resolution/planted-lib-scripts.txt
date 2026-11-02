@@ -3,7 +3,9 @@ check-gap-drift.sh
 corroborate-bacnet.sh
 corroborate-capa.sh
 corroborate-firmware.sh
+corroborate-floss.sh
 corroborate-ghidra.sh
+corroborate-java.sh
 corroborate-kaitai.sh
 corroborate-native.sh
 corroborate-pcap.sh
