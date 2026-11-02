@@ -11,7 +11,6 @@
 research-sdd/toolbelt/tests/corroborate-bacnet.test.sh extras strict-zero usage (#2203)
 research-sdd/toolbelt/tests/corroborate-firmware.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/corroborate-pcap.test.sh extras unused adapter (#2203)
-research-sdd/toolbelt/tests/detonate-plan.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/dynamic.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/kaitai-driver-walk-memcap.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/kaitai.test.sh extras unused adapter (#2203)
