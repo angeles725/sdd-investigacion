@@ -10,7 +10,7 @@ Branch: test/nodiff-static-check-2480 (base origin/main 31bb4be5). Delivery: cha
 
 ## Tasks
 - T1 S2,S4: fold #2502 (fsx + kit unit kills, equivalent-mutant simplifications, `!nodiff` tags) — inline — cherry-picked 353b670e, 9b9d868c, 65b39eaa; Makefile comment conflict resolved to main's text.
-- T2 S2,S4: core/proc parity `!nodiff` (#2481's proc line) + kills for any mutant only parity killed — inline — teeth run pending.
+- T2 S2,S4: core/proc parity `!nodiff` (#2481 proc line) + unit kills for the 4 mutants only parity killed (run.go grace/reached, run_unix.go kill/final reason) — inline — c9e786fa + c5656e69.
 - T3 S1,S3: archtest.CheckOracleTags + allowlist (14 entries) — inline — RED: proc untagged -> TestOracleTagsRealTree FAIL; hand mutants killed.
 - T4 S2: formats slice (squashfs, zipcmd, zipparity) — next PR in the chain.
 - T5 S4: close #2481 and #2502 as superseded, link PR B.
@@ -19,3 +19,4 @@ Branch: test/nodiff-static-check-2480 (base origin/main 31bb4be5). Delivery: cha
 - L1 (2026-11-02, session 1 to s4): "Deliver your queue: PR B (static nodiff check + fsx/proc/formats slices), then #2549 (`rsdd status show`)." ... "Old PRs #2481 and #2502 ... overlap PR B: fold them in or close them as superseded with evidence."
 - L2: detection is per file (an exec in a helper file and the oracle path in another is not seen; budget, verify are such cases) and only string literals count, not comments. Known limit, stated in the doc comment scope.
 - L3: equivalent mutants removed by simplification: `on(false) &&` (only the nodiff linux build matters), the post-package `break` (gofmt hoists every //go:build line).
+- L4: teeth CI-like (python3+jq on PATH, no bwrap): fsx 75 killed/0 lived, kit 310/0, proc 38/4 before the kills. One unexplained FAIL of `go test -tags nodiff ./internal/core/proc/` right after adding spec_unit_test.go; 13 reruns green, not reproduced, test name not captured.
