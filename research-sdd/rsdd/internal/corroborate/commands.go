@@ -8,6 +8,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/decompile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/fidelity"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/kaitai"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/native"
 )
 
 // Commands is this domain's contribution to the command table. A unit adds
@@ -17,4 +18,5 @@ var Commands = []cli.Command{
 	{Name: "decompile", Group: "corroborate", Summary: "Decompile a Java .jar or .class to source: Vineflower, falling back to CFR or Procyon per unit (typed OK / DEGRADED / PARTIAL)", Run: decompile.Run},
 	{Name: "java-fidelity", Group: "corroborate", Summary: "measure what the Java decompilation pipeline preserves (javac, decompile, recompile, javap)", Run: fidelity.Run},
 	{Name: "kaitai", Group: "corroborate", Summary: "parse a binary with a Kaitai Struct .ksy in network-denied sandboxes (kaitai-evidence.v1)", Run: kaitai.Run},
+	{Name: "native", Group: "corroborate", Summary: "bounded radare2 evidence for one native binary (native-static.v1)", Run: native.Run},
 }
