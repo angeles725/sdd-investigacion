@@ -48,7 +48,7 @@ These profiles are defined as constants in `lib/isolation_profile.py`.
 
 | Constant | `name` | `static_only` | `network_access` | Used by |
 |---|---|---|---|---|
-| `PROFILE_BWRAP_STATIC_NETWORK_DENIED` | `bubblewrap-static-network-denied` | `true` | `false` | `corroborate_firmware`, `corroborate_java`, `corroborate_native` |
+| `PROFILE_BWRAP_STATIC_NETWORK_DENIED` | `bubblewrap-static-network-denied` | `true` | `false` | `corroborate_firmware`, `rsdd corroborate java` (Go), `corroborate_native` |
 | `PROFILE_BWRAP_PCAP_OFFLINE` | `bubblewrap-pcap-offline` | `true` | `false` | `corroborate_pcap`, `pcap_flows` |
 | `PROFILE_BWRAP_CAPA_OFFLINE` | `bubblewrap-capa-offline` | `true` | `false` | `corroborate_capa` |
 | `PROFILE_BWRAP_FLOSS_OFFLINE` | `bubblewrap-floss-offline` | `true` | `false` | `corroborate_floss` |

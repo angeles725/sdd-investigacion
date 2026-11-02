@@ -12,7 +12,7 @@ Hardening invariants (correcting known weaknesses in the shipped adapters):
   (blacklist) and corroborate_ghidra.py (blacklist) to whitelist semantics.
 - sandbox() / isolation_prefix() ALWAYS includes --cap-drop ALL and
   --unshare-pid.  This fixes the omissions in corroborate_native.py and
-  corroborate_java.py.
+  the former corroborate_java.py (now `rsdd corroborate java`, which builds the same prefix in Go).
 - Malformed /proc/self/mountinfo lines raise AdapterError (no raw traceback).
 """
 from __future__ import annotations
