@@ -22,19 +22,22 @@ guarantee.
 2. Each unit re-verifies the whole registry, not just the invariants it touches.
    That is the point: the registry exists to catch interactions the author of a
    unit did not think about.
-3. An invariant with `status: pending` names a defect that is **currently live
+3. An invariant with `status: retired` guarded code that has since been deleted;
+   it keeps its history and names what retired it in `Retired by`, and its
+   `Asserted by` files are no longer required to exist.
+4. An invariant with `status: pending` names a defect that is **currently live
    in the codebase**. The registry is therefore also the honest inventory of
    known-broken guarantees.
-4. An invariant that cannot be asserted offline must say so and name what it
+5. An invariant that cannot be asserted offline must say so and name what it
    asserts *instead*. See `untestable_offline` in `config.yaml`.
-5. **Promotion discipline (PR-level):** before merging any PR that closes an
+6. **Promotion discipline (PR-level):** before merging any PR that closes an
    issue, a reviewer MUST verify that the corresponding invariant has been
    promoted from `pending` to `enforced` (or that retention as `pending` is
    explicitly justified and recorded). Automated detection of a closed GitHub
    issue whose invariant remains `pending` requires network access and MUST NOT
    be attempted by the offline suite; this obligation belongs to the human
    reviewer at merge time.
-6. **Test-quality conventions:** an asserting test MUST (a) assert the
+7. **Test-quality conventions:** an asserting test MUST (a) assert the
    SPECIFIC rule or error message, not merely an exit code — bare rc/exit
    checks collide with generic errors and cannot prove the right rule fired;
    (b) pin the invariant at the executor integration SEAM, not only at a
@@ -52,7 +55,8 @@ sample that was injected. A receipt that does not bind its sample is evidence
 about nothing.
 
 - **Origin:** finding F1, PR #59 independent review.
-- **Status:** `enforced` — fixed in commit `aa38384`.
+- **Status:** `retired` — was `enforced` — fixed in commit `aa38384`.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Asserted by:** `tests/detonate-exec.test.sh` (RED13),
   `tests/trace-exec.test.sh` (TRACE-INV1).
 
@@ -75,12 +79,13 @@ is silently re-masked, and a set-containment check would call that argv valid.
 The assertion must compare positions, not membership.
 
 - **Origin:** finding F5, PR #59 independent review. Tracked by issue #60.
-- **Status:** `enforced` — fixed by issue #60 (commit slice 1). The scratch
+- **Status:** `retired` — was `enforced` — fixed by issue #60 (commit slice 1). The scratch
   file-scoped bind `--bind <scratch> <scratch>` is now emitted after `--tmpfs /tmp/rsdd`,
   and `lib/vm_disk_policy` enforces the ordering at every preflight (R-REACH, R-BIND-RW).
   Previously violated: `--tmpfs /tmp/rsdd` masked the host scratch at
   `/tmp/rsdd/rsdd-<uuid>/scratch.img` — reproduced against real bwrap 0.9.0 and real qemu:
   `Could not open '/tmp/rsdd/.../scratch.img': No such file or directory`.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Scope of the #60 fix — the scratch is 1 of 4 reachability gaps.** The
   emitted argv also cannot reach the qemu binary (no `/usr` in the sandbox),
   the kernel, or the BIOS roms. #60 closes the scratch gap ONLY. The emitted
@@ -113,10 +118,11 @@ match MUST be against a complete token. Substring matching silently corrupts any
 argument that happens to contain the sentinel as a prefix or infix.
 
 - **Origin:** finding F4, PR #59 independent review. Tracked by issue #63.
-- **Status:** `enforced` — fixed in `vm_exec_common._substitute_scratch_sentinel`
+- **Status:** `retired` — was `enforced` — fixed in `vm_exec_common._substitute_scratch_sentinel`
   (issue #63). The old `pre_boot` substring loop (`_SCRATCH_SENTINEL in tok`) was
   replaced with position-aware substitution covering exactly the three structural
   positions where the sentinel appears in the post-#60 argv.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Three-position contract (enforced):**
   1. `--bind SRC` operand — **complete-token match** (`tok == _SCRATCH_SENTINEL`).
   2. `--bind DEST` operand — **complete-token match** (`tok == _SCRATCH_SENTINEL`).
@@ -147,8 +153,9 @@ directories means one of them leaks and its artifacts are unaccounted for.
 
 - **Origin:** the D2 "double run_dir" defect — two CRITICAL findings during the
   4R review of the detonate executor, which forced a re-scope of the slice.
-- **Status:** `enforced` — resolved by the single-run_dir + pre-boot callback
+- **Status:** `retired` — was `enforced` — resolved by the single-run_dir + pre-boot callback
   seam in `lib/vm_boot_core.py`.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Asserted by:** `tests/detonate-exec.test.sh` (RED11 — exactly 1 run_dir per
   evaluate(), no double-dir leak), `tests/qemu-exec.test.sh` (RED2/GREEN — receipt
   emitted with output_files key, confirms every artifact is declared).
@@ -170,12 +177,13 @@ retained as evidence on a completed run:
 
 - **Origin:** V1a/V1b containment hardening; re-confirmed by the #59 PR review;
   the process-tree/run_dir split was clarified by the #70 PR-level gate (F1).
-- **Status:** `enforced` — process-tree reaper in `lib/proc_common.py`; run_dir
+- **Status:** `retired` — was `enforced` — process-tree reaper in `lib/proc_common.py`; run_dir
   early-failure reap in `lib/vm_boot_core.py` (`run_vm`'s pre-Popen guard);
   post-Popen/pre-finally window closed by issue #71 (hoisted `t_out`/`t_err`/
   `timed_out`/`exit_code` before the pre-Popen guard, moved `t0`/`t_start` to
   be the first statements inside the inner try/finally, migrated `utcnow()` →
   `datetime.now(UTC)`).
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Asserted by:** process tree — `tests/qemu-exec.test.sh` (RED6/RED7 killpg
   tree-reap; RED-INV5-popen-window injects raise at first time.monotonic() call
   after Popen and asserts the child is reaped, not leaked); run_dir early-failure
@@ -195,8 +203,9 @@ invisible to per-component tests.
 
 - **Origin:** finding F2, issue #61; the D1 defect re-confirmed by the PR #66
   independent review gate.
-- **Status:** `enforced` — fixed in commit d7deab7 (PR #66) by partitioning
+- **Status:** `retired` — was `enforced` — fixed in commit d7deab7 (PR #66) by partitioning
   `_REQUIRED_BWRAP` and `_REQUIRED_INNER` and checking each against its own slice.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Asserted by:** `tests/vm-disk-policy.test.sh` — bwrap slice: `VDP-T10a-reloc`
   (`--cap-drop ALL`), `VDP-T10c-reloc` (`--unshare-pid`), `VDP-T10d-reloc`
   (`--tmpfs`); inner slice: `VDP-T13-reloc` (`-smp`). Fragment `"bwrap prefix
@@ -219,16 +228,17 @@ order-aware walk mandated by INV-2 — set-containment alone is not sufficient.
   (design.md §5.2 gaps 3/4); promoted to an enforced invariant by issue #65
   Slice A (PR #88), which extended R-REACH in `lib/vm_disk_policy` to cover
   qemu-binary and kernel reachability under the runtime-tree bind.
-- **Status:** `enforced` — fixed by issue #65 Slice A (PR #88).  R-REACH
+- **Status:** `retired` — was `enforced` — fixed by issue #65 Slice A (PR #88).  R-REACH
   extended (`_check_binary_reachable`) to machine-check the qemu binary and
   kernel paths when the rt-tree bind is present; `_preflight` fails closed
   (R6) when the host `<src>` does not exist.
+- **Retired by:** kit issue #2443 retired the VM/Docker tooling (detonate, trace, qemu, vm-run, docker, capture, fact) this invariant guarded.
 - **Asserted by:** `tests/vm-disk-policy.test.sh` (`VDP-REACH-KERNEL-UNBOUND`,
   `VDP-REACH-QBIN-UNBOUND`).
 
 ## Open invariants map to open issues
 
-No open invariants remain.  All registry entries are `enforced`.
+No open invariants remain.  Every registry entry is `retired` (kit issue #2443 deleted the VM/Docker tooling they guarded).
 
 Issue #62 (extract `vm_exec_common.py`) is refactoring; the unit that closes it
 MUST re-verify the whole registry, since collapsing the detonate/trace mirror is
