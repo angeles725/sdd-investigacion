@@ -422,3 +422,76 @@ func TestReadEntryAtTheEndOfTheFile(t *testing.T) {
 		})
 	}
 }
+
+// spyReader records every ReadAt request so a test can pin the offset and length findEOCD asks for.
+type spyReader struct {
+	*bytes.Reader
+	reqs [][2]int64
+}
+
+func (s *spyReader) ReadAt(p []byte, off int64) (int, error) {
+	s.reqs = append(s.reqs, [2]int64{off, int64(len(p))})
+	return s.Reader.ReadAt(p, off)
+}
+
+// The comment search reads exactly the last endSearchWindow bytes of a large file, no more.
+func TestFindEOCDSearchWindowLength(t *testing.T) {
+	t.Parallel()
+	zb := buildZip([]zent{ent("a.class", c65, 0)}, zopts{comment: bytes.Repeat([]byte{'x'}, 100)})
+	b := append(bytes.Repeat([]byte{0}, 3*endSearchWindow), zb...)
+	size := int64(len(b))
+	spy := &spyReader{Reader: bytes.NewReader(b)}
+	if _, ok := findEOCD(spy, size); !ok {
+		t.Fatal("archive with a comment behind a large prefix not found")
+	}
+	want := [2]int64{size - endSearchWindow, endSearchWindow}
+	for _, r := range spy.reqs {
+		if r == want {
+			return
+		}
+	}
+	t.Errorf("no read of %d bytes at %d; requests (offset, length): %v", want[1], want[0], spy.reqs)
+}
+
+// A name that starts with NUL sanitizes to the empty string; the cut applies at index 0 too.
+func TestSanitizeCutsAtLeadingNUL(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{"\x00abc": "", "a\x00bc": "a", "abc": "abc", "": ""} {
+		if got := sanitize(in); got != want {
+			t.Errorf("sanitize(%q) = %q, want %q", in, got, want)
+		}
+	}
+	a := mustOpen(t, buildZip([]zent{ent("\x00x.class", c65, 0)}, zopts{}))
+	if _, ok := a.byName[""]; !ok || len(a.entries) != 1 || a.entries[0].orig != "\x00x.class" {
+		t.Errorf("entry names: byName=%v orig=%q", a.byName, a.entries[0].orig)
+	}
+}
+
+// The central directory walk counts each entry's comment, so the loop ends at the directory's declared size.
+func TestOpenArchiveCountsEntryComments(t *testing.T) {
+	t.Parallel()
+	one := ent("a.class", c65, 0)
+	one.ccomment = []byte("a comment")
+	two := ent("b.class", c52, 0)
+	two.ccomment = []byte("another comment")
+	a, err := openBytes(buildZip([]zent{one, two}, zopts{}))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got := a.classNames(); len(got) != 2 || got[0] != "a.class" || got[1] != "b.class" {
+		t.Errorf("class names = %v", got)
+	}
+}
+
+func TestCappedKeepsTheFirstLimitBytes(t *testing.T) {
+	t.Parallel()
+	c := &capped{limit: 5}
+	for _, p := range []string{"ab", "cde", "fg", ""} { // under, exactly to the limit, over, empty
+		if n, err := c.Write([]byte(p)); n != len(p) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", p, n, err)
+		}
+	}
+	if string(c.buf) != "abcde" {
+		t.Errorf("buf = %q, want abcde", c.buf)
+	}
+}

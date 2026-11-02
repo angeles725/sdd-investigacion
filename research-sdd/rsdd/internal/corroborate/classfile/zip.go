@@ -164,7 +164,7 @@ func decodeName(raw []byte, utf8Flag bool) (string, error) {
 		if c < 0x80 {
 			sb = append(sb, rune(c))
 		} else {
-			sb = append(sb, cp437Runes[c-0x80])
+			sb = append(sb, cp437Runes[c&0x7f]) // c >= 0x80 here, so c&0x7f == c-0x80 (a byte subtraction the mutants cannot tell from c+0x80)
 		}
 	}
 	return string(sb), nil
@@ -385,10 +385,7 @@ type capped struct {
 }
 
 func (c *capped) Write(p []byte) (int, error) {
-	if room := c.limit - uint64(len(c.buf)); uint64(len(p)) <= room {
-		c.buf = append(c.buf, p...)
-	} else {
-		c.buf = append(c.buf, p[:room]...)
-	}
+	// Keeps min(len(p), room) bytes: the old len(p) <= room split was the same copy in both arms at equality.
+	c.buf = append(c.buf, p[:min(uint64(len(p)), c.limit-uint64(len(c.buf)))]...)
 	return len(p), nil
 }

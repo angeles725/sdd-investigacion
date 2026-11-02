@@ -79,6 +79,7 @@ type zent struct {
 	lflags     uint16
 	version    byte
 	cextra     []byte
+	ccomment   []byte // central-directory entry comment
 	lextra     []byte
 	lextraDecl int    // declared local extra length when different from len(lextra)
 	lname      []byte // local-header name; default: name
@@ -163,11 +164,13 @@ func buildZip(entries []zent, o zopts) []byte {
 		le.PutUint32(h[24:], e.usize)
 		le.PutUint16(h[28:], uint16(len(e.name)))
 		le.PutUint16(h[30:], uint16(len(e.cextra)))
+		le.PutUint16(h[32:], uint16(len(e.ccomment)))
 		le.PutUint32(h[38:], e.extAttr)
 		le.PutUint32(h[42:], uint32(offs[i]+e.hoffAdd))
 		out.Write(h)
 		out.Write(e.name)
 		out.Write(e.cextra)
+		out.Write(e.ccomment)
 	}
 	out.Write(o.cdTail)
 	cdSize := out.Len() - base - cdStart
