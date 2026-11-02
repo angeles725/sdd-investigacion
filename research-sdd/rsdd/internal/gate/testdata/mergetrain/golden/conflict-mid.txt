@@ -1,0 +1,67 @@
+rc: 27
+--- stdout
+kit-merge-train: train-conflict #2: dropped from the batch
+kit-gate: gate rc=0 log=<CASE>/state/gate-train-<TS>.log
+merge-gate: allow (merged)
+kit-wait-merge: merged: #1 (merge commit mc1)
+Automatic merge went well; stopped before committing as requested
+merge-gate: allow (merged)
+kit-wait-merge: merged: #3 (merge commit mc3)
+kit-merge-train: receipt=<CASE>/state/train-<TS>.json
+kit-merge-train: train-partial: merged: 1 3; refused or dropped: see the receipt
+--- stderr
+--- calls
+gh pr view 1 --json state,isDraft,headRefOid,baseRefName
+gh pr view 2 --json state,isDraft,headRefOid,baseRefName
+gh pr view 3 --json state,isDraft,headRefOid,baseRefName
+GATE a0a813b34acce06b0ca48e26bb8588359b66b58e pr-1.txt pr-3.txt 
+gh pr checks 1
+MERGE 1 head=2dba4da8ef50ab7ed39679c227cd42b75dba4093
+CWD 1 <CASE>/repo-worktrees/train-<TS>-pr1
+gh pr view 1 --json state -q .state
+gh pr view 1 --json headRefOid,mergeCommit -q .headRefOid + " " + (.mergeCommit.oid // "")
+gh pr checks 3
+MERGE 3 head=aafa295c924c89559f2294d9fd4ded9e41889335
+CWD 3 <CASE>/repo-worktrees/train-<TS>-pr3
+gh pr view 3 --json state -q .state
+gh pr view 3 --json headRefOid,mergeCommit -q .headRefOid + " " + (.mergeCommit.oid // "")
+--- receipt
+{
+  "state": "train-partial",
+  "base_sha": "e1cd0c5ecf75e916ef4652aee3a648842d80a6da",
+  "train_branch": "train/<TS>",
+  "train_sha": "a0a813b34acce06b0ca48e26bb8588359b66b58e",
+  "gate": {
+    "rc": 0,
+    "log": "<CASE>/state/gate-train-<TS>.log",
+    "cmd": "echo \"GATE $(git rev-parse HEAD) $(ls pr-*.txt 2>/dev/null | tr \"\\n\" \" \")\" >> \"$CASE/calls.log\"; [ ! -e bad.txt ]"
+  },
+  "culprit": null,
+  "prs": [
+    {
+      "pr": 1,
+      "head": "2dba4da8ef50ab7ed39679c227cd42b75dba4093",
+      "status": "merged",
+      "reason": ""
+    },
+    {
+      "pr": 2,
+      "head": "4bff283a3bc10230e4a265724ecce921b79aa143",
+      "status": "dropped",
+      "reason": "train-conflict"
+    },
+    {
+      "pr": 3,
+      "head": "aafa295c924c89559f2294d9fd4ded9e41889335",
+      "status": "merged",
+      "reason": ""
+    }
+  ]
+}
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: gate-train-<TS>.log gate.lock train-<TS>.json

@@ -27,15 +27,20 @@ done
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass, without go).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
 MUT=(); MUTLIB=()
-# mutant.sh is sourced in EVERY mode, not only under --prove-teeth: c_escpipe_guard builds a mutated
-# retro-grammar.sh copy (MUTLIB) in the plain run too, and mkbox calls mutant_chain for it. Sourcing it only
-# for --prove-teeth made that check fail with an empty reason in a plain run while CI (always --prove-teeth)
-# stayed green. The helper only defines functions, so sourcing it unconditionally has no side effect.
+# mutant.sh is sourced in EVERY mode: mkbox calls mutant_chain whenever a shim mutant is set. The helper only
+# defines functions, so sourcing it unconditionally has no side effect.
 [ -f "$HERE/lib/mutant.sh" ] || { echo "FATAL: helper tests/lib/mutant.sh not found" >&2; exit 2; }
 . "$HERE/lib/mutant.sh"
 
@@ -193,68 +198,29 @@ c_double_backslash() {
   forbid 'no usable title'; forbid 'double-backslash-pipe.md · 1'; forbid 'double-backslash-pipe.md · 6'; verdict
 }
 
-# STAGE_RETRO_ISSUES_ESCPIPE_GUARD (kit issue #2135): the awk text of rg_esc_pipes is a variable, so `declare -F` cannot see
-# it. A lib that does not define it must stop the seeder fail-closed (exit 1, named), never run with the escaped pipe unhandled.
-c_escpipe_guard() {
-  local b; MUTLIB=('s/^_RG_AWK_ESCPIPE_FN=/_RG_AWK_ESCPIPE_FN_RENAMED=/')
-  b="$(mkbox "guard$1")" || { echo "MKBOX: lib mutant not built | $(cat "$ROOT/mutant.log" 2>/dev/null)"; MUTLIB=(); return 1; }
-  MUTLIB=()
-  run "$b" double-backslash-pipe.md; MSG=""
-  [ "$RC" = 1 ] || MSG="RC $RC != 1"
-  req 'failed to define _RG_AWK_ESCPIPE_FN'
-  if [ -z "$MSG" ]; then return 0; fi; echo "$MSG | out=[${OUT:0:300}]"; return 1
-}
-
-CHECKS="c_escaped_pipe c_double_backslash c_escpipe_guard c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
+CHECKS="c_escaped_pipe c_double_backslash c_unrec_list_failed c_list_first c_two_tables c_numbered c_numbered_single c_lettered c_h2_delta c_h3_proposals c_lessons_stays_unc c_evidence_stays_unc c_mixed c_canon_empty c_rejected_h3 c_dup_ids c_header_hyphen c_titles"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
 
 if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each mutant must turn its check RED with the expected failure text --"
-  # tooth <check> <label> <expected-failure-text> <sut|lib> <sed-stage>...
+  # tooth <check> <label> <expected-failure-text> <sed-stage>...: the mutant is a copy of the SHIM (the script's logic
+  # now lives in Go and is mutation-tested there); a shim that cannot reach the command must turn every check red.
+  # Mutants that edited the legacy script or its libs were removed together with the shell implementation.
   tooth() {
-    local chk="$1" label="$2" want="$3" where="$4" why
-    shift 4
-    MUT=(); MUTLIB=()
-    if [ "$where" = lib ]; then MUTLIB=("$@"); else MUT=("$@"); fi
+    local chk="$1" label="$2" want="$3" why
+    shift 3
+    MUT=("$@"); MUTLIB=()
     rm -f "$ROOT/unbuildable"
     if why="$($chk "mut-$label" 2>&1)"; then no "teeth $label: $chk must fail against the mutant" "check is THEATER"
     elif [ -e "$ROOT/unbuildable" ]; then no "teeth $label: mutant unbuildable" "$(cat "$ROOT/mutant.log")"
     elif ! grep -qF -- "$want" <<<"$why"; then no "teeth $label: $chk failed for the WRONG reason" "wanted [$want] got [${why:0:200}]"
     else ok "teeth $label: mutant breaks $chk with [$want]" "()"; fi
-    MUT=(); MUTLIB=()
+    MUT=()
   }
-  tooth c_numbered      numbered-off      'PLANNED: 0 != 3'  lib '/ALT_NUMBERED_ITEM/s/if (match(/if (0 \&\& match(/'
-  tooth c_h2_delta      h2-off            'PLANNED: 0 != 3'  lib '/ALT_H2_DELTA/s/.*/        if (0) {/'
-  tooth c_h3_proposals  h3-off            'PLANNED: 0 != 3'  lib '/ALT_H3_PROPOSALS/s/.*/        if (0) mode="h3"/'
-  tooth c_h2_delta      med-not-medium    'MISSING: priority:medium' lib '/ALT_PRIORITY_MED/s/.*/                  if (0) pr = "MEDIUM"/'
-  tooth c_lettered      lettered-id       'PLANNED: 0 != 3'  lib 's/if (tok !~ \/\[0-9-\]\/ \&\& length(tok) > 1) return 0/if (length(tok) > 1) return 0/'
-  tooth c_numbered      no-alt-fallback   'PLANNED: 0 != 3'  sut '/STAGE_RETRO_ISSUES_ALT_FALLBACK/s/.*/  _rows=""/'
-  tooth c_h2_delta      no-alt-early      'PLANNED: 0 != 3'  sut '/STAGE_RETRO_ISSUES_ALT_EARLY/s/.*/  _alt_early=""/'
-  tooth c_evidence_stays_unc evidence-matched 'PLANNED: 2 != 0' lib '/ALT_NUMBERED_GATE/s/.*/      1 {/'
-  tooth c_mixed         heading-match-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
-  tooth c_canon_empty   canon-heading-off 'MISSING: unclassifiable-items: 1' sut 's/if \[ "\$_found_field" = "1" \] \&\& \[ -n "\$_h" \] \&\& ! grep -qxF -- "\$_h" <<<"\$_alt_heads"; then/if false; then/'
-  tooth c_unrec_list_failed fail-closed-off 'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_UNREC_FAILCLOSED/s/.*/  :/'
-  tooth c_list_first    unrec-all-off     'MISSING: unclassifiable-items: 1' sut '/STAGE_RETRO_ISSUES_UNREC_ALL/s/.*/  _unrec_missing=""/'
-  tooth c_rejected_h3   h3-reset-off      'PLANNED: 0 != 2'  lib '/ALT_H3_RESET/s/.*/        flush()/'
-  tooth c_dup_ids       dup-check-off     'PLANNED: 4 != 0'  sut 's/^    if \[ -n "\$_dups" \]; then$/    if false; then/'
-  tooth c_header_hyphen header-drop-off   'PLANNED: 2 != 1'  sut '/STAGE_RETRO_ISSUES_HEADER_DROP/s/pend = ""/pend = pend/'
-  tooth c_titles        cut-splits-utf8   'INVALID UTF-8'    lib '/ALT_CUT_BACKOFF/s/.*/        k = k/'
-  tooth c_escaped_pipe  escaped-pipe-row-off  'PLANNED: 2 != 3' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/'
-  tooth c_escaped_pipe  escaped-pipe-hdr-off  'PLANNED: 0 != 3' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/'
-  tooth c_escaped_pipe  id-pipe-off           'MISSING: unclassifiable-row: row E|1 has a pipe in its id' sut 's/if \[\[ "\$_rid" == \*.|.\* \]\]; then$/if false; then/'
-  tooth c_escaped_pipe  row-line-index-off    'MISSING: escaped-pipe.md:8 | E' sut 's/index(u, ENVIRON/index($0, ENVIRON/'
-  tooth c_escaped_pipe  row-line-cell-off     'MISSING: escaped-pipe.md:8 | E' sut '/STAGE_RETRO_ISSUES_ROW_LINE_CELL/s/rg_esc_pipes(\$0)/\$0/'
-  # kit issue #2135: the shared rule (lib) and every stage call site, each against the even/odd-run fixture.
-  tooth c_double_backslash dbs-lib-any-off    'PLANNED: 2 != 4' lib '/RETRO_GRAMMAR_ESCAPED_PIPE_ANY/s/gsub(\/\\\\\\|\/, SENT, s)/s = s/'
-  tooth c_double_backslash dbs-row-off        'MISSING: planned-issue: Middle cell ends in a path' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_ROW/s/rg_esc_pipes(line)/line/'
-  tooth c_double_backslash dbs-hdr-off        'PLANNED: ' sut '/STAGE_RETRO_ISSUES_ESCAPED_PIPE_HDR/s/rg_esc_pipes(hl)/hl/'
-  tooth c_double_backslash dbs-locator-cell-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/STAGE_RETRO_ISSUES_ROW_LINE_CELL/s/rg_esc_pipes(\$0)/\$0/'
-  tooth c_double_backslash dbs-locator-delta-off 'MISSING: double-backslash-pipe.md:8 | 1' sut '/u = rg_esc_pipes/s/rg_esc_pipes(\$0)/\$0/'
-  tooth c_double_backslash dbs-id-safe-off    'PLANNED: 6 != 4' sut 's/if ! retro_grammar_id_signature_safe "\$_rid"; then/if false; then/'
-  tooth c_double_backslash dbs-id-safe-lib-off 'PLANNED: 6 != 4' lib '/RETRO_GRAMMAR_ID_SIGNATURE_SAFE/s/return 1/return 0/'
-  tooth c_escpipe_guard   escpipe-guard-off   'RC 0 != 1' sut 's/\[ -n "\${_RG_AWK_ESCPIPE_FN:-}" \]/true/'
+  tooth c_numbered      shim-wrong-command 'PLANNED: 0 != 3' 's#rsdd_exec retro stage-issues#rsdd_exec retro stage-issuez#'
+  tooth c_h2_delta      shim-args-dropped  'PLANNED: 0 != 3' 's#--toolbelt "\$_RSDD_SELF" "\$@"#--toolbelt "\$_RSDD_SELF"#'
   echo "-- prove-teeth done --"
 fi
 

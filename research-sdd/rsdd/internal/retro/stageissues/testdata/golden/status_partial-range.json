@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: third delta of the retro\n  labels: status:needs-review,target:target-foo,type:docs,priority:low\n  body:\n    third delta of the retro\n    \n    **Target:** toolbelt/x.sh\n    **Evidence:** B3\n    \n    ---\n    Source retro: target-foo/retros/r.md · 3\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 3 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}
