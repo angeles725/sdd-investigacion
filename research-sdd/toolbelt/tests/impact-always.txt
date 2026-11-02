@@ -34,7 +34,6 @@ gen-catalog generates or verifies a catalog over the whole toolbelt
 verify-tool-catalog generates or verifies a catalog over the whole toolbelt
 verify-tool-catalog-hook generates or verifies a catalog over the whole toolbelt
 scripts-manifest generates or verifies a catalog over the whole toolbelt
-n4-type-catalog generates or verifies a catalog over the whole toolbelt
 templates reads every template
 run-all exercises the test harness itself over the whole corpus
 run-all-shard exercises the test harness itself over the whole corpus
