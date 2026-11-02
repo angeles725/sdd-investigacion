@@ -10,6 +10,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/fidelity"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/floss"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/ghidra"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/java"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/kaitai"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/native"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/pcap"
@@ -20,6 +21,7 @@ import (
 var Commands = []cli.Command{
 	{Name: "classfile", Group: "corroborate", Summary: "One CLASSFILE line (major, LocalVariableTable, re-sugar risk) read from a .class or .jar", Run: classfile.Run},
 	{Name: "decompile", Group: "corroborate", Summary: "Decompile a Java .jar or .class to source: Vineflower, falling back to CFR or Procyon per unit (typed OK / DEGRADED / PARTIAL)", Run: decompile.Run},
+	{Name: "java", Group: "corroborate", Summary: "bounded multi-engine Java corroboration (java-corroboration.v1)", Run: java.Run},
 	{Name: "java-fidelity", Group: "corroborate", Summary: "measure what the Java decompilation pipeline preserves (javac, decompile, recompile, javap)", Run: fidelity.Run},
 	{Name: "floss", Group: "corroborate", Summary: "bounded obfuscated-string inventory of a PE/ELF binary (floss in a network-denied sandbox)", Run: floss.Run},
 	{Name: "capa", Group: "corroborate", Summary: "offline capa capability inventory of a PE/ELF/.NET binary (bubblewrap)", Run: capa.Run},

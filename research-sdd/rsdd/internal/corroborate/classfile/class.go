@@ -28,23 +28,43 @@ type facts struct {
 	lvtKnown   bool
 	lvt        bool
 	partial    bool
+	// reason is the typed token java-corroboration.v1 reports next to a fact that could not be read in full
+	// ("" is the report's null). It is set whenever majorKnown is false or partial is true.
+	reason string
 }
+
+// Reason tokens of the report's class_facts[].reason.
+const (
+	reasonTruncatedHeader = "truncated-header"
+	reasonBadMagic        = "bad-magic"
+	reasonTruncatedBody   = "truncated-body"
+	reasonBadPoolTag      = "bad-constant-pool-tag"
+	reasonEntryTooLarge   = "entry-too-large"
+	reasonCorruptEntry    = "corrupt-entry"
+	reasonUnreadableEntry = "unreadable-entry"
+)
 
 func (f facts) resugarRisk() bool { return f.majorKnown && f.major >= resugarMinMajor }
 
 // nullFacts is the fact set of a class nothing could be read from: never a fake major 0.
 func nullFacts() facts { return facts{} }
 
+// nullWith is nullFacts carrying the reason the class could not be read.
+func nullWith(reason string) facts { return facts{reason: reason} }
+
 // classFacts reads the facts of one class file. An unreadable header gives null facts.
 func classFacts(data []byte) facts {
-	if len(data) < classHeaderLen || string(data[:4]) != classMagic {
-		return nullFacts()
+	if len(data) < classHeaderLen {
+		return nullWith(reasonTruncatedHeader)
+	}
+	if string(data[:4]) != classMagic {
+		return nullWith(reasonBadMagic)
 	}
 	f := facts{majorKnown: true, major: int(data[6])<<8 | int(data[7])}
-	if lvt, ok := scanLocalVariableTable(data); ok {
+	if lvt, reason := scanLocalVariableTable(data); reason == "" {
 		f.lvtKnown, f.lvt = true, lvt
 	} else {
-		f.partial = true
+		f.partial, f.reason = true, reason
 	}
 	return f
 }
@@ -55,13 +75,22 @@ type reader struct {
 	b      []byte
 	pos    int
 	failed bool
+	reason string // the typed token of the FIRST failure
+}
+
+// fail records the first failure's reason; later failures keep it.
+func (r *reader) fail(reason string) {
+	if !r.failed {
+		r.reason = reason
+	}
+	r.failed = true
 }
 
 func (r *reader) ok() bool { return !r.failed }
 
 func (r *reader) take(n uint64) []byte {
 	if n > uint64(len(r.b)-r.pos) {
-		r.failed = true
+		r.fail(reasonTruncatedBody)
 		return nil
 	}
 	chunk := r.b[r.pos : r.pos+int(n)]
@@ -98,9 +127,10 @@ func attributes(r *reader, kinds []uint8, visit func(kind uint8, body []byte)) {
 	}
 }
 
-// scanLocalVariableTable reports whether any method's Code attribute carries a LocalVariableTable. ok=false
-// means the bytes ran out or held an unknown constant-pool tag, and the first result is meaningless.
-func scanLocalVariableTable(data []byte) (lvt, ok bool) {
+// scanLocalVariableTable reports whether any method's Code attribute carries a LocalVariableTable. A non-empty
+// reason means the bytes ran out (truncated-body) or held an unknown constant-pool tag (bad-constant-pool-tag),
+// and the first result is meaningless.
+func scanLocalVariableTable(data []byte) (lvt bool, reason string) {
 	r := &reader{b: data, pos: classHeaderLen}
 	count := r.u2()
 	kinds := make([]uint8, count)
@@ -118,7 +148,7 @@ func scanLocalVariableTable(data []byte) (lvt, ok bool) {
 		case t < len(cpFixed) && cpFixed[t] != 0:
 			r.take(uint64(cpFixed[t]))
 		default:
-			r.failed = true // a tag this walk cannot size
+			r.fail(reasonBadPoolTag) // a tag this walk cannot size
 		}
 		index++
 		if tag == 5 || tag == 6 { // Long and Double occupy two constant-pool slots
@@ -140,7 +170,7 @@ func scanLocalVariableTable(data []byte) (lvt, ok bool) {
 		}
 	}
 	attributes(r, kinds, func(uint8, []byte) {}) // class attributes: walked so a truncated tail is detected
-	return found, r.ok()
+	return found, r.reason
 }
 
 // codeHasLVT walks one Code attribute body; a malformed body fails the enclosing reader.
@@ -155,6 +185,8 @@ func codeHasLVT(outer *reader, kinds []uint8, body []byte) bool {
 			found = true
 		}
 	})
-	outer.failed = outer.failed || code.failed
+	if code.failed {
+		outer.fail(code.reason)
+	}
 	return found
 }

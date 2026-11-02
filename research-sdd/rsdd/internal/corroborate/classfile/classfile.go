@@ -181,14 +181,19 @@ func collectArchive(f *os.File, size int64, rec eocd, maxEntries, maxExpanded, m
 
 func entryFacts(a *archive, e *zipEntry, maxClass uint64) (facts, error) {
 	if e.usize > maxClass {
-		return nullFacts(), nil
+		return nullWith(reasonEntryTooLarge), nil
 	}
 	data, err := a.read(e)
-	switch err {
-	case nil:
+	var ee *entryError
+	switch {
+	case err == nil:
 		return classFacts(data), nil
-	case errBadEntry:
-		return nullFacts(), nil // oversize, corrupt, encrypted, truncated...: counted as unreadable, never a fake fact
+	case errors.As(err, &ee):
+		// oversize, corrupt, encrypted, truncated...: counted as unreadable, never a fake fact
+		if ee.class == "RuntimeError" || ee.class == "OSError" {
+			return nullWith(reasonUnreadableEntry), nil
+		}
+		return nullWith(reasonCorruptEntry), nil
 	}
 	return facts{}, err
 }

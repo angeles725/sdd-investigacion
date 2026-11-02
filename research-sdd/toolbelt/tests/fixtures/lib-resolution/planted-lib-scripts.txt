@@ -4,6 +4,7 @@ corroborate-bacnet.sh
 corroborate-capa.sh
 corroborate-floss.sh
 corroborate-ghidra.sh
+corroborate-java.sh
 corroborate-kaitai.sh
 corroborate-native.sh
 corroborate-pcap.sh

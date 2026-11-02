@@ -85,7 +85,7 @@ def make_profile(
 # ---------------------------------------------------------------------------
 
 # Bubblewrap sandbox, static analysis, all network denied.
-# Shared by: corroborate_firmware, corroborate_java, corroborate_native.
+# Shared by: corroborate_firmware, rsdd corroborate java (Go), corroborate_native.
 PROFILE_BWRAP_STATIC_NETWORK_DENIED = make_profile("bubblewrap-static-network-denied")
 
 # Bubblewrap sandbox, offline PCAP read (capinfos + tshark, no live traffic).
