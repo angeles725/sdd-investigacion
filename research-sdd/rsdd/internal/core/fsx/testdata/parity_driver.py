@@ -5,8 +5,17 @@ usage: python3 -I parity_driver.py <toolbelt-dir> <op> [args...]
 The Go parity test runs the same operation on the same fixture and compares.
 Ops: identity, identity_append, stage, publish, exchange, write, open_ro,
 open_wo_new, sha256_fd.
+
+open_wo_new and sha256_fd run the live helpers of serial-frame_analyze.py. open_ro
+has no live Python oracle left (niagara_hdb_read.py was retired by kit issue #2443;
+serial-frame_analyze's _open_ro omits O_NONBLOCK and would block on a FIFO), so its
+reference is the retired helper's contract, frozen below as open_ro_reference.
+exchange uses renameat2_reference, a frozen copy of corroborate_java.renameat2, so this
+driver does not depend on a tool that the Go port will delete.
 """
+import ctypes
 import errno
+import importlib.util
 import json
 import os
 import stat
@@ -16,9 +25,36 @@ toolbelt = sys.argv[1]
 sys.path.insert(0, toolbelt)
 sys.path.insert(0, os.path.join(toolbelt, "lib"))
 import adapter_core  # noqa: E402
-import corroborate_java  # noqa: E402
 from pathlib import Path  # noqa: E402
-import niagara_hdb_read  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location(
+    "serial_frame_analyze", os.path.join(toolbelt, "serial-frame_analyze.py"))
+serial_frame_analyze = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(serial_frame_analyze)
+
+
+def open_ro_reference(path):
+    """Frozen copy of the retired niagara_hdb_read._open_ro (kit issue #2443)."""
+    try:
+        return os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise OSError(errno.ELOOP, "is a symbolic link (rejected)", str(path)) from exc
+        raise
+
+
+def renameat2_reference(source, destination, flags):
+    """Frozen copy of corroborate_java.renameat2 (kit issue #2443)."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    function = getattr(libc, "renameat2", None)
+    if function is None:
+        raise OSError(errno.ENOSYS, "renameat2 is unavailable on this platform")
+    function.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    function.restype = ctypes.c_int
+    if function(-100, os.fsencode(source), -100, os.fsencode(destination), flags):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), destination)
+
 
 op, args = sys.argv[2], sys.argv[3:]
 
@@ -55,14 +91,14 @@ def run():
             os.read = real_read
         return {"ok": True, "resolved": str(resolved), "size": size, "sha256": digest}
     if op == "open_ro":
-        fd = niagara_hdb_read._open_ro(args[0])
+        fd = open_ro_reference(args[0])
         try:
             st = os.fstat(fd)
             return {"ok": True, "regular": stat.S_ISREG(st.st_mode), "size": st.st_size}
         finally:
             os.close(fd)
     if op == "open_wo_new":
-        fd = niagara_hdb_read._open_wo_new(args[0])
+        fd = serial_frame_analyze._open_wo_new(args[0])
         try:
             os.write(fd, b"x")
             return {"ok": True, "mode": stat.S_IMODE(os.fstat(fd).st_mode)}
@@ -72,14 +108,14 @@ def run():
         fd = os.open(args[0], os.O_RDONLY)
         try:
             os.read(fd, 1000)
-            return {"ok": True, "sha256": niagara_hdb_read._sha256_fd(fd)}
+            return {"ok": True, "sha256": serial_frame_analyze._sha256_fd(fd)}
         finally:
             os.close(fd)
     if op == "publish":
         adapter_core.publish(Path(args[0]), Path(args[1]))
         return {"ok": True}
     if op == "exchange":
-        corroborate_java.renameat2(Path(args[0]), Path(args[1]), 2)
+        renameat2_reference(Path(args[0]), Path(args[1]), 2)
         return {"ok": True}
     if op == "write":
         adapter_core.write(Path(args[0]), json.loads(args[1]))

@@ -1,0 +1,5 @@
+{
+  "legacy": ["rsdd/internal/core/hookwiring/testdata/legacy/driver.sh", "cli-script-state", "{{input}}"],
+  "rsdd": ["hook", "script-state", "{{input}}"],
+  "env": {"RSDD_HOOK_WIRING_CEILING": "{{sandbox}}"}
+}
