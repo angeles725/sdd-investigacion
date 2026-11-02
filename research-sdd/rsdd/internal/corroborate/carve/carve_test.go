@@ -89,6 +89,9 @@ func TestCarveIsDeterministicAndTruthful(t *testing.T) {
 		if fi.Mode()&os.ModeSymlink != 0 || fi.Mode().Perm() != want {
 			t.Errorf("%s mode %v, want %v and no symlink", p, fi.Mode(), want)
 		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Getuid()) {
+			t.Errorf("%s is not owned by the caller (uid %d)", p, os.Getuid())
+		}
 		return nil
 	})
 	for _, c := range r.Carves {

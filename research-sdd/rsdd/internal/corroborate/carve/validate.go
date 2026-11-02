@@ -256,14 +256,13 @@ func verifyCarve(stage string, item carveRecord) error {
 	var size int64
 	have, want := make([]byte, 1<<20), make([]byte, 1<<20)
 	for {
+		// An empty read (n == 0, at the end of the file) compares and hashes nothing, so it needs no guard.
 		n, rerr := io.ReadFull(carved, have)
-		if n > 0 {
-			if _, err := source.ReadAt(want[:n], item.Offset+size); err != nil || !bytes.Equal(have[:n], want[:n]) {
-				return errors.New("carve source range mismatch")
-			}
-			digest.Write(have[:n])
-			size += int64(n)
+		if _, err := source.ReadAt(want[:n], item.Offset+size); err != nil || !bytes.Equal(have[:n], want[:n]) {
+			return errors.New("carve source range mismatch")
 		}
+		digest.Write(have[:n])
+		size += int64(n)
 		if rerr == io.EOF || rerr == io.ErrUnexpectedEOF {
 			break
 		}

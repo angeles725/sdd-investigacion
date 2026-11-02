@@ -2,11 +2,13 @@ package carve
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
 	"io"
-	"sort"
+	"slices"
+	"strings"
 )
 
 // Candidate kinds, as they appear in the report and in the carved file names.
@@ -72,15 +74,8 @@ func findCandidates(r io.ReaderAt, size int64, limit caps) ([]candidate, error) 
 	if err := scanSquashFS(r, size, col); err != nil {
 		return nil, err
 	}
-	sort.Slice(col.found, func(i, j int) bool {
-		a, b := col.found[i], col.found[j]
-		if a.start != b.start {
-			return a.start < b.start
-		}
-		if a.kind != b.kind {
-			return a.kind < b.kind
-		}
-		return a.end < b.end
+	slices.SortFunc(col.found, func(a, b candidate) int {
+		return cmp.Or(cmp.Compare(a.start, b.start), strings.Compare(a.kind, b.kind), cmp.Compare(a.end, b.end))
 	})
 	return col.found, nil
 }
@@ -145,10 +140,12 @@ func (s squashSuper) valid(offset, size int64) bool {
 	if s.inodes == 0 || s.ids == 0 || s.major != 4 || s.mi != 0 || s.compression < 1 || s.compression > 6 {
 		return false
 	}
-	if s.log > 31 || s.block != 1<<s.log || s.block < 4096 || s.block > 1048576 {
+	// A block size of 4096..1048576 that is exactly 1<<log means log is 12..20.
+	if s.log < 12 || s.log > 20 || s.block != 1<<s.log {
 		return false
 	}
-	if s.used < squashfsHeader || s.used > uint64(size-offset) {
+	// A used count below the header needs no check of its own: the required tables must lie in [header, used).
+	if s.used > uint64(size-offset) {
 		return false
 	}
 	table := func(x uint64) bool { return x == noTable || (x >= squashfsHeader && x < s.used) }

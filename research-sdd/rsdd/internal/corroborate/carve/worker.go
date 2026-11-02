@@ -154,15 +154,11 @@ func writeExclusive(path string, r io.Reader, tee io.Writer) error {
 	if tee != nil {
 		w = io.MultiWriter(out, tee)
 	}
-	if _, err := io.Copy(w, r); err != nil {
-		_ = out.Close()
-		return err
+	_, err = io.Copy(w, r)
+	if err == nil {
+		err = out.Sync()
 	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
+	return errors.Join(err, out.Close())
 }
 
 // errStagedType is the refusal for a staged file that is not a regular, owned, 0400 file.

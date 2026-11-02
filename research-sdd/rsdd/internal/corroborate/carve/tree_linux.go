@@ -3,15 +3,19 @@ package carve
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// procDir is where the process table is read from; tests point it at a fixture.
+var procDir = "/proc"
 
 // processTree is the number of live processes in the tree rooted at root (root included), read from /proc.
 // A process whose stat cannot be read or parsed is skipped, as the script does; /proc being unreadable counts
 // no process at all.
 func processTree(root int) int {
-	entries, err := os.ReadDir("/proc")
+	entries, err := os.ReadDir(procDir)
 	if err != nil {
 		return 0
 	}
@@ -21,7 +25,7 @@ func processTree(root int) int {
 		if err != nil {
 			continue
 		}
-		b, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		b, err := os.ReadFile(filepath.Join(procDir, e.Name(), "stat"))
 		if err != nil {
 			continue
 		}
