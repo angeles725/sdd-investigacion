@@ -19,7 +19,17 @@ var (
 	archiveBuildErr  error
 )
 
-func archiveRsddBin(t *testing.T) string {
+// TestMain removes the shared rsdd binary directory after the whole package ran: the frozen script's kit-catalog
+// fallback (rsdd corpus catalog, kit issue #2535) needs one binary for every parity case, so no single test owns it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if archiveBuiltBin != "" {
+		_ = os.RemoveAll(filepath.Dir(archiveBuiltBin))
+	}
+	os.Exit(code)
+}
+
+func archiveRsddBin(t testing.TB) string {
 	t.Helper()
 	archiveBuildOnce.Do(func() {
 		dir, err := os.MkdirTemp(os.Getenv("TMPDIR"), "archshim")
@@ -60,7 +70,6 @@ func TestArchiveShimMatchesLegacy(t *testing.T) {
 		t.Skip("builds the rsdd binary")
 	}
 	bin := archiveRsddBin(t)
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(bin)) })
 	realTB := archiveReal(t, archiveKitRel+"/toolbelt")
 	shim := filepath.Join(realTB, "research-sdd-archive.sh")
 	for _, tc := range []struct {

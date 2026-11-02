@@ -10,13 +10,12 @@ const archiveUsage = "usage: research-sdd-archive.sh <target-dir> [--focus <name
 
 // archiveArgs is the parsed command line.
 type archiveArgs struct {
-	target    string
-	dry       bool
-	focus     string
-	allowVC   bool
-	toolbelt  string // --toolbelt DIR: the directory holding the sibling scripts (the shim passes its own)
-	errLine   string // non-empty: print it on stderr and exit 2
-	targetSet bool
+	target   string
+	dry      bool
+	focus    string
+	allowVC  bool
+	toolbelt string // --toolbelt DIR: the directory holding the sibling scripts (the shim passes its own)
+	errLine  string // non-empty: print it on stderr and exit 2
 }
 
 // archiveParseArgs mirrors the argument loop of research-sdd-archive.sh, message for message. --toolbelt is the one

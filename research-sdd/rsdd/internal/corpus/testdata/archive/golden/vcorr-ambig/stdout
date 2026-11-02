@@ -5,7 +5,7 @@
     verify-corrections : PARTIAL — 1 declared correction(s) NOT checked (1 typed ambiguous, rest ambiguous/missing target; run verify-corrections.sh for the AMBIG/WARN lines)
     scan-secrets  : ok
   -- consolidate --
-    catalog        : would regenerate via kit generator (@ROOT@/tb/../templates/gen-catalog.py)
+    catalog        : would regenerate via kit generator (rsdd corpus catalog)
     index          : would touch INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 2 · retros: 1 · iteration-history rows: 1

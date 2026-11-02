@@ -162,6 +162,19 @@ func archiveCases() []archiveCase {
 				f.t.Fatal(err)
 			}
 		}), want: archiveWant{rc: 0, fileHas: [][2]string{{"CATALOG.md", "SYMLINKED-GEN-RAN"}}, noFiles: []string{"../CATALOG.md"}}},
+		// kit issue #2535: a dangling tools/gen-catalog.py symlink (a corpus that linked the deleted kit template) is not a
+		// local generator, so the close falls through to the Go command and still regenerates.
+		archiveCase{name: "dangling-gen", legacy: "5e", build: archiveGoodThen(func(f *archiveFx, d string) {
+			f.mkdir(filepath.Join(d, "tools"))
+			if err := os.Symlink(filepath.Join(d, "..", "no-such-kit", "gen-catalog.py"), filepath.Join(d, "tools", "gen-catalog.py")); err != nil {
+				f.t.Fatal(err)
+			}
+		}), want: archiveWant{rc: 0, has: []string{`via kit generator`}, lacks: []string{`via local generator`}, fileHas: [][2]string{{"CATALOG.md", `(?m)^Total: \*\*1 blocks\*\*$`}}}},
+		// A failing `rsdd corpus catalog` step (CATALOG.md is a directory, so the write fails) is reported by name with a
+		// rerun hint, CATALOG.md stays stale, and the close still exits 0 (consolidate is best-effort).
+		archiveCase{name: "catalog-fail", legacy: "5f", build: archiveGoodThen(func(f *archiveFx, d string) {
+			f.mkdir(filepath.Join(d, "CATALOG.md"))
+		}), want: archiveWant{rc: 0, has: []string{`ERROR — kit generator \(rsdd corpus catalog\) failed`, `run: rsdd corpus catalog `}, lacks: []string{`gen-catalog.py failed`}, errHas: []string{`CATALOG regen failed`}}},
 		archiveCase{name: "dry", legacy: "6", build: good, args: archiveWith("--dry-run"), want: archiveWant{rc: 0, noFiles: []string{"CATALOG.md"}}},
 		archiveCase{name: "empty", legacy: "7", build: func(f *archiveFx) string { d := f.path("c"); f.mkdir(d); return d }, want: archiveWant{rc: 2}},
 		archiveCase{name: "nested", legacy: "8", build: func(f *archiveFx) string {

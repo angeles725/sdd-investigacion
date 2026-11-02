@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -120,5 +119,3 @@ func (e *archiveEnv) archiveTmpDir() string {
 	}
 	return "/tmp"
 }
-
-func archiveJoin(dir, name string) string { return filepath.Join(dir, name) }

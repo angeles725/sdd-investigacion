@@ -6,7 +6,7 @@
       FAIL   B2 corrects [Block 1] but t-block1.md has no reciprocal backlink to B2 (accepted: 'corrected in'/'corregido en'/'refined in'/corrigendum/erratum/'CORRECCIÓN — [Block 2]' naming it) (§14) [correcting: t-block2.md]
     scan-secrets  : ok
   -- consolidate --
-    catalog        : would regenerate via kit generator (@ROOT@/tb/../templates/gen-catalog.py)
+    catalog        : would regenerate via kit generator (rsdd corpus catalog)
     index          : would touch INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 2 · retros: 1 · iteration-history rows: 1

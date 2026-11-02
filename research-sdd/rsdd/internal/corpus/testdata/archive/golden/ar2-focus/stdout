@@ -6,7 +6,7 @@
     scan-secrets  : ok
     undocumented_findings: scoped to focus alpha — 1 of 2 state file(s) inspected
   -- consolidate --
-    catalog        : would regenerate via kit generator (@ROOT@/tb/../templates/gen-catalog.py)
+    catalog        : would regenerate via kit generator (rsdd corpus catalog)
     index          : would touch INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 2 · retros: 1 · iteration-history rows: 1

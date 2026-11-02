@@ -31,7 +31,7 @@ import (
 
 // archiveLegacySHA pins the frozen oracle: testdata/archive/legacy/research-sdd-archive.sh is the script as of the
 // port (kit issue #2459). A changed oracle must be a deliberate, reviewed edit of this constant.
-const archiveLegacySHA = "5170c8c80f492d5790c8cfbb93fbde259c7227dcf8a0ccbac863959b8fe01f6d"
+const archiveLegacySHA = "2242a219d0f3e99c9739065c10636ca36473e449e247d9b8ff37bea3907855c0"
 
 const (
 	archiveLegacyRel = "testdata/archive/legacy/research-sdd-archive.sh"
@@ -75,20 +75,12 @@ type archiveWant struct {
 	fileHas                    [][2]string // {file relative to the target, regexp its content must match}
 }
 
-func archiveNotRoot(t testing.TB) {
-	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: permission bits are bypassed")
-	}
-}
-
 // archiveFx is the fixture builder (the mk* helpers of the retired suite).
 type archiveFx struct {
 	t    testing.TB
 	root string // scratch root of the case run
 	cdir string // case directory (snapshotted)
 	tb   string // toolbelt copy: symlinks to the real toolbelt plus the frozen legacy script
-	env  []string
 }
 
 func archiveReal(t testing.TB, rel string) string {
@@ -324,6 +316,14 @@ func archiveRunLegacy(t testing.TB, tb, cwd string, args, env []string) (string,
 	t.Helper()
 	c := exec.Command("bash", append([]string{filepath.Join(tb, "research-sdd-archive.sh")}, args...)...)
 	c.Dir, c.Env = cwd, env
+	hasBin := false
+	for _, kv := range env {
+		hasBin = hasBin || strings.HasPrefix(kv, "RSDD_BIN=")
+	}
+	if !hasBin {
+		// The frozen script's kit fallback is the Go command `rsdd corpus catalog`, found through RSDD_BIN.
+		c.Env = append(append([]string(nil), env...), "RSDD_BIN="+archiveRsddBin(t))
+	}
 	var o, e bytes.Buffer
 	c.Stdout, c.Stderr = &o, &e
 	err := c.Run()
@@ -412,8 +412,6 @@ func archiveWipe(t testing.TB, dir string) {
 		t.Fatal(err)
 	}
 }
-
-func archiveExpand(s, root string) string { return strings.ReplaceAll(s, "@ROOT@", root) }
 
 // archiveRunCase builds the fixture once and returns the legacy result (nil when legacy is off) and the Go result.
 func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveRes, gor archiveRes, f *archiveFx, d string) {

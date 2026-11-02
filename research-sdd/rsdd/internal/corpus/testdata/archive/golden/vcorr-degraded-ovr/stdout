@@ -5,7 +5,7 @@
     verify-corrections : OVERRIDDEN — verify-corrections.sh reported degraded: awk not found on PATH; the corpus was NOT checked (--allow-unreciprocated-corrections given; gate NOT enforced)
     scan-secrets  : ok
   -- consolidate --
-    catalog        : would regenerate via kit generator (@ROOT@/tb/../templates/gen-catalog.py)
+    catalog        : would regenerate via kit generator (rsdd corpus catalog)
     index          : would touch INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 1 · retros: 1 · iteration-history rows: 1

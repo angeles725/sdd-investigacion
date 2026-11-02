@@ -50,7 +50,6 @@ var (
 	archiveReFailCorr   = regexp.MustCompile(`^ *FAIL +B0*([0-9]+) corrects`)
 	archiveReFailTarget = regexp.MustCompile(`^.* but ([^ ]+) has no reciprocal`)
 	archiveReFailCorrBy = regexp.MustCompile(`\[correcting: ([^\]]+)\] *$`)
-	archiveReBlockPfx   = regexp.MustCompile(`^(.*)-(block|bloque)0*[0-9]+`)
 )
 
 // archiveLines splits command output into lines the way grep sees them.

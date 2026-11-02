@@ -5,7 +5,7 @@
     verify-corrections : ok
     scan-secrets  : ok
   -- consolidate --
-    catalog        : regenerated CATALOG.md (via kit generator (@ROOT@/tb/../templates/gen-catalog.py))
+    catalog        : regenerated CATALOG.md (via kit generator (rsdd corpus catalog))
     index          : touched INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 2 · retros: 2 · iteration-history rows: 1
