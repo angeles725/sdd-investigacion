@@ -144,15 +144,6 @@ func (w *world) evidence() map[string]any {
 	return m
 }
 
-func (w *world) noEvidence() {
-	w.t.Helper()
-	for _, p := range []string{"/out/res", "/out/.res.stage"} {
-		if _, err := os.Lstat(w.dir + p); err == nil {
-			w.t.Errorf("%s must not exist after a fatal error", p)
-		}
-	}
-}
-
 func strs(v any) []string {
 	var out []string
 	for _, x := range v.([]any) {

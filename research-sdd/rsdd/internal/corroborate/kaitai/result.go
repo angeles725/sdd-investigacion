@@ -44,7 +44,7 @@ func readDriverJSON(path string) (map[string]any, string) {
 }
 
 func pyTypeName(v any) string {
-	switch v.(type) {
+	switch t := v.(type) {
 	case nil:
 		return "NoneType"
 	case bool:
@@ -54,7 +54,7 @@ func pyTypeName(v any) string {
 	case []any:
 		return "list"
 	case json.Number:
-		if strings.ContainsAny(v.(json.Number).String(), ".eE") {
+		if strings.ContainsAny(t.String(), ".eE") {
 			return "float"
 		}
 		return "int"
