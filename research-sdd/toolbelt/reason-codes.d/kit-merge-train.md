@@ -1,11 +1,11 @@
 ### kit-merge-train
 
-- `kit-merge-train: <state>` (maint/kit-merge-train.sh, kit issue #2213): one gate on a combined local train head,
+- `kit-merge-train: <state>` (`rsdd gate merge-train`, kit issues #2213 and #2499; `maint/kit-merge-train.sh` is a shim over it): one gate on a combined local train head,
   then an ordered merge. It reuses `merged` 0, `usage` 2, `degraded` 3, `fetch-failed` 21 and `gate-lock-timeout` 22
   from `reason-codes.d/kit-pr-pipeline.md` and relays `ci-failed` 17, `merge-degraded` 18 and `not-merged` 19 from `kit-wait-merge.sh`
   (the PRs after the one that stopped the train are `pending` in the receipt). Per-PR lines `train-refused #N:
   <reason>` (`not-open`, `draft`, `rdd-unconfirmed`, `rdd-head-mismatch`, `head-moved`, `gh-view-failed`) and
-  `train-conflict #N` drop that PR and are not exits. `tests/kit-merge-train.test.sh` pins them.
+  `train-conflict #N` drop that PR and are not exits. The Go tests in `rsdd/internal/gate/mergetrain*_test.go` pin them, including a differential against the frozen original.
 
   | state | exit | continuation |
   |---|---|---|

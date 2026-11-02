@@ -1,0 +1,13 @@
+{
+  "legacy": [
+    "rsdd/internal/core/hookwiring/testdata/legacy/driver.sh",
+    "cli-wired-exec",
+    "{{input}}"
+  ],
+  "rsdd": [
+    "hook",
+    "wired-exec",
+    "{{input}}"
+  ],
+  "env": {}
+}

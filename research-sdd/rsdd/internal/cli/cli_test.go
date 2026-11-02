@@ -112,6 +112,26 @@ func TestDegradedExitCarriesDEGRADEDLine(t *testing.T) {
 	}
 }
 
+// A legacy contract where 3 means something else (ensure-remote: no consent) opts out of the degraded line;
+// every other command, and a plain-3 command that ends on another code, keeps the default contract.
+func TestPlainExit3SkipsTheDegradedLine(t *testing.T) {
+	table := []cli.Command{
+		{Name: "refuse", Summary: "x", PlainExit3: true, Run: func(_ []string, s cli.Stdio) int {
+			s.Err.Write([]byte("REFUSED: no consent\n"))
+			return 3
+		}},
+		{Name: "silent", Summary: "x", Run: func([]string, cli.Stdio) int { return cli.ExitDegraded }},
+	}
+	code, _, errOut := run(t, table, "refuse")
+	if code != 3 || errOut != "REFUSED: no consent\n" {
+		t.Errorf("plain exit 3: got (%d, %q), want exit 3 and only the REFUSED line", code, errOut)
+	}
+	code, _, errOut = run(t, table, "silent")
+	if code != 3 || !strings.Contains(errOut, "DEGRADED: command reported a degraded state without a reason") {
+		t.Errorf("default exit 3: got (%d, %q), want the DEGRADED: line", code, errOut)
+	}
+}
+
 func TestUsageErrorsExit2(t *testing.T) {
 	for _, args := range [][]string{nil, {"nope"}, {"verify"}, {"verify", "nope"}} {
 		if code, _, _ := run(t, testTable(), args...); code != cli.ExitUsage {

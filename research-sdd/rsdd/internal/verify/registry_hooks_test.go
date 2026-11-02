@@ -110,7 +110,10 @@ func TestRegistryHookSections(t *testing.T) {
 			}
 			want(t, r.stdout, sub(c.out)...)
 			wantNot(t, r.stdout, sub(c.notOut)...)
-			want(t, r.stdout, c.attn)
+			want(t, r.stdout, " · "+c.attn+".\n") // the whole counter: "1 attention" alone also matches "-1 attention"
+			if r.stderr != "" {
+				t.Errorf("stderr %q, want none (every hook check ran)", r.stderr)
+			}
 		})
 	}
 }

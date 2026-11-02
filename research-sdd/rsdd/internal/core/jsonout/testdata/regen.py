@@ -7,7 +7,7 @@ The three modes use the exact json.dumps arguments of the kit sources:
   canonical : research-sdd/toolbelt/lib/adapter_core.py:84      sort_keys, separators (",", ":")
   unicode   : research-sdd/toolbelt/analysis_manifest.py:45 and zip_metadata.py:22
               ensure_ascii=False + the canonical arguments
-  indented  : the _write_json helpers (bog_nav.py:95, module_find.py:47, ...)  indent=2, sort_keys
+  indented  : the _write_json helpers (palette_lexicon_agents.py, serial-frame_analyze.py, ...)  indent=2, sort_keys
 Each ends with a newline and is written as UTF-8 bytes.
 """
 import json
