@@ -1,0 +1,1768 @@
+{
+ "misc/big-numbers-survive": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: run.duration_ms is invalid\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "base.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "o.json": "file -rw------- 66e89d0c994a1eb6 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":123456789012345678901234567890,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "o3.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 9f2f75b6cf82e985 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":123456789012345678901234567890,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "spec3.json": "file -rw-r--r-- 46b4b893c274c1e6 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":-0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "spec4.json": "file -rw-r--r-- 91d6e0a09f281cac {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1e3,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/create-twice-then-overwrite": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: manifest exists; use --overwrite to replace it\n",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "atomic.json": "file -rw------- d1187889474a19e4 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- ddf380c50e7d9a47 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/duplicate-keys-last-wins": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: completeness is invalid\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "o.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 32b3d6e5d34e8fc6 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"failed\",\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "spec2.json": "file -rw-r--r-- 02d84d04ba3618bb {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"completeness\":\"nope\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/input-is-fifo-free-dir-and-special": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: input.path must be a canonical artifact-relative path\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: input.path must be a canonical artifact-relative path\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: file identity is not a regular file\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- a7e104779ed9a919 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"evidence\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/non-ascii-content": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "o.json": "file -rw------- 5be4606d51eb8134 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"clâim \u2028 line\",\"evidence_locations\":[\"évidence.bin:1\"],\"id\":\"é😀\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[\"\u003climit\u003e \u0026 \\\"quote\\\" \\\\  \\u0001\"],\"outputs\":[{\"path\":\"évidence.bin\",\"sha256\":\"sha256:edd3a863872a04239eb29ad4bc12fc892b3d4ae57cc7e786a3697816f8e141c2\",\"size\":3}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 541a0b036ac08fa9 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"clâim \\u2028 line\",\"evidence_locations\":[\"évidence.bin:1\"],\"id\":\"é😀\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[\"\\u003climit\\u003e \\u0026 \\\"quote\\\" \\\\  \\u0001\"],\"outputs\":[\"évidence.bin\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n",
+   "évidence.bin": "file -rw-r--r-- edd3a863872a0423 é\n"
+  }
+ },
+ "misc/output-dir-missing": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/nodir/.out.json.RAND.tmp'\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/output-in-symlinked-dir": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "alias": "link @/real",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "real": "dir",
+   "real/out.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/output-is-directory": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: manifest exists; use --overwrite to replace it\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 21] Is a directory: '@/.outdir.RAND.tmp' -\u003e '@/outdir'\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outdir": "dir",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/output-is-symlink": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: manifest exists; use --overwrite to replace it\n",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "link.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/output-path-dotted-names": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   ".hidden.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   ".x.json.tmp": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "a b.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/output-relative-and-cwd": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "out.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/overwrite-keeps-mode-of-new-file": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "out.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/relative-root-from-subdir": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "sub": "dir",
+   "sub/out.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/root-is-file": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: file identity cannot be opened safely\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/root-missing": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: file identity cannot be opened safely\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/root-symlink": {
+  "results": [
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   },
+   {
+    "rc": 0,
+    "out": "",
+    "err": "",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "o.json": "file -rw------- 412b1e82269cd971 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"identity\":\"sha256:ID\",\"input\":{\"detected_type\":\"data\",\"name\":\"sample.bin\",\"path\":\"sample.bin\",\"sha256\":\"sha256:cadf03e994b22c2ab13076318b526726000c17d5eb6ab2a05caef0f7c3ccd754\",\"size\":11},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[{\"path\":\"outputs/result.txt\",\"sha256\":\"sha256:5656fafa00d4f294bcb606cf4f7d4fa877390e46f583e8b3c8744ace104a31d1\",\"size\":7}],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr\":{\"path\":\"evidence/stderr.txt\",\"sha256\":\"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"size\":0},\"stdout\":{\"path\":\"evidence/stdout.txt\",\"sha256\":\"sha256:8150039be186b88f35bfd9fdf82d9fa94fece8539480b22febdc387c77a275ba\",\"size\":8},\"tool\":{\"artifacts\":[],\"launcher\":{\"resolved_executable\":\"@/bin/tool\",\"sha256\":\"sha256:022036a28655c76d3ac5e1584872c898d161687b7578de171ac3447b7447bf68\"},\"name\":\"fixture\",\"version\":\"1.0\"}}\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "rootlink": "link @",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 21cb5dfde5fcc931 {\"argv\":[\"@/bin/tool\",\"--inspect\",\"sample.bin\"],\"completeness\":\"complete\",\"environment\":{\"LANG\":\"C.UTF-8\",\"TZ\":\"UTC\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"@/bin/tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-bad-start": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- b26f99543485cab0 �{",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-e0-bad-second": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xe0 in position 0: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 81cb6f2a8be07e0b ���",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-f4-too-big": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xf4 in position 0: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- fb16995ef3b5d7c2 ����",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-f8": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xf8 in position 0: invalid start byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- c0569cef7287222a �����",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-four-byte-bad": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xf0 in position 0: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- f1f835367e7b6094 �(��",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-latin1": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xe9 in position 1: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 5477fa1001e39ee1 {�}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-lone-continuation": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 76be8b528d0075f7 �",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-overlong": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xc0 in position 0: invalid start byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- caf573f0daa6960e ��",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-surrogate-bytes": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 91a681b998555fb4 ���",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-three-byte-bad-third": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode bytes in position 0-1: invalid continuation byte\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 958a720949c96f32 ��A",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-truncated-seq": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode bytes in position 1-2: unexpected end of data\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 1efc9a17515abe8b {��",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-bytes-valid-then-bad": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: 'utf-8' codec can't decode byte 0xc3 in position 2: unexpected end of data\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 3fcb420d6e9f5fe3 {}�",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-missing": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: 'none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: 'sub/none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: 'none.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 21] Is a directory: '.'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 21] Is a directory: '.'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 21] Is a directory: '@'\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-not-readable": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 13] Permission denied: '@/unreadable.json'\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n",
+   "unreadable.json": "file ---------- e3b0c44298fc1c14 "
+  }
+ },
+ "misc/spec-text-bigint": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Exceeds the limit (4300 digits) for integer string conversion: value has 4400 digits; use sys.set_int_max_str_digits() to increase the limit\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Exceeds the limit (4300 digits) for integer string conversion: value has 4400 digits; use sys.set_int_max_str_digits() to increase the limit\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Exceeds the limit (4300 digits) for integer string conversion: value has 4400 digits; use sys.set_int_max_str_digits() to increase the limit\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 71e2d074dd8ebb0c {\"schema_version\": 99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-bom": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- aa25e978046d680e ﻿{}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-control": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Invalid control character at: line 1 column 8 (char 7)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Invalid control character at: line 1 column 8 (char 7)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Invalid control character at: line 1 column 8 (char 7)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 100f3b1a1f733305 {\"a\": \"\u0001\"}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-cr-error": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 7 (char 8)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 7 (char 8)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 7 (char 8)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 050b3c55263d553a {\r \"a\": ,\r}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-crlf-error": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 3 column 7 (char 17)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 3 column 7 (char 17)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 3 column 7 (char 17)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- c1d0588605296536 {\r\n \"a\": 1,\r\n \"b\": ,\r\n}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-deep": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 82cdd94fb6c6256f [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-double": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 3 (char 2)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 3 (char 2)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 3 (char 2)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- b51f08b698d88d80 {}{}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-empty": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 1 (char 0)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 1 (char 0)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 1 (char 0)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-lf-error": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting property name enclosed in double quotes: line 4 column 2 (char 5)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting property name enclosed in double quotes: line 4 column 2 (char 5)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting property name enclosed in double quotes: line 4 column 2 (char 5)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 50f4f8f8b3e1b82c {\n\n\n x}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-list": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 4f53cda18c2baa0c []",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-multibyte-error": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 8 (char 7)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 8 (char 7)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 1 column 8 (char 7)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 692066d0e797e0ea {\"é😀\": ,}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-null": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 74234e98afe7498f null",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-number": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- ef2d127de37b942b 5",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-spaces": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 1 (char 4)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 1 (char 4)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Expecting value: line 2 column 1 (char 4)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 2106c36011520fe7    \n",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-string": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: JSON root must be an object\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- ba2df4903a2c14e8 \"x\"",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-tabs": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: spec fields invalid; missing=['argv', 'completeness', 'environment', 'errors', 'findings', 'input', 'isolation_profile', 'limitations', 'outputs', 'run', 'schema_version', 'stderr_path', 'stdout_path', 'tool'], extra=[]\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: manifest fields invalid; missing=['argv', 'completeness', 'environment', 'errors', 'findings', 'identity', 'input', 'isolation_profile', 'limitations', 'outputs', 'run', 'schema_version', 'stderr', 'stdout', 'tool'], extra=[]\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: manifest fields invalid; missing=['argv', 'completeness', 'environment', 'errors', 'findings', 'identity', 'input', 'isolation_profile', 'limitations', 'outputs', 'run', 'schema_version', 'stderr', 'stdout', 'tool'], extra=[]\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 44fb71aaebdab20b \t{\t}\t",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-trailing": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 4 (char 3)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 4 (char 3)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Extra data: line 1 column 4 (char 3)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- bbbe9eb3a1d1c2c2 {} x",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-trailing-comma": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Illegal trailing comma before end of object: line 1 column 7 (char 6)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Illegal trailing comma before end of object: line 1 column 7 (char 6)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Illegal trailing comma before end of object: line 1 column 7 (char 6)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- aa99a5ce3eb0dd83 {\"a\":1,}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/spec-text-unterminated": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unterminated string starting at: line 1 column 7 (char 6)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unterminated string starting at: line 1 column 7 (char 6)\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: Unterminated string starting at: line 1 column 7 (char 6)\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- f64f7ab0c75a98a5 {\"a\": \"x",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/tilde-expands-home": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: PATH launcher is not coherent with argv zero\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/o.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/o.json'\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: [Errno 2] No such file or directory: '@/o.json'\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "home": "dir",
+   "home/bin": "dir",
+   "home/bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 4e42e3fac6c1c9d8 {\"argv\":[\"tool\"],\"completeness\":\"complete\",\"environment\":{\"PATH\":\"~/bin\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ },
+ "misc/tilde-home-variants": {
+  "results": [
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: PATH launcher is not coherent with argv zero\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: PATH launcher is not coherent with argv zero\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: tool command is unresolved or mismatched\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: tool command is unresolved or mismatched\n",
+    "crash": ""
+   },
+   {
+    "rc": 2,
+    "out": "",
+    "err": "analysis-manifest: tool command is unresolved or mismatched\n",
+    "crash": ""
+   }
+  ],
+  "tree": {
+   ".": "dir",
+   "bin": "dir",
+   "bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "evidence": "dir",
+   "evidence/stderr.txt": "file -rw-r--r-- e3b0c44298fc1c14 ",
+   "evidence/stdout.txt": "file -rw-r--r-- 8150039be186b88f finding\n",
+   "home": "dir",
+   "home/bin": "dir",
+   "home/bin/tool": "file -rwx------ 022036a28655c76d #!/bin/false\n",
+   "outputs": "dir",
+   "outputs/result.txt": "file -rw-r--r-- 5656fafa00d4f294 result\n",
+   "sample.bin": "file -rw-r--r-- cadf03e994b22c2a input\u0000bytes",
+   "spec.json": "file -rw-r--r-- 63c90b998d811e23 {\"argv\":[\"tool\"],\"completeness\":\"complete\",\"environment\":{\"PATH\":\"~/bin\"},\"errors\":[],\"findings\":[{\"claim\":\"Observed fixture output\",\"evidence_locations\":[\"evidence/stdout.txt:1\"],\"id\":\"F-1\"}],\"input\":{\"detected_type\":\"data\",\"path\":\"sample.bin\"},\"isolation_profile\":{\"name\":\"wsl-static\",\"network_access\":false,\"static_only\":true,\"target_execution\":false},\"limitations\":[],\"outputs\":[\"outputs/result.txt\"],\"run\":{\"duration_ms\":1000,\"ended_at\":\"2026-07-18T08:00:01Z\",\"exit_code\":0,\"signal\":null,\"started_at\":\"2026-07-18T08:00:00Z\"},\"schema_version\":\"analysis-manifest.v1\",\"stderr_path\":\"evidence/stderr.txt\",\"stdout_path\":\"evidence/stdout.txt\",\"tool\":{\"artifacts\":[],\"executable\":\"tool\",\"name\":\"fixture\",\"version\":\"1.0\"}}",
+   "tools": "dir",
+   "tools/plugin.jar": "file -rw-r--r-- 31839cf498c43498 plugin bytes\n",
+   "tools/vineflower.jar": "file -rw-r--r-- 42197366c0a7b6b8 jar bytes\n"
+  }
+ }
+}
