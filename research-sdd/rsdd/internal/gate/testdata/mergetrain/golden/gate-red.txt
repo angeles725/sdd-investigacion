@@ -1,0 +1,51 @@
+rc: 26
+--- stdout
+kit-gate: gate rc=1 log=<CASE>/state/gate-train-<TS>.log
+kit-merge-train: receipt=<CASE>/state/train-<TS>.json
+kit-merge-train: train-gate-failed: the combined gate was red; nothing merged (log <CASE>/state/gate-train-<TS>.log)
+--- stderr
+--- calls
+gh pr view 1 --json state,isDraft,headRefOid,baseRefName
+gh pr view 2 --json state,isDraft,headRefOid,baseRefName
+gh pr view 3 --json state,isDraft,headRefOid,baseRefName
+GATE 07f2c31801fb3ff98d802c3b0b339f2ea64f5260 pr-1.txt pr-2.txt pr-3.txt 
+--- receipt
+{
+  "state": "train-gate-failed",
+  "base_sha": "e1cd0c5ecf75e916ef4652aee3a648842d80a6da",
+  "train_branch": "train/<TS>",
+  "train_sha": "07f2c31801fb3ff98d802c3b0b339f2ea64f5260",
+  "gate": {
+    "rc": 1,
+    "log": "<CASE>/state/gate-train-<TS>.log",
+    "cmd": "echo \"GATE $(git rev-parse HEAD) $(ls pr-*.txt 2>/dev/null | tr \"\\n\" \" \")\" >> \"$CASE/calls.log\"; [ ! -e bad.txt ]"
+  },
+  "culprit": null,
+  "prs": [
+    {
+      "pr": 1,
+      "head": "21e775e84ba8f15c31e14e1cb57f12e2ba0c7318",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "pr": 2,
+      "head": "53ef924b843910ca3ff6659ee61a7f3f092ab17a",
+      "status": "pending",
+      "reason": ""
+    },
+    {
+      "pr": 3,
+      "head": "aafa295c924c89559f2294d9fd4ded9e41889335",
+      "status": "pending",
+      "reason": ""
+    }
+  ]
+}
+--- left behind
+remote-heads: refs/heads/main
+local-branches: 
+worktrees-left: 
+train-refs: 
+orig-wt: gone
+state-files: gate-train-<TS>.log gate.lock train-<TS>.json
