@@ -18,7 +18,7 @@
     "bad-rt/module.palette: XML parse error: syntax error: line 1, column 0"
   ],
   "limitations": [
-    "module.palette read capped at 16777216 bytes; a pathological XML tree can still exceed available memory during parse; MemoryError is caught and reported as status:failed.",
+    "module.palette read capped at 16777216 bytes; a pathological XML tree can still exceed available memory during parse and terminate the process.",
     ".lexicon read capped at 4194304 bytes per file.",
     "module.xml read capped at 1048576 bytes.",
     "Artifact subdirs capped at 500 per module.",

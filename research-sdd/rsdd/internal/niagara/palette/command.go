@@ -34,7 +34,7 @@ const (
 
 // limitations is emitted verbatim in every document.
 var limitations = []any{
-	fmt.Sprintf("module.palette read capped at %d bytes; a pathological XML tree can still exceed available memory during parse; MemoryError is caught and reported as status:failed.", maxPaletteBytes),
+	fmt.Sprintf("module.palette read capped at %d bytes; a pathological XML tree can still exceed available memory during parse and terminate the process.", maxPaletteBytes),
 	fmt.Sprintf(".lexicon read capped at %d bytes per file.", maxLexiconBytes),
 	fmt.Sprintf("module.xml read capped at %d bytes.", maxModuleXMLBytes),
 	fmt.Sprintf("Artifact subdirs capped at %d per module.", maxArtifacts),
