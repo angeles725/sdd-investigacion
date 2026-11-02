@@ -5,9 +5,11 @@ package corroborate
 import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/capa"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/carve"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/classfile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/decompile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/fidelity"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/firmware"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/floss"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/ghidra"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate/java"
@@ -30,4 +32,6 @@ var Commands = []cli.Command{
 	{Name: "pcap-flows", Group: "corroborate", Summary: "TCP/UDP conversations and per-stream payload digests (pcap-flows.v1)", Run: pcap.RunFlows},
 	{Name: "native", Group: "corroborate", Summary: "bounded radare2 evidence for one native binary (native-static.v1)", Run: native.Run},
 	{Name: "ghidra", Group: "corroborate", Summary: "sandboxed Ghidra curated evidence for one native binary (ghidra-corroboration.v1)", Run: ghidra.Run},
+	{Name: "carve", Group: "corroborate", Summary: "carve validated uImage and SquashFS byte ranges out of a firmware image (bubblewrap)", Run: carve.Run},
+	{Name: "firmware", Group: "corroborate", Summary: "bounded, non-extracting Binwalk evidence for one firmware image (bubblewrap)", Run: firmware.Run},
 }

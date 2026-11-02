@@ -1,0 +1,27 @@
+"""Frozen Python-source sample for adapter-core.test.sh --prove-teeth (data only: parsed, never executed).
+
+The teeth mutate the guard/dispatch lines of main() below and require the AST convention check to reject
+each mutant. It mirrors the shape of the retired firmware_carve.py main().
+"""
+
+
+def refuse_privileged_execution():
+    raise NotImplementedError
+
+
+def worker(args):
+    raise NotImplementedError
+
+
+def parser():
+    raise NotImplementedError
+
+
+def main(argv=None):
+    args = parser().parse_args(argv)
+    try:
+        refuse_privileged_execution()
+        if args.worker: return worker(args)
+        return 0
+    finally:
+        pass

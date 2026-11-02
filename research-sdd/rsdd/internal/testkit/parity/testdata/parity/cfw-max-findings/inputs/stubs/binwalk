@@ -1,0 +1,3 @@
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk v2.3.3'; exit; }
+printf '2 0x2 third\n0 0x0 first\n1 0x1 second\n'
