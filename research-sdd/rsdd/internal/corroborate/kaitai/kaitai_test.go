@@ -465,3 +465,91 @@ func TestIsoZ(t *testing.T) {
 		t.Error(got)
 	}
 }
+
+// TestDeterministicEvidence pins that two runs over the same inputs publish byte-identical evidence and manifest
+// (bash T3), and that the manifest is a schema-tagged document naming the generated parser and the driver (bash T16).
+func TestDeterministicEvidence(t *testing.T) {
+	w := newWorld(t)
+	if rc := w.run(w.args()...); rc != 0 {
+		t.Fatalf("rc=%d %s", rc, w.errb.String())
+	}
+	first, err := os.ReadFile(w.dir + "/out/res/kaitai-evidence.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rc := w.run("--input", w.dir+"/in/sample.bin", "--ksy", w.dir+"/in/demo.ksy", "--output", w.dir+"/out/res"+"2"); rc != 0 {
+		t.Fatalf("second run rc=%d %s", rc, w.errb.String())
+	}
+	second, err := os.ReadFile(w.dir + "/out/res2/kaitai-evidence.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Errorf("evidence differs between runs:\n%s\n%s", first, second)
+	}
+	raw, err := os.ReadFile(w.dir + "/out/res/engine/analysis-manifest.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("analysis-manifest.v1")) || !bytes.Contains(raw, []byte("engine/gen/demo.py")) || !bytes.Contains(raw, []byte("engine/driver.py")) {
+		t.Errorf("manifest does not describe the published tree: %s", raw)
+	}
+}
+
+// TestCapsReachTheDriver pins that every cap flag is forwarded to the sandboxed driver (bash T4/T5/T6/T9b/T9c:
+// the cap itself is enforced by the driver, so the adapter's duty is the exact argv).
+func TestCapsReachTheDriver(t *testing.T) {
+	w := newWorld(t)
+	if rc := w.run(w.args("--max-fields", "2", "--max-depth", "1", "--max-value-bytes", "4", "--max-memory-mb", "80")...); rc != 0 {
+		t.Fatalf("rc=%d %s", rc, w.errb.String())
+	}
+	var drv []string
+	for _, a := range w.argvs {
+		if strings.Contains(strings.Join(a, " "), "driver.py") {
+			drv = a
+		}
+	}
+	if drv == nil {
+		t.Fatal("driver stage never ran")
+	}
+	j := " " + strings.Join(drv, " ") + " "
+	for _, want := range []string{" --max-fields 2 ", " --max-depth 1 ", " --max-value-bytes 4 ", " --max-memory-mb 80 "} {
+		if !strings.Contains(j, want) {
+			t.Errorf("driver argv lacks %q: %v", want, drv)
+		}
+	}
+}
+
+// TestKscFailurePublishesNothing pins that a failed compile (malformed or import-broken .ksy: bash T7/T14) leaves
+// no output directory at all, not merely no evidence file.
+func TestKscFailurePublishesNothing(t *testing.T) {
+	w := newWorld(t)
+	w.ksc = func(proc.Spec) proc.Result { return proc.Result{ReturnCode: 1, Stderr: []byte("cannot import")} }
+	if rc := w.run(w.args()...); rc != 2 {
+		t.Fatalf("rc=%d %s", rc, w.errb.String())
+	}
+	if _, err := os.Lstat(w.dir + "/out/res"); err == nil {
+		t.Error("output directory exists after a failed compile")
+	}
+}
+
+// TestShallowBrewRootIsRejected composes the scope guard with the JVM binding (bash T17): a ksc whose brew root is
+// the home directory must be refused before any sandbox runs.
+func TestShallowBrewRootIsRejected(t *testing.T) {
+	w := newWorld(t)
+	home := w.env["HOME"]
+	write(t, home+"/bin/kaitai-struct-compiler", "#!/bin/sh\n", 0o755)
+	if err := os.MkdirAll(home+"/Cellar", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w.env["RSDD_KSC"] = home + "/bin/kaitai-struct-compiler"
+	if rc := w.run(w.args()...); rc != 2 {
+		t.Fatalf("rc=%d want 2; %s", rc, w.errb.String())
+	}
+	if !strings.Contains(w.errb.String(), "path rejected by toolchain scope guard: ") {
+		t.Errorf("stderr: %q", w.errb.String())
+	}
+	if len(w.argvs) > 1 {
+		t.Errorf("a sandbox ran despite the rejected brew root: %v", w.argvs)
+	}
+}
