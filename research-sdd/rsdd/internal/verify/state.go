@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -424,7 +425,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 	if prose := firstLineMatching(lines, reSCProse); prose != "" {
 		var nums []string
 		for _, m := range reSCNumber.FindAllString(prose, -1) {
-			nums = append(nums, reDigits.FindAllString(m, -1)[len(reDigits.FindAllString(m, -1))-1])
+			nums = append(nums, reDigits.FindString(m)) // m is `investigable:` plus one run of digits
 		}
 		scN := strings.Join(nums, "\n")
 		if scN != "" && scN != dInv {
@@ -588,10 +589,7 @@ func coverageDenominators(lines []string) []string {
 // numLess compares digit strings numerically at any length, like `sort -n`.
 func numLess(a, b string) bool {
 	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
-	if len(a) != len(b) {
-		return len(a) < len(b)
-	}
-	return a < b
+	return cmp.Or(cmp.Compare(len(a), len(b)), strings.Compare(a, b)) < 0
 }
 
 // arithAbort is the abort of a bash arithmetic expansion over a leading-zero integer holding an 8 or 9.
@@ -603,7 +601,7 @@ func arithSum(vals ...string) int64 {
 	for _, s := range vals {
 		base := uint64(10)
 		digits := s
-		if len(s) > 1 && s[0] == '0' {
+		if strings.HasPrefix(s, "0") {
 			base, digits = 8, s[1:]
 		}
 		var n uint64

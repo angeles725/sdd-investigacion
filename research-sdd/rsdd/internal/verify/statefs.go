@@ -97,7 +97,7 @@ func (v fsView) realpath(p string) (string, bool) {
 			rest = append(splitPath(t), rest...)
 			continue
 		}
-		if len(rest) > 0 && !onlyEmpty(rest) && !st.IsDir() {
+		if !onlyEmpty(rest) && !st.IsDir() {
 			return "", false
 		}
 		resolved = append(resolved, c)
@@ -227,8 +227,7 @@ func (v fsView) findStates(target string) []string {
 }
 
 func isStateName(name string) bool {
-	return len(name) >= len("RESEARCH-STATE")+len(".md") && strings.HasPrefix(name, "RESEARCH-STATE") &&
-		strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".template.md")
+	return strings.HasPrefix(name, "RESEARCH-STATE") && strings.HasSuffix(name, ".md") && !strings.HasSuffix(name, ".template.md")
 }
 
 // regularMarkdown lists the regular (non-symlink) *.md files directly under dir as find prints them

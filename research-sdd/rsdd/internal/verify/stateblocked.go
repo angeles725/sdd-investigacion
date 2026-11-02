@@ -244,7 +244,6 @@ func missingUnblock(body string) (miss, ord int) {
 		npos, upos = 0, 0
 	}
 	for nr, l := range bodyLines(body) {
-		nr++
 		if reBlank.MatchString(l) {
 			if open {
 				if isb {
@@ -297,9 +296,8 @@ func (b backlogStream) missingUnblockRows(body string) int {
 			return
 		}
 		tok := firstWord(stripBold(st))
-		if i := strings.IndexAny(tok, ":,"); i >= 0 {
-			tok = tok[:i]
-		}
+		tok, _, _ = strings.Cut(tok, ":")
+		tok, _, _ = strings.Cut(tok, ",")
 		switch {
 		case strings.HasPrefix(tok, "blocked-on-"), tok == "blocked", tok == "unavailable", tok == "refused", tok == "not-extracted", tok == "not-buildable":
 		default:

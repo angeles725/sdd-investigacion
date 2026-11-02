@@ -4,9 +4,9 @@ package verify
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,10 +15,11 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
-// Differential tests for `rsdd verify state`: the frozen legacy verify-state.sh (testdata/state-legacy, the bytes
-// of the script and the libraries it sources before the port) and the Go command must print the same stdout,
-// the same stderr and exit with the same code from the same fixture. A missing bash, awk, jq, xargs or realpath
-// FAILS: a skipped differential proves nothing.
+// Cases for `rsdd verify state`. The frozen legacy verify-state.sh (testdata/state-legacy, the bytes of the script
+// and the libraries it sources before the port) is the oracle: statediff_oracle_test.go (!nodiff) runs it on every
+// case, asserts the Go command prints the same stdout, the same stderr and exits with the same code, and asserts the
+// outcome equals testdata/state-goldens.json (regenerate with RSDD_UPDATE_GOLDENS=1). TestStateGoldens below
+// replays the Go command against those goldens without bash, so the mutation run (nodiff) still has teeth.
 
 func sdLegacyDir(t *testing.T) string {
 	t.Helper()
@@ -31,25 +32,6 @@ func sdLegacyDir(t *testing.T) string {
 
 func sdEnviron(home string) []string {
 	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "LC_ALL=C.UTF-8", "RSDD_CLAUDE_PROJECTS_DIR=/nonexistent/rsdd-claude-history"}
-}
-
-// sdLegacy runs the frozen script in cwd.
-func sdLegacy(t *testing.T, cwd string, args ...string) observed {
-	t.Helper()
-	cmd := exec.Command("bash", append([]string{filepath.Join(sdLegacyDir(t), "verify-state.sh")}, args...)...)
-	cmd.Dir = cwd
-	cmd.Env = sdEnviron(t.TempDir())
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	rc := 0
-	if err := cmd.Run(); err != nil {
-		ee, ok := err.(*exec.ExitError)
-		if !ok {
-			t.Fatalf("bash: %v", err)
-		}
-		rc = ee.ExitCode()
-	}
-	return observed{out.String(), errb.String(), rc}
 }
 
 // sdGo runs the Go command in cwd with the same environment and the legacy toolbelt (for check-gap-drift.sh).
@@ -74,32 +56,6 @@ func sdGo(t *testing.T, cwd string, toolbelt bool, args ...string) observed {
 		rc = 1
 	}
 	return observed{out.String(), errb.String(), rc}
-}
-
-// sdCompare runs both on the same arguments and reports any difference.
-func sdCompare(t *testing.T, what, cwd string, args ...string) observed {
-	t.Helper()
-	want := sdNormalize(t, sdLegacy(t, cwd, args...))
-	got := sdGo(t, cwd, true, args...)
-	same(t, what, want, got)
-	return want
-}
-
-// sdNormalize applies the intended differences to the legacy observation: bash names the script as it was
-// invoked in its own error lines (the Go command prints "verify-state.sh"), and the "[: N: integer expression
-// expected" errors of a test over an integer beyond int64 are not reproduced (the comparison is false in both).
-func sdNormalize(t *testing.T, o observed) observed {
-	t.Helper()
-	script := filepath.Join(sdLegacyDir(t), "verify-state.sh")
-	var keep []string
-	for _, l := range strings.SplitAfter(o.stderr, "\n") {
-		if strings.Contains(l, ": line ") && strings.HasSuffix(l, ": integer expression expected\n") {
-			continue
-		}
-		keep = append(keep, strings.Replace(l, script+": line ", "verify-state.sh: line ", 1))
-	}
-	o.stderr = strings.Join(keep, "")
-	return o
 }
 
 func sdWrite(t *testing.T, path, content string) {
@@ -599,27 +555,147 @@ func sdCases() []sdCase {
 		}},
 		{name: "bulk-envelope-values", setup: state(sdConsistent("x"))},
 		{name: "bullets-envelope-helper", setup: state(sdJoin(bulletsEnv("0", "0"), "## Gap-backlog", sdTable4))},
+
+		// mutation teeth (kit #2457): shapes the cases above leave to the bash oracle alone
+		{name: "focus-found-relative-target", args: func(string) []string { return []string{"sub", "--focus", "auth"} }, setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "sub", "RESEARCH-STATE-auth.md"), sdConsistent())
+		}},
+		{name: "focus-relative-target-no-envelope", args: func(string) []string { return []string{"sub", "--focus", "auth"} }, setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "sub", "RESEARCH-STATE-auth.md"), "plain\n")
+		}},
+		{name: "focus-relative-target-unreadable", args: func(string) []string { return []string{"sub", "--focus", "auth"} }, setup: func(t *testing.T, d string) {
+			if os.Geteuid() == 0 {
+				t.Skip("root reads mode-000 files")
+			}
+			sdWrite(t, filepath.Join(d, "sub", "RESEARCH-STATE-auth.md"), sdConsistent())
+			if err := os.Chmod(filepath.Join(d, "sub", "RESEARCH-STATE-auth.md"), 0); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "focus-absent-relative-target", args: func(string) []string { return []string{"sub", "--focus", "zz"} }, setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "sub", "RESEARCH-STATE.md"), sdConsistent())
+		}},
+		{name: "stop-control-prose-mismatch", setup: state(sdConsistent("## Stop control", "- read-only investigable: 5", ""))},
+		{name: "stop-control-prose-match", setup: state(sdConsistent("## Stop control", "- read-only investigable: 0", ""))},
+		{name: "stop-control-prose-two-numbers", setup: state(sdConsistent("## Stop control", "- read-only investigable: 2 (total investigable: 14)", ""))},
+		{name: "stop-control-prose-bold", setup: state(sdConsistent("## Stop control", "- Read-only investigable**: **12", ""))},
+		{name: "history-table-without-trailing-pipe", setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), strings.Replace(strings.Replace(sdConsistent("## Iteration history", "| # | Date | Block", "|---|---|---|", "| 1 | d | B4", "| 2 | d | B5", "", "## Other"), "covered_blocks: 0", "covered_blocks: 2", 1), "<!-- /research-state.v1 -->", "block_scope: shared-global\n<!-- /research-state.v1 -->", 1))
+			sdWrite(t, filepath.Join(d, "x-block4.md"), "b\n")
+			sdWrite(t, filepath.Join(d, "x-block5.md"), "b\n")
+		}},
+		{name: "backlog-struck-priority-four-tildes", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| ~~~~ | g | w | pending |"))},
+		{name: "backlog-struck-priority-three-tildes", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| ~~~ | g | w | pending |"))},
+		{name: "backlog-struck-priority-long", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| ~~high~~ | g | w | pending |"))},
+		{name: "backlog-five-columns-covered-pipe", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "| Priority | ID | Gap | Artifact | Status |", "|---|---|---|---|---|", "| high | G1 | one | a | covered | extra |", "| high | G2 | two | a | pending | extra |", "| high | G3 | three |"))},
+		{name: "backlog-four-columns-short-and-pending-pipe", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | g | w | pending | extra |", "| high | g | w |"))},
+		{name: "backlog-oob-six-column-priority-table", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "", "## Other", "| Priority | b | c | d | e | f |", "|---|---|---|---|---|---|", "| high | g | w | x | pending | z |", "| low | g | w | x | pending | z |"))},
+		{name: "backlog-oob-five-column-priority-table", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "", "## Other", "| Priority | ID | Gap | Artifact | Status |", "|---|---|---|---|---|", "| high | G1 | one | a | pending |", "| low | G2 | two | b | pending |"))},
+		{name: "backlog-high-row-before-separator", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", "| high | g | w | pending |", "| high | g | w | x | y | pending |"))},
+		{name: "backlog-near-miss-unknown-priority-first", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog-extra", "| a | b | c | d |", "|---|---|---|---|", "| zzz | g | w | pending |", "| yyy | g | w | pending |", "| high | g | w | pending |"))},
+		{name: "requires-execution-rows", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "requires_execution_open", "3"), "## Gap-backlog", sdTable4+"| high | a | w | requires-execution |", "| high | b | w | **requires-execution** |", "| high | c | w | requires-execution: needs a VM |", "| high | d | w | requires-execution-x |", "| high | e | w | requires-executionx |", "| high | f | w | requires-execution2 |", "| high | ~~g~~ | w | requires-execution |", "| high | h | w | requires-execution ~~x~~ |", "| high | i | w | requires-execution ✅ |", "| high |  | w | requires-execution |", "| high | j | w | not-requires-execution |"))},
+		{name: "deferred-oob-table-without-priority-header", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "0"), "## Gap-backlog", "", "## Other", "| a | b | c | d |", "|---|---|---|---|", "| deferred | g | w | pending |"))},
+		{name: "coverage-line-without-ratio", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "coverage metric: n/a", "gaps closed: none", "coverage metric: 4 / 4", "## Gap-backlog", sdTable4))},
+		{name: "backlog-three-column-table", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "| Priority | Gap | Status |", "|---|---|---|", "| high | g | pending |"))},
+		{name: "deferred-row-before-separator", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "1"), "## Gap-backlog", "| deferred | g | w | pending |"))},
+		{name: "deferred-rows-4col", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "1"), "## Gap-backlog", sdTable4+"| deferred | g | w | pending |", "| deferred | ~~g~~ | w | pending |", "| deferred | g | w | ~~pending~~ |", "| deferred | g | w | ✅ |", "| deferred | g | w |", "| deferred | g | w | p | q |"))},
+		{name: "deferred-rows-5col", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "1"), "## Gap-backlog", "| Priority | ID | Gap | Artifact | Status |", "|---|---|---|---|---|", "| deferred | G1 | one | a | pending |", "| deferred | G2 | ~~two~~ | a | pending |", "| deferred | G3 | three | ~~a~~ | pending |", "| deferred | G4 | four | a | **done** ~~x~~ |", "| deferred | G5 | five | a | ✅ |"))},
+		{name: "deferred-row-six-column-table", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "0"), "## Gap-backlog", "| a | b | c | d | e | f |", "|---|---|---|---|---|---|", "| deferred | g | w | x | y | pending |"))},
+		{name: "deferred-oob-table-with-priority-header", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "1"), "## Gap-backlog", "", "## Other", sdTable4+"| deferred | g | w | pending |"))},
+		{name: "hooks-settings-missing-target-and-dir-file", setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdConsistent())
+			sdWrite(t, filepath.Join(d, ".claude", "settings.json"), `{"hooks":{"a":{"command":"bash $CLAUDE_PROJECT_DIR/missing.sh"}}}`)
+			sdWrite(t, filepath.Join(d, ".claude", "hooks", "a.sh"), "<KIT>\n")
+		}},
+		{name: "hooks-dir-only-dangling-and-settings-file", setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdConsistent())
+			sdWrite(t, filepath.Join(d, ".claude", "settings.json"), `{"hooks":{"a":{"command":"bash $CLAUDE_PROJECT_DIR/in.sh"}}}`)
+			sdWrite(t, filepath.Join(d, "in.sh"), "<KIT>\n")
+			if err := os.MkdirAll(filepath.Join(d, ".claude", "hooks"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("missing-inroot", filepath.Join(d, ".claude", "hooks", "dangling")); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	}
 }
 
-func TestDifferentialState(t *testing.T) {
+const sdGoldenFile = "testdata/state-goldens.json"
+
+// sdGolden is one frozen oracle outcome; paths are scrubbed to placeholders.
+type sdGolden struct {
+	Stdout string `json:"stdout"`
+	Stderr string `json:"stderr"`
+	Rc     int    `json:"rc"`
+}
+
+func sdLoadGoldens(t *testing.T) map[string]sdGolden {
+	t.Helper()
+	b, err := os.ReadFile(sdGoldenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]sdGolden{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// sdScrub replaces the run-specific paths of an outcome with fixed placeholders.
+func sdScrub(t *testing.T, o observed, d string) sdGolden {
+	t.Helper()
+	var pairs []string
+	add := func(p, ph string) {
+		if p != "" && p != "/" && p != "." {
+			pairs = append(pairs, p, ph)
+		}
+	}
+	add(d, "<D>")
+	if r, err := filepath.EvalSymlinks(d); err == nil {
+		add(r, "<D>")
+	}
+	add(sdLegacyDir(t), "<L>")
+	add(filepath.Dir(filepath.Dir(d)), "<T>")
+	add(filepath.Dir(d), "<P>")
+	r := strings.NewReplacer(pairs...)
+	return sdGolden{r.Replace(o.stdout), r.Replace(o.stderr), o.rc}
+}
+
+// sdPrepare builds the corpus of a case under a fresh temp dir and returns it with the arguments.
+func sdPrepare(t *testing.T, c sdCase) (d string, args []string) {
+	t.Helper()
+	d = filepath.Join(t.TempDir(), "corpus")
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c.setup(t, d)
+	return d, c.argv(d)
+}
+
+// TestStateGoldens replays every case through the Go command and compares with the frozen oracle outcome.
+func TestStateGoldens(t *testing.T) {
+	goldens := sdLoadGoldens(t)
+	seen := map[string]bool{}
 	for _, c := range sdCases() {
+		seen[c.name] = true
 		t.Run(c.name, func(t *testing.T) {
-			d := filepath.Join(t.TempDir(), "corpus")
-			if err := os.MkdirAll(d, 0o755); err != nil {
-				t.Fatal(err)
+			want, ok := goldens[c.name]
+			if !ok {
+				t.Fatalf("no golden for case %q: run the !nodiff differential with RSDD_UPDATE_GOLDENS=1", c.name)
 			}
-			c.setup(t, d)
-			// relative arguments resolve against the corpus parent, absolute ones are used as written
-			cwd := d
-			args := c.argv(d)
-			if c.name == "relative-target-sub" || c.name == "hooks-claude-in-parent-relative" {
-				cwd = d
+			d, args := sdPrepare(t, c)
+			got := sdScrub(t, sdGo(t, d, true, args...), d)
+			if got != want {
+				t.Errorf("%s: outcome drifted from the frozen oracle\n--- want rc=%d\nstdout:\n%s\nstderr:\n%s\n--- got rc=%d\nstdout:\n%s\nstderr:\n%s",
+					c.name, want.Rc, want.Stdout, want.Stderr, got.Rc, got.Stdout, got.Stderr)
 			}
-			if c.name == "no-args" || c.name == "empty-arg" {
-				cwd = d
-			}
-			sdCompare(t, c.name, cwd, args...)
 		})
+	}
+	for name := range goldens {
+		if !seen[name] {
+			t.Errorf("golden %q has no case", name)
+		}
 	}
 }

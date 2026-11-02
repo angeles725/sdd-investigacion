@@ -549,11 +549,7 @@ func decNumberString(lit string) string {
 		if len(coef) > 1 {
 			out += "." + coef[1:]
 		}
-		sign := "+"
-		if adj < 0 {
-			sign, adj = "-", -adj
-		}
-		out += fmt.Sprintf("E%s%d", sign, adj)
+		out += fmt.Sprintf("E%+d", adj)
 	}
 	if neg {
 		out = "-" + out

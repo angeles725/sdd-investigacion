@@ -90,13 +90,12 @@ func backlogRows(src string, errw io.Writer) backlogStream {
 				}
 				continue
 			}
-			expectedCols = -1
 			if n == 4 || n == 5 {
 				expectedCols = n
+				continue
 			}
-			if expectedCols < 0 {
-				fmt.Fprintf(errw, "WARN: backlog table has %d columns (separator: %s) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n", n, rec)
-			}
+			expectedCols = -1
+			fmt.Fprintf(errw, "WARN: backlog table has %d columns (separator: %s) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n", n, rec)
 			continue
 		}
 		if strings.HasPrefix(p, "-") {
@@ -159,21 +158,17 @@ func backlogRows(src string, errw io.Writer) backlogStream {
 		if expectedCols > 0 {
 			sc = expectedCols
 		}
-		scMsg := "4 or 5"
-		if expectedCols > 0 {
-			scMsg = fmt.Sprint(sc)
-		}
 		if n != sc {
-			if sc == 5 && n > sc && strings.HasPrefix(asciiLower(cell(a, 5)), "covered") {
+			if sc == 5 && strings.HasPrefix(asciiLower(cell(a, 5)), "covered") {
 				fmt.Fprintf(errw, "WARN: COVERED row has %d cells in 5-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
-			if sc == 4 && n > sc && strings.HasPrefix(asciiLower(cell(a, 4)), "covered") {
+			if sc == 4 && strings.HasPrefix(asciiLower(cell(a, 4)), "covered") {
 				fmt.Fprintf(errw, "WARN: COVERED row has %d cells in 4-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
 			if inBacklog && inData {
-				fmt.Fprintf(errw, "WARN: malformed backlog row (%d cells, expected %s — a cell may contain a pipe): %s\n", n, scMsg, rec)
+				fmt.Fprintf(errw, "WARN: malformed backlog row (%d cells, expected %d — a cell may contain a pipe): %s\n", n, sc, rec)
 			}
 			continue
 		}
