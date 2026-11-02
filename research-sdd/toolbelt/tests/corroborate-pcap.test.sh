@@ -1,25 +1,52 @@
 #!/usr/bin/env bash
+# corroborate-pcap.test.sh — the end-to-end check of the corroborate-pcap.sh compatibility shim (kit issue #2485, epic #2270).
+#
+# The tool moved to Go: `rsdd corroborate pcap` (research-sdd/rsdd/internal/corroborate/pcap). Its cases (every legacy
+# case of this suite, a ~100-scenario byte-for-byte comparison against the frozen legacy Python as the oracle, the
+# parsers fuzzed against the legacy functions, and the Go mutation controls) live in the Go tests
+# (`go test ./internal/corroborate/pcap`, `make teeth`). This suite keeps a few end-to-end cases through the shim
+# with the real capinfos, tshark and Bubblewrap, and the mutation controls of the shim itself.
+#
+# Usage: corroborate-pcap.test.sh [--prove-teeth]     Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../corroborate-pcap.sh"; MANIFEST="$HERE/../analysis_manifest.py"
-TOOLBELT="$(dirname "$HERE")"; PYSUT="$TOOLBELT/corroborate_pcap.py"
-# --prove-teeth child run: `--teeth-child <staged corroborate_pcap.py>` points the suite at a staged mutant
-# tree. An argument, not an environment variable, so a caller's ambient env can never swap the SUT of a plain run.
-if [ "${1:-}" = "--teeth-child" ]; then
-  [ -f "${2:-}" ] || { echo "FATAL: --teeth-child needs an existing staged SUT file, got [${2:-}]" >&2; exit 2; }
-  SUT="$(dirname "$2")/corroborate-pcap.sh"; PYSUT="$2"
-  echo "TEETH-CHILD: SUT=$PYSUT"
-fi
-[ -x "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-if ! command -v tshark >/dev/null 2>&1 || ! command -v capinfos >/dev/null 2>&1; then
-  echo "SKIP: tshark/capinfos not in PATH — suite skipped (tool-missing)"
+HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
+SUT="$TB/corroborate-pcap.sh"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || exit 2
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+if ! command -v tshark >/dev/null 2>&1 || ! command -v capinfos >/dev/null 2>&1 || ! command -v bwrap >/dev/null 2>&1; then
+  echo "SKIP: tshark/capinfos/bwrap not in PATH — suite skipped (tool-missing)"
   echo "== 0 passed · 0 failed =="; exit 0
 fi
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
-run(){ "$SUT" --input "$ROOT/fixture.pcap" --output "$1" "${@:2}"; }
+ROOT="$(mktemp -d)" || exit 2
+trap 'rm -rf "$ROOT"' EXIT
+pass=0; fail=0
+ok() { echo "  PASS  $1"; pass=$((pass+1)); }
+no() { echo "  FAIL  $1"; fail=$((fail+1)); }
+
+# The SUT hands over to the Go binary. $RSDD_BIN wins; otherwise one binary is built into the suite temp dir (never
+# into the tree). A suite that cannot get rsdd says so with a typed SKIP, or FAILS under RSDD_REQUIRE_GO=1.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$ROOT/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (the fixture and the manifest tool need it)" >&2; exit 2; }
 
 # Mint a deterministic 1-packet (Ethernet/ARP) pcap fixture
-python3 - "$ROOT/fixture.pcap" <<'PY'
+python3 - "$ROOT/fixture.pcap" <<'PY' || exit 2
 import struct, sys
 hdr = struct.pack('<IHHiIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1)
 eth = bytes(6) + bytes(6) + b'\x08\x06'
@@ -28,139 +55,64 @@ pkt = eth + arp
 pkt_hdr = struct.pack('<IIII', 1000000, 0, len(pkt), len(pkt))
 open(sys.argv[1], 'wb').write(hdr + pkt_hdr + pkt)
 PY
+run() { "$SUT" --input "$ROOT/fixture.pcap" --output "$1" "${@:2}"; }
 
-# T1: determinism — two runs on the same fixture must be byte-identical
-if run "$ROOT/a" && run "$ROOT/b" \
-  && cmp -s "$ROOT/a/pcap-evidence.v1.json" "$ROOT/b/pcap-evidence.v1.json"; then
-  ok "two runs on same fixture produce byte-identical evidence"
-else no "determinism"; fi
+if run "$ROOT/a" && run "$ROOT/b" && cmp -s "$ROOT/a/pcap-evidence.v1.json" "$ROOT/b/pcap-evidence.v1.json"; then
+  ok "the shim publishes deterministic evidence"
+else no "the shim publishes deterministic evidence"; fi
 
-# T2: evidence schema — required fields and values
 if python3 - "$ROOT/a/pcap-evidence.v1.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 assert d['schema'] == 'pcap-evidence.v1' and d['status'] == 'complete'
 s = d['capinfos']['summary']
-assert s['packet_count'] == 1, f"packet_count={s['packet_count']}"
-assert s['encapsulation'] == 'Ethernet', f"encapsulation={s['encapsulation']}"
-assert isinstance(s['file_size_bytes'], int) and s['file_size_bytes'] > 0
-assert isinstance(s['data_size_bytes'], int) and s['data_size_bytes'] > 0
+assert s['packet_count'] == 1 and s['encapsulation'] == 'Ethernet', s
 assert isinstance(s['capture_duration_s'], float)
-phs = d['protocol_hierarchy']['protocols']
-names = [p['protocol'] for p in phs]
-assert 'eth' in names, f"eth missing; got {names}"
-assert all('level' in p and 'frames' in p and 'bytes' in p for p in phs)
+assert 'eth' in [p['protocol'] for p in d['protocol_hierarchy']['protocols']]
 PY
-then ok "evidence schema: capinfos summary and protocol hierarchy fields present"
-else no "evidence schema"; fi
+then ok "real capinfos and tshark output reaches the evidence (summary and protocol hierarchy)"; else no "evidence contract"; fi
 
-# T3: analysis manifest — validate structure and verify artifact hashes
-if python3 "$MANIFEST" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
-  && python3 "$MANIFEST" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
-  ok "analysis-manifest validates and all artifact hashes verify"
+if python3 "$TB/analysis_manifest.py" validate "$ROOT/a/engine/analysis-manifest.v1.json" \
+  && python3 "$TB/analysis_manifest.py" verify --root "$ROOT/a" "$ROOT/a/engine/analysis-manifest.v1.json"; then
+  ok "the published analysis manifest validates and all artifact hashes verify"
 else no "manifest verification"; fi
 
-# T4: network isolation — argv must contain bwrap markers
-if python3 - "$ROOT/a/pcap-evidence.v1.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-argv = d['protocol_hierarchy']['argv']
-assert '--unshare-net' in argv, f"--unshare-net missing from argv"
-assert '--cap-drop' in argv, f"--cap-drop missing from argv"
-PY
-then ok "bwrap network-denial markers present in recorded protocol_hierarchy argv"
-else no "isolation markers in argv"; fi
-
-# T5: negative — non-pcap input must fail with a clean error message
 printf 'not a pcap file\n' > "$ROOT/garbage.txt"
-if ! "$SUT" --input "$ROOT/garbage.txt" --output "$ROOT/garbage-out" 2>"$ROOT/err.txt" \
-   && grep -q 'corroborate-pcap:.*not a pcap' "$ROOT/err.txt"; then
-  ok "non-pcap input is rejected with a clean AdapterError message"
-else no "non-pcap rejection"; fi
+"$SUT" --input "$ROOT/garbage.txt" --output "$ROOT/garbage-out" 2>"$ROOT/err.txt"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q '^corroborate-pcap: not a pcap/pcapng file' "$ROOT/err.txt" && [ ! -e "$ROOT/garbage-out" ] && [ ! -e "$ROOT/.garbage-out.stage" ]; then
+  ok "a non-pcap input exits 2 with the typed message and publishes nothing"; else no "non-pcap rejection (exit $rc): $(cat "$ROOT/err.txt")"; fi
 
-# T6: negative — symlink input is rejected (identity() uses O_NOFOLLOW)
-ln -s "$ROOT/fixture.pcap" "$ROOT/link.pcap"
-if ! "$SUT" --input "$ROOT/link.pcap" --output "$ROOT/link-out" 2>"$ROOT/link.err" \
-   && grep -q 'corroborate-pcap: not a pcap' "$ROOT/link.err"; then
-  ok "symlink input is rejected by O_NOFOLLOW identity check"
-else no "symlink input rejection"; fi
+run "$ROOT/capped" --max-bytes 0 2>"$ROOT/err.txt"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q '^corroborate-pcap: caps must be positive' "$ROOT/err.txt" && [ ! -e "$ROOT/capped" ]; then
+  ok "the caller's arguments reach the Go command (a bad cap fails closed)"; else no "cap pass-through (exit $rc)"; fi
 
-# T7: root refusal — geteuid()==0 rejected before any I/O, with 'root or set-id' in stderr
-# RED: fails before refuse_privileged_execution() is added to corroborate_pcap (no guard, message absent).
-if python3 - "$PYSUT" <<'PY'
-import importlib.util, io, sys
-from contextlib import redirect_stderr
-spec = importlib.util.spec_from_file_location("corroborate_pcap", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-m.os.geteuid = lambda: 0
-buf = io.StringIO()
-with redirect_stderr(buf):
-    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
-assert result == 2, f"expected exit 2 for root, got {result}"
-msg = buf.getvalue()
-assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
-PY
-then ok "root execution (geteuid==0) refused before I/O — 'root or set-id' in stderr (fail-closed)"
-else no "root refusal"; fi
+mkdir "$ROOT/collision" "$ROOT/.occupied.stage"; echo keep >"$ROOT/collision/keep"; echo stage >"$ROOT/.occupied.stage/keep"
+if ! run "$ROOT/collision" 2>/dev/null && ! run "$ROOT/occupied" 2>/dev/null \
+  && [ -f "$ROOT/collision/keep" ] && [ -f "$ROOT/.occupied.stage/keep" ]; then
+  ok "destination and stage collisions are preserved"; else no "path collisions"; fi
 
-
-# ---------------------------------------------------------------------------
-# --prove-teeth: mutation controls (kit issue #2053). Each mutant is a staged copy of the REAL
-# corroborate_pcap.py (wrapper, manifest CLI and lib/ staged beside it); the whole suite is re-run
-# with `--teeth-child <staged py>` and the named case must FAIL for its own reason: the bite
-# pattern is the case's FAIL label (or its assertion text), and any crash-class output
-# (ImportError, SyntaxError, NameError, AttributeError, ...) disqualifies the mutant.
-# ---------------------------------------------------------------------------
-if [[ "${1:-}" == "--prove-teeth" ]]; then
-  echo "-- teeth: mutation controls (determinism, bwrap markers, symlink input, root refusal) --"
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_py_crash_strict || exit 2
-  _MUT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$_MUT"' EXIT
-  _builds_failed=0; _LIBEXPR=""
-  _CRASH="$(mutant_py_crash_strict --no-tb)"  # matches the pre-#2113 inline set, which never carried Traceback
-  # str(e) forms: a python case that prints nok(label, str(e)) drops the exception class, so a NameError
-  # mutant shows only "name 'X' is not defined". The message forms below refuse it (kit issue #2066).
-  # _tooth LABEL BITE_REGEX SED_EXPR... : sed-mutates corroborate_pcap.py; a non-empty _LIBEXPR also
-  # mutates a private copy of lib/adapter_core.py with that expression.
-  _tooth() {
-    local label="$1" want="$2" d; shift 2
-    d="$_MUT/${label%%:*}"; mkdir -p "$d"
-    cp "$TOOLBELT/corroborate-pcap.sh" "$TOOLBELT/analysis_manifest.py" "$d/"
-    if [ -n "$_LIBEXPR" ]; then
-      mkdir -p "$d/lib"; cp "$TOOLBELT"/lib/*.py "$d/lib/"
-      MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label (adapter_core)" "$TOOLBELT/lib/adapter_core.py" "$d/lib/adapter_core.py" "$_LIBEXPR" || return 1
-    else
-      ln -s "$TOOLBELT/lib" "$d/lib"
-    fi
-    MUTANT_SYNTAX=none mutant_chain_or_count _builds_failed "$label" "$TOOLBELT/corroborate_pcap.py" "$d/corroborate_pcap.py" "$@" || return 1
-    mutant_tooth "$label: case goes RED with the mutant" 0 1 "$d/corroborate_pcap.py" --orig "$TOOLBELT/corroborate_pcap.py" \
-      --bad-has "$want" --bad-lacks "$_CRASH" -- \
-      bash "$HERE/corroborate-pcap.test.sh" --teeth-child @SUT@
-  }
-  _t() { if _tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  _t "cp-nondeterministic: evidence gains a random nonce" "FAIL  determinism" \
-    's/"capinfos": {"argv": capinfos_cmd,/"capinfos": {"nonce": os.urandom(8).hex(), "argv": capinfos_cmd,/'
-  _t "cp-net-open: --unshare-net dropped from the sandbox argv" "AssertionError: --unshare-net missing from argv" \
-    's/prefix = sandbox(bwrap, env)/prefix = [a for a in sandbox(bwrap, env) if a != "--unshare-net"]/'
-  _LIBEXPR='s/ | getattr(os, "O_NOFOLLOW", 0)//'
-  _t "cp-follow-symlink: O_NOFOLLOW removed from every open on the input path" "FAIL  symlink input rejection" \
-    's/ | getattr(os, "O_NOFOLLOW", 0)//'
-  _LIBEXPR=""
-  _t "cp-root-guard: refuse_privileged_execution() removed from main()" "expected (exit 2 for root|'root or set-id' in stderr)" \
-    's/^        refuse_privileged_execution()$/        pass/'
-  # Control (kit issue #2066): a NameError mutant must be REFUSED by the crash filter, never counted as a bite.
-  # The machinery half runs the real NameError mutant end to end; the message-form half greps the crash filter against a
-  # FIXED string ("name 'zzz_undefined' is not defined"), not against real mutant output.
-  _ctl_out="$(_tooth "cp-ctl-nameerror: sandbox misspelled (NameError)" "FAIL  isolation markers in argv" \
-    's/prefix = sandbox(bwrap, env)/prefix = sandboxX(bwrap, env)/' 2>&1)"; _ctl_rc=$?
-  if [ "$_ctl_rc" -ne 0 ] && grep -qF "mutant output still matches" <<<"$_ctl_out" \
-     && grep -qE "$_CRASH" <<<"name 'zzz_undefined' is not defined"; then
-    echo "  PASS  cp-ctl-nameerror: a NameError mutant is refused by the crash filter (class and str(e) message forms)"; pass=$((pass+1))
-  else
-    echo "  FAIL  cp-ctl-nameerror: NameError mutant was not refused (rc=$_ctl_rc): $(tr '\n' ' ' <<<"$_ctl_out" | head -c 200)"; fail=$((fail+1))
-  fi
-  rm -rf "$_MUT"
+if [ "${1:-}" != "--prove-teeth" ]; then
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
 fi
+[ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
-echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
+echo "-- teeth: corroborate-pcap.sh shim mutation controls --"
+# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+# each tooth run publishes into a fresh name: the original and the mutant must not collide on one destination
+# and an exit 0 that did not publish this tool's report is exit 9 (a sibling command succeeding is not this command)
+printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' '"$1" --input "$3" --output "$out"; rc=$?' \
+  '[ "$rc" -ne 0 ] || [ -f "$out/pcap-evidence.v1.json" ] || exit 9' 'exit "$rc"' >"$ROOT/tooth-run.sh"
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4"; shift 4
+  local m="$KC/${label// /_}.sh"
+  if ! mutant_chain "$label" "$SUT" "$m" "$expr" >"$ROOT/mutant.log"; then cat "$ROOT/mutant.log"; no "tooth $label: mutant refused"; return; fi
+  chmod +x "$m"
+  if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$ROOT/tooth-run.sh" @SUT@ "$ROOT" "$ROOT/fixture.pcap"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+}
+tooth "shim dispatches to the sibling command" 's/rsdd_exec corroborate pcap /rsdd_exec corroborate pcap-flows /' 0 9
+tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
+tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ] && exit 0 || exit 1

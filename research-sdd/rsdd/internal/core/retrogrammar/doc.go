@@ -1,6 +1,7 @@
 // Package retrogrammar ports the research-sdd kit's §18 retro grammar, toolbelt/lib/retro-grammar.sh, and its
-// review-status markers, toolbelt/lib/retro-status.sh, to Go with byte parity against the bash originals (differential_test.go runs both on every fixture and, read-only, on the real
-// retro fleet).
+// review-status markers, toolbelt/lib/retro-status.sh, to Go with byte parity against the bash originals (the live differential, differential_test.go, runs both on every fixture and, read-only, on the real
+// retro fleet; it is opt-in with RSDD_LIVE_DIFF=1, and every default `go test` replays the same inputs from the frozen
+// bash results in testdata/oracle-*.txt, see oracle_test.go).
 //
 // Function groups and their contracts (each file's header carries the details):
 //   - Reading (doc.go, fence.go): Read loads a retro once into a Doc that holds the raw awk records and the

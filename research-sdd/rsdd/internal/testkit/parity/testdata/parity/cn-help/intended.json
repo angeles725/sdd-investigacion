@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stdout",
+  "reason": "help text: argparse generates the Python help (program name corroborate_native.py, no mention of rsdd); rsdd prints its own usage; exit status 0 and the empty stderr are identical"
+ }
+]

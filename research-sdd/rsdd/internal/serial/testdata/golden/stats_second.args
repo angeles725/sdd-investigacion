@@ -1,0 +1,1 @@
+["stats", "--input", "testdata/frames/second.log", "--output", "{TMP}/out.json"]

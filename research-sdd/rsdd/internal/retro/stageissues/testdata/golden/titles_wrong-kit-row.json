@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: right kit delta title here\n  labels: status:needs-review,target:target-foo,type:bug,priority:low\n  body:\n    right kit delta title here\n    \n    **Target:** CLAUDE.md\n    **Evidence:** B1\n    \n    ---\n    Source retro: target-foo/retros/r.md · 2\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 2 row(s) examined)\n",
+  "stderr": "skipped-wrong-kit: row 1 targets another kit ('niagara-kit:CLAUDE.md') — skipping\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: unresolved (no RESEARCH_SDD_ISSUE_REPO override and no resolvable git remote 'origin' at @BOX@)\nplanned-issue: first delta of the retro\n  labels: status:needs-review,target:target-foo,type:bug,priority:low\n  body:\n    first delta of the retro\n    \n    **Target:** CLAUDE.md\n    **Evidence:** B1\n    \n    ---\n    Source retro: target-foo/retros/r.md · 1\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 1 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

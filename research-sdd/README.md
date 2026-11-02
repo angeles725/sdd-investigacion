@@ -22,7 +22,7 @@ The toolbelt is written for **Linux / GNU userland**:
 - **bash ≥ 4** and **GNU coreutils** — scripts use `mapfile`, `grep -P`/`grep -E`, and other GNU-isms.
   WSL is fine. macOS/BSD is **not supported** out of the box (install GNU tools — `coreutils`,
   `grep` — and a modern bash first, or expect failures).
-- **python3** — used by the catalog generator (`templates/gen-catalog.py`) and sanity-checked in CI.
+- **python3** — used by the remaining Python helpers and by a corpus-local `tools/gen-catalog.py`, and sanity-checked in CI (the kit catalog generator is the Go command `rsdd corpus catalog`).
 - **Node.js** (CI uses 20) — required only for the adversarial-verify pair
   (`toolbelt/adversarial-verify.js`, `toolbelt/adversarial-verdict.mjs`).
 - **Optional, per-workflow only** — the decompile/extract/ingest tools (Ghidra, radare2, Vineflower/CFR/Procyon,
@@ -42,7 +42,7 @@ research-sdd/
 ├── PROMPT-REFRESH.md           # the refresh-mode prompt (rewrite a block whose subject has DRIFTED)
 ├── TARGETS.md                  # master table of registered research targets
 ├── skills/research-sdd/SKILL.md# launcher / depth classifier (quick · light · exhaustive)
-├── templates/                  # block, INDEX, RESEARCH-STATE, SOURCES, CONTRADICTIONS, retro, audit templates + gen-catalog.py + hook-sessionstart.sh
+├── templates/                  # block, INDEX, RESEARCH-STATE, SOURCES, CONTRADICTIONS, retro, audit templates + hook-sessionstart.sh
 └── toolbelt/                   # the ~two-dozen scripts that mechanize the gates
     └── tests/                  # regression suites + run-all.sh runner
 ```
@@ -120,20 +120,6 @@ called directly. (`detect-tools.sh` is loop-run too, but is also handy to run di
 | [`decompile-java.sh`](toolbelt/decompile-java.sh) | `<in.jar\|in.class> <out-dir> [--engine vineflower\|cfr\|procyon]` | Java → source (Vineflower → CFR → Procyon); `--javap` for signatures. |
 | [`decompile-net.sh`](toolbelt/decompile-net.sh) | `<in.dll\|in.exe> <out-dir>` | .NET assembly → C# via `ilspycmd` (`--list`, `--il` modes). |
 | [`decompile-native.sh`](toolbelt/decompile-native.sh) | `ghidra\|r2\|quick <binary> …` | Native ELF/PE analysis: Ghidra headless, radare2, or a quick triage. |
-
-### Gated plan adapters (VM-spine — plan-only; no live execution)
-
-The VM-spine adapters plan dynamic-execution workflows without running them. Every adapter is **default-off and fail-closed**: absent gate flag → exit 3 + offline JSON plan written; gate flag present but no live executor wired → exit 2. Live execution is explicitly deferred. Authorization contract: [`gate-authorization.v1`](toolbelt/gate-authorization.v1.md). Determinism record: [`vm-determinism.v1`](toolbelt/vm-determinism.v1.md).
-
-| Adapter | Gate flag | Purpose |
-|---|---|---|
-| [`vm_run.py`](toolbelt/vm_run.py) | `--allow-exec` | Plan gzip/xz archive decompression in a bwrap VM; records would-be argv + resource caps ([`vm-run-plan.v1`](toolbelt/vm-run-plan.v1.md)) |
-| [`trace_plan.py`](toolbelt/trace_plan.py) | `--allow-exec` | Plan strace/ltrace/gdb-batch tracing of a binary; no target executed ([`trace-plan.v1`](toolbelt/trace-plan.v1.md)) |
-| [`qemu_plan.py`](toolbelt/qemu_plan.py) | `--allow-exec` | Plan QEMU user/system emulation; arch auto-detected from ELF header, never from execution ([`qemu-plan.v1`](toolbelt/qemu-plan.v1.md)) |
-| [`detonate_plan.py`](toolbelt/detonate_plan.py) | `--allow-exec` | Plan hostile-sample detonation; network-isolated + ephemeral disk + `--cap-drop ALL`; sample never executed in dry-run ([`detonate-plan.v1`](toolbelt/detonate-plan.v1.md)) |
-| [`capture_plan.py`](toolbelt/capture_plan.py) | `--allow-live-capture` | Plan live network capture via dumpcap; no socket opened; BPF filter as data only ([`capture-plan.v1`](toolbelt/capture-plan.v1.md)) |
-| [`emba_plan.py`](toolbelt/emba_plan.py) | `--allow-docker` | Plan EMBA firmware analysis via Docker; `--privileged` refused; `--network none` always ([`emba-plan.v1`](toolbelt/emba-plan.v1.md)) |
-| [`fact_plan.py`](toolbelt/fact_plan.py) | `--allow-docker` | Plan FACT Core analysis via Docker Compose; `--privileged` and `--network host` both refused; internal-bridge only ([`fact-plan.v1`](toolbelt/fact-plan.v1.md)) |
 
 ---
 

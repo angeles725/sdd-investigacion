@@ -73,7 +73,7 @@ func gitConfigCountEnv(s cli.Stdio) []string {
 	}
 	env := []string{"GIT_CONFIG_COUNT=" + raw}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 || n > maxGitConfigCount {
+	if err != nil || n > maxGitConfigCount { // a negative n reads no pair: the loop below does not run
 		return env
 	}
 	for i := 0; i < n; i++ {

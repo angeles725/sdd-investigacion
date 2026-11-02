@@ -15,6 +15,7 @@ import (
 // target registered in the real TARGETS.md that resolves on this machine goes through every file mode on both
 // sides. Nothing is written; a machine without any corpus skips loudly. -short skips it (it is the slow pass).
 func TestDifferentialFleet(t *testing.T) {
+	liveOnly(t)
 	if testing.Short() {
 		t.Skip("-short: the fleet pass did NOT run (NOT a pass)")
 	}

@@ -1,0 +1,9 @@
+{
+  "rc": 1,
+  "stdout": "redactions: 0 (row 1)\n",
+  "stderr": "WARN: target directory '@BOX@/rh/target-foo' not found in @BOX@/research-sdd/TARGETS.md — using basename 'target-foo'\ndegraded: target 'target-foo' is unregistered in @BOX@/research-sdd/TARGETS.md (basename fallback) — refusing to create label 'target:target-foo' or any issue on test-owner/test-kit; register the target or run from the owning kit\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\n",
+  "state": {
+    "occn": "1\n"
+  }
+}

@@ -23,7 +23,7 @@ block is run through `$RESEARCH_SDD_VENV/bin/python` — a separate project
 venv — never through system Python. Two third-party packages are therefore
 required; both are declared in `requirements.txt`.
 
-Internal modules (`adapter_core`, `gate`, `vm_*`, `docker_*`, `proc_common`,
+Internal modules (`adapter_core`, `adapter_helpers`, `isolation_profile`,
 `squashfs_extract`, `corroborate_*`, etc.) are local files within this tree —
 not packages to install.
 
@@ -99,12 +99,12 @@ accepted. `DOTNET_ROLL_FORWARD=Major` is still exported for resilience.
 function used by `decompile-net.sh`) before reporting availability, so the two
 agree: a working ilspycmd is reported AVAILABLE in both places.
 
-**`r2`** is resolved by `corroborate_native.py:154` via `RSDD_R2` env var
+**`r2`** is resolved by `rsdd corroborate native` (`internal/corroborate/native`) via `RSDD_R2` env var
 then PATH. The binary name is `r2`, not `radare2`.
 
 **`kaitaistruct`** (Python module) is loaded via the rsdd-kaitai venv.
 `RSDD_KAITAI_PY` defaults to `$HOME/.local/share/rsdd-kaitai/bin/python`
-(set at `tests/kaitai.test.sh:19`).
+(read by `rsdd corroborate kaitai`; the package test is `rsdd/internal/corroborate/kaitai`).
 
 **`frida` / `frida-trace`** are resolved via `FRIDA_BIN` / `FRIDA_TRACE_BIN`
 env vars in `dynamic.sh`, defaulting to the bare command names on PATH.
@@ -214,7 +214,7 @@ tesseract, ocrmypdf (or marker/docling)      # PDF Tier 2 OCR
 pandoc                                       # web-page → Markdown (fetch-doc.sh web mode)
 curl (or wget)                               # document downloads (fetch-doc.sh)
 ilspycmd (any version) + compatible .NET runtime  # .NET decompilation; runtime located via DOTNET_ROOT resolution in decompile-net.sh (RSDD_DOTNET_ROOT → DOTNET_ROOT → derived from dotnet binary; each probed with ilspycmd --version)
-gh                                           # GitHub remote (ensure-remote.sh)
+gh                                           # GitHub remote (ensure-remote.sh, a shim for `rsdd corpus ensure-remote`)
 unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
 parallel (GNU parallel, OPTIONAL)            # batch parallelism; REQUIRED for `bats -j N` (without it bats runs 0 tests silently — METHODOLOGY §11b R7); the kit's own gate does not need it

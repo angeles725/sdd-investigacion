@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "degraded: gh not found on PATH — install gh CLI before using --apply\n",
+  "ghlog": ""
+}

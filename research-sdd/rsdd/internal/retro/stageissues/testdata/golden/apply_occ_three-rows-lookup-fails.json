@@ -1,0 +1,10 @@
+{
+  "rc": 2,
+  "stdout": "redactions: 0 (row 1)\nmutation_outcome: no_write (row 1)\nredactions: 0 (row 2)\nmutation_outcome: no_write (row 2)\nredactions: 0 (row 3)\nmutation_outcome: no_write (row 3)\nunclassifiable-items: 0 (none: 3 row(s) examined)\nsummary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=3\nmutation-summary: confirmed=0 no_write=3 unknown=0\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "ERROR: gh issue list (occurrence lookup) failed for row 1: gh: occurrence lookup failed\nERROR: gh issue list (occurrence lookup) failed for row 2: gh: occurrence lookup failed\nERROR: gh issue list (occurrence lookup) failed for row 3: gh: occurrence lookup failed\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 2\" --json state,body\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 3\" --json state,body\n",
+  "state": {
+    "occfail": "",
+    "occn": "1\n"
+  }
+}
