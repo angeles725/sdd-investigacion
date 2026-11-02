@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "absent-input: retro not found: @BOX@/rh/target-foo/retros/r.md\n",
+  "ghlog": ""
+}

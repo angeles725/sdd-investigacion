@@ -1,0 +1,6 @@
+{
+  "rc": 1,
+  "stdout": "",
+  "stderr": "degraded: retro not readable: @BOX@/rh/target-foo/retros/r.md\n",
+  "ghlog": ""
+}
