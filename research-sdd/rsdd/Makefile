@@ -45,6 +45,7 @@ test:
 # (minutes) and compares it with the Go port and with the frozen goldens `make test` replays. Opt-in because the
 # default package test must stay far under the CI timeout. After an intended bash or fixture change, refresh the
 # goldens with: RETROGRAMMAR_UPDATE=1 go test -count=1 ./internal/core/retrogrammar (no -run, no -short).
+# retrogrammar-live runs the live bash differential; with RETROGRAMMAR_UPDATE=1 it also rewrites the frozen goldens.
 retrogrammar-live:
 	@RSDD_LIVE_DIFF=1 $(CAPPED) go test -count=1 -timeout 30m $(TESTFLAGS) ./internal/core/retrogrammar
 

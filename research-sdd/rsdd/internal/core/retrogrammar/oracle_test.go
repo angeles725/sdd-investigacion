@@ -180,7 +180,7 @@ func loadOracleFrom(docsPath, casesPath string) ([]oracleCase, error) {
 	for i, p := range []string{docsPath, casesPath} {
 		b, err := os.ReadFile(p)
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("goldens missing: %s; regenerate with make retrogrammar-live", p)
+			return nil, fmt.Errorf("goldens missing: %s; regenerate with RETROGRAMMAR_UPDATE=1 make retrogrammar-live", p)
 		} else if err != nil {
 			return nil, err
 		}
@@ -330,7 +330,7 @@ func TestOracleMissingGoldensNamesTheRegenerateCommand(t *testing.T) {
 		{docs, filepath.Join(dir, "absent-cases.txt"), "absent-cases.txt"},
 	} {
 		_, err := loadOracleFrom(c.docs, c.cases)
-		want := "goldens missing: " + filepath.Join(dir, c.missing) + "; regenerate with make retrogrammar-live"
+		want := "goldens missing: " + filepath.Join(dir, c.missing) + "; regenerate with RETROGRAMMAR_UPDATE=1 make retrogrammar-live"
 		if err == nil || err.Error() != want {
 			t.Errorf("loadOracleFrom(%s, %s) error = %v, want %q", c.docs, c.cases, err, want)
 		}
