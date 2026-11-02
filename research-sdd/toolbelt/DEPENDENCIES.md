@@ -214,7 +214,7 @@ tesseract, ocrmypdf (or marker/docling)      # PDF Tier 2 OCR
 pandoc                                       # web-page → Markdown (fetch-doc.sh web mode)
 curl (or wget)                               # document downloads (fetch-doc.sh)
 ilspycmd (any version) + compatible .NET runtime  # .NET decompilation; runtime located via DOTNET_ROOT resolution in decompile-net.sh (RSDD_DOTNET_ROOT → DOTNET_ROOT → derived from dotnet binary; each probed with ilspycmd --version)
-gh                                           # GitHub remote (ensure-remote.sh)
+gh                                           # GitHub remote (ensure-remote.sh, a shim for `rsdd corpus ensure-remote`)
 unzip                                        # JAR validation (lib/tool-env.sh)
 shellcheck, bats, jq                         # dev/CI tooling
 parallel (GNU parallel, OPTIONAL)            # batch parallelism; REQUIRED for `bats -j N` (without it bats runs 0 tests silently — METHODOLOGY §11b R7); the kit's own gate does not need it

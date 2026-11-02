@@ -1,0 +1,16 @@
+{
+ "legacy": [
+  "toolbelt/ensure-remote.sh",
+  "{{input}}/target"
+ ],
+ "rsdd": [
+  "corpus",
+  "ensure-remote",
+  "--toolbelt",
+  "{{input}}",
+  "{{input}}/target"
+ ],
+ "env": {
+  "GIT_DIR": "{{input}}/gd"
+ }
+}
