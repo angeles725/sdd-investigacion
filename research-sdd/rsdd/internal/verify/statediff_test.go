@@ -133,6 +133,28 @@ func sdConsistent(extra ...string) string {
 		"coverage metric: 0 / 0 declared gaps closed", "", "## Gap-backlog (prioritized)", "", sdTable4, "## Blocked gaps", "- none", ""}, extra...)...)
 }
 
+// sdRangeCorpus is the corpus of focus-prefix-range.test.sh section 8: FOCUSES.md scopes the root state to the block
+// range rng, a second focus owns the prefix ops-, and six x-bloque files, ops-block1 and y-block2 (which shares id B2
+// with x-bloque2) sit on disk. cb is the root's declared covered_blocks; extra lines are appended to the root state.
+func sdRangeCorpus(t *testing.T, d, cb, rng string, extra ...string) {
+	t.Helper()
+	sdWrite(t, filepath.Join(d, "FOCUSES.md"), sdJoin("# Focus index", "", "| Focus | Estado | RESEARCH-STATE | Ámbito | Bloques |", "|---|---|---|---|---|",
+		"| (base) | stopped | `RESEARCH-STATE.md` | base | "+rng+" |", "| ops | active | `RESEARCH-STATE-ops.md` | ops | ops- |"))
+	for i := 1; i <= 6; i++ {
+		sdWrite(t, filepath.Join(d, fmt.Sprintf("x-bloque%d.md", i)), "")
+	}
+	sdWrite(t, filepath.Join(d, "ops-block1.md"), "")
+	sdWrite(t, filepath.Join(d, "y-block2.md"), "")
+	for _, f := range []struct{ name, covered string }{{"RESEARCH-STATE.md", cb}, {"RESEARCH-STATE-ops.md", "1"}} {
+		body := sdJoin("# T — Research State", "", sdEnvelope("covered_blocks", f.covered, "gaps_closed", "0", "known_gaps", "0", "investigable_open", "0", "requires_execution_open", "0", "blocked_open", "0", "deferred_open", "0"),
+			"## Gap-backlog (prioritized)", "", sdTable4, "## Stop control", "")
+		if f.name == "RESEARCH-STATE.md" {
+			body += strings.Join(extra, "\n")
+		}
+		sdWrite(t, filepath.Join(d, f.name), body)
+	}
+}
+
 type sdCase struct {
 	name  string
 	setup func(t *testing.T, d string)
@@ -236,6 +258,11 @@ func sdCases() []sdCase {
 		{name: "backlog-qualifier-priority", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high (ctx) | g | w | pending |"))},
 		{name: "backlog-covered-pipe", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | g | w | covered | extra |"))},
 		{name: "backlog-escaped-pipe", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+`| high | a \| b | w | pending |`))},
+		{name: "backlog-deferred-escaped-pipe", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "2"), "## Gap-backlog", sdTable4+`| deferred | a \| b | w | parked |`, `| deferred | c \\| d | w | parked |`))},
+		{name: "blocks-history-escaped-pipe-before-block-column", setup: func(t *testing.T, d string) {
+			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), strings.Replace(strings.Replace(sdConsistent("## Iteration history", "| # | Date | Block | Gap |", "|---|---|---|---|", `| 1 | d \| e | B4 | g |`, `| 2 | d \| e | B4, B5 | g |`, "", "## Other"), "covered_blocks: 0", "covered_blocks: 2", 1), "<!-- /research-state.v1 -->", "block_scope: shared-global\n<!-- /research-state.v1 -->", 1))
+			sdWrite(t, filepath.Join(d, "x-block4.md"), "b\n")
+		}},
 		{name: "backlog-closed-class", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0", "deferred_open", "1"), "## Gap-backlog", sdTable4+"| ~~high~~ | g | w | pending |", "| — | G9 | w | x |", "| deferred | d | w | parked |", "| deferred | ~~e~~ | w | parked |"))},
 		{name: "backlog-alignment-colons", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "| Priority | Gap | Type | Status |", "|:---|:---:|---:|---|", "| high | g | w | pending |"))},
 		{name: "backlog-separator-bad-width", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", "| a | b | c |", "|---|---|---|", "| high | g | w |"))},
@@ -299,6 +326,7 @@ func sdCases() []sdCase {
 		{name: "stretch-missing", setup: state(sdConsistent("## Stretch goal", "- realistic: 5", ""))},
 		{name: "stretch-complete", setup: state(sdConsistent("## Stretch goal", "- **Realistic**: 5", "stretch: 9", ""))},
 		{name: "stretch-empty", setup: state(sdConsistent("## Stretch goal", ""))},
+		{name: "retyped-spelling-rows", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | live | w | pending |", "| medium | rt-first | w | re-typed [Block 141] — blocked-pending-native-gate |", "| low | rt-mid | w | **retyped** (moved) |", "| low | rt-last | w | Re-Typed |"))},
 		{name: "retyped-rows", setup: state(sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | first | w | re-typed |", "| high | ~~second~~ | w | retyped |", "| high | third | w | **re-typed** (x) |", "| high | fourth | w | pending-ish |"))},
 		{name: "index-placeholder", setup: func(t *testing.T, d string) {
 			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), strings.Replace(sdConsistent(), "covered_blocks: 0", "covered_blocks: 1", 1))
@@ -387,6 +415,15 @@ func sdCases() []sdCase {
 			for _, n := range []string{"a-block1.md", "b-block5.md", "a-block20.md"} {
 				sdWrite(t, filepath.Join(d, n), "b\n")
 			}
+		}},
+		{name: "range-corpus-declared-matches-ids", setup: func(t *testing.T, d string) { sdRangeCorpus(t, d, "3", "B2–B4") }},
+		{name: "range-corpus-stale-corpus-wide-count", setup: func(t *testing.T, d string) { sdRangeCorpus(t, d, "7", "B2–B4") }},
+		{name: "range-corpus-malformed-range", setup: func(t *testing.T, d string) { sdRangeCorpus(t, d, "7", "B9–B3") }},
+		{name: "range-corpus-cannot-see", setup: func(t *testing.T, d string) { sdRangeCorpus(t, d, "4", "B50–B60") }},
+		{name: "range-corpus-cannot-see-declared-zero", setup: func(t *testing.T, d string) { sdRangeCorpus(t, d, "0", "B50–B60") }},
+		{name: "range-corpus-unit-in-every-message", setup: func(t *testing.T, d string) {
+			sdRangeCorpus(t, d, "3", "B2–B4", "Covered blocks: 9")
+			sdWrite(t, filepath.Join(d, "INDEX.md"), "# Index\n<SUBJECT> placeholder\n")
 		}},
 		{name: "focuses-range-malformed", setup: func(t *testing.T, d string) {
 			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdConsistent())
