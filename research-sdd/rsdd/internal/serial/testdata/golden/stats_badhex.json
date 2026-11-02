@@ -1,0 +1,71 @@
+{
+  "errors": [
+    "line 4: bad hex: bytes must be in range(0, 256)",
+    "line 6: len mismatch: declared 4, got 3 bytes",
+    "line 7: unrecognized format: 'this is not a frame'",
+    "line 8: unrecognized format: '0.4 len=2 zz yy'",
+    "line 10: unrecognized format: '0.6 len = 3 aa bb cc'",
+    "line 12: len mismatch: declared 99999999999999999999, got 1 bytes"
+  ],
+  "input": {
+    "frame_count": 4,
+    "line_count": 10,
+    "path": "testdata/frames/badhex.log",
+    "sha256": "e5015c9742132322aec72a3a4fb78259c790bd354cecb73ed9ea6b3af1504976",
+    "skipped_line_count": 6
+  },
+  "mode": "stats",
+  "results": {
+    "length_histogram": [
+      {
+        "count": 3,
+        "length": 3
+      },
+      {
+        "count": 1,
+        "length": 7
+      }
+    ],
+    "most_common_length": 3,
+    "variability": [
+      {
+        "distinct_count": 2,
+        "is_constant": false,
+        "position": 0,
+        "sample_hex": [
+          "81",
+          "aa"
+        ]
+      },
+      {
+        "distinct_count": 2,
+        "is_constant": false,
+        "position": 1,
+        "sample_hex": [
+          "00",
+          "bb"
+        ]
+      },
+      {
+        "distinct_count": 2,
+        "is_constant": false,
+        "position": 2,
+        "sample_hex": [
+          "17",
+          "cc"
+        ]
+      }
+    ]
+  },
+  "schema": "serial-frame.v1",
+  "status": "complete",
+  "summary": {
+    "distinct_lengths": 2,
+    "frame_count": 4,
+    "line_count": 10,
+    "skipped_line_count": 6,
+    "truncated": false
+  },
+  "tool": "serial-frame-analyze",
+  "truncated": false
+}

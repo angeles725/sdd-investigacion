@@ -1,0 +1,12 @@
+{
+  "errors": [
+    "line 3: len mismatch: declared 5, got 3 bytes",
+    "line 4: len mismatch: declared 5, got 3 bytes"
+  ],
+  "line_count": 2,
+  "mode": "stats",
+  "schema": "serial-frame.v1",
+  "skipped_line_count": 2,
+  "status": "failed",
+  "tool": "serial-frame-analyze"
+}

@@ -21,6 +21,8 @@ resume-render.sh
 retro-gate.sh
 return-token-gate.sh
 scan-secrets.sh
+serial-frame-analyze.sh
+serial-frame-capture.sh
 squashfs-extract.sh
 stage-retro-issues.sh
 stage-retro.sh

@@ -1,0 +1,12 @@
+# header
+
+0.0 len=3 81 00 17
+0.1 len=3 81 1ff 17
+0.2 len=3 0081 000 0017
+0.3 len=4 81 00 17
+this is not a frame
+0.4 len=2 zz yy
+0.5 len=007 01 02 03 04 05 06 07
+0.6 len = 3 aa bb cc
+0.7 len=3  aa  bb  cc  
+0.8 len=99999999999999999999 01
