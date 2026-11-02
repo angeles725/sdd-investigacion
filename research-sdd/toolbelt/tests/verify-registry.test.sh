@@ -3513,6 +3513,15 @@ mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionS
   printf '#!/usr/bin/env bash\ncat >/dev/null; head -c 10500 /dev/zero | tr "\\0" x\n' > "$tgt/.claude/hooks/big.sh"; chmod +x "$tgt/.claude/hooks/big.sh"
   printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/big.sh"}]}]}}\n' > "$tgt/.claude/settings.json"
   cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
+  # verify-session-budget.sh is an rsdd shim (kit issue #2364): the stub kit needs lib/rsdd-exec.sh and a
+  # prebuilt rsdd (built once into $ROOT, never into the tree), since the stub kit has no rsdd/ source.
+  mkdir -p "$kit/toolbelt/lib"; cp "$HERE/../lib/rsdd-exec.sh" "$kit/toolbelt/lib/rsdd-exec.sh"   # stage-libs-ok: one shim lib for the stub kit of case 2129a, not a lib set
+  if [ "${_vr2129_bw:-}" = usable ] && { [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; }; then
+    RSDD_BIN="$ROOT/rsdd"
+    ( cd "$HERE/../../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/rsdd-build.log" 2>&1 \
+      || no "2129 cannot build rsdd for the verify-session-budget shim" "$(tail -n 5 "$ROOT/rsdd-build.log")"
+    export RSDD_BIN
+  fi
   nsrow "$kit" "$tgt" '3 md / git yes'
 }
 # The sandbox-dependent case 2129a needs a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP (FAIL under RSDD_REQUIRE_BWRAP=1). 2129d uses a stub budget script and needs no bwrap.
