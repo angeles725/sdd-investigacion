@@ -8,10 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"testing/iotest"
-	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
 )
@@ -195,27 +193,17 @@ func TestWorkerRefusesAnInputThatChangesWhileItCarves(t *testing.T) {
 	rec := `{"path":"input.bin","size":` + strconv.Itoa(len(input)) + `,"sha256":"sha256:` + hex.EncodeToString(sum[:]) + `"}`
 	c := config{stage: stage, inputRecord: rec, maxCarves: 16, maxFiles: 17, maxOutput: 1 << 30, bwrapPath: "/usr/bin/bwrap", bwrapSHA: "sha256:x"}
 
-	stop := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { // once the carve directory exists the worker is mid-run: touch the input's inode
-		defer wg.Done()
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if _, err := os.Lstat(filepath.Join(stage, "carves")); err == nil {
-				_ = os.Chmod(in, 0o600)
-				return
-			}
-			time.Sleep(10 * time.Microsecond)
+	// Touch the input's inode after the carves and the report are written and before the final identity check, the
+	// window a concurrent writer would hit. The hook makes that point deterministic (a polling goroutine lost the race
+	// to a fast worker on CI).
+	saved := beforeFinalStat
+	t.Cleanup(func() { beforeFinalStat = saved })
+	beforeFinalStat = func() {
+		if err := os.Chmod(in, 0o600); err != nil {
+			t.Error(err)
 		}
-	}()
+	}
 	err := runWorker(c, euid())
-	close(stop)
-	wg.Wait()
 	if err == nil || err.Error() != "staged input changed while carving" {
 		t.Errorf("err = %v, want staged input changed while carving", err)
 	}

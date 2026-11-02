@@ -124,6 +124,7 @@ func runWorker(c config, euid uint64) error {
 	if err := writeExclusive(filepath.Join(stage, schema+".json"), bytes.NewReader(payload), nil); err != nil {
 		return err
 	}
+	beforeFinalStat()
 	after, err := f.Stat()
 	if err != nil {
 		return err
@@ -162,6 +163,10 @@ func writeExclusive(path string, r io.Reader, tee io.Writer) error {
 }
 
 // errStagedType is the refusal for a staged file that is not a regular, owned, 0400 file.
+// beforeFinalStat runs between publishing the report and the final identity check of the staged input. It is a
+// no-op; tests replace it to change the input at that exact point instead of racing the worker.
+var beforeFinalStat = func() {}
+
 var errStagedType = errors.New("staged input type, owner, or mode changed")
 
 // stagedFile is the type, owner and mode every staged file must still have.
