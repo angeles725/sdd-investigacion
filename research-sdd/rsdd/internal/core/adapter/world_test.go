@@ -183,7 +183,7 @@ func (w *world) tree(root string) map[string]string {
 			b, _ := os.ReadFile(p)
 			// The digest is taken over the text with the root shown as "@" and the manifest identity (a hash
 			// over absolute paths) masked, so a tree is comparable across roots and recorded goldens stay valid.
-			text := identityHash.ReplaceAllString(showRoot(string(b), root),`"identity":"sha256:ID"`)
+			text := identityHash.ReplaceAllString(showRoot(string(b), root), `"identity":"sha256:ID"`)
 			sum := sha256.Sum256([]byte(text))
 			snap[rel] = "file " + info.Mode().Perm().String() + " " + hexenc.EncodeToString(sum[:8]) + " " + text
 		}
@@ -201,11 +201,11 @@ func showRoot(s, root string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, root, "@"), filepath.Dir(root), "@@")
 }
 
-var identityHash =regexp.MustCompile(`"identity":"sha256:[0-9a-f]{64}"`)
+var identityHash = regexp.MustCompile(`"identity":"sha256:[0-9a-f]{64}"`)
 
 // norm shows a root as "@" and the random part of mkstemp names as "RAND".
 func norm(s, root string) string {
-	return randomTemp.ReplaceAllString(showRoot(s, root),".RAND.tmp")
+	return randomTemp.ReplaceAllString(showRoot(s, root), ".RAND.tmp")
 }
 
 func lastLine(s string) string {
