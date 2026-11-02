@@ -1,6 +1,7 @@
 # Scripts exercised by lib-resolution-lint.test.sh (planted lib/ behavioural fixture). Paths relative to research-sdd/toolbelt; install/ prefix = research-sdd/install.
 check-gap-drift.sh
 corroborate-bacnet.sh
+corroborate-capa.sh
 corroborate-kaitai.sh
 coverage-map.sh
 decompile-java.sh
@@ -8,9 +9,9 @@ ensure-remote.sh
 install/research-sdd-install.sh
 java-fidelity-experiment.sh
 lint-block.sh
-palette-lexicon-agents.sh
 merge-gate.sh
 migrate-backlogs.sh
+palette-lexicon-agents.sh
 qnx6-read.sh
 reconcile-issues.sh
 research-sdd-archive.sh
