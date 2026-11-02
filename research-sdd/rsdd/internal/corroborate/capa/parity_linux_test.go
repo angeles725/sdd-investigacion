@@ -54,7 +54,7 @@ func runLegacy(t *testing.T, r *rig, extraEnv []string, args ...string) pyOutcom
 	script, _ := filepath.Abs(legacyScript)
 	cmd := exec.Command(python312(t), append([]string{script}, args...)...)
 	cmd.Dir = r.root
-	cmd.Env = append(append(r.environ(), "PYTHONPATH="+tb, "PYTHONDONTWRITEBYTECODE=1"), extraEnv...)
+	cmd.Env = append(append(r.environ(), "PYTHONPATH="+tb, "PYTHONDONTWRITEBYTECODE=1", "RSDD_BIN="+rsddBinary(t)), extraEnv...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	code := 0
