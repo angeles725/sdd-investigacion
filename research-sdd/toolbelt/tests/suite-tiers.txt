@@ -10,9 +10,6 @@
 # and runs in the default gate. `dedicated` (kit issue #2488) marks a suite that runs in its OWN CI job instead of
 # the toolbelt shards: it is in neither core nor extras, only in `--tier all` (so --require-teeth still judges it),
 # and the job that runs it is named in the reason. Reasons: category E VM/dynamic sandbox, unused adapter, strict-zero usage.
-research-sdd/toolbelt/tests/capture-analyze.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/capture-exec.test.sh extras category E VM/dynamic sandbox (#2203)
-research-sdd/toolbelt/tests/capture-plan.test.sh extras category E VM/dynamic sandbox (#2203)
 research-sdd/toolbelt/tests/corroborate-bacnet.test.sh extras strict-zero usage (#2203)
 research-sdd/toolbelt/tests/corroborate-firmware.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/corroborate-pcap.test.sh extras unused adapter (#2203)
