@@ -830,15 +830,13 @@ func TestSquashfsManifestContent(t *testing.T) {
 
 func TestSquashfsManifestFailure(t *testing.T) {
 	good := abs(t, sqfsData+"good.sqfs")
-	useTools(t, okExtraction)
+	// The manifest is built in process: a failure of its create step (here a manifest already in the stage) is
+	// relayed as the manifest CLI wrote it, then wrapped by the command.
+	useTools(t, strings.TrimSuffix(okExtraction, "exit 0")+": > \"$stage/analysis-manifest.v1.json\"\nexit 0")
 	parent := t.TempDir()
-	broken := filepath.Join(parent, "broken-manifest.py")
-	if err := os.WriteFile(broken, []byte("import sys\nsys.stderr.write('manifest says no\\n')\nsys.exit(4)\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	out := filepath.Join(parent, "out")
-	rc, _, stderr := runSqfs(t, parent, sqfsArgs(good, out, "--manifest-cli", broken)...)
-	if rc != 2 || !strings.Contains(stderr, "manifest says no") || !strings.Contains(stderr, "squashfs-extract: ") {
+	rc, _, stderr := runSqfs(t, parent, sqfsArgs(good, out, "--manifest-cli", manifestCLI(t))...)
+	if rc != 2 || !strings.Contains(stderr, "analysis-manifest: ") || !strings.Contains(stderr, "squashfs-extract: ") {
 		t.Errorf("rc = %d stderr = %q, want exit 2 with the manifest tool's message", rc, stderr)
 	}
 	mustNotExist(t, out, filepath.Join(parent, ".out.stage"))

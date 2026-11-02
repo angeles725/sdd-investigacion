@@ -7,7 +7,8 @@ tree before publication, and emits a deterministic evidence report.
 `squashfs-extract.sh` is a compatibility shim over `rsdd formats squashfs-extract`
 (Go, kit issue #2417; the Python `squashfs_extract.py` is gone).  The shim adds
 `--manifest-cli <toolbelt>/analysis_manifest.py` ahead of the caller's
-arguments; exit codes and stderr pass through unchanged (0 published, 2 any
+arguments (the path is validated, not executed: the manifest is created and verified in process, so
+`python3` is not needed); exit codes and stderr pass through unchanged (0 published, 2 any
 refusal or failure).  The guard-to-test table is at the head of
 `rsdd/internal/formats/squashfs_test.go`; the legacy script is kept as the
 differential oracle under `rsdd/internal/formats/testdata/squashfs/legacy/`.

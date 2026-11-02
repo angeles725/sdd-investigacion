@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
@@ -737,13 +738,13 @@ func extractSquashfs(a squashfsOpts, s cli.Stdio, startedAt time.Time, stagePath
 		return err
 	}
 	manifestPath := filepath.Join(stage, "analysis-manifest.v1.json")
-	if err := runManifestTool(s, "create", manifestCLI, "--root", stage, "--spec", specPath, "--output", manifestPath); err != nil {
+	if err := runManifestTool(s, "create", "--root", stage, "--spec", specPath, "--output", manifestPath); err != nil {
 		return err
 	}
 	if err := os.Remove(specPath); err != nil {
 		return err
 	}
-	if err := runManifestTool(s, "verify", manifestCLI, "--root", stage, manifestPath); err != nil {
+	if err := runManifestTool(s, "verify", "--root", stage, manifestPath); err != nil {
 		return err
 	}
 	if err := lockModes(stage); err != nil {
@@ -839,30 +840,11 @@ func lockModes(stage string) error {
 	})
 }
 
-// runManifestTool runs `python3 analysis_manifest.py <verb> ...` (60 s), relaying its output.
-func runManifestTool(s cli.Stdio, verb, cliPath string, rest ...string) error {
-	py, ok := whichIn("python3", s.Env("PATH"))
-	if !ok {
-		return sqfsErrf("python3 is required to run the manifest tool")
-	}
-	res, err := proc.Run(proc.Spec{
-		Argv: append([]string{py, cliPath, verb}, rest...), Dir: s.Cwd, Env: s.Environ(),
-		Timeout: 60 * time.Second, MaxBytes: 1 << 20,
-	})
-	if len(res.Stdout) > 0 {
-		_, _ = s.Out.Write(res.Stdout)
-	}
-	if len(res.Stderr) > 0 {
-		_, _ = s.Err.Write(res.Stderr)
-	}
-	if err != nil {
-		return err
-	}
-	if res.Reason != "" {
-		return sqfsErrf("manifest %s failed (%s)", verb, res.Reason)
-	}
-	if res.ReturnCode != 0 {
-		return sqfsErrf("manifest %s failed (exit %d)", verb, res.ReturnCode)
+// runManifestTool runs one analysis-manifest verb in process (core/adapter) and relays its output. The
+// validated --manifest-cli path is no longer executed.
+func runManifestTool(s cli.Stdio, verb string, rest ...string) error {
+	if rc := adapter.ManifestRun(append([]string{verb}, rest...), s); rc != 0 {
+		return sqfsErrf("manifest %s failed (exit %d)", verb, rc)
 	}
 	return nil
 }
