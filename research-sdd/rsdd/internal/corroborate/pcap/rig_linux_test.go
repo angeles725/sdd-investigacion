@@ -130,6 +130,15 @@ func newRig(t testing.TB) *rig {
 			t.Fatal(err)
 		}
 	}
+	for _, util := range []string{"cat", "dirname", "sleep", "cp"} { // what the fakes run; PATH is the rig alone
+		path, err := exec.LookPath(util)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(path, filepath.Join(r.dir, util)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r.set("version.txt", "TShark (Wireshark) 4.2.0 (fake)\nsecond line\n")
 	r.set("capinfos.txt", capinfosSample)
 	r.set("phs.txt", defaultPHS)
@@ -147,11 +156,44 @@ func (r *rig) set(name, content string) {
 	}
 }
 
-// env is the environment a run sees: the fakes first on PATH, then the directory of the python3 the oracle
-// runs under (the manifest tool is started with the same interpreter on both sides).
+// env is the environment a run sees: PATH is the rig directory alone, so no tool of the host can leak in. A python
+// interpreter is linked in as python3 (the manifest tool is started with it on both sides); an empty py leaves
+// whatever python3 the rig already holds (the fake manifest tool of fakeManifest).
 func (r *rig) env(py string, extra ...string) []string {
-	env := []string{"PATH=" + r.dir + ":" + filepath.Dir(py) + ":/usr/bin:/bin", "HOME=" + filepath.Dir(r.dir)}
+	if py != "" {
+		link := filepath.Join(r.dir, "python3")
+		_ = os.Remove(link)
+		if err := os.Symlink(py, link); err != nil {
+			panic(err)
+		}
+	}
+	env := []string{"PATH=" + r.dir, "HOME=" + filepath.Dir(r.dir)}
 	return append(env, extra...)
+}
+
+// fakeManifest installs a python3 that stands in for the manifest tool, so a run needs no Python: "create" copies
+// the spec it was given to the manifest path (the frozen spec is what the command asked the tool to record),
+// "validate" and "verify" succeed. A fail-manifest-<verb> marker file makes that verb print its content and exit 2.
+func (r *rig) fakeManifest() {
+	body := `#!/bin/sh
+d="$(dirname "$0")/data"
+shift
+verb="$1"; shift
+if [ -f "$d/fail-manifest-$verb" ]; then cat "$d/fail-manifest-$verb" >&2; exit 2; fi
+if [ "$verb" = create ]; then
+  while [ "$#" -gt 0 ]; do
+    case "$1" in --spec) spec="$2" ;; --output) out="$2" ;; esac
+    shift
+  done
+  cp "$spec" "$out"
+fi
+exit 0
+`
+	link := filepath.Join(r.dir, "python3")
+	_ = os.Remove(link)
+	if err := os.WriteFile(link, []byte(body), 0o755); err != nil {
+		panic(err)
+	}
 }
 
 // writePcap writes a capture file with libpcap magic and a fixed body.
