@@ -448,5 +448,27 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _rsdd_shim(argv: list[str]) -> int | None:
+    """Run the CLI through the Go port (`rsdd adapter manifest`); None when it cannot be used.
+
+    Compatibility shim (kit issue #2390): the command line, its output, its exit code and the files it
+    writes are the Go binary's. The Go binary is used only when lib/rsdd-exec.sh sits beside this file and
+    resolves a binary, so a staged or mutated copy of this module (no lib beside it) and a host without Go
+    keep running the Python implementation below. Importers of this module never reach this function.
+    """
+    here = os.path.dirname(os.path.realpath(__file__))
+    if not os.path.isfile(os.path.join(here, "lib", "rsdd-exec.sh")):
+        return None
+    import subprocess
+
+    script = '. "$1/lib/rsdd-exec.sh" 2>/dev/null || exit 97; _rsdd_exec_resolve 2>/dev/null || exit 97; shift; exec "$_RSDD_EXEC_BIN" adapter manifest "$@"'
+    try:
+        result = subprocess.run(["bash", "-c", script, "rsdd-shim", here, *argv])
+    except OSError:
+        return None
+    return None if result.returncode == 97 else result.returncode
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    shimmed = _rsdd_shim(sys.argv[1:])
+    sys.exit(main() if shimmed is None else shimmed)
