@@ -27,8 +27,6 @@
 //     (exit 2), as in the bash where the scanner can never be swapped. A call without --toolbelt is refused (exit 2,
 //     before any git or gh call), and a --toolbelt directory without ensure-remote.sh is refused (exit 7): the
 //     scanner is only ever the one beside the shim, never one found through RESEARCH_SDD_KIT;
-//   - the exit-3 (no consent) path gets one extra `DEGRADED: command reported a degraded state without a reason`
-//     stderr line from the rsdd dispatcher; it is a declared divergence (parity case er-no-consent);
 //   - the "looks like text" test uses the ASCII class [[:alnum:]], stricter than the locale-dependent bash one;
 //   - git, the scanner and the `gh api` owner lookups were unbounded in the bash and are bounded here (git and the
 //     scanner one hour, the owner lookups by RSDD_GH_TIMEOUT); the final `git push` is the exception: unbounded and
