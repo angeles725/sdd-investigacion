@@ -282,7 +282,7 @@ func TestDriverOutcomes(t *testing.T) {
 			res:    proc.Result{Stdout: []byte("[1,2]")},
 			wantRC: 1, wantStatus: "failed", errPrefix: []string{"driver-output-error: driver output is not a JSON object: list"}, truncated: true},
 		{name: "depth and value caps",
-			res: proc.Result{Stdout: []byte(strings.Replace(driverJSON(3, 3, ""), `"truncated":false,"depth_cap":false,"value_trunc":false`, `"truncated":true,"depth_cap":true,"value_trunc":true`, 1))},
+			res:        proc.Result{Stdout: []byte(strings.Replace(driverJSON(3, 3, ""), `"truncated":false,"depth_cap":false,"value_trunc":false`, `"truncated":true,"depth_cap":true,"value_trunc":true`, 1))},
 			wantStatus: "complete", limPrefix: []string{"structure walk depth cap fired", "field value bytes cap fired"}, truncated: true},
 	}
 	for _, c := range cases {
