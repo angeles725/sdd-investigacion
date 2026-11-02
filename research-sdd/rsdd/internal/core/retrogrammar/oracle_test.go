@@ -1,7 +1,9 @@
 package retrogrammar
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -169,16 +171,22 @@ func formatOracle(cases map[string]oracleCase) (docs, out string) {
 	return db.String(), cb.String()
 }
 
-func loadOracle() ([]oracleCase, error) {
-	docs, err := os.ReadFile(oracleDocsFile)
-	if err != nil {
-		return nil, err
+func loadOracle() ([]oracleCase, error) { return loadOracleFrom(oracleDocsFile, oracleCasesFile) }
+
+// loadOracleFrom reads the two golden files. A missing one is named with the command that rebuilds it, so a
+// checkout without the goldens fails with that one message, not with a bare read error.
+func loadOracleFrom(docsPath, casesPath string) ([]oracleCase, error) {
+	var text [2]string
+	for i, p := range []string{docsPath, casesPath} {
+		b, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("goldens missing: %s; regenerate with make retrogrammar-live", p)
+		} else if err != nil {
+			return nil, err
+		}
+		text[i] = string(b)
 	}
-	cases, err := os.ReadFile(oracleCasesFile)
-	if err != nil {
-		return nil, err
-	}
-	return parseOracle(string(docs), string(cases))
+	return parseOracle(text[0], text[1])
 }
 
 // oracleSide is the Go rendering of one frozen case. path is the file the input was materialised as ("" for a
@@ -268,7 +276,7 @@ func TestOracleReplay(t *testing.T) {
 	}
 	cases, err := loadOracle()
 	if err != nil {
-		t.Fatalf("frozen oracle unreadable: %v", err)
+		t.Fatal(err)
 	}
 	o := &oracleSide{dir: t.TempDir(), docs: map[string]string{}}
 	perMode := map[string]int{}
@@ -309,4 +317,22 @@ func TestOracleReplay(t *testing.T) {
 		}
 	}
 	t.Logf("replayed %d frozen cases over %d modes", len(cases), len(perMode))
+}
+
+func TestOracleMissingGoldensNamesTheRegenerateCommand(t *testing.T) {
+	dir := t.TempDir()
+	docs := filepath.Join(dir, "oracle-docs.txt")
+	if err := os.WriteFile(docs, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ docs, cases, missing string }{
+		{filepath.Join(dir, "absent-docs.txt"), filepath.Join(dir, "absent-cases.txt"), "absent-docs.txt"},
+		{docs, filepath.Join(dir, "absent-cases.txt"), "absent-cases.txt"},
+	} {
+		_, err := loadOracleFrom(c.docs, c.cases)
+		want := "goldens missing: " + filepath.Join(dir, c.missing) + "; regenerate with make retrogrammar-live"
+		if err == nil || err.Error() != want {
+			t.Errorf("loadOracleFrom(%s, %s) error = %v, want %q", c.docs, c.cases, err, want)
+		}
+	}
 }
