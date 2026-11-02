@@ -181,6 +181,7 @@ func TestSignaturesAndEntropyAreSplitSortedAndCappedInThatOrder(t *testing.T) {
 }
 
 func TestProcessCapKillsAndCleansTheProcessTree(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	w := newWorld(t)
 	leak := w.path("LEAKED_CHILD")
 	w.useOverride(w.analyzer("child", fakeBinwalk("(sleep 2; touch '"+leak+"') &\nsleep 5")))
@@ -240,6 +241,7 @@ func TestAnalyzerKilledBySignalIsRecordedAsASignal(t *testing.T) {
 }
 
 func TestTimeoutStopsTheAnalyzer(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	w := newWorld(t)
 	w.useOverride(w.analyzer("slow", fakeBinwalk("sleep 10")))
 	start := time.Now()
@@ -321,6 +323,7 @@ func TestPreflightSafetyFailsClosed(t *testing.T) {
 }
 
 func TestSourceMutationAfterStagingCannotChangeTheAnalyzedBytes(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	w := newWorld(t)
 	w.useOverride(w.analyzer("slow_stage", fakeBinwalk("sleep 1; echo '0 0x0 staged source'")))
 	in := w.input()

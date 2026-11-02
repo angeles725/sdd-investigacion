@@ -56,6 +56,7 @@ func TestLaunchedWorkerIsBoundedInTime(t *testing.T) {
 }
 
 func TestLaunchedWorkerProcessTreeIsCappedAndCleaned(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	leak := filepath.Join(t.TempDir(), "LEAK")
 	err := launch(t, "(sleep 0.5; touch '"+leak+"') & sleep 3", 5*time.Second, 0, roomyMemory)
 	if err == nil || err.Error() != "process cap" {

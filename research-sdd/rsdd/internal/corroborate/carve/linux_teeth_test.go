@@ -84,6 +84,7 @@ func TestLaunchedWorkerTimesOutExactlyAtTheBound(t *testing.T) {
 }
 
 func TestLaunchedWorkerProcessCapIsInclusive(t *testing.T) {
+	t.Parallel()                           // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	const two = "sleep 1 & sleep 1 & wait" // exactly two descendants of the shell
 	if err := launch(t, two, 10*time.Second, 2, roomyMemory); err != nil {
 		t.Errorf("two descendants under a cap of two: err = %v, want nil", err)

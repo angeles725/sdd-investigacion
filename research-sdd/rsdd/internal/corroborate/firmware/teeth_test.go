@@ -117,6 +117,7 @@ func TestReportNamesTheVerifiedManifestAndTheCleanExit(t *testing.T) {
 }
 
 func TestSlowVersionProbeIsNotCutShort(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	w := newWorld(t)
 	w.useOverride(w.analyzer("slow-banner", "#!/bin/sh\nsleep 0.4\n[ \"$1\" = --help ] && { echo 'Binwalk v2.3.3'; exit; }\nprintf '0 0x0 x\\n'\n"))
 	w.mustRun(w.input(), w.path("out"))
@@ -189,6 +190,7 @@ func TestStopGroupReturnsAsSoonAsTheGroupAnswersTerm(t *testing.T) {
 }
 
 func TestStopGroupGivesTermAHalfSecondBeforeKill(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	marker := filepath.Join(t.TempDir(), "term-handled")
 	pid, g, exited := startGroup(t, "trap 'touch "+marker+"; exit 0' TERM\nsleep 30 &\nwait")
 	time.Sleep(300 * time.Millisecond)
@@ -204,6 +206,7 @@ func TestStopGroupGivesTermAHalfSecondBeforeKill(t *testing.T) {
 }
 
 func TestStopGroupKillsAGroupThatIgnoresTerm(t *testing.T) {
+	t.Parallel() // waits on real timers; overlapping them keeps the teeth run inside the CI job cap
 	pid, g, exited := startGroup(t, "trap '' TERM\nsleep 30")
 	time.Sleep(300 * time.Millisecond)
 	start := time.Now()
