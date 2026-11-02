@@ -15,7 +15,7 @@ research-sdd/toolbelt/tests/corroborate-firmware.test.sh extras unused adapter (
 research-sdd/toolbelt/tests/corroborate-pcap.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/dynamic.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/kaitai-driver-walk-memcap.test.sh extras unused adapter (#2203)
-research-sdd/toolbelt/tests/kaitai.test.sh extras unused adapter (#2203)
+
 research-sdd/toolbelt/tests/pcap-flows.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/qnx6-read.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/serial-frame-analyze.test.sh extras unused adapter (#2203)

@@ -324,10 +324,16 @@ _run_issue_seeding() {
         failed_issues_unknown=1
       fi
       failed_list="${failed_list:+$failed_list, }$(basename "$rf")"
-      # Last non-progress line of seeder output as reason (bounded to 80 chars)
-      _seed_reason="$(printf '%s' "$seed_out" | \
-        grep -vE '^(created|skipped-duplicate|skipped-shipped|skipped-wrong-kit|planned-issue|summary|no-match):' | \
-        tail -1 | cut -c1-80)"
+      # Reason (bounded to 80 chars): the last typed failure line when the seeder printed one, else the last
+      # non-progress line. The typed line wins so the reason does not depend on how stdout and stderr interleave in
+      # `seeder 2>&1`: the Go seeder releases its stdout only when it returns, so its stdout lines come after its
+      # stderr lines, where the bash seeder interleaved them in print order.
+      _seed_reason="$(printf '%s' "$seed_out" | grep -E '^(degraded|DEGRADED|absent-input|input-error):' | tail -1 | cut -c1-80)"
+      if [ -z "$_seed_reason" ]; then
+        _seed_reason="$(printf '%s' "$seed_out" | \
+          grep -vE '^(created|skipped-duplicate|skipped-shipped|skipped-wrong-kit|planned-issue|summary|no-match):' | \
+          tail -1 | cut -c1-80)"
+      fi
       if [ -z "$_seed_reason" ]; then _seed_reason="(no output)"; fi
       printf 'retro-gate: WARN: seeder failed (exit %d) for %s: %s\n' \
         "$seed_rc" "$(basename "$rf")" "$_seed_reason" >&2

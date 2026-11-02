@@ -1,8 +1,8 @@
 # kaitai-evidence.v1 — Kaitai Struct Binary Parsing Evidence Schema
 
 Schema identifier: `kaitai-evidence.v1`
-Produced by: `corroborate-kaitai.sh` / `corroborate_kaitai.py`
-Pipeline: two-stage (Stage 1: ksc JVM compile; Stage 2: kaitai Python driver parse)
+Produced by: `corroborate-kaitai.sh` (shim for `rsdd corroborate kaitai`, package `rsdd/internal/corroborate/kaitai`)
+Pipeline: two-stage (Stage 1: ksc JVM compile; Stage 2: kaitai Python driver parse, `lib/kaitai_driver.py`, the one step that stays Python because ksc emits Python parsers that only the kaitaistruct runtime runs)
 
 ## Envelope (standard fields)
 

@@ -1,0 +1,6 @@
+{
+  "rc": 2,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 1 (retro-level=1 row-level=0)\n",
+  "stderr": "unclassifiable: proposal-like heading found but not in a countable delta form in @BOX@/rh/target-foo/retros/bob@example.com.md — needs manual review, no issue auto-staged\nERROR: scrub altered the signature line of the unclassifiable tracker — refusing to write (dedup and read-back key on it)\nnote: covers_through: absent in bob@example.com.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

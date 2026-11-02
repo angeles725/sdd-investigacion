@@ -54,6 +54,14 @@ mk_hermetic_bin() {
 }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# Case 47 runs the stager shim, which runs the Go command: the caller's RSDD_BIN, else one build into the temp dir
+# (degraded, never a pass, without go).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -2804,6 +2812,7 @@ else no "46s two later" "exit=$RC out=[$OUT]"; fi
 STAGE_SUT="$HERE/../stage-retro-issues.sh"; SCRUB_LIB="$HERE/../lib/scrub-issue-text.sh"
 PAR_BOX="$(mkbox case-47-parity)"; mk_gh_stub "$PAR_BOX" nomatch
 cp "$STAGE_SUT" "$PAR_BOX/research-sdd/toolbelt/stage-retro-issues.sh"; cp "$SCRUB_LIB" "$PAR_BOX/research-sdd/toolbelt/lib/scrub-issue-text.sh"
+cp "$HERE/../lib/rsdd-exec.sh" "$PAR_BOX/research-sdd/toolbelt/lib/rsdd-exec.sh"   # stage-libs-ok: the stager shim sources only lib/rsdd-exec.sh
 mk_retro "$PAR_BOX" target-foo 2026-01-01-p1.md "<!-- review-status: pending -->" \
   "$(printf '| 1 | **bold wrapped title** — with a tail | M | B | new | HIGH |\n| 2 | plain positional title | M | B | new | HIGH |')" >/dev/null
 {

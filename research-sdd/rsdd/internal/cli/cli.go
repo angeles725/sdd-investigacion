@@ -26,6 +26,9 @@ type Command struct {
 	// code, for legacy instruments whose contract differs from the default
 	// (e.g. verify-state: 1 = stale). Codes absent from the map pass through.
 	ExitMap map[int]int
+	// PlainExit3 marks a legacy contract where exit 3 is not "degraded" (ensure-remote: no consent), so exec
+	// does not append the "degraded state without a reason" line when the command ends on 3.
+	PlainExit3 bool
 }
 
 // Validate rejects a table that would shadow or cannot dispatch: an empty
@@ -129,7 +132,7 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
 		}
-		if code == ExitDegraded && !errw.sawDegraded {
+		if code == ExitDegraded && !errw.sawDegraded && !cmd.PlainExit3 {
 			fmt.Fprintln(s.Err, "DEGRADED: command reported a degraded state without a reason")
 		}
 	}()
