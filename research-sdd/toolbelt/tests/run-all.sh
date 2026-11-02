@@ -38,9 +38,14 @@
 #                    stale-waiver check judges the whole corpus). Also `--tier=<t>`.
 #   --shard I/N      Opt-in CI sharding (kit issue #2114): run only shard I of N (1 <= I <= N <= 32). The
 #                    selected tier's list (all suites of BOTH corpora under --tier all) is sorted by
-#                    repo-relative path (LC_ALL=C) and
-#                    suite number k (0-based) belongs to shard (k mod N) + 1, a disjoint cover of the list
-#                    for every N. Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
+#                    repo-relative path (LC_ALL=C) and assigned to shards by measured duration (kit issue
+#                    #2488): suite-durations.txt (next to this script, `<repo-relative suite> <seconds>` per
+#                    line) weights each suite; suites go longest-first (ties by path) to the least-loaded shard
+#                    (ties: lowest shard number), a disjoint, complete cover of the list for every N. A selected
+#                    suite the manifest omits weighs 6 s and is named on stderr; an invalid line (not "<path>
+#                    <positive integer>", a duplicate, a path naming no suite) is `Shard: INVALID` and exits 1
+#                    before any suite runs; an absent/unreadable/empty manifest is a `Shard: DEGRADED` note and
+#                    the older assignment (position k (0-based) in the sorted list belongs to shard (k mod N) + 1). Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
 #                    (#1126/#1144) still judge the FULL discovered set. The aggregate gains one
 #                    `Shard: I/N — K of T suites` line; K = 0 (N > T) is reported as EMPTY SHARD and exits 1
 #                    (zero coverage is never a pass). Without the flag nothing changes. Also `--shard=I/N`.
@@ -718,12 +723,85 @@ if [[ -n "$LIST_SUITES" ]]; then
   [[ "$INSTALL_TESTS_DEGRADED" -eq 0 && -z "$TIER_DEGRADED" ]] || exit 1
   exit 0
 fi
+SHARD_DEGRADED=""
+SHARD_BALANCE_LINE=""
 if [[ -n "$SHARD_N" ]]; then
+  # Duration-balanced assignment (kit issue #2488). suite-durations.txt lists measured seconds per suite
+  # ("<repo-relative suite path> <seconds>"; '#' comments and blank lines ignored). Suites are assigned greedily,
+  # longest first (ties: path, LC_ALL=C), to the least-loaded shard (ties: lowest shard number), so the cover of the
+  # selected list stays disjoint and complete for every N and is the same on every shard. Strict like suite-tiers.txt:
+  # a line that is not "<path> <positive integer>", a duplicate, or a path naming no discovered suite is a typed
+  # `Shard: INVALID` and exits 1 BEFORE any suite runs. An absent/unreadable/empty manifest is a typed
+  # `Shard: DEGRADED` note and the previous round-robin-by-name assignment (still a disjoint cover; no exit change).
+  # SENTINEL-SHARD-DURATIONS
+  SHARD_DEFAULT_WEIGHT=6   # seconds for a selected suite the manifest does not list (the measured median)
+  SHARD_DURATIONS="$SCRIPT_DIR/suite-durations.txt"
+  declare -A _sw=()
+  _sd_invalid=()
+  if [[ ! -e "$SHARD_DURATIONS" ]]; then
+    SHARD_DEGRADED="suite-durations.txt absent"
+  elif [[ ! -f "$SHARD_DURATIONS" || ! -r "$SHARD_DURATIONS" ]]; then
+    SHARD_DEGRADED="suite-durations.txt unreadable"
+  else
+    _sd_n=0
+    while IFS= read -r _sd || [[ -n "$_sd" ]]; do
+      _sd_n=$((_sd_n + 1))
+      _sd="${_sd#"${_sd%%[![:space:]]*}"}"
+      [[ -z "$_sd" || "$_sd" == "#"* ]] && continue
+      read -r _sd_path _sd_sec _sd_extra <<<"$_sd"
+      if [[ -z "$_sd_sec" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has no seconds")
+      elif [[ -n "$_sd_extra" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has extra text after the seconds")
+      elif [[ ! "$_sd_sec" =~ ^[1-9][0-9]{0,5}$ ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has seconds '$_sd_sec' (need a positive integer, at most 999999)")
+      elif [[ "${_sw[$_sd_path]+set}" == "set" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' is listed twice")
+      elif [[ "${_rel_known[$_sd_path]+set}" != "set" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' names no discovered suite (renamed or removed?)")
+      else
+        _sw["$_sd_path"]="$_sd_sec"
+      fi
+    done < "$SHARD_DURATIONS"
+    [[ ${#_sd_invalid[@]} -gt 0 || ${#_sw[@]} -gt 0 ]] || SHARD_DEGRADED="suite-durations.txt lists no suite"
+  fi
+  if [[ ${#_sd_invalid[@]} -gt 0 ]]; then
+    for _si in "${_sd_invalid[@]}"; do echo "Shard: INVALID — $SHARD_DURATIONS $_si" >&2; done
+    echo "run-all.sh: suite-durations.txt has ${#_sd_invalid[@]} invalid line(s); nothing ran" >&2
+    exit 1
+  fi
   declare -A _shard_pick=()
-  for ((_si = 0; _si < ${#_sorted_rels[@]}; _si++)); do
-    # SENTINEL-SHARD-ASSIGN
-    if (( _si % SHARD_N == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sorted_rels[$_si]}]}"]=1; fi
-  done
+  if [[ -n "$SHARD_DEGRADED" ]]; then
+    echo "Shard: DEGRADED — $SHARD_DEGRADED; assigning round-robin by name (still a disjoint, complete cover)" >&2
+    for ((_si = 0; _si < ${#_sorted_rels[@]}; _si++)); do
+      # SENTINEL-SHARD-ASSIGN
+      if (( _si % SHARD_N == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sorted_rels[$_si]}]}"]=1; fi
+    done
+  else
+    _sd_unlisted=()
+    _sd_lines=()
+    for _sr in "${_sorted_rels[@]}"; do
+      if [[ "${_sw[$_sr]+set}" == "set" ]]; then _sd_lines+=("${_sw[$_sr]} $_sr"); else _sd_unlisted+=("$_sr"); _sd_lines+=("$SHARD_DEFAULT_WEIGHT $_sr"); fi
+    done
+    if [[ ${#_sd_unlisted[@]} -gt 0 ]]; then
+      echo "Shard: durations — ${#_sd_unlisted[@]} of ${#_sorted_rels[@]} selected suite(s) not in suite-durations.txt, weighted $SHARD_DEFAULT_WEIGHT s each: $(printf '%s\n' "${_sd_unlisted[@]##*/}" | paste -sd, - | sed 's/,/, /g')" >&2
+    fi
+    mapfile -t _sd_order < <(printf '%s\n' "${_sd_lines[@]}" | LC_ALL=C sort -k1,1nr -k2,2)
+    _sd_load=()
+    for ((_sk = 0; _sk < SHARD_N; _sk++)); do _sd_load[_sk]=0; done
+    for _sl in "${_sd_order[@]}"; do
+      _sd_best=0
+      for ((_sk = 1; _sk < SHARD_N; _sk++)); do
+        # SENTINEL-SHARD-ASSIGN
+        if (( _sd_load[_sk] < _sd_load[_sd_best] )); then _sd_best=$_sk; fi
+      done
+      _sd_load[_sd_best]=$(( _sd_load[_sd_best] + ${_sl%% *} ))
+      if (( _sd_best == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sl#* }]}"]=1; fi
+    done
+    _sd_max=0; _sd_min=${_sd_load[0]}
+    for _sk in "${_sd_load[@]}"; do (( _sk > _sd_max )) && _sd_max=$_sk; (( _sk < _sd_min )) && _sd_min=$_sk; done
+    SHARD_BALANCE_LINE="Shard: balance — duration-weighted, predicted ${_sd_load[SHARD_I-1]} s for this shard (all $SHARD_N shards: min $_sd_min s, max $_sd_max s)"
+  fi
   _shard_suites=()
   for f in "${all_suites[@]}"; do
     [[ "${_shard_pick[$f]+set}" == set ]] && _shard_suites+=("$f")
@@ -1685,6 +1763,7 @@ if [[ -n "$SHARD_N" ]]; then
     # SENTINEL-SHARD-EMPTY
     echo "Shard: EMPTY SHARD — $SHARD_I/$SHARD_N selected 0 of $total_suites suites (N exceeds the suite count); nothing ran, so this shard is not a pass"
   fi
+  if [[ -n "$SHARD_DEGRADED" ]]; then echo "Shard: DEGRADED — $SHARD_DEGRADED; round-robin by name"; else echo "$SHARD_BALANCE_LINE"; fi
   [[ -z "$SHARD_MANIFEST" ]] || echo "Shard manifest: $SHARD_MANIFEST"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
