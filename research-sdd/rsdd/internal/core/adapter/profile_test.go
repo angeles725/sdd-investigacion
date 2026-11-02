@@ -102,7 +102,7 @@ func TestParityNamedProfileConstants(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("named profiles differ from isolation_profile.py\n go     %v\n python %v", got, want)
 	}
-	if len(got) != 10 {
-		t.Fatalf("expected the 10 constants of isolation_profile.py, got %d", len(got))
+	if len(got) != 8 {
+		t.Fatalf("expected the 8 constants of isolation_profile.py, got %d", len(got))
 	}
 }

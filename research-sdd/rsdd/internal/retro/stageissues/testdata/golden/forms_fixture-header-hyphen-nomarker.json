@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: Make the header row of a table never count as a delta row\n  labels: status:needs-review,target:target-foo,type:feature,priority:low\n  body:\n    Make the header row of a table never count as a delta row\n    \n    **Target:** `toolbelt/x.sh`\n    **Evidence:** B1\n    \n    ---\n    Source retro: target-foo/retros/r.md · D1\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 1 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

@@ -35,8 +35,6 @@ func NamedProfiles() map[string]Profile {
 		"PROFILE_BWRAP_CAPA_OFFLINE":          "bubblewrap-capa-offline",
 		"PROFILE_BWRAP_FLOSS_OFFLINE":         "bubblewrap-floss-offline",
 		"PROFILE_BWRAP_KAITAI_OFFLINE":        "bubblewrap-kaitai-offline",
-		"PROFILE_BWRAP_UNBLOB_OFFLINE":        "bubblewrap-unblob-offline",
-		"PROFILE_BWRAP_IFC_OFFLINE":           "bubblewrap-ifc-offline",
 		"PROFILE_BWRAP_UNSQUASHFS":            "bwrap-unsquashfs",
 		"PROFILE_INPROCESS_ZIP_METADATA":      "in-process-metadata-only",
 		"PROFILE_INPROCESS_ZIP_STORED":        "in-process-static-stored-copy",

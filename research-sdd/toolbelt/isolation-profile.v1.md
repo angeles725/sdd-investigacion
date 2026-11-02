@@ -53,7 +53,6 @@ These profiles are defined as constants in `lib/isolation_profile.py`.
 | `PROFILE_BWRAP_CAPA_OFFLINE` | `bubblewrap-capa-offline` | `true` | `false` | `corroborate_capa` |
 | `PROFILE_BWRAP_FLOSS_OFFLINE` | `bubblewrap-floss-offline` | `true` | `false` | `corroborate_floss` |
 | `PROFILE_BWRAP_KAITAI_OFFLINE` | `bubblewrap-kaitai-offline` | `true` | `false` | `rsdd corroborate kaitai` (Go) |
-| `PROFILE_BWRAP_UNBLOB_OFFLINE` | `bubblewrap-unblob-offline` | `true` | `false` | `corroborate_unblob` |
 | `PROFILE_BWRAP_UNSQUASHFS` | `bwrap-unsquashfs` | `true` | `false` | `squashfs_extract` |
 | `PROFILE_INPROCESS_ZIP_METADATA` | `in-process-metadata-only` | `true` | `false` | `zip_metadata` |
 | `PROFILE_INPROCESS_ZIP_STORED` | `in-process-static-stored-copy` | `true` | `false` | `zip_stored` |

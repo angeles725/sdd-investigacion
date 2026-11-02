@@ -1,0 +1,6 @@
+{
+  "rc": 2,
+  "stdout": "mutation_outcome: no_write (row 1)\nunclassifiable-items: 0 (none: 1 row(s) examined)\nsummary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\nmutation-summary: confirmed=0 no_write=1 unknown=0\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "ERROR: scrub altered the signature line for row 1 — refusing to write (dedup and read-back key on it)\nnote: covers_through: absent in bob@example.com.md — no blocks_since_retro reset proposed\n",
+  "ghlog": "gh auth status\n"
+}

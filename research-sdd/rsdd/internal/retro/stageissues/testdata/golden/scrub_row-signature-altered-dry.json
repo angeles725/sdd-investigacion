@@ -1,0 +1,6 @@
+{
+  "rc": 2,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 0 (none: 1 row(s) examined)\n",
+  "stderr": "ERROR: scrub altered the signature line for row 1 — refusing to write (dedup and read-back key on it)\nnote: covers_through: absent in bob@example.com.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

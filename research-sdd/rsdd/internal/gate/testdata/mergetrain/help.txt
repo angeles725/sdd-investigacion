@@ -1,0 +1,60 @@
+# kit-merge-train.sh [options] <pr> [<pr>...]
+#
+# Kit-maintenance tool (kit issue #2213; outside the research toolbelt core): gate a batch of approved kit PRs ONCE
+# on a combined "train" head instead of re-gating each PR after every restack, then merge them in order.
+#   1. each PR (in the given order) must be OPEN, not a draft, and its head must be the head its RDD acknowledged
+#   2. a LOCAL branch train/<ts> (a dedicated worktree, never pushed) is built from the base with `git merge --no-ff`
+#      per PR head; a conflict drops that PR (typed `train-conflict`), the rest continue; no auto-resolution
+#   3. ONE gate (kit-gate.sh) runs on the train head
+#   4. green: per PR, in order, kit-wait-merge.sh (CI wait + merge-gate --merge, run in a worktree AT that PR's head,
+#      so merge-gate's own RDD check covers the exact head). The first PR that does not merge stops the train; the
+#      rest are reported pending. Red: nothing is merged.
+# RDD stays per PR and per head: the train never replaces it. Merging a PR whose head moved after its RDD is refused
+# twice: here (head pin) and by merge-gate (review_due / head_mismatch).
+#
+# Options:
+#   --rdd-ok PR=SHA   (repeatable, REQUIRED for every PR) the head sha (7+ hex, prefix ok) the PR's RDD acknowledged.
+#                     The pin is explicit input, never inferred: a PR without a pin is refused `rdd-unconfirmed`, a pin
+#                     that is not the PR's current head is refused `rdd-head-mismatch`.
+#   --pr-cwd PR=DIR   (repeatable) the worktree where PR's RDD ran. RDD authority is bound to the WORKTREE where the review
+#                     ran (stored in the shared git dir, matched by a worktree identity), not just to the head, so
+#                     merge-gate run from any other worktree at the same head refuses `review_due`. With --pr-cwd the
+#                     merge (kit-wait-merge / merge-gate) runs in DIR, which stays in place. DIR must be a worktree of
+#                     the repo whose HEAD is the pinned head, else the PR is refused `pr-cwd-mismatch`. A PR WITHOUT
+#                     --pr-cwd is merged from the train's own detached worktree at its head, where merge-gate will
+#                     likely refuse review_due (the train then stops there; the PRs after it stay pending).
+#   --repo DIR       the kit checkout (default: the current directory); its sibling `<repo>-worktrees/` holds the train
+#                     worktrees (never /tmp)
+#   --base-ref REF    the train base and merge-gate base (default origin/main); the remote is the part before `/`
+#   --state-dir DIR   receipt, gate log and gate lock; default ${XDG_STATE_HOME:-$HOME/.local/state}/research-sdd/pipeline;
+#                     refused when it resolves (symlinks included) inside the repo
+#   --gate-cmd CMD    run CMD (bash -c, inside the train worktree) as the gate instead of the default full gate
+#   --serial          the default full gate without -j (CLAUDE.md section 5 reference); not with --gate-cmd
+#   --bisect          on a red gate, gate prefixes of the batch (binary search) to name the first PR whose inclusion
+#                     turns the gate red. The base is ASSUMED green (never gated); the culprit may be an interaction
+#   --dry-run         print the plan (`kit-merge-train: plan: ...`); run no git/gh, create nothing
+# Environment: KIT_RETRY_SLEEP, and for kit-wait-merge.sh KIT_POLL_SLEEP, KIT_POLL_MAX, KIT_MERGE_SLEEP,
+# KIT_MERGE_TRIES, KIT_MERGE_GATE.
+#
+# Receipt <state-dir>/train-<ts>.json: state, base_sha, train_sha, gate {rc, log, cmd}, per-PR {pr, head, status
+# (merged|pending|dropped|refused|culprit), reason}, culprit. Written on every exit after the first fetch.
+#
+# Typed exit states (last line `kit-merge-train: <state>: ...`; registered in reason-codes.d/kit-merge-train.md):
+#   merged            0   every requested PR merged
+#   usage             2   bad arguments, or a state dir inside the repo
+#   degraded          3   git, gh, jq or flock missing
+#   ci-failed        17   (from kit-wait-merge) a CI check failed for the PR that stopped the train
+#   merge-degraded   18   (from kit-wait-merge) merge-gate stayed degraded
+#   not-merged       19   (from kit-wait-merge) merge-gate refused / PR not MERGED; later PRs pending
+#   fetch-failed     21   git fetch still failing after 3 tries
+#   gate-lock-timeout 22  the gate lock was not obtained in time (not a gate failure)
+#   train-gate-failed 26  the combined gate was red; nothing merged (--bisect names the culprit)
+#   train-partial    27   everything that stayed in the train merged, but PRs were refused or dropped (conflict)
+#   train-empty      28   no PR survived the checks and the merges; nothing gated or merged
+#   train-error      29   an unexpected git/worktree/gate failure (not a conflict), or INT/TERM (`interrupted`)
+#   base-moved       30   the base moved during the gate; checked before the first merge; nothing merged
+#   main-raced       31   after a merge, <base>^ is not the previous tip (another commit landed); train stopped
+#   tree-mismatch    32   <base>^{tree} differs from the train tree (or the base+merged-prefix tree when it stopped early)
+#   merged-out-of-band 33 (from kit-wait-merge --expect-head) the PR is MERGED at a head other than the gated one
+# Per-PR refusals also include `base-not-<branch>` (the PR does not target the base branch; stacked PRs are not trained).
+# A lock timeout while bisecting keeps the red full gate: train-gate-failed with `bisect-incomplete: gate-lock-timeout`.

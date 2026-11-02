@@ -43,6 +43,47 @@ TOOLBELT="$HERE/.."
 SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
 REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
+# A script that is only a rsdd-exec shim (kit issue #2435) emits its typed states from the Go command it runs. The Go
+# sources of that command are scanned as part of the script, so every registry row stays verified against a real emitter:
+# only the lines that CALL an emitter (errf / outf) are read, rewritten to `printf` so the shell rules above apply
+# unchanged; `//` comment lines and `_test.go` files are never emitters. A degraded: line that is not such a call is
+# reported (the extractor cannot read it). The shim itself is still scanned (rsdd-unavailable, the self-dir note).
+GO_EMITTERS=(stage-retro-issues.sh)
+GO_SRC_REL="../rsdd/internal/retro/stageissues"   # relative to the scanned toolbelt directory
+
+# go_shim SCRIPT_PATH — 0 when it is one of GO_EMITTERS and a shim
+go_shim() {
+  local b e
+  b="$(basename "$1")"
+  for e in "${GO_EMITTERS[@]}"; do
+    if [ "$b" = "$e" ] && grep -q 'rsdd_exec ' "$1" 2>/dev/null; then return 0; fi
+  done
+  return 1
+}
+# go_files DIR — the non-test Go sources of the command, one per line
+go_files() {
+  local f
+  for f in "$1"/*.go; do
+    [ -f "$f" ] || continue
+    case "$f" in *_test.go) continue ;; esac   # TOOTH-GOTESTFILE
+    printf '%s\n' "$f"
+  done
+}
+# go_view DIR — the emit lines of those sources as shell `printf` lines
+go_view() {
+  local f
+  while IFS= read -r f; do
+    sed -nE '/^[[:space:]]*\/\//d; /(errf|outf)\(/ { s/(errf|outf)\(/printf /; p; }' "$f" || return 2
+  done < <(go_files "$1")
+}
+# go_stray DIR — non-comment lines carrying `degraded: ` that are not an errf/outf call: LINENO:text per file
+go_stray() {
+  local f
+  while IFS= read -r f; do
+    awk -v F="$(basename "$f")" '/^[[:space:]]*\/\// {next} index($0, "degraded: ") && !/(errf|outf)\(/ { print F ":" NR ":" $0 }' "$f" || return 2
+  done < <(go_files "$1")
+}
+
 # The extraction rule as an awk program (kept in one place; teeth mutate individual lines of it).
 EXTRACT_AWK='
 /^[[:space:]]*#/ {next}                                                    # TOOTH-COMMENT
@@ -90,7 +131,7 @@ finding() { printf 'FINDING: %s\n' "$*"; nfind=$((nfind + 1)); }
 rc_check() {
   local reg="$1" dir="$2" rows s path toks tok req found idx i n
   local -a codes=() classes=() emits=() used=()
-  local c cl em ct lc pairs=';' uc e
+  local c cl em ct lc pairs=';' uc e gdir gtoks
   nfind=0
 
   if [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
@@ -140,6 +181,20 @@ rc_check() {
     toks="$(awk "$EXTRACT_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
     if [ -z "$toks" ]; then                                                 # TOOTH-ZEROEXTRACT
       printf 'DEGRADED: extracted zero degraded emit lines from %s (could not look)\n' "$s"; return 2
+    fi
+    if go_shim "$path"; then
+      gdir="$dir/$GO_SRC_REL"
+      if [ -z "$(go_files "$gdir")" ]; then
+        printf 'DEGRADED: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gdir"; return 2   # TOOTH-GOABSENT
+      fi
+      gtoks="$(go_view "$gdir" | awk "$EXTRACT_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
+      if [ -z "$gtoks" ]; then
+        printf 'DEGRADED: extracted zero degraded emit lines from the Go source of %s (could not look)\n' "$s"; return 2
+      fi
+      toks="$toks"$'\n'"$gtoks"   # TOOTH-GOEMIT
+      while IFS= read -r e; do
+        [ -n "$e" ] && finding "unclassifiable degraded: line in $s Go source ${e%%:*}:${e#*:} (not an errf/outf call)"   # TOOTH-GOSTRAY
+      done < <(go_stray "$gdir")
     fi
     uc="$(awk "$UNCLASS_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
     if [ -n "$uc" ]; then
@@ -201,8 +256,6 @@ IC_WAIVERS=(
   'verify-state.sh|document before closing as absent-input|1|advice text inside a WARN line, not a typed state'
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'stage-retro-issues.sh|unclassifiable tracker|6|scrub-refusal prose naming the tracker issue, not the state'
-  'stage-retro-issues.sh|unclassifiable item set|1|body text of the tracker issue, not a state emission'
   'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
 )
 
@@ -347,6 +400,17 @@ ic_check() {
     rel="${p#"$dir"/}"
     f="$(awk -v F="$rel" "$IC_AWK" "$p")" || { printf 'DEGRADED: awk failed reading %s\n' "$p"; return 2; }
     if [ -n "$f" ]; then all="$all$f"$'\n'; fi
+  done
+  for p in "${files[@]}"; do
+    go_shim "$p" || continue
+    rel="${p#"$dir"/}"
+    gdir="$dir/$GO_SRC_REL"
+    if [ -z "$(go_files "$gdir")" ]; then
+      printf 'DEGRADED: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gdir"; return 2
+    fi
+    nfiles=$((nfiles + 1))
+    f="$(go_view "$gdir" | awk -v F="$rel" "$IC_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
+    if [ -n "$f" ]; then all="$all$f"$'\n'; fi   # TOOTH-IC-GOOCC
   done
   for p in "$dir"/*.py "$dir"/lib/*.py; do
     [ -f "$p" ] || continue
@@ -841,6 +905,62 @@ mkfix d_empty
 : > "$tmp/d_empty/scripts/research-sdd-init.sh"
 expect "empty scanned script -> DEGRADED rc 2" 2 "$tmp/d_empty/reg.md" "$tmp/d_empty/scripts" 'extracted zero'
 
+# --- Go emitters (kit issue #2435): stage-retro-issues.sh is a shim; the typed states come from rsdd retro stage-issues
+# mkgofix NAME — the good fixture with a shim for stage-retro-issues.sh and a Go source next to it (scripts/ and rsdd/ siblings,
+# exactly like toolbelt/ and rsdd/ in the kit). The Go source emits the one code the fixture registry lists for it.
+mkgofix() {
+  local d="$tmp/$1" g
+  mkfix "$1"
+  g="$d/rsdd/internal/retro/stageissues"; mkdir -p "$g"
+  printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec retro stage-issues --toolbelt "$_RSDD_SELF" "$@"' > "$d/scripts/stage-retro-issues.sh"
+  printf '%s\n' 'package stageissues' '' \
+    '// a comment naming degraded: a ghost that is never an emission' \
+    'func f(a *app) {' \
+    '	a.errf("degraded: gh not found on PATH — install gh\n")' \
+    '	a.errf("degraded: jq failed on %s — refusing\n", f)' \
+    '	a.outf("planned: %s\n", x)' \
+    '}' > "$g/run.go"
+  edit "$d/reg.md" 's#^\(| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh\) |#\1, stage-retro-issues.sh |#'
+  edit "$d/reg.md" 's#^\(| `degraded: jq failed on` | degraded | research-sdd-init.sh\) |#\1, stage-retro-issues.sh |#'
+  printf '%s\n' 'printf '"'"'degraded: rsdd-unavailable — %s\n'"'"' "$1" >&2' >> "$d/scripts/stage-retro-issues.sh"
+}
+mkgofix go_good
+expect "Go emitter: the code emitted from the Go source is verified against the row" 0 "$tmp/go_good/reg.md" "$tmp/go_good/scripts"
+mkgofix go_drop
+printf '%s\n' 'package stageissues' 'func f(a *app) { a.errf("degraded: jq failed on %s — refusing\n", f) }' > "$tmp/go_drop/rsdd/internal/retro/stageissues/run.go"
+expect "Go emitter: a code dropped from the Go source fails (stale emitter)" 1 "$tmp/go_drop/reg.md" "$tmp/go_drop/scripts" "stale emitter: row lists stage-retro-issues.sh but stage-retro-issues.sh never emits 'degraded: gh not found on PATH'"
+mkgofix go_unlisted
+printf '%s\n' 'func g(a *app) { a.errf("degraded: brand new go code — x\n") }' >> "$tmp/go_unlisted/rsdd/internal/retro/stageissues/run.go"
+expect "Go emitter: a new code in the Go source must be a registry row (unlisted)" 1 "$tmp/go_unlisted/reg.md" "$tmp/go_unlisted/scripts" 'unlisted code emitted by stage-retro-issues.sh: degraded: brand new go code'
+# go_solo: the registry does not list the script for the Go-emitted codes, so only the Go scan can find the new code
+mkgofix go_solo
+edit "$tmp/go_solo/reg.md" 's#^\(| `degraded: gh not found on PATH` | degraded | reconcile-issues.sh\), stage-retro-issues.sh |#\1 |#'
+edit "$tmp/go_solo/reg.md" 's#^\(| `degraded: jq failed on` | degraded | research-sdd-init.sh\), stage-retro-issues.sh |#\1 |#'
+printf '%s\n' 'package stageissues' 'func g(a *app) { a.errf("degraded: only the go scan sees this — x\n") }' > "$tmp/go_solo/rsdd/internal/retro/stageissues/run.go"
+expect "Go emitter: the Go scan alone finds an unlisted code" 1 "$tmp/go_solo/reg.md" "$tmp/go_solo/scripts" 'unlisted code emitted by stage-retro-issues.sh: degraded: only the go scan sees this'
+mkgofix go_test_only
+printf '%s\n' 'package stageissues' 'func g(a *app) { a.errf("degraded: only in a test file — x\n") }' > "$tmp/go_test_only/rsdd/internal/retro/stageissues/run_test.go"
+expect "Go emitter: _test.go files are not emitters" 0 "$tmp/go_test_only/reg.md" "$tmp/go_test_only/scripts"
+mkgofix go_stray
+printf '%s\n' 'var msg = "degraded: via a variable"' >> "$tmp/go_stray/rsdd/internal/retro/stageissues/run.go"
+expect "Go emitter: a degraded: line that is not an errf/outf call is unclassifiable" 1 "$tmp/go_stray/reg.md" "$tmp/go_stray/scripts" 'unclassifiable degraded: line in stage-retro-issues.sh'
+mkgofix go_absent; rm -rf "$tmp/go_absent/rsdd"
+expect "Go emitter: shim without its Go source is DEGRADED, never a clean pass" 2 "$tmp/go_absent/reg.md" "$tmp/go_absent/scripts" 'Go source'
+# input-class scan: the Go emit lines count as occurrences of the script
+mkgoifix() {
+  local d="$tmp/$1" g
+  mkifix "$1"
+  g="$d/rsdd/internal/retro/stageissues"; mkdir -p "$g"
+  printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec retro stage-issues --toolbelt "$_RSDD_SELF" "$@"' > "$d/tb/stage-retro-issues.sh"
+  printf '%s\n' 'package stageissues' '' '// absent-input is only a comment here' \
+    'func f(a *app) {' '	a.errf("absent-input: retro not found: %s\n", x)' '	a.uncN++' '}' > "$g/run.go"
+  edit "$d/reg.md" 's#^\(| `absent-input` | input | a.sh\) |#\1, stage-retro-issues.sh |#'
+}
+mkgoifix i_go
+expect_ic "input scan: an input state emitted from the Go source is verified against the row" 0 i_go
+mkgoifix i_go_drop; printf '%s\n' 'package stageissues' 'func f() {}' > "$tmp/i_go_drop/rsdd/internal/retro/stageissues/run.go"
+expect_ic "input scan: a state dropped from the Go source fails (stale emitter)" 1 i_go_drop "stale emitter: row lists stage-retro-issues.sh but stage-retro-issues.sh never emits 'absent-input'"
+
 # --- 5. teeth: mutate the CHECKER (a copy of this suite) and require each defect to go unnoticed ----
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -879,6 +999,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth mb-scanned    mb_scanned    1 0 '/^SCRIPTS=(/s/ migrate-backlogs.sh / /'
   tooth rsdd-scanned rsdd_scanned 1 0 '/^SCRIPTS=(/s/ lib\/rsdd-exec.sh)/)/'
   tooth mb-emitter    mb_emitter 1 0 '/# TOOTH-EMITTER/s/finding /: /'
+  # Go emitters: dropping one code from the Go source must fail, and each guard of the Go scan has teeth
+  tooth go-staleemit go_drop    1 0 '/# TOOTH-STALEEMIT/s/finding /: /'
+  tooth go-unlisted  go_unlisted 1 0 '/# TOOTH-UNLISTED/s/finding /: /'
+  tooth go-stray     go_stray   1 0 '/# TOOTH-GOSTRAY/s/finding /: /'
+  tooth go-absent    go_absent  2 0 '/# TOOTH-GOABSENT/s/return 2/return 0/'
+  tooth go-emit      go_solo    1 0 '/# TOOTH-GOEMIT/s/^\( *\)/\1: /'
+  tooth go-testfile  go_test_only 0 1 '/# TOOTH-GOTESTFILE/d'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
   tooth comment-skip commented  0 1 '/# TOOTH-COMMENT/d'
@@ -894,6 +1021,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-staleemit   i_staleemit   1 0 '/# TOOTH-IC-STALEEMIT/s/finding /: /'
   ictooth ic-emitter     i_emitter1    1 0 '/# TOOTH-IC-EMITTER/s/finding /: /'
   ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
+  ictooth ic-go-emit     i_go         0 1 '/# TOOTH-IC-GOOCC/s/then all=/then : /'
   ictooth ic-unclass     i_uncl        1 0 '/# TOOTH-IC-UNCLASS/s/finding /: /'
   ictooth ic-stalewaiver i_stalewaiver 1 0 '/# TOOTH-IC-STALEWAIVER/s/finding /: /'
   # ic-zerofiles mutates TWO guards on purpose: with only the zero-files guard off, the scan still reaches the

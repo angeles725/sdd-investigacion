@@ -548,135 +548,12 @@ else no "count-once: reserved counter name (out=[$(cat "$TMP/co8.out")])"; fi
 if grep -qx 'rc=2' "$TMP/co6.out" && grep -q 'not a number' "$TMP/co6.out"; then ok "count-once: a non-numeric counter value is refused, not evaluated (rc 2)"
 else no "count-once: non-numeric counter (out=[$(cat "$TMP/co6.out")])"; fi
 
-# T18 — shared VM-executor tooth kit (#1576): mutant_vm_tooth_py_src (the python `_tooth_run` scenario
-# runner) and mutant_vm_core_teeth (stage / staging control / three real-SUT mutants), both parameterised
-# by the executor name so detonate-exec and trace-exec stop carrying two copies. The fixture is a tiny fake
-# SUT tree whose "scenario runner" reads the mutated vm_boot_core.py, so the verdicts are deterministic.
-VM="$TMP/vm"; mkdir -p "$VM/tests" "$VM/lib" "$VM/pystub"
-cat > "$VM/lib/vm_boot_core.py" <<'PY'
-import uuid
-def run_vm():
-    run_dir = _dc.make_run_subdir(uuid.uuid4().hex, root or _dc._DEFAULT_RSDD_ROOT)
-    try:
-        boot()
-    except BaseException:
-        shutil.rmtree(run_dir, ignore_errors=True)
-        raise
-PY
-printf 'x = 1\n' > "$VM/lib/fake_exec.py"; printf 'x = 1\n' > "$VM/fake_plan.py"
-cat > "$VM/tests/self-good.sh" <<'SH'
-#!/usr/bin/env bash
-core="$(dirname "$3")/vm_boot_core.py"
-case "$2" in
-  red11) if grep -q TOOTH_UUID "$core"; then echo TOOTH_RED11=preexisting; else echo TOOTH_RED11=fresh; fi ;;
-  inv5)  if grep -q '^        pass$' "$core"; then echo TOOTH_INV5=leaked; else echo TOOTH_INV5=reaped; fi ;;
-  alloc) echo "TOOTH_ALLOC=$(grep -c 'make_run_subdir(' "$core")" ;;
-esac
-SH
-# blunt: always the GOOD verdicts, so no mutant ever bites. crash: right verdicts plus a python traceback.
-printf '#!/usr/bin/env bash\ncase "$2" in red11) echo TOOTH_RED11=fresh;; inv5) echo TOOTH_INV5=reaped;; alloc) echo TOOTH_ALLOC=1;; esac\n' > "$VM/tests/self-blunt.sh"
-printf '#!/usr/bin/env bash\nbash "$(dirname "$0")/self-blunt.sh" "$@"; echo "Traceback (most recent call last):"\n' > "$VM/tests/self-crash.sh"
-vm_run(){  # vm_run <self-script> <mut-dir> [tree]  -> prints the helper's lines then MVC=<pass>/<fail>
-  local t="${3:-$VM}"; mkdir -p "$2"
-  ( mutant_vm_core_teeth fake "$t/tests" "$t/tests/$1" "$t/lib/fake_exec.py" "$2"; echo "MVC=$MVC_PASS/$MVC_FAIL" ) 2>&1
-}
-res="$(vm_run self-good.sh "$TMP/vmmut1")"
-if grep -qx 'MVC=6/0' <<<"$res" && grep -q 'PASS  teeth-mut-alloc' <<<"$res"; then
-  ok "vm core: three staging controls and three real mutants all hold (6 pass, 0 fail)"
-else no "vm core: faithful scenario runner gives 6/0 (got [$res])"; fi
-res="$(vm_run self-blunt.sh "$TMP/vmmut2")"
-if grep -qx 'MVC=3/3' <<<"$res" && grep -q 'THEATER' <<<"$res"; then
-  ok "vm core: a scenario runner that never bites is 3 counted failures (THEATER), not a pass"
-else no "vm core: non-biting suite counts 3 failures (got [$res])"; fi
-res="$(vm_run self-crash.sh "$TMP/vmmut3")"
-if grep -qx 'MVC=0/6' <<<"$res"; then ok "vm core: a traceback on the unmutated tree fails the staging control"
-else no "vm core: crash on the clean tree fails the staging control (got [$res])"; fi
-cp -R "$VM" "$TMP/vm2"; sed -i 's/ignore_errors=True/ignore_errors=False/' "$TMP/vm2/lib/vm_boot_core.py"
-res="$(vm_run self-good.sh "$TMP/vmmut4" "$TMP/vm2")"
-if grep -qx 'MVC=5/1' <<<"$res" && grep -q 'FAIL  teeth-mut-inv5' <<<"$res"; then
-  ok "vm core: a dead mutation anchor is counted once and the other mutants still run (5 pass, 1 fail)"
-else no "vm core: a dead anchor is counted once (got [$res])"; fi
-# The python half: compile the shared source, then drive its scenarios against a stub executor.
-mutant_vm_tooth_py_src > "$VM/tooth.py"
-if python3 -I -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$VM/tooth.py" 2>/dev/null \
-   && grep -q '^def _tooth_run(name, plan_flags, mod, cls):$' "$VM/tooth.py"; then
-  ok "vm tooth py: the shared runner source compiles and has the (name, plan_flags, mod, cls) signature"
-else no "vm tooth py: the shared runner source compiles with the documented signature"; fi
-printf 'import tempfile\n_DEFAULT_RSDD_ROOT = "x"\ndef make_run_subdir(run_uuid, root=_DEFAULT_RSDD_ROOT):\n    return tempfile.mkdtemp(prefix="mvc-")\n' > "$VM/pystub/docker_common.py"
-printf 'class GateError(Exception):\n    pass\n' > "$VM/pystub/gate.py"
-printf 'import docker_common as dc\nfrom gate import GateError\nclass FakeExec:\n    def __init__(self, out): pass\n    def evaluate(self, plan):\n        dc.make_run_subdir("a"); dc.make_run_subdir("b")\n        raise GateError("sentinel not found in planned_argv")\n' > "$VM/pystub/fakeexec.py"
-cat > "$VM/drv.py" <<'PY'
-import os, sys, tempfile, json
-from pathlib import Path
-sys.path.insert(0, sys.argv[1])
-def _shims(t): return os.environ.get("PATH", "")
-def _elf(t): return t
-def cli(*a, **k): raise SystemExit("cli is not used by this fixture")
-_GOOD_ARGV = ["x"]
-exec(os.environ["RSDD_TOOTH_PY"], globals())
-_tooth_run(sys.argv[2], lambda elf: [], "fakeexec", "FakeExec")
-PY
-vm_tp(){ RSDD_TOOTH_PY="$(mutant_vm_tooth_py_src)" python3 -I "$VM/drv.py" "$VM/pystub" "$1" 2>&1; }
-if [ "$(vm_tp alloc)" = "TOOTH_ALLOC=2" ]; then ok "vm tooth py: alloc counts both run_dir allocations made by the executor"
-else no "vm tooth py: alloc counts allocations (got [$(vm_tp alloc)])"; fi
-if [ "$(vm_tp inv5)" = "TOOTH_INV5=leaked" ]; then ok "vm tooth py: inv5 reports leaked when the executor does not reap its run_dir"
-else no "vm tooth py: inv5 leak verdict (got [$(vm_tp inv5)])"; fi
-if [ "$(vm_tp zzz)" = "TOOTH_ERROR=unknown scenario zzz" ]; then ok "vm tooth py: an unknown scenario is a typed error, not a silent pass"
-else no "vm tooth py: unknown scenario (got [$(vm_tp zzz)])"; fi
-
-# The shared fixtures (mutant_vm_fixtures_py_src): exec it the way the suites do and check the contracts the
-# suites rely on -- the scratch path is bound AND used as the writable drive, the sample drive is readonly,
-# the ELF stub carries the x86_64 magic, and the bwrap shim execs whatever follows "--".
-mutant_vm_fixtures_py_src > "$VM/fix.py"
-cat > "$VM/fixdrv.py" <<'PY'
-import os, subprocess, sys, tempfile
-from pathlib import Path
-exec(os.environ["RSDD_FIXTURES_PY"], globals())
-a = _GOOD_ARGV
-assert a[a.index("--bind") + 1] == _SCRATCH_PATH == a[a.index("--bind") + 2], "scratch bind"
-assert f"file={_SCRATCH_PATH},snapshot=off,format=raw,if=virtio" in a, "scratch drive"
-assert "file=/input/sample,readonly=on,snapshot=off,format=raw,if=virtio" in a, "readonly sample drive"
-assert a[a.index("--") + 1] == "qemu-system-x86_64", "argv separator"
-assert a[a.index("/store/sample.bin") - 1] == "--ro-bind", "sample ro-bind"
-_pre = a[:a.index("--")]
-for _f in ("--unshare-net", "--unshare-pid", "--tmpfs"):
-    assert _f in _pre, "bwrap tooth " + _f
-assert _pre[_pre.index("--cap-drop") + 1] == "ALL", "bwrap tooth --cap-drop ALL"
-_SB = "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
-assert a[a.index("-sandbox") + 1] == _SB, "qemu -sandbox option string"
-with tempfile.TemporaryDirectory() as td:
-    t = Path(td); e = _elf(t)
-    assert e.read_bytes()[:5] == b"\x7fELF\x02" and e.read_bytes()[18:20] == b"\x3e\x00", "x86_64 header"
-    b = t / "bwrap"; b.write_text(_BWRAP); b.chmod(0o755)
-    r = subprocess.run([str(b), "--unshare-net", "--", "echo", "shim-ok"], capture_output=True, text=True)
-    assert r.stdout.strip() == "shim-ok", "bwrap shim execs the command after --"
-print("FIXTURES_OK")
-PY
-fx(){ RSDD_FIXTURES_PY="$(cat "$1")" python3 -I "$VM/fixdrv.py" 2>&1 | tail -1; }
-if [ "$(fx "$VM/fix.py")" = "FIXTURES_OK" ]; then ok "vm fixtures py: _GOOD_ARGV, _elf and the bwrap shim satisfy the contracts the suites rely on"
-else no "vm fixtures py: shared fixture contracts (got [$(fx "$VM/fix.py")])"; fi
-# Each fixture property gets its OWN mutant, so no assertion can be dead behind another one.
-fxm(){  # fxm <label> <sed-expr>: the mutated fixture must fail the contract check
-  sed "$2" "$VM/fix.py" > "$VM/fix-bad.py"
-  if cmp -s "$VM/fix.py" "$VM/fix-bad.py"; then no "vm fixtures py: mutant '$1' changed nothing (dead anchor)"
-  elif [ "$(fx "$VM/fix-bad.py")" != "FIXTURES_OK" ]; then ok "vm fixtures py: $1 is caught (the case bites)"
-  else no "vm fixtures py: mutant '$1' must fail the contract check"; fi
-}
-fxm "sample drive without readonly=on" 's/readonly=on,snapshot=off,format=raw,if=virtio",$/snapshot=off,format=raw,if=virtio",/'
-fxm "sample bound with --bind instead of --ro-bind" 's/"--ro-bind", "\/store\/sample.bin"/"--bind", "\/store\/sample.bin"/'
-fxm "bwrap without --unshare-net" 's/"--unshare-net", //'
-fxm "bwrap without --unshare-pid" 's/"--unshare-pid", //'
-fxm "bwrap --cap-drop not ALL" 's/"--cap-drop", "ALL"/"--cap-drop", "NET_RAW"/'
-fxm "bwrap without --tmpfs" 's/"--tmpfs", "\/tmp\/rsdd", //'
-fxm "weakened qemu -sandbox value" 's/"-sandbox", "on,[^"]*"/"-sandbox", "on"/'
-
 # T19 -- shared suite bootstrap and crash classifier (#1576): mutant_bootstrap replaces the copied
 # `for _fn in ...; declare -F` probe loops; mutant_crash_re / mutant_is_crash replace copied CRASH regex
 # literals where the classes compose byte-identically. MIGRATED: the verify-registry teeth block
-# (bash py), the install suite's --verify teeth _CRASH (bash py cmd), the mutant_vm_core_teeth crash regex
-# (mutant_vm_crash_re = py + SyntaxError), and the mutant.sh bootstraps of verify-retro, adapter-core,
-# adapter-helpers, analysis-manifest, vm-disk-policy, discriminator-parity, gh-visibility, templates,
-# mutant-syntax-export-lint, detonate-exec and trace-exec; batch 1 (56 suites) moved every other
+# (bash py), the install suite's --verify teeth _CRASH (bash py cmd), and the mutant.sh bootstraps of
+# verify-retro, adapter-core, adapter-helpers, analysis-manifest, discriminator-parity, gh-visibility,
+# templates and mutant-syntax-export-lint (the VM suites that also migrated were retired by #2443); batch 1 (56 suites) moved every other
 # mutant.sh-only probe loop; blocked-rows, research-sdd-archive, research-sdd-status-clean-warn and the
 # block-plan `type mutant_sed` probe (it sources the lib through $MUTLIB, so mutant_bootstrap applies unchanged)
 # complete the migration. NOT MIGRATED: none. Measured on the merged tree with BOTH enumerators: `rg -l
@@ -722,8 +599,6 @@ if [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ] && [ "$rc3" -eq 0 ]; then ok "crashpy: cl
 if [ "$(mutant_crash_re py)" = "$(mutant_crash_re tb imp)" ]; then ok "crashpy: py is exactly tb then imp (one source of truth)"; else no "crashpy: py != tb|imp"; fi
 mutant_is_crash 'all fine' py; rc=$?
 if [ "$rc" -eq 1 ]; then ok "crashpy: clean output is not a crash"; else no "crashpy: clean (rc=$rc)"; fi
-vc_got="$(mutant_vm_crash_re)"
-if [ "$vc_got" = "Traceback|ImportError|ModuleNotFoundError|SyntaxError" ]; then ok "vm_crash_re: pinned value (py classes + SyntaxError)"; else no "vm_crash_re: value (got=[$vc_got])"; fi
 cr_got="$(mutant_crash_re cmd)"
 if [ "$cr_got" = "command not found" ]; then ok "crash_re: class cmd"; else no "crash_re: class cmd (got=[$cr_got])"; fi
 cr_got="$(mutant_crash_re awk)"
@@ -991,21 +866,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     "count-once: dead stage"
   teeth_case countbuilt 's/mutant_or_count "\${1:-}" mutant_built "\${@:2}"/mutant_built "${@:2}"/' \
     "count-once: refused built"
-  # shared VM-executor tooth kit (#1576)
-  teeth_case vmalloc 's/n = len(made); _cleanup(); print(f"TOOTH_ALLOC={n}"); return/n = len(made) + 1; _cleanup(); print(f"TOOTH_ALLOC={n}"); return/' \
-    "vm tooth py: alloc counts allocations"
-  teeth_case vmleaked 's/("leaked" if leaked else "reaped")/("reaped" if leaked else "leaked")/' \
-    "vm tooth py: inv5 leak verdict"
-  teeth_case vmunknown 's/print(f"TOOTH_ERROR=unknown scenario {name}")/pass/' \
-    "vm tooth py: unknown scenario"
-  teeth_case vmcount 's/else MVC_FAIL=\$((MVC_FAIL+1)); fi; }/else :; fi; }/' \
-    "vm core: non-biting suite counts 3 failures"
-  teeth_case vmanchor 's/"\$core" "\$mut\/\$2\/lib\/vm_boot_core.py" "\$3"; then MVC_FAIL=\$((MVC_FAIL+1)); return 1/"$core" "$mut\/$2\/lib\/vm_boot_core.py" "$3"; then return 1/' \
-    "vm core: a dead anchor is counted once"
-  teeth_case vmcrash 's/ \&\& ! grep -qE "\$crash" <<<"\$o"//' \
-    "vm core: crash on the clean tree fails the staging control"
-  teeth_case vmmutate 's|/        pass/;}|/        raise/;}|' \
-    "vm core: faithful scenario runner gives 6/0"
   # shared bootstrap probe + crash classifier (#1576)
   teeth_case bootprobe '/^mutant_bootstrap/,/^}/s/declare -F "\$_mb_fn" >\/dev\/null 2>&1 ||/true ||/' \
     "bootstrap: missing helper"
@@ -1061,14 +921,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   teeth_case pylabel 's/--bad-has "\$bad" --bad-lacks/--bad-lacks/' \
     "py tooth wrong label"
 fi
-
-# Kit issue #2114 regression: the shared VM alloc mutant must not allocate its orphan run_dir under the hardcoded default
-# /tmp/rsdd (absent on a fresh runner -> GateError -> TOOTH_ALLOC=error, THEATER only in some shard orders).
-_alloc_line="$(grep -F 'teeth-mut-alloc alloc' "$LIB")"
-_bare_re='_dc\.make_run_subdir\(uuid\.uuid4\(\)\.hex\)'
-if [ -n "$_alloc_line" ] && ! grep -qE "$_bare_re" <<<"$_alloc_line"; then ok "vm alloc mutant allocates its orphan under the caller's root, not the hardcoded /tmp/rsdd"
-else no "vm alloc mutant still calls make_run_subdir(uuid) with the default root (fresh-runner fragile)"; fi
-if grep -qE "$_bare_re" <<<"s|x|    _dc.make_run_subdir(uuid.uuid4().hex)\\n|"; then ok "alloc-root guard control: the bare-default form is detected"; else no "alloc-root guard control: bare form not detected"; fi
 
 printf '== %d passed · %d failed ==\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

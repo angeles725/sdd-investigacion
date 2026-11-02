@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stderr",
+  "reason": "the usage line names the rsdd subcommand instead of corroborate_java.py"
+ }
+]
