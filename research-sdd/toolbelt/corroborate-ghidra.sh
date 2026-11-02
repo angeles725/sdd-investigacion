@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
-set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/tool-env.sh
-source "$HERE/lib/tool-env.sh"
-ghidra_home="$(rsdd_resolve_ghidra_home)" || { echo 'corroborate-ghidra: Ghidra unavailable' >&2; exit 2; }
-java_home="$(rsdd_resolve_java_home)" || { echo 'corroborate-ghidra: Java 21 unavailable' >&2; exit 2; }
-ghidra_home="$(realpath "$ghidra_home")"; java_home="$(realpath "$java_home")"
-bwrap="${RSDD_BWRAP:-$(command -v bwrap 2>/dev/null || true)}"
-safe_file(){ local p; p="$(realpath -e -- "$1")" || return; [ -f "$p" ] && [ -x "$p" ] || return; printf '%s\n' "$p"; }
-java="$(safe_file "$java_home/bin/java")" || { echo 'corroborate-ghidra: unsafe Java executable' >&2; exit 2; }
-bwrap="$(safe_file "$bwrap")" || { echo 'corroborate-ghidra: Bubblewrap unavailable' >&2; exit 2; }
-manifest="$(realpath -e -- "${RSDD_MANIFEST_CLI:-$HERE/analysis_manifest.py}")"; [ -f "$manifest" ] || { echo 'corroborate-ghidra: manifest CLI unavailable' >&2; exit 2; }
-test_args=(); [ "${RSDD_TEST_ONLY_UNTRUSTED_BWRAP:-0}" = 1 ] && test_args=(--test-only-untrusted-bwrap)
-exec python3 "$HERE/corroborate_ghidra.py" \
-  --ghidra-home "$ghidra_home" --analyze-headless "$ghidra_home/support/analyzeHeadless" \
-  --java "$java" --exporter "$HERE/ghidra/CuratedEvidenceExporter.java" \
-  --bwrap "$bwrap" --manifest-cli "$manifest" "${test_args[@]}" "$@"
+# Ported to Go: `rsdd corroborate ghidra`. Compatibility shim (removed in phase 8).
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+. "$_RSDD_SELF/lib/rsdd-exec.sh" 2>/dev/null || { printf 'degraded: rsdd-unavailable — rsdd-exec.sh missing beside %s\n' "$0" >&2; exit 2; }   # SENTINEL-RSDD-EXEC-GUARD
+rsdd_exec corroborate ghidra --toolbelt "$_RSDD_SELF" "$@"

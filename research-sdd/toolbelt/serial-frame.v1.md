@@ -8,9 +8,25 @@ Shared evidence schema for two complementary serial-protocol wrappers:
   port and emits captured frames (requires `--allow-live-probe` after the
   subcommand; offline plan without it).
 
-Uses only Python stdlib; no external tools required for `serial-frame-analyze`.
-`serial-frame-capture` additionally requires `pyserial` for live probing; the
-plan-only path works without it.
+Both wrappers are compatibility shims over the Go `rsdd` binary
+(`rsdd serial frame-analyze`, `rsdd serial frame-capture`); no Python
+or external tool is needed. `serial-frame-capture` drives the port through termios
+(Linux); the plan-only path never opens a port.
+
+**Intended differences from the retired Python scripts** (kit issue #2437). The
+evidence schema, caps and success exit codes are unchanged; these paths differ on purpose:
+
+- A non-regular analyze input (FIFO, device, socket) is refused with exit 2
+  instead of blocking or reading without end.
+- Plan-only exit 3 also prints one `DEGRADED: plan-only: ...` line on stderr
+  (the rsdd exit-3 contract); stdout and the document are as before.
+- `--seconds` / `--gap-ms` refuse `inf` and `nan`, which would put non-JSON
+  tokens in the document.
+- A negative `--baud` with `--allow-live-probe` is a typed exit 2 instead of a
+  traceback.
+- Usage errors use the Go parser's argparse-style wording (still exit 2).
+- A path argument that is not valid UTF-8 cannot be encoded into the document
+  and is refused.
 
 ## Canonical Text Log Format
 
@@ -314,7 +330,7 @@ lines but none passed validation (len=N mismatch or bad hex).
 |---|---|---|
 | Maximum read per file | `serial-frame-analyze` | 10 MB |
 | Maximum frames parsed | `serial-frame-analyze` | 10 000 |
-| Maximum frames captured | `serial-frame-capture` | 1 001 (off-by-one: `_MAX_FRAMES=1000` with post-append `>=` check; `truncated: true` is set) |
+| Maximum frames captured | `serial-frame-capture` | 1 001 (off-by-one: the loop stops at 1000 closed frames and the frame then in progress is appended; `truncated: true` is set) |
 | Read buffer per baud sweep | `serial-frame-capture` | 64 KB |
 | Read chunk size (capture) | `serial-frame-capture` | 256 bytes |
 
