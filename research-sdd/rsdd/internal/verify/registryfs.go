@@ -3,10 +3,9 @@ package verify
 import (
 	"io/fs"
 	"os"
-	"regexp"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 // Filesystem and text helpers of `verify registry`: each one mirrors the exact shell construct the script used
@@ -134,36 +133,9 @@ func isFileOS(p string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-var (
-	reExcludeLine = regexp.MustCompile(`(?i)^[[:space:]]*<!--[[:space:]]*kit-retro:[[:space:]]*exclude[[:space:]]*-->[[:space:]]*$`)
-	reCommentLine = regexp.MustCompile(`^[[:space:]]*<!--`)
-	reBlankLine   = regexp.MustCompile(`^[[:space:]]*$`)
-)
-
-// retroIsExcluded is retro_is_excluded (lib/retro-status.sh): the file's LEADING comment block (comment lines and
-// blank lines, up to the first other line, after a leading UTF-8 BOM is dropped) holds a full line
-// `<!-- kit-retro: exclude -->`. A path that is not a regular file, or cannot be read, is not excluded.
-// A copy of internal/retro/grammar.IsExcluded: a domain cannot import another domain, and the shared helper
-// belongs in internal/core (follow-up).
+// retroIsExcluded is retro_is_excluded (lib/retro-status.sh), shared with the retro tools through
+// internal/core/retrogrammar: an unusable path (not a regular file, or unreadable) is not excluded.
 func retroIsExcluded(file string) bool {
-	if file == "" || !isFileOS(file) {
-		return false
-	}
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return false
-	}
-	src := strings.TrimPrefix(string(b), "\xef\xbb\xbf")
-	for _, l := range kit.SplitLines(src) {
-		switch {
-		case reCommentLine.MatchString(l):
-			if reExcludeLine.MatchString(l) {
-				return true
-			}
-		case reBlankLine.MatchString(l):
-		default:
-			return false
-		}
-	}
-	return false
+	d, err := retrogrammar.Read(file)
+	return err == nil && retrogrammar.IsExcluded(d)
 }

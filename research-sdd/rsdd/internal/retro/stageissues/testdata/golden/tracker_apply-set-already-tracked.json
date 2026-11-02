@@ -1,0 +1,9 @@
+{
+  "rc": 0,
+  "stdout": "unclassifiable-items: 1 (retro-level=1 row-level=0)\n| # | where | head | reason |\n|---|---|---|---|\n| 1 | r.md:9 | ## Lessons worth promoting (kit-delta candidates — PROPOSE only) | proposal-like heading not in a countable delta form |\n\nredactions: 0 (row tracker)\nskipped-duplicate: tracking issue for Unclassifiable tracker: target-foo/retros/r.md already exists for this item set (search matched 'Unclassifiable item set: 2093460367')\nmutation_outcome: no_write (row tracker)\nsummary: created=0 skipped-duplicate=1 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=1 unknown-outcome=0 failed=0\nmutation-summary: confirmed=0 no_write=1 unknown=0\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "unclassifiable: proposal-like heading found but not in a countable delta form in @BOX@/rh/target-foo/retros/r.md — needs manual review, no issue auto-staged\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Unclassifiable item set: 2093460367\" --json state,body\n",
+  "state": {
+    "trksig": "[{\"state\":\"CLOSED\",\"body\":\"x\\nUnclassifiable item set: 2093460367\\ny\"}]\n"
+  }
+}

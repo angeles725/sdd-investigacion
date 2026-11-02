@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Stub JDK for the decompile-java parity cases: `java -version`, and an "engine" that writes one source per class.
+# Knobs (environment): STUB_RC (primary exit status), STUB_SLEEP, STUB_IGNORE_TERM, STUB_MARKER, STUB_SILENT, STUB_FAIL_WHOLE.
+if [ "${1:-}" = "-version" ]; then echo 'openjdk version "21.0.1" 2023-10-17'; exit 0; fi
+case "$0" in *javap) echo "javap-stub $*"; echo "javap warning" >&2; exit 5 ;; esac
+args=("$@"); n=${#args[@]}; jar=""
+for ((i = 0; i < n; i++)); do [ "${args[i]}" = "-jar" ] && jar="${args[i+1]}"; done
+case "$jar" in
+  *vineflower*) eng=vineflower; IN="${args[n-2]}"; OUT="${args[n-1]}" ;;
+  *cfr*) eng=cfr; IN="${args[n-3]}"; OUT="${args[n-1]}" ;;
+  *) eng=other; IN="${args[n-1]}"; OUT="$IN" ;;
+esac
+if [ "$eng" = vineflower ]; then
+  [ -n "${STUB_RC:-}" ] && exit "$STUB_RC"
+  [ -n "${STUB_FAIL_WHOLE:-}" ] && [[ "$IN" == *.jar ]] && exit 1
+  if [ -n "${STUB_SLEEP:-}" ]; then
+    [ -n "${STUB_IGNORE_TERM:-}" ] && trap '' TERM
+    for _ in $(seq 1 100); do sleep 0.1; done
+  fi
+fi
+[ -z "${STUB_SILENT:-}" ] || exit 0
+if [ -d "$IN" ]; then classes="$(cd "$IN" && find . -name '*.class' | sed 's|^\./||' | sort)"
+elif [[ "$IN" == *.jar ]]; then classes="$(unzip -Z1 "$IN" | grep '\.class$' | sort)"
+else classes="$(basename "$IN")"; fi
+for c in $classes; do
+  b="${c##*/}"; b="${b%.class}"; d="${c%/*}"; [ "$d" = "$c" ] && d=.
+  mkdir -p "$OUT/$d"
+  { echo "// engine=$eng"; echo "class $b {"
+    [ "$eng" = vineflower ] && [ -n "${STUB_MARKER:-}" ] && echo "    // \$VF: Couldn't be decompiled"
+    echo "}"; } > "$OUT/${c%.class}.java"
+done
+exit 0

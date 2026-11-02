@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nplanned-issue: Item with a target\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Item with a target\n    \n    **Target:** METHODOLOGY §3 markers\n    **Evidence:** Body text.\n    \n    ---\n    Source retro: target-foo/retros/r.md · 1\n    Part of backlog-first rollout #557\n  redactions: 0\n\nplanned-issue: Item without a target\n  labels: status:needs-review,target:target-foo,type:feature\n  body:\n    Item without a target\n    \n    **Target:** \n    **Evidence:** Body text only.\n    \n    ---\n    Source retro: target-foo/retros/r.md · 2\n    Part of backlog-first rollout #557\n  redactions: 0\n\nunclassifiable-items: 0 (none: 2 row(s) examined)\n",
+  "stderr": "note: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": ""
+}

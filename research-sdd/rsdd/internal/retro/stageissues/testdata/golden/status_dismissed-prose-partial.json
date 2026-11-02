@@ -1,0 +1,6 @@
+{
+  "rc": 0,
+  "stdout": "kit-issue-repo: test-owner/test-kit\nunclassifiable-items: 0 (retro-closed: dismissed)\n",
+  "stderr": "no-match: retro is 'dismissed' — all rows shipped\n",
+  "ghlog": ""
+}

@@ -1,0 +1,22 @@
+{
+ "legacy": [
+  "toolbelt/decompile-java.sh",
+  "{{input}}/Test.class",
+  "{{input}}/out"
+ ],
+ "rsdd": [
+  "corroborate",
+  "decompile",
+  "{{input}}/Test.class",
+  "{{input}}/out"
+ ],
+ "env": {
+  "JAVA_HOME": "{{input}}/jdk",
+  "VINEFLOWER_JAR": "{{input}}/vineflower.jar",
+  "CFR_JAR": "{{input}}/cfr.jar",
+  "PROCYON_JAR": "{{input}}/procyon.jar",
+  "RSDD_BIN": "/nonexistent/rsdd",
+  "RSDD_DECOMPILE_TIMEOUT": "30",
+  "STUB_RC": "7"
+ }
+}

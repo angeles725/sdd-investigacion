@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kaitai_driver.py — sandboxed binary parser worker for corroborate_kaitai.py.
+"""kaitai_driver.py — sandboxed binary parser worker for `rsdd corroborate kaitai` (rsdd/internal/corroborate/kaitai).
 
 Runs inside bwrap (Stage 2).  Only stdlib + kaitaistruct are imported at runtime;
 the toolbelt is NOT on sys.path and must not be imported here.
