@@ -68,6 +68,8 @@ func newSDWorld(t *testing.T) *sdWorld {
 	w.env = map[string]string{
 		"PATH": sdTools(t), "HOME": w.home, "LC_ALL": "C", "TMPDIR": filepath.Join(root, "tmp"),
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+		// the scratch root may sit inside a checkout (GOTMPDIR does): git must not discover it
+		"GIT_CEILING_DIRECTORIES":      filepath.Dir(root),
 		"RESEARCH_SDD_KIT_STALE_CHECK": "off",
 		// pi and gentle-shell default to the "general" profile, which is re-rendered; the world compares every
 		// harness against the kit source unless a test deletes this.
