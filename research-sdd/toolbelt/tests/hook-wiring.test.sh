@@ -605,12 +605,13 @@ assert_state "27n wiring state is history-blind (still wired with no history)" "
 
 # --- 28 — THE SHIM CONTRACT (kit issue #2356, U2.3a). hook_stop_wiring_state_var, hook_stop_script_state_var and
 #      _hw_find_git_root ask `rsdd hook wiring-state|script-state|git-root <arg>`; the logic is pinned by the Go tests
-#      (internal/hook) and the cases above run it end to end. A STUB binary pins what only the shim decides: the exact
+#      (internal/core/hookwiring) and the cases above run it end to end. A STUB binary pins what only the shim decides: the exact
 #      call, the environment it hands over, how an answer is accepted, and what a failure reads as.
 STUB="$ROOT/stub-rsdd"
 cat > "$STUB" <<'EOS'
 #!/usr/bin/env bash
 printf 'args=%s|ceiling=%s\n' "$*" "${RSDD_HOOK_WIRING_CEILING-unset}" >> "$STUB_LOG"
+printf 'proj=%s|cfg=%s|home=%s\n' "${RSDD_CLAUDE_PROJECTS_DIR-unset}" "${CLAUDE_CONFIG_DIR-unset}" "${HOME-unset}" >> "$STUB_LOG.env"
 printf '%b' "${STUB_OUT:-}"
 exit "${STUB_RC:-0}"
 EOS
@@ -619,10 +620,11 @@ chmod +x "$STUB"
 shim_run() {
   local lib="$1" out="$2" rc="$3" code="$4"
   shift 4
-  : > "$ROOT/stub.log"
+  : > "$ROOT/stub.log"; : > "$ROOT/stub.log.env"
   STUB_LOG="$ROOT/stub.log" STUB_OUT="$out" STUB_RC="$rc" RSDD_BIN="$STUB" "$BASH_BIN" -c '. "$1"; '"$code" _ "$lib" "$@" 2>/dev/null
 }
 shim_log() { cat "$ROOT/stub.log"; }
+shim_env_log() { cat "$ROOT/stub.log.env"; }
 check_eq() { # <label> <got> <want>
   if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "got [$2] want [$3]"; fi
 }
@@ -712,6 +714,83 @@ if [[ "$err" == *"degraded: rsdd-unavailable"* ]]; then ok "29g' rsdd unavailabl
 got="$(shim_run "$LIB" 'unwired\n' 0 'HOOK_WIRING_STATES=(stale stale stale); hook_stop_wiring_states_var "$2"; printf "%d:[%s]" "${#HOOK_WIRING_STATES[@]}" "${HOOK_WIRING_STATES[0]}"' "$ROOT/a")"
 check_eq "29h a previous array is replaced, not appended to" "$got" "1:[unwired]"
 
+# --- 30 - THE LAUNCH SHIM (kit issue #2357, U2.3b): hook_stop_launch_state_var asks `rsdd hook launch-state <target>`; the rules
+#      are Go now (internal/core/hookwiring launch.go, differential-tested against the frozen bash) and case 27 above runs them end to end.
+#      The stub pins what only the shim decides: the call, the history variables it hands over, the accepted vocabulary and what
+#      a failure reads as - "unknown" (could not look), never no-sessions.
+L_CODE='hook_stop_launch_state_var "$2"; printf %s "$HOOK_LAUNCH_STATE"'
+got="$(shim_run "$LIB" 'launched\n' 0 "$L_CODE" "$ROOT/t30")"
+check_eq "30a launch state is the stub's answer" "$got" "launched"
+check_eq "30a' the call is exactly 'rsdd hook launch-state <target>'" "$(shim_log | sed 's/|ceiling=.*//')" "args=hook launch-state $ROOT/t30"
+got="$(shim_run "$LIB" 'no-sessions\n' 0 "$L_CODE" "$ROOT/t30")"
+check_eq "30b no-sessions is accepted" "$got" "no-sessions"
+got="$(shim_run "$LIB" 'unknown\n' 0 "$L_CODE" "$ROOT/t30")"
+check_eq "30b' unknown is accepted" "$got" "unknown"
+got="$(shim_run "$LIB" 'launched\n' 0 'printf "[%s]" "$(hook_stop_launch_state "$2")"' "$ROOT/t30")"
+check_eq "30c the wrapper prints the bare state, no newline" "$got" "[launched]"
+got="$(shim_run "$LIB" 'launched\n' 1 "$L_CODE" "$ROOT/t30")"
+check_eq "30d a failing rsdd (rc 1) with a valid-looking answer reads unknown, never launched" "$got" "unknown"
+got="$(shim_run "$LIB" 'bogus\n' 0 "$L_CODE" "$ROOT/t30")"
+check_eq "30e an answer outside the three states reads unknown" "$got" "unknown"
+got="$(shim_run "$LIB" '' 0 "$L_CODE" "$ROOT/t30")"
+check_eq "30e' an empty answer reads unknown (not a silent state)" "$got" "unknown"
+got="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; hook_stop_launch_state_var "$2"; printf "%s" "$HOOK_LAUNCH_STATE"' _ "$LIB" "$ROOT/t30" 2>/dev/null)"
+check_eq "30f rsdd unavailable reads unknown (the instrument could not look)" "$got" "unknown"
+err="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; hook_stop_launch_state_var "$2"' _ "$LIB" "$ROOT/t30" 2>&1 >/dev/null)"
+if [[ "$err" == *"degraded: rsdd-unavailable"* ]]; then ok "30f' rsdd unavailable is announced on stderr with the typed degraded line"; else no "30f' rsdd unavailable is announced on stderr" "stderr=[$err]"; fi
+E_ENV='export -n RSDD_CLAUDE_PROJECTS_DIR CLAUDE_CONFIG_DIR HOME; RSDD_CLAUDE_PROJECTS_DIR=/p/dir; CLAUDE_CONFIG_DIR=/c/dir; HOME=/h/dir; hook_stop_launch_state_var "$2"'
+shim_run "$LIB" 'launched\n' 0 "$E_ENV" "$ROOT/t30" >/dev/null
+check_eq "30g UNEXPORTED history variables and HOME still reach rsdd" "$(shim_env_log)" "proj=/p/dir|cfg=/c/dir|home=/h/dir"
+shim_run "$LIB" 'launched\n' 0 'unset RSDD_CLAUDE_PROJECTS_DIR CLAUDE_CONFIG_DIR; hook_stop_launch_state_var "$2"' "$ROOT/t30" >/dev/null
+check_eq "30g' unset history variables reach rsdd as empty (equivalent to unset)" "$(shim_env_log | sed 's/|home=.*//')" "proj=|cfg="
+
+# --- 31 - THE LAUNCH BATCH SHIM: hook_stop_launch_states_var <target>... asks `rsdd hook launch-state <t>...` ONCE and sets the
+#      array HOOK_LAUNCH_STATES in argument order; any doubt reads EVERY element unknown. Same contract as case 29.
+LB_CODE='hook_stop_launch_states_var "${@:2}"; printf "%d:" "${#HOOK_LAUNCH_STATES[@]}"; printf "[%s]" "${HOOK_LAUNCH_STATES[@]}"'
+got="$(shim_run "$LIB" 'launched\nno-sessions\nunknown\n' 0 "$LB_CODE" "$ROOT/a" "$ROOT/b c" "$ROOT/d")"
+check_eq "31a each target gets its own line's state, in argument order" "$got" "3:[launched][no-sessions][unknown]"
+check_eq "31a' ONE rsdd call carries every target as its own argument" "$(shim_log | sed 's/|ceiling=.*//')" "args=hook launch-state $ROOT/a $ROOT/b c $ROOT/d"
+got="$(shim_run "$LIB" 'launched\n' 0 "$LB_CODE" "$ROOT/a")"
+check_eq "31b a single target works" "$got" "1:[launched]"
+got="$(shim_run "$LIB" 'launched\n' 0 "$LB_CODE")"
+check_eq "31c zero targets: empty array" "$got" "0:[]"
+check_eq "31c' zero targets: rsdd is not called at all" "$(shim_log)" ""
+got="$(shim_run "$LIB" 'launched\nlaunched\n' 0 "$LB_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
+check_eq "31d fewer lines than targets: EVERY element reads unknown" "$got" "3:[unknown][unknown][unknown]"
+got="$(shim_run "$LIB" 'launched\nlaunched\nlaunched\n' 0 "$LB_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "31d' more lines than targets: EVERY element reads unknown" "$got" "2:[unknown][unknown]"
+got="$(shim_run "$LIB" 'launched\n\n' 0 "$LB_CODE" "$ROOT/a")"
+check_eq "31d'' an extra EMPTY trailing line: EVERY element reads unknown" "$got" "1:[unknown]"
+got="$(shim_run "$LIB" 'launched\nbogus\nno-sessions\n' 0 "$LB_CODE" "$ROOT/a" "$ROOT/b" "$ROOT/c")"
+check_eq "31e one line outside the three states: EVERY element reads unknown" "$got" "3:[unknown][unknown][unknown]"
+got="$(shim_run "$LIB" 'launched\nlaunched\n' 1 "$LB_CODE" "$ROOT/a" "$ROOT/b")"
+check_eq "31f a failing rsdd with valid-looking lines: EVERY element reads unknown" "$got" "2:[unknown][unknown]"
+got="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; shift; hook_stop_launch_states_var "$@"; printf "%d:" "${#HOOK_LAUNCH_STATES[@]}"; printf "[%s]" "${HOOK_LAUNCH_STATES[@]}"' _ "$LIB" "$ROOT/a" "$ROOT/b" 2>/dev/null)"
+check_eq "31g rsdd unavailable: EVERY element reads unknown" "$got" "2:[unknown][unknown]"
+got="$(shim_run "$LIB" 'no-sessions\n' 0 'HOOK_LAUNCH_STATES=(stale stale stale); hook_stop_launch_states_var "$2"; printf "%d:[%s]" "${#HOOK_LAUNCH_STATES[@]}" "${HOOK_LAUNCH_STATES[0]}"' "$ROOT/a")"
+check_eq "31h a previous array is replaced, not appended to" "$got" "1:[no-sessions]"
+
+# --- 32 - THE WIRED-EXEC SHIM: hook_wired_exec_report asks `rsdd hook wired-exec <target>` and prints its report; a rsdd that
+#      cannot answer is ONE unverifiable finding for the settings file, never an empty (clean) report. The report rules are
+#      Go (internal/core/hookwiring wiredexec.go) and tests/verify-registry-wired-exec.test.sh runs its command-shape table end to end.
+X_CODE='out="$(hook_wired_exec_report "$2"; printf x)"; printf %s "${out%x}"'
+TBX=$'\t'
+REP="missing${TBX}/a b${TBX}Stop"$'\n'"not-executable${TBX}/c${TBX}PreToolUse"$'\n'
+got="$(shim_run "$LIB" 'missing\t/a b\tStop\nnot-executable\t/c\tPreToolUse\n' 0 "$X_CODE" "$ROOT/t32"; printf x)"; got="${got%x}"
+check_eq "32a the report is the stub's output, line for line" "$got" "$REP"
+check_eq "32a' the call is exactly 'rsdd hook wired-exec <target>'" "$(shim_log | sed 's/|ceiling=.*//')" "args=hook wired-exec $ROOT/t32"
+got="$(shim_run "$LIB" '' 0 "$X_CODE" "$ROOT/t32")"
+check_eq "32b an empty report stays empty (nothing wired, nothing to say)" "$got" ""
+got="$(shim_run "$LIB" 'unverifiable\tcmd\tbackslash escape in the command\n' 0 "$X_CODE" "$ROOT/t32"; printf x)"; got="${got%x}"
+check_eq "32c an unverifiable line passes through" "$got" "unverifiable${TBX}cmd${TBX}backslash escape in the command"$'\n'
+FALLBACK="unverifiable${TBX}$ROOT/t32/.claude/settings.json${TBX}rsdd could not produce the wired-hook report (rsdd unavailable, failed or answered outside the report format)"$'\n'
+got="$(shim_run "$LIB" 'missing\t/a\tStop\n' 1 "$X_CODE" "$ROOT/t32"; printf x)"; got="${got%x}"
+check_eq "32d a failing rsdd (rc 1) with a valid-looking report is ONE unverifiable finding" "$got" "$FALLBACK"
+got="$(shim_run "$LIB" 'bogus\n' 0 "$X_CODE" "$ROOT/t32"; printf x)"; got="${got%x}"
+check_eq "32e an answer outside the report vocabulary is ONE unverifiable finding" "$got" "$FALLBACK"
+got="$(RSDD_BIN="$ROOT/no-such-rsdd" "$BASH_BIN" -c '. "$1"; out="$(hook_wired_exec_report "$2"; printf x)"; printf %s "${out%x}"' _ "$LIB" "$ROOT/t32" 2>/dev/null; printf x)"; got="${got%x}"
+check_eq "32f rsdd unavailable: ONE unverifiable finding" "$got" "$FALLBACK"
+
 # --- mutation teeth ("--prove-teeth") --------------------------------------------------------------
 # Each mutant is a COPY of the real lib file with ONE line changed, sourced fresh in a subshell -
 # never a hand-redefined function called directly (RDD finding, see header). Running the REAL function
@@ -722,11 +801,12 @@ check_eq "29h a previous array is replaced, not appended to" "$got" "1:[unwired]
 # _hw_find_git_root is Go now, so the bash mutants that edited those functions (the awk Stop scan, the
 # absent/unreadable assignments, the wired-off-root downgrade and its guards, the .git / ceiling / raw-target checks,
 # every script-resolution rule, the degraded arm) cannot apply to this file any more. Each of them is a
-# case of the Go tests in research-sdd/rsdd/internal/hook (wiring_test.go, script_test.go, pathwalk_test.go), killed
+# case of the Go tests in research-sdd/rsdd/internal/core/hookwiring (wiring_test.go, script_test.go, pathwalk_test.go), killed
 # there by a hand mutation of the Go source recorded in odd/tasks/u2.3a-hook-wiring.md, and the black-box cases
 # 1-26 above still run end to end through the shim. What stays here: mutants of what this file still owns -
-# _hw_abspath (shared with the launch state until U2.3b, kit issue #2357), the launch-history rules, and the shim
-# itself (the call it makes, the environment it hands over, what it accepts and how a failure reads).
+# the shims themselves (the call they make, the environment they hand over, what they accept and how a failure reads).
+# U2.3b (kit issue #2357) moved the rest: the four _hw_abspath mutants and the ten launch-history mutants that lived here are Go
+# mutants now (AbsPath: pathwalk_test.go; LaunchState: launch_test.go), recorded in odd/tasks/hook-wiring-part2.md.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutant builds go through lib/mutant.sh (kit issue #1299). Sourced only on this path. Each
   # mutant is built by mutant_chain, which refuses a dead sed stage, an empty/identical/unparseable
@@ -740,48 +820,14 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # A mutant lib is sourced from $ROOT, so the bridge finds rsdd-exec.sh beside it.
   cp "$HERE/../lib/rsdd-exec.sh" "$ROOT/rsdd-exec.sh"
 
-  # abs_tooth LABEL MUTANT WANT CWD ARG NOTE : _hw_abspath of the mutant must no longer answer WANT (and must answer).
-  abs_tooth() {
-    local label="$1" mut="$2" want="$3" cwd="$4" arg="$5" note="$6" got
-    # shellcheck disable=SC1090
-    got="$(cd "$cwd" && unset -f _hw_abspath && . "$mut" 2>/dev/null && _hw_abspath "$arg" 2>&1; printf '%s' "$HW_ABS_PATH")"
-    if [ -z "$got" ]; then no "teeth: $label produced no answer, not a bite" "$note"
-    elif [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$note still [$got]"
-    else ok "teeth: $label caught (real sourced lib)" "$note read [$got] not [$want]"; fi
-  }
-
-  echo "-- teeth: stop collapsing '..' (append it as a literal component instead) --"
-  mut_dotdot="$ROOT/hook-wiring.MUTANT-dotdot-nocollapse.sh"
-  if mk "teeth: '..' collapse anchor in lib" "$LIB" "$mut_dotdot" 's/\.\.)   result="\${result%\/\*}" ;;/..)   result="$result\/.." ;;  # MUTANT: dotdot no longer collapsed/'; then
-    abs_tooth "dotdot no-collapse" "$mut_dotdot" "/a" "$ROOT" "/a/b/.." "_hw_abspath /a/b/.."
-  fi
-
-  echo "-- teeth: truncate the split at the first control char (newline) --"
-  mut_split_nl="$ROOT/hook-wiring.MUTANT-split-newline.sh"
-  if mk "teeth: path-split anchor in lib" "$LIB" "$mut_split_nl" 's/local rest="\${d#\/}" last=0/local rest="${d#\/}" last=0; rest="${rest%%[[:cntrl:]]*}"  # MUTANT: truncate at newline/'; then
-    abs_tooth "newline-truncating split" "$mut_split_nl" $'/a/b\nc' "$ROOT" $'/a/b\nc' "_hw_abspath with an embedded newline"
-  fi
-
   echo "-- teeth: reintroduce a here-string on an executable line — case 20 lint must go RED --"
   mut_herestr="$ROOT/hook-wiring.MUTANT-herestring.sh"
-  if mk "teeth: path-split anchor in lib (here-string)" "$LIB" "$mut_herestr" 's/local rest="\${d#\/}" last=0/local rest="${d#\/}" last=0; : <<< "$d"  # MUTANT: here-string/'; then
+  if mk "teeth: one-newline anchor in lib (here-string)" "$LIB" "$mut_herestr" 's/ # HW-ONE-NEWLINE$/; : <<< "$out"  # MUTANT: here-string/'; then
     if herestring_count "$mut_herestr" && [ "$HS_N" -ne 0 ]; then
       ok "teeth: here-string lint bites on a mutant carrying one (real sourced lib)" "found $HS_N"
     else
       no "teeth: here-string lint did NOT bite on a here-string mutant (theater)" "n=[${HS_N:-}]"
     fi
-  fi
-
-  echo "-- teeth: stop absolutizing a relative path (drop the \$PWD prefix) --"
-  mut_absolut="$ROOT/hook-wiring.MUTANT-no-absolutize.sh"
-  if mk "teeth: absolutize anchor in lib" "$LIB" "$mut_absolut" 's/\*)  d="\$PWD\/\$d" ;;/*)  : ;;  # MUTANT: relative path left relative/'; then
-    abs_tooth "relative-path absolutize dropped" "$mut_absolut" "$ROOT/rel" "$ROOT" "rel" "_hw_abspath rel from \$ROOT"
-  fi
-
-  echo "-- teeth: drop the join '/' prefix of the collapsed components --"
-  mut_join="$ROOT/hook-wiring.MUTANT-join-prefix.sh"
-  if mk "teeth: join-prefix anchor in lib" "$LIB" "$mut_join" 's/\*)    result="\$result\/\$part" ;;/*)    result="$part" ;;  # MUTANT: join no longer prefixes "\/"/'; then
-    abs_tooth "join prefix dropped" "$mut_join" "/a/b" "$ROOT" "/a/b" "_hw_abspath /a/b"
   fi
 
   # shim_tooth LABEL MUTANT WANT STUB_OUT STUB_RC CODE ARG NOTE [log] : the mutant lib, driven through the stub rsdd, must
@@ -808,7 +854,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     shim_tooth "rsdd exit status ignored" "$mut_s3" "unreadable" 'wired\n' 1 "$W_CODE" "$ROOT/t28" "case 28d"
   fi
   mut_s4="$ROOT/hook-wiring.MUTANT-shim-ceiling.sh"
-  if mk "teeth: ceiling hand-over anchor in lib" "$LIB" "$mut_s4" 's/RSDD_HOOK_WIRING_CEILING="\${RSDD_HOOK_WIRING_CEILING:-}" rsdd_exec/rsdd_exec/'; then
+  if mk "teeth: ceiling hand-over anchor in lib" "$LIB" "$mut_s4" 's/RSDD_HOOK_WIRING_CEILING="\${RSDD_HOOK_WIRING_CEILING:-}" //'; then
     shim_tooth "ceiling not handed to rsdd" "$mut_s4" "args=hook wiring-state $ROOT/t28|ceiling=/ceil/dir" 'wired\n' 0 "$C_CODE" "$ROOT/t28" "case 28g" log
   fi
   mut_s5="$ROOT/hook-wiring.MUTANT-shim-newline.sh"
@@ -837,40 +883,64 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   batch_tooth "batch line-count check dropped" 's/&& \[ "\$_hw_n" = "\$#" \]/\&\& true/' 'wired\nwired\n' "3:[unreadable][unreadable][unreadable]" "case 29d" "$ROOT/a" "$ROOT/b" "$ROOT/c"
   batch_tooth "batch vocabulary check dropped" 's/&& \[ "\$_hw_ok" = 1 \]/\&\& true/' 'wired\nbogus\nunwired\n' "3:[unreadable][unreadable][unreadable]" "case 29e" "$ROOT/a" "$ROOT/b" "$ROOT/c"
 
-  echo "-- teeth (#1157 launch history): one mutant per rule of hook_stop_launch_state_var --"
-  launch_tooth() { # <label> <sed-expr> <fixture-dir> <pristine-state> <case> [history-root]
-    local label="$1" expr="$2" dir="$3" want="$4" cs="$5" hist="${6-$ROOT/hist}" mut got
-    mut="$ROOT/hook-wiring.MUTANT-launch-${cs// /-}.sh"
-    mk "teeth: $label anchor in lib" "$LIB" "$mut" "$expr" || return 0
-    got="$(
-      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var hook_stop_launch_state hook_stop_launch_state_var _hw_find_git_root _hw_abspath
-      # shellcheck disable=SC1090
-      . "$mut"
-      RSDD_CLAUDE_PROJECTS_DIR="$hist" hook_stop_launch_state_var "$dir" 2>&1; printf '%s' "$HOOK_LAUNCH_STATE"
-    )"
-    if [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$cs still [$got]"
-    else ok "teeth: $label caught (real sourced lib)" "$cs read [$got] not [$want]"; fi
-  }
-  launch_tooth "history check always true" 's/if compgen -G "\$root\/\$enc\/\*.jsonl" >\/dev\/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK/if true; then  # HOOK-LAUNCH-HISTORY-CHECK/' "$ROOT/t27b" "no-sessions" "case 27b"
-  launch_tooth "history check always false" 's/if compgen -G "\$root\/\$enc\/\*.jsonl" >\/dev\/null 2>&1; then  # HOOK-LAUNCH-HISTORY-CHECK/if false; then  # HOOK-LAUNCH-HISTORY-CHECK/' "$ROOT/t27a" "launched" "case 27a"
-  launch_tooth "directory without transcript counted as launch" 's|compgen -G "\$root/\$enc/\*.jsonl"|compgen -G "$root/$enc"|' "$ROOT/t27c" "no-sessions" "case 27c"
-  launch_tooth "any file counted as a transcript" 's|\$root/\$enc/\*.jsonl|$root/$enc/*|' "$ROOT/t27k" "no-sessions" "case 27k"
-  launch_tooth "absent history root read as no-sessions" 's/if \[ ! -d "\$root" \] || \[ ! -r "\$root" \]; then/if false; then/' "$ROOT/t27d" "unknown" "case 27d" "$ROOT/no-such-root"
-  launch_tooth "encoding keeps dots" 's/enc="\${d\/\/\[^A-Za-z0-9\]\/-}"/enc="${d\/\/[^A-Za-z0-9.]\/-}"/' "$ROOT/t27g.x_y z" "launched" "case 27g"
-  launch_tooth "non-ASCII guard dropped" 's/case "\$d" in \*\[!\\ -~\]\*) HOOK_LAUNCH_STATE="unknown"; return 0 ;; esac   # HOOK-LAUNCH-NONASCII-GUARD/:/' "$ROOT/t27l-ñ" "unknown" "case 27l"
-  launch_tooth "symlink guard dropped" 's/if \[ -L "\$_hw_c" \]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi  # HOOK-LAUNCH-SYMLINK-GUARD/:/' "$ROOT/link27p/sub" "unknown" "case 27p"
-  mut_cfg="$ROOT/hook-wiring.MUTANT-launch-config-dir.sh"
-  if mk "teeth: CLAUDE_CONFIG_DIR branch anchor in lib" "$LIB" "$mut_cfg" 's/if \[ -n "\${CLAUDE_CONFIG_DIR:-}" \]; then root="\$CLAUDE_CONFIG_DIR\/projects"/if false; then root=""/'; then
-    got="$(
-      unset -f hook_stop_wiring_state hook_stop_wiring_state_var hook_stop_script_state hook_stop_script_state_var hook_stop_launch_state hook_stop_launch_state_var _hw_find_git_root _hw_abspath
-      # shellcheck disable=SC1090
-      . "$mut_cfg"
-      unset RSDD_CLAUDE_PROJECTS_DIR; CLAUDE_CONFIG_DIR="$ROOT/cfg27o" HOME="$ROOT/nohome" hook_stop_launch_state_var "$ROOT/t27o" 2>&1; printf '%s' "$HOOK_LAUNCH_STATE"
-    )"
-    if [ "$got" = "launched" ]; then no "teeth: CLAUDE_CONFIG_DIR ignored NOT caught (theater)" "still [$got]"
-    else ok "teeth: CLAUDE_CONFIG_DIR ignored caught (real sourced lib)" "case 27o read [$got] not [launched]"; fi
+  echo "-- teeth: the launch and wired-exec shims (kit issue #2357) - one mutant per decision the shim makes --"
+  mut_l1="$ROOT/hook-wiring.MUTANT-shim-launch-fallback.sh"
+  if mk "teeth: launch fallback anchor in lib" "$LIB" "$mut_l1" 's/\*) HOOK_LAUNCH_STATE="unknown" ;;/*) HOOK_LAUNCH_STATE="no-sessions" ;;  # MUTANT: a failure reads no-sessions/'; then
+    shim_tooth "launch failure read as no-sessions" "$mut_l1" "unknown" 'bogus\n' 0 "$L_CODE" "$ROOT/t30" "case 30e"
   fi
-  launch_tooth "long-name guard dropped" 's/if \[ "\${#enc}" -gt 200 \]; then HOOK_LAUNCH_STATE="unknown"; return 0; fi   # HOOK-LAUNCH-LONGNAME-GUARD/:/' "$long" "unknown" "case 27m"
+  mut_l2="$ROOT/hook-wiring.MUTANT-shim-launch-rc.sh"
+  if mk "teeth: launch exit-status anchor in lib" "$LIB" "$mut_l2" 's/0:launched|0:no-sessions|0:unknown)/?:launched|?:no-sessions|?:unknown)/'; then
+    shim_tooth "launch: rsdd exit status ignored" "$mut_l2" "unknown" 'launched\n' 1 "$L_CODE" "$ROOT/t30" "case 30d"
+  fi
+  mut_l3="$ROOT/hook-wiring.MUTANT-shim-launch-target.sh"
+  if mk "teeth: launch call anchor in lib" "$LIB" "$mut_l3" 's/_hw_rsdd launch-state "\$1"/_hw_rsdd launch-state/'; then
+    shim_tooth "launch target not passed to rsdd" "$mut_l3" "args=hook launch-state $ROOT/t30|ceiling=$RSDD_HOOK_WIRING_CEILING" 'launched\n' 0 "$L_CODE" "$ROOT/t30" "case 30a" log
+  fi
+  # env_tooth LABEL MUTANT : the mutant lib, given the unexported variables of E_ENV, must no longer hand all of them to rsdd.
+  env_tooth() {
+    local label="$1" mut="$2" got
+    shim_run "$mut" 'launched\n' 0 "$E_ENV" "$ROOT/t30" >/dev/null; got="$(shim_env_log)"
+    if [ "$got" = "proj=/p/dir|cfg=/c/dir|home=/h/dir" ]; then no "teeth: $label NOT caught (theater)" "case 30g still [$got]"
+    else ok "teeth: $label caught (real sourced lib)" "case 30g read [$got]"; fi
+  }
+  mut_e1="$ROOT/hook-wiring.MUTANT-shim-env-projects.sh"
+  if mk "teeth: history-root hand-over anchor in lib" "$LIB" "$mut_e1" 's/RSDD_CLAUDE_PROJECTS_DIR="\${RSDD_CLAUDE_PROJECTS_DIR:-}" //'; then
+    env_tooth "history root not handed to rsdd" "$mut_e1"
+  fi
+  mut_e2="$ROOT/hook-wiring.MUTANT-shim-env-cfg.sh"
+  if mk "teeth: config-dir hand-over anchor in lib" "$LIB" "$mut_e2" 's/CLAUDE_CONFIG_DIR="\${CLAUDE_CONFIG_DIR:-}" //'; then
+    env_tooth "CLAUDE_CONFIG_DIR not handed to rsdd" "$mut_e2"
+  fi
+  mut_e3="$ROOT/hook-wiring.MUTANT-shim-env-home.sh"
+  if mk "teeth: HOME hand-over anchor in lib" "$LIB" "$mut_e3" 's/ HOME="\${HOME:-}" rsdd_exec/ rsdd_exec/'; then
+    env_tooth "HOME not handed to rsdd" "$mut_e3"
+  fi
+  # lbatch_tooth LABEL SED-EXPR STUB_OUT WANT CASE ARG... : the mutant lib must no longer answer WANT (the all-unknown array).
+  lbatch_tooth() {
+    local label="$1" expr="$2" out="$3" want="$4" cs="$5" mut got
+    shift 5
+    mut="$ROOT/hook-wiring.MUTANT-lbatch-${cs// /-}.sh"
+    mk "teeth: $label anchor in lib" "$LIB" "$mut" "$expr" || return 0
+    got="$(shim_run "$mut" "$out" 0 "$LB_CODE" "$@")"
+    if [ "$got" = "$want" ]; then no "teeth: $label NOT caught (theater)" "$cs still [$got]"
+    else ok "teeth: $label caught (real sourced lib)" "$cs read [$got]"; fi
+  }
+  lbatch_tooth "launch batch line-count check dropped" 's/&& \[ "\$_hw_n" = "\$#" \]/\&\& true/' 'launched\nlaunched\n' "3:[unknown][unknown][unknown]" "case 31d" "$ROOT/a" "$ROOT/b" "$ROOT/c"
+  lbatch_tooth "launch batch vocabulary check dropped" 's/&& \[ "\$_hw_ok" = 1 \]/\&\& true/' 'launched\nbogus\nno-sessions\n' "3:[unknown][unknown][unknown]" "case 31e" "$ROOT/a" "$ROOT/b" "$ROOT/c"
+  mut_x1="$ROOT/hook-wiring.MUTANT-shim-exec-fallback.sh"
+  if mk "teeth: wired-exec fallback anchor in lib" "$LIB" "$mut_x1" '/# HW-EXEC-FALLBACK$/d'; then
+    got="$(shim_run "$mut_x1" 'missing\t/a\tStop\n' 1 "$X_CODE" "$ROOT/t32")"   # the bite IS an empty (clean-looking) report
+    if [ "$got" = "${FALLBACK%$'\n'}" ]; then no "teeth: wired-exec failure read as a clean report NOT caught (theater)" "case 32d still [$got]"
+    else ok "teeth: wired-exec failure read as a clean report caught (real sourced lib)" "case 32d read [$got]"; fi
+  fi
+  mut_x2="$ROOT/hook-wiring.MUTANT-shim-exec-vocab.sh"
+  if mk "teeth: wired-exec vocabulary anchor in lib" "$LIB" "$mut_x2" "s/^\( *\)'not-executable'/\1*|'not-executable'/"; then
+    shim_tooth "wired-exec garbage accepted as a report" "$mut_x2" "${FALLBACK%$'\n'}" 'bogus\n' 0 "$X_CODE" "$ROOT/t32" "case 32e"
+  fi
+  mut_x3="$ROOT/hook-wiring.MUTANT-shim-exec-target.sh"
+  if mk "teeth: wired-exec call anchor in lib" "$LIB" "$mut_x3" 's/_hw_rsdd wired-exec "\$1"/_hw_rsdd wired-exec/'; then
+    shim_tooth "wired-exec target not passed to rsdd" "$mut_x3" "args=hook wired-exec $ROOT/t32|ceiling=$RSDD_HOOK_WIRING_CEILING" '' 0 "$X_CODE" "$ROOT/t32" "case 32a" log
+  fi
 fi
 
 echo ""
