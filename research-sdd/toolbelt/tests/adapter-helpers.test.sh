@@ -133,7 +133,7 @@ sys.path.insert(0, str(tb))            # `from lib.adapter_helpers import ...` (
 from lib.adapter_helpers import (BindScopeError, ManifestError, VenvBindError, assert_safe_bind_root,
                                  bind_venv, emit_evidence, run_truncation, warn_evidence,
                                  _PCAP_MAGIC, _PCAPNG_MAGIC)
-sys.path.insert(0, str(tb / "lib"))    # `from adapter_helpers import ...` (*_plan.py, gate.py, vm_run.py)
+sys.path.insert(0, str(tb / "lib"))    # `from adapter_helpers import ...`
 from adapter_helpers import assert_safe_bind_root as a2, BindScopeError as b2
 import adapter_core
 assert a2 is not None and b2 is not None
