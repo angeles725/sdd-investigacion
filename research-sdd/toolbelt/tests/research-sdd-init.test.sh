@@ -16,6 +16,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../research-sdd-init.sh"
 # kit issue #2183: portable wiring is the init default; this suite pins the legacy absolute wiring (default coverage: hook-kit-run / hook-exec / enforcement-e2e).
 export RSDD_INIT_WIRING=absolute
+# kit issue #2539: the installed hook carries the template mode minus the caller's umask (cp + chmod +x), so the
+# mode cases below are only deterministic under a fixed umask. Pin it; case U7-l7u checks the umask-002 shape.
+umask 022
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 # shellcheck source=lib/stage-libs.sh
@@ -2690,6 +2693,10 @@ if command -v jq >/dev/null 2>&1; then
   d="$TMP/u7-l7"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
   bash "$SUT" "$d" --wire >/dev/null 2>&1
   [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 755 ] && ok "U7-l7 wire-only creation: installed hook mode 755" || no "U7-l7 installed hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh")"
+  # L7u. the installed hook mode follows the caller's umask (kit issue #2539): under umask 002 it is group-writable 775
+  d="$TMP/u7-l7u"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
+  ( umask 002; bash "$SUT" "$d" --wire >/dev/null 2>&1 )
+  [ "$(_u7_mode "$d/.claude/hooks/research-protocol.sh")" = 775 ] && ok "U7-l7u umask 002: installed hook mode 775 (umask respected, still executable)" || no "U7-l7u umask 002: hook mode is $(_u7_mode "$d/.claude/hooks/research-protocol.sh"), want 775"
   # L8. no hard links (ln stub fails with a non-EEXIST error): exclusive-create fallback installs the hook, mode carried
   _u7_noln="$TMP/u7-noln"; mkdir -p "$_u7_noln"; printf '#!/bin/sh\necho "ln: failed to create hard link: Operation not permitted" >&2\nexit 1\n' > "$_u7_noln/ln"; chmod +x "$_u7_noln/ln"
   d="$TMP/u7-l8"; rm -rf "$d"; mkdir -p "$d"; : > "$d/INDEX.md"
