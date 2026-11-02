@@ -1,0 +1,4 @@
+{
+ "legacy": ["toolbelt/scan-firmware.sh","carve","{{input}}/firmware.bin","{{input}}/out","--max-input-bytes","4"],
+ "rsdd": ["corroborate","carve","--input","{{input}}/firmware.bin","--output","{{input}}/out","--max-input-bytes","4"]
+}

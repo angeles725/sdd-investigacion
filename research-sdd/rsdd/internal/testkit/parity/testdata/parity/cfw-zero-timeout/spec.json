@@ -1,0 +1,5 @@
+{
+ "legacy": ["toolbelt/corroborate-firmware.sh","--input","{{input}}/fixture.bin","--output","{{input}}/out","--timeout-seconds","0"],
+ "rsdd": ["corroborate","firmware","--input","{{input}}/fixture.bin","--output","{{input}}/out","--timeout-seconds","0"],
+ "env": {"RSDD_BINWALK": "{{input}}/stubs/binwalk"}
+}
