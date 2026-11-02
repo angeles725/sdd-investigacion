@@ -28,7 +28,8 @@
 #                      RSDD_TEETH_BASE unset  whole-module `make teeth` (the nightly).
 #                      RSDD_TEETH_BASE=<ref>  (a git ref, e.g. origin/main, set for pull_request events) only the
 #                        Go packages whose .go files changed between merge-base(<ref>, HEAD) and the working tree,
-#                        one `make teeth TEETH_PKG=./<pkg>` each. Zero changed packages is the typed state
+#                        one `make teeth TEETH_PKG=./<pkg> TEETH_EXCLUDE=/` each (only the files directly in <pkg>:
+#                        a changed subpackage is its own entry). Zero changed packages is the typed state
 #                        `teeth: n/a - no Go package changed vs <ref>` (ok, never teeth); an unresolvable <ref> is
 #                        FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
 #                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
@@ -196,12 +197,15 @@ selftest_teeth() {
     ok "gremlins: the cause also leads the typed SKIP"; else no "gremlins: SKIP lacks the cause: $g"; fi
   # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
   # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
-  c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG make -n -C "$MOD" teeth 2>&1)"
+  c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG -u TEETH_EXCLUDE make -n -C "$MOD" teeth 2>&1)"
   if grep -q 'GOMAXPROCS=1;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \.$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
     ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
   if grep -q 'GOMAXPROCS=3;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli$' <<<"$c"; then
     ok "teeth wiring: TEETH_WORKERS, TEETH_TEST_CPU and TEETH_PKG override"; else no "teeth wiring: override wrong: $c"; fi
+  c="$(make -n -C "$MOD" teeth TEETH_PKG=./internal/cli TEETH_EXCLUDE=/ 2>&1)"
+  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli\$" <<<"$c"; then
+    ok "teeth wiring: TEETH_EXCLUDE passes gremlins --exclude-files before the package"; else no "teeth wiring: exclude wrong: $c"; fi
 
   # Package scoping on a scratch repo: the module is a subdirectory, so --relative matters.
   local r="$dir/scope" m="$dir/scope/mod"
@@ -600,22 +604,29 @@ fi
 
 # Gremlins on a real fixture (#2427's false verdicts): package ./a has a negative control (a boundary no test
 # pins, so its mutant MUST read LIVED) and a subpackage ./a/b whose mutants its own tests kill.
-# scope_fixture MAKEFILE prints "control=<status> sub=<lived count>", or "ran=no" when gremlins did not run.
+# scope_fixture MAKEFILE [PKG [SUBTEST [MAKEARG...]]] prints "control=<status> sub=<lived count>", or "ran=no" when
+# gremlins did not run. PKG defaults to ./a. SUBTEST=live drops the boundary case from the subpackage's test, so
+# ./a/b carries a LIVED mutant of its own; MAKEARGs (e.g. TEETH_EXCLUDE=/) are passed to make.
 scope_fixture() {
-  local mk="$1" w
+  local mk="$1" pkg="${2:-./a}" subtest="${3:-kill}" w
+  shift $(( $# < 3 ? $# : 3 ))
   w="$(mktemp -d "$ROOT/scope-fx.XXXXXX")" || { echo "ran=no"; return; }
   mkdir -p "$w/a/b"
   printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
   printf 'package a\n\n// Pos: no test pins the boundary.\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
   printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
   printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/a/b/b.go"
-  printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
-  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG=./a TEETH_WORKERS=2 2>&1 </dev/null)"
+  if [ "$subtest" = "live" ]; then
+    printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
+  else
+    printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
+  fi
+  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
   if ! grep -q '^Killed: ' <<<"$o"; then echo "ran=no"; return; fi
   local c="none"
   if grep -Eq 'LIVED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="LIVED"
   elif grep -Eq 'KILLED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="KILLED"; fi
-  echo "control=$c sub=$(grep -cE 'LIVED .* at b/' <<<"$o")"
+  echo "control=$c sub=$(grep -cE 'LIVED .* at (b/|b\.go)' <<<"$o")"
 }
 sf="$(scope_fixture "$MOD/Makefile")"
 case "$sf" in
@@ -633,6 +644,32 @@ if [ "$sf" = "control=LIVED sub=0" ]; then
     case "$sf2" in "control=KILLED"*) ok "teeth scope tooth: gremlins --test-cpu makes the live control read KILLED (why the recipe never passes it)" ;;
       *) no "teeth scope tooth: --test-cpu mutant should read control=KILLED, got $sf2" ;; esac
   fi
+fi
+
+# Per-PR scope (RSDD_TEETH_BASE): a changed package P mutates only the files directly in P (TEETH_EXCLUDE=/ drops every
+# file gremlins finds below a subdirectory); a subpackage that changed is in the list on its own. Here ./a/b has a
+# LIVED mutant of its own (its test skips the boundary).
+sf_all="$(scope_fixture "$MOD/Makefile" ./a live)"
+sf_par="$(scope_fixture "$MOD/Makefile" ./a live TEETH_EXCLUDE=/)"
+sf_sub="$(scope_fixture "$MOD/Makefile" ./a/b live TEETH_EXCLUDE=/)"
+if [ "$sf_all" = "ran=no" ]; then
+  if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "teeth shallow scope: gremlins did not run on the fixture (RSDD_REQUIRE_GO=1)"
+  else echo "SKIP: teeth shallow scope: gremlins did not run on the fixture"; fi
+else
+  case "$sf_all" in "control=LIVED sub="[1-9]*) ok "teeth shallow scope fixture: without TEETH_EXCLUDE the subpackage's LIVED mutant is in scope" ;;
+    *) no "teeth shallow scope fixture: want control=LIVED and sub>=1 whole-tree, got $sf_all" ;; esac
+  [ "$sf_par" = "control=LIVED sub=0" ] && ok "teeth shallow scope: TEETH_EXCLUDE=/ on the parent keeps its own LIVED mutant and ignores the subpackage's" \
+    || no "teeth shallow scope: parent-only want control=LIVED sub=0, got $sf_par"
+  # Tooth: a recipe that drops the --exclude-files flag lets the subpackage's LIVED mutant into the parent's run.
+  sed 's/\$(TEETH_EXCLUDE_ARG)//' "$MOD/Makefile" > "$MUTDIR/Makefile.noexclude"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.noexclude"; then no "teeth shallow scope tooth: the no-exclude mutant is identical to the Makefile"
+  else
+    sf_mut="$(scope_fixture "$MUTDIR/Makefile.noexclude" ./a live TEETH_EXCLUDE=/)"
+    case "$sf_mut" in "control=LIVED sub="[1-9]*) ok "teeth shallow scope tooth: without the --exclude-files flag the subpackage's mutant leaks into the parent run" ;;
+      *) no "teeth shallow scope tooth: no-exclude mutant should read sub>=1, got $sf_mut" ;; esac
+  fi
+  case "$sf_sub" in "control=none sub="[1-9]*) ok "teeth shallow scope: a changed subpackage is still checked on its own (its LIVED mutant is reported)" ;;
+    *) no "teeth shallow scope: changed subpackage want control=none sub>=1, got $sf_sub" ;; esac
 fi
 
 # Mutation testing (gremlins, pinned in the Makefile): the gate is zero LIVED mutants among covered ones.
@@ -665,7 +702,7 @@ else
         echo "VERDICT: FAIL [$p] package path has characters outside [A-Za-z0-9_./-]" >> "$ROOT/verdicts.txt"; continue
       fi
       # </dev/null: make must not read the package list this loop is consuming from stdin.
-      make -C "$MOD" teeth TEETH_PKG="$p" >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
+      make -C "$MOD" teeth TEETH_PKG="$p" TEETH_EXCLUDE=/ >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
       one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
       echo "--- teeth: $p"
       echo "$one" | grep -v '^VERDICT:'
