@@ -1,6 +1,7 @@
 package bacnet
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 	"strings"
@@ -50,18 +51,14 @@ func parseBVLC(data []byte) (fn byte, payload []byte, ok bool) {
 		return 0, nil, false
 	}
 	ln := int(data[2])<<8 | int(data[3])
-	if ln <= len(data) {
-		if ln < 4 {
-			return data[1], []byte{}, true
-		}
-		return data[1], data[4:ln], true
-	}
-	return data[1], data[4:], true
+	// The payload ends at the declared length, clamped to [4, len(data)]: a length below the header gives an
+	// empty payload and a length beyond the datagram keeps all of it.
+	return data[1], data[4:max(4, min(ln, len(data)))], true
 }
 
 // parseIAm returns the device instance of an I-Am APDU.
 func parseIAm(apdu []byte) (uint32, bool) {
-	if len(apdu) < 2 || apdu[0] != apduUnconfirmed || apdu[1] != svcIAm {
+	if !bytes.HasPrefix(apdu, []byte{apduUnconfirmed, svcIAm}) {
 		return 0, false
 	}
 	body := apdu[2:]
@@ -85,25 +82,22 @@ func extractIAm(fn byte, payload []byte) (uint32, bool) {
 	case fnOriginalUnicast, fnOriginalBroadcast:
 		npdu = payload
 	case fnForwardedNPDU:
-		if len(payload) < 6 {
-			return 0, false
-		}
-		npdu = payload[6:]
+		npdu = payload[min(6, len(payload)):]
 	default:
 		return 0, false
 	}
-	if len(npdu) < 2 {
+	if len(npdu) <= 1 {
 		return 0, false
 	}
 	ctrl, idx := npdu[1], 2
 	if ctrl&0x20 != 0 {
-		if len(npdu) < idx+3 {
+		if len(npdu) <= idx+2 {
 			return 0, false
 		}
 		idx += 3 + int(npdu[idx+2])
 	}
 	if ctrl&0x08 != 0 {
-		if len(npdu) < idx+3 {
+		if len(npdu) <= idx+2 {
 			return 0, false
 		}
 		idx += 3 + int(npdu[idx+2])
@@ -111,10 +105,7 @@ func extractIAm(fn byte, payload []byte) (uint32, bool) {
 	if ctrl&0x20 != 0 {
 		idx++
 	}
-	if idx > len(npdu) {
-		return 0, false
-	}
-	return parseIAm(npdu[idx:])
+	return parseIAm(npdu[min(idx, len(npdu)):])
 }
 
 // addr6 formats a 6-byte BACnet/IP address as "A.B.C.D:0xPPPP".
@@ -164,8 +155,5 @@ func sameSlash24(a, b string) bool {
 
 func first3(s string) []string {
 	p := strings.Split(s, ".")
-	if len(p) > 3 {
-		p = p[:3]
-	}
-	return p
+	return p[:min(3, len(p))]
 }
