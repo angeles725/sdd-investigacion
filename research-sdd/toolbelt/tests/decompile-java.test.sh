@@ -146,10 +146,12 @@ OUT="$(cd "$ROOT/elsewhere" && env JAVA_HOME="$JH" VINEFLOWER_JAR="$ROOT/vineflo
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
+  # shellcheck source=lib/stage-libs.sh
+  . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into the mutant toolbelt
   mutant_bootstrap mutant_chain || exit 2
   echo "-- teeth 1: the shim dispatches to another command, expect case 10's usage contract to break --"
-  MTB="$ROOT/kitm/toolbelt"; mkdir -p "$MTB/lib" && ln -s "$(readlink "$ROOT/kit/rsdd")" "$ROOT/kitm/rsdd" \
-    && cp "$TB/lib/rsdd-exec.sh" "$MTB/lib/" || { echo "FATAL: could not stage the mutant kit" >&2; exit 2; }
+  MTB="$ROOT/kitm/toolbelt"; mkdir -p "$MTB" && ln -s "$(readlink "$ROOT/kit/rsdd")" "$ROOT/kitm/rsdd" \
+    && rsdd_stage_libs "$MTB" || { echo "FATAL: could not stage the mutant kit" >&2; exit 2; }
   if mutant_chain teeth1-wrong-command "$SHIM" "$MTB/decompile-java.sh" 's|rsdd_exec corroborate decompile|rsdd_exec corroborate nonesuch|'; then
     real_shim="$SHIM"; SHIM="$MTB/decompile-java.sh"
     run -- "$ROOT/Test.class" "$ROOT/o8m" --bogus
