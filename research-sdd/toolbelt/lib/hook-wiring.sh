@@ -9,14 +9,20 @@
 # a self-report claiming 'wired' while sweep-retros disagrees defeats the whole point of §18
 # supervision.
 #
+# PORTED TO GO (kit issue #2356, U2.3a): the first half of this library - hook_stop_wiring_state(_var),
+# hook_stop_script_state(_var) and _hw_find_git_root - is a set of shims over `rsdd hook wiring-state|script-state|git-root
+# <arg>` (research-sdd/rsdd/internal/hook, resolved through lib/rsdd-exec.sh). The rules below are unchanged and now live in
+# Go, pinned by internal/hook's tests and by a differential test against a frozen copy of the bash they replace. What the
+# shims decide themselves: the environment handed to rsdd, which answers are accepted, and how a failure reads. When rsdd is
+# unavailable (or answers anything outside the documented states, or exits non-zero) the typed
+# `degraded: rsdd-unavailable` line goes to stderr and the state reads "unreadable" (wiring: the wiring is UNKNOWN; it never
+# reads wired, unwired or absent-settings) or "degraded" (script state, the existing "measurement invalid, not a zero"
+# state). _hw_abspath and the launch / wired-exec functions further down stay in bash until U2.3b (kit issue #2357).
+#
 #   hook_stop_wiring_state_var <target-dir>
 #     Sets the GLOBAL $HOOK_WIRING_STATE to exactly one of: wired | wired-off-root | unwired |
-#     absent-settings | unreadable. COST GUARANTEE: exactly one awk fork per call (the Stop-scope
-#     check), for every state; the git-root / off-root check adds no fork — it uses only builtins
-#     (`[ -e ]` tests and parameter-expansion path-walking; no `git` binary, no `$(...)`, no
-#     here-string), so a caller iterating many targets (sweep-retros.sh's WIRING-STATUS fleet
-#     pass) pays one fork per target. (History: kit issue #1140 round-2 review Blocking 3 removed
-#     an earlier second fork on the majority 'wired' state.)
+#     absent-settings | unreadable. COST: one nested subshell and one rsdd exec per call (kit issue #2356; it was one
+#     awk fork before the port). sweep-retros.sh's WIRING-STATUS fleet pass uses the batch form below instead (one rsdd for the fleet); the git-root / off-root check is part of the same rsdd call.
 #     Always returns 0 — callers branch on $HOOK_WIRING_STATE, never on exit status.
 #
 #     NARROWER than the TARGETS.md legend's 'hook' flag definition (kit issue #1108 round 2):
@@ -105,10 +111,15 @@
 #                            `[ -e ]`, never shells out.
 #     This mirrors the kit's §7 anti-silent-zero doctrine: absent-settings, unreadable, unwired, and
 #     wired-off-root are all distinct non-fully-wired states, never collapsed into a single "not
-#     wired" bucket that would hide which one actually happened. The `awk` call below still forks
-#     its OWN subprocess (unavoidable — this is shell, not awk-native) but that is one fork per
-#     target either way, the same cost every state has always paid; the walk-up that detects
-#     wired-off-root adds ZERO further forks on top of it.
+#     wired" bucket that would hide which one actually happened. (Before the Go port the Stop scan was
+#     one awk fork per call and the walk-up that detects wired-off-root added none; both now run inside the single rsdd call.)
+#
+#   hook_stop_wiring_states_var <target-dir>...
+#     Batch form (kit issue #2356): ONE rsdd exec for every target. Sets the ARRAY $HOOK_WIRING_STATES, one element per
+#     target in argument order, each exactly one of the five states above. If rsdd fails, answers a different number of
+#     lines than targets, or any line is not one of the five states, EVERY element reads "unreadable" (wiring unknown, never
+#     a silent wired/unwired; the typed `degraded: rsdd-unavailable` line is on stderr when rsdd could not be resolved).
+#     No targets: an empty array and no rsdd call. Always returns 0. sweep-retros.sh's WIRING-STATUS pass uses it.
 #
 #   hook_stop_wiring_state <target-dir>
 #     Convenience wrapper: calls hook_stop_wiring_state_var, then prints $HOOK_WIRING_STATE to
@@ -131,12 +142,48 @@
 #
 # Idempotent: safe to source more than once.
 
+# --- rsdd bridge (kit issue #2356) ------------------------------------------------------------------------------
+# lib/rsdd-exec.sh is loaded on first USE of a ported function, never at source time: sourcing this file stays free and
+# silent (a caller may source it under a PATH with no external commands and only use the second half).
+if ! declare -F _hw_rsdd >/dev/null 2>&1; then
+  _HW_SELF="${BASH_SOURCE[0]}"
+  case "$_HW_SELF" in /*) ;; *) _HW_SELF="$PWD/$_HW_SELF" ;; esac   # builtins only; the symlink walk waits for first use
+
+  # _hw_rsdd_load : makes rsdd_exec available. A missing rsdd-exec.sh is announced once and leaves a rsdd_exec that fails,
+  # so the ported functions read as unavailable instead of as a clean answer.
+  _hw_rsdd_load() {
+    local s="$_HW_SELF" n=0 t libdir
+    # own directory from BASH_SOURCE with symlinks followed (the kit #1675 idea, lazily and with local variables) - never $0 or the caller cwd.
+    while [ -L "$s" ] && [ "$n" -lt 40 ]; do n=$((n + 1)); t="$(readlink -- "$s")" || break; case "$t" in /*) s="$t" ;; *) s="$(dirname -- "$s")/$t" ;; esac; done
+    libdir="$(CDPATH='' cd -- "$(dirname -- "$s")" && pwd -P)"
+    # shellcheck source=rsdd-exec.sh
+    . "$libdir/rsdd-exec.sh" 2>/dev/null || {
+      printf 'degraded: rsdd-unavailable — rsdd-exec.sh missing beside %s\n' "$_HW_SELF" >&2
+      rsdd_exec() { return 2; }
+    }
+  }
+
+  # _hw_rsdd <cmd> <arg>... : runs `rsdd hook <cmd> <arg>...`; sets _HW_OUT to its stdout minus the ONE trailing newline the
+  # command adds (embedded and further trailing newlines of a payload are kept) and _HW_RC to its exit status.
+  # rsdd_exec ends in `exec`, so it runs in its own subshell; the status is appended after the output so that $(...)
+  # cannot strip a payload's trailing newlines. RSDD_HOOK_WIRING_CEILING is handed over explicitly: the bash lib read it
+  # as a plain variable, which need not be exported.
+  _hw_rsdd() {
+    local out
+    declare -F rsdd_exec >/dev/null 2>&1 || _hw_rsdd_load
+    out="$( ( RSDD_HOOK_WIRING_CEILING="${RSDD_HOOK_WIRING_CEILING:-}" rsdd_exec hook "$@" ); printf '|%s' "$?")"
+    _HW_RC="${out##*|}"
+    out="${out%|*}"
+    _HW_OUT="${out%$'\n'}"   # HW-ONE-NEWLINE
+  }
+fi
+
 if ! declare -F _hw_abspath >/dev/null 2>&1; then
   # _hw_abspath <path> : sets $HW_ABS_PATH to <path> made absolute (prefixed with $PWD if
   # relative) with every "." and ".." component COLLAPSED — pure builtins, no `realpath`/`pwd -P`
   # fork, no symlink resolution (see _hw_find_git_root's own KNOWN LIMITATION below for what that
-  # still leaves unhandled). Shared by _hw_find_git_root and hook_stop_wiring_state_var so both
-  # normalize identically. Two bugs this fixes together (kit issue #1140 correction, then r3
+  # still leaves unhandled). Its Go twin (internal/hook AbsPath) normalizes the same way for the ported wiring
+  # predicates; this copy stays for the launch-history state until U2.3b (kit issue #2357). Two bugs this fixes together (kit issue #1140 correction, then r3
   # review M1): a relative target ('.', 'foo', 'foo/bar' -> 'foo') never gave ${d%/*} a "/" to
   # climb past, so the walk-up spun forever; and an UNcollapsed ".." in the target made the
   # walk-up climb one raw textual segment at a time instead of resolving it, so a target like
@@ -174,8 +221,8 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # _hw_find_git_root <dir> : sets $HW_GIT_ROOT to the nearest ancestor of <dir> (inclusive of
   # <dir> itself) that owns a `.git` entry (file or directory — a linked worktree's `.git` is a
   # FILE, and this must recognise that too), or "" if none is found before reaching `/` or the
-  # $RSDD_HOOK_WIRING_CEILING. Pure builtins only — [ -e ] and parameter expansion — NO fork, NO
-  # git binary, NO `realpath`/`pwd -P`. `[ -e "$d/.git" ]` DOES resolve a symlink AT THAT ONE
+  # $RSDD_HOOK_WIRING_CEILING. (Go: only existence tests and string path-walking - no
+  # git binary, no `realpath`/`pwd -P`.) `[ -e "$d/.git" ]` DOES resolve a symlink AT THAT ONE
   # CHECK, at the kernel level — so it correctly answers "does <d> itself own a `.git`" even when
   # <d> is a symlink. It is NOT symlink-safe overall, because the CLIMB (`${d%/*}`) and the
   # off-root COMPARISON both work on the target STRING's own textual spelling, never on any
@@ -201,104 +248,67 @@ if ! declare -F _hw_find_git_root >/dev/null 2>&1; then
   # the fleet as measured, not symlinks, so this gap's incidence is 0 of 17 reachable targets today
   # (measure-before-remediate, kit §7) — flagged here rather than fixed with a fork every caller
   # would pay for a case that has not occurred.
+  # SHIM (kit issue #2356): the walk-up is `rsdd hook git-root <dir>` (internal/hook/pathwalk.go); line 1 of its answer is
+  # HW_TARGET_IS_ROOT, the rest is HW_GIT_ROOT. A failing rsdd leaves no root (flag 0, root "") after the typed
+  # `degraded: rsdd-unavailable` line; the function still returns 0.
+  # shellcheck disable=SC2034  # the HW_* results are read by the callers and by tests/hook-wiring.test.sh
   _hw_find_git_root() {
-    local d ceiling="" _hw_next
-    HW_TARGET_IS_ROOT=0
-    _hw_abspath "$1"; d="$HW_ABS_PATH"
-    # kit r3 review, M3: $ceiling used to be compared TEXTUALLY against $RSDD_HOOK_WIRING_CEILING
-    # as-is, so a value with a trailing slash never matched $d (always trailing-slash-free after
-    # _hw_abspath) and silently never fired. Normalize it through the SAME _hw_abspath.
-    if [ -n "${RSDD_HOOK_WIRING_CEILING:-}" ]; then
-      _hw_abspath "$RSDD_HOOK_WIRING_CEILING"; ceiling="$HW_ABS_PATH"
-    fi
-    # RAW-TARGET CHECK (kit issue #1153): the kernel resolves '..' AFTER following a symlink but the
-    # textual collapse above does not, so for ".../link/.." the collapsed $d names a different
-    # directory than the one the caller means. If the target AS SPELLED already owns a `.git`, it is
-    # its own git root; answer that before the textual walk can climb past it. The ceiling still
-    # wins for the collapsed path, exactly as in the loop below.
-    local _hw_raw="$1"
-    case "$_hw_raw" in /*) : ;; *) _hw_raw="$PWD/$_hw_raw" ;; esac
-    if { [ -z "$ceiling" ] || [ "$d" != "$ceiling" ]; } && [ -e "$_hw_raw/.git" ]; then  # HOOK-WIRING-RAWGIT-CHECK
-      # The sole consumer (hook_stop_wiring_state_var, WIRED-OFF-ROOT-CHECK) reads the flag, not a
-      # string comparison: the collapsed $d may name a directory that owns no `.git` at all, so it
-      # is never returned as the root. The spelled path owns the `.git`, so it is a real root.
-      HW_TARGET_IS_ROOT=1
-      HW_GIT_ROOT="$_hw_raw"
-      return 0
-    fi
-    while :; do
-      if [ -n "$ceiling" ] && [ "$d" = "$ceiling" ]; then  # HOOK-WIRING-CEILING-CHECK
-        HW_GIT_ROOT=""
-        return 0
-      fi
-      if [ -e "$d/.git" ]; then  # HOOK-WIRING-GITDIR-CHECK
-        HW_GIT_ROOT="$d"
-        return 0
-      fi
-      if [ "$d" = "/" ]; then
-        HW_GIT_ROOT=""
-        return 0
-      fi
-      _hw_next="${d%/*}"
-      [ -z "$_hw_next" ] && _hw_next="/"
-      if [ "$_hw_next" = "$d" ]; then  # HOOK-WIRING-NOPROGRESS-GUARD — defense in depth, fail closed
-        HW_GIT_ROOT=""
-        return 0
-      fi
-      d="$_hw_next"
-    done
+    HW_TARGET_IS_ROOT=0; HW_GIT_ROOT=""
+    _hw_rsdd git-root "$1"
+    [ "$_HW_RC" = 0 ] || return 0
+    case "$_HW_OUT" in
+      0$'\n'*) HW_GIT_ROOT="${_HW_OUT#0$'\n'}" ;;
+      1$'\n'*) HW_TARGET_IS_ROOT=1; HW_GIT_ROOT="${_HW_OUT#1$'\n'}" ;;   # HW-ROOT-FLAG
+    esac
+    return 0
   }
 fi
 
 if ! declare -F hook_stop_wiring_state_var >/dev/null 2>&1; then
+  # SHIM (kit issue #2356): `rsdd hook wiring-state <target>`. Only the five documented states are accepted from a
+  # successful run; anything else (rsdd unavailable, a non-zero exit, an unknown answer) reads "unreadable": the wiring is
+  # UNKNOWN, and the typed `degraded: rsdd-unavailable` line is on stderr when rsdd could not be resolved.
   hook_stop_wiring_state_var() {
-    local target="$1" settings
-    settings="$target/.claude/settings.json"
-    if [ ! -e "$settings" ]; then
-      HOOK_WIRING_STATE="absent-settings"; return 0
+    _hw_rsdd wiring-state "$1"
+    case "$_HW_RC:$_HW_OUT" in
+      0:wired|0:wired-off-root|0:unwired|0:absent-settings|0:unreadable) HOOK_WIRING_STATE="$_HW_OUT" ;;
+      *) HOOK_WIRING_STATE="unreadable" ;;
+    esac
+    return 0
+  }
+fi
+
+if ! declare -F hook_stop_wiring_states_var >/dev/null 2>&1; then
+  # BATCH SHIM (kit issue #2356): `rsdd hook wiring-state <target>...` once for every target. Sets the array
+  # HOOK_WIRING_STATES, one element per target in argument order. The answer is accepted only as a whole: a failing rsdd, a
+  # line count that differs from the target count, or ANY line outside the five states reads "unreadable" for EVERY
+  # element (the wiring is unknown; it never reads a silent wired/unwired). No targets: an empty array, rsdd not called.
+  hook_stop_wiring_states_var() {
+    local _hw_n=0 _hw_rest _hw_line _hw_i _hw_ok=1 _hw_last=0
+    HOOK_WIRING_STATES=()
+    [ "$#" -gt 0 ] || return 0
+    _hw_rsdd wiring-state "$@"
+    if [ "$_HW_RC" = 0 ]; then
+      _hw_rest="$_HW_OUT"
+      while :; do
+        case "$_hw_rest" in
+          *$'\n'*) _hw_line="${_hw_rest%%$'\n'*}"; _hw_rest="${_hw_rest#*$'\n'}" ;;
+          *)        _hw_line="$_hw_rest"; _hw_rest=""; _hw_last=1 ;;
+        esac
+        case "$_hw_line" in
+          wired|wired-off-root|unwired|absent-settings|unreadable) HOOK_WIRING_STATES[_hw_n]="$_hw_line" ;;
+          *) _hw_ok=0 ;;
+        esac
+        _hw_n=$(( _hw_n + 1 ))
+        [ "$_hw_last" = 0 ] || break
+      done
     fi
-    if [ ! -r "$settings" ]; then
-      HOOK_WIRING_STATE="unreadable"; return 0
+    # an empty line (also a trailing one) counts as a line and fails the vocabulary check
+    if [ "$_HW_RC" = 0 ] && [ "$_hw_n" = "$#" ] && [ "$_hw_ok" = 1 ]; then  # HW-BATCH-GUARD
+      return 0
     fi
-    if awk '
-      BEGIN { in_stop=0; stop_depth=0; depth=0; found=0 }
-      {
-        n=length($0); i=1
-        while (i<=n) {
-          c=substr($0,i,1)
-          if (c=="{" || c=="[") {
-            depth++
-          } else if (c=="}" || c=="]") {
-            depth--
-            if (in_stop && depth<=stop_depth) { in_stop=0 }
-          } else if (!in_stop && substr($0,i,6)=="\"Stop\"") {
-            j=i+6
-            while (j<=n && (substr($0,j,1)==" " || substr($0,j,1)=="\t")) j++
-            if (j<=n && substr($0,j,1)==":") { in_stop=1; stop_depth=depth }
-            i=j
-          } else if (in_stop && substr($0,i,10)=="retro-gate") {
-            found=1
-          }
-          i++
-        }
-      }
-      END { exit !found }
-    ' "$settings" 2>/dev/null; then
-      HOOK_WIRING_STATE="wired"
-    else
-      HOOK_WIRING_STATE="unwired"
-    fi
-    # SESSION-ROOT CHECK (kit issue #1135): only ever runs on an already-'wired' result — see this
-    # file's header for the full rationale, including the false-negative class this does NOT
-    # detect. Fork-free walk-up (kit issue #1140 round-2 review, Blocking 3) — no git, no subshell.
-    if [ "$HOOK_WIRING_STATE" = "wired" ]; then
-      local _hw_target_norm
-      _hw_abspath "$target"; _hw_target_norm="$HW_ABS_PATH"  # same normalization as _hw_find_git_root below
-      _hw_find_git_root "$target"
-      if [ "$HW_TARGET_IS_ROOT" != "1" ] && [ -n "$HW_GIT_ROOT" ] && [ "$HW_GIT_ROOT" != "$_hw_target_norm" ]; then  # WIRED-OFF-ROOT-CHECK
-        HOOK_WIRING_STATE="wired-off-root"
-      fi
-    fi
+    HOOK_WIRING_STATES=()
+    for _hw_i in "$@"; do HOOK_WIRING_STATES+=("unreadable"); done
     return 0
   }
 fi
@@ -343,113 +353,16 @@ fi
 #     NOT checked: the executable bit (a fork-free awk cannot test it; 'bash x.sh' needs none), the
 #     settings.local.json / user-level registration paths (same narrowness as the wiring predicate),
 #     and where sessions launch from (kit issue #1134 — the other half of #1157, undecidable here).
-#     COST: exactly one awk fork per call, none for the absent/unreadable states. Always returns 0.
+#     COST: one nested subshell and one rsdd exec per call (it was one awk fork before the Go port). Always returns 0.
 #
 #   hook_stop_script_state <target-dir> : wrapper, prints $HOOK_SCRIPT_STATE (one extra fork).
 if ! declare -F hook_stop_script_state_var >/dev/null 2>&1; then
+  # SHIM (kit issue #2356): `rsdd hook script-state <target>`. Only the five documented states are accepted from a
+  # successful run; anything else (rsdd unavailable, a non-zero exit, an unknown answer) reads "degraded".
   hook_stop_script_state_var() {
-    local target="$1" settings rc
-    settings="$target/.claude/settings.json"
-    if [ ! -e "$settings" ] || [ ! -r "$settings" ]; then
-      HOOK_SCRIPT_STATE="no-entry"; return 0
-    fi
-    _hw_abspath "$target"
-    awk -v tgt="$HW_ABS_PATH" -v home="${HOME:-}" '
-      function esc_at(s, k,   b) { b = 0; while (k > 1 && substr(s, k - 1, 1) == "\\") { b++; k-- } return b % 2 }
-      # pfx(s, pat): 1 when s starts with pat followed by "/" (the only place a variable is resolved).
-      function pfx(s, pat) { return substr(s, 1, length(pat) + 1) == pat "/" }
-      # resolve(w, hascd): a word of the command that mentions retro-gate -> "ok"/"miss"/"unver".
-      # "miss" is a firm claim, emitted only when the path was resolved unambiguously.
-      function resolve(w, hascd, widx, prev,   tok, r, ln) {
-        tok = w
-        if (index(tok, "\047") > 0 && tok ~ /[$~]/) return "unver"   # single-quoted: the shell would not expand it
-        if (prev ~ /^-[a-zA-Z]*c$/) return "unver"   # a shell -c payload: the shell re-parses it
-        gsub(/["\047]/, "", tok)
-        if (substr(tok, 1, 1) == "-") return "unver"   # an option (--cfg=/x/retro-gate.json), not a script path
-        if (index(w, "\"") > 0 && substr(tok, 1, 1) == "~") return "unver"   # no tilde expansion inside double quotes
-        if (pfx(tok, "${CLAUDE_PROJECT_DIR}")) tok = tgt substr(tok, 22)
-        else if (pfx(tok, "$CLAUDE_PROJECT_DIR")) tok = tgt substr(tok, 20)
-        else if (home != "" && pfx(tok, "${HOME}")) tok = home substr(tok, 8)
-        else if (home != "" && pfx(tok, "$HOME")) tok = home substr(tok, 6)
-        else if (home != "" && substr(tok, 1, 2) == "~/") tok = home substr(tok, 2)
-        if (tok ~ /[$`*?\\]/ || substr(tok, 1, 1) == "~" || index(tok, "/") == 0) return "unver"
-        if (index(tok, ":") > 0 && index(tok, ":") < index(tok, "/")) return "unver"   # scheme or drive prefix (C:/x), not a local path
-        if (substr(tok, 1, 1) != "/") {
-          if (hascd) return "unver"          # relative to a directory the command itself changed
-          if (widx > 2) return "unver"       # a relative word past the command/interpreter slots may be a fragment or an argument
-          tok = tgt "/" tok
-        }
-        r = (getline ln < tok); close(tok)
-        return (r >= 0) ? "ok" : "miss"
-      }
-      # check(line, pos): classify every retro-gate word of the JSON string that contains pos.
-      # Returns the index of the closing quote (so the scanner can skip the string), or 0.
-      function check(line, pos,   s, e, k, cmd, n, c, q, w, hascd, any, widx, prev) {
-        s = 0
-        for (k = pos - 1; k >= 1; k--) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { s = k; break }
-        e = 0
-        for (k = pos + 10; k <= length(line); k++) if (substr(line, k, 1) == "\"" && !esc_at(line, k)) { e = k; break }
-        entries++
-        if (s == 0 || e == 0) { unver++; return 0 }
-        cmd = substr(line, s + 1, e - s - 1)
-        gsub(/\\"/, "\"", cmd)
-        hascd = (cmd ~ /(^|[ \t;&|(])cd[ \t]/)
-        # quote-aware split: whitespace inside a quoted span does not end a word
-        n = length(cmd); q = ""; w = ""; any = 0; widx = 0; prev = ""
-        for (k = 1; k <= n + 1; k++) {
-          c = (k <= n) ? substr(cmd, k, 1) : " "
-          if (q == "" && (c == " " || c == "\t")) {
-            if (w != "") widx++
-            if (w != "" && index(w, "retro-gate") > 0) { any = 1; res[resn++] = resolve(w, hascd, widx, prev) }
-            if (w != "") prev = w
-            w = ""
-            continue
-          }
-          if (q == "" && (c == "\"" || c == "\047")) q = c
-          else if (q != "" && c == q) q = ""
-          w = w c
-        }
-        if (q != "") { unver++; resn = 0; return e }   # unterminated quote: the command could not be split reliably
-        if (!any) unver++
-        for (k = 0; k < resn; k++) { if (res[k] == "ok") okc++; else if (res[k] == "miss") miss++; else unver++ }
-        resn = 0
-        return e
-      }
-      BEGIN { in_stop = 0; stop_depth = 0; depth = 0; entries = 0; okc = 0; miss = 0; unver = 0; resn = 0 }
-      {
-        n = length($0); i = 1
-        while (i <= n) {
-          c = substr($0, i, 1)
-          if (c == "{" || c == "[") {
-            depth++
-          } else if (c == "}" || c == "]") {
-            depth--
-            if (in_stop && depth <= stop_depth) { in_stop = 0 }
-          } else if (!in_stop && substr($0, i, 6) == "\"Stop\"") {
-            j = i + 6
-            while (j <= n && (substr($0, j, 1) == " " || substr($0, j, 1) == "\t")) j++
-            if (j <= n && substr($0, j, 1) == ":") { in_stop = 1; stop_depth = depth }
-            i = j
-          } else if (in_stop && substr($0, i, 10) == "retro-gate") {
-            e = check($0, i)
-            if (e > i) i = e
-          }
-          i++
-        }
-      }
-      END {
-        if (entries == 0) exit 3
-        if (okc > 0) exit 0
-        if (unver > 0) exit 5
-        exit 4
-      }
-    ' "$settings" 2>/dev/null
-    rc=$?
-    case "$rc" in
-      0) HOOK_SCRIPT_STATE="present" ;;
-      3) HOOK_SCRIPT_STATE="no-entry" ;;
-      4) HOOK_SCRIPT_STATE="missing" ;;
-      5) HOOK_SCRIPT_STATE="unverifiable" ;;
+    _hw_rsdd script-state "$1"
+    case "$_HW_RC:$_HW_OUT" in
+      0:present|0:missing|0:unverifiable|0:no-entry|0:degraded) HOOK_SCRIPT_STATE="$_HW_OUT" ;;
       *) HOOK_SCRIPT_STATE="degraded" ;;
     esac
     return 0
