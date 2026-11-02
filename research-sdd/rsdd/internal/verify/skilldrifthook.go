@@ -363,9 +363,6 @@ type kitMeasure struct{ state, line, deg string }
 func measureKit(kdir string, kmax, kdays int, s cli.Stdio) kitMeasure {
 	m := kitMeasure{state: "unknown"}
 	clock := s.Clock
-	if clock == nil {
-		clock = time.Now
-	}
 	deadline := clock().Add(staleBudget)
 	expired := false
 	run := func(dir string, args ...string) (string, error) {
