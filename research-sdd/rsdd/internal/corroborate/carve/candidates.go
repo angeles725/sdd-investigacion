@@ -170,17 +170,20 @@ func (s squashSuper) valid(offset, size int64) bool {
 }
 
 func scanSquashFS(r io.ReaderAt, size int64, col *collector) error {
+	// The header is read through a view that ends at size, so a magic with fewer than a header's bytes before
+	// size is a short read (io.EOF) and is skipped, never read past the scanned range.
+	scanned := io.NewSectionReader(r, 0, size)
 	for from := int64(0); ; {
 		offset, err := find(r, size, squashfsMagic, from)
 		if err != nil || offset < 0 {
 			return err
 		}
 		from = offset + 1
-		if offset+squashfsHeader > size {
-			continue
-		}
 		var header [squashfsHeader]byte
-		if _, err := r.ReadAt(header[:], offset); err != nil {
+		if _, err := scanned.ReadAt(header[:], offset); err != nil {
+			if err == io.EOF {
+				continue
+			}
 			return err
 		}
 		super := parseSuper(header[:])
