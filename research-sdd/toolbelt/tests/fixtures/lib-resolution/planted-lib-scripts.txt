@@ -2,6 +2,7 @@
 check-gap-drift.sh
 corroborate-bacnet.sh
 coverage-map.sh
+decompile-java.sh
 ensure-remote.sh
 install/research-sdd-install.sh
 java-fidelity-experiment.sh
