@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"os"
 	"slices"
-	"syscall"
 	"unicode/utf8"
 )
 
@@ -33,11 +32,10 @@ func readStdoutJSON(path string) (any, string, error) {
 	if fi.Size() == 0 {
 		return nil, "", nil
 	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return nil, "", failf("cannot open capa stdout (symlink?): %s", path)
 	}
-	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
 	before, err := f.Stat()
 	if err != nil {
@@ -74,14 +72,10 @@ func parseCapaOutput(raw []byte) (any, string, error) {
 	return v, "", nil
 }
 
-// sameFile compares (dev, ino, size, mtime_ns), the identity the legacy reader checks before and after.
+// sameFile compares (dev, ino, size, mtime_ns), the identity the legacy reader checks before and after:
+// os.SameFile is the (dev, ino) test and ModTime carries the nanoseconds.
 func sameFile(a, b os.FileInfo) bool {
-	sa, oka := a.Sys().(*syscall.Stat_t)
-	sb, okb := b.Sys().(*syscall.Stat_t)
-	if !oka || !okb {
-		return a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
-	}
-	return sa.Dev == sb.Dev && sa.Ino == sb.Ino && sa.Size == sb.Size && sa.Mtim == sb.Mtim
+	return os.SameFile(a, b) && a.Size() == b.Size() && a.ModTime().Equal(b.ModTime())
 }
 
 // pyTypeName is type(v).__name__ of a decoded JSON value.
