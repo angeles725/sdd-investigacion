@@ -38,6 +38,7 @@ verify-parity.sh
 verify-registry-hook.sh
 verify-registry.sh
 verify-retro.sh
+verify-session-budget.sh
 verify-skill-drift-hook.sh
 verify-skill-drift.sh
 verify-state.sh
