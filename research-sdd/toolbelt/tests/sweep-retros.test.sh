@@ -2196,8 +2196,10 @@ else
   no "67 no review-status marker → WARN names retro file + emits add-marker guidance" "exit=$RC out=[$OUT]"
 fi
 
-# 68 — RSDD_PROFILE=1: five 'profile: <phase> <seconds>' lines on STDERR (correct phase
-#      names, numeric seconds). pending-pass + waiver-pass reconcile with total within ±15%
+# 68 — RSDD_PROFILE=1: six 'profile: <phase> <seconds>' lines on STDERR (correct phase
+#      names, numeric seconds). pending-pass + waiver-pass + wiring-pass reconcile with total within ±15%
+#      (wiring-pass added by kit issue #2356: the wiring pass became one rsdd process, a fixed cost this
+#      millisecond fixture cannot absorb in the un-named gap, so it is now a named, reconciled phase)
 #      (total = pending + gap + waiver; gap = print/summary section between loops, typically
 #      < 5% on real corpora; ±15% is the right floor for a minimal unit-test fixture).
 #      RED on baseline: no RSDD_PROFILE support → zero profile lines on STDERR.
@@ -2247,11 +2249,13 @@ p68_profile() {
     P68_PEND="$(grep '^profile: pending-pass '      <<<"$STDERR_P" | awk '{print $NF}')"
     P68_WAIV="$(grep '^profile: waiver-pass '       <<<"$STDERR_P" | awk '{print $NF}')"
     P68_TOT="$( grep '^profile: total '             <<<"$STDERR_P" | awk '{print $NF}')"
-    if [ "$RC" != 0 ] || ! [[ "$P68_PEND" =~ $P68_NUM && "$P68_WAIV" =~ $P68_NUM && "$P68_TOT" =~ $P68_NUM ]]; then
-      P68_CLASS=BROKEN; P68_RECON="broken rc=$RC pend=[$P68_PEND] waiv=[$P68_WAIV] tot=[$P68_TOT]"; return 2
+    # wiring-pass is optional HERE (a stub that predates it reads 0); case 68 itself requires the real SUT to print it.
+    P68_WIRE="$(grep '^profile: wiring-pass '       <<<"$STDERR_P" | awk '{print $NF}')"; P68_WIRE="${P68_WIRE:-0.000000}"
+    if [ "$RC" != 0 ] || ! [[ "$P68_PEND" =~ $P68_NUM && "$P68_WAIV" =~ $P68_NUM && "$P68_TOT" =~ $P68_NUM && "$P68_WIRE" =~ $P68_NUM ]]; then
+      P68_CLASS=BROKEN; P68_RECON="broken rc=$RC pend=[$P68_PEND] waiv=[$P68_WAIV] wire=[$P68_WIRE] tot=[$P68_TOT]"; return 2
     fi
-    P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v t="$P68_TOT" \
-      'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w; diff=sum-t; if(diff<0)diff=-diff
+    P68_RECON="$(awk -v p="$P68_PEND" -v w="$P68_WAIV" -v r="$P68_WIRE" -v t="$P68_TOT" \
+      'BEGIN{if(t==0){print "fail total=0";exit} sum=p+w+r; diff=sum-t; if(diff<0)diff=-diff
              print (diff/t < 0.15) ? "ok" : "fail " sum " vs " t}')"
     if [ "$P68_RECON" = ok ]; then P68_CLASS=PASS; p68_note; return 0; fi
     P68_CLASS=MISS
@@ -2266,11 +2270,12 @@ if [ "$RC" = 0 ] \
    && grep -qE '^profile: waiver-pass [0-9]+\.[0-9]+$'       <<<"$STDERR_P" \
    && grep -qE '^profile: retro-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
    && grep -qE '^profile: block-newest-pass [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+   && grep -qE '^profile: wiring-pass [0-9]+\.[0-9]+$'       <<<"$STDERR_P" \
    && grep -qE '^profile: total [0-9]+\.[0-9]+$'             <<<"$STDERR_P" \
    && [ "$_p68_class" = PASS ] && [ "$_p68_recon" = "ok" ]; then
-  ok "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" "(exit $RC)"
+  ok "68 RSDD_PROFILE=1 → 6 profile lines on STDERR, numeric seconds, pend+waiv+wire≈total ±15%" "(exit $RC)"
 else
-  no "68 RSDD_PROFILE=1 → 5 profile lines on STDERR, numeric seconds, pend+waiv≈total ±15%" \
+  no "68 RSDD_PROFILE=1 → 6 profile lines on STDERR, numeric seconds, pend+waiv+wire≈total ±15%" \
      "class=$_p68_class RC=$RC recon=$_p68_recon runs=$P68_RUNS stderr=[$STDERR_P]"
 fi
 
@@ -4417,6 +4422,28 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     unset _mutant_uf _outm_uf _anchor_uf _content_uf
   fi
 
+  # Tooth PRWP (kit issue #2356): drop the wiring-pass profile line from the SUT; case 68 requires it, so the
+  # mutant's stderr lacks the line and case 68's own condition fails.
+  echo "-- teeth PRWP: drop the wiring-pass profile line; case 68 must go RED --"
+  _anchor_prwp="$(grep -F '# RSDD_PROFILE_WIRE_PRINT' "$SUT")"
+  if [ -z "$_anchor_prwp" ]; then
+    no "teeth PRWP: wiring-pass print anchor not found in SUT" "anchor not found — SUT drifted?"
+  else
+    kit="$(mkkit teeth-prwp)"; tgt="$kit/targetA"
+    mkretro "$tgt" "r1.md" "<!-- review-status: pending -->" 2
+    write_targets "$kit" "$tgt"
+    _content_prwp="$(cat "$SUT")"
+    printf '%s\n' "${_content_prwp/"$_anchor_prwp"/}" > "$kit/toolbelt/sweep-retros.sh"
+    run_profile "$kit"
+    if [ "$RC" = 0 ] && grep -qE '^profile: total [0-9]+\.[0-9]+$' <<<"$STDERR_P" \
+       && ! grep -q '^profile: wiring-pass ' <<<"$STDERR_P"; then
+      ok "teeth PRWP: mutant prints no wiring-pass line, which case 68 requires — case 68 has teeth" "()"
+    else
+      no "teeth PRWP: mutant must drop only the wiring-pass line — case 68 is THEATER" "rc=$RC stderr=[$STDERR_P]"
+    fi
+    unset _anchor_prwp _content_prwp
+  fi
+
   # Tooth PRWT: zero the waiver accumulator → waiver reports 0.000000, pending+waiver ≠ total
   # → case 68 reconciliation (±5%) goes RED.  Anchor: the accumulation line at end of the
   # waiver loop, which carries the RSDD_PROFILE_WAIV_ACC sentinel comment.
@@ -4528,73 +4555,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     unset _mutant_ws _mutation_ws _outm_ws _anchor_ws _content_ws
   fi
 
-  # Tooth WG: remove the Stop-block scoping from the awk — change
-  #   'if (in_stop && $0 ~ /retro-gate/) { found=1 }  # RSDD_WS_STOP_SCOPE'
-  # to a whole-file match (no 'in_stop' guard). The wrong-event fixture (case 78: retro-gate
-  # under SessionStart, not Stop) must now report WIRED (no WARN), proving the Stop-scoping
-  # awk is the deciding factor, not mere file membership.
-  # kit issue #1108/#1109: this check now lives in lib/hook-wiring.sh (single source of truth
-  # shared with verify-registry.sh and research-sdd-status.sh) — the mutation targets the
-  # sandboxed KIT's copy of the LIB, not the SUT, since the SUT now only dispatches on the
-  # lib's printed token.
-  echo "-- teeth WG: remove Stop-scoping from awk; wrong-event fixture must false-wire (case 78 has teeth) --"
-  _anchor_wg='          } else if (in_stop && substr($0,i,10)=="retro-gate") {'
-  _content_wg="$(cat "$HERE/../lib/hook-wiring.sh")"
-  if [[ "$_content_wg" != *"$_anchor_wg"* ]]; then
-    no "teeth WG: locate Stop-scope anchor in lib/hook-wiring.sh" "anchor not found — lib drifted?"
-  else
-    kit="$(mkkit teeth-wg)"; tgt="$kit/targetA"
-    mkdir -p "$tgt/.claude"
-    # wrong-event fixture: retro-gate under SessionStart only
-    printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"retro-gate-stop.sh"}]}],"Stop":[]}}\n' \
-      > "$tgt/.claude/settings.json"
-    write_targets "$kit" "$tgt"
-    _mutant_wg="$kit/toolbelt/lib/hook-wiring.sh"
-    # Mutant: drop the in_stop guard — whole-file match, no Stop scoping
-    _mutation_wg='          } else if (substr($0,i,10)=="retro-gate") {   # (mutated: no Stop scope)'
-    printf '%s\n' "${_content_wg/"$_anchor_wg"/"$_mutation_wg"}" > "$_mutant_wg"
-    _outm_wg="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
-    # Without Stop-scoping: retro-gate found in SessionStart → false-wired (no WARN, 1 wired)
-    if ! grep -q 'WARN.*retro-gate not wired' <<<"$_outm_wg" && grep -q 'Wiring:.*1 wired' <<<"$_outm_wg"; then
-      ok "teeth WG: stop-scope-removed mutant false-wires wrong-event fixture — case 78 has teeth" "()"
-    else
-      no "teeth WG: stop-scope-removed mutant must false-wire wrong-event fixture — case 78 is THEATER" "out=[$_outm_wg]"
-    fi
-    unset _anchor_wg _content_wg _mutant_wg _mutation_wg _outm_wg
-  fi
-
-  # Tooth WU: remove the unreadable branch (the '[ ! -r "$settings" ]' guard + its echo) inside
-  # lib/hook-wiring.sh → a chmod-000 settings.json falls through to the awk check. awk cannot
-  # read it → exit 1 (not found) → the caller's default case fires: UNWIRED WARN instead of
-  # UNREADABLE WARN. Case 80 expects WARN.*retro-gate wiring unknown; without the branch it gets
-  # WARN.*retro-gate not wired → RED. Skipped when EUID=0: root reads any file, so the
-  # unreadable branch is never reachable there.
-  echo "-- teeth WU: remove unreadable branch; chmod-000 file must get unwired WARN instead (case 80 has teeth) --"
-  _anchor_wu='if \[ ! -r "\$settings" \]; then'
-  if ! grep -qE "$_anchor_wu" "$HERE/../lib/hook-wiring.sh"; then
-    no "teeth WU: locate unreadable branch in lib/hook-wiring.sh" "anchor not found — lib drifted?"
-  elif [ "$EUID" -eq 0 ]; then
-    ok "teeth WU → SKIPPED (running as root; root reads any file — unreadable branch unreachable)" "EUID=0"
-  else
-    kit="$(mkkit teeth-wu)"; tgt="$kit/targetA"
-    mkdir -p "$tgt/.claude"
-    printf '{"hooks":{"Stop":[]}}\n' > "$tgt/.claude/settings.json"
-    chmod 000 "$tgt/.claude/settings.json"
-    write_targets "$kit" "$tgt"
-    _mutant_wu="$kit/toolbelt/lib/hook-wiring.sh"
-    # Delete the 3-line unreadable branch: if condition + echo + closing brace
-    sed '/if \[ ! -r "\$settings" \]; then/,+2d' "$HERE/../lib/hook-wiring.sh" > "$_mutant_wu"
-    _outm_wu="$("$BASH_BIN" "$kit/toolbelt/sweep-retros.sh" 2>&1)"
-    chmod 644 "$tgt/.claude/settings.json"  # restore for cleanup
-    # Without the unreadable branch: awk tries to read → fails → else fires → unwired WARN
-    if grep -q 'WARN.*retro-gate not wired in' <<<"$_outm_wu" \
-       && ! grep -q 'WARN.*retro-gate wiring unknown' <<<"$_outm_wu"; then
-      ok "teeth WU: unreadable-branch-removed mutant → unwired WARN, not unreadable — case 80 has teeth" "()"
-    else
-      no "teeth WU: unreadable-branch-removed mutant must give unwired WARN — case 80 is THEATER" "out=[$_outm_wu]"
-    fi
-    unset _mutant_wu _outm_wu _anchor_wu
-  fi
+  # Teeth WG (Stop-scope) and WU (unreadable branch) mutated the awk inside lib/hook-wiring.sh. Since kit issue
+  # #2356 that logic is Go (internal/core/hookwiring/stopscan.go, wiring.go): its teeth are TestWiringState cases
+  # "4 retro-gate under SessionStart only -> unwired" and "6 unreadable settings.json -> unreadable", under
+  # make teeth. Cases 78 and 80 above still pin the end-to-end WARN lines through the shim.
 
   # Tooth WOR: remove the SUT's 'wired-off-root)' case branch entirely — a wired-off-root target
   # then falls into the default '*)' branch (misclassified as plain unwired: WARN 'not wired in',

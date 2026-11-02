@@ -15,7 +15,6 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corpus"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/decompile"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/exec"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/extract"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/formats"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/gate"
@@ -24,7 +23,6 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/lint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/niagara"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/plan"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/serial"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/status"
@@ -81,7 +79,6 @@ func mustAssemble() []cli.Command {
 		{"corpus", corpus.Commands},
 		{"corroborate", corroborate.Commands},
 		{"decompile", decompile.Commands},
-		{"exec", exec.Commands},
 		{"extract", extract.Commands},
 		{"formats", formats.Commands},
 		{"gate", gate.Commands},
@@ -90,7 +87,6 @@ func mustAssemble() []cli.Command {
 		{"lint", lint.Commands},
 		{"maint", maint.Commands},
 		{"niagara", niagara.Commands},
-		{"plan", plan.Commands},
 		{"retro", retro.Commands},
 		{"serial", serial.Commands},
 		{"status", status.Commands},

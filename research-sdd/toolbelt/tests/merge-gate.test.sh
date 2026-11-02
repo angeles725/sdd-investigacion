@@ -1,1195 +1,143 @@
 #!/usr/bin/env bash
-# Test suite for merge-gate.sh (kit issue #1272).
-# gentle-ai and gh are STUBBED via PATH with canned output — this suite never calls the real
-# `gentle-ai review start`, the real assess, or real GitHub. Fixtures are built in a temp root
-# (kit issue #1156): nothing is written into the live tree.
-#   merge-gate.test.sh                 run the suite
-#   merge-gate.test.sh --prove-teeth   run the suite + mutation controls (sharded over MG_TEETH_JOBS processes, default
-#                                      min(nproc, 4), 1 = serial; a mutant is detected at its first failing case)
+# merge-gate.test.sh — shim contract of merge-gate.sh (kit issue #2434).
+#
+# merge-gate.sh is a compatibility shim over `rsdd gate merge` (Go). The gate's behaviour — every verdict, the
+# typed lines, the exit codes, the CI gate, the path filters, the closure evidence — is covered by the Go tests in
+# research-sdd/rsdd/internal/gate (merge*_test.go: unit tests per verdict, and a differential of RunMerge against the
+# frozen pre-port script under testdata/legacy over ~500 scenarios, stdout, stderr, exit code and every stub call).
+# This suite checks only what the shim itself owns: it forwards arguments, the exit code, stdout and stderr
+# unchanged (the callers kit-wait-merge, kit-merge-train and kit-pr-pipeline read all three), and it degrades through
+# rsdd-exec (typed, exit 2) when rsdd cannot run. It also keeps the byte-equality guard between the live
+# .github/workflows/toolbelt-tests.yml and the frozen fixture the Go path-filter tests read (kit issue #2136).
+# Mutation controls under --prove-teeth.
+#
+# Exit: 0 all held · 1 regression · 2 harness error
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../merge-gate.sh"
-[ -x "$SUT" ] || { echo "FATAL: SUT not found or not executable: $SUT" >&2; exit 2; }
-command -v jq >/dev/null 2>&1 || { echo "FATAL: jq not found" >&2; exit 2; }
-command -v git >/dev/null 2>&1 || { echo "FATAL: git not found" >&2; exit 2; }
+TOOLBELT="$HERE/.."
+SUT="$TOOLBELT/merge-gate.sh"
 
 pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
-# MUT_FF (set only inside a mutant's subshell, see mutate): the first failing case already proves the mutant detected, so stop there.
-no(){ echo "  FAIL  $1"; fail=$((fail+1)); if [ -n "${MUT_FF:-}" ]; then exit 0; fi; }
+ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+echo "== merge-gate.test.sh =="
 
-# --- hermetic repo: base commit + head commit --------------------------------------------------
-REPO="$ROOT/repo"
-git init -q "$REPO" \
-  && git -C "$REPO" config user.email t@t && git -C "$REPO" config user.name t \
-  && echo a > "$REPO/a" && git -C "$REPO" add a && git -C "$REPO" commit -qm base \
-  && git -C "$REPO" tag base \
-  && echo b > "$REPO/b" && git -C "$REPO" add b && git -C "$REPO" commit -qm head \
-  || { echo "FATAL: cannot build fixture repo" >&2; exit 2; }
-HEAD_SHA="$(git -C "$REPO" rev-parse HEAD)"
-BASE_SHA="$(git -C "$REPO" rev-parse base)"
+[ -f "$SUT" ] && [ -x "$SUT" ] && [ -f "$TOOLBELT/lib/rsdd-exec.sh" ] || { echo "FATAL: absent-input: shim or lib/rsdd-exec.sh" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-gc() { git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$2"; }
-# R2: main moved ahead of the branch point (unrelated work); feat is checked out
-R2="$ROOT/r2"
-{ git init -q -b main "$R2" && gc "$R2" c0 && C0_R2="$(git -C "$R2" rev-parse HEAD)" \
-  && git -C "$R2" checkout -q -b feat && gc "$R2" f1 && git -C "$R2" checkout -q main && gc "$R2" m1 \
-  && git -C "$R2" checkout -q feat; } || { echo "FATAL: cannot build R2" >&2; exit 2; }
-# R3: dangerous commit d1 then a harmless d2 on top of c0 (narrow-base repro)
-R3="$ROOT/r3"
-{ git init -q -b main "$R3" && gc "$R3" c0 && C0_R3="$(git -C "$R3" rev-parse HEAD)" \
-  && gc "$R3" d1-danger && gc "$R3" d2-docs; } || { echo "FATAL: cannot build R3" >&2; exit 2; }
-HEAD_R3="$(git -C "$R3" rev-parse HEAD)"
-# R0: unborn HEAD
-R0="$ROOT/r0"; git init -q "$R0" || { echo "FATAL: cannot build R0" >&2; exit 2; }
-
-# --- stub bin dir: gentle-ai and gh ------------------------------------------------------------
-STUBS="$ROOT/stubs"; mkdir -p "$STUBS"
-cat > "$STUBS/gentle-ai" <<'STUB'
+# A stand-in rsdd: prints one argument per line on stdout, says something on stderr and exits with a chosen code.
+STUB="$TMP/rsdd-stub"
+cat > "$STUB" <<'EOF'
 #!/usr/bin/env bash
-echo "$*" >> "${STUB_LOG:-/dev/null}"
-[ -n "${STUB_JSON:-}" ] && cat "$STUB_JSON"
-[ -n "${STUB_ERR:-}" ] && echo "$STUB_ERR" >&2
-[ -n "${STUB_MOVE:-}" ] && git -C "$STUB_MOVE" -c user.email=t@t -c user.name=t commit -q --allow-empty -m moved
-exit "${STUB_RC:-0}"
-STUB
-cat > "$STUBS/gh" <<'STUB'
-#!/usr/bin/env bash
-echo "gh $* cwd:$PWD" >> "${STUB_LOG:-/dev/null}"
-case "$1 $2" in
-  "pr view")
-    # mimic gh 2.45: baseRefOid is NOT a pr-view JSON field -> field drift must show up
-    for f in $(printf '%s' "$*" | sed -n 's/.*--json \([^ ]*\).*/\1/p' | tr ',' ' '); do
-      case "$f" in headRefOid|baseRefName|number|state|title|url) ;; *) echo "Unknown JSON field: \"$f\"" >&2; exit 1 ;; esac
-    done
-    printf '{"headRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}"; exit 0 ;;
-  "api repos/{owner}/{repo}/commits/"*"/check-runs"*)
-    # REST check-runs for ONE commit sha. Only --paginate is accepted: any --json/--jq (field-name
-    # drift) or other flag fails loudly. A sha other than the PR head gets an EMPTY set, so a gate bound
-    # to the wrong sha shows up as ci_pending, never as a lucky pass.
-    ckpath="$2"; shift 2
-    pag=""; for a in "$@"; do case "$a" in --paginate) pag=1 ;; *) echo "stub gh: unsupported api argument: $a" >&2; exit 1 ;; esac; done
-    [ -n "$pag" ] || { echo "stub gh: check-runs read without --paginate (would silently truncate at one page)" >&2; exit 1; }
-    [ -n "${STUB_CHECKS_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
-    cksha="${ckpath#repos/\{owner\}/\{repo\}/commits/}"; cksha="${cksha%%/*}"
-    if [ "$cksha" != "${STUB_PR_HEAD:-}" ]; then echo '{"total_count":0,"check_runs":[]}'; exit 0; fi
-    if [ -n "${STUB_CHECKS_JSON:-}" ]; then cat "$STUB_CHECKS_JSON"; exit 0; fi
-    echo '{"total_count":3,"check_runs":[{"id":5,"name":"shellcheck","status":"completed","conclusion":"success"},{"id":5,"name":"toolbelt-tests","status":"completed","conclusion":"success"},{"id":5,"name":"pr-validation","status":"completed","conclusion":"success"}]}'
-    exit 0 ;;
-  "api graphql")
-    # closure evidence (kit issue #1812): the closing-issue read. The stub insists on EXPLICIT owner/name (never the
-    # {owner}/{repo} placeholders, which re-resolve from the cwd remote) and on the query text; it records the repo asked.
-    case " $* " in *"-F owner={owner}"*|*"-F name={repo}"*) echo "stub gh: graphql used placeholders: $*" >&2; exit 1 ;; esac
-    case " $* " in *" -F owner="*" -F name="*" -F pr="*closingIssuesReferences*) ;; *) echo "stub gh: unexpected graphql call: $*" >&2; exit 1 ;; esac
-    printf '%s\n' "$*" | sed -n 's/.* -F owner=\([^ ]*\) -F name=\([^ ]*\) -F pr=.*/\1\/\2/p' >> "${STUB_COMMENTS:-/dev/null}.gqlrepo"
-    echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.gqlcwd"
-    [ -n "${STUB_GQL_SLEEP:-}" ] && sleep "$STUB_GQL_SLEEP"
-    [ -n "${STUB_GQL_FAIL:-}" ] && { echo "gh: HTTP 502" >&2; exit 1; }
-    [ -n "${STUB_GQL_JSON:-}" ] && cat "$STUB_GQL_JSON"
-    exit 0 ;;
-  "repo view")
-    # the cwd-remote resolution used when GH_REPO is unset
-    [ "${STUB_REPO_VIEW_RC:-0}" -ne 0 ] && { echo "gh: repo view failed" >&2; exit "$STUB_REPO_VIEW_RC"; }
-    echo "${STUB_REPO_VIEW:-o/r}"; exit 0 ;;
-  "api repos/"*"/pulls/"*"/files"*)
-    echo "$2" >> "${STUB_COMMENTS:-/dev/null}.filesrepo"
-    # closure evidence (kit issue #1812): the PR files list, raw JSON pages (no --jq).
-    [ -n "${STUB_FILES_FAIL:-}" ] && { echo "gh: HTTP 500" >&2; exit 1; }
-    case " $* " in *" --jq "*) echo "stub gh: files read with --jq" >&2; exit 1 ;; esac
-    case " $* " in *" --paginate "*) ;; *) echo "stub gh: files read without --paginate (would truncate at one page)" >&2; exit 1 ;; esac
-    if [ -n "${STUB_FILES_JSON:-}" ]; then cat "$STUB_FILES_JSON"; else echo '[]'; fi
-    exit 0 ;;
-  "api repos/{owner}/{repo}/pulls/"*|api\ repos/*)
-    [ -n "${STUB_API_FAIL:-}" ] && exit 1
-    printf '{"headRefOid":"%s","baseRefOid":"%s","baseRefName":"main"}\n' "${STUB_PR_HEAD:-}" "${STUB_PR_BASE:-}"; exit 0 ;;
-  "issue comment")
-    # record the issue number and the exact body (never the network); STUB_COMMENT_RC simulates a failing post
-    n="$3"; shift 3; body=""; crepo="(none)"; while [ $# -gt 0 ]; do case "$1" in --body) body="$2"; shift 2 ;; --repo) crepo="$2"; shift 2 ;; *) shift ;; esac; done
-    echo "$crepo" >> "${STUB_COMMENTS:-/dev/null}.repo"
-    printf 'ISSUE %s\n%s\n---\n' "$n" "$body" >> "${STUB_COMMENTS:-/dev/null}"
-    echo "$PWD" >> "${STUB_COMMENTS:-/dev/null}.cwd"
-    [ "${STUB_COMMENT_RC:-0}" -ne 0 ] && echo "gh: HTTP 403 forbidden" >&2
-    exit "${STUB_COMMENT_RC:-0}" ;;
-  "pr merge") [ -n "${STUB_MERGE_ERR:-}" ] && echo "$STUB_MERGE_ERR" >&2; exit "${STUB_MERGE_RC:-0}" ;;
+for a in "$@"; do printf 'ARG[%s]\n' "$a"; done
+echo "stub-stderr" >&2
+exit "${STUB_RC:-7}"
+EOF
+chmod +x "$STUB"
+
+shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}" 2>"$TMP/serr")"; SRC=$?; SERR="$(cat "$TMP/serr")"; }
+
+check_forward() {
+  local shim="$1" tag="$2" want rc
+  shim_run "$shim" --cwd '/a b' --base-ref origin/main --merge 7 --required-checks ''
+  want=$'ARG[gate]\nARG[merge]\nARG[--cwd]\nARG[/a b]\nARG[--base-ref]\nARG[origin/main]\nARG[--merge]\nARG[7]\nARG[--required-checks]\nARG[]'
+  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd verbatim after 'gate merge' (spaces and an empty argument kept)"
+  else no "$tag arguments (out=[$SOUT])"; fi
+  if [ "$SERR" = "stub-stderr" ]; then ok "$tag stderr of rsdd passes through"; else no "$tag stderr (err=[$SERR])"; fi
+  for rc in 0 1 2 3; do
+    STUB_RC=$rc shim_run "$shim" --cwd x --base-ref y
+    if [ "$SRC" -eq "$rc" ]; then ok "$tag exit code $rc of rsdd is the shim's exit code"; else no "$tag exit code $rc (rc=$SRC)"; fi
+  done
+}
+
+check_degrade() {
+  local shim="$1" tag="$2" out rc
+  out="$(RSDD_BIN="$TMP/does-not-exist" bash "$shim" --cwd x --base-ref y --merge 7 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && ! grep -q '^merge-gate: \(allow\|merged\)' <<< "$out"; then
+    ok "$tag rsdd cannot run -> typed 'degraded: rsdd-unavailable', exit 2, nothing allowed or merged (never a clean 0)"
+  else no "$tag degrade (rc=$rc out=[$out])"; fi
+}
+
+check_forward "$SUT" "1"
+check_degrade "$SUT" "2"
+
+# 3. A shim whose lib/rsdd-exec.sh is missing says so and exits 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/merge-gate.sh"
+out="$(bash "$TMP/nolib/merge-gate.sh" --cwd x --base-ref y 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -qF 'rsdd-exec.sh missing beside' <<< "$out"; then
+  ok "3 library missing -> 'rsdd-exec.sh missing beside <shim>', exit 2"
+else no "3 missing lib (rc=$rc out=[$out])"; fi
+
+# 4. The shim is the template and nothing else: no gh, git, jq or gentle-ai call left behind.
+CODE="$(grep -v '^#' "$SUT")"
+if grep -qF 'rsdd_exec gate merge "$@"' "$SUT" && ! grep -qE '\b(jq|gh|gentle-ai|awk)\b' <<< "$CODE"; then
+  ok "4 shim body is 'rsdd_exec gate merge \"\$@\"' with no jq / gh / gentle-ai / awk left"
+else no "4 shim body"; fi
+
+# 5. The byte-equality guard (kit issue #2136): the frozen workflow fixture the path-filter tests read must BE the live
+# .github/workflows/toolbelt-tests.yml, or those cases test a stale shape. A missing file is its own state, never "drifted".
+REAL_WF="$HERE/../../../.github/workflows/toolbelt-tests.yml"
+WF_FIX="$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml"
+# wf_state <fixture> <live>: same | drifted | absent
+wf_state() { if [ ! -f "$1" ] || [ ! -f "$2" ]; then echo absent; elif cmp -s "$1" "$2"; then echo same; else echo drifted; fi; }
+# wf_verdict maps the state to the case verdict; the arms are what the teeth below mutate
+wf_verdict() { case "$(wf_state "$1" "$2")" in same) echo PASS;; absent) echo FAIL-absent;; *) echo FAIL-drifted;; esac; }
+case "$(wf_verdict "$WF_FIX" "$REAL_WF")" in
+  PASS) ok "5 fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml";;
+  FAIL-absent) no "5 fixture or workflow absent: $WF_FIX / $REAL_WF (not a drift - restore the missing file)";;
+  *) no "5 fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)";;
 esac
-exit 9
-STUB
-chmod +x "$STUBS/gentle-ai" "$STUBS/gh"
+# negative controls, each built from the FIXTURE (always present when this runs) so they cannot pass for the wrong reason
+{ cat "$WF_FIX"; echo "# drift"; } > "$TMP/drift-wf.yml"
+[ "$(wf_verdict "$TMP/drift-wf.yml" "$WF_FIX")" = FAIL-drifted ] && ok "5a drift control: a modified copy reports FAIL-drifted" || no "5a drift control: modified copy not reported drifted"
+[ "$(wf_verdict "$WF_FIX" "$TMP/no-such-workflow.yml")" = FAIL-absent ] && ok "5b drift control: a missing workflow file reports FAIL-absent, not drifted" || no "5b drift control: missing file not reported absent"
+[ "$(wf_verdict "$WF_FIX" "$WF_FIX")" = PASS ] && ok "5c drift control: identical files report PASS" || no "5c drift control: identical files not reported PASS"
 
-# restricted PATH dir carrying only the named tools (absent-binary cases)
-mkminimal() { # mkminimal <dir> <tool...>
-  local d="$1" t; shift; mkdir -p "$d"
-  for t in "$@"; do ln -sf "$(command -v "$t")" "$d/$t"; done
-}
-
-mkjson() { # mkjson <file> <due:true|false> <reason>
-  printf '{"schema":"gentle-ai.review-assessment/v1","risk":"high","review_due":%s,"review_due_reason":"%s"}\n' "$2" "$3" > "$1"
-}
-mkdir -p "$ROOT/j"
-mkjson "$ROOT/j/passive.json" false passive
-mkjson "$ROOT/j/already.json" false already_reviewed
-mkjson "$ROOT/j/under.json" false under_budget
-mkjson "$ROOT/j/high.json" true high_risk
-mkjson "$ROOT/j/slice.json" true slice_budget_reached
-mkjson "$ROOT/j/weird.json" false something_new
-echo '{not json' > "$ROOT/j/malformed.json"
-printf '{"schema":"other/v9","review_due":false,"review_due_reason":"passive"}\n' > "$ROOT/j/badschema.json"
-printf '{"schema":"gentle-ai.review-assessment/v1","review_due":"no","review_due_reason":"passive"}\n' > "$ROOT/j/badbool.json"
-printf '{"schema":"gentle-ai.review-assessment/v1","review_due":false}\n' > "$ROOT/j/noreason.json"
-
-OUT=""; RC=0; PRB="$BASE_SHA"
-# run <sut> <json> [sut args...]   (stubs first on PATH)
-run() {
-  local sut="$1" json="$2"; shift 2
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$json" STUB_LOG="$ROOT/log" bash "$sut" "$@" 2>"$ROOT/err")"; RC=$?
-}
-# runenv <sut> <json> <pr-head> <merge-rc> [sut args...]   (for --merge cases)
-runenv() {
-  local sut="$1" json="$2" prh="$3" mrc="$4"; shift 4
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$json" STUB_PR_HEAD="$prh" STUB_PR_BASE="$PRB" STUB_MERGE_RC="$mrc" STUB_LOG="$ROOT/log" bash "$sut" "$@" 2>"$ROOT/err")"; RC=$?
-}
-expect() { # expect <label> <rc> <regex-on-stdout>
-  if [ "$RC" -eq "$2" ] && <<<"$OUT" grep -Eq "$3"; then ok "$1"
-  else no "$1 (rc=$RC want $2; out: $OUT)"; fi
-}
-ARGS=(--cwd "$REPO" --base-ref base)
-export MERGE_GATE_LIB="$HERE/../lib/gh-visibility.sh"   # mutant SUTs live in a temp dir and cannot find lib/ next to themselves
-
-# --- CI-gate helpers (kit issue #1426) ---------------------------------------------------------
-# mkchecks <file> <name:status:conclusion>...   (conclusion may be empty for an unfinished run)
-mkchecks() {
-  local f="$1" a; shift
-  for a in "$@"; do printf '%s\n' "$a"; done | jq -Rsc '
-    (split("\n") | map(select(length > 0) | split(":") | {name: .[0], status: .[1], conclusion: (if .[2] == "" then null else .[2] end)}
-      + (if (.[3] // "") != "" then {app: {id: (.[3] | tonumber)}} else {} end)
-      + (if (.[4] // "") != "" then {started_at: .[4]} else {started_at: null} end)
-      + (if (.[5] // "") != "" then {id: (.[5] | tonumber)} else {id: 900000} end))) as $r
-    | {total_count: ($r | length), check_runs: $r}' > "$f"
-}
-# CKREQ: the MERGE_GATE_REQUIRED_CHECKS env for runck; the literal UNSET leaves the default in force.
-CKREQ="shellcheck,toolbelt-tests"
-# runck <sut> <checks-file> [extra sut args]   (a --merge 7 run whose PR head equals the checked HEAD)
-runck() {
-  local sut="$1" cj="$2"; shift 2
-  OUT="$( if [ "$CKREQ" = UNSET ]; then unset MERGE_GATE_REQUIRED_CHECKS; else export MERGE_GATE_REQUIRED_CHECKS="$CKREQ"; fi
-    PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=0 \
-      STUB_CHECKS_JSON="$cj" STUB_CHECKS_FAIL="${CKFAIL:-}" STUB_LOG="$ROOT/log" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
-}
-mkdir -p "$ROOT/ck"
-# --- path-filter helpers (kit issue #1867) ---
-# mkwfrepo <name> <fixture>: a repo whose HEAD carries .github/workflows/toolbelt-tests.yml from tests/fixtures/merge-gate/<fixture>
-FIXD="$HERE/fixtures/merge-gate"
-#   The workflow is in the BASE commit (tag `base`, the PR base) and the HEAD commit: the gate judges both trees (#1867 review).
-mkwfrepo2() { # mkwfrepo2 <name> <base-workflow> <head-workflow>   (a fixture name under tests/fixtures/merge-gate, or a path)
-  local d="$ROOT/wf-$1" bf="$2" hf="$3"
-  [ -f "$bf" ] || bf="$FIXD/$bf"; [ -f "$hf" ] || hf="$FIXD/$hf"
-  { git init -q -b main "$d" && mkdir -p "$d/.github/workflows" && cp "$bf" "$d/.github/workflows/toolbelt-tests.yml" && git -C "$d" add -A \
-    && gc "$d" c0 && git -C "$d" tag base && cp "$hf" "$d/.github/workflows/toolbelt-tests.yml" && git -C "$d" add -A && gc "$d" head; } >/dev/null 2>&1 \
-    || { echo "FATAL: cannot build wf repo $1" >&2; exit 2; }
-}
-mkwfrepo() { mkwfrepo2 "$1" "$2" "$2"; }
-mkwfmulti() { # mkwfmulti <name> <workflow-a> <workflow-z> [gitlink]: two workflows (a-first.yml, z-last.yml) carrying the same job names
-  local d="$ROOT/wf-$1" af="$2" zf="$3"
-  [ -f "$af" ] || af="$FIXD/$af"; [ -f "$zf" ] || zf="$FIXD/$zf"
-  { git init -q -b main "$d" && mkdir -p "$d/.github/workflows" && cp "$af" "$d/.github/workflows/a-first.yml" && cp "$zf" "$d/.github/workflows/z-last.yml" \
-    && git -C "$d" add -A \
-    && { [ "${4:-}" != gitlink ] || git -C "$d" update-index --add --cacheinfo 160000,0123456789abcdef0123456789abcdef01234567,.github/workflows/zz-sub.yml; } \
-    && gc "$d" c0 && git -C "$d" tag base && gc "$d" head; } >/dev/null 2>&1 || { echo "FATAL: cannot build wf repo $1" >&2; exit 2; }
-}
-mkwfpat() { # mkwfpat <name> <pattern>: a single pull_request.paths pattern in both jobs
-  printf 'name: t\non:\n  pull_request:\n    paths:\n      - "%s"\njobs:\n  toolbelt-tests:\n    runs-on: x\n  shellcheck:\n    runs-on: x\n' "$2" > "$ROOT/pat-$1.yml"
-  mkwfrepo "$1" "$ROOT/pat-$1.yml"
-}
-# FAKELIB: stands in for lib/gh-visibility.sh so a test can force the lib's result globals (GHV_STATE / GHV_NOTE / return code)
-FAKELIB="$ROOT/fakelib.sh"
-cat > "$FAKELIB" <<'LIB'
-gh_bounded_run() {
-  GHV_NOTE="${FAKE_NOTE:-}"; GHV_STATE="${FAKE_STATE:-OK}"; GHV_RC="${FAKE_RC:-0}"
-  case "$GHV_STATE" in OK) "$@"; return $? ;; *) return "${FAKE_RC:-0}" ;; esac
-}
-LIB
-mkwfrepo2 selfx wf-paths.yml wf-narrow.yml; mkwfrepo bothnarrow wf-narrow.yml
-mkwfmulti multi-ab wf-paths.yml wf-docs-paths.yml; mkwfmulti multi-ba wf-docs-paths.yml wf-paths.yml; mkwfmulti multi-bothskip wf-paths.yml wf-paths.yml
-mkwfmulti multi-gitlink wf-paths.yml wf-paths.yml gitlink; mkwfmulti multi-nopr wf-paths.yml wf-push-only.yml
-PF_BAD=('**/x.md' 'a/**/b' 'docs/[a-z]*.md' 'docs/+x' 'docs/{a,b}' '**.md' 'docs/**/x' 'docs/a b' 'docs/?.md' 'docs/a?')
-# jobs/trigger shapes the scanner does not parse (typed unknown, never "not a carrier") and PR-like triggers it does not model
-mkwfrepo quotedid wf-quoted-id.yml; mkwfrepo nameexpr wf-name-expr.yml; mkwfrepo jobsflow wf-jobs-flow.yml; mkwfrepo jobs4 wf-jobs4.yml
-mkwfrepo prt wf-prt.yml; mkwfrepo mergegroup wf-merge-group.yml; mkwfrepo inlineon wf-inline.yml
-mkwfmulti real2 wf-real-toolbelt-tests.yml wf-real-pr-check.yml
-for i in "${!PF_BAD[@]}"; do mkwfpat "bad$i" "${PF_BAD[$i]}"; done
-mkwfrepo real wf-real-toolbelt-tests.yml; mkwfrepo paths wf-paths.yml; mkwfrepo ignore wf-ignore.yml; mkwfrepo negation wf-negation.yml; mkwfrepo nofilter wf-nofilter.yml; mkwfrepo pushonly wf-push-only.yml
-# runwf <sut> <wf-repo-name> <checks-file> <files-json-file> [sut args]: a --merge run inside that repo, PR files served from the json file
-runwf() {
-  local sut="$1" wr="$ROOT/wf-$2" cj="$3" fj="$4" sH="$HEAD_SHA" sB="$BASE_SHA"; shift 4
-  local sA=("${ARGS[@]}")
-  ARGS=(--cwd "$wr" --base-ref base); HEAD_SHA="$(git -C "$wr" rev-parse HEAD)"; BASE_SHA="$(git -C "$wr" rev-parse base)"
-  export STUB_FILES_JSON="$fj"
-  runck "$sut" "$cj" "$@"
-  unset STUB_FILES_JSON
-  ARGS=("${sA[@]}"); HEAD_SHA="$sH"; BASE_SHA="$sB"
-}
-
-suite() { # suite <sut> — the whole behavioural suite, reusable against mutants
-  local S="$1"
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"; expect "allow passive" 0 '^merge-gate: allow: passive'
-  run "$S" "$ROOT/j/already.json" "${ARGS[@]}"; expect "allow already_reviewed" 0 '^merge-gate: allow: already_reviewed'
-  run "$S" "$ROOT/j/under.json" "${ARGS[@]}"; expect "allow under_budget" 0 '^merge-gate: allow: under_budget'
-  run "$S" "$ROOT/j/high.json" "${ARGS[@]}"; expect "refuse review_due high_risk" 1 '^merge-gate: refuse: review_due \(high_risk\)'
-  run "$S" "$ROOT/j/slice.json" "${ARGS[@]}"; expect "refuse review_due slice_budget_reached" 1 '^merge-gate: refuse: review_due \(slice_budget_reached\)'
-  run "$S" "$ROOT/j/weird.json" "${ARGS[@]}"; expect "degraded unknown not-due reason" 3 '^merge-gate: degraded: unknown not-due reason'
-  run "$S" "$ROOT/j/malformed.json" "${ARGS[@]}"; expect "degraded malformed JSON" 3 '^merge-gate: degraded: assess output is unparseable'
-  run "$S" "$ROOT/j/badschema.json" "${ARGS[@]}"; expect "degraded wrong schema" 3 '^merge-gate: degraded: unexpected assess schema'
-  run "$S" "$ROOT/j/badbool.json" "${ARGS[@]}"; expect "degraded non-boolean review_due" 3 '^merge-gate: degraded: assess review_due is missing or not a boolean'
-  run "$S" "$ROOT/j/noreason.json" "${ARGS[@]}"; expect "degraded missing reason" 3 '^merge-gate: degraded: assess review_due_reason is missing'
-  run "$S" "" "${ARGS[@]}"; expect "degraded empty assess output" 3 '^merge-gate: degraded: assess output is unparseable'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_RC=1 bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded assess non-zero exit even with allow-shaped JSON" 3 '^merge-gate: degraded: gentle-ai review assess failed'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: untracked files require an explicit declaration" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded surfaces gentle-ai's own error line" 3 'assess failed \(exit 1\): Error: untracked files require'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --head "$HEAD_SHA"; expect "allow with matching --head" 0 '^merge-gate: allow'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --head "$BASE_SHA"; expect "refuse head mismatch" 1 '^merge-gate: refuse: head_mismatch'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --head deadbeefnotacommit; expect "degraded unresolvable --head" 3 '^merge-gate: degraded: --head does not resolve'
-  run "$S" "$ROOT/j/passive.json" --cwd "$REPO" --base-ref no-such-ref; expect "degraded unresolvable base-ref" 3 '^merge-gate: degraded: base-ref does not resolve'
-  run "$S" "$ROOT/j/passive.json" --cwd "$ROOT/not-a-repo" --base-ref base; expect "degraded cwd not a repo" 3 '^merge-gate: degraded: --cwd is not a git repo'
-  run "$S" "$ROOT/j/passive.json" --base-ref base; expect "usage: --cwd required" 2 '^merge-gate: usage'
-  run "$S" "$ROOT/j/passive.json" --cwd "$REPO"; expect "usage: --base-ref required" 2 '^merge-gate: usage'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --bogus; expect "usage: unknown flag" 2 '^merge-gate: usage'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --merge abc; expect "usage: --merge needs a number" 2 '^merge-gate: usage'
-  # assess invocation shape: read-only assess only, never review start; default run never calls gh
-  : > "$ROOT/log"; run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"
-  if grep -q '^review assess ' "$ROOT/log" && grep -q -- '--committed-only' "$ROOT/log" \
-     && grep -q -- '--json' "$ROOT/log" && ! grep -q 'review start' "$ROOT/log"; then ok "calls only read-only assess with --committed-only --json"
-  else no "assess invocation shape ($(cat "$ROOT/log"))"; fi
-  if ! grep -q '^gh ' "$ROOT/log"; then ok "default run never calls gh"; else no "default run called gh"; fi
-  # absent binaries (restricted PATH)
-  mkminimal "$ROOT/nojq" git bash env cat dirname mktemp rm; cp "$STUBS/gentle-ai" "$ROOT/nojq/"
-  OUT="$(PATH="$ROOT/nojq" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded jq missing" 3 '^merge-gate: degraded: jq not found'
-  mkminimal "$ROOT/nogent" git jq bash env cat dirname mktemp rm
-  OUT="$(PATH="$ROOT/nogent" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded gentle-ai missing" 3 '^merge-gate: degraded: gentle-ai not found'
-  mkminimal "$ROOT/nogit" jq bash env cat dirname mktemp rm; cp "$STUBS/gentle-ai" "$ROOT/nogit/"
-  OUT="$(PATH="$ROOT/nogit" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded git missing" 3 '^merge-gate: degraded: git not found'
-  # --merge
-  : > "$ROOT/log"
-  runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  expect "merge after allow" 0 '^merge-gate: merged: PR #7'
-  if grep -q "^gh pr merge 7 --squash --match-head-commit $HEAD_SHA" "$ROOT/log"; then ok "merge pins the reviewed head via --match-head-commit"; else no "merge args ($(cat "$ROOT/log"))"; fi
-  : > "$ROOT/log"
-  runenv "$S" "$ROOT/j/high.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  expect "no merge on refuse" 1 '^merge-gate: refuse: review_due'
-  if ! grep -q 'pr merge' "$ROOT/log"; then ok "refuse never calls gh pr merge"; else no "gh pr merge ran on refuse"; fi
-  : > "$ROOT/log"
-  runenv "$S" "$ROOT/j/malformed.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  expect "no merge on degraded" 3 '^merge-gate: degraded'
-  if ! grep -q 'pr merge' "$ROOT/log"; then ok "degraded never calls gh pr merge"; else no "gh pr merge ran on degraded"; fi
-  : > "$ROOT/log"
-  runenv "$S" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --merge 7
-  expect "refuse when PR head differs from reviewed head" 1 '^merge-gate: refuse: head_mismatch \(PR #7'
-  if ! grep -q 'pr merge' "$ROOT/log"; then ok "PR head mismatch never calls gh pr merge"; else no "gh pr merge ran on PR head mismatch"; fi
-  runenv "$S" "$ROOT/j/passive.json" "" 0 "${ARGS[@]}" --merge 7
-  expect "degraded when PR head unreadable" 3 '^merge-gate: degraded: cannot read PR #7 head'
-  runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 1 "${ARGS[@]}" --merge 7
-  expect "degraded when gh pr merge fails" 3 '^merge-gate: degraded: gh pr merge failed'
-  # --- fix-first round (B1/B2/N1-N5) ---
-  # B2: assessed from the merge-base, never the moving ref
-  : > "$ROOT/log"; run "$S" "$ROOT/j/passive.json" --cwd "$R2" --base-ref main
-  expect "B2 allow when main moved ahead (assessed from merge-base)" 0 "^merge-gate: allow: passive .*merge_base=$C0_R2"
-  if grep -q -- "--base-ref $C0_R2 " "$ROOT/log" && ! grep -q -- "--base-ref main" "$ROOT/log"; then ok "B2 assess is invoked with the merge-base sha, not the moving ref"; else no "B2 assess base ($(cat "$ROOT/log"))"; fi
-  run "$S" "$ROOT/j/passive.json" --cwd "$R2" --base-ref feat; expect "N4 degraded on empty range (base == HEAD)" 3 '^merge-gate: degraded: empty range'
-  rm -rf "$ROOT/orphan"; git init -q "$ROOT/orphan" && gc "$ROOT/orphan" o0 && git -C "$ROOT/orphan" fetch -q "$R2" feat:other 2>/dev/null
-  run "$S" "$ROOT/j/passive.json" --cwd "$ROOT/orphan" --base-ref other; expect "degraded when no common ancestor" 3 '^merge-gate: degraded: no common ancestor'
-  # B1: narrow --base-ref cannot hide earlier PR commits when merging
-  PRB="$C0_R3"; : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --merge 7; PRB="$BASE_SHA"
-  expect "B1 refuse base_excludes_pr_commits (dangerous commit + narrow base + --merge)" 1 '^merge-gate: refuse: base_excludes_pr_commits'
-  if ! grep -q 'pr merge' "$ROOT/log"; then ok "B1 refuse never calls gh pr merge"; else no "B1 merged despite narrow base"; fi
-  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
-  expect "B1 allow+merge when base is the PR branch point" 0 '^merge-gate: merged: PR #7'
-  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1; PRB="$BASE_SHA"
-  expect "B1 narrow base without --merge stays a pure check (allow)" 0 '^merge-gate: allow'
-  PRB="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
-  expect "degraded when PR base commit is absent locally" 3 '^merge-gate: degraded: PR #7 base .* not present locally'
-  PRB=""; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref "$C0_R3" --merge 7; PRB="$BASE_SHA"
-  expect "degraded when PR base unreadable" 3 '^merge-gate: degraded: cannot read PR #7 base'
-  # N1: gh is bound to --cwd
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  if grep -q "^gh api repos/.* cwd:$REPO\$" "$ROOT/log" && grep -q "^gh pr merge .* cwd:$REPO\$" "$ROOT/log"; then ok "N1 gh runs inside --cwd"; else no "N1 gh cwd ($(cat "$ROOT/log"))"; fi
-  case "$OUT" in *"cwd=$REPO"*) ok "N1 merged line names the repo dir";; *) no "N1 merged line ($OUT)";; esac
-  # N2: HEAD moving during assess
-  rm -rf "$ROOT/r4"; git clone -q "$REPO" "$ROOT/r4"
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_MOVE="$ROOT/r4" bash "$S" --cwd "$ROOT/r4" --base-ref "$BASE_SHA" 2>/dev/null)"; RC=$?
-  expect "N2 degraded when HEAD moves during assess" 3 '^merge-gate: degraded: HEAD moved during assess'
-  # N3: gh pr merge failure surfaces gh's line; head rejection is a refuse
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="X Pull request is not mergeable" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "N3 degraded surfaces gh's own first line" 3 'gh pr merge failed for PR #7: X Pull request is not mergeable'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="Head branch was modified. Review and try the merge again." bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "N3 --match-head-commit rejection is refuse head_mismatch" 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed before merge'
-  # N5: own hint for untracked files
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: untracked files require an explicit declaration" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "N5 own hint to clean or ignore untracked files" 3 'clean or ignore untracked files'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/high.json" STUB_RC=1 STUB_ERR="Error: something else" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  if [ "$RC" -eq 3 ] && ! <<<"$OUT" grep -q 'untracked'; then ok "N5 no untracked hint on unrelated assess errors"; else no "N5 hint leaked ($OUT)"; fi
-  # teeth gaps: --merge without gh, gh pr view failing, unborn HEAD, mktemp failure
-  mkminimal "$ROOT/nogh" git jq bash env cat dirname mktemp rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nogh/"
-  OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "degraded --merge without gh" 3 '^merge-gate: degraded: gh not found'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_API_FAIL=1 bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "degraded when gh api fails" 3 '^merge-gate: degraded: cannot read PR #7 \(gh api failed\)'
-  run "$S" "$ROOT/j/passive.json" --cwd "$R0" --base-ref HEAD; expect "degraded unborn HEAD" 3 '^merge-gate: degraded: cannot resolve HEAD'
-  mkminimal "$ROOT/nomktemp" git jq bash env cat dirname rm head cut grep; cp "$STUBS/gentle-ai" "$ROOT/nomktemp/"
-  OUT="$(PATH="$ROOT/nomktemp" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" 2>/dev/null)"; RC=$?
-  expect "degraded mktemp missing" 3 '^merge-gate: degraded: mktemp failed'
-  # --squash must be part of the merge call
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  if grep -q '^gh pr merge 7 --squash ' "$ROOT/log"; then ok "merge uses --squash"; else no "merge lacks --squash ($(cat "$ROOT/log"))"; fi
-  # --- round 3: F1 (REST read), F2 (--pr check-only, range-only wording), N-a ---
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  if grep -q '^gh api repos/{owner}/{repo}/pulls/7 ' "$ROOT/log" && ! grep -q '^gh pr view' "$ROOT/log"; then ok "F1 PR head/base read via gh api REST, not gh pr view"; else no "F1 gh calls ($(cat "$ROOT/log"))"; fi
-  # F2: pure run states its scope; --pr binds without merging
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"
-  expect "F2 pure run says range-only / not bound to a PR" 0 'allow: passive .*\(range-only; not bound to a PR — use --pr N or --merge N\)'
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
-  expect "F2 --pr allow is PR-bound" 0 'allow: passive .*\(bound to PR #7'
-  if ! <<<"$OUT" grep -q 'range-only'; then ok "F2 --pr allow does not claim range-only"; else no "F2 --pr line still range-only ($OUT)"; fi
-  if grep -q '^gh api ' "$ROOT/log" && ! grep -q 'pr merge' "$ROOT/log"; then ok "F2 --pr reads the PR but never merges"; else no "F2 --pr gh calls ($(cat "$ROOT/log"))"; fi
-  case "$OUT" in *merged:*) no "F2 --pr printed merged";; *) ok "F2 --pr prints no merged line";; esac
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --pr 7
-  expect "F2 --pr refuses a PR head mismatch" 1 '^merge-gate: refuse: head_mismatch \(PR #7'
-  PRB="$C0_R3"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --pr 7; PRB="$BASE_SHA"
-  expect "F2 --pr refuses a narrow base (base_excludes_pr_commits)" 1 '^merge-gate: refuse: base_excludes_pr_commits'
-  run "$S" "$ROOT/j/passive.json" "${ARGS[@]}" --pr abc; expect "usage: --pr needs a number" 2 '^merge-gate: usage'
-  OUT="$(PATH="$ROOT/nogh" STUB_JSON="$ROOT/j/passive.json" bash "$S" "${ARGS[@]}" --pr 7 2>/dev/null)"; RC=$?
-  expect "degraded --pr without gh" 3 '^merge-gate: degraded: gh not found'
-  # stub self-check: an unknown pr-view field is rejected (so field drift is visible)
-  if ! PATH="$STUBS:$PATH" gh pr view 1 --json headRefOid,baseRefOid >/dev/null 2>&1; then ok "stub rejects unknown gh pr view --json field baseRefOid"; else no "stub accepts baseRefOid"; fi
-  # N-a: deprecation noise must not replace the real merge error; head rejection found anywhere
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience\nX Pull request is not mergeable')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "N-a deprecation line skipped when picking gh's error" 3 'gh pr merge failed for PR #7: X Pull request is not mergeable'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'GraphQL: Projects (classic) is being deprecated\nHead branch was modified. Review and try the merge again.')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "N-a head rejection matched even behind a deprecation line" 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed before merge: Head branch was modified'
-  OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="$(printf 'X Merge failed\nHead branch was modified. Review and try the merge again.')" bash "$S" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?
-  expect "N-a head rejection matched on a later line of gh output" 1 '^merge-gate: refuse: head_mismatch'
-  # --- #1426: --merge refuses on pending / failed / missing CI checks bound to the exact head ---
-  ck_nomerge() { if ! grep -q 'pr merge' "$ROOT/log"; then ok "$1 never calls gh pr merge"; else no "$1 merged anyway"; fi; }
-  CKREQ="shellcheck,toolbelt-tests"
-  mkchecks "$ROOT/ck/pass.json" shellcheck:completed:success toolbelt-tests:completed:success pr-validation:completed:success
-  : > "$ROOT/log"; runck "$S" "$ROOT/ck/pass.json"
-  expect "CI all pass -> merges" 0 '^merge-gate: merged: PR #7'
-  if grep -q "^gh api repos/{owner}/{repo}/commits/$HEAD_SHA/check-runs" "$ROOT/log"; then ok "CI check-runs read for the exact head sha"; else no "CI gh calls ($(cat "$ROOT/log"))"; fi
-  mkchecks "$ROOT/ck/pass2.json" shellcheck:completed:success toolbelt-tests:completed:skipped pr-validation:completed:neutral
-  runck "$S" "$ROOT/ck/pass2.json"; expect "CI skipped/neutral count as pass" 0 '^merge-gate: merged: PR #7'
-  # one case per bad state, offender FIRST / MIDDLE / LAST of three reported checks, plus single element
-  for st in pending:queued: pending:in_progress: pending:waiting: failed:completed:failure failed:completed:cancelled failed:completed:timed_out failed:completed:action_required; do
-    tok="${st%%:*}"; rest="${st#*:}"; bs="${rest%%:*}"; bc="${rest#*:}"; want="ci_$tok"
-    for pos in first middle last; do
-      case "$pos" in
-        first)  mkchecks "$ROOT/ck/x.json" "shellcheck:$bs:$bc" toolbelt-tests:completed:success pr-validation:completed:success ;;
-        middle) mkchecks "$ROOT/ck/x.json" shellcheck:completed:success "toolbelt-tests:$bs:$bc" pr-validation:completed:success ;;
-        last)   mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:completed:success "pr-validation:$bs:$bc" ;;
-      esac
-      : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
-      expect "CI $want ($bs/${bc:-none}) offender $pos" 1 "^merge-gate: refuse: $want "
-      ck_nomerge "CI $want offender $pos"
-    done
-    mkchecks "$ROOT/ck/x.json" "shellcheck:$bs:$bc"; CKREQ="shellcheck"; : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
-    expect "CI $want ($bs/${bc:-none}) single element" 1 "^merge-gate: refuse: $want "; CKREQ="shellcheck,toolbelt-tests"
-  done
-  # a failure outranks a pending check reported alongside it
-  mkchecks "$ROOT/ck/x.json" shellcheck:in_progress: toolbelt-tests:completed:failure
-  runck "$S" "$ROOT/ck/x.json"; expect "CI failed outranks pending" 1 '^merge-gate: refuse: ci_failed '
-  # the refusal names the offending check
-  mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:in_progress: pr-validation:completed:success
-  runck "$S" "$ROOT/ck/x.json"; expect "CI refusal names the offending check" 1 'ci_pending \(toolbelt-tests\)'
-  # missing: the absent required check FIRST / MIDDLE / LAST of a three-name list, and single element
-  mkchecks "$ROOT/ck/x.json" b:completed:success c:completed:success; CKREQ="a,b,c"; runck "$S" "$ROOT/ck/x.json"
-  expect "CI ci_missing required absent FIRST" 1 '^merge-gate: refuse: ci_missing \(a\)'
-  mkchecks "$ROOT/ck/x.json" a:completed:success c:completed:success; runck "$S" "$ROOT/ck/x.json"
-  expect "CI ci_missing required absent MIDDLE" 1 '^merge-gate: refuse: ci_missing \(b\)'
-  mkchecks "$ROOT/ck/x.json" a:completed:success b:completed:success; : > "$ROOT/log"; runck "$S" "$ROOT/ck/x.json"
-  expect "CI ci_missing required absent LAST" 1 '^merge-gate: refuse: ci_missing \(c\)'; ck_nomerge "CI ci_missing"
-  mkchecks "$ROOT/ck/x.json" other:completed:success; CKREQ="a"; runck "$S" "$ROOT/ck/x.json"
-  expect "CI ci_missing single-element required list" 1 '^merge-gate: refuse: ci_missing \(a\)'
-  mkchecks "$ROOT/ck/x.json" axb:completed:success; CKREQ="a.b"; runck "$S" "$ROOT/ck/x.json"
-  expect "CI required names match literally, not as regex" 1 '^merge-gate: refuse: ci_missing \(a.b\)'
-  mkchecks "$ROOT/ck/x.json" shellcheck:completed:success toolbelt-tests:completed:success; CKREQ=" shellcheck , toolbelt-tests ,"; runck "$S" "$ROOT/ck/x.json"
-  expect "CI required list tolerates spaces and a trailing comma" 0 '^merge-gate: merged: PR #7'
-  CKREQ="shellcheck,toolbelt-tests"
-  # explicitly empty list = opt-out of REQUIRED names only (doc-only PRs); reported checks must still be green
-  mkchecks "$ROOT/ck/doc.json" pr-validation:completed:success
-  CKREQ=""; runck "$S" "$ROOT/ck/doc.json"; expect "CI empty env list + only PR-validation passing -> merges" 0 '^merge-gate: merged: PR #7'
-  CKREQ="shellcheck,toolbelt-tests"; runck "$S" "$ROOT/ck/doc.json" --required-checks ""
-  expect "CI empty --required-checks overrides env and merges" 0 '^merge-gate: merged: PR #7'
-  CKREQ=UNSET; runck "$S" "$ROOT/ck/doc.json"; expect "CI default required set refuses doc-only checks (ci_missing)" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  runck "$S" "$ROOT/ck/pass.json"; expect "CI default required set passes when both present" 0 '^merge-gate: merged: PR #7'
-  CKREQ=""; mkchecks "$ROOT/ck/x.json" pr-validation:in_progress:; runck "$S" "$ROOT/ck/x.json"
-  expect "CI empty list still refuses a pending reported check" 1 '^merge-gate: refuse: ci_pending '
-  mkchecks "$ROOT/ck/x.json" pr-validation:completed:failure; runck "$S" "$ROOT/ck/x.json"
-  expect "CI empty list still refuses a failed reported check" 1 '^merge-gate: refuse: ci_failed '
-  printf '{"total_count":0,"check_runs":[]}\n' > "$ROOT/ck/none.json"; runck "$S" "$ROOT/ck/none.json"
-  expect "CI empty list + zero reported checks -> ci_pending (cannot prove CI ran)" 1 '^merge-gate: refuse: ci_pending \(no check runs reported'
-  CKREQ="shellcheck,toolbelt-tests"; runck "$S" "$ROOT/ck/pass.json" --required-checks "shellcheck"
-  expect "CI --required-checks flag overrides env" 0 '^merge-gate: merged: PR #7'
-  runck "$S" "$ROOT/ck/pass.json" --required-checks "shellcheck,nope"; expect "CI --required-checks flag adds a required name" 1 '^merge-gate: refuse: ci_missing \(nope\)'
-  OUT="$(PATH="$STUBS:$PATH" bash "$S" "${ARGS[@]}" --required-checks 2>/dev/null)"; RC=$?; expect "usage: --required-checks needs a value" 2 '^merge-gate: usage'
-  # unreadable checks are degraded, never a merge
-  : > "$ROOT/log"; CKFAIL=1 runck "$S" "$ROOT/ck/pass.json"
-  expect "CI gh checks error -> degraded" 3 '^merge-gate: degraded: cannot read check runs'; ck_nomerge "CI gh error"
-  expect "CI gh checks error surfaces gh stderr (#1433)" 3 'degraded: cannot read check runs.*HTTP 502'
-  echo '{not json' > "$ROOT/ck/bad.json"; : > "$ROOT/log"; runck "$S" "$ROOT/ck/bad.json"
-  expect "CI malformed JSON -> degraded" 3 '^merge-gate: degraded: .*check'; ck_nomerge "CI malformed JSON"
-  echo '{"total_count":1}' > "$ROOT/ck/bad.json"; runck "$S" "$ROOT/ck/bad.json"
-  expect "CI off-shape JSON (no check_runs array) -> degraded" 3 '^merge-gate: degraded: .*check'
-  echo '{"check_runs":[{"status":"completed","conclusion":"success"}]}' > "$ROOT/ck/bad.json"; runck "$S" "$ROOT/ck/bad.json"
-  expect "CI check run without a name -> degraded" 3 '^merge-gate: degraded: .*check'
-  : > "$ROOT/empty.json"; runck "$S" "$ROOT/empty.json"; expect "CI empty gh output -> degraded" 3 '^merge-gate: degraded: .*check'
-  # the CI gate is a --merge gate: --pr alone never reads check runs; review_due refuses before any read
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
-  if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI --pr check-only never reads check runs"; else no "CI --pr read check runs"; fi
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/high.json" "$HEAD_SHA" 0 "${ARGS[@]}" --merge 7
-  if ! grep -q 'check-runs' "$ROOT/log"; then ok "CI review_due refuse happens before any check-runs read"; else no "CI read after review_due"; fi
-  # --- #1426 fix-first: latest run per (name, app.id) wins; two-page --paginate slurp ---
-  # fields: name:status:conclusion:app:started_at:id  (started_at is parsed but never used for ordering; id compares as a number; empty = null)
-  CKREQ="shellcheck"
-  for pos in first middle last; do
-    old="shellcheck:completed:failure:1:t1:10"; new="shellcheck:completed:success:1:t2:20"
-    pad1="pr-validation:completed:success:1:t0:1"; pad2="other:completed:success:1:t0:2"
-    case "$pos" in
-      first)  l1="$old"; l2="$pad1"; l3="$new" ;;
-      middle) l1="$pad1"; l2="$old"; l3="$new" ;;
-      last)   l1="$pad1"; l2="$pad2"; l3="$old" ;;
-    esac
-    if [ "$pos" = last ]; then mkchecks "$ROOT/ck/d.json" "$l1" "$l2" "$l3" "$new"; else mkchecks "$ROOT/ck/d.json" "$l1" "$l2" "$l3"; fi
-    runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failed + newer success same name -> merges (listed $pos)" 0 '^merge-gate: merged: PR #7'
-    # newer listed BEFORE older: listing order must not decide
-    mkchecks "$ROOT/ck/d.json" "$new" "$pad1" "$old"; runck "$S" "$ROOT/ck/d.json"
-    expect "CI dedup: newer success listed before older failed -> merges ($pos pass)" 0 '^merge-gate: merged: PR #7'
-  done
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t1:10 shellcheck:completed:failure:1:t2:20
-  : > "$ROOT/log"; runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer failed -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI dedup newer failed"
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t2:20 shellcheck:completed:success:1:t1:10
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: newer failed listed first -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" pr-validation:completed:success:1:t0:1 shellcheck:completed:success:1:t1:10 shellcheck:in_progress::1:t2:20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer pending -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:in_progress::1:t2:20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failed + newer pending -> ci_pending (stale failure ignored)" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
-  # same name from two different apps are two checks: both considered
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t2:20 shellcheck:completed:failure:2:t1:10
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: same name, two apps, one failed -> ci_failed (app.id is part of the key)" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:completed:success:1:t2:20 shellcheck:completed:success:2:t1:11
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: two apps, each latest green -> merges" 0 '^merge-gate: merged: PR #7'
-  # started_at null: ordering is the highest check-run id only (started_at is never consulted)
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::3 shellcheck:completed:success:1::5
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id success wins -> merges" 0 '^merge-gate: merged: PR #7'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1::3 shellcheck:completed:failure:1::5
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: started_at null, higher id failed wins -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  # latest = highest check-run id, NEVER started_at: a fresh QUEUED rerun has null started_at and a higher id
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t1:10 shellcheck:queued::1::20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older success + newer QUEUED rerun (null started_at, higher id) -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" shellcheck:queued::1::20 shellcheck:completed:success:1:t1:10
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: newer queued rerun listed first -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t1:10 shellcheck:queued::1::20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: older failure + newer queued null-started rerun -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(shellcheck\)'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1:t2:10 shellcheck:completed:success:1:t1:20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: higher id beats later started_at -> merges" 0 '^merge-gate: merged: PR #7'
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:success:1:t2:10 shellcheck:completed:failure:1:t1:20
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: higher id failed beats later started_at success -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  # ids compare as numbers, not strings (9 < 10)
-  mkchecks "$ROOT/ck/d.json" shellcheck:completed:failure:1::9 shellcheck:completed:success:1::10
-  runck "$S" "$ROOT/ck/d.json"; expect "CI dedup: ids compare numerically (10 beats 9)" 0 '^merge-gate: merged: PR #7'
-  # --- #1864: a superseded CANCELLED run (concurrency-group cancel, then a rerun) is a typed note, never a pass or a failure ---
-  # The latest run per (name, app.id) decides; an older cancelled run next to it only prints `note: superseded cancelled run ...`.
-  NOTE1='^merge-gate: note: superseded cancelled run of shellcheck \(check-run id 10, superseded by id 20\)$'
-  for pos in first middle last; do
-    old="shellcheck:completed:cancelled:1:t1:10"; new="shellcheck:completed:success:1:t2:20"
-    pad1="pr-validation:completed:success:1:t0:1"; pad2="other:completed:success:1:t0:2"
-    case "$pos" in
-      first)  mkchecks "$ROOT/ck/c.json" "$old" "$pad1" "$pad2" "$new" ;;
-      middle) mkchecks "$ROOT/ck/c.json" "$pad1" "$old" "$pad2" "$new" ;;
-      last)   mkchecks "$ROOT/ck/c.json" "$pad1" "$pad2" "$new" "$old" ;;
-    esac
-    runck "$S" "$ROOT/ck/c.json"
-    expect "CI cancelled-then-success -> merges (cancelled listed $pos)" 0 '^merge-gate: merged: PR #7'
-    expect "CI cancelled-then-success prints the superseded note (listed $pos)" 0 "$NOTE1"
-  done
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t2:20 shellcheck:completed:cancelled:1:t1:10
-  runck "$S" "$ROOT/ck/c.json"; expect "CI cancelled-then-success, newer listed first -> merges" 0 '^merge-gate: merged: PR #7'
-  expect "CI cancelled-then-success, newer listed first -> note" 0 "$NOTE1"
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t1:10 shellcheck:completed:cancelled:1:t2:20
-  : > "$ROOT/log"; runck "$S" "$ROOT/ck/c.json"
-  expect "CI success-then-cancelled -> ci_failed (latest run cancelled)" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI success-then-cancelled"
-  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI success-then-cancelled prints no superseded note (the cancelled run is the latest)"; else no "CI success-then-cancelled printed a note ($OUT)"; fi
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:1:t1:10
-  : > "$ROOT/log"; runck "$S" "$ROOT/ck/c.json"
-  expect "CI only-cancelled -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'; ck_nomerge "CI only-cancelled"
-  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI only-cancelled prints no superseded note"; else no "CI only-cancelled printed a note ($OUT)"; fi
-  # a superseded cancelled run does not hide a genuine failure elsewhere, and the note still prints on the refuse path
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:1:t1:10 shellcheck:completed:success:1:t2:20 pr-validation:completed:failure:1:t0:1
-  runck "$S" "$ROOT/ck/c.json"
-  expect "CI superseded cancelled + other check failed -> ci_failed (pr-validation only)" 1 '^merge-gate: refuse: ci_failed \(pr-validation\)'
-  expect "CI note also printed on the refuse path" 1 "$NOTE1"
-  # a cancelled run of ANOTHER app is not superseded by this app's success: same name, two apps stay two checks
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:cancelled:2:t1:10 shellcheck:completed:success:1:t2:20
-  runck "$S" "$ROOT/ck/c.json"; expect "CI cancelled run of a different app is not superseded -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(shellcheck\)'
-  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI different-app cancelled run prints no superseded note"; else no "CI different-app cancelled printed a note ($OUT)"; fi
-  # only CANCELLED supersession is noted: an older failure replaced by a newer success is judged silently
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:failure:1:t1:10 shellcheck:completed:success:1:t2:20
-  runck "$S" "$ROOT/ck/c.json"
-  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI older failure + newer success prints no cancelled note"; else no "CI older failure printed a note ($OUT)"; fi
-  # a green-only run prints no note at all
-  mkchecks "$ROOT/ck/c.json" shellcheck:completed:success:1:t1:10
-  runck "$S" "$ROOT/ck/c.json"
-  if ! <<<"$OUT" grep -q '^merge-gate: note:'; then ok "CI all green prints no superseded note"; else no "CI all green printed a note ($OUT)"; fi
-  # --- #1867: a required check whose workflow's pull_request.paths filter matches none of the PR's changed files never ran ---
-  # It is a typed note (skipped by path filter), never a pass and never ci_missing; a check that should have run stays ci_missing.
-  CKREQ="shellcheck,toolbelt-tests"
-  mkchecks "$ROOT/ck/wfdoc.json" pr-validation:completed:success
-  mkfiles "$ROOT/ce/f_docs.json" "added:odd/tasks/x.md" "modified:docs/yy.md"
-  mkfiles "$ROOT/ce/f_tool.json" "modified:research-sdd/toolbelt/merge-gate.sh"
-  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: docs-only diff, both filtered checks absent -> merges" 0 '^merge-gate: merged: PR #7'
-  expect "CI path filter: note names shellcheck" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
-  expect "CI path filter: note names toolbelt-tests" 0 '^merge-gate: note: required check toolbelt-tests skipped by path filter'
-  if grep -q "^gh api repos/{owner}/{repo}/pulls/7/files" "$ROOT/log"; then ok "CI path filter reads the PR files (read-only)"; else no "CI path filter did not read PR files ($(cat "$ROOT/log"))"; fi
-  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: toolbelt diff, checks absent -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'; ck_nomerge "CI path filter toolbelt diff"
-  for pos in first middle last; do
-    case "$pos" in
-      first)  mkfiles "$ROOT/ce/f_mix.json" "modified:tools/gen.py" "added:docs/a.md" "added:odd/b.md" ;;
-      middle) mkfiles "$ROOT/ce/f_mix.json" "added:docs/a.md" "modified:tools/gen.py" "added:odd/b.md" ;;
-      last)   mkfiles "$ROOT/ce/f_mix.json" "added:docs/a.md" "added:odd/b.md" "modified:tools/gen.py" ;;
-    esac
-    runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_mix.json"
-    expect "CI path filter: mixed diff (matching file $pos), checks absent -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  done
-  mkfiles "$ROOT/ce/f_one.json" "modified:research-sdd/toolbelt/x.sh"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: single matching file -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  mkfiles "$ROOT/ce/f_one.json" "added:docs/qq.md"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: single non-matching file -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGY.md"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: an exact-file pattern matches -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGY.mdx"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: patterns are anchored and '.' is literal (METHODOLOGY.mdx) -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/METHODOLOGYxmd"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: '.' in a pattern is literal (METHODOLOGYxmd vs METHODOLOGY.md) -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:x/research-sdd/toolbelt/y.sh"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: patterns are anchored at the root -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:configs/a/b.cfg"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: '*' does not cross directories (configs/a/b.cfg vs configs/*.cfg) -> merges" 0 '^merge-gate: merged: PR #7'
-  mkfiles "$ROOT/ce/f_one.json" "added:configs/a.cfg"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: '*' matches within one directory (configs/a.cfg) -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  mkfiles "$ROOT/ce/f_one.json" "added:tools/a/b/c.py"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: '**' crosses directories, single-quoted pattern parsed -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  # frozen copy of the repo's real toolbelt-tests.yml (multi-event, commented, 20+ patterns): the scanner must read it, not just the fixtures
-  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: real workflow copy, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
-  expect "CI path filter: real workflow copy names the real file and 2 files" 0 '^merge-gate: note: required check shellcheck skipped by path filter \(\.github/workflows/toolbelt-tests\.yml pull_request\.paths matches none of the 2 changed files\)$'
-  expect "CI path filter: real workflow copy, docs-only diff -> toolbelt-tests also skipped by path filter, never 'cannot parse' (job-name expressions would make it unknown)" 0 '^merge-gate: note: required check toolbelt-tests skipped by path filter'
-  # kit issue #2114 review: the frozen fixture must BE the live workflow, or these cases test a stale shape (a matrix job
-  # `name: ... ${{ matrix.x }}` made the live file unparseable here while the stale fixture stayed green).
-  REAL_WF="$HERE/../../../.github/workflows/toolbelt-tests.yml"
-  # wf_state <fixture> <live>: same | drifted | absent (kit issue #2136). A missing file is its own state, never "drifted".
-  wf_state() { if [ ! -f "$1" ] || [ ! -f "$2" ]; then echo absent; elif cmp -s "$1" "$2"; then echo same; else echo drifted; fi; }
-  WF_FIX="$HERE/fixtures/merge-gate/wf-real-toolbelt-tests.yml"
-  # wf_verdict maps the state to the case verdict; the arms are what the teeth below mutate
-  wf_verdict() { case "$(wf_state "$1" "$2")" in same) echo PASS;; absent) echo FAIL-absent;; *) echo FAIL-drifted;; esac; }
-  case "$(wf_verdict "$WF_FIX" "$REAL_WF")" in
-    PASS) ok "fixture wf-real-toolbelt-tests.yml is byte-identical to .github/workflows/toolbelt-tests.yml";;
-    FAIL-absent) no "fixture or workflow absent: $WF_FIX / $REAL_WF (not a drift - restore the missing file)";;
-    *) no "fixtures/merge-gate/wf-real-toolbelt-tests.yml drifted from .github/workflows/toolbelt-tests.yml (refresh it: cp the workflow over the fixture)";;
-  esac
-  # negative controls, each built from the FIXTURE (always present when this runs) so they cannot pass for the wrong reason
-  { cat "$WF_FIX"; echo "# drift"; } > "$ROOT/drift-wf.yml"
-  [ "$(wf_state "$ROOT/drift-wf.yml" "$WF_FIX")" = drifted ] && ok "drift control: a modified copy reports drifted" || no "drift control: modified copy not reported drifted"
-  [ "$(wf_state "$WF_FIX" "$ROOT/no-such-workflow.yml")" = absent ] && ok "drift control: a missing workflow file reports absent, not drifted" || no "drift control: missing file not reported absent"
-  [ "$(wf_state "$WF_FIX" "$WF_FIX")" = same ] && ok "drift control: identical files report same" || no "drift control: identical files not reported same"
-  # tooth: collapsing the absent branch into drifted (the pre-#2136 behaviour) must be caught by the absent control
-  eval "$(declare -f wf_state | sed 's/^wf_state/wf_state_mut/; s/echo absent/echo drifted/')"
-  [ "$(wf_state_mut "$WF_FIX" "$ROOT/no-such-workflow.yml")" != absent ] && ok "drift tooth: mutant without the absent branch is detected by the absent control" || no "drift tooth: mutant survived the absent control"
-  # teeth on the verdict arms: absent->PASS and drifted->PASS (a missing/stale fixture reading green) must be caught by the controls
-  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_a/; s/FAIL-absent/PASS/')"
-  [ "$(wf_verdict_a "$WF_FIX" "$ROOT/no-such-workflow.yml")" != FAIL-absent ] && ok "drift tooth: verdict arm absent->PASS is detected by the absent control" || no "drift tooth: absent->PASS survived"
-  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_d/; s/FAIL-drifted/PASS/')"
-  [ "$(wf_verdict_d "$ROOT/drift-wf.yml" "$WF_FIX")" != FAIL-drifted ] && ok "drift tooth: verdict arm drifted->PASS is detected by the drift control" || no "drift tooth: drifted->PASS survived"
-  [ "$(wf_verdict "$ROOT/drift-wf.yml" "$WF_FIX")" = FAIL-drifted ] && [ "$(wf_verdict "$WF_FIX" "$ROOT/no-such-workflow.yml")" = FAIL-absent ] && [ "$(wf_verdict "$WF_FIX" "$WF_FIX")" = PASS ] && ok "drift verdict: drifted/absent/same map to FAIL-drifted/FAIL-absent/PASS" || no "drift verdict arms wrong"
-  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: real workflow copy, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  mkfiles "$ROOT/ce/f_one.json" "added:research-sdd/profiles/p.md"
-  runwf "$S" real "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_one.json"
-  expect "CI path filter: real workflow copy, a pattern late in the list matches -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  # --- #1867 review: the PR's own workflow edits must not exempt it; every carrier of the job decides; unmodelled patterns are never guessed ---
-  # (1) the base tree judges too: base says the check runs for a toolbelt file, the PR's head narrows its own filter -> still ci_missing
-  runwf "$S" selfx "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: head narrows its own paths, base says run -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  runwf "$S" bothnarrow "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: base and head both skip -> merges" 0 '^merge-gate: merged: PR #7'
-  # (1b) a PR that changes anything under .github/workflows is never evaluated (first / middle / last of the file list)
-  for pos in first middle last; do
-    case "$pos" in
-      first)  mkfiles "$ROOT/ce/f_wf.json" "modified:.github/workflows/toolbelt-tests.yml" "added:odd/a.md" "added:odd/b.md" ;;
-      middle) mkfiles "$ROOT/ce/f_wf.json" "added:odd/a.md" "modified:.github/workflows/other.yml" "added:odd/b.md" ;;
-      last)   mkfiles "$ROOT/ce/f_wf.json" "added:odd/a.md" "added:odd/b.md" "added:.github/workflows/new.yml" ;;
-    esac
-    runwf "$S" bothnarrow "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_wf.json"
-    expect "CI path filter: PR touching .github/workflows -> ci_missing ($pos)" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-    expect "CI path filter: workflow-change note ($pos)" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: the PR changes .github/workflows'
-  done
-  mkfiles "$ROOT/ce/f_wf.json" "added:.githubx/workflows/a.yml" "added:odd/a.md"
-  runwf "$S" bothnarrow "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_wf.json"
-  expect "CI path filter: a look-alike directory (.githubx/workflows) does not trigger the workflow-change guard -> merges" 0 '^merge-gate: merged: PR #7'
-  # (2) every workflow carrying the job decides; skipped only when ALL skip
-  mkfiles "$ROOT/ce/f_dm.json" "added:docs/yy.md"
-  runwf "$S" multi-ab "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm.json"
-  expect "CI path filter: first carrier skips, second runs -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  runwf "$S" multi-ba "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm.json"
-  expect "CI path filter: first carrier runs, second skips -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  mkfiles "$ROOT/ce/f_dm.json" "added:odd/x.md"
-  runwf "$S" multi-bothskip "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm.json"
-  expect "CI path filter: every carrier skips -> merges" 0 '^merge-gate: merged: PR #7'
-  expect "CI path filter: the note names every carrier" 0 'skipped by path filter \(\.github/workflows/a-first\.yml,\.github/workflows/z-last\.yml pull_request\.paths matches none of the 1 changed files\)'
-  runwf "$S" multi-gitlink "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm.json"
-  expect "CI path filter: an unreadable workflow entry -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: unreadable workflow note" 1 'not evaluated against path filters: .*cannot read \.github/workflows/zz-sub\.yml'
-  runwf "$S" multi-nopr "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm.json"
-  expect "CI path filter: a second carrier without a pull_request trigger -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  # (3) path-pattern forms the matcher does not emulate exactly are never guessed
-  mkfiles "$ROOT/ce/f_pat.json" "added:docs/yy.md"
-  for i in "${!PF_BAD[@]}"; do
-    runwf "$S" "bad$i" "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
-    expect "CI path filter: unsupported pattern '${PF_BAD[$i]}' -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-    expect "CI path filter: unsupported pattern '${PF_BAD[$i]}' note" 1 'not evaluated against path filters: .*unsupported path pattern'
-  done
-  # (2b) a workflow whose jobs shape is not parsed is unknown, never "not a carrier"; 4-space indentation IS parsed
-  for r in quotedid nameexpr jobsflow; do
-    runwf "$S" "$r" "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
-    expect "CI path filter: unparsed jobs shape ($r) -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-    expect "CI path filter: unparsed jobs shape ($r) note" 1 'not evaluated against path filters: cannot parse the jobs of \.github/workflows/toolbelt-tests\.yml'
-  done
-  runwf "$S" jobs4 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
-  expect "CI path filter: 4-space indentation is parsed (job name key, docs-only) -> merges" 0 '^merge-gate: merged: PR #7'
-  runwf "$S" jobs4 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: 4-space indentation, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  # (3c) another PR-like trigger next to pull_request is not modelled
-  for r in prt mergegroup inlineon; do
-    runwf "$S" "$r" "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
-    expect "CI path filter: another PR-like trigger ($r) -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-    expect "CI path filter: another PR-like trigger ($r) note" 1 'not evaluated against path filters: .*has another PR-like trigger'
-  done
-  # (3d) the repo's two real workflows side by side (frozen copies): both parse, the filtered checks skip on a docs diff
-  runwf "$S" real2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"
-  expect "CI path filter: real toolbelt-tests + pr-check copies, docs-only diff -> merges" 0 '^merge-gate: merged: PR #7'
-  runwf "$S" real2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"
-  expect "CI path filter: real toolbelt-tests + pr-check copies, toolbelt diff -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  # (3b) push-only patterns never count for a pull_request trigger (the fixture lists differ)
-  mkfiles "$ROOT/ce/f_push.json" "added:research-sdd/push-only/a.sh"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_push.json"
-  expect "CI path filter: a push-only pattern does not make the check run on a PR -> merges" 0 '^merge-gate: merged: PR #7'
-  # (4) GitHub caps the PR files list at 3000: at the cap the list may be truncated, so nothing is skipped
-  jq -nc '[range(3000) | {status: "added", filename: "odd/f\(.).md"}]' > "$ROOT/ce/f_3000.json"
-  jq -nc '[range(2999) | {status: "added", filename: "odd/f\(.).md"}]' > "$ROOT/ce/f_2999.json"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_3000.json"
-  expect "CI path filter: 3000 changed files (the API cap) -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: 3000-file note" 1 'not evaluated against path filters: .*3000 changed files'
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_2999.json"
-  expect "CI path filter: 2999 changed files, none matching -> merges" 0 '^merge-gate: merged: PR #7'
-  # (6) a check run without a numeric id cannot be ordered: degraded, never id 0
-  printf '%s\n' '{"total_count":1,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"
-  runck "$S" "$ROOT/ck/noid.json"; expect "CI check run without an id -> degraded" 3 '^merge-gate: degraded: check runs for head [0-9a-f]+ are unparseable or off-schema'
-  printf '%s\n' '{"total_count":1,"check_runs":[{"id":"7","name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"
-  runck "$S" "$ROOT/ck/noid.json"; expect "CI check run with a string id -> degraded" 3 '^merge-gate: degraded: check runs for head [0-9a-f]+ are unparseable or off-schema'
-  # one filtered check absent (skippable), the other REPORTED: a reported check is judged on its own result
-  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:success toolbelt-tests:completed:success
-  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: one required check reported green, other filtered -> merges" 0 '^merge-gate: merged: PR #7'
-  expect "CI path filter: only the absent check is noted" 0 '^merge-gate: note: required check shellcheck skipped by path filter'
-  if ! <<<"$OUT" grep -q 'required check toolbelt-tests skipped'; then ok "CI path filter: a reported check is never noted as skipped"; else no "CI path filter noted a reported check ($OUT)"; fi
-  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:success toolbelt-tests:completed:failure
-  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: a reported failed check still refuses ci_failed" 1 '^merge-gate: refuse: ci_failed \(toolbelt-tests\)'
-  mkchecks "$ROOT/ck/wfone.json" pr-validation:completed:failure
-  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: docs-only diff but a PR-validation check failed -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(pr-validation\)'
-  mkchecks "$ROOT/ck/wfone.json" pr-validation:in_progress:
-  runwf "$S" paths "$ROOT/ck/wfone.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: docs-only diff but a check pending -> ci_pending" 1 '^merge-gate: refuse: ci_pending \(pr-validation\)'
-  # a required name that no workflow job carries is never skippable
-  CKREQ="shellcheck,nope"; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: a required name no workflow job carries -> ci_missing (nope)" 1 '^merge-gate: refuse: ci_missing \(nope\)'
-  expect "CI path filter: ... and says why it was not evaluated" 1 '^merge-gate: note: required check nope not evaluated against path filters: no workflow job'
-  CKREQ="shellcheck,toolbelt-tests"
-  # cannot evaluate -> strict ci_missing plus a typed note naming the cause
-  runwf "$S" ignore "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: paths-ignore is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: paths-ignore note" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: .*paths-ignore'
-  runwf "$S" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: a negated pattern is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: negation note" 1 'not evaluated against path filters: .*unsupported path pattern \(!research-sdd/docs/\*\*'
-  runwf "$S" nofilter "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: a pull_request trigger without paths always runs -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  runwf "$S" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"
-  expect "CI path filter: a workflow with no pull_request trigger is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: no-pull_request note" 1 'not evaluated against path filters: .*no pull_request trigger'
-  export STUB_FILES_JSON="$ROOT/ce/f_docs.json"; runck "$S" "$ROOT/ck/wfdoc.json"; unset STUB_FILES_JSON
-  expect "CI path filter: no workflows at HEAD -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: no-workflows note" 1 '^merge-gate: note: required check (shellcheck|toolbelt-tests) not evaluated against path filters: .*no workflow'
-  mkfiles "$ROOT/ce/f_empty.json"
-  runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_empty.json"
-  expect "CI path filter: a PR reporting no changed files is not evaluated -> ci_missing" 1 '^merge-gate: refuse: ci_missing'
-  expect "CI path filter: no-changed-files note" 1 'not evaluated against path filters: .*no changed files'
-  export STUB_FILES_FAIL=1; runwf "$S" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; unset STUB_FILES_FAIL
-  expect "CI path filter: unreadable PR files -> ci_missing" 1 '^merge-gate: refuse: ci_missing \(shellcheck,toolbelt-tests\)'
-  expect "CI path filter: unreadable-files note" 1 '^merge-gate: note: path filters not evaluated: cannot read the files of PR #7'
-  # nothing missing -> the files are never read
-  : > "$ROOT/log"; runwf "$S" paths "$ROOT/ck/pass.json" "$ROOT/ce/f_docs.json"
-  if ! grep -q "pulls/7/files" "$ROOT/log"; then ok "CI path filter: no missing check -> PR files never read"; else no "CI path filter read the PR files with nothing missing"; fi
-  CKREQ="shellcheck"   # the two-page paginate cases below expect this
-  # two-page --paginate output: two JSON objects concatenated; a gate that reads only page 1 must not pass
-  printf '%s\n%s\n' '{"total_count":3,"check_runs":[{"id":5,"name":"pr-validation","status":"completed","conclusion":"success"}]}' \
-    '{"total_count":3,"check_runs":[{"id":5,"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/pages.json"
-  runck "$S" "$ROOT/ck/pages.json"; expect "CI two-page paginate: required check only on page 2 -> merges" 0 '^merge-gate: merged: PR #7'
-  printf '%s\n%s\n' '{"total_count":2,"check_runs":[{"id":5,"name":"shellcheck","status":"completed","conclusion":"success"}]}' \
-    '{"total_count":2,"check_runs":[{"id":5,"name":"toolbelt-tests","status":"completed","conclusion":"failure"}]}' > "$ROOT/ck/pages.json"
-  CKREQ="shellcheck"; runck "$S" "$ROOT/ck/pages.json"; expect "CI two-page paginate: failure only on page 2 -> ci_failed" 1 '^merge-gate: refuse: ci_failed \(toolbelt-tests\)'
-  CKREQ="shellcheck,toolbelt-tests"
-  closure_cases "$S"
-}
-
-# --- closure evidence (kit issue #1812) -------------------------------------------------------
-MSHA="0123456789abcdef0123456789abcdef01234567"
-CE_TEST_A="research-sdd/toolbelt/tests/foo.test.sh"
-CE_TEST_B="research-sdd/install/tests/bar.test.sh"
-mkfiles() { # mkfiles <file> <status:filename>...
-  local f="$1" a; shift
-  for a in "$@"; do printf '%s\n' "$a"; done | jq -Rsc 'split("\n") | map(select(length > 0) | split(":") | {status: .[0], filename: .[1]})' > "$f"
-}
-mkdir -p "$ROOT/ce"
-mkfiles "$ROOT/ce/tests.json" "modified:research-sdd/toolbelt/foo.sh" "added:$CE_TEST_A" "added:$CE_TEST_B" "removed:research-sdd/toolbelt/tests/gone.test.sh"
-mkfiles "$ROOT/ce/notests.json" "modified:research-sdd/toolbelt/foo.sh" "modified:docs/x.md" "added:research-sdd/toolbelt/tests/fixtures/f.test.sh.txt"
-mkchecks "$ROOT/ck/ce.json" pr-validation:completed:success
-# mkgql <file> <merged:true|false> <state> <oid|null> <totalCount> [owner/repo#N]...   (this repo is o/r)
-mkgql() {
-  local f="$1" m="$2" st="$3" oid="$4" total="$5" a; shift 5
-  { for a in "$@"; do printf '%s\n' "$a"; done; } | jq -Rsc --argjson m "$m" --arg st "$st" --arg oid "$oid" --argjson t "$total" --arg repo "${CE_GQL_REPO:-o/r}" '
-    {data: {repository: {nameWithOwner: $repo, pullRequest: {merged: $m, state: $st,
-      mergeCommit: (if $oid == "null" then null else {oid: $oid} end),
-      closingIssuesReferences: {totalCount: $t, nodes: (split("\n") | map(select(length > 0) | split("#") | {number: (.[1] | tonumber), repository: {nameWithOwner: .[0]}}))}}}}}' > "$f"
-}
-mkgql "$ROOT/ce/g_ok.json" true MERGED "$MSHA" 2 o/r#41 o/r#42
-mkgql "$ROOT/ce/g_one.json" true MERGED "$MSHA" 1 o/r#41
-mkgql "$ROOT/ce/g_none.json" true MERGED "$MSHA" 0
-mkgql "$ROOT/ce/g_cross.json" true MERGED "$MSHA" 3 o/r#41 other/x#9 O/R#43
-mkgql "$ROOT/ce/g_big.json" true MERGED "$MSHA" 51 o/r#41
-mkgql "$ROOT/ce/g_unmerged.json" false MERGED "$MSHA" 1 o/r#41
-mkgql "$ROOT/ce/g_open.json" true OPEN "$MSHA" 1 o/r#41
-mkgql "$ROOT/ce/g_nooid.json" true MERGED null 1 o/r#41
-mkgql "$ROOT/ce/g_shortoid.json" true MERGED abc1234 1 o/r#41
-CE_GQL_REPO=acme/fork mkgql "$ROOT/ce/g_fork.json" true MERGED "$MSHA" 2 acme/fork#41 acme/fork#42
-mkgql "$ROOT/ce/g_liar.json" true MERGED "$MSHA" 1 acme/fork#41
-CE_GQL_REPO=other/y mkgql "$ROOT/ce/g_other.json" true MERGED "$MSHA" 1 other/y#41
-echo '{not json' > "$ROOT/ce/g_bad.json"
-echo '{"data":{"repository":null}}' > "$ROOT/ce/g_shape.json"
-# runce <sut> <files-json> <graphql-json> [extra sut args]  (a --merge 7 run; comments recorded in $ROOT/ce/comments)
-CE_ENV=(CE_NOOP=1)   # extra VAR=value pairs for the stubs
-runce() {
-  local sut="$1" fj="$2" gj="$3"; shift 3
-  : > "$ROOT/ce/comments"; rm -f "$ROOT/ce/comments.cwd" "$ROOT/ce/comments.gqlcwd" "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo"
-  OUT="$(env PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=0 \
-      STUB_GQL_JSON="$gj" STUB_FILES_JSON="$fj" STUB_COMMENTS="$ROOT/ce/comments" STUB_LOG="$ROOT/log" \
-      MERGE_GATE_REQUIRED_CHECKS="" STUB_CHECKS_JSON="$ROOT/ck/ce.json" "${CE_ENV[@]}" bash "$sut" "${ARGS[@]}" --merge 7 "$@" 2>"$ROOT/err")"; RC=$?
-}
-n_comments() { grep -c '^ISSUE ' "$ROOT/ce/comments"; }
-# ce_issues: the issue numbers that received a comment, space-joined, in order
-ce_issues() { grep '^ISSUE ' "$ROOT/ce/comments" | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//'; }
-# ce_parse commits|test <text>: reconcile-issues.sh's OWN evidence functions, extracted verbatim (never edited, never re-implemented)
-ce_parse() {
-  local RI="$HERE/../reconcile-issues.sh" fns
-  fns="$(awk '/^_evidence_commits\(\) \{/,/^}/; /^_evidence_has_test\(\) \{/,/^}/' "$RI")"
-  [ -n "$fns" ] || { echo "PARSER-NOT-FOUND"; return; }
-  (eval "$fns"
-   if [ "$1" = commits ]; then _evidence_commits "$2"; elif _evidence_has_test "$2"; then echo yes; else echo no; fi)
-}
-# ce_degraded <label> <graphql-json> <regex> [env...]: a guard case = degraded line, nothing posted, exit 0, no files read
-ce_degraded() {
-  local label="$1" gj="$2" re="$3"; shift 3
-  CE_ENV=("$@" CE_NOOP=1); runce "$S_CE" "$ROOT/ce/tests.json" "$gj"
-  if [ "$RC" -eq 0 ] && <<<"$OUT" grep -Eq "$re" && [ "$(n_comments)" = 0 ]; then ok "closure: $label"; else no "closure: $label (rc=$RC comments=$(n_comments) out: $OUT)"; fi
-  CE_ENV=(CE_NOOP=1)
-}
-closure_cases() {
-  local S="$1" rc_body ev_c ev_t
-  S_CE="$S"; CE_ENV=(CE_NOOP=1)
-  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
-  expect "closure: merged, then evidence posted" 0 '^merge-gate: merged: PR #7'
-  if <<<"$OUT" grep -Eq "^merge-gate: closure-evidence: posted: issue #41 \(commit=$MSHA tests=2\)$" && <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: posted: issue #42 '; then ok "closure: typed posted lines for both closed issues"
-  else no "closure: typed posted lines (out: $OUT)"; fi
-  if [ "$(n_comments)" = 2 ] && [ "$(ce_issues)" = "41 42" ]; then ok "closure: exactly one comment per closed issue"
-  else no "closure: comment count/targets ($(cat "$ROOT/ce/comments"))"; fi
-  if grep -q "^- commit: $MSHA\$" "$ROOT/ce/comments" && grep -q "^- test: $CE_TEST_A\$" "$ROOT/ce/comments" && grep -q "^- test: $CE_TEST_B\$" "$ROOT/ce/comments" \
-     && ! grep -q 'gone.test.sh' "$ROOT/ce/comments" && ! grep -q 'f.test.sh.txt' "$ROOT/ce/comments"; then ok "closure: body carries the merge oid and every changed test (not removed/fixture files)"
-  else no "closure: comment body ($(cat "$ROOT/ce/comments"))"; fi
-  # ROUND-TRIP: the produced comment must satisfy reconcile-issues.sh's own evidence parser.
-  rc_body="$(awk '/^ISSUE 41$/{f=1;next} /^---$/{f=0} f' "$ROOT/ce/comments")"
-  ev_c="$(ce_parse commits "$rc_body")"; ev_t="$(ce_parse test "$rc_body")"
-  if [ "$ev_c" = "$MSHA" ] && [ "$ev_t" = yes ]; then ok "closure round-trip: reconcile-issues.sh parser reads the merge sha and a test from the comment"
-  else no "closure round-trip: commits=[$ev_c] test=[$ev_t]"; fi
-  if [ -f "$ROOT/ce/comments.gqlcwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.gqlcwd"; then ok "closure: the GraphQL read runs inside --cwd"; else no "closure: GraphQL gh not bound to --cwd"; fi
-  if [ -f "$ROOT/ce/comments.cwd" ] && grep -Fxq "$REPO" "$ROOT/ce/comments.cwd"; then ok "closure: the comments are posted by a gh bound to --cwd"; else no "closure: comment gh not bound to --cwd"; fi
-  # the GraphQL read is ONE call carrying the repo placeholders and the PR number
-  if grep -Fxq 'o/r' "$ROOT/ce/comments.gqlrepo" && [ "$(sort -u "$ROOT/ce/comments.repo")" = "o/r" ] && grep -Fxq 'repos/o/r/pulls/7/files?per_page=100' "$ROOT/ce/comments.filesrepo"; then ok "closure: read, files read and every comment target the resolved repo (cwd remote)"; else no "closure: repo targeting ($(cat "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo" 2>&1 | tr '\n' ' '))"; fi
-  # GH_REPO differs from the cwd remote: the merge used acme/fork, so ONLY acme/fork is read and commented on
-  CE_ENV=(GH_REPO=acme/fork STUB_REPO_VIEW=o/r); : > "$ROOT/log"; runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_fork.json"
-  if [ "$(ce_issues)" = "41 42" ] && [ "$(sort -u "$ROOT/ce/comments.gqlrepo")" = "acme/fork" ] && [ "$(sort -u "$ROOT/ce/comments.repo")" = "acme/fork" ] \
-     && grep -Fxq 'repos/acme/fork/pulls/7/files?per_page=100' "$ROOT/ce/comments.filesrepo" && ! grep -q 'repo view' "$ROOT/log"; then ok "closure: GH_REPO differing from the cwd remote -> read, files and comments all target GH_REPO, nothing else"
-  else no "closure: GH_REPO targeting ($(cat "$ROOT/ce/comments.gqlrepo" "$ROOT/ce/comments.repo" "$ROOT/ce/comments.filesrepo" 2>&1 | tr '\n' ' ') / $OUT)"; fi
-  # the old failure: the answer is for the cwd-remote repo while the merge used GH_REPO -> degraded, nothing posted
-  CE_ENV=(GH_REPO=acme/fork); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: the GraphQL answer is for repository o/r but the merge used acme/fork; nothing posted$' && [ "$(n_comments)" = 0 ]; then ok "closure: answer for another repo than the merge used -> degraded, nothing posted"; else no "closure: repo mismatch ($OUT)"; fi
-  CE_ENV=(CE_NOOP=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_other.json"
-  if <<<"$OUT" grep -Eq 'degraded: the GraphQL answer is for repository other/y but the merge used o/r' && [ "$(n_comments)" = 0 ]; then ok "closure: mismatch without GH_REPO -> degraded, nothing posted"; else no "closure: mismatch ($OUT)"; fi
-  ce_degraded "repo view failure -> degraded, nothing posted" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: cannot resolve the repository the merge used \(gh repo view: gh: repo view failed\)' STUB_REPO_VIEW_RC=1
-  ce_degraded "repo view garbage -> degraded, nothing posted" "$ROOT/ce/g_ok.json" "^merge-gate: closure-evidence: degraded: cannot resolve the repository the merge used \\(got 'not a repo'\\)" "STUB_REPO_VIEW=not a repo"
-  # cross-repo node: noted, never posted; case-insensitive same-repo match
-  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_cross.json"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: PR #7 also closes other/x#9 in another repository; no evidence posted there$' && [ "$(ce_issues)" = "41 43" ]; then ok "closure: cross-repo node -> typed note, only same-repo issues (case-insensitive) get comments"
-  else no "closure: cross-repo ($OUT / $(ce_issues))"; fi
-  # overflow: typed degraded note, the 50 read are still posted
-  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_big.json"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: degraded: PR #7 closes 51 issues but only the first 50 were read; backfill the other 1 by hand$' && [ "$(ce_issues)" = "41" ]; then ok "closure: totalCount over 50 -> degraded overflow note and still posts"
-  else no "closure: overflow ($OUT / $(ce_issues))"; fi
-  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_none.json"
-  expect "closure: no closing issue -> typed none" 0 '^merge-gate: closure-evidence: none: PR #7 closes no issue in o/r'
-  # guards: each prints a typed degraded line and posts nothing
-  ce_degraded "merged=false -> degraded, nothing posted" "$ROOT/ce/g_unmerged.json" '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged'
-  ce_degraded "state=OPEN -> degraded, nothing posted" "$ROOT/ce/g_open.json" '^merge-gate: closure-evidence: degraded: PR #7 is not reported merged'
-  ce_degraded "null merge oid -> degraded, nothing posted" "$ROOT/ce/g_nooid.json" '^merge-gate: closure-evidence: degraded: PR #7 has no usable 40-hex merge commit oid'
-  ce_degraded "short merge oid -> degraded, nothing posted" "$ROOT/ce/g_shortoid.json" '^merge-gate: closure-evidence: degraded: PR #7 has no usable 40-hex merge commit oid'
-  ce_degraded "malformed JSON -> degraded, nothing posted" "$ROOT/ce/g_bad.json" '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable or off-schema'
-  ce_degraded "off-schema answer -> degraded, nothing posted" "$ROOT/ce/g_shape.json" '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable or off-schema'
-  ce_degraded "GraphQL failure -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 1: gh: HTTP 502\)' STUB_GQL_FAIL=1
-  ce_degraded "GraphQL timeout via the bounded runner -> degraded, exit 0" "$ROOT/ce/g_ok.json" '^merge-gate: closure-evidence: degraded: GraphQL read of PR #7 timed out' STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1
-  # kit issue #1854: the lib's watchdog note is printed, and a signalled caller is never an allow (a fake lib stands in for the real states)
-  FK="MERGE_GATE_LIB=$FAKELIB"
-  ce_degraded "GraphQL timeout with a watchdog note -> note appended" "$ROOT/ce/g_ok.json" 'GraphQL read of PR #7 timed out \(bound MERGE_GATE_GH_TIMEOUT, default 30 s\); nothing posted \[DEGRADED: no setsid\]$' "$FK" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: no setsid"
-  ce_degraded "GraphQL timeout without a note -> no brackets" "$ROOT/ce/g_ok.json" 'GraphQL read of PR #7 timed out \(bound MERGE_GATE_GH_TIMEOUT, default 30 s\); nothing posted$' "$FK" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124
-  ce_degraded "GraphQL gh error with a note -> note appended" "$ROOT/ce/g_ok.json" 'cannot read the closing issues of PR #7 \(gh api graphql exit 1: .*\); nothing posted \[DEGRADED: no setsid\]$' "$FK" GH_REPO=o/r FAKE_STATE=GH_ERROR FAKE_RC=1 "FAKE_NOTE=DEGRADED: no setsid"
-  ce_degraded "GraphQL read with a signalled caller (rc 0) -> degraded, nothing posted" "$ROOT/ce/g_ok.json" 'degraded: the caller was signalled during the GraphQL read of PR #7; nothing posted \[DEGRADED: x\]$' "$FK" GH_REPO=o/r FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0 "FAKE_NOTE=DEGRADED: x"
-  ce_degraded "repo resolution timeout with a note -> note appended" "$ROOT/ce/g_ok.json" 'cannot resolve the repository the merge used \(gh repo view: .*\); nothing posted \[DEGRADED: no setsid\]$' "$FK" FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: no setsid"
-  ce_degraded "repo resolution with a signalled caller (rc 0) -> degraded, nothing posted" "$ROOT/ce/g_ok.json" 'degraded: the caller was signalled while the repository was being resolved; nothing posted$' "$FK" FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0
-  # test files and comments
-  runce "$S" "$ROOT/ce/notests.json" "$ROOT/ce/g_one.json"
-  expect "closure: no test file -> merge ok, typed not posted" 0 '^merge-gate: closure-evidence: not posted: PR #7 changes no test file'
-  if [ "$(n_comments)" = 0 ]; then ok "closure: no test file -> no comment posted"; else no "closure: comment posted despite no test file"; fi
-  printf '%s\n%s\n' '[{"status":"modified","filename":"docs/x.md"}]' "[{\"status\":\"added\",\"filename\":\"$CE_TEST_A\"}]" > "$ROOT/ce/pages.json"
-  runce "$S" "$ROOT/ce/pages.json" "$ROOT/ce/g_one.json"
-  expect "closure: test file only on files page 2 -> posted" 0 '^merge-gate: closure-evidence: posted: issue #41 .*tests=1\)$'
-  CE_ENV=(STUB_COMMENT_RC=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"
-  expect "closure: failing comment -> degraded line, exit stays 0" 0 '^merge-gate: closure-evidence: degraded: could not comment on issue #41'
-  expect "closure: failed comments -> backfill line lists the issues" 0 '^merge-gate: closure-evidence: degraded: not posted for issues: #41 #42 \(backfill by hand\)$'
-  CE_ENV=(STUB_FILES_FAIL=1); runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json"
-  expect "closure: files read failure -> degraded, exit 0" 0 '^merge-gate: closure-evidence: degraded: cannot read the files'
-  CE_ENV=(CE_NOOP=1)
-  local i names=()
-  for i in 01 02 03 04 05 06 07 08 09 10 11 12; do names+=("added:research-sdd/toolbelt/tests/t$i.test.sh"); done
-  mkfiles "$ROOT/ce/many.json" "${names[@]}"
-  runce "$S" "$ROOT/ce/many.json" "$ROOT/ce/g_one.json"
-  if <<<"$OUT" grep -Eq '^merge-gate: closure-evidence: note: 2 test file\(s\) beyond cap 10 not listed$' && [ "$(grep -c '^- test: ' "$ROOT/ce/comments")" = 10 ] && <<<"$OUT" grep -Eq 'posted: issue #41 .*tests=10\)$'; then ok "closure: cap 10 lists 10 files and prints the typed note"
-  else no "closure: cap note/listing ($OUT)"; fi
-  runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json"
-  if ! <<<"$OUT" grep -q 'closure-evidence: note:'; then ok "closure: no cap note under the cap"; else no "closure: spurious cap note"; fi
-  : > "$ROOT/log"; runce "$S" "$ROOT/ce/tests.json" "$ROOT/ce/g_one.json" --no-closure-evidence
-  expect "closure: opt-out flag -> skipped line" 0 '^merge-gate: closure-evidence: skipped'
-  if [ "$(n_comments)" = 0 ] && ! grep -q 'api graphql' "$ROOT/log"; then ok "closure: opt-out posts nothing and makes no GraphQL call"; else no "closure: opt-out still acted"; fi
-  # default (no --merge) run stays a pure check: no closure gh call
-  : > "$ROOT/log"; run "$S" "$ROOT/j/passive.json" "${ARGS[@]}"
-  if ! grep -q 'issue comment\|/files\|graphql' "$ROOT/log" && ! <<<"$OUT" grep -q closure-evidence; then ok "closure: default run makes no closure gh call"; else no "closure: default run touched closure evidence"; fi
-  : > "$ROOT/log"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 0 "${ARGS[@]}" --pr 7
-  if ! <<<"$OUT" grep -q closure-evidence && ! grep -q 'graphql' "$ROOT/log"; then ok "closure: --pr check-only prints no closure line and makes no GraphQL call"; else no "closure: --pr touched closure evidence"; fi
-  : > "$ROOT/ce/comments"; runenv "$S" "$ROOT/j/passive.json" "$HEAD_SHA" 1 "${ARGS[@]}" --merge 7
-  if ! <<<"$OUT" grep -q closure-evidence; then ok "closure: failed merge posts no closure evidence"; else no "closure: closure line after failed merge"; fi
-}
-
-echo "-- merge-gate behavioural suite --"
-suite "$SUT"
-
-if [ "${1:-}" != "--prove-teeth" ]; then
-  echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]; exit $?
-fi
-[ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
-
-# ---------------------------------------------------------------------------
-echo "-- teeth: merge-gate mutation controls --"
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-MUT_PASS=0; MUT_FAIL=0
-MD="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MD"' EXIT
-# SHARDING (CI wall time): every mutation control reruns this suite or scenarios, and serially they took ~17 min. The parent
-# process forks N shard children (MG_TEETH_JOBS, default min(nproc, 4); 1 = serial); child k/N owns every N-th mutant
-# (mut_mine) in its own ROOT/MD, so no state is shared. The parent keeps the plain suite verdict above, then prints the
-# children's PASS(mut)/FAIL(mut) lines in shard order and the summed totals; a child without a result line is a failure.
-if [ -z "${MG_TEETH_SHARD:-}" ]; then
-  MG_N="${MG_TEETH_JOBS:-$(nproc 2>/dev/null || echo 2)}"
-  case "$MG_N" in ''|*[!0-9]*) MG_N=1 ;; esac
-  [ "$MG_N" -le 4 ] || MG_N=4
-  if [ "$MG_N" -gt 1 ]; then
-    MG_SELF="$HERE/$(basename "${BASH_SOURCE[0]}")"
-    for ((k = 0; k < MG_N; k++)); do
-      MG_TEETH_SHARD="$k/$MG_N" bash "$MG_SELF" --prove-teeth >"$MD/shard.$k" 2>&1 &
-    done
-    wait
-    for ((k = 0; k < MG_N; k++)); do
-      grep -E '^  (PASS|FAIL)\(mut\)' "$MD/shard.$k"
-      res="$(sed -n 's/^mutants: \([0-9]*\) detected · \([0-9]*\) missed$/\1 \2/p' "$MD/shard.$k")"
-      if [ -z "$res" ]; then echo "  FAIL(mut)  shard $k/$MG_N produced no result"; MUT_FAIL=$((MUT_FAIL+1))
-      else MUT_PASS=$((MUT_PASS + ${res% *})); MUT_FAIL=$((MUT_FAIL + ${res#* })); fi
-    done
-    echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
-    echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
-    [ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]; exit $?
+# ---- Teeth (mutation proof) -------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: mutation controls for merge-gate.sh (shim) --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
+  mk() {
+    local d="$TMP/mt/$1"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
+    if mutant_sed "$SUT" "$d/merge-gate.sh" "$2" 2>/dev/null; then MS="$d/merge-gate.sh"; return 0; fi
+    no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
+  }
+  # A: arguments no longer forwarded
+  if mk A 's#^rsdd_exec gate merge "\$@"#rsdd_exec gate merge#'; then
+    shim_run "$MS" --cwd x --base-ref y
+    [ "$SOUT" != $'ARG[gate]\nARG[merge]\nARG[--cwd]\nARG[x]\nARG[--base-ref]\nARG[y]' ] && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
   fi
+  # B: wrong subcommand
+  if mk B 's#^rsdd_exec gate merge#rsdd_exec gate mergE#'; then
+    shim_run "$MS" x
+    [ "$SOUT" != $'ARG[gate]\nARG[merge]\nARG[x]' ] && ok "teeth B: wrong command name -> forwarding check goes red" || no "teeth B: mutant still forwards — THEATER"
+  fi
+  # C: the degraded path swallowed (library guard replaced by a bare success)
+  if mk C 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#'; then
+    mkdir -p "$TMP/mt/C-nolib"; cp "$MS" "$TMP/mt/C-nolib/merge-gate.sh"
+    out="$(bash "$TMP/mt/C-nolib/merge-gate.sh" x.md 2>&1)"; rc=$?
+    [ "$rc" -ne 2 ] && ok "teeth C: missing-library guard exits 0 -> case 3 goes red" || no "teeth C: mutant still exits 2 — THEATER"
+  fi
+  # D: the exit code is laundered (exec replaced by a call that returns 0)
+  if mk D 's#^rsdd_exec gate merge "\$@"#( rsdd_exec gate merge "$@" ); exit 0#'; then
+    shim_run "$MS" x.md
+    [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
+  fi
+  # E: the fixture drift arm reads green
+  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_d/; s/FAIL-drifted/PASS/')"
+  [ "$(wf_verdict_d "$TMP/drift-wf.yml" "$WF_FIX")" != FAIL-drifted ] && ok "teeth E: verdict arm drifted->PASS is detected by the drift control" || no "teeth E: drifted->PASS survived"
+  # F: the absent arm collapsed into PASS
+  eval "$(declare -f wf_verdict | sed 's/^wf_verdict/wf_verdict_a/; s/FAIL-absent/PASS/')"
+  [ "$(wf_verdict_a "$WF_FIX" "$TMP/no-such-workflow.yml")" != FAIL-absent ] && ok "teeth F: verdict arm absent->PASS is detected by the absent control" || no "teeth F: absent->PASS survived"
+  # G: the absent branch collapsed into drifted (the pre-#2136 behaviour)
+  eval "$(declare -f wf_state | sed 's/^wf_state/wf_state_m/; s/echo absent/echo drifted/')"
+  [ "$(wf_state_m "$WF_FIX" "$TMP/no-such-workflow.yml")" != absent ] && ok "teeth G: mutant without the absent branch is detected by the absent control" || no "teeth G: mutant survived the absent control"
 fi
-MUT_SEQ=0
-# mut_mine: in a shard child (MG_TEETH_SHARD=k/N) only every N-th mutant belongs to this process.
-mut_mine() { MUT_SEQ=$((MUT_SEQ+1)); [ -z "${MG_TEETH_SHARD:-}" ] || [ $((MUT_SEQ % ${MG_TEETH_SHARD#*/})) -eq "${MG_TEETH_SHARD%/*}" ]; }
-# mutate <name> <sed-expr>: the mutated SUT must make the suite report at least one FAIL line.
-mutate() {
-  local name="$1" expr="$2" mut="$MD/$1.sh" rcm n
-  mut_mine || return 0
-  mutant_sed "$SUT" "$mut" "$expr"; rcm=$?
-  if [ "$rcm" -ne 0 ]; then echo "  FAIL(mut)  $name: mutant refused (rc=$rcm)"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
-  chmod +x "$mut"
-  # Fail-fast in a subshell (its counters die with it): a mutant is detected iff ANY case fails, so the first FAIL ends the run.
-  ( MUT_FF=1; suite "$mut" ) >"$MD/$name.out" 2>&1
-  n="$(grep -c '^  FAIL  ' "$MD/$name.out")"
-  if [ "$n" -gt 0 ]; then echo "  PASS(mut)  $name detected (first failing case ends the run)"; MUT_PASS=$((MUT_PASS+1))
-  else echo "  FAIL(mut)  $name: suite stayed green"; MUT_FAIL=$((MUT_FAIL+1)); fi
-}
-# M01 (kit issue #1367): the old single mutant `s/^  exit 1$/  exit 0/` matched exactly ONE of the five
-# `exit 1` refuse sites (the review_due one), so the other four exits had no mutant that flipped them.
-# One tooth per exit site (plus the --cwd not-a-repo branch), each pinning the exact GOOD verdict on the
-# original SUT and the specific BAD verdict on the mutant. A tooth fails when the original does not give
-# the GOOD verdict, when the mutant is refused, or when the mutant does not give the BAD verdict.
-sc_head_mismatch()  { run "$1" "$ROOT/j/passive.json" "${ARGS[@]}" --head "$BASE_SHA"; }
-sc_pr_head_mismatch() { runenv "$1" "$ROOT/j/passive.json" "$BASE_SHA" 0 "${ARGS[@]}" --merge 7; }
-sc_base_excludes()  { PRB="$C0_R3"; runenv "$1" "$ROOT/j/passive.json" "$HEAD_R3" 0 --cwd "$R3" --base-ref HEAD~1 --pr 7; PRB="$BASE_SHA"; }
-sc_review_due()     { run "$1" "$ROOT/j/high.json" "${ARGS[@]}"; }
-sc_merge_head_rej() { OUT="$(PATH="$STUBS:$PATH" STUB_JSON="$ROOT/j/passive.json" STUB_PR_HEAD="$HEAD_SHA" STUB_PR_BASE="$BASE_SHA" STUB_MERGE_RC=1 STUB_MERGE_ERR="Head branch was modified. Review and try the merge again." bash "$1" "${ARGS[@]}" --merge 7 2>/dev/null)"; RC=$?; }
-sc_cwd_not_repo()   { run "$1" "$ROOT/j/passive.json" --cwd "$ROOT/not-a-repo" --base-ref base; }
-# tooth <name> <sed-expr> <scenario> <good-rc> <good-regex> <bad-rc> <bad-regex>
-tooth() {
-  local name="$1" expr="$2" sc="$3" grc="$4" gre="$5" brc="$6" bre="$7" mut="$MD/$1.sh" rcm
-  mut_mine || return 0
-  "$sc" "$SUT"
-  if [ "$RC" -ne "$grc" ] || ! <<<"$OUT" grep -Eq "$gre"; then
-    echo "  FAIL(mut)  $name: original gave rc=$RC out=[$OUT], wanted rc=$grc /$gre/"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
-  mutant_sed "$SUT" "$mut" "$expr"; rcm=$?
-  if [ "$rcm" -ne 0 ]; then echo "  FAIL(mut)  $name: mutant refused (rc=$rcm)"; MUT_FAIL=$((MUT_FAIL+1)); return; fi
-  chmod +x "$mut"; "$sc" "$mut"
-  if [ "$RC" -eq "$brc" ] && <<<"$OUT" grep -Eq "$bre"; then
-    echo "  PASS(mut)  $name: good rc=$grc -> mutant rc=$RC"; MUT_PASS=$((MUT_PASS+1))
-  else echo "  FAIL(mut)  $name: mutant gave rc=$RC out=[$OUT], wanted rc=$brc /$bre/"; MUT_FAIL=$((MUT_FAIL+1)); fi
-}
-tooth M01a-head-mismatch-exit   '/refuse: head_mismatch (--head/{n;s/exit 1/exit 0/;}' sc_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(--head' 0 '^merge-gate: refuse: head_mismatch \(--head'
-tooth M01b-pr-head-mismatch-exit '/refuse: head_mismatch (PR #\$pr head \$pr_head/{n;s/exit 1/exit 0/;}' sc_pr_head_mismatch 1 '^merge-gate: refuse: head_mismatch \(PR #7 head' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head'
-tooth M01c-base-excludes-exit   '/say "refuse: base_excludes_pr_commits/{n;s/exit 1/exit 0/;}' sc_base_excludes 1 '^merge-gate: refuse: base_excludes_pr_commits' 0 '^merge-gate: refuse: base_excludes_pr_commits'
-tooth M01d-review-due-exit      '/say "refuse: review_due (/{n;s/exit 1/exit 0/;}' sc_review_due 1 '^merge-gate: refuse: review_due \(high_risk\)' 0 '^merge-gate: refuse: review_due \(high_risk\)'
-tooth M01e-merge-head-rej-exit  '/refuse: head_mismatch (PR #\$pr head changed/{n;s/exit 1/exit 0/;}' sc_merge_head_rej 1 '^merge-gate: refuse: head_mismatch \(PR #7 head changed' 0 '^merge-gate: refuse: head_mismatch \(PR #7 head changed'
-# --cwd not-a-repo branch: without the degraded the run falls through to the NEXT probe (HEAD resolution).
-tooth M01f-cwd-not-repo-ok      's/|| degraded "--cwd is not a git repo[^"]*"/|| :/' sc_cwd_not_repo 3 '^merge-gate: degraded: --cwd is not a git repo' 3 '^merge-gate: degraded: cannot resolve HEAD'
-mutate M02-already-reviewed-gone  's/passive|already_reviewed|under_budget) ;;/passive|under_budget) ;;/'
-mutate M03-unknown-reason-allowed 's/^  \*) degraded "unknown not-due.*/  *) ;;/'
-mutate M04-assess-rc-ignored      's/^if \[ "\$assess_rc" -ne 0 \]; then/if false; then/'
-mutate M05-schema-unchecked       's/^\[ "\$schema" = .*/:/'
-mutate M06-head-mismatch-ignored  's/if \[ "\$want_full" != "\$head" \]; then/if false; then/'
-mutate M07-pr-head-unchecked      's/if \[ "\$pr_head" != "\$head" \]; then/if false; then/'
-mutate M08-merge-unpinned         's/--match-head-commit "\$head"/--auto/'
-mutate M09-jq-probe-removed       's/^command -v jq .*/:/'
-mutate M10-gentle-probe-removed   's/^command -v gentle-ai .*/:/'
-mutate M11-git-probe-removed      's/^command -v git .*/:/'
-mutate M12-pr-head-read-unchecked 's/^  \[ -n "\$pr_head" \] || degraded.*/  :/'
-mutate M13-bool-unchecked         's/^case "\$due" in true|false) ;; \*) degraded.*/:/'
-mutate M14-reason-missing-ok      's/^\[ -n "\$reason" \] || degraded.*/:/'
-mutate M15-merge-failure-ignored  's/^  degraded "gh pr merge failed.*/  :/'
-mutate M16-pr-number-unchecked    's/^case "\$pr" in .*/:/'
-mutate M17-committed-only-dropped 's/ --committed-only//'
-mutate M20-base-unresolvable-ok   's/^git -C "\$cwd" rev-parse --verify --quiet "\${base}\^{commit}".*/:/'
-mutate M21-assess-from-moving-ref 's/--base-ref "\$mb"/--base-ref "\$base"/'
-mutate M22-narrow-base-allowed    's/^  if ! git -C "\$cwd" merge-base --is-ancestor.*/  if false; then/'
-mutate M23-empty-range-ok         's/^\[ "\$ahead" -gt 0 \] || degraded.*/:/'
-mutate M24-head-move-ignored      's/^\[ "\$head_after" = "\$head" \] || degraded.*/:/'
-mutate M25-gh-not-bound-to-cwd    's/(cd "\$cwd" \&\& gh "\$@")/gh "\$@"/'
-mutate M26-no-squash              's/ --squash//'
-mutate M27-merge-reject-degraded  's/grep -Eqi .head branch was modified|match-head-commit|head sha./grep -Eqi "NEVER-MATCHES-XYZ"/'
-mutate M28-untracked-hint-dropped 's/^  if grep -qi .untracked. "\$err_file".*/  if false; then hint=""; fi/'
-mutate M29-merge-err-dropped      's/\${merge_line:+: \$merge_line}//'
-mutate M30-pr-view-unchecked      's/^  \[ -n "\$pr_json" \] || degraded.*/  :/'
-mutate M31-pr-base-presence       's/^  git -C "\$cwd" cat-file -e .*/  :/'
-mutate M32-no-ancestor-unchecked  's/^mb="\$(git -C "\$cwd" merge-base HEAD "\$base" 2>\/dev\/null)" || degraded.*/mb="$(git -C "$cwd" merge-base HEAD "$base" 2>\/dev\/null)"/;s/^\[ -n "\$mb" \] || degraded.*/:/'
-mutate M33-mktemp-unchecked       's/^err_file="\$(mktemp 2>\/dev\/null)" || degraded.*/err_file="$(mktemp 2>\/dev\/null)"/'
-mutate M34-unborn-head-ok         's/^head="\$(git -C "\$cwd" rev-parse --verify HEAD 2>\/dev\/null)" || degraded.*/head="$(git -C "$cwd" rev-parse --verify HEAD 2>\/dev\/null)"/'
-mutate M35-gh-probe-removed       's/^if \[ -n "\$pr" \]; then command -v gh.*/:/'
-mutate M36-rest-read-reverted     's/ghr api "repos\/{owner}\/{repo}\/pulls\/\$pr" --jq .{headRefOid:.head.sha, baseRefOid:.base.sha, baseRefName:.base.ref}./ghr pr view "$pr" --json headRefOid,baseRefName,baseRefOid/'
-mutate M37-always-range-only      's/^if \[ -z "\$pr" \]; then/if true; then/'
-mutate M38-pr-implies-merge       's/^\[ -n "\$do_merge" \] || exit 0/:/'
-mutate M39-pr-flag-ignored        's/^    --pr) .*/    --pr) shift 2 ;;/'
-mutate M40-deprecation-not-skipped 's/grep -Evi .deprecat|\^warning./cat/'
-mutate M41-head-reject-first-line-only '/# MERGE-GATE-HEAD-REJECT$/s/<<<"\$merge_out"/<<<"$merge_line"/'
-sc_ci_stderr() { CKREQ="shellcheck"; : > "$ROOT/log"; CKFAIL=1 runck "$1" "$ROOT/ck/pass.json"; }
-tooth M19b-ci-stderr-dropped 's/\${ci_err:+: \$ci_err}//' sc_ci_stderr 3 'HTTP 502' 3 '^merge-gate: degraded: cannot read check runs for head [0-9a-f]+ \(gh api failed\)$'
-mutate M19-stderr-dropped         's/\${err_line:+: \$err_line}//'
-mutate M18-unparseable-passes     's/^printf .%s. "\$assess_out" | jq -e \. .*/:/'
-# #1426 CI-gate mutants. sc_ci_* run on the check files written below (and by the suite) under $ROOT/ck.
-sc_ci_pending() { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/x_pending.json"; }
-sc_ci_failed()  { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/x_failed.json"; }
-sc_ci_missing() { CKREQ="shellcheck,toolbelt-tests"; runck "$1" "$ROOT/ck/doc.json"; }
-mkchecks "$ROOT/ck/x_pending.json" shellcheck:completed:success toolbelt-tests:in_progress:
-mkchecks "$ROOT/ck/x_failed.json" shellcheck:completed:success toolbelt-tests:completed:failure
-tooth M50-ci-pending-exit  '/CI for this exact head must be green/{n;s/exit 1/exit 0/;}' sc_ci_pending 1 '^merge-gate: refuse: ci_pending' 0 '^merge-gate: refuse: ci_pending'
-tooth M51-ci-failed-exit   '/CI for this exact head must be green/{n;s/exit 1/exit 0/;}' sc_ci_failed 1 '^merge-gate: refuse: ci_failed' 0 '^merge-gate: refuse: ci_failed'
-tooth M52-ci-gate-skipped  's/^if \[ -n "\$do_merge" \]; then$/if false; then/' sc_ci_missing 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged'
-tooth M53-pending-as-pass  's/elif (\$pending | length) > 0 then/elif false then/' sc_ci_pending 1 '^merge-gate: refuse: ci_pending' 0 '^merge-gate: merged'
-tooth M54-missing-dropped  's/elif (\$missing | length) > 0 then/elif false then/' sc_ci_missing 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged'
-tooth M55-failed-dropped   's/if (\$failed | length) > 0 then/if false then/' sc_ci_failed 1 '^merge-gate: refuse: ci_failed' 0 '^merge-gate: merged'
-mutate M56-only-failure-conclusion-fails 's/((\.conclusion \/\/ "") | IN("success", "skipped", "neutral") | not)/((.conclusion \/\/ "") == "failure")/'
-mutate M57-default-required-emptied      's/^required="shellcheck,toolbelt-tests"/required=""/'
-mutate M58-env-required-ignored          's/^\[ -z "\${MERGE_GATE_REQUIRED_CHECKS+x}" \] || required=.*/:/'
-mutate M59-flag-required-ignored         's/required="\$2"; shift 2 ;;/shift 2 ;;/'
-mutate M60-checks-not-bound-to-head      's/commits\/\$head\/check-runs/commits\/HEAD\/check-runs/'
-mutate M61-required-not-trimmed          's/map(gsub("^\\\\s+|\\\\s+\$"; ""))/./'
-mutate M62-zero-reported-ok              's/elif length == 0 then .*/elif length == 0 then "ok"/'
-mutate M63-gh-error-ignored              's/^    degraded "cannot read check runs for head[^"]*"/    :/'
-mutate M64-shape-unchecked               's/error("shape")/[]/g'
-mutate M66-unpaginated-single-page       's/ --paginate//'
-mutate M67-required-flag-usage-unchecked 's/^    --required-checks) \[ \$# -ge 2 \] || usage[^;]*;/    --required-checks)/'
-mutate M68-dedup-removed                 's/jq -c .group_by(\[\.name, \.app_id\]) | map(max_by(\.id))./jq -c ./'
-mutate M69-dedup-picks-oldest            's/map(max_by(\.id))/map(min_by(.id))/'
-mutate M70-app-id-ignored-in-key         's/group_by(\[\.name, \.app_id\])/group_by([.name])/'
-mutate M71-order-by-started-at-first     's/app_id: (\.app\.id? \/\/ null), id})/app_id: (.app.id? \/\/ null), id, started_at: (.started_at? \/\/ "")})/;s/map(max_by(\.id))/map(max_by([.started_at, .id]))/'
-mutate M72-id-compared-as-string         's/app_id: (\.app\.id? \/\/ null), id})/app_id: (.app.id? \/\/ null), id: (.id | tostring)})/'
-mutate M73-first-page-only               's/\[\.\[\]\.check_runs\[\]\]/[.[0].check_runs[]]/'
-# #1812 closure-evidence mutants (mutant_sed refuses a mutant that is empty, identical or syntax-broken).
-# The GraphQL-guard mutants are verified with `tooth` (rc 0 on both sides, the specific wrong output named); the rest with `mutate`.
-sc_ce_cross()      { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_cross.json"; }
-sc_ce_unmerged()   { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_unmerged.json"; }
-sc_ce_open()       { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_open.json"; }
-sc_ce_nooid()      { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_nooid.json"; }
-sc_ce_big()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_big.json"; }
-sc_ce_fail()       { S_CE="$1"; CE_ENV=(STUB_GQL_FAIL=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
-sc_ce_timeout()    { S_CE="$1"; CE_ENV=(STUB_GQL_SLEEP=6 MERGE_GATE_GH_TIMEOUT=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
-sc_ce_bad()        { S_CE="$1"; CE_ENV=(CE_NOOP=1); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_bad.json"; }
-sc_ce_ghrepo_comment() { S_CE="$1"; CE_ENV=(GH_REPO=acme/fork); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_fork.json"; OUT="$OUT"$'\n'"comment-repo: $(sort -u "$ROOT/ce/comments.repo" | tr '\n' ' ')"; CE_ENV=(CE_NOOP=1); }
-sc_ce_mismatch()       { S_CE="$1"; CE_ENV=(GH_REPO=acme/fork); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_liar.json"; CE_ENV=(CE_NOOP=1); }
-tooth M105-comment-repo-flag-dropped 's/ghr issue comment "\$issue" --repo "\$repo" --body/ghr issue comment "$issue" --body/' sc_ce_ghrepo_comment 0 'comment-repo: acme/fork $' 0 'comment-repo: \(none\) $'
-tooth M106-repo-mismatch-unchecked 's/^  if \[ "\$(printf .%s. "\$got_repo".*/  if false; then/' sc_ce_mismatch 0 'degraded: the GraphQL answer is for repository o/r but the merge used acme/fork' 0 '^merge-gate: closure-evidence: posted: issue #41 '
-mutate M107-files-read-placeholder 's/repos\/\$repo\/pulls\/\$pr\/files/repos\/{owner}\/{repo}\/pulls\/$pr\/files/'
-mutate M108-graphql-owner-name-fixed 's/-F owner="\$owner" -F name="\$name"/-F owner=o -F name=r/'
-mutate M109-gh-repo-env-ignored 's/^  if \[ -n "\${GH_REPO:-}" \]; then/  if false; then/'
-mutate M110-repo-view-failure-ignored '/cannot resolve the repository the merge used (gh repo view/d'
-mutate M111-repo-shape-unchecked 's/^  if ! \[\[ "\$repo" =~ .*/  :/'
-tooth M80-same-repo-filter-dropped 's/^    | select((\.repository\.nameWithOwner | tostring | ascii_downcase) == (\$r | ascii_downcase) and /    | select(true and /' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #9 '
-tooth M81-merged-flag-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.state != "MERGED" then/' sc_ce_unmerged 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
-tooth M82-state-ignored 's/elif \$p\.merged != true or \$p\.state != "MERGED" then/elif $p.merged != true then/' sc_ce_open 0 'degraded: PR #7 is not reported merged' 0 '^merge-gate: closure-evidence: posted: issue #41 '
-tooth M83-oid-unchecked 's/^      elif (((\$p\.mergeCommit\.oid.*/      elif false then "nooid"/' sc_ce_nooid 0 'has no usable 40-hex merge commit oid' 0 '^merge-gate: closure-evidence: posted: issue #41 \(commit=null '
-tooth M84-overflow-note-dropped 's/^  if \[ "\$total" -gt 50 \]; then say.*/  :/' sc_ce_big 0 'degraded: PR #7 closes 51 issues but only the first 50 were read' 0 '^merge-gate: closure-evidence: posted: issue #41 '
-tooth M85-cross-note-dropped 's/^    \[ -z "\$issue" \] || say "\$ev: note: PR.*/    :/' sc_ce_cross 0 'note: PR #7 also closes other/x#9' 0 '^merge-gate: closure-evidence: posted: issue #41 '
-tooth M86-graphql-failure-ignored 's/^  if \[ "\$grc" -ne 0 \]; then say.*/  :/' sc_ce_fail 0 'degraded: cannot read the closing issues of PR #7' 0 '^merge-gate: closure-evidence: degraded: the GraphQL answer for PR #7 is unparseable'
-tooth M87-timeout-treated-as-generic 's/^  if \[ "\$grc" -eq 124 \]; then say.*/  :/' sc_ce_timeout 0 'degraded: GraphQL read of PR #7 timed out' 0 'degraded: cannot read the closing issues of PR #7 \(gh api graphql exit 124'
-tooth M88-shape-unchecked 's/^    \*) say "\$ev: degraded: the GraphQL answer.*/    *) ;;/' sc_ce_bad 0 'the GraphQL answer for PR #7 is unparseable or off-schema' 0 '^merge-gate: closure-evidence: degraded: the GraphQL answer is for repository  but the merge used o/r'
-mutate M89-optout-ignored              's/^  if \[ -n "\$no_evidence" \]; then.*/  :/'
-mutate M90-comment-failure-fails-run   's/^  done$/  done; [ "$rc" -eq 0 ] || exit 1/'
-mutate M91-posts-without-test          's/^  if \[ -z "\$test_files" \]; then say.*/  :/'
-mutate M92-removed-files-counted       's/select(\.status != "removed") | //'
-mutate M93-any-sh-counts-as-test       "s/grep -E '\\^research-sdd[^']*'/grep -E 'sh\$'/"
-mutate M94-commit-label-dropped        's/^- commit: \$msha$/- sha: $msha/'
-mutate M95-no-issue-still-posts        's/^  if \[ -z "\$issues" \]; then say.*/  :/'
-mutate M96-files-single-page           's/files?per_page=100" --paginate/files?per_page=100"/'
-mutate M97-comment-gh-not-in-cwd       's/ghr issue comment/gh issue comment/'
-mutate M98-cap-note-dropped            's/^    say "\$ev: note: .*/    :/'
-mutate M99-cap-unlimited               's/head -n 10 | sed/cat | sed/'
-mutate M100-backfill-line-dropped      's/^  if \[ -n "\$failed" \]; then say.*/  :/'
-mutate M101-comment-failure-silent     's/^    else say "\$ev: degraded: could not comment[^;]*;/    else/'
-mutate M102-files-read-failure-ignored 's/ || { say "\$ev: degraded: cannot read the files[^}]*}//'
-mutate M103-evidence-without-merge     's/^closure_evidence$/:/'
-mutate M104-bounded-gh-unbound-to-cwd  's/pushd "\$cwd" >\/dev\/null 2>&1 || return 1; //;s/; { popd >\/dev\/null 2>&1 || :; }//'
-# #1864 superseded-cancelled-note mutants
-mutate M112-superseded-note-dropped      's/^  while IFS= read -r ci_note; do.*/  :/'
-mutate M113-note-for-latest-cancelled    's/ and \.id != \$l\.id)/)/'
-mutate M114-note-for-any-conclusion      's/ and \.conclusion == "cancelled" and \.id != \$l\.id)/ and .id != $l.id)/'
-mutate M115-note-ignores-app-id          's/group_by(\[\.name, \.app_id\])\[\]/group_by([.name])[]/'
-mutate M116-cancelled-passes             's/IN("success", "skipped", "neutral")/IN("success", "skipped", "neutral", "cancelled")/'
-# #1867 path-filter mutants (scenarios run on the check/file fixtures the suite wrote under $ROOT)
-sc_pf_docs()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
-sc_pf_empty() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_empty.json"; }
-sc_pf_ign()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" ignore "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
-sc_pf_neg()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" negation "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
-sc_pf_star()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_star.json" "added:configs/a/b.cfg"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_star.json"; }
-sc_pf_anch()  { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_a.json" "added:research-sdd/METHODOLOGY.mdx"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_a.json"; }
-sc_pf_hit()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"; }
-sc_pf_nofl()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" pushonly "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; }
-sc_pf_clean() { CKREQ="shellcheck,toolbelt-tests"; : > "$ROOT/log"; runwf "$1" paths "$ROOT/ck/pass.json" "$ROOT/ce/f_docs.json"; OUT="$OUT"$'\n'"read-files: $(grep -c 'pulls/7/files' "$ROOT/log")"; }
-tooth M120-skipped-checks-stay-required 's/^    if \[ -n "\$ci_skipped" \]; then ci_req=/    if false; then ci_req=/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-tooth M121-hit-inverted                 's/^    if \[ "\$hit" -eq 1 \]; then anyrun=1/    if [ "$hit" -eq 0 ]; then anyrun=1/' sc_pf_hit 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
-tooth M122-star-crosses-directories     '/^ci_glob_re/s|\[^/\]\*|.*|' sc_pf_star 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-tooth M124-pattern-unanchored           's/grep -Eq "\^\${re}\\\$"/grep -Eq "${re}"/' sc_pf_anch 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-tooth M125-empty-files-skip-all         's/if \[ -z "\$ci_files" \]; then ci_pf_res="unknown the PR reports no changed files"/if false; then ci_pf_res=x/' sc_pf_empty 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
-tooth M127-paths-ignore-as-no-filter    's/^    \[ "\$ign" = "0" \] || .*/    :/' sc_pf_ign 1 'not evaluated against path filters: .*paths-ignore' 1 '^merge-gate: refuse: ci_missing'
-tooth M128-push-paths-used-for-pr       's/^    \[ "\$pr" = "1" \] || .*/    :/' sc_pf_nofl 1 'no pull_request trigger' 1 '^merge-gate: refuse: ci_missing'
-tooth M129-files-read-unconditionally   's/^  if \[ -n "\$ci_absent" \]; then/  if true; then/' sc_pf_clean 0 'read-files: 0$' 0 'read-files: 1$'
-sc_pf_filesfail() { CKREQ="shellcheck,toolbelt-tests"; export STUB_FILES_FAIL=1; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_docs.json"; unset STUB_FILES_FAIL; }
-sc_pf_selfx()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" selfx "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_tool.json"; }
-sc_pf_wfchg()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_wfc.json" "added:odd/a.md" "added:.github/workflows/new.yml"; runwf "$1" bothnarrow "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_wfc.json"; }
-sc_pf_multi()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_dm2.json" "added:docs/yy.md"; runwf "$1" multi-ab "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm2.json"; }
-sc_pf_gitlink() { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_dm3.json" "added:odd/x.md"; runwf "$1" multi-gitlink "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_dm3.json"; }
-sc_pf_3000()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_3000.json"; }
-sc_pf_form()    { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad0 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_formchar() { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad2 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_noid()    { CKREQ="shellcheck"; printf '%s\n' '{"total_count":1,"check_runs":[{"name":"shellcheck","status":"completed","conclusion":"success"}]}' > "$ROOT/ck/noid.json"; runck "$1" "$ROOT/ck/noid.json"; }
-tooth M130-job-name-ignored            's/else name\[cur\] = v/else name[cur] = cur/' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-tooth M131-files-failure-silent        's/^      || { ci_files=""; ci_pf_why=.*/      || { ci_files=""; }/' sc_pf_filesfail 1 '^merge-gate: note: path filters not evaluated: cannot read the files of PR #7' 1 'not evaluated against path filters: the PR reports no changed files'
-tooth M135-comment-not-stripped        's/sub(\/\[ \\t\]+#\.\*\$\/, "", v); //' sc_pf_docs 0 '^merge-gate: merged: PR #7' 1 'unsupported path pattern'
-mutate M136-push-patterns-counted       's/if (ev != "pull_request") next/if (0) next/'
-tooth M137-base-tree-not-judged        's/^  b="\$(ci_pf_tree "\$pr_base".*/  b="skip x"/' sc_pf_selfx 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
-tooth M138-workflow-change-guard-gone  's/^  if grep -Eq .\^\\\.github\/workflows\/. <<<"\$files"; then.*/  :/' sc_pf_wfchg 1 'the PR changes \.github/workflows' 0 '^merge-gate: merged: PR #7'
-tooth M139-run-carrier-not-counted     's/^    if \[ "\$hit" -eq 1 \]; then anyrun=1/    if [ "$hit" -eq 1 ]; then :/' sc_pf_multi 1 '^merge-gate: refuse: ci_missing' 0 '^merge-gate: merged: PR #7'
-tooth M140-unreadable-workflow-skipped 's/^    src="\$(git -C "\$cwd" show .*/    src="$(git -C "$cwd" show "$tree:$wf" 2>\/dev\/null)" || continue/' sc_pf_gitlink 1 'cannot read \.github/workflows/zz-sub\.yml' 0 '^merge-gate: merged: PR #7'
-tooth M141-pattern-charset-unchecked   's/^  \[\[ "\$p" =~ \$ok_re \]\] || return 1/  :/' sc_pf_formchar 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
-tooth M142-double-star-unchecked       's/^  case "\$p" in \*.\*\*.\*) return 1 ;; esac/  :/' sc_pf_form 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
-tooth M143-3000-cap-ignored            's/elif \[ "\$ci_nf" -ge 3000 \]/elif false/' sc_pf_3000 1 '3000 changed files' 0 '^merge-gate: merged: PR #7'
-sc_ce_gnote()  { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" GH_REPO=o/r FAKE_STATE=TIMEOUT FAKE_RC=124 "FAKE_NOTE=DEGRADED: x"); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
-sc_ce_gsig()   { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" GH_REPO=o/r FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
-sc_ce_rsig()   { S_CE="$1"; CE_ENV=("MERGE_GATE_LIB=$FAKELIB" FAKE_STATE=CALLER_SIGNALLED FAKE_RC=0); runce "$1" "$ROOT/ce/tests.json" "$ROOT/ce/g_ok.json"; CE_ENV=(CE_NOOP=1); }
-tooth M145-ghv-note-dropped            's/^  ghv_note() {.*/  ghv_note() { :; }/' sc_ce_gnote 0 'timed out .*nothing posted \[DEGRADED: x\]$' 0 'timed out .*nothing posted$'
-tooth M146-graphql-signal-ignored      '/the caller was signalled during the GraphQL/d' sc_ce_gsig 0 'the caller was signalled during the GraphQL read' 0 'the GraphQL answer for PR #7 is unparseable or off-schema'
-tooth M147-repo-signal-ignored         '/the caller was signalled while the repository/d' sc_ce_rsig 0 'the caller was signalled while the repository was being resolved' 0 "cannot resolve the repository the merge used \\(got ''\\)"
-mutate M148-bounded-call-in-subshell    's/GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "\$@" >/( GHV_BOUND_ENV=MERGE_GATE_GH_TIMEOUT GHV_BOUND_DEFAULT=30 gh_bounded_run "$@" ) >/'
-# round 2 (fail-closed): `?` unsupported, unparsed jobs shapes unknown, other PR-like triggers unknown
-sc_pf_qid()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" quotedid "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_qpat()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" bad8 "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_nexp()  { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" nameexpr "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-sc_pf_prt()   { CKREQ="shellcheck,toolbelt-tests"; runwf "$1" prt "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_pat.json"; }
-tooth M149-unparsed-jobs-ignored       '/cannot parse the jobs of/d' sc_pf_qid 1 'not evaluated against path filters: cannot parse the jobs of' 1 'shellcheck skipped by path filter'
-tooth M150-question-mark-emulated      's/ok_re=.\^\[A-Za-z0-9_\.\*\/@-\]+\$./ok_re="^[A-Za-z0-9_.*?\/@-]+\$"/' sc_pf_qpat 1 'unsupported path pattern' 0 '^merge-gate: merged: PR #7'
-tooth M151-name-expression-as-name     's/unsup("job name shape of " cur); else name\[cur\] = v/name[cur] = v/' sc_pf_nexp 1 'cannot parse the jobs of' 1 'no workflow job named shellcheck'
-tooth M152-other-pr-trigger-ignored    '/^  if (other != "") print "OTHER " other/d' sc_pf_prt 1 'has another PR-like trigger' 0 '^merge-gate: merged: PR #7'
-mutate M153-inline-on-not-flagged       's/other = "pull_request or merge_group inside an inline on: value"/other = ""/'
-mutate M154-jobs-indent-fixed-at-2      's/if (jind == 0) jind = ind/jind = 2/'
-mutate M155-flow-jobs-not-flagged       's/if (strip(substr(line, 6)) != "") unsup("jobs is not a block mapping")//'
-mutate M156-job-key-shape-unchecked     's/if (line !~ \/\^\[A-Za-z0-9_-\]+:\/) {/if (0) {/'
-tooth M144-id-not-required-numeric   '/(\.id | type) == "number"/d' sc_pf_noid 3 '^merge-gate: degraded: check runs for head' 0 '^merge-gate: merged: PR #7'
-mutate M132-skip-note-dropped           's/skipped by path filter (/skipped (/'
-mutate M133-unknown-note-dropped        's/ not evaluated against path filters: / not evaluated: /'
-sc_pf_dot()   { CKREQ="shellcheck,toolbelt-tests"; mkfiles "$ROOT/ce/f_d.json" "added:research-sdd/METHODOLOGYxmd"; runwf "$1" paths "$ROOT/ck/wfdoc.json" "$ROOT/ce/f_d.json"; }
-tooth M134-dot-unescaped               '/^ci_glob_re/s/{}\.+/{}+/' sc_pf_dot 0 '^merge-gate: merged: PR #7' 1 '^merge-gate: refuse: ci_missing'
-echo "mutants: $MUT_PASS detected · $MUT_FAIL missed"
-echo "== $pass passed · $((fail + MUT_FAIL)) failed =="
-[ "$fail" -eq 0 ] && [ "$MUT_FAIL" -eq 0 ]
+
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ]
