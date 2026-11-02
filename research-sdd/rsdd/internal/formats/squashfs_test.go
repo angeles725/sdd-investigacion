@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -1050,3 +1051,20 @@ func TestSquashfsRegistered(t *testing.T) {
 }
 
 var _ = cli.ExitOK
+
+// A scan over a small input must not allocate the full 1 MiB chunk buffer per call: the parity tests call it
+// hundreds of times and, under the CI RLIMIT_AS cap, that garbage outran the collector (OOM in the bridge job).
+func TestFindSquashfsOffsetAllocationScalesWithInput(t *testing.T) {
+	data := bytes.Repeat([]byte{0xEE}, 4096)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for i := 0; i < 100; i++ {
+		if off, err := findSquashfsOffset(bytes.NewReader(data), int64(len(data))); err == nil {
+			t.Fatalf("garbage input accepted at offset %d", off)
+		}
+	}
+	runtime.ReadMemStats(&after)
+	if got := after.TotalAlloc - before.TotalAlloc; got > 16<<20 {
+		t.Fatalf("100 scans of a 4 KiB input allocated %d bytes; the buffer must scale with the input", got)
+	}
+}
