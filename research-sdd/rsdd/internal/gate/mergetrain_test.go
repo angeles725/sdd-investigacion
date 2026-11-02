@@ -348,6 +348,9 @@ func mtScenarios() []mtScn {
 				if err := json.Unmarshal([]byte(r.receipt), &rc); err != nil || rc["state"] != "merged" || rc["culprit"] != nil {
 					t.Errorf("receipt = %s (%v)", r.receipt, err)
 				}
+				if strings.Contains(r.calls, "FETCH_HEAD") {
+					t.Errorf("PR heads must be fetched into refs/train/<ts>/<pr>, never through FETCH_HEAD\n%s", r.calls)
+				}
 				if !strings.Contains(r.post, "remote-heads: refs/heads/main\n") || !strings.Contains(r.post, "local-branches: \nworktrees-left: \ntrain-refs: \norig-wt: gone") {
 					t.Errorf("train branch/worktrees/refs not cleaned or branch pushed:\n%s", r.post)
 				}
@@ -462,7 +465,21 @@ func mtScenarios() []mtScn {
 			c.mkpr(2, "bad.txt", "")
 			c.mk(3)
 			return mtRun{prs: plain(1, 2, 3), gate: `[ -e "$CASE/ran" ] || { touch "$CASE/ran"; sleep 6 & }; ` + g, extra: []string{"--bisect"}}
-		}, rc: 26, has: []string{"bisect-incomplete: gate-lock-timeout"}, merges: ""},
+		}, rc: 26, has: []string{"kit-merge-train: train-gate-failed", "bisect-incomplete: gate-lock-timeout"}, merges: "",
+			check: func(t *testing.T, c *mtCase, r mtResult) {
+				// the full gate's rc and log are kept, not the bisect run's (old suite: gate.rc 1, gate.log gate-train-<ts>.log)
+				var rc struct {
+					Gate struct {
+						RC  any    `json:"rc"`
+						Log string `json:"log"`
+					} `json:"gate"`
+					Culprit any `json:"culprit"`
+				}
+				if err := json.Unmarshal([]byte(r.receipt), &rc); err != nil || rc.Gate.RC != float64(1) || rc.Culprit != nil ||
+					!strings.HasSuffix(rc.Gate.Log, "/state/gate-train-<TS>.log") {
+					t.Errorf("want gate rc 1, the full gate log gate-train-<ts>.log and no culprit: %s (%v)", r.receipt, err)
+				}
+			}},
 		{name: "mgfail-first", setup: func(c *mtCase) mtRun { c.mk(1, 2, 3); c.touch("mg-fail-1"); return mtRun{prs: plain(1, 2, 3), gate: g} },
 			rc: 19, has: []string{"kit-merge-train: not-merged"}, merges: "1", statuses: "pending,pending,pending"},
 		{name: "mgfail-mid", setup: func(c *mtCase) mtRun { c.mk(1, 2, 3); c.touch("mg-fail-2"); return mtRun{prs: plain(1, 2, 3), gate: g} },
