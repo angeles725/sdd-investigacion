@@ -20,4 +20,3 @@ research-sdd/toolbelt/tests/proc-common.test.sh extras category E VM/dynamic san
 research-sdd/toolbelt/tests/qnx6-read.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/serial-frame-analyze.test.sh extras unused adapter (#2203)
 research-sdd/toolbelt/tests/serial-frame-capture.test.sh extras strict-zero usage (#2203)
-research-sdd/toolbelt/tests/vm-disk-policy.test.sh extras category E VM/dynamic sandbox (#2203)
