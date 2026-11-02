@@ -28,7 +28,7 @@ printf '#!/bin/sh\nulimit -v %s || exit 97\nexec "$$@"\n' '$(TEST_MEM_KB)' >"$$d
 GOFLAGS="$$GOFLAGS -exec=$$d/capexec"
 endef
 
-.PHONY: check fmt-check vet test race lint teeth cross parity build clean
+.PHONY: check fmt-check vet test retrogrammar-live race lint teeth cross parity build clean
 
 check: fmt-check vet test
 
@@ -40,6 +40,13 @@ vet:
 
 test:
 	@$(CAPPED) go test -timeout $(TEST_TIMEOUT) $(TESTFLAGS) ./...
+
+# Live bash differential of internal/core/retrogrammar: runs the real toolbelt/lib/retro-grammar.sh per case
+# (minutes) and compares it with the Go port and with the frozen goldens `make test` replays. Opt-in because the
+# default package test must stay far under the CI timeout. After an intended bash or fixture change, refresh the
+# goldens with: RETROGRAMMAR_UPDATE=1 go test -count=1 ./internal/core/retrogrammar (no -run, no -short).
+retrogrammar-live:
+	@RSDD_LIVE_DIFF=1 $(CAPPED) go test -count=1 -timeout 30m $(TESTFLAGS) ./internal/core/retrogrammar
 
 # -race needs cgo, so this target overrides the CGO_ENABLED=0 default. It runs under the same CAPPED
 # wrapper as `test`, with its own knobs because a -race run uses several times the memory and time:
@@ -63,8 +70,8 @@ lint:
 # reported, not failed; the raised timeout coefficient keeps a loaded machine
 # from turning kills into timeouts. Each mutant's test binary runs under the CAPPED wrapper (GOFLAGS
 # reaches the `go test` gremlins starts); `go run -exec=env` keeps gremlins itself and its builds uncapped.
-# TEETHTAGS reaches every mutant's test build: `nodiff` drops the bash differential tests (internal/core/retrogrammar
-# takes ~80 s per run), which `make check` still runs once; gremlins reruns a whole package per mutant.
+# TEETHTAGS reaches every mutant's test build: `nodiff` drops the live bash differential files (internal/core/retrogrammar
+# forks bash per case, minutes per run; opt-in, see retrogrammar-live); the frozen-oracle replay stays in every mutant run.
 TEETHTAGS ?= nodiff
 # Gremlins defaults to one mutant worker per CPU, each running `go test` on every core: on a small shared CI runner
 # that starves the baseline coverage run (it then prints only `exit status 1`). TEETH_WORKERS bounds the parallel
