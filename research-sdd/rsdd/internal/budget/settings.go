@@ -60,6 +60,7 @@ func selectHooks(doc map[string]any, src string) (stream string, err error) {
 	// jq's `?` guards only the iteration: a hooks value that is neither null nor an object fails the program.
 	hooks, isObj := doc["hooks"].(map[string]any)
 	if v := doc["hooks"]; v != nil && !isObj {
+		//lint:ignore ST1005 jq's own error text, kept byte-identical for parity with the frozen script
 		return "", fmt.Errorf("Cannot index %s with string \"SessionStart\"", jqType(v))
 	}
 	list, _ := hooks["SessionStart"].([]any)
@@ -70,6 +71,7 @@ func selectHooks(doc map[string]any, src string) (stream string, err error) {
 		case map[string]any:
 			entry = t
 		default:
+			//lint:ignore ST1005 jq's own error text, kept byte-identical for parity with the frozen script
 			return "", fmt.Errorf("Cannot index %s with string \"matcher\"", jqType(e))
 		}
 		matcher := ""
@@ -91,6 +93,7 @@ func selectHooks(doc map[string]any, src string) (stream string, err error) {
 			case map[string]any:
 				hook = t
 			default:
+				//lint:ignore ST1005 jq's own error text, kept byte-identical for parity with the frozen script
 				return "", fmt.Errorf("Cannot index %s with string \"type\"", jqType(h))
 			}
 			if typ, _ := hook["type"].(string); typ != "command" {
