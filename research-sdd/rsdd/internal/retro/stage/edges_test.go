@@ -1,6 +1,8 @@
 package stage
 
 import (
+	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +45,21 @@ func TestSlugAlphabetEdges(t *testing.T) {
 		if got := slugOf(in); got != want {
 			t.Errorf("slugOf(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// RunCommand hands the caller's Environ (not the process environment) to every child process: a variable that
+// exists only in that Environ and makes the child fail is observed whatever the host environment holds.
+func TestRunCommandHandsTheCallersEnvironToTheChildren(t *testing.T) {
+	f := box(t, simple(mPending))
+	f.setEnv("GIT_DIR", filepath.Join(f.root, "no-such-dir"))
+	var so, se bytes.Buffer
+	rc := RunCommand([]string{"--toolbelt", f.abs("research-sdd/toolbelt"), f.abs("targetA/retros/r1.md")}, f.stdio(f.repo, &so, &se))
+	got := f.normalize(se.String())
+	want := "fatal: not a git repository: '@BOX@/no-such-dir'\n" +
+		"degraded: git could not read the state of the kit repo in @BOX@/repo (git status --porcelain: exit 128: fatal: not a git repository: '@BOX@/no-such-dir') — nothing was changed.\n"
+	if rc != 4 || so.String() != "" || !strings.HasSuffix(got, want) {
+		t.Errorf("rc %d out %q err %q", rc, so.String(), got)
 	}
 }
 
