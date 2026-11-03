@@ -148,7 +148,7 @@ func censusTarget(out io.Writer, p string, read readFunc, t *toolsTotals) {
 		switch {
 		case inTRows(rows, base):
 			retro++
-		case state == ledgerParsed && inLedger(lrows, base):
+		case inLedger(lrows, base): // lrows is nil unless the ledger parsed
 			ledger++
 		default:
 			unrecorded++

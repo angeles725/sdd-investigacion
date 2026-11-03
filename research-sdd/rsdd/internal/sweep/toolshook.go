@@ -29,6 +29,7 @@ const (
 
 var reUnrecorded = regexp.MustCompile(`([0-9]+) unrecorded`)
 
+// TODO(#2610): wrap in the core panic guard once it lands
 func runToolsHook(o options, s cli.Stdio, read readFunc) int {
 	var buf bytes.Buffer // one writer for both streams: the script's `2>&1`
 	rc := sweepTools(o, s, &buf, &buf, read)

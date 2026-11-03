@@ -78,6 +78,8 @@ func toolScenarios() []toolScenario {
 		{name: "missing TARGETS.md", old: "7", setup: func(w *world) {}, rc: 1, golden: true,
 			errHas: []string{"sweep-tools: cannot find {kit}/TARGETS.md\n"}, lacks: []string{"Summary:"},
 			hook: []string{"Research-SDD tools sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-tools: cannot find {kit}/TARGETS.md"}},
+		{name: "TARGETS.md that is a directory", old: "(spot)", golden: true, setup: func(w *world) { w.must(os.MkdirAll(w.kit+"/TARGETS.md", 0o755)) }, rc: 1,
+			errHas: []string{"sweep-tools: cannot find {kit}/TARGETS.md\n"}, lacks: []string{"Summary:"}},
 		{name: "no usable path", old: "8", golden: true, setup: func(w *world) { w.targets("/home/user/.../research") }, rc: 1,
 			errHas: []string{"sweep-tools: ERROR — no usable target paths in {kit}/TARGETS.md\nsweep-tools: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths\n"},
 			lacks:  []string{"Summary:"}},
@@ -186,6 +188,18 @@ func toolScenarios() []toolScenario {
 			w.targets(a)
 		}, has: []string{"        WARN: tools/README.md scan FAILED (grep error) — ledger count unavailable\n        recorded (retro): 0  ·  unrecorded: 1  ·  no retros found\n"},
 			lacks: []string{"recorded (ledger): "}},
+		{name: "binary retro matches nothing", old: "(spot)", golden: true, setup: func(w *world) {
+			a := w.tgt("targetA")
+			w.tool(a, "scan.py", false)
+			w.put(a+"/retros/bin.md", "\x00binary\n| T1 | `tools/scan.py` |\n")
+			w.targets(a)
+		}, has: []string{"recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retro has a tools table\n"}},
+		{name: "binary ledger is no table", old: "(spot)", golden: true, setup: func(w *world) {
+			a := w.tgt("targetA")
+			w.tool(a, "scan.py", false)
+			w.put(a+"/tools/README.md", "\x00\n| scan.py | tools/scan.py |\n")
+			w.targets(a)
+		}, has: []string{"        WARN: tools/README.md has no table — ledger unreadable\n"}},
 		{name: "executable without extension is a tool", old: "(spot)", setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.tool(a, "runner", true)

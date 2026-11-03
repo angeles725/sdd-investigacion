@@ -64,7 +64,7 @@ func isToolFile(f string) bool {
 // apart from the tool count (CLAUDE.md section 7).
 func isLibModule(f, tdir string) bool {
 	rel := strings.TrimPrefix(f, tdir+"/")
-	for dir := filepath.Dir(rel); dir != "." && dir != "/" && dir != ""; dir = filepath.Dir(dir) {
+	for dir := filepath.Dir(rel); dir != "."; dir = filepath.Dir(dir) {
 		if strings.HasSuffix(filepath.Base(dir), "_lib") {
 			return true
 		}

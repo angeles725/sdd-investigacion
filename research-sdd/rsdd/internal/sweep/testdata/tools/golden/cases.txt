@@ -248,6 +248,27 @@ sweep-tools: cannot find {root}/kit/TARGETS.md
 @@hookfull 0
 
 @@end
+@@case TARGETS.md that is a directory
+@@dir kit/TARGETS.md 0
+
+@@rc 1
+1
+@@out 0
+
+@@err 47
+sweep-tools: cannot find {root}/kit/TARGETS.md
+
+@@hook 232
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tools sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-tools: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@hookfull 0
+
+@@end
 @@case no usable path
 @@file kit/TARGETS.md 0 84
 # targets
@@ -1023,6 +1044,93 @@ Summary: 1 tool(s) across 1 target(s) · 1 recorded (retro) · 0 recorded (ledge
 TARGET  targetA
         tools: 1 found (1 non-tool file(s) in tools/ not counted)
         WARN: tools/README.md scan FAILED (grep error) — ledger count unavailable
+        recorded (retro): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case binary retro matches nothing
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/bin.md 0 33
+ binary
+| T1 | `tools/scan.py` |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 245
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retro has a tools table
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case binary ledger is no table
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 30
+ 
+| scan.py | tools/scan.py |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 316
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        WARN: tools/README.md has no table — ledger unreadable
         recorded (retro): 0  ·  unrecorded: 1  ·  no retros found
 
 Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
