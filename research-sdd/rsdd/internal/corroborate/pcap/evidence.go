@@ -39,7 +39,7 @@ options:
 		{"--timeout-seconds", "timeout_seconds", kindInt}, {"--max-bytes", "max_bytes", kindInt},
 		{"--manifest-cli", "manifest_cli", kindPath},
 	},
-	required: []string{"input", "output", "manifest_cli"},
+	required: []string{"input", "output"},
 }
 
 // withDefaults fills the caps a caller left out.
@@ -61,7 +61,7 @@ func Run(args []string, s cli.Stdio) int {
 	if done {
 		return code
 	}
-	c := &session{tool: evidenceProg, s: s, manifestCLI: a.str["manifest_cli"]}
+	c := &session{tool: evidenceProg, s: s}
 	defer c.cleanup()
 	return c.evidence(a.withDefaults())
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
-const usage = `usage: corroborate-java --decompile-wrapper WRAPPER --manifest-module MODULE --input JAR --output DIR
+const usage = `usage: corroborate-java --decompile-wrapper WRAPPER [--manifest-module MODULE] --input JAR --output DIR
                         [--overwrite] [--timeout-seconds N] [--max-heap SIZE]
                         [--max-files N] [--max-bytes N] [--max-classes N]
 
@@ -86,7 +86,7 @@ func (e *env) parse(args []string) (options, int) {
 		return usageError(err.Error())
 	}
 	var missing []string
-	for _, r := range [][2]string{{"--decompile-wrapper", o.decompileWrapper}, {"--manifest-module", o.manifestModule}, {"--input", o.input}, {"--output", o.output}} {
+	for _, r := range [][2]string{{"--decompile-wrapper", o.decompileWrapper}, {"--input", o.input}, {"--output", o.output}} {
 		if r[1] == "" {
 			missing = append(missing, r[0])
 		}

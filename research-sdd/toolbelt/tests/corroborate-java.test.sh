@@ -4,7 +4,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../corroborate-java.sh"
-MANIFEST="$HERE/../analysis_manifest.py"
+RSDD="${RSDD_BIN:-$HERE/../../bin/rsdd}"   # the binary the shim runs; it validates and verifies the manifests (rsdd adapter manifest)
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 
 # Tool-availability guard — skip gracefully when required tools are absent.
@@ -113,7 +113,7 @@ ARGS=(--input "$ROOT/space dir/fixture app.jar" --timeout-seconds 2 --max-heap 1
 if env "${BASE_ENV[@]}" "$SUT" "${ARGS[@]}" --output "$ROOT/out one" && [ ! -e "$MARKER" ] && [ ! -e "$WRAPPER_MARKER" ]; then ok "five isolated adapters succeed without target or wrapper execution"
 else no "five adapters succeed without target execution"; fi
 
-if python3 - "$ROOT/out one" "$MANIFEST" "$ROOT/fake-runtime/bin" "$ROOT/tools" <<'PY'
+if python3 - "$ROOT/out one" "$RSDD" "$ROOT/fake-runtime/bin" "$ROOT/tools" <<'PY'
 import json,pathlib,subprocess,sys
 root=pathlib.Path(sys.argv[1]); real=pathlib.Path(sys.argv[3]); sources=pathlib.Path(sys.argv[4]); outer=pathlib.Path('/usr/bin/bwrap').resolve(); d=json.loads((root/'java-corroboration.v1.json').read_text())
 assert d['schema']=='java-corroboration.v1' and d['status']=='complete'
@@ -122,8 +122,8 @@ assert all(v['status']=='success' for v in d['engines'].values())
 assert d['expected_classes']==['fixture.App'] and d['javap_signatures']
 for name,engine in d['engines'].items():
     manifest=root/engine['manifest']; assert manifest.is_file()
-    assert subprocess.run([sys.executable,sys.argv[2],'validate',manifest]).returncode==0
-    assert subprocess.run([sys.executable,sys.argv[2],'verify','--root',root,manifest]).returncode==0
+    assert subprocess.run([sys.argv[2],'adapter','manifest','validate',manifest]).returncode==0
+    assert subprocess.run([sys.argv[2],'adapter','manifest','verify','--root',root,manifest]).returncode==0
     document=json.loads(manifest.read_text())
     expected=(real/('java' if name in ('vineflower','cfr','procyon') else name)).resolve()
     assert pathlib.Path(document['argv'][0])==outer and pathlib.Path(document['tool']['launcher']['resolved_executable'])==outer

@@ -1,12 +1,14 @@
 package pcap
 
 import (
-	"os"
+	"bytes"
 	"strings"
 
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter/helpers"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
 // emission is what a command hands over once its analyzers have run: the domain part of the evidence, the
@@ -24,20 +26,6 @@ type emission struct {
 
 func recordMap(r fsx.Record) map[string]any {
 	return map[string]any{"path": r.Path, "size": r.Size, "sha256": r.SHA256}
-}
-
-// which is shutil.which(name, path=search): the first directory holding an executable regular file.
-func which(name, search string) (string, bool) {
-	for _, d := range strings.Split(search, ":") {
-		if d == "" {
-			continue
-		}
-		p := d + "/" + name
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
-			return p, true
-		}
-	}
-	return "", false
 }
 
 // emit publishes the evidence: the envelope, the analysis manifest created, validated and verified by the
@@ -68,26 +56,33 @@ func (c *session) emit(e emission) error {
 			"executable": c.bwrapPath, "name": "tshark", "version": c.version,
 		},
 	}
-	py, ok := which("python3", c.pathVar())
-	if !ok {
-		return refusal("python3 is required to run the manifest tool")
-	}
 	return helpers.EmitEvidence(helpers.EmitConfig{
 		Stage: c.stage, Schema: e.schema, Domain: e.domain,
 		InputIdentity: map[string]any{"source": recordMap(c.source), "staged": recordMap(c.staged)},
 		Isolation:     map[string]any{"launcher": recordMap(c.bwrap), "profile": profile},
 		Limitations:   e.limitations, Errors: e.errors, ManifestSpec: spec,
-		ManifestCLI: []string{py, absolute(c.s.Cwd, c.manifestCLI)},
+		ManifestCLI: []string{inProcess, "manifest"},
 		Destination: c.destination, Timeout: e.timeout,
-		Env: c.s.Environ(), Stdout: c.s.Out, Stderr: c.s.Err,
+		Env: c.s.Environ(), Stdout: c.s.Out, Stderr: c.s.Err, Run: manifestRunner(c.s),
 	})
 }
 
-func (c *session) pathVar() string {
-	if p := envLookup(c.s, "PATH"); p != nil {
-		return *p
+// inProcess marks the manifest "CLI" that EmitEvidence invokes: the manifest steps run inside this process through
+// core/adapter, so there is no interpreter and no script to resolve (--manifest-cli is accepted and ignored).
+const inProcess = "rsdd-in-process"
+
+// manifestVerb runs one analysis-manifest verb (create, validate, verify); tests replace it with a fake tool.
+var manifestVerb = adapter.ManifestRun
+
+// manifestRunner executes the analysis-manifest verbs in process; the verb and its arguments follow the marker.
+func manifestRunner(s cli.Stdio) func(proc.Spec) (proc.Result, error) {
+	return func(spec proc.Spec) (proc.Result, error) {
+		var out, errb bytes.Buffer
+		inner := s
+		inner.In, inner.Out, inner.Err = strings.NewReader(""), &out, &errb
+		rc := manifestVerb(spec.Argv[2:], inner)
+		return proc.Result{Stdout: out.Bytes(), Stderr: errb.Bytes(), ReturnCode: rc}, nil
 	}
-	return ""
 }
 
 // published marks the stage as handed over: there is nothing left to clean up.

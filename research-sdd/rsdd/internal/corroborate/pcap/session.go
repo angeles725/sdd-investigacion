@@ -38,7 +38,6 @@ type session struct {
 	capinfosExe string
 	run         *runner
 	version     string
-	manifestCLI string
 }
 
 // sessionOptions are what the two commands differ in.

@@ -157,7 +157,7 @@ func (r *rig) set(name, content string) {
 }
 
 // env is the environment a run sees: PATH is the rig directory alone, so no tool of the host can leak in. A python
-// interpreter is linked in as python3 (the manifest tool is started with it on both sides); an empty py leaves
+// interpreter may still be linked in as python3 (the legacy side starts the manifest tool with it); an empty py leaves
 // whatever python3 the rig already holds (the fake manifest tool of fakeManifest).
 func (r *rig) env(py string, extra ...string) []string {
 	if py != "" {
@@ -171,27 +171,53 @@ func (r *rig) env(py string, extra ...string) []string {
 	return append(env, extra...)
 }
 
-// fakeManifest installs a python3 that stands in for the manifest tool, so a run needs no Python: "create" copies
+// fakeManifestMarker, present in a rig's PATH directory, makes the in-process manifest steps of a run in that rig
+// the fake below instead of the real ones. The seam is installed once (init), so parallel tests stay independent:
+// each run finds its own rig through its PATH.
+const fakeManifestMarker = "fake-manifest"
+
+func init() {
+	real := manifestVerb
+	manifestVerb = func(args []string, s cli.Stdio) int {
+		dir := s.Env("PATH")
+		if _, err := os.Stat(filepath.Join(dir, fakeManifestMarker)); err != nil {
+			return real(args, s)
+		}
+		return fakeManifestVerb(filepath.Join(dir, "data"), args, s)
+	}
+}
+
+// fakeManifestVerb stands in for the manifest tool, so a run's manifest steps need no real tool: "create" copies
 // the spec it was given to the manifest path (the frozen spec is what the command asked the tool to record),
-// "validate" and "verify" succeed. A fail-manifest-<verb> marker file makes that verb print its content and exit 2.
+// "validate" and "verify" succeed. A fail-manifest-<verb> marker file in data makes that verb print its content
+// and exit 2.
+func fakeManifestVerb(data string, args []string, s cli.Stdio) int {
+	verb := args[0]
+	if b, err := os.ReadFile(filepath.Join(data, "fail-manifest-"+verb)); err == nil {
+		_, _ = s.Err.Write(b)
+		return 2
+	}
+	if verb == "create" {
+		var spec, out string
+		for i := 1; i+1 < len(args); i++ {
+			switch args[i] {
+			case "--spec":
+				spec = args[i+1]
+			case "--output":
+				out = args[i+1]
+			}
+		}
+		b, err := os.ReadFile(spec)
+		if err != nil || os.WriteFile(out, b, 0o644) != nil {
+			return 1
+		}
+	}
+	return 0
+}
+
+// fakeManifest makes the manifest steps of runs in this rig fake (see fakeManifestVerb): a run needs no real tool.
 func (r *rig) fakeManifest() {
-	body := `#!/bin/sh
-d="$(dirname "$0")/data"
-shift
-verb="$1"; shift
-if [ -f "$d/fail-manifest-$verb" ]; then cat "$d/fail-manifest-$verb" >&2; exit 2; fi
-if [ "$verb" = create ]; then
-  while [ "$#" -gt 0 ]; do
-    case "$1" in --spec) spec="$2" ;; --output) out="$2" ;; esac
-    shift
-  done
-  cp "$spec" "$out"
-fi
-exit 0
-`
-	link := filepath.Join(r.dir, "python3")
-	_ = os.Remove(link)
-	if err := os.WriteFile(link, []byte(body), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(r.dir, fakeManifestMarker), nil, 0o644); err != nil {
 		panic(err)
 	}
 }
