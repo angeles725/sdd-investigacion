@@ -42,7 +42,7 @@ func hasDigest(line string) bool {
 	}
 }
 
-type epCounts struct{ n, a, k, i int }
+type epCounts struct{ n, a, k int }
 
 func (b *blockRun) sectionEphemeral() {
 	var c epCounts
@@ -87,7 +87,6 @@ func (b *blockRun) sectionEphemeral() {
 						if mk >= 0 && !flagged {
 							flagged = true
 							emit("   WARN    invalid marker line %d: `<!-- ephemeral-ok: <reason> -->` needs a non-empty reason — marker ignored", ln+1)
-							c.i++
 						}
 						if b.strictEP { // VB-EP-STRICT
 							emit("   EPHEMERAL!  %s  (line %d; session/temp path — preserve under sources/probes/b<N>/)", tok, ln+1)
@@ -114,7 +113,7 @@ func (b *blockRun) sectionEphemeral() {
 		b.echo("   ERROR: ephemeral-path scan DEGRADED (awk exit 2, no scan trailer) — block NOT checked for ephemeral cites")
 		b.rc = 1
 	case c.n == 0:
-		b.echo("   (none — no unanchored ephemeral path cited; sha256-anchored: %d, ephemeral-ok: %d, invalid markers: %d)", c.a, c.k, c.i)
+		b.echo("   (none — no unanchored ephemeral path cited; sha256-anchored: %d, ephemeral-ok: %d, invalid markers: 0)", c.a, c.k) // an invalid marker is always also a finding, so this arm never saw one
 	case b.strictEP:
 		b.echo("-- ephemeral-path cites: %d (FAIL — preserve under sources/probes/b<N>/, waive a non-evidence line with <!-- ephemeral-ok: <reason> -->, or opt out with --ephemeral=warn / RSDD_STRICT_EPHEMERAL=0 while the corpus is cleaned, kit #1660)", c.n)
 	default:

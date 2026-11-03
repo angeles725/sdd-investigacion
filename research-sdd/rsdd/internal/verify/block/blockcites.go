@@ -38,18 +38,16 @@ func isWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode
 // does not follow a word character.
 func grepOWordStart(re *regexp.Regexp, s string) []string {
 	var out []string
-	for pos := 0; pos < len(s); {
+	for pos := 0; ; { // ends on the first search that finds nothing (the pattern never matches the empty string)
 		loc := re.FindStringIndex(s[pos:])
 		if loc == nil {
 			break
 		}
 		st, en := pos+loc[0], pos+loc[1]
-		if st > 0 {
-			if prev, _ := utf8.DecodeLastRuneInString(s[:st]); isWordRune(prev) {
-				_, w := utf8.DecodeRuneInString(s[st:])
-				pos = st + w
-				continue
-			}
+		if prev, _ := utf8.DecodeLastRuneInString(s[:st]); isWordRune(prev) { // RuneError at st == 0 is no word rune
+			_, w := utf8.DecodeRuneInString(s[st:])
+			pos = st + w
+			continue
 		}
 		out = append(out, s[st:en])
 		pos = en
@@ -352,10 +350,7 @@ func (b *blockRun) resolveBacktick(c string) {
 	lext := strings.ToLower(ext)
 	methodLike := false
 	if !strings.Contains(f, "/") && ext != "" && ext[0] >= 'a' && ext[0] <= 'z' {
-		stem := f
-		if i := strings.LastIndex(f, "."); i >= 0 {
-			stem = f[:i]
-		}
+		stem := strings.TrimSuffix(f, "."+ext)
 		methodLike = strings.ContainsFunc(stem, func(r rune) bool { return r >= 'A' && r <= 'Z' })
 	}
 	if methodLike && !vbExtSet[lext] { // P973-NONPATH-METHOD
@@ -379,13 +374,13 @@ func (b *blockRun) p9Summary() {
 			deg = ", " + strconv.Itoa(b.dN) + " degraded"
 		}
 		b.echo("   resolved %d of %d (%d extern, %d failed%s)", b.ok, b.m, b.e, b.f, deg)
-		why := "no file paths resolved."
+		var why string // every attempted cite ended as degraded, extern or failed unless one resolved, so the last arm is the default
 		switch {
 		case b.dN > 0:
 			why = "line count failed — instrument, not the cite (see the DEGRADED lines above); those cites were not judged."
 		case b.e > 0:
 			why = "no file paths resolved. Set SOURCE_ROOT if source files live in a separate tree."
-		case b.f > 0:
+		default:
 			why = "every cite failed (RANGE!/MISSING!, listed above) — fix those cites; SOURCE_ROOT would not help."
 		}
 		if b.ok == 0 {

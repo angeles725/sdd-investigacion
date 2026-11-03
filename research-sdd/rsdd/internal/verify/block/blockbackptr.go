@@ -122,10 +122,7 @@ func scanCorrections(lines []string, self int) (cands []bpCand, tr bpTrailer, rm
 			}
 			tokS := awkSubstr(rest, rs, rl)
 			cs := off + rs
-			pre := ""
-			if cs > 1 {
-				pre = awkSubstr(sent, cs-1, 1)
-			}
+			pre := awkSubstr(sent, cs-1, 1) // "" for a cite at the start of the sentence
 			post := awkSubstr(rest, rs+rl, 1)
 			off += rs + rl - 1
 			rest = awkTail(rest, rs+rl)
@@ -142,21 +139,17 @@ func scanCorrections(lines []string, self int) (cands []bpCand, tr bpTrailer, rm
 			if !keep {
 				continue
 			}
-			kw := strings.HasPrefix(tokS, "B") && len(tokS) > 2 && tokS[1] == 'l' && tokS[2] == 'o' || strings.HasPrefix(tokS, "b") && len(tokS) > 2 && tokS[1] == 'l' && tokS[2] == 'o'
+			kw := strings.HasPrefix(tokS, "Blo") || strings.HasPrefix(tokS, "blo")
 			ser := "N"
 			if regexp.MustCompile(`R[0-9]+$`).MatchString(tokS) {
 				ser = "R"
 			}
-			ctxStart, ctxLen := 1, cs-1
-			if cs > 40 {
-				ctxStart, ctxLen = cs-40, 40
-			}
-			ctx := awkSubstr(low, ctxStart, ctxLen)
+			ctx := awkSubstr(low, cs-40, 40)  // the 40 characters before the cite (fewer near the sentence start)
 			if bpCorrector.MatchString(ctx) { // BP-CORRECTOR
 				tr.corrector++
 				continue
 			}
-			mg, bvs, bvl := 99999, 0, 0
+			mg, bvs := 99999, 0
 			n := low
 			for {
 				ms, ml, ok := awkMatch(bpVerbRe, n)
@@ -164,14 +157,10 @@ func scanCorrections(lines []string, self int) (cands []bpCand, tr bpTrailer, rm
 					break
 				}
 				vs := utf8.RuneCountInString(low) - utf8.RuneCountInString(n) + ms
-				var gap int
-				if cs > vs {
-					gap = cs - (vs + ml)
-				} else {
-					gap = vs - (cs + rl)
-				}
+				// A verb never overlaps the cite, so the distance is positive on one side only.
+				gap := max(cs-(vs+ml), vs-(cs+rl))
 				if gap < mg {
-					mg, bvs, bvl = gap, vs, ml
+					mg, bvs = gap, vs
 				}
 				n = awkTail(n, ms+ml)
 			}
@@ -179,13 +168,10 @@ func scanCorrections(lines []string, self int) (cands []bpCand, tr bpTrailer, rm
 				tr.far++
 				continue
 			}
-			before := bvs+bvl <= cs
-			tail := ""
-			if !before {
-				tail = awkSubstr(low, cs+rl, bvs-(cs+rl))
-			}
+			// Text between the cite and an act after it; empty (and so a match) for an act before the cite.
+			tail := awkSubstr(low, cs+rl, bvs-(cs+rl))
 			conf := "low"
-			if kw && mg <= 25 && (before || bpTail.MatchString(tail)) { // BP-CONF
+			if kw && mg <= 25 && bpTail.MatchString(tail) { // BP-CONF
 				conf = "high"
 			}
 			num, _ := strconv.Atoi(strings.Map(func(r rune) rune {

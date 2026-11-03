@@ -80,24 +80,9 @@ func awkMatch(re *regexp.Regexp, s string) (start, length int, ok bool) {
 // awkSubstr is gawk substr(s, start, length) on characters.
 func awkSubstr(s string, start, length int) string {
 	r := []rune(s)
-	if length <= 0 {
-		return ""
-	}
-	if start < 1 {
-		length += start - 1
-		start = 1
-		if length <= 0 {
-			return ""
-		}
-	}
-	if start > len(r) {
-		return ""
-	}
-	end := start - 1 + length
-	if end > len(r) {
-		end = len(r)
-	}
-	return string(r[start-1 : end])
+	lo := min(max(start-1, 0), len(r))
+	hi := max(min(start-1+length, len(r)), lo) // an empty window for a non-positive length or a start past the end
+	return string(r[lo:hi])
 }
 
 // awkTail is substr(s, start) on characters.
@@ -140,9 +125,7 @@ func neuterRe(s string, re *regexp.Regexp) string {
 		b.WriteString(s[:loc[0]])
 		m := []rune(s[loc[0]:loc[1]])
 		b.WriteString("xxx")
-		if len(m) > 3 {
-			b.WriteString(string(m[3:]))
-		}
+		b.WriteString(string(m[3:])) // a match is never shorter than 3 characters
 		s = s[loc[1]:]
 	}
 	b.WriteString(s)
@@ -155,10 +138,7 @@ func shellInt(s string) (int64, bool) { return shellx.Decimal(s) }
 
 // cutBytes is `cut -c1-n`: GNU cut counts bytes.
 func cutBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
+	return s[:min(n, len(s))]
 }
 
 // trimTabs is the effect of `IFS=$'\t' read` on the last field: leading and trailing tabs are dropped.

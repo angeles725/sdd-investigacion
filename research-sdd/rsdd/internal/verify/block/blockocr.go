@@ -19,7 +19,7 @@ var vbOCRTag = vbRe(`(?i)reliability:[[:space:]]*ocr-lossy|extracted via OCR`)
 func (b *blockRun) sectionOCR() {
 	b.echo("-- OCR-provenance flag (reliability: ocr-lossy) --")
 	dir := b.target + "/sources/extracted"
-	lossy := 0
+	lossy := false
 	if b.fs.IsDir(dir) {
 		for _, ext := range b.findDirMarkdown(dir) {
 			if !b.fs.IsFile(ext) {
@@ -31,16 +31,13 @@ func (b *blockRun) sectionOCR() {
 			}
 			name := shellx.BaseName(ext)
 			stem := strings.TrimSuffix(name, ".md")
-			loose := stem
-			if parts := strings.Split(stem, "-"); len(parts) > 2 { // cut -d- -f1-2
-				loose = parts[0] + "-" + parts[1]
-			}
+			parts := strings.SplitN(stem, "-", 3)
+			loose := strings.Join(parts[:min(len(parts), 2)], "-") // cut -d- -f1-2
 			pdfBase := ""
 			if pdf := sourcePDF(shellx.RecordLines(string(src))); pdf != "" {
 				pdfBase = vbStripExt(shellx.BaseName(pdf))
 			}
 			var hits []string
-			grepErr := 0
 			for _, tok := range []string{pdfBase, stem, loose} {
 				if tok == "" {
 					continue
@@ -54,21 +51,17 @@ func (b *blockRun) sectionOCR() {
 					}
 				}
 			}
-			if grepErr >= 2 {
-				b.echo("   WARN: citation resolution FAILED (grep exit %d) — unresolved (grep exit R)", grepErr)
-				continue
-			}
 			hits = dedupeByLine(hits)
 			if len(hits) > 0 {
 				b.echo("   OCR!    lines citing OCR-lossy '%s' — re-verify numbers/quotes/serials vs page image:", stem)
 				for _, h := range hits {
 					b.echo("           %s", h)
 				}
-				lossy++
+				lossy = true
 			}
 		}
 	}
-	if lossy == 0 {
+	if !lossy {
 		b.echo("   (none — no citation traces to an OCR-lossy extract)")
 	}
 }
@@ -88,23 +81,19 @@ func sourcePDF(lines []string) string {
 
 // dedupeByLine is `sort -t: -k1n -u`: ascending by line number, the first line seen for a number kept.
 func dedupeByLine(hits []string) []string {
-	seen := map[int]bool{}
-	type h struct {
-		n int
-		s string
-	}
-	var hs []h
+	first := map[int]string{}
+	var ns []int
 	for _, s := range hits {
 		n, _ := strconv.Atoi(s[:strings.Index(s, ":")])
-		if !seen[n] {
-			seen[n] = true
-			hs = append(hs, h{n, s})
+		if _, ok := first[n]; !ok {
+			first[n] = s
+			ns = append(ns, n)
 		}
 	}
-	sort.SliceStable(hs, func(i, j int) bool { return hs[i].n < hs[j].n })
+	sort.Ints(ns)
 	var out []string
-	for _, x := range hs {
-		out = append(out, x.s)
+	for _, n := range ns {
+		out = append(out, first[n])
 	}
 	return out
 }

@@ -32,7 +32,7 @@ func pfScan(lines []string) []pfHit {
 	var out, pend []pfHit
 	routes, cheapest, fence := 0, false, false
 	flush := func() {
-		if len(pend) > 0 && !(routes >= 3 && cheapest) { // PF-LADDER-ACCEPT
+		if !(routes >= 3 && cheapest) { // PF-LADDER-ACCEPT
 			out = append(out, pend...)
 		}
 		pend, routes, cheapest = nil, 0, false

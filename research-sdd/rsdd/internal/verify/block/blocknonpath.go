@@ -48,18 +48,11 @@ func (b *blockRun) splitNonpath(bt []string) (nonpath, keep []string) {
 		}
 		stem := citeFile(c)
 		last := stem[strings.LastIndex(stem, ".")+1:]
-		labels := stem
-		if i := strings.LastIndex(stem, "."); i >= 0 {
-			labels = stem[:i]
-		}
-		first := stem
-		if i := strings.Index(stem, "."); i >= 0 {
-			first = stem[:i]
-		}
+		first, _, _ := strings.Cut(stem, ".")
 		if !hit {
 			if vbExtSet[last] { // P1721-NONPATH-EXT
 				hit = true
-				if vbTLDSet[last] && !versioned(labels) {
+				if vbTLDSet[last] && !versioned(stem) {
 					hit = false
 				}
 			} else if last == "R" {
@@ -70,7 +63,7 @@ func (b *blockRun) splitNonpath(bt []string) (nonpath, keep []string) {
 				default:
 					pkg = len(first) == 2 && first[0] >= 'a' && first[0] <= 'z' && first[1] >= 'a' && first[1] <= 'z'
 				}
-				if versioned(labels) {
+				if versioned(stem) {
 					pkg = false
 				}
 				if !pkg {

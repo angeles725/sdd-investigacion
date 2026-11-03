@@ -34,7 +34,7 @@ func (b *blockRun) sectionEmptyDigest() {
 			elided := strings.HasPrefix(after, "…") || strings.HasPrefix(after, "...")
 			if !(len(before) == 1 && isLowerAlnumUnderscore(before[0])) {
 				for _, d := range vbEmptyDigests {
-					if tok == d.digest || (elided && len(tok) >= 8 && len(tok) < len(d.digest) && strings.HasPrefix(d.digest, tok)) { // VB-EMPTY-DIGEST-MATCH
+					if tok == d.digest || (elided && len(tok) >= 8 && strings.HasPrefix(d.digest, tok)) { // VB-EMPTY-DIGEST-MATCH
 						if strings.Contains(line, "<!-- empty-digest: quoted -->") { // VB-EH-WAIVER
 							b.echo("   INFO    empty-digest waived on line %d (%s digest quoted on purpose, marker present)", i+1, d.kind)
 							w++

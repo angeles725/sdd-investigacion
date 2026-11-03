@@ -51,10 +51,7 @@ func (b *blockRun) legendFence() int {
 
 func (b *blockRun) sectionTally() {
 	fence := b.legendFence()
-	body := b.lines
-	if fence > 0 {
-		body = b.lines[fence:]
-	}
+	body := b.lines[fence:]
 	raw, adj := map[string]int{}, map[string]int{}
 	for _, m := range vbMarkers {
 		tok := "[" + m + "]"

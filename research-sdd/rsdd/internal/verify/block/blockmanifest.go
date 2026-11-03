@@ -178,9 +178,7 @@ func (b *blockRun) scriptsManifestRows(target, mf string) ([]string, bool) {
 		return nil, false
 	}
 	md := strings.TrimPrefix(mf, target+"/")
-	if i := strings.LastIndex(md, "/"); i >= 0 {
-		md = md[:i]
-	}
+	md = strings.TrimSuffix(md, "/"+shellx.BaseName(md)) // ${md%/*}
 	src, err := b.fs.Read(mf)
 	if err != nil {
 		return nil, false
