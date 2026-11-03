@@ -394,12 +394,7 @@ func (g *ghClient) retryPause(r *Report, stderr []byte) {
 		reset, _ := strconv.ParseInt(m[1], 10, 64)
 		w = int(reset - g.now().Unix())
 	}
-	if w < 1 {
-		w = 1
-	}
-	if w > maxWait { // RECONCILE_ISSUES_RETRY_CAP
-		w = maxWait
-	}
+	w = min(max(w, 1), maxWait) // RECONCILE_ISSUES_RETRY_CAP: at least 1 s, at most the max (0 = never wait)
 	if w < 1 {
 		return
 	}

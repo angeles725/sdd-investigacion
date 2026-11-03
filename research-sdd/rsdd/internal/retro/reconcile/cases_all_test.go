@@ -89,7 +89,9 @@ func allModeCases() []dcase {
 		a("targets-md-missing", func(d *dcase) { d.noTargets = true }),
 		a("targets-md-without-rows", func(d *dcase) { d.targets = "# nothing registered\n" }),
 		a("targets-md-empty-but-present", func(d *dcase) { d.targets = " " }),
-		a("no-retro-anywhere", func(d *dcase) { d.targets = "# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | gone | `@BOX@/rh/gone` |\n" }),
+		a("no-retro-anywhere", func(d *dcase) {
+			d.targets = "# t\n\n| # | Target | Path |\n|---|---|---|\n| 1 | gone | `@BOX@/rh/gone` |\n"
+		}),
 		a("an-unreadable-retro-is-degraded-the-rest-audited", func(d *dcase) {
 			d.files = map[string]string{"rh/alpha-target/retros/a.md": one, "rh/beta-target/retros/b.md": one}
 			d.prep = unreadable("rh/alpha-target/retros/a.md")

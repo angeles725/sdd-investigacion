@@ -205,4 +205,3 @@ func liveCases() []dcase {
 		}, both(oldGH, legacy, func(d *dcase) { d.repo = "fix"; d.retroFile = "2026-03-01-r.md" })),
 	}
 }
-

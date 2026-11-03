@@ -69,7 +69,7 @@
   "all/live-open-query-fails-for-every-retro": {
     "rc": 1,
     "stdout": "fleet-summary: tracked=0 untracked=0 shipped=0 borderline=0 regressed=0 orphaned=0 degraded=2 out-of-scope=0 retros=0\n",
-    "stderr": "degraded: gh issue list failed for a.md (exit 1)\ndegraded: gh issue list failed for b.md (exit 1)\n",
+    "stderr": "degraded: gh issue list failed for a.md (exit 1) — down\ndegraded: gh issue list failed for b.md (exit 1) — down\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: alpha-target/retros/a.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: beta-target/retros/b.md ·\" --json body --jq .[] | .body, \"\\u001e\"\n"
   },
   "all/live-two-targets": {
@@ -1151,13 +1151,13 @@
   "live/closed-query-fails-on-the-second-prefix": {
     "rc": 1,
     "stdout": "",
-    "stderr": "degraded: gh issue list (closed) failed for r.md (exit 1)\n",
+    "stderr": "degraded: gh issue list (closed) failed for r.md (exit 1) — no\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: reg-name/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: legacy-dir/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: reg-name/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: legacy-dir/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\n"
   },
   "live/closed-query-fails-with-a-message": {
     "rc": 1,
     "stdout": "",
-    "stderr": "degraded: gh issue list (closed) failed for r.md (exit 1)\n",
+    "stderr": "degraded: gh issue list (closed) failed for r.md (exit 1) — rate limited\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\n"
   },
   "live/closed-query-fails-without-a-message": {
@@ -1243,7 +1243,7 @@
   "live/oldgh-fallback-listing-fails": {
     "rc": 1,
     "stdout": "",
-    "stderr": "degraded: gh issue list (closed, old-gh fallback) failed (exit 1)\n",
+    "stderr": "degraded: gh issue list (closed, old-gh fallback) failed (exit 1) — gh: nope\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\n"
   },
   "live/oldgh-forged-marker-in-a-body-is-stripped": {
@@ -1267,7 +1267,7 @@
   "live/oldgh-listing-fails-after-one-retry": {
     "rc": 1,
     "stdout": "",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\ndegraded: gh api state_reason listing failed (this gh has no stateReason --json field)\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\ndegraded: gh api state_reason listing failed (this gh has no stateReason --json field) — HTTP 500\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
     "sleeps": "2\n"
   },
@@ -1287,9 +1287,9 @@
   "live/oldgh-max-wait-not-numeric-falls-back": {
     "rc": 0,
     "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 30s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
-    "sleeps": "2\n"
+    "sleeps": "30\n"
   },
   "live/oldgh-max-wait-zero-never-waits": {
     "rc": 0,
@@ -1324,30 +1324,30 @@
   "live/oldgh-retry-after-above-the-cap": {
     "rc": 0,
     "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 30s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
-    "sleeps": "2\n"
+    "sleeps": "30\n"
   },
   "live/oldgh-retry-after-header": {
     "rc": 0,
     "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 7s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
-    "sleeps": "2\n"
+    "sleeps": "7\n"
   },
   "live/oldgh-retry-after-with-a-lower-max-wait": {
     "rc": 0,
     "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 5s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
-    "sleeps": "2\n"
+    "sleeps": "5\n"
   },
   "live/oldgh-retry-after-zero-waits-one-second": {
     "rc": 0,
     "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
-    "stderr": "note: gh api state_reason listing failed — retrying once in 2s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
+    "stderr": "note: gh api state_reason listing failed — retrying once in 1s\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body,stateReason,comments,number --jq .[] | (if .stateReason == \"COMPLETED\" then (\"Closed-issue-number: \\(.number // \"\")\\n\" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body]) | join(\"\\n\"))) else \"\" end), \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state closed --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json number,body,comments --jq .[] | \"\\u001f\\(.number)\", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | [\"OWNER\",\"MEMBER\",\"COLLABORATOR\"] | index($a)) | .body] | join(\"\\n\") | gsub(\"[\\u001e\\u001f]\"; \"\")), \"\\u001e\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\ngh api --paginate repos/angeles725/sdd-investigacion/issues?state=closed\u0026per_page=100 --jq .[] | \"\\(.number) \\(.state_reason // \"\")\"\n",
-    "sleeps": "2\n"
+    "sleeps": "1\n"
   },
   "live/oldgh-run-level-reload-uses-the-older-bound": {
     "rc": 0,
@@ -1406,13 +1406,13 @@
   "live/open-query-fails-on-the-legacy-query": {
     "rc": 1,
     "stdout": "",
-    "stderr": "degraded: gh issue list failed for r.md (exit 1)\n",
+    "stderr": "degraded: gh issue list failed for r.md (exit 1) — boom\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: reg-name/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: legacy-dir/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\n"
   },
   "live/open-query-fails-with-a-message": {
     "rc": 1,
     "stdout": "",
-    "stderr": "degraded: gh issue list failed for r.md (exit 1)\n",
+    "stderr": "degraded: gh issue list failed for r.md (exit 1) — HTTP 502: bad gateway\n",
     "gh": "gh auth status\ngh issue list --repo angeles725/sdd-investigacion --state open --limit 1000 --search \"Source retro: target-foo/retros/r.md ·\" --json body --jq .[] | .body, \"\\u001e\"\n"
   },
   "live/open-query-fails-without-a-message": {

@@ -26,7 +26,7 @@ nextn() { local f="$G/$1.n" n; n=$(( $(cat "$f" 2>/dev/null || echo 0) + 1 )); e
 answer() { # <kind> <n> <data-file-or-empty> <jq>
   local rc=0 f
   for f in "$G/$1.rc.$2" "$G/$1.rc"; do [ -f "$f" ] && { rc="$(cat "$f")"; break; }; done
-  if [ "$rc" != 0 ]; then cat "$G/$1.err" 2>/dev/null >&2; exit "$rc"; fi
+  if [ "$rc" != 0 ]; then [ ! -f "$G/$1.err" ] || cat "$G/$1.err" >&2; exit "$rc"; fi
   [ -f "$3" ] || { printf '[]' > "$B/empty.json"; set -- "$1" "$2" "$B/empty.json" "$4"; }
   jq -r "$4" "$3"
 }
