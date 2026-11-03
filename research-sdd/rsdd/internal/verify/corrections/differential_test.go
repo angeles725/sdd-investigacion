@@ -83,8 +83,9 @@ func requireOracleHost(t *testing.T) {
 }
 
 // legacyScript is absolute and computed at init, while the working directory is still the package directory: a test
-// that changes directory (the relative-target case) must still find the oracle.
-var legacyScript, _ = filepath.Abs(filepath.Join("testdata", "legacy", "verify-corrections.sh"))
+// that changes directory (the relative-target case) must still find the oracle. A failure is kept and reported by
+// runLegacyArgs, never left as a relative path that would fail later as a confusing "file not found".
+var legacyScript, legacyScriptErr = filepath.Abs(filepath.Join("testdata", "legacy", "verify-corrections.sh"))
 
 // runLegacy runs the frozen script on dir.
 func runLegacy(t *testing.T, dir string) observed { return runLegacyArgs(t, "", dir) }
@@ -93,6 +94,9 @@ func runLegacy(t *testing.T, dir string) observed { return runLegacyArgs(t, "", 
 func runLegacyArgs(t *testing.T, cwd string, args ...string) observed {
 	t.Helper()
 	requireOracleHost(t)
+	if legacyScriptErr != nil {
+		t.Fatalf("differential: cannot resolve the oracle path; the Go port is NOT proven against verify-corrections.sh: %v", legacyScriptErr)
+	}
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Fatalf("differential: bash not found; the Go port is NOT proven against verify-corrections.sh: %v", err)
