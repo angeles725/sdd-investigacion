@@ -74,22 +74,10 @@ func inputCases() []dcase {
 			}
 			mustWrite(t, filepath.Join(b.root, "r.md"), cConform)
 		}},
-		{name: "args/unreadable", retro: cConform, prep: func(t *testing.T, b *box) {
-			if os.Geteuid() == 0 {
-				t.Skip("root reads a mode-000 file; the unreadable branch cannot be reached")
-			}
-			if err := os.Chmod(b.retro, 0); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{name: "args/not-md-and-unreadable-is-not-md", file: "x.txt", retro: cConform, prep: func(t *testing.T, b *box) {
-			if os.Geteuid() == 0 {
-				t.Skip("root reads a mode-000 file")
-			}
-			if err := os.Chmod(b.retro, 0); err != nil {
-				t.Fatal(err)
-			}
-		}},
+		// unreadable: the legacy script runs with the file at mode 000 (non-root only, see differential_test.go);
+		// the port runs with the Options.Read seam failing, so no case depends on the uid of the test process.
+		{name: "args/unreadable", retro: cConform, unreadable: true},
+		{name: "args/not-md-and-unreadable-is-not-md", file: "x.txt", retro: cConform, unreadable: true},
 		{name: "file/empty", retro: ""},
 		{name: "file/no-trailing-newline", retro: strings.TrimSuffix(cConform, "\n")},
 		{name: "file/crlf", retro: strings.ReplaceAll(cConform, "\n", "\r\n")},
@@ -201,6 +189,16 @@ func deltaCases() []dcase {
 		d("deprecated-heading-no-rows", "## Proposed deltas\n\n"),
 		d("deprecated-heading-honesty", cat("## Proposed deltas\n\n", cHead, cHonest)),
 		d("deprecated-then-canonical", cat("## Proposed deltas\n\n", cHead, cRow, "\n", cTable)),
+		// The real deprecated aliases of retrogrammar.isDeprecated; each fires the WARN alone (a conforming retro).
+		d("deprecated-alias-summary-of-proposed-delta", cat("## Summary of proposed delta\n\n", cHead, cRow)),
+		d("deprecated-alias-summary-of-proposed-deltas", cat("## Summary of proposed deltas\n\n", cHead, cRow)),
+		d("deprecated-alias-summary-of-new-deltas", cat("## Summary of new deltas\n\n", cHead, cRow)),
+		d("deprecated-alias-delta-details", cat("## Delta details\n\n", cHead, cRow)),
+		d("deprecated-alias-delta-details-uppercase", cat("## DELTA DETAILS\n\n", cHead, cRow)),
+		d("deprecated-alias-delta-details-with-text", cat("## Delta details (D1-D3)\n\n", cHead, cRow)),
+		d("deprecated-alias-delta-details-glued-is-not-alias", cat("## Delta detailsX\n\n", cHead, cRow)),
+		d("deprecated-alias-near-miss-summary-of-deltas", cat("## Summary of deltas\n\n", cHead, cRow)),
+		d("deprecated-alias-no-rows", "## Summary of new deltas\n\n"),
 		d("unrecognised-with-rows", cat("## Consolidated kit deltas by file\n\n", cHead, cRow)),
 		d("unrecognised-no-rows", "## Consolidated kit deltas by file\n\ntext\n"),
 		d("unrecognised-header-only", cat("## Consolidated kit deltas by file\n\n", cHead)),

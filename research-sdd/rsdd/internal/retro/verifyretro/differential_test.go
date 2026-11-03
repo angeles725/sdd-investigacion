@@ -69,7 +69,18 @@ func TestDifferential(t *testing.T) {
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
-				want := runLegacy(t, bash, mkBox(t, c))
+				lb := mkBox(t, c)
+				if c.unreadable {
+					// Only the LEGACY side needs a real mode-000 file; root reads it, so the legacy run (not the
+					// port, which uses the seam, and not the golden replay) cannot be compared there.
+					if os.Geteuid() == 0 {
+						t.Skip("differential: root reads a mode-000 file, the legacy script cannot be driven into its unreadable branch; the golden replay still pins the port")
+					}
+					if err := os.Chmod(lb.retro, 0); err != nil {
+						t.Fatal(err)
+					}
+				}
+				want := runLegacy(t, bash, lb)
 				mu.Lock()
 				recorded[c.name] = want
 				mu.Unlock()
