@@ -19,7 +19,7 @@ Objective: port `research-sdd/toolbelt/reconcile-issues.sh` to Go in `internal/r
 
 ## Tasks
 - T1 S1 S2 S3 S4 — slice 1: freeze the legacy oracle; core classification of one retro against --issues-cache (tracked / untracked / orphaned, legacy signature, delta forms, marker scope); Report/Render; differential plus goldens for those cases. Route: delegated writer (context backstop; parallel with CI watchers). Status: done (PR, commits 3de12808..e0aeba26; merge sha recorded on merge).
-- T2 S1 S4 — slice 2: --closed-cache: shipped / borderline / regressed, the closure-evidence grammar, git reachability (RECONCILE_ISSUES_MAIN_REF / _GIT_DIR), shallow-clone. Route: delegated writer. Status: open.
+- T2 S1 S4 — slice 2: --closed-cache: shipped / borderline / regressed, the closure-evidence grammar, git reachability (RECONCILE_ISSUES_MAIN_REF / _GIT_DIR), shallow-clone. Route: delegated writer. Status: done (branch feat/2563-reconcile-s2 on top of s1 28d2fd61; commits recorded on the PR).
 - T3 S1 S2 S5 S6 S8 — slice 3: --all over TARGETS.md, live gh (LoadCache, per-retro re-verify), the `rsdd retro reconcile` command, shim, deletion of the bash suite with the case map, registry. Route: delegated writer. Status: open.
 - T4 S7 — fleet sweep and acceptance. Route: inline. Status: open.
 
@@ -38,3 +38,8 @@ Objective: port `research-sdd/toolbelt/reconcile-issues.sh` to Go in `internal/r
     - `stageissues` keeps its signature builder and its table-row reader unexported, so the `Source retro:` prefix is built locally. Follow-up: export them from `stageissues`.
   - RDD: commit af7790d7 (frozen oracle) was approved and acknowledged. Every other commit, and the af7790d7..e0aeba26 range (2,098 lines), read medium `under_budget`, so the slice stays pending.
   - Impacted gate on e0aeba26: 186/186 suites, 13,165 cases, 0 failed, kit-tree 0.
+- L5 (2026-11-02) T2 delivered on top of 28d2fd61.
+  - `Options.ClosedCache` (`ClosedFile`, `ClosedBodies`); `Report` gains `Shipped`, `Borderline` and `Regressed`.
+  - 91 new differential cases (closed 61, regressed 30; 226 goldens in all): 0 diffs against the frozen script. The goldens are replayed under nodiff.
+  - Known divergences, none reachable by a case: the find error text for an unlistable retros dir is built in C-locale quoting; sibling order is bytewise (the C-locale sort); row ids and titles are compared as strings where awk would compare numeric-looking strnums (01 vs 1).
+  - The test fixtures build a deterministic repository (pinned author and dates), so the goldens name its commit ids.

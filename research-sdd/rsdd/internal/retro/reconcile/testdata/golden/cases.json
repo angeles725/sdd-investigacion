@@ -1,4 +1,309 @@
 {
+  "closed/applied-retro-closed-cache-unused": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "no-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "closed/borderline-commit-absent": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/borderline-commit-on-side-branch": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/borderline-date-is-not-a-commit": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/borderline-no-commit": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/borderline-no-test": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no test cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/borderline-nothing-cited": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited; no test cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/both-rows-closed": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nborderline: row 2 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/closed-cache-is-a-directory": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "degraded: --closed-cache file not readable: @BOX@/closed.txt\n"
+  },
+  "closed/closed-cache-missing-is-degraded": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "degraded: --closed-cache file not readable: @BOX@/closed.txt\n"
+  },
+  "closed/closed-cache-missing-keeps-tracked-lines": {
+    "rc": 1,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": "degraded: --closed-cache file not readable: @BOX@/closed.txt\n"
+  },
+  "closed/closed-cache-unreadable-all-tracked-is-fine": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "closed/closed-cache-with-orphan-and-no-match": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/crlf-closed-cache": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/dismissed-row-is-not-looked-up": {
+    "rc": 0,
+    "stdout": "untracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "closed/empty-closed-cache": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-commit-length-bounds": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-commit-needs-a-digit": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-commit-word-boundaries": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-commit-word-uppercase": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673ACCCBDED2CA6631FF258308A13DB8C7AAA2EA reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/evidence-on-the-signature-line": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/evidence-test-forms": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/evidence-test-needs-a-path": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no test cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-test-needs-the-word": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no test cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/evidence-test-prefix-form": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/git-degraded-twice-one-probe": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nborderline: row 2 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\n",
+    "stderr": "degraded: @BOX@ is not a git repository — cannot verify that cited commits reach origin/main; rows are reported borderline, not shipped\n"
+  },
+  "closed/git-dir-empty-means-kit-root": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "degraded: @BOX@ is not a git repository — cannot verify that cited commits reach origin/main; rows are reported borderline, not shipped\n"
+  },
+  "closed/git-dir-env-points-nowhere": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "degraded: @BOX@/no/such/repo is not a git repository — cannot verify that cited commits reach origin/main; rows are reported borderline, not shipped\n"
+  },
+  "closed/git-dir-is-not-a-repository": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "degraded: @BOX@ is not a git repository — cannot verify that cited commits reach origin/main; rows are reported borderline, not shipped\n"
+  },
+  "closed/git-missing": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "degraded: git not found on PATH — cannot verify that cited commits reach origin/main; rows are reported borderline, not shipped\n"
+  },
+  "closed/git-missing-without-cited-commits-is-silent": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/git-state-degraded-no-commit-no-probe": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited; no test cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/legacy-and-registered-closed-issues": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no test cited; no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/legacy-prefix-closed-issue": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/main-ref-empty-means-default": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/main-ref-override": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit c744f7bcb91095a4102d338c09a3138a93aef953 reachable from side (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/main-ref-unknown": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "degraded: ref refs/remotes/origin/nope is not known locally in @BOX@/fixrepo (no fetch is performed) — cannot verify that cited commits reach it; rows are reported borderline, not shipped\n"
+  },
+  "closed/nul-and-trailing-newlines": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/one-row-shipped-one-borderline-one-untracked": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nborderline: row 2 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/out-of-scope-marker-skips-the-lookup": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r.md — refusing to classify (kit issue #1099); move the marker into the leading block\n"
+  },
+  "closed/separated-records-evidence-stays-in-its-issue": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited; no test cited); human review (not shipped, not untracked, nothing edited)\nshipped: row 2 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/separated-records-footer-signature": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shallow-missing-main-ref-is-degraded": {
+    "rc": 1,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\nborderline: row 2 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (commit reachability could not be verified (degraded)); human review (not shipped, not untracked, nothing edited)\n",
+    "stderr": "degraded: ref origin/main is not known locally in @BOX@/shallow (no fetch is performed) — cannot verify that cited commits reach it; rows are reported borderline, not shipped\n"
+  },
+  "closed/shallow-nothing-resolves": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit resolves in this shallow clone (not fetched, so reachability cannot be verified)); human review (not shipped, not untracked, nothing edited)\nborderline: row 2 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit resolves in this shallow clone (not fetched, so reachability cannot be verified)); human review (not shipped, not untracked, nothing edited)\n",
+    "stderr": "shallow-clone: @BOX@/shallow is a shallow clone and no cited commit resolved locally for 2 row(s) (e.g. 673acccbded2ca6631ff258308a13db8c7aaa2ea); those rows stay borderline, not shipped — run 'git fetch --unshallow' (or raise the CI fetch-depth) to verify them\n"
+  },
+  "closed/shallow-one-cited-commit-resolves": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit c744f7bcb91095a4102d338c09a3138a93aef953 reachable from origin/side (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shallow-one-row-nothing-resolves-no-sha-token": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit resolves in this shallow clone (not fetched, so reachability cannot be verified)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "shallow-clone: @BOX@/shallow is a shallow clone and no cited commit resolved locally for 1 row(s); those rows stay borderline, not shipped — run 'git fetch --unshallow' (or raise the CI fetch-depth) to verify them\n"
+  },
+  "closed/shallow-resolved-and-reaches": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit c744f7bcb91095a4102d338c09a3138a93aef953 reachable from origin/side (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shipped": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shipped-evidence-in-comment-lines": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shipped-one-reachable-among-many": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shipped-only-no-no-match-note": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/shipped-reach-is-first-in-sort-order": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2 reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/signature-id-prefix-is-not-the-row": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/signature-other-retro": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/signature-other-target": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/tracked-rows-skip-the-closed-lookup": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "closed/two-closed-issues-for-one-row": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no cited commit reachable from local ref origin/main (no fetch performed; a stale ref reads as unreachable)); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
+  "closed/unseparated-preamble-is-ignored-and-noted": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "note: closed-cache: 2 line(s) before the first signature line belong to no record (ignored)\nregressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\nnote: closed-cache: 2 line(s) before the first signature line belong to no record (ignored)\n"
+  },
+  "closed/unseparated-preamble-noted-per-row": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "note: closed-cache: 1 line(s) before the first signature line belong to no record (ignored)\nnote: closed-cache: 1 line(s) before the first signature line belong to no record (ignored)\n"
+  },
+  "closed/unseparated-records-split-by-signature": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in r.md, but the closure evidence is incomplete (no commit cited; no test cited); human review (not shipped, not untracked, nothing edited)\nshipped: row 2 — its issue is closed as completed and cites this retro in r.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\n",
+    "stderr": "regressed-lookup: r.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "closed/whitespace-closed-cache": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": ""
+  },
   "core/all-tracked-no-closed-note": {
     "rc": 0,
     "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
@@ -678,5 +983,155 @@
     "rc": 0,
     "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\n",
     "stderr": "WARN: unrecognised review-status 'wibble' in r.md — treating all rows as open\n"
+  },
+  "regressed/bare-priority-token-has-no-identity": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "regressed-lookup: row 1 of 2026-01-01-cur.md has a title under 12 characters, empty or a bare priority/type token — no cross-retro identity, not checked\n"
+  },
+  "regressed/borderline-row-is-not-checked-for-regression": {
+    "rc": 0,
+    "stdout": "borderline: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md, but the closure evidence is incomplete (no commit cited); human review (not shipped, not untracked, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/closed-issue-numbers-sorted-and-joined": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, #9, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/current-retro-undated": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in cur.md\n",
+    "stderr": "regressed-lookup: cur.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "regressed/current-retro-undated-noted-once-for-two-rows": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nshipped: row 2 — its issue is closed as completed and cites this retro in cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\n",
+    "stderr": "regressed-lookup: cur.md has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked\n"
+  },
+  "regressed/earlier-retro-is-not-later": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/entry-form-titles": {
+    "rc": 0,
+    "stdout": "shipped: row D1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row D1 (closed by #3, re-proposed in 2026-02-01-later.md as row D4) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-applied-closes-its-rows": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-dismissed-closes-its-rows": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-fenced-table": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-marker-out-of-scope": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "regressed-lookup: 2026-02-01-later.md has a review-status marker outside the leading-block scope — cannot tell whether its rows are open, so it was not checked for re-proposals of 2026-01-01-cur.md rows\n"
+  },
+  "regressed/later-retro-partial-dismissed-row-is-closed": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-partial-keeps-unlisted-rows-open": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-partial-shipped-row-is-closed": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-unreadable-is-degraded": {
+    "rc": 1,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "degraded: later retro not readable: @BOX@/rh/target-foo/retros/2026-02-01-later.md — regressed rows in it were not checked\n"
+  },
+  "regressed/later-retro-with-unsafe-id-row-is-ignored": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retro-without-delta-section": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/later-retros-dir-not-listable-is-degraded": {
+    "rc": 1,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "degraded: retros directory not listable: @BOX@/rh/target-foo/retros — regressed rows were not checked (find: '@BOX@/rh/target-foo/retros': Permission denied)\n"
+  },
+  "regressed/no-issue-numbers-in-the-cache": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by an issue whose number is not in the closed-issue data, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/no-later-retro": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/not-reproposed-different-title": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/reproposed-bold-title-is-unwrapped": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/reproposed-in-a-later-retro": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/reproposed-title-is-compared-exactly": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/same-day-and-undated-siblings-are-noted": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "regressed-lookup: skipped 1 same-day retro(s) next to 2026-01-01-cur.md — equal dates cannot be ordered against it, so their rows were not checked\nregressed-lookup: skipped 2 retro(s) without a YYYY-MM-DD prefix next to 2026-01-01-cur.md — they cannot be ordered against it, so their rows were not checked\n"
+  },
+  "regressed/short-title-has-no-identity": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": "regressed-lookup: row 1 of 2026-01-01-cur.md has a title under 12 characters, empty or a bare priority/type token — no cross-retro identity, not checked\n"
+  },
+  "regressed/sibling-directory-named-md-is-ignored": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/sibling-that-is-not-markdown-is-ignored": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
+  },
+  "regressed/title-column-named-by-the-header": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\n",
+    "stderr": ""
+  },
+  "regressed/two-later-retros-both-reported": {
+    "rc": 0,
+    "stdout": "shipped: row 1 — its issue is closed as completed and cites this retro in 2026-01-01-cur.md; propose marking the row shipped in the retro marker (not edited here) [evidence: commit 673acccbded2ca6631ff258308a13db8c7aaa2ea reachable from origin/main (local ref, no fetch); test cited]\nregressed: row 1 (closed by #12, re-proposed in 2026-02-01-later.md as row 5, 2026-03-01-third.md as row 8) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\nuntracked: row 2 — no open issue found for this delta in 2026-01-01-cur.md\n",
+    "stderr": ""
   }
 }

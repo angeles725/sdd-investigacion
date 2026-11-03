@@ -62,6 +62,8 @@ func allCases() []dcase {
 	cs = append(cs, markerCases()...)
 	cs = append(cs, layoutCases()...)
 	cs = append(cs, matrixCases()...)
+	cs = append(cs, closedCases()...)
+	cs = append(cs, regressedCases()...)
 	return cs
 }
 
