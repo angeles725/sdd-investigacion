@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // This file is the shared test harness. It carries no build tag: gremlins builds with -tags nodiff and the unit
@@ -143,6 +144,7 @@ var execCache struct {
 var execSources = []string{"testdata/legacy/stage-retro-issues.sh", "testdata/gh-stub.sh"}
 
 func TestMain(m *testing.M) {
+	parallelfloor.Raise(8)
 	dir, err := os.MkdirTemp("", "stageissues-exec-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "exec cache:", err)
