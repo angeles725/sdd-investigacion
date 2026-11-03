@@ -143,29 +143,48 @@ func trustedBwrap(path string, testOnly bool) (*os.File, string, fsx.Record, err
 	return f, resolved, fsx.Record{Path: resolved, Size: size, SHA256: digest}, nil
 }
 
+// trustOps are the filesystem facts checkBwrapTrust reads; tests replace them because a test cannot make a
+// root-owned file. The defaults are the real calls.
+type trustOps struct {
+	selected     func() (string, bool)
+	evalSymlinks func(string) (string, error)
+	sameFile     func(a, b string) (bool, error)
+	stat         func(string) (os.FileInfo, error)
+	owner        func(os.FileInfo) (int, bool)
+}
+
+var bwrapTrustOps = trustOps{
+	selected:     func() (string, bool) { return lookPath("bwrap", defPath) },
+	evalSymlinks: filepath.EvalSymlinks,
+	sameFile:     sameFile,
+	stat:         os.Stat,
+	owner:        ownerUID,
+}
+
 // checkBwrapTrust is the production launcher policy (see trustedBwrap).
 func checkBwrapTrust(fi os.FileInfo, resolved string) error {
-	selected, ok := lookPath("bwrap", defPath)
+	ops := bwrapTrustOps
+	selected, ok := ops.selected()
 	if !ok {
 		return errors.New("Bubblewrap must match trusted PATH-selected bwrap")
 	}
-	real, err := filepath.EvalSymlinks(selected)
+	real, err := ops.evalSymlinks(selected)
 	if err != nil {
 		return osError(err, selected)
 	}
-	same, err := sameFile(resolved, real)
+	same, err := ops.sameFile(resolved, real)
 	if err != nil || !same {
 		return errors.New("Bubblewrap must match trusted PATH-selected bwrap")
 	}
-	if owner, _ := ownerUID(fi); owner != 0 || fi.Mode().Perm()&0o022 != 0 {
+	if owner, _ := ops.owner(fi); owner != 0 || fi.Mode().Perm()&0o022 != 0 {
 		return errors.New("Bubblewrap must be root-owned and non-writable")
 	}
 	for dir := filepath.Dir(resolved); ; dir = filepath.Dir(dir) {
-		di, err := os.Stat(dir)
+		di, err := ops.stat(dir)
 		if err != nil {
 			return osError(err, dir)
 		}
-		if owner, _ := ownerUID(di); owner != 0 || di.Mode().Perm()&0o022 != 0 {
+		if owner, _ := ops.owner(di); owner != 0 || di.Mode().Perm()&0o022 != 0 {
 			return errors.New("Bubblewrap ancestor chain is not trusted")
 		}
 		if dir == "/" || dir == "." {
