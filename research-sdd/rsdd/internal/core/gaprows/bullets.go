@@ -53,7 +53,7 @@ func (b *Bullets) Text(id string) (text string, found bool) {
 // bulletID reads `^[ \t]*[-*] \*\*\[?B[0-9]+-G[0-9]+` and returns the id.
 func bulletID(l string) (string, bool) {
 	s := strings.TrimLeft(l, " \t")
-	if len(s) < 4 || (s[0] != '-' && s[0] != '*') || s[1] != ' ' || s[2] != '*' || s[3] != '*' {
+	if !strings.HasPrefix(s, "- **") && !strings.HasPrefix(s, "* **") {
 		return "", false
 	}
 	s = strings.TrimPrefix(s[4:], "[")

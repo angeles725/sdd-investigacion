@@ -24,12 +24,9 @@ func words(text string) map[string]struct{} {
 		for j < len(text) && isWordByte(text[j]) {
 			j++
 		}
-		if j == i+1 { // a lone letter is not a word
-			i++
-			continue
-		}
 		w := lower(text[i:j])
 		i = j
+		// A lone letter is not a word: the three-byte floor below drops it, so it needs no branch of its own.
 		if n := len(w); n > 3 && w[n-1] == 's' && w[n-2] != 's' {
 			w = w[:n-1]
 		}
