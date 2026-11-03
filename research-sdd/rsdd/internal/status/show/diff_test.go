@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -186,4 +187,25 @@ func parseGoldenIfPresent(t *testing.T, path string) map[string]string {
 		return map[string]string{}
 	}
 	return parseGolden(t, path)
+}
+
+// probeTailBash is the same tail for the frozen excerpt, appended by the differential test.
+const probeTailBash = `
+if [ -n "${PROBE_SILENT:-}" ]; then exit 0; fi
+if [ -n "${PROBE_VERDICT:-}" ]; then printf '%s\n' "$PROBE_VERDICT"; exit "${PROBE_RC:-0}"; fi
+printf 'PICKED state=%s corpus=%s mode=%s focus=%s emit=%d all=%d queue=%d root=%d only=%s only_set=%d stall=%d\n' "$state" "$corpus" "$mode" "$focus_slug" "$emit_token" "$all_flag" "$queue_flag" "$root_flag" "$only_list" "$only_set" "$stall_minutes"
+`
+
+// joinGolden is the file written by -update: sections in name order.
+func joinGolden(sections map[string]string) string {
+	names := make([]string, 0, len(sections))
+	for n := range sections {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString(sections[n])
+	}
+	return b.String()
 }

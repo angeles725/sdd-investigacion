@@ -63,7 +63,9 @@ func (sc s3Scenario) build(t testing.TB) string {
 		must(t, os.Symlink(strings.ReplaceAll(target, "{ROOT}", root), full))
 	}
 	for _, p := range sc.unreadable {
-		must(t, os.Chmod(filepath.Join(root, p), 0))
+		full := filepath.Join(root, p)
+		must(t, os.Chmod(full, 0))
+		t.Cleanup(func() { _ = os.Chmod(full, 0o755) }) // a mode-000 directory could not be removed
 	}
 	return root
 }
@@ -81,10 +83,6 @@ func s3Tail(c *ctx) int {
 	fmt.Fprintf(c.s.Out, "S3-TAIL mode=%s\n", c.opts.mode)
 	return 0
 }
-
-const s3TailBash = `
-printf 'S3-TAIL mode=%s\n' "$mode"
-`
 
 func runGoS3(t testing.TB, sc s3Scenario, root string) []outcome {
 	t.Helper()
@@ -105,6 +103,10 @@ func treeDump(t testing.TB, root string) string {
 	var paths []string
 	must(t, filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if d != nil && d.IsDir() && p != root { // an unreadable directory is part of the tree, its content is not
+				paths = append(paths, p)
+				return nil
+			}
 			return err
 		}
 		if p != root && !d.IsDir() {
@@ -118,6 +120,10 @@ func treeDump(t testing.TB, root string) string {
 		rel, _ := filepath.Rel(root, p)
 		st, err := os.Lstat(p)
 		must(t, err)
+		if st.IsDir() {
+			fmt.Fprintf(&b, "--- dir %s mode=%04o (unreadable)\n", rel, st.Mode().Perm())
+			continue
+		}
 		if st.Mode()&os.ModeSymlink != 0 {
 			to, _ := os.Readlink(p)
 			fmt.Fprintf(&b, "--- link %s -> %s\n", rel, strings.ReplaceAll(to, root, "<ROOT>"))
