@@ -62,6 +62,8 @@ GO_SRC=(
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
   "sweep-retros.sh=../rsdd/internal/sweep"   # retros.go / retrosjson.go print the absent-input / empty-input / no-match states (kit issue #2605)
   "sweep-retros-hook.sh=../rsdd/internal/sweep"
+  "sweep-tools.sh=../rsdd/internal/sweep"
+  "sweep-tools-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
@@ -118,7 +120,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go" "sweep-tools.sh=tools*.go" "sweep-tools-hook.sh=tools*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
