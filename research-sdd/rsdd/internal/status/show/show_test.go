@@ -73,7 +73,7 @@ func TestRunPastThePickIsNotYetPorted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "RESEARCH-STATE.md"), []byte(probeState), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"--next", "--sync-state"} {
+	for _, mode := range []string{"--next"} {
 		s, out, errb := stdio(root)
 		if rc := Run([]string{root, mode}, s); rc != cli.ExitOperational || out.Len() != 0 ||
 			errb.String() != "rsdd: status show: not-yet-ported: "+mode+" after the state-file pick; use toolbelt/research-sdd-status.sh (issue #2549)\n" {
@@ -83,6 +83,22 @@ func TestRunPastThePickIsNotYetPorted(t *testing.T) {
 	s, out, errb := stdio(root)
 	if rc := Run([]string{root, "--next", "--emit-token"}, s); rc != 1 || !strings.Contains(out.String(), "return-token: unavailable (--next exited 1)") || !strings.Contains(errb.String(), "not-yet-ported") {
 		t.Errorf("emit-token over the unported --next: rc=%d stdout=%q stderr=%q", rc, out.String(), errb.String())
+	}
+}
+
+// --sync-state is ported: through the production entry it writes the envelope and no longer answers not-yet-ported.
+func TestRunSyncStateIsPorted(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, "RESEARCH-STATE.md")
+	if err := os.WriteFile(state, []byte(probeState), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, out, errb := stdio(root)
+	if rc := Run([]string{root, "--sync-state"}, s); rc != 0 || !strings.HasPrefix(out.String(), "sync-state: wrote ") || strings.Contains(errb.String(), "not-yet-ported") {
+		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out.String(), errb.String())
+	}
+	if b, _ := os.ReadFile(state); !strings.Contains(string(b), "<!-- research-state.v1 -->") {
+		t.Errorf("no envelope written: %q", b)
 	}
 }
 

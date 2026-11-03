@@ -22,6 +22,9 @@ func isUpper(b byte) bool { return b >= 'A' && b <= 'Z' }
 func isLower(b byte) bool { return b >= 'a' && b <= 'z' }
 func isAlnum(b byte) bool { return isUpper(b) || isLower(b) || isDigit(b) }
 
+// isWordByte is the bracket [A-Za-z0-9_-] of the child-gap negation window.
+func isWordByte(b byte) bool { return isAlnum(b) || b == '_' || b == '-' }
+
 // awkFields is awk's default field splitting: runs of space, tab and newline separate fields, leading and
 // trailing runs are ignored.
 func awkFields(s string) []string {
