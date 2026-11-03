@@ -108,8 +108,9 @@ func TestMustReturnsTheUnresolvedSentinelNamingTheVariable(t *testing.T) {
 	}
 }
 
-func TestDirInTreeIsTheRealKit(t *testing.T) {
-	t.Setenv(EnvVar, "")
+func TestDirIsTheRealKit(t *testing.T) {
+	// Not cleared: with the variable set (make teeth, a module-only copy) it names the kit; unset, the in-tree path does
+	// (TestResolveEnvUnsetUsesInTreePath pins that branch on a synthetic tree).
 	d := Dir(t)
 	if st, err := os.Stat(filepath.Join(d, "toolbelt")); err != nil || !st.IsDir() {
 		t.Fatalf("Dir() = %q has no toolbelt/: %v", d, err)
