@@ -4,7 +4,7 @@
 # The adapter moved to Go: `rsdd corroborate capa` (research-sdd/rsdd/internal/corroborate/capa). Its cases (every
 # logic case of the former suite, the legacy Python as the oracle for exit codes, stderr, evidence and manifest, and
 # the Go mutation controls) live in the Go tests (`go test ./internal/corroborate/capa`). This suite keeps the cases
-# that only exist through the shim - degraded mode, argument pass-through, the manifest tool the shim supplies - over a
+# that only exist through the shim - degraded mode, argument pass-through, the absence of a manifest tool path - over a
 # fake sandbox, a slow lane that runs the real capa, and the mutation controls of the shim itself.
 #
 # Lane contract (tests/lib/test-lane.sh): fast (default) = the fake sandbox; slow = real capa + bwrap + rules dir;
@@ -44,7 +44,14 @@ if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
     || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
 fi
 export RSDD_BIN
-command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (the analysis manifest tool needs it)" >&2; exit 2; }
+# A guard stands in for rsdd where the shim's arguments are checked: it refuses (exit 9) any --manifest-cli and otherwise runs
+# the real binary, so a shim that hands the manifest tool path over again is caught (the Go commands accept and ignore the flag).
+RSDD_REAL_BIN="$RSDD_BIN"; export RSDD_REAL_BIN
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do [ "$a" = "--manifest-cli" ] && { echo "rsdd-guard: unexpected --manifest-cli" >&2; exit 9; }; done' \
+  'exec "$RSDD_REAL_BIN" "$@"' >"$ROOT/rsdd-guard" && chmod 755 "$ROOT/rsdd-guard"
+RSDD_BIN="$ROOT/rsdd-guard" "$SUT" --bogus >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then ok "the shim hands no --manifest-cli to rsdd"; else no "the shim hands a --manifest-cli to rsdd (guard exit $rc)"; fi
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
 
 # A fake sandbox: a bwrap that runs the command after "--", and a capa inside a venv-shaped directory.
 mkdir -p "$ROOT/bin" "$ROOT/venv/bin" "$ROOT/rules/lib" "$ROOT/in" "$ROOT/out" "$ROOT/home" || exit 2
@@ -79,9 +86,9 @@ if [[ "$_lane" == "fast" || "$_lane" == "all" ]]; then
   if grep -q '"total_sampled":1' "$ROOT/out/capped/capa-evidence.v1.json" 2>/dev/null && grep -q '"truncated":true' "$ROOT/out/capped/capa-evidence.v1.json"; then
     ok "the caller's arguments reach the Go command (the capability cap bites)"; else no "argument pass-through"; fi
 
-  if python3 "$TB/analysis_manifest.py" validate "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1 \
-    && python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/a" "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
-    ok "the published analysis manifest validates and verifies with the Python manifest tool"; else no "analysis manifest"; fi
+  if "$RSDD_BIN" adapter manifest validate "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1 \
+    && "$RSDD_BIN" adapter manifest verify --root "$ROOT/out/a" "$ROOT/out/a/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
+    ok "the published analysis manifest validates and verifies with rsdd adapter manifest"; else no "analysis manifest"; fi
 
   mkdir "$ROOT/out/taken"
   run "$ROOT/out/taken" 2>"$ROOT/t.err"; rc=$?
@@ -90,7 +97,7 @@ if [[ "$_lane" == "fast" || "$_lane" == "all" ]]; then
 
   "$SUT" --bogus >/dev/null 2>"$ROOT/u.err"; rc=$?
   if [ "$rc" -eq 2 ] && grep -q '^usage: corroborate-capa ' "$ROOT/u.err" && grep -q 'the following arguments are required: --input, --output$' "$ROOT/u.err"; then
-    ok "the shim supplies --manifest-cli: a usage error names only --input and --output"; else no "usage error (exit $rc): $(cat "$ROOT/u.err")"; fi
+    ok "the shim needs no --manifest-cli: a usage error names only --input and --output"; else no "usage error (exit $rc): $(cat "$ROOT/u.err")"; fi
 fi
 
 # SLOW LANE - the real capa (tool required; informational skip when absent)
@@ -106,7 +113,7 @@ if [[ "$_lane" == "slow" || "$_lane" == "all" ]]; then
     if "$SUT" --input "$ROOT/in/happy.elf" --rules "$_RULES_DIR" --output "$ROOT/out/real" --timeout 300 2>/dev/null \
       && grep -q '"schema":"capa-evidence.v1"' "$ROOT/out/real/capa-evidence.v1.json"; then
       ok "T1: real capa through the shim: evidence JSON produced"; else no "T1: real capa"; fi
-    if python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/real" "$ROOT/out/real/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
+    if "$RSDD_BIN" adapter manifest verify --root "$ROOT/out/real" "$ROOT/out/real/engine/analysis-manifest.v1.json" >/dev/null 2>&1; then
       ok "T13: real capa: the analysis manifest verifies"; else no "T13: real capa manifest"; fi
   fi
 fi
@@ -118,8 +125,9 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: corroborate-capa.sh shim mutation controls --"
-# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
-KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+RSDD_BIN="$ROOT/rsdd-guard"; export RSDD_BIN   # every tooth run goes through the guard of the argument check above
+# a mutant of the shim must still find lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib"
 # each tooth run publishes into a fresh name; an exit 0 that did not publish this tool's report is exit 9
 # (a sibling command succeeding is not this command)
 printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' \
@@ -134,6 +142,6 @@ tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
 }
 tooth "shim dispatches to the sibling command" 's/rsdd_exec corroborate capa/rsdd_exec corroborate java-fidelity/' 0 2
 tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
-tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
+tooth "shim hands the manifest tool over again" 's/ "\$@"$/ --manifest-cli \/nonexistent\/analysis_manifest.py "$@"/' 0 9
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

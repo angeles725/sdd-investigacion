@@ -131,6 +131,35 @@ func TestRunManifestValidatesAndVerifies(t *testing.T) {
 	}
 }
 
+// --manifest-cli is accepted and ignored: omitted, pointing at a path that does not exist or at a real file, the
+// run succeeds and publishes byte-identical evidence (the manifest steps run in process).
+func TestRunIgnoresManifestCLI(t *testing.T) {
+	w := newWorld(t, flossHappy)
+	variants := []struct {
+		name string
+		flag []string
+	}{
+		{"omitted", nil},
+		{"missing", []string{"--manifest-cli", "/nonexistent/manifest-tool"}},
+		{"existing", []string{"--manifest-cli", w.manifest}},
+	}
+	var want []byte
+	for _, v := range variants {
+		var o, e bytes.Buffer
+		out := w.out("ign-" + v.name)
+		code := Run(append([]string{"--input", w.input, "--output", out}, v.flag...), w.stdio(&o, &e, nil))
+		if code != 0 || o.Len() != 0 || e.Len() != 0 {
+			t.Fatalf("%s: code=%d stdout=%q stderr=%q", v.name, code, o.String(), e.String())
+		}
+		got := w.read("ign-" + v.name + "/floss-evidence.v1.json")
+		if want == nil {
+			want = got
+		} else if !bytes.Equal(got, want) {
+			t.Errorf("%s: evidence differs from the other variants", v.name)
+		}
+	}
+}
+
 func TestRunStringCap(t *testing.T) {
 	w := newWorld(t, flossHappy)
 	if code, _, stderr := w.run(w.out("out"), "--max-strings", "2"); code != 0 {
@@ -352,7 +381,7 @@ func TestRunUsageIsRefusedBeforeAnyWork(t *testing.T) {
 	w := newWorld(t, flossHappy)
 	var o, e bytes.Buffer
 	code := Run([]string{"--input", w.input}, w.stdio(&o, &e, nil))
-	if code != 2 || o.Len() != 0 || !strings.HasSuffix(e.String(), "corroborate-floss: error: the following arguments are required: --output, --manifest-cli\n") {
+	if code != 2 || o.Len() != 0 || !strings.HasSuffix(e.String(), "corroborate-floss: error: the following arguments are required: --output\n") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, o.String(), e.String())
 	}
 }

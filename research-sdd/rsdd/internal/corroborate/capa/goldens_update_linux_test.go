@@ -33,6 +33,15 @@ def fix(v):
     if isinstance(v, dict): return {k: fix(x) for k, x in v.items()}
     return v
 canon = lambda v: json.dumps(fix(v), sort_keys=True, separators=(",", ":"), allow_nan=False)
+# The port accepts --manifest-cli and ignores it (the manifest steps run in process), so the oracle's parser makes it
+# optional: that is the only difference from the legacy tool, and it is what the goldens record.
+_parser_orig = m._parser
+def _parser_optional():
+    p = _parser_orig()
+    for a in p._actions:
+        if a.dest == "manifest_cli": a.required = False
+    return p
+m._parser = _parser_optional
 def lone(v):
     if isinstance(v, str): return any(0xd800 <= ord(c) <= 0xdfff for c in v)
     if isinstance(v, list): return any(lone(x) for x in v)
@@ -55,7 +64,7 @@ def one(c):
             with contextlib.redirect_stdout(io.StringIO()):
                 ns = p.parse_args(c["argv"])
             return {"kind": "ok", "ns": {"input": str(ns.input), "output": str(ns.output), "rules": str(ns.rules),
-                    "manifest_cli": str(ns.manifest_cli), "timeout": str(ns.timeout), "max_capabilities": str(ns.max_capabilities)}}
+                    "manifest_cli": "" if ns.manifest_cli is None else str(ns.manifest_cli), "timeout": str(ns.timeout), "max_capabilities": str(ns.max_capabilities)}}
         except ArgErr as e: return {"kind": "error", "msg": str(e)}
         except SystemExit: return {"kind": "help"}
     if k == "wrap":

@@ -3,6 +3,7 @@
 package floss
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,7 +32,8 @@ import (
 //     script printed a traceback and exited 1 (or, for a lone surrogate, published evidence).
 //   - NaN, Infinity and a float beyond the double range inside floss output are refused where the script would
 //     have carried them through or printed Infinity.
-//   - The manifest tool is run with the python3 found on PATH (the script used its own interpreter).
+//   - The manifest steps run in process (core/adapter), not through python3; --manifest-cli is accepted for
+//     compatibility and ignored.
 //   - An integer option beyond 4300 digits is a usage error, as in Python 3.12.
 
 // Seams the tests replace.
@@ -63,7 +65,7 @@ var limitations = []string{
 }
 
 // Run is `rsdd corroborate floss --input FILE --output NEWDIR [--timeout S] [--max-strings N]
-// [--max-string-len N] --manifest-cli analysis_manifest.py`: a bounded, offline obfuscated-string inventory of
+// [--max-string-len N] [--manifest-cli ignored]`: a bounded, offline obfuscated-string inventory of
 // a binary, produced by floss inside a network-denied Bubblewrap sandbox (floss-evidence.v1).
 //
 // Exit codes: 0 complete, 1 evidence published with errors (status=failed), 2 a refusal or usage error.
@@ -135,14 +137,6 @@ func run(o options, s cli.Stdio, stage *string) (int, error) {
 	}
 	if _, err := os.Lstat(destination); err == nil {
 		return 0, flossErr("output must be a new non-colliding path")
-	}
-	manifestCLI, err := resolveStrict(s.Cwd, o.manifestCLI)
-	if err != nil {
-		return 0, err
-	}
-	python, ok := lookPath("python3", s.Env("PATH"), s.Cwd)
-	if !ok {
-		return 0, flossErr("python3 is required to run the manifest tool")
 	}
 
 	// Resolve tools.
@@ -276,8 +270,8 @@ func run(o options, s cli.Stdio, stage *string) (int, error) {
 		InputIdentity: map[string]any{"source": recordMap(srcRec), "staged": recordMap(stagedRec)},
 		Isolation:     map[string]any{"launcher": recordMap(bwrapRec), "profile": profile},
 		Limitations:   allLimitations, Errors: allErrors, ManifestSpec: spec,
-		ManifestCLI: []string{python, manifestCLI}, Destination: destination, Timeout: manifestWait,
-		Env: s.Environ(), Stdout: s.Out, Stderr: s.Err,
+		ManifestCLI: []string{inProcess, "manifest"}, Destination: destination, Timeout: manifestWait,
+		Env: s.Environ(), Stdout: s.Out, Stderr: s.Err, Run: manifestRunner(s),
 	})
 	if err != nil {
 		return 0, err
@@ -428,18 +422,19 @@ func resolveStrict(cwd, p string) (string, error) {
 	return filepath.Clean(real), nil
 }
 
-// lookPath is shutil.which for a name without a slash: the first executable regular file on path.
-func lookPath(name, path, cwd string) (string, bool) {
-	for _, dir := range strings.Split(path, ":") {
-		if dir == "" {
-			dir = "."
-		}
-		p := joinCwd(cwd, dir+"/"+name)
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
-			return p, true
-		}
+// inProcess marks the manifest "CLI" that EmitEvidence invokes: the manifest steps run inside this process through
+// core/adapter, so there is no interpreter and no script to resolve.
+const inProcess = "rsdd-in-process"
+
+// manifestRunner executes the analysis-manifest verbs in process; the verb and its arguments follow the marker.
+func manifestRunner(s cli.Stdio) func(proc.Spec) (proc.Result, error) {
+	return func(spec proc.Spec) (proc.Result, error) {
+		var out, errb bytes.Buffer
+		inner := s
+		inner.In, inner.Out, inner.Err = strings.NewReader(""), &out, &errb
+		rc := adapter.ManifestRun(spec.Argv[2:], inner)
+		return proc.Result{Stdout: out.Bytes(), Stderr: errb.Bytes(), ReturnCode: rc}, nil
 	}
-	return "", false
 }
 
 // mountinfoError is the OSError Python raises when /proc/self/mountinfo cannot be read.

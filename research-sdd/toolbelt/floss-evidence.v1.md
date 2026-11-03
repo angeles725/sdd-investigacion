@@ -167,7 +167,7 @@ output-dir/
 
 The tool is now `rsdd corroborate floss` (Go, kit issue #2484, package
 `rsdd/internal/corroborate/floss`); `corroborate-floss.sh` is a compatibility
-shim that adds `--manifest-cli` and hands over. Exit codes (0 complete, 1
+shim that hands every argument over (`--manifest-cli` is optional, accepted and ignored: the manifest steps run in process). Exit codes (0 complete, 1
 evidence published with errors, 2 refusal or usage error), stderr lines, the
 evidence JSON, `engine/stdout.txt`, `engine/stderr.txt`, the file modes and the
 manifest (run times aside) are byte-identical to the former script on every

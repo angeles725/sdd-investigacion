@@ -44,7 +44,7 @@ var specs = []optSpec{
 	{flags: []string{"--timeout"}, metavar: "TIMEOUT", help: "Wall-clock timeout for floss (seconds, default 120)", kind: kindInt, dest: "timeout"},
 	{flags: []string{"--max-strings"}, metavar: "MAX_STRINGS", help: "Maximum total strings sampled across all categories (default 2000)", kind: kindInt, dest: "max_strings"},
 	{flags: []string{"--max-string-len"}, metavar: "MAX_STRING_LEN", help: "Maximum length of each sampled string value (default 256)", kind: kindInt, dest: "max_string_len"},
-	{flags: []string{"--manifest-cli"}, metavar: "MANIFEST_CLI", kind: kindString, require: true, dest: "manifest_cli"},
+	{flags: []string{"--manifest-cli"}, metavar: "MANIFEST_CLI", kind: kindString, dest: "manifest_cli"},
 }
 
 // options are the parsed values. The integers keep Python's unbounded range.
@@ -214,8 +214,10 @@ func parseArgs(args []string, width int, out, errw io.Writer) (opts options, cod
 	if len(extras) > 0 {
 		return fail(argErr(nil, "unrecognized arguments: %s", strings.Join(extras, " ")))
 	}
-	opts = options{input: pyPath(vals["input"]), output: pyPath(vals["output"]), manifestCLI: pyPath(vals["manifest_cli"]),
-		timeout: ints["timeout"], maxStrings: ints["max_strings"], maxStringLen: ints["max_string_len"]}
+	opts = options{input: pyPath(vals["input"]), output: pyPath(vals["output"]), timeout: ints["timeout"], maxStrings: ints["max_strings"], maxStringLen: ints["max_string_len"]}
+	if v, ok := vals["manifest_cli"]; ok { // optional and ignored: "" when absent
+		opts.manifestCLI = pyPath(v)
+	}
 	if opts.timeout == nil {
 		opts.timeout = big.NewInt(120)
 	}

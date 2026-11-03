@@ -6,11 +6,11 @@ Bubblewrap sandbox, builds a **bounded capability inventory** of a PE/ELF/.NET
 binary, and emits a deterministic evidence envelope.
 
 The adapter is the Go command `rsdd corroborate capa`
-(`research-sdd/rsdd/internal/corroborate/capa`); `corroborate-capa.sh` is a compatibility shim that supplies
-`--manifest-cli` and hands every other argument to it.  Exit codes: `0` complete, `1` evidence published with
+(`research-sdd/rsdd/internal/corroborate/capa`); `corroborate-capa.sh` is a compatibility shim that passes
+every argument to it unchanged.  Exit codes: `0` complete, `1` evidence published with
 `status: failed` (or an internal error: a capa document the reader cannot interpret), `2` a fail-closed refusal or
 a usage error (argparse-style usage text on stderr; `$COLUMNS` sets the wrap width).  The analysis-manifest steps
-run in-process; the `--manifest-cli` path must still exist but is not executed.
+run in-process; `--manifest-cli` is optional, accepted for compatibility and ignored (never resolved or executed).
 
 Reports COUNTS + a BOUNDED, sorted capability list — never raw disassembly or
 match trees.  Any cap that fires is reported in `limitations` and
