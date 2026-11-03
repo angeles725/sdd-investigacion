@@ -87,10 +87,11 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   # _rsdd_exec_tree_hash SRC — shell hash, else the go fallback. rc 0 sets _RSDD_EXEC_TREE; rc 1 sets _RSDD_EXEC_HWHY.
   _rsdd_exec_tree_hash() {
     local why
-    _rsdd_exec_shell_hash "$1" && return 0
+    _RSDD_EXEC_HASHSRC=""
+    _rsdd_exec_shell_hash "$1" && { _RSDD_EXEC_HASHSRC=shell; return 0; }
     why="$_RSDD_EXEC_HWHY"
     if ! command -v go >/dev/null 2>&1; then _RSDD_EXEC_HWHY="$why; go not found for the fallback"; return 1; fi
-    _rsdd_exec_go_hash "$1" && return 0
+    _rsdd_exec_go_hash "$1" && { _RSDD_EXEC_HASHSRC=go; return 0; }
     _RSDD_EXEC_HWHY="$why; go run rsdd-srchash failed"; return 1
   }
 
@@ -115,22 +116,31 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     _RSDD_EXEC_FP="fp1:${h:0:64}"
   }
 
-  # _rsdd_exec_fp_write STAMPFILE SRC BIN FP — record FP as "verified fresh" (best effort; a failure only costs the
-  # fast path). Racy-stamp guard: nothing is written while any selected file or the binary has a ctime within the last
-  # RSDD_EXEC_FP_SETTLE seconds (default 2, a non-negative integer; 0 disables the guard, for tests), because a second
-  # write inside the same filesystem timestamp tick would keep size and ctime identical to what FP recorded.
+  # _rsdd_exec_fp_settle — sets _RSDD_EXEC_SETTLE: RSDD_EXEC_FP_SETTLE (a non-negative integer, seconds; 0 turns the
+  # racy-stamp guard off, for tests), default 2.
+  _rsdd_exec_fp_settle() {
+    _RSDD_EXEC_SETTLE=2
+    [ -n "${RSDD_EXEC_FP_SETTLE+x}" ] || return 0
+    if [[ "$RSDD_EXEC_FP_SETTLE" =~ ^[0-9]{1,6}$ ]]; then _RSDD_EXEC_SETTLE="$RSDD_EXEC_FP_SETTLE"; fi
+  }
+
+  # _rsdd_exec_fp_write STAMPFILE SRC BIN FP T0 — record FP as "verified fresh" (best effort; a failure only costs the
+  # fast path). Racy-stamp guard: nothing is written while any selected file or the binary has a ctime newer than
+  # T0 - settle, where T0 (epoch seconds) was read BEFORE the fingerprint. A reference taken at write time would move
+  # forward with every second the binary call stalls and let a second write inside the fingerprint's own timestamp
+  # tick (same size, same ctime) through. The guard fails closed: a scan that fails counts as "something is newer".
+  # A stamp path that is a directory is refused (mv would move the temp file into it, one leak per call).
   _rsdd_exec_fp_write() {
-    local stamp="$1" settle=2 ref tmp newer
-    if [ -n "${RSDD_EXEC_FP_SETTLE+x}" ]; then
-      if [[ "$RSDD_EXEC_FP_SETTLE" =~ ^[0-9]{1,6}$ ]]; then settle="$RSDD_EXEC_FP_SETTLE"; fi
-    fi
+    local stamp="$1" ref tmp n1 n2
+    [ ! -d "$stamp" ] || return 1
     tmp="$(mktemp "${stamp}.XXXXXX" 2>/dev/null)" || return 1
-    if [ "$settle" -gt 0 ]; then
+    if [ "$_RSDD_EXEC_SETTLE" -gt 0 ]; then
       ref="$(mktemp "${stamp}.XXXXXX" 2>/dev/null)" || { rm -f -- "$tmp"; return 1; }
-      if ! touch -d "$settle seconds ago" "$ref" 2>/dev/null; then rm -f -- "$tmp" "$ref"; return 1; fi
-      newer="$(cd -- "$2" 2>/dev/null && _rsdd_exec_select -cnewer "$ref" -print -quit 2>/dev/null; find -L "$3" -maxdepth 0 -cnewer "$ref" -print -quit 2>/dev/null)" || newer="unknown"
+      if ! touch -d "@$(($5 - _RSDD_EXEC_SETTLE))" "$ref" 2>/dev/null; then rm -f -- "$tmp" "$ref"; return 1; fi
+      n1="$(cd -- "$2" 2>/dev/null && _rsdd_exec_select -cnewer "$ref" -print -quit 2>/dev/null)" || n1="unknown"
+      n2="$(find -L "$3" -maxdepth 0 -cnewer "$ref" -print -quit 2>/dev/null)" || n2="unknown"
       rm -f -- "$ref"
-      if [ -n "$newer" ]; then rm -f -- "$tmp"; return 1; fi
+      if [ -n "$n1$n2" ]; then rm -f -- "$tmp"; return 1; fi
     fi
     if printf '%s\n' "$4" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$stamp" 2>/dev/null; then return 0; fi
     rm -f -- "$tmp"; return 1
@@ -139,8 +149,10 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   # _rsdd_exec_check BIN SRC — rc 0 fresh (BIN's `version --source-hash` equals the tree hash) · 1 stale (any other
   # answer, `sha256:unknown` and a non-zero exit included) · 2 cannot tell (sets _RSDD_EXEC_HWHY).
   _rsdd_exec_check() {
-    local got fp="" stamp
+    local got fp="" stamp t0=""
     _RSDD_EXEC_GOT=""
+    _rsdd_exec_fp_settle
+    printf -v t0 '%(%s)T' -1 2>/dev/null || t0=""   # before the fingerprint, see _rsdd_exec_fp_write
     # Fast path (#2599): the fingerprint is taken BEFORE the hash, so a change during the hash is never stamped. An
     # equal stamp means "this exact state was already verified fresh"; anything else (no stamp, unreadable stamp, a
     # fingerprint that cannot be computed) falls through to the full hash.
@@ -153,7 +165,8 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     got="$("$1" version --source-hash 2>/dev/null </dev/null)" || return 1
     _RSDD_EXEC_GOT="$got"
     [ "$got" = "$_RSDD_EXEC_TREE" ] || return 1
-    if [ -n "$fp" ]; then _rsdd_exec_fp_write "$(dirname -- "$1")/.rsdd-fp" "$2" "$1" "$fp" || true; fi
+    # Only a SHELL hash proves the fingerprint's selection: after the go fallback the two selections may differ.
+    if [ -n "$fp" ] && [ -n "$t0" ] && [ "$_RSDD_EXEC_HASHSRC" = shell ]; then _rsdd_exec_fp_write "$(dirname -- "$1")/.rsdd-fp" "$2" "$1" "$fp" "$t0" || true; fi
   }
 
   # _rsdd_exec_build KIT — rc 0 built · 3 <kit>/bin cannot be created or written · 1 the build failed (a failed
@@ -406,8 +419,9 @@ fi
 #          `touch -d` cannot put it back, so an edit that keeps the size and restores the old mtime still changes the fingerprint
 #          (a touch also moves it and costs one full hash). An added, removed or renamed file changes the listing. The fingerprint is
 #          taken before the hash, and no stamp is written while a selected file or the binary has a ctime newer than
-#          RSDD_EXEC_FP_SETTLE seconds ago (default 2; non-negative integer; 0 = off, tests only), so two writes inside one
-#          timestamp tick cannot hide. A missing/unreadable/different stamp, or a fingerprint that cannot be computed (no GNU find
+#          T0 minus RSDD_EXEC_FP_SETTLE seconds (T0 = the clock read before the fingerprint; default 2; non-negative integer;
+#          0 = off, tests only), so two writes inside one timestamp tick cannot hide however long the binary call stalls.
+#          No stamp either after a go-fallback hash, or when the stamp path is a directory. A missing/unreadable/different stamp, or a fingerprint that cannot be computed (no GNU find
 #          -printf, no sha tool, empty listing), always falls back to the full hash - never to "fresh". A binary that is missing or stale is rebuilt under an exclusive flock on
 #          <kit>/bin/.rsdd.lock, with freshness RE-CHECKED once the lock is held (a shim that waited does not
 #          rebuild what another one just built; the fresh path takes no lock). The build stamps the hash:
