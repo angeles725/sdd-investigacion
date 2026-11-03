@@ -16,7 +16,7 @@ Each spec is the verbatim slice-table row of issue #2549 (columns: slice, script
 
 ## Tasks
 - [x] T1 (S1) route: delegated — commits: 964ab5c0 (frozen head + goldens), b94b0ca7 (args, pick, --emit-token), 686dda46 (is_blocked); RED: replay failed on a stub (rc 99) for all 114 scenarios and is_blocked stub (rc 7) failed the replay
-- [x] T2 (S2) route: delegated — commits: 820a9467 (frozen excerpts + s2.golden), 85409c45 (backlog_rows, deferred_scan, counters, FOCUSES token); RED: TestReplayS2 failed on a stub for 182 of 182 scenarios (replay differs); no mode completed by S2 alone
+- [x] T2 (S2) route: delegated — commits: 820a9467 (frozen excerpts + s2.golden), 85409c45 (backlog_rows, deferred_scan, counters, FOCUSES token), 2d969e9d (teeth fixes: shared byte-class helper, boundary tests); RED: TestReplayS2 failed on a stub for 182 of 182 scenarios (replay differs); no mode completed by S2 alone
 - [ ] T3 (S3) route: inline — commit: pending
 - [ ] T4 (S4) route: inline — commit: pending
 - [ ] T5 (S5) route: inline — commit: pending
