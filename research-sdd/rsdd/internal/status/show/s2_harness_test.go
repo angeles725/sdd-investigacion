@@ -96,9 +96,6 @@ func renderS2(sc s2Scenario, outs []outcome, root string) string {
 	return b.String()
 }
 
-// parseGoldenS2 splits a golden file into sections by scenario name.
-func parseGoldenS2(t testing.TB, path string) map[string]string { return parseGolden(t, path) }
-
 // op dispatch of the Go port (names are the functions of the frozen script).
 func (c *ctx) runOp(args []string) int {
 	text := c.stateText()
