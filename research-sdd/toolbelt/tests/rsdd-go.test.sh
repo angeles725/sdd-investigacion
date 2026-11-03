@@ -20,6 +20,9 @@
 #                    (internal) print the Go packages (./rel, one per line) under MODDIR (default: the module)
 #                    whose .go files changed between merge-base(BASE, HEAD) and the working tree; exit 3 when
 #                    BASE cannot be resolved.
+#   --shard-select I/N
+#                    (internal) print the packages read from stdin that belong to shard I of N (see RSDD_TEETH_SHARD);
+#                    exit 2 and print nothing on an invalid I/N.
 #   --combine-verdicts FILE
 #                    (internal) fold the VERDICT lines of FILE into one: any FAIL -> FAIL, else any SKIP -> SKIP.
 #   --prove-teeth    one mutation control on a COPY of the module in $TMPDIR (never the live tree):
@@ -32,6 +35,13 @@
 #                        a changed subpackage is its own entry). Zero changed packages is the typed state
 #                        `teeth: n/a - no Go package changed vs <ref>` (ok, never teeth); an unresolvable <ref> is
 #                        FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
+#                    RSDD_TEETH_SHARD=I/N (kit issue #2568; needs RSDD_TEETH_BASE) splits that per-package list across N CI
+#                      jobs: after sorting, shard I keeps the packages at 0-based positions p with p mod N == I-1. N is 1..32
+#                      and I is 1..N, written without leading zeros; any other value is a typed FAIL before anything runs, as
+#                      is a shard with no RSDD_TEETH_BASE (the whole-module nightly is never sharded). A shard whose slice is
+#                      empty (fewer packages than shards) is the typed `teeth: 0 packages in shard I/N` (ok); no changed
+#                      package at all keeps the `n/a` state above. Shards 2..N skip the whole-module `make test` (shard 1
+#                      runs it: gremlins' own baseline run still tests each package it mutates).
 #                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
 #                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run (as GOMAXPROCS,
 #                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
@@ -131,6 +141,20 @@ $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" ls-files --oth
   done <<<"$lines" | LC_ALL=C sort -u
 }
 
+# parse_shard SPEC -> sets SHARD_I and SHARD_N, returns 0 only for I/N with N in 1..32 and I in 1..N, no leading
+# zeros, signs or blanks. The length checks come first so the arithmetic never sees an overflowing number.
+parse_shard() {
+  [[ "$1" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] || return 1
+  SHARD_I="${BASH_REMATCH[1]}"; SHARD_N="${BASH_REMATCH[2]}"
+  [ "${#SHARD_I}" -le 2 ] && [ "${#SHARD_N}" -le 2 ] || return 1
+  [ "$SHARD_N" -le 32 ] && [ "$SHARD_I" -le "$SHARD_N" ]
+}
+
+# select_shard I N -> stdin lines at 0-based positions p with p mod N == I-1 (a disjoint cover for every N).
+select_shard() {
+  awk -v i="$1" -v n="$2" '(NR - 1) % n == i - 1' # SENTINEL-TEETH-SHARD-ASSIGN
+}
+
 # combine_verdicts FILE -> one VERDICT line from the VERDICT lines of FILE: any FAIL -> FAIL, else any SKIP -> SKIP,
 # else PASS. No VERDICT line at all is a FAIL (a silent zero proves nothing).
 combine_verdicts() {
@@ -165,6 +189,11 @@ fi
 if [ "${1:-}" = "--combine-verdicts" ]; then
   [ -r "${2:-}" ] || { echo "FATAL: --combine-verdicts needs a readable FILE" >&2; exit 2; }
   combine_verdicts "$2"; exit 0
+fi
+
+if [ "${1:-}" = "--shard-select" ]; then
+  parse_shard "${2:-}" || { echo "FATAL: --shard-select needs I/N (N 1..32, I 1..N), got [${2:-}]" >&2; exit 2; }
+  select_shard "$SHARD_I" "$SHARD_N"; exit $?
 fi
 
 if [ "${1:-}" = "--teeth-packages" ]; then
@@ -238,6 +267,40 @@ selftest_teeth() {
   bash "$0" --teeth-packages main "$dir" >/dev/null 2>&1; crc=$?
   if [ "$crc" -eq 3 ]; then ok "package scope: a directory outside any work tree exits 3"; else no "package scope: non-repo rc=$crc, want 3"; fi
 
+  # Shard selection (kit issue #2568): RSDD_TEETH_SHARD=I/N keeps the packages at 0-based positions p with
+  # p mod N == I-1 of the sorted changed list. Seven packages and N=3 put a package in the FIRST, MIDDLE and LAST
+  # position of every slice; --shard-select reads the list on stdin and prints the slice.
+  local pk7 s1 s2 s3 sx
+  pk7="$(printf '%s\n' ./a ./b ./c ./d ./e ./f ./g)"
+  s1="$(bash "$0" --shard-select 1/3 <<<"$pk7" | tr '\n' ' ')"; s2="$(bash "$0" --shard-select 2/3 <<<"$pk7" | tr '\n' ' ')"
+  s3="$(bash "$0" --shard-select 3/3 <<<"$pk7" | tr '\n' ' ')"
+  if [ "$s1" = "./a ./d ./g " ] && [ "$s2" = "./b ./e " ] && [ "$s3" = "./c ./f " ]; then
+    ok "shard select: 1/3, 2/3 and 3/3 of seven packages are the disjoint cover a,d,g / b,e / c,f"
+  else no "shard select: wrong slices [$s1] [$s2] [$s3]"; fi
+  s1="$(bash "$0" --shard-select 1/1 <<<"$pk7" | tr '\n' ' ')"
+  if [ "$s1" = "./a ./b ./c ./d ./e ./f ./g " ]; then ok "shard select: 1/1 keeps every package"; else no "shard select: 1/1 wrong [$s1]"; fi
+  s1="$(bash "$0" --shard-select 1/3 <<<"./only")"; s2="$(bash "$0" --shard-select 2/3 <<<"./only")"; s3="$(bash "$0" --shard-select 3/3 <<<"./only")"
+  if [ "$s1" = "./only" ] && [ -z "$s2" ] && [ -z "$s3" ]; then
+    ok "shard select: a single package lands in shard 1 only; N > packages leaves shards 2 and 3 empty"
+  else no "shard select: single package wrong [$s1] [$s2] [$s3]"; fi
+  sx=ok
+  for d in 0/3 4/3 1/0 3/2 abc 1/ /3 '' 1/2/3 -1/3 01/3 1/33 1/999999999999999999999 ' 1/3'; do
+    s1="$(bash "$0" --shard-select "$d" <<<"$pk7" 2>/dev/null)"; crc=$?
+    if [ "$crc" -ne 2 ] || [ -n "$s1" ]; then sx="[$d] rc=$crc out=[$s1]"; break; fi
+  done
+  if [ "$sx" = ok ]; then ok "shard select: invalid specs exit 2 and print no package (never a silent full or empty slice)"
+  else no "shard select: invalid spec accepted: $sx"; fi
+  # The whole suite refuses a bad or base-less shard before any go work: a typed FAIL, exit 1.
+  # A fake old `go` first on PATH bounds both calls: if a mutant accepted the selector the nested suite would stop
+  # at the toolchain gate (rc 0, a SKIP) instead of recursing into this self-test without end.
+  mkdir -p "$dir/fakego"; printf '#!/bin/sh\n[ "$1" = version ] && echo "go version go1.20.1 linux/amd64"\nexit 0\n' > "$dir/fakego/go"; chmod +x "$dir/fakego/go"
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_TEETH_SHARD=4/3 RSDD_TEETH_BASE=main bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_TEETH_SHARD=4/3 is not I/N' <<<"$g"; then
+    ok "shard select: the suite fails on an invalid RSDD_TEETH_SHARD before running anything"; else no "shard select: bad shard not a FAIL (rc=$crc): $g"; fi
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_TEETH_SHARD=1/3 RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_TEETH_SHARD=1/3 needs RSDD_TEETH_BASE' <<<"$g"; then
+    ok "shard select: a shard without RSDD_TEETH_BASE (whole-module run) is a FAIL, not a silent full run"; else no "shard select: base-less shard not a FAIL (rc=$crc): $g"; fi
+
   # Verdict folding.
   printf 'VERDICT: PASS a\nVERDICT: SKIP b\n' > "$dir/v-skip"; printf 'VERDICT: PASS a\nVERDICT: FAIL 1 lived\nVERDICT: SKIP b\n' > "$dir/v-fail"
   printf 'VERDICT: PASS a\nVERDICT: PASS b\n' > "$dir/v-pass"; : > "$dir/v-none"
@@ -253,6 +316,20 @@ if [ "${1:-}" = "--selftest-teeth" ]; then
   ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go-st.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
   selftest_teeth "$ROOT"
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]; exit $?
+fi
+
+# Shard validation first: a bad selector must never fall back to a full or an empty run.
+SHARDED=0
+if [ -n "${RSDD_TEETH_SHARD+x}" ] && [ -n "${RSDD_TEETH_SHARD}" ]; then
+  if ! parse_shard "$RSDD_TEETH_SHARD"; then
+    no "RSDD_TEETH_SHARD=$RSDD_TEETH_SHARD is not I/N (N 1..32, I 1..N, no leading zeros)"
+    echo "== $pass passed · $fail failed =="; exit 1
+  fi
+  if [ -z "${RSDD_TEETH_BASE:-}" ]; then
+    no "RSDD_TEETH_SHARD=$RSDD_TEETH_SHARD needs RSDD_TEETH_BASE (the whole-module run is not sharded)"
+    echo "== $pass passed · $fail failed =="; exit 1
+  fi
+  SHARDED=1
 fi
 
 if ! command -v go >/dev/null 2>&1; then
@@ -286,8 +363,13 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
 # is itself one failure, and zero tested packages is a failure (a silent zero proves nothing).
 # `make test` runs it so every test binary carries the Makefile's memory cap and timeout (see containment).
 out="$ROOT/gotest.out"
-make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
-rc=$?
+if [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; then
+  echo "go test: whole-module run skipped in shard $SHARD_I/$SHARD_N (it runs in shard 1/$SHARD_N)"
+  : > "$out"; rc=0
+else
+  make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
+  rc=$?
+fi
 counts="$(count_go_output "$out")"
 npass="${counts#pass=}"; npass="${npass%% *}"
 nfail="${counts##*fail=}"
@@ -298,7 +380,7 @@ if [ "$rc" -ne 0 ] && [ "$nfail" -eq 0 ]; then
   no "go test exited $rc with no per-package FAIL line (build/setup error); tail follows"
   tail -n 15 "$out"
 fi
-if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ]; then
+if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ] && ! { [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; }; then
   no "go test ran zero test packages - refusing to read that as a pass"
 fi
 if [ "$fail" -ne 0 ]; then tail -n 30 "$out"; fi
@@ -579,6 +661,25 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "merge-base mutation" "$0" "$MU
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
+# Shard teeth: the slice offset and the I<=N bound are each load-bearing.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "shard-offset mutation" "$0" "$MUTDIR/rsdd-go-so.test.sh" \
+    's/(NR - 1) % n == i - 1/(NR - 1) % n == i/'; then
+  if mutant_tooth "teeth: a shard slice shifted by one position is caught" 0 1 \
+      "$MUTDIR/rsdd-go-so.test.sh" --orig "$0" \
+      --good-has 'PASS  shard select: 1/3, 2/3 and 3/3' --bad-has 'FAIL  shard select: wrong slices' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "shard-bound mutation" "$0" "$MUTDIR/rsdd-go-sb.test.sh" \
+    's/ && \[ "\$SHARD_I" -le "\$SHARD_N" \]//'; then
+  if mutant_tooth "teeth: a shard selector with I > N accepted is caught" 0 1 \
+      "$MUTDIR/rsdd-go-sb.test.sh" --orig "$0" \
+      --good-has 'PASS  shard select: invalid specs' --bad-has 'FAIL  shard select: invalid spec accepted' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
 # 3) a teeth recipe without --workers (gremlins' one-worker-per-CPU default) is caught by the wiring pin.
 if MUTANT_SYNTAX=none mutant_chain_or_count fail "workers-wiring mutation" "$MOD/Makefile" "$MUTDIR/Makefile.workers" \
     's/ --workers \$(TEETH_WORKERS)//'; then
@@ -690,7 +791,14 @@ else
     ok "teeth: n/a — no Go package changed vs $RSDD_TEETH_BASE (not counted as teeth)"
     verdict="VERDICT: NA"
   else
-    echo "teeth scope: changed vs $RSDD_TEETH_BASE — $(wc -l <<<"$pkgs" | tr -d ' ') package(s): $(tr '\n' ' ' <<<"$pkgs")"
+    ntotal="$(wc -l <<<"$pkgs" | tr -d ' ')"
+    if [ "$SHARDED" -eq 1 ]; then pkgs="$(select_shard "$SHARD_I" "$SHARD_N" <<<"$pkgs")"; fi
+    if [ -z "$pkgs" ]; then
+      echo "teeth: 0 packages in shard $SHARD_I/$SHARD_N ($ntotal changed vs $RSDD_TEETH_BASE)"
+      ok "teeth: 0 packages in shard $SHARD_I/$SHARD_N (not counted as teeth)"
+      verdict="VERDICT: NA"
+    else
+    echo "teeth scope: changed vs $RSDD_TEETH_BASE — $(wc -l <<<"$pkgs" | tr -d ' ') of $ntotal package(s)${RSDD_TEETH_SHARD:+ in shard $RSDD_TEETH_SHARD}: $(tr '\n' ' ' <<<"$pkgs")"
     : > "$ROOT/verdicts.txt"
     while IFS= read -r p; do
       # The path reaches an unquoted $(TEETH_PKG) in the Makefile recipe: accept only plain package paths.
@@ -709,6 +817,7 @@ else
       echo "$one" | grep '^VERDICT:' | sed "s|^VERDICT: \([A-Z]*\) |VERDICT: \1 [$p] |" >> "$ROOT/verdicts.txt"
     done <<<"$pkgs"
     verdict="$(combine_verdicts "$ROOT/verdicts.txt")"
+    fi
   fi
 fi
 echo "gremlins wall time: $((SECONDS - t0))s"
