@@ -27,6 +27,7 @@ const (
 	sqfsFlagExportable   = 0x80
 	sqfsNoTable          = ^uint64(0) // the "table absent" sentinel
 	sqfsScanChunk        = 1 << 20
+	sqfsScanOverlap      = 3 // len(sqfsMagic) - 1
 	sqfsNoSuperblock     = "no valid SquashFS v4 LE superblock found in input"
 	defaultMaxInputBytes = 512 * 1024 * 1024
 	defaultMaxExtracted  = 256 * 1024 * 1024
@@ -65,11 +66,14 @@ func sqfsValidSuperblock(sb []byte, offset, size int64) bool {
 	if inodes == 0 || ids == 0 || major != 4 || minor != 0 || compression < 1 || compression > 6 {
 		return false
 	}
-	// block == 1 << log, with log a uint16: any log above 31 cannot equal a uint32 block size.
-	if log > 31 || uint64(block) != 1<<log || block < 4096 || block > 1048576 {
+	// block == 1 << log, with log a uint16. log needs no range check of its own: a shift count of 32..63 gives a
+	// value no uint32 equals, and 64 or more gives 0, which the block >= 4096 bound refuses.
+	if uint64(block) != 1<<log || block < 4096 || block > 1048576 {
 		return false
 	}
-	if used < sqfsSBSize || used > uint64(size-offset) { // offset + used <= size
+	// offset + used <= size. used <= 96 needs no check of its own: the required tables must lie in [96, used),
+	// which is empty then, so the table checks below refuse it.
+	if used > uint64(size-offset) {
 		return false
 	}
 	for _, x := range []uint64{idTable, xattr, inodeTable, dirTable, fragTable, exportTable} {
@@ -90,7 +94,9 @@ func sqfsValidSuperblock(sb []byte, offset, size int64) bool {
 // later. The scan streams in 1 MiB chunks (the script maps the whole file), so memory stays bounded.
 func findSquashfsOffset(r io.ReaderAt, size int64) (int64, error) {
 	// Sized to the input, not the chunk: a small input must not pay a 1 MiB buffer per call.
-	buf := make([]byte, min(int64(sqfsScanChunk), max(size, 0))+int64(len(sqfsMagic))-1)
+	// The window is sqfsScanOverlap bytes longer than the chunk so a magic that starts in the chunk and ends in
+	// the next one is still seen; no candidate can start at or past the chunk end, so none is seen twice.
+	buf := make([]byte, min(int64(sqfsScanChunk), max(size, 0))+sqfsScanOverlap)
 	sb := make([]byte, sqfsSBSize)
 	for base := int64(0); base < size; base += sqfsScanChunk {
 		n, err := r.ReadAt(buf, base)
@@ -104,15 +110,11 @@ func findSquashfsOffset(r io.ReaderAt, size int64) (int64, error) {
 				break
 			}
 			pos := from + j
-			if pos >= sqfsScanChunk {
-				break // belongs to the next chunk
-			}
 			offset := base + int64(pos)
-			if offset+sqfsSBSize <= size {
-				if got, err := r.ReadAt(sb, offset); got == sqfsSBSize && (err == nil || errors.Is(err, io.EOF)) &&
-					sqfsValidSuperblock(sb, offset, size) {
-					return offset, nil
-				}
+			// A candidate within 96 bytes of the end reads short and is refused here.
+			if got, err := r.ReadAt(sb, offset); got == sqfsSBSize && (err == nil || errors.Is(err, io.EOF)) &&
+				sqfsValidSuperblock(sb, offset, size) {
+				return offset, nil
 			}
 			from = pos + 1
 		}

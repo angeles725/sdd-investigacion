@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[6] / "toolbelt"))  # frozen copy: lib/ still lives in the toolbelt
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "core" / "adapter" / "testdata" / "frozen"))  # frozen copy of lib/ (core consolidation, #2561)
 from lib.adapter_core import refuse_privileged_execution
 from lib.isolation_profile import PROFILE_INPROCESS_ZIP_METADATA
 

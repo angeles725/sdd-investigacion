@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: cannot resolve base ref: no-such-ref

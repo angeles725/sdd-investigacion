@@ -36,9 +36,33 @@ type Report struct {
 	Failure string
 	// Notes are the stderr lines in emission order, without their newline.
 	Notes []string
+	// Fleet is the --all summary; nil for a single-retro audit.
+	Fleet *Fleet
 
 	stdout []string
+	// ancDegraded marks a retro whose commit reachability could not be verified (the probe is run-wide and
+	// written once, but every retro that needed it is degraded, kit issue #1709).
+	ancDegraded bool
+	// done marks an audit that reached its end: only such a retro is counted in the fleet totals.
+	done bool
 }
+
+// Fleet is the --all summary: the totals of the retros that were audited to the end, the retros that could not
+// be (Degraded) and the corpus findings outside the failure channel (OutOfScope).
+type Fleet struct {
+	Tracked, Untracked, Shipped, Borderline, Regressed, Orphaned int
+	Degraded, OutOfScope, Retros                                 int
+}
+
+// Line is the fleet-summary line of the legacy script.
+func (f Fleet) Line() string {
+	return fmt.Sprintf("fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d regressed=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d",
+		f.Tracked, f.Untracked, f.Shipped, f.Borderline, f.Regressed, f.Orphaned, f.Degraded, f.OutOfScope, f.Retros)
+}
+
+// failed reports whether the audit returned 1 in the legacy script: a degraded line, or commit reachability that
+// could not be verified.
+func (r *Report) failed() bool { return r.Degraded != "" || r.ancDegraded }
 
 func (r *Report) note(format string, args ...any) {
 	r.Notes = append(r.Notes, fmt.Sprintf(format, args...))
@@ -67,7 +91,7 @@ func (r Report) Render(stdout, stderr io.Writer) int {
 	for _, l := range r.Notes {
 		fmt.Fprintln(stderr, l)
 	}
-	if r.Degraded != "" || r.Failure != "" {
+	if r.Degraded != "" || r.Failure != "" || (r.Fleet != nil && r.Fleet.Degraded > 0) {
 		return 1
 	}
 	return 0

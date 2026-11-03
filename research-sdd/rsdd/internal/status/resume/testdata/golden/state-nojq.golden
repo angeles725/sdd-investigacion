@@ -1,0 +1,4 @@
+rc: 3
+--- stdout
+--- stderr
+DEGRADED: jq not found; cannot build the JSON document

@@ -1,0 +1,5 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: no origin/main or main to measure against; pass --base-ref REF
+resume-render.sh: resume-state.sh failed (rc 2)

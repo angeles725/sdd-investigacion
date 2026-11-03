@@ -19,9 +19,13 @@ func TestGoldenReplay(t *testing.T) {
 			t.Errorf("%s: no golden (regenerate with RECONCILE_UPDATE=1 go test -run TestDifferential)", c.name)
 			continue
 		}
+		// Every box (and so every stub gh script) is written HERE, before any subtest runs: a parallel subtest
+		// that forked while another still held a stub open for writing made exec fail with ETXTBSY, which the
+		// probe reads as "gh is not authenticated" (a different case failed on each run).
+		b := mkBox(t, c)
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			if d := diffResult(want, runGo(t, mkBox(t, c))); d != "" {
+			if d := diffResult(want, runGo(t, b)); d != "" {
 				t.Errorf("Go differs from the recorded legacy output:\n%s", d)
 			}
 		})

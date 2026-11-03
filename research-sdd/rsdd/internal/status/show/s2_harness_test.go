@@ -189,6 +189,12 @@ func (c *ctx) runOp(args []string) int {
 		w := c.focusTokCached(arg(1), arg(2))
 		p(fmt.Sprintf("v=%s w=%s\n", v, w))
 		return 0
+	case "blocked_open_count": // S3: the live lib/blocked-rows.sh function, called with the state file
+		n, rc := c.blockedOpen()
+		if rc == 0 {
+			num(n)
+		}
+		return rc
 	case "__inplace":
 		n, rc := c.inplaceBlocked()
 		num(n)

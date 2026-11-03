@@ -1,0 +1,747 @@
+{
+  "args/absent-file": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): @BOX@/rh/retros/r.md\n"
+  },
+  "args/dangling-symlink": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): @BOX@/dangling.md\n"
+  },
+  "args/directory-named-md": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): @BOX@/dir.md\n"
+  },
+  "args/dot-md-name": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "args/dotdot": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "args/dotdot-through-symlink": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): @BOX@/sub/../r.md\n"
+  },
+  "args/empty-string": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): \n"
+  },
+  "args/help-flag": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): --help\n"
+  },
+  "args/md-suffix-not-extension": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: argument must be a .md file: @BOX@/r.mdx\n"
+  },
+  "args/md-without-dot": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: argument must be a .md file: @BOX@/rh/retros/rmd\n"
+  },
+  "args/none": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "Usage: verify-retro.sh \u003cretro.md\u003e\n  exit 0 = conforming, exit 1 = non-conforming, exit 2 = bad args\n"
+  },
+  "args/not-md-absent": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): @BOX@/absent.txt\n"
+  },
+  "args/not-md-and-unreadable-is-not-md": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: argument must be a .md file: @BOX@/rh/retros/x.txt\n"
+  },
+  "args/not-md-existing": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: argument must be a .md file: @BOX@/notes.txt\n"
+  },
+  "args/relative": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "args/relative-absent": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not found (absent-input): nope.md\n"
+  },
+  "args/relative-unclosed-fence": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": "WARN: unclosed code fence opened at line 10 in f.md — treated as text\n"
+  },
+  "args/symlink": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "args/two": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "Usage: verify-retro.sh \u003cretro.md\u003e\n  exit 0 = conforming, exit 1 = non-conforming, exit 2 = bad args\n"
+  },
+  "args/unreadable": {
+    "rc": 2,
+    "stdout": "",
+    "stderr": "ERROR: file not readable (absent-input): @BOX@/rh/retros/r.md\n"
+  },
+  "delta/absent": {
+    "rc": 1,
+    "stdout": "FAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/absent-empty-body": {
+    "rc": 1,
+    "stdout": "FAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/all-defects-with-unclosed-fence": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": "WARN: unclosed code fence opened at line 2 in @BOX@/rh/retros/r.md — treated as text\n"
+  },
+  "delta/canonical-heading-uppercase": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/canonical-in-fence-is-absent": {
+    "rc": 1,
+    "stdout": "FAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/closed-fence-then-table": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/crlf-table": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/crlf-unrecognised": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\r\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/deprecated-heading-honesty": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-heading-no-rows": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/deprecated-heading-rows": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-then-canonical": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/dirty-lead-block": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/entries-form": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/entries-form-honesty": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/entries-h3-without-emdash": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/h2-delta-headings": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Delta D1 — first\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/honesty-emdash": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/honesty-nothing-to-add": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/honesty-phrase-in-notes-only": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/honesty-under-honest-verdict": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/honesty-uppercase-mention-impure": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/marker-bad-title-hyphen-empty-section": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: unrecognised review-status \"nope\" (expected: pending | applied | dismissed)\n  fix: change to:\n       \u003c!-- review-status: pending --\u003e\nWARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/marker-pending-everything-wrong": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/mention-with-table-conforming": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/no-table-honesty-in-section": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/no-table-no-honesty": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/table-after-other-section": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/table-header-only": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/table-header-only-honesty": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/table-one-row": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/table-two-rows": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/unclosed-fence-before-table": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": "WARN: unclosed code fence opened at line 4 in @BOX@/rh/retros/r.md — treated as text\n"
+  },
+  "delta/unclosed-fence-conforming": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": "WARN: unclosed code fence opened at line 10 in @BOX@/rh/retros/r.md — treated as text\n"
+  },
+  "delta/unrecognised-h3-proposals": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ### Proposals\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-header-only": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-heading-percent-and-ctrl": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file 100% \u0001 x\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-heading-trailing-space": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file  \n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-no-rows": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-no-rows-honesty": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-rows-honesty": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-then-canonical": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "delta/unrecognised-with-rows": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\n",
+    "stderr": ""
+  },
+  "file/crlf": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "file/crlf-honesty": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "file/empty": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "file/no-trailing-newline": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/absent-section": {
+    "rc": 1,
+    "stdout": "FAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "fixture/conforming": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/dirty-lead-hv": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "fixture/empty-section": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "fixture/ford-update-notice-honesty": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/h2-delta-id-veto": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "fixture/header-hyphen": {
+    "rc": 0,
+    "stdout": "WARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nOK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/honesty-emdash": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/honesty-in-notes": {
+    "rc": 1,
+    "stdout": "FAIL [empty-section]: delta heading present but zero table rows; §18 honesty line found but section impure (dirty structural marker in lead block, or forbidden heading outside canonical section)\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "fixture/honesty-line": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/honesty-nothing-add": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/kit-retro-exclude": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "fixture/marker-missing": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "fixture/multi-defect": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Delta index (changes by destination)\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
+    "stderr": ""
+  },
+  "fixture/niagara-tools-search-honesty": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "fixture/unrecognised-heading": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by DESTINATION FILE\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\n",
+    "stderr": ""
+  },
+  "header/bare-title-word": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/both-forms-emdash-wins": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/both-forms-reversed": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/crlf-hyphen": {
+    "rc": 0,
+    "stdout": "WARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nOK: conforming\n",
+    "stderr": ""
+  },
+  "header/emdash": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/emdash-no-trailing-text": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/endash": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/h2": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/hyphen": {
+    "rc": 0,
+    "stdout": "WARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nOK: conforming\n",
+    "stderr": ""
+  },
+  "header/hyphen-in-fence": {
+    "rc": 0,
+    "stdout": "WARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nOK: conforming\n",
+    "stderr": ""
+  },
+  "header/hyphen-no-trailing-text": {
+    "rc": 0,
+    "stdout": "WARN [header-punctuation]: title line found but uses ASCII hyphen \"-\"; the canonical separator is em-dash \"—\"\n  fix: change the separator to an em-dash:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nOK: conforming\n",
+    "stderr": ""
+  },
+  "header/in-fence": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/indented": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/late-in-file": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "header/lowercase": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/missing-and-marker-missing": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/no-space-after-hash": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/none": {
+    "rc": 1,
+    "stdout": "FAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\n",
+    "stderr": ""
+  },
+  "header/with-bom": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/a-and-z-word": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: unrecognised review-status \"azza\" (expected: pending | applied | dismissed)\n  fix: change to:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/absent": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/after-h1": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/after-text-line": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/applied": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/bare-no-comment": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/blank-line-before": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/blank-line-between-comments": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/bom-marker": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/bom-then-exclude": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/crlf-marker": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/digits-only": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/dismissed": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/dotted-capital-i-is-not-i": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/empty-file-is-missing": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/exclude": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-after-text": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/exclude-and-bad-status": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: unrecognised review-status \"nope\" (expected: pending | applied | dismissed)\n  fix: change to:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/exclude-and-status": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/exclude-indented": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-mid-line": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/exclude-second-line": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-spaceless": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-trailing-text": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-unclosed-fence-silent": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-uppercase": {
+    "rc": 0,
+    "stdout": "OK: kit-retro: exclude — declared non-kit retro, conforming/skipped\n",
+    "stderr": ""
+  },
+  "marker/exclude-with-extra-words": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/first-unrecognised-second-valid": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: unrecognised review-status \"nope\" (expected: pending | applied | dismissed)\n  fix: change to:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/indented": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/kelvin-sign-is-not-k": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\nFAIL [header-missing]: no \"# Retro —\" title line found\n  fix: add as the first heading:\n       # Retro — \u003cTARGET\u003e · \u003cFOCUS\u003e · \u003cDATE\u003e · Research-SDD self-retrospective\nFAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "marker/marker-in-body-only": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/marker-text-before-on-line": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/marker-with-trailing-text": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/mixed-case-keyword": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/multi-line-comment-open": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/no-spaces": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/no-word": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: no review-status marker found in leading comment block\n  fix: add at the very top of the file:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/pending": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/second-comment-line": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/tab-indented": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/tabs": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/two-markers-first-wins": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/two-markers-one-line": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/unknown-word": {
+    "rc": 1,
+    "stdout": "FAIL [marker-missing]: unrecognised review-status \"draft\" (expected: pending | applied | dismissed)\n  fix: change to:\n       \u003c!-- review-status: pending --\u003e\n",
+    "stderr": ""
+  },
+  "marker/uppercase-word": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/word-glued-to-digits": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  },
+  "marker/word-with-suffix": {
+    "rc": 0,
+    "stdout": "OK: conforming\n",
+    "stderr": ""
+  }
+}

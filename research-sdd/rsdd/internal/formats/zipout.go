@@ -1,6 +1,7 @@
 package formats
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -8,7 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -205,15 +206,19 @@ func zipCreate(root *os.Root, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
+	// The file is closed whatever happened; the write or sync error wins over a close error.
+	werr := zipFirstError(func() error { _, err := f.Write(data); return err }, f.Sync)
+	return cmp.Or(werr, f.Close())
+}
+
+// zipFirstError runs the steps in order and stops at the first that fails, returning its error.
+func zipFirstError(steps ...func() error) error {
+	for _, step := range steps {
+		if err := step(); err != nil {
+			return err
+		}
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return nil
 }
 
 // zipISONow is datetime.now(timezone.utc).isoformat() with "+00:00" replaced by "Z": microsecond precision,
@@ -320,17 +325,24 @@ func zipValidateTree(stage string, expectedFiles, expectedDirs map[string]bool) 
 	if !sameSet(files, expectedFiles) || (expectedDirs != nil && !sameSet(dirs, expectedDirs)) {
 		return &ZipError{Msg: "output tree is not closed"}
 	}
+	var steps []func() error
+	for _, d := range zipDeepestFirst(dirs) {
+		steps = append(steps, func() error { return fsx.SyncDir(stage + "/" + d) })
+	}
+	return zipFirstError(append(steps, func() error { return fsx.SyncDir(stage) })...)
+}
+
+// zipDeepestFirst lists the relative directory paths of dirs, deepest first (a child is synced before its
+// parent), ties in name order so the sequence is deterministic.
+func zipDeepestFirst(dirs map[string]bool) []string {
 	order := make([]string, 0, len(dirs))
 	for d := range dirs {
 		order = append(order, d)
 	}
-	sort.Slice(order, func(i, j int) bool { return strings.Count(order[i], "/") > strings.Count(order[j], "/") })
-	for _, d := range order {
-		if err := fsx.SyncDir(stage + "/" + d); err != nil {
-			return err
-		}
-	}
-	return fsx.SyncDir(stage)
+	slices.SortFunc(order, func(a, b string) int {
+		return cmp.Or(cmp.Compare(strings.Count(b, "/"), strings.Count(a, "/")), cmp.Compare(a, b))
+	})
+	return order
 }
 
 func sameSet(a, b map[string]bool) bool {

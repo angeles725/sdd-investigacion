@@ -14,11 +14,17 @@ SUT="$HERE/../reconcile-issues.sh"
 # shellcheck source=lib/stage-libs.sh
 . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into the sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-for _l in retro-status retro-grammar target-paths; do
-  [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper lib/$_l.sh not found" >&2; exit 2; }
-done
+[ -f "$HERE/../lib/rsdd-exec.sh" ] || { echo "FATAL: helper lib/rsdd-exec.sh not found" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass,
+# without go). The behaviour these cases pin lives in internal/retro/reconcile (differential vs the frozen script).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -95,7 +101,16 @@ for c in $CHECKS; do
 done
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: each mutant must turn its check RED with the expected failure text --"
+  echo "-- teeth: reconcile-issues.sh is an rsdd_exec shim; the marker mutation controls moved to Go --"
+  # The bash-body controls (RECONCILE_ISSUES_DISMISSED_OPEN / DISMISSED_ORPHAN / MALFORMED_STATE / MALFORMED_ORPHAN)
+  # mutated a bash body that is gone. The rule each pinned is now pinned in internal/retro/reconcile (differential
+  # against the frozen script, goldens replayed under nodiff); a typed SKIP names the Go case that holds it.
+  printf '  SKIP  teeth dismissed-open (c_middle)                 -> marker/partial-dismissed-list, marker/dismissed-wins-over-partial\n'
+  printf '  SKIP  teeth orphan-reason-off (c_open_issue_reported) -> marker/partial-shipped-list-orphaned-reason, matrix/*\n'
+  printf '  SKIP  teeth malformed-silent (c_malformed)            -> marker/partial-dismissed-malformed\n'
+  printf '  SKIP  teeth malformed-orphan-off (c_malformed_orphan) -> marker/partial-dismissed-malformed, core/orphaned-*\n'
+  # What the shim still owns: handing the arguments to the Go command. A shim that drops "$@" must turn the cases
+  # red (the command, --toolbelt and self-dir teeth live in reconcile-issues.test.sh).
   tooth() {
     local chk="$1" label="$2" want="$3" why
     shift 3
@@ -106,10 +121,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth $label: mutant breaks $chk with [$want]" "()"; fi
     MUT=()
   }
-  tooth c_middle dismissed-open 'UNTRACKED IDS: [2 3 ] != [3 ]' '/RECONCILE_ISSUES_DISMISSED_OPEN/s/= dismissed/= never/'
-  tooth c_open_issue_reported orphan-reason-off 'MISSING: ^orphaned: issue for row 2 .*dismissed' '/RECONCILE_ISSUES_DISMISSED_ORPHAN/s/= dismissed/= never-dismissed/'
-  tooth c_malformed malformed-silent 'UNTRACKED IDS: [2 3 ] != []' '/RECONCILE_ISSUES_MALFORMED_STATE/s/= malformed/= never-malformed/'
-  tooth c_malformed_orphan malformed-orphan-off 'MISSING: ^orphaned: issue for row 2 is no longer open in r.md — marker DISMISSED list malformed; cannot tell' '/RECONCILE_ISSUES_MALFORMED_ORPHAN/s/= malformed/= never-malformed/'
+  tooth c_open_issue_reported shim-drops-args 'MISSING: ^orphaned: issue for row 2 ' 's/ "\$@"$//'
   echo "-- prove-teeth done --"
 fi
 

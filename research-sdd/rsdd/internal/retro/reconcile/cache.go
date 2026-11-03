@@ -14,6 +14,8 @@ type Cache struct {
 	bodies string
 	inline bool
 	flag   string
+	// prefetched marks the batch prefetch (LoadCache): Run re-verifies the untracked rows it reports.
+	prefetched bool
 }
 
 // CacheFile is a cache backed by the file the legacy --issues-cache names.

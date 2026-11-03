@@ -1,0 +1,30 @@
+rc: 0
+--- stdout
+{
+  "schema": "research-sdd.resume-state/v1",
+  "generated_at": "@T@",
+  "repo": {
+    "toplevel": "@ROOT@/r",
+    "remote": null
+  },
+  "base_ref": "trunk",
+  "base_sha": "b3ec3ae6764fe2550e319afd8a0ca387bb8cb823",
+  "worktrees": [
+    {
+      "path": "@ROOT@/r",
+      "branch": "trunk",
+      "head": "b3ec3ae6764fe2550e319afd8a0ca387bb8cb823",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 0
+    }
+  ],
+  "branches": [],
+  "prs": null,
+  "prs_truncated": null,
+  "prs_status": "skipped"
+}
+--- stderr
