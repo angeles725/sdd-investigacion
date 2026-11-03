@@ -17,10 +17,10 @@ var reClaimRow = regexp.MustCompile(`^\| *[0-9]+ \|`)
 
 // inAuditsPath is `-path '*/audits/*.md'`: fnmatch without FNM_PATHNAME, so each `*` also crosses slashes and the
 // whole path (the target prefix included) is matched. The FIRST "/audits/" leaves the longest remainder, so it
-// decides: the remainder must hold at least the ".md" of the pattern.
+// decides. The ".md" of the pattern always fits in that remainder: "/audits/" ends in a slash, so a path that ends
+// in ".md" cannot overlap it (pinned by TestAuditsInAuditsPath, which has the bare "/audits/.md").
 func inAuditsPath(path string) bool {
-	i := strings.Index(path, "/audits/")
-	return i >= 0 && strings.HasSuffix(path, ".md") && len(path)-(i+len("/audits/")) >= len(".md")
+	return strings.Contains(path, "/audits/") && strings.HasSuffix(path, ".md")
 }
 
 // findAudits is `find P -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' -not -iname '*index*.md'`.
