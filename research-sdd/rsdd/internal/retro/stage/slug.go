@@ -38,9 +38,3 @@ func slugOf(retro string) string {
 	}
 	return s
 }
-
-// shellQuote is a POSIX single-quoted word: the suggested commands are meant to be pasted into a shell, and a
-// single quote in the target label or in the retro's file name used to end the quoting early.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}

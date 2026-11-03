@@ -41,11 +41,11 @@ func (s *stager) trackedSHA() string {
 }
 
 // gitFailed prints the degraded line for a git call that could not answer and returns its exit code.
-func (s *stager) gitFailed(what string, err error) int {
+func (s *stager) gitFailed(err error) int {
 	if errors.Is(err, git.ErrMissing) {
-		s.errf("degraded: git not found on PATH — cannot %s; nothing was changed.\n", what)
+		s.errf("degraded: git not found on PATH — cannot read the state of the kit repo; nothing was changed.\n")
 	} else {
-		s.errf("degraded: git could not %s in %s (%v) — nothing was changed.\n", what, s.o.KitRoot, err)
+		s.errf("degraded: git could not read the state of the kit repo in %s (%v) — nothing was changed.\n", s.o.KitRoot, err)
 	}
 	return exitGitState
 }
@@ -61,7 +61,7 @@ func (s *stager) preflight() (int, bool) {
 		if errors.As(err, &ee) {
 			s.errf("%s", ee.Stderr)
 		}
-		return s.gitFailed("read the state of the kit repo", err), true
+		return s.gitFailed(err), true
 	}
 	if len(out) > 0 {
 		s.errf("kit repo has uncommitted changes — commit/stash them first, then re-run.\n")
@@ -70,7 +70,7 @@ func (s *stager) preflight() (int, bool) {
 	if _, err := s.git.Run(s.o.KitRoot, "check-ref-format", "refs/heads/"+s.branch); err != nil {
 		var ee *git.ExitError
 		if !errors.As(err, &ee) {
-			return s.gitFailed("check the branch name", err), true
+			return s.gitFailed(err), true
 		}
 		s.errf("stage-retro: '%s' is not a valid branch name (target '%s', file '%s') — nothing was changed; rename the retro file or register a plain target name.\n", s.branch, s.label, filepath.Base(s.retro))
 		return exitBranch, true

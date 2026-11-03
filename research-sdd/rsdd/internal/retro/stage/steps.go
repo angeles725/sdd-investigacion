@@ -2,7 +2,7 @@ package stage
 
 import "strings"
 
-// quoteIn escapes s for a word that the printed command wraps in single quotes: the retro's file name and the
+// quoteIn escapes s for a word that the printed command wraps in single quotes (POSIX: the quote ends, is escaped, reopens): the retro's file name and the
 // target label end up inside '...', and a quote in either ended the quoting early.
 func quoteIn(s string) string { return strings.ReplaceAll(s, "'", `'\''`) }
 

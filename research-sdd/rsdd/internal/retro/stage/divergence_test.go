@@ -76,23 +76,6 @@ func (f *fx) requireWrapperUsed() {
 	}
 }
 
-// verbs are the git verbs of the logged calls (the -C pair skipped).
-func (f *fx) verbs() []string {
-	var out []string
-	for _, c := range f.gitCalls() {
-		args := strings.Fields(c)
-		for i := 0; i < len(args); i++ {
-			if args[i] == "-C" {
-				i++
-				continue
-			}
-			out = append(out, args[i])
-			break
-		}
-	}
-	return out
-}
-
 func (f *fx) called(sub string) bool {
 	for _, c := range f.gitCalls() {
 		if strings.Contains(c, sub) {
@@ -395,9 +378,6 @@ func TestSingleQuotesInTheSuggestedCommandsAreEscaped(t *testing.T) {
 	contains(t, "stdout", r.Stdout,
 		`-m 'feat(kit): apply retro deltas from o'\''brien (it-s)' -m 'Retro: o'\''brien/retros/it'\''s.md@<sha>'`,
 		`--title 'retro: o'\''brien it-s'`)
-	if q := shellQuote("it's"); q != `'it'\''s'` {
-		t.Errorf("shellQuote %s", q)
-	}
 }
 
 // D14: an unreadable retro was staged (a branch created) and refused only after the checkout.

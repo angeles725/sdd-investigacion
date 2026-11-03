@@ -53,6 +53,25 @@ func (f *fx) targets(pairs ...string) {
 	f.write("research-sdd/TARGETS.md", b.String(), 0o644)
 }
 
+// originEdit appends a line to targetA/retros/r1.md through a second clone and pushes it to origin/main, so origin
+// is ahead of the box's local main.
+func originEdit(t *testing.T, f *fx, line string) {
+	t.Helper()
+	clone := filepath.Join(f.root, "origin-editor")
+	f.git(f.root, "clone", "-q", f.remote, clone)
+	p := filepath.Join(clone, "targetA", "retros", "r1.md")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, append(data, []byte(line+"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.git(clone, "add", "-A")
+	f.git(clone, "commit", "-qm", "edit on origin")
+	f.git(clone, "push", "-q", "origin", "main")
+}
+
 func simple(marker string) func(*testing.T, *fx) {
 	return func(t *testing.T, f *fx) { f.retro("targetA", "r1.md", retroBody(marker)) }
 }
@@ -152,6 +171,12 @@ func guardCases() []dcase {
 			f.git(out, "add", "-A")
 			f.git(out, "commit", "-qm", "retro")
 		}, retro: "../outside/retros/r1.md"},
+		// a directory whose name starts with the kit root's is not inside the kit: the guard must not apply
+		{name: "parity/34-outside-kit-sibling-with-the-kit-root-as-prefix", setup: func(t *testing.T, f *fx) {
+			f.write("../repo-extra/retros/r1.md", retroBody(mPending), 0o644)
+			f.write("marker.txt", "x\n", 0o644)
+			f.commitAll("marker", true)
+		}, retro: "../repo-extra/retros/r1.md"},
 	}
 }
 
@@ -187,6 +212,24 @@ func selfRefCases() []dcase {
 			f.write("local-only.txt", "local only\n", 0o644)
 			f.commitAll("local main diverges", false)
 			f.git(f.repo, "checkout", "-q", "feat/pushed2")
+		}},
+		// the retro is on disk but git ignores it: neither side holds a blob, which must still refuse (not "both equal")
+		{name: "parity/16f-selfref-ignored-untracked", setup: func(t *testing.T, f *fx) {
+			f.write(".gitignore", "targetA/retros/\n", 0o644)
+			f.commitAll("ignore the retros", true)
+			f.write("targetA/retros/r1.md", mPending+"\n# retro\n", 0o644)
+		}},
+		// origin/main holds a newer version of the same file than local main: fast-forward advice
+		{name: "parity/16g-selfref-origin-ahead-same-file", setup: func(t *testing.T, f *fx) {
+			f.retro("targetA", "r1.md", retroBody(mPending))
+			originEdit(t, f, "NEWER on origin")
+		}},
+		// both sides moved the same file: the diverged-for-this-file advice
+		{name: "parity/16h-selfref-diverged-same-file", setup: func(t *testing.T, f *fx) {
+			f.retro("targetA", "r1.md", retroBody(mPending))
+			originEdit(t, f, "NEWER on origin")
+			f.write("targetA/retros/r1.md", retroBody(mPending)+"\nlocal-only line\n", 0o644)
+			f.commitAll("local edit (not pushed)", false)
 		}},
 		{name: "parity/17-selfref-symlinked-retro", setup: func(t *testing.T, f *fx) {
 			f.write("targetA/retros/r1.md", mPending+"\n# retro\n\nOLD content.\n", 0o644)
