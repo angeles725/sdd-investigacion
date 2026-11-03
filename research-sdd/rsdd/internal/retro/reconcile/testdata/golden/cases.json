@@ -1,0 +1,677 @@
+{
+  "core/all-tracked-no-closed-note": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/all-untracked-empty-cache": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/cache-is-whitespace-only": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/cache-nul-bytes": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/cache-trailing-blank-lines": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/crlf-cache": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/legacy-and-registered-signatures-mixed": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 8 is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/legacy-name-equal-to-registered-name": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/legacy-pre-1286-signature-tracks": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/metacharacter-target-names-are-literal": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/no-match-applied-empty-cache": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "no-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "core/no-match-empty-table": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: delta section found but contains neither row-table rows nor '### D\u003cN\u003e —' entries (nor numbered items directly under the heading, nor '## Delta \u003cID\u003e —' entries) in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "core/orphaned-applied-status-reason": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "core/orphaned-dismissed-status-reason": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "core/orphaned-duplicate-lines-kept": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/orphaned-issue-row-absent-from-retro": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "core/other-retro-signature-ignored": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/other-target-signature-ignored": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/record-separator-lines": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/row-ids-case-sensitive": {
+    "rc": 0,
+    "stdout": "untracked: row D1 — no open issue found for this delta in r.md\norphaned: issue for row d1 is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/signature-id-with-trailing-text": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/signature-in-the-middle-of-a-line": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/signature-last-dot-separator-wins": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\norphaned: issue for row note is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/signature-needs-the-dot-literal": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/signature-without-id": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/tracked-and-untracked": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "core/tracked-duplicate-row-ids": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "core/untracked-note-emitted-once": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\ntracked: row 3 — open issue found in r.md\nuntracked: row 4 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/blank-line-ends-no-table": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/canonical-empty-alt-elsewhere": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "unclassifiable: delta section found but it produced no items in @BOX@/rh/target-foo/retros/r.md — needs manual review (items elsewhere in the file are reconciled)\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/empty-first-cell": {
+    "rc": 0,
+    "stdout": "untracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/entries-and-table-prefers-table": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/entry-bold-id-warns": {
+    "rc": 0,
+    "stdout": "untracked: row D2 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: r.md: only 1 of 2 '### … —' entries have a usable ID token (a '**D1**' or '[D1]' token is not trackable) — count by hand\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/entry-headings": {
+    "rc": 0,
+    "stdout": "tracked: row D1 — open issue found in r.md\nuntracked: row D2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/entry-ids-all-unusable": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: delta section found but contains neither row-table rows nor '### D\u003cN\u003e —' entries (nor numbered items directly under the heading, nor '## Delta \u003cID\u003e —' entries) in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "form/escaped-pipes-in-later-cells": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "form/fenced-entry-ignored": {
+    "rc": 0,
+    "stdout": "untracked: row D1 — no open issue found for this delta in r.md\nuntracked: row D2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/fenced-rows-ignored": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/h2-delta-entries": {
+    "rc": 0,
+    "stdout": "tracked: row A1 — open issue found in r.md\nuntracked: row A2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/h2-ends-the-section": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/h3-proposals-list": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/header-words-are-not-ids": {
+    "rc": 0,
+    "stdout": "untracked: row D1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/id-non-ascii": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: row Δ1 of r.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review\nno-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "form/id-with-dot": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: row 1.5 of r.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review\nno-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "form/id-with-escaped-pipe": {
+    "rc": 0,
+    "stdout": "untracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "unclassifiable: row D|1 of r.md has a pipe in its id (id-contains-pipe) — needs manual review\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/id-with-space": {
+    "rc": 0,
+    "stdout": "tracked: row 2 — open issue found in r.md\n",
+    "stderr": "unclassifiable: row D 1 of r.md has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review\n"
+  },
+  "form/ids-of-the-fleet": {
+    "rc": 0,
+    "stdout": "tracked: row P1 — open issue found in r.md\nuntracked: row SPKI-A — no open issue found for this delta in r.md\nuntracked: row B12 — no open issue found for this delta in r.md\ntracked: row A — open issue found in r.md\ntracked: row R_2 — open issue found in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/numbered-heading": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/numbered-items": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/spanish-heading-table": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/summary-of-new-deltas": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/table-without-separator": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/two-canonical-sections": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/two-lists-share-ids": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: delta items in @BOX@/rh/target-foo/retros/r.md share ids (1) across two lists — needs manual review\n"
+  },
+  "form/unclosed-fence-in-table": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unclosed code fence opened at line 10 in @BOX@/rh/target-foo/retros/r.md — treated as text\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/unclosed-fence-warns": {
+    "rc": 0,
+    "stdout": "untracked: row D1 — no open issue found for this delta in r.md\nuntracked: row D2 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unclosed code fence opened at line 8 in @BOX@/rh/target-foo/retros/r.md — treated as text\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "form/unrec-h3-proposals-prose-only": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: proposal-like heading found but not in a countable delta form in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "form/unrec-heading-without-items": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: proposal-like heading found but not in a countable delta form in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "form/uppercase-heading": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "input/absent-retro": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "absent-input: retro not found: @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/absent-retro-relative": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "absent-input: retro not found: no/such/retro.md\n"
+  },
+  "input/bom-before-the-marker": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "no-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "input/cache-file-missing-after-empty-input": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "empty-input: no delta section found in @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/cache-file-missing-is-degraded": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "degraded: --issues-cache file not readable: @BOX@/cache.txt\n"
+  },
+  "input/cache-is-a-directory": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "degraded: --issues-cache file not readable: @BOX@/cache.txt\n"
+  },
+  "input/crlf-retro": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "input/empty-input-honest-zero": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "empty-input: delta section found but contains no data rows (honest §18 zero) in @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/empty-input-no-delta-section": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "empty-input: no delta section found in @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/empty-retro-file": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "empty-input: no delta section found in @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/relative-retro-path": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "input/retro-is-a-directory": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "absent-input: retro not found: @BOX@/rh/target-foo/retros/r.md\n"
+  },
+  "input/retro-path-with-dotdot": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "input/retro-reached-through-symlink": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "input/retro-unreadable-is-degraded": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "degraded: retro not readable: @BOX@/rh/target-foo/retros/r.md — cannot audit, no verdict\n"
+  },
+  "input/retro-without-final-newline": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "input/unclassifiable-canonical-heading-with-prose": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: delta section found but contains neither row-table rows nor '### D\u003cN\u003e —' entries (nor numbered items directly under the heading, nor '## Delta \u003cID\u003e —' entries) in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "input/unclassifiable-empty-canonical-heading": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "unclassifiable: delta section found but contains neither row-table rows nor '### D\u003cN\u003e —' entries (nor numbered items directly under the heading, nor '## Delta \u003cID\u003e —' entries) in @BOX@/rh/target-foo/retros/r.md — needs manual review\n"
+  },
+  "layout/nested-corpus-retros-registered": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/research-home-placeholder": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/retro-name-not-md": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.txt\ntracked: row 2 — open issue found in r.txt\n",
+    "stderr": "closed-lookup: skipped for r.txt — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/retro-name-with-regex-characters": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r+1[a].md\nuntracked: row 2 — no open issue found for this delta in r+1[a].md\n",
+    "stderr": "closed-lookup: skipped for r+1[a].md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/retro-name-with-spaces": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in my retro.md\nuntracked: row 2 — no open issue found for this delta in my retro.md\n",
+    "stderr": "closed-lookup: skipped for my retro.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/target-name-with-whitespace-warns": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "layout/targets-md-missing": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "target-paths: cannot read @BOX@/research-sdd/TARGETS.md\nreconcile-issues: cannot resolve target for '@BOX@/rh/target-foo/retros/r.md' — operational failure reading @BOX@/research-sdd/TARGETS.md (see message above)\n"
+  },
+  "layout/targets-md-without-rows": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "target-paths: no registered target paths parsed from @BOX@/research-sdd/TARGETS.md\nreconcile-issues: cannot resolve target for '@BOX@/rh/target-foo/retros/r.md' — operational failure reading @BOX@/research-sdd/TARGETS.md (see message above)\n"
+  },
+  "layout/unregistered-structural-directory-is-refused": {
+    "rc": 1,
+    "stdout": "",
+    "stderr": "reconcile-issues: cannot resolve target for '@BOX@/rh/proj/corpus/retros/r.md' — no ancestor directory is registered in @BOX@/research-sdd/TARGETS.md (basename 'corpus' is a structural directory, not a target)\n"
+  },
+  "layout/unregistered-target-falls-back-to-basename": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: target directory '@BOX@/rh/target-foo' not found in @BOX@/research-sdd/TARGETS.md — using basename 'target-foo'\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "marker/bare-marker-without-comment": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\ntracked: row 4 — open issue found in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/dismissed-wins-over-partial": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 4 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/indented-four-spaces-is-code": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\ntracked: row 4 — open issue found in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/line-three-after-h1": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "marker/marker-after-other-comment": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 4 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/out-of-scope-after-frontmatter": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r.md — refusing to classify (kit issue #1099); move the marker into the leading block\n"
+  },
+  "marker/out-of-scope-after-heading": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in r.md — refusing to classify (kit issue #1099); move the marker into the leading block\n"
+  },
+  "marker/partial-dismissed-list": {
+    "rc": 0,
+    "stdout": "tracked: row 4 — open issue found in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro marker lists it dismissed; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro marker lists it dismissed; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "marker/partial-dismissed-malformed": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — marker DISMISSED list malformed; cannot tell\norphaned: issue for row 3 is no longer open in r.md — marker DISMISSED list malformed; cannot tell\norphaned: issue for row 4 is no longer open in r.md — marker DISMISSED list malformed; cannot tell\norphaned: issue for row 9 is no longer open in r.md — marker DISMISSED list malformed; cannot tell\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nunclassifiable: row 2 of r.md cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review\nunclassifiable: row 3 of r.md cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review\nunclassifiable: row 4 of r.md cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review\n"
+  },
+  "marker/partial-keyword-in-prose-is-not-partial": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 4 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/partial-shipped-list-orphaned-reason": {
+    "rc": 0,
+    "stdout": "tracked: row 3 — open issue found in r.md\ntracked: row 4 — open issue found in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "marker/partial-shipped-range": {
+    "rc": 0,
+    "stdout": "tracked: row P3 — open issue found in r.md\norphaned: issue for row P1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "marker/partial-shipped-with-notes": {
+    "rc": 0,
+    "stdout": "untracked: row 3 — no open issue found for this delta in r.md\nuntracked: row 4 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "marker/status-with-trailing-text": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 4 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/two-markers-first-wins": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\ntracked: row 4 — open issue found in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "marker/uppercase-marker": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 4 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "matrix/applied-empty": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "no-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "matrix/applied-row1": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "matrix/applied-row2-row9": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 2 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "matrix/applied-rows123": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is applied; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "matrix/dismissed-empty": {
+    "rc": 0,
+    "stdout": "",
+    "stderr": "no-match: no open deltas and no orphaned issues in r.md\n"
+  },
+  "matrix/dismissed-row1": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "matrix/dismissed-row2-row9": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 2 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": ""
+  },
+  "matrix/dismissed-rows123": {
+    "rc": 0,
+    "stdout": "orphaned: issue for row 1 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\norphaned: issue for row 3 is no longer open in r.md — the retro review-status is dismissed; propose closing the issue (not closed here)\n",
+    "stderr": ""
+  },
+  "matrix/none-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/none-row1": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/none-row2-row9": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/none-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "matrix/partial-dismissed-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-dismissed-row1": {
+    "rc": 0,
+    "stdout": "untracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-dismissed-row2-row9": {
+    "rc": 0,
+    "stdout": "untracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 2 is no longer open in r.md — the retro marker lists it dismissed; propose closing the issue (not closed here)\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-dismissed-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 3 — open issue found in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\norphaned: issue for row 2 is no longer open in r.md — the retro marker lists it dismissed; propose closing the issue (not closed here)\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "matrix/partial-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-nothing-shipped-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-nothing-shipped-row1": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-nothing-shipped-row2-row9": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-nothing-shipped-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "matrix/partial-row1": {
+    "rc": 0,
+    "stdout": "untracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-row2-row9": {
+    "rc": 0,
+    "stdout": "tracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/partial-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\norphaned: issue for row 1 is no longer open in r.md — the retro marker lists it shipped; propose closing the issue (not closed here)\n",
+    "stderr": "WARN: unrecognised review-status 'partial' in r.md — treating all rows as open\n"
+  },
+  "matrix/pending-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/pending-row1": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/pending-row2-row9": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/pending-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\n",
+    "stderr": ""
+  },
+  "matrix/unknown-empty": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'wibble' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/unknown-row1": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'wibble' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/unknown-row2-row9": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\ntracked: row 2 — open issue found in r.md\nuntracked: row 3 — no open issue found for this delta in r.md\norphaned: issue for row 9 is no longer open in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'wibble' in r.md — treating all rows as open\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
+  "matrix/unknown-rows123": {
+    "rc": 0,
+    "stdout": "tracked: row 1 — open issue found in r.md\ntracked: row 2 — open issue found in r.md\ntracked: row 3 — open issue found in r.md\n",
+    "stderr": "WARN: unrecognised review-status 'wibble' in r.md — treating all rows as open\n"
+  }
+}
