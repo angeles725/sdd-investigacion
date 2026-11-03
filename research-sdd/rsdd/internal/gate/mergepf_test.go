@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The workflow fixtures are the bash suite's own, read in place.
-const mgFixtures = "../../../toolbelt/tests/fixtures/merge-gate"
+var mgFixtures = kitroot.Must() + "/toolbelt/tests/fixtures/merge-gate"
 
 func wfFixture(t *testing.T, name string) string {
 	t.Helper()

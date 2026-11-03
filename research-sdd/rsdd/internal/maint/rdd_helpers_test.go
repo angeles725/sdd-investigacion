@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The fixtures are the ones the bash suites tests/kit-rdd-start.test.sh and tests/kit-rdd-drive.test.sh use.
-const fixDir = "../../../toolbelt/tests/fixtures/kit-pr-pipeline"
+var fixDir = kitroot.Must() + "/toolbelt/tests/fixtures/kit-pr-pipeline"
 
 func fixture(t *testing.T, name string) string {
 	t.Helper()

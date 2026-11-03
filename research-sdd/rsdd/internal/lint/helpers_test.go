@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 type result struct {
@@ -19,7 +20,7 @@ type result struct {
 }
 
 // toolbelt is the kit's toolbelt, home of the shared fixtures.
-const toolbelt = "../../../toolbelt"
+var toolbelt = kitroot.Must() + "/toolbelt"
 
 func fixtures(t *testing.T) string {
 	t.Helper()

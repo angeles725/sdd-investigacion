@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The fast lane for the real fixtures: testdata/javap holds the real `javap -c -p` and `javap -l -p` output of
@@ -13,7 +15,7 @@ import (
 // names it). The pipeline runs over that real text through the fake runner, so no JVM starts. The live JVM run is
 // the slow lane of tests/java-fidelity-experiment.test.sh (RSDD_TEST_LANE=slow).
 
-const realFixtures = "../../../../toolbelt/tests/fixtures/java-fidelity-experiment"
+var realFixtures = kitroot.Must() + "/toolbelt/tests/fixtures/java-fidelity-experiment"
 
 var realNames = []string{"EnhancedFor", "LabeledBreak", "LambdaCapture", "StringSwitch", "SynchronizedBlock", "TryWithResources"}
 

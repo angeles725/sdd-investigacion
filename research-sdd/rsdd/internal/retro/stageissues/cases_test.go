@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // allCases is the scenario table shared by the differential and the golden test. The groups live in cases_*.go.
@@ -92,7 +94,7 @@ func (c dcase) withEnv(kv ...string) dcase {
 }
 
 // fixtureDir holds the retro fixtures the old suite and its sibling suites share.
-const fixtureDir = "../../../../toolbelt/tests/fixtures/stage-retro-issues"
+var fixtureDir = kitroot.Must() + "/toolbelt/tests/fixtures/stage-retro-issues"
 
 func fixture(t testing.TB, name string) string {
 	t.Helper()

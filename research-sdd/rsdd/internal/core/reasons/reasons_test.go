@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/reasons"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // pkgDir returns this package directory (located through the test file, not the working directory).
@@ -24,7 +25,7 @@ func pkgDir(t *testing.T) string {
 }
 
 func mdPath(t *testing.T) string {
-	return filepath.Join(pkgDir(t), "..", "..", "..", "..", "toolbelt", "reason-codes.v1.md")
+	return kitroot.Path(t, "toolbelt", "reason-codes.v1.md")
 }
 
 // mdRows counts and extracts registry rows with a method independent of the generator: a table row of the

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Test harness. The differential tests run the FROZEN script (testdata/legacy) and the Go command from the same
@@ -19,7 +20,7 @@ import (
 // line, and FAIL under RSDD_REQUIRE_BWRAP=1 (CI). The pi cases need node with TypeScript type stripping
 // (RSDD_REQUIRE_NODE_TS=1 turns the skip into a failure). A missing bash fails: a skipped oracle proves nothing.
 
-const fixturesRel = "../../../toolbelt/tests/fixtures/verify-session-budget"
+var fixturesRel = kitroot.Must() + "/toolbelt/tests/fixtures/verify-session-budget"
 
 type observed struct {
 	stdout, stderr string
@@ -114,7 +115,7 @@ func newSbx(t *testing.T) *sbx {
 	if err := os.WriteFile(sb.script, legacy, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	reallib, err := filepath.Abs("../../../toolbelt/lib")
+	reallib, err := filepath.Abs(kitroot.Path(t, "toolbelt", "lib"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +306,7 @@ func (sb *sbx) piEnv(extra ...string) []string {
 		sb.shim(filepath.Join(kit, "toolbelt"), h+".sh",
 			"#!/usr/bin/env bash\nprintf '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"%s\"}}' \"$(sleep \"${RSDD_STUB_SLEEP:-0}\"; head -c \"${RSDD_STUB_N:-100}\" /dev/zero | tr \"\\0\" k)\"\n")
 	}
-	real, err := filepath.Abs("../../../install/pi/research-sdd-hooks.ts")
+	real, err := filepath.Abs(kitroot.Path(sb.t, "install", "pi", "research-sdd-hooks.ts"))
 	if err != nil {
 		sb.t.Fatal(err)
 	}

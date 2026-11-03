@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Teeth. The bash suite tests/return-token-gate.test.sh builds one mutant per guard by editing the TEXT of the
@@ -30,7 +31,7 @@ import (
 
 // The fixtures are the bash suite's own (tests/fixtures/return-token-gate), read in place and copied per case:
 // the gate writes its block-once marker under <target>/.claude.
-const fixtureDir = "../../../toolbelt/tests/fixtures/return-token-gate"
+var fixtureDir = kitroot.Must() + "/toolbelt/tests/fixtures/return-token-gate"
 
 const (
 	nextLine = "return-token: next: reconstruct the shader pipeline"

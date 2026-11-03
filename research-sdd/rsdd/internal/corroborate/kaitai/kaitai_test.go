@@ -12,6 +12,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/adapter"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 const tmpfsMountinfo = "1 0 0:1 / / rw - tmpfs tmpfs rw\n"
@@ -310,7 +311,7 @@ func TestDriverOutcomes(t *testing.T) {
 // TestCappedFixture checks the field-cap evidence against the golden captured from a real run
 // (tests/fixtures/lane/kaitai/capped.json): the limitation list and the structure block are byte-identical.
 func TestCappedFixture(t *testing.T) {
-	raw, err := os.ReadFile("../../../../toolbelt/tests/fixtures/lane/kaitai/capped.json")
+	raw, err := os.ReadFile(kitroot.Path(t, "toolbelt", "tests", "fixtures", "lane", "kaitai", "capped.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

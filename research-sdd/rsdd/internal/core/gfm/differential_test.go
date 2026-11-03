@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Differential test: the REAL bash readers (testdata/diff-driver.sh) and the Go reader must produce equal
@@ -18,7 +20,7 @@ import (
 // research-sdd-status.sh count_open_contra, _read_focuses_tok_uncached, and the --sync-state derivations
 // deferred_open (DEF-AWK) and covered_blocks (Iteration-history Block column).
 
-const toolbeltRel = "../../../../toolbelt"
+var toolbeltRel = kitroot.Must() + "/toolbelt"
 
 func driver(t *testing.T) (tb, script string) {
 	t.Helper()

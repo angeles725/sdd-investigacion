@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Guard-to-test table for the pieces of the sweep that the scenario table does not exercise through its report
@@ -259,7 +260,7 @@ func TestJQString(t *testing.T) {
 }
 
 func TestLiveTemplateCountsZero(t *testing.T) {
-	tmpl, err := os.ReadFile("../../../templates/retro.template.md")
+	tmpl, err := os.ReadFile(kitroot.Path(t, "templates", "retro.template.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

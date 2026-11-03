@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The rig of the retro-gate tests: a world is a temp root holding a staged toolbelt (the live lib/ and
@@ -24,10 +25,9 @@ import (
 //     stdout, stderr, the exit code and every state file, and must itself satisfy the scenario's own checks.
 // Nothing here needs python3 or bwrap; bash, git, find and jq are the only tools.
 
-const (
-	rgLiveTB  = "../../../toolbelt"
-	rgSession = "202609050800"
-)
+const rgSession = "202609050800"
+
+var rgLiveTB = kitroot.Must() + "/toolbelt"
 
 type rgWorld struct {
 	t       *testing.T

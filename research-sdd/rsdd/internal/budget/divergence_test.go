@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Divergences from the frozen script, each declared in the package doc (session.go) and pinned here: this is
@@ -92,7 +94,7 @@ func TestDivergencePiToolbeltFallback(t *testing.T) {
 		t.Fatalf("baseline run failed: %q", with.stdout)
 	}
 	// run through the command table WITHOUT --toolbelt, the way `rsdd budget session` is run directly
-	realKit, err := filepath.Abs("../../..")
+	realKit, err := filepath.Abs(kitroot.Dir(t))
 	if err != nil {
 		t.Fatal(err)
 	}

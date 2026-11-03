@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // lib/session-budget-pi.mjs stays JavaScript (it loads TypeScript extensions through node), so Go execs it. Its
@@ -16,7 +18,7 @@ import (
 func runHelper(t *testing.T, env []string, dir string, exts ...string) string {
 	t.Helper()
 	needTS(t)
-	helper, err := filepath.Abs("../../../toolbelt/lib/session-budget-pi.mjs")
+	helper, err := filepath.Abs(kitroot.Path(t, "toolbelt", "lib", "session-budget-pi.mjs"))
 	if err != nil {
 		t.Fatal(err)
 	}
