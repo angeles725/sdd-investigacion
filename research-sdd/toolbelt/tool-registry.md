@@ -278,6 +278,10 @@ detect-tools.sh --cache <file>  # cache elsewhere
 detect-tools.sh --quiet         # cache only
 ```
 
+`detect-tools.sh` is a compatibility shim to `rsdd install detect-tools` (kit issue #2576); the flags, report,
+status words and exit codes (0 report produced · 1 `--require` gate failed or cache not writable · 2 usage error /
+unknown tool) are unchanged. Tool resolution is `core/probe` (the `lib/tool-env.sh` port).
+
 It resolves each tool via PATH **and** stable install roots, then runs bounded validation. A tool is
 `AVAILABLE` only when usable, `UNUSABLE` when found but validation fails, and `MISSING` when
 unresolved. Decompiler JARs are never executed by detection: archive integrity, the engine's expected
