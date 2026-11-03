@@ -10,10 +10,10 @@ var stopWords = func() map[string]struct{} {
 	return m
 }()
 
-// Words is the set of content words of text: ASCII-lowercased runs `[a-z][a-z0-9_.]+`, stripped of ONE trailing "s"
+// words is the set of content words of text: ASCII-lowercased runs `[a-z][a-z0-9_.]+`, stripped of ONE trailing "s"
 // when longer than three bytes and not ending in "ss" (months = month), kept when at least three bytes long and not a
 // stop word. Digit-initial tokens (9.5.0, 1166) are invisible to the measure; that is a documented limit.
-func Words(text string) map[string]struct{} {
+func words(text string) map[string]struct{} {
 	set := map[string]struct{}{}
 	for i := 0; i < len(text); {
 		if !isLetter(text[i]) {
@@ -43,7 +43,7 @@ func Words(text string) map[string]struct{} {
 // Overlap is gap_overlap: how many content words of the row also occur in the bullet (shared) out of the row's
 // content words (total). total == 0 means the row carries no comparable word; the caller must not call that drift.
 func Overlap(row, bullet string) (shared, total int) {
-	rw, bw := Words(row), Words(bullet)
+	rw, bw := words(row), words(bullet)
 	for w := range rw {
 		total++
 		if _, ok := bw[w]; ok {

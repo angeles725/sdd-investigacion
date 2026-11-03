@@ -50,9 +50,6 @@ func (b *Bullets) Text(id string) (text string, found bool) {
 	return body, true
 }
 
-// Bullet is ParseBullets(src).Text(id).
-func Bullet(src, id string) (string, bool) { return ParseBullets(src).Text(id) }
-
 // bulletID reads `^[ \t]*[-*] \*\*\[?B[0-9]+-G[0-9]+` and returns the id.
 func bulletID(l string) (string, bool) {
 	s := strings.TrimLeft(l, " \t")

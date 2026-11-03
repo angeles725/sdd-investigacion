@@ -1,7 +1,9 @@
 package gapdrift
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -72,6 +74,11 @@ func runArgs(args []string, s cli.Stdio) (Result, error) {
 	}
 	unreadable := &Error{Kind: ErrStateUnreadable, Msg: "check-gap-drift: cannot read state file " + state}
 	if !view.IsFile(state) || !view.Readable(state) {
+		// One message, as the script printed, but an absent file stays distinguishable (CLAUDE.md section 7):
+		// errors.Is(err, fs.ErrNotExist) holds only when nothing is at the path.
+		if _, serr := os.Lstat(view.At(state)); errors.Is(serr, fs.ErrNotExist) {
+			unreadable.Err = fs.ErrNotExist
+		}
 		return Result{}, unreadable
 	}
 	corpus, err := OpenCorpus(s.Cwd, target)

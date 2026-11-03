@@ -49,8 +49,8 @@ type Table struct {
 	Empty bool
 }
 
-// Count returns how many records have the given kind.
-func (t Table) Count(k Kind) int {
+// count returns how many records have the given kind (the tests' tally; gapdrift counts its own).
+func (t Table) count(k Kind) int {
 	n := 0
 	for _, r := range t.Records {
 		if r.Kind == k {
@@ -59,15 +59,6 @@ func (t Table) Count(k Kind) int {
 	}
 	return n
 }
-
-// Rows is the number of KindRow records.
-func (t Table) Rows() int { return t.Count(KindRow) }
-
-// Skipped is the number of KindSkipped records.
-func (t Table) Skipped() int { return t.Count(KindSkipped) }
-
-// Unparsed is the number of KindUnparsed records.
-func (t Table) Unparsed() int { return t.Count(KindUnparsed) }
 
 // Parse reads src (gap_rows_parse). It never fails: every line is either a record or not a gap-id row.
 func Parse(src string) Table {
@@ -91,14 +82,14 @@ func Parse(src string) Table {
 			t.Records = append(t.Records, Record{Kind: KindUnparsed, Line: r.Line, Source: line})
 		default:
 			id, text := splitID(cells[1])
-			t.Records = append(t.Records, Record{Kind: KindRow, Line: r.Line, ID: id, Block: Block(id), Pending: pending, Text: text})
+			t.Records = append(t.Records, Record{Kind: KindRow, Line: r.Line, ID: id, Block: blockOf(id), Pending: pending, Text: text})
 		}
 	}
 	return t
 }
 
-// Block is the block number of a gap id: the digits between "B" and "-G".
-func Block(id string) string {
+// blockOf is the block number of a gap id: the digits between "B" and "-G".
+func blockOf(id string) string {
 	id = strings.TrimPrefix(id, "B")
 	if i := strings.Index(id, "-G"); i >= 0 {
 		return id[:i]

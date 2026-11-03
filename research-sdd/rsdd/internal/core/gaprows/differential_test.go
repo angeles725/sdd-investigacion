@@ -109,7 +109,7 @@ func assertParse(t *testing.T, name, src string) {
 func assertBullet(t *testing.T, name, src, id string) {
 	t.Helper()
 	want, code := bash(t, "gap_bullet_text", writeTemp(t, src), id)
-	got, found := Bullet(src, id)
+	got, found := ParseBullets(src).Text(id)
 	switch {
 	case code == 0 && !found:
 		t.Errorf("%s %s: legacy found %q, Go found nothing", name, id, want)
