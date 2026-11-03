@@ -408,7 +408,8 @@ func (c *ctx) blockFileCount(prefix string) int {
 	}
 	var lines []string
 	for _, e := range ents {
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".md") {
+		// find -type f -name '*.md': the .md test is the filter's own (`\.md$`), so only the file type is checked here.
+		if e.Type().IsRegular() {
 			lines = append(lines, strings.TrimSuffix(dir, "/")+"/"+e.Name())
 		}
 	}

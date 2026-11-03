@@ -186,6 +186,7 @@ func s3Scenarios() []s3Scenario {
 	add(
 		ss("cw-root-first-seed-writes-and-warns", ln("# R", std), cwFiles, "--sync-state", "--root"),
 		ss("cw-root-declared-value-kept", ln("# R", fence("covered_blocks: 1"), std), cwFiles, "--sync-state", "--root"),
+		ss("cw-root-fence-without-covered-blocks-writes-and-warns", ln("# R", fence("known_gaps: 3"), std), cwFiles, "--sync-state", "--root"),
 		ss("cw-root-declared-equal-nothing-to-keep", ln("# R", fence("covered_blocks: 3"), std), cwFiles, "--sync-state", "--root"),
 		ss("cw-root-only-covered-blocks-writes", ln("# R", fence("covered_blocks: 1"), std), cwFiles, "--sync-state", "--root", "--only", "covered_blocks"),
 		ss("cw-root-only-other-counter-no-warning", ln("# R", fence("covered_blocks: 1"), std), cwFiles, "--sync-state", "--root", "--only", "blocked_open"),
