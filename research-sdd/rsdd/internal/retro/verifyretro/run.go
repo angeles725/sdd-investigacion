@@ -39,6 +39,9 @@ type Options struct {
 	// Cwd resolves a relative retro. "" leaves the path to the process working directory. The caller passes
 	// its cli.Stdio working directory (archtest forbids os.Getwd outside cli/stdio.go).
 	Cwd string
+	// Read loads the retro; nil means retrogrammar.Read. It is the seam that lets a test reach the unreadable
+	// branch (exit 2) without chmod, which root ignores.
+	Read func(path string) (*retrogrammar.Doc, error)
 }
 
 // Finding is one conformance line: a FAIL (counts against the retro) or a WARN, with its fix lines.
@@ -75,7 +78,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		path = o.Cwd + "/" + arg // concatenated, never Clean'd: "link/../x" must resolve as the kernel does
 	}
 	// The script tests -f, then the .md suffix, then -r: so a non-.md file that cannot be read is still "not a .md".
-	d, err := retrogrammar.Read(path)
+	read := o.Read
+	if read == nil {
+		read = retrogrammar.Read
+	}
+	d, err := read(path)
 	switch {
 	case errors.Is(err, retrogrammar.ErrAbsentInput):
 		rep.State = StateAbsent

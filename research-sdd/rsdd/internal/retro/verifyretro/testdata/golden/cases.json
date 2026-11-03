@@ -139,6 +139,51 @@
     "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Consolidated kit deltas by file\r\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\nFAIL [zero-rows]: unrecognised delta section also has zero table rows\n  fix: rename the heading AND add a canonical table:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n",
     "stderr": ""
   },
+  "delta/deprecated-alias-delta-details": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-delta-details-glued-is-not-alias": {
+    "rc": 1,
+    "stdout": "FAIL [unrecognised-heading]: delta section uses unrecognised heading: ## Delta detailsX\n  fix: rename the heading to the canonical form:\n       ## Proposed kit deltas\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-delta-details-uppercase": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-delta-details-with-text": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-near-miss-summary-of-deltas": {
+    "rc": 1,
+    "stdout": "FAIL [absent-section]: no delta section — no canonical \"## Proposed kit deltas\" heading and no §18 honesty line\n  fix: add a delta section with a table under a canonical heading:\n       ## Proposed kit deltas\n       | # | Proposed change | Target (file · §/section) | Evidence | Type | Priority |\n       |---|---|---|---|---|---|\n       | 1 | \u003cchange\u003e | \u003ctarget\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-no-rows": {
+    "rc": 1,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nFAIL [empty-section]: delta heading present but zero table rows and no §18 honesty line\n  fix: add at least one data row to the delta table:\n       | 1 | \u003cchange\u003e | \u003ctarget file · §/section\u003e | \u003cevidence\u003e | \u003ctype\u003e | \u003cpriority\u003e |\n  or state the §18 honesty clause under ## Honest verdict:\n       no new deltas; the kit already covers this run.\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-summary-of-new-deltas": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-summary-of-proposed-delta": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
+  "delta/deprecated-alias-summary-of-proposed-deltas": {
+    "rc": 0,
+    "stdout": "WARN [deprecated-heading]: deprecated delta heading — migrate to \"## Proposed kit deltas\" per §18\nOK: conforming\n",
+    "stderr": ""
+  },
   "delta/deprecated-heading-honesty": {
     "rc": 0,
     "stdout": "OK: conforming\n",
