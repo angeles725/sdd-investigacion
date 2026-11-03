@@ -1,6 +1,6 @@
 //go:build unix
 
-package verify
+package block
 
 import (
 	"os"

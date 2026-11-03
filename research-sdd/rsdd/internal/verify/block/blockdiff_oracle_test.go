@@ -1,6 +1,6 @@
 //go:build unix && !nodiff
 
-package verify
+package block
 
 import (
 	"bytes"

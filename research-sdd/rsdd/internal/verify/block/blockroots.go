@@ -1,11 +1,16 @@
-package verify
+package block
 
 import (
 	"io"
 	"os"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 )
 
 // File helpers of verify-block: `[ -e ]`, the one line counter (VB-LINECOUNT) and a readability probe.
+
+// fsView is the read-only filesystem view of the block port: core/fsview plus the two probes only this command uses.
+type fsView struct{ fsview.View }
 
 // exists is `[ -e p ]`, symlinks followed.
 func (v fsView) exists(p string) bool {

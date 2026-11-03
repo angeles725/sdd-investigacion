@@ -1,4 +1,4 @@
-package verify
+package block
 
 import (
 	"fmt"
@@ -19,6 +19,10 @@ import (
 //
 // Exit and report are the script's, byte for byte: 0 no verifiable contradiction, 1 a cite out of range / unpreserved
 // artifact / empty-input digest / ephemeral path / manifest mismatch / degraded scan, 2 bad arguments.
+//
+// This is package internal/verify/block: the command is registered from internal/verify/commands.go (block.Run), and
+// the shell and filesystem primitives it shares with the other verify commands live in internal/core/shellx and
+// internal/core/fsview. Its testdata (cases, goldens, the frozen bash oracle) is under block/testdata.
 //
 // Where to change what (one file per concern):
 //
@@ -68,8 +72,8 @@ type blockRun struct {
 
 func (b *blockRun) echo(format string, a ...any) { fmt.Fprintf(b.s.Out, format+"\n", a...) }
 
-// RunBlock is `rsdd verify block`.
-func RunBlock(args []string, s cli.Stdio) int {
+// Run is `rsdd verify block`.
+func Run(args []string, s cli.Stdio) int {
 	b := &blockRun{s: s, fs: fsView{View: fsview.View{Cwd: s.Cwd}}, strictEP: true, backptr: "high"}
 	// Ephemeral-path cites FAIL by default (kit #1660); only the exact value 0 opts out.
 	if s.Env("RSDD_STRICT_EPHEMERAL") == "0" {

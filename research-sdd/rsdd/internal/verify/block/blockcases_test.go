@@ -1,6 +1,6 @@
 //go:build unix
 
-package verify
+package block
 
 import (
 	"bytes"
@@ -197,7 +197,7 @@ func bkGetenv(env []string) func(string) string {
 
 // bkGo runs the Go command.
 // bkImpl is the command under test (a variable so the RED run can point it at an empty command).
-var bkImpl = RunBlock
+var bkImpl = Run
 
 func bkGo(cwd string, args, env []string) observed {
 	var out, errb bytes.Buffer
