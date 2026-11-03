@@ -47,6 +47,8 @@
 #                        (--teeth-plan: only the selected files directly in <pkg>; a changed subpackage is its own
 #                        entry). Zero changed files is the typed state `teeth: n/a - no Go package changed vs <ref>`
 #                        (ok, never teeth); an unresolvable <ref> is FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
+#                        A change with no _test.go edit mutates only its changed files, not the whole package: the
+#                        package's unchanged sibling files are covered by the nightly whole-module run.
 #                    RSDD_TEETH_SHARD=I/N (kit issues #2568, #2573; needs RSDD_TEETH_BASE) splits that flat file list
 #                      across N CI jobs, so one large package spreads over all of them: after LC_ALL=C sorting, shard I
 #                      keeps the files at 0-based positions p with p mod N == I-1. N is 1..32 and I is 1..N, written
@@ -60,6 +62,14 @@
 #                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
 #                    through the environment to make.
 set -uo pipefail
+
+# Depth bound for the nested-guard self-test only (kit issue #2573): when RSDD_GO_NEST_DEPTH is set, every invocation
+# increments it and a second level refuses at once (exit 3). It is independent of RSDD_GO_SELFTEST_NESTED, so the
+# mutant that deletes that guard turns its self-test red instead of recursing without bound.
+if [ -n "${RSDD_GO_NEST_DEPTH:-}" ]; then
+  RSDD_GO_NEST_DEPTH=$(( RSDD_GO_NEST_DEPTH + 1 )); export RSDD_GO_NEST_DEPTH
+  if [ "$RSDD_GO_NEST_DEPTH" -ge 2 ]; then echo "FATAL: nested suite depth $RSDD_GO_NEST_DEPTH (RSDD_GO_NEST_DEPTH bound)" >&2; exit 3; fi
+fi
 
 # count_go_output FILE -> "pass=N fail=M": one count per `ok <pkg>` / `FAIL <pkg>` line of `go test`.
 # `?  <pkg> [no test files]` is neither; a `FAIL` with no package (summary line) is not counted.
@@ -488,10 +498,10 @@ selftest_teeth() {
   # The nested guard: a self-test that re-invokes the suite can never reach the real Go run.
   mkdir -p "$dir/markgo"; printf '#!/bin/sh\ntouch "%s/markgo/RAN"\n[ "$1" = version ] && echo "go version go1.99.0 linux/amd64"\nexit 0\n' "$dir" > "$dir/markgo/go"
   chmod +x "$dir/markgo/go"
-  g="$(PATH="$dir/markgo:$PATH" RSDD_TEETH_SHARD='' RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
+  g="$(PATH="$dir/markgo:$PATH" RSDD_TEETH_SHARD='' RSDD_TEETH_BASE='' RSDD_GO_NEST_DEPTH="${RSDD_GO_NEST_DEPTH:-0}" timeout 60 bash "$0" 2>&1)"; crc=$?
   if [ "$crc" -eq 2 ] && grep -q 'RSDD_GO_SELFTEST_NESTED set' <<<"$g" && [ ! -e "$dir/markgo/RAN" ]; then
     ok "nested guard: a self-test re-invoking the suite exits 2 before any go command runs"
-  else no "nested guard: rc=$crc ran=$([ -e "$dir/markgo/RAN" ] && echo yes || echo no): $g"; fi
+  else no "nested guard: rc=$crc ran=$([ -e "$dir/markgo/RAN" ] && echo yes || echo no): $(head -c 300 <<<"$g")"; fi
 
   # Verdict folding.
   printf 'VERDICT: PASS a\nVERDICT: SKIP b\n' > "$dir/v-skip"; printf 'VERDICT: PASS a\nVERDICT: FAIL 1 lived\nVERDICT: SKIP b\n' > "$dir/v-fail"
@@ -903,6 +913,17 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "file-dropped mutation" "$0" "$
   if mutant_tooth "teeth: a changed file dropped from every shard is caught" 0 1 \
       "$MUTDIR/rsdd-go-fd.test.sh" --orig "$0" \
       --good-has 'PASS  file scope: changed non-test files are the units' --bad-has 'FAIL  file scope: got rc=0' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+# Nested guard teeth: without RSDD_GO_SELFTEST_NESTED the self-test re-entry reaches go (bounded by RSDD_GO_NEST_DEPTH and
+# timeout 60, never a runaway) and its case goes red.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "nested-guard mutation" "$0" "$MUTDIR/rsdd-go-ng.test.sh" \
+    's/^if \[ -n "\${RSDD_GO_SELFTEST_NESTED:-}" \]; then$/if false; then/'; then
+  if mutant_tooth "teeth: a suite without the nested guard lets a self-test re-entry reach go" 0 1 \
+      "$MUTDIR/rsdd-go-ng.test.sh" --orig "$0" \
+      --good-has 'PASS  nested guard: a self-test re-invoking the suite exits 2' --bad-has 'FAIL  nested guard: rc=' -- \
       env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
