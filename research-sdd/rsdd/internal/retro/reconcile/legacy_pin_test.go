@@ -1,3 +1,5 @@
+//go:build !nodiff
+
 package reconcile
 
 import (
