@@ -1,0 +1,4 @@
+rc: 3
+--- stdout
+--- stderr
+DEGRADED: git not found; cannot derive resume state

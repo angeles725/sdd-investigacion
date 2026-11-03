@@ -1,0 +1,4 @@
+rc: 0
+--- stdout
+usage: resume-render.sh [--json FILE|-] [--cwd DIR] [--base-ref REF] [--no-gh]
+--- stderr
