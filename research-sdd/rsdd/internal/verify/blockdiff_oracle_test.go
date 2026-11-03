@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -63,6 +64,7 @@ func TestDifferentialBlock(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir, cwd, args, env := bkMaterialize(t, c)
 			want := bkLegacy(t, cwd, args, env)
+			want.stdout = bkNormOCR(want.stdout)
 			got := bkGo(cwd, args, env)
 			same(t, c.name+" "+strings.Join(c.args, " "), want, got)
 			g := bkScrub(want, dir)
@@ -169,8 +171,53 @@ func TestDifferentialBlockFuzz(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			_, cwd, _, env := bkMaterialize(t, c)
 			want := bkLegacy(t, cwd, args, env)
+			want.stdout = bkNormOCR(want.stdout)
 			got := bkGo(cwd, args, env)
 			same(t, "fuzz "+strings.Join(body, "|"), want, got)
 		})
+	}
+}
+
+// bkNormOCR sorts the `OCR!` groups of the OCR-provenance section. The script listed the extracts in `find`'s
+// readdir order, which depends on the filesystem (the CI runner listed them in another order than a local disk);
+// the port lists them in byte order (tool-registry.d/verify-block.md). Only the group order is normalised: every
+// group must still match line for line.
+func bkNormOCR(stdout string) string {
+	lines := strings.SplitAfter(stdout, "\n")
+	var out []string
+	for i := 0; i < len(lines); {
+		out = append(out, lines[i])
+		if !strings.HasPrefix(lines[i], "-- OCR-provenance flag") {
+			i++
+			continue
+		}
+		i++
+		var groups [][]string
+		for i < len(lines) && strings.HasPrefix(lines[i], "   OCR!") {
+			g := []string{lines[i]}
+			for i++; i < len(lines) && strings.HasPrefix(lines[i], "           "); i++ {
+				g = append(g, lines[i])
+			}
+			groups = append(groups, g)
+		}
+		sort.SliceStable(groups, func(a, b int) bool { return groups[a][0] < groups[b][0] })
+		for _, g := range groups {
+			out = append(out, g...)
+		}
+	}
+	return strings.Join(out, "")
+}
+
+func TestBkNormOCRSortsGroupsOnly(t *testing.T) {
+	in := "== verify-block: b.md ==\n-- OCR-provenance flag (reliability: ocr-lossy) --\n" +
+		"   OCR!    lines citing OCR-lossy 'z' — x:\n           3:z\n" +
+		"   OCR!    lines citing OCR-lossy 'a' — x:\n           5:a\n           6:a\n" +
+		"-- next --\n   OCR!    not in the section\n"
+	want := "== verify-block: b.md ==\n-- OCR-provenance flag (reliability: ocr-lossy) --\n" +
+		"   OCR!    lines citing OCR-lossy 'a' — x:\n           5:a\n           6:a\n" +
+		"   OCR!    lines citing OCR-lossy 'z' — x:\n           3:z\n" +
+		"-- next --\n   OCR!    not in the section\n"
+	if got := bkNormOCR(in); got != want {
+		t.Errorf("bkNormOCR:\n%s\nwant\n%s", got, want)
 	}
 }
