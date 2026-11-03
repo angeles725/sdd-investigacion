@@ -210,6 +210,7 @@ func TestDifferentialS5(t *testing.T) {
 	t.Run("scenarios", func(t *testing.T) {
 		for _, sc := range s5Scenarios() {
 			t.Run(sc.name, func(t *testing.T) {
+				t.Parallel() // the frozen script runs concurrently; runGoS5 serializes the seam swaps
 				if sc.needsUser && os.Geteuid() == 0 {
 					t.Skip("mode-000 files are readable by root")
 				}

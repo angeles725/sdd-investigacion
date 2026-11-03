@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -190,9 +191,15 @@ func (r *s5Replay) cleanCheck(_, target string, _ time.Duration, _ cli.Stdio) pr
 	return probeResult{out: out, rc: r.rc("cc")}
 }
 
+// s5SeamMu serializes the runs that swap the package-level seams, so parallel scenarios never see another run's
+// fakes: only the port's side holds it, and the frozen script's side (the slow one) runs concurrently.
+var s5SeamMu sync.Mutex
+
 // runGoS5 runs the port over one world. The seams are swapped for the run and restored after it.
 func runGoS5(t testing.TB, sc s5Scenario, root string, e s5Env, d s5Drive) []outcome {
 	t.Helper()
+	s5SeamMu.Lock()
+	defer s5SeamMu.Unlock()
 	oldV, oldG, oldR, oldP, oldC := verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun
 	defer func() {
 		verifyState, ghList, reconcileRun, reconcilePrefix, cleanCheckRun = oldV, oldG, oldR, oldP, oldC
