@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -169,9 +170,9 @@ func decNumber(lit string) string {
 	neg := strings.HasPrefix(lit, "-")
 	lit = strings.TrimPrefix(lit, "-")
 	exp := 0
-	if i := strings.IndexAny(lit, "eE"); i >= 0 {
-		exp, _ = strconv.Atoi(strings.TrimPrefix(lit[i+1:], "+"))
-		lit = lit[:i]
+	lit, e, hasExp := strings.Cut(strings.ToLower(lit), "e")
+	if hasExp {
+		exp, _ = strconv.Atoi(strings.TrimPrefix(e, "+"))
 	}
 	ip, fp, _ := strings.Cut(lit, ".")
 	exp -= len(fp)
@@ -196,12 +197,7 @@ func decNumber(lit string) string {
 		if len(digits) > 1 {
 			out += "." + digits[1:]
 		}
-		sign := "+"
-		if adjusted < 0 {
-			sign = "-"
-			adjusted = -adjusted
-		}
-		out += "E" + sign + strconv.Itoa(adjusted)
+		out += "E" + fmt.Sprintf("%+d", adjusted)
 	}
 	if neg {
 		out = "-" + out

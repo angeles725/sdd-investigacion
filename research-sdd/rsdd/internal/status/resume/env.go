@@ -34,21 +34,17 @@ func onPath(env []string, cwd, name string) bool {
 	if !set {
 		path = "/bin:/usr/bin"
 	}
-	found := false
 	for _, dir := range strings.Split(path, ":") {
 		if dir == "" {
 			dir = "."
 		}
-		st, err := os.Stat(filepath.Join(abs(cwd, dir), name))
-		if err != nil || st.IsDir() {
-			continue
-		}
-		if st.Mode().Perm()&0o111 != 0 {
+		// An executable file wins, but bash settles for a non-executable one too (it fails later, when run), so
+		// any non-directory entry named name answers true.
+		if st, err := os.Stat(filepath.Join(abs(cwd, dir), name)); err == nil && !st.IsDir() {
 			return true
 		}
-		found = true
 	}
-	return found
+	return false
 }
 
 // gitEnv is the environment of every git and gh call of resume-state: the caller's, without the GIT_* variables that
@@ -56,7 +52,7 @@ func onPath(env []string, cwd, name string) bool {
 // takes an optional lock (the command is read-only).
 func gitEnv(env []string) []string {
 	drop := map[string]bool{"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_COMMON_DIR": true, "GIT_INDEX_FILE": true, "GIT_OPTIONAL_LOCKS": true}
-	out := make([]string, 0, len(env)+1)
+	var out []string
 	for _, kv := range env {
 		k, _, _ := strings.Cut(kv, "=")
 		if !drop[k] {

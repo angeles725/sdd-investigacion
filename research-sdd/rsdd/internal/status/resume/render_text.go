@@ -32,10 +32,7 @@ func shortSHA(v jv) string {
 		return "unknown"
 	}
 	r := []rune(tostring(v))
-	if len(r) > 7 {
-		r = r[:7]
-	}
-	return string(r)
+	return string(r[:min(len(r), 7)])
 }
 
 // aheadBehind is def ab(o).
