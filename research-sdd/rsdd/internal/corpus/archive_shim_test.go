@@ -31,6 +31,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func init() { archiveTestBin = archiveRsddBin }
+
 func archiveRsddBin(t testing.TB) string {
 	t.Helper()
 	archiveBuildOnce.Do(func() {
