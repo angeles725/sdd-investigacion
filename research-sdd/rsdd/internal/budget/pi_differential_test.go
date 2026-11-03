@@ -3,6 +3,7 @@
 package budget
 
 import (
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,7 +195,9 @@ func TestDifferentialPiMeasurements(t *testing.T) {
 		d := filepath.Join(sb.root, "nodot-git")
 		sb.cp(sb.target("pi-nodot")+"/.", d)
 		for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"}} {
-			if out, err := exec.Command("git", append([]string{"-C", d}, args...)...).CombinedOutput(); err != nil {
+			c := exec.Command("git", append([]string{"-C", d}, args...)...)
+			c.Env = gitfixture.Env(os.Environ())
+			if out, err := c.CombinedOutput(); err != nil {
 				t.Fatalf("git %v: %v %s", args, err, out)
 			}
 		}
