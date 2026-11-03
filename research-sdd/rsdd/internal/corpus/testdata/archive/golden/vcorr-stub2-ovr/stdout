@@ -1,0 +1,17 @@
+== research-sdd-archive: c  ·  corpus: (flat)  ·  DRY-RUN ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : OVERRIDDEN — verify-corrections.sh did not run (bad args, exit 2) — the §14 reciprocity check was NOT performed (--allow-unreciprocated-corrections given; gate NOT enforced)
+    scan-secrets  : ok
+  -- consolidate --
+    catalog        : would regenerate via kit generator (rsdd corpus catalog)
+    index          : would touch INDEX.md
+  -- mirror facts (for the TARGETS.md row refresh; not applied here) --
+    blocks on disk : 1 · retros: 1 · iteration-history rows: 1
+  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --
+    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal.
+    · RETRO (§18): delegate a fresh-context retro agent → @ROOT@/work/case/c/retros/<date>-<focus>.md (review-status: pending).
+    · MIRROR: refresh this target's row in $KIT/TARGETS.md with the counts above (blocks=1, retros=1).
+    · COMMIT (corpus only): git -C @ROOT@/work/case/c add -A && git -C @ROOT@/work/case/c commit  (orchestrator artifacts stay gitignored, §15).
+  archived (dry-run — nothing mutated).

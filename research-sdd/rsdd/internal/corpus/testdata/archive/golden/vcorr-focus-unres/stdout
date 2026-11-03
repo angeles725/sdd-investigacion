@@ -1,0 +1,12 @@
+== research-sdd-archive: c  ·  corpus: (flat)  ·  DRY-RUN ==
+  -- gates --
+    verify-state   : FAIL — living mirror inconsistent (stale summary / premature STOP)
+    verify-sources : ok
+    verify-corrections : ERROR — cannot scope the §14 gate to focus beta (no block file carries its prefix 'beta-'); 1 finding(s) NOT classified (override: --allow-unreciprocated-corrections)
+    scan-secrets  : ok
+    undocumented_findings: scoped to focus beta — 1 of 2 state file(s) inspected
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c

@@ -146,14 +146,17 @@ c_status_fail() {
   [ "$RC" = 2 ] && grep -q 'REFUSED status-failed' <<<"$ERR" && [ -z "$OUT" ] || why "git status failure not refused"
 }
 c_fetch_hang() {   # a local upload-pack that sleeps: the fetch must be cut at the 1 s knob
-  world && clone_to "$D" && printf '#!/bin/sh\nsleep 4\n' > "$W/slow-upload-pack" && chmod +x "$W/slow-upload-pack" \
+  # The fake sleeps 30 s and the bound check allows 15 s, so a cut fetch passes even under heavy load while an
+  # unbounded one still fails by a wide margin; the "timed out" line proves timeout(1) did the cutting (#2565).
+  world && clone_to "$D" && printf '#!/bin/sh\nsleep 30\n' > "$W/slow-upload-pack" && chmod +x "$W/slow-upload-pack" \
     && git -C "$D" config remote.origin.uploadpack "$W/slow-upload-pack" || return 2
   local t0=$SECONDS
   RESEARCH_SDD_KIT_FETCH_TIMEOUT=1 run "$1"
   # Without timeout(1) the script runs the fetch unbounded with a named WARN: check that path instead of the bound
-  # (the fake upload-pack exits after 4 s without speaking, so that fetch still fails and is refused as offline).
+  # (the fake upload-pack exits after 30 s without speaking, so that fetch still fails and is refused as offline).
   if command -v timeout >/dev/null 2>&1; then
-    [ "$RC" = 2 ] && [ $((SECONDS - t0)) -lt 3 ] && grep -q 'kit-resolve: fetching origin' <<<"$ERR" \
+    [ "$RC" = 2 ] && [ $((SECONDS - t0)) -lt 15 ] && grep -q 'kit-resolve: fetching origin' <<<"$ERR" \
+      && grep -q 'fetching origin timed out after 1s' <<<"$ERR" \
       && grep -q 'REFUSED offline' <<<"$ERR" || why "hanging fetch not bounded ($((SECONDS - t0)) s)"
   else
     [ "$RC" = 2 ] && grep -q 'WARN timeout(1) not on PATH' <<<"$ERR" && grep -q 'REFUSED offline' <<<"$ERR" \

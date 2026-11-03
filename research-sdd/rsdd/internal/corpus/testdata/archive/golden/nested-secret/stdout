@@ -1,0 +1,13 @@
+== research-sdd-archive: corpus-nested  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree (working tree only — target nested inside @ROOT@/work/case/outer, see WARN above) (SECRETS DISCIPLINE)
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/outer/corpus-nested
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/outer/corpus-nested
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/outer/corpus-nested
+    find @ROOT@/work/case/outer/corpus-nested \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/outer/corpus-nested   # working tree only — target is nested inside @ROOT@/work/case/outer
+    A secret in a git-ignored file still refuses (the gate reads the working tree as it sits on disk): move the
+    secret store OUTSIDE the target directory and keep only its path/structure in the corpus. There is no override.
