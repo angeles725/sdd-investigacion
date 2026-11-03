@@ -1,0 +1,2002 @@
+@@case pending marker is surfaced
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 182
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+| 3 | claim 3 | CONFIRMED |
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case applied marker is not pending
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 237
+<!-- review-status: applied 2026-01-01 · kit deadbeef -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+| 3 | claim 3 | CONFIRMED |
+| 4 | claim 4 | CONFIRMED |
+
+@@rc 1
+0
+@@out 66
+
+Summary: 0 pending / 1 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@hookfull 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case dismissed marker is not pending
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 167
+<!-- review-status: dismissed 2026-01-01 -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 66
+
+Summary: 0 pending / 1 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@hookfull 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case absent marker is pending with status none
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 122
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 393
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~2 audited claims  ·  status: none  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 545
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 545
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case unknown status word stays pending
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 122
+<!-- review-status: wip -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 392
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: wip  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 544
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: wip  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 544
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: wip  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case status word is lowercased
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: APPLIED -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 66
+
+Summary: 0 pending / 1 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@hookfull 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case marker after the first heading is no marker
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 54
+# audit
+<!-- review-status: applied -->
+| 1 | c | v |
+
+@@rc 1
+0
+@@out 393
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 545
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 545
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case BOM and CRLF marker
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 60
+﻿<!-- review-status: applied -->
+# audit
+| 1 | c | v |
+
+@@rc 1
+0
+@@out 66
+
+Summary: 0 pending / 1 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@hookfull 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case multi-target totals
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@dir targetB 0
+
+@@dir targetB/audits 0
+
+@@file kit/TARGETS.md 0 105
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/targetB` |
+
+@@file targetA/audits/done.md 0 249
+<!-- review-status: applied 2026-01-01 -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+| 3 | claim 3 | CONFIRMED |
+| 4 | claim 4 | CONFIRMED |
+| 5 | claim 5 | CONFIRMED |
+
+@@file targetA/audits/p.md 0 154
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@file targetB/audits/p.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 520
+PENDING  {root}/targetA/audits/p.md
+         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+PENDING  {root}/targetB/audits/p.md
+         target: {root}/targetB  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 2 pending / 3 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 674
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/p.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\nPENDING  {root}/targetB/audits/p.md\n         target: {root}/targetB  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 2 pending / 3 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 674
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/p.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\nPENDING  {root}/targetB/audits/p.md\n         target: {root}/targetB  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 2 pending / 3 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case truncated path is skipped and named
+@@dir Honeywell...niagara-help 0
+
+@@dir Honeywell...niagara-help/audits 0
+
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file Honeywell...niagara-help/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file kit/TARGETS.md 0 122
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/Honeywell...niagara-help` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 517
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: Honeywell...niagara-help
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 670
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: Honeywell...niagara-help\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 670
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: Honeywell...niagara-help\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case no truncated path no WARN
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case missing TARGETS.md
+@@rc 1
+1
+@@out 0
+
+@@err 48
+sweep-audits: cannot find {root}/kit/TARGETS.md
+
+@@hook 234
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD audits sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-audits: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@hookfull 234
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD audits sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-audits: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@end
+@@case aged audit is escalated and sorted first
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/fresh.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/old.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 1
+1
+@@rc 1
+0
+@@out 551
+PENDING  {root}/targetA/audits/old.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d  ·  ESCALATED (aged 3d)
+PENDING  {root}/targetA/audits/fresh.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 2 pending / 2 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 705
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/old.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d  ·  ESCALATED (aged 3d)\nPENDING  {root}/targetA/audits/fresh.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 2 pending / 2 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 705
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/old.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d  ·  ESCALATED (aged 3d)\nPENDING  {root}/targetA/audits/fresh.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 2 pending / 2 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case nested research/audits is listed and aged
+@@dir targetA 0
+
+@@dir targetA/research 0
+
+@@dir targetA/research/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/research/audits/n1.md 946080000 182
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+| 3 | claim 3 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 1
+1
+@@rc 1
+0
+@@out 438
+PENDING  {root}/targetA/research/audits/n1.md
+         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 10950d  ·  ESCALATED (aged 10950d)
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 590
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/research/audits/n1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 10950d  ·  ESCALATED (aged 10950d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 590
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/research/audits/n1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 10950d  ·  ESCALATED (aged 10950d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case index files are not audits
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/AUDITS-INDEX.md 0 53
+# Audits index
+
+| # | file |
+|---|---|
+| 1 | a1.md |
+
+@@file targetA/audits/a1.md 0 154
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@file targetA/audits/my-Index-notes.md 0 8
+# index
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case RESEARCH_HOME form resolves
+@@dir rh_base 0
+
+@@dir rh_base/rh_audit_target 0
+
+@@dir rh_base/rh_audit_target/audits 0
+
+@@file kit/TARGETS.md 0 91
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/rh_audit_target` |
+
+@@file rh_base/rh_audit_target/audits/a1.md 0 154
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@env RESEARCH_HOME 14
+{root}/rh_base
+@@rc 1
+0
+@@out 428
+PENDING  {root}/rh_base/rh_audit_target/audits/a1.md
+         target: {root}/rh_base/rh_audit_target  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 580
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/rh_base/rh_audit_target/audits/a1.md\n         target: {root}/rh_base/rh_audit_target  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 580
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/rh_base/rh_audit_target/audits/a1.md\n         target: {root}/rh_base/rh_audit_target  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case no usable path
+@@file kit/TARGETS.md 0 72
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | /no/backticks |
+
+@@rc 1
+1
+@@out 0
+
+@@err 161
+sweep-audits: ERROR — no usable target paths in {root}/kit/TARGETS.md
+sweep-audits: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths
+
+@@hook 348
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD audits sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-audits: ERROR — no usable target paths in {root}/kit/TARGETS.md\nsweep-audits: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths"
+  }
+}
+
+@@hookfull 348
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD audits sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-audits: ERROR — no usable target paths in {root}/kit/TARGETS.md\nsweep-audits: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths"
+  }
+}
+
+@@end
+@@case partial sweep with nothing pending
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 119
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `$RESEARCH_HOME/some/path/...` |
+
+@@file targetA/audits/a1.md 0 165
+<!-- review-status: applied 2026-01-01 -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 147
+
+Summary: 0 pending / 1 audits across targets.
+WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ...
+
+@@err 0
+
+@@hook 295
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ..."
+  }
+}
+
+@@hookfull 295
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ..."
+  }
+}
+
+@@end
+@@case clean sweep says nothing to review
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 165
+<!-- review-status: applied 2026-01-01 -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 66
+
+Summary: 0 pending / 1 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@hookfull 214
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 1 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case absent target is disclosed
+@@dir presentTarget 0
+
+@@dir presentTarget/audits 0
+
+@@file kit/TARGETS.md 0 119
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/presentTarget` |
+| 2 | t2 | `{root}/nonexistent-dir` |
+
+@@file presentTarget/audits/a1.md 0 154
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 571
+INFO: corpus not found (absent-input): {root}/nonexistent-dir
+PENDING  {root}/presentTarget/audits/a1.md
+         target: {root}/presentTarget  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 665
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/presentTarget/audits/a1.md\n         target: {root}/presentTarget  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 725
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nINFO: corpus not found (absent-input): {root}/nonexistent-dir\nPENDING  {root}/presentTarget/audits/a1.md\n         target: {root}/presentTarget  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case corpus without audits is disclosed
+@@dir emptyCorpus 0
+
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 109
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/emptyCorpus` |
+
+@@file targetA/audits/a1.md 0 154
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+| 2 | claim 2 | CONFIRMED |
+
+@@rc 1
+0
+@@out 467
+INFO: corpus exists, no audits found (empty-input): {root}/emptyCorpus
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 608
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').\nINFO: 1 corpus(es) empty-input — run --full to list them"
+  }
+}
+
+@@hookfull 620
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nINFO: corpus exists, no audits found (empty-input): {root}/emptyCorpus\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case absent target and nothing pending
+@@file kit/TARGETS.md 0 84
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/nonexistent-only` |
+
+@@rc 1
+0
+@@out 230
+INFO: corpus not found (absent-input): {root}/nonexistent-only
+
+Summary: 0 pending / 0 audits across targets.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+Nothing to review.
+
+@@err 0
+
+@@hook 319
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 0 audits across targets.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.\nNothing to review."
+  }
+}
+
+@@hookfull 380
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nINFO: corpus not found (absent-input): {root}/nonexistent-only\n\nSummary: 0 pending / 0 audits across targets.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nNothing to review."
+  }
+}
+
+@@end
+@@case guidance only with pending audits
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case claims are rows that open with | n |
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 162
+<!-- review-status: pending -->
+# audit
+| 1 | a | b |
+|2| no | b |
+| 3  | no | b |
+|  4 | no | b |
+  | 5 | no | b |
+| x | no | b |
+| 12 | yes | b |
+|---|---|---|
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~3 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case last line without newline counts
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 59
+<!-- review-status: pending -->
+| 1 | a | b |
+| 2 | a | b |
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~2 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case audits dir at depth four is read, depth five is not
+@@dir targetA 0
+
+@@dir targetA/x 0
+
+@@dir targetA/x/y 0
+
+@@dir targetA/x/y/audits 0
+
+@@dir targetA/x/y/z 0
+
+@@dir targetA/x/y/z/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/x/y/audits/d4.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/x/y/z/audits/d5.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 400
+PENDING  {root}/targetA/x/y/audits/d4.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 552
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/x/y/audits/d4.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 552
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/x/y/audits/d4.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case git directory is not walked
+@@dir targetA 0
+
+@@dir targetA/.git 0
+
+@@dir targetA/.git/audits 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/.git/audits/hidden.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case non-markdown files are not audits
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@dir targetA/audits/sub 0
+
+@@dir targetA/audits/sub/dir 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/.md 0 153
+<!-- review-status: applied 2026-01-01 · kit deadbeef -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/notes.txt 0 2
+x
+
+@@file targetA/audits/sub/dir/deep.md 0 94
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 529
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+PENDING  {root}/targetA/audits/sub/dir/deep.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d
+
+Summary: 2 pending / 3 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 683
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\nPENDING  {root}/targetA/audits/sub/dir/deep.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 2 pending / 3 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 683
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\nPENDING  {root}/targetA/audits/sub/dir/deep.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: none  ·  age: 0d\n\nSummary: 2 pending / 3 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case retros are not audits
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/r1.md 0 131
+<!-- review-status: pending -->
+# retro
+
+## Proposed kit deltas
+
+| # | delta | rationale |
+|---|---|---|
+| 1 | delta 1 | because |
+
+@@rc 1
+0
+@@out 133
+INFO: corpus exists, no audits found (empty-input): {root}/targetA
+
+Summary: 0 pending / 0 audits across targets.
+Nothing to review.
+
+@@err 0
+
+@@hook 274
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\n\nSummary: 0 pending / 0 audits across targets.\nNothing to review.\nINFO: 1 corpus(es) empty-input — run --full to list them"
+  }
+}
+
+@@hookfull 282
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nINFO: corpus exists, no audits found (empty-input): {root}/targetA\n\nSummary: 0 pending / 0 audits across targets.\nNothing to review."
+  }
+}
+
+@@end
+@@case tied ages sort by row
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/1.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/B.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/_.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/a.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/b.md 259200 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 895
+PENDING  {root}/targetA/audits/1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d
+PENDING  {root}/targetA/audits/B.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d
+PENDING  {root}/targetA/audits/_.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d
+PENDING  {root}/targetA/audits/a.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d
+PENDING  {root}/targetA/audits/b.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d
+
+Summary: 5 pending / 5 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 1055
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/B.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/_.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/a.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/b.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\n\nSummary: 5 pending / 5 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 1055
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/B.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/_.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/a.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\nPENDING  {root}/targetA/audits/b.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 3d\n\nSummary: 5 pending / 5 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case age threshold zero escalates a day-old audit
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 172800 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 1
+0
+@@rc 1
+0
+@@out 421
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d  ·  ESCALATED (aged 2d)
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d  ·  ESCALATED (aged 2d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d  ·  ESCALATED (aged 2d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case age equal to the threshold is not escalated
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 176400 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 1
+2
+@@rc 1
+0
+@@out 396
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 548
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 2d\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case default threshold is seven days
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a.md 608400 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@file targetA/audits/b.md 694800 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 545
+PENDING  {root}/targetA/audits/b.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)
+PENDING  {root}/targetA/audits/a.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 7d
+
+Summary: 2 pending / 2 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 699
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/b.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)\nPENDING  {root}/targetA/audits/a.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 7d\n\nSummary: 2 pending / 2 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 699
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/b.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)\nPENDING  {root}/targetA/audits/a.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 7d\n\nSummary: 2 pending / 2 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case empty threshold is the default
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 694800 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 0
+
+@@rc 1
+0
+@@out 421
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 8d  ·  ESCALATED (aged 8d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case negative threshold escalates a fresh audit
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@env RSDD_RETRO_AGE_DAYS 2
+-1
+@@rc 1
+0
+@@out 421
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d  ·  ESCALATED (aged 0d)
+
+Summary: 1 pending / 1 audits across targets.
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d  ·  ESCALATED (aged 0d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 573
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d  ·  ESCALATED (aged 0d)\n\nSummary: 1 pending / 1 audits across targets.\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
+@@case truncated path with a space
+@@dir targetA 0
+
+@@dir targetA/audits 0
+
+@@file kit/TARGETS.md 0 131
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `/x/my dir.../tail` |
+| 3 | t3 | `/y/z...` |
+
+@@file targetA/audits/a1.md 0 126
+<!-- review-status: pending -->
+# audit
+
+## Audited claims
+
+| # | claim | verdict |
+|---|---|---|
+| 1 | claim 1 | CONFIRMED |
+
+@@rc 1
+0
+@@out 507
+PENDING  {root}/targetA/audits/a1.md
+         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d
+
+Summary: 1 pending / 1 audits across targets.
+WARN: 3 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: my, tail, z...
+For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed
+coverage gaps into the §8 backlog, then flip the marker to
+'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').
+
+@@err 0
+
+@@hook 660
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nWARN: 3 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: my, tail, z...\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@hookfull 660
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD pending audits (per-target §13):\nPENDING  {root}/targetA/audits/a1.md\n         target: {root}/targetA  ·  ~1 audited claims  ·  status: pending  ·  age: 0d\n\nSummary: 1 pending / 1 audits across targets.\nWARN: 3 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: my, tail, z...\nFor each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\ncoverage gaps into the §8 backlog, then flip the marker to\n'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+  }
+}
+
+@@end
