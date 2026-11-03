@@ -13,6 +13,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // sandbox is one test's world: a HOME, a PATH holding only the tools the scripts need, and a fixed git
@@ -59,7 +60,7 @@ func (sb *sandbox) environ() []string {
 func (sb *sandbox) git(dir string, args ...string) {
 	sb.t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = sb.environ()
+	cmd.Env = gitfixture.Env(sb.environ()) // no background maintenance racing the fixture (kit issue #2624)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		sb.t.Fatalf("git %v: %v: %s", args, err, out)
 	}
