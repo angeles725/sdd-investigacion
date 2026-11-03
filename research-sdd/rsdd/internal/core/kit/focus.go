@@ -78,11 +78,11 @@ func awkField(f []string, i int) string {
 func stateCell(f []string) string {
 	c := strings.Trim(awkField(f, 4), "\t `")
 	if rest, ok := strings.CutPrefix(c, "["); ok {
-		i := strings.Index(rest, "]")
-		if i < 0 {
-			i = 0
+		name, _, found := strings.Cut(rest, "]")
+		c = ""
+		if found {
+			c = name
 		}
-		c = rest[:i]
 	}
 	return c
 }

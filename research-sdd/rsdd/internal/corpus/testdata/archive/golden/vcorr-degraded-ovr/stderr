@@ -1,0 +1,1 @@
+WARN: verify-corrections gate overridden by --allow-unreciprocated-corrections — verify-corrections.sh reported degraded: awk not found on PATH; the corpus was NOT checked.

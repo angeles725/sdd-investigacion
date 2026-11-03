@@ -1,0 +1,611 @@
+=== all-excludes-focus
+rc: 2
+--- stdout
+--- stderr
+usage: --all is corpus-wide and excludes --focus/--root
+=== all-excludes-root
+rc: 2
+--- stdout
+--- stderr
+usage: --all is corpus-wide and excludes --focus/--root
+=== all-needs-next
+rc: 2
+--- stdout
+--- stderr
+usage: --all requires --next
+=== all-next-ok
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=1 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== bootstrap-next
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+--- stderr
+=== bootstrap-status
+rc: 0
+--- stdout
+no RESEARCH-STATE under corpus — run research-sdd-init.sh
+--- stderr
+=== bootstrap-sync-state
+rc: 0
+--- stdout
+no RESEARCH-STATE under corpus — run research-sdd-init.sh
+--- stderr
+=== bootstrap-trailing-slash
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus/
+--- stderr
+=== emit-bare-stop-prefix-is-no-verdict
+rc: 0
+--- stdout
+STOP | 
+return-token: STOP: campaign — 
+--- stderr
+=== emit-blank-output-is-no-verdict
+rc: 1
+--- stdout
+ 
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== emit-bootstrap-has-no-token
+rc: 1
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+return-token: unavailable (verdict 'BOOTSTRAP' has no RETURN CONTRACT token; resolve it first)
+--- stderr
+=== emit-bootstrap-verdict-has-no-token
+rc: 1
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+return-token: unavailable (verdict 'BOOTSTRAP' has no RETURN CONTRACT token; resolve it first)
+--- stderr
+=== emit-flag-first
+rc: 1
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=0 queue=1 root=0 only= only_set=0 stall=15
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== emit-flag-twice
+rc: 0
+--- stdout
+NEXT | P1 | G1
+return-token: next: G1
+--- stderr
+=== emit-issues-due-has-no-token
+rc: 1
+--- stdout
+ISSUES-DUE | 2 untracked delta(s) in retros/x.md
+return-token: unavailable (verdict 'ISSUES-DUE' has no RETURN CONTRACT token; resolve it first)
+--- stderr
+=== emit-lowercase-verdict-is-no-verdict
+rc: 1
+--- stdout
+next | P1 | G1
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== emit-next
+rc: 0
+--- stdout
+NEXT | P1 | G7
+return-token: next: G7
+--- stderr
+=== emit-next-empty-gap
+rc: 1
+--- stdout
+NEXT | P1 | 
+return-token: unavailable (NEXT verdict carries no gap)
+--- stderr
+=== emit-next-gap-keeps-later-pipes
+rc: 0
+--- stdout
+NEXT | P1 | G | x
+return-token: next: G | x
+--- stderr
+=== emit-next-indented-verdict
+rc: 1
+--- stdout
+   NEXT | P2 | G9  
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== emit-next-no-gap
+rc: 1
+--- stdout
+NEXT | P1
+return-token: unavailable (NEXT verdict carries no gap)
+--- stderr
+=== emit-next-rc-gate-1
+rc: 1
+--- stdout
+NEXT | P | G
+return-token: unavailable (--next exited 1)
+--- stderr
+=== emit-next-rc-gate-3
+rc: 1
+--- stdout
+NEXT | P | G
+return-token: unavailable (--next exited 3)
+--- stderr
+=== emit-next-with-trailing-note
+rc: 0
+--- stdout
+NEXT | P1 | G1
+WARN: queue-malformed
+return-token: next: G1
+--- stderr
+=== emit-no-verdict-line
+rc: 1
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== emit-retro-due-has-no-token
+rc: 1
+--- stdout
+RETRO-DUE | 7 blocks
+return-token: unavailable (verdict 'RETRO-DUE' has no RETURN CONTRACT token; resolve it first)
+--- stderr
+=== emit-root-refusal-propagates
+rc: 1
+--- stdout
+return-token: unavailable (--next exited 1)
+--- stderr
+root-select: ERROR: --root is ambiguous or unsupported under corpus: no top-level RESEARCH-STATE.md and 0 root candidate(s) beside focus siblings; candidates:
+  corpus/archive/RESEARCH-STATE.md
+=== emit-silent-next
+rc: 1
+--- stdout
+return-token: unavailable (--next printed nothing)
+--- stderr
+=== emit-stale-has-no-token
+rc: 1
+--- stdout
+STALE | run --sync-state
+return-token: unavailable (verdict 'STALE' has no RETURN CONTRACT token; resolve it first)
+--- stderr
+=== emit-stop-backlog-unreadable
+rc: 1
+--- stdout
+STOP | exhausted (0) [backlog-unreadable: 2 rows]
+return-token: unavailable (STOP carries [backlog-unreadable: N rows] — unread backlog rows must be reconciled before any STOP: campaign token)
+--- stderr
+=== emit-stop-backlog-unverified
+rc: 1
+--- stdout
+STOP | exhausted (0) [issue-coverage: unverified] [backlog-unreadable: unverified]
+return-token: unavailable (STOP carries [backlog-unreadable: N rows] — unread backlog rows must be reconciled before any STOP: campaign token)
+--- stderr
+=== emit-stop-focus-scoped-multi
+rc: 1
+--- stdout
+STOP | exhausted (0)
+return-token: unavailable (STOP over 2 state files needs the §8c campaign-close partition check (--focus/--root scope the verdict, not the campaign))
+--- stderr
+=== emit-stop-queue-heading-first-line
+rc: 1
+--- stdout
+STOP | exhausted (0)
+return-token: unavailable (STOP with a ## Campaign queue (or unreadable state) needs next-entry vs STOP: campaign from §8c)
+--- stderr
+=== emit-stop-queue-heading-needs-line-start
+rc: 0
+--- stdout
+STOP | exhausted (0)
+return-token: STOP: campaign — exhausted (0)
+--- stderr
+=== emit-stop-root-scoped-multi
+rc: 1
+--- stdout
+STOP | exhausted (0)
+return-token: unavailable (STOP over 2 state files needs the §8c campaign-close partition check (--focus/--root scope the verdict, not the campaign))
+--- stderr
+=== emit-stop-single-state
+rc: 0
+--- stdout
+STOP | read-only-investigable exhausted (0)
+return-token: STOP: campaign — read-only-investigable exhausted (0)
+--- stderr
+=== emit-stop-template-not-counted
+rc: 0
+--- stdout
+STOP | exhausted (0)
+return-token: STOP: campaign — exhausted (0)
+--- stderr
+=== emit-stop-two-state-files
+rc: 1
+--- stdout
+STOP | exhausted (0)
+return-token: unavailable (STOP over 2 state files needs the §8c campaign-close partition check (--focus/--root scope the verdict, not the campaign))
+--- stderr
+=== emit-stop-unreadable-state
+rc: 1
+--- stdout
+STOP | exhausted (0)
+return-token: unavailable (STOP with a ## Campaign queue (or unreadable state) needs next-entry vs STOP: campaign from §8c)
+--- stderr
+=== emit-stop-with-campaign-queue
+rc: 1
+--- stdout
+STOP | read-only-investigable exhausted (0)
+return-token: unavailable (STOP with a ## Campaign queue (or unreadable state) needs next-entry vs STOP: campaign from §8c)
+--- stderr
+=== emit-token-needs-next
+rc: 2
+--- stdout
+--- stderr
+usage: --emit-token requires --next
+=== emit-token-needs-next-sync
+rc: 2
+--- stdout
+--- stderr
+usage: --emit-token requires --next
+=== emit-two-verdict-lines
+rc: 1
+--- stdout
+NEXT | P1 | A
+STOP | done
+return-token: unavailable (--next output carries 2 verdict lines (want exactly 1))
+--- stderr
+=== emit-usage-error-is-not-masked
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next [--all] [--queue] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]
+=== emit-with-focus-pick
+rc: 1
+--- stdout
+PICKED state=corpus/RESEARCH-STATE-x.md corpus=corpus mode=--next focus=x emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+return-token: unavailable (--next output carries 0 verdict lines (want exactly 1))
+--- stderr
+=== focus-does-not-match-root-file
+rc: 2
+--- stdout
+--- stderr
+usage: --focus requires a focus slug
+=== focus-flag-parsed
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE-x.md corpus=corpus mode=--next focus=x emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== focus-found
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE-x.md corpus=corpus mode=status focus=x emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== focus-glob-slug
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE-xy.md corpus=corpus mode=status focus=x* emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== focus-missing-next
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE-nope.md under corpus
+--- stderr
+=== focus-missing-slug
+rc: 2
+--- stdout
+--- stderr
+usage: --focus requires a focus slug
+=== focus-missing-status
+rc: 0
+--- stdout
+no RESEARCH-STATE-nope.md under corpus — run research-sdd-init.sh
+--- stderr
+=== focus-missing-sync-state
+rc: 0
+--- stdout
+no RESEARCH-STATE-nope.md under corpus — run research-sdd-init.sh
+--- stderr
+=== focus-same-slug-two-dirs-takes-first
+rc: 0
+--- stdout
+PICKED state=corpus/a/RESEARCH-STATE-x.md corpus=corpus/a mode=status focus=x emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== mode-last-wins-next
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== mode-last-wins-sync
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--sync-state focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== only-double-comma
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)
+=== only-each-counter-valid
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--sync-state focus= emit=0 all=0 queue=0 root=0 only=covered_blocks,gaps_closed,known_gaps,investigable_open,requires_execution_open,blocked_open,deferred_open,undocumented_findings only_set=1 stall=15
+--- stderr
+=== only-empty
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)
+=== only-leading-comma
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)
+=== only-missing-value
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)
+=== only-needs-sync-state
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires --sync-state
+=== only-needs-sync-state-with-next
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires --sync-state
+=== only-prefix-of-counter-is-unknown
+rc: 2
+--- stdout
+--- stderr
+usage: --only: unknown counter 'blocked' (valid: covered_blocks gaps_closed known_gaps investigable_open requires_execution_open blocked_open deferred_open undocumented_findings)
+=== only-tab
+rc: 2
+--- stdout
+--- stderr
+usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)
+=== only-trailing-comma
+rc: 2
+--- stdout
+--- stderr
+usage: --only requires a counter list, e.g. --only covered_blocks,blocked_open (no empty elements)
+=== only-unknown-counter
+rc: 2
+--- stdout
+--- stderr
+usage: --only: unknown counter 'nope' (valid: covered_blocks gaps_closed known_gaps investigable_open requires_execution_open blocked_open deferred_open undocumented_findings)
+=== only-whitespace
+rc: 2
+--- stdout
+--- stderr
+usage: --only: counter list must be comma-separated with no whitespace (e.g. --only covered_blocks,blocked_open)
+=== pick-absolute-target
+rc: 0
+--- stdout
+PICKED state=<ROOT>/corpus/RESEARCH-STATE.md corpus=<ROOT>/corpus mode=--next focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-ambiguous-same-depth-takes-first
+rc: 0
+--- stdout
+PICKED state=corpus/a/RESEARCH-STATE.md corpus=corpus/a mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-at-maxdepth
+rc: 0
+--- stdout
+PICKED state=corpus/a/b/RESEARCH-STATE.md corpus=corpus/a/b mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-beyond-maxdepth-ignored
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+--- stderr
+=== pick-dot-target
+rc: 0
+--- stdout
+PICKED state=./RESEARCH-STATE.md corpus=. mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-dotdot-target
+rc: 0
+--- stdout
+PICKED state=../corpus/RESEARCH-STATE.md corpus=../corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-git-dir-ignored
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+--- stderr
+=== pick-nested-only
+rc: 0
+--- stdout
+PICKED state=corpus/sub/RESEARCH-STATE.md corpus=corpus/sub mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-root-beats-focus-sibling
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-root-state
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-shallowest-first
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE-y.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-state-is-a-directory
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+--- stderr
+=== pick-target-with-space
+rc: 0
+--- stdout
+PICKED state=my corpus/RESEARCH-STATE.md corpus=my corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== pick-template-ignored
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE under corpus
+--- stderr
+=== pick-trailing-slash-target
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=15
+--- stderr
+=== queue-needs-next
+rc: 2
+--- stdout
+--- stderr
+usage: --queue requires --next
+=== queue-next-ok
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=0 queue=1 root=0 only= only_set=0 stall=15
+--- stderr
+=== root-and-focus-exclusive
+rc: 2
+--- stdout
+--- stderr
+usage: --root and --focus are mutually exclusive
+=== root-git-candidate-ignored
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE.md under corpus
+--- stderr
+=== root-nested-beside-siblings
+rc: 0
+--- stdout
+PICKED state=corpus/sub/RESEARCH-STATE.md corpus=corpus/sub mode=status focus= emit=0 all=0 queue=0 root=1 only= only_set=0 stall=15
+--- stderr
+=== root-nested-without-siblings-refused
+rc: 1
+--- stdout
+--- stderr
+root-select: ERROR: --root is ambiguous or unsupported under corpus: no top-level RESEARCH-STATE.md and 0 root candidate(s) beside focus siblings; candidates:
+  corpus/archive/RESEARCH-STATE.md
+=== root-none-next
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE.md under corpus
+--- stderr
+=== root-none-status
+rc: 0
+--- stdout
+no RESEARCH-STATE.md under corpus — run research-sdd-init.sh
+--- stderr
+=== root-none-sync-state
+rc: 1
+--- stdout
+--- stderr
+sync-state: no RESEARCH-STATE.md under corpus
+=== root-one_with_siblings_one_without_picks_the_first
+rc: 0
+--- stdout
+PICKED state=corpus/a/RESEARCH-STATE.md corpus=corpus/a mode=status focus= emit=0 all=0 queue=0 root=1 only= only_set=0 stall=15
+--- stderr
+=== root-only-focus-files
+rc: 0
+--- stdout
+BOOTSTRAP | no RESEARCH-STATE.md under corpus
+--- stderr
+=== root-state-is-a-directory
+rc: 1
+--- stdout
+--- stderr
+root-select: ERROR: --root is ambiguous or unsupported under corpus: no top-level RESEARCH-STATE.md and 0 root candidate(s) beside focus siblings; candidates:
+  corpus/RESEARCH-STATE.md
+=== root-template-sibling-does-not-count
+rc: 1
+--- stdout
+--- stderr
+root-select: ERROR: --root is ambiguous or unsupported under corpus: no top-level RESEARCH-STATE.md and 0 root candidate(s) beside focus siblings; candidates:
+  corpus/sub/RESEARCH-STATE.md
+=== root-top-level
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=1 only= only_set=0 stall=15
+--- stderr
+=== root-top-level-next
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=--next focus= emit=0 all=0 queue=0 root=1 only= only_set=0 stall=15
+--- stderr
+=== root-two-nested-with-siblings-refused
+rc: 1
+--- stdout
+--- stderr
+root-select: ERROR: --root is ambiguous or unsupported under corpus: no top-level RESEARCH-STATE.md and 2 root candidate(s) beside focus siblings; candidates:
+  corpus/a/RESEARCH-STATE.md
+  corpus/b/RESEARCH-STATE.md
+=== stall-alpha
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== stall-decimal
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== stall-int64-max
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=9223372036854775807
+--- stderr
+=== stall-leading-zeros-ok
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=7
+--- stderr
+=== stall-missing-value
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== stall-negative
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== stall-ok
+rc: 0
+--- stdout
+PICKED state=corpus/RESEARCH-STATE.md corpus=corpus mode=status focus= emit=0 all=0 queue=0 root=0 only= only_set=0 stall=30
+--- stderr
+=== stall-zero
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== stall-zeros
+rc: 2
+--- stdout
+--- stderr
+usage: --stall-minutes requires a positive integer
+=== usage-no-args
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]
+=== usage-not-a-dir
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]
+=== usage-target-is-file
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]
+=== usage-target-looks-like-flag
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next|--sync-state] [--focus <slug>]
+=== usage-unknown-flag
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next [--all] [--queue] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]
+=== usage-unknown-flag-after-valid
+rc: 2
+--- stdout
+--- stderr
+usage: research-sdd-status.sh <target-dir> [--next [--all] [--queue] [--emit-token]|--sync-state [--only <counters>]] [--focus <slug>|--root] [--stall-minutes N]

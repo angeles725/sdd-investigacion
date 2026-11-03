@@ -100,6 +100,15 @@ func (s Spec) validate() error {
 	return nil
 }
 
+// finalReason is the stop reason Run reports: what watch saw first, or the
+// output cap when the leader exited on its own after the cap was reached.
+func finalReason(watched string, capReached bool) string {
+	if watched == "" && capReached {
+		return ReasonOutputCap
+	}
+	return watched
+}
+
 func (s Spec) grace() time.Duration {
 	if s.Grace == 0 {
 		return DefaultGrace

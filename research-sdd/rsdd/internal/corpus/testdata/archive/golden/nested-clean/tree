@@ -1,0 +1,10 @@
+d0755 - outer
+d0755 - outer/.git
+d0755 - outer/corpus-nested
+d0755 - outer/corpus-nested/retros
+f0600 0ea9b92686da5c16 outer/corpus-nested/RESEARCH-STATE.md
+f0644 58ef706a59fcec9d outer/README.md
+f0644 652d0523a0b36402 outer/corpus-nested/retros/2099-01-01-close.md
+f0644 86a284b2ba153e73 outer/corpus-nested/t-block1.md
+f0644 b0fb328e27d46293 outer/corpus-nested/CATALOG.md
+f0644 e3b0c44298fc1c14 outer/corpus-nested/INDEX.md

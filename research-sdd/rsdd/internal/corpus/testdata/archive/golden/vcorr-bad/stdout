@@ -1,0 +1,12 @@
+== research-sdd-archive: c  ·  corpus: (flat)  ·  DRY-RUN ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : FAIL — 1 one-directional §14 correction(s) — add the reciprocal 'corrected in BN' note to the corrected block(s) (override: --allow-unreciprocated-corrections)
+      FAIL   B2 corrects [Block 1] but t-block1.md has no reciprocal backlink to B2 (accepted: 'corrected in'/'corregido en'/'refined in'/corrigendum/erratum/'CORRECCIÓN — [Block 2]' naming it) (§14) [correcting: t-block2.md]
+    scan-secrets  : ok
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c
