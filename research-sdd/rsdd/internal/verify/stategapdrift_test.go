@@ -60,3 +60,15 @@ func TestGapDriftReportOfAnUnlistableTarget(t *testing.T) {
 		t.Errorf("got rc=%d out=%q", rc, out)
 	}
 }
+
+// Without a B<n>-G<m> backlog row the report carries no gap-drift line, even when the target holds a block whose bullet
+// would have drifted (the observable half of the old vs-rows-guard control). In process the guard in checkState is
+// only a short cut: forcing it open leaves the output unchanged, because the check itself reports NoRows silently.
+func TestGapDriftNotConsultedWithoutGapRows(t *testing.T) {
+	d := t.TempDir()
+	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | plain gap about cats | w | pending |"))
+	sdWrite(t, filepath.Join(d, "x-block1.md"), "# b\n\n- **B1-G1** how do the widgets frobnicate the sprockets under load\n")
+	if got := sdGo(t, d, false, d); strings.Contains(got.Stdout, "gap-drift") {
+		t.Errorf("a state with no B<n>-G<m> row must not consult the drift check:\n%s", got.Stdout)
+	}
+}
