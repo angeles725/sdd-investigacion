@@ -1,0 +1,1232 @@
+#!/usr/bin/env bash
+# reconcile-issues.sh — audit GitHub issue coverage for OPEN kit deltas.
+# Resolves issue #794 (Phase 3 of #557).
+#
+# For each OPEN delta in a §18 retro file, checks whether there is an open issue
+# on angeles725/sdd-investigacion carrying the exact
+#   "Source retro: <target>/retros/<file> · <row-id>"
+# body signature produced by stage-retro-issues.sh. The pre-#1286 LEGACY signature
+# (<path basename> instead of the registered target name) is read too, exactly as the seeder's
+# dedup does (kit issue #1304 item 2), and only lines carrying THIS retro's signature count — a
+# fuzzy GitHub search hit on another target's issue never does (kit issue #1304 item 1).
+#
+# Usage:
+#   reconcile-issues.sh <retro.md>  — audit one retro file
+#   reconcile-issues.sh --all       — audit every retro across all TARGETS.md targets
+#   --issues-cache <file>  — pre-fetched OPEN issue bodies (no gh call)
+#   --closed-cache <file>  — pre-fetched bodies of issues CLOSED AS COMPLETED (used with --issues-cache;
+#                            without it the closed-issue check is skipped and says so on stderr)
+#
+# Classifies each OPEN delta as (printed to stdout):
+#   tracked   — open delta HAS a matching open issue
+#   untracked — open delta with NO matching issue  (actionable gap)
+#   orphaned  — open issue whose delta row is no longer open
+#   shipped   — open delta with NO open issue whose matching issue is CLOSED as completed and still
+#               carries this retro's exact "Source retro: ..." signature (kit issue #1555): the row
+#               has shipped even though the retro marker does not list it. Reported with a proposal
+#               to update the marker by hand; never counted as untracked, never auto-edited.
+#               A closed issue not closed as completed (e.g. not planned) is NOT shipped evidence.
+#               Closure-evidence rule (kit issue #1709): `shipped` additionally needs BOTH a commit AND a
+#               test cited in the closed issue (its body or comments), and a cited commit that reaches
+#               the main ref. A row closed as completed that fails any part is `borderline` instead.
+#   borderline — closed as completed with this retro's signature but the closure evidence is incomplete:
+#               no commit cited, no test cited, or no cited commit reachable from the main ref (or
+#               reachability could not be verified). Human review; never counted untracked or shipped.
+#               Evidence grammar: a COMMIT is a 7-40 char hex token containing a digit on a line that has
+#               the word commit/commits; a TEST is a path-like token (.test. / _test. / test_ / a tests/
+#               segment) on a line that has the word test/tests. Reachability is
+#               `git merge-base --is-ancestor <sha> <ref>` against the LOCALLY KNOWN ref (default
+#               origin/main, RECONCILE_ISSUES_MAIN_REF) in the kit checkout (default: this kit's root,
+#               RECONCILE_ISSUES_GIT_DIR) - NO implicit fetch: a stale local origin/main can read a
+#               just-merged commit as unreachable (borderline), never as shipped. git absent, not a
+#               repository, or the ref unknown -> typed `degraded:` + exit 1, rows still printed borderline.
+#               A cited token that is not a commit object locally (a date, a PR number, a fork SHA, an
+#               ambiguous short SHA) is simply NOT evidence: no degraded, no exit change. When NO cited token
+#               resolved AND the repository is a shallow clone (it cannot tell "absent" from "not fetched",
+#               kit issue #1773), the row stays borderline with that reason and ONE run-level `shallow-clone:`
+#               line names the row count and the first SHA-like token; the run is NOT failed. Every cited token is evaluated,
+#               so the outcome never depends on token order. Comment evidence counts only from an
+#               OWNER, MEMBER or COLLABORATOR author; the issue body is always trusted.
+#   regressed — a `shipped` row (closure-evidence rule above) whose exact title is proposed AGAIN as an OPEN delta
+#               in a LATER retro (kit issue #1709 slice 2): `regressed: row N (closed by #M, re-proposed in
+#               <later retro> as row K)`. Printed IN ADDITION to the row's `shipped:` line; human review only -
+#               never reopens, closes or edits anything. Row ids are per-retro, so the cross-retro identity is the
+#               row TITLE the seeder puts on its issue (title column named by the header, else column 2; leading
+#               **bold** unwrapped; ends trimmed; compared EXACTLY - no case folding, no fuzzy match), and a title
+#               under 12 characters or a bare priority/type token has none. "Later" = a strictly greater
+#               YYYY-MM-DD filename prefix among the retros of the SAME directory. "Open" = the later retro's row is
+#               not closed by its marker (dismissed / applied, minus a PARTIAL shipped list). Could-not-look is typed,
+#               never a silent no-match: `regressed-lookup:` notes (undated retros, a short/generic title, a later
+#               retro whose marker is out of scope) and `degraded:` + exit 1 for an unreadable later retro.
+#               The `closed by #M` number is read from the closed-issue data; a cache without numbers says so.
+#
+# propose-never-apply: REPORT ONLY.  No --apply flag; never creates, closes, or
+# edits any issue or retro marker.
+#
+# Anti-silent-zero §7 — four states named per retro (to stderr; kit issue #1111 added the 4th):
+#   absent-input    retro file / target dir not found
+#   empty-input     found but contains no delta section AND no proposal-like heading at all
+#   unclassifiable  a delta/canonical section (or a proposal-like heading the shared grammar
+#                    cannot classify, e.g. a hyphenated "kit-delta" mid-heading or a standalone
+#                    "### Proposals") was found but is not in a countable form — needs manual
+#                    review; never conflated with empty-input, which would silently hide it
+#   no-match        delta section present; no open deltas AND no orphaned issues
+#
+# §7 degraded probe: gh absent or unauthenticated → typed "degraded:" + exit 1.
+# Findings (untracked, shipped, orphaned) are WARN-only and never fail the run.
+# Operational failures (TARGETS.md missing, lib helper missing) exit 1.
+
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Arguments
+_mode="single"
+retro=""
+_issues_cache=""
+_closed_cache=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --all) _mode="all"; shift ;;
+    --issues-cache)
+      if [ "$#" -lt 2 ]; then
+        echo "reconcile-issues: --issues-cache requires a value" >&2; exit 1
+      fi
+      _issues_cache="$2"; shift 2 ;;
+    --closed-cache)
+      if [ "$#" -lt 2 ]; then
+        echo "reconcile-issues: --closed-cache requires a value" >&2; exit 1
+      fi
+      _closed_cache="$2"; shift 2 ;;
+    --*) echo "reconcile-issues: unknown flag '$1'" >&2; exit 1 ;;
+    *)   retro="$1"; shift ;;
+  esac
+done
+
+if [ "$_mode" = "single" ] && [ -z "$retro" ]; then
+  echo "usage: reconcile-issues.sh <retro.md> | --all" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Runtime dependency probes
+for _dep in awk grep sed; do
+  command -v "$_dep" >/dev/null 2>&1 || {
+    echo "degraded: missing runtime dependency: $_dep" >&2; exit 1
+  }
+done
+
+# gh probe: only required when --issues-cache is not supplied.
+# On the cache path, gh is never called so the probe is skipped.
+if [ -z "$_issues_cache" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "degraded: gh not found on PATH — install gh CLI to use reconcile-issues" >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "degraded: gh is not authenticated — run 'gh auth login'" >&2
+    exit 1
+  fi
+fi
+
+_REPO="angeles725/sdd-investigacion"
+
+# ---------------------------------------------------------------------------
+# Kit layout — KIT_ROOT is two dirs up from toolbelt/ (the script's own dir).
+# -P/pwd -P (PHYSICAL resolution) is required here, not the default -L logical mode: this script
+# is invoked as $KIT/toolbelt/reconcile-issues.sh where $KIT can be a per-profile RENDER dir whose
+# toolbelt/ is a SYMLINK to the real kit's toolbelt/ (kit issue #993 WU2 install-time profile
+# rendering + #1024 F1 render-dir completion). Bash's default (-L) $PWD tracking resolves ".."
+# against the STRING it cd'd into, never spending the symlink component — so the second ".." here
+# cancelled it out lexically and landed one level short of the real kit root, inside
+# .../research-sdd/profile/ instead of .../research-sdd/ (kit issue #1024 round 3, MEDIUM;
+# reproduced: TARGETS_MD pointed at a nonexistent .../profile/research-sdd/TARGETS.md). -P forces
+# the kernel's physical path at each step, so both cd's walk the REAL directory tree regardless of
+# how many symlinks were traversed to invoke this script.
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+_SCRIPT_DIR="$_RSDD_SELF"
+KIT_ROOT="$(cd -P "$_SCRIPT_DIR/../.." && pwd -P)"
+TARGETS_MD="$KIT_ROOT/research-sdd/TARGETS.md"
+
+# ---------------------------------------------------------------------------
+# Source shared helpers (fail-closed)
+_RS_LIB="$_SCRIPT_DIR/lib/retro-status.sh"
+[ -f "$_RS_LIB" ] || { echo "reconcile-issues: cannot find helper $_RS_LIB" >&2; exit 1; }
+# shellcheck source=lib/retro-status.sh
+. "$_RS_LIB"
+declare -F retro_marker_scope_line >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_scope_line" >&2; exit 1; }
+declare -F retro_status_from_marker_line >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_status_from_marker_line" >&2; exit 1; }
+declare -F retro_marker_is_partial >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_is_partial" >&2; exit 1; }
+declare -F retro_marker_shipped_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_shipped_ids" >&2; exit 1; }
+declare -F retro_marker_row_state >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_row_state" >&2; exit 1; }
+declare -F retro_marker_out_of_scope >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-status.sh failed to define retro_marker_out_of_scope" >&2; exit 1; }
+
+_RG_LIB="$_SCRIPT_DIR/lib/retro-grammar.sh"
+[ -f "$_RG_LIB" ] || { echo "reconcile-issues: cannot find helper $_RG_LIB" >&2; exit 1; }
+# shellcheck source=lib/retro-grammar.sh
+. "$_RG_LIB"
+declare -F retro_grammar_delta_info >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_delta_info" >&2; exit 1; }
+declare -F retro_grammar_entry_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_ids" >&2; exit 1; }
+declare -F retro_grammar_entry_warn >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_entry_warn" >&2; exit 1; }
+declare -F retro_grammar_has_honesty >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_has_honesty" >&2; exit 1; }
+declare -F retro_grammar_defenced >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_defenced" >&2; exit 1; }
+declare -F retro_grammar_id_signature_safe >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_id_signature_safe" >&2; exit 1; }
+# RECONCILE_ISSUES_ESCPIPE_GUARD: the awk text of rg_esc_pipes is a variable, not a function; checked like one.
+[ -n "${_RG_AWK_ESCPIPE_FN:-}" ] \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define _RG_AWK_ESCPIPE_FN" >&2; exit 1; }
+declare -F retro_grammar_alt_entry_rows >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_alt_entry_rows" >&2; exit 1; }
+declare -F retro_grammar_unrec_headings >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_unrec_headings" >&2; exit 1; }
+declare -F retro_grammar_canonical_heading >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_canonical_heading" >&2; exit 1; }
+declare -F retro_grammar_dup_ids >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_dup_ids" >&2; exit 1; }
+declare -F retro_grammar_row_titles >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_row_titles" >&2; exit 1; }
+declare -F retro_grammar_title_has_identity >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/retro-grammar.sh failed to define retro_grammar_title_has_identity" >&2; exit 1; }
+
+# RECONCILE_ISSUES_LIST_LIMIT (kit issue #1369 c): the open-issues `gh issue list` carries an explicit
+# --limit (gh's own default is 30, which silently truncated a busy repo and read tracked rows as
+# untracked). 1000 is GitHub search's practical ceiling; the env override exists so a test can fill a
+# page without 1000 fixtures. A reply that FILLS the limit may be truncated: typed degraded, never a
+# confident answer (see the record-separator count below).
+_LIST_LIMIT="${RECONCILE_ISSUES_LIST_LIMIT:-1000}"
+case "$_LIST_LIMIT" in
+  ''|*[!0-9]*|0) echo "degraded: RECONCILE_ISSUES_LIST_LIMIT must be a positive integer (got '$_LIST_LIMIT')" >&2; exit 1 ;;
+esac
+
+_TP_LIB="$_SCRIPT_DIR/lib/target-paths.sh"
+[ -f "$_TP_LIB" ] || { echo "reconcile-issues: cannot find helper $_TP_LIB" >&2; exit 1; }
+# shellcheck source=lib/target-paths.sh
+. "$_TP_LIB"
+declare -F target_paths_all >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/target-paths.sh failed to define target_paths_all" >&2; exit 1; }
+declare -F target_name_for_retro >/dev/null 2>&1 \
+  || { echo "reconcile-issues: helper lib/target-paths.sh failed to define target_name_for_retro" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Fleet accumulators (used under --all to build the final summary line)
+_fleet_tracked=0
+_fleet_untracked=0
+_fleet_shipped=0
+_fleet_borderline=0
+_fleet_regressed=0
+_fleet_orphaned=0
+_fleet_degraded=0
+_fleet_outofscope=0
+_fleet_retros=0
+
+# ---------------------------------------------------------------------------
+# _fetch_closed_bodies <retro_basename> <sig-prefix>...
+#   Prints the bodies of issues closed AS COMPLETED for the signature prefix(es) (kit issue #1555).
+#   Comment evidence is trusted only from an OWNER, MEMBER or COLLABORATOR author (kit issue #1709, RDD r1:
+#   any commenter could otherwise flip a row to shipped); the issue body is always trusted.
+#   The --jq prints one record-separator line after EVERY issue, with an empty body for one closed
+#   any other way (not planned), so the cap guard counts every returned issue: --limit truncates the
+#   TOTAL gh returns, so a full page of not-planned issues can hide a completed one and must degrade
+#   too (counting only COMPLETED would fail open on exactly that page). A failed query or a
+#   reply that filled the --limit is a typed degraded + return 1, never a confident empty answer.
+_fetch_closed_bodies() {
+  local _rb="$1"; shift
+  local _p _out _rc _n _ef _em
+  if [ -n "$_closed_cache" ]; then
+    # RECONCILE_ISSUES_CLOSED_CACHE_READ
+    cat "$_closed_cache" 2>/dev/null || {
+      printf 'degraded: --closed-cache file not readable: %s\n' "$_closed_cache" >&2
+      return 1
+    }
+    return 0
+  fi
+  for _p in "$@"; do
+    _ef="$(mktemp 2>/dev/null)" || _ef=""
+    # RECONCILE_ISSUES_CLOSED_QUERY: --state closed, completed only (stateReason)
+    _out="$(gh issue list \
+        --repo "$_REPO" \
+        --state closed \
+        --limit "$_LIST_LIMIT" \
+        --search "\"Source retro: ${_p} ·\"" \
+        --json body,stateReason,comments,number \
+        --jq '.[] | (if .stateReason == "COMPLETED" then ("Closed-issue-number: \(.number // "")\n" + (([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body]) | join("\n"))) else "" end), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+    if [ "$_rc" -ne 0 ]; then
+      _em=""
+      if [ -n "$_ef" ]; then
+        _em="$(head -1 "$_ef" 2>/dev/null)"
+        # RECONCILE_ISSUES_OLD_GH_FALLBACK (kit issue #1752): older gh (2.45) has no `stateReason` --json
+        # field. That exact rejection is not a failed lookup: read the state reasons from a batched listing instead.
+        if grep -q 'Unknown JSON field.*stateReason' "$_ef" 2>/dev/null; then
+          _out="$(_closed_query_old_gh "$_p")" && _rc=0 || _rc=$?
+          if [ "$_rc" -ne 0 ]; then rm -f "$_ef"; return 1; fi   # the fallback printed its own typed degraded
+        fi
+      fi
+      if [ "$_rc" -ne 0 ]; then
+        [ -z "$_ef" ] || rm -f "$_ef"
+        echo "degraded: gh issue list (closed) failed for $_rb (exit $_rc)${_em:+ — }${_em}" >&2
+        return 1
+      fi
+    fi
+    [ -z "$_ef" ] || rm -f "$_ef"
+    _n="$(printf '%s\n' "$_out" | awk '$0 == "\036" { n++ } END { print n + 0 }')"
+    if [ "$_n" -ge "$_LIST_LIMIT" ]; then
+      echo "degraded: gh issue list (closed) returned $_n results = the --limit $_LIST_LIMIT cap for $_rb — the result may be truncated (raise RECONCILE_ISSUES_LIST_LIMIT)" >&2
+      return 1
+    fi
+    # Record separators are KEPT (kit issue #1709): one record per issue (body + comments), so the
+    # evidence of one issue is never credited to another.
+    printf '%s\n' "$_out"
+  done
+}
+
+# _SR_FILE (kit issue #1752): per-run cache of "<number> <state_reason>" lines for the repo's closed issues.
+# A FILE because the closed lookup runs inside command substitutions (a variable set there is lost).
+# Empty = not loaded yet; the first line "loaded <repo>" marks a completed load FOR THAT REPO (a different
+# $_REPO reloads, so a listing never resolves another repository's issues).
+_SR_FILE="$(mktemp 2>/dev/null)" || _SR_FILE=""
+# _SR_SINCE_REQ (kit issue #1784): the oldest retro date the current lookup needs, as an ISO instant ("" = unbounded).
+# Set by _closed_query_old_gh before it asks for state reasons; the listing is bounded by it (see _load_state_reasons).
+_SR_SINCE_REQ=""
+
+# _sr_install_exit_trap - remove the cache file on EXIT WITHOUT clobbering an EXIT trap that is already set (kit issue
+# #1784): the previous trap's command runs after the cleanup. `trap -p` output is re-parsed through `set --`.
+# shellcheck disable=SC2120  # "$1" is the function's own positional reused by eval "set -- <trap -p>", not a caller argument
+_sr_install_exit_trap() {
+  local _prev _prev_cmd=""
+  _prev="$(trap -p EXIT)"
+  if [ -n "$_prev" ]; then eval "set -- ${_prev#trap -- }"; _prev_cmd="${1:-}"; fi
+  # shellcheck disable=SC2064
+  trap 'rm -f "$_SR_FILE"'"${_prev_cmd:+; $_prev_cmd}" EXIT   # RECONCILE_ISSUES_EXIT_TRAP_CHAIN
+}
+[ -z "$_SR_FILE" ] || _sr_install_exit_trap
+
+# _retry_pause <stderr-file> - wait before the ONE retry of the batched listing (kit issue #1784): an immediate retry
+# of a rate-limited call (HTTP 403/429) fails the same way. The wait is, in order: a Retry-After (seconds) found in
+# gh's stderr; else the seconds until an X-RateLimit-Reset (epoch) found there; else RECONCILE_ISSUES_RETRY_BACKOFF
+# (default 2). It is at least 1s and at most RECONCILE_ISSUES_RETRY_MAX_WAIT (default 30; 0 = never wait), so a hostile
+# or buggy header can never stall the run. A non-numeric env value falls back to its default. gh prints those headers
+# on stderr only in some modes (GH_DEBUG=api, --include); without them the default backoff applies.
+_retry_pause() {
+  local _f="${1:-}" _t="" _w _def _max _now
+  _def="${RECONCILE_ISSUES_RETRY_BACKOFF:-2}"; case "$_def" in ''|*[!0-9]*) _def=2 ;; esac
+  _max="${RECONCILE_ISSUES_RETRY_MAX_WAIT:-30}"; case "$_max" in ''|*[!0-9]*) _max=30 ;; esac
+  _w="$_def"
+  if [ -n "$_f" ] && [ -r "$_f" ]; then
+    _t="$(tr 'A-Z' 'a-z' < "$_f" 2>/dev/null)"
+    if [[ "$_t" =~ retry-after[:=\ ]+([0-9]{1,12})([^0-9]|$) ]]; then   # RECONCILE_ISSUES_RETRY_AFTER
+      _w="${BASH_REMATCH[1]}"
+    elif [[ "$_t" =~ x-ratelimit-reset[:=\ ]+([0-9]{1,12})([^0-9]|$) ]]; then
+      _now="$(date +%s 2>/dev/null)"
+      case "$_now" in ''|*[!0-9]*) ;; *) _w=$(( BASH_REMATCH[1] - _now )) ;; esac
+    fi
+  fi
+  [ "$_w" -ge 1 ] || _w=1
+  [ "$_w" -le "$_max" ] || _w="$_max"   # RECONCILE_ISSUES_RETRY_CAP
+  [ "$_w" -ge 1 ] || return 0
+  echo "note: gh api state_reason listing failed — retrying once in ${_w}s" >&2
+  sleep "$_w"
+}
+
+# _load_state_reasons - ONE paginated `gh api repos/<repo>/issues?state=closed` call (REST items carry
+# state_reason) with one bounded retry (after _retry_pause); typed degraded + return 1 on failure. Reads no stdin.
+# _load_state_reasons [force]: a cached listing for the CURRENT repo is reused unless "force" is given.
+# Bounded listing (kit issue #1784): when _SR_SINCE_REQ is set the call carries `&since=<it>` (the REST filter is on
+# updated_at, and a closed issue seeded from a retro was updated on/after that retro's date), so closed history older
+# than the oldest retro is never paginated. The cache records the bound it was loaded with ("since <iso|none>" on line
+# 2) and serves a request only when it covers it (an equal or newer bound, or "none"); an older or unbounded request
+# reloads with the OLDER bound, so one run never thrashes. No bound (undated retro) = the whole closed listing.
+_load_state_reasons() {
+  local _try _out _rc _ef _em _cached _covers=1 _eff _url
+  [ -n "$_SR_FILE" ] || { echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field) — no temp file available" >&2; return 1; }
+  _cached="$(sed -n '2s/^since //p' "$_SR_FILE" 2>/dev/null)"
+  if [ -n "$_cached" ] && [ "$_cached" != none ]; then
+    { [ -n "${_SR_SINCE_REQ:-}" ] && [[ ! "${_SR_SINCE_REQ}" < "$_cached" ]]; } || _covers=0
+  fi
+  [ "${1:-}" = force ] || [ "$_covers" = 0 ] || [ "$(head -1 "$_SR_FILE" 2>/dev/null)" != "loaded $_REPO" ] || return 0
+  _eff="${_SR_SINCE_REQ:-}"
+  if [ -n "$_cached" ] && [ "$(head -1 "$_SR_FILE" 2>/dev/null)" = "loaded $_REPO" ]; then
+    if [ "$_cached" = none ]; then _eff=""
+    elif [ -n "$_eff" ] && [[ "$_cached" < "$_eff" ]]; then _eff="$_cached"; fi
+  fi
+  _url="repos/$_REPO/issues?state=closed&per_page=100${_eff:+&since=$_eff}"   # RECONCILE_ISSUES_CLOSED_SINCE
+  for _try in 1 2; do
+    _ef="$(mktemp 2>/dev/null)" || _ef=""
+    _out="$(gh api --paginate "$_url" \
+        --jq '.[] | "\(.number) \(.state_reason // "")"' </dev/null 2>"${_ef:-/dev/null}")"; _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+      [ -z "$_ef" ] || rm -f "$_ef"
+      printf 'loaded %s\nsince %s\n%s\n' "$_REPO" "${_eff:-none}" "$_out" > "$_SR_FILE"
+      return 0
+    fi
+    _em=""; [ -z "$_ef" ] || _em="$(head -1 "$_ef" 2>/dev/null)"
+    [ "$_try" != 1 ] || _retry_pause "$_ef"   # RECONCILE_ISSUES_RETRY_PAUSE: no wait after the final failure
+    [ -z "$_ef" ] || rm -f "$_ef"
+  done
+  echo "degraded: gh api state_reason listing failed (this gh has no stateReason --json field)${_em:+ — }${_em}" >&2
+  return 1
+}
+
+# _state_reason_of <issue-number> - prints the cached state_reason of a closed issue of the CURRENT repo.
+# Returns 0 found; 1 missing even after ONE forced reload of the listing (a stale cache); 2 listing failed
+# (the typed degraded was already printed).
+_state_reason_of() {
+  local _n="$1" _sr _i
+  _load_state_reasons || return 2
+  for _i in 1 2; do
+    if _sr="$(awk -v n="$_n" 'NR > 2 && $1 == n { print $2; found = 1; exit } END { exit !found }' "$_SR_FILE" 2>/dev/null)"; then
+      printf '%s\n' "$_sr"; return 0
+    fi
+    [ "$_i" = 1 ] || break
+    _load_state_reasons force || return 2
+  done
+  return 1
+}
+
+# _closed_query_old_gh <sig-prefix>
+#   Kit issue #1752 fallback for a gh without the `stateReason` --json field: list number+body+comments,
+#   then read `state_reason` from the batched listing above and print the SAME record stream the
+#   primary query prints (body + trusted comments for a completed issue, empty body otherwise, one
+#   octal-036 line per issue). A failed listing is a typed degraded + return 1; an issue still missing
+#   after one reload keeps only its signature lines (its rows read borderline) plus a typed note.
+_closed_query_old_gh() {
+  local _p="$1" _raw _rc _sr _num _bad="" _unk="" _ef _em _d _sd=""
+  # Bound the batched state_reason listing by this retro's date (kit issue #1784); an undated retro is unbounded.
+  _SR_SINCE_REQ=""
+  _d="${_p##*/}"
+  # The bound is the retro filename's date MINUS TWO DAYS at 00:00:00Z. The filename carries the author's LOCAL date
+  # while updated_at is UTC: east of UTC (up to UTC+14) an issue seeded early on local day D is stamped D-1 UTC, and a
+  # bound of D 00:00Z would exclude it (and the forced reload would reuse that bound). One day of margin covers the
+  # offset; the second absorbs a retro seeded the day before its filename date. Date arithmetic is GNU `date -d`, else
+  # BSD `date -v`; with neither, the listing is unbounded and a typed note says so (never a silent wrong bound).
+  if [[ "$_d" =~ ^([0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]))([^0-9]|$) ]]; then   # RECONCILE_ISSUES_SINCE_DERIVE
+    _sd="$(date -u -d "${BASH_REMATCH[1]} -2 days" +%Y-%m-%d 2>/dev/null)" \
+      || _sd="$(date -u -j -v-2d -f %Y-%m-%d "${BASH_REMATCH[1]}" +%Y-%m-%d 2>/dev/null)" || _sd=""
+    if [[ "$_sd" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then _SR_SINCE_REQ="${_sd}T00:00:00Z"   # RECONCILE_ISSUES_SINCE_MARGIN
+    else echo "note: date arithmetic unavailable — the closed-issue listing for ${_d} is not bounded by a retro date" >&2; fi
+  fi
+  _ef="$(mktemp 2>/dev/null)" || _ef=""
+  _raw="$(gh issue list \
+      --repo "$_REPO" \
+      --state closed \
+      --limit "$_LIST_LIMIT" \
+      --search "\"Source retro: ${_p} ·\"" \
+      --json number,body,comments \
+      --jq '.[] | "\u001f\(.number)", ([.body] + [(.comments // [])[] | select(.authorAssociation as $a | ["OWNER","MEMBER","COLLABORATOR"] | index($a)) | .body] | join("\n") | gsub("[\u001e\u001f]"; "")), "\u001e"' 2>"${_ef:-/dev/null}")"; _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    _em=""; [ -z "$_ef" ] || { _em="$(head -1 "$_ef" 2>/dev/null)"; rm -f "$_ef"; }
+    echo "degraded: gh issue list (closed, old-gh fallback) failed (exit $_rc)${_em:+ — }${_em}" >&2
+    return 1
+  fi
+  [ -z "$_ef" ] || rm -f "$_ef"
+  # The issue number follows each unit-separator marker; remember the ones NOT closed as completed.
+  # The state reasons come from ONE batched, paginated listing per run and repo (_load_state_reasons).
+  _load_state_reasons || return 1
+  while IFS= read -r _num; do
+    [ -n "$_num" ] || continue
+    _sr="$(_state_reason_of "$_num")"; _rc=$?
+    case "$_rc" in
+      0) [ "$_sr" = "completed" ] || _bad="${_bad}${_num}"$'\n' ;;
+      1) _unk="${_unk}${_num}"$'\n'
+         echo "note: state_reason for issue #$_num missing from the closed-issue listing after one reload — its rows are reported borderline, not shipped" >&2 ;;
+      *) return 1 ;;
+    esac
+  done < <(printf '%s\n' "$_raw" | awk '/^\037/ { print substr($0, 2) }')
+  printf '%s\n' "$_raw" | _NG_BAD="$_bad" _NG_UNK="$_unk" awk '
+    BEGIN { n = split(ENVIRON["_NG_BAD"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") bad[a[i]] = 1
+            n = split(ENVIRON["_NG_UNK"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") unk[a[i]] = 1 }
+    /^\037/ { num = substr($0, 2); skip = (num in bad); sigonly = (num in unk); if (!skip) print "Closed-issue-number: " num; next }
+    $0 == "\036" { print; skip = 0; sigonly = 0; next }
+    { if (skip) next; if (sigonly && index($0, "Source retro: ") == 0) next; print }'
+}
+
+# _closed_record <closed-bodies> <sig-prefix> <row-id>
+#   Prints the record(s) (issues; separated by an octal-036 line) that carry the exact signature
+#   "Source retro: <prefix> · <row-id>" for this row. Empty output = no closed-completed issue for the row.
+_closed_record() {
+  # With NO octal-036 line anywhere (a pre-#1709 --closed-cache) records are split by signature line:
+  # a record runs from one "Source retro: " line up to (not including) the next, and lines before the
+  # first signature belong to no record (typed note). With separators present they alone split issues
+  # (a real issue body carries its signature as a footer, so signature-first splitting would be wrong).
+  local _sep=0
+  grep -q $'^\036$' <<<"$1" && _sep=1
+  _CR_SEP="$_sep" _CR_PFX="Source retro: ${2} · " _CR_RID="$3" awk '
+    BEGIN { pfx = ENVIRON["_CR_PFX"]; rid = ENVIRON["_CR_RID"]; sep = ENVIRON["_CR_SEP"] + 0
+            rec = ""; hit = 0; started = 0; ignored = 0 }
+    function flush() { if (hit) printf "%s", rec; rec = ""; hit = 0 }
+    $0 == "\036" { flush(); next }
+    {
+      if (!sep) {
+        if (index($0, "Source retro: ") > 0) {  # RECONCILE-RECORD-SIGSPLIT
+          flush(); started = 1
+        }
+        if (!started) { ignored++; next }  # RECONCILE-RECORD-PREAMBLE
+      }
+      rec = rec $0 "\n"
+      p = index($0, pfx)
+      if (p > 0) {
+        rest = substr($0, p + length(pfx))
+        if (match(rest, /^[A-Za-z0-9_-]+/) && substr(rest, 1, RLENGTH) == rid) hit = 1
+      }
+    }
+    END {
+      flush()
+      if (ignored > 0) printf "note: closed-cache: %d line(s) before the first signature line belong to no record (ignored)\n", ignored > "/dev/stderr"
+    }' <<<"$1"
+}
+
+# _evidence_commits <record-text> - hex commit tokens (7-40 chars, at least one digit) on lines naming a commit.
+_evidence_commits() {
+  printf '%s\n' "$1" \
+    | grep -iE '(^|[^[:alnum:]])commits?([^[:alnum:]]|$)' \
+    | tr -c '0-9a-fA-F\n' '\n' \
+    | grep -E '^[0-9a-fA-F]{7,40}$' | grep -E '[0-9]' | sort -u
+}
+
+# _evidence_has_test <record-text> - a path-like test token on a line naming a test.
+_evidence_has_test() {
+  # Captured, then matched through a here-string: `producer | grep -q` races SIGPIPE under pipefail.
+  local _tl
+  _tl="$(printf '%s\n' "$1" | grep -iE '(^|[^[:alnum:]])tests?([^[:alnum:]]|$)')"
+  grep -qE '(\.test\.|_test\.|test_|/tests?/|(^|[^[:alnum:]])tests?/)' <<<"$_tl"
+}
+
+# Ancestry probe (kit issue #1709) - lazy, once per run. _GIT_STATE: "" (not probed) | ok | degraded.
+_GIT_DIR="${RECONCILE_ISSUES_GIT_DIR:-$KIT_ROOT}"
+_MAIN_REF="${RECONCILE_ISSUES_MAIN_REF:-origin/main}"
+_GIT_STATE=""
+_git_probe() {
+  [ -z "$_GIT_STATE" ] || return 0
+  if ! command -v git >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: git not found on PATH — cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  if ! git -C "$_GIT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: $_GIT_DIR is not a git repository — cannot verify that cited commits reach $_MAIN_REF; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  if ! git -C "$_GIT_DIR" rev-parse --verify -q "${_MAIN_REF}^{commit}" >/dev/null 2>&1; then
+    _GIT_STATE=degraded; echo "degraded: ref $_MAIN_REF is not known locally in $_GIT_DIR (no fetch is performed) — cannot verify that cited commits reach it; rows are reported borderline, not shipped" >&2; return 0
+  fi
+  _GIT_STATE=ok
+}
+
+# Shallow-clone note (kit issue #1773): rows whose cited commits all failed to resolve in a shallow clone.
+# Reported once per run, not per row; never fails the run (the rows are already printed as borderline).
+_SHALLOW_ROWS=0
+_SHALLOW_EG=""
+_emit_shallow_note() {
+  [ "$_SHALLOW_ROWS" -gt 0 ] || return 0
+  echo "shallow-clone: $_GIT_DIR is a shallow clone and no cited commit resolved locally for $_SHALLOW_ROWS row(s)${_SHALLOW_EG:+ (e.g. $_SHALLOW_EG)}; those rows stay borderline, not shipped — run 'git fetch --unshallow' (or raise the CI fetch-depth) to verify them" >&2
+}
+
+# ---------------------------------------------------------------------------
+# Cross-retro row identity and the `regressed` class (kit issue #1709 slice 2).
+# Row ids are per-retro ("1" in two retros is two rows), so "the same delta" across retros is the row TITLE the
+# seeder (stage-retro-issues.sh) puts on its issue: the delta cell - the column the header names, else column 2 -
+# with a leading **bold** unwrapped and the ends trimmed, compared EXACTLY (no case folding, no fuzzy matching;
+# a reworded row is a different delta). A title under 12 characters or a bare priority/type token carries no
+# identity (the seeder refuses those rows too). The parser and the rule are the shared helpers
+# retro_grammar_row_titles / retro_grammar_title_has_identity (lib/retro-grammar.sh, kit issue #1811). They mirror
+# stage-retro-issues.sh's header mapping and title_is_unusable until the seeder calls them; a drift between the two
+# would hide re-proposals, so tests/reconcile-issues.test.sh case 47 and tests/retro-grammar.test.sh T52 guard both.
+# Scope: later retros of the SAME retros directory, "later" = a strictly greater YYYY-MM-DD filename prefix.
+_reg_degraded=0
+_reg_cur=""; _reg_later=""; _reg_later_loaded=0; _reg_nodate_noted=0
+
+# The title-column parser and the identity rule live in lib/retro-grammar.sh (kit issue #1811); these are the
+# names the rest of this script calls. A retro that cannot be read returns 1 (no rows), never a silent zero.
+_retro_row_titles() { retro_grammar_row_titles "$1"; }
+_title_has_identity() { retro_grammar_title_has_identity "$1"; }
+
+# _retro_open_row_titles <retro> - the "<row-id>\037<title>" lines of the rows that are OPEN in that retro, using the
+# same open-row rule as audit_retro (dismissed/applied close it; PARTIAL keeps the rows its marker does not list
+# shipped). rc 3 = a marker exists outside the shared scope: open/closed cannot be told (no rows printed).
+_retro_open_row_titles() {
+  local f="$1" _ml _st _raw _shipped="" _partial=0 _id _rest
+  _ml="$(retro_marker_scope_line "$f")"
+  if [ -z "$_ml" ] && retro_marker_out_of_scope "$f"; then return 3; fi
+  _st="$(retro_status_from_marker_line "$_ml")"
+  if retro_marker_is_partial "$_ml"; then
+    _partial=1
+    _raw="$(retro_marker_shipped_raw "$_ml")"
+    [ -z "$_raw" ] || _shipped="$(retro_marker_shipped_ids "$_raw")"
+  fi
+  case "$_st" in
+    dismissed) return 0 ;;
+    applied) [ "$_partial" -eq 1 ] || return 0 ;;
+  esac
+  while IFS=$'\037' read -r _id _rest; do
+    [ -n "$_id" ] || continue
+    if [ "$_partial" -eq 1 ] && grep -qxF "$_id" <<<"$_shipped"; then continue; fi
+    if [ "$_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_ml" "$_id")" = dismissed ]; then continue; fi
+    printf '%s\037%s\n' "$_id" "$_rest"
+  done < <(_retro_row_titles "$f")
+}
+
+# _reg_load_later <retro_path> - fill _reg_later with "<later-retro>\037<row-id>\037<title>" for every OPEN row of every
+# strictly-later dated retro in the same directory (once per audited retro). Could-not-look cases are typed, never silent.
+_reg_load_later() {
+  local cur="$1" dir cb cdate sib sb sd _undated=0 _sameday=0 _o _rc _list _fe _fm=""
+  dir="$(dirname "$cur")"; cb="$(basename "$cur")"; cdate="${cb:0:10}"
+  _reg_later_loaded=1; _reg_later=""
+  # RECONCILE_ISSUES_SIBLING_LISTING (R4): an unlistable directory is could-not-look, never "no siblings".
+  _fe="$(mktemp 2>/dev/null)" || _fe=""
+  _list="$(find "$dir" -maxdepth 1 -name '*.md' -type f 2>"${_fe:-/dev/null}")"; _rc=$?
+  [ -z "$_fe" ] || { _fm="$(head -1 "$_fe" 2>/dev/null)"; rm -f "$_fe"; }
+  if [ "$_rc" -ne 0 ] || [ -n "$_fm" ]; then  # RECONCILE-SIBLING-LIST-CHECK
+    echo "degraded: retros directory not listable: $dir — regressed rows were not checked${_fm:+ ($_fm)}" >&2
+    _reg_degraded=1; return 0
+  fi
+  _list="$(printf '%s\n' "$_list" | sort)"
+  while IFS= read -r sib; do
+    [ -f "$sib" ] || continue
+    sb="$(basename "$sib")"; [ "$sb" != "$cb" ] || continue
+    if [[ ! "$sb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then _undated=$((_undated + 1)); continue; fi
+    sd="${sb:0:10}"
+    if [ "$sd" = "$cdate" ]; then _sameday=$((_sameday + 1)); continue; fi  # RECONCILE-SAMEDAY-COUNT
+    [[ "$sd" > "$cdate" ]] || continue
+    if [ ! -r "$sib" ]; then
+      echo "degraded: later retro not readable: $sib — regressed rows in it were not checked" >&2
+      _reg_degraded=1; continue
+    fi
+    _o="$(_retro_open_row_titles "$sib")"; _rc=$?
+    if [ "$_rc" -eq 3 ]; then
+      echo "regressed-lookup: $sb has a review-status marker outside the leading-block scope — cannot tell whether its rows are open, so it was not checked for re-proposals of $cb rows" >&2
+      continue
+    fi
+    [ -z "$_o" ] || _reg_later="${_reg_later}$(printf '%s\n' "$_o" | _RG_S="$sb" awk '{ print ENVIRON["_RG_S"] "\037" $0 }')"$'\n'
+  done <<<"$_list"
+  if [ "$_sameday" -gt 0 ]; then
+    echo "regressed-lookup: skipped $_sameday same-day retro(s) next to $cb — equal dates cannot be ordered against it, so their rows were not checked" >&2
+  fi
+  if [ "$_undated" -gt 0 ]; then
+    echo "regressed-lookup: skipped $_undated retro(s) without a YYYY-MM-DD prefix next to $cb — they cannot be ordered against it, so their rows were not checked" >&2
+  fi
+}
+
+# _regressed_check <retro_path> <row-id> <closed-record-text> - for a `shipped` row: print `regressed:` (and return 0)
+# when its title is an OPEN row of a later retro; return 1 when nothing was reported. Report-only, nothing is edited.
+_regressed_check() {
+  local cur="$1" rid="$2" rec="$3" cb title _hits _nums _where
+  cb="$(basename "$cur")"
+  if [[ ! "$cb" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+    if [ "$_reg_nodate_noted" -eq 0 ]; then
+      _reg_nodate_noted=1
+      echo "regressed-lookup: $cb has no YYYY-MM-DD filename prefix — retros cannot be ordered, so re-proposals of its shipped rows are not checked" >&2
+    fi
+    return 1
+  fi
+  [ -n "$_reg_cur" ] || _reg_cur="$(_retro_row_titles "$cur")"
+  title="$(printf '%s\n' "$_reg_cur" | _RG_R="$rid" awk -F'\037' '$1 == ENVIRON["_RG_R"] { print $2; exit }')"  # RECONCILE-AWK-ENV-RID
+  if [ -z "$title" ] || ! _title_has_identity "$title"; then
+    echo "regressed-lookup: row $rid of $cb has a title under 12 characters, empty or a bare priority/type token — no cross-retro identity, not checked" >&2
+    return 1
+  fi
+  [ "$_reg_later_loaded" -eq 1 ] || _reg_load_later "$cur"
+  _hits="$(printf '%s' "$_reg_later" | _RG_T="$title" awk -F'\037' '$3 == ENVIRON["_RG_T"] { printf "%s%s as row %s", (n++ ? ", " : ""), $1, $2 }')"  # RECONCILE-AWK-ENV-TITLE
+  [ -n "$_hits" ] || return 1
+  _nums="$(printf '%s\n' "$rec" | sed -n 's/^Closed-issue-number: *\([0-9][0-9]*\) *$/#\1/p' | sort -u | paste -sd, - | sed 's/,/, /g')"
+  _where="${_nums:-an issue whose number is not in the closed-issue data}"
+  printf 'regressed: row %s (closed by %s, re-proposed in %s) — shipped per the closure-evidence rule but proposed again as an open delta in a later retro; human review (not reopened, nothing edited)\n' \
+    "$rid" "$_where" "$_hits"
+}
+
+# ---------------------------------------------------------------------------
+# audit_retro <retro_path> <target_name>
+#   Prints findings (tracked/untracked/orphaned) to stdout.
+#   Prints advisory messages (empty-input, no-match, WARN) to stderr.
+#   Returns 0 on all advisory findings; non-zero only on operational failure.
+audit_retro() {
+  local retro_path="$1" target_nm="$2"
+  local retro_basename
+  retro_basename="$(basename "$retro_path")"
+
+  # RECONCILE_ISSUES_UNREADABLE (R3-unreadable-silent-zero): an existing but unreadable retro is not an
+  # empty one - every parse below would see nothing and report a confident empty-input / no-match.
+  if [ ! -r "$retro_path" ]; then
+    echo "degraded: retro not readable: $retro_path — cannot audit, no verdict" >&2
+    return 1
+  fi
+
+  local r_tracked=0 r_untracked=0 r_orphaned=0 r_shipped=0 r_borderline=0 r_regressed=0 _anc_degraded=0
+  _reg_degraded=0; _reg_cur=""; _reg_later=""; _reg_later_loaded=0; _reg_nodate_noted=0
+  local _gh_rc _gh_stderr_file _gh_err_msg
+
+  # --- Parse review-status and PARTIAL marker (mirrors stage-retro-issues.sh logic)
+  # RECONCILE_ISSUES_SCOPE_SHARED (kit issue #945): both the raw marker line and the derived
+  # status word come from retro_marker_scope_line — the ONE scope reconcile-issues.sh,
+  # stage-retro-issues.sh, retro-gate.sh, and sweep-retros.sh now share (leading block, tolerating
+  # exactly one H1 line at the top — the real-corpus layout in *-closure.md retros). Before #945
+  # this used retro_review_status's NO-H1-tolerance leading-block scan plus its own hand-copied
+  # copy of the same awk pipeline, so a marker on line 3 (H1 line 1, blank line 2) was invisible
+  # here even though the seeder already found it — the exact split-brain #945 closes.
+  local _marker_line
+  _marker_line="$(retro_marker_scope_line "$retro_path")"
+
+  # RECONCILE_ISSUES_OUT_OF_SCOPE_GUARD (kit issue #1099): an empty scope-scan result does not
+  # mean "no marker" when a whole-file scan still finds one outside the shared #945 scope (YAML
+  # frontmatter, a multi-line comment run before it, a marker after a second heading, …).
+  # Conflating that with "genuinely absent" was the #1048-#1089 fail-open shape — status read as
+  # "" (pending/open) and every row was treated as untracked/open. Report it loudly instead of
+  # silently classifying.
+  # RECONCILE_ISSUES_OUT_OF_SCOPE_IS_A_FINDING (kit issue #1125 item 3): this is a CORPUS finding
+  # (the retro's own marker is mispositioned), not an operational failure of this instrument —
+  # per CLAUDE.md §8 a finding is WARN-only and never fails the run, the same rule that already
+  # applies to every other typed state this function reports (empty-input, unclassifiable, …).
+  # Before this fix it `return 1`ed into the SAME degraded= bucket as a real gh-query failure,
+  # so a single mispositioned marker anywhere in the fleet made `--all` exit 1 — indistinguishable
+  # from the instrument itself being broken. Counted separately (out-of-scope=) so the finding
+  # stays visible without gating the exit code; the other three consumers (sweep-retros.sh,
+  # stage-retro-issues.sh, retro-gate.sh) already treat this as non-fatal.
+  if [ -z "$_marker_line" ] && retro_marker_out_of_scope "$retro_path"; then
+    echo "out-of-scope-marker: a review-status marker exists but sits outside the leading-block scope in $retro_basename — refusing to classify (kit issue #1099); move the marker into the leading block" >&2
+    _fleet_outofscope=$((_fleet_outofscope + 1))
+    return 0
+  fi
+
+  local _status
+  _status="$(retro_status_from_marker_line "$_marker_line")"
+
+  local is_partial=0 shipped_ids=""
+  # RECONCILE_ISSUES_PARTIAL_CHECK (kit issue #1090): PARTIAL is a STATUS TOKEN, detected only
+  # in the marker's STRUCTURED segment via the shared retro_marker_is_partial helper — never a
+  # case-insensitive whole-line grep, which let a DISMISSED marker's free-text explanation
+  # (e.g. "P1 partial" in prose) falsely trip PARTIAL handling and reopen every row.
+  if retro_marker_is_partial "$_marker_line"; then
+    is_partial=1
+    local _shipped_raw
+    _shipped_raw="$(retro_marker_shipped_raw "$_marker_line")"
+    if [ -n "$_shipped_raw" ]; then
+      shipped_ids="$(retro_marker_shipped_ids "$_shipped_raw")"
+    fi
+  fi
+
+  # --- Check for a delta section (empty-input vs unclassifiable — kit issue #1111)
+  local _grammar_info _found_field
+  _grammar_info="$(retro_grammar_delta_info "$retro_path")"
+  _found_field="$(printf '%s' "$_grammar_info" | cut -d '' -f1 | cut -d: -f1)"
+  if [ "$_found_field" != "1" ]; then
+    # unrec_found (field 3 of retro_grammar_delta_info's \001-separated output): the shared
+    # grammar's own unrecognised-delta-intent-heading detector (Rules 1-4). A proposal-like
+    # heading the parser cannot classify (e.g. a hyphenated "kit-delta" mid-heading, or a
+    # standalone "### Proposals") must never be reported as a confident empty-input.
+    local _temp_depr _temp_unrec _unrec_found
+    _temp_depr="${_grammar_info#*$'\001'}"
+    _temp_unrec="${_temp_depr#*$'\001'}"
+    _unrec_found="${_temp_unrec%%$'\001'*}"
+    # Kit issues #1895 #1932 #1933 #1934 #1938 #1939 (same rule as stage-retro-issues.sh): the very heading delta_info
+    # reported may carry a form the shared lib recognises (`## Delta A — …` entries, a `### Proposals` list); the file
+    # is classified only when EVERY unrecognised heading produced items. A prose heading is still reported, and
+    # items elsewhere in the file are then reconciled too.
+    local _unrec_missing="" _unrec_list _uh _alt_items _alt_heads
+    _alt_items="$(retro_grammar_alt_entry_rows "$retro_path")"
+    _alt_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
+    # delta_info reports only the FIRST unrecognised heading; every one must have produced items.
+    _unrec_list="$(retro_grammar_unrec_headings "$retro_path")" || _unrec_list=""
+    while IFS= read -r _uh; do
+      [ -n "$_uh" ] || continue
+      grep -qxF -- "$_uh" <<<"$_alt_heads" || { _unrec_missing="$_uh"; break; }   # RECONCILE_ISSUES_UNREC_ALL
+    done <<<"$_unrec_list"
+    # Fail closed (same as the seeder): an empty or failed list while delta_info saw a heading keeps the record.
+    if [ "$_unrec_found" = "1" ] && [ -z "$_unrec_list" ]; then _unrec_missing="unavailable"; fi   # RECONCILE_ISSUES_UNREC_FAILCLOSED
+    if [ "$_unrec_found" = "1" ] && [ -n "$_alt_items" ] && [ -z "$_unrec_missing" ]; then   # RECONCILE_ISSUES_ALT_HEADING_MATCH
+      :   # every unrecognised heading produced delta items: the parse below reconciles them
+    elif [ "$_unrec_found" = "1" ]; then
+      echo "unclassifiable: proposal-like heading found but not in a countable delta form in $retro_path — needs manual review" >&2
+      [ -n "$_alt_items" ] || return 0
+    else
+      echo "empty-input: no delta section found in $retro_path" >&2
+      return 0
+    fi
+  fi
+
+  # --- Determine whether any rows can be open
+  local _has_open_rows=1
+  # RECONCILE_ISSUES_DISMISSED_WINS (kit issue #1090): 'dismissed' ALWAYS means zero open rows
+  # — it never falls through to the is_partial check the way 'applied' does. See the matching
+  # guard and comment in stage-retro-issues.sh for the full rationale (both tools must agree).
+  case "$_status" in
+    dismissed)
+      _has_open_rows=0 ;;
+    applied)
+      [ "$is_partial" -eq 0 ] && _has_open_rows=0 ;;
+    pending|none|"") ;;
+    *)
+      echo "WARN: unrecognised review-status '$_status' in $retro_basename — treating all rows as open" >&2 ;;
+  esac
+
+  # --- Parse all delta row-ids from the retro (the same table rules as stage-retro-issues.sh: the row-id skip
+  # rule is rg_table_id_skip in lib/retro-grammar.sh, one definition for both tools)
+  local _all_row_ids _alt_dups
+  _all_row_ids="$(_RG_QUIET_FENCE=1 retro_grammar_defenced "$retro_path" | awk "$_RG_AWK_ID_FN$_RG_AWK_ESCPIPE_FN"'
+    function flushp() { if (pend != "") { print pend; pend = "" } }
+    BEGIN { in_sec=0; SENT = sprintf("%c", 1) }
+    {
+      low = tolower($0)
+      if (low ~ /^## ([0-9]+\. )?proposed kit delta[s]?([[:space:]]|$)/ ||
+          low ~ /^## proposed delta/ ||
+          low ~ /^## delta proposals/ ||
+          low ~ /^## deltas nuevos/ ||
+          low ~ /^## propuesta de deltas al kit([[:space:]]|$)/ ||
+          low ~ /^## summary of proposed delta/ ||
+          low ~ /^## summary of new deltas/ ||
+          low ~ /^## delta details([[:space:]]|$)/) {
+        flushp(); in_sec = 1; next
+      }
+      if (/^##[^#]/) { flushp(); in_sec = 0; next }
+      if (in_sec && /^\|[-: |]+\|?[[:space:]]*$/) { pend = ""; next }   # RECONCILE_ISSUES_HEADER_DROP
+      if (in_sec && /^\|/) {
+        line = $0
+        line = rg_esc_pipes(line)   # RECONCILE_ISSUES_ESCAPED_PIPE: any `\|` is an escaped pipe, GFM (kit issues #2118 #2135)
+        sub(/^\|[[:space:]]*/, "", line)
+        sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
+        n = split(line, f, /[[:space:]]*\|[[:space:]]*/)
+        for (k = 1; k <= n; k++) gsub(SENT, "|", f[k])
+        rid = f[1]; gsub(/[[:space:]]/, "", rid)
+        if (rg_table_id_skip(rid)) next   # RECONCILE_ISSUES_ID_RULE
+        # RECONCILE_ISSUES_ID_TRIMMED (kit issue #2135): emit the cell trimmed at the ends only, exactly like the seeder, so
+        # `D 1` is the same unsafe id in both tools (the whitespace-free copy above is only for the id-skip rule).
+        tid = f[1]; sub(/^[[:space:]]+/, "", tid); sub(/[[:space:]]+$/, "", tid)
+        flushp(); pend = tid
+        next
+      }
+      if (in_sec) flushp()
+    }
+    END { flushp() }
+  ')"
+
+  # RECONCILE_ISSUES_ENTRY_FORM (kit issue #1332 item 2): no table rows -> the doctrine-valid
+  # `### D<N> —` entry form (sweep-retros form 2). The IDs come from the SHARED grammar lib so
+  # this instrument counts the same entries sweep-retros.sh and verify-retro.sh count.
+  if [ -z "$_all_row_ids" ]; then
+    _all_row_ids="$(retro_grammar_entry_ids "$retro_path")"
+    # RECONCILE_ISSUES_ENTRY_GAP_WARN (kit issue #1332 N6): entries whose heading token is not a usable ID.
+    [ -z "$_all_row_ids" ] || retro_grammar_entry_warn "$retro_path" >&2
+  fi
+
+  # RECONCILE_ISSUES_ALT_FORMS (kit issues #1895 #1932 #1933 #1934 #1938 #1939): no table and no `### D<N> —` entry ->
+  # the other real fleet forms (numbered items under the heading, `## Delta <ID> —` entries, a `### Proposals`
+  # list), from the SAME shared function the seeder uses so both instruments name the same ids. Duplicate ids
+  # across two lists are refused (typed), exactly like the seeder.
+  if [ -z "$_all_row_ids" ]; then
+    _all_row_ids="$(retro_grammar_alt_entry_rows "$retro_path" | cut -d $'\037' -f1)"
+    _alt_dups="$(printf '%s\n' "$_all_row_ids" | retro_grammar_dup_ids | tr '\n' ' ')"
+    if [ -n "$_alt_dups" ]; then
+      echo "unclassifiable: delta items in $retro_path share ids (${_alt_dups% }) across two lists — needs manual review" >&2
+      return 0
+    fi
+    if [ -n "$_all_row_ids" ] && [ "$_found_field" = "1" ]; then
+      # A canonical heading that produced no items while a list elsewhere did stays reported (RECONCILE_ISSUES_ALT_CANON_HEADING).
+      local _canon_h _canon_heads
+      _canon_h="$(retro_grammar_canonical_heading "$retro_path")"
+      _canon_heads="$(retro_grammar_alt_entry_rows "$retro_path" heads)"
+      if [ -n "$_canon_h" ] && ! grep -qxF -- "$_canon_h" <<<"$_canon_heads"; then   # RECONCILE_ISSUES_ALT_CANON_HEADING
+        echo "unclassifiable: delta section found but it produced no items in $retro_path — needs manual review (items elsewhere in the file are reconciled)" >&2
+      fi
+    fi
+  fi
+
+  if [ -z "$_all_row_ids" ]; then
+    # kit issue #1129 finding 2: check for an HONEST §18 zero FIRST — same reasoning as
+    # stage-retro-issues.sh's matching guard (see its comment). Real fleet counterexample:
+    # niagara-research/retros/2026-09-17-tools-search-innovation.md.
+    if retro_grammar_has_honesty "$retro_path"; then
+      echo "empty-input: delta section found but contains no data rows (honest §18 zero) in $retro_path" >&2
+      return 0
+    fi
+    # A canonical/deprecated section WAS found — not "empty" (kit issue #1111), and not a
+    # declared honest zero either: typed distinctly from the found=0 empty-input case above
+    # (see its comment).
+    echo "unclassifiable: delta section found but contains neither row-table rows nor '### D<N> —' entries (nor numbered items directly under the heading, nor '## Delta <ID> —' entries) in $retro_path — needs manual review" >&2
+    return 0
+  fi
+
+  # --- Build _open_ids: row-ids that are currently open (not shipped)
+  local _open_ids="" _rln _rstate
+  if [ "$_has_open_rows" -eq 1 ]; then
+    while IFS= read -r _rln; do
+      [ -z "$_rln" ] && continue
+      # RECONCILE_ISSUES_ID_PIPE (kit issue #2118): a pipe in a row id cannot round-trip through the issue
+      # signature, so the seeder types the row unclassifiable and never stages it; typed the same way here.
+      if [[ "$_rln" == *'|'* ]]; then
+        echo "unclassifiable: row $_rln of $retro_basename has a pipe in its id (id-contains-pipe) — needs manual review" >&2
+        continue
+      fi
+      # RECONCILE_ISSUES_ID_SIGNATURE_SAFE (kit issue #2135): same typing as the seeder for any id outside [A-Za-z0-9_-].
+      if ! retro_grammar_id_signature_safe "$_rln"; then
+        echo "unclassifiable: row $_rln of $retro_basename has a character outside [A-Za-z0-9_-] in its id (id-not-signature-safe) — needs manual review" >&2
+        continue
+      fi
+      if [ "$is_partial" -eq 1 ]; then
+        # Skip rows in the shipped set, and rows the marker resolves as DISMISSED (kit issue #1944)
+        if grep -qxF "$_rln" <<<"$shipped_ids"; then
+          continue
+        fi
+        _rstate="$(retro_marker_row_state "$_marker_line" "$_rln")"
+        if [ "$_rstate" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_STATE
+          echo "unclassifiable: row $_rln of $retro_basename cannot be told shipped, dismissed or open — the review-status marker carries a DISMISSED: list with no usable id — needs manual review" >&2
+          continue
+        elif [ "$_rstate" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_OPEN
+          continue
+        fi
+      fi
+      if [ -z "$_open_ids" ]; then
+        _open_ids="$_rln"
+      else
+        _open_ids="${_open_ids}
+${_rln}"
+      fi
+    done <<< "$_all_row_ids"
+  fi
+
+  # --- Broad GitHub query or cache read: issue bodies for this retro
+  # Retrieves the body of each matching open issue; bodies carry the
+  #   "Source retro: <target>/retros/<file> · <row-id>"  signature.
+  # §7 contract: query failure → typed degraded + return 1, never false untracked.
+  # gh requires --json when --jq is used; --template also requires --json.
+  local _sig_prefix="${target_nm}/retros/${retro_basename}"
+  # RECONCILE_ISSUES_LEGACY_SIG (kit issue #1304 item 2): the seeder also dedups against the
+  # LEGACY `<path basename>/retros/<file>` signature that issues created before #1286 carry
+  # (stage-retro-issues.sh, kit issue #1287). Without the same lookup here an OPEN legacy-signed
+  # issue was reported `untracked` — an actionable gap that does not exist. The legacy name is the
+  # basename of the directory holding retros/; it is skipped when it equals the registered name or
+  # is a structural directory (`corpus`, `retros`), exactly as the seeder does.
+  local _legacy_nm _legacy_prefix=""
+  _legacy_nm="$(basename "$(dirname "$(dirname "$retro_path")")")"
+  case "$_legacy_nm" in
+    corpus|retros|''|"$target_nm") ;;
+    *) _legacy_prefix="${_legacy_nm}/retros/${retro_basename}" ;;
+  esac
+  local _all_bodies=""
+  # RECONCILE_ISSUES_CACHE_BRANCH: anchor for T-CACHE-NO-GH tooth — read from cache when supplied
+  if [ -n "$_issues_cache" ]; then
+    # RECONCILE_ISSUES_CACHE_READ: read pre-fetched issue bodies from caller-supplied cache file
+    _all_bodies="$(cat "$_issues_cache" 2>/dev/null)" || {
+      printf 'degraded: --issues-cache file not readable: %s\n' "$_issues_cache" >&2
+      return 1
+    }
+  else
+    local _qpfx _qbodies _qn
+    for _qpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+      _gh_stderr_file="$(mktemp 2>/dev/null)" || _gh_stderr_file=""
+      # RECONCILE_ISSUES_GH_JSON_FLAG: anchor for T4 tooth — --json body required for --jq
+      _qbodies="$(gh issue list \
+          --repo "$_REPO" \
+          --state open \
+          --limit "$_LIST_LIMIT" \
+          --search "\"Source retro: ${_qpfx} ·\"" \
+          --json body \
+          --jq '.[] | .body, "\u001e"' 2>"${_gh_stderr_file:-/dev/null}")"; _gh_rc=$?
+      if [ "$_gh_rc" -ne 0 ]; then
+        if [ -n "$_gh_stderr_file" ]; then
+          _gh_err_msg="$(head -1 "$_gh_stderr_file" 2>/dev/null)"
+          rm -f "$_gh_stderr_file"
+        else
+          _gh_err_msg=""
+        fi
+        echo "degraded: gh issue list failed for $retro_basename (exit $_gh_rc)${_gh_err_msg:+ — }${_gh_err_msg}" >&2
+        # RECONCILE_ISSUES_GH_DEGRADED_RETURN: anchor for T5 tooth — return 1 on query failure
+        return 1
+      fi
+      [ -n "$_gh_stderr_file" ] && rm -f "$_gh_stderr_file"
+      # RECONCILE_ISSUES_LIST_CAP_GUARD (kit issue #1369 c): the --jq emits one record-separator line
+      # (octal 036, never present in an issue body) after every body, so the issue COUNT is readable
+      # without a JSON parser. A reply that filled the --limit may have been cut off: the missing
+      # issues would read as untracked rows, so it is a typed degraded, not an answer.
+      _qn="$(printf '%s\n' "$_qbodies" | awk '$0 == "\036" { n++ } END { print n + 0 }')"
+      if [ "$_qn" -ge "$_LIST_LIMIT" ]; then
+        echo "degraded: gh issue list returned $_qn results = the --limit $_LIST_LIMIT cap for $retro_basename — the result may be truncated (raise RECONCILE_ISSUES_LIST_LIMIT)" >&2
+        return 1
+      fi
+      _qbodies="$(printf '%s\n' "$_qbodies" | awk '$0 != "\036"')"
+      _all_bodies="${_all_bodies}${_qbodies}"$'\n'
+    done
+  fi
+
+  # Extract row-ids referenced in open issues for this retro. BOTH paths use the same exact
+  # `Source retro: <prefix> · ` filter (kit issue #1304): the gh query is a fuzzy WORD search, so
+  # its bodies may belong to another target's issue (a `*-research` target's issue for the same
+  # file and row id); extracting `Source retro: .+ · <id>` from them reported rows that this retro
+  # does not have as tracked/orphaned. The cache path always carried ALL open issues' bodies.
+  local _issue_row_ids="" _pfx _pfx_ids
+  if [ -n "$_all_bodies" ]; then
+    for _pfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+      # RECONCILE_ISSUES_CACHE_SIGPREFIX_MATCH: fixed-string filter avoids regex metachar issues
+      # (the prefix contains '/', '.', etc. from retro paths — must not be treated as regex).
+      _pfx_ids="$(printf '%s\n' "$_all_bodies" \
+        | grep -F "Source retro: ${_pfx} · " \
+        | sed -E 's/.* · //' \
+        | grep -oE '^[A-Za-z0-9_-]+')"
+      [ -z "$_pfx_ids" ] || _issue_row_ids="${_issue_row_ids:+${_issue_row_ids}
+}${_pfx_ids}"
+    done
+  fi
+
+  # --- Classify open deltas: tracked or untracked
+  local _rid _closed_loaded=0 _cb="" _cpfx _crec _ev_rec _ev_commits _ev_c _ev_reach _ev_missing
+  if [ -n "$_open_ids" ]; then
+    while IFS= read -r _rid; do
+      [ -z "$_rid" ] && continue
+      # RECONCILE_ISSUES_TRACKED_CHECK: anchor for T1 teeth — condition detects tracked
+      if grep -qxF "$_rid" <<<"$_issue_row_ids"; then  # RECONCILE-ROWID-CACHE-CHECK
+        printf 'tracked: row %s — open issue found in %s\n' "$_rid" "$retro_basename"
+        r_tracked=$((r_tracked+1))
+      else
+        # RECONCILE_ISSUES_CLOSED_LOOKUP (kit issue #1555): no OPEN issue is not yet "no issue" — the
+        # row may have shipped through an issue that was since closed as completed. Looked up lazily,
+        # once per retro, only when a row has no open issue. With --issues-cache and no --closed-cache
+        # the check cannot run: say so instead of reading it as "no closed issue".
+        if [ "$_closed_loaded" -eq 0 ]; then
+          _closed_loaded=1
+          if [ -n "$_issues_cache" ] && [ -z "$_closed_cache" ]; then
+            echo "closed-lookup: skipped for $retro_basename — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues" >&2
+          else
+            _cb="$(_fetch_closed_bodies "$retro_basename" "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"})" || return 1
+          fi
+        fi
+        _ev_rec=""
+        if [ -n "$_cb" ]; then
+          for _cpfx in "$_sig_prefix" ${_legacy_prefix:+"$_legacy_prefix"}; do
+            _crec="$(_closed_record "$_cb" "$_cpfx" "$_rid")"
+            [ -z "$_crec" ] || _ev_rec="${_ev_rec}${_crec}"$'\n'
+          done
+        fi
+        if [ -n "$_ev_rec" ]; then  # RECONCILE-CLOSED-SHIPPED
+          # RECONCILE_ISSUES_CLOSURE_EVIDENCE (kit issue #1709): closed-as-completed is not enough - shipped
+          # needs a commit AND a test cited, and a cited commit that reaches the main ref.
+          _ev_missing=""; _ev_reach=""
+          _ev_commits="$(_evidence_commits "$_ev_rec")"
+          [ -n "$_ev_commits" ] || _ev_missing="no commit cited"
+          if ! _evidence_has_test "$_ev_rec"; then  # RECONCILE-EVIDENCE-TEST
+            _ev_missing="${_ev_missing:+${_ev_missing}; }no test cited"
+          fi
+          if [ -n "$_ev_commits" ]; then
+            _git_probe
+            if [ "$_GIT_STATE" = "ok" ]; then
+              # EVERY cited token is evaluated (no early stop), so the result never depends on sort order.
+              _ev_resolved=0; _ev_eg=""
+              while IFS= read -r _ev_c; do
+                [ -n "$_ev_c" ] || continue
+                # First SHA-looking token (has an a-f letter; a date or PR number does not) to name in the shallow note.
+                if [ -z "$_ev_eg" ] && [[ "$_ev_c" == *[a-fA-F]* ]]; then _ev_eg="$_ev_c"; fi
+                # Not a commit object locally (date, PR number, fork SHA, ambiguous short SHA): not evidence.
+                if ! git -C "$_GIT_DIR" cat-file -e "${_ev_c}^{commit}" >/dev/null 2>&1; then  # RECONCILE-COMMIT-PRESENT
+                  continue
+                fi
+                _ev_resolved=1
+                if [ -z "$_ev_reach" ] && git -C "$_GIT_DIR" merge-base --is-ancestor "$_ev_c" "$_MAIN_REF" >/dev/null 2>&1; then  # RECONCILE-ANCESTRY
+                  _ev_reach="$_ev_c"
+                fi
+              done <<<"$_ev_commits"
+              # Nothing resolved in a shallow clone: "absent" cannot be told from "not fetched" (kit issue #1773).
+              # Counted and reported ONCE per run (_emit_shallow_note); the row stays borderline with its own
+              # typed reason and the run is not failed (a depth-1 CI checkout would otherwise fail every run).
+              if [ "$_ev_resolved" -eq 0 ] && [ "$(git -C "$_GIT_DIR" rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then  # RECONCILE-SHALLOW-NOTE
+                _SHALLOW_ROWS=$((_SHALLOW_ROWS+1))
+                [ -n "$_SHALLOW_EG" ] || _SHALLOW_EG="$_ev_eg"
+                _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit resolves in this shallow clone (not fetched, so reachability cannot be verified)"
+              elif [ -z "$_ev_reach" ]; then
+                _ev_missing="${_ev_missing:+${_ev_missing}; }no cited commit reachable from local ref $_MAIN_REF (no fetch performed; a stale ref reads as unreachable)"
+              fi
+            else
+              _anc_degraded=1
+              _ev_missing="${_ev_missing:+${_ev_missing}; }commit reachability could not be verified (degraded)"
+            fi
+          fi
+          if [ -z "$_ev_missing" ]; then
+            printf 'shipped: row %s — its issue is closed as completed and cites this retro in %s; propose marking the row shipped in the retro marker (not edited here) [evidence: commit %s reachable from %s (local ref, no fetch); test cited]\n' \
+              "$_rid" "$retro_basename" "$_ev_reach" "$_MAIN_REF"
+            r_shipped=$((r_shipped+1))
+            # RECONCILE_ISSUES_REGRESSED (kit issue #1709 slice 2): a shipped row proposed again, open, in a later retro.
+            if _regressed_check "$retro_path" "$_rid" "$_ev_rec"; then r_regressed=$((r_regressed+1)); fi  # RECONCILE-REGRESSED-CALL
+          else
+            printf 'borderline: row %s — its issue is closed as completed and cites this retro in %s, but the closure evidence is incomplete (%s); human review (not shipped, not untracked, nothing edited)\n' \
+              "$_rid" "$retro_basename" "$_ev_missing"
+            r_borderline=$((r_borderline+1))
+          fi
+        else
+          # RECONCILE_ISSUES_UNTRACKED_EMIT: anchor for T2 teeth — emit untracked when no issue
+          printf 'untracked: row %s — no open issue found for this delta in %s\n' \
+            "$_rid" "$retro_basename"
+          r_untracked=$((r_untracked+1))
+        fi
+      fi
+    done <<< "$_open_ids"
+  fi
+
+  # --- Detect orphaned: issue row-ids not present in the current open delta set
+  local _irid
+  if [ -n "$_issue_row_ids" ]; then
+    while IFS= read -r _irid; do
+      [ -z "$_irid" ] && continue
+      # RECONCILE_ISSUES_ORPHANED_CHECK: anchor for T3 teeth — condition detects orphaned
+      if ! grep -qxF "$_irid" <<<"$_open_ids"; then
+        # RECONCILE_ISSUES_SHIPPED_OPEN (kit issue #1492 / #1260): say WHY the row is no longer open
+        # when the retro marker proves it (shipped id list, or a terminal applied/dismissed status),
+        # so the human can close the issue. REPORT ONLY (propose-never-apply): nothing is closed.
+        # A row merely absent from the retro gets no claim: absent is not shipped.
+        local _orphan_why=""
+        if [ "$is_partial" -eq 1 ] && grep -qxF "$_irid" <<<"$shipped_ids"; then  # RECONCILE-SHIPPED-OPEN
+          _orphan_why=" — the retro marker lists it shipped; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = dismissed ]; then   # RECONCILE_ISSUES_DISMISSED_ORPHAN
+          _orphan_why=" — the retro marker lists it dismissed; propose closing the issue (not closed here)"
+        elif [ "$is_partial" -eq 1 ] && [ "$(retro_marker_row_state "$_marker_line" "$_irid")" = malformed ]; then   # RECONCILE_ISSUES_MALFORMED_ORPHAN
+          # The marker's DISMISSED list is unreadable: whether this row is dismissed cannot be told, so NO close proposal.
+          _orphan_why=" — marker DISMISSED list malformed; cannot tell"
+        elif grep -qxF "$_irid" <<<"$_all_row_ids"; then
+          case "$_status" in
+            applied|dismissed) _orphan_why=" — the retro review-status is ${_status}; propose closing the issue (not closed here)" ;;  # RECONCILE-STATUS-REASON
+          esac
+        fi
+        printf 'orphaned: issue for row %s is no longer open in %s%s\n' \
+          "$_irid" "$retro_basename" "$_orphan_why"
+        r_orphaned=$((r_orphaned+1))
+      fi
+    done <<< "$_issue_row_ids"
+  fi
+
+  # --- no-match: nothing actionable found at all
+  if [ "$r_tracked" -eq 0 ] && [ "$r_untracked" -eq 0 ] && [ "$r_orphaned" -eq 0 ] && [ "$r_shipped" -eq 0 ] && [ "$r_borderline" -eq 0 ]; then
+    echo "no-match: no open deltas and no orphaned issues in $retro_basename" >&2
+  fi
+
+  # Accumulate fleet totals
+  _fleet_tracked=$((_fleet_tracked + r_tracked))
+  _fleet_untracked=$((_fleet_untracked + r_untracked))
+  _fleet_shipped=$((_fleet_shipped + r_shipped))
+  _fleet_borderline=$((_fleet_borderline + r_borderline))
+  _fleet_regressed=$((_fleet_regressed + r_regressed))
+  _fleet_orphaned=$((_fleet_orphaned + r_orphaned))
+  _fleet_retros=$((_fleet_retros + 1))
+
+  # An unverifiable ancestry check is a typed degraded (rows were still printed, as borderline).
+  [ "$_anc_degraded" -eq 0 ] || return 1
+  # A later retro that could not be read (regressed lookup) is the same kind of typed degraded.
+  [ "$_reg_degraded" -eq 0 ] || return 1
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatch
+
+if [ "$_mode" = "single" ]; then
+  # Validate the retro path (absent-input)
+  if [ ! -f "$retro" ]; then
+    echo "absent-input: retro not found: ${retro}" >&2
+    exit 1
+  fi
+  retro="$(cd "$(dirname "$retro")" && pwd)/$(basename "$retro")"
+
+  # Derive the target NAME exactly as stage-retro-issues.sh does (kit issue #1287): the shared
+  # lib/target-paths.sh helper walks UP to the nearest registered ancestor (flat <target>/retros,
+  # nested <target>/corpus/retros, deeper layouts) and returns the TARGETS.md Target-column name,
+  # so the signature searched here is the `Source retro: <name>/retros/<file>` the writer stamped.
+  #   rc 1 -> operational failure (TARGETS.md absent/unreadable/zero rows): exit 1, never a guess
+  #   rc 2 -> no registered ancestor: flat layout keeps the WARN + basename fallback; a structural
+  #           dir (corpus|retros) is refused (the writer refuses it too, so no issue can exist).
+  _retro_dir="$(dirname "$retro")"
+  _target_dir="$(cd "$(dirname "$_retro_dir")" && pwd)"
+  _tgt_name="$(target_name_for_retro "$TARGETS_MD" "$retro")"
+  _tnr_rc=$?
+  if [ "$_tnr_rc" -eq 1 ]; then
+    echo "reconcile-issues: cannot resolve target for '$retro' — operational failure reading $TARGETS_MD (see message above)" >&2
+    exit 1
+  fi
+
+  if [ "$_tnr_rc" -ne 0 ] || [ -z "$_tgt_name" ]; then
+    _tgt_name="$(basename "$_target_dir")"
+    case "$_tgt_name" in
+      corpus|retros)
+        echo "reconcile-issues: cannot resolve target for '$retro' — no ancestor directory is registered in $TARGETS_MD (basename '$_tgt_name' is a structural directory, not a target)" >&2
+        exit 1 ;;
+    esac
+    echo "WARN: target directory '$_target_dir' not found in $TARGETS_MD — using basename '$_tgt_name'" >&2
+  fi
+
+  audit_retro "$retro" "$_tgt_name"
+  _single_rc=$?
+  _emit_shallow_note
+  exit "$_single_rc"
+
+elif [ "$_mode" = "all" ]; then
+  if [ ! -f "$TARGETS_MD" ]; then
+    echo "absent-input: TARGETS.md not found: $TARGETS_MD" >&2
+    exit 1
+  fi
+
+  _found_any_retro=0
+
+  while IFS= read -r _tgt_path; do
+    [ -d "$_tgt_path" ] || continue
+    _tgt_nm="$(basename "$_tgt_path")"
+
+    # Both layouts hold a target's retros (METHODOLOGY §3b): flat <target>/retros and nested
+    # <target>/corpus/retros (kit issue #1287 — --all used to scan only the flat one).
+    _have_retros_dir=0; _tgt_found=0; _empty_dirs=""
+    for _retros_dir in "$_tgt_path/retros" "$_tgt_path/corpus/retros"; do
+      [ -d "$_retros_dir" ] || continue
+      _have_retros_dir=1
+      _found_retros=0
+      while IFS= read -r _rfile; do
+        [ -f "$_rfile" ] || continue
+        _found_retros=1
+        _found_any_retro=1
+        # Name per retro file via the SAME helper as single mode, so a nested registered target's
+        # own retros are never labelled with this (outer) target's name.
+        _rf_name="$(target_name_for_retro "$TARGETS_MD" "$_rfile")"
+        _rf_rc=$?
+        if [ "$_rf_rc" -ne 0 ] || [ -z "$_rf_name" ]; then
+          echo "degraded: cannot resolve a registered target name for $_rfile (target_name_for_retro rc=$_rf_rc)" >&2
+          _fleet_degraded=$((_fleet_degraded+1))
+          continue
+        fi
+        audit_retro "$_rfile" "$_rf_name" || _fleet_degraded=$((_fleet_degraded+1))
+      done < <(find "$_retros_dir" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort)
+
+      if [ "$_found_retros" -eq 0 ]; then
+        _empty_dirs="${_empty_dirs}${_retros_dir}"$'\n'
+      else
+        _tgt_found=1
+      fi
+    done
+
+    # An empty retros dir only WARNs when the target has no retros in ANY of its layouts: a
+    # target keeping them under corpus/retros (e.g. ford) must not also be reported as "no retro
+    # files" for its empty flat retros/ sibling — that would claim the opposite of what was audited.
+    if [ "$_tgt_found" -eq 0 ] && [ -n "$_empty_dirs" ]; then
+      while IFS= read -r _ed; do
+        [ -n "$_ed" ] || continue
+        echo "WARN: no retro files (*.md) found in '$_ed'" >&2
+      done <<<"$_empty_dirs"
+    fi
+
+    if [ "$_have_retros_dir" -eq 0 ]; then
+      echo "WARN: no retros/ directory for target '$_tgt_nm'" >&2
+    fi
+  done < <(target_paths_all "$TARGETS_MD" 2>/dev/null)
+
+  if [ "$_found_any_retro" -eq 0 ]; then
+    echo "empty-input: no retro files found across all targets" >&2
+  fi
+
+  _emit_shallow_note
+  printf 'fleet-summary: tracked=%d untracked=%d shipped=%d borderline=%d regressed=%d orphaned=%d degraded=%d out-of-scope=%d retros=%d\n' \
+    "$_fleet_tracked" "$_fleet_untracked" "$_fleet_shipped" "$_fleet_borderline" "$_fleet_regressed" "$_fleet_orphaned" "$_fleet_degraded" "$_fleet_outofscope" "$_fleet_retros"
+  # kit issue #1125 item 3: out-of-scope-marker findings are WARN-only (see the guard's comment
+  # above) — only genuine operational failures (_fleet_degraded) gate the exit code.
+  [ "$_fleet_degraded" -eq 0 ] || exit 1
+fi
+
+exit 0
