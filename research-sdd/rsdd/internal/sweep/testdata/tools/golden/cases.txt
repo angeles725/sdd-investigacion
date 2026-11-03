@@ -1,0 +1,1400 @@
+@@case abs path two tools
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/extract.sh 0 38
+#!/usr/bin/env bash
+# tool extract.sh
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 234
+TARGET  targetA
+        tools: 2 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 2  ·  no retros found
+
+Summary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case RESEARCH_HOME form resolves
+@@dir rh 0
+
+@@dir rh/targetB 0
+
+@@dir rh/targetB/tools 0
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetB` |
+
+@@file rh/targetB/tools/probe.sh 0 36
+#!/usr/bin/env bash
+# tool probe.sh
+
+@@env RESEARCH_HOME 9
+{root}/rh
+@@rc 1
+0
+@@out 234
+TARGET  targetB
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case no tools dir is empty-input
+@@dir targetA 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@rc 1
+0
+@@out 165
+TARGET  targetA
+        INFO: no tools/ directory (empty-input)
+
+Summary: 0 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case empty tools dir
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@rc 1
+0
+@@out 182
+TARGET  targetA
+        INFO: tools/ directory exists but is empty (empty-input)
+
+Summary: 0 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case non-tool file is counted apart
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/data.csv 0 5
+data
+
+@@file targetA/tools/real.py 0 35
+#!/usr/bin/env bash
+# tool real.py
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case retro T-row recorded
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/r1.md 0 242
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/recorded.py` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/recorded.py 0 39
+#!/usr/bin/env bash
+# tool recorded.py
+
+@@file targetA/tools/unrecorded.sh 0 41
+#!/usr/bin/env bash
+# tool unrecorded.sh
+
+@@rc 1
+0
+@@out 213
+TARGET  targetA
+        tools: 2 found
+        recorded (retro): 1  ·  recorded (ledger): 0  ·  unrecorded: 1
+
+Summary: 2 tool(s) across 1 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 1 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case missing TARGETS.md
+@@rc 1
+1
+@@out 0
+
+@@err 47
+sweep-tools: cannot find {root}/kit/TARGETS.md
+
+@@hook 232
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tools sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-tools: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case no usable path
+@@file kit/TARGETS.md 0 84
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `/home/user/.../research` |
+
+@@rc 1
+1
+@@out 0
+
+@@err 159
+sweep-tools: ERROR — no usable target paths in {root}/kit/TARGETS.md
+sweep-tools: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths
+
+@@hook 345
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tools sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-tools: ERROR — no usable target paths in {root}/kit/TARGETS.md\nsweep-tools: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths"
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case truncated path is skipped and named
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 115
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `/home/user/.../truncated` |
+
+@@file targetA/tools/scan.sh 0 35
+#!/usr/bin/env bash
+# tool scan.sh
+
+@@rc 1
+0
+@@out 340
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: truncated
+
+@@err 0
+
+@@hook 412
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: truncated\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case retros without a tools table
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/r1.md 0 73
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+No tools table here.
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 245
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retro has a tools table
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case no retros at all
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 234
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case ledger only
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 145
+| Tool | Path | Provenance |
+|---|---|---|
+| ledger-tool.py | tools/ledger-tool.py | created |
+| other-tool.sh | tools/other-tool.sh | created |
+
+@@file targetA/tools/ledger-tool.py 0 42
+#!/usr/bin/env bash
+# tool ledger-tool.py
+
+@@file targetA/tools/other-tool.sh 0 41
+#!/usr/bin/env bash
+# tool other-tool.sh
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 2 found (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 2  ·  unrecorded: 0  ·  no retros found
+
+Summary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 2 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case retro and ledger no double count
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/r1.md 0 238
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/both.py` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/README.md 0 133
+| Tool | Path | Provenance |
+|---|---|---|
+| both.py | tools/both.py | created |
+| ledger-only.sh | tools/ledger-only.sh | created |
+
+@@file targetA/tools/both.py 0 35
+#!/usr/bin/env bash
+# tool both.py
+
+@@file targetA/tools/ledger-only.sh 0 42
+#!/usr/bin/env bash
+# tool ledger-only.sh
+
+@@file targetA/tools/neither.py 0 38
+#!/usr/bin/env bash
+# tool neither.py
+
+@@rc 1
+0
+@@out 256
+TARGET  targetA
+        tools: 3 found (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 1  ·  recorded (ledger): 1  ·  unrecorded: 1
+
+Summary: 3 tool(s) across 1 target(s) · 1 recorded (retro) · 1 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 3 tool(s) across 1 target(s) · 1 recorded (retro) · 1 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case ledger without a table
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 57
+Tools are documented in ESTADO-SITIO.md.
+
+No table here.
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 316
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        WARN: tools/README.md has no table — ledger unreadable
+        recorded (retro): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case separator rows alone are no table
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 30
+|---|---|
+| - | - |
+|:--|--:|
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 316
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        WARN: tools/README.md has no table — ledger unreadable
+        recorded (retro): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case dependency dirs are excluded
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@dir targetA/tools/.git 0
+
+@@dir targetA/tools/.git/hooks 0
+
+@@dir targetA/tools/.venv 0
+
+@@dir targetA/tools/.venv/bin 0
+
+@@dir targetA/tools/__pycache__ 0
+
+@@dir targetA/tools/node_modules 0
+
+@@dir targetA/tools/node_modules/pkg 0
+
+@@dir targetA/tools/sub 0
+
+@@dir targetA/tools/sub/node_modules 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/.git/hooks/h.sh 0 2
+x
+
+@@file targetA/tools/.venv/bin/x.py 0 2
+x
+
+@@file targetA/tools/__pycache__/mod.pyc 0 2
+x
+
+@@file targetA/tools/extract.sh 0 38
+#!/usr/bin/env bash
+# tool extract.sh
+
+@@file targetA/tools/node_modules/pkg/dep.py 0 2
+x
+
+@@file targetA/tools/node_modules/pkg/index.js 0 2
+x
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@file targetA/tools/sub/node_modules/y.js 0 2
+x
+
+@@rc 1
+0
+@@out 234
+TARGET  targetA
+        tools: 2 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 2  ·  no retros found
+
+Summary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case _lib dir is disclosed
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@dir targetA/tools/module_nav_lib 0
+
+@@dir targetA/tools/module_nav_lib/deep 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/main_tool.py 0 40
+#!/usr/bin/env bash
+# tool main_tool.py
+
+@@file targetA/tools/module_nav_lib/deep/scanner.py 0 58
+#!/usr/bin/env bash
+# tool module_nav_lib/deep/scanner.py
+
+@@file targetA/tools/module_nav_lib/parser.py 0 52
+#!/usr/bin/env bash
+# tool module_nav_lib/parser.py
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 1 found (2 library module(s) not counted as tools)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case package internals are disclosed
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@dir targetA/tools/my_package 0
+
+@@dir targetA/tools/my_package/sub 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/main_tool.py 0 40
+#!/usr/bin/env bash
+# tool main_tool.py
+
+@@file targetA/tools/my_package/__init__.py 0 0
+
+@@file targetA/tools/my_package/helper.py 0 48
+#!/usr/bin/env bash
+# tool my_package/helper.py
+
+@@file targetA/tools/my_package/sub/deeper.py 0 52
+#!/usr/bin/env bash
+# tool my_package/sub/deeper.py
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 2 found (2 library module(s) not counted as tools)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 2  ·  no retros found
+
+Summary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case lib module and non-tool file both disclosed
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@dir targetA/tools/x_lib 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/t.sh 0 32
+#!/usr/bin/env bash
+# tool t.sh
+
+@@file targetA/tools/x_lib/m.py 0 38
+#!/usr/bin/env bash
+# tool x_lib/m.py
+
+@@file targetA/tools/x_lib/notes.txt 0 2
+n
+
+@@rc 1
+0
+@@out 320
+TARGET  targetA
+        tools: 1 found (1 library module(s) not counted as tools) (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case absent target is disclosed
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 116
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/nonexistent-target` |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 400
+INFO: corpus not found (absent-input): {root}/nonexistent-target
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+
+@@err 0
+
+@@hook 407
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case only absent targets still speaks
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/nowhere` |
+
+@@rc 1
+0
+@@out 256
+INFO: corpus not found (absent-input): {root}/nowhere
+
+Summary: 0 tool(s) across 0 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+
+@@err 0
+
+@@hook 406
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (targets not traversed):\nSummary: 0 tool(s) across 0 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case unreadable retro warns
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/retros/dir.md 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/retro1.md 0 238
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/tool.sh` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/tool.sh 0 35
+#!/usr/bin/env bash
+# tool tool.sh
+
+@@rc 1
+0
+@@out 275
+TARGET  targetA
+   WARN: 1 retro(s) unreadable during T-row scan (grep error)
+        tools: 1 found
+        recorded (retro): 1  ·  recorded (ledger): 0  ·  unrecorded: 0
+
+Summary: 1 tool(s) across 1 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case unreadable retro file warns
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/retro1.md 0 238
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/tool.sh` · purpose | — | — | — | keep-local |
+
+@@file targetA/retros/retro2.md 0 239
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/other.sh` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/tool.sh 0 35
+#!/usr/bin/env bash
+# tool tool.sh
+
+@@env RSDD_TOOLS_TEST_UNREADABLE 31
+{root}/targetA/retros/retro2.md
+@@rc 1
+0
+@@out 275
+TARGET  targetA
+   WARN: 1 retro(s) unreadable during T-row scan (grep error)
+        tools: 1 found
+        recorded (retro): 1  ·  recorded (ledger): 0  ·  unrecorded: 0
+
+Summary: 1 tool(s) across 1 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case unreadable ledger is an error not a zero
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 81
+| Tool | Path | Provenance |
+|---|---|---|
+| scan.py | tools/scan.py | created |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@env RSDD_TOOLS_TEST_UNREADABLE 30
+{root}/targetA/tools/README.md
+@@rc 1
+0
+@@out 335
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        WARN: tools/README.md scan FAILED (grep error) — ledger count unavailable
+        recorded (retro): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case extension is case sensitive
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/Scan.PY 0 35
+#!/usr/bin/env bash
+# tool Scan.PY
+
+@@file targetA/tools/j.js 0 32
+#!/usr/bin/env bash
+# tool j.js
+
+@@file targetA/tools/m.mjs 0 33
+#!/usr/bin/env bash
+# tool m.mjs
+
+@@file targetA/tools/ok.ps1 0 34
+#!/usr/bin/env bash
+# tool ok.ps1
+
+@@file targetA/tools/t.ts 0 32
+#!/usr/bin/env bash
+# tool t.ts
+
+@@file targetA/tools/x.sh~ 0 33
+#!/usr/bin/env bash
+# tool x.sh~
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 4 found (2 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 4  ·  no retros found
+
+Summary: 4 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 4 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 4 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 4 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case ledger name needs a boundary
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 95
+| Tool | Path | Provenance |
+|---|---|---|
+| gf-envelope.py | tools/gf-envelope.py | created |
+
+@@file targetA/tools/envelope.py 0 39
+#!/usr/bin/env bash
+# tool envelope.py
+
+@@file targetA/tools/gf-envelope.py 0 42
+#!/usr/bin/env bash
+# tool gf-envelope.py
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 2 found (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 1  ·  unrecorded: 1  ·  no retros found
+
+Summary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 1 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 1 target(s) · 0 recorded (retro) · 1 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case ledger row must end the name with a boundary
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/tools/README.md 0 38
+| Tool |
+|---|
+| scan.py
+| scan.pyc |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 277
+TARGET  targetA
+        tools: 1 found (1 non-tool file(s) in tools/ not counted)
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case retro match is a substring of the row
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/not-a-row.md 0 33
+mentions tools/other.py in prose
+
+@@file targetA/retros/r1.md 0 238
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/scan.py` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/can.py 0 34
+#!/usr/bin/env bash
+# tool can.py
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 213
+TARGET  targetA
+        tools: 2 found
+        recorded (retro): 2  ·  recorded (ledger): 0  ·  unrecorded: 0
+
+Summary: 2 tool(s) across 1 target(s) · 2 recorded (retro) · 0 recorded (ledger) · 0 unrecorded.
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case index retros are not read
+@@dir targetA 0
+
+@@dir targetA/retros 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/retros/RETRO-INDEX.md 0 238
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/scan.py` · purpose | — | — | — | keep-local |
+
+@@file targetA/tools/scan.py 0 35
+#!/usr/bin/env bash
+# tool scan.py
+
+@@rc 1
+0
+@@out 234
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case multi-target totals
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@dir targetB 0
+
+@@dir targetB/retros 0
+
+@@dir targetB/tools 0
+
+@@file kit/TARGETS.md 0 105
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/targetB` |
+
+@@file targetA/tools/a.py 0 32
+#!/usr/bin/env bash
+# tool a.py
+
+@@file targetB/retros/r.md 0 235
+<!-- review-status: applied 2026-01-01 -->
+# Retro
+
+## Tools built, adapted, or outgrown
+
+| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |
+|---|---|---|---|---|---|
+| T1 | `tools/b.sh` · purpose | — | — | — | keep-local |
+
+@@file targetB/tools/b.sh 0 32
+#!/usr/bin/env bash
+# tool b.sh
+
+@@file targetB/tools/c.sh 0 32
+#!/usr/bin/env bash
+# tool c.sh
+
+@@rc 1
+0
+@@out 346
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+TARGET  targetB
+        tools: 2 found
+        recorded (retro): 1  ·  recorded (ledger): 0  ·  unrecorded: 1
+
+Summary: 3 tool(s) across 2 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 3 tool(s) across 2 target(s) · 1 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end
+@@case same target twice is swept twice
+@@dir targetA 0
+
+@@dir targetA/tools 0
+
+@@file kit/TARGETS.md 0 106
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/targetA/` |
+
+@@file targetA/tools/a.py 0 32
+#!/usr/bin/env bash
+# tool a.py
+
+@@rc 1
+0
+@@out 367
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+TARGET  targetA
+        tools: 1 found
+        recorded (retro): 0  ·  recorded (ledger): 0  ·  unrecorded: 1  ·  no retros found
+
+Summary: 2 tool(s) across 2 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.
+
+@@err 0
+
+@@hook 305
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD tool ledger (unrecorded tools found):\nSummary: 2 tool(s) across 2 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 2 unrecorded.\nRun toolbelt/sweep-tools.sh for per-target breakdown."
+  }
+}
+
+@@hookfull 0
+
+@@end

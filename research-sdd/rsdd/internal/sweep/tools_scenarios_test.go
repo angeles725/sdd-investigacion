@@ -234,7 +234,7 @@ func toolScenarios() []toolScenario {
 			w.tool(a, "a.py", false)
 			w.targets(a, a+"/")
 		}, has: []string{"Summary: 2 tool(s) across 2 target(s)"}},
-		{name: "target path with a space is split into words", old: "(spot)", golden: true, setup: func(w *world) {
+		{name: "target path with a space is split into words", old: "(spot)", setup: func(w *world) {
 			a := w.tgt("my target")
 			w.tool(a, "a.py", false)
 			w.targets(a)
@@ -261,13 +261,13 @@ func toolScenarios() []toolScenario {
 			w.tool(a, "scan.py", false)
 			w.targets(a)
 		}, has: []string{"        tools: 1 found\n"}, lacks: []string{"exists but is empty"}},
-		{name: "regex metacharacters in a ledger name are literal", old: "(L4.2)", nodiff: "the script read the name as a regex with only the dot escaped", golden: true, setup: func(w *world) {
+		{name: "regex metacharacters in a ledger name are literal", old: "(L4.2)", nodiff: "the script read the name as a regex with only the dot escaped", setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.tool(a, "a+b.sh", false)
 			w.ledger(a, "a+b.sh")
 			w.targets(a)
 		}, has: []string{"recorded (ledger): 1  ·  unrecorded: 0"}},
-		{name: "tool name starting with a dash is found in a retro", old: "(L4.2)", nodiff: "grep -qF read the name as an option", golden: true, setup: func(w *world) {
+		{name: "tool name starting with a dash is found in a retro", old: "(L4.2)", nodiff: "grep -qF read the name as an option", setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.tool(a, "-x.sh", false)
 			w.toolRetro(a, "r1.md", "-x.sh")
