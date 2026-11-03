@@ -114,11 +114,11 @@ func (a *audit) loadLater() {
 			continue
 		}
 		sd := sb[:10]
-		if sd == cdate { // RECONCILE-SAMEDAY-COUNT
-			sameDay++
+		if sd < cdate { // earlier retros cannot regress a later one; checked first so the boundary is observable
 			continue
 		}
-		if sd < cdate {
+		if sd == cdate { // RECONCILE-SAMEDAY-COUNT
+			sameDay++
 			continue
 		}
 		sib := filepath.Join(dir, sb)

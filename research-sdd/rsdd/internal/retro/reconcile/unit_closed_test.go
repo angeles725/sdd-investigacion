@@ -24,6 +24,7 @@ func TestEvidenceCommits(t *testing.T) {
 		{"a digit is required", "commit abcdefa 1abcdef\n", []string{"1abcdef"}},
 		{"separators other than space", "commit:abcdef1,abcdef2/abcdef3\n", []string{"abcdef1", "abcdef2", "abcdef3"}},
 		{"non-hex letters split a token", "commit abcdefg1234567\n", []string{"1234567"}},
+		{"a token at the start of the line", "abcdef1 is the commit\n", []string{"abcdef1"}},
 	}
 	for _, c := range cases {
 		if got := evidenceCommits(c.rec); !reflect.DeepEqual(got, c.want) {
