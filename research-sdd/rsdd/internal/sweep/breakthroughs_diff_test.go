@@ -77,6 +77,7 @@ func TestBreakthroughsDifferential(t *testing.T) {
 			continue
 		}
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			sc.setup(w)
 			w.compareBT(sc.args...)

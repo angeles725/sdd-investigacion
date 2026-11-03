@@ -81,6 +81,7 @@ func TestToolsDifferential(t *testing.T) {
 			continue
 		}
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			sc.setup(w)
 			w.sameTools("report", w.runTools(sc.args...), w.bashTools("sweep-tools.sh", sc.args...))

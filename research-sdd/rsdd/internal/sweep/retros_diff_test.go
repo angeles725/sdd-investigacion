@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 )
 
@@ -48,6 +49,7 @@ func rsddBinary(t testing.TB) string {
 }
 
 func TestMain(m *testing.M) {
+	parallelfloor.Raise(8)
 	code := m.Run()
 	if rsddDir != "" {
 		_ = os.RemoveAll(rsddDir)
@@ -116,6 +118,7 @@ func (w *world) same(what string, goRes, bashRes result) {
 func TestRetrosDifferential(t *testing.T) {
 	for _, sc := range scenarios() {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			for k, v := range sc.env {
 				w.env[k] = v
@@ -228,6 +231,7 @@ func TestRetrosDifferentialUnusual(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			setup(w)
 			w.same("report", w.run(), w.bash("sweep-retros.sh"))
