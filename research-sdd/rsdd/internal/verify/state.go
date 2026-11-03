@@ -102,7 +102,13 @@ type verifier struct {
 	s      cli.Stdio
 	fs     fsView
 	target string
+	// blockCounts memoizes countBlocks per directory and prefix: the corpus is read-only for the length of a run
+	// and every state file of one directory asked for the same listing and regexp filter (kit issue #2645).
+	blockCounts map[blockCountKey]string
+	mdListing   map[string][]string
 }
+
+type blockCountKey struct{ dir, prefix string }
 
 func (v *verifier) echo(format string, a ...any) { fmt.Fprintf(v.s.Out, format+"\n", a...) }
 
@@ -171,7 +177,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	hasBacklog := false
 	for _, l := range lines {
-		if reBacklogAny.MatchString(l) {
+		if strings.HasPrefix(l, "##") && mayContainFold(l, "backlog") && reBacklogAny.MatchString(l) {
 			hasBacklog = true
 			break
 		}
@@ -185,7 +191,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	metric := ""
 	for _, l := range lines {
-		if reCoverageMetric.MatchString(l) {
+		if mayContainFold(l, "coverage metric") && reCoverageMetric.MatchString(l) {
 			metric = l
 			break
 		}
@@ -196,7 +202,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	coveredClaim := ""
 	for _, l := range lines {
-		if reCoveredBlocks.MatchString(l) {
+		if mayContainFold(l, "covered blocks") && reCoveredBlocks.MatchString(l) {
 			if d := reDigits.FindString(l); d != "" {
 				coveredClaim = d
 				break
@@ -485,11 +491,60 @@ func (v *verifier) validateBlockScope(present, bs string) bool {
 
 // countBlocks is `find DIR -maxdepth 1 -type f -name '*.md' | block_file_filter [PREFIX] | wc -l`.
 func (v *verifier) countBlocks(dir, prefix string) string {
+	key := blockCountKey{dir, prefix}
+	if n, ok := v.blockCounts[key]; ok {
+		return n
+	}
+	n := v.countBlocksUncached(dir, prefix)
+	if v.blockCounts == nil {
+		v.blockCounts = map[blockCountKey]string{}
+	}
+	v.blockCounts[key] = n
+	return n
+}
+
+// mdLines is the regularMarkdown listing of dir as the lines the block filter reads, listed once per run.
+func (v *verifier) mdLines(dir string) []string {
+	if l, ok := v.mdListing[dir]; ok {
+		return l
+	}
 	var b strings.Builder
 	for _, f := range v.fs.regularMarkdown(dir) {
 		b.WriteString(f + "\n")
 	}
-	out, _ := kit.FilterBlockFiles(kit.SplitLines(b.String()), false, prefix)
+	l := kit.SplitLines(b.String())
+	if v.mdListing == nil {
+		v.mdListing = map[string][]string{}
+	}
+	v.mdListing[dir] = l
+	return l
+}
+
+// literalPrefix reports whether a focus prefix is plain ERE literals ([A-Za-z0-9_-] only), for which a line can
+// match `(^|/)PREFIX(block|bloque)...` only if it contains PREFIX.
+func literalPrefix(p string) bool {
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func (v *verifier) countBlocksUncached(dir, prefix string) string {
+	lines := v.mdLines(dir)
+	if prefix != "" && literalPrefix(prefix) {
+		// A cheap necessary condition first: the POSIX regexp then runs only on the plausible lines (#2645).
+		var keep []string
+		for _, l := range lines {
+			if strings.Contains(l, prefix) {
+				keep = append(keep, l)
+			}
+		}
+		lines = keep
+	}
+	out, _ := kit.FilterBlockFiles(lines, false, prefix)
 	return fmt.Sprint(len(out))
 }
 
@@ -561,14 +616,15 @@ func coverageDenominators(lines []string) []string {
 	inHist := false
 	var den []string
 	for _, l := range lines {
-		if reHistory.MatchString(asciiLower(l)) {
+		h2 := strings.HasPrefix(l, "##") // both heading regexps are anchored on "##"
+		if h2 && reHistory.MatchString(asciiLower(l)) {
 			inHist = true
 			continue
 		}
-		if reHeading2.MatchString(l) {
+		if h2 && reHeading2.MatchString(l) {
 			inHist = false
 		}
-		if inHist || !reCoverageLine.MatchString(l) {
+		if inHist || !mayContainFold(l, "closed", "coverage metric", "coverage (after") || !reCoverageLine.MatchString(l) {
 			continue
 		}
 		m := reRatio.FindString(l)
