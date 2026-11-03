@@ -31,15 +31,10 @@ func substr(s string, i, n int) string {
 	if n >= 0 {
 		end = i + n
 	}
-	if i < 1 {
-		i = 1
-	}
-	if end > len(s)+1 {
-		end = len(s) + 1
-	}
-	if end <= i {
-		return ""
-	}
+	// Clamp the window to [1, len+1] and make it non-negative: an empty window slices to "" (s[k:k]), so the
+	// "end <= i" early return of the awk text is the same thing as end = max(end, i).
+	i = min(max(i, 1), len(s)+1)
+	end = max(min(end, len(s)+1), i)
 	return s[i-1 : end-1]
 }
 

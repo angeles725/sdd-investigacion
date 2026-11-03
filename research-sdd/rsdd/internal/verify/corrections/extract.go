@@ -210,10 +210,7 @@ func (x *extractor) moreb(t string) {
 		if startsWordByte(nx) || reGapLabel.MatchString(nx) {
 			break
 		}
-		if i := strings.LastIndexByte(tok, 'b'); i >= 0 {
-			tok = tok[i+1:]
-		}
-		x.emit(tok)
+		x.emit(tok[strings.LastIndexByte(tok, 'b')+1:]) // the digits after the last `b` (no `b`: -1+1 keeps the token)
 		rest = nx
 	}
 	for {
@@ -407,7 +404,7 @@ func (x *extractor) noundecl(rest string) int {
 		}
 		return 1
 	}
-	if hs, hl := match(reTagHead, tail); hs > 0 {
+	if hs, hl := match(reTagHead, tail); hs != 0 { // match gives hs >= 0 (0: no match), so != 0 is "matched"
 		tg := substr(tail, 1, hl)
 		tail = from(tail, hl+1)
 		if tagok(tg) && reRefHead.MatchString(tail) {
@@ -435,7 +432,9 @@ func (x *extractor) scan(un string) {
 	l := asciiLower(un)
 	n := len(un)
 	p := 1
-	for p <= n {
+	for {
+		// Past the end `rest` is empty and reVerb (which needs a verb) cannot match it, so the loop ends by the break
+		// below with no bound test of its own.
 		rest := from(l, p)
 		rs, rl := match(reVerb, rest)
 		if rs == 0 {
@@ -443,7 +442,7 @@ func (x *extractor) scan(un string) {
 		}
 		ms := p + rs - 1
 		vs := ms + 1
-		if c := substr(l, ms, 1); c >= "a" && c <= "z" {
+		if substr(l, ms, 1) == "c" { // every verb starts with `c`; the optional boundary char before it is never a letter
 			vs = ms
 		}
 		ve := ms + rl
@@ -547,13 +546,10 @@ func (x *extractor) scan(un string) {
 					qm := strings.NewReplacer("`", "", " ", "", "\t", "").Replace(substr(pre, s, l2))
 					x.qcur, x.qkind = qm, "lead"
 				} else {
-					post := from(cl, rstart)
-					if _, hl := match(reRefHead, post); hl > 0 {
-						post = from(post, hl+1)
-					}
-					if !x.trailq(post) {
-						x.trailq(from(cl, listend(cl)))
-					}
+					// A qualifier right after the first ref and one after the whole joined list are the same text when the
+					// qualifier follows the first ref (its words are not a join gap, so the list ends at that ref):
+					// the one lookup after the list end covers both.
+					x.trailq(from(cl, listend(cl)))
 				}
 			}
 			x.emit(r)
@@ -562,8 +558,8 @@ func (x *extractor) scan(un string) {
 			x.qcur, x.qkind = "", ""
 		case !isnoun && bd == "close":
 			d = 0
-			j := vs - 1
-			for ; j >= 1; j-- {
+			j := ms // the scan back from the verb may start anywhere inside the verb word (no parenthesis there)
+			for ; j > 0; j-- {
 				c := un[j-1]
 				if c == ')' {
 					d++
@@ -574,7 +570,7 @@ func (x *extractor) scan(un string) {
 					d--
 				}
 			}
-			if j >= 1 {
+			if j > 0 {
 				pre = substr(l, 1, j-1)
 				pre = reTrailWs.ReplaceAllString(pre, "")
 				if reRefTail.MatchString(pre) {

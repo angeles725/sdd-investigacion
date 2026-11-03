@@ -71,18 +71,16 @@ func nounRegexp(c string) *regexp.Regexp { return regexp.MustCompile(nounHead + 
 // isWordRune is a word character for the boundary of a block reference: a Unicode letter, digit or underscore.
 func isWordRune(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
 
+// wordBefore reports whether the rune that ends s[:i] is word text. An empty prefix (i == 0) decodes to RuneError,
+// which is not word text, so the start of the string needs no guard of its own; i is a valid index of s.
 func wordBefore(s string, i int) bool {
-	if i <= 0 {
-		return false
-	}
 	r, _ := utf8.DecodeLastRuneInString(s[:i])
 	return r != utf8.RuneError && isWordRune(r)
 }
 
+// wordAfter reports whether the rune that starts s[i:] is word text. An empty suffix (i == len(s)) decodes to
+// RuneError, which is not word text, so the end of the string needs no guard of its own; i is a valid index of s.
 func wordAfter(s string, i int) bool {
-	if i >= len(s) {
-		return false
-	}
 	r, _ := utf8.DecodeRuneInString(s[i:])
 	return r != utf8.RuneError && isWordRune(r)
 }
