@@ -47,12 +47,14 @@ func TestSingleDefinitions(t *testing.T) {
 	// Files that spell the kind alternation with their own semantics (prose scans, prefix strips, text lint),
 	// not the block-file basename ERE. Shrink-only.
 	other := map[string]bool{
-		"core/kit/focusscan.go":   true, // claim/number scans over prose, not file names
-		"corpus/archive_gates.go": true, // the sed prefix strip of archive.sh
-		"corpus/catalog/match.go": true, // CATALOG matcher with a Python-class number
-		"lint/rules.go":           true, // lint rule R3 over text
-		"verify/registry.go":      true, // unclassifiable-name detector and messages
-		"core/kit/blockfiles.go":  true, // the one definition
+		"core/kit/focusscan.go":         true, // claim/number scans over prose, not file names
+		"corpus/archive_gates.go":       true, // the sed prefix strip of archive.sh
+		"corpus/catalog/match.go":       true, // CATALOG matcher with a Python-class number
+		"lint/rules.go":                 true, // lint rule R3 over text
+		"verify/registry.go":            true, // unclassifiable-name detector and messages
+		"verify/corrections/blocks.go":  true, // the <prefix>-blockN token of a FOCUSES.md cell (prose), not a file name
+		"verify/corrections/extract.go": true, // [Block N] references and bracket tags in block text
+		"core/kit/blockfiles.go":        true, // the one definition
 	}
 	root := "../.."
 	seen := 0
