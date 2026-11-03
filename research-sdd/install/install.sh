@@ -480,7 +480,9 @@ main() {
       local _detect_rc=0 _detect_err=""
       { _detect_err="$(bash "$detect" --quiet 2>&1 1>&3)"; } 3>&1 || _detect_rc=$?
       if [ "$_detect_rc" -ne 0 ]; then
-        printf '  DEGRADED  detect-tools.sh exited %d: %s\n' "$_detect_rc" "$(printf '%s' "$_detect_err" | head -n 1)"
+        local _detect_first=""
+    _detect_first="$(printf '%s' "$_detect_err" | head -n 1)"
+    printf '  DEGRADED  detect-tools.sh exited %d: %s\n' "$_detect_rc" "${_detect_first:-(no stderr)}"
         _detect_ok=0
       elif [ -f "$cache_file" ]; then
         local av_rc=0 mi_rc=0

@@ -231,10 +231,14 @@ func TestDiffJarsAndJava(t *testing.T) {
 	e.same("jar-no-unzip")
 	e.env["CFR_JAR"] = e.root + "/missing.jar"
 	e.same("jar-bad-override")
-	e.tool("java", "sleep 5") // the host's real Java resolution is the same for both sides
+	// the java fake sits on the fixture PATH and the fixed-path candidates live under the fixture root, so both
+	// sides resolve the same java; the expected status is asserted, not only the agreement
+	e.tool("java", "sleep 5")
 	e.same("java-path-sleeping")
+	e.wantJavaStatus("PROBE_FAILED")
 	e.tool("java", "exit 1")
 	e.same("java-path-failing")
+	e.wantJavaStatus("MISSING")
 }
 
 func TestDiffDotnetAndPackages(t *testing.T) {
@@ -330,6 +334,16 @@ func TestDiffCache(t *testing.T) {
 	for _, args := range [][]string{{"--cache"}, {"--cache", ""}} {
 		if l, g := e.legacy(args...), e.golang(args...); l.code != 1 || g.code != 1 || g.err == "" || l.err == "" {
 			t.Errorf("%q: legacy exit %d (%q), rsdd exit %d (%q), want exit 1 with a message on both", args, l.code, l.err, g.code, g.err)
+		}
+	}
+}
+
+// wantJavaStatus pins the Java 21 row both sides must print, so two sides agreeing on a wrong row cannot pass.
+func (e *dt) wantJavaStatus(status string) {
+	e.t.Helper()
+	for side, r := range map[string]diffRes{"legacy": e.legacy(), "rsdd": e.golang()} {
+		if row := rowOf(r.out, "Java 21"); !strings.Contains(row, " "+status+" ") {
+			e.t.Errorf("%s Java 21 row = %q, want status %s", side, row, status)
 		}
 	}
 }

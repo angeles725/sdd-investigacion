@@ -371,6 +371,20 @@ else
   no "summary: a failing detect-tools.sh must degrade the inventory, not reuse the stale cache" "out=$(printf '%s' "$out8b" | grep 'SUMMARY\|DEGRADED' || true)"
 fi
 
+# 8c. A failing detect-tools.sh that prints NOTHING on stderr must read "(no stderr)", not a dangling "exited 2: ".
+stub_kit8c="$TMP/stub-kit8c"
+mkdir -p "$stub_kit8c/toolbelt"
+printf '#!/usr/bin/env bash\nexit 2\n' > "$stub_kit8c/toolbelt/detect-tools.sh"
+chmod +x "$stub_kit8c/toolbelt/detect-tools.sh"
+summary_script8c="$TMP/test-summary8c.sh"
+sed "s|$stub_kit8b|$stub_kit8c|" "$summary_script8b" > "$summary_script8c"
+out8c="$(bash "$summary_script8c" 2>&1)" || true
+if <<<"$out8c" grep -qF 'DEGRADED  detect-tools.sh exited 2: (no stderr)'; then
+  ok "summary: detect-tools.sh failing with empty stderr → 'exited 2: (no stderr)'"
+else
+  no "summary: an empty-stderr detect-tools.sh failure must say (no stderr)" "out=$(printf '%s' "$out8c" | grep 'DEGRADED' || true)"
+fi
+
 # ---------------------------------------------------------------------------
 # 9. Skill-deploy failure clears _baseline_ok: stub installer exits 1 →
 #    SUMMARY BASELINE DEGRADED + non-zero exit (issue #963).
