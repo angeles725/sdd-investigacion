@@ -43,6 +43,7 @@ sweep-retros-hook.sh
 sweep-retros.sh
 sweep-tools-hook.sh
 sweep-tools.sh
+verify-block.sh
 verify-cd-physical.sh
 verify-corrections.sh
 verify-doc-consistency.sh
