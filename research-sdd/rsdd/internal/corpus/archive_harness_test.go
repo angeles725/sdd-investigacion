@@ -13,7 +13,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -29,17 +28,18 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
-// archiveLegacySHA pins the frozen oracle: testdata/archive/legacy/research-sdd-archive.sh is the script as of the
-// port (kit issue #2459). A changed oracle must be a deliberate, reviewed edit of this constant.
-const archiveLegacySHA = "2242a219d0f3e99c9739065c10636ca36473e449e247d9b8ff37bea3907855c0"
+// archiveLegacyRunner and archiveLegacyInstall are set by archive_legacy_test.go, which is built only without the
+// nodiff tag. Under -tags nodiff they stay nil: no case runs the frozen bash script and only the Go side is replayed
+// against the goldens (archive_golden_nodiff_test.go).
+var (
+	archiveLegacyRunner  func(t testing.TB, tb, cwd string, args, env []string) (string, string, int)
+	archiveLegacyInstall func(t testing.TB, tb string)
+)
 
 const (
-	archiveLegacyRel = "testdata/archive/legacy/research-sdd-archive.sh"
 	archiveGoldenDir = "testdata/archive/golden"
 	archiveKitRel    = "../../.."
 )
-
-var archiveUpdate = flag.Bool("update-archive", false, "re-record the archive goldens from the frozen legacy script")
 
 var archiveClock = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
@@ -240,12 +240,8 @@ func archiveFarm(t testing.TB, root string) string {
 			t.Fatal(err)
 		}
 	}
-	b, err := os.ReadFile(archiveLegacyRel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tb, "research-sdd-archive.sh"), b, 0o755); err != nil {
-		t.Fatal(err)
+	if archiveLegacyInstall != nil {
+		archiveLegacyInstall(t, tb)
 	}
 	kents, err := os.ReadDir(kit)
 	if err != nil {
@@ -312,33 +308,16 @@ func archiveEnvLookup(env []string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
-func archiveRunLegacy(t testing.TB, tb, cwd string, args, env []string) (string, string, int) {
-	t.Helper()
-	c := exec.Command("bash", append([]string{filepath.Join(tb, "research-sdd-archive.sh")}, args...)...)
-	c.Dir, c.Env = cwd, env
-	hasBin := false
-	for _, kv := range env {
-		hasBin = hasBin || strings.HasPrefix(kv, "RSDD_BIN=")
+func archiveDubiousSkip(f *archiveFx) string {
+	d := filepath.Join(f.root, "dubious-probe")
+	f.gitInit(d)
+	c := exec.Command("git", "-C", d, "rev-parse", "--show-toplevel")
+	c.Env = append(os.Environ(), "GIT_TEST_ASSUME_DIFFERENT_OWNER=1")
+	out, err := c.CombinedOutput()
+	if err == nil || !strings.Contains(strings.ToLower(string(out)), "dubious ownership") {
+		return "GIT_TEST_ASSUME_DIFFERENT_OWNER=1 does not reproduce dubious ownership on this host"
 	}
-	if !hasBin {
-		// The frozen script's kit fallback is the Go command `rsdd corpus catalog`, found through RSDD_BIN.
-		c.Env = append(append([]string(nil), env...), "RSDD_BIN="+archiveRsddBin(t))
-	}
-	var o, e bytes.Buffer
-	c.Stdout, c.Stderr = &o, &e
-	err := c.Run()
-	return o.String(), e.String(), archiveExit(t, err)
-}
-
-func archiveExit(t testing.TB, err error) int {
-	if err == nil {
-		return 0
-	}
-	if x, ok := err.(*exec.ExitError); ok {
-		return x.ExitCode()
-	}
-	t.Fatal(err)
-	return -1
+	return ""
 }
 
 func archiveRunGo(tb, cwd string, args, env []string, hook func(*archiveHooks)) (string, string, int) {
@@ -482,11 +461,14 @@ func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveR
 		return res
 	}
 	if withLegacy {
+		if archiveLegacyRunner == nil {
+			t.Fatal("legacy side requested in a build without the frozen oracle (-tags nodiff)")
+		}
 		lenv := env
 		if c.lenv != nil {
 			lenv = append(append([]string(nil), env...), c.lenv(f)...)
 		}
-		r := side(func([]string) (string, string, int) { return archiveRunLegacy(t, f.tb, cwd, args, lenv) })
+		r := side(func([]string) (string, string, int) { return archiveLegacyRunner(t, f.tb, cwd, args, lenv) })
 		leg = &r
 	}
 	var hook func(*archiveHooks)
@@ -528,13 +510,4 @@ func archiveNorm(s, root string) string {
 	s = archiveGitPathTail.ReplaceAllString(s, "${1}@PATH-CUT@")
 	// a root cut at 160 bytes keeps only part of its random suffix: collapse what is left of it too
 	return archiveRootCut.ReplaceAllString(s, "/arch-@CUT@")
-}
-
-func archiveHaveTools() string {
-	for _, b := range []string{"bash", "git", "python3", "cp"} {
-		if _, err := exec.LookPath(b); err != nil {
-			return b + " not found"
-		}
-	}
-	return ""
 }

@@ -1,3 +1,5 @@
+//go:build !nodiff
+
 package corpus
 
 import (

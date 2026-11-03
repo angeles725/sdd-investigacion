@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -674,16 +673,4 @@ func archiveFarmStubLib(t testing.TB, tb, name, body string) {
 func realLibPath(name string) string {
 	p, _ := filepath.Abs(archiveKitRel + "/toolbelt/lib/" + name)
 	return p
-}
-
-func archiveDubiousSkip(f *archiveFx) string {
-	d := filepath.Join(f.root, "dubious-probe")
-	f.gitInit(d)
-	c := exec.Command("git", "-C", d, "rev-parse", "--show-toplevel")
-	c.Env = append(os.Environ(), "GIT_TEST_ASSUME_DIFFERENT_OWNER=1")
-	out, err := c.CombinedOutput()
-	if err == nil || !strings.Contains(strings.ToLower(string(out)), "dubious ownership") {
-		return "GIT_TEST_ASSUME_DIFFERENT_OWNER=1 does not reproduce dubious ownership on this host"
-	}
-	return ""
 }
