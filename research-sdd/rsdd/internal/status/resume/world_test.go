@@ -163,6 +163,10 @@ func buildKind(b *builder, w *world, kind string) {
 		b.git(r, "worktree", "lock", wl)
 		b.git(r, "branch", "dup", "main")
 		b.git(r, "tag", "dup", "main")
+		// a branch whose name is not UTF-8 and a worktree whose path has a space and a non-ASCII letter
+		b.git(r, "branch", "bad-\xff-name", "main")
+		wu := filepath.Join(w.root, "wt sp é")
+		b.git(r, "worktree", "add", "-q", "-b", "feat/u", wu, "main")
 		b.write(filepath.Join(w.root, "plain", "x"), "x\n")
 		if kind == "bulk" {
 			for i := 1; i <= 60; i++ {
@@ -258,6 +262,10 @@ func pathFor(t testing.TB, w *world, flavour string) string {
 		return filepath.Join(w.root, "stubs", strings.TrimPrefix(flavour, "gh:")) + ":" + realPath
 	case flavour == "gitlog":
 		return filepath.Join(w.root, "stubs", "gitlog") + ":" + realPath
+	case flavour == "noexec-gh":
+		d := tools("noexec-gh", append([]string{"git", "jq"}, base...)...)
+		must0(t, os.WriteFile(filepath.Join(d, "gh"), []byte("#!/bin/sh\necho '[]'\n"), 0o644))
+		return d
 	case flavour == "nogh":
 		return tools("nogh", append([]string{"git", "jq"}, base...)...)
 	case flavour == "nojq":

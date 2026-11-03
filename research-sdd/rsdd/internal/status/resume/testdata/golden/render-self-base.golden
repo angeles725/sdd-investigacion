@@ -5,15 +5,17 @@ rc: 0
 Generated @T@ · repo `@ROOT@/r` · remote `@ROOT@/r.origin`
 Base: `loose` @ 38691ed
 
-## Worktrees (5)
+## Worktrees (6)
 - `@ROOT@/r` — branch `main` @ 130b5d5 · dirty 0 · untracked 0 · ahead 1 · behind 0
+- `@ROOT@/wt sp é` — branch `feat/u` @ 130b5d5 · dirty 0 · untracked 0 · ahead 1 · behind 0
 - `@ROOT@/wt-a` — branch `feat/a` @ 02f75b2 · dirty 1 · untracked 2 · ahead 2 · behind 0
 - `@ROOT@/wt-d` — detached HEAD @ 38691ed · dirty 0 · untracked 1 · ahead 0 · behind 0
 - `@ROOT@/wt-l` — branch `feat/l` @ 130b5d5 · dirty 0 · untracked 0 · ahead 1 · behind 0
 - `@ROOT@/wt-p` — branch `feat/p` @ 130b5d5 · DIRECTORY MISSING (prunable: `git worktree prune`) · dirty unknown · untracked unknown · ahead 1 · behind 0
 
-## Loose branches (3)
+## Loose branches (4)
 - `ahead1` @ 531e1c8 · ahead 2 · behind 0
+- `bad-�-name` @ 130b5d5 · ahead 1 · behind 0
 - `dup` @ 130b5d5 · ahead 1 · behind 0
 - `loose` @ 38691ed · ahead 0 · behind 0
 

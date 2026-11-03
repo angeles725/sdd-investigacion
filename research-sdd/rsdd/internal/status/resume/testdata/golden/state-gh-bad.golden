@@ -22,6 +22,17 @@ rc: 0
       "behind": 0
     },
     {
+      "path": "@ROOT@/wt sp é",
+      "branch": "feat/u",
+      "head": "130b5d55ecfaa7d1a45373a519bb837dd01403da",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 0,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
       "path": "@ROOT@/wt-a",
       "branch": "feat/a",
       "head": "02f75b2968a22cd6ebcdaedbeb1f980af17b46a3",
@@ -71,6 +82,12 @@ rc: 0
       "name": "ahead1",
       "head": "531e1c854e0ed4469964401811517fb53402e286",
       "ahead": 1,
+      "behind": 0
+    },
+    {
+      "name": "bad-�-name",
+      "head": "130b5d55ecfaa7d1a45373a519bb837dd01403da",
+      "ahead": 0,
       "behind": 0
     },
     {
