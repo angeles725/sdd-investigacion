@@ -17,9 +17,9 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
-// zipToolbelt still holds analysis_manifest.py, which the --manifest-cli argument names (the commands build the manifest in
+// zipToolbelt is the frozen oracle copy (core consolidation, #2561) of analysis_manifest.py, which the --manifest-cli argument names (the commands build the manifest in
 // process; the path is an argument value only and is never executed here).
-const zipToolbelt = "../../../toolbelt"
+const zipToolbelt = "../core/adapter/testdata/frozen"
 
 var fakeNow = time.Date(2026, 1, 2, 3, 4, 5, 678901000, time.UTC)
 

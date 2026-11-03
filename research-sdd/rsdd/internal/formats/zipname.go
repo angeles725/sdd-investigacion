@@ -91,7 +91,7 @@ func zipDecodeCP437(raw []byte) string {
 		if b < 0x80 {
 			out[i] = rune(b)
 		} else {
-			out[i] = zipCP437[b-0x80]
+			out[i] = zipCP437[b&0x7f] // b >= 0x80 here: the low seven bits index the high half (no b-0x80 to flip)
 		}
 	}
 	return string(out)

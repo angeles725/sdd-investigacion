@@ -1,0 +1,8 @@
+Frozen verbatim copies of research-sdd/toolbelt/resume-state.sh and research-sdd/toolbelt/resume-render.sh
+at origin/main 0c339974ccee4047a2ba730f244750fe62bd97e2 (kit issue #2578). The scripts stay the oracle of the
+differential tests until the shims land; the bytes here are never edited.
+
+resume-state.sh   sha256 552aead4b47bad0054928d23b8d7bb5e860c15ee0e70a7725706535202d55aa7
+resume-render.sh  sha256 30daa171fa444563e3866cba35ca14cc112ca4d6215dd856f9096caa91bc4340
+
+resume-render.sh runs its sibling resume-state.sh from its own directory, so the pair is always used together.

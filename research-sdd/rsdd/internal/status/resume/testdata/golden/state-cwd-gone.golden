@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: not a directory: @ROOT@/not-a-dir

@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh] [--json]

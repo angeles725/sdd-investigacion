@@ -24,7 +24,7 @@ func legacy(t testing.TB, script string, args ...string) (code int, stderr strin
 		t.Fatal(err)
 	}
 	dir := tb
-	if script != "analysis_manifest.py" { // the retired tools live in their frozen copy, the manifest CLI in the toolbelt
+	if script != "analysis_manifest.py" { // the retired tools live in their frozen copy, the manifest CLI in the frozen toolbelt copy
 		if dir, err = filepath.Abs(zipLegacyDir); err != nil {
 			t.Fatal(err)
 		}

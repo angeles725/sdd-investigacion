@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-render.sh: --cwd/--base-ref/--no-gh apply to resume-state.sh and cannot be combined with --json

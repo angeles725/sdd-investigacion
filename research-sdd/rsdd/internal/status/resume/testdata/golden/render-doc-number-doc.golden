@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-render.sh: wrong schema: [] (want research-sdd.resume-state/v1)

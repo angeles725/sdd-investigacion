@@ -1,6 +1,7 @@
 package formats
 
 import (
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -8,7 +9,8 @@ import (
 	"math"
 	"math/bits"
 	"os"
-	"sort"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -99,11 +101,7 @@ func (r *qnxReader) readAt(pos int64, n uint64) ([]byte, error) {
 		if err != nil {
 			return nil, ioErrOf(err)
 		}
-		avail := uint64(0)
-		if st.Size() > pos {
-			avail = uint64(st.Size() - pos)
-		}
-		n = min(n, avail)
+		n = min(n, uint64(max(st.Size()-pos, 0))) // what the file holds from pos on
 	}
 	// lseek then read, as the script does: a position the kernel refuses to seek to is an OSError (EINVAL),
 	// where a bare pread would just report end of file.
@@ -132,7 +130,7 @@ func (r *qnxReader) blockPos(blk uint32) (int64, error) {
 		return 0, parseErrf("block %d position is out of range", blk)
 	}
 	pos := int64(lo)
-	if r.poff > 0 && pos > math.MaxInt64-r.poff {
+	if pos > math.MaxInt64-max(r.poff, 0) { // a negative poff cannot overflow upwards
 		return 0, parseErrf("block %d position is out of range", blk)
 	}
 	return r.poff + pos, nil
@@ -266,13 +264,12 @@ func (r *qnxReader) readRNFile(rn rootNode) ([]byte, error) {
 	}
 	limit := rn.size
 	if st, err := r.f.Stat(); err == nil {
-		real := uint64(0)
-		switch {
-		case r.poff >= 0 && st.Size() > r.poff:
-			real = uint64(st.Size() - r.poff)
-		case r.poff < 0:
-			real = uint64(st.Size()) + uint64(-(r.poff + 1)) + 1 // saturating enough: only the min below matters
-		}
+		// real is the bytes the image holds from the partition start: size - poff, floored at 0. It is computed
+		// in uint64 so a negative poff (a partition starting before the file) adds without overflowing.
+		ahead := uint64(max(r.poff, 0))             // poff when positive, else 0
+		behind := uint64(-(min(r.poff, 0) + 1)) + 1 // -poff when negative, else 0 (no overflow at MinInt64)
+		total := uint64(st.Size()) + behind
+		real := total - min(ahead, total)
 		if real > 0 {
 			limit = min(rn.size, real)
 		}
@@ -289,10 +286,7 @@ func (r *qnxReader) readRNFile(rn rootNode) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if uint64(len(buf)) > rn.size {
-		buf = buf[:rn.size]
-	}
-	return buf, nil
+	return buf[:min(uint64(len(buf)), rn.size)], nil
 }
 
 func (r *qnxReader) inode(ino uint32) (qnxInode, error) {
@@ -342,7 +336,7 @@ func (r *qnxReader) listdir(ino uint32) ([]qnxEntry, error) {
 		return nil, err
 	}
 	// A short read is a parse error, never an empty directory (anti-silent-zero).
-	if node.size > 0 && uint64(len(data)) < node.size {
+	if uint64(len(data)) < node.size {
 		return nil, parseErrf("directory data truncated: inode %d declared %d bytes but only %d were readable (image truncated or block past EOF)", ino, node.size, len(data))
 	}
 	var entries []qnxEntry
@@ -391,11 +385,8 @@ func (r *qnxReader) walk(ino uint32, base string, depth int, visited map[uint32]
 	if err != nil {
 		return err
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].name != entries[j].name {
-			return entries[i].name < entries[j].name
-		}
-		return entries[i].ino < entries[j].ino
+	slices.SortFunc(entries, func(a, b qnxEntry) int {
+		return cmp.Or(strings.Compare(a.name, b.name), cmp.Compare(a.ino, b.ino))
 	})
 	for _, e := range entries {
 		path := base + "/" + e.name
@@ -478,13 +469,14 @@ func writeNew(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	f := os.NewFile(uintptr(fd), path)
+	return writeThenClose(os.NewFile(uintptr(fd), path), data)
+}
+
+// writeThenClose writes data and closes f (always); a write failure is reported in preference to a close one.
+func writeThenClose(f io.WriteCloser, data []byte) error {
 	_, werr := f.Write(data)
 	cerr := f.Close()
-	if werr != nil {
-		return werr
-	}
-	return cerr
+	return cmp.Or(werr, cerr)
 }
 
 // ioFailure turns an I/O error into the "I/O error: ..." text of the Python OSError handler.
