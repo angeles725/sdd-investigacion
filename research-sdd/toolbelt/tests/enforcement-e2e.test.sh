@@ -384,9 +384,11 @@ SID_S1="s1-sess-e2e"; mksession "$T_S1" "$SID_S1"; add_block "$T_S1" "e2e-block1
 mkdir -p "$T_S1/tools/hooks" && cp "$T_R2/tools/hooks/kit-run.sh" "$T_S1/tools/hooks/kit-run.sh"   # the runner init installed into the R2 target (a tracked file of the target)
 MOCK_GH_S1="$ROOT/mockbin-s1"; mock_gh "$MOCK_GH_S1" auth-ok
 s1_check() {   # <kit-or-bogus> <home> : 0 when the wired command, run exactly as Claude Code would, BLOCKS. The block-once marker is per session, so it is cleared first.
+  # RSDD_BIN survives env -i: retro-gate.sh is an rsdd_exec shim, and without it rsdd-exec.sh would build
+  # <kit>/bin/rsdd inside the repo tree (kit-tree hermeticity, kit issue #1156). Empty when the caller set none.
   local out; rm -f "$T_S1/.claude/.rsdd-retro-blocked-$SID_S1"
   out="$(printf '{"session_id":"%s","stop_hook_active":false,"hook_event_name":"Stop","cwd":"/tmp"}' "$SID_S1" |
-    env -i PATH="$MOCK_GH_S1:$PATH" HOME="$2" CLAUDE_PROJECT_DIR="$T_S1" RESEARCH_SDD_KIT="$1" RSDD_CLAUDE_PROJECTS_DIR="$RSDD_CLAUDE_PROJECTS_DIR" "$BASH_BIN" -c "$_s1_cmd" 2>/dev/null)"
+    env -i PATH="$MOCK_GH_S1:$PATH" HOME="$2" CLAUDE_PROJECT_DIR="$T_S1" RESEARCH_SDD_KIT="$1" RSDD_BIN="${RSDD_BIN:-}" RSDD_CLAUDE_PROJECTS_DIR="$RSDD_CLAUDE_PROJECTS_DIR" "$BASH_BIN" -c "$_s1_cmd" 2>/dev/null)"
   [ "$(jq -r '.decision // empty' <<<"$out" 2>/dev/null)" = block ]
 }
 mkdir -p "$ROOT/s1-home"
@@ -532,6 +534,16 @@ if [ "$_r3c_healthy" -eq 1 ] && [ "$_r3t_pass" -eq 1 ] && [ "$_r3t_rc" -eq "$_r3
   ok "R3-TOOTH: mutant (threshold=999) at bsr=11 behaves exactly like the real status at bsr=0 (rc=$_r3t_rc, no RETRO-DUE) → R3 check would FAIL (bites)"
 else
   no "R3-TOOTH: mutant (threshold=999) should match the below-threshold control (rc=$_r3c_rc out=[$_r3c_out]) but got rc=$_r3t_rc out=[$_r3t_out]"
+fi
+
+# The gate is `rsdd gate retro` now (kit issues #2367, #2368) and retro-gate.sh a shim: the sentinel mutants below edit
+# the text of the old bash script and cannot apply. Their controls (seeding call skipped, gh-auth warning dropped) are
+# Go tests in research-sdd/rsdd/internal/gate (retrogate_cases_seed_test.go, run against the frozen original too).
+if grep -q 'rsdd_exec' "$GATE_SUT"; then
+  echo "-- R5-TOOTH / R7-TOOTH: the gate is a Go command; mutants live in internal/gate tests --"
+  echo
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
 fi
 
 # ── R5-TOOTH: mutant gate (SEEDING-CALL stripped) → seeder not called ─────────
