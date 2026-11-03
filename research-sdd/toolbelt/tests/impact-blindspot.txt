@@ -73,7 +73,6 @@ stage-retro-issues-unclassifiable reach=research-sdd/toolbelt/lib/* stages every
 state-update reach=research-sdd/toolbelt/lib/* copies or links the whole toolbelt/kit into a fixture
 sweep-audits reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 sweep-audits-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
-sweep-breakthroughs reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also builds a script name at run time (${x}.sh)
 sweep-breakthroughs-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)
 sweep-retros reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh); also uses eval on built text; the script it runs is not a literal name
 sweep-retros-hook reach=research-sdd/toolbelt/lib/* stages every toolbelt/lib file via rsdd_stage_libs (tests/lib/stage-libs.sh)

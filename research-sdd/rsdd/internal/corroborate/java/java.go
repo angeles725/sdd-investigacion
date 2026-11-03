@@ -12,8 +12,8 @@
 //
 // Differences from the script, each pinned by a test:
 //   - the manifest builder, verifier and canonical writer run in-process (internal/core/adapter) instead of
-//     being loaded from the module --manifest-module names; the flag is still required and its path is still
-//     protected from the output root;
+//     being loaded from the module --manifest-module names; the flag is accepted for compatibility and ignored
+//     (never resolved, read or protected);
 //   - the argument parser is the stdlib flag package: abbreviated long options are not accepted, and the usage
 //     text names corroborate-java;
 //   - the classfile-facts subcommand is `rsdd corroborate classfile`;
@@ -177,7 +177,7 @@ func (e *env) pipeline(o options, st *state) (int, error) {
 		"cfr":        e.s.Env("RSDD_CORROBORATE_CFR"),
 		"procyon":    e.s.Env("RSDD_CORROBORATE_PROCYON"),
 	}
-	protected := []string{inputPath, wrapper, resolveLoose(absolute(o.manifestModule, cwd)), bwrap, java, javap, jdeps}
+	protected := []string{inputPath, wrapper, bwrap, java, javap, jdeps}
 	if err := protectDestination(destination, protected); err != nil {
 		return 0, err
 	}

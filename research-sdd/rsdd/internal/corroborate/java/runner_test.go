@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -61,6 +62,34 @@ func TestAdapterIsStoppedAtTheTimeoutMinusTheCleanupMargin(t *testing.T) {
 	if el := time.Since(start); el > 2500*time.Millisecond {
 		t.Errorf("stopping took %v", el)
 	}
+}
+
+// On a timeout the whole group gets TERM and then KILL: a descendant that ignores TERM must still die. Stopping
+// only the leader (cmd.Process.Kill) would leave it running.
+func TestTimeoutKillsADescendantThatIgnoresTerm(t *testing.T) {
+	e, root := runnerEnv(t)
+	pidFile := filepath.Join(root, "child.pid")
+	out, err := e.runAdapter(sh(`(trap '' TERM; sleep 30) & echo $! > child.pid; sleep 30`), root, root, baseEnv, 1, 10, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.status != "timeout" {
+		t.Fatalf("outcome = %+v, want a timeout", out)
+	}
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	for i := 0; i < 100; i++ {
+		stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+		if err != nil || strings.Fields(string(stat))[2] == "Z" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+	t.Fatalf("descendant %d survived the timeout stop", pid)
 }
 
 func TestDescendantsHoldingThePipesAreKilledWithinTheDeadline(t *testing.T) {

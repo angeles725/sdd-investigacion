@@ -44,6 +44,32 @@ type pyOutcome struct {
 	stdout, stderr string
 }
 
+// legacyBootstrap runs the frozen legacy tool with --manifest-cli made optional and always pointing at the real
+// analysis_manifest.py: the port accepts the flag and ignores it, so the oracle must not depend on what the caller
+// passed for it. Everything else is the legacy tool, unmodified.
+const legacyBootstrap = `
+import sys, importlib.util
+from pathlib import Path
+legacy, manifest, argv = sys.argv[1], sys.argv[2], sys.argv[3:]
+spec = importlib.util.spec_from_file_location("legacy_capa", legacy)
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+orig = m._parser
+def patched():
+    p = orig()
+    for a in p._actions:
+        if a.dest == "manifest_cli": a.required = False
+    parse = p.parse_args
+    def parse_args(av=None, *x, **k):
+        ns = parse(av, *x, **k)
+        ns.manifest_cli = Path(manifest)
+        return ns
+    p.parse_args = parse_args
+    return p
+m._parser = patched
+sys.exit(m.main(argv))
+`
+
 // runLegacy runs the legacy CLI inside rig r with its environment.
 func runLegacy(t *testing.T, r *rig, extraEnv []string, args ...string) pyOutcome {
 	t.Helper()
@@ -52,7 +78,7 @@ func runLegacy(t *testing.T, r *rig, extraEnv []string, args ...string) pyOutcom
 		t.Fatal(err)
 	}
 	script, _ := filepath.Abs(legacyScript)
-	cmd := exec.Command(python312(t), append([]string{script}, args...)...)
+	cmd := exec.Command(python312(t), append([]string{"-c", legacyBootstrap, script, filepath.Join(tb, "analysis_manifest.py")}, args...)...)
 	cmd.Dir = r.root
 	cmd.Env = append(append(r.environ(), "PYTHONPATH="+tb, "PYTHONDONTWRITEBYTECODE=1", "RSDD_BIN="+rsddBinary(t)), extraEnv...)
 	var out, errb bytes.Buffer

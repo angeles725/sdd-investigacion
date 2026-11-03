@@ -133,7 +133,7 @@ func scenarios() []scenario {
 		{name: "usage-help-short-after-valid-options", tools: both(), raw: true, args: []string{"--input", "in.pcap", "-h"}},
 		{name: "usage-no-arguments", tools: both(), raw: true, args: nil},
 		{name: "usage-missing-input", tools: both(), raw: true, args: []string{"--output", "out", "--manifest-cli", "@MANIFEST@"}},
-		{name: "usage-missing-manifest-cli", tools: both(), raw: true, args: []string{"--input", "in.pcap", "--output", "out"}},
+		{name: "manifest-cli-omitted", tools: both(), raw: true, args: []string{"--input", "in.pcap", "--output", "out"}},
 		{name: "usage-unknown-option", tools: both(), raw: true, args: []string{"--input", "in.pcap", "--output", "out", "--manifest-cli", "@MANIFEST@", "--bogus"}},
 		{name: "usage-unknown-short-option-and-stray-values", tools: both(), raw: true, args: []string{"-x", "stray", "--input", "in.pcap", "--output", "out", "--manifest-cli", "@MANIFEST@", "more"}},
 		{name: "usage-invalid-int", tools: both(), raw: true, args: []string{"--input", "in.pcap", "--output", "out", "--manifest-cli", "@MANIFEST@", "--timeout-seconds", "x"}},

@@ -431,7 +431,7 @@ func zipStoredRun(z *zipFlags, s cli.Stdio) (unsynced bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if err := zipFinalize(s, z.manifest, stage, root, spec); err != nil {
+	if err := zipFinalize(s, stage, root, spec); err != nil {
 		return false, err
 	}
 	if err := zipValidateTree(stage, expectedFiles, expectedDirs); err != nil {

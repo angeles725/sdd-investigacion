@@ -3,6 +3,7 @@ package java
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -382,7 +383,38 @@ func TestNoDecompilerJarsMeansThreeUnavailableEngines(t *testing.T) {
 	}
 }
 
-// The manifest is built in-process (core/adapter): the module --manifest-module names is required and kept out of
+// --manifest-module is accepted and ignored: omitted, or naming a path that does not exist, the run succeeds and
+// publishes the same report (the manifest steps run in process).
+func TestManifestModuleIsOptionalAndIgnored(t *testing.T) {
+	h := newHarness(t)
+	var without []string
+	for i := 0; i < len(h.args()); i++ {
+		if h.args()[i] == "--manifest-module" {
+			i++ // drop the flag and its value
+			continue
+		}
+		without = append(without, h.args()[i])
+	}
+	missing := append(append([]string{}, without...), "--manifest-module", filepath.Join(h.root, "no", "such", "analysis_manifest.py"))
+	var want map[string]any
+	for name, args := range map[string][]string{"omitted": without, "missing": missing} {
+		r := h.run(append(args, "--output", h.out(name))...)
+		if r.rc != 0 || r.err != "" {
+			t.Fatalf("%s: rc=%d stderr=%q", name, r.rc, r.err)
+		}
+		rep := h.report(h.out(name))
+		if rep["status"] != "complete" {
+			t.Fatalf("%s: status = %v", name, rep["status"])
+		}
+		if want == nil {
+			want = rep
+		} else if fmt.Sprint(rep["engines"]) != fmt.Sprint(want["engines"]) {
+			t.Errorf("%s: engines differ from the other variant", name)
+		}
+	}
+}
+
+// The manifest is built in-process (core/adapter): the module --manifest-module names is accepted and kept out of
 // the outputs, but never read. An unreadable module therefore changes nothing; a port that loaded it would fail.
 func TestManifestModuleIsNeverLoaded(t *testing.T) {
 	if os.Geteuid() == 0 {

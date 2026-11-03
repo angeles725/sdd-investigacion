@@ -7,64 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 )
 
 // toolbelt/research-sdd-archive.sh is now a compatibility shim over `rsdd corpus archive`. These tests run the REAL shim
 // with RSDD_BIN pointing at a binary built into a temp dir (never the kit's bin/: an unset RSDD_BIN would build there and
 // break the kit-tree check) and hold it to the frozen legacy script.
-
-var (
-	archiveBuildOnce sync.Once
-	archiveBuiltBin  string
-	archiveBuildErr  error
-)
-
-// TestMain removes the shared rsdd binary directory after the whole package ran: the frozen script's kit-catalog
-// fallback (rsdd corpus catalog, kit issue #2535) needs one binary for every parity case, so no single test owns it.
-func TestMain(m *testing.M) {
-	code := m.Run()
-	if archiveBuiltBin != "" {
-		_ = os.RemoveAll(filepath.Dir(archiveBuiltBin))
-	}
-	os.Exit(code)
-}
-
-func init() { archiveTestBin = archiveRsddBin }
-
-func archiveRsddBin(t testing.TB) string {
-	t.Helper()
-	archiveBuildOnce.Do(func() {
-		dir, err := os.MkdirTemp(os.Getenv("TMPDIR"), "archshim")
-		if err != nil {
-			archiveBuildErr = err
-			return
-		}
-		archiveBuiltBin = filepath.Join(dir, "rsdd")
-		goBin, err := exec.LookPath("go")
-		if err != nil {
-			archiveBuildErr = err
-			return
-		}
-		c := exec.Command(goBin, "build", "-o", archiveBuiltBin, "./cmd/rsdd")
-		c.Dir = archiveReal(t, "../..")
-		if out, err := c.CombinedOutput(); err != nil {
-			archiveBuildErr = &archiveBuildFailure{err, string(out)}
-		}
-	})
-	if archiveBuildErr != nil {
-		t.Fatalf("cannot build rsdd for the shim test: %v", archiveBuildErr)
-	}
-	return archiveBuiltBin
-}
-
-type archiveBuildFailure struct {
-	err error
-	out string
-}
-
-func (b *archiveBuildFailure) Error() string { return b.err.Error() + ": " + b.out }
 
 func TestArchiveShimMatchesLegacy(t *testing.T) {
 	if why := archiveHaveTools(); why != "" {

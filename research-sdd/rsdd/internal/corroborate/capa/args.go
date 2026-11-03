@@ -36,7 +36,7 @@ type optSpec struct {
 var optSpecs = []optSpec{
 	{name: "-h", help: true}, {name: "--help", help: true},
 	{name: "--input", required: true}, {name: "--output", required: true}, {name: "--rules"},
-	{name: "--timeout"}, {name: "--max-capabilities"}, {name: "--manifest-cli", required: true},
+	{name: "--timeout"}, {name: "--max-capabilities"}, {name: "--manifest-cli"},
 }
 
 func findSpec(name string) (int, bool) {

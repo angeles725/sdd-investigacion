@@ -38,17 +38,24 @@ if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
     || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
 fi
 export RSDD_BIN
-command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (the manifest tool needs it)" >&2; exit 2; }
+# A guard stands in for rsdd where the shim's arguments are checked: it refuses (exit 9) any --manifest-cli and otherwise runs
+# the real binary, so a shim that hands the manifest tool path over again is caught (the Go commands accept and ignore the flag).
+RSDD_REAL_BIN="$RSDD_BIN"; export RSDD_REAL_BIN
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do [ "$a" = "--manifest-cli" ] && { echo "rsdd-guard: unexpected --manifest-cli" >&2; exit 9; }; done' \
+  'exec "$RSDD_REAL_BIN" "$@"' >"$ROOT/rsdd-guard" && chmod 755 "$ROOT/rsdd-guard"
+RSDD_BIN="$ROOT/rsdd-guard" "$SUT" --bogus >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then ok "the shim hands no --manifest-cli to rsdd"; else no "the shim hands a --manifest-cli to rsdd (guard exit $rc)"; fi
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
 
 mkdir "$ROOT/out" && chmod 755 "$ROOT/out" || exit 2
 printf 'MZ\220\000 some binary bytes' >"$ROOT/in.bin"
 run() { "$SUT" --input "$1" --output "$2" "${@:3}"; }
 
-# The shim injects --manifest-cli itself: the usage error names only the options the caller owes.
+# The shim needs no --manifest-cli: the usage error names only the options the caller owes.
 "$SUT" >"$ROOT/out.txt" 2>"$ROOT/err.txt"; rc=$?
 if [ "$rc" -eq 2 ] && [ ! -s "$ROOT/out.txt" ] && grep -q '^usage: corroborate-floss ' "$ROOT/err.txt" \
   && grep -qx 'corroborate-floss: error: the following arguments are required: --input, --output' "$ROOT/err.txt"; then
-  ok "the shim reaches the Go command and supplies --manifest-cli itself"; else no "usage through the shim (exit $rc): $(cat "$ROOT/err.txt")"; fi
+  ok "the shim reaches the Go command, which needs no --manifest-cli"; else no "usage through the shim (exit $rc): $(cat "$ROOT/err.txt")"; fi
 
 "$SUT" -h >"$ROOT/out.txt" 2>"$ROOT/err.txt"; rc=$?
 if [ "$rc" -eq 0 ] && [ ! -s "$ROOT/err.txt" ] && grep -q '^usage: corroborate-floss ' "$ROOT/out.txt" && grep -q -- '--max-string-len' "$ROOT/out.txt"; then
@@ -71,7 +78,7 @@ if command -v bwrap >/dev/null 2>&1 && bwrap --ro-bind / / true >/dev/null 2>&1;
     'echo "{\"strings\":{\"static_strings\":[{\"string\":\"alpha\",\"offset\":1,\"encoding\":\"ASCII\"}]}}"' >"$ROOT/venv/bin/floss"
   chmod +x "$ROOT/venv/bin/floss"
   if PATH="$ROOT/venv/bin:$PATH" RSDD_FLOSS="$ROOT/venv/bin/floss" run "$ROOT/in.bin" "$ROOT/out/whole" 2>"$ROOT/err.txt" \
-    && python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/whole" "$ROOT/out/whole/engine/analysis-manifest.v1.json" >/dev/null \
+    && "$RSDD_BIN" adapter manifest verify --root "$ROOT/out/whole" "$ROOT/out/whole/engine/analysis-manifest.v1.json" >/dev/null \
     && python3 - "$ROOT/out/whole/floss-evidence.v1.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -92,8 +99,9 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: corroborate-floss.sh shim mutation controls --"
-# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
-KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+RSDD_BIN="$ROOT/rsdd-guard"; export RSDD_BIN   # every tooth run goes through the guard of the argument check above
+# a mutant of the shim must still find lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib"
 # the probe asks for a refused cap and prints the last stderr line as a verdict: the original and every mutant exit 2,
 # so the verdict line is what tells them apart
 printf '%s\n' '#!/usr/bin/env bash' 'err="$("$1" --input "$3" --output "$2/tooth-$$" --timeout 0 2>&1 >/dev/null)"' \
@@ -109,6 +117,6 @@ tooth() { # LABEL SED_EXPR BAD_VERDICT_FRAGMENT
 }
 tooth "shim dispatches to the sibling command" 's/rsdd_exec corroborate floss/rsdd_exec corroborate java-fidelity/' 'VERDICT:'
 tooth "shim drops the caller's arguments" 's/ "\$@"$//' 'the following arguments are required: --input, --output'
-tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 'the following arguments are required: --manifest-cli'
+tooth "shim hands the manifest tool over again" 's/ "\$@"$/ --manifest-cli \/nonexistent\/analysis_manifest.py "$@"/' 'rsdd-guard: unexpected --manifest-cli'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

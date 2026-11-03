@@ -2,7 +2,6 @@ package formats
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,7 +11,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode"
 
@@ -232,18 +230,13 @@ func zipISONow(t time.Time) string {
 	return s + "Z"
 }
 
-// zipRunManifest runs one analysis-manifest verb in process (core/adapter) and relays its output. The
-// --manifest-cli file is only checked for existence, with the message the interpreter gave when it was
-// exec'd; it is not executed. A non-zero exit is an error.
-func zipRunManifest(s cli.Stdio, zipManifestCLI string, args ...string) error {
-	if _, err := os.Stat(pyPathJoin(s.Cwd, zipManifestCLI)); err != nil {
-		var en syscall.Errno
-		if errors.As(err, &en) {
-			fmt.Fprintf(s.Err, "python3: can't open file %s: %s\n", pyRepr(zipManifestCLI), osErrorText(en, ""))
-		}
-		return fmt.Errorf("analysis manifest %s failed (exit status 2, stop reason %q)", verbOf(args), "")
-	}
-	if rc := adapter.ManifestRun(args, s); rc != 0 {
+// zipManifestRun is the in-process manifest tool; a test replaces it to force a failing verb.
+var zipManifestRun = adapter.ManifestRun
+
+// zipRunManifest runs one analysis-manifest verb in process (core/adapter) and relays its output. A non-zero
+// exit is an error. The --manifest-cli argument the commands still accept is never consulted.
+func zipRunManifest(s cli.Stdio, args ...string) error {
+	if rc := zipManifestRun(args, s); rc != 0 {
 		return fmt.Errorf("analysis manifest %s failed (exit status %d, stop reason %q)", verbOf(args), rc, "")
 	}
 	return nil
@@ -258,18 +251,18 @@ func verbOf(args []string) string {
 
 // zipFinalize runs create then verify of the analysis manifest, locks the tree (0700 directories, 0400
 // files) and returns. The spec file is removed between the two.
-func zipFinalize(s cli.Stdio, zipManifestCLI, stage string, stageRoot *os.Root, spec []byte) error {
+func zipFinalize(s cli.Stdio, stage string, stageRoot *os.Root, spec []byte) error {
 	if err := zipCreate(stageRoot, "manifest-spec.json", spec); err != nil {
 		return err
 	}
 	manifest := stage + "/analysis-manifest.v1.json"
-	if err := zipRunManifest(s, zipManifestCLI, "create", "--root", stage, "--spec", stage+"/manifest-spec.json", "--output", manifest); err != nil {
+	if err := zipRunManifest(s, "create", "--root", stage, "--spec", stage+"/manifest-spec.json", "--output", manifest); err != nil {
 		return err
 	}
 	if err := os.Remove(stage + "/manifest-spec.json"); err != nil {
 		return err
 	}
-	if err := zipRunManifest(s, zipManifestCLI, "verify", "--root", stage, manifest); err != nil {
+	if err := zipRunManifest(s, "verify", "--root", stage, manifest); err != nil {
 		return err
 	}
 	return filepath.WalkDir(stage, func(path string, d fs.DirEntry, err error) error {

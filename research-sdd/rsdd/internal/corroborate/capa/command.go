@@ -135,9 +135,6 @@ func execute(opts options, s cli.Stdio) (code int, err error) {
 			return 0, &fail{osErrorText(serr, destination)}
 		}
 	}
-	if _, err := resolve(opts.manifestCLI, true, s.Cwd); err != nil {
-		return 0, &fail{relativeFailure(err, opts.manifestCLI, s.Cwd)}
-	}
 
 	home := func() (string, bool) { return lookupEnv(s, "HOME") }
 	renv := rulesEnv{cwd: s.Cwd, home: home}
@@ -306,7 +303,7 @@ func executable(host adapter.Host, s cli.Stdio, name, envKey, searchPath string)
 }
 
 // inProcess marks the manifest "CLI" that EmitEvidence invokes: the manifest steps run inside this process
-// through core/adapter (the --manifest-cli path is validated but not executed).
+// through core/adapter (--manifest-cli is accepted for compatibility and ignored).
 const inProcess = "rsdd-in-process"
 
 // manifestRunner executes the analysis-manifest verbs in-process.

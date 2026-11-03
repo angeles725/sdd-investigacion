@@ -3,16 +3,20 @@
 package formats
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
 // pub is a fresh output parent: owned, not group/world writable, on the test filesystem.
@@ -268,8 +272,7 @@ func TestZipUsageErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"metadata no args", nil, "the following arguments are required: --input, --output, --manifest-cli"},
-		{"metadata missing manifest", []string{"--input", "a", "--output", "b"}, "the following arguments are required: --manifest-cli"},
+		{"metadata no args", nil, "the following arguments are required: --input, --output"},
 		{"metadata positional", []string{"--input", "a", "--output", "b", "--manifest-cli", "c", "extra"}, "unrecognized arguments: extra"},
 		{"metadata bad int", []string{"--input", "a", "--output", "b", "--manifest-cli", "c", "--max-entries", "many"}, "invalid int value"},
 		{"metadata unknown flag", []string{"--input", "a", "--output", "b", "--manifest-cli", "c", "--nope"}, "flag provided but not defined"},
@@ -293,19 +296,65 @@ func TestZipUsageErrors(t *testing.T) {
 	}
 }
 
+// A failing manifest verb ends the run with exit 2 and publishes nothing, for each verb the commands run. The
+// verb is forced to fail through the zipManifestRun seam (the --manifest-cli argument is never consulted).
 func TestZipFailedManifestPublishesNothing(t *testing.T) {
-	t.Parallel()
-	parent := pub(t)
-	for name, run := range map[string]func(args []string) int{
-		"metadata": func(a []string) int { c, _, _ := runGo(t, ZipMetadata, "/", a...); return c },
-		"stored":   func(a []string) int { c, _, _ := runGo(t, ZipStored, "/", a...); return c },
-	} {
-		in := fixture(t, "good.zip")
-		args := []string{"--input", in, "--output", filepath.Join(parent, name), "--manifest-cli", "/nonexistent/analysis_manifest.py"}
-		if code := run(args); code != 2 {
-			t.Errorf("%s: exit %d", name, code)
+	old := zipManifestRun
+	t.Cleanup(func() { zipManifestRun = old })
+	for _, verb := range []string{"create", "verify"} {
+		zipManifestRun = func(args []string, s cli.Stdio) int {
+			if args[0] == verb {
+				fmt.Fprintln(s.Err, "analysis-manifest: refused")
+				return 2
+			}
+			return old(args, s)
 		}
-		assertNoLeftovers(t, parent, name)
+		parent := pub(t)
+		for name, run := range map[string]func(args []string) int{
+			"metadata": func(a []string) int { c, _, _ := runGo(t, ZipMetadata, "/", a...); return c },
+			"stored":   func(a []string) int { c, _, _ := runGo(t, ZipStored, "/", a...); return c },
+		} {
+			in := fixture(t, "good.zip")
+			args := []string{"--input", in, "--output", filepath.Join(parent, name)}
+			if code := run(args); code != 2 {
+				t.Errorf("%s/%s: exit %d", verb, name, code)
+			}
+			assertNoLeftovers(t, parent, name)
+		}
+	}
+}
+
+// --manifest-cli is accepted and ignored: omitted, or naming a path that does not exist, both commands succeed
+// and publish the same evidence file (the manifest steps run in process).
+func TestZipManifestCLIIsAcceptedAndIgnored(t *testing.T) {
+	for name, run := range map[string]func(args []string) (int, string, string){
+		"metadata": func(a []string) (int, string, string) { return runGo(t, ZipMetadata, "/", a...) },
+		"stored":   func(a []string) (int, string, string) { return runGo(t, ZipStored, "/", a...) },
+	} {
+		file := map[string]string{"metadata": "zip-metadata.v1.json", "stored": "zip-stored.v1.json"}[name]
+		var want []byte
+		in := fixture(t, "good.zip")
+		parent := pub(t)
+		for _, v := range []struct {
+			tag  string
+			flag []string
+		}{{"omitted", nil}, {"missing", []string{"--manifest-cli", "/nonexistent/analysis_manifest.py"}}} {
+			out := filepath.Join(parent, name+"-"+v.tag)
+			code, stdout, stderr := run(append([]string{"--input", in, "--output", out}, v.flag...))
+			if code != 0 {
+				t.Fatalf("%s/%s: exit %d stdout %q stderr %q", name, v.tag, code, stdout, stderr)
+			}
+			got, err := os.ReadFile(filepath.Join(out, file))
+			got = bytes.ReplaceAll(got, []byte(out), []byte("<OUT>"))
+			if err != nil {
+				t.Fatalf("%s/%s: %v", name, v.tag, err)
+			}
+			if want == nil {
+				want = got
+			} else if !bytes.Equal(got, want) {
+				t.Errorf("%s/%s: evidence differs from the other variant", name, v.tag)
+			}
+		}
 	}
 }
 
