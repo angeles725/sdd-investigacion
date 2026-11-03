@@ -1,0 +1,1 @@
+[{"normalise":"time","reason":"the manifest records when the analyzer ran"},{"normalise":"pid","pattern":"duration_ms[^0-9]*[0-9]+","reason":"the manifest records how long the analyzer ran in milliseconds"}]

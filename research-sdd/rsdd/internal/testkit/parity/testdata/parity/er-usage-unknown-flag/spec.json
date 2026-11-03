@@ -1,0 +1,15 @@
+{
+ "legacy": [
+  "toolbelt/ensure-remote.sh",
+  "{{input}}/target",
+  "--bogus"
+ ],
+ "rsdd": [
+  "corpus",
+  "ensure-remote",
+  "--toolbelt",
+  "{{input}}",
+  "{{input}}/target",
+  "--bogus"
+ ]
+}

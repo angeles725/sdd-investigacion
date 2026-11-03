@@ -109,3 +109,25 @@ Truncation is not applicable for this schema.
 output-dir/
   bacnet-evidence.v1.json    # canonical evidence (key-sorted JSON)
 ```
+
+## Intended differences from the Python tool
+
+The probe is now `rsdd bacnet corroborate-bacnet` (Go, kit issue #2438); `corroborate-bacnet.sh` is a compatibility
+shim that hands over to `lib/rsdd-exec.sh`. The evidence file, the `--json` stdout and the exit codes are
+byte-identical to the former `corroborate_bacnet.py`; the legacy script, frozen under `rsdd/internal/bacnet/testdata/legacy/`, is the oracle of the Go tests (frame
+builders and parsers over a seeded corpus, and end-to-end runs against loopback responders). The differences:
+
+- Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes and refused
+  a flag value that looks like an option), `-h` prints the usage on stderr and exits `0`, a bad value or an unknown
+  flag is a usage error (exit `2`) with Go's wording. `--port` and `--src-port` accept Python `int` syntax (ASCII
+  digits only) of any size; the plan-only file records the integer as given.
+- The plan-only exit `3` also prints a `DEGRADED: plan-only - ...` line on stderr (the Python tool printed
+  nothing), as the rsdd exit-code contract requires for exit `3`.
+- A negative or NaN `--timeout` with `--allow-live-probe` exits `1` with a one-line `ValueError: ...` message where
+  the Python tool died with a traceback (also exit `1`). The wording of operating-system and name-resolution
+  errors (`[Errno N] ...`) follows CPython 3.15; the exit codes are unchanged.
+- An infinite or too-large `--timeout` exits `2` with `OverflowError: timeout value out of range`; CPython words
+  this error per version (3.12 `platform time_t`, 3.15 `C PyTime_t`), so the Go text is its own.
+- A `--host` holding bytes that are not valid UTF-8 cannot be encoded in the evidence file (Python wrote `\udcXX`
+  escapes); the command exits `2`. Host names are resolved with the Go resolver (IPv4 only).
+- The frame builders emit only what the tool uses: a Who-Is without a device range.

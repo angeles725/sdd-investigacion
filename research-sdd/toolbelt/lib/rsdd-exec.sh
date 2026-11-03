@@ -104,7 +104,7 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     local kit="$1" bin="$1/bin/rsdd" tmp
     mkdir -p -- "$kit/bin" 2>/dev/null || return 3
     tmp="$(mktemp "$kit/bin/.rsdd.XXXXXX" 2>/dev/null)" || return 3
-    ( trap 'rm -f -- "$tmp"' EXIT; cd -- "$kit/rsdd" && h="$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "$h" && go build -ldflags "-s -w -X $_RSDD_EXEC_HASH_SYM=$h" -o "$tmp" ./cmd/rsdd && chmod 755 "$tmp" && mv -f "$tmp" "$bin" ) >&2 || return 1
+    ( trap 'rm -f -- "$tmp"' EXIT; cd -- "$kit/rsdd" && h="$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "$h" && CGO_ENABLED=0 go build -ldflags "-s -w -X $_RSDD_EXEC_HASH_SYM=$h" -o "$tmp" ./cmd/rsdd && chmod 755 "$tmp" && mv -f "$tmp" "$bin" ) >&2 || return 1
   }
 
   # _rsdd_exec_lock_wait — sets _RSDD_EXEC_LOCKWAIT: seconds to wait for the rebuild lock. Default 120; the env var
@@ -339,7 +339,7 @@ fi
 #          with an old mtime does. A binary that is missing or stale is rebuilt under an exclusive flock on
 #          <kit>/bin/.rsdd.lock, with freshness RE-CHECKED once the lock is held (a shim that waited does not
 #          rebuild what another one just built; the fresh path takes no lock). The build stamps the hash:
-#          `go run ./cmd/rsdd-srchash .` then `go build -ldflags "-s -w -X <SOURCE_HASH_SYM>=<hash>" -o <tmp>
+#          `go run ./cmd/rsdd-srchash .` then `CGO_ENABLED=0 go build -ldflags "-s -w -X <SOURCE_HASH_SYM>=<hash>" -o <tmp>
 #          ./cmd/rsdd` (inside <kit>/rsdd; <tmp> is a mktemp file in <kit>/bin, renamed onto <kit>/bin/rsdd so a
 #          racing shim never execs a half-written file); a failed stamp computation is a failed build. Build
 #          output goes to stderr only. If <kit>/bin cannot be created or written, the reason is `bin dir not

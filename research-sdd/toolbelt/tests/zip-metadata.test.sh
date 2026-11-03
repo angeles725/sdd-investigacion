@@ -1,29 +1,68 @@
 #!/usr/bin/env bash
+# zip-metadata.test.sh — the end-to-end check of the zip-metadata.sh compatibility shim (kit issue #2416, epic #2270).
+#
+# The parser moved to Go: `rsdd formats zip-metadata` (research-sdd/rsdd/internal/formats/zipmetadata.go). Its cases
+# (every legacy case of this suite, the legacy Python as the oracle over single-byte corruptions of the fixtures, and
+# the Go mutation controls) live in the Go tests (`go test ./internal/formats`, `make teeth`). This suite keeps a few
+# end-to-end cases through the shim and the mutation controls of the shim itself.
+#
+# Usage: zip-metadata.test.sh [--prove-teeth]     Exit: 0 all held · 1 regression · 2 harness error
 set -uo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; SUT="$HERE/../zip-metadata.sh"
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT; pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }; no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
-python3 - "$ROOT" <<'PY'
+HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
+TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
+SUT="$TB/zip-metadata.sh"
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh" || exit 2
+mutant_bootstrap mutant_chain mutant_tooth || exit 2
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+ROOT="$(mktemp -d)" || exit 2
+trap 'rm -rf "$ROOT"' EXIT
+pass=0; fail=0
+ok() { echo "  PASS  $1"; pass=$((pass+1)); }
+no() { echo "  FAIL  $1"; fail=$((fail+1)); }
+
+# The SUT hands over to the Go binary. $RSDD_BIN wins; otherwise one binary is built into the suite temp dir (never
+# into the tree). A suite that cannot get rsdd says so with a typed SKIP, or FAILS under RSDD_REQUIRE_GO=1.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$ROOT/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (fixtures and the manifest tool need it)" >&2; exit 2; }
+
+mkdir "$ROOT/in" "$ROOT/out" && chmod 755 "$ROOT/out" || exit 2
+python3 - "$ROOT/in" <<'PY' || exit 2
 import pathlib,struct,sys
 r=pathlib.Path(sys.argv[1])
-def make(path, entries=(), disk=0, sentinel=False, truncate=0):
+def make(path, entries=(), truncate=0):
  body=bytearray(); central=bytearray()
  for raw,flags,method,payload in entries:
   off=len(body); crc=0x12345678
   body+=struct.pack('<I5H3I2H',0x04034b50,20,flags,method,0,0,crc,len(payload),len(payload),len(raw),0)+raw+payload
   central+=struct.pack('<I6H3I5H2I',0x02014b50,20,20,flags,method,0,0,crc,len(payload),len(payload),len(raw),0,0,0,0,0,off)+raw
- count=len(entries); cd=len(body); body+=central
- end=struct.pack('<I4H2IH',0x06054b50,disk,disk,count,0xffff if sentinel else count,len(central),cd,0)
+ cd=len(body); body+=central
+ end=struct.pack('<I4H2IH',0x06054b50,0,0,len(entries),len(entries),len(central),cd,0)
  path.write_bytes((body+end)[:-truncate] if truncate else body+end)
-make(r/'empty.zip')
 make(r/'mixed.zip',[(b'ok.txt',0,0,b'PAYLOAD-NOT-METADATA'),(b'../evil',1,99,b'SECRET'),(b'\\root',0,8,b'X'),(b'/abs',0,0,b'Y'),(b'dup',0,0,b'A'),(b'dup',0,0,b'B'),(b'nul\0x',0,0,b'C')])
-make(r/'multi.zip',[],1); make(r/'zip64.zip',[],0,True); make(r/'truncated.zip',[],0,False,1)
-d=bytearray((r/'mixed.zip').read_bytes()); i=d.find(b'PK\x01\x02'); d[i:i+4]=b'BAD!'; (r/'malformed.zip').write_bytes(d)
+make(r/'truncated.zip',[],1)
 PY
-run(){ "$SUT" --input "$1" --output "$2" "${@:3}"; }
-if run "$ROOT/empty.zip" "$ROOT/empty" && run "$ROOT/mixed.zip" "$ROOT/a" && run "$ROOT/mixed.zip" "$ROOT/b" \
- && cmp -s "$ROOT/a/zip-metadata.v1.json" "$ROOT/b/zip-metadata.v1.json"; then ok "empty, mixed, and deterministic inventories"; else no "valid inventories"; fi
-if python3 - "$ROOT/a" <<'PY'
+run() { "$SUT" --input "$1" --output "$2" "${@:3}"; }
+
+if run "$ROOT/in/mixed.zip" "$ROOT/out/a" && run "$ROOT/in/mixed.zip" "$ROOT/out/b" && cmp -s "$ROOT/out/a/zip-metadata.v1.json" "$ROOT/out/b/zip-metadata.v1.json"; then
+  ok "the shim publishes a deterministic inventory"
+else no "the shim publishes a deterministic inventory"; fi
+
+if python3 - "$ROOT/out/a" <<'PY'
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); d=json.loads((p/'zip-metadata.v1.json').read_bytes()); e=d['entries']
 assert d['schema']=='zip-metadata.v1' and len(e)==7 and d['payload_bytes_read']==0
@@ -31,94 +70,46 @@ assert e[1]['encrypted'] and e[1]['method']==99 and e[1]['safety']['traversal']
 assert e[2]['safety']['backslash'] and e[3]['safety']['absolute']
 assert e[4]['safety']['duplicate'] and e[5]['safety']['duplicate'] and e[6]['safety']['nul']
 assert {x.name for x in p.iterdir()}=={'input','stdout.txt','stderr.txt','zip-metadata.v1.json','analysis-manifest.v1.json'}
+assert b'PAYLOAD-NOT-METADATA' not in (p/'input/central-directory.bin').read_bytes()
 PY
 then ok "dangerous, duplicate, encrypted, and unknown-method metadata is marked only"; else no "metadata contract"; fi
-if python3 "$HERE/../analysis_manifest.py" verify --root "$ROOT/a" "$ROOT/a/analysis-manifest.v1.json" >/dev/null; then ok "analysis manifest verifies"; else no "manifest verification"; fi
-if ! run "$ROOT/truncated.zip" "$ROOT/truncated" 2>/dev/null && ! run "$ROOT/malformed.zip" "$ROOT/malformed" 2>/dev/null && ! run "$ROOT/multi.zip" "$ROOT/multi" 2>/dev/null \
- && ! run "$ROOT/zip64.zip" "$ROOT/zip64" 2>/dev/null; then ok "truncated, malformed, multi-disk, and ZIP64 fail closed"; else no "invalid formats"; fi
-if ! run "$ROOT/mixed.zip" "$ROOT/cd-cap" --max-central-directory-bytes 10 2>/dev/null \
- && ! run "$ROOT/mixed.zip" "$ROOT/entry-cap" --max-entries 2 2>/dev/null \
- && ! run "$ROOT/mixed.zip" "$ROOT/input-cap" --max-input-bytes 4 2>/dev/null && ! run "$ROOT/mixed.zip" "$ROOT/field-cap" --max-field-bytes 3 2>/dev/null \
- && ! run "$ROOT/mixed.zip" "$ROOT/report-cap" --max-report-bytes 100 2>/dev/null; then ok "all byte, field, entry, and report caps fail closed"; else no "caps"; fi
-ln -s "$ROOT/mixed.zip" "$ROOT/link.zip"; mkdir "$ROOT/collision" "$ROOT/.occupied.stage"; echo keep >"$ROOT/collision/keep"; echo stage >"$ROOT/.occupied.stage/keep"
-if ! run "$ROOT/link.zip" "$ROOT/link-out" 2>/dev/null && ! run "$ROOT/mixed.zip" "$ROOT/collision" 2>/dev/null \
- && ! run "$ROOT/mixed.zip" "$ROOT/occupied" 2>/dev/null && [ -f "$ROOT/collision/keep" ] && [ -f "$ROOT/.occupied.stage/keep" ] && [ ! -e "$ROOT/link-out" ]; then ok "symlink and collision failures publish nothing"; else no "path failures"; fi
-if python3 - "$HERE/../zip_metadata.py" "$ROOT/mixed.zip" <<'PY'
-import importlib.util,os,pathlib,sys
-s=importlib.util.spec_from_file_location('z',sys.argv[1]); z=importlib.util.module_from_spec(s); s.loader.exec_module(z); p=pathlib.Path(sys.argv[2])
-fd=os.open(p,os.O_RDONLY); size=os.fstat(fd).st_size; calls=[]; real=z.os.pread
-z.os.pread=lambda f,n,o:(calls.append((o,n)) or real(f,n,o))
-try: z.inventory(fd,size,16*1024*1024,10000,65536)
-finally: os.close(fd); z.os.pread=real
-payload_end=p.read_bytes().find(b'PK\x01\x02'); assert calls and all(o>=payload_end for o,n in calls)
-fd=os.open(p,os.O_RDONLY); before=os.fstat(fd); real=z.os.pread; changed=[False]
-def mutate(f,n,o):
- data=real(f,n,o)
- if not changed[0]: os.utime(p,None); changed[0]=True
- return data
-z.os.pread=mutate
-try:
- z.inventory(fd,size,16*1024*1024,10000,65536); z.ensure_stable(before,os.fstat(fd)); raise AssertionError()
-except z.ZipMetadataError: pass
-finally: os.close(fd)
-z.os.pread=real; original=z.inventory
-def changed(*args):
- result=original(*args); current=p.stat(); os.utime(p,ns=(current.st_atime_ns,current.st_mtime_ns+1000000000)); return result
-z.inventory=changed; out=p.parent/'mutated-out'; manifest=pathlib.Path(sys.argv[1]).with_name('analysis_manifest.py')
-assert z.main(['--input',str(p),'--output',str(out),'--manifest-cli',str(manifest)])==2 and not out.exists()
-PY
-then ok "instrumentation proves payload exclusion and mutation rejection without publication"; else no "read boundary and mutation"; fi
 
-# root refusal — geteuid()==0 rejected (root check absent in partial guard → RED before upgrade)
-# RED: current guard only checks set-id; geteuid==0 is NOT refused → message absent → test fails.
-if python3 - "$HERE/../zip_metadata.py" <<'PY'
-import importlib.util, io, sys
-from contextlib import redirect_stderr
-spec = importlib.util.spec_from_file_location("zip_metadata", sys.argv[1])
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-m.os.geteuid = lambda: 0
-buf = io.StringIO()
-with redirect_stderr(buf):
-    result = m.main(['--input', 'x', '--output', 'y', '--manifest-cli', 'z'])
-assert result == 2, f"expected exit 2 for root, got {result}"
-msg = buf.getvalue()
-assert "root or set-id" in msg, f"expected 'root or set-id' in stderr, got: {msg!r}"
-PY
-then ok "root execution (geteuid==0) refused — 'root or set-id' in stderr (full guard, fail-closed)"
-else no "root refusal"; fi
+if python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/a" "$ROOT/out/a/analysis-manifest.v1.json" >/dev/null; then ok "the published analysis manifest verifies"; else no "manifest verification"; fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
-  echo "-- teeth-traversal: set safety.traversal=False; expect metadata-contract assertion to go red --"
-  mutant_py="$ROOT/zip_metadata.MUTANT.py"
-  # lib/mutant.sh refuses a no-op, empty or live-tree mutant (python source: no bash -n).
-  MUTANT_SYNTAX=none mutant_chain_or_count fail "teeth-traversal" "$HERE/../zip_metadata.py" "$mutant_py" \
-    's/"traversal": "\.\." in parts,/"traversal": False,/'
-  if [ ! -f "$mutant_py" ]; then
-    :  # refusal already counted above
-  elif ! grep -qF '"traversal": False, "backslash"' "$mutant_py"; then
-    no "teeth-traversal: mutant build failed (source line not found)"
-  else
-    python3 - "$mutant_py" "$ROOT/mixed.zip" "$HERE/.." >/dev/null 2>&1 <<'PY'
-import importlib.util, os, sys
-sys.path.insert(0, sys.argv[3])
-s = importlib.util.spec_from_file_location('zm', sys.argv[1])
-zm = importlib.util.module_from_spec(s); s.loader.exec_module(zm)
-fd = os.open(sys.argv[2], os.O_RDONLY)
-try:
-    parsed, _ = zm.inventory(fd, os.fstat(fd).st_size, 16*1024*1024, 10000, 65536)
-    assert parsed['entries'][1]['safety']['traversal']
-finally:
-    os.close(fd)
-PY
-    mgot=$?
-    if [ "$mgot" -ne 0 ]; then
-      ok "teeth-traversal: traversal=False → entries[1].safety.traversal assertion goes red"
-    else
-      no "teeth-traversal: mutant exit 0 — traversal assertion has no teeth"
-    fi
-  fi
+run "$ROOT/in/truncated.zip" "$ROOT/out/truncated" 2>"$ROOT/err.txt"; rc=$?
+if [ "$rc" -eq 2 ] && grep -q '^zip-metadata: truncated' "$ROOT/err.txt" && [ ! -e "$ROOT/out/truncated" ] && [ ! -e "$ROOT/out/.truncated.stage" ]; then
+  ok "a damaged archive exits 2 with the typed message and publishes nothing"; else no "a damaged archive exits $rc: $(cat "$ROOT/err.txt")"; fi
+
+run "$ROOT/in/mixed.zip" "$ROOT/out/capped" --max-entries 2 2>/dev/null; rc=$?
+if [ "$rc" -eq 2 ] && [ ! -e "$ROOT/out/capped" ]; then ok "the caller's arguments reach the Go command (a cap fails closed)"; else no "cap pass-through (exit $rc)"; fi
+
+mkdir "$ROOT/out/collision" "$ROOT/out/.occupied.stage"; echo keep >"$ROOT/out/collision/keep"; echo stage >"$ROOT/out/.occupied.stage/keep"
+if ! run "$ROOT/in/mixed.zip" "$ROOT/out/collision" 2>/dev/null && ! run "$ROOT/in/mixed.zip" "$ROOT/out/occupied" 2>/dev/null \
+  && [ -f "$ROOT/out/collision/keep" ] && [ -f "$ROOT/out/.occupied.stage/keep" ]; then
+  ok "destination and stage collisions are preserved"; else no "path collisions"; fi
+
+if [ "${1:-}" != "--prove-teeth" ]; then
+  echo "== $pass passed · $fail failed =="
+  [ "$fail" -eq 0 ] && exit 0 || exit 1
 fi
-echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
+
+echo "-- teeth: zip-metadata.sh shim mutation controls --"
+# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+# each tooth run publishes into a fresh name: the original and the mutant must not collide on one destination
+# and an exit 0 that did not publish this tool's report is exit 9 (a sibling command succeeding is not this command)
+printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' '"$1" --input "$3" --output "$out"; rc=$?' \
+  '[ "$rc" -ne 0 ] || [ -f "$out/zip-metadata.v1.json" ] || exit 9' 'exit "$rc"' >"$ROOT/tooth-run.sh"
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4"; shift 4
+  local m="$KC/${label// /_}.sh"
+  if ! mutant_chain "$label" "$SUT" "$m" "$expr" >"$ROOT/mutant.log"; then cat "$ROOT/mutant.log"; no "tooth $label: mutant refused"; return; fi
+  chmod +x "$m"
+  if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$ROOT/tooth-run.sh" @SUT@ "$ROOT/out" "$ROOT/in/mixed.zip"; then pass=$((pass+1)); else fail=$((fail+1)); fi
+}
+tooth "shim dispatches to the sibling command" 's/rsdd_exec formats zip-metadata/rsdd_exec formats zip-stored/' 0 2
+tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
+tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
+echo "== $pass passed · $fail failed =="
+[ "$fail" -eq 0 ] && exit 0 || exit 1

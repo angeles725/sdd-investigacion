@@ -26,6 +26,9 @@ TMP="$(mktemp -d)"
 # dir for the whole suite so no case reads the real /tmp/rsdd (live sessions write there; it may be 0700 and
 # owned by someone else). Cases that exercise the check set their own root.
 export RUN_ALL_DEFAULT_RSDD_ROOT="$TMP/default-rsdd-private"
+# run-all builds rsdd once and exports RSDD_BIN (kit issue #2422): an ambient RSDD_BIN / RSDD_REQUIRE_GO (CI sets the
+# latter) must never change what a fixture case sees. The rsdd cases below set both explicitly when they need them.
+unset RSDD_BIN RSDD_REQUIRE_GO
 # Files a case chmods to 000: registered here so the EXIT trap restores them even when the case dies
 # before its own restore line (a leftover 000 file would otherwise break cleanup and later runs).
 LOCKED_FILES=()
@@ -289,6 +292,7 @@ cp "$SUT" "$_c12root/tests/run-all.sh"
 printf '# fixture: no extras\n' > "$_c12root/tests/suite-tiers.txt"   # kit issue #2203
 cp "$HERE/corroborate-pcap.test.sh" "$_c12root/tests/"
 cp "$HERE/pcap-flows.test.sh" "$_c12root/tests/"
+cp -R "$HERE/lib" "$_c12root/tests/lib"   # both suites now source "$HERE/lib/mutant.sh" (#2485); without it they exit 2, not SKIP
 printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/corroborate-pcap.sh"; chmod +x "$_c12root/corroborate-pcap.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$_c12root/pcap-flows.sh";      chmod +x "$_c12root/pcap-flows.sh"
 touch "$_c12root/analysis_manifest.py"
@@ -2758,6 +2762,27 @@ printf '%s\n' "$TR/c.test.sh extras r" "# between" "" "$IR/i.test.sh extras r" >
 out="$(bash "$w/run-all.sh" 2>&1)"; [ "$(ran_of "$out")" = "b" ] || bad="$bad [multi (unsorted, blank, comment, last line unterminated) ran=$(ran_of "$out")]"
 [ -z "$bad" ] && ok "tier edges: an extras entry first / middle / last, a single-entry manifest, an unterminated last line and unsorted order are all honoured" || no "tier edges:$bad"
 
+# 39b — `dedicated` tier word (kit issue #2488): a suite that runs in its own CI job is in NEITHER core nor extras, only in all.
+w="$(tier_tree c39ded)"; tier_man "$w" "$TR/b.test.sh dedicated runs in its own CI job" "$TR/c.test.sh extras category E VM/dynamic sandbox"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; core_ran="$(ran_of "$out")"; core_ok=""; grep -qxF 'Tier: core — 2 of 4 suites (excluded: 2)' <<<"$out" && core_ok=1
+out="$(bash "$w/run-all.sh" --tier extras 2>&1)"; rc2=$?; ex_ran="$(ran_of "$out")"
+out="$(bash "$w/run-all.sh" --tier all 2>&1)"; rc3=$?; all_ran="$(ran_of "$out")"
+cl="$(bash "$w/run-all.sh" --list-suites 2>/dev/null)"; el="$(bash "$w/run-all.sh" --list-suites --tier extras 2>/dev/null)"; al="$(bash "$w/run-all.sh" --list-suites --tier all 2>/dev/null)"
+if [ "$rc" -eq 0 ] && [ "$core_ran" = "ai" ] && [ -n "$core_ok" ] && [ "$rc2" -eq 0 ] && [ "$ex_ran" = "c" ] && [ "$rc3" -eq 0 ] && [ "$all_ran" = "abci" ] \
+   && ! grep -qF "$TR/b.test.sh" <<<"$cl$el" && grep -qF "$TR/b.test.sh" <<<"$al" && [ "$(wc -l <<<"$al")" -eq 4 ]; then
+  ok "tier: a dedicated suite is in neither core nor extras (run or list) and only runs under --tier all"
+else no "tier dedicated wrong: rc=$rc core=$core_ran ok=$core_ok extras=$ex_ran all=$all_ran list=[$(tr '\n' ' ' <<<"$cl")|$el]"; fi
+w="$(tier_tree c39ded2)"; tier_man "$w" "$TR/a.test.sh dedicated r" "$TR/b.test.sh dedicated r" "$TR/c.test.sh dedicated r" "$IR/i.test.sh dedicated r"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; out2="$(bash "$w/run-all.sh" --tier extras 2>&1)"; rc2=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: EMPTY' <<<"$out" && [ "$rc2" -eq 1 ] && [ -z "$(ran_of "$out2")" ] && grep -qF 'Tier: EMPTY' <<<"$out2"; then
+  ok "tier: all-dedicated leaves core and extras empty — typed EMPTY, exit 1, nothing ran"
+else no "tier dedicated empty wrong: rc=$rc rc2=$rc2"; fi
+w="$(tier_tree c39ded3)"; tier_man "$w" "$TR/b.test.sh dedicated" "$TR/c.test.sh dedicated r" "$TR/gone.test.sh dedicated r"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && [ -z "$(ran_of "$out")" ] && grep -qF 'Tier: INVALID' <<<"$out"; then
+  ok "tier: a dedicated line without a reason, or naming no suite, is a typed INVALID before any suite runs"
+else no "tier dedicated invalid wrong: rc=$rc ran=$(ran_of "$out")"; fi
+
 # 40 — run-all.sh --impacted <ref> (kit issue #2201 part 1b): run only the suites suite-impact.sh selects (worktree mode, so
 #      uncommitted writer changes count), intersected with the --tier selection; an escalation runs the whole tier selection;
 #      every state suite-impact cannot answer is a typed `Impacted: DEGRADED` + exit 2 BEFORE any suite runs (never a silent
@@ -2911,6 +2936,100 @@ for a in "--impacted" "--impacted=" "--impacted --prove-teeth" "--impacted -j"; 
 done
 [ -z "$bad" ] && ok "impacted: --shard and --require-teeth with it, and a missing/empty/flag-looking ref, exit 2 before any suite runs" || no "impacted refusals:$bad"
 
+# 41 — duration-balanced shard assignment (kit issue #2488): `--shard I/N` weights suites by suite-durations.txt and assigns
+#      them longest-first to the least-loaded shard. Disjoint + complete for every N, deterministic, a typed INVALID (exit 1,
+#      nothing ran) for a bad manifest line, a typed DEGRADED note + the round-robin assignment when the manifest is absent.
+# dur_tree <name> — toolbelt suites t1..t8 + install suite i1, a comment-only tier manifest; prints the tests dir.
+dur_tree(){
+  local w k; w="$(newdir "$1")"
+  for k in 1 2 3 4 5 6 7 8; do mkfix_sh "$w/t$k.test.sh" 1 0 0; done
+  mkfix_sh "$(install_dir_for "$w")/i1.test.sh" 1 0 0
+  printf '%s' "$w"
+}
+# dur_man <tooldir> [LINE...] — overwrite suite-durations.txt with the given lines (verbatim)
+dur_man(){ local d="$1"; shift; if [ $# -eq 0 ]; then : > "$d/suite-durations.txt"; else printf '%s\n' "$@" > "$d/suite-durations.txt"; fi; }
+# dur_set <tooldir> I/N — the suites (sorted, comma-joined) that shard I of N ran
+dur_set(){ bash "$1/run-all.sh" --shard "$2" 2>&1 | grep -oE '^== [a-z0-9]+\.test\.sh ==' | cut -d' ' -f2 | LC_ALL=C sort | paste -sd, -; }
+# standard weights: t1=100 i1=50 t2=40 t3=30 t4=20 t5=10 t6=10 t7=5, t8 unlisted (6 s default)
+dur_std(){ dur_man "$1" "# fixture" "$TR/t1.test.sh 100" "$IR/i1.test.sh 50" "$TR/t2.test.sh 40" "$TR/t3.test.sh 30" "$TR/t4.test.sh 20" "$TR/t5.test.sh 10" "$TR/t6.test.sh 10" "$TR/t7.test.sh 5"; }
+
+w="$(dur_tree c41exact)"; dur_std "$w"
+s1="$(dur_set "$w" 1/2)"; s2="$(dur_set "$w" 2/2)"; out="$(bash "$w/run-all.sh" --shard 1/2 2>&1)"
+if [ "$s1" = "t1.test.sh,t4.test.sh,t5.test.sh,t8.test.sh" ] && [ "$s2" = "i1.test.sh,t2.test.sh,t3.test.sh,t6.test.sh,t7.test.sh" ] \
+   && grep -qxF 'Shard: balance — duration-weighted, predicted 136 s for this shard (all 2 shards: min 135 s, max 136 s)' <<<"$out" \
+   && grep -qF 'Shard: durations — 1 of 9 selected suite(s) not in suite-durations.txt, weighted 6 s each: t8.test.sh' <<<"$out"; then
+  ok "shard durations: longest-first onto the least-loaded shard gives the predicted sets and balance line, and the unlisted suite is named at the default weight"
+else no "shard durations exact wrong: s1=[$s1] s2=[$s2] bal=[$(grep -E '^Shard: (balance|durations)' <<<"$out" | tr '\n' '|')]"; fi
+
+# disjoint + complete for every N = 1..6 (9 suites): every suite runs on exactly one shard, no shard is empty; and deterministic
+bad=""
+w="$(dur_tree c41cover)"; dur_std "$w"
+for N in 1 2 3 4 5 6; do
+  all=""; for ((I = 1; I <= N; I++)); do part="$(dur_set "$w" "$I/$N")"; [ -n "$part" ] || bad="$bad [N=$N I=$I empty]"; all="$all$part,"; done
+  cnt="$(tr ',' '\n' <<<"$all" | grep -c .)"; uniq_cnt="$(tr ',' '\n' <<<"$all" | grep . | LC_ALL=C sort -u | wc -l)"
+  { [ "$cnt" -eq 9 ] && [ "$uniq_cnt" -eq 9 ]; } || bad="$bad [N=$N ran $cnt suite(s), $uniq_cnt distinct]"
+done
+a="$(dur_set "$w" 2/3)"; b="$(dur_set "$w" 2/3)"; [ "$a" = "$b" ] || bad="$bad [2/3 not deterministic]"
+[ -z "$bad" ] && ok "shard durations: N=1..6 are a disjoint, complete, non-empty cover of the 9 suites and a repeated shard run picks the same suites" || no "shard durations cover:$bad"
+
+# list edges: the single heavy suite in FIRST (i1), MIDDLE (t4) and LAST (t8) position of the sorted list ends up alone on its shard
+bad=""
+for heavy in i1:"$IR/i1.test.sh" t4:"$TR/t4.test.sh" t8:"$TR/t8.test.sh"; do
+  name="${heavy%%:*}"; w="$(dur_tree "c41edge-$name")"; lines=("# edge")
+  for r in "$IR/i1.test.sh" "$TR/t1.test.sh" "$TR/t2.test.sh" "$TR/t3.test.sh" "$TR/t4.test.sh" "$TR/t5.test.sh" "$TR/t6.test.sh" "$TR/t7.test.sh" "$TR/t8.test.sh"; do
+    if [ "$r" = "${heavy#*:}" ]; then lines+=("$r 1000"); else lines+=("$r 1"); fi
+  done
+  dur_man "$w" "${lines[@]}"
+  s1="$(dur_set "$w" 1/2)"; s2="$(dur_set "$w" 2/2)"
+  { [ "$s1" = "$name.test.sh" ] && [ "$(tr ',' '\n' <<<"$s2" | grep -c .)" -eq 8 ]; } || bad="$bad [$name: s1=[$s1] s2=[$s2]]"
+done
+[ -z "$bad" ] && ok "shard durations edges: a heavy suite first / middle / last in the sorted list is alone on its shard, the other 8 share the other" || no "shard durations edges:$bad"
+
+# an absent / comment-only manifest: typed DEGRADED note on stderr and in the aggregate, round-robin by name, exit 0
+bad=""
+for kind in absent empty; do
+  w="$(dur_tree "c41deg-$kind")"; if [ "$kind" = absent ]; then rm -f "$w/suite-durations.txt"; else dur_man "$w" "# nothing measured"; fi
+  out="$(bash "$w/run-all.sh" --shard 1/2 2>&1)"; rc=$?; s1="$(dur_set "$w" 1/2)"; s2="$(dur_set "$w" 2/2)"
+  { [ "$rc" -eq 0 ] && grep -qF 'Shard: DEGRADED — suite-durations.txt' <<<"$out" && ! grep -qF 'Shard: balance' <<<"$out" \
+    && [ "$s1" = "i1.test.sh,t2.test.sh,t4.test.sh,t6.test.sh,t8.test.sh" ] && [ "$s2" = "t1.test.sh,t3.test.sh,t5.test.sh,t7.test.sh" ]; } || bad="$bad [$kind rc=$rc s1=[$s1] s2=[$s2]]"
+done
+[ -z "$bad" ] && ok "shard durations fallback: an absent or empty suite-durations.txt is a typed Shard: DEGRADED note with the round-robin assignment, exit 0" || no "shard durations fallback:$bad"
+
+# invalid manifests: typed INVALID, exit 1, nothing ran — the bad line first, middle and last; a plain (unsharded) run ignores the manifest
+bad=""
+while IFS='|' read -r label l1 l2 l3; do
+  w="$(dur_tree "c41inv-$label")"; dur_man "$w" "$l1" "$l2" "$l3"
+  out="$(bash "$w/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+  { [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && grep -qF 'Shard: INVALID' <<<"$out"; } || bad="$bad [$label rc=$rc]"
+done <<EOF2
+noseconds-first|$TR/t1.test.sh|$TR/t2.test.sh 5|$TR/t3.test.sh 5
+zero-middle|$TR/t1.test.sh 5|$TR/t2.test.sh 0|$TR/t3.test.sh 5
+word-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/t3.test.sh fast
+negative-first|$TR/t1.test.sh -3|$TR/t2.test.sh 5|# c
+float-middle|# a|$TR/t2.test.sh 1.5|# c
+extra-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/t3.test.sh 5 seconds
+dup-last|$TR/t1.test.sh 5|$TR/t2.test.sh 5|$TR/t1.test.sh 7
+EOF2
+# stale entries (a path naming no discovered suite) are NOT invalid: ignored, named on ONE aggregate line, exit and assignment unaffected
+sbad=""
+for pos in first middle last; do
+  w="$(dur_tree "c41stale-$pos")"; dur_std "$w"; cp "$w/suite-durations.txt" "$w/std.txt"
+  case "$pos" in
+    first)  { echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; cat "$w/std.txt"; } > "$w/suite-durations.txt" ;;
+    middle) { head -n 3 "$w/std.txt"; echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; tail -n +4 "$w/std.txt"; } > "$w/suite-durations.txt" ;;
+    last)   { cat "$w/std.txt"; echo "$TR/gone1.test.sh 9"; echo "$TR/gone2.test.sh 7"; } > "$w/suite-durations.txt" ;;
+  esac
+  out="$(bash "$w/run-all.sh" --shard 1/2 2>&1)"; rc=$?; s1="$(dur_set "$w" 1/2)"; s2="$(dur_set "$w" 2/2)"
+  { [ "$rc" -eq 0 ] && [ "$s1" = "t1.test.sh,t4.test.sh,t5.test.sh,t8.test.sh" ] && [ "$s2" = "i1.test.sh,t2.test.sh,t3.test.sh,t6.test.sh,t7.test.sh" ] \
+    && grep -qxF "Shard: stale duration entries 2 — [$TR/gone1.test.sh, $TR/gone2.test.sh]" <<<"$out" && ! grep -qF 'Shard: INVALID' <<<"$out"; } || sbad="$sbad [$pos rc=$rc s1=[$s1] line=[$(grep -E '^Shard: stale' <<<"$out")]]"
+done
+[ -z "$sbad" ] && ok "shard durations stale: entries naming no discovered suite (first / middle / last) are ignored and named on one aggregate line — exit 0, assignment unchanged, no INVALID" || no "shard durations stale:$sbad"
+
+w="$(dur_tree c41plain)"; dur_man "$w" "$TR/t1.test.sh nope"
+out="$(bash "$w/run-all.sh" 2>&1)"; rc=$?; lout="$(bash "$w/run-all.sh" --list-suites 2>&1)"; lrc=$?
+{ [ "$rc" -eq 0 ] && [ "$lrc" -eq 0 ] && ! grep -qF 'Shard:' <<<"$out$lout"; } || bad="$bad [plain run read the manifest rc=$rc lrc=$lrc]"
+[ -z "$bad" ] && ok "shard durations validation: a no-seconds / zero / non-numeric / negative / fractional / extra-text / duplicate / unknown-path line (first, middle or last) is a typed INVALID with exit 1 and nothing run; unsharded runs ignore the manifest" || no "shard durations validation:$bad"
+
 if [ "${1:-}" = "--prove-teeth" ]; then
   # tier_scn <kind> <fixture-tests-dir> — builds the scenario for one invariant, runs the runner in the dir, prints
   # "held" when the invariant holds, "broken <why>" otherwise. The same scenario is judged against the REAL runner
@@ -2966,11 +3085,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   echo "-- teeth: suite tiers (kit issue #2203) — each branch removed in turn; its scenario must then break --"
   tier_tooth filter default 's/^elif \[\[ "\$TIER" != "all" \]\]; then$/elif false; then/'
-  tier_tooth extras-select extras 's/\[\[ "\$TIER" == "extras" \]\] \&\& _tier_sel+=("\$f")/:/'
+  tier_tooth extras-select extras 's/\[\[ "\$TIER" == "extras" \&\& "\${_tier_word\[\${suite_rel\[\$f\]}\]}" == "extras" \]\] \&\& _tier_sel+=("\$f")/:/'
   tier_tooth value badvalue 's/^    core|extras|all) TIER=/    *) TIER=/'
   tier_tooth invalid-exit noreason 's/^if \[\[ \${#_tier_invalid\[@\]} -gt 0 \]\]; then$/if false; then/'
   tier_tooth noreason-check noreason 's/^    elif \[\[ -z "\$_tl_why" \]\]; then$/    elif false; then/'
-  tier_tooth tierword badword 's/^    elif \[\[ "\$_tl_word" != "extras" \]\]; then$/    elif false; then/'
+  tier_tooth tierword badword 's/^    elif \[\[ "\$_tl_word" != "extras" \&\& "\$_tl_word" != "dedicated" \]\]; then$/    elif false; then/'
   tier_tooth duplicate dup 's/^    elif \[\[ "\${_extras_reason\[\$_tl_path\]+set}" == "set" \]\]; then$/    elif false; then/'
   tier_tooth unknown-suite unknown 's/^    elif \[\[ "\${_rel_known\[\$_tl_path\]+set}" != "set" \]\]; then$/    elif false; then/'
   tier_tooth degraded-exit absent 's/ \&\& \[\[ -z "\$TIER_DEGRADED" \]\]; then$/; then/'
@@ -2980,6 +3099,59 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tier_tooth rt-refuse rtrefuse 's/^  if \[\[ -n "\$TIER_EXPLICIT" \&\& "\$TIER" != "all" \]\]; then$/  if false; then/'
   tier_tooth rt-implies rtimplies 's/^  TIER="all"$/  :/'
   tier_tooth unterminated unterm 's/while IFS= read -r _tl || \[\[ -n "\$_tl" \]\]; do/while IFS= read -r _tl; do/'
+
+  # duration-balanced shards (kit issue #2488): each guard/step removed in turn; the scenario that needs it must then break.
+  # dur_scn <kind> <fixture-tests-dir> — prints "held" or "broken <why>"; judged against the real runner (held) and one mutant (broken).
+  dur_scn(){
+    local k="$1" t="$2" out rc s1 all N I
+    dur_std "$t"
+    case "$k" in
+      exact)    s1="$(dur_set "$t" 1/2)"
+                [ "$s1" = "t1.test.sh,t4.test.sh,t5.test.sh,t8.test.sh" ] && echo held || echo "broken s1=[$s1]" ;;
+      cover)    all=""; for I in 1 2 3; do all="$all$(dur_set "$t" "$I/3"),"; done
+                [ "$(tr ',' '\n' <<<"$all" | grep -c .)" -eq 9 ] && [ "$(tr ',' '\n' <<<"$all" | grep . | LC_ALL=C sort -u | wc -l)" -eq 9 ] && echo held || echo "broken all=[$all]" ;;
+      noseconds) dur_man "$t" "$TR/t1.test.sh" "$TR/t2.test.sh 5"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 1 ] && grep -qF "has no seconds" <<<"$out" && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      zero)     dur_man "$t" "$TR/t1.test.sh 0" "$TR/t2.test.sh 5"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      dup)      dur_man "$t" "$TR/t1.test.sh 5" "$TR/t1.test.sh 7"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      unknown)  { echo "$TR/gone.test.sh 5"; cat "$t/suite-durations.txt"; } > "$t/sd.tmp"; cp "$t/sd.tmp" "$t/suite-durations.txt"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 0 ] && grep -qxF "Shard: stale duration entries 1 — [$TR/gone.test.sh]" <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      extra)    dur_man "$t" "$TR/t1.test.sh 5 sec"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"; rc=$?
+                [ "$rc" -eq 1 ] && ! grep -qE '^== [a-z0-9]+\.test\.sh ==' <<<"$out" && echo held || echo "broken rc=$rc" ;;
+      degraded) rm -f "$t/suite-durations.txt"; out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"
+                grep -qF 'Shard: DEGRADED — suite-durations.txt absent; assigning round-robin' <<<"$out" && echo held || echo "broken: no typed note" ;;
+      unlisted) out="$(bash "$t/run-all.sh" --shard 1/2 2>&1)"
+                grep -qF 'not in suite-durations.txt, weighted 6 s each: t8.test.sh' <<<"$out" && echo held || echo "broken: no unlisted note" ;;
+      *)        echo "broken: unknown scenario $k" ;;
+    esac
+  }
+  dur_tooth(){ # <label> <scenario> <sed-expr>
+    local lbl="$1" scn="$2" expr="$3" w tg tm g m
+    w="$(mut_workdir "teeth-shard-$lbl")"
+    tg="$(dur_tree "teeth-shard-$lbl-good")"; g="$(dur_scn "$scn" "$tg")"
+    if [ "$g" != held ]; then no "teeth-shard-$lbl: the real runner does not hold scenario '$scn' ($g) — the tooth cannot discriminate"; return; fi
+    if ! mutant_sed "$SUT" "$w/run-all.sh" "$expr" 2>"$w/err"; then no "teeth-shard-$lbl: no mutant: $(cat "$w/err")"; return; fi
+    tm="$(dur_tree "teeth-shard-$lbl-mut")"; cp "$w/run-all.sh" "$tm/run-all.sh"; m="$(dur_scn "$scn" "$tm")"
+    case "$m" in
+      broken*) ok "teeth-shard-$lbl: the mutant breaks scenario '$scn' ($m) -> the shard-balance case has real teeth" ;;
+      *)       no "teeth-shard-$lbl: the mutant still holds scenario '$scn' (THEATER)" ;;
+    esac
+  }
+  echo "-- teeth: duration-balanced shards (kit issue #2488) — each step removed in turn; its scenario must then break --"
+  dur_tooth least-loaded exact 's/^        if (( _sd_load\[_sk\] < _sd_load\[_sd_best\] )); then _sd_best=\$_sk; fi$/        :/'
+  dur_tooth longest-first exact 's/LC_ALL=C sort -k1,1nr -k2,2)/LC_ALL=C sort -k1,1n -k2,2)/'
+  dur_tooth weight-used exact 's/_sd_lines+=("\${_sw\[\$_sr\]} \$_sr")/_sd_lines+=("1 $_sr")/'
+  dur_tooth pick-shard cover 's/if (( _sd_best == SHARD_I - 1 )); then/if (( _sd_best == SHARD_I )); then/'
+  dur_tooth invalid-exit noseconds 's/^  if \[\[ \${#_sd_invalid\[@\]} -gt 0 \]\]; then$/  if false; then/'
+  dur_tooth seconds-check noseconds 's/^      if \[\[ -z "\$_sd_sec" \]\]; then$/      if false; then/'
+  dur_tooth positive-int zero 's/^      elif \[\[ ! "\$_sd_sec" =~ \^\[1-9\]\[0-9\]{0,5}\$ \]\]; then$/      elif false; then/'
+  dur_tooth dup-check dup 's/^      elif \[\[ "\${_sw\[\$_sd_path\]+set}" == "set" \]\]; then$/      elif false; then/'
+  dur_tooth stale-ignored unknown 's/_sd_stale+=("\$_sd_path")/_sd_invalid+=("line \$_sd_n: stale")/'
+  dur_tooth extra-check extra 's/^      elif \[\[ -n "\$_sd_extra" \]\]; then$/      elif false; then/'
+  dur_tooth degraded-note degraded 's/Shard: DEGRADED — \$SHARD_DEGRADED; assigning round-robin/Shard: degraded — $SHARD_DEGRADED; assigning round-robin/'
+  dur_tooth unlisted-note unlisted 's/not in suite-durations.txt, weighted/not in the manifest, weighted/'
 
   # --impacted (kit issue #2201 part 1b): each guard removed in turn; the scenario that needs it must then break. As for
   # the tier teeth, the SAME scenario is judged against the real runner (must hold) and against one mutant (must break).
@@ -3057,6 +3229,185 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   imp_tooth escalation-unchanged escfull 's/^  if \[\[ "\$IMPACTED_ESC" != "no" \]\]; then$/  if false; then/'
   imp_tooth suite-count mcheck 's/^  \[\[ "\$_imp_m" -eq "\$discovered_suites" \]\] ||/  true ||/'
   imp_tooth merge-base mbase 's/\$(git -C "\$SCRIPT_DIR" merge-base "\$IMPACTED_REF" HEAD 2>\/dev\/null)/$(git -C "$SCRIPT_DIR" rev-parse "$IMPACTED_REF" 2>\/dev\/null)/'
+fi
+
+# --- run-all builds rsdd ONCE and exports RSDD_BIN (kit issue #2422) ---------------------------------------
+# A fake `go` on PATH (writes an executable stub to the -o target, logs its invocations) keeps these cases fast and
+# hermetic: no real build ever runs here. Each tree carries a stub Go module at research-sdd/rsdd.
+RB_LOG="$TMP/rb-suite.log"; FAKE_GO_LOG="$TMP/rb-go.log"; RB_FG="$TMP/rb-fakego"; RB_PATH=""; RB_ENVX=()
+mkdir -p "$RB_FG"
+{ printf '#!/usr/bin/env bash\n'
+  printf 'echo "go $*" >> "$FAKE_GO_LOG"\n'
+  printf 'case "${1:-}" in\n'
+  printf '  run) echo fakehash; exit 0 ;;\n'
+  printf '  build) out=""; while [ "$#" -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\n'
+  printf '    [ -z "${FAKE_GO_FAIL:-}" ] || { echo "fake go: boom" >&2; exit 1; }\n'
+  printf '    printf "#!/bin/sh\\necho stub\\n" > "$out" && chmod 755 "$out"; exit 0 ;;\n'
+  printf 'esac\n'
+} > "$RB_FG/go"
+chmod 755 "$RB_FG/go"
+RB_PATH="$RB_FG:$PATH"
+# rb_suite <file> — records RSDD_BIN as <path>|<x if executable>|<in if under the run's temp root> and passes.
+rb_suite(){
+  { printf '#!/usr/bin/env bash\n'
+    printf 'p="${RSDD_BIN-UNSET}"; x=n; [ -x "$p" ] && x=x; u=out; case "$p" in "$RUN_TMP_ROOT"/*) u=in ;; esac\n'
+    printf 'echo "$p|$x|$u" >> "$RB_LOG"\n'
+    printf 'echo "$0" >> "${RB_RAN:-/dev/null}"\n'
+    printf ': "$TB/alpha.sh"\n'
+    printf 'echo "== 1 passed %s 0 failed =="\n' "$MID"
+  } > "$1"
+}
+# rb_tree <name> — a repo-shaped tree: two suites, a stub Go module + Makefile under research-sdd/rsdd, a git repo
+# (the --cache cases need suite-impact.sh). Prints the tests dir.
+rb_tree(){
+  local w root; w="$(newdir "$1")"; root="${w%/research-sdd/toolbelt/tests}"
+  [ -z "${2:-}" ] || cp -- "$2" "$w/run-all.sh"   # a mutant runner for the teeth cases
+  mkdir -p "$root/research-sdd/rsdd/cmd/rsdd" "$root/research-sdd/rsdd/cmd/rsdd-srchash" "$root/research-sdd/rsdd/internal" "$root/research-sdd/toolbelt"
+  printf 'module example.test/rsdd\n' > "$root/research-sdd/rsdd/go.mod"
+  printf 'package main\n' > "$root/research-sdd/rsdd/cmd/rsdd/main.go"
+  printf 'package main\n' > "$root/research-sdd/rsdd/cmd/rsdd-srchash/main.go"
+  printf 'package x\n' > "$root/research-sdd/rsdd/internal/x.go"
+  printf 'SOURCE_HASH_SYM := example.test/rsdd/internal/commands.sourceHash\n' > "$root/research-sdd/rsdd/Makefile"
+  printf '#!/usr/bin/env bash\necho alpha\n' > "$root/research-sdd/toolbelt/alpha.sh"
+  rb_suite "$w/a.test.sh"; rb_suite "$w/b.test.sh"
+  cp "$HERE/suite-impact.sh" "$w/suite-impact.sh"
+  printf '# fixture: no blind-spot suites\n' > "$w/impact-blindspot.txt"
+  printf 'b fixture always-run suite\n' > "$w/impact-always.txt"
+  printf '%s' "$w"
+}
+rb_git(){ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t git -c init.defaultBranch=main "$@"; }
+# rb_run <tests-dir> [run-all args...] — sets OUT, RC. RB_PATH / RB_ENVX are the caller's knobs.
+rb_run(){
+  local t="$1"; shift
+  : > "$RB_LOG"; : > "$FAKE_GO_LOG"
+  OUT="$(env PATH="$RB_PATH" RB_LOG="$RB_LOG" FAKE_GO_LOG="$FAKE_GO_LOG" "${RB_ENVX[@]}" bash "$t/run-all.sh" "$@" 2>&1)"; RC=$?
+}
+rb_builds(){ local n; n="$(grep -c '^go build' "$FAKE_GO_LOG")"; printf '%s' "${n:-0}"; }
+# rb_once <label> <tests-dir> <expected-suites> [run-all args...] — the full "built once, same exported path" check.
+rb_once(){
+  local lbl="$1" t="$2" n="$3" lines uniq bad rl; shift 3
+  rb_run "$t" "$@"
+  lines="$(wc -l < "$RB_LOG")"; uniq="$(cut -d'|' -f1 "$RB_LOG" | sort -u | wc -l)"
+  bad="$(grep -vc '|x|in$' "$RB_LOG")"; rl="$(grep -c '^rsdd: built' <<<"$OUT")"
+  if [ "$RC" -eq 0 ] && [ "$lines" -eq "$n" ] && [ "$uniq" -eq 1 ] && [ "${bad:-0}" -eq 0 ] && [ "$(rb_builds)" -eq 1 ] && [ "$rl" -eq 1 ] \
+     && [ ! -e "${t%/toolbelt/tests}/bin" ]; then
+    ok "rsdd-bin $lbl: one go build, one executable RSDD_BIN under the run's temp root, the same path for all $n suite(s), one 'rsdd: built' line"
+  else
+    no "rsdd-bin $lbl: rc=$RC suites-logged=$lines distinct-paths=$uniq not-exec-or-outside-root=${bad:-0} builds=$(rb_builds) built-lines=$rl :: $(head -3 "$RB_LOG" | tr '\n' ' ')"
+  fi
+}
+w="$(rb_tree rb-serial)"; rb_once serial "$w" 2
+if [ "$have_gnu_parallel" -eq 1 ]; then w="$(rb_tree rb-j)"; rb_once "-j 2" "$w" 2 -j 2; else skip_j "rsdd-bin -j 2"; fi
+w="$(rb_tree rb-shard)"; rb_once "--shard 1/2" "$w" 1 --shard 1/2
+
+# (b) a caller-set RSDD_BIN is used as-is, with no build
+w="$(rb_tree rb-caller)"; mkdir -p "$TMP/rb-caller"; printf '#!/bin/sh\necho mine\n' > "$TMP/rb-caller/rsdd"; chmod 755 "$TMP/rb-caller/rsdd"
+RB_ENVX=(RSDD_BIN="$TMP/rb-caller/rsdd"); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && [ "$(sort -u "$RB_LOG" | wc -l)" -eq 1 ] && grep -qxF "$TMP/rb-caller/rsdd|x|out" "$RB_LOG" \
+   && grep -qF 'rsdd: RSDD_BIN set by the caller' <<<"$OUT"; then
+  ok "rsdd-bin caller: a caller-set RSDD_BIN reaches every suite unchanged and no go build ran"
+else no "rsdd-bin caller: rc=$RC builds=$(rb_builds) :: $(head -2 "$RB_LOG" | tr '\n' ' ') :: $(grep '^rsdd:' <<<"$OUT")"; fi
+
+# (c) a failing build / absent go: typed DEGRADED, the run completes, RSDD_BIN stays unset; RSDD_REQUIRE_GO=1 fails it
+w="$(rb_tree rb-fail)"; RB_ENVX=(FAKE_GO_FAIL=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: DEGRADED — ' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ] && ! grep -qv '^UNSET|' "$RB_LOG"; then
+  ok "rsdd-bin failed build: 'rsdd: DEGRADED — ...' printed, both suites still ran with RSDD_BIN unset, rc 0 without RSDD_REQUIRE_GO"
+else no "rsdd-bin failed build: rc=$RC :: $(grep '^rsdd:' <<<"$OUT") :: $(head -2 "$RB_LOG" | tr '\n' ' ')"; fi
+RB_ENVX=(FAKE_GO_FAIL=1 RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 1 ] && grep -qF 'rsdd: DEGRADED — ' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ]; then
+  ok "rsdd-bin failed build + RSDD_REQUIRE_GO=1: the run exits 1 (never a silent pass) after running the suites"
+else no "rsdd-bin failed build + RSDD_REQUIRE_GO=1: rc=$RC :: $(grep '^rsdd:' <<<"$OUT")"; fi
+RB_PATH="$(mkbin_without "$TMP/rb-nogo" go)"; w="$(rb_tree rb-nogo)"; rb_run "$w"
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: DEGRADED — go not found' <<<"$OUT" && [ "$(wc -l < "$RB_LOG")" -eq 2 ]; then
+  ok "rsdd-bin go absent: 'rsdd: DEGRADED — go not found...' and the suites still run"
+else no "rsdd-bin go absent: rc=$RC :: $(grep '^rsdd:' <<<"$OUT")"; fi
+RB_ENVX=(RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 1 ] && grep -qF 'rsdd: DEGRADED — go not found' <<<"$OUT"; then ok "rsdd-bin go absent + RSDD_REQUIRE_GO=1: exits 1"
+else no "rsdd-bin go absent + RSDD_REQUIRE_GO=1: rc=$RC"; fi
+RB_PATH="$RB_FG:$PATH"
+w="$(rb_tree rb-reqok)"; RB_ENVX=(RSDD_REQUIRE_GO=1); rb_run "$w"; RB_ENVX=()
+if [ "$RC" -eq 0 ] && grep -qF 'rsdd: built' <<<"$OUT"; then ok "rsdd-bin RSDD_REQUIRE_GO=1 with a working build: rc 0"
+else no "rsdd-bin RSDD_REQUIRE_GO=1 with a working build: rc=$RC"; fi
+
+# (d) --cache: the key must not carry the RSDD_BIN path, and must follow the module sources
+rb_cache_tree(){ # name -> tests dir, a git repo with the rb_tree layout
+  local w root; w="$(rb_tree "$1" "${2:-}")"; root="${w%/research-sdd/toolbelt/tests}"
+  rm -f "$w/b.test.sh"; printf '# fixture: no always-run suites\n' > "$w/impact-always.txt"; mkdir -p "$root/research-sdd/install/tests"
+  rb_git -C "$root" init -q && rb_git -C "$root" add -A && rb_git -C "$root" commit -q -m base || return 1
+  printf '%s' "$w"
+}
+rb_ran(){ local n; n="$(grep -c . "$RB_RAN" 2>/dev/null)"; printf '%s' "${n:-0}"; }
+RB_RAN="$TMP/rb-ran.log"; mkdir -p "$TMP/rb-xdg"
+cache_scn(){ # <scenario> <tests-dir>: prints held | broken...
+  local t="$2" r1 r2 xd="$TMP/rb-xdg-$$-$RANDOM"; mkdir -p "$xd"; mkdir -p "$TMP/rb-bin2"
+  printf '#!/bin/sh\necho mine\n' > "$TMP/rb-bin2/one"; cp "$TMP/rb-bin2/one" "$TMP/rb-bin2/two"; chmod 755 "$TMP/rb-bin2/one" "$TMP/rb-bin2/two"
+  case "$1" in
+    extbin) : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN" RSDD_BIN="$TMP/rb-bin2/one"); rb_run "$t" --cache; r1="$(rb_ran)"
+            : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN" RSDD_BIN="$TMP/rb-bin2/two"); rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 0 ] && echo held || echo "broken first=$r1 second=$r2 (the second run must reuse the cached PASS)" ;;
+    tmpbin) : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN"); rb_run "$t" --cache; r1="$(rb_ran)"
+            : > "$RB_RAN"; rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 0 ] && echo held || echo "broken first=$r1 second=$r2" ;;
+    src)    : > "$RB_RAN"; RB_ENVX=(XDG_CACHE_HOME="$xd" RB_RAN="$RB_RAN"); rb_run "$t" --cache; r1="$(rb_ran)"
+            printf 'package x\nvar Changed = 1\n' > "${t%/toolbelt/tests}/rsdd/internal/x.go"
+            : > "$RB_RAN"; rb_run "$t" --cache; r2="$(rb_ran)"; RB_ENVX=()
+            [ "$r1" -eq 1 ] && [ "$r2" -eq 1 ] && echo held || echo "broken first=$r1 second=$r2 (a must run again after the module source changed)" ;;
+  esac
+}
+for scn in extbin tmpbin src; do
+  w="$(rb_cache_tree "rb-cache-$scn")" || { no "rsdd-bin cache $scn: could not build the fixture repo"; continue; }
+  v="$(cache_scn "$scn" "$w")"
+  case "$scn" in
+    extbin) lbl="two caller-set RSDD_BIN paths with the same bytes share one cache key" ;;
+    tmpbin) lbl="the per-run built RSDD_BIN temp path does not change the cache key between runs" ;;
+    src)    lbl="a change under research-sdd/rsdd changes the cache key" ;;
+  esac
+  if [ "$v" = held ]; then ok "rsdd-bin cache: $lbl"; else no "rsdd-bin cache: $lbl :: $v"; fi
+done
+
+# (e) --list-suites performs no build
+w="$(rb_tree rb-list)"; rb_run "$w" --list-suites
+if [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && [ ! -s "$FAKE_GO_LOG" ] && ! grep -q '^rsdd:' <<<"$OUT"; then ok "rsdd-bin --list-suites: no go invocation and no rsdd line"
+else no "rsdd-bin --list-suites: rc=$RC go-log=$(cat "$FAKE_GO_LOG")"; fi
+# a refused flag combination exits before any build
+w="$(rb_tree rb-refuse)"; rb_run "$w" --shard 1/2 --impacted HEAD
+if [ "$RC" -eq 2 ] && [ ! -s "$FAKE_GO_LOG" ]; then ok "rsdd-bin refused flags: exit 2 before any go invocation"
+else no "rsdd-bin refused flags: rc=$RC go-log=$(cat "$FAKE_GO_LOG")"; fi
+
+# --- Teeth for run-all's single rsdd build (kit issue #2422) -----------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # rb_scn <scenario> <tree-name> [mutant-runner]: prints held | broken...
+  rb_scn(){
+    local scn="$1" nm="$2" mutf="${3:-}" t lines uniq bad
+    case "$scn" in
+      serial)  t="$(rb_tree "$nm" "$mutf")"; rb_run "$t"
+               lines="$(wc -l < "$RB_LOG")"; uniq="$(cut -d'|' -f1 "$RB_LOG" | sort -u | wc -l)"; bad="$(grep -vc '|x|in$' "$RB_LOG")"
+               [ "$RC" -eq 0 ] && [ "$lines" -eq 2 ] && [ "$uniq" -eq 1 ] && [ "${bad:-0}" -eq 0 ] && [ "$(rb_builds)" -eq 1 ] && echo held || echo "broken rc=$RC rows=$(head -1 "$RB_LOG")" ;;
+      failreq) t="$(rb_tree "$nm" "$mutf")"; RB_ENVX=(FAKE_GO_FAIL=1 RSDD_REQUIRE_GO=1); rb_run "$t"; RB_ENVX=()
+               [ "$RC" -eq 1 ] && echo held || echo "broken rc=$RC (RSDD_REQUIRE_GO=1 with a failed build must exit 1)" ;;
+      caller)  t="$(rb_tree "$nm" "$mutf")"; RB_ENVX=(RSDD_BIN="$TMP/rb-caller/rsdd"); rb_run "$t"; RB_ENVX=()
+               [ "$RC" -eq 0 ] && [ "$(rb_builds)" -eq 0 ] && grep -qxF "$TMP/rb-caller/rsdd|x|out" "$RB_LOG" && echo held || echo "broken builds=$(rb_builds) rows=$(head -1 "$RB_LOG")" ;;
+      extbin|src) t="$(rb_cache_tree "$nm" "$mutf")" || { echo "broken: fixture repo"; return; }; cache_scn "$scn" "$t" ;;
+    esac
+  }
+  rb_tooth(){ # <label> <scenario> <sed-expr>
+    local lbl="$1" scn="$2" expr="$3" g m mf="$TMP/rb-mut-$1.sh"
+    g="$(rb_scn "$scn" "teeth-rb-$lbl-good")"
+    if [ "$g" != held ]; then no "teeth-rb-$lbl: the real runner does not hold scenario '$scn' ($g) — the tooth cannot discriminate"; return; fi
+    if ! mutant_sed "$SUT" "$mf" "$expr" 2>"$TMP/rb-mut-$lbl.err"; then no "teeth-rb-$lbl: no mutant: $(cat "$TMP/rb-mut-$lbl.err")"; return; fi
+    m="$(rb_scn "$scn" "teeth-rb-$lbl-mut" "$mf")"
+    case "$m" in
+      broken*) ok "teeth-rb-$lbl: the mutant breaks scenario '$scn' ($m) -> the case has real teeth" ;;
+      *)       no "teeth-rb-$lbl: the mutant still holds scenario '$scn' (THEATER)" ;;
+    esac
+  }
+  echo "-- teeth: run-all's single rsdd build and RSDD_BIN export (kit issue #2422) — each guard removed in turn; its scenario must then break --"
+  rb_tooth build serial '/SENTINEL-RSDD-BIN-BUILD/s/go build -ldflags/go version -ldflags/'
+  rb_tooth export serial '/SENTINEL-RSDD-BIN-EXPORT/s/export RSDD_BIN=/RSDD_BIN=/'
+  rb_tooth caller caller '/SENTINEL-RSDD-BIN-CALLER/s/if \[\[ -n "\${RSDD_BIN:-}" \]\]/if false/'
+  rb_tooth require failreq '/SENTINEL-RSDD-BIN-REQUIRE/,+3s/^  if \[\[ -n "\$RSDD_FAIL" \]\]; then$/  if false; then/'
+  rb_tooth cache-env extbin '/RSDD_\* \&\& "\$v" != RSDD_BIN/s/ \&\& "\$v" != RSDD_BIN//'
+  rb_tooth cache-src src '/SENTINEL-RSDD-BIN-CACHE-SRC/s/research-sdd\/rsdd\/\*)/research-sdd\/rsdd-never\/*)/'
 fi
 
 echo "== $pass passed $MID $fail failed =="

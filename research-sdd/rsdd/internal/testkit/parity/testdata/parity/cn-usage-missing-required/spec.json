@@ -1,0 +1,13 @@
+{
+ "legacy": [
+  "toolbelt/corroborate-native.sh",
+  "--input",
+  "{{input}}/target.elf"
+ ],
+ "rsdd": [
+  "corroborate",
+  "native",
+  "--input",
+  "{{input}}/target.elf"
+ ]
+}

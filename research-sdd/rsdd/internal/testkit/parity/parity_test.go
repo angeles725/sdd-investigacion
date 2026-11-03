@@ -31,7 +31,11 @@ func TestParity(t *testing.T) {
 		t.Skipf("%v (set RSDD_PARITY_LEGACY to run the differential; RSDD_PARITY_REQUIRE=1 makes this a failure)", err)
 	}
 
-	cfg, err := ConfigFromEnv(os.Getenv, t.TempDir())
+	cwd, err := os.Getwd() // the test is the process boundary here
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := ConfigFromEnv(os.Getenv, cwd, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

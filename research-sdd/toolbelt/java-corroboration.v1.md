@@ -91,14 +91,14 @@ javac lowering a decompiler reverses on the way back: JEP 280 compiles `a + b` s
 concatenation to an `invokedynamic` `makeConcatWithConstants`, which Vineflower turns back
 into `+`. Later majors add more re-sugared constructs (nestmates at 55, records at 60/61,
 pattern-matching `switch` at 65). The threshold is deliberately conservative (it flags
-every class from Java 9 up) and is the constant `RESUGAR_MIN_MAJOR` in
-`corroborate_java.py`. The flag means decompiled *syntax-level* claims need bytecode
+every class from Java 9 up) and is the Go constant `ResugarMinMajor` in
+`rsdd/internal/corroborate/classfile`. The flag means decompiled *syntax-level* claims need bytecode
 evidence (`javap -c -p`); it does not say the decompilation is wrong. Classes at or below
 major 52 are not flagged, but that is not a fidelity guarantee either.
 
 `decompile-java.sh` prints the aggregate on **stderr** (stdout keeps the typed
 `OK:`/`DEGRADED:`/`PARTIAL:` result as its first line, which consumers read). It is also
-available as `python3 corroborate_java.py classfile-facts <in.jar|in.class>`, which prints only the line:
+available as `rsdd corroborate classfile <in.jar|in.class>`, which prints only the line:
 `CLASSFILE major=<n|a-b|unknown> lvt=<yes|no|mixed|unknown> classes=N resugar_risk=<yes|no|unknown> unreadable=N partial=N truncated=<none|entry-cap|byte-cap>`.
 The `WARN:` that syntax-level claims need bytecode evidence is printed by the `decompile-java.sh`
 wrapper, not by the standalone mode.
@@ -111,12 +111,15 @@ An overflow reads
 `truncated=<cap>` and `reason=facts-truncated:<cap>`, never a silent partial count. The wrapper
 runs it under its own budget, `RSDD_CLASSFACTS_TIMEOUT` or `min(30, --timeout/8)` seconds (at least 1;
 30 when the engines are unbounded; an invalid override warns and falls back), so the worst-case extra
-wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the helper cannot report, the line keeps the same
-field set with every value `unknown` and one typed reason: `facts-unavailable` (helper or
-python3 absent), `facts-timeout`, or `facts-error rc=<n>` (the helper crashed; its first stderr
-line follows as a `WARN:`). A fourth token, `facts-unbounded`, means no usable `timeout` binary was
-found: the wrapper skips the helper rather than run it without a budget (the run is also
-typed `timeout-unavailable` unless `--timeout 0` asked for unbounded engines).
+wall time is that budget plus `RSDD_KILL_AFTER`, not a second full `--timeout`. When the class-file
+reader cannot report, the line keeps the same field set with every value `unknown` and one typed
+reason: `facts-timeout` (the budget ran out) or `facts-error rc=<n>` (the reader failed; its first
+stderr line follows as a `WARN: classfile-facts helper:` line). A third token, `facts-unbounded`,
+means no usable `timeout` binary was found (`RSDD_TIMEOUT_BIN`): the wrapper skips the facts step
+rather than run it without a budget (the run is also typed `timeout-unavailable` unless
+`--timeout 0` asked for unbounded engines). The facts are read in process by
+`rsdd corroborate decompile` (`internal/corroborate/classfile`), with no Python fallback, so the
+former `facts-unavailable` reason (helper or python3 absent) is no longer emitted.
 
 ## Trust and isolation
 

@@ -9,8 +9,8 @@
 //	domain     every other segment - may import core tier only, never
 //	                                  another domain and never commands
 //
-// A violation fails the build, which is what keeps "adding a command = one
-// file + one registry line" true.
+// A violation fails this package's test run (TestRealTree), not the compiler;
+// that test is what keeps "adding a command = one file + one registry line" true.
 package archtest
 
 import (
@@ -44,13 +44,13 @@ const stdioFile = "cli/stdio.go"
 
 // forbiddenCalls are the ambient reads that must stay inside stdioFile.
 var forbiddenCalls = map[string]map[string]bool{
-	"os":   {"Getenv": true, "LookupEnv": true, "Getwd": true},
+	"os":   {"Getenv": true, "LookupEnv": true, "Getwd": true, "Environ": true},
 	"time": {"Now": true},
 }
 
 // Check scans every .go file under root/internal and root/cmd (testdata
 // excluded) and applies two rules: the tier import rule, and the ban on
-// os.Getenv / os.LookupEnv / os.Getwd / time.Now outside internal/cli/stdio.go
+// os.Getenv / os.LookupEnv / os.Environ / os.Getwd / time.Now outside internal/cli/stdio.go
 // (test files are exempt). module is the module path used to recognise
 // internal imports. cmd/ packages are registry-tier: they may import
 // anything internal, but are still subject to the call ban.
@@ -105,7 +105,7 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 		}
 		relFile, _ := filepath.Rel(nameRoot, path)
 		pkg, file := filepath.ToSlash(relDir), filepath.ToSlash(relFile)
-		pkgs[sub+"/"+pkg] = true
+		pkgs[nameRel(root, path)] = true
 		r.Files++
 		f, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
@@ -121,6 +121,10 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 				local := p
 				if imp.Name != nil {
 					local = imp.Name.Name
+				}
+				if local == "." && file != stdioFile && !strings.HasSuffix(file, "_test.go") {
+					// A dot import makes every call unqualified, invisible to the selector scan.
+					r.Violations = append(r.Violations, fmt.Sprintf("%s: dot-import of %s outside %s - it hides ambient reads from this check", file, p, stdioFile))
 				}
 				names[local] = p
 			}
@@ -150,6 +154,13 @@ func scan(r *Result, pkgs map[string]bool, root, sub, module string) error {
 		})
 		return nil
 	})
+}
+
+// nameRel is the package key: the file's directory relative to the module root
+// (internal/alpha, cmd/tool), unique across both trees.
+func nameRel(root, path string) string {
+	rel, _ := filepath.Rel(root, filepath.Dir(path))
+	return filepath.ToSlash(rel)
 }
 
 func head(p string) string {

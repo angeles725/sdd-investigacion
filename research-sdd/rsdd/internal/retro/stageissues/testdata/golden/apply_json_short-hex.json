@@ -1,0 +1,10 @@
+{
+  "rc": 2,
+  "stdout": "redactions: 0 (row 1)\nmutation_outcome: no_write (row 1)\nunclassifiable-items: 0 (none: 1 row(s) examined)\nsummary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0 unclassifiable=0 unknown-outcome=0 failed=1\nmutation-summary: confirmed=0 no_write=1 unknown=0\noccurrence-summary: commented=0 already-present=0\n",
+  "stderr": "ERROR: gh issue list (occurrence lookup) reply could not be parsed for row 1: [{\"number\":55,\"state\":\"OPEN\",\"title\":\"\\u12\"}]\nnote: covers_through: absent in r.md — no blocks_since_retro reset proposed\n",
+  "ghlog": "gh auth status\ngh issue list --repo test-owner/test-kit --state all --limit 1000 --search \"Source retro: target-foo/retros/r.md · 1\" --json state,body\ngh issue list --repo test-owner/test-kit --state open --label target:target-foo --limit 1000 --json number,state,title\n",
+  "state": {
+    "occ": "[{\"number\":55,\"state\":\"OPEN\",\"title\":\"\\u12\"}]\n",
+    "occn": "1\n"
+  }
+}

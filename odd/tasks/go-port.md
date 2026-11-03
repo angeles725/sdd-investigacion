@@ -304,6 +304,41 @@ adversarial kernel (JS copy kept for the Workflow script, parity-tested).
 plan/gate/exec pipeline and VM disk policy, behind the same `--allow-*` fail-closed gate. Lowest
 priority: no commits since July and #2203 made it an optional tier.
 
+### Python port map (phases 3, 4, 6, 7; mapped 2026-11-01 on origin/main)
+
+67 non-test `.py` files, 21,555 lines. `templates/gen-catalog.py` is U2.11; `lib/ifc_driver.py` and
+`lib/kaitai_driver.py` stay Python (section 3). Phase 5 has no Python; its one Python-related job is a single Go
+table for the decompiler sha256 pins (`corroborate_java.py:33-35`). Go line counts are estimates; issues are opened
+when the previous phase closes (rule 9). Paths are under `research-sdd/toolbelt/`.
+
+| Unit | Python source | Go package | Needs first |
+|---|---|---|---|
+| U3.1 | lint_block.py | lint | core/gfm |
+| U3.2 | lint-block-packs/*.py (20 lookarounds to rewrite, rule 5) | lint/packs | U3.1 |
+| U4.1 | maint/kit-rdd-start.py, maint/kit-rdd-drive.py | maint | core/git, core/gh |
+| U6.1 | lib/adapter_core.py (sandbox + privilege checks; identity/stage/publish/run_bounded/canonical already in core) | adapter | core/fsx, proc, jsonout |
+| U6.2 | lib/isolation_profile.py, analysis_manifest.py | adapter | U6.1 |
+| U6.3 | lib/adapter_helpers.py (dead functions dropped) | adapter | U6.1 |
+| U6.4a/b | corroborate_java.py | corroborate | U6.1-3 |
+| U6.5 | corroborate_ghidra.py, corroborate_native.py | corroborate | U6.1-3 |
+| U6.6 | corroborate_firmware.py, firmware_carve.py | corroborate, extract | U6.1-3 |
+| U6.7 | zip_metadata.py, zip_stored.py | formats/zip | U6.1 |
+| U6.8-U6.10 | corroborate_capa.py, corroborate_floss.py, corroborate_unblob.py | corroborate | U6.1-3 |
+| U6.11 | corroborate_pcap.py, pcap_flows.py (one formats/pcap, shared with U7.6) | corroborate, formats/pcap | U6.1-3 |
+| U6.12-U6.13 | corroborate_kaitai.py, corroborate_ifc.py (Python drivers kept) | corroborate | U6.1-3 |
+| U6.14 | squashfs_extract.py, qnx6_read.py | formats | U6.1 |
+| U6.15-U6.22 | RETIRED by #2443 except palette_lexicon_agents (ported, PR from session 4); was: bog_nav, niagara_security_audit, station_modules, module_find, n4_type_catalog, niagara_hdb_read, px_render (a/b), palette_lexicon_agents | niagara (one shared bog reader) | core; U6.15 first |
+| U6.23-U6.25 | serial-frame_analyze.py, serial-frame_capture.py (go.bug.st/serial), corroborate_bacnet.py | serial, bacnet | core |
+| U7.1-U7.8 | DROPPED: retired by #2443, never ported; was: lib/{gate,plan_common,vm_plan,vm_pin,vm_disk_policy,proc_common,docker_common,vm_boot_core,vm_exec_common,detonate_exec,trace_exec,capture_exec,capture_analyze,fact_exec,docker_exec,qemu_exec}.py, vm_receipt.py, the 7 `*_plan.py` / vm_run.py (one `rsdd plan <kind>` table) | plan, exec | U6.1, U6.3 |
+
+Delete instead of port: `lib/adapter_helpers.py:256` pcap_magic_check, `:297` squashfs_superblock;
+`lib/gate.py:73` require_capability; `lib/adapter_core.py:492` tree_size, `:509` stop_group; the `vm_receipt.py`
+CLI (library kept); `detonate_exec.py` + `trace_exec.py` merge into one evaluator.
+Fold into core (the main reduction): 8 private renameat2 publishes and `analysis_manifest.py:202` → core/fsx;
+4 `canonical()` copies → core/jsonout; 4 `run_bounded`/`stop_group` copies and `lib/proc_common.py:19` →
+core/proc; `_write_json`/`_sha256_fd`/`_open_wo_new` in 9 standalone readers → core/fsx + core/jsonout;
+43 argparse CLIs → the cli flag table.
+
 ### Phase 8 — Retirement and cutover
 Rewrite doctrine references to `rsdd <group> <cmd>` (~440 mentions, one PR per document), re-wire
 `.claude/settings.json`, the pi extension and `hook-kit-run.sh` to call `rsdd` directly, give corpora
@@ -333,6 +368,8 @@ shellcheck stays green for the remaining shell; both harnesses usable at every m
 ## 8. Acceptance criteria (feature)
 
 - Every in-scope entry point is served by `rsdd`; no production `.sh`/`.py` remains except the declared drivers and the bootstrap installer.
+  Declared driver exceptions: `toolbelt/lib/kaitai_driver.py` (Stage 2 of `rsdd corroborate kaitai`: `ksc --target python` emits
+  parsers that only the Python `kaitaistruct` runtime can execute; accepted by session 1, 2026-11-02, PR #2492).
 - Differential parity green over all fixtures and every corpus on disk; every divergence declared.
 - openspec scenarios and invariants pass as Go tests; mutation efficacy gate passes per package.
 - Performance targets in 4.6 met against the recorded baseline.

@@ -1,9 +1,11 @@
 package kit
 
 import (
+	"cmp"
 	"errors"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,10 +106,7 @@ func ResolveStateFile(dir string, opt ResolveOptions) (string, error) {
 	}
 	rs := make([]ranked, len(found))
 	for i, p := range found {
-		rest := ""
-		if len(p) > len(dir) {
-			rest = p[len(dir):]
-		}
+		rest := p[len(dir):]
 		base := p[strings.LastIndex(p, "/")+1:]
 		r := ranked{depth: strings.Count(rest, "/"), notRoot: 1, path: p}
 		if base == "RESEARCH-STATE.md" {
@@ -115,15 +114,8 @@ func ResolveStateFile(dir string, opt ResolveOptions) (string, error) {
 		}
 		rs[i] = r
 	}
-	sort.Slice(rs, func(i, j int) bool {
-		a, b := rs[i], rs[j]
-		if a.depth != b.depth {
-			return a.depth < b.depth
-		}
-		if a.notRoot != b.notRoot {
-			return a.notRoot < b.notRoot
-		}
-		return cLess(a.path, b.path)
+	slices.SortFunc(rs, func(a, b ranked) int {
+		return cmp.Or(cmp.Compare(a.depth, b.depth), cmp.Compare(a.notRoot, b.notRoot), strings.Compare(a.path, b.path))
 	})
 	key := func(r ranked) string { return strconv.Itoa(r.depth) + "\t" + strconv.Itoa(r.notRoot) }
 	first := rs[0]

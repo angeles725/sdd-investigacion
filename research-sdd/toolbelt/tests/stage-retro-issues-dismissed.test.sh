@@ -20,6 +20,13 @@ for _l in retro-status retro-grammar target-paths scrub-issue-text; do
 done
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass, without go).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
@@ -103,10 +110,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     else ok "teeth $label: mutant breaks $chk with [$want]" "()"; fi
     MUT=()
   }
-  tooth c_middle  dismissed-not-skipped 'PLANNED IDS: [2 3 ] != [3 ]'   '/STAGE_RETRO_ISSUES_DISMISSED_SKIP/s/= dismissed/= never-dismissed/'
-  tooth c_first   typed-line-off        'MISSING: no-match: dismissed (row 1)' 's/echo "no-match: dismissed (row \$_rid)" >&2/:/'
-  tooth c_single_all_resolved summary-not-counted 'MISSING: all rows are shipped or dismissed (skipped: 2)' 's/skipped_shipped=\$((skipped_shipped+1)); skipped_dismissed=\$((skipped_dismissed+1)); continue/skipped_dismissed=$((skipped_dismissed+1)); continue/'
-  tooth c_malformed malformed-seeded 'PLANNED IDS: [2 3 ] != []' '/STAGE_RETRO_ISSUES_MALFORMED_STATE/s/= malformed/= never-malformed/'
+  # The script's logic lives in Go (mutation-tested there); a shim mutant that cannot reach it must turn the checks red.
+  tooth c_middle  shim-wrong-command 'PLANNED IDS:' 's#rsdd_exec retro stage-issues#rsdd_exec retro stage-issuez#'
+  tooth c_first   shim-args-dropped  'PLANNED IDS:' 's#--toolbelt "\$_RSDD_SELF" "\$@"#--toolbelt "\$_RSDD_SELF"#'
   echo "-- prove-teeth done --"
 fi
 

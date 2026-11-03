@@ -8,12 +8,14 @@ on:
     paths:
       - "research-sdd/toolbelt/**"
       - "research-sdd/install/**"
-      # gen-catalog.py is now load-bearing for the toolbelt discriminator; changes to either copy
-      # (the shipped seed or the repo-specialized tool) must run the guarding tests so BLOCK_RE can't rot.
-      - "research-sdd/templates/**"   # seed copy: research-sdd/templates/gen-catalog.py
+      # The catalog generator is load-bearing for the toolbelt discriminator; changes to either copy
+      # (the Go command rsdd corpus catalog, covered by research-sdd/rsdd/** below, or the repo-specialized tool)
+      # must run the guarding tests so BLOCK_RE can't rot.
+      - "research-sdd/templates/**"   # templates the suites read (the generator no longer lives here)
       - "tools/**"                    # repo-specialized copy: tools/gen-catalog.py (parity target)
       - ".github/workflows/toolbelt-tests.yml"
-      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      # Go module rsdd: run-all.sh builds the rsdd binary the shell suites exec (rsdd-go.test.sh itself now runs in
+      # rsdd-go.yml, kit issue #2488).
       - "research-sdd/rsdd/**"
       # .claude/settings.json holds SessionStart hook command paths; changes must run the suite.
       # harness-sweep-parity.test.sh guards this file via --list-inputs (ci-path-filter-coverage).
@@ -36,7 +38,8 @@ on:
       - "research-sdd/templates/**"
       - "tools/**"
       - ".github/workflows/toolbelt-tests.yml"
-      # Go module rsdd: rsdd-go.test.sh (bridge suite) runs `go test ./...` there.
+      # Go module rsdd: run-all.sh builds the rsdd binary the shell suites exec (rsdd-go.test.sh itself now runs in
+      # rsdd-go.yml, kit issue #2488).
       - "research-sdd/rsdd/**"
       - ".claude/settings.json"
       - "research-sdd/METHODOLOGY.md"
@@ -60,6 +63,16 @@ env:
   # shard-join.sh --shards, so a matrix edit that forgets this value fails loudly.
   SHARD_COUNT: "4"
 
+# A newer push to the same PR, or a newer merge to main, supersedes the in-flight run of the same ref:
+# cancel it, so the shared concurrent-job cap (GitHub queues everything beyond it) is spent on current
+# heads only. On main this coalesces a burst of merges into one run of the newest commit (measured
+# 2026-11-02: 21 full toolbelt runs on main pushes in ~22 h, ~46 job-minutes each); every merged commit
+# was already gated by its PR run. The event name is in the group, so a merge never cancels the nightly
+# schedule or a manual dispatch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   toolbelt-shard:
     # Kit issue #2114: the single toolbelt-tests job reached the 35-minute cap (25-34 min measured
@@ -70,7 +83,7 @@ jobs:
     # each of 4 shards should take ~7-9 min of suite time plus ~1-2 min setup. timeout-minutes 25 leaves ~2.5x headroom per shard and a
     # cancelled shard fails the join (needs.result != success), so a timeout can never read as green.
     # History of the single-job cap: 12 -> 20 (2026-10-01) -> 35 (2026-10-02, #1437) -> 50 (2026-10-10, #2114/#2115).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       # Every shard must finish so the join reports ALL missing/failed suites in one pass.
@@ -84,7 +97,9 @@ jobs:
       # honoured once PR #2137 lands).
       RSDD_REQUIRE_BWRAP: "1"
       RSDD_REQUIRE_NODE_TS: "1"
-      # rsdd-go.test.sh: a missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage.
+      # run-all.sh builds the rsdd binary once per invocation: a missing Go toolchain must FAIL, never degrade silently.
+      # (rsdd-go.test.sh, the Go bridge suite with the gremlins teeth, is tier `dedicated` and runs in rsdd-go.yml,
+      # kit issue #2488: 469-729 s of every shard and 10 of 14 measured toolbelt failures.)
       RSDD_REQUIRE_GO: "1"
     steps:
       - name: Checkout
@@ -108,7 +123,18 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: research-sdd/rsdd/go.mod
-          cache-dependency-path: research-sdd/rsdd/go.mod
+          cache: false # go.mod-only keys never refresh (no go.sum); the explicit cache step below is keyed on the Go sources (kit issue #2488)
+
+      - name: Cache Go build and module caches
+        # run-all.sh builds the rsdd binary once per shard; a warm GOCACHE turns that into a link step.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-toolbelt-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-toolbelt-
 
       - name: Install bubblewrap and enable unprivileged user namespaces
         # Kit issue #2138: verify-session-budget.test.sh and verify-registry case 2129a need a USABLE
@@ -177,7 +203,7 @@ jobs:
     # ci_missing. GitHub names matrix jobs `toolbelt-shard (1)` by itself.
     needs: toolbelt-shard
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -211,7 +237,7 @@ jobs:
     # of the required `toolbelt-tests` check; a red nightly is a signal to fix or retire the suite. It has NO
     # `name:` line (see the shard job note about merge-gate's parser).
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # Same prerequisite-must-not-skip flags as the shard job (kit issue #2138).
@@ -247,8 +273,10 @@ jobs:
             || { echo "::error::run-all did not run in parallel mode (see DEGRADED line above)"; exit 1; }
 
   shellcheck:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    # Kit issue #2413: the serial run reached ~4m55s against a 5-minute cap and was cancelled
+    # intermittently; the lint is now parallel (xargs -P) and the cap keeps headroom.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -256,7 +284,7 @@ jobs:
       - name: Lint toolbelt shell scripts (warning+)
         run: |
           shellcheck --version
-          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+          find research-sdd/toolbelt research-sdd/install -name '*.sh' -print0 | xargs -0 -n 16 -P "$(nproc)" shellcheck -S warning
 
       - name: Lint shell-portability defect classes (unquoted subst replacement, awk intervals)
         # Unwired-mechanisms audit 2026-10-05: lint-substitution.sh (kit issue #1121/#1142) scans

@@ -1,0 +1,26 @@
+{
+  "input": {
+    "frame_count": 0,
+    "line_count": 0,
+    "path": "testdata/frames/empty.log",
+    "sha256": "97f458011ba109e990e5f0083ef6d9d6b55c49c450101bc1ed3b49039d16f091",
+    "skipped_line_count": 0
+  },
+  "mode": "stats",
+  "results": {
+    "length_histogram": [],
+    "most_common_length": null,
+    "variability": []
+  },
+  "schema": "serial-frame.v1",
+  "status": "complete",
+  "summary": {
+    "distinct_lengths": 0,
+    "frame_count": 0,
+    "line_count": 0,
+    "skipped_line_count": 0,
+    "truncated": false
+  },
+  "tool": "serial-frame-analyze",
+  "truncated": false
+}

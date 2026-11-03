@@ -1,0 +1,44 @@
+{
+  "artifacts": [
+    {
+      "agents": [],
+      "agents_count": 0,
+      "artifact": "bom-rt",
+      "duplicate_bare_keys": {
+        "bom-rt.lexicon": {
+          "title": 2
+        }
+      },
+      "duplicate_bare_keys_count": 1,
+      "keys_examined": 3,
+      "lexicon_files_seen": 1,
+      "lexicon_keys": 3,
+      "module_xml_present": false,
+      "palette_count": 0,
+      "palette_present": false
+    }
+  ],
+  "errors": [],
+  "limitations": [
+    "module.palette read capped at 16777216 bytes; a pathological XML tree can still exceed available memory during parse; MemoryError is caught and reported as status:failed.",
+    ".lexicon read capped at 4194304 bytes per file.",
+    "module.xml read capped at 1048576 bytes.",
+    "Artifact subdirs capped at 500 per module.",
+    "Lexicon values are never read or emitted (secrets discipline).",
+    "Only '=' key separator recognized; backslash-continuation not supported.",
+    "JAR fallback (absent extracted/) is not supported.",
+    "*.lexicon files scanned recursively under extracted/ (symlinks not followed).",
+    "Duplicate detection is per-file: a key appearing once per file is not flagged even if it appears in multiple .lexicon files (each file is a separate namespace)."
+  ],
+  "schema": "palette-lexicon.v1",
+  "status": "complete",
+  "summary": {
+    "agents": 0,
+    "artifacts_scanned": 1,
+    "duplicate_bare_keys": 1,
+    "keys_examined": 3,
+    "lexicon_keys": 3,
+    "palette_entries": 0
+  },
+  "truncated": false
+}

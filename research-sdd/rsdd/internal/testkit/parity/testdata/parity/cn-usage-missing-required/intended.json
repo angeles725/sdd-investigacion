@@ -1,0 +1,6 @@
+[
+ {
+  "field": "stderr",
+  "reason": "usage text: argparse prints the Python usage block under the program name corroborate_native.py, rsdd prints its own usage block; the exit status 2 and the empty stdout are identical"
+ }
+]

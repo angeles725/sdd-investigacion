@@ -219,6 +219,36 @@ if grep -q 'SYMLINKED-GEN-RAN' "$d/CATALOG.md" 2>/dev/null && [ ! -f "$TMP/CATAL
   ok "symlinked local generator writes CATALOG into the corpus, not the symlink target's tree"
 else no "symlink-gen: corpus-catalog=$([ -f "$d/CATALOG.md" ] && echo yes || echo NO) wrong-loc=$([ -f "$TMP/CATALOG.md" ] && echo WRITTEN || echo clean)"; fi
 
+# 5d — KIT FALLBACK, content (kit issue #2535): with no local generator the Go command `rsdd corpus catalog` writes
+# the catalog (5/5a above already pin that CATALOG.md appears with the block title and the 'via kit generator'
+# report); this pins the Total line and the title row so a generator that wrote the wrong corpus would show.
+d="$TMP/kitgo"; mkgood "$d"
+out="$(bash "$SUT" "$d" 2>&1)"
+if grep -q '^Total: \*\*1 blocks\*\*$' "$d/CATALOG.md" 2>/dev/null && grep -q '^| 1 | \[t-block1.md\](t-block1.md) | ' "$d/CATALOG.md" \
+   && grep -q 'regenerated CATALOG.md (via kit generator (rsdd corpus catalog))' <<<"$out"; then
+  ok "kit fallback: the Go command writes the catalog (Total line, block row, report names rsdd corpus catalog)"
+else no "kit-go: $(head -5 "$d/CATALOG.md" 2>/dev/null | tr '\n' '|') :: $(grep -i catalog <<<"$out" | head -1)"; fi
+
+# 5e — a DANGLING symlink at tools/gen-catalog.py (a corpus that linked the deleted kit template) is not a local
+# generator (-f is false), so archive falls through to the Go command and still regenerates.
+d="$TMP/dangling"; mkgood "$d"; mkdir -p "$d/tools"
+ln -s "$TMP/no-such-kit/templates/gen-catalog.py" "$d/tools/gen-catalog.py"
+out="$(bash "$SUT" "$d" 2>&1)"
+if grep -q '^Total: \*\*1 blocks\*\*$' "$d/CATALOG.md" 2>/dev/null && grep -q 'via kit generator' <<<"$out" && ! grep -q 'via local generator' <<<"$out"; then
+  ok "dangling tools/gen-catalog.py symlink falls through to the Go command"
+else no "dangling-symlink: $(grep -i catalog <<<"$out" | head -1)"; fi
+
+# 5f — a FAILING Go command (RSDD_BIN = a stub that exits 1): the report names the Go command, not gen-catalog.py,
+# CATALOG.md stays STALE (the stub writes nothing), the checklist carries the rerun hint, and the close still exits 0
+# (consolidate is best-effort).
+d="$TMP/kitgofail"; mkgood "$d"; printf 'STALE CATALOG\n' > "$d/CATALOG.md"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/failing-rsdd"; chmod +x "$TMP/failing-rsdd"
+out="$(RSDD_BIN="$TMP/failing-rsdd" bash "$SUT" "$d" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && [ "$(cat "$d/CATALOG.md")" = "STALE CATALOG" ] && grep -q 'ERROR — kit generator (rsdd corpus catalog) failed' <<<"$out" \
+   && ! grep -q 'gen-catalog.py failed' <<<"$out" && grep -q 'run: rsdd corpus catalog ' <<<"$out"; then
+  ok "failing Go command: error names 'rsdd corpus catalog', CATALOG.md left stale, rerun hint printed (rc=$rc)"
+else no "kit-go-fail rc=$rc catalog=$(head -1 "$d/CATALOG.md") :: $(grep -i catalog <<<"$out" | head -2 | tr '\n' '|')"; fi
+
 # 6 — --dry-run mutates NOTHING (no CATALOG.md created) yet still exits 0
 d="$TMP/dry"; mkgood "$d"
 bash "$SUT" "$d" --dry-run >/dev/null 2>&1; rc=$?

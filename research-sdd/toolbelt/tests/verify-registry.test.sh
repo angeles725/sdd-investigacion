@@ -479,15 +479,21 @@ else
   no "3s6 hook yes + one missing + one present entry → no never-loaded WARN" "exit=$RC out=[$OUT]"
 fi
 
-# 3t — script resolution DEGRADED (awk cannot run inside the lib's script-state probe): a typed WARN,
-#      never silence. The kit copy of the lib is rewired to a failing command.
+# 3t — script resolution DEGRADED (the lib's script-state probe cannot run): a typed WARN, never silence.
+#      The probe is `rsdd hook script-state` since kit issue #2356. The fault is an RSDD_BIN stub that fails that
+#      one subcommand and runs the real rsdd for everything else, so the wiring check still answers and only the
+#      script-state probe degrades (an RSDD_BIN naming no file would also make the wiring read "unreadable").
+c3t_stub="$ROOT/c3t-rsdd-stub"
+c3t_real="${RSDD_BIN:?verify-registry.test.sh needs RSDD_BIN}"
+c3t_real="'${c3t_real//\'/\'\\\'\'}'"  # POSIX sh single-quoting (the stub runs under /bin/sh, not bash: no %q)
+printf '#!/bin/sh\n[ "$1 $2" = "hook script-state" ] && exit 1\nexec %s "$@"\n' "$c3t_real" > "$c3t_stub"
+chmod +x "$c3t_stub"
 kit="$(mkkit c3t-degraded)"; tgt="$kit/targetA"
 mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
-sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
 { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
   printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
 } > "$kit/TARGETS.md"
-run "$kit"
+RSDD_BIN="$c3t_stub" run "$kit"
 if [ "$RC" = 0 ] && grep -qE "WARN[[:space:]]+targetA — .*script-resolution check degraded" <<<"$OUT" && ! grep -q 'does not exist' <<<"$OUT"; then
   ok "3t script-state degraded → typed degraded WARN, no false missing" "(exit $RC)"
 else
@@ -3233,13 +3239,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth-hook-script-degraded: neuter HOOK-SCRIPT-DEGRADED-CHECK; test 3t must go silent --"
   kit="$(mkkit teeth-script-degraded)"; tgt="$kit/targetA"
   mkcorpus "$tgt" 3 "a"; wire_hook_abs "$tgt" "$tgt/.claude/hooks/retro-gate-stop.sh"
-  sed -i 's/^    awk -v tgt=/    false -v tgt=/' "$kit/toolbelt/lib/hook-wiring.sh"
   { printf '# targets\n\n| # | name | maturity | path |\n|---|---|---|---|\n'
     printf '| 1 | targetA | mature (3 md / git yes / hook yes) | `%s` |\n' "$tgt"
   } > "$kit/TARGETS.md"
   if vr_mut "teeth-hook-script-degraded" "$kit" 's/if \[ "\$_vr_script_state" = "degraded" \]; then  # HOOK-SCRIPT-DEGRADED-CHECK/if false; then  # HOOK-SCRIPT-DEGRADED-CHECK (mutated)/'; then
     vr_run "teeth-hook-script-degraded: neutered check silences test 3t — has teeth" "$kit" 0 0 \
-      --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded'
+      --good-has 'script-resolution check degraded' --bad-lacks 'script-resolution check degraded' \
+      -- env RSDD_BIN="$c3t_stub" "$BASH_BIN" @SUT@
   fi
 
   echo "-- teeth-hook-no-sessions: neuter HOOK-NO-SESSIONS-CHECK; test 3ns1 must go silent --"
@@ -3507,6 +3513,15 @@ mk2129() { # <kit-name>  -> a kit whose one target wires an 10,500-char SessionS
   printf '#!/usr/bin/env bash\ncat >/dev/null; head -c 10500 /dev/zero | tr "\\0" x\n' > "$tgt/.claude/hooks/big.sh"; chmod +x "$tgt/.claude/hooks/big.sh"
   printf '{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"$CLAUDE_PROJECT_DIR/.claude/hooks/big.sh"}]}]}}\n' > "$tgt/.claude/settings.json"
   cp "$HERE/../verify-session-budget.sh" "$kit/toolbelt/verify-session-budget.sh"
+  # verify-session-budget.sh is an rsdd shim (kit issue #2364): the stub kit needs lib/rsdd-exec.sh and a
+  # prebuilt rsdd (built once into $ROOT, never into the tree), since the stub kit has no rsdd/ source.
+  mkdir -p "$kit/toolbelt/lib"; cp "$HERE/../lib/rsdd-exec.sh" "$kit/toolbelt/lib/rsdd-exec.sh"   # stage-libs-ok: one shim lib for the stub kit of case 2129a, not a lib set
+  if [ "${_vr2129_bw:-}" = usable ] && { [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; }; then
+    RSDD_BIN="$ROOT/rsdd"
+    ( cd "$HERE/../../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/rsdd-build.log" 2>&1 \
+      || no "2129 cannot build rsdd for the verify-session-budget shim" "$(tail -n 5 "$ROOT/rsdd-build.log")"
+    export RSDD_BIN
+  fi
   nsrow "$kit" "$tgt" '3 md / git yes'
 }
 # The sandbox-dependent case 2129a needs a USABLE unprivileged bwrap (probed once); otherwise a typed SKIP (FAIL under RSDD_REQUIRE_BWRAP=1). 2129d uses a stub budget script and needs no bwrap.

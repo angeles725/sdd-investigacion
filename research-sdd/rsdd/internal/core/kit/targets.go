@@ -90,12 +90,12 @@ func Derive(src string, getenv Getenv) ([]Pair, Reading) {
 	}
 	rh := researchHome(getenv)
 	seen := map[string]Pair{}
-	rows := 0
+	sawRow := false
 	for _, line := range strings.Split(src, "\n") {
 		if !isRowLine(line) {
 			continue
 		}
-		rows++
+		sawRow = true
 		for _, m := range reAbs.FindAllString(line, -1) {
 			p := strings.ReplaceAll(m, "`", "")
 			seen[p+"\t"+p] = Pair{p, p}
@@ -117,7 +117,7 @@ func Derive(src string, getenv Getenv) ([]Pair, Reading) {
 	}
 	sort.Slice(pairs, func(i, j int) bool { return cLess(pairs[i].Line(), pairs[j].Line()) })
 	switch {
-	case rows == 0:
+	case !sawRow:
 		return pairs, ReadNoRows
 	case len(pairs) == 0:
 		return pairs, ReadNoTokens

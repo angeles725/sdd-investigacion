@@ -75,6 +75,10 @@ func (r *Runner) RunAll(cases []Case, opt Options) Report {
 	if opt.CorpusMode && len(opt.Corpora) == 0 {
 		add(Result{Case: "(corpus mode)", Status: StatusFailed, Problems: []Problem{{KindEmptyInput, "0 corpus targets: nothing to read-only compare against"}}})
 	}
+	if opt.CorpusMode && len(opt.Corpora) > 0 && len(existing) == 0 {
+		add(Result{Case: "(corpus mode)", Status: StatusFailed, Problems: []Problem{{KindAbsentInput,
+			fmt.Sprintf("all %d corpus targets are absent: nothing to read-only compare against", len(opt.Corpora))}}})
+	}
 	rep.Counts.AbsentCorpora = len(rep.Absent)
 	for _, res := range rep.Results {
 		switch res.Status {

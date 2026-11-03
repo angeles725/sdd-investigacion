@@ -1,0 +1,3 @@
+#!/bin/sh
+[ "$1" = --help ] && { echo 'Binwalk v2.3.3'; exit; }
+printf '10 0xa Falling entropy edge (0.1)\n5 0x5 zeta\n5 0x5 alpha\n0 0x0 Rising entropy edge (0.9)\n'

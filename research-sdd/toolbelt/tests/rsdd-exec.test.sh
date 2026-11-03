@@ -76,6 +76,7 @@ case "$ld" in *" -X $FAKE_GO_SYM="*) ;; *) echo "fake go: -ldflags lack -X $FAKE
 h="${ld##*-X "$FAKE_GO_SYM"=}"; h="${h%% *}"
 printf '%s\n' "$PWD" >> "$FAKE_GO_LOG"
 printf '%s\n' "$h" >> "$FAKE_GO_LDLOG"
+printf '%s\n' "${CGO_ENABLED-unset}" >> "$FAKE_GO_LOG.cgo"
 echo "BUILDNOISE-STDOUT"
 echo "BUILDNOISE-STDERR" >&2
 body="$(<"$FAKE_BODY")"; body="${body//@TAG@/"${FAKE_GO_TAG:-NEW}"}"; body="${body//@HASH@/"$h"}"
@@ -132,7 +133,7 @@ EOF
 . "$(dirname "$0")/lib/rsdd-exec.sh" && rsdd_exec_hook "$@"
 EOF
   touch -d '2020-01-01 00:00:00' "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go" "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum"
-  : >"$SCRATCH/go.log"; : >"$SCRATCH/run.log"; : >"$SCRATCH/ld.log"
+  : >"$SCRATCH/go.log"; : >"$SCRATCH/run.log"; : >"$SCRATCH/ld.log"; : >"$SCRATCH/go.log.cgo"
 }
 
 # ref_hash DIR — the tree hash by the README's independent shell pipeline (rsdd/internal/commands/testdata/source-hash)
@@ -169,7 +170,7 @@ dorun() {
     FAKE_RC="${FAKE_RC:-0}" FAKE_READ_STDIN="${READ_STDIN:-}" FAKE_GO_READY="${READY_FILE:-}" FAKE_GO_RELEASE="${RELEASE_FILE:-}"
     RSDD_TEST_LABEL="$label" RSDD_TEST_SCRATCH="$SCRATCH")
   if [ -n "${USE_RSDD_BIN+x}" ]; then ev+=(RSDD_BIN="$USE_RSDD_BIN"); fi
-  ${DORUN_TIMEOUT:+timeout "$DORUN_TIMEOUT"} env -u RSDD_BIN "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
+  ${DORUN_TIMEOUT:+timeout "$DORUN_TIMEOUT"} env -u RSDD_BIN -u CGO_ENABLED "${ev[@]}" "$BASH_BIN" "$sp" "$@" <"${STDIN_FILE:-/dev/null}" >"$SCRATCH/$label.out" 2>"$SCRATCH/$label.err"
   echo "$?" >"$SCRATCH/$label.rc"
 }
 prefixed() {   # PREFIX FILE
@@ -185,6 +186,7 @@ probes() {   # build-side probes: how often fake go built / ran srchash, where, 
   printf 'GOCWD=%s\n' "$(head -n 1 "$SCRATCH/go.log" 2>/dev/null)"
   printf 'SRCRUNS=%s\n' "$(grep -c . "$SCRATCH/run.log")"
   printf 'STAMP=%s\n' "$(head -n 1 "$SCRATCH/ld.log" 2>/dev/null)"
+  printf 'GOCGO=%s\n' "$(head -n 1 "$SCRATCH/go.log.cgo" 2>/dev/null)"
   printf 'KIT=%s\n' "$KIT"
   printf 'TMPLEFT=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd.*' ! -name .rsdd.lock 2>/dev/null | grep -c .)"
   printf 'LOCK=%s\n' "$([ -e "$KIT/bin/.rsdd.lock" ] && echo yes || echo no)"
@@ -750,6 +752,7 @@ for v in gomod gosum deepgo maingo; do
   chk "stale ($v content changed, mtime OLDER than the binary) -> rebuilt, new binary runs" "$R" stale '^o\| FAKE-NEW$'
   pchk "stale ($v) -> exactly one go build" "$R" '^GOCALLS=1$'
   pchk "stale ($v) -> go ran inside <kit>/rsdd" "$R" '^GOCWD=.*/k it/rsdd$'
+  pchk "stale ($v) -> go build runs with CGO_ENABLED=0 (a cgo binary aborts in pthread_create under the test RLIMIT_AS cap)" "$R" '^GOCGO=0$'
   pchk "stale ($v) -> no temp file left in bin/" "$R" '^TMPLEFT=0$'
   pchk "stale ($v) -> the rebuild took the lock file" "$R" '^LOCK=yes$'
   eqchk "stale ($v) -> the build was stamped with the NEW tree hash" "$R" STAMP TREE
@@ -1193,9 +1196,9 @@ mk stamp-wrong-value 's#-X \$_RSDD_EXEC_HASH_SYM=\$h#-X $_RSDD_EXEC_HASH_SYM=sha
   tt stamp-wrong-value mismatch --good-lacks '^STAMP=sha256:0{64}$' --bad-has '^STAMP=sha256:0{64}$' --bad-lacks "$CRASH"
 mk stamp-wrong-symbol 's#commands.sourceHash#commands.otherHash#' &&
   tt stamp-wrong-symbol symbol --good-has '^LIBSYM=.*\.sourceHash$' --bad-lacks '^LIBSYM=.*\.sourceHash$' --bad-lacks "$CRASH"
-mk stamp-unvalidated 's#&& _rsdd_exec_valid_hash "\$h" && go build#\&\& go build#' &&
+mk stamp-unvalidated 's#&& _rsdd_exec_valid_hash "\$h" && CGO_ENABLED=0 go build#\&\& CGO_ENABLED=0 go build#' &&
   tt stamp-unvalidated stampfail --good-lacks '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
-mk stamp-failure-ignored 's#h="\$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "\$h" && go build#h="$(go run ./cmd/rsdd-srchash .)"; go build#' &&
+mk stamp-failure-ignored 's#h="\$(go run ./cmd/rsdd-srchash .)" && _rsdd_exec_valid_hash "\$h" && CGO_ENABLED=0 go build#h="$(go run ./cmd/rsdd-srchash .)"; CGO_ENABLED=0 go build#' &&
   tt stamp-failure-ignored stampfail --good-lacks '^o\| FAKE-NEW$' --bad-has '^o\| FAKE-NEW$' --bad-lacks "$CRASH"
 # --- the lock
 mk no-lock 's#flock -w "\$_RSDD_EXEC_LOCKWAIT" "\$lfd" || exit 12#:#' &&
@@ -1212,6 +1215,9 @@ mk lock-create-rc 's#{ : >>"\$lock"; } 2>/dev/null || return 3#{ : >>"$lock"; } 
   tt lock-create-rc bin_ro --good-lacks 'degraded: rsdd-unavailable — build failed' --bad-has 'degraded: rsdd-unavailable — build failed' --bad-lacks "$CRASH"
 mk no-atomic-rename 's#-o "\$tmp" ./cmd/rsdd && chmod 755 "\$tmp" && mv -f "\$tmp" "\$bin"#-o "$bin" ./cmd/rsdd \&\& chmod 755 "$bin"#' &&
   tt no-atomic-rename midbuild --good-has '^MID=FAKE-OLD$' --bad-lacks '^MID=FAKE-OLD$' --bad-lacks '^HANDSHAKE-TIMEOUT' --bad-lacks "$CRASH"
+# --- the static build (#2461): a cgo binary aborts in pthread_create under the test RLIMIT_AS cap
+mk cgo-on 's#CGO_ENABLED=0 go build#go build#' &&
+  tt cgo-on stale-gomod --good-has '^GOCGO=0$' --bad-has '^GOCGO=unset$' --bad-lacks "$CRASH"
 mk swallow-degraded 's#printf '"'"'degraded: rsdd-unavailable — %s\\n'"'"' "\$1" >&2; return 2;#return 2;#' &&
   tt swallow-degraded nogo_none --good-has '^e\| degraded: rsdd-unavailable — go not found$' --bad-lacks '^e\| degraded: ' --bad-lacks "$CRASH"
 mk degrade-rc0 's#"\$1" >&2; return 2; }#"$1" >\&2; return 0; }#' &&

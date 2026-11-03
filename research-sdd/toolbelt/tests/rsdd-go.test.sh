@@ -13,8 +13,29 @@
 #   --decide-gremlins FILE [RC]
 #                    (internal) print the gremlins verdict for a captured `make teeth` output and its exit
 #                    code RC (default 0); the bridge's gremlins parser is tested through it.
+#   --selftest-teeth (internal) run only the offline teeth-wiring self-checks (decide_gremlins diagnostics, the
+#                    Makefile `make -n teeth` wiring, package scoping on a scratch git repo, verdict combining);
+#                    needs make and git, never go or gremlins.
+#   --teeth-packages BASE [MODDIR]
+#                    (internal) print the Go packages (./rel, one per line) under MODDIR (default: the module)
+#                    whose .go files changed between merge-base(BASE, HEAD) and the working tree; exit 3 when
+#                    BASE cannot be resolved.
+#   --combine-verdicts FILE
+#                    (internal) fold the VERDICT lines of FILE into one: any FAIL -> FAIL, else any SKIP -> SKIP.
 #   --prove-teeth    one mutation control on a COPY of the module in $TMPDIR (never the live tree):
-#                    removing the panic boundary in internal/cli must turn the Go tests red
+#                    removing the panic boundary in internal/cli must turn the Go tests red, then gremlins runs.
+#                    Scope of the gremlins step:
+#                      RSDD_TEETH_BASE unset  whole-module `make teeth` (the nightly).
+#                      RSDD_TEETH_BASE=<ref>  (a git ref, e.g. origin/main, set for pull_request events) only the
+#                        Go packages whose .go files changed between merge-base(<ref>, HEAD) and the working tree,
+#                        one `make teeth TEETH_PKG=./<pkg> TEETH_EXCLUDE=/` each (only the files directly in <pkg>:
+#                        a changed subpackage is its own entry). Zero changed packages is the typed state
+#                        `teeth: n/a - no Go package changed vs <ref>` (ok, never teeth); an unresolvable <ref> is
+#                        FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
+#                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
+#                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run (as GOMAXPROCS,
+#                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
+#                    through the environment to make.
 set -uo pipefail
 
 # count_go_output FILE -> "pass=N fail=M": one count per `ok <pkg>` / `FAIL <pkg>` line of `go test`.
@@ -31,20 +52,51 @@ count_go_output() {
 #     SKIP - or FAIL under RSDD_REQUIRE_GO=1; a SKIP is never counted as teeth;
 #   - anything else (a "Killed:"/"Timed out:" line that is not numeric, only one of the two lines, or no
 #     summary at all after rc=0): gremlins ran but its output cannot be read - typed FAIL, never a pass.
+# fail_heads FILE N -> the first N output lines of every package that FAILed, so a runtime crash names its
+# cause: go test prints each package's output as one block that ends with its ok / FAIL / ? line, and a
+# "fatal error:" header leads the block while the goroutine dump fills its tail (kit issue #2454).
+fail_heads() {
+  awk -v n="$2" '
+    function flush(pkg,   i, m) {
+      m = (cnt < n ? cnt : n)
+      print "--- head of failing " pkg " (" m " of " cnt " lines) ---" # SENTINEL-GO-FAIL-HEAD
+      for (i = 1; i <= m; i++) print "    | " buf[i]
+    }
+    ($1 == "ok" || $1 == "?") && NF >= 2 { cnt = 0; next }
+    $1 == "FAIL" && $2 != "" { flush($2); cnt = 0; next }
+    { buf[++cnt] = $0 }
+  ' "$1"
+}
+
 decide_gremlins() {
   local f="$1" rc="$2" counts l
   counts="$(awk '
     /^Killed:/ { kl++; gsub(/,/,""); if ($3=="Lived:" && $5=="Not" && $6=="covered:" && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $7 ~ /^[0-9]+$/) { k=$2; l=$4; n=$7; kok=1 } }
     /^Timed out:/ { tl++; gsub(/,/,""); if ($3 ~ /^[0-9]+$/) { t=$3; tok=1 } }
     END { if (kl==1 && tl==1 && kok && tok) printf "killed=%d lived=%d timed_out=%d not_covered=%d\n", k, l, t, n }' "$f")"
+  # A package with no mutable expression (e.g. a command table): gremlins exits 0, prints no summary and says
+  # "No results to report.". That is a typed no-mutants PASS with explicit zero counts, never a silent one; the
+  # same text after a non-zero exit, or beside a (garbled) summary line, falls through to the failure paths below.
+  if [ -z "$counts" ] && [ "$rc" -eq 0 ] && grep -qx 'No results to report\.' "$f" \
+     && ! grep -q -e '^Killed:' -e '^Timed out:' "$f"; then # SENTINEL-GREMLINS-NO-MUTANTS
+    echo "gremlins: no-mutants killed=0 lived=0"
+    echo "VERDICT: PASS no-mutants (gremlins: No results to report.)"
+    return 0
+  fi
   if [ -z "$counts" ]; then
-    local why; why="$(tail -n 3 "$f" | tr '\n' ' ')"
+    local why cause; why="$(tail -n 3 "$f" | tr '\n' ' ')"
+    # The make trailer alone hides the real cause (a failing baseline `go test` prints only `exit status 1`),
+    # so the first failure-looking lines lead the verdict text and a bounded tail follows as context.
+    cause="$(grep -m 3 -E -e '^--- FAIL' -e $'^FAIL\t' -e 'panic:' -e '^go: ' "$f" | tr '\n' '|')"
+    [ -n "$cause" ] && why="cause: ${cause%|} ... $why"
     if ! grep -q -e '^Killed:' -e '^Timed out:' "$f" && [ "$rc" -ne 0 ]; then
       if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then echo "VERDICT: FAIL gremlins did not run (rc=$rc, RSDD_REQUIRE_GO=1): $why"
       else echo "VERDICT: SKIP gremlins did not run (rc=$rc): $why"; fi
     else
       echo "VERDICT: FAIL gremlins summary unparseable (rc=$rc): $why"
     fi
+    echo "  context (last 20 lines of the captured output):"
+    tail -n 20 "$f" | sed 's/^/    | /'
     return 0
   fi
   echo "gremlins: $counts"
@@ -57,9 +109,51 @@ decide_gremlins() {
   fi
 }
 
+# changed_go_packages MODDIR BASE -> prints one Go package per line ("." or "./rel", sorted), for every package
+# under MODDIR with a .go file (test files included) changed between merge-base(BASE, HEAD) and the working
+# tree (tracked edits, deletions and untracked files). A package whose directory is gone or holds no .go
+# file any more is skipped, as are testdata and _/. directories (the go tool ignores them). Exit 3: MODDIR
+# is not in a git work tree or BASE has no merge-base with HEAD (the caller types that state).
+changed_go_packages() {
+  local mod="$1" base="$2" top mb f d lines
+  top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" rev-parse --show-toplevel 2>/dev/null)" || return 3
+  mb="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top" merge-base "$base" HEAD 2>/dev/null)" || return 3
+  lines="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" diff --name-only --no-renames --relative "$mb" -- .)" || return 3
+  lines="$lines
+$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" ls-files --others --exclude-standard -- .)" || return 3
+  while IFS= read -r f; do
+    case "$f" in *.go) ;; *) continue ;; esac
+    d="$(dirname "$f")"
+    case "/$d/" in */testdata/*|*/_*|*/.[!/]*) continue ;; esac
+    [ -d "$mod/$d" ] || continue
+    compgen -G "$mod/$d/*.go" >/dev/null || continue
+    if [ "$d" = "." ]; then echo "."; else echo "./$d"; fi
+  done <<<"$lines" | LC_ALL=C sort -u
+}
+
+# combine_verdicts FILE -> one VERDICT line from the VERDICT lines of FILE: any FAIL -> FAIL, else any SKIP -> SKIP,
+# else PASS. No VERDICT line at all is a FAIL (a silent zero proves nothing).
+combine_verdicts() {
+  awk '
+    /^VERDICT: FAIL/ { f++; if (ff=="") ff=substr($0, 10) }
+    /^VERDICT: SKIP/ { k++; if (kk=="") kk=substr($0, 10) }
+    /^VERDICT: PASS/ { p++; if ($3=="no-mutants") nm++ }
+    END {
+      if (f > 0) printf "VERDICT: FAIL %d of %d package run(s) failed; first: %s\n", f, f+k+p, ff
+      else if (k > 0) printf "VERDICT: SKIP %d of %d package run(s) skipped; first: %s\n", k, k+p, kk
+      else if (p > 0) printf "VERDICT: PASS no lived mutants in %d package run(s)%s\n", p, (nm > 0 ? "; no-mutants: " nm : "")
+      else print "VERDICT: FAIL no package verdict to combine"
+    }' "$1"
+}
+
 if [ "${1:-}" = "--decide-gremlins" ]; then
   [ -r "${2:-}" ] || { echo "FATAL: --decide-gremlins needs a readable FILE" >&2; exit 2; }
   decide_gremlins "$2" "${3:-0}"; exit 0
+fi
+
+if [ "${1:-}" = "--fail-heads" ]; then
+  [ -r "${2:-}" ] || { echo "FATAL: --fail-heads needs a readable FILE" >&2; exit 2; }
+  fail_heads "$2" "${3:-40}"; exit 0
 fi
 
 if [ "${1:-}" = "--parse" ]; then
@@ -68,14 +162,98 @@ if [ "${1:-}" = "--parse" ]; then
   [ "${res##*fail=}" -eq 0 ]; exit $?
 fi
 
+if [ "${1:-}" = "--combine-verdicts" ]; then
+  [ -r "${2:-}" ] || { echo "FATAL: --combine-verdicts needs a readable FILE" >&2; exit 2; }
+  combine_verdicts "$2"; exit 0
+fi
+
+if [ "${1:-}" = "--teeth-packages" ]; then
+  [ -n "${2:-}" ] || { echo "FATAL: --teeth-packages needs a BASE ref" >&2; exit 2; }
+  changed_go_packages "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$2"; exit $?
+fi
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MOD="$HERE/../../rsdd"
+MOD="${RSDD_GO_MOD:-$HERE/../../rsdd}"   # RSDD_GO_MOD: a mutant copy of this suite lives elsewhere
 [ -f "$MOD/go.mod" ] || { echo "FATAL: Go module not found: $MOD" >&2; exit 2; }
 MOD="$(cd "$MOD" && pwd)"
 
 pass=0; fail=0
 ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
 no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
+
+# selftest_teeth DIR: the offline checks of the teeth wiring and scoping (no go, no gremlins). DIR is scratch.
+selftest_teeth() {
+  local dir="$1" g c crc d
+  # Diagnostics: a failing baseline `go test` inside gremlins prints only `exit status 1`; the verdict must
+  # still name the failing test even when it is further up than the last three lines.
+  printf '%s\n' '--- FAIL: TestX (0.00s)' '    x_test.go:12: boom' 'FAIL' $'FAIL\texample.test/m/b\t0.005s' \
+    'exit status 1' 'make: *** [Makefile:62: teeth] Error 1' "make: Leaving directory '/x'" > "$dir/gr-baseline.out"
+  g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$dir/gr-baseline.out" 2)"
+  if grep -q '^VERDICT: FAIL gremlins did not run (rc=2, RSDD_REQUIRE_GO=1): cause: --- FAIL: TestX' <<<"$g" && grep -q '^    | .*x_test.go:12: boom' <<<"$g"; then
+    ok "gremlins: a baseline test failure names TestX in the verdict and prints a bounded tail"
+  else no "gremlins: baseline failure not diagnosable: $g"; fi
+  g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$dir/gr-baseline.out" 2)"
+  if grep -q '^VERDICT: SKIP gremlins did not run (rc=2): cause: --- FAIL: TestX' <<<"$g"; then
+    ok "gremlins: the cause also leads the typed SKIP"; else no "gremlins: SKIP lacks the cause: $g"; fi
+  # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
+  # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
+  c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG -u TEETH_EXCLUDE make -n -C "$MOD" teeth 2>&1)"
+  if grep -q 'GOMAXPROCS=1;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \.$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
+    ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
+  c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
+  if grep -q 'GOMAXPROCS=3;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli$' <<<"$c"; then
+    ok "teeth wiring: TEETH_WORKERS, TEETH_TEST_CPU and TEETH_PKG override"; else no "teeth wiring: override wrong: $c"; fi
+  c="$(make -n -C "$MOD" teeth TEETH_PKG=./internal/cli TEETH_EXCLUDE=/ 2>&1)"
+  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli\$" <<<"$c"; then
+    ok "teeth wiring: TEETH_EXCLUDE passes gremlins --exclude-files before the package"; else no "teeth wiring: exclude wrong: $c"; fi
+
+  # Package scoping on a scratch repo: the module is a subdirectory, so --relative matters.
+  local r="$dir/scope" m="$dir/scope/mod"
+  local gi=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -c user.name=t -c user.email=t@t -c init.defaultBranch=main -C "$dir/scope")
+  mkdir -p "$m"/{a,m/n,z,gone,q,testdata/t,_skip} "$r/other"
+  for d in a m/n z gone q testdata/t _skip; do printf 'package p\n' > "$m/$d/p.go"; done
+  printf 'package p\n' > "$m/root.go"; printf 'package o\n' > "$r/other/o.go"; printf 'module m\n' > "$m/go.mod"
+  "${gi[@]}" init -q && "${gi[@]}" add -A && "${gi[@]}" commit -q --no-verify -m c1 || { no "package scope: scratch repo setup failed"; return 0; }
+  "${gi[@]}" branch feat
+  printf '// main moved\n' >> "$m/q/p.go"; "${gi[@]}" commit -q --no-verify -am c2          # base advances after the branch point
+  "${gi[@]}" checkout -q feat
+  printf '// edit\n' >> "$m/a/p.go"                          # FIRST package, non-test edit
+  mv "$m/m/n/p.go" "$m/m/n/p_test.go"                       # MIDDLE package, only a _test.go remains
+  printf 'package p\n' > "$m/z/new.go"                       # LAST package, untracked new file
+  rm -r "$m/gone"                                           # deleted package dir
+  printf '// edit\n' >> "$m/testdata/t/p.go"; printf '// edit\n' >> "$m/_skip/p.go"
+  printf 'doc\n' > "$m/README.md"; printf '// edit\n' >> "$r/other/o.go"   # not Go in the module / outside the module
+  c="$(bash "$0" --teeth-packages main "$m")"; crc=$?
+  if [ "$crc" -eq 0 ] && [ "$c" = "$(printf '%s\n' ./a ./m/n ./z)" ]; then
+    ok "package scope: first/middle/last, _test.go-only and untracked counted; deleted dir, testdata, _dir, non-Go, outside-module and base-only changes are not"
+  else no "package scope: got rc=$crc [$(tr '\n' ' ' <<<"$c")]"; fi
+  printf '// edit\n' >> "$m/root.go"
+  c="$(bash "$0" --teeth-packages main "$m")"
+  if grep -qx '\.' <<<"$c"; then ok "package scope: a change in the module root package is '.'"; else no "package scope: root package missing: $c"; fi
+  "${gi[@]}" add -A && "${gi[@]}" commit -q --no-verify -m c3
+  c="$(bash "$0" --teeth-packages HEAD "$m")"; crc=$?
+  if [ "$crc" -eq 0 ] && [ -z "$c" ]; then ok "package scope: nothing changed vs HEAD -> empty list, rc 0"; else no "package scope: expected empty: rc=$crc [$c]"; fi
+  bash "$0" --teeth-packages no-such-ref "$m" >/dev/null 2>&1; crc=$?
+  if [ "$crc" -eq 3 ]; then ok "package scope: an unresolvable base exits 3"; else no "package scope: bad base rc=$crc, want 3"; fi
+  bash "$0" --teeth-packages main "$dir" >/dev/null 2>&1; crc=$?
+  if [ "$crc" -eq 3 ]; then ok "package scope: a directory outside any work tree exits 3"; else no "package scope: non-repo rc=$crc, want 3"; fi
+
+  # Verdict folding.
+  printf 'VERDICT: PASS a\nVERDICT: SKIP b\n' > "$dir/v-skip"; printf 'VERDICT: PASS a\nVERDICT: FAIL 1 lived\nVERDICT: SKIP b\n' > "$dir/v-fail"
+  printf 'VERDICT: PASS a\nVERDICT: PASS b\n' > "$dir/v-pass"; : > "$dir/v-none"
+  if grep -q '^VERDICT: FAIL 1 of 3 .*first: FAIL 1 lived' <<<"$(bash "$0" --combine-verdicts "$dir/v-fail")" \
+     && grep -q '^VERDICT: SKIP 1 of 2' <<<"$(bash "$0" --combine-verdicts "$dir/v-skip")" \
+     && grep -q '^VERDICT: PASS .* 2 package' <<<"$(bash "$0" --combine-verdicts "$dir/v-pass")" \
+     && grep -q '^VERDICT: FAIL no package verdict' <<<"$(bash "$0" --combine-verdicts "$dir/v-none")"; then
+    ok "verdicts: any FAIL fails, else any SKIP skips, else PASS; no verdict is a FAIL"
+  else no "verdicts: combine wrong"; fi
+}
+
+if [ "${1:-}" = "--selftest-teeth" ]; then
+  ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go-st.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
+  selftest_teeth "$ROOT"
+  echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]; exit $?
+fi
 
 if ! command -v go >/dev/null 2>&1; then
   if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
@@ -115,6 +293,7 @@ npass="${counts#pass=}"; npass="${npass%% *}"
 nfail="${counts##*fail=}"
 while read -r _ pkg _; do ok "go test: $pkg"; done < <(awk '$1=="ok"{print}' "$out")
 while read -r _ pkg _; do no "go test: $pkg"; done < <(awk '$1=="FAIL" && $2!=""{print}' "$out")
+if [ "$nfail" -gt 0 ]; then fail_heads "$out" 40; fi
 if [ "$rc" -ne 0 ] && [ "$nfail" -eq 0 ]; then
   no "go test exited $rc with no per-package FAIL line (build/setup error); tail follows"
   tail -n 15 "$out"
@@ -142,6 +321,18 @@ if [ "$bad" = "pass=1 fail=1" ] && [ "$badrc" -eq 1 ] && [ "$good" = "pass=1 fai
 else
   no "counter: got bad='$bad' rc=$badrc good='$good' rc=$goodrc"
 fi
+
+# The head of a failing package: a runtime crash prints "fatal error:" first and a long goroutine dump after,
+# so the tail alone loses the cause (#2454). Canned: a passing package, then a crash block of 60 lines.
+{ printf 'ok  \texample.test/m/a\t0.004s\n'; printf 'fatal error: out of memory\n'
+  for i in $(seq 1 59); do printf 'goroutine %d [GC worker (idle)]:\n' "$i"; done
+  printf 'FAIL\texample.test/m/b\t0.711s\n'; } > "$ROOT/canned-crash.out"
+heads="$(bash "$0" --fail-heads "$ROOT/canned-crash.out" 40)"
+if grep -qx -- '--- head of failing example.test/m/b (40 of 60 lines) ---' <<<"$heads" \
+   && grep -qx '    | fatal error: out of memory' <<<"$heads" && ! grep -q 'goroutine 45 ' <<<"$heads" \
+   && ! grep -q 'example.test/m/a' <<<"$heads"; then
+  ok "fail heads: a failing package's first lines (the fatal-error header) are printed, bounded, for that package only"
+else no "fail heads: got: $(head -3 <<<"$heads")"; fi
 
 # Toolchain gate, via a fake `go` that reports an old version (never runs a test).
 FAKEBIN="$ROOT/fakebin"; mkdir -p "$FAKEBIN"
@@ -197,6 +388,30 @@ c="$(contain "$MOD/Makefile" TestHang TEST_TIMEOUT=3s)"
 if grep -q 'test timed out after 3s' <<<"$c" && ! grep -q 'HANG-SURVIVED' <<<"$c" && ! grep -qx 'rc=0' <<<"$c"; then
   ok "containment: a hung test binary dies at TEST_TIMEOUT"
 else no "containment: hang not bounded by TEST_TIMEOUT: $(tail -n 5 <<<"$c")"; fi
+# `make race` is wired through the same CAPPED wrapper with its own, larger cap (RACE_MEM_KB). Dry run only:
+# a real -race run is far too heavy for this suite, so the wiring is judged from `make -n` output.
+# The numbers below mirror the Makefile defaults (RACE_MEM_KB, TEST_MEM_KB, RACE_TIMEOUT): a changed default
+# fails here on purpose and must be updated in both places.
+r="$(make -n -C "$MOD" race 2>&1)"
+if grep -q 'capexec' <<<"$r" && grep -q 'ulimit -v 8388608' <<<"$r" && grep -q -e 'go test .*-race' <<<"$r"; then
+  ok "containment: make race runs under the CAPPED wrapper with the default RACE_MEM_KB"
+else no "containment: make race is not capped: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" race RACE_MEM_KB=12345 2>&1)"
+if grep -q 'ulimit -v 12345' <<<"$r" && ! grep -q 'ulimit -v 8388608' <<<"$r"; then
+  ok "containment: RACE_MEM_KB overrides the race cap"
+else no "containment: RACE_MEM_KB did not reach make race: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" race 2>&1)"
+if grep -q -e 'go test -timeout 30m .*-race' <<<"$r"; then
+  ok "containment: make race uses its own RACE_TIMEOUT (default 30m), not the plain TEST_TIMEOUT"
+else no "containment: make race timeout is not RACE_TIMEOUT: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" race RACE_TIMEOUT=7m 2>&1)"
+if grep -q -e 'go test -timeout 7m .*-race' <<<"$r"; then
+  ok "containment: RACE_TIMEOUT overrides the race timeout"
+else no "containment: RACE_TIMEOUT did not reach make race: $(tail -n 3 <<<"$r")"; fi
+r="$(make -n -C "$MOD" test 2>&1)"
+if grep -q 'ulimit -v 1048576' <<<"$r"; then
+  ok "containment: make test keeps the TEST_MEM_KB cap (the race cap is target-specific)"
+else no "containment: make test cap changed: $(tail -n 3 <<<"$r")"; fi
 
 # Gremlins verdict parser, on canned output.
 cat > "$ROOT/gr-lived.out" <<'CANNED'
@@ -233,9 +448,28 @@ done
 g="$(RSDD_REQUIRE_GO='' bash "$0" --decide-gremlins "$ROOT/gr-garbled.out" 1)"
 if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=1)' <<<"$g"; then
   ok "gremlins: a garbled summary is a FAIL even when rc is non-zero (gremlins did run)"; else no "gremlins: garbled rc=1 wrong: $g"; fi
+# A package with no mutable expression (e.g. a command table): gremlins exits 0 and prints "No results to report."
+# That is a typed no-mutants PASS with explicit zero counts; the same text after a non-zero exit is never a PASS.
+printf 'Starting...\nGathering coverage... done in 372ms\n\nNo results to report.\n' > "$ROOT/gr-nomutants.out"
+g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-nomutants.out" 0)"
+if grep -q '^VERDICT: PASS no-mutants' <<<"$g" && grep -q '^gremlins: no-mutants killed=0 lived=0' <<<"$g"; then
+  ok "gremlins: rc=0 + 'No results to report.' -> typed no-mutants PASS with zero counts"; else no "gremlins: no-mutants case wrong: $g"; fi
+g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-nomutants.out" 1)"
+if grep -q '^VERDICT: FAIL' <<<"$g" && ! grep -q '^VERDICT: PASS' <<<"$g"; then
+  ok "gremlins: 'No results to report.' after rc=1 stays a FAIL"; else no "gremlins: no-mutants rc=1 wrong: $g"; fi
+printf 'No results to report.\nKilled: x, Lived: 0, Not covered: 0\n' > "$ROOT/gr-nomutants-garbled.out"
+g="$(bash "$0" --decide-gremlins "$ROOT/gr-nomutants-garbled.out" 0)"
+if grep -q '^VERDICT: FAIL gremlins summary unparseable (rc=0)' <<<"$g"; then
+  ok "gremlins: 'No results to report.' beside a garbled summary stays unparseable"; else no "gremlins: no-mutants garbled wrong: $g"; fi
+printf 'VERDICT: PASS no lived mutants (killed=1 lived=0 timed_out=0 not_covered=0)\nVERDICT: PASS no-mutants (gremlins: No results to report.)\n' > "$ROOT/v-nomutants"
+g="$(bash "$0" --combine-verdicts "$ROOT/v-nomutants")"
+if grep -q '^VERDICT: PASS no lived mutants in 2 package run(s); no-mutants: 1$' <<<"$g"; then
+  ok "gremlins: the combined PASS names the no-mutants packages"; else no "gremlins: combined no-mutants wrong: $g"; fi
 g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)"
 if grep -q '^VERDICT: FAIL gremlins did not run (rc=1, RSDD_REQUIRE_GO=1)' <<<"$g"; then
   ok "gremlins: tool unavailable under RSDD_REQUIRE_GO=1 -> FAIL"; else no "gremlins: required-unavailable case wrong: $g"; fi
+
+mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"
 
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
@@ -276,6 +510,17 @@ if MUTANT_SYNTAX=none mutant_chain_or_count fail "panic-boundary mutation" "$ORI
   else fail=$((fail+1)); fi
 fi
 
+# Tooth for the fail heads: printing the LAST lines of the block (the tail) loses the fatal-error header.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "fail-heads mutation" "$0" "$MUTDIR/rsdd-go-heads.test.sh" \
+    's/for (i = 1; i <= m; i++) print "    | " buf\[i\]/for (i = cnt - m + 1; i <= cnt; i++) print "    | " buf[i]/'; then
+  if mutant_tooth "teeth: printing the tail instead of the head loses the fatal-error header" 0 0 \
+      "$MUTDIR/rsdd-go-heads.test.sh" --orig "$0" \
+      --good-has '| fatal error: out of memory' --bad-lacks 'fatal error' -- \
+      bash @SUT@ --fail-heads "$ROOT/canned-crash.out" 40; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
 # Tooth for the counter: blind the parser to FAIL lines (it would then report fail=0 on canned failing
 # output). The suite itself is the SUT (`--parse FILE`): the original must exit 1 with fail=1, the mutant
 # must exit 0 with fail=0.
@@ -301,6 +546,50 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-unparseable mutation"
   else fail=$((fail+1)); fi
 fi
 
+# Tooth for the no-mutants verdict: "No results to report." is a PASS only after rc=0. The mutant drops the rc
+# guard, so the same text after a failed gremlins run reads as a PASS (a silent zero).
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-no-mutants mutation" "$0" "$MUTDIR/rsdd-go-nm.test.sh" \
+    's/if \[ -z "\$counts" \] \&\& \[ "\$rc" -eq 0 \] \&\& /if [ -z "$counts" ] \&\& /'; then
+  if mutant_tooth "teeth: a no-mutants PASS without the rc=0 guard is caught" 0 0 \
+      "$MUTDIR/rsdd-go-nm.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL gremlins did not run' --bad-has 'VERDICT: PASS no-mutants' -- \
+      env RSDD_REQUIRE_GO=1 bash @SUT@ --decide-gremlins "$ROOT/gr-nomutants.out" 1; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Teeth for the teeth wiring (the suite is the SUT: `--selftest-teeth` runs the offline checks, rc 1 on any FAIL).
+# 1) a decide_gremlins that no longer greps `--- FAIL` hides the failing test again; 2) a package scope that diffs
+# against BASE instead of merge-base(BASE, HEAD) reports changes the base made after the branch point.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "diagnostics mutation" "$0" "$MUTDIR/rsdd-go-diag.test.sh" \
+    "s/-e '^--- FAIL' //"; then
+  if mutant_tooth "teeth: a verdict that no longer greps '--- FAIL' loses the failing test name" 0 1 \
+      "$MUTDIR/rsdd-go-diag.test.sh" --orig "$0" \
+      --good-has 'PASS  gremlins: a baseline test failure' --bad-has 'FAIL  gremlins: baseline failure not diagnosable' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "merge-base mutation" "$0" "$MUTDIR/rsdd-go-mb.test.sh" \
+    's/--relative "\$mb"/--relative "$base"/'; then
+  if mutant_tooth "teeth: scoping by a plain diff against BASE (not its merge-base) is caught" 0 1 \
+      "$MUTDIR/rsdd-go-mb.test.sh" --orig "$0" \
+      --good-has 'PASS  package scope: first/middle/last' --bad-has 'FAIL  package scope: got' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+# 3) a teeth recipe without --workers (gremlins' one-worker-per-CPU default) is caught by the wiring pin.
+if MUTANT_SYNTAX=none mutant_chain_or_count fail "workers-wiring mutation" "$MOD/Makefile" "$MUTDIR/Makefile.workers" \
+    's/ --workers \$(TEETH_WORKERS)//'; then
+  if mutant_tooth "teeth: a teeth recipe without --workers (unbounded mutant workers) is caught" 0 0 \
+      "$MUTDIR/Makefile.workers" --orig "$MOD/Makefile" \
+      --good-has '--workers 4 .' --bad-lacks '--workers' -- \
+      make -n -f @SUT@ -C "$MOD" teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
 # Tooth for the containment: a Makefile whose -exec wrapper no longer sets the cap must let the runaway
 # fixture allocate its 768 MiB and print RUNAWAY-SURVIVED (the fixture stops there, so this stays bounded).
 if MUTANT_SYNTAX=none mutant_chain_or_count fail "memory-cap mutation" "$MOD/Makefile" "$MUTDIR/Makefile" \
@@ -313,13 +602,118 @@ if MUTANT_SYNTAX=none mutant_chain_or_count fail "memory-cap mutation" "$MOD/Mak
   else fail=$((fail+1)); fi
 fi
 
+# Gremlins on a real fixture (#2427's false verdicts): package ./a has a negative control (a boundary no test
+# pins, so its mutant MUST read LIVED) and a subpackage ./a/b whose mutants its own tests kill.
+# scope_fixture MAKEFILE [PKG [SUBTEST [MAKEARG...]]] prints "control=<status> sub=<lived count>", or "ran=no" when
+# gremlins did not run. PKG defaults to ./a. SUBTEST=live drops the boundary case from the subpackage's test, so
+# ./a/b carries a LIVED mutant of its own; MAKEARGs (e.g. TEETH_EXCLUDE=/) are passed to make.
+scope_fixture() {
+  local mk="$1" pkg="${2:-./a}" subtest="${3:-kill}" w
+  shift $(( $# < 3 ? $# : 3 ))
+  w="$(mktemp -d "$ROOT/scope-fx.XXXXXX")" || { echo "ran=no"; return; }
+  mkdir -p "$w/a/b"
+  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
+  printf 'package a\n\n// Pos: no test pins the boundary.\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
+  printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
+  printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/a/b/b.go"
+  if [ "$subtest" = "live" ]; then
+    printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
+  else
+    printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
+  fi
+  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
+  if ! grep -q '^Killed: ' <<<"$o"; then echo "ran=no"; return; fi
+  local c="none"
+  if grep -Eq 'LIVED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="LIVED"
+  elif grep -Eq 'KILLED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="KILLED"; fi
+  echo "control=$c sub=$(grep -cE 'LIVED .* at (b/|b\.go)' <<<"$o")"
+}
+sf="$(scope_fixture "$MOD/Makefile")"
+case "$sf" in
+  "control=LIVED sub=0") ok "teeth scope: a live mutant reads LIVED and a subpackage's mutants are killed by its own tests" ;;
+  "ran=no") if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "teeth scope: gremlins did not run on the fixture (RSDD_REQUIRE_GO=1)"
+            else echo "SKIP: teeth scope: gremlins did not run on the fixture"; fi ;;
+  *) no "teeth scope: want control=LIVED sub=0, got $sf" ;;
+esac
+if [ "$sf" = "control=LIVED sub=0" ]; then
+  # Tooth: gremlins --test-cpu back in the recipe turns the parent's live mutant into a false KILLED.
+  sed 's/ --workers \$(TEETH_WORKERS)/ --workers $(TEETH_WORKERS) --test-cpu 1/' "$MOD/Makefile" > "$MUTDIR/Makefile.testcpu"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.testcpu"; then no "teeth scope tooth: --test-cpu mutant is identical to the Makefile"
+  else
+    sf2="$(scope_fixture "$MUTDIR/Makefile.testcpu")"
+    case "$sf2" in "control=KILLED"*) ok "teeth scope tooth: gremlins --test-cpu makes the live control read KILLED (why the recipe never passes it)" ;;
+      *) no "teeth scope tooth: --test-cpu mutant should read control=KILLED, got $sf2" ;; esac
+  fi
+fi
+
+# Per-PR scope (RSDD_TEETH_BASE): a changed package P mutates only the files directly in P (TEETH_EXCLUDE=/ drops every
+# file gremlins finds below a subdirectory); a subpackage that changed is in the list on its own. Here ./a/b has a
+# LIVED mutant of its own (its test skips the boundary).
+sf_all="$(scope_fixture "$MOD/Makefile" ./a live)"
+sf_par="$(scope_fixture "$MOD/Makefile" ./a live TEETH_EXCLUDE=/)"
+sf_sub="$(scope_fixture "$MOD/Makefile" ./a/b live TEETH_EXCLUDE=/)"
+if [ "$sf_all" = "ran=no" ]; then
+  if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "teeth shallow scope: gremlins did not run on the fixture (RSDD_REQUIRE_GO=1)"
+  else echo "SKIP: teeth shallow scope: gremlins did not run on the fixture"; fi
+else
+  case "$sf_all" in "control=LIVED sub="[1-9]*) ok "teeth shallow scope fixture: without TEETH_EXCLUDE the subpackage's LIVED mutant is in scope" ;;
+    *) no "teeth shallow scope fixture: want control=LIVED and sub>=1 whole-tree, got $sf_all" ;; esac
+  [ "$sf_par" = "control=LIVED sub=0" ] && ok "teeth shallow scope: TEETH_EXCLUDE=/ on the parent keeps its own LIVED mutant and ignores the subpackage's" \
+    || no "teeth shallow scope: parent-only want control=LIVED sub=0, got $sf_par"
+  # Tooth: a recipe that drops the --exclude-files flag lets the subpackage's LIVED mutant into the parent's run.
+  sed 's/\$(TEETH_EXCLUDE_ARG)//' "$MOD/Makefile" > "$MUTDIR/Makefile.noexclude"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.noexclude"; then no "teeth shallow scope tooth: the no-exclude mutant is identical to the Makefile"
+  else
+    sf_mut="$(scope_fixture "$MUTDIR/Makefile.noexclude" ./a live TEETH_EXCLUDE=/)"
+    case "$sf_mut" in "control=LIVED sub="[1-9]*) ok "teeth shallow scope tooth: without the --exclude-files flag the subpackage's mutant leaks into the parent run" ;;
+      *) no "teeth shallow scope tooth: no-exclude mutant should read sub>=1, got $sf_mut" ;; esac
+  fi
+  case "$sf_sub" in "control=none sub="[1-9]*) ok "teeth shallow scope: a changed subpackage is still checked on its own (its LIVED mutant is reported)" ;;
+    *) no "teeth shallow scope: changed subpackage want control=none sub>=1, got $sf_sub" ;; esac
+fi
+
 # Mutation testing (gremlins, pinned in the Makefile): the gate is zero LIVED mutants among covered ones.
+# RSDD_TEETH_BASE unset: the whole module. Set: only the packages changed vs that ref (see the header).
 t0=$SECONDS
-make -C "$MOD" teeth >"$ROOT/gremlins.out" 2>&1; mrc=$?
-verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
-echo "$verdict" | grep -v '^VERDICT:'
+verdict=""
+if [ -z "${RSDD_TEETH_BASE:-}" ]; then
+  make -C "$MOD" teeth >"$ROOT/gremlins.out" 2>&1; mrc=$?
+  verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
+  echo "$verdict" | grep -v '^VERDICT:'
+else
+  pkgs="$(changed_go_packages "$MOD" "$RSDD_TEETH_BASE")"; prc=$?
+  if [ "$prc" -ne 0 ]; then
+    verdict="VERDICT: SKIP RSDD_TEETH_BASE=$RSDD_TEETH_BASE cannot be resolved (not a work tree, or no merge-base with HEAD)"
+    [ "${RSDD_REQUIRE_GO:-}" = "1" ] && verdict="VERDICT: FAIL RSDD_TEETH_BASE=$RSDD_TEETH_BASE cannot be resolved (RSDD_REQUIRE_GO=1)"
+  elif [ -z "$pkgs" ]; then
+    echo "teeth: n/a — no Go package changed vs $RSDD_TEETH_BASE"
+    ok "teeth: n/a — no Go package changed vs $RSDD_TEETH_BASE (not counted as teeth)"
+    verdict="VERDICT: NA"
+  else
+    echo "teeth scope: changed vs $RSDD_TEETH_BASE — $(wc -l <<<"$pkgs" | tr -d ' ') package(s): $(tr '\n' ' ' <<<"$pkgs")"
+    : > "$ROOT/verdicts.txt"
+    while IFS= read -r p; do
+      # The path reaches an unquoted $(TEETH_PKG) in the Makefile recipe: accept only plain package paths.
+      case "$p" in
+        .|./*) ;;
+        *) echo "VERDICT: FAIL [$p] not a ./-relative package path" >> "$ROOT/verdicts.txt"; continue ;;
+      esac
+      if [[ "$p" == *[!A-Za-z0-9_./-]* ]]; then
+        echo "VERDICT: FAIL [$p] package path has characters outside [A-Za-z0-9_./-]" >> "$ROOT/verdicts.txt"; continue
+      fi
+      # </dev/null: make must not read the package list this loop is consuming from stdin.
+      make -C "$MOD" teeth TEETH_PKG="$p" TEETH_EXCLUDE=/ >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
+      one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
+      echo "--- teeth: $p"
+      echo "$one" | grep -v '^VERDICT:'
+      echo "$one" | grep '^VERDICT:' | sed "s|^VERDICT: \([A-Z]*\) |VERDICT: \1 [$p] |" >> "$ROOT/verdicts.txt"
+    done <<<"$pkgs"
+    verdict="$(combine_verdicts "$ROOT/verdicts.txt")"
+  fi
+fi
 echo "gremlins wall time: $((SECONDS - t0))s"
 case "$verdict" in
+  "VERDICT: NA") ;;
   *"VERDICT: PASS"*) ok "teeth: gremlins found no lived mutant" ;;
   *"VERDICT: SKIP"*) echo "SKIP: ${verdict##*VERDICT: SKIP }" ;;
   *) no "teeth: gremlins: ${verdict##*VERDICT: }" ;;

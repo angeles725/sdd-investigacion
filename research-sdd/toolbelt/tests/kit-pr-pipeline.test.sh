@@ -3,7 +3,7 @@
 #
 # The pipeline (restack -> push -> RDD -> flock'd full gate -> CI wait -> merge-gate --merge) is driven end to end
 # against PATH shims for git / gh / gentle-ai / flock (fixtures/kit-pr-pipeline/shim.sh), which record each call in
-# one ordered log and answer from fixtures. The real kit-rdd-start.py / kit-rdd-drive.py run against the gentle-ai
+# one ordered log and answer from fixtures. The real kit-rdd-start.sh / kit-rdd-drive.sh run against the gentle-ai
 # shim, so the whole chain is exercised. Nothing here reaches the network, a real repository or gentle-ai.
 # Typed exit states are asserted by exit code AND by the `kit-pr-pipeline: <state>` line (table in the SUT header).
 #
@@ -20,11 +20,33 @@ FIX="$HERE/fixtures/kit-pr-pipeline"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
 mutant_bootstrap mutant_sed mutant_tooth || exit 2
-for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh kit-rdd-start.py kit-rdd-drive.py; do
+for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh kit-rdd-start.sh kit-rdd-drive.sh; do
   [ -f "$MAINT/$f" ] || { echo "FATAL: SUT not found: $MAINT/$f" >&2; exit 2; }
 done
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# kit-rdd-start.sh / kit-rdd-drive.sh are compatibility shims over the Go binary (kit issue #2394): $RSDD_BIN
+# wins, otherwise one binary is built into the suite temp dir (never into the tree) and exported so the
+# scenario children reuse it. $TMP/lib lets the shims of a staged copy of maint/ (the teeth) find
+# ../lib/rsdd-exec.sh.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+[ "${1:-}" != "--guard-only" ] || { echo "guard-only: rsdd reachable"; exit 0; }
+ln -s "$TB/lib" "$TMP/lib"
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -311,6 +333,21 @@ CALLS="$(kh_calls)"
 if [ "$RC" = 0 ] && [ "$(count '^gh pr checks 7')" = 3 ] && [ "$(count '^gh pr view')" = 2 ]; then ok "kit-wait-merge polls pending checks, retries a gh blip on pr view, then merges"
 else no "wait-merge rc=$RC checks=$(count '^gh pr checks 7') view=$(count '^gh pr view') out=[$OUT]"; fi
 
+# The rsdd guard must never read green when rsdd is unreachable: with no usable $RSDD_BIN and no go, the suite
+# prints a typed `SKIP <reason>` and ran nothing, or FAILs (rc 1) under RSDD_REQUIRE_GO=1.
+if PATH=/usr/bin:/bin command -v go >/dev/null 2>&1; then echo "  SKIP  rsdd guard cases: go is on the minimal PATH"
+else
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 0 ] && [[ "$G" == 'SKIP rsdd-unavailable: '*'RSDD_BIN is not an executable file'* ]] && [[ "$G" == *'== 0 passed · 0 failed =='* ]]; then
+    ok "no usable RSDD_BIN and no go -> typed 'SKIP <reason>' naming RSDD_BIN, nothing run"
+  else no "unusable RSDD_BIN guard: rc=$GRC out=[$G]"; fi
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" RSDD_REQUIRE_GO=1 bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 1 ] && [[ "$G" == *'  FAIL  rsdd-unavailable: '* ]] && [[ "$G" == *'== 0 passed · 1 failed =='* ]]; then
+    ok "RSDD_REQUIRE_GO=1 with no usable rsdd -> FAIL (rc 1), not green"
+  else no "RSDD_REQUIRE_GO guard: rc=$GRC out=[$G]"; fi
+fi
+
+
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="
   [ "$fail" -eq 0 ] && exit 0 || exit 1
@@ -328,7 +365,7 @@ tooth() {
   local st="$TMP/stage.$((n += 1))"
   mkdir -p "$st" && cp "$MAINT"/* "$st"/ && rm -f "$st/$file"
   if ! mutant_sed "$MAINT/$file" "$st/$file" "$expr"; then no "tooth $label: mutant refused"; return; fi
-  chmod +x "$st"/*.sh "$st"/*.py
+  chmod +x "$st"/*.sh
   if mutant_tooth "tooth $label" "$g" "$b" "$st/$file" --orig "$MAINT/$file" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
 P=kit-pr-pipeline.sh; W=kit-wait-merge.sh; G=kit-gate.sh; C=kit-maint-common.sh

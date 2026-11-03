@@ -85,7 +85,7 @@ def make_profile(
 # ---------------------------------------------------------------------------
 
 # Bubblewrap sandbox, static analysis, all network denied.
-# Shared by: corroborate_firmware, corroborate_java, corroborate_native.
+# Shared by: corroborate_firmware, rsdd corroborate java (Go), corroborate_native.
 PROFILE_BWRAP_STATIC_NETWORK_DENIED = make_profile("bubblewrap-static-network-denied")
 
 # Bubblewrap sandbox, offline PCAP read (capinfos + tshark, no live traffic).
@@ -96,8 +96,6 @@ PROFILE_BWRAP_PCAP_OFFLINE = make_profile("bubblewrap-pcap-offline")
 PROFILE_BWRAP_CAPA_OFFLINE   = make_profile("bubblewrap-capa-offline")
 PROFILE_BWRAP_FLOSS_OFFLINE  = make_profile("bubblewrap-floss-offline")
 PROFILE_BWRAP_KAITAI_OFFLINE = make_profile("bubblewrap-kaitai-offline")
-PROFILE_BWRAP_UNBLOB_OFFLINE = make_profile("bubblewrap-unblob-offline")
-PROFILE_BWRAP_IFC_OFFLINE    = make_profile("bubblewrap-ifc-offline")
 
 # SquashFS extractor running unsquashfs inside bubblewrap.
 PROFILE_BWRAP_UNSQUASHFS = make_profile("bwrap-unsquashfs")

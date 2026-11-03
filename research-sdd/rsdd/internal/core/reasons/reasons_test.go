@@ -188,7 +188,7 @@ func TestRenderRejectsWrongArgCountAndBadInput(t *testing.T) {
 		{"none given", two, nil},
 		{"extra for none", none, []string{"a"}},
 		{"newline in arg", two, []string{"a\nb", "1"}},
-		{"zero code", reasons.Code{}, nil},
+		{"zero code", reasons.Code(0), nil},
 		{"input class code", lookup(t, "absent-input"), nil},
 	}
 	for _, c := range bad {

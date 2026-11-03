@@ -14,33 +14,35 @@ func TestFixtureViolationsAreCaught(t *testing.T) {
 	}
 	got := strings.Join(r.Violations, "\n")
 	for _, want := range []string{
-		"alpha imports example.test/m/internal/beta",         // domain -> domain
-		"core/lib imports example.test/m/internal/alpha",     // core -> domain
-		"delta imports example.test/m/internal/commands",     // domain -> commands
-		"core/lib2 imports example.test/m/internal/commands", // core -> commands
+		// one entry per tier rule, with the reason text so a wrong-rule hit does not pass
+		"alpha imports example.test/m/internal/beta: a domain may import only the core tier",     // domain -> domain
+		"core/lib imports example.test/m/internal/alpha: core tier must not import domains",      // core -> domain
+		"cli imports example.test/m/internal/alpha: core tier must not import domains",           // cli (core tier) -> domain
+		"delta imports example.test/m/internal/commands: a domain may import only the core tier", // domain -> commands
+		"core/lib2 imports example.test/m/internal/commands: core tier must not import domains",  // core -> commands
 		"gamma/g.go: os.Getenv",
 		"gamma/g.go: os.LookupEnv",
 		"gamma/g.go: time.Now",
 		"gamma/g.go: os.Getwd",
-		"cli/other.go: os.Getenv",    // only cli/stdio.go is exempt
-		"cmd/tool/main.go: time.Now", // cmd/ is scanned too
+		"gamma/g.go: os.Environ",        // #2387
+		"cli/other.go: os.Getenv",       // only cli/stdio.go is exempt
+		"cmd/tool/main.go: time.Now",    // cmd/ is scanned too
+		"commands/c.go: os.Getenv",      // the registry tier is not exempt from the call ban
+		"dotimp/d.go: dot-import of os", // `import . "os"` would hide every ambient read
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("violation %q not reported; got:\n%s", want, got)
 		}
 	}
-	for _, mustNot := range []string{"cli/stdio.go", "g_test.go"} {
-		for _, line := range r.Violations {
-			if strings.HasPrefix(line, mustNot) {
-				t.Errorf("%s is exempt but was reported: %s", mustNot, line)
-			}
-		}
-		if false {
-			t.Errorf("%s is exempt but was reported:\n%s", mustNot, got)
+	// Exempt files: the stdio file and test files. The fixtures hold ambient
+	// calls in both, so these assertions are not vacuous.
+	for _, line := range r.Violations {
+		if strings.HasPrefix(line, "cli/stdio.go:") || strings.Contains(line, "_test.go") {
+			t.Errorf("exempt file was reported: %s", line)
 		}
 	}
-	if len(r.Violations) != 10 {
-		t.Errorf("want exactly 10 violations, got %d:\n%s", len(r.Violations), got)
+	if len(r.Violations) != 14 {
+		t.Errorf("want exactly 14 violations, got %d:\n%s", len(r.Violations), got)
 	}
 }
 
@@ -52,11 +54,11 @@ func TestFixtureAllowedImportsPass(t *testing.T) {
 	if len(r.Violations) != 0 {
 		t.Errorf("registry->domain and domain->core are allowed, got: %v", r.Violations)
 	}
-	if r.Files != 5 {
-		t.Errorf("expected 5 files scanned, got %d", r.Files)
+	if r.Files != 6 {
+		t.Errorf("expected 6 files scanned, got %d", r.Files)
 	}
-	if r.Packages != 5 {
-		t.Errorf("expected 5 packages scanned, got %d", r.Packages)
+	if r.Packages != 6 {
+		t.Errorf("expected 6 packages scanned, got %d", r.Packages)
 	}
 }
 

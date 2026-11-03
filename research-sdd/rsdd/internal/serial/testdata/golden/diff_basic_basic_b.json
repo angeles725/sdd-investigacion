@@ -1,0 +1,47 @@
+{
+  "input_a": {
+    "frame_count": 4,
+    "line_count": 4,
+    "path": "testdata/frames/basic.log",
+    "sha256": "a33e925fa9cff56d3cfd27735a19bd550cb51969b66dd76c6d23e0946f54e2e2",
+    "skipped_line_count": 0,
+    "truncated": false
+  },
+  "input_b": {
+    "frame_count": 4,
+    "line_count": 4,
+    "path": "testdata/frames/basic_b.log",
+    "sha256": "ff033cd9c6d37287148fc8d67b31eb4161882ba978cf7bc9f62c071f5026f776",
+    "skipped_line_count": 0,
+    "truncated": false
+  },
+  "mode": "diff",
+  "results": {
+    "shared_types": [
+      {
+        "changed_positions": [
+          2
+        ],
+        "first_byte_hex": "81",
+        "length": 3
+      },
+      {
+        "changed_positions": [],
+        "first_byte_hex": "81",
+        "length": 5
+      }
+    ]
+  },
+  "schema": "serial-frame.v1",
+  "status": "complete",
+  "summary": {
+    "frame_count_a": 4,
+    "frame_count_b": 4,
+    "line_count_a": 4,
+    "line_count_b": 4,
+    "shared_type_count": 2,
+    "skipped_line_count_a": 0,
+    "skipped_line_count_b": 0
+  },
+  "tool": "serial-frame-analyze"
+}

@@ -1,0 +1,22 @@
+{
+ "legacy": [
+  "toolbelt/java-fidelity-experiment.sh",
+  "--fixtures",
+  "{{input}}/absent",
+  "--work",
+  "{{input}}/work"
+ ],
+ "rsdd": [
+  "corroborate",
+  "java-fidelity",
+  "--fixtures",
+  "{{input}}/absent",
+  "--work",
+  "{{input}}/work"
+ ],
+ "env": {
+  "RSDD_FIDELITY_JAVAC": "{{input}}/stubs/javac",
+  "RSDD_FIDELITY_JAVAP": "{{input}}/stubs/javap",
+  "RSDD_FIDELITY_DECOMPILER": "{{input}}/stubs/decompiler.sh"
+ }
+}

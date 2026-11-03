@@ -21,9 +21,12 @@
 #
 #   --tier <t>       Suite tier (kit issue #2203), default `core`. suite-tiers.txt (next to this script) lists
 #                    the EXTRAS suites, one `<repo-relative suite path> extras <reason>` per line ('#' comments,
-#                    blank lines ignored): category E VM/dynamic-sandbox suites and unused adapters. `core` runs
-#                    everything not listed, `extras` only the listed ones, `all` both. The manifest is parsed
-#                    strictly: a line without a reason, a tier word other than `extras`, a duplicate, or a path
+#                    blank lines ignored): category E VM/dynamic-sandbox suites and unused adapters. A line may
+#                    also carry the word `dedicated` (kit issue #2488): a suite that runs in its own CI job
+#                    (rsdd-go.test.sh in rsdd-go.yml) and so belongs to NEITHER core nor extras. `core` runs
+#                    everything not listed, `extras` only the `extras` ones, `all` every suite (dedicated
+#                    included, so --require-teeth still judges them). The manifest is parsed
+#                    strictly: a line without a reason, a tier word other than `extras|dedicated`, a duplicate, or a path
 #                    that names no discovered suite is `Tier: INVALID` and exits 1 BEFORE any suite runs (a
 #                    renamed suite must never silently drop out of the gate). An ABSENT or unreadable manifest
 #                    is `Tier: DEGRADED`: every suite runs and the run exits 1 (anti-silent-zero). A tier that
@@ -35,9 +38,16 @@
 #                    stale-waiver check judges the whole corpus). Also `--tier=<t>`.
 #   --shard I/N      Opt-in CI sharding (kit issue #2114): run only shard I of N (1 <= I <= N <= 32). The
 #                    selected tier's list (all suites of BOTH corpora under --tier all) is sorted by
-#                    repo-relative path (LC_ALL=C) and
-#                    suite number k (0-based) belongs to shard (k mod N) + 1, a disjoint cover of the list
-#                    for every N. Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
+#                    repo-relative path (LC_ALL=C) and assigned to shards by measured duration (kit issue
+#                    #2488): suite-durations.txt (next to this script, `<repo-relative suite> <seconds>` per
+#                    line) weights each suite; suites go longest-first (ties by path) to the least-loaded shard
+#                    (ties: lowest shard number), a disjoint, complete cover of the list for every N. A selected
+#                    suite the manifest omits weighs 6 s and is named on stderr; an invalid line (not "<path>
+#                    <positive integer>" or a duplicate) is `Shard: INVALID` and exits 1 before any suite runs; an
+#                    entry naming no discovered suite (a renamed or removed suite) is ignored and named on one
+#                    aggregate line `Shard: stale duration entries N — [paths]`, exit unaffected;
+#                    an absent/unreadable/empty manifest is a `Shard: DEGRADED` note and
+#                    the older assignment (position k (0-based) in the sorted list belongs to shard (k mod N) + 1). Discovery, the empty-list check and the install-corpus ABSENT-INPUT gate
 #                    (#1126/#1144) still judge the FULL discovered set. The aggregate gains one
 #                    `Shard: I/N — K of T suites` line; K = 0 (N > T) is reported as EMPTY SHARD and exits 1
 #                    (zero coverage is never a pass). Without the flag nothing changes. Also `--shard=I/N`.
@@ -572,6 +582,7 @@ discovered_suites=${#all_suites[@]}
 declare -A _rel_known=()
 for f in "${all_suites[@]}"; do _rel_known["${suite_rel[$f]}"]=1; done
 declare -A _extras_reason=()
+declare -A _tier_word=()
 _tier_invalid=()
 if [[ ! -e "$TIER_MANIFEST" ]]; then
   TIER_DEGRADED="suite-tiers.txt absent"
@@ -586,8 +597,8 @@ else
     read -r _tl_path _tl_word _tl_why <<<"$_tl"
     if [[ -z "$_tl_word" ]]; then
       _tier_invalid+=("line $_tl_n: '$_tl_path' has no tier word and no reason")
-    elif [[ "$_tl_word" != "extras" ]]; then
-      _tier_invalid+=("line $_tl_n: unknown tier '$_tl_word' for '$_tl_path' (only 'extras' is listed; core is the default)")
+    elif [[ "$_tl_word" != "extras" && "$_tl_word" != "dedicated" ]]; then
+      _tier_invalid+=("line $_tl_n: unknown tier '$_tl_word' for '$_tl_path' (only 'extras' and 'dedicated' are listed; core is the default)")
     elif [[ -z "$_tl_why" ]]; then
       _tier_invalid+=("line $_tl_n: '$_tl_path' has no reason")
     elif [[ "${_extras_reason[$_tl_path]+set}" == "set" ]]; then
@@ -596,6 +607,7 @@ else
       _tier_invalid+=("line $_tl_n: '$_tl_path' names no discovered suite (renamed or removed?)")
     else
       _extras_reason["$_tl_path"]="$_tl_why"
+      _tier_word["$_tl_path"]="$_tl_word"
     fi
   done < "$TIER_MANIFEST"
 fi
@@ -610,7 +622,8 @@ elif [[ "$TIER" != "all" ]]; then
   _tier_sel=()
   for f in "${all_suites[@]}"; do
     if [[ "${_extras_reason[${suite_rel[$f]}]+set}" == "set" ]]; then
-      [[ "$TIER" == "extras" ]] && _tier_sel+=("$f")
+      # `dedicated` (kit issue #2488) runs in its own CI job: in neither core nor extras, only under --tier all.
+      [[ "$TIER" == "extras" && "${_tier_word[${suite_rel[$f]}]}" == "extras" ]] && _tier_sel+=("$f")
     else
       [[ "$TIER" == "core" ]] && _tier_sel+=("$f")
     fi
@@ -712,12 +725,90 @@ if [[ -n "$LIST_SUITES" ]]; then
   [[ "$INSTALL_TESTS_DEGRADED" -eq 0 && -z "$TIER_DEGRADED" ]] || exit 1
   exit 0
 fi
+SHARD_DEGRADED=""
+SHARD_BALANCE_LINE=""
 if [[ -n "$SHARD_N" ]]; then
+  # Duration-balanced assignment (kit issue #2488). suite-durations.txt lists measured seconds per suite
+  # ("<repo-relative suite path> <seconds>"; '#' comments and blank lines ignored). Suites are assigned greedily,
+  # longest first (ties: path, LC_ALL=C), to the least-loaded shard (ties: lowest shard number), so the cover of the
+  # selected list stays disjoint and complete for every N and is the same on every shard. Strict like suite-tiers.txt:
+  # a line that is not "<path> <positive integer>" or a duplicate is a typed
+  # `Shard: INVALID` and exits 1 BEFORE any suite runs; a path naming no discovered suite (stale weight) is ignored and named
+  # on one aggregate line. An absent/unreadable/empty manifest is a typed
+  # `Shard: DEGRADED` note and the previous round-robin-by-name assignment (still a disjoint cover; no exit change).
+  # SENTINEL-SHARD-DURATIONS
+  SHARD_DEFAULT_WEIGHT=6   # seconds for a selected suite the manifest does not list (the measured median)
+  SHARD_DURATIONS="$SCRIPT_DIR/suite-durations.txt"
+  declare -A _sw=()
+  _sd_invalid=()
+  _sd_stale=()
+  if [[ ! -e "$SHARD_DURATIONS" ]]; then
+    SHARD_DEGRADED="suite-durations.txt absent"
+  elif [[ ! -f "$SHARD_DURATIONS" || ! -r "$SHARD_DURATIONS" ]]; then
+    SHARD_DEGRADED="suite-durations.txt unreadable"
+  else
+    _sd_n=0
+    while IFS= read -r _sd || [[ -n "$_sd" ]]; do
+      _sd_n=$((_sd_n + 1))
+      _sd="${_sd#"${_sd%%[![:space:]]*}"}"
+      [[ -z "$_sd" || "$_sd" == "#"* ]] && continue
+      read -r _sd_path _sd_sec _sd_extra <<<"$_sd"
+      if [[ -z "$_sd_sec" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has no seconds")
+      elif [[ -n "$_sd_extra" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has extra text after the seconds")
+      elif [[ ! "$_sd_sec" =~ ^[1-9][0-9]{0,5}$ ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' has seconds '$_sd_sec' (need a positive integer, at most 999999)")
+      elif [[ "${_sw[$_sd_path]+set}" == "set" ]]; then
+        _sd_invalid+=("line $_sd_n: '$_sd_path' is listed twice")
+      elif [[ "${_rel_known[$_sd_path]+set}" != "set" ]]; then
+        # A stale weight (suite renamed or removed, which port PRs do all the time) costs balance, never correctness:
+        # ignored and named on one aggregate line, not INVALID.
+        _sd_stale+=("$_sd_path")
+      else
+        _sw["$_sd_path"]="$_sd_sec"
+      fi
+    done < "$SHARD_DURATIONS"
+    [[ ${#_sd_invalid[@]} -gt 0 || ${#_sw[@]} -gt 0 || ${#_sd_stale[@]} -gt 0 ]] || SHARD_DEGRADED="suite-durations.txt lists no suite"
+    if [[ ${#_sd_invalid[@]} -eq 0 && ${#_sw[@]} -eq 0 && ${#_sd_stale[@]} -gt 0 ]]; then SHARD_DEGRADED="suite-durations.txt lists no discovered suite"; fi
+  fi
+  if [[ ${#_sd_invalid[@]} -gt 0 ]]; then
+    for _si in "${_sd_invalid[@]}"; do echo "Shard: INVALID — $SHARD_DURATIONS $_si" >&2; done
+    echo "run-all.sh: suite-durations.txt has ${#_sd_invalid[@]} invalid line(s); nothing ran" >&2
+    exit 1
+  fi
   declare -A _shard_pick=()
-  for ((_si = 0; _si < ${#_sorted_rels[@]}; _si++)); do
-    # SENTINEL-SHARD-ASSIGN
-    if (( _si % SHARD_N == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sorted_rels[$_si]}]}"]=1; fi
-  done
+  if [[ -n "$SHARD_DEGRADED" ]]; then
+    echo "Shard: DEGRADED — $SHARD_DEGRADED; assigning round-robin by name (still a disjoint, complete cover)" >&2
+    for ((_si = 0; _si < ${#_sorted_rels[@]}; _si++)); do
+      # SENTINEL-SHARD-ASSIGN
+      if (( _si % SHARD_N == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sorted_rels[$_si]}]}"]=1; fi
+    done
+  else
+    _sd_unlisted=()
+    _sd_lines=()
+    for _sr in "${_sorted_rels[@]}"; do
+      if [[ "${_sw[$_sr]+set}" == "set" ]]; then _sd_lines+=("${_sw[$_sr]} $_sr"); else _sd_unlisted+=("$_sr"); _sd_lines+=("$SHARD_DEFAULT_WEIGHT $_sr"); fi
+    done
+    if [[ ${#_sd_unlisted[@]} -gt 0 ]]; then
+      echo "Shard: durations — ${#_sd_unlisted[@]} of ${#_sorted_rels[@]} selected suite(s) not in suite-durations.txt, weighted $SHARD_DEFAULT_WEIGHT s each: $(printf '%s\n' "${_sd_unlisted[@]##*/}" | paste -sd, - | sed 's/,/, /g')" >&2
+    fi
+    mapfile -t _sd_order < <(printf '%s\n' "${_sd_lines[@]}" | LC_ALL=C sort -k1,1nr -k2,2)
+    _sd_load=()
+    for ((_sk = 0; _sk < SHARD_N; _sk++)); do _sd_load[_sk]=0; done
+    for _sl in "${_sd_order[@]}"; do
+      _sd_best=0
+      for ((_sk = 1; _sk < SHARD_N; _sk++)); do
+        # SENTINEL-SHARD-ASSIGN
+        if (( _sd_load[_sk] < _sd_load[_sd_best] )); then _sd_best=$_sk; fi
+      done
+      _sd_load[_sd_best]=$(( _sd_load[_sd_best] + ${_sl%% *} ))
+      if (( _sd_best == SHARD_I - 1 )); then _shard_pick["${_rel_abs[${_sl#* }]}"]=1; fi
+    done
+    _sd_max=0; _sd_min=${_sd_load[0]}
+    for _sk in "${_sd_load[@]}"; do (( _sk > _sd_max )) && _sd_max=$_sk; (( _sk < _sd_min )) && _sd_min=$_sk; done
+    SHARD_BALANCE_LINE="Shard: balance — duration-weighted, predicted ${_sd_load[SHARD_I-1]} s for this shard (all $SHARD_N shards: min $_sd_min s, max $_sd_max s)"
+  fi
   _shard_suites=()
   for f in "${all_suites[@]}"; do
     [[ "${_shard_pick[$f]+set}" == set ]] && _shard_suites+=("$f")
@@ -808,13 +899,20 @@ _cache_prepare() {  # sets CACHE_DIR, cache_state[], cache_file[], the report ar
     fi
   done
   for v in $(compgen -e | LC_ALL=C sort); do
-    [[ "$v" == RSDD_* ]] && env_sig+="env $v=$(printf '%q' "${!v}")"$'\n'
+    # SENTINEL-RSDD-BIN-CACHE: RSDD_BIN is a path (a temp path when run-all built it), never key material; the binary's
+    # bytes (caller-set) or the module sources (built by run-all, below) are.
+    [[ "$v" == RSDD_* && "$v" != RSDD_BIN ]] && env_sig+="env $v=$(printf '%q' "${!v}")"$'\n'
   done
+  if [[ -n "${RSDD_BIN:-}" ]]; then
+    h="$("$sha" "$RSDD_BIN" 2>/dev/null)" && h="${h%% *}" || h="unreadable"
+    env_sig+="rsdd-bin external ${h:-unreadable}"$'\n'
+  fi
   # SENTINEL-CACHE-GLOBAL: inputs every suite may lean on
   while IFS= read -r f; do
     case "$f" in
       "$rel_tests"/lib/*|"$rel_tests"/run-all.sh|"$rel_tests"/suite-impact.sh|"$rel_tests"/impact-*.txt|"$rel_tests"/suite-tiers.txt|"$rel_tests"/teeth-helper-waivers.txt|"$rel_tests"/shard-join.sh|research-sdd/templates/*)
         glob_sig+="global $f ${chash[$f]}"$'\n' ;;
+      research-sdd/rsdd/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;   # SENTINEL-RSDD-BIN-CACHE-SRC: the module sources run-all builds RSDD_BIN from
       research-sdd/install/tests/*.test.sh|research-sdd/install/tests/*.test.mjs) ;;
       research-sdd/install/*) glob_sig+="global $f ${chash[$f]}"$'\n' ;;
     esac
@@ -983,8 +1081,8 @@ _check_tmp_leftovers() {   # _check_tmp_leftovers <suite basename> <index>
 }
 
 # --- Default rsdd root (kit issue #2164) ---------------------------------------------------------
-# The VM/Docker tools fall back to the literal host root /tmp/rsdd when $RSDD_VM_ROOT is unset
-# (docker_common._DEFAULT_RSDD_ROOT; deliberately not derived from TMPDIR). That path is neither
+# The VM/Docker tools (retired by kit issue #2443; the check stays as a guard) fell back to the literal
+# host root /tmp/rsdd when $RSDD_VM_ROOT was unset (not derived from TMPDIR). That path is neither
 # under a suite's per-suite TMPDIR nor under research-sdd/, so a suite writing there was invisible
 # to every other check. Snapshot its entry names around each suite and report NEW entries in the
 # same `TMPDIR leftovers` line. Absent root = empty (production hosts may not have it); a root that
@@ -1297,6 +1395,54 @@ if [[ "$JOBS" -gt 1 && ${#all_suites[@]} -gt 0 ]]; then
   export RSDD_JOB_SLOTS="$JOB_SLOTS_DIR/slots" RSDD_JOB_SLOTS_LIB="$SCRIPT_DIR/lib/job-slots.sh"
   [[ -n "$JOBS_ACTIVE" ]] || _job_budget_hold
 fi
+# --- rsdd binary, built ONCE per run (kit issue #2422) --------------------------------------------
+# lib/rsdd-exec.sh rebuilds rsdd into <kit>/bin when RSDD_BIN is unset, which the kit-tree hermeticity check
+# (SENTINEL-KIT-TREE-CHECK) then reports as a leak. So the runner builds the binary ONCE into its own temp root and
+# exports RSDD_BIN to every suite (serial, -j and --shard alike: the build happens here, before any suite starts, and
+# the workers inherit the environment). A caller-set RSDD_BIN is used as-is. Never built for --list-suites or a
+# refused flag (both exit before this point). Every outcome is ONE aggregate line (RSDD_LINE):
+#   built      -> `rsdd: built — ...`
+#   caller-set -> `rsdd: RSDD_BIN set by the caller — ...`
+#   DEGRADED   -> go absent, no usable temp root, or the build failed; RSDD_BIN stays unset (the shims then degrade or
+#                 build on their own) and the run exits 1 under RSDD_REQUIRE_GO=1 (CI sets it), never a silent pass
+#   SKIPPED    -> no Go module next to this runner (a fixture or partial tree): nothing to build, never fails
+RSDD_LINE=""
+RSDD_FAIL=""
+_rsdd_bin_prepare() {
+  local kit mod sym hash out why="" log
+  if [[ -n "${RSDD_BIN:-}" ]]; then   # SENTINEL-RSDD-BIN-CALLER
+    RSDD_LINE="rsdd: RSDD_BIN set by the caller — used as-is, not built"
+    return 0
+  fi
+  kit="$(cd -P -- "$SCRIPT_DIR/../.." 2>/dev/null && pwd -P)" || kit=""
+  mod="$kit/rsdd"
+  if [[ -z "$kit" || ! -f "$mod/go.mod" ]]; then
+    RSDD_LINE="rsdd: SKIPPED — no Go module at ${mod:-research-sdd/rsdd}; RSDD_BIN left unset"
+    return 0
+  fi
+  if [[ -z "$RUN_TMP_ROOT" ]]; then why="no per-run temp root to build into"
+  elif ! command -v go >/dev/null 2>&1; then why="go not found on PATH"
+  elif ! sym="$(sed -n 's/^SOURCE_HASH_SYM := //p' "$mod/Makefile" 2>/dev/null)" || [[ -z "$sym" ]]; then why="no SOURCE_HASH_SYM in $mod/Makefile"
+  elif ! mkdir -p -- "$RUN_TMP_ROOT/rsdd-bin"; then why="cannot create $RUN_TMP_ROOT/rsdd-bin"
+  else
+    out="$RUN_TMP_ROOT/rsdd-bin/rsdd"; log="$RUN_TMP_ROOT/rsdd-bin/build.log"
+    # The Makefile `build` target: stamp the source hash so the binary reads as fresh to rsdd-exec.sh's checks.
+    if ! hash="$(cd -- "$mod" && go run ./cmd/rsdd-srchash . 2>"$log")" || [[ -z "$hash" ]]; then why="go run ./cmd/rsdd-srchash failed ($(head -n 1 "$log" 2>/dev/null))"
+    elif ! (cd -- "$mod" && CGO_ENABLED=0 go build -ldflags "-s -w -X $sym=$hash" -o "$out" ./cmd/rsdd 2>"$log"); then why="go build failed ($(head -n 1 "$log" 2>/dev/null))"   # SENTINEL-RSDD-BIN-BUILD
+    elif [[ ! -f "$out" || ! -x "$out" ]]; then why="go build produced no executable at $out"
+    fi
+  fi
+  if [[ -n "$why" ]]; then
+    RSDD_LINE="rsdd: DEGRADED — $why; RSDD_BIN left unset (the shims then degrade or build on their own)"
+    echo "run-all.sh: $RSDD_LINE" >&2
+    [[ "${RSDD_REQUIRE_GO:-}" != 1 ]] || RSDD_FAIL=1
+    return 0
+  fi
+  export RSDD_BIN="$out"   # SENTINEL-RSDD-BIN-EXPORT
+  RSDD_LINE="rsdd: built — RSDD_BIN exported to every suite (one build per run; source hash $hash)"
+}
+_rsdd_bin_prepare
+
 _rsdd_snapshot
 if [[ -n "$JOBS_ACTIVE" ]]; then
   PAR_DIR="$(mktemp -d)"; _par_dir_created=1
@@ -1593,6 +1739,7 @@ if [[ -n "$TIER_DEGRADED" ]]; then
 else
   echo "Tier: $TIER — $tier_selected of $discovered_suites suites (excluded: $((discovered_suites - tier_selected)))"
 fi
+echo "$RSDD_LINE"
 if [[ -n "$IMPACTED_REF" ]]; then
   echo "Impacted: $total_suites of $tier_selected suites (base $IMPACTED_REF, merge-base $IMPACTED_SHA)"
   if [[ "$IMPACTED_ESC" == "no" ]]; then
@@ -1623,6 +1770,8 @@ if [[ -n "$SHARD_N" ]]; then
     # SENTINEL-SHARD-EMPTY
     echo "Shard: EMPTY SHARD — $SHARD_I/$SHARD_N selected 0 of $total_suites suites (N exceeds the suite count); nothing ran, so this shard is not a pass"
   fi
+  if [[ -n "$SHARD_DEGRADED" ]]; then echo "Shard: DEGRADED — $SHARD_DEGRADED; round-robin by name"; else echo "$SHARD_BALANCE_LINE"; fi
+  [[ ${#_sd_stale[@]} -eq 0 ]] || echo "Shard: stale duration entries ${#_sd_stale[@]} — [$(printf '%s\n' "${_sd_stale[@]}" | paste -sd, - | sed 's/,/, /g')]"
   [[ -z "$SHARD_MANIFEST" ]] || echo "Shard manifest: $SHARD_MANIFEST"
 fi
 if [[ -n "$JOBS_ACTIVE" ]]; then
@@ -1814,6 +1963,10 @@ if [[ $suites_failed -eq 0 ]] && [[ $suites_ok -gt 0 ]] \
    && [[ ${#kit_tree_violations[@]} -eq 0 ]] && [[ "$KIT_TREE_DEGRADED" -eq 0 ]] \
    && [[ "$INSTALL_TESTS_DEGRADED" -eq 0 ]] && [[ -z "$TIER_DEGRADED" ]]; then
   final_rc=0
+  # SENTINEL-RSDD-BIN-REQUIRE: a failed rsdd build under RSDD_REQUIRE_GO=1 (RSDD_FAIL) fails the run
+  if [[ -n "$RSDD_FAIL" ]]; then
+    final_rc=1
+  fi
   # SENTINEL-REQUIRE-CLEAN-TMP-EXIT
   if [[ -n "$REQUIRE_CLEAN_TMP" ]] && { [[ "$tmp_leftover_total" -gt 0 ]] || [[ -n "$TMPDIR_DEGRADED_REASON" ]] || [[ ${#tmp_scan_failed[@]} -gt 0 ]] || [[ ${#tmp_create_failed[@]} -gt 0 ]]; }; then
     final_rc=1

@@ -182,11 +182,7 @@ func copyToTarget(src int, target string, maxBytes int64) (rec Record, total int
 	buf := make([]byte, chunkSize)
 	copyErr := func() error {
 		for {
-			want := int64(len(buf))
-			if capped && maxBytes-total+1 < want {
-				want = maxBytes - total + 1
-			}
-			n, err := sysRead(src, buf[:want])
+			n, err := sysRead(src, buf)
 			if err != nil {
 				return &Error{Kind: ErrStageIO, Err: err}
 			}

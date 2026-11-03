@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kit-rdd-drive.test.sh — kit issue #2212: maint/kit-rdd-drive.py (follow gentle-ai next_transition to a terminal).
+# kit-rdd-drive.test.sh — kit issue #2212: maint/kit-rdd-drive.sh (follow gentle-ai next_transition to a terminal).
 #
 # Hermetic: PATH holds only shims (fixtures/kit-pr-pipeline) that record each gentle-ai call and answer from JSON
 # fixtures. Under test: execute / collect / stop handling, reviewer captures launched CONCURRENTLY and in provider
@@ -12,17 +12,38 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver locating its SUT; run from the kit checkout by path
 SELF="$HERE/kit-rdd-drive.test.sh"
 TB="$(cd "$HERE/.." && pwd)"  # LINT-CD-PHYSICAL-OK: as above
-SUT="$TB/maint/kit-rdd-drive.py"
+SUT="$TB/maint/kit-rdd-drive.sh"
 FIX="$HERE/fixtures/kit-pr-pipeline"
 # shellcheck source=fixtures/kit-pr-pipeline/harness.sh
 . "$FIX/harness.sh" || exit 2
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
-mutant_bootstrap mutant_py_replace mutant_tooth || exit 2
-PY="$(command -v python3)" || { echo "FATAL: python3 not on PATH" >&2; exit 2; }
+mutant_bootstrap mutant_sed mutant_tooth || exit 2
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
+
+# The SUT is a compatibility shim over the Go binary (kit issue #2394, epic #2270): `rsdd maint rdd-drive`. The
+# suite is the black-box check of the shim plus the Go command behind it. $RSDD_BIN wins; otherwise one binary
+# is built into the suite temp dir (never into the tree) and exported so the teeth's child runs reuse it.
+# The behaviour's mutation controls live in the Go tests (internal/maint, `make teeth`); the controls below
+# mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$TMP/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$TMP/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$TMP/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+[ "${1:-}" != "--guard-only" ] || { echo "guard-only: rsdd reachable"; exit 0; }
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -65,9 +86,9 @@ run_case() {
     bad-firstlist) first="$FIX/list.json" ;;
   esac
   if [ "$name" = usage ]; then
-    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" "$PY" -I "$sut" 2>&1)"; RC=$?
+    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$sut" 2>&1)"; RC=$?
   else
-    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" "$PY" -I "$sut" "$@" "$KH_WT" "$first" 2>&1)"; RC=$?
+    OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$sut" "$@" "$KH_WT" "$first" 2>&1)"; RC=$?
   fi
   CALLS="$(kh_calls)"
 }
@@ -153,6 +174,27 @@ run_case badop-nonreview "$SUT"
 if ! grep -qE 'shell|exec' <<<"$CALLS"; then ok "an operation outside review.* is never turned into a command"
 else no "non-review operation ran: calls=[$CALLS]"; fi
 
+# The shim's own failure (lib/rsdd-exec.sh missing) is the kit's degraded state, rc 3, never 2 (the usage code).
+mkdir -p "$TMP/orphan/maint" && cp "$SUT" "$TMP/orphan/maint/kit-rdd-drive.sh"
+O="$(env -i PATH=/usr/bin:/bin bash "$TMP/orphan/maint/kit-rdd-drive.sh" /x /y 2>&1)"; ORC=$?
+if [ "$ORC" = 3 ] && [[ "$O" == *'degraded: rsdd-unavailable'* ]]; then ok "shim without lib/rsdd-exec.sh -> rc 3 degraded (not the usage code 2)"
+else no "shim own failure: rc=$ORC out=[$O]"; fi
+
+# The rsdd guard must never read green when rsdd is unreachable: with no usable $RSDD_BIN and no go, the suite
+# prints a typed `SKIP <reason>` and ran nothing, or FAILs (rc 1) under RSDD_REQUIRE_GO=1.
+if PATH=/usr/bin:/bin command -v go >/dev/null 2>&1; then echo "  SKIP  rsdd guard cases: go is on the minimal PATH"
+else
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 0 ] && [[ "$G" == 'SKIP rsdd-unavailable: '*'RSDD_BIN is not an executable file'* ]] && [[ "$G" == *'== 0 passed · 0 failed =='* ]]; then
+    ok "no usable RSDD_BIN and no go -> typed 'SKIP <reason>' naming RSDD_BIN, nothing run"
+  else no "unusable RSDD_BIN guard: rc=$GRC out=[$G]"; fi
+  G="$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" RSDD_BIN="$TMP/no-such-rsdd" RSDD_REQUIRE_GO=1 bash "$SELF" --guard-only 2>&1)"; GRC=$?
+  if [ "$GRC" = 1 ] && [[ "$G" == *'  FAIL  rsdd-unavailable: '* ]] && [[ "$G" == *'== 0 passed · 1 failed =='* ]]; then
+    ok "RSDD_REQUIRE_GO=1 with no usable rsdd -> FAIL (rc 1), not green"
+  else no "RSDD_REQUIRE_GO guard: rc=$GRC out=[$G]"; fi
+fi
+
+
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="
   [ "$fail" -eq 0 ] && exit 0 || exit 1
@@ -160,19 +202,15 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: kit-rdd-drive mutation controls --"
-MUT="$TMP/mut"; mkdir -p "$MUT"
-tooth() { # LABEL OLD NEW GOOD_RC BAD_RC SCENARIO [tooth opts...]
-  local label="$1" old="$2" new="$3" g="$4" b="$5" sc="$6"; shift 6
-  local m="$MUT/${label// /_}.py"
-  if ! mutant_py_replace "$label" "$SUT" "$old" "$new" "$m"; then no "tooth $label: mutant refused"; return; fi
+# a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$TMP/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC SCENARIO [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4" sc="$5"; shift 5
+  local m="$MUT/${label// /_}.sh"
+  if ! mutant_sed "$SUT" "$m" "$expr"; then no "tooth $label: mutant refused"; return; fi
   if mutant_tooth "tooth $label" "$g" "$b" "$m" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-tooth "captures run serially" 'max_workers=len(cmds)' 'max_workers=1' 0 0 approve --good-lacks 'barrier timeout' --bad-has 'barrier timeout'
-tooth "captures launched out of order" 'for i in inputs]' 'for i in inputs][::-1]' 0 0 approve --good-has 'LAUNCH-ORDER=risk,resilience' --bad-lacks 'LAUNCH-ORDER=risk,resilience'
-tooth "non-capture collect no longer stops" 'if odd:' 'if False:' 13 13 correction-collect --good-has 'rdd-stop: non-capture-collect' --bad-lacks 'rdd-stop: non-capture-collect'
-tooth "operation allowlist removed" 'not op.startswith("review.")' 'False' 14 13 badop-nonreview
-tooth "every stop treated as success" 'sys.exit(0 if reason == "target_already_acknowledged" else 13)' 'sys.exit(0)' 13 0 budget
-tooth "consent document no longer stops" 'sys.exit(15)' 'sys.exit(0)' 15 0 consent
-tooth "step limit cut to two" 'for step in range(args.max_steps):' 'for step in range(2):' 0 13 approve
+tooth "shim dispatches to the sibling command" 's/^rsdd_exec maint rdd-drive /rsdd_exec maint rdd-start /' 13 14 budget
+tooth "shim drops the caller's arguments" 's/^rsdd_exec maint rdd-drive "\$@"$/rsdd_exec maint rdd-drive/' 13 2 budget
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1
