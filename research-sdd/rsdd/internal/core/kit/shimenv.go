@@ -1,21 +1,29 @@
 package kit
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 )
 
 // ShimEnv is the environment a Go command gives a toolbelt shim it execs: any Go command that execs a shim passes
-// its env through this. A shim without RSDD_BIN re-hashes the Go sources on every call (about 1.1 s against 19 ms
-// with it), so the shim gets the running binary unless the caller already chose one. It returns a copy of environ;
-// a non-empty RSDD_BIN is kept as given, and when self fails the copy is returned unchanged.
+// its env through this. A shim given RSDD_BIN runs that binary; without it, it checks its source fingerprint on
+// every call (about 40-50 ms against about 19 ms) and rebuilds after a source change. The contract:
+//   - It returns a new slice; environ is never modified.
+//   - A nil environ means the process environment (os.Environ), as a nil exec.Cmd.Env does, so passing cmd.Env is
+//     safe. An empty non-nil environ stays empty apart from RSDD_BIN.
+//   - RSDD_BIN is read as exec reads it: the last "RSDD_BIN=" entry wins. A non-empty value is kept unchanged.
+//   - Otherwise every "RSDD_BIN=" entry is dropped and RSDD_BIN=<self()> is appended, made absolute and with
+//     symlinks resolved; a path EvalSymlinks cannot resolve is used in its absolute form.
+//   - When self or filepath.Abs fails, the copy is returned unchanged.
 func ShimEnv(environ []string, self func() (string, error)) []string {
+	if environ == nil {
+		environ = os.Environ()
+	}
 	out := append([]string(nil), environ...)
-	for _, kv := range environ {
-		if v, ok := strings.CutPrefix(kv, "RSDD_BIN="); ok && v != "" {
-			return out
-		}
+	if v := lastRSDDBin(environ); v != "" {
+		return out
 	}
 	exe, err := self()
 	if err != nil {
@@ -27,6 +35,16 @@ func ShimEnv(environ []string, self func() (string, error)) []string {
 	if real, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = real
 	}
-	out = slices.DeleteFunc(out, func(kv string) bool { return kv == "RSDD_BIN=" }) // an empty value is replaced
+	out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, "RSDD_BIN=") })
 	return append(out, "RSDD_BIN="+exe)
+}
+
+// lastRSDDBin is the value exec gives the child: the last RSDD_BIN entry ("" when unset).
+func lastRSDDBin(environ []string) string {
+	for i := len(environ) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(environ[i], "RSDD_BIN="); ok {
+			return v
+		}
+	}
+	return ""
 }
