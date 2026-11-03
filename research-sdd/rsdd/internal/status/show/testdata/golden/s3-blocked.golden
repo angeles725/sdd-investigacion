@@ -1,0 +1,654 @@
+=== bo-child-blank-line-with-blanks-resets
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-bracket-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-bracket-closed-mixed-case
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-bracket-closed-on-the-continuation-does-not-close
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-bracket-with-spaces-is-no-marker
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-bullet-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-cerrado-inside-a-longer-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-cerrado-lowercase-is-no-marker
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-cerrado-negated
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-cerrado-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-after-a-non-ascii-letter
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-at-the-very-end-no-newline-needs-before
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-bullet-then-continuation-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-bullet-then-open-bullet
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-doubled
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-inside-a-hyphenated-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-inside-a-longer-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-lowercase-is-no-marker
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-mixed-case-is-no-marker
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-then-closed-separately
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-then-not-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-with-digit-neighbour
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-with-hyphen-before
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-with-punctuation-neighbours
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-with-underscore-after
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-with-underscore-neighbour
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-closed-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-word-ends-the-line
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-closed-word-starts-the-entry
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-continuation-before-any-bullet
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-filler-alone-does-not-negate
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-filler-chain-then-not
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-filler-then-lowercase-not-keeps-any-case
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-heading-suffix-matches
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-heading-twice
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-heading-with-suffix
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-indented-bullet
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-lowercase-no-reproducible
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-lowercase-no-then-a-word-is-not-negated
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-lowercase-not-then-a-word-is-not-negated
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-lowercase-not-two-words-back-is-not-negated
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-lowercase-not-yet-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-marker-first-word-after-the-dash
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-mixed-case-not-adjacent
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-needs-after-a-blank-line-is-not-the-entry
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-needs-in-the-continuation
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-needs-on-the-bullet-and-the-continuation-counts-once
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-negated-closed-but-bracket-closes
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-negated-closed-but-cerrado-closes
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-negated-closed-but-tick-closes
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-negation-on-an-earlier-line-does-not-carry
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-no-and-never
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+4
+--- stderr
+=== bo-child-no-longer-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-no-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-no-space-after-the-dash-is-a-continuation
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-not-after-a-non-ascii-letter
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-not-as-part-of-a-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-not-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-not-closed-then-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-not-glued-to-a-hyphen-is-another-word
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-not-glued-to-an-underscore
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-not-with-a-bare-dash-run-between
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+3
+--- stderr
+=== bo-child-not-with-punctuation-between
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+3
+--- stderr
+=== bo-child-not-yet-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-not-yet-closed-lowercase-fillers
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-regression-no-dash-closed
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-second-entry-takes-over-the-continuation
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-section-ends-at-heading
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-strike-after-a-space
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-strike-after-one-star
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-strike-bold-opens-the-entry
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-strike-closes-continuation-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-strike-mid-line-closes-nothing
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-strike-single-tilde
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-strike-whole-entry
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-strike-with-two-spaces
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-tab-after-the-dash
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-tick
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-tick-first
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-tick-on-the-continuation-does-not-close
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-two-entries
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-two-negated-markers
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-upper-case-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-uppercase-no-two-words-back-after-a-filler
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-child-uppercase-not-three-words-back
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-child-uppercase-not-two-words-back
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-child-window-at-the-start-of-the-line
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-crlf-lines
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-empty-file
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-no-sections
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-blocked-alone-is-no-heading
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-blocked-slash
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-std-bold-prose-form
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+3
+--- stderr
+=== bo-std-bold-prose-needs-a-colon-and-stars
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-bullet-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-std-dash-space-then-needs
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+3
+--- stderr
+=== bo-std-dash-without-space-is-not-a-bullet
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-heading-must-start-the-line
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-heading-with-suffix
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-std-needs-before-the-dash-only
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-needs-without-colon
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-non-investigable
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-std-same-heading-twice
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-std-section-ends-at-the-next-heading
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bo-std-section-ends-only-at-two-hash-space
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+4
+--- stderr
+=== bo-std-sections-plus-child-gaps
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bo-std-third-level-heading-is-no-heading
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bo-std-three-headings-add-up
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 0
+--- stdout
+4
+--- stderr
+=== bo-unreadable
+op 'blocked_open_count' '<ROOT>/corpus/RESEARCH-STATE.md'
+rc: 2
+--- stdout
+--- stderr
+blocked-rows: state file absent or unreadable: <ROOT>/corpus/RESEARCH-STATE.md
