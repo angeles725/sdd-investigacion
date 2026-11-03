@@ -80,7 +80,7 @@ func withEnv(environ []string, extra ...string) []string {
 		k, _, _ := strings.Cut(kv, "=")
 		drop[k] = true
 	}
-	out := make([]string, 0, len(environ)+len(extra))
+	var out []string
 	for _, kv := range environ {
 		if k, _, _ := strings.Cut(kv, "="); !drop[k] {
 			out = append(out, kv)
@@ -98,7 +98,7 @@ func exitCode(err error) int {
 	if !errors.As(err, &ee) {
 		return 126
 	}
-	if c := ee.ExitCode(); c >= 0 {
+	if c := ee.ExitCode(); c != -1 { // -1: killed by a signal
 		return c
 	}
 	if ws, ok := ee.Sys().(interface{ Signal() syscall.Signal }); ok {
