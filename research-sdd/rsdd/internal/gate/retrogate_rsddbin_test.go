@@ -1,13 +1,13 @@
 package gate
 
 import (
-	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // The scenarios symlink the live toolbelt/verify-retro.sh, which is a shim over `rsdd retro verify` (kit issue #2586).
@@ -26,14 +26,7 @@ var (
 const gateMinParallel = 8
 
 func TestMain(m *testing.M) {
-	flag.Parse()
-	explicit := false
-	flag.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "test.parallel" })
-	if f := flag.Lookup("test.parallel"); f != nil && !explicit {
-		if n, err := strconv.Atoi(f.Value.String()); err == nil && n < gateMinParallel {
-			_ = f.Value.Set(strconv.Itoa(gateMinParallel))
-		}
-	}
+	parallelfloor.Raise(gateMinParallel)
 	code := m.Run()
 	if rgBuiltBin != "" {
 		_ = os.RemoveAll(filepath.Dir(rgBuiltBin))
