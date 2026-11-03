@@ -33,8 +33,13 @@ type trustRig struct {
 	sameErr   error
 	dirs      map[string]fakeInfo
 	statErrAt string
+	evalErr   error
 	visited   []string
 }
+
+// rigReal is what the fake EvalSymlinks resolves the selected launcher to: distinct from it, so a check that
+// compares against the unresolved path (or against itself) is seen by the fake sameFile.
+const rigReal = "/usr/lib/bwrap.real"
 
 func newRig(t *testing.T) *trustRig {
 	return &trustRig{t: t, selected: true, same: true, dirs: map[string]fakeInfo{}}
@@ -52,9 +57,19 @@ func (r *trustRig) check(fi fakeInfo, resolved string) error {
 	old := bwrapTrustOps
 	r.t.Cleanup(func() { bwrapTrustOps = old })
 	bwrapTrustOps = trustOps{
-		selected:     func() (string, bool) { return "/usr/bin/bwrap", r.selected },
-		evalSymlinks: func(p string) (string, error) { return p, nil },
-		sameFile:     func(a, b string) (bool, error) { return r.same, r.sameErr },
+		selected: func() (string, bool) { return "/usr/bin/bwrap", r.selected },
+		evalSymlinks: func(p string) (string, error) {
+			if p != "/usr/bin/bwrap" {
+				r.t.Errorf("evalSymlinks(%q): want the PATH-selected launcher", p)
+			}
+			return rigReal, r.evalErr
+		},
+		sameFile: func(a, b string) (bool, error) {
+			if a != resolved || b != rigReal {
+				r.t.Errorf("sameFile(%q, %q): want (resolved %q, real %q)", a, b, resolved, rigReal)
+			}
+			return r.same, r.sameErr
+		},
 		stat: func(p string) (os.FileInfo, error) {
 			r.visited = append(r.visited, p)
 			if len(r.visited) > 8 {
@@ -253,5 +268,21 @@ func TestBwrapTrustDefaultsAreTheRealCalls(t *testing.T) {
 	want, wantOK := lookPath("bwrap", defPath)
 	if got, ok := bwrapTrustOps.selected(); got != want || ok != wantOK {
 		t.Fatalf("default selected = %q, %v; want %q, %v", got, ok, want, wantOK)
+	}
+}
+
+// An EvalSymlinks failure of the selected launcher is reported as that OS error on the selected path, before any
+// identity, owner or ancestor check runs.
+func TestBwrapTrustEvalSymlinksErrorIsReported(t *testing.T) {
+	r := newRig(t)
+	r.root("/usr/bin", "/usr", "/")
+	r.evalErr = syscall.ELOOP
+	err := r.check(fakeInfo{mode: 0o755, uid: 0}, "/usr/bin/bwrap")
+	want := osError(syscall.ELOOP, "/usr/bin/bwrap")
+	if err == nil || want == nil || err.Error() != want.Error() {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+	if len(r.visited) != 0 {
+		t.Errorf("ancestor walk ran after the EvalSymlinks failure: %v", r.visited)
 	}
 }
