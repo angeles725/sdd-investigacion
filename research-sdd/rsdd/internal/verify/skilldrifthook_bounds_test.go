@@ -3,6 +3,7 @@
 package verify
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,44 @@ import (
 // on install --verify and on its stray children, the shared kit-staleness budget, and the typed states of the
 // two git facts the age criterion needs (the FETCH_HEAD path and its age). None of these tests reads the frozen
 // bash oracle, so they run in the teeth build too.
+
+// shortBudgets are the budgets the timing tests inject instead of sleeping on production values.
+func shortBudgets(verifyUnit, kitStale time.Duration) hookBudgets {
+	b := defaultHookBudgets()
+	b.verifyUnit, b.kitStale = verifyUnit, kitStale
+	return b
+}
+
+// runGoHookWith runs the hook in process on the given budgets (the dispatcher always passes the defaults).
+func (w *sdWorld) runGoHookWith(b hookBudgets) (stdout, stderr string, rc int) {
+	var out, errb bytes.Buffer
+	rc = runSkillDriftHookWith([]string{filepath.Join(w.kit, "toolbelt")}, w.stdio(&out, &errb), b)
+	return out.String(), errb.String(), rc
+}
+
+// wantHookWith is wantHook on the given budgets.
+func (w *sdWorld) wantHookWith(b hookBudgets, ctx string) {
+	w.t.Helper()
+	out, errs, rc := w.runGoHookWith(b)
+	want := ""
+	if ctx != "" {
+		want = envelopeOf(ctx)
+	}
+	if out != want || errs != "" || rc != 0 {
+		w.t.Errorf("hook\ngot rc=%d\nstdout %q\nstderr %q\nwant stdout %q", rc, out, errs, want)
+	}
+}
+
+// The production budgets, pinned without sleeping: every other timing test runs on injected short ones.
+func TestSkillDriftHookProductionBudgetDefaults(t *testing.T) {
+	want := hookBudgets{verifyUnit: time.Second, verifyDefault: 10, kitStale: 3 * time.Second}
+	if got := defaultHookBudgets(); got != want {
+		t.Errorf("defaultHookBudgets() = %+v, want %+v", got, want)
+	}
+	if got := want.verifyBound(want.verifyDefault); got != 10*time.Second {
+		t.Errorf("default install --verify bound = %v, want 10s", got)
+	}
+}
 
 const timedOutText = "verify: install --verify timed out"
 
@@ -128,18 +167,19 @@ func TestSkillDriftHookFastFinishesLeaveNoDescendants(t *testing.T) {
 // bound really elapsed is legitimate on a loaded host and is not counted.
 func TestSkillDriftHookFastVerifyIsNeverReportedTimedOut(t *testing.T) {
 	w := hookWorld(t)
-	w.installStub("sleep 0.2")
+	w.installStub("sleep 0.02")
 	w.env["RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT"] = "1"
+	b := shortBudgets(400*time.Millisecond, defaultHookBudgets().kitStale) // a 1-unit bound of 400 ms
 	early := 0
 	for i := 0; i < 10; i++ {
 		start := time.Now()
-		out, _, _ := w.runGoHook()
-		if strings.Contains(out, "timed out") && time.Since(start) < time.Second {
+		out, _, _ := w.runGoHookWith(b)
+		if strings.Contains(out, "timed out") && time.Since(start) < b.verifyBound(1) {
 			early++
 		}
 	}
 	if early != 0 {
-		t.Errorf("%d/10 runs reported a timeout before the 1 s bound elapsed", early)
+		t.Errorf("%d/10 runs reported a timeout before the %v bound elapsed", early, b.verifyBound(1))
 	}
 }
 
@@ -165,26 +205,28 @@ func TestSkillDriftHookHangingGitIsCutOffByTheSharedBudget(t *testing.T) {
 	w.gitKit(25)
 	w.installStub("echo '" + behindLine + "'")
 	w.fakeGit("exec sleep 60")
+	b := shortBudgets(time.Second, 300*time.Millisecond)
 	start := time.Now()
-	w.wantHook(hdrInstall + "\n" + behindLine)
+	w.wantHookWith(b, hdrInstall+"\n"+behindLine)
 	if d := time.Since(start); d > 15*time.Second {
-		t.Errorf("a hanging git held the hook for %v (budget 3 s)", d)
+		t.Errorf("a hanging git held the hook for %v (budget %v)", d, b.kitStale)
 	}
 	w.env["RESEARCH_SDD_KIT_STALE_VERBOSE"] = "1"
-	w.wantHook(hdrInstall + "\n" + behindLine + "\nverify kit-stale status=degraded reason=git did not answer within 3s (check abandoned)")
+	w.wantHookWith(b, hdrInstall+"\n"+behindLine+"\nverify kit-stale status=degraded reason=git did not answer within 300ms (check abandoned)")
 }
 
-// The budget is shared, not per call: a git that answers every call in 2 s (inside 3 s each) still exhausts it
-// by the second call, and the check is abandoned instead of finishing after ~10 s.
+// The budget is shared, not per call: a git that answers every call in 0.5 s (inside the 0.6 s budget each)
+// still exhausts it by the second call, and the check is abandoned instead of finishing after ~2.5 s.
 func TestSkillDriftHookSlowGitSpendsOneBudgetNotOnePerCall(t *testing.T) {
 	w := hookWorld(t)
 	w.gitKit(25)
 	w.installStub("echo '" + behindLine + "'")
-	w.fakeGit("sleep 2\nexec \"$REAL\" \"$@\"")
+	w.fakeGit("sleep 0.5\nexec \"$REAL\" \"$@\"")
+	b := shortBudgets(time.Second, 600*time.Millisecond)
 	start := time.Now()
-	w.wantHook(hdrInstall + "\n" + behindLine)
-	if d := time.Since(start); d > 9*time.Second {
-		t.Errorf("slow git took %v: the 3 s budget is not shared", d)
+	w.wantHookWith(b, hdrInstall+"\n"+behindLine)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("slow git took %v: the %v budget is not shared", d, b.kitStale)
 	}
 }
 
