@@ -40,14 +40,6 @@ var (
 	reRefHeadWs    = posix(`^[ \t]*` + refPat)
 	reRefTail      = posix(refPat + `$`)
 	reJoin         = posix(joiner)
-	reQuoteStrip   = posix(`^[ \t]*(>[ \t]*)+`)
-	reBlank        = posix(`^[ \t]*$`)
-	reListHead     = posix(`^[ \t]*([-*+]|[0-9]+[.)])[ \t]`)
-	reHeading      = posix(`^[ \t]*#`)
-	reTableRow     = posix(`^[ \t]*\|`)
-	reVerb         = posix(`(^|` + nonWord + `)(corrects|corrig[a-z]*)`)
-	reSe           = posix(`(^|` + nonWord + `)se[ \t]+$`)
-	reNegPre       = posix(`(^|` + nonWord + `)(no|nunca|never|tampoco)[ \t]+$`)
 	reComma        = posix(`^,[ \t]+(and|but|while|y|pero)[ \t]`)
 	reBare         = posix(`(^|` + nonWord + `)b[0-9]+`)
 	reGapLabel     = posix(`^-[a-z][0-9]`)
@@ -99,14 +91,12 @@ type extractor struct {
 func extract(text string) []record {
 	x := &extractor{seen: map[string]bool{}}
 	for _, line := range splitRecords(text) {
-		if loc := reQuoteStrip.FindStringIndex(line); loc != nil {
-			line = line[loc[1]:]
-		}
-		if reBlank.MatchString(line) {
+		line = line[quoteStripEnd(line):]
+		if isBlankLine(line) {
 			x.flush()
 			continue
 		}
-		if reListHead.MatchString(line) || reHeading.MatchString(line) || reTableRow.MatchString(line) {
+		if startsBlock(line) {
 			x.flush()
 		}
 		if x.cur == "" {
@@ -436,7 +426,7 @@ func (x *extractor) scan(un string) {
 		// Past the end `rest` is empty and reVerb (which needs a verb) cannot match it, so the loop ends by the break
 		// below with no bound test of its own.
 		rest := from(l, p)
-		rs, rl := match(reVerb, rest)
+		rs, rl := matchVerb(rest)
 		if rs == 0 {
 			break
 		}
@@ -488,12 +478,12 @@ func (x *extractor) scan(un string) {
 			continue
 		}
 		pre := substr(l, 1, vs-1)
-		if reSe.MatchString(pre) || tok == "corrigieron" || tok == "corrigio" || past {
+		if endsWord(pre, "se") || tok == "corrigieron" || tok == "corrigio" || past {
 			x.print(kindSkipped)
 			p = ve
 			continue
 		}
-		if !isnoun && ((reNegPre.MatchString(pre) && !excpost(from(l, ve))) || negpost(from(l, ve))) {
+		if !isnoun && ((endsWord(pre, "no", "nunca", "never", "tampoco") && !excpost(from(l, ve))) || negpost(from(l, ve))) {
 			x.print(kindNegated)
 			p = ve
 			continue
