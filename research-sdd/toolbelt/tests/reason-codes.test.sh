@@ -60,6 +60,8 @@ GO_SRC=(
   "reconcile-issues.sh=../rsdd/internal/retro/reconcile"   # TOOTH-GOMAP2
   "sweep-audits.sh=../rsdd/internal/sweep"
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
+  "sweep-retros.sh=../rsdd/internal/sweep"   # retros.go / retrosjson.go print the absent-input / empty-input / no-match states (kit issue #2605)
+  "sweep-retros-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
@@ -67,13 +69,12 @@ GO_SRC=(
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
   verify-skill-drift.sh corroborate-kaitai.sh java-fidelity-experiment.sh ensure-remote.sh verify-kit-clean.sh scan-firmware.sh
-  zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
+  zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
   resume-state.sh resume-render.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
-# sweep-retros-hook.sh shares sweep-retros.sh's status, which is itself suspect: retros.go prints absent-input INFO lines.
-GO_NO_TYPED+=(return-token-gate.sh sweep-retros-hook.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
+GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
@@ -117,7 +118,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
