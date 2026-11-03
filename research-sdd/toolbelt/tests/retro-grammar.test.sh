@@ -577,10 +577,16 @@ else
     no "FLIP-SW: mutant lib must flip sweep-retros delta count" "base=[$_sw_base] mut=[$_sw_mut]"
   fi
 
-  # verify-retro must change: baseline was 0 (conforming), mutant must be 1 (FAIL)
-  [ "$_vr_rc_mut" = 1 ] \
-    && ok "FLIP-VR: mutant lib flips verify-retro (exits 1 = FAIL)" "(both-consumers-flip has teeth for verify)" \
-    || no "FLIP-VR: mutant lib must flip verify-retro to exit 1" "base-rc=$_vr_rc_base mut-rc=$_vr_rc_mut mut=[$_vr_mut]"
+  # verify-retro must change: baseline was 0 (conforming), mutant must be 1 (FAIL).
+  # verify-retro is an rsdd_exec shim since #2586, like sweep-retros since #2358: `rsdd retro verify` reads the
+  # grammar through the Go internal/core/retrogrammar package, so a lib mutant cannot reach it.
+  if grep -q 'rsdd_exec' "$VERIFY_SUT"; then
+    printf '  SKIP  FLIP-VR: verify-retro is an rsdd_exec shim; its grammar is Go (parity: the verifyretro differential)\n'
+  else
+    [ "$_vr_rc_mut" = 1 ] \
+      && ok "FLIP-VR: mutant lib flips verify-retro (exits 1 = FAIL)" "(both-consumers-flip has teeth for verify)" \
+      || no "FLIP-VR: mutant lib must flip verify-retro to exit 1" "base-rc=$_vr_rc_base mut-rc=$_vr_rc_mut mut=[$_vr_mut]"
+  fi
 fi
 
 # ── kit issue #1129 finding 3 / Q5: direct lib-level mutation controls for each new grammar

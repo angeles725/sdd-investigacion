@@ -1,397 +1,139 @@
 #!/usr/bin/env bash
-# verify-retro.test.sh — RED-FIRST regression harness for verify-retro.sh (U17 / #479).
+# verify-retro.test.sh — shim contract of verify-retro.sh (kit issue #2586).
 #
-# Tests the §18 conformance checker across four §7 failure classes:
-#   1. marker-missing   — no review-status marker in leading comment block
-#   2. absent-section   — no delta heading of any kind
-#   3. unrecognised-heading — delta-intent heading outside the canonical grammar
-#   4. empty-section    — recognised heading with zero table rows (and no §18 honesty line)
+# verify-retro.sh is a compatibility shim over `rsdd retro verify` (Go). The checker's behaviour (the review-status
+# marker and its kit-retro opt-out, the title line, the four delta-section classes, the §18 honesty line, the
+# unclosed-fence warning, absent-input vs non-conforming vs bad arguments, and every message byte) is covered by the
+# Go tests in research-sdd/rsdd/internal/retro/verifyretro: recorded goldens from the frozen pre-port script, a live
+# differential against it, and unit tests. This suite checks only what the shim itself owns: it forwards arguments,
+# the exit code and stderr unchanged, degrades through rsdd-exec (typed, exit 2) when rsdd cannot run, and, when the
+# runner hands it a built binary (RSDD_BIN), reaches the real checker end to end. Mutation controls under
+# --prove-teeth.
 #
-# Conforming states:
-#   - canonical/deprecated heading + ≥1 data row
-#   - §18 honesty line "no new deltas; the kit already covers this run"
-#   - <!-- kit-retro: exclude --> without a review-status marker → declared non-kit, skipped
-#
-# Multi-defect: a single retro may fail multiple independent checks.
-# The tool emits ONE finding line per failed check and exits 1 once.
-#
-# TEETH (--prove-teeth): sentinel-based mutants prove each guard actually bites.
-#
-# Usage: verify-retro.test.sh [--prove-teeth]     Exit: 0 = all held · 1 = regression
+# Exit: 0 all held · 1 regression · 2 harness error
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../verify-retro.sh"
+TOOLBELT="$(cd "$HERE/.." && pwd -P)"
+SUT="$TOOLBELT/verify-retro.sh"
 FIX="$HERE/fixtures/verify-retro"
-RG_LIB="$HERE/../lib/retro-grammar.sh"   # shared grammar lib sourced by verify-retro.sh (#483)
-[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-[ -f "$RG_LIB" ] || { echo "FATAL: retro-grammar helper not found: $RG_LIB" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
 
+pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# assert_exit <expected-exit> <label> <file>
-assert_exit() {
-  local want="$1" label="$2" file="$3"
-  local got; bash "$SUT" "$file" >/dev/null 2>&1; got=$?
-  [ "$got" = "$want" ] && ok "$label (exit $got)" || no "$label — want exit $want, got $got"
+echo "== verify-retro.test.sh =="
+
+[ -f "$SUT" ] && [ -x "$SUT" ] && [ -f "$TOOLBELT/lib/rsdd-exec.sh" ] || { echo "FATAL: absent-input: shim or lib/rsdd-exec.sh" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+# A stand-in rsdd: prints one argument per line, says something on stderr and exits with a chosen code.
+STUB="$TMP/rsdd-stub"
+cat > "$STUB" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do printf 'ARG[%s]\n' "$a"; done
+echo "stub-stderr" >&2
+exit "${STUB_RC:-7}"
+EOF
+chmod +x "$STUB"
+
+# shim_run SHIM ARGS... -> runs SHIM against the stub rsdd; sets SOUT SERR SRC
+shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}" 2>"$TMP/serr")"; SRC=$?; SERR="$(cat "$TMP/serr")"; }
+
+check_forward() {
+  local shim="$1" tag="$2" want
+  shim_run "$shim" 'a b.md' '' --odd
+  want=$'ARG[retro]\nARG[verify]\nARG[a b.md]\nARG[]\nARG[--odd]'
+  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd verbatim after 'retro verify' (spaces, an empty argument and a flag-like word kept)"
+  else no "$tag arguments (out=[$SOUT])"; fi
+  if [ "$SRC" -eq 7 ]; then ok "$tag exit code of rsdd is the shim's exit code"; else no "$tag exit code (rc=$SRC)"; fi
+  if [ "$SERR" = "stub-stderr" ]; then ok "$tag stderr of rsdd passes through"; else no "$tag stderr (err=[$SERR])"; fi
 }
 
-# assert_exit2 <expected-exit> <label> <file> — captures stdout+stderr for exit-code assertion
-assert_exit2() {
-  local want="$1" label="$2" file="$3"
-  local got; bash "$SUT" "$file" >"$TMP/out.txt" 2>&1; got=$?
-  [ "$got" = "$want" ] && ok "$label (exit $got)" || no "$label — want exit $want, got $got"
+check_degrade() {
+  local shim="$1" tag="$2" out rc
+  out="$(RSDD_BIN="$TMP/does-not-exist" bash "$shim" "$FIX/conforming.md" 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && ! grep -qF 'OK: conforming' <<< "$out"; then
+    ok "$tag rsdd cannot run -> typed 'degraded: rsdd-unavailable', exit 2, never a clean 'OK: conforming'"
+  else no "$tag degrade (rc=$rc out=[$out])"; fi
 }
 
-# assert_out_contains <label> <pattern> <outfile> — grep -qF in captured stdout
-assert_out_contains() {
-  grep -qF "$2" "$3" 2>/dev/null && ok "$1 (contains: $2)" || no "$1 — pattern not found: [$2]"
-}
+check_forward "$SUT" "1"
+check_degrade "$SUT" "2"
 
-# assert_out_absent <label> <pattern> <outfile>
-assert_out_absent() {
-  grep -qF "$2" "$3" 2>/dev/null && no "$1 — pattern should be ABSENT: [$2]" || ok "$1 (absent: $2)"
-}
+# 3. A shim whose lib/rsdd-exec.sh is missing says so and exits 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/verify-retro.sh"
+out="$(bash "$TMP/nolib/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -qF 'rsdd-exec.sh missing beside' <<< "$out"; then
+  ok "3 library missing -> 'rsdd-exec.sh missing beside <shim>', exit 2"
+else no "3 missing lib (rc=$rc out=[$out])"; fi
 
-echo "== verify-retro.test.sh (SUT: $(basename "$SUT")) =="
+# 4. The shim is the template and nothing else: no grammar, no awk, no sourced retro library left behind.
+if grep -qF 'rsdd_exec retro verify "$@"' "$SUT" && ! grep -qE 'awk|grep|retro_grammar|retro-grammar|python3' "$SUT"; then
+  ok "4 shim body is 'rsdd_exec retro verify \"\$@\"' with no awk / grep / grammar logic left"
+else no "4 shim body"; fi
 
-# ─── BAD ARGS (exit 2) ───────────────────────────────────────────────────────
+# 5. End to end through the real binary (the runner builds one and exports RSDD_BIN; without it the shim would
+# build bin/rsdd inside the tree, which the kit-tree hermeticity check forbids).
+e2e_run() { E2E_OUT="$(env -i PATH="$PATH" HOME="$TMP" RSDD_BIN="$RSDD_BIN" bash "$1" "${@:2}" 2>"$TMP/e2e.err")"; E2E_RC=$?; E2E_ERR="$(cat "$TMP/e2e.err")"; }
+if [ -n "${RSDD_BIN:-}" ] && [ -x "$RSDD_BIN" ]; then
+  e2e_run "$SUT" "$FIX/conforming.md"
+  if [ "$E2E_RC" -eq 0 ] && [ "$E2E_OUT" = "OK: conforming" ] && [ -z "$E2E_ERR" ]; then ok "5a conforming retro through the real binary -> 'OK: conforming', exit 0, empty stderr"
+  else no "5a conforming (rc=$E2E_RC out=[$E2E_OUT] err=[$E2E_ERR])"; fi
+  e2e_run "$SUT" "$FIX/marker-missing.md"
+  if [ "$E2E_RC" -eq 1 ] && grep -qF 'FAIL [marker-missing]' <<< "$E2E_OUT"; then ok "5b non-conforming retro -> 'FAIL [marker-missing]' on stdout, exit 1"
+  else no "5b non-conforming (rc=$E2E_RC out=[$E2E_OUT])"; fi
+  e2e_run "$SUT" "$TMP/absent.md"
+  if [ "$E2E_RC" -eq 2 ] && [ -z "$E2E_OUT" ] && grep -qF "ERROR: file not found (absent-input): $TMP/absent.md" <<< "$E2E_ERR"; then ok "5c absent file -> typed absent-input on stderr, exit 2 (distinct from the exit 1 of 5b)"
+  else no "5c absent (rc=$E2E_RC out=[$E2E_OUT] err=[$E2E_ERR])"; fi
+  e2e_run "$SUT"
+  if [ "$E2E_RC" -eq 2 ] && grep -qF 'Usage: verify-retro.sh <retro.md>' <<< "$E2E_ERR"; then ok "5d no argument -> usage on stderr, exit 2"
+  else no "5d usage (rc=$E2E_RC err=[$E2E_ERR])"; fi
+else
+  printf '  SKIP  5 end to end: RSDD_BIN not set to an executable (run it through run-all.sh, which builds the binary once)\n'
+fi
 
-bash "$SUT" >"$TMP/noarg.out" 2>&1; _rc=$?
-[ "$_rc" = 2 ] && ok "BAD: no arg → exit 2" || no "BAD: no arg — want 2, got $_rc"
+# ---- Teeth (mutation proof) -------------------------------------------------
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: mutation controls for verify-retro.sh (shim) --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
+  mk() {
+    local d="$TMP/mt/$1"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
+    if mutant_sed "$SUT" "$d/verify-retro.sh" "$2" 2>/dev/null; then MS="$d/verify-retro.sh"; return 0; fi
+    no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
+  }
+  # A: arguments no longer forwarded
+  if mk A 's#^rsdd_exec retro verify "\$@"#rsdd_exec retro verify#'; then
+    shim_run "$MS" x.md
+    [[ "$SOUT" != *'ARG[x.md]'* ]] && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
+  fi
+  # B: wrong subcommand
+  if mk B 's#^rsdd_exec retro verify#rsdd_exec retro verifyy#'; then
+    shim_run "$MS" x.md
+    [[ "$SOUT" != *'ARG[verify]'* ]] && ok "teeth B: wrong command name -> forwarding check goes red" || no "teeth B: mutant still forwards — THEATER"
+  fi
+  # C: the degraded path swallowed (library guard exits 0)
+  if mk C 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#'; then
+    mkdir -p "$TMP/mt/C-nolib"; cp "$MS" "$TMP/mt/C-nolib/verify-retro.sh"
+    out="$(bash "$TMP/mt/C-nolib/verify-retro.sh" x.md 2>&1)"; rc=$?
+    [ "$rc" -ne 2 ] && ok "teeth C: missing-library guard exits 0 -> case 3 goes red" || no "teeth C: mutant still exits 2 — THEATER"
+  fi
+  # D: the exit code is laundered
+  if mk D 's#^rsdd_exec retro verify "\$@"#( rsdd_exec retro verify "$@" ); exit 0#'; then
+    shim_run "$MS" x.md
+    [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
+  fi
+  # E: end to end, a shim that hands the checker a different subcommand fails the real-binary cases
+  if [ -n "${RSDD_BIN:-}" ] && [ -x "$RSDD_BIN" ]; then
+    if mk E 's#^rsdd_exec retro verify "\$@"#rsdd_exec retro verify --bogus "$@"#'; then
+      e2e_run "$MS" "$FIX/marker-missing.md"
+      [ "$E2E_RC" -ne 1 ] && ok "teeth E: an extra argument injected by the shim -> the end-to-end case (5b) goes red" || no "teeth E: mutant still answers 1 — THEATER"
+    fi
+  fi
+fi
 
-bash "$SUT" "$TMP/nonexistent-file.md" >"$TMP/nofile.out" 2>&1; _rc=$?
-[ "$_rc" = 2 ] && ok "BAD: file not found → exit 2" || no "BAD: file not found — want 2, got $_rc"
-
-touch "$TMP/not-markdown.txt"
-bash "$SUT" "$TMP/not-markdown.txt" >"$TMP/nomd.out" 2>&1; _rc=$?
-[ "$_rc" = 2 ] && ok "BAD: not a .md file → exit 2" || no "BAD: not a .md → want 2, got $_rc"
-
-# ─── CONFORMING (exit 0) ─────────────────────────────────────────────────────
-
-bash "$SUT" "$FIX/conforming.md" >"$TMP/conf.out" 2>&1
-assert_exit2 0 "CONF: conforming retro → exit 0" "$FIX/conforming.md"
-bash "$SUT" "$FIX/conforming.md" >"$TMP/conf.out" 2>&1
-assert_out_contains "  CONF: output says OK" "OK: conforming" "$TMP/conf.out"
-
-# ─── HONESTY LINE (exit 0) ───────────────────────────────────────────────────
-
-bash "$SUT" "$FIX/honesty-line.md" >"$TMP/honesty.out" 2>&1
-assert_exit2 0 "HONESTY: §18 honesty line → exit 0" "$FIX/honesty-line.md"
-bash "$SUT" "$FIX/honesty-line.md" >"$TMP/honesty.out" 2>&1
-assert_out_contains "  HONESTY: output says OK" "OK: conforming" "$TMP/honesty.out"
-
-# ─── KIT-RETRO: EXCLUDE (exit 0) ─────────────────────────────────────────────
-
-bash "$SUT" "$FIX/kit-retro-exclude.md" >"$TMP/excl.out" 2>&1
-assert_exit2 0 "EXCL: kit-retro: exclude → exit 0" "$FIX/kit-retro-exclude.md"
-bash "$SUT" "$FIX/kit-retro-exclude.md" >"$TMP/excl.out" 2>&1
-assert_out_contains "  EXCL: output says kit-retro: exclude" "kit-retro: exclude" "$TMP/excl.out"
-
-# ─── MARKER MISSING (exit 1) ─────────────────────────────────────────────────
-
-bash "$SUT" "$FIX/marker-missing.md" >"$TMP/mmark.out" 2>&1
-assert_exit2 1 "MMARK: marker-missing → exit 1" "$FIX/marker-missing.md"
-bash "$SUT" "$FIX/marker-missing.md" >"$TMP/mmark.out" 2>&1
-assert_out_contains "  MMARK: names class marker-missing" "FAIL [marker-missing]" "$TMP/mmark.out"
-assert_out_contains "  MMARK: fix line mentions review-status" "review-status: pending" "$TMP/mmark.out"
-
-# ─── ABSENT SECTION (exit 1) ─────────────────────────────────────────────────
-
-bash "$SUT" "$FIX/absent-section.md" >"$TMP/abs.out" 2>&1
-assert_exit2 1 "ABS: absent-section → exit 1" "$FIX/absent-section.md"
-bash "$SUT" "$FIX/absent-section.md" >"$TMP/abs.out" 2>&1
-assert_out_contains "  ABS: names class absent-section" "FAIL [absent-section]" "$TMP/abs.out"
-assert_out_contains "  ABS: fix mentions Proposed kit deltas" "Proposed kit deltas" "$TMP/abs.out"
-assert_out_absent   "  ABS: does NOT also say empty-section" "FAIL [empty-section]" "$TMP/abs.out"
-
-# ─── UNRECOGNISED HEADING WITH ROWS (exit 1, single finding) ─────────────────
-
-bash "$SUT" "$FIX/unrecognised-heading.md" >"$TMP/unrec.out" 2>&1
-assert_exit2 1 "UNREC: unrecognised heading → exit 1" "$FIX/unrecognised-heading.md"
-bash "$SUT" "$FIX/unrecognised-heading.md" >"$TMP/unrec.out" 2>&1
-assert_out_contains "  UNREC: names class unrecognised-heading" "FAIL [unrecognised-heading]" "$TMP/unrec.out"
-assert_out_contains "  UNREC: names the actual heading" "Consolidated kit deltas by DESTINATION FILE" "$TMP/unrec.out"
-assert_out_contains "  UNREC: fix mentions Proposed kit deltas" "Proposed kit deltas" "$TMP/unrec.out"
-# KEY: rows exist but section still fails — no zero-rows finding
-assert_out_absent   "  UNREC: no zero-rows finding (rows exist)" "FAIL [zero-rows]" "$TMP/unrec.out"
-
-# ─── EMPTY SECTION — canonical heading, zero rows (exit 1) ───────────────────
-
-bash "$SUT" "$FIX/empty-section.md" >"$TMP/empty.out" 2>&1
-assert_exit2 1 "EMPTY: empty-section → exit 1" "$FIX/empty-section.md"
-bash "$SUT" "$FIX/empty-section.md" >"$TMP/empty.out" 2>&1
-assert_out_contains "  EMPTY: names class empty-section" "FAIL [empty-section]" "$TMP/empty.out"
-assert_out_contains "  EMPTY: fix mentions adding a row" "add at least one data row" "$TMP/empty.out"
-# Should NOT report absent-section or unrecognised-heading
-assert_out_absent   "  EMPTY: not absent-section" "FAIL [absent-section]" "$TMP/empty.out"
-assert_out_absent   "  EMPTY: not unrecognised" "FAIL [unrecognised-heading]" "$TMP/empty.out"
-
-# ─── MULTI-DEFECT (unrecognised-heading + zero-rows, exit 1, two findings) ────
-
-bash "$SUT" "$FIX/multi-defect.md" >"$TMP/multi.out" 2>&1
-assert_exit2 1 "MULTI: multi-defect → exit 1 (once)" "$FIX/multi-defect.md"
-bash "$SUT" "$FIX/multi-defect.md" >"$TMP/multi.out" 2>&1
-assert_out_contains "  MULTI: names class unrecognised-heading" "FAIL [unrecognised-heading]" "$TMP/multi.out"
-assert_out_contains "  MULTI: names class zero-rows" "FAIL [zero-rows]" "$TMP/multi.out"
-# Count that there are exactly 2 FAIL lines
-_fail_count=$(grep -c 'FAIL \[' "$TMP/multi.out" 2>/dev/null || echo 0)
-[ "$_fail_count" = 2 ] && ok "  MULTI: exactly 2 FAIL lines (two findings)" \
-  || no "  MULTI: expected 2 FAIL lines, got $_fail_count"
-
-# ─── HEADER HYPHEN FORM (exit 0 with WARN, not FAIL) ─────────────────────────
-# A retro with an ASCII hyphen ("# Retro - ...") has a title line — the checker
-# must not report header-missing. The correct output is WARN [header-punctuation]
-# and the retro is otherwise conforming (exit 0).
-# Fleet count (2026-09-22): em-dash form ≈66 files (canonical); hyphen form 1 file.
-# Decision: WARN for hyphen (author-typed non-canonical), not FAIL (line is not missing).
-
-bash "$SUT" "$FIX/header-hyphen.md" >"$TMP/hyphen.out" 2>&1
-assert_exit2 0 "HYPHEN: ASCII-hyphen header → exit 0 (warn only, not fail)" "$FIX/header-hyphen.md"
-bash "$SUT" "$FIX/header-hyphen.md" >"$TMP/hyphen.out" 2>&1
-assert_out_contains "  HYPHEN: emits WARN [header-punctuation]" "WARN [header-punctuation]" "$TMP/hyphen.out"
-assert_out_absent   "  HYPHEN: does NOT emit FAIL [header-missing]" "FAIL [header-missing]" "$TMP/hyphen.out"
-assert_out_contains "  HYPHEN: final verdict is OK: conforming" "OK: conforming" "$TMP/hyphen.out"
-
-# ─── HONESTY EM-DASH VARIANT (exit 0) ────────────────────────────────────────
-# "No new deltas — the kit already covers this run." uses an em-dash instead of
-# a semicolon. The honesty predicate must accept any non-alphanumeric char after
-# "no new deltas".
-
-bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
-assert_exit2 0 "EMDASH: em-dash honesty variant → exit 0" "$FIX/honesty-emdash.md"
-bash "$SUT" "$FIX/honesty-emdash.md" >"$TMP/emdash.out" 2>&1
-assert_out_contains "  EMDASH: output says OK" "OK: conforming" "$TMP/emdash.out"
-
-# ─── HONESTY "NOTHING TO ADD" VARIANT (exit 0) ────────────────────────────────
-# "No new deltas; nothing to add." — the tail after the semicolon differs from
-# the canonical phrasing. The predicate must accept any tail; only the
-# "no new deltas" prefix plus a non-alphanumeric separator is required.
-
-bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
-assert_exit2 0 "NOTHADD: nothing-to-add honesty variant → exit 0" "$FIX/honesty-nothing-add.md"
-bash "$SUT" "$FIX/honesty-nothing-add.md" >"$TMP/nothadd.out" 2>&1
-assert_out_contains "  NOTHADD: output says OK" "OK: conforming" "$TMP/nothadd.out"
-
-# ─── HONESTY IN ## Notes (exit 1) ─────────────────────────────────────────────
-# A honesty phrase that appears under ## Notes (not the canonical delta section
-# and not ## Honest verdict) must NOT suppress the empty-section FAIL. The
-# predicate is location-scoped; a file-wide grep would produce a false pass.
-
-bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
-assert_exit2 1 "HONNOTES: honesty under ## Notes → exit 1 (still fails empty-section)" "$FIX/honesty-in-notes.md"
-bash "$SUT" "$FIX/honesty-in-notes.md" >"$TMP/honnotes.out" 2>&1
-assert_out_contains "  HONNOTES: names class empty-section" "FAIL [empty-section]" "$TMP/honnotes.out"
-assert_out_absent   "  HONNOTES: NOT a honesty-triggered pass" "OK: conforming" "$TMP/honnotes.out"
-
-# FORD: byte-copy of ford/2026-09-10-update-notice.md with fake delta row removed.
-# The canonical section has plain-prose blockquote guidance using the older "§" variant
-# ("the target file/§") plus empty table + prose honesty line → conforming.
-# RED confirmed (pre-WIP f6d33f9): exact-match scaffold check failed because ford uses
-# "§" while the current template text has "/section" → WARN-A → exit 1.
-# GREEN (HEAD): structural-marker rule checks for list/table/heading markers; plain prose
-# has none → lead_block_dirty=0 → block exempt → body_ok=1 → exit 0.
-bash "$SUT" "$FIX/ford-update-notice-honesty.md" >"$TMP/ford.out" 2>&1
-assert_exit2 0 "FORD: byte-copy (§-variant blockquote guidance + prose honesty) → exit 0" "$FIX/ford-update-notice-honesty.md"
-bash "$SUT" "$FIX/ford-update-notice-honesty.md" >"$TMP/ford.out" 2>&1
-assert_out_contains "  FORD: output says OK: conforming" "OK: conforming" "$TMP/ford.out"
-
-# NIAGARA: byte-copy of niagara/2026-09-17-tools-search-innovation.md with fake delta
-# row replaced by the §18 honesty prose line.  No blockquote guidance in delta section →
-# plain table header + separator + prose honesty → conforming.
-# (niagara was already conforming pre-WIP since it has no blockquote guidance lines)
-bash "$SUT" "$FIX/niagara-tools-search-honesty.md" >"$TMP/niagara.out" 2>&1
-assert_exit2 0 "NIAGARA: byte-copy (no blockquote guidance, prose honesty) → exit 0" "$FIX/niagara-tools-search-honesty.md"
-bash "$SUT" "$FIX/niagara-tools-search-honesty.md" >"$TMP/niagara.out" 2>&1
-assert_out_contains "  NIAGARA: output says OK: conforming" "OK: conforming" "$TMP/niagara.out"
-
-# ─── DIRTY LEAD BLOCK → impure (exit 1) ──────────────────────────────────────
-# Lead block in the delta section contains a structural bullet (> - add X).
-# is_dirty_marker() fires → lead_block_dirty=1 → body purity fails → retro_grammar_has_honesty
-# exits 1 → _has_honesty=0 → FAIL [empty-section] with "impure" message.
-# The honesty phrase IS present in the file (under ## Honest verdict), so the MINOR-7 fix
-# prints the "impure" variant rather than the generic "no §18 honesty line" text.
-
-bash "$SUT" "$FIX/dirty-lead-hv.md" >"$TMP/dirty.out" 2>&1
-assert_exit2 1 "DIRTY-LEAD: dirty structural marker in lead block → exit 1" "$FIX/dirty-lead-hv.md"
-bash "$SUT" "$FIX/dirty-lead-hv.md" >"$TMP/dirty.out" 2>&1
-assert_out_contains "  DIRTY-LEAD: names class empty-section" "FAIL [empty-section]" "$TMP/dirty.out"
-assert_out_contains "  DIRTY-LEAD: impure message (not absent)" "section impure" "$TMP/dirty.out"
-assert_out_absent   "  DIRTY-LEAD: not absent message" "no §18 honesty line" "$TMP/dirty.out"
-
-# ─── H2 DELTA-ID VETO → impure (exit 1) ──────────────────────────────────────
-# A "## D1 — ..." heading outside the canonical section triggers the H2 delta-ID
-# veto (RSDD_H2_VETO) → retro_grammar_has_honesty exits 1 → _has_honesty=0 → FAIL
-# [empty-section].  File contains honesty phrase → impure message.
-
-bash "$SUT" "$FIX/h2-delta-id-veto.md" >"$TMP/veto.out" 2>&1
-assert_exit2 1 "VETO: H2 delta-ID outside canonical → exit 1" "$FIX/h2-delta-id-veto.md"
-bash "$SUT" "$FIX/h2-delta-id-veto.md" >"$TMP/veto.out" 2>&1
-assert_out_contains "  VETO: names class empty-section" "FAIL [empty-section]" "$TMP/veto.out"
-assert_out_contains "  VETO: impure message (not absent)" "section impure" "$TMP/veto.out"
-assert_out_absent   "  VETO: not absent message" "no §18 honesty line" "$TMP/veto.out"
-
-echo ""
 echo "== $pass passed · $fail failed =="
-echo ""
-
-# ─── TEETH (--prove-teeth) ────────────────────────────────────────────────────
-
-if [ "${1:-}" != "--prove-teeth" ]; then
-  if [ "$fail" -gt 0 ]; then exit 1; fi
-  exit 0
-fi
-
-echo "== TEETH: mutation controls =="
-teeth_pass=0; teeth_fail=0
-tok() { printf '  PASS  %s\n' "$1"; teeth_pass=$((teeth_pass+1)); }
-tno() { printf '  FAIL  %s\n' "$1"; teeth_fail=$((teeth_fail+1)); }
-
-# Mutants are built by lib/mutant.sh (kit #1299), sourced here only because the suite already returned
-# above on the plain run. It refuses an empty, byte-identical, syntax-broken or live-tree mutant;
-# mutant_chain also refuses a sed stage that matches nothing. A refused build is counted exactly once
-# (mk_mut / mk_built) and its control is skipped, so a stale or missing mutant is never run.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
-# mk_mut LABEL SRC DST EXPR... — mutant_chain, counting a refusal. mk_built LABEL ORIG OUT — mutant_built likewise.
-mk_mut() { mutant_chain_or_count teeth_fail "$@" || return 1; }
-mk_built() { mutant_built_or_count teeth_fail "$@" || return 1; }
-# tt LABEL GOOD_RC BAD_RC MUTANT [opts] -- ARGV...  — mutant_tooth (EXACT exit codes on the original and the mutant).
-tt() { if mutant_tooth "$@"; then teeth_pass=$((teeth_pass+1)); else teeth_fail=$((teeth_fail+1)); fi; }
-# A bad side that is only an exit code must not be a crash: these never read as a bite.
-CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-
-# Helper: create a mutant by deleting the block between a sentinel pair. Both markers must occur exactly
-# once, so the range cannot run open-ended to EOF on a missing END marker.
-make_mutant_delete_sentinel() {
-  local sentinel="$1" src="$2" dst="$3"
-  if [ "$(grep -c "# ${sentinel}-START" "$src")" != 1 ] || [ "$(grep -c "# ${sentinel}-END" "$src")" != 1 ]; then
-    printf '  FAIL  delete %s block: want exactly one START and one END marker in the SUT\n' "$sentinel"
-    teeth_fail=$((teeth_fail+1)); return 1
-  fi
-  mk_mut "delete $sentinel block" "$src" "$dst" "/# ${sentinel}-START/,/# ${sentinel}-END/d" || return 1
-  chmod +x "$dst"
-}
-
-# Helper: create a mutant by replacing a specific pattern
-make_mutant_replace() {
-  local pattern="$1" replacement="$2" src="$3" dst="$4"
-  mk_mut "replace $pattern" "$src" "$dst" "s|${pattern}|${replacement}|g" || return 1
-  chmod +x "$dst"
-}
-
-# Mutant scripts in $TMP need a lib/ subdir with retro-grammar.sh so verify-retro.sh's
-# lib-sourcing guard does not abort before the sentinel blocks under test are reached.
-mkdir -p "$TMP/lib"
-cp "$RG_LIB" "$TMP/lib/retro-grammar.sh"
-
-# Exit-code contract of the SUT under test: 0 = conforming, 1 = a lint FAIL, 2 = harness error.
-
-# MUTANT M1: strip the marker check → marker-missing fixture: original exit 1, mutant exit 0
-M1="$TMP/mutant_m1.sh"
-if make_mutant_delete_sentinel "SENTINEL-MARKER-CHECK" "$SUT" "$M1"; then
-  tt "M1: marker mutant accepts missing-marker (control goes RED → verify-retro.sh guard bites)" 1 0 "$M1" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/marker-missing.md"
-fi
-
-# MUTANT M2: make empty-section check always pass (change _cd -eq 0 to never-match): original 1, mutant 0
-M2="$TMP/mutant_m2.sh"
-if make_mutant_replace '_cd" -eq 0' '_cd" -eq -999' "$SUT" "$M2"; then
-  tt "M2: zero-row mutant accepts empty-section (control goes RED → verify-retro.sh guard bites)" 1 0 "$M2" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/empty-section.md"
-fi
-
-# MUTANT M3: strip the unrecognised-heading FAIL block (leaving zero-rows sub-check intact):
-# unrecognised-heading-with-rows exits 1 on the SUT and 0 on the mutant (SENTINEL-UNREC-FAIL bites).
-M3="$TMP/mutant_m3.sh"
-if make_mutant_delete_sentinel "SENTINEL-UNREC-FAIL" "$SUT" "$M3"; then
-  tt "M3: unrec-fail mutant accepts unrecognised-heading-with-rows (control goes RED → verify-retro.sh guard bites)" 1 0 "$M3" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/unrecognised-heading.md"
-fi
-
-# MUTANT M4: the honesty predicate never matches → honesty-line fixture: original exit 0, mutant exit 1 with the typed
-# FAIL line. (The earlier mutant deleted the whole SENTINEL-HONESTY-CHECK block, leaving _has_honesty unset: it
-# "rejected" the fixture only through an `integer expression expected` crash, caught by the CRASH negative.)
-M4="$TMP/mutant_m4.sh"
-if make_mutant_replace 'if retro_grammar_has_honesty "\$f"; then' 'if false; then' "$SUT" "$M4"; then
-  tt "M4: honesty mutant rejects honesty-line fixture (control goes RED → verify-retro.sh honesty check bites)" 0 1 "$M4" --orig "$SUT" \
-    --bad-has '^FAIL \[(absent|empty)-section\]' --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/honesty-line.md"
-fi
-
-# MUTANT M5 (new — #483 extraction guard): retro_grammar_delta_info fail-closed guard.
-# Place a broken (comment-only) retro-grammar.sh in a sandbox dir alongside verify-retro.sh;
-# the lib exists so the file-existence check passes, but the declare-F guard fires because
-# the function was never defined. verify-retro.sh must exit 2 with the right message.
-_m5_dir="$TMP/m5-sandbox"
-mkdir -p "$_m5_dir/lib"
-cp "$SUT" "$_m5_dir/verify-retro.sh"; chmod +x "$_m5_dir/verify-retro.sh"
-printf '#!/usr/bin/env bash\n# broken lib: retro_grammar_delta_info not defined\n' \
-  > "$_m5_dir/lib/retro-grammar.sh"
-if mk_built "M5 broken lib" "$RG_LIB" "$_m5_dir/lib/retro-grammar.sh"; then
-  _m5_out="$(bash "$_m5_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m5_rc=$?
-  if [ "$_m5_rc" = 2 ] && grep -q 'failed to define retro_grammar_delta_info' <<<"$_m5_out"; then
-    tok "M5: broken retro-grammar.sh → verify-retro exits 2 with 'failed to define' (guard bites)"
-  else
-    tno "M5: broken retro-grammar.sh guard did not fire — rc=$_m5_rc out=[$_m5_out]"
-  fi
-fi
-
-# MUTANT M6: delete SENTINEL-HEADER-HYPHEN-CHECK block → hyphen in "# Retro -" is no longer
-# detected → _has_title_hyphen stays 0 → header-hyphen fixture falls into the FAIL [header-missing]
-# branch: original exit 0, mutant exit 1. This proves the hyphen-detection guard bites.
-M6="$TMP/mutant_m6.sh"
-if make_mutant_delete_sentinel "SENTINEL-HEADER-HYPHEN-CHECK" "$SUT" "$M6"; then
-  tt "M6: hyphen-check mutant rejects header-hyphen fixture (control goes RED → verify-retro.sh hyphen-detection bites)" 0 1 "$M6" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/header-hyphen.md"
-fi
-
-# MUTANT M7 (new — #912 has_honesty guard): retro_grammar_has_honesty fail-closed guard.
-# The broken lib defines retro_grammar_delta_info (so the M5 guard passes) but does NOT
-# define retro_grammar_has_honesty, so the second declare-F guard fires: verify-retro must
-# exit 2 with "failed to define retro_grammar_has_honesty".
-_m7_dir="$TMP/m7-sandbox"
-mkdir -p "$_m7_dir/lib"
-cp "$SUT" "$_m7_dir/verify-retro.sh"; chmod +x "$_m7_dir/verify-retro.sh"
-printf '#!/usr/bin/env bash\n# partial lib: delta_info defined, has_honesty missing\nretro_grammar_delta_info() { :; }\n' \
-  > "$_m7_dir/lib/retro-grammar.sh"
-if mk_built "M7 partial lib" "$RG_LIB" "$_m7_dir/lib/retro-grammar.sh"; then
-  _m7_out="$(bash "$_m7_dir/verify-retro.sh" "$FIX/conforming.md" 2>&1)"; _m7_rc=$?
-  if [ "$_m7_rc" = 2 ] && grep -q 'failed to define retro_grammar_has_honesty' <<<"$_m7_out"; then
-    tok "M7: partial retro-grammar.sh → verify-retro exits 2 with 'failed to define retro_grammar_has_honesty' (guard bites)"
-  else
-    tno "M7: partial retro-grammar.sh has_honesty guard did not fire — rc=$_m7_rc out=[$_m7_out]"
-  fi
-fi
-
-# MUTANT M8 (purity guard): neuter RSDD_LEAD_DIRTY_SET in the lib so lead_block_dirty is
-# never set. dirty-lead-hv: original exit 1, sandbox (mutant lib) exit 0.
-# This proves the is_dirty_marker() call that sets lead_block_dirty actually bites.
-_m8_dir="$TMP/m8-sandbox"
-mkdir -p "$_m8_dir/lib"
-cp "$SUT" "$_m8_dir/verify-retro.sh"; chmod +x "$_m8_dir/verify-retro.sh"
-grep -v 'RSDD_LEAD_DIRTY_SET' "$RG_LIB" > "$_m8_dir/lib/retro-grammar.sh"
-if mk_built "M8 dirty-lead lib" "$RG_LIB" "$_m8_dir/lib/retro-grammar.sh"; then
-  tt "M8: dirty-lead mutant accepts dirty-lead-hv (control goes RED → RSDD_LEAD_DIRTY_SET guard bites)" 1 0 "$_m8_dir/verify-retro.sh" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/dirty-lead-hv.md"
-fi
-
-# MUTANT M9 (H2-veto guard): neuter RSDD_H2_VETO in the lib so the H2 delta-ID veto
-# assignment is removed. h2-delta-id-veto: original exit 1, sandbox (mutant lib) exit 0.
-# This proves the H2 delta-ID veto check in retro_grammar_has_honesty bites.
-_m9_dir="$TMP/m9-sandbox"
-mkdir -p "$_m9_dir/lib"
-cp "$SUT" "$_m9_dir/verify-retro.sh"; chmod +x "$_m9_dir/verify-retro.sh"
-grep -v 'RSDD_H2_VETO' "$RG_LIB" > "$_m9_dir/lib/retro-grammar.sh"
-if mk_built "M9 H2-veto lib" "$RG_LIB" "$_m9_dir/lib/retro-grammar.sh"; then
-  tt "M9: H2-veto mutant accepts h2-delta-id-veto (control goes RED → RSDD_H2_VETO guard bites)" 1 0 "$_m9_dir/verify-retro.sh" --orig "$SUT" \
-    --bad-lacks "$CRASH" -- bash @SUT@ "$FIX/h2-delta-id-veto.md"
-fi
-
-echo ""
-echo "== Teeth: $teeth_pass passed (mutation controls went RED), $teeth_fail failed =="
-if [ "$fail" -gt 0 ] || [ "$teeth_fail" -gt 0 ]; then exit 1; fi
-exit 0
+[ "$fail" -eq 0 ]
