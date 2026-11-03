@@ -1,0 +1,17 @@
+### sweep-breakthroughs (#2360)
+
+Intended divergences of `rsdd sweep breakthroughs` (the Go port behind `sweep-breakthroughs.sh` and `sweep-breakthroughs-hook.sh`) from the frozen legacy scripts. Everything else is byte-identical on stdout, stderr and exit code, pinned by a differential against the sha-pinned scripts (`internal/sweep/breakthroughs_diff_test.go`, `!nodiff`) and by goldens recorded from them (`testdata/breakthroughs/golden/cases.txt`, replayed without bash). Each row below is a `nodiff` scenario of `internal/sweep/breakthroughs_scenarios_test.go` or a unit test of `breakthroughs_unit_test.go`.
+
+| Divergence | Legacy script | Port |
+|---|---|---|
+| `BREAKTHROUGHS.md` that exists but cannot be read | `grep ... 2>/dev/null` failed silently: the ledger read as empty, so every tagged block was reported as unindexed (a silent wrong answer). | Operational failure: `sweep-breakthroughs: cannot read <kit>/BREAKTHROUGHS.md`, exit 1 (the hook shows its "could not run" banner). Scenario "unreadable ledger stops the run". |
+| Target that is a symbolic link to a directory | `find "$p"` listed the link alone: the corpus read as `empty-input`. | The link is traversed; block paths keep the target's own spelling. Scenario "symlinked target is traversed". |
+| Ledger pointer with leading zeros (`file:07`) | The pointer text was compared with the marker line (`file:7`): the block was reported unindexed while the drift pass, which reads the number, passed the same pointer. | Pointers match on the line number. Scenario "zero-padded pointer indexes the block", `TestBreakthroughsPointerIndex`. |
+| Block file with a NUL byte or invalid UTF-8 | GNU grep answered `Binary file matches` (or skipped the lines under a UTF-8 locale); the WARN then used that text as the line number. | The file is scanned line by line like any other. Scenarios "block with a NUL byte is scanned", "block with invalid UTF-8 is scanned". |
+| Ledger pointer to a file that cannot be read | Reported as `drift — indexed block no longer carries the marker` (a lost marker nobody checked). | Typed `WARN: drift check skipped — indexed block file unreadable: <ptr>`, counted once per file in `skipped-unreadable` (never as drift). Scenarios "unreadable pointed file is a typed warning", "pointed file read once as unreadable is counted once". |
+| `lib/target-paths.sh` or `lib/block-files.sh` missing or defining no function (`sweep-breakthroughs: helper ... failed to define ...`, exit 1) | Fail-closed exits of the bash helpers. | No equivalent: the derivation and the block-file filter are `internal/core/kit`; there is no helper to break. |
+| Order of block files | `sort` under the caller's locale. | Bytewise (C collation); identical under `LC_ALL=C` and `C.UTF-8`. |
+| Whitespace | The marker's `[[:space:]]` and the ledger cell trim followed the locale. | ASCII whitespace only. |
+| Hook without `jq` | Printed the header and the body as plain text. | Always the JSON envelope, as the other ported hooks. |
+
+Same-state behaviour kept on purpose: a finding (unindexed, drift, unreadable block) never fails the run; a block file that cannot be opened is the typed `WARN: block file unreadable, marker scan skipped` line and `skipped-unreadable` count (never a zero); a relative ledger pointer is read against the caller's directory; a block file inside a nested `.git/` or worktree is counted (the script had no exclusion).

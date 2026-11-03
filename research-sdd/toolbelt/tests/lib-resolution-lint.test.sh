@@ -551,16 +551,15 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if grep -q 'scanner not found' <<<"$TPL_OUT"; then ok "teeth prepush-self-dir: a \$0-derived mutant cannot find its scanner from another cwd (the template check goes red)"
     else no "teeth prepush-self-dir: the \$0-derived mutant still found its scanner - the check has no teeth (out=$(head -c 120 <<<"$TPL_OUT" | tr '\n' ' '))"; fi
   else fail=$((fail + 1)); fi
-
-  # Tooth 9: the behavioural check bites — the cwd-derived resolution is restored in a COPY of one script.
+  # Tooth 9: the behavioural check bites — the cwd-derived resolution is restored in a COPY of one script. It mutates a still-bash hook: the sweep hooks are rsdd shims now (#2360), whose planted lib defines no rsdd_exec_hook.
   mkdir -p "$MUT/beh/tb/lib"
   cp "$TB"/lib/*.sh "$MUT/beh/tb/lib/"
-  sed -e 's#^_RSDD_SELF=.*#_RSDD_SELF="$(cd "$(dirname "$0")" \&\& pwd)"#' "$TB/sweep-breakthroughs-hook.sh" > "$MUT/beh/tb/sweep-breakthroughs-hook.sh"
-  if grep -q 'dirname "\$0"' "$MUT/beh/tb/sweep-breakthroughs-hook.sh"; then
-    if planted_run "$MUT/beh/tb" sweep-breakthroughs-hook.sh; then no "teeth behavioural: the \$0-based mutant did NOT execute the planted lib (the check has no teeth)"
+  sed -e 's#^_RSDD_SELF=.*#_RSDD_SELF="$(cd "$(dirname "$0")" \&\& pwd)"#' "$TB/verify-tool-catalog-hook.sh" > "$MUT/beh/tb/verify-tool-catalog-hook.sh"
+  if grep -q 'dirname "\$0"' "$MUT/beh/tb/verify-tool-catalog-hook.sh"; then
+    if planted_run "$MUT/beh/tb" verify-tool-catalog-hook.sh; then no "teeth behavioural: the \$0-based mutant did NOT execute the planted lib (the check has no teeth)"
     elif [ "$PR_WHY" = "planted lib executed" ]; then ok "teeth behavioural: a \$0-based mutant of a fixed script executes the planted lib → the behavioural check goes red"
     else no "teeth behavioural: the mutant was rejected for the WRONG reason: $PR_WHY"; fi
-  else no "teeth behavioural: mutant could not be built (no \$_RSDD_SELF assignment found in sweep-breakthroughs-hook.sh)"; fi
+  else no "teeth behavioural: mutant could not be built (no \$_RSDD_SELF assignment found in verify-tool-catalog-hook.sh)"; fi
 
   # Tooth 10-13: F1 terminator class, quote-aware comment, marker word count, alias recording with flags.
   mk_sed "teeth terminators" "$MUT/term/$M" '/SENTINEL-LRL-F1$/ s/ \\t;)`|&\]/ \\t;)]/' \
