@@ -17,16 +17,22 @@ SUT="$HERE/../reconcile-issues.sh"
 FIX="$HERE/fixtures/stage-retro-issues"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 [ -d "$FIX" ] || { echo "FATAL: fixtures not found: $FIX" >&2; exit 2; }
-for _l in retro-status retro-grammar target-paths; do
-  [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper lib/$_l.sh not found" >&2; exit 2; }
-done
+[ -f "$HERE/../lib/rsdd-exec.sh" ] || { echo "FATAL: helper lib/rsdd-exec.sh not found" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass,
+# without go). The behaviour these cases pin lives in internal/retro/reconcile (differential vs the frozen script).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  RSDD_BIN="$ROOT/rsdd"
+fi
+export RSDD_BIN
 pass=0; fail=0
 ok() { printf '  PASS  %-72s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-72s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
-MUT=(); MUTLIB=()
+MUT=()
 [ "${1:-}" = "--prove-teeth" ] && { . "$HERE/lib/mutant.sh"; }
 
 # mkbox <name>: hermetic sandbox (TARGETS.md with target-foo, SUT + libs copy, a gh stub that answers nothing).
@@ -40,9 +46,6 @@ mkbox() {
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "gh $*" >> "$0.log"\ncase " $* " in *" auth status "*) exit 0 ;; *" issue list "*) echo "[]"; exit 0 ;; esac\nexit 0\n' > "$box/bin/gh"; chmod +x "$box/bin/gh"
   if [ "${#MUT[@]}" -gt 0 ]; then
     mutant_chain "mut-$1" "$SUT" "$box/research-sdd/toolbelt/reconcile-issues.sh" "${MUT[@]}" >"$ROOT/mutant.log" 2>&1 || { touch "$ROOT/unbuildable"; return 1; }
-  fi
-  if [ "${#MUTLIB[@]}" -gt 0 ]; then
-    mutant_chain "mutlib-$1" "$HERE/../lib/retro-grammar.sh" "$box/research-sdd/toolbelt/lib/retro-grammar.sh" "${MUTLIB[@]}" >"$ROOT/mutant.log" 2>&1 || { touch "$ROOT/unbuildable"; return 1; }
   fi
   printf '%s' "$box"
 }
@@ -121,41 +124,43 @@ c_two_tables() {
   req '^untracked: row 1 '; req '^tracked: row 2 '; req '^untracked: row 3 '; req '^untracked: row 4 '; forbid 'row (Proposed|#)'; verdict
 }
 
-c_unrec_list_failed() {   # fail closed: an unavailable unrecognised-heading list keeps the record
-  local b; b="$(mkbox "ulf$1")" || return 1
-  printf '\nretro_grammar_unrec_headings() { return 1; }\n' >> "$b/research-sdd/toolbelt/lib/retro-grammar.sh"
-  run "$b" mixed-prose-and-list.md 1; MSG=""
-  req '^unclassifiable: proposal-like heading found'; req '^tracked: row 1 '; verdict
-}
+# c_unrec_list_failed (a sourced retro-grammar.sh whose unrec-headings function fails) is retired: the shim sources
+# no lib, so the case could only re-run c_mixed. The Go grammar has no such failure mode to inject.
 
-CHECKS="c_unrec_list_failed c_list_first c_two_tables c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
+CHECKS="c_list_first c_two_tables c_lettered c_numbered c_numbered_single c_h2_delta c_h3_proposals c_header_hyphen c_rejected_h3 c_dup_ids c_lessons_unc c_evidence_unc c_mixed c_canon_empty"
 for c in $CHECKS; do
   if why="$($c good)"; then ok "$c" "()"; else no "$c" "$why"; fi
 done
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: each mutant must turn its check RED with the expected failure text --"
+  echo "-- teeth: reconcile-issues.sh is an rsdd_exec shim; the grammar mutation controls moved to Go --"
+  # The bash-body controls (RECONCILE_ISSUES_ALT_FORMS / ID_RULE / HEADER_DROP / dup-ids / ALT_HEADING_MATCH /
+  # ALT_CANON_HEADING / UNREC_FAILCLOSED / UNREC_ALL and the retro-grammar.sh ALT_H3_RESET control) mutated a bash
+  # body that is gone. The rule each pinned is now pinned in internal/retro/reconcile (differential against the
+  # frozen script, goldens replayed under nodiff); a typed SKIP names the Go case that holds it.
+  printf '  SKIP  teeth alt-fallback-off (c_numbered)         -> form/numbered-items, form/numbered-heading\n'
+  printf '  SKIP  teeth id-rule-old2 (c_lettered)             -> form/ids-of-the-fleet, form/uppercase-heading\n'
+  printf '  SKIP  teeth header-drop-off (c_header_hyphen)     -> form/header-words-are-not-ids\n'
+  printf '  SKIP  teeth dup-check-off (c_dup_ids)             -> form/two-lists-share-ids\n'
+  printf '  SKIP  teeth heading-match-off (c_mixed)           -> form/unrec-heading-without-items\n'
+  printf '  SKIP  teeth canon-heading-off (c_canon_empty)     -> form/canonical-empty-alt-elsewhere\n'
+  printf '  SKIP  teeth fail-closed-off (c_unrec_list_failed) -> retired with the case: the shim sources no retro-grammar.sh\n'
+  printf '  SKIP  teeth unrec-all-off (c_list_first)          -> form/alt-items-plus-unrec-heading-without-items\n'
+  printf '  SKIP  teeth h3-reset-off (c_rejected_h3)          -> form/h3-proposals-list, form/unrec-h3-proposals-prose-only\n'
+  # What the shim still owns: handing the arguments to the Go command. A shim that drops "$@" must turn the cases
+  # red (the command, --toolbelt and self-dir teeth live in reconcile-issues.test.sh).
   tooth() {
-    local chk="$1" label="$2" want="$3" where="$4" why
-    shift 4
-    MUT=(); MUTLIB=()
-    if [ "$where" = lib ]; then MUTLIB=("$@"); else MUT=("$@"); fi
-    rm -f "$ROOT/unbuildable"
+    local chk="$1" label="$2" want="$3" why
+    shift 3
+    MUT=("$@"); rm -f "$ROOT/unbuildable"
     if why="$($chk "mut-$label" 2>&1)"; then no "teeth $label: $chk must fail against the mutant" "check is THEATER"
     elif [ -e "$ROOT/unbuildable" ]; then no "teeth $label: mutant unbuildable" "$(cat "$ROOT/mutant.log")"
     elif ! grep -qF -- "$want" <<<"$why"; then no "teeth $label: $chk failed for the WRONG reason" "wanted [$want] got [${why:0:200}]"
     else ok "teeth $label: mutant breaks $chk with [$want]" "()"; fi
-    MUT=(); MUTLIB=()
+    MUT=()
   }
-  tooth c_numbered   alt-fallback-off 'MISSING: ^untracked: row 1 ' sut '/RECONCILE_ISSUES_ALT_FORMS/,/^  fi$/s/_all_row_ids="\$(retro_grammar_alt_entry_rows "\$retro_path" | cut -d \$.\\037. -f1)"/_all_row_ids=""/'
-  tooth c_lettered   id-rule-old2     'MISSING: ^untracked: row SPKI-A ' sut '/RECONCILE_ISSUES_ID_RULE/s/.*/        if (rid ~ \/^[[:alpha:]#][^0-9]*$\/ \&\& rid !~ \/^[A-Z][0-9]\/) next/'
-  tooth c_header_hyphen header-drop-off 'UNEXPECTED: row ITEM-ID' sut '/RECONCILE_ISSUES_HEADER_DROP/s/pend = ""; next/next/'
-  tooth c_dup_ids    dup-check-off    'MISSING: ^unclassifiable: delta items in' sut 's/^    if \[ -n "\$_alt_dups" \]; then$/    if false; then/'
-  tooth c_mixed      heading-match-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_ALT_HEADING_MATCH/s/\[ -z "\$_unrec_missing" \]/true/'
-  tooth c_canon_empty canon-heading-off 'MISSING: ^unclassifiable: delta section found but it produced no items' sut '/RECONCILE_ISSUES_ALT_CANON_HEADING/s/if \[ -n "\$_canon_h" \] \&\& ! grep -qxF -- "\$_canon_h" <<<"\$_canon_heads"; then/if false; then/'
-  tooth c_unrec_list_failed fail-closed-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_UNREC_FAILCLOSED/s/.*/    :/'
-  tooth c_list_first unrec-all-off 'MISSING: ^unclassifiable: proposal-like heading found' sut '/RECONCILE_ISSUES_UNREC_ALL/s/.*/    _unrec_missing=""/'
-  tooth c_rejected_h3 h3-reset-off    'MISSING: ^tracked: row 1 ' lib '/ALT_H3_RESET/s/.*/        flush()/'
+  tooth c_numbered shim-drops-args 'MISSING: ^untracked: row 1 ' 's/ "\$@"$//'
+  tooth c_h2_delta shim-drops-args-h2 'MISSING: ^untracked: row A ' 's/ "\$@"$//'
   echo "-- prove-teeth done --"
 fi
 
