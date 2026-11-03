@@ -123,7 +123,11 @@ func findEOCD(r io.ReaderAt, size int64) (int64, []byte, error) {
 		if start < 0 {
 			return 0, nil, zipErr("EOCD not found")
 		}
-		if start+22 <= len(tail) && start+22+int(binary.LittleEndian.Uint16(tail[start+20:])) == len(tail) {
+		// A candidate shorter than the 22-byte record is cut off by the end of the file. (Length by equality, not
+		// "start+22 <= len(tail)": at start+22 == len(tail) the zero-comment record is taken by the fast path
+		// above, so "<=" and "<" there are indistinguishable.)
+		hdr := tail[start:min(start+22, len(tail))]
+		if len(hdr) == 22 && start+22+int(binary.LittleEndian.Uint16(hdr[20:])) == len(tail) {
 			return size - length + int64(start), tail[start:], nil
 		}
 	}
@@ -385,9 +389,10 @@ func (m *memberReader) Read(p []byte) (int, error) {
 	if m.read == m.size {
 		return 0, m.finish()
 	}
-	if remaining := m.size - m.read; int64(len(p)) > remaining {
-		p = p[:remaining]
-	}
+	// Never hand the source a buffer longer than the bytes still owed. (min, not "shrink when len(p) >
+	// remaining": the two differ nowhere, and the shrink form has a "> / >=" boundary mutant that is
+	// equivalent because shrinking to the same length is a no-op.)
+	p = p[:min(int64(len(p)), m.size-m.read)]
 	n, err := m.src.Read(p)
 	m.crc.Write(p[:n])
 	m.read += int64(n)
