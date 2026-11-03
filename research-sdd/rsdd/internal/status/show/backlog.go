@@ -265,11 +265,13 @@ func backlogRows(text string, wantClosed bool) (stdout, stderr string) {
 			sc, scMsg = expected, fmt.Sprint(expected)
 		}
 		if n != sc {
-			if sc == 5 && n >= sc+1 && strings.HasPrefix(lowerASCII(cellAt(a, 5)), "covered") {
+			// A "covered" status cell at index sc exists only when n > sc (cellAt returns "" past the row), so the
+			// pipe-in-status-cell case needs no separate bound on n.
+			if sc == 5 && strings.HasPrefix(lowerASCII(cellAt(a, 5)), "covered") {
 				fmt.Fprintf(&errb, "WARN: COVERED row has %d cells in 5-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
-			if sc == 4 && n >= sc+1 && strings.HasPrefix(lowerASCII(cellAt(a, 4)), "covered") {
+			if sc == 4 && strings.HasPrefix(lowerASCII(cellAt(a, 4)), "covered") {
 				fmt.Fprintf(&errb, "WARN: COVERED row has %d cells in 4-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
