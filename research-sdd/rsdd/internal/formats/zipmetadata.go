@@ -86,7 +86,8 @@ func zipReportGuard(maxReport int64) func(*ZipEntry) error {
 	}
 }
 
-// zipFlags is the shared argument grammar: --input, --output, the hidden --manifest-cli, and integer caps.
+// zipFlags is the shared argument grammar: --input, --output, the hidden --manifest-cli (accepted and ignored), and
+// integer caps.
 type zipFlags struct {
 	tool                    string
 	input, output, manifest string
@@ -139,7 +140,7 @@ func (z *zipFlags) parse(args []string, s cli.Stdio) int {
 		return cli.ExitUsage
 	}
 	var missing []string
-	for _, n := range []string{"input", "output", "manifest-cli"} {
+	for _, n := range []string{"input", "output"} {
 		if !z.set[n] {
 			missing = append(missing, "--"+n)
 		}
@@ -296,7 +297,7 @@ func zipMetadataRun(z *zipFlags, s cli.Stdio) (err error) {
 	if err != nil {
 		return err
 	}
-	if err := zipFinalize(s, z.manifest, stage, root, spec); err != nil {
+	if err := zipFinalize(s, stage, root, spec); err != nil {
 		return err
 	}
 	if err := zipValidateTree(stage, map[string]bool{
