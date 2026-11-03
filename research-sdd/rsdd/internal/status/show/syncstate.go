@@ -134,11 +134,13 @@ func (c *ctx) syncOne(blocked int) int {
 		}
 	}
 
-	// block_scope is carried through; only legal values are used, an illegal one stays for verify-state to FAIL on.
+	// block_scope is carried through (as a preamble line); an illegal value stays for verify-state to FAIL on. The
+	// script compares the scope only with shared-global, so the probe of the no-space form only matters for that
+	// value: per-focus and an illegal one derive exactly what an empty scope derives.
 	scope, _ := c.envGet("block_scope")
 	if scope == "" {
-		if raw := c.envProbe("block_scope"); raw == "per-focus" || raw == "shared-global" { // BS-SYNC-PROBE
-			scope = raw
+		if c.envProbe("block_scope") == "shared-global" { // BS-SYNC-PROBE
+			scope = "shared-global"
 		}
 	}
 	extra := c.carriedLines(text) // PREAMBLE-CARRY-FORWARD
@@ -195,11 +197,9 @@ func (c *ctx) syncOne(blocked int) int {
 	unc := c.countUncountedRows()
 	declKG, _ := c.envGet("known_gaps")
 	declGC, _ := c.envGet("gaps_closed")
-	plain := 0
+	anyPlain := false // `grep -c .` over the rows, only ever compared with zero
 	for _, r := range splitLines(rows) {
-		if r != "" && !strings.HasPrefix(r, "INVALID_PRIORITY") {
-			plain++
-		}
+		anyPlain = anyPlain || r != "" && !strings.HasPrefix(r, "INVALID_PRIORITY")
 	}
 	if unc > 0 {
 		warn("sync-state: WARN: %s: %d backlog row(s) are NOT counted (undeclared tier / malformed row / table without a Priority header) — known_gaps and gaps_closed are LOWER bounds, verify against the prose.\n", base, unc)
@@ -215,7 +215,7 @@ func (c *ctx) syncOne(blocked int) int {
 			if declKGv > int64(dkgTotal+unc) { // KG-LB-UPPER (#1350)
 				warn("sync-state: WARN: %s: declared known_gaps=%s exceeds what the parser can count (derived %d + %d uncounted) — NOT rewritten; it may include gaps tracked outside the backlog table (prose, other headings) — verify by hand.\n", base, declKG, dkgTotal, unc)
 			}
-		case cmKG == "" && plain+atoiOrZero(d.def) == 0: // B1-NO-UPPER (#1350)
+		case cmKG == "" && !anyPlain && atoiOrZero(d.def) == 0: // B1-NO-UPPER (#1350)
 			lowerBound = true
 			warn("sync-state: WARN: %s: the backlog has only closed-class rows and there is no Coverage metric N/M — derived known_gaps=%d is not evidence the declared total shrank; keeping the declared known_gaps/gaps_closed.\n", base, dkgTotal)
 		}
@@ -517,17 +517,12 @@ func (c *ctx) rewrite(text, envelope string) error {
 	if err != nil {
 		return err
 	}
-	_, err = tmp.WriteString(b.String())
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
+	defer func() { _ = os.Remove(tmp.Name()) }() // after a successful rename the name is gone: ENOENT, ignored
+	_, werr := tmp.WriteString(b.String())
+	if err := errors.Join(werr, tmp.Close()); err != nil {
+		return err
 	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), c.abs(c.state))
-	}
-	if err != nil {
-		_ = os.Remove(tmp.Name())
-	}
-	return err
+	return os.Rename(tmp.Name(), c.abs(c.state))
 }
 
 // awkVEscapes is the escape processing gawk applies to a `-v name=value` assignment: \a \b \f \n \r \t \v, \\ \" \/,

@@ -165,6 +165,44 @@ func TestSyncStateUnwritableDirectoryRefusesWithoutTouchingTheFile(t *testing.T)
 	}
 }
 
+// A rename that cannot replace the target (a non-empty directory stands in the state file's place) is an error, and
+// the temp file does not outlive the call.
+func TestRewriteRenameFailureLeavesNoTempFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "RESEARCH-STATE.md")
+	if err := os.MkdirAll(filepath.Join(target, "inner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s, _, _ := stdio(root)
+	c := &ctx{s: s, state: target}
+	if err := c.rewrite("# T\n", "<!-- research-state.v1 -->\n<!-- /research-state.v1 -->"); err == nil {
+		t.Fatal("rewrite over a directory succeeded")
+	}
+	ents, _ := os.ReadDir(root)
+	if len(ents) != 1 || ents[0].Name() != "RESEARCH-STATE.md" {
+		t.Errorf("leftover entries: %v", ents)
+	}
+}
+
+// After a successful rewrite the directory holds the state file only: the deferred cleanup of the temp name is a no-op.
+func TestRewriteSuccessLeavesOnlyTheStateFile(t *testing.T) {
+	root := t.TempDir()
+	state := filepath.Join(root, "RESEARCH-STATE.md")
+	if err := os.WriteFile(state, []byte("# T\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _, _ := stdio(root)
+	c := &ctx{s: s, state: state}
+	if err := c.rewrite("# T\n", "E"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(state)
+	ents, _ := os.ReadDir(root)
+	if string(b) != "# T\n\nE\n" || len(ents) != 1 {
+		t.Errorf("state=%q entries=%v", b, ents)
+	}
+}
+
 func TestReadlinkF(t *testing.T) {
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	real := filepath.Join(root, "real.md")
