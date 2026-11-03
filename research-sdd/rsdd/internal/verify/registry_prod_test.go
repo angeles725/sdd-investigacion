@@ -71,6 +71,7 @@ func TestRegistrySessionBudgetThroughRunner(t *testing.T) {
 		k := setup(t)
 		withBudgetRunner(t, nil)
 		r := k.run(env)
+		rcIs(t, r, 1)
 		want(t, r.stderr, "verify-registry: degraded: 1 hook-wiring/session-budget check(s) skipped; the session-budget meter is not wired into this build")
 		wantNot(t, r.stdout, "SessionStart")
 	})

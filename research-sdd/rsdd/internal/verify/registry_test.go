@@ -528,7 +528,7 @@ func TestRegistrySkippedHooksAreReported(t *testing.T) {
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md / hook yes)")))
 	withHooks(t, skippingHooks{})
 	r := k.run(nil)
-	rcIs(t, r, 0)
+	rcIs(t, r, 1) // a check that could not run is an operational failure, never a clean report
 	want(t, r.stderr, "verify-registry: degraded: 2 hook-wiring/session-budget check(s) skipped;")
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 	r = k.run(nil)
