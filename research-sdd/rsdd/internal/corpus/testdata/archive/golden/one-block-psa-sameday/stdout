@@ -9,7 +9,7 @@
     index          : touched INDEX.md
   -- mirror facts (for the TARGETS.md row refresh; not applied here) --
     blocks on disk : 2 · retros: 2 · iteration-history rows: 2
-  note: import commit(s) 580798ac6(2 blocks) exempt from ONE-BLOCK-PER-COMMIT (iteration history records method: per-section-agent · 2 sections; kit #1887)
+  note: import commit(s) @SHA@(2 blocks) exempt from ONE-BLOCK-PER-COMMIT (iteration history records method: per-section-agent · 2 sections; kit #1887)
   -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --
     · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal.
     · RETRO (§18): delegate a fresh-context retro agent → @ROOT@/work/case/c/retros/<date>-<focus>.md (review-status: pending).

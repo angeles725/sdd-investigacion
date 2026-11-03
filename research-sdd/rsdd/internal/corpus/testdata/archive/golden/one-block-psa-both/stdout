@@ -12,7 +12,7 @@
   -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --
     · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal.
     · RETRO (§18): delegate a fresh-context retro agent → @ROOT@/work/case/c/retros/<date>-<focus>.md (review-status: pending).
-    · ⚠ ONE-BLOCK-PER-COMMIT (§ LOOP CONTINUATION): commit(s) c24f72524(2 blocks) landed 2+ blocks — keep future commits to one block each (this run's history is advisory, not rewritten).
+    · ⚠ ONE-BLOCK-PER-COMMIT (§ LOOP CONTINUATION): commit(s) @SHA@(2 blocks) landed 2+ blocks — keep future commits to one block each (this run's history is advisory, not rewritten).
     · MIRROR: refresh this target's row in $KIT/TARGETS.md with the counts above (blocks=2, retros=2).
     · COMMIT (corpus only): git -C @ROOT@/work/case/c add -A && git -C @ROOT@/work/case/c commit  (orchestrator artifacts stay gitignored, §15).
   archived.

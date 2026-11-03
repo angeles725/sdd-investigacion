@@ -505,8 +505,26 @@ var archiveRootCut = regexp.MustCompile(`/arch-[0-9a-f]{0,8}\b`)
 // cannot pin that tail. The legacy-vs-Go comparison in the same run still compares it byte for byte.
 var archiveGitPathTail = regexp.MustCompile(`(fatal: (?:detected dubious ownership in repository at '|bad config line [0-9]+ in file ))[^\n]*`)
 
+// archiveCommitList matches a line that lists commits ("commit(s) <sha>..."), and archiveShortSHA a short sha on it.
+// Cases that commit without a pinned date get a new sha on every run, so a golden cannot pin it (it passed only in
+// the run that recorded it and failed on CI). The legacy-vs-Go comparison in the same run still compares it byte for byte.
+var (
+	archiveCommitList = regexp.MustCompile(`(?m)^.*commit\(s\) .*$`)
+	archiveShortSHA   = regexp.MustCompile(`\b[0-9a-f]*[0-9][0-9a-f]*\b`)
+)
+
+func archiveScrubSHAs(line string) string {
+	return archiveShortSHA.ReplaceAllStringFunc(line, func(tok string) string {
+		if len(tok) < 7 || len(tok) > 40 {
+			return tok
+		}
+		return "@SHA@"
+	})
+}
+
 func archiveNorm(s, root string) string {
 	s = strings.ReplaceAll(s, root, "@ROOT@")
+	s = archiveCommitList.ReplaceAllStringFunc(s, archiveScrubSHAs)
 	s = archiveGitPathTail.ReplaceAllString(s, "${1}@PATH-CUT@")
 	// a root cut at 160 bytes keeps only part of its random suffix: collapse what is left of it too
 	return archiveRootCut.ReplaceAllString(s, "/arch-@CUT@")
