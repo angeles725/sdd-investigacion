@@ -3,7 +3,7 @@
 usage: python3 -I oracle_driver.py LEGACY_SQUASHFS_EXTRACT_PY TOOLBELT_DIR  < ops.json  > results.json
 
 The legacy script imports adapter_core and isolation_profile from <its own dir>/lib; it now lives in testdata,
-so the toolbelt lib directory is put on sys.path first (the script's own sys.path insert then points at a
+so the frozen toolbelt lib directory is put on sys.path first (the script's own sys.path insert then points at a
 directory that does not exist, which is harmless).
 
 ops: [{"op": "find", "data_hex": str}

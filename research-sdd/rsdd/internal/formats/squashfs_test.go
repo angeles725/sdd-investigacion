@@ -47,7 +47,7 @@ const (
 	sqfsData   = "testdata/squashfs/"
 	sqfsLegacy = "testdata/squashfs/legacy/squashfs_extract.py"
 	sqfsDriver = "testdata/squashfs/oracle_driver.py"
-	toolbelt   = "../../../toolbelt"
+	toolbelt   = "../core/adapter/testdata/frozen" // frozen oracle copy of the toolbelt modules (core consolidation, #2561), never the live toolbelt
 )
 
 // ---------------------------------------------------------------- helpers
