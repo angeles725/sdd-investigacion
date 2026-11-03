@@ -20,7 +20,8 @@ type audit struct {
 	path   string // absolute retro path
 	base   string // its base name
 	target string // registered target name (or the basename fallback)
-	cache  *Cache
+	cache  *Cache // nil = the live per-retro gh query
+	gh     *ghClient
 
 	marker   string
 	status   string
@@ -73,10 +74,18 @@ func (a *audit) run() {
 	if hasOpen {
 		a.buildOpenIDs()
 	}
-	bodies, err := a.cache.read()
-	if err != nil {
-		r.degrade("degraded: %s", err.Error())
-		return
+	var bodies string
+	if a.cache == nil { // the live gh query (RECONCILE_ISSUES_CACHE_BRANCH is its counterpart)
+		var ok bool
+		if bodies, ok = a.gh.openBodies(r, a.base, a.prefixes()); !ok {
+			return
+		}
+	} else {
+		var err error
+		if bodies, err = a.cache.read(); err != nil {
+			r.degrade("degraded: --issues-cache file not readable: %s", a.cache.path)
+			return
+		}
 	}
 	issueIDs := issueRowIDs(bodies, a.prefixes())
 	if !a.classify(issueIDs) {
@@ -86,6 +95,7 @@ func (a *audit) run() {
 	if len(r.Tracked)+len(r.Untracked)+len(r.Orphaned)+len(r.Shipped)+len(r.Borderline) == 0 {
 		r.note("no-match: no open deltas and no orphaned issues in %s", a.base)
 	}
+	r.done = true
 }
 
 // classifySection is the empty-input / unclassifiable check on the delta section (kit issue #1111): false stops
@@ -248,12 +258,19 @@ func (a *audit) classify(issueIDs []string) bool {
 		// check cannot run: say so instead of reading it as "no closed issue".
 		if !closedLoaded {
 			closedLoaded = true
-			if a.closed == nil {
-				r.note("closed-lookup: skipped for %s — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues", a.base)
-			} else {
+			switch {
+			case a.closed != nil:
 				text, err := a.closed.read() // RECONCILE_ISSUES_CLOSED_CACHE_READ
 				if err != nil {
-					r.degrade("degraded: %s", err.Error())
+					r.degrade("degraded: --closed-cache file not readable: %s", a.closed.path)
+					return false
+				}
+				closedBodies = text
+			case a.cache != nil:
+				r.note("closed-lookup: skipped for %s — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues", a.base)
+			default:
+				text, ok := a.gh.closedBodies(r, a.base, a.prefixes())
+				if !ok {
 					return false
 				}
 				closedBodies = text

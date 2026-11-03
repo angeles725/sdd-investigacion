@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
 
 // This file is the shared test harness. It carries no build tag: gremlins builds with -tags nodiff, and the case
@@ -54,6 +59,13 @@ type dcase struct {
 	noGit bool
 	// retroArg replaces the retro argument (@BOX@ is the box root); "" = the real retro path.
 	retroArg string
+	// live drops --issues-cache: the audit queries the stub gh on PATH (box/bin/gh, driven by gh). all passes
+	// --all instead of the retro. raw replaces the whole argument list with args (@BOX@, @RETRO@ and @CACHE@ are
+	// expanded). noGH puts a PATH without gh in front.
+	live, all, raw, noGH bool
+	args                 []string
+	// gh are the stub gh's data files, relative to box/gh (see ghStubScript).
+	gh map[string]string
 }
 
 type box struct {
@@ -65,6 +77,8 @@ type box struct {
 	// closedArg is the --closed-cache path ("" = flag not passed); env the extra environment.
 	closedArg string
 	env       map[string]string
+	// args is the argument list after the program name (the legacy script's, and the command's after --toolbelt).
+	args []string
 }
 
 // result is what one run produced, normalised.
@@ -72,6 +86,9 @@ type result struct {
 	RC     int    `json:"rc"`
 	Stdout string `json:"stdout"`
 	Stderr string `json:"stderr"`
+	// GHLog and Sleeps are what the stub gh and the stub sleep recorded: the calls the audit made.
+	GHLog  string `json:"gh,omitempty"`
+	Sleeps string `json:"sleeps,omitempty"`
 }
 
 const defaultTargets = "# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | @TARGET@ | `@BOX@/rh/@TARGET@` |\n"
@@ -131,9 +148,13 @@ func mkBox(t *testing.T, c dcase) *box {
 	default:
 		t.Fatalf("unknown repo fixture %q", c.repo)
 	}
-	if c.noGit {
+	if c.noGit || c.noGH {
 		makeNoGitBin(t, filepath.Join(root, "bin"))
 		b.env["PATH"] = filepath.Join(root, "bin")
+	}
+	if c.live && !c.noGH {
+		writeStubs(t, root, c.gh)
+		b.env["PATH"] = filepath.Join(root, "bin") + ":" + os.Getenv("PATH")
 	}
 	for k, v := range c.env {
 		b.env[k] = box2(v, root, tgt)
@@ -153,7 +174,29 @@ func mkBox(t *testing.T, c dcase) *box {
 	if c.prep != nil {
 		c.prep(t, b)
 	}
+	b.args = b.cliArgs(c, tgt)
 	return b
+}
+
+// cliArgs is the argument list of the run: the legacy flags, then the retro or --all; raw cases give it whole.
+func (b *box) cliArgs(c dcase, tgt string) []string {
+	var args []string
+	if c.raw {
+		for _, a := range c.args {
+			args = append(args, strings.NewReplacer("@RETRO@", b.arg, "@CACHE@", b.cache).Replace(box2(a, b.root, tgt)))
+		}
+		return args
+	}
+	if !c.live {
+		args = append(args, "--issues-cache", b.cache)
+	}
+	if b.closedArg != "" {
+		args = append(args, "--closed-cache", b.closedArg)
+	}
+	if c.all {
+		return append(args, "--all")
+	}
+	return append(args, b.arg)
 }
 
 func box2(s, root, tgt string) string {
@@ -176,38 +219,53 @@ func mustWrite(t *testing.T, p, content string) {
 
 // normalize replaces the box path so recorded outputs do not depend on the temp dir.
 func (b *box) normalize(rc int, stdout, stderr string) result {
-	return result{RC: rc, Stdout: strings.ReplaceAll(stdout, b.root, "@BOX@"), Stderr: strings.ReplaceAll(stderr, b.root, "@BOX@")}
+	rep := func(s string) string { return strings.ReplaceAll(s, b.root, "@BOX@") }
+	r := result{RC: rc, Stdout: rep(stdout), Stderr: rep(stderr)}
+	if data, err := os.ReadFile(filepath.Join(b.root, "gh.log")); err == nil {
+		r.GHLog = rep(string(data))
+	}
+	if data, err := os.ReadFile(filepath.Join(b.root, "sleep.log")); err == nil {
+		r.Sleeps = rep(string(data))
+	}
+	return r
 }
 
-// runGo runs the port on the box, the way the shim will: Run, then Render.
+// environ is the environment both runs get: the test's PATH unless the case replaced it, a C locale, the box as
+// TMPDIR and HOME's home dir, then the case's own variables.
+func (b *box) environ() map[string]string {
+	env := map[string]string{"PATH": os.Getenv("PATH"), "LC_ALL": "C", "HOME": filepath.Join(b.root, "home"), "TMPDIR": b.root}
+	for k, v := range b.env {
+		env[k] = v
+	}
+	return env
+}
+
+// runGo runs the port the way the shim does: the command, with the toolbelt of the box as its first pair.
 func runGo(t *testing.T, b *box) result {
 	t.Helper()
-	o := Options{
-		Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd,
-		Env: func(k string) string {
-			if v, ok := b.env[k]; ok {
-				return v
+	env := b.environ()
+	var so, se bytes.Buffer
+	s := cli.Stdio{
+		Out: &so, Err: &se, Cwd: b.cwd,
+		Env: func(k string) string { return env[k] },
+		Environ: func() []string {
+			var out []string
+			for k, v := range env {
+				out = append(out, k+"="+v)
 			}
-			switch k {
-			case "HOME":
-				return filepath.Join(b.root, "home")
-			case "PATH":
-				return os.Getenv("PATH")
-			case "LC_ALL":
-				return "C"
-			}
-			return ""
+			sort.Strings(out)
+			return out
 		},
 	}
-	if b.closedArg != "" {
-		o.ClosedCache = ClosedFile(b.closedArg)
-	}
-	rep, err := Run(context.Background(), o)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	var so, se bytes.Buffer
-	rc := rep.Render(&so, &se)
+	h := hooks{sleep: func(_ context.Context, d time.Duration) {
+		f, err := os.OpenFile(filepath.Join(b.root, "sleep.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		fmt.Fprintf(f, "%d\n", int(d/time.Second))
+	}}
+	rc := runCommand(append([]string{"--toolbelt", filepath.Join(b.root, "research-sdd", "toolbelt")}, b.args...), s, h)
 	return b.normalize(rc, so.String(), se.String())
 }
 
@@ -236,6 +294,12 @@ func diffResult(want, got result) string {
 	}
 	if want.Stderr != got.Stderr {
 		sb.WriteString("stderr:\n  want " + quote(want.Stderr) + "\n  got  " + quote(got.Stderr) + "\n")
+	}
+	if want.GHLog != got.GHLog {
+		sb.WriteString("gh calls:\n  want " + quote(want.GHLog) + "\n  got  " + quote(got.GHLog) + "\n")
+	}
+	if want.Sleeps != got.Sleeps {
+		sb.WriteString("sleeps:\n  want " + quote(want.Sleeps) + "\n  got  " + quote(got.Sleeps) + "\n")
 	}
 	return sb.String()
 }
