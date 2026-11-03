@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // The bash oracle half of the `rsdd verify state` differential. Everything that needs the frozen legacy script
@@ -17,7 +19,7 @@ import (
 // Go-only half is replayed from testdata/state-goldens.json by TestStateGoldens (statecases_test.go).
 
 // sdLegacy runs the frozen script in cwd.
-func sdLegacy(t *testing.T, cwd string, args ...string) observed {
+func sdLegacy(t *testing.T, cwd string, args ...string) observed.Run {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{filepath.Join(sdLegacyDir(t), "verify-state.sh")}, args...)...)
 	cmd.Dir = cwd
@@ -32,33 +34,33 @@ func sdLegacy(t *testing.T, cwd string, args ...string) observed {
 		}
 		rc = ee.ExitCode()
 	}
-	return observed{out.String(), errb.String(), rc}
+	return observed.New(out.String(), errb.String(), rc)
 }
 
 // sdCompare runs both on the same arguments and reports any difference.
-func sdCompare(t *testing.T, what, cwd string, args ...string) observed {
+func sdCompare(t *testing.T, what, cwd string, args ...string) observed.Run {
 	t.Helper()
 	want := sdNormalize(t, sdLegacy(t, cwd, args...))
 	got := sdGo(t, cwd, true, args...)
-	want.stdout = sdAlignSections(want.stdout, got.stdout)
-	same(t, what, want, got)
+	want.Stdout = sdAlignSections(want.Stdout, got.Stdout)
+	observed.Same(t, what, want, got)
 	return want
 }
 
 // sdNormalize applies the intended differences to the legacy observation: bash names the script as it was
 // invoked in its own error lines (the Go command prints "verify-state.sh"), and the "[: N: integer expression
 // expected" errors of a test over an integer beyond int64 are not reproduced (the comparison is false in both).
-func sdNormalize(t *testing.T, o observed) observed {
+func sdNormalize(t *testing.T, o observed.Run) observed.Run {
 	t.Helper()
 	script := filepath.Join(sdLegacyDir(t), "verify-state.sh")
 	var keep []string
-	for _, l := range strings.SplitAfter(o.stderr, "\n") {
+	for _, l := range strings.SplitAfter(o.Stderr, "\n") {
 		if strings.Contains(l, ": line ") && strings.HasSuffix(l, ": integer expression expected\n") {
 			continue
 		}
 		keep = append(keep, strings.Replace(l, script+": line ", "verify-state.sh: line ", 1))
 	}
-	o.stderr = strings.Join(keep, "")
+	o.Stderr = strings.Join(keep, "")
 	return o
 }
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // Differential tests: the legacy scripts (testdata/legacy, the bytes of verify-kit-clean.sh,
@@ -18,13 +20,8 @@ import (
 // commands must print the same stdout, the same stderr and exit with the same code from the same repository
 // states and environment. A missing bash, git or jq FAILS: a skipped differential proves nothing.
 
-type observed struct {
-	stdout, stderr string
-	rc             int
-}
-
 // bash runs a legacy script (or any bash args) in the sandbox environment.
-func (sb *sandbox) bash(dir string, args ...string) observed {
+func (sb *sandbox) bash(dir string, args ...string) observed.Run {
 	sb.t.Helper()
 	cmd := exec.Command("bash", args...)
 	cmd.Dir = dir
@@ -38,12 +35,12 @@ func (sb *sandbox) bash(dir string, args ...string) observed {
 	} else if err != nil {
 		sb.t.Fatalf("bash %v: %v", args, err)
 	}
-	return observed{out.String(), errb.String(), rc}
+	return observed.New(out.String(), errb.String(), rc)
 }
 
-func (sb *sandbox) golden(args ...string) observed {
-	o := observed{}
-	o.stdout, o.stderr, o.rc = sb.run(args...)
+func (sb *sandbox) golden(args ...string) observed.Run {
+	o := observed.Run{}
+	o.Stdout, o.Stderr, o.RC = sb.run(args...)
 	return o
 }
 
@@ -54,14 +51,6 @@ func legacy(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return p
-}
-
-func same(t *testing.T, what string, want, got observed) {
-	t.Helper()
-	if want != got {
-		t.Errorf("%s differs from the legacy script:\nlegacy rc=%d stdout=%q stderr=%q\n    go rc=%d stdout=%q stderr=%q",
-			what, want.rc, want.stdout, want.stderr, got.rc, got.stdout, got.stderr)
-	}
 }
 
 // states builds one repository per state, named by case, with the legacy hook and check committed inside it
@@ -155,7 +144,7 @@ func TestKitCleanMatchesLegacy(t *testing.T) {
 	sb := newSandbox(t)
 	for name, dir := range sb.states() {
 		t.Run(name, func(t *testing.T) {
-			same(t, "verify kit-clean", sb.bash(sb.home, legacy(t, "verify-kit-clean.sh"), dir), sb.golden("verify", "kit-clean", dir))
+			observed.Same(t, "verify kit-clean", sb.bash(sb.home, legacy(t, "verify-kit-clean.sh"), dir), sb.golden("verify", "kit-clean", dir))
 		})
 	}
 }
@@ -169,7 +158,7 @@ func TestKitCleanDefaultRepoMatchesLegacy(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			same(t, "default repo", sb.bash(sb.home, filepath.Join(dir, "verify-kit-clean.sh")), sb.golden("verify", "kit-clean", dir))
+			observed.Same(t, "default repo", sb.bash(sb.home, filepath.Join(dir, "verify-kit-clean.sh")), sb.golden("verify", "kit-clean", dir))
 		})
 	}
 }
@@ -182,7 +171,7 @@ func TestKitCleanHookMatchesLegacy(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			same(t, "verify kit-clean-hook", sb.bash(sb.home, hook), sb.golden("verify", "kit-clean-hook", dir))
+			observed.Same(t, "verify kit-clean-hook", sb.bash(sb.home, hook), sb.golden("verify", "kit-clean-hook", dir))
 		})
 	}
 	// A directory that is not a repository: the staged legacy hook sits in a plain directory (rc 2 banner).
@@ -195,7 +184,7 @@ func TestKitCleanHookMatchesLegacy(t *testing.T) {
 		sb.write(filepath.Join(plain, f), string(b))
 	}
 	t.Run("not-a-repo", func(t *testing.T) {
-		same(t, "hook outside a repo", sb.bash(sb.home, filepath.Join(plain, "verify-kit-clean-hook.sh")), sb.golden("verify", "kit-clean-hook", plain))
+		observed.Same(t, "hook outside a repo", sb.bash(sb.home, filepath.Join(plain, "verify-kit-clean-hook.sh")), sb.golden("verify", "kit-clean-hook", plain))
 	})
 }
 
@@ -248,7 +237,7 @@ esac
 			if err := os.Mkdir(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			same(t, "stubbed git", sb.bash(sb.home, legacy(t, "verify-kit-clean.sh"), dir), sb.golden("verify", "kit-clean", dir))
+			observed.Same(t, "stubbed git", sb.bash(sb.home, legacy(t, "verify-kit-clean.sh"), dir), sb.golden("verify", "kit-clean", dir))
 		})
 	}
 }
