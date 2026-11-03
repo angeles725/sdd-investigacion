@@ -187,6 +187,7 @@ func (s *session) check(r *Report, rec string) verdict {
 		return v
 	}
 	if !s.probe(r) {
+		r.ancDegraded = true
 		v.missing = append(v.missing, "commit reachability could not be verified (degraded)")
 		return v
 	}
