@@ -10,7 +10,9 @@ import (
 )
 
 // bkAllCases is the captured cases (block-cases.txt) plus the hand-written ones below.
-func bkAllCases(t *testing.T) []bkCase { return append(bkParseCases(t), bkHandCases()...) }
+func bkAllCases(t *testing.T) []bkCase {
+	return append(append(bkParseCases(t), bkHandCases()...), bkLivedCases()...)
+}
 
 const bkLegend = "# Block 1 — t\n\n> Method: [CERT] = x.\n\n---\n\n"
 
