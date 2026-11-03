@@ -21,11 +21,16 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
 )
 
-// The legacy zip_metadata.py / zip_stored.py are the oracle: testdata/zip/parity_driver.py runs their real
+// The frozen legacy zip_metadata.py / zip_stored.py (testdata/zip/legacy) are the oracle: testdata/zip/parity_driver.py runs their real
 // parsers over a batch of cases in one process and the Go reader must agree on every verdict, every message
 // and every byte of the canonical output.
 
-const zipToolbelt = "../../../toolbelt"
+// zipToolbelt still holds analysis_manifest.py and lib/, which the frozen legacy tools import; zipLegacyDir holds the
+// retired zip_metadata.py / zip_stored.py themselves.
+const (
+	zipToolbelt  = "../../../toolbelt"
+	zipLegacyDir = "testdata/zip/legacy"
+)
 
 type pyResult struct {
 	OK     bool   `json:"ok"`
@@ -46,7 +51,7 @@ func runPy(t testing.TB, op string, cases any) []pyResult {
 	if err != nil {
 		t.Fatalf("python3 is required for the parity tests and was not found: %v", err)
 	}
-	tb, err := filepath.Abs(zipToolbelt)
+	ld, err := filepath.Abs(zipLegacyDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +59,7 @@ func runPy(t testing.TB, op string, cases any) []pyResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(py, "-I", "testdata/zip/parity_driver.py", tb, op)
+	cmd := exec.Command(py, "-I", "testdata/zip/parity_driver.py", ld, op)
 	var out, stderr bytes.Buffer
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(in), &out, &stderr
 	if err := cmd.Run(); err != nil {

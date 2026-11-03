@@ -80,7 +80,7 @@ are inventory data, not payload-integrity or extractability claims.
 ## Intended differences from the Python tool
 
 The tool is now `rsdd formats zip-metadata` (Go, kit issue #2416); `zip-metadata.sh` is a compatibility shim. Outputs are
-byte-identical to the former `zip_metadata.py` for the report, the staged files and the modes; the legacy parser is the
+byte-identical to the former `zip_metadata.py` for the report, the staged files and the modes; the legacy parser, frozen under `rsdd/internal/formats/testdata/zip/legacy/`, is the
 oracle of the Go parity tests over every fixture and every single-byte corruption of them. The differences:
 
 - Flags are parsed by Go's `flag` package: full flag names only (argparse accepted unambiguous prefixes), `-h`

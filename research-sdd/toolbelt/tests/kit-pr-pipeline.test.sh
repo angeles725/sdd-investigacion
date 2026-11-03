@@ -3,7 +3,7 @@
 #
 # The pipeline (restack -> push -> RDD -> flock'd full gate -> CI wait -> merge-gate --merge) is driven end to end
 # against PATH shims for git / gh / gentle-ai / flock (fixtures/kit-pr-pipeline/shim.sh), which record each call in
-# one ordered log and answer from fixtures. The real kit-rdd-start.py / kit-rdd-drive.py run against the gentle-ai
+# one ordered log and answer from fixtures. The real kit-rdd-start.sh / kit-rdd-drive.sh run against the gentle-ai
 # shim, so the whole chain is exercised. Nothing here reaches the network, a real repository or gentle-ai.
 # Typed exit states are asserted by exit code AND by the `kit-pr-pipeline: <state>` line (table in the SUT header).
 #
@@ -20,13 +20,13 @@ FIX="$HERE/fixtures/kit-pr-pipeline"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
 mutant_bootstrap mutant_sed mutant_tooth || exit 2
-for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh kit-rdd-start.py kit-rdd-drive.py; do
+for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh kit-rdd-start.sh kit-rdd-drive.sh; do
   [ -f "$MAINT/$f" ] || { echo "FATAL: SUT not found: $MAINT/$f" >&2; exit 2; }
 done
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT
 
-# kit-rdd-start.py / kit-rdd-drive.py are compatibility shims over the Go binary (kit issue #2394): $RSDD_BIN
+# kit-rdd-start.sh / kit-rdd-drive.sh are compatibility shims over the Go binary (kit issue #2394): $RSDD_BIN
 # wins, otherwise one binary is built into the suite temp dir (never into the tree) and exported so the
 # scenario children reuse it. $TMP/lib lets the shims of a staged copy of maint/ (the teeth) find
 # ../lib/rsdd-exec.sh.
@@ -365,7 +365,7 @@ tooth() {
   local st="$TMP/stage.$((n += 1))"
   mkdir -p "$st" && cp "$MAINT"/* "$st"/ && rm -f "$st/$file"
   if ! mutant_sed "$MAINT/$file" "$st/$file" "$expr"; then no "tooth $label: mutant refused"; return; fi
-  chmod +x "$st"/*.sh "$st"/*.py
+  chmod +x "$st"/*.sh
   if mutant_tooth "tooth $label" "$g" "$b" "$st/$file" --orig "$MAINT/$file" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
 P=kit-pr-pipeline.sh; W=kit-wait-merge.sh; G=kit-gate.sh; C=kit-maint-common.sh

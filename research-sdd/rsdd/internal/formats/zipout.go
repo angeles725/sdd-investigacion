@@ -20,8 +20,8 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsx"
 )
 
-// The helpers below are what zip_metadata.py and zip_stored.py each carried a private copy of: the output
-// path policy, the staged closed tree, the analysis-manifest hand-off and the no-replace publication.
+// The helpers below are what zip_metadata.py and zip_stored.py (retired, frozen under testdata/zip/legacy) each carried a
+// private copy of: the output path policy, the staged closed tree, the analysis-manifest hand-off and the no-replace publication.
 
 // zipCreds are the process ids the privilege guard reads; a test replaces it.
 var zipCreds = func() (uid, euid, gid, egid int) {
