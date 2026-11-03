@@ -8,4 +8,5 @@ import "github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 // its entries here and never edits internal/commands.
 var Commands = []cli.Command{
 	{Name: "retros", Group: "sweep", Summary: "pending section 18 retros of every target in TARGETS.md (port of sweep-retros.sh; --hook is the SessionStart hook)", Run: RunRetros},
+	{Name: "audits", Group: "sweep", Summary: "pending section 13 audits of every target in TARGETS.md (port of sweep-audits.sh; --hook is the SessionStart hook)", Run: RunAudits},
 }
