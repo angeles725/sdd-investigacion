@@ -117,7 +117,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
