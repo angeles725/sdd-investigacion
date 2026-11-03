@@ -128,7 +128,8 @@ func exec(cmd Command, args []string, s Stdio) (code int) {
 		// Precedence: ExitMap translates the code Run returned first; the
 		// degraded contract then judges the FINAL code. So a degraded 3 is
 		// never remapped unless the map explicitly lists 3, and any command
-		// that ends on 3 (returned or mapped) carries a DEGRADED: line.
+		// that ends on 3 (returned or mapped) carries a DEGRADED: line, unless
+		// it declares PlainExit3.
 		if mapped, ok := cmd.ExitMap[code]; ok {
 			code = mapped
 		}
