@@ -724,6 +724,81 @@ rc: 0
 --- stdout
 0
 --- stderr
+=== bl-closed-no-separator
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g5	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g5	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	G1	✅
+~~	G2	closed
+~~	G3	closed
+—	G4	closed
+high	g5	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
 === bl-crlf
 op 'backlog_rows'
 rc: 0
@@ -7325,6 +7400,68 @@ op 'env_raw' 'next'
 rc: 1
 --- stdout
 --- stderr
+=== env-blank-lines
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
 === env-crlf
 op 'env_get' 'covered_blocks'
 rc: 0
@@ -9025,6 +9162,24 @@ rc: 0
 --- stdout
 - REQUIRES-EXECUTION left = 12 (of 30)
 --- stderr
+=== req-digit-right-after-token
+op 'req_prose'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution7 left
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution7 left
+--- stderr
 === req-first-line-without-number
 op 'req_prose'
 rc: 0
@@ -9192,6 +9347,26 @@ rc: 0
 --- stdout
 - Open gaps — requires-execution: 4
 - more: 9
+--- stderr
+=== req-token-at-line-start
+op 'req_prose'
+rc: 0
+--- stdout
+9
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+requires-execution 9
+- x
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+requires-execution 9
+- x
 --- stderr
 === req-token-twice
 op 'req_prose'

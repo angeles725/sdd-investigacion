@@ -9,12 +9,18 @@ import "strings"
 func lowerASCII(s string) string {
 	b := []byte(s)
 	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
+		if isUpper(c) {
 			b[i] = c + 'a' - 'A'
 		}
 	}
 	return string(b)
 }
+
+// The one place that spells out the C-locale byte classes: [0-9], [A-Z], [a-z] and their union.
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+func isUpper(b byte) bool { return b >= 'A' && b <= 'Z' }
+func isLower(b byte) bool { return b >= 'a' && b <= 'z' }
+func isAlnum(b byte) bool { return isUpper(b) || isLower(b) || isDigit(b) }
 
 // awkFields is awk's default field splitting: runs of space, tab and newline separate fields, leading and
 // trailing runs are ignored.

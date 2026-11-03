@@ -64,7 +64,7 @@ func emDashGapID(gap string) bool {
 		}
 	}
 	g = strings.TrimRight(g, "*~`]")
-	if g == "" || !(g[0] >= 'A' && g[0] <= 'Z' || g[0] >= 'a' && g[0] <= 'z' || g[0] >= '0' && g[0] <= '9') {
+	if g == "" || !isAlnum(g[0]) {
 		return false
 	}
 	return strings.Trim(g, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") == "" && strings.ContainsAny(g, "0123456789")
@@ -142,11 +142,10 @@ func backlogRows(text string, wantClosed bool) (stdout, stderr string) {
 				}
 				continue
 			}
-			expected = -1
 			if n == 4 || n == 5 {
 				expected = n
-			}
-			if expected < 0 {
+			} else {
+				expected = -1
 				fmt.Fprintf(&errb, "WARN: backlog table has %d columns (separator: %s) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n", n, rec)
 			}
 			continue
@@ -154,7 +153,7 @@ func backlogRows(text string, wantClosed bool) (stdout, stderr string) {
 		if strings.HasPrefix(p, "-") || p == "" || p == "priority" || p == "p" {
 			continue
 		}
-		if p == "deferred" || len(p) >= 4 && strings.HasPrefix(p, "~~") && strings.HasSuffix(p, "~~") || strings.HasPrefix(p, "—") {
+		if p == "deferred" || isStruckTier(p) || strings.HasPrefix(p, "—") {
 			if !wantClosed || expected < 0 {
 				continue
 			}
@@ -266,11 +265,11 @@ func backlogRows(text string, wantClosed bool) (stdout, stderr string) {
 			sc, scMsg = expected, fmt.Sprint(expected)
 		}
 		if n != sc {
-			if sc == 5 && n > sc && strings.HasPrefix(lowerASCII(cellAt(a, 5)), "covered") {
+			if sc == 5 && n >= sc+1 && strings.HasPrefix(lowerASCII(cellAt(a, 5)), "covered") {
 				fmt.Fprintf(&errb, "WARN: COVERED row has %d cells in 5-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
-			if sc == 4 && n > sc && strings.HasPrefix(lowerASCII(cellAt(a, 4)), "covered") {
+			if sc == 4 && n >= sc+1 && strings.HasPrefix(lowerASCII(cellAt(a, 4)), "covered") {
 				fmt.Fprintf(&errb, "WARN: COVERED row has %d cells in 4-col table (pipe in status cell) — review: %s\n", n, rec)
 				continue
 			}
@@ -354,4 +353,10 @@ func deferredScan(text string, emit bool) (stdout, stderr string) {
 		fmt.Fprintf(&out, "%d\n", n)
 	}
 	return out.String(), errb.String()
+}
+
+// isStruckTier is `p ~ /^~~.*~~$/`: a priority cell struck through, at least the two pairs of tildes.
+func isStruckTier(p string) bool {
+	inner, ok := strings.CutPrefix(p, "~~")
+	return ok && strings.HasSuffix(inner, "~~")
 }

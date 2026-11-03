@@ -36,12 +36,14 @@ func focusCells(line string) []string {
 func stripMarkup(s string) string {
 	r := s
 	if strings.HasPrefix(r, "[") {
-		if i := strings.IndexByte(r, ']'); i > 0 && strings.HasPrefix(r[i:], "](") && strings.HasSuffix(r, ")") && !strings.Contains(r[i+2:len(r)-1], ")") {
-			r = r[1:i]
+		if text, tail, ok := strings.Cut(r[1:], "]"); ok && strings.HasPrefix(tail, "(") && strings.HasSuffix(tail, ")") && !strings.Contains(tail[1:len(tail)-1], ")") {
+			r = text
 		}
 	}
-	if len(r) >= 2 && r[0] == '`' && r[len(r)-1] == '`' && !strings.Contains(r[1:len(r)-1], "`") {
-		r = r[1 : len(r)-1]
+	if inner, ok := strings.CutPrefix(r, "`"); ok {
+		if inner, ok = strings.CutSuffix(inner, "`"); ok && !strings.Contains(inner, "`") {
+			r = inner
+		}
 	}
 	r = strings.TrimPrefix(r, "**")
 	return strings.Replace(r, "**", "", 1)

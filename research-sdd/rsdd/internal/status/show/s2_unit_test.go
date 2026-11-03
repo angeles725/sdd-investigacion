@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -236,6 +237,55 @@ func TestFocusTokCacheServesTheSecondReadWithoutAWarning(t *testing.T) {
 	}
 	if c.focusTokCached(filepath.Join(root, "absent.md"), "x") != "" || len(c.focCache) != 2 {
 		t.Error("a missing file is cached as the empty token")
+	}
+}
+
+func TestByteClasses(t *testing.T) {
+	const upper, lower, digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz", "0123456789"
+	for c := 0; c < 256; c++ {
+		b := byte(c)
+		in := func(set string) bool { return strings.IndexByte(set, b) >= 0 }
+		for name, tc := range map[string]struct {
+			got, want bool
+		}{
+			"isUpper":      {isUpper(b), in(upper)},
+			"isLower":      {isLower(b), in(lower)},
+			"isDigit":      {isDigit(b), in(digits)},
+			"isAlnum":      {isAlnum(b), in(upper + lower + digits)},
+			"isLowerAlnum": {isLowerAlnum(b), in(lower + digits)},
+		} {
+			if tc.got != tc.want {
+				t.Errorf("%s(%q) = %v, want %v", name, b, tc.got, tc.want)
+			}
+		}
+	}
+	if got := lowerASCII("AZ@[`az{\xc3\x89Z"); got != "az@[`az{\xc3\x89z" {
+		t.Errorf("lowerASCII folds only A-Z: %q", got)
+	}
+	if got := blockIDs("B1 _B2 xB3 B4_ B5"); !slices.Equal(got, []string{"B1", "B5"}) {
+		t.Errorf("blockIDs word boundary: %q", got)
+	}
+	if !emDashGapID("a1") || !emDashGapID("Z9") || !emDashGapID("09") || emDashGapID("@1") || emDashGapID("{1") || emDashGapID("/1") || emDashGapID(":1") {
+		t.Error("emDashGapID first character is [A-Za-z0-9]")
+	}
+}
+
+func TestIsStruckTier(t *testing.T) {
+	for in, want := range map[string]bool{"~~high~~": true, "~~~~": true, "~~~": false, "~~": false, "~": false, "": false, "~~x": false, "x~~": false} {
+		if got := isStruckTier(in); got != want {
+			t.Errorf("isStruckTier(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestStripParensEmptyGroupAndMarkupEdges(t *testing.T) {
+	if got := stripParens("a()b"); got != "ab" {
+		t.Errorf("stripParens(a()b) = %q", got)
+	}
+	for in, want := range map[string]string{"``": "", "`": "`", "[]()": "", "[a](": "[a](", "[a]x": "[a]x"} {
+		if got := stripMarkup(in); got != want {
+			t.Errorf("stripMarkup(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

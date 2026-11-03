@@ -131,7 +131,7 @@ func (c *ctx) countRequiresExecution() int {
 	return n
 }
 
-func isLowerAlnum(b byte) bool { return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' }
+func isLowerAlnum(b byte) bool { return isLower(b) || isDigit(b) }
 
 // closedClassWarn are the WARNs of the closed-class parse that count_all_known_gaps lets through.
 var closedClassWarn = regexp.MustCompile(`em-dash priority on an OPEN row|malformed closed-class backlog row|em-dash row whose Gap cell is not a gap id|near-miss backlog heading has no Priority header`)
@@ -168,7 +168,7 @@ func (c *ctx) countUncountedRows() int {
 // blockIDs is `grep -oE '\bB[0-9]+\b'` over text: every B<digits> that is not part of a longer word.
 func blockIDs(text string) []string {
 	isWord := func(b byte) bool {
-		return b == '_' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+		return b == '_' || isAlnum(b)
 	}
 	var out []string
 	for _, line := range strings.Split(text, "\n") {
@@ -178,7 +178,7 @@ func blockIDs(text string) []string {
 				continue
 			}
 			j := i + 1
-			for j < len(line) && line[j] >= '0' && line[j] <= '9' {
+			for j < len(line) && isDigit(line[j]) {
 				j++
 			}
 			if j > i+1 && (j == len(line) || !isWord(line[j])) {
@@ -252,12 +252,12 @@ func stripParens(s string) string {
 		if open < 0 {
 			break
 		}
-		end := strings.IndexByte(s[open:], ')')
+		end := strings.IndexByte(s[open+1:], ')')
 		if end < 0 {
 			break
 		}
 		b.WriteString(s[:open])
-		s = s[open+end+1:]
+		s = s[open+1+end+1:]
 	}
 	b.WriteString(s)
 	return b.String()
@@ -278,7 +278,7 @@ func (c *ctx) reqProse() string {
 			continue
 		}
 		e := d
-		for e < len(rest) && rest[e] >= '0' && rest[e] <= '9' {
+		for e < len(rest) && isDigit(rest[e]) {
 			e++
 		}
 		return rest[d:e]
@@ -349,21 +349,19 @@ var (
 // when no line carries the label at all.
 func (c *ctx) covRatioOf() string {
 	lines := splitLines(sectionBody(c.stateText(), "## Coverage"))
-	r, nlab := "", 0
+	r, labelled := "", false
 	for _, l := range lines {
 		if covLabel.MatchString(l) {
-			nlab++
+			labelled = true
 			if r == "" {
 				r = strings.ReplaceAll(covRatio.FindString(l), " ", "")
 			}
 		}
 	}
-	if r == "" && nlab == 0 {
+	if r == "" && !labelled {
 		for _, l := range lines {
 			if strings.Contains(lowerASCII(l), "coverage metric") && covRatio.MatchString(l) {
-				if len(l) > 100 {
-					l = l[:100]
-				}
+				l = l[:min(len(l), 100)]
 				fmt.Fprintf(c.s.Err, "WARN: %s: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the \"Coverage metric:\" label, so it is NOT read as the metric: %s\n", filepath.Base(c.state), l)
 				break
 			}
