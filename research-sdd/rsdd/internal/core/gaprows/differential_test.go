@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,130 +134,26 @@ func assertOverlap(t *testing.T, name, row, bullet string) {
 }
 
 func TestDifferentialFixtures(t *testing.T) {
-	states := map[string]string{
-		"single":       "| high | B1-G2 how it works | w | pending |\n",
-		"three":        tbl + "| high | B1-G1 first | w | pending |\n| low | B2-G1 middle | w | done |\n| medium | B3-G1 last | w | Pending review |",
-		"escaped":      "| high | B4-G1 a \\| b \\\\| c | w | pending |\n",
-		"crlf":         "| high | B5-G1 text | w | pending |\r\n| — | B5-G2 old | w | done |\r\n| high | B5-G3 x |\r\n",
-		"closed":       "| — | B1-G1 a | w | done |\n| ~~low~~ | B1-G2 b | w | done |\n| 7 | B1-G3 c | w | pending |\n| 7 | B1-G4 d | w | done |\n| — | B1-G5 e | pending |\n",
-		"unparsed":     "| urgent | B1-G1 x | w | pending |\n| high | B1-G2 x |\n| high | B1-G3 " + strings.Repeat("y", 120) + " | w | pending |\n",
-		"empty":        "",
-		"no-rows":      "# title\nsome text\n",
-		"tabs":         "| high | B1-G1 a\tb | w | pending |\n",
-		"indented":     "   \t| high | B8-G1 x | w | pending |   \n",
-		"bare pipes":   "|\n||\n| |\n|||\n",
-		"no final nl":  "| high | B9-G1 x | w | pending |",
-		"uppercase":    "| high | B9-G1 x | w | PENDING |\n| high | B9-G2 x | w | Pend |\n",
-		"id forms":     "| high | B9-G1x glued | w | pending |\n| high | B9-G | w | pending |\n| high | B-G1 x | w | pending |\n",
-		"empty cells":  "| | B1-G1 x | | pending |\n| high | B1-G2 x | | |\n",
-		"em-dash mid":  "| a — b | B1-G1 x | w | pending |\n",
-		"leading zero": "| high | B01-G002 x | w | pending |\n",
+	for _, c := range fixtureStates() {
+		assertParse(t, c.name, c.src)
 	}
-	for name, src := range states {
-		assertParse(t, name, src)
+	for _, c := range fixtureBulletCases() {
+		assertBullet(t, c.name, c.src, c.id)
 	}
-	blocks := map[string]string{
-		"forms":   "- **B1-G1** a\n* **[B1-G2]** b\n- **B1-G3 (open, n)** c\n- **B1-G4**: d\n  - **B1-G5** nested\n- **B1-G10** ten\n",
-		"cont":    "- **B1-G1** first\nsecond\n  third\n1\n2\n3\n4\n5\n6\n7\n8\n\n- **B1-G2** after\n",
-		"stops":   "- **B1-G1** x\n## H\n- **B1-G2** y\n- **B1-G3** z\nmore\n- **B1-G4** w\n \t \nzz\n",
-		"crlf":    "- **B1-G1** first\r\nmore\r\n",
-		"twice":   "- **B1-G1** one\n\n- **B1-G1** two\n",
-		"nonl":    "- **B1-G1** last",
-		"prose":   "see B1-G1 here\n**B1-G1** bare\n",
-		"nothing": "",
-	}
-	for name, src := range blocks {
-		for _, id := range []string{"B1-G1", "B1-G2", "B1-G3", "B1-G4", "B1-G5", "B1-G10", "B1-G9"} {
-			assertBullet(t, name, src, id)
-		}
-	}
-	for _, c := range [][2]string{
-		{"widgets frobnicate sprockets", "- **B1-G1** widgets frobnicate sprockets"},
-		{"cats and dogs", "widgets"}, {"the of an", "the of an"}, {"months", "month"}, {"class", "clas"},
-		{"bosses", "boss"}, {"Widgets WIDGET", "widget"}, {"9.5.0 1166 v2", "9.5.0 1166 v2"}, {"a.b_c x.y", "a.b_c"},
-		{"a b c d", "a b c d"}, {"", "x"}, {"naïve café", "naive cafe"}, {"foo-bar baz_qux", "foo bar baz_qux"},
-		{`back\slash and "quotes"`, `back\slash`}, {"-e -n", "-e"}, {"price: 3.5 USDs", "usd"}, {"tokens.", "token."},
-	} {
-		assertOverlap(t, "fixture", c[0], c[1])
+	for _, c := range fixtureOverlapCases() {
+		assertOverlap(t, c.name, c.row, c.bullet)
 	}
 }
 
-var genWords = []string{"widgets", "widget", "frobnicate", "sprocket", "the", "of", "Q.x", "a", "b1", "ab", "class", "bosses", "9.5", "1166",
-	"foo_bar", "x.y.z", "naïve", "über", "months", "month", "pending", "—", "~~", "\\|", "`code`", "B1-G1", "B1-G2"}
-
-func genText(r *rand.Rand, n int) string {
-	var b strings.Builder
-	for i := 0; i < n; i++ {
-		if i > 0 {
-			b.WriteString([]string{" ", " ", "\t", "  "}[r.Intn(4)])
-		}
-		b.WriteString(genWords[r.Intn(len(genWords))])
-	}
-	return b.String()
-}
-
-func genStateLine(r *rand.Rand) string {
-	prios := []string{"high", "medium", "low", "deferred", "—", "~~low~~", "12", "urgent", "", "High"}
-	stats := []string{"pending", "Pending: wait", "done", "closed", "", "pend", "PENDING"}
-	id := fmt.Sprintf("B%d-G%d", r.Intn(4), r.Intn(4))
-	switch r.Intn(12) {
-	case 0:
-		return genText(r, 3)
-	case 1:
-		return "| high | " + id + " " + genText(r, 3) + " |"
-	case 2:
-		return "|---|---|---|---|"
-	case 3:
-		return "  | " + prios[r.Intn(len(prios))] + " | " + id + " | x | " + stats[r.Intn(len(stats))] + " |  "
-	}
-	line := "| " + prios[r.Intn(len(prios))] + " | " + id + " " + genText(r, r.Intn(6)) + " | " + genText(r, 1) + " | " + stats[r.Intn(len(stats))] + " |"
-	if r.Intn(5) == 0 {
-		line += "\r"
-	}
-	return line
-}
-
-func genBlockLine(r *rand.Rand) string {
-	id := fmt.Sprintf("B%d-G%d", r.Intn(3), r.Intn(12))
-	switch r.Intn(9) {
-	case 0:
-		return ""
-	case 1:
-		return "## " + genText(r, 2)
-	case 2:
-		return "- **[" + id + "]** " + genText(r, 4)
-	case 3:
-		return "* **" + id + " (open)** " + genText(r, 4)
-	case 4:
-		return "  " + genText(r, 5)
-	case 5:
-		return "- **" + id + "**: " + genText(r, 4) + "\r"
-	}
-	return "- **" + id + "** " + genText(r, r.Intn(6))
-}
-
-// TestDifferentialGenerated runs a seeded corpus of generated state files, block files and word lists against the
-// frozen lib. The seed is fixed so a failure reproduces.
+// TestDifferentialGenerated runs the seeded corpora (genSeeds) of generated state files, block files and word lists
+// against the frozen lib. The seeds are fixed so a failure reproduces; the same corpora are recorded as goldens.
 func TestDifferentialGenerated(t *testing.T) {
-	r := rand.New(rand.NewSource(2645))
-	for i := 0; i < 60; i++ {
-		var s, b strings.Builder
-		for l, n := 0, r.Intn(14); l < n; l++ {
-			s.WriteString(genStateLine(r) + "\n")
+	for _, c := range genCorpus() {
+		assertParse(t, c.name, c.state)
+		for _, id := range c.ids {
+			assertBullet(t, c.name, c.block, id)
 		}
-		for l, n := 0, r.Intn(16); l < n; l++ {
-			b.WriteString(genBlockLine(r) + "\n")
-		}
-		state, block := s.String(), b.String()
-		if r.Intn(4) == 0 {
-			state = strings.TrimSuffix(state, "\n")
-		}
-		name := fmt.Sprintf("gen-%d", i)
-		assertParse(t, name, state)
-		for g := 0; g < 3; g++ {
-			assertBullet(t, name, block, fmt.Sprintf("B%d-G%d", r.Intn(3), r.Intn(12)))
-		}
-		assertOverlap(t, name, genText(r, r.Intn(8)), genText(r, r.Intn(10)))
+		assertOverlap(t, c.name, c.row, c.bullet)
 	}
 }
 

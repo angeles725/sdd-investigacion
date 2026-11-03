@@ -75,10 +75,7 @@ func Parse(src string) Table {
 		case closed && !pending:
 			t.Records = append(t.Records, Record{Kind: KindSkipped, Line: r.Line, Cell: cells[1]})
 		case n < 4 || (!closed && !knownPriority(cells[0])):
-			line := r.Source
-			if len(line) > UnparsedMax {
-				line = line[:UnparsedMax]
-			}
+			line := r.Source[:min(len(r.Source), UnparsedMax)]
 			t.Records = append(t.Records, Record{Kind: KindUnparsed, Line: r.Line, Source: line})
 		default:
 			id, text := splitID(cells[1])
@@ -90,11 +87,8 @@ func Parse(src string) Table {
 
 // blockOf is the block number of a gap id: the digits between "B" and "-G".
 func blockOf(id string) string {
-	id = strings.TrimPrefix(id, "B")
-	if i := strings.Index(id, "-G"); i >= 0 {
-		return id[:i]
-	}
-	return id
+	block, _, _ := strings.Cut(strings.TrimPrefix(id, "B"), "-G")
+	return block
 }
 
 // startsWithGapID is `^B[0-9]+-G[0-9]+([ \t]|$)`.
@@ -152,17 +146,5 @@ func knownPriority(pr string) bool {
 
 // hasPrefixFold reports whether s starts with the lower-case ASCII prefix p, folding ASCII letters only.
 func hasPrefixFold(s, p string) bool {
-	if len(s) < len(p) {
-		return false
-	}
-	for i := 0; i < len(p); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		if c != p[i] {
-			return false
-		}
-	}
-	return true
+	return strings.HasPrefix(lower(s[:min(len(s), len(p))]), p)
 }

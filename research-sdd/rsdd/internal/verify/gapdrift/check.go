@@ -172,7 +172,7 @@ func (c *Corpus) at(p string) string {
 // -name '*.md' -print`. ok is false where find would have exited non-zero (a directory it could not read).
 func (c *Corpus) listMarkdown() (out []string, ok bool) {
 	root := strings.TrimRight(c.target, "/")
-	if i := strings.LastIndexByte(root, '/'); root != "" && root[i+1:] == ".git" {
+	if i := strings.LastIndexByte(root, '/'); root[i+1:] == ".git" { // i is -1 for a bare name, and "" never equals ".git"
 		return nil, true // -name .git matches the start point: pruned, nothing printed
 	}
 	ok = true
@@ -348,10 +348,11 @@ func (r Result) Render(w io.Writer) {
 	_, _ = io.WriteString(w, b.String())
 }
 
-// cutChars is ${s:0:n} in a UTF-8 locale: the first n characters, an invalid byte counting as one character.
+// cutChars is ${s:0:n} in a UTF-8 locale: the first n characters, an invalid byte counting as one character. Past the
+// end of s a decode consumes nothing, so the loop needs no bound of its own beyond n.
 func cutChars(s string, n int) string {
 	i := 0
-	for ; n > 0 && i < len(s); n-- {
+	for ; n > 0; n-- {
 		_, size := utf8.DecodeRuneInString(s[i:])
 		i += size
 	}

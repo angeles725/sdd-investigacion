@@ -1,0 +1,1224 @@
+clean: every row matches
+  args   ["{D}"]
+  files  n=2 sha256=f00e54a0e7e15550
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+single row drift
+  args   ["{D}"]
+  files  n=2 sha256=fda91cce7f664aea
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats and dogs and birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+drift at first, middle and last
+  args   ["{D}"]
+  files  n=2 sha256=68932098e381bfdd
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nDRIFT? B1-G3 overlap=0% row='zebra yak xylophone walrus'\nDRIFT? B1-G2 overlap=0% row='fish frogs newts'\nchecked=5 suspects=3 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold 0 flags nothing
+  args   ["{D}" "--threshold" "0"]
+  files  n=2 sha256=c0672961937c0b23
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold 100 flags a partial overlap
+  args   ["{D}" "--threshold" "100"]
+  files  n=2 sha256=dafaa599ca151186
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=66% row='widgets frobnicate cats'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold boundary 67 (2 of 3 shared = 66%)
+  args   ["{D}" "--threshold" "67"]
+  files  n=2 sha256=dafaa599ca151186
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=66% row='widgets frobnicate cats'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold boundary 66
+  args   ["{D}" "--threshold" "66"]
+  files  n=2 sha256=dafaa599ca151186
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+non-pending skipped by default
+  args   ["{D}"]
+  files  n=2 sha256=47bb64606e279374
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (2 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+--all checks non-pending rows
+  args   ["{D}" "--all"]
+  files  n=2 sha256=8b28692025112c42
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=2 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+--state names another file
+  args   ["{D}" "--state" "{D}/other.md"]
+  files  n=3 sha256=23005816e4b6fca0
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+--state relative to cwd
+  args   ["." "--state" "other.md"]
+  files  n=3 sha256=a3df5600edde8620
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+relative target
+  args   ["."]
+  files  n=2 sha256=c0672961937c0b23
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+options in any order
+  args   ["{D}" "--all" "--threshold" "50" "--state" "{D}/RESEARCH-STATE.md"]
+  files  n=2 sha256=64e5d707e0021bf2
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+repeated --state keeps the last
+  args   ["{D}" "--state" "{D}/a.md" "--state" "{D}/b.md"]
+  files  n=4 sha256=e6af34f87f01670b
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+CRLF state and block
+  args   ["{D}"]
+  files  n=2 sha256=af2d52e7825bc30f
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=2 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+escaped pipes in the row
+  args   ["{D}"]
+  files  n=2 sha256=97fdb13355203059
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+long row text is cut at 90 characters
+  args   ["{D}"]
+  files  n=2 sha256=93c680000719b8aa
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='lorem ipsum dolor lorem ipsum dolor lorem ipsum dolor lorem ipsum dolor lorem ipsum dolor '\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+non-ASCII text at the cut
+  args   ["{D}"]
+  files  n=2 sha256=ac6f9cc5c30dd208
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='ñandú café ñandú café ñandú café ñandú café ñandú café ñandú café ñandú café ñandú café ña'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+NO-BULLET
+  args   ["{D}"]
+  files  n=2 sha256=b4be6302ee4291de
+  exit   0
+  stdout "NO-BULLET B1-G9 (no '- **B1-G9**' bullet in its block; prose-only or undefined)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+NO-BLOCK
+  args   ["{D}"]
+  files  n=2 sha256=f5bd74c35dff1079
+  exit   0
+  stdout "NO-BLOCK B7-G1 (no block file for block 7 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+NO-WORDS
+  args   ["{D}"]
+  files  n=2 sha256=757da64bcb478d0e
+  exit   0
+  stdout "NO-WORDS B1-G1 (row text has no comparable content word)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=0 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+UNPARSED
+  args   ["{D}"]
+  files  n=2 sha256=fe41ad49f1e8a1d9
+  exit   1
+  stdout "UNPARSED | urgent | B1-G1 x | w | pending |\nUNPARSED | high | B1-G2 only three cells |\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+closed-class rows are skipped
+  args   ["{D}"]
+  files  n=2 sha256=3c2bce43a5a58008
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=3\n"
+  stderr ""
+only closed-class rows: not applicable
+  args   ["{D}" "--all"]
+  files  n=2 sha256=e1a91f2033f7b9bb
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+pending row with a numeric priority is compared
+  args   ["{D}"]
+  files  n=2 sha256=0fb99de30d120339
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+DEGRADED: rows in scope, none comparable
+  args   ["{D}"]
+  files  n=2 sha256=3c36ecf2342dff9d
+  exit   0
+  stdout "NO-BULLET B1-G9 (no '- **B1-G9**' bullet in its block; prose-only or undefined)\nNO-BLOCK B7-G1 (no block file for block 7 under {D})\nNO-WORDS B1-G1 (row text has no comparable content word)\nDEGRADED: 3 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+no backlog rows: not applicable
+  args   ["{D}"]
+  files  n=2 sha256=3fb5e36bc1f536ca
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+empty state file
+  args   ["{D}"]
+  files  n=2 sha256=d1906f5967411d9a
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+no pending rows
+  args   ["{D}"]
+  files  n=2 sha256=ec7c1a0ab0214bf8
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (2 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+no block files at all
+  args   ["{D}"]
+  files  n=1 sha256=226685304da830c3
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+B1-G1 never reads the B1-G10 bullet
+  args   ["{D}"]
+  files  n=2 sha256=dd16aad5a197ef4a
+  exit   0
+  stdout "NO-BULLET B1-G1 (no '- **B1-G1**' bullet in its block; prose-only or undefined)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+bloque files and a suffix
+  args   ["{D}"]
+  files  n=2 sha256=280ebcddb01d08be
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+block files three levels deep, not four
+  args   ["{D}"]
+  files  n=3 sha256=7f751a28ec247715
+  exit   0
+  stdout "NO-BLOCK B2-G1 (no block file for block 2 under {D})\nchecked=1 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+.git and template files are ignored
+  args   ["{D}"]
+  files  n=3 sha256=8bfaccb4695a5fee
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D})\nNO-BLOCK B2-G1 (no block file for block 2 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+nested worktrees are ignored
+  args   ["{D}"]
+  files  n=2 sha256=e5af487bc9c2077f
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+the first block file with the bullet wins
+  args   ["{D}"]
+  files  n=3 sha256=6f3676eb62884581
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+bullet forms
+  args   ["{D}"]
+  files  n=2 sha256=abefac1f0c30d397
+  exit   0
+  stdout "checked=4 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+state with a different name in a subdir
+  args   ["{D}" "--state" "{D}/sub/STATE.md"]
+  files  n=2 sha256=5915c127aada87d5
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+usage: no arguments
+  args   []
+  files  n=0 sha256=e3b0c44298fc1c14
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: empty target
+  args   [""]
+  files  n=0 sha256=e3b0c44298fc1c14
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: target is not a directory
+  args   ["{D}/f"]
+  files  n=1 sha256=327eacf77fdba663
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: missing directory
+  args   ["{D}/nope"]
+  files  n=0 sha256=e3b0c44298fc1c14
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: unknown option
+  args   ["{D}" "--bogus"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: --state without a value
+  args   ["{D}" "--state"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: --state with an empty value
+  args   ["{D}" "--state" ""]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: --threshold without a value
+  args   ["{D}" "--threshold"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+usage: a stray positional argument
+  args   ["{D}" "extra"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "usage: check-gap-drift.sh <target-dir> [--state <file>] [--threshold <pct>] [--all]\n"
+threshold: not a number
+  args   ["{D}" "--threshold" "abc"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got 'abc')\n"
+threshold: empty
+  args   ["{D}" "--threshold" ""]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '')\n"
+threshold: negative
+  args   ["{D}" "--threshold" "-5"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '-5')\n"
+threshold: decimal point
+  args   ["{D}" "--threshold" "1.5"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '1.5')\n"
+threshold: over 100
+  args   ["{D}" "--threshold" "101"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '101')\n"
+threshold: out of integer range
+  args   ["{D}" "--threshold" "99999999999999999999999"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '99999999999999999999999')\n"
+threshold is checked before the state file
+  args   ["{D}" "--threshold" "x"]
+  files  n=0 sha256=e3b0c44298fc1c14
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got 'x')\n"
+state file absent
+  args   ["{D}"]
+  files  n=1 sha256=91ecf987a0047b02
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: cannot read state file {D}/RESEARCH-STATE.md\n"
+state file is a directory
+  args   ["{D}"]
+  files  n=1 sha256=77e07d70bc1f519d
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: cannot read state file {D}/RESEARCH-STATE.md\n"
+--state names a missing file
+  args   ["{D}" "--state" "{D}/missing.md"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: cannot read state file {D}/missing.md\n"
+DEGRADED counts only the rows in scope
+  args   ["{D}"]
+  files  n=2 sha256=f96401308b43d57a
+  exit   0
+  stdout "NO-BULLET B1-G9 (no '- **B1-G9**' bullet in its block; prose-only or undefined)\nNO-BLOCK B7-G1 (no block file for block 7 under {D})\nNO-WORDS B1-G1 (row text has no comparable content word)\nDEGRADED: 3 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=1 unparsed=0 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+DEGRADED with --all has no skipped rows
+  args   ["{D}" "--all"]
+  files  n=2 sha256=5894ec11d7f877ea
+  exit   0
+  stdout "NO-BLOCK B7-G1 (no block file for block 7 under {D})\nNO-BLOCK B7-G2 (no block file for block 7 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+suspects only: exit 1 with no unparsed row
+  args   ["{D}"]
+  files  n=2 sha256=c0672961937c0b23
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+unparsed only: exit 1 with no suspect
+  args   ["{D}"]
+  files  n=2 sha256=2b56d29e2614ff91
+  exit   1
+  stdout "UNPARSED | urgent | B1-G1 widgets frobnicate | w | pending |\nchecked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+neither suspect nor unparsed: exit 0
+  args   ["{D}"]
+  files  n=2 sha256=7dff1886e863e632
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+one skipped closed row of each kind
+  args   ["{D}"]
+  files  n=2 sha256=a66d10bcf7d7377f
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+every counter at once
+  args   ["{D}"]
+  files  n=2 sha256=8c8de69490054371
+  exit   1
+  stdout "DRIFT? B1-G3 overlap=0% row='zebra yak xylophone'\nNO-BULLET B1-G9 (no '- **B1-G9**' bullet in its block; prose-only or undefined)\nNO-BLOCK B7-G1 (no block file for block 7 under {D})\nNO-WORDS B1-G1 (row text has no comparable content word)\nUNPARSED | urgent | B1-G2 x | w | pending |\nchecked=2 suspects=1 no_bullet=1 no_block=1 no_words=1 unparsed=1 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+overlap percent: 1 of 6 words
+  args   ["{D}"]
+  files  n=2 sha256=4b49f664567fcd29
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=16% row='widgets cats dogs birds frogs newts'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+overlap percent: 1 of 3 words at threshold 34
+  args   ["{D}" "--threshold" "34"]
+  files  n=2 sha256=01ecdd8635b051e8
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=33% row='widgets cats dogs'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+overlap percent: 1 of 3 words at threshold 33
+  args   ["{D}" "--threshold" "33"]
+  files  n=2 sha256=01ecdd8635b051e8
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+row text of exactly 90 characters
+  args   ["{D}"]
+  files  n=2 sha256=f7869cef47ebc9e3
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+row text of 91 characters
+  args   ["{D}"]
+  files  n=2 sha256=d7bbc903b4344519
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+row text shorter than the cut
+  args   ["{D}"]
+  files  n=2 sha256=fcbd87feff5a45ff
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+row text with an invalid byte
+  args   ["{D}"]
+  files  n=2 sha256=149bd60b6d7239a2
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats \xff\xfe dogs \xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold 101 is refused, 100 is accepted
+  args   ["{D}" "--threshold" "100"]
+  files  n=2 sha256=45f14ffe069f75c0
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+threshold 1000 is refused
+  args   ["{D}" "--threshold" "1000"]
+  files  n=1 sha256=1f3acfdd857a9fbf
+  exit   2
+  stdout ""
+  stderr "check-gap-drift: --threshold must be an integer percent 0-100 (got '1000')\n"
+block files exactly three levels deep
+  args   ["{D}"]
+  files  n=2 sha256=ac9329f9bcaa4b8e
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+block files four levels deep are not listed
+  args   ["{D}"]
+  files  n=2 sha256=80c29d6971c111c2
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+block files two levels deep
+  args   ["{D}"]
+  files  n=2 sha256=54c34cf1a7571378
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+a deep directory next to a shallow block file
+  args   ["{D}"]
+  files  n=3 sha256=b4a8fd2fa3f5e2d7
+  exit   0
+  stdout "NO-BLOCK B2-G1 (no block file for block 2 under {D})\nchecked=1 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+a target named .git lists nothing
+  args   ["{D}/.git"]
+  files  n=2 sha256=18c26fef95f81f6d
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D}/.git)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+a target named .git with a trailing slash
+  args   ["{D}/.git/"]
+  files  n=2 sha256=18c26fef95f81f6d
+  exit   0
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D}/.git/)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+a target whose name merely ends in .git
+  args   ["{D}/x.git"]
+  files  n=2 sha256=6cfffdd4775057f6
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+relative target and relative state in a subdirectory
+  args   ["sub"]
+  files  n=2 sha256=01303e1496dff26f
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+absolute state, relative target
+  args   ["." "--state" "{D}/sub/s.md"]
+  files  n=3 sha256=9dc4c66fc959a865
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+target with a trailing slash
+  args   ["{D}/"]
+  files  n=2 sha256=c0672961937c0b23
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=0% row='cats dogs birds'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+two block files, only the later one has the bullet
+  args   ["{D}"]
+  files  n=3 sha256=74b3de32965b46e1
+  exit   0
+  stdout "checked=1 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-0
+  args   ["{D}" "--threshold" "34" "--all"]
+  files  n=3 sha256=ea6452848954da7e
+  exit   1
+  stdout "DRIFT? B3-G6 overlap=25% row='class x.y frobnicate gamma class'\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-WORDS B3-G2 (row text has no comparable content word)\nchecked=1 suspects=1 no_bullet=0 no_block=2 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-1
+  args   ["{D}" "--threshold" "19"]
+  files  n=4 sha256=778a9beab11eb73b
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=0% row='café of ñandú'\nDRIFT? B1-G3 overlap=0% row='x.y'\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nchecked=2 suspects=2 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=2\n"
+  stderr ""
+generated-2645-2
+  args   ["{D}" "--threshold" "49" "--all"]
+  files  n=2 sha256=580cec4ba0235e18
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-3
+  args   ["{D}" "--threshold" "88" "--all"]
+  files  n=3 sha256=0debf9ffeec8fa67
+  exit   0
+  stdout "NO-BULLET B1-G4 (no '- **B1-G4**' bullet in its block; prose-only or undefined)\nNO-BLOCK B3-G3 (no block file for block 3 under {D})\nNO-BLOCK B3-G1 (no block file for block 3 under {D})\nNO-BLOCK B3-G7 (no block file for block 3 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nDEGRADED: 5 row(s) in scope but none could be compared (no_block=4 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=4 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-2645-4
+  args   ["{D}" "--threshold" "63" "--all"]
+  files  n=4 sha256=732f8d7c6bc6aa1b
+  exit   0
+  stdout "NO-BLOCK B4-G4 (no block file for block 4 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-5
+  args   ["{D}" "--threshold" "2" "--all"]
+  files  n=2 sha256=b652e2baf0c544e4
+  exit   0
+  stdout "NO-BLOCK B1-G2 (no block file for block 1 under {D})\nNO-BLOCK B1-G4 (no block file for block 1 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-6
+  args   ["{D}" "--threshold" "80" "--all"]
+  files  n=4 sha256=0c70185dcfc7aaef
+  exit   1
+  stdout "DRIFT? B2-G2 overlap=50% row='9.5.0 load months'\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G4 (no block file for block 4 under {D})\nUNPARSED | urgent | B2-G1 gamma | w | closed |\nchecked=2 suspects=1 no_bullet=3 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-7
+  args   ["{D}" "--threshold" "52" "--all"]
+  files  n=4 sha256=616ec146444f1b33
+  exit   1
+  stdout "DRIFT? B2-G6 overlap=50% row='months delta'\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-8
+  args   ["{D}" "--threshold" "52"]
+  files  n=4 sha256=b9e274c5dd3bc603
+  exit   0
+  stdout "NO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nDEGRADED: 4 row(s) in scope but none could be compared (no_block=3 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=3 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-2645-9
+  args   ["{D}" "--threshold" "74"]
+  files  n=4 sha256=4587e68af627347c
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-10
+  args   ["{D}" "--threshold" "73"]
+  files  n=3 sha256=2497c4acdf40abe2
+  exit   1
+  stdout "NO-BULLET B1-G5 (no '- **B1-G5**' bullet in its block; prose-only or undefined)\nNO-BLOCK B3-G7 (no block file for block 3 under {D})\nUNPARSED | urgent | B4-G4  | w | closed |\nUNPARSED | urgent | B2-G5 gizmo the alpha | w | done |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=2\n"
+  stderr ""
+generated-2645-11
+  args   ["{D}" "--threshold" "16" "--all"]
+  files  n=3 sha256=2a85b8b471d7d792
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-12
+  args   ["{D}" "--threshold" "25"]
+  files  n=3 sha256=f1c7c6f12c0edd81
+  exit   0
+  stdout "NO-BULLET B2-G6 (no '- **B2-G6**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=0 no_bullet=2 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=2 no_block=0 no_words=0 unparsed=0 skipped_nonpending=2 skipped_closed=1\n"
+  stderr ""
+generated-2645-13
+  args   ["{D}" "--threshold" "54" "--all"]
+  files  n=4 sha256=36263541635b7f1e
+  exit   1
+  stdout "NO-BULLET B1-G5 (no '- **B1-G5**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G5 (no block file for block 4 under {D})\nUNPARSED | urgent | B1-G1 widgets gizmo gizmo class frobnicate | w | closed |\nchecked=1 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-14
+  args   ["{D}" "--threshold" "33" "--all"]
+  files  n=4 sha256=9eb53f68c684768b
+  exit   1
+  stdout "DRIFT? B3-G6 overlap=0% row='alpha sprockets'\nchecked=2 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-15
+  args   ["{D}" "--threshold" "100"]
+  files  n=4 sha256=c493480dbf7856a2
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (4 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=4 skipped_closed=0\n"
+  stderr ""
+generated-2645-16
+  args   ["{D}" "--threshold" "84"]
+  files  n=4 sha256=85d57978357b4f3e
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (1 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-2645-17
+  args   ["{D}" "--threshold" "66"]
+  files  n=3 sha256=12e934cc00737b6b
+  exit   1
+  stdout "NO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G2 (no block file for block 4 under {D})\nNO-BLOCK B2-G6 (no block file for block 2 under {D})\nUNPARSED | urgent | B2-G4 sprockets beta alpha the | w | done |\nUNPARSED | urgent | B3-G2 x.y month sprockets delta alpha | w | pending |\nDEGRADED: 3 row(s) in scope but none could be compared (no_block=2 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=2 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-2645-18
+  args   ["{D}" "--threshold" "24" "--all"]
+  files  n=3 sha256=310a03b188209bc7
+  exit   0
+  stdout "NO-BLOCK B2-G7 (no block file for block 2 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-19
+  args   ["{D}" "--threshold" "12" "--all"]
+  files  n=4 sha256=5239f0718a187c57
+  exit   1
+  stdout "DRIFT? B1-G5 overlap=0% row='a frobnicate'\nDRIFT? B1-G1 overlap=0% row='the alpha of café'\nDRIFT? B3-G1 overlap=0% row='gamma'\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-WORDS B2-G4 (row text has no comparable content word)\nNO-WORDS B2-G3 (row text has no comparable content word)\nchecked=3 suspects=3 no_bullet=0 no_block=1 no_words=2 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-2645-20
+  args   ["{D}" "--threshold" "81"]
+  files  n=3 sha256=967a18e014582108
+  exit   0
+  stdout "NO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-2645-21
+  args   ["{D}" "--threshold" "13"]
+  files  n=3 sha256=5d51785ba2d0064b
+  exit   1
+  stdout "DRIFT? B3-G4 overlap=0% row='widgets calibrate gizmo alpha'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-22
+  args   ["{D}" "--threshold" "45" "--all"]
+  files  n=4 sha256=eb98e0375ad4486b
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-23
+  args   ["{D}" "--threshold" "19" "--all"]
+  files  n=4 sha256=7daa4c338e04488c
+  exit   0
+  stdout "NO-BULLET B1-G5 (no '- **B1-G5**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G4 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-2645-24
+  args   ["{D}" "--threshold" "8" "--all"]
+  files  n=4 sha256=7930145ad126d712
+  exit   0
+  stdout "NO-BULLET B3-G4 (no '- **B3-G4**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G2 (no '- **B2-G2**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G2 (no '- **B2-G2**' bullet in its block; prose-only or undefined)\nchecked=2 suspects=0 no_bullet=3 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-25
+  args   ["{D}" "--threshold" "85" "--all"]
+  files  n=4 sha256=c4fcf4fbae6ececd
+  exit   1
+  stdout "DRIFT? B3-G5 overlap=0% row='delta the the café'\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-26
+  args   ["{D}" "--threshold" "32"]
+  files  n=3 sha256=0404f1ecf791a500
+  exit   0
+  stdout "NO-BULLET B3-G5 (no '- **B3-G5**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G6 (no '- **B3-G6**' bullet in its block; prose-only or undefined)\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=0 no_bullet=2 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=2 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=3\n"
+  stderr ""
+generated-2645-27
+  args   ["{D}" "--threshold" "51"]
+  files  n=4 sha256=4dfd32042488ae9e
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-28
+  args   ["{D}" "--threshold" "74"]
+  files  n=4 sha256=82a8aa246dde3997
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=50% row='of of delta alpha'\nNO-WORDS B3-G6 (row text has no comparable content word)\nUNPARSED | urgent | B2-G2 a widgets delta | w | done |\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=1 unparsed=1 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-2645-29
+  args   ["{D}" "--threshold" "23" "--all"]
+  files  n=4 sha256=8deebe0a34252f2f
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=0% row='load frobnicate café'\nDRIFT? B3-G1 overlap=0% row='x.y load'\nDRIFT? B2-G6 overlap=0% row='bosses café gizmo a'\nchecked=3 suspects=3 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-2645-30
+  args   ["{D}" "--threshold" "100"]
+  files  n=3 sha256=dcb036e47d63f9b3
+  exit   0
+  stdout "NO-BULLET B2-G3 (no '- **B2-G3**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-2645-31
+  args   ["{D}" "--threshold" "88" "--all"]
+  files  n=3 sha256=12f113516d04d4f6
+  exit   1
+  stdout "DRIFT? B2-G6 overlap=0% row='widgets month café alpha'\nDRIFT? B1-G2 overlap=0% row='9.5.0 9.5.0 the month gamma'\nNO-BLOCK B3-G4 (no block file for block 3 under {D})\nNO-WORDS B2-G6 (row text has no comparable content word)\nUNPARSED | urgent | B2-G6  | w | closed |\nchecked=2 suspects=2 no_bullet=0 no_block=1 no_words=1 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-32
+  args   ["{D}" "--threshold" "33"]
+  files  n=4 sha256=5360ffc6979b3b81
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (1 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-2645-33
+  args   ["{D}" "--threshold" "46" "--all"]
+  files  n=4 sha256=4e18d0b6707310ea
+  exit   1
+  stdout "NO-BLOCK B4-G6 (no block file for block 4 under {D})\nUNPARSED | urgent | B3-G3 bosses widgets | w | pending |\nUNPARSED | urgent | B3-G6 ñandú | w | pending |\nchecked=1 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-34
+  args   ["{D}" "--threshold" "44"]
+  files  n=3 sha256=8b649be2be83642d
+  exit   1
+  stdout "DRIFT? B3-G3 overlap=25% row='calibrate widgets delta frobnicate'\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B1-G1 (no block file for block 1 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G1  | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=0 no_block=3 no_words=0 unparsed=1 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+generated-2645-35
+  args   ["{D}" "--threshold" "23" "--all"]
+  files  n=4 sha256=8ca6e6eb631e5fb1
+  exit   1
+  stdout "DRIFT? B3-G2 overlap=0% row='months'\nDRIFT? B3-G6 overlap=0% row='frobnicate'\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G3 load beta of | w | pending |\nUNPARSED | urgent | B1-G3 sprockets gamma calibrate | w | closed |\nchecked=3 suspects=2 no_bullet=0 no_block=2 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-36
+  args   ["{D}" "--threshold" "14"]
+  files  n=1 sha256=55070afdb53577aa
+  exit   1
+  stdout "NO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-BLOCK B2-G6 (no block file for block 2 under {D})\nUNPARSED | urgent | B1-G6  | w | pending |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-2645-37
+  args   ["{D}" "--threshold" "9"]
+  files  n=4 sha256=abb92daebcd19d7d
+  exit   1
+  stdout "DRIFT? B3-G2 overlap=0% row='widgets calibrate sprockets'\nDRIFT? B3-G5 overlap=0% row='x.y months sprockets'\nDRIFT? B2-G1 overlap=0% row='beta café'\nNO-WORDS B3-G3 (row text has no comparable content word)\nchecked=3 suspects=3 no_bullet=0 no_block=0 no_words=1 unparsed=0 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-2645-38
+  args   ["{D}" "--threshold" "67"]
+  files  n=4 sha256=0e03d8939c9dccae
+  exit   1
+  stdout "DRIFT? B3-G1 overlap=0% row='sprockets'\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B1-G1 bosses ñandú gizmo | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=1 no_block=0 no_words=0 unparsed=1 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+generated-2645-39
+  args   ["{D}" "--threshold" "72" "--all"]
+  files  n=4 sha256=ec6ed45bea643757
+  exit   1
+  stdout "NO-BULLET B2-G2 (no '- **B2-G2**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-WORDS B3-G5 (row text has no comparable content word)\nUNPARSED | urgent | B3-G6 sprockets bosses sprockets | w | closed |\nUNPARSED | urgent | B3-G6 load frobnicate | w | done |\nDEGRADED: 4 row(s) in scope but none could be compared (no_block=0 no_bullet=3 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=3 no_block=0 no_words=1 unparsed=2 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-0
+  args   ["{D}" "--threshold" "90" "--all"]
+  files  n=3 sha256=6e2e960b75fa017b
+  exit   0
+  stdout "NO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-BLOCK B1-G5 (no block file for block 1 under {D})\nNO-BLOCK B4-G2 (no block file for block 4 under {D})\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-BLOCK B4-G5 (no block file for block 4 under {D})\nDEGRADED: 6 row(s) in scope but none could be compared (no_block=5 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=5 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-1
+  args   ["{D}" "--threshold" "31" "--all"]
+  files  n=4 sha256=8ab92bf1839cedbf
+  exit   1
+  stdout "DRIFT? B2-G1 overlap=0% row='beta'\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-2
+  args   ["{D}" "--threshold" "20"]
+  files  n=3 sha256=8801bbb05ad84772
+  exit   1
+  stdout "DRIFT? B1-G3 overlap=0% row='load ñandú gizmo gizmo'\nUNPARSED | urgent | B4-G3 frobnicate ñandú x.y frobnicate calibrate | w | pending |\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-3
+  args   ["{D}" "--threshold" "84"]
+  files  n=3 sha256=6b592483a4b8f1aa
+  exit   1
+  stdout "NO-BULLET B3-G5 (no '- **B3-G5**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nUNPARSED | urgent | B2-G7 frobnicate the months the months | w | closed |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-4
+  args   ["{D}" "--threshold" "11" "--all"]
+  files  n=4 sha256=568c9d026f45e07c
+  exit   1
+  stdout "DRIFT? B3-G3 overlap=0% row='beta delta 9.5.0 of widgets'\nNO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-WORDS B2-G3 (row text has no comparable content word)\nchecked=1 suspects=1 no_bullet=1 no_block=1 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-5
+  args   ["{D}" "--threshold" "8"]
+  files  n=3 sha256=460bce92d3f4b4d8
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=0% row='months beta sprockets bosses'\nNO-BULLET B3-G1 (no '- **B3-G1**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G6 (no '- **B2-G6**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G4 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=2 no_block=1 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=2\n"
+  stderr ""
+generated-11-6
+  args   ["{D}" "--threshold" "3"]
+  files  n=3 sha256=5149fced15973bc2
+  exit   1
+  stdout "NO-BULLET B3-G1 (no '- **B3-G1**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-WORDS B1-G3 (row text has no comparable content word)\nUNPARSED | urgent | B2-G4 calibrate the frobnicate | w | Pending (wait) |\nchecked=1 suspects=0 no_bullet=1 no_block=2 no_words=1 unparsed=1 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-7
+  args   ["{D}" "--threshold" "89" "--all"]
+  files  n=4 sha256=e3c804cc07702f81
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=50% row='frobnicate of calibrate calibrate'\nDRIFT? B1-G2 overlap=0% row='class café months'\nDRIFT? B1-G4 overlap=0% row='of ñandú frobnicate'\nNO-BLOCK B4-G2 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G6 alpha widgets gamma | w | Pending (wait) |\nUNPARSED | urgent | B4-G6 class delta calibrate gizmo widgets | w | closed |\nUNPARSED | urgent | B2-G7 9.5.0 | w | done |\nchecked=3 suspects=3 no_bullet=0 no_block=1 no_words=0 unparsed=3 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-8
+  args   ["{D}" "--threshold" "89"]
+  files  n=2 sha256=d26c32fc47cf2b3a
+  exit   0
+  stdout "NO-BLOCK B3-G4 (no block file for block 3 under {D})\nNO-BLOCK B3-G3 (no block file for block 3 under {D})\nNO-BLOCK B3-G1 (no block file for block 3 under {D})\nDEGRADED: 3 row(s) in scope but none could be compared (no_block=3 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=3 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-9
+  args   ["{D}" "--threshold" "81" "--all"]
+  files  n=1 sha256=bbbab05e3f188794
+  exit   0
+  stdout "NO-BLOCK B2-G7 (no block file for block 2 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-10
+  args   ["{D}" "--threshold" "63"]
+  files  n=4 sha256=346bb14dc4929c6e
+  exit   1
+  stdout "DRIFT? B3-G1 overlap=0% row='bosses 9.5.0 months x.y'\nDRIFT? B2-G6 overlap=25% row='9.5.0 gizmo calibrate month bosses'\nchecked=2 suspects=2 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=2 skipped_closed=1\n"
+  stderr ""
+generated-11-11
+  args   ["{D}" "--threshold" "88"]
+  files  n=4 sha256=e889e749d933cf1d
+  exit   1
+  stdout "DRIFT? B3-G6 overlap=0% row='gamma load bosses beta'\nDRIFT? B2-G2 overlap=0% row='frobnicate of 9.5.0 a'\nUNPARSED | urgent | B4-G3 of widgets ñandú | w | closed |\nchecked=3 suspects=2 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-11-12
+  args   ["{D}" "--threshold" "44"]
+  files  n=4 sha256=9599d383bc77895b
+  exit   1
+  stdout "DRIFT? B2-G3 overlap=0% row='a frobnicate alpha of beta'\nDRIFT? B2-G4 overlap=0% row='café'\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-WORDS B1-G1 (row text has no comparable content word)\nNO-WORDS B3-G4 (row text has no comparable content word)\nchecked=2 suspects=2 no_bullet=2 no_block=0 no_words=2 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-11-13
+  args   ["{D}" "--threshold" "2" "--all"]
+  files  n=3 sha256=fe34dcdc88e16658
+  exit   0
+  stdout "NO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-BLOCK B4-G5 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=1 no_block=3 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-11-14
+  args   ["{D}" "--threshold" "74"]
+  files  n=4 sha256=9a93cdb631eac871
+  exit   0
+  stdout "NO-BLOCK B4-G2 (no block file for block 4 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-15
+  args   ["{D}" "--threshold" "100"]
+  files  n=4 sha256=935e246f5ca6c730
+  exit   1
+  stdout "DRIFT? B2-G1 overlap=0% row='gamma'\nUNPARSED | urgent | B3-G1 months ñandú | w | closed |\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-11-16
+  args   ["{D}" "--threshold" "17" "--all"]
+  files  n=3 sha256=4fc9ade1c9a78134
+  exit   0
+  stdout "NO-BLOCK B4-G2 (no block file for block 4 under {D})\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-17
+  args   ["{D}" "--threshold" "60"]
+  files  n=4 sha256=1f487dca63782a7e
+  exit   1
+  stdout "DRIFT? B3-G2 overlap=0% row='bosses frobnicate'\nNO-WORDS B1-G1 (row text has no comparable content word)\nUNPARSED | urgent | B2-G7 the | w | done |\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=1 unparsed=1 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-11-18
+  args   ["{D}" "--threshold" "51"]
+  files  n=4 sha256=564c6b044d088d3f
+  exit   0
+  stdout "NO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-19
+  args   ["{D}" "--threshold" "60"]
+  files  n=4 sha256=bc2c06fb272fa588
+  exit   0
+  stdout "NO-BULLET B3-G6 (no '- **B3-G6**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=0 skipped_nonpending=3 skipped_closed=1\n"
+  stderr ""
+generated-11-20
+  args   ["{D}" "--threshold" "34"]
+  files  n=4 sha256=17df25d2b9871912
+  exit   1
+  stdout "DRIFT? B1-G4 overlap=0% row='the frobnicate'\nNO-BULLET B3-G4 (no '- **B3-G4**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-WORDS B2-G5 (row text has no comparable content word)\nUNPARSED | urgent | B3-G7  | w | pending |\nUNPARSED | urgent | B3-G3 month frobnicate | w | pending |\nchecked=1 suspects=1 no_bullet=1 no_block=1 no_words=1 unparsed=2 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-21
+  args   ["{D}" "--threshold" "76"]
+  files  n=4 sha256=1a21e3108db22310
+  exit   1
+  stdout "DRIFT? B1-G5 overlap=50% row='widgets 9.5.0 bosses'\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nUNPARSED | urgent | B3-G7 delta months frobnicate gamma | w | pending |\nchecked=1 suspects=1 no_bullet=0 no_block=1 no_words=0 unparsed=1 skipped_nonpending=4 skipped_closed=0\n"
+  stderr ""
+generated-11-22
+  args   ["{D}" "--threshold" "79"]
+  files  n=3 sha256=7544c2df1c61b096
+  exit   0
+  stdout "NO-BULLET B1-G5 (no '- **B1-G5**' bullet in its block; prose-only or undefined)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-23
+  args   ["{D}" "--threshold" "51"]
+  files  n=2 sha256=92ab1a0bf1344464
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (1 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-24
+  args   ["{D}" "--threshold" "80"]
+  files  n=4 sha256=c32bbd46cfcf344d
+  exit   1
+  stdout "DRIFT? B3-G6 overlap=25% row='delta widgets frobnicate sprockets'\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nUNPARSED | urgent | B1-G4  | w | done |\nchecked=1 suspects=1 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-25
+  args   ["{D}" "--threshold" "53"]
+  files  n=4 sha256=1bde491a60ab63d2
+  exit   1
+  stdout "NO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B1-G4 a | w | Pending (wait) |\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-26
+  args   ["{D}" "--threshold" "63"]
+  files  n=3 sha256=d01289636cbca485
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-27
+  args   ["{D}" "--threshold" "25" "--all"]
+  files  n=3 sha256=9f61595c5d4b4db4
+  exit   1
+  stdout "DRIFT? B1-G3 overlap=0% row='load ñandú'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-28
+  args   ["{D}" "--threshold" "9" "--all"]
+  files  n=4 sha256=aeb4cfe7e0d0d3b2
+  exit   1
+  stdout "DRIFT? B3-G5 overlap=0% row='gamma x.y load widgets a'\nchecked=2 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-29
+  args   ["{D}" "--threshold" "23" "--all"]
+  files  n=4 sha256=c1f5c9aae982d331
+  exit   1
+  stdout "DRIFT? B2-G2 overlap=0% row='sprockets alpha of'\nNO-BULLET B2-G3 (no '- **B2-G3**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G6 delta | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=2 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-11-30
+  args   ["{D}" "--threshold" "97"]
+  files  n=2 sha256=36abaff18e458f64
+  exit   1
+  stdout "NO-BLOCK B2-G2 (no block file for block 2 under {D})\nNO-BLOCK B2-G3 (no block file for block 2 under {D})\nUNPARSED | urgent | B4-G4 alpha sprockets | w | done |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=1 skipped_closed=2\n"
+  stderr ""
+generated-11-31
+  args   ["{D}" "--threshold" "26"]
+  files  n=2 sha256=5d639fbd1837fe99
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-32
+  args   ["{D}" "--threshold" "85" "--all"]
+  files  n=2 sha256=e4a4014d886eddcc
+  exit   1
+  stdout "DRIFT? B3-G4 overlap=33% row='delta class the gamma'\nNO-BLOCK B1-G7 (no block file for block 1 under {D})\nNO-BLOCK B1-G1 (no block file for block 1 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-33
+  args   ["{D}" "--threshold" "90"]
+  files  n=3 sha256=56e57f4d2477d04c
+  exit   0
+  stdout "NO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nDEGRADED: 3 row(s) in scope but none could be compared (no_block=2 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-34
+  args   ["{D}" "--threshold" "50"]
+  files  n=4 sha256=40e835534ad8a699
+  exit   1
+  stdout "DRIFT? B1-G1 overlap=33% row='months widgets sprockets'\nDRIFT? B2-G4 overlap=25% row='frobnicate gizmo bosses x.y'\nNO-BULLET B2-G2 (no '- **B2-G2**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G2 (no '- **B2-G2**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G2 (no block file for block 4 under {D})\nUNPARSED | urgent | B2-G1 bosses months load | w | done |\nchecked=2 suspects=2 no_bullet=2 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-35
+  args   ["{D}" "--threshold" "9"]
+  files  n=4 sha256=e26897d6d812aa61
+  exit   1
+  stdout "DRIFT? B1-G2 overlap=0% row='beta a month'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-36
+  args   ["{D}" "--threshold" "18" "--all"]
+  files  n=3 sha256=8dc785352556b2a7
+  exit   1
+  stdout "DRIFT? B2-G2 overlap=0% row='widgets load'\nNO-BULLET B1-G6 (no '- **B1-G6**' bullet in its block; prose-only or undefined)\nNO-BLOCK B3-G1 (no block file for block 3 under {D})\nUNPARSED | urgent | B3-G7 widgets frobnicate | w | done |\nchecked=2 suspects=1 no_bullet=1 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-37
+  args   ["{D}" "--threshold" "51" "--all"]
+  files  n=4 sha256=f25ce9accbecf505
+  exit   1
+  stdout "DRIFT? B2-G4 overlap=0% row='sprockets calibrate the'\nDRIFT? B1-G6 overlap=0% row='x.y'\nDRIFT? B2-G5 overlap=50% row='delta 9.5.0 beta'\nDRIFT? B3-G2 overlap=0% row='frobnicate 9.5.0'\nNO-WORDS B2-G2 (row text has no comparable content word)\nchecked=4 suspects=4 no_bullet=0 no_block=0 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-11-38
+  args   ["{D}" "--threshold" "68"]
+  files  n=4 sha256=5d380918a6e23438
+  exit   0
+  stdout "check-gap-drift: no pending B<n>-G<m> rows (1 non-pending skipped; use --all)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-11-39
+  args   ["{D}" "--threshold" "100"]
+  files  n=4 sha256=c1289461bf4b0b7d
+  exit   0
+  stdout "NO-BLOCK B4-G5 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-23-0
+  args   ["{D}" "--threshold" "50"]
+  files  n=4 sha256=8ba8e4e3824d6077
+  exit   1
+  stdout "DRIFT? B2-G5 overlap=0% row='bosses'\nNO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G4 (no '- **B1-G4**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nUNPARSED | urgent | B1-G7 beta class widgets | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=3 no_block=1 no_words=0 unparsed=1 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-23-1
+  args   ["{D}" "--threshold" "4"]
+  files  n=4 sha256=de49592b283d89b8
+  exit   1
+  stdout "DRIFT? B2-G1 overlap=0% row='gizmo a gizmo of'\nNO-BULLET B1-G1 (no '- **B1-G1**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B2-G4 sprockets sprockets café ñandú | w | closed |\nchecked=1 suspects=1 no_bullet=1 no_block=0 no_words=0 unparsed=1 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+generated-23-2
+  args   ["{D}" "--threshold" "88"]
+  files  n=4 sha256=dc76fe398a876f74
+  exit   0
+  stdout "NO-BULLET B1-G3 (no '- **B1-G3**' bullet in its block; prose-only or undefined)\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=0 unparsed=0 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-23-3
+  args   ["{D}" "--threshold" "8" "--all"]
+  files  n=3 sha256=8abaa2b576191076
+  exit   1
+  stdout "NO-BLOCK B4-G4 (no block file for block 4 under {D})\nNO-BLOCK B1-G7 (no block file for block 1 under {D})\nUNPARSED | urgent | B4-G1  | w | Pending (wait) |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-23-4
+  args   ["{D}" "--threshold" "78" "--all"]
+  files  n=3 sha256=daf509a59fb9832b
+  exit   1
+  stdout "NO-BLOCK B1-G7 (no block file for block 1 under {D})\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G3  | w | closed |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-23-5
+  args   ["{D}" "--threshold" "0"]
+  files  n=4 sha256=6f6609638b33e68e
+  exit   1
+  stdout "NO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-BLOCK B4-G4 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G1 bosses sprockets beta ñandú | w | pending |\nchecked=2 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-6
+  args   ["{D}" "--threshold" "50"]
+  files  n=4 sha256=5744519f28287bdd
+  exit   1
+  stdout "DRIFT? B1-G2 overlap=0% row='of x.y calibrate the gamma'\nNO-BULLET B2-G1 (no '- **B2-G1**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nUNPARSED | urgent | B2-G6 of | w | Pending (wait) |\nUNPARSED | urgent | B3-G3  | w | pending |\nchecked=1 suspects=1 no_bullet=1 no_block=1 no_words=0 unparsed=2 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-23-7
+  args   ["{D}" "--threshold" "24" "--all"]
+  files  n=4 sha256=3120f216d1b35101
+  exit   0
+  stdout "NO-BULLET B3-G4 (no '- **B3-G4**' bullet in its block; prose-only or undefined)\nNO-WORDS B3-G1 (row text has no comparable content word)\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=1 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-23-8
+  args   ["{D}" "--threshold" "88"]
+  files  n=3 sha256=42a48c504af8f02f
+  exit   1
+  stdout "DRIFT? B3-G4 overlap=33% row='gamma frobnicate bosses'\nDRIFT? B3-G4 overlap=0% row='class the sprockets frobnicate'\nNO-BLOCK B2-G4 (no block file for block 2 under {D})\nNO-BLOCK B2-G7 (no block file for block 2 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nchecked=2 suspects=2 no_bullet=0 no_block=3 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-9
+  args   ["{D}" "--threshold" "57"]
+  files  n=4 sha256=dd8e966df6057b48
+  exit   1
+  stdout "DRIFT? B3-G5 overlap=50% row='months gizmo the a'\nDRIFT? B3-G5 overlap=0% row='ñandú of class gizmo gamma'\nUNPARSED | urgent | B1-G7 months frobnicate bosses 9.5.0 9.5.0 | w | closed |\nchecked=3 suspects=2 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=3 skipped_closed=0\n"
+  stderr ""
+generated-23-10
+  args   ["{D}" "--threshold" "17" "--all"]
+  files  n=4 sha256=d08412b4647a07ab
+  exit   1
+  stdout "NO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G5 (no '- **B3-G5**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B1-G7  | w | closed |\nchecked=1 suspects=0 no_bullet=2 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-11
+  args   ["{D}" "--threshold" "95"]
+  files  n=3 sha256=9252464e4cb80158
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-12
+  args   ["{D}" "--threshold" "30" "--all"]
+  files  n=4 sha256=e8dbccdb765cc31e
+  exit   1
+  stdout "DRIFT? B3-G6 overlap=0% row='months'\nUNPARSED | urgent | B4-G5 a | w | pending |\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-13
+  args   ["{D}" "--threshold" "38" "--all"]
+  files  n=4 sha256=066c531a3ea16874
+  exit   1
+  stdout "DRIFT? B1-G2 overlap=0% row='sprockets'\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=1\n"
+  stderr ""
+generated-23-14
+  args   ["{D}" "--threshold" "40" "--all"]
+  files  n=3 sha256=ff5200d46e0b5c5d
+  exit   1
+  stdout "DRIFT? B2-G4 overlap=0% row='sprockets'\nNO-BULLET B3-G3 (no '- **B3-G3**' bullet in its block; prose-only or undefined)\nNO-BULLET B3-G7 (no '- **B3-G7**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G3 (no '- **B2-G3**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B3-G6 the a gizmo ñandú month | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=3 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=2\n"
+  stderr ""
+generated-23-15
+  args   ["{D}" "--threshold" "79"]
+  files  n=3 sha256=d8936533b9f02ec6
+  exit   1
+  stdout "DRIFT? B1-G5 overlap=0% row='gamma the alpha a'\nchecked=1 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-16
+  args   ["{D}" "--threshold" "1" "--all"]
+  files  n=3 sha256=521a50dff1027c0f
+  exit   1
+  stdout "DRIFT? B1-G4 overlap=0% row='months class'\nUNPARSED | urgent | B2-G7 the of frobnicate alpha | w | pending |\nchecked=2 suspects=1 no_bullet=0 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=2\n"
+  stderr ""
+generated-23-17
+  args   ["{D}" "--threshold" "96" "--all"]
+  files  n=4 sha256=30eff0d661fd5ebc
+  exit   1
+  stdout "DRIFT? B3-G4 overlap=50% row='gizmo 9.5.0 month frobnicate bosses'\nDRIFT? B3-G3 overlap=0% row='beta'\nDRIFT? B3-G1 overlap=50% row='gizmo sprockets'\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nUNPARSED | urgent | B1-G6 month ñandú months | w | pending |\nchecked=3 suspects=3 no_bullet=0 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-18
+  args   ["{D}" "--threshold" "50"]
+  files  n=4 sha256=21fdde2c870222d3
+  exit   0
+  stdout "NO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nNO-WORDS B3-G2 (row text has no comparable content word)\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=1) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=0 no_words=1 unparsed=0 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+generated-23-19
+  args   ["{D}" "--threshold" "10" "--all"]
+  files  n=4 sha256=9d92e8292b6f429b
+  exit   1
+  stdout "DRIFT? B1-G6 overlap=0% row='ñandú alpha class'\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nNO-BLOCK B4-G4 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-20
+  args   ["{D}" "--threshold" "83"]
+  files  n=4 sha256=d7a4eb00b8587b7a
+  exit   1
+  stdout "NO-BULLET B1-G4 (no '- **B1-G4**' bullet in its block; prose-only or undefined)\nNO-BULLET B2-G7 (no '- **B2-G7**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B1-G2  | w | Pending (wait) |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=0 no_bullet=2 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=2 no_block=0 no_words=0 unparsed=1 skipped_nonpending=3 skipped_closed=1\n"
+  stderr ""
+generated-23-21
+  args   ["{D}" "--threshold" "84" "--all"]
+  files  n=4 sha256=e804456e69f647cb
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-22
+  args   ["{D}" "--threshold" "78" "--all"]
+  files  n=4 sha256=ebf03f7d2b14b6d0
+  exit   1
+  stdout "DRIFT? B2-G2 overlap=0% row='9.5.0 bosses gizmo'\nDRIFT? B1-G6 overlap=0% row='a month the ñandú delta'\nDRIFT? B3-G1 overlap=25% row='café class café gizmo delta'\nNO-BULLET B3-G3 (no '- **B3-G3**' bullet in its block; prose-only or undefined)\nUNPARSED | urgent | B3-G7 beta beta | w | pending |\nchecked=3 suspects=3 no_bullet=1 no_block=0 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-23
+  args   ["{D}" "--threshold" "74" "--all"]
+  files  n=4 sha256=5cc28510ac130eb6
+  exit   1
+  stdout "NO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G2 (no block file for block 4 under {D})\nUNPARSED | urgent | B1-G4 month widgets month the | w | pending |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-24
+  args   ["{D}" "--threshold" "10" "--all"]
+  files  n=2 sha256=143270eaba380d92
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-25
+  args   ["{D}" "--threshold" "92"]
+  files  n=3 sha256=0b0003537bad7c8a
+  exit   0
+  stdout "NO-BLOCK B4-G5 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=0 skipped_nonpending=2 skipped_closed=0\n"
+  stderr ""
+generated-23-26
+  args   ["{D}" "--threshold" "34" "--all"]
+  files  n=4 sha256=91d0315111a5e7be
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-27
+  args   ["{D}" "--threshold" "37" "--all"]
+  files  n=3 sha256=2c034df2c59bac99
+  exit   0
+  stdout "NO-BULLET B3-G6 (no '- **B3-G6**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-28
+  args   ["{D}" "--threshold" "5" "--all"]
+  files  n=2 sha256=227077d9f8a0956a
+  exit   1
+  stdout "NO-BLOCK B2-G1 (no block file for block 2 under {D})\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nNO-BLOCK B3-G6 (no block file for block 3 under {D})\nNO-BLOCK B3-G6 (no block file for block 3 under {D})\nNO-BLOCK B2-G4 (no block file for block 2 under {D})\nUNPARSED | urgent | B2-G2 gizmo | w | pending |\nUNPARSED | urgent | B2-G3 alpha | w | pending |\nDEGRADED: 5 row(s) in scope but none could be compared (no_block=5 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=5 no_words=0 unparsed=2 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-29
+  args   ["{D}" "--threshold" "89"]
+  files  n=2 sha256=87657c504a319a50
+  exit   1
+  stdout "DRIFT? B1-G6 overlap=0% row='month month load a'\nNO-BLOCK B3-G2 (no block file for block 3 under {D})\nNO-BLOCK B3-G2 (no block file for block 3 under {D})\nNO-BLOCK B2-G3 (no block file for block 2 under {D})\nUNPARSED | urgent | B3-G7  | w | Pending (wait) |\nchecked=1 suspects=1 no_bullet=0 no_block=3 no_words=0 unparsed=1 skipped_nonpending=1 skipped_closed=0\n"
+  stderr ""
+generated-23-30
+  args   ["{D}" "--threshold" "13" "--all"]
+  files  n=4 sha256=1ad552a5be27fa60
+  exit   1
+  stdout "NO-BULLET B3-G1 (no '- **B3-G1**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nUNPARSED | urgent | B2-G7 of beta months café bosses | w | done |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=1 no_bullet=1 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=1 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-31
+  args   ["{D}" "--threshold" "5" "--all"]
+  files  n=3 sha256=deb0e3e49c654b94
+  exit   0
+  stdout "NO-BULLET B1-G5 (no '- **B1-G5**' bullet in its block; prose-only or undefined)\nNO-BULLET B1-G7 (no '- **B1-G7**' bullet in its block; prose-only or undefined)\nNO-BLOCK B4-G6 (no block file for block 4 under {D})\nchecked=1 suspects=0 no_bullet=2 no_block=1 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-32
+  args   ["{D}" "--threshold" "90"]
+  files  n=3 sha256=20753e3e8fd082d0
+  exit   1
+  stdout "NO-BLOCK B4-G2 (no block file for block 4 under {D})\nUNPARSED | urgent | B4-G3 café ñandú calibrate | w | closed |\nDEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=1 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-33
+  args   ["{D}" "--threshold" "6" "--all"]
+  files  n=3 sha256=c229c6740c1dcbb5
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-34
+  args   ["{D}" "--threshold" "6" "--all"]
+  files  n=3 sha256=6648a586dc9be33d
+  exit   1
+  stdout "DRIFT? B1-G2 overlap=0% row='months frobnicate'\nNO-BLOCK B4-G3 (no block file for block 4 under {D})\nNO-BLOCK B4-G1 (no block file for block 4 under {D})\nchecked=1 suspects=1 no_bullet=0 no_block=2 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-35
+  args   ["{D}" "--threshold" "6" "--all"]
+  files  n=4 sha256=eff518a9300e17d5
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-36
+  args   ["{D}" "--threshold" "23"]
+  files  n=4 sha256=c2d3efa1aea26016
+  exit   0
+  stdout "check-gap-drift: no B<n>-G<m> backlog rows in {D}/RESEARCH-STATE.md (not applicable)\nchecked=0 suspects=0 no_bullet=0 no_block=0 no_words=0 unparsed=0 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-37
+  args   ["{D}" "--threshold" "45" "--all"]
+  files  n=2 sha256=9c0290a604a463c1
+  exit   1
+  stdout "NO-BLOCK B2-G3 (no block file for block 2 under {D})\nNO-BLOCK B2-G1 (no block file for block 2 under {D})\nUNPARSED | urgent | B2-G7 gamma delta café bosses of | w | closed |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
+generated-23-38
+  args   ["{D}" "--threshold" "89"]
+  files  n=2 sha256=d184e58b04dd1a25
+  exit   1
+  stdout "NO-BLOCK B1-G1 (no block file for block 1 under {D})\nNO-BLOCK B1-G4 (no block file for block 1 under {D})\nUNPARSED | urgent | B2-G3 the | w | done |\nDEGRADED: 2 row(s) in scope but none could be compared (no_block=2 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=2 no_words=0 unparsed=1 skipped_nonpending=1 skipped_closed=1\n"
+  stderr ""
+generated-23-39
+  args   ["{D}" "--threshold" "29" "--all"]
+  files  n=3 sha256=45ca252067b2542b
+  exit   1
+  stdout "NO-BLOCK B1-G3 (no block file for block 1 under {D})\nNO-BLOCK B4-G7 (no block file for block 4 under {D})\nNO-BLOCK B1-G3 (no block file for block 1 under {D})\nNO-BLOCK B1-G7 (no block file for block 1 under {D})\nNO-BLOCK B1-G7 (no block file for block 1 under {D})\nNO-BLOCK B1-G7 (no block file for block 1 under {D})\nUNPARSED | urgent | B1-G5 a | w | pending |\nDEGRADED: 6 row(s) in scope but none could be compared (no_block=6 no_bullet=0 no_words=0) — this is not a clean result\nchecked=0 suspects=0 no_bullet=0 no_block=6 no_words=0 unparsed=1 skipped_nonpending=0 skipped_closed=0\n"
+  stderr ""
