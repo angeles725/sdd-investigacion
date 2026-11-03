@@ -41,8 +41,7 @@ func TestParseArgsUsageErrors(t *testing.T) {
 		width int
 		want  string
 	}{
-		{"no arguments", nil, 78, usage80 + "corroborate-floss: error: the following arguments are required: --input, --output, --manifest-cli\n"},
-		{"manifest-cli is required but not in the usage", []string{"--input", "a", "--output", "b"}, 78, usage80 + "corroborate-floss: error: the following arguments are required: --manifest-cli\n"},
+		{"no arguments", nil, 78, usage80 + "corroborate-floss: error: the following arguments are required: --input, --output\n"},
 		{"invalid int", append([]string{"--timeout", "x"}, req...), 78, usage80 + "corroborate-floss: error: argument --timeout: invalid int value: 'x'\n"},
 		{"unrecognized option", append(append([]string{}, req...), "--bogus"), 78, usage80 + "corroborate-floss: error: unrecognized arguments: --bogus\n"},
 		{"unrecognized positional and dashes", append(append([]string{}, req...), "--", "x"), 78, usage80 + "corroborate-floss: error: unrecognized arguments: -- x\n"},
@@ -51,7 +50,7 @@ func TestParseArgsUsageErrors(t *testing.T) {
 		{"missing value", []string{"--input"}, 78, usage80 + "corroborate-floss: error: argument --input: expected one argument\n"},
 		{"value is an option", []string{"--input", "--output", "b"}, 78, usage80 + "corroborate-floss: error: argument --input: expected one argument\n"},
 		{"help takes no value", []string{"--help=foo"}, 78, usage80 + "corroborate-floss: error: argument -h/--help: ignored explicit argument 'foo'\n"},
-		{"wide terminal keeps the usage on one line", nil, 198, usage200 + "corroborate-floss: error: the following arguments are required: --input, --output, --manifest-cli\n"},
+		{"wide terminal keeps the usage on one line", nil, 198, usage200 + "corroborate-floss: error: the following arguments are required: --input, --output\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

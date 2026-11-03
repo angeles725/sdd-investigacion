@@ -6,8 +6,8 @@
 # superblock check, timeout, size watchdog, tree validation, the closed-tree check, atomic publication) and the
 # whole behavior - differential against the frozen script with the real bwrap and unsquashfs - are covered by the
 # Go tests in research-sdd/rsdd/internal/formats (squashfs_test.go carries the guard-to-test table).
-# This suite checks what the shim itself owns: it forwards arguments (adding the sibling analysis_manifest.py as
-# --manifest-cli), the exit code and stderr unchanged, and it degrades through rsdd-exec (typed, exit 2) when
+# This suite checks what the shim itself owns: it forwards arguments (handing over no manifest tool path: the Go
+# command builds the manifest in process), the exit code and stderr unchanged, and it degrades through rsdd-exec (typed, exit 2) when
 # rsdd cannot run. It also keeps a few end-to-end cases through the real binary and, under --prove-teeth,
 # mutation controls on the shim.
 #
@@ -42,11 +42,10 @@ shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}"
 
 
 check_forward() {
-  local shim="$1" tag="$2" want dir
-  dir="$(cd "$(dirname "$shim")" && pwd -P)"  # LINT-CD-PHYSICAL-OK: as above, for a mutant's own directory
+  local shim="$1" tag="$2" want
   shim_run "$shim" --input 'a b.sqfs' --output out --max-entries 5
-  want=$'ARG[formats]\nARG[squashfs-extract]\nARG[--manifest-cli]\nARG['"$dir"$'/analysis_manifest.py]\nARG[--input]\nARG[a b.sqfs]\nARG[--output]\nARG[out]\nARG[--max-entries]\nARG[5]'
-  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd after 'formats squashfs-extract --manifest-cli <toolbelt>/analysis_manifest.py' (spaces kept)"
+  want=$'ARG[formats]\nARG[squashfs-extract]\nARG[--input]\nARG[a b.sqfs]\nARG[--output]\nARG[out]\nARG[--max-entries]\nARG[5]'
+  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd after 'formats squashfs-extract' with no --manifest-cli (spaces kept)"
   else no "$tag arguments (out=[$SOUT])"; fi
   if [ "$SRC" -eq 7 ]; then ok "$tag exit code of rsdd is the shim's exit code"; else no "$tag exit code (rc=$SRC)"; fi
   if [ "$SERR" = "stub-stderr" ]; then ok "$tag stderr of rsdd passes through"; else no "$tag stderr (err=[$SERR])"; fi
@@ -71,8 +70,8 @@ if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -
 else no "3 missing lib (rc=$rc out=[$out])"; fi
 
 # 4. The shim is the template and nothing else: no Python, no extraction logic left behind.
-if grep -qF 'rsdd_exec formats squashfs-extract --manifest-cli' "$SUT" && ! grep -qE 'python3|squashfs_extract|unsquashfs |bwrap' "$SUT"; then
-  ok "4 shim body is 'rsdd_exec formats squashfs-extract --manifest-cli ... \"\$@\"' with no python3 / squashfs_extract.py left"
+if grep -qF 'rsdd_exec formats squashfs-extract "$@"' "$SUT" && ! grep -qE 'python3|squashfs_extract|unsquashfs |bwrap' "$SUT"; then
+  ok "4 shim body is 'rsdd_exec formats squashfs-extract \"\$@\"' with no python3 / squashfs_extract.py left"
 else no "4 shim body"; fi
 
 # ---- End to end through the real binary --------------------------------------
@@ -102,7 +101,7 @@ else
      && cmp -s "$W/a/squashfs-extract.v1.json" "$W/b/squashfs-extract.v1.json" \
      && [ "$(cat "$W/a/extracted/hello.txt")" = hello ] && [ "$(cat "$W/a/extracted/subdir/world.txt")" = world ] \
      && [ "$(stat -c %a "$W/a")" = 700 ] && [ "$(stat -c %a "$W/a/extracted/hello.txt")" = 400 ] \
-     && python3 "$TOOLBELT/analysis_manifest.py" verify --root "$W/a" "$W/a/analysis-manifest.v1.json" >/dev/null 2>&1; then
+     && "$RSDD_BIN" adapter manifest verify --root "$W/a" "$W/a/analysis-manifest.v1.json" >/dev/null 2>&1; then
     ok "5 good image: deterministic evidence, tree published 0700/0400, manifest verifies"
   else no "5 good image end to end"; fi
 
@@ -146,9 +145,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
   }
   # A: the caller's arguments are no longer forwarded
-  if mk A 's#"\$_RSDD_SELF/analysis_manifest.py" "\$@"#"$_RSDD_SELF/analysis_manifest.py"#'; then
+  if mk A 's#squashfs-extract "\$@"#squashfs-extract#'; then
     shim_run "$MS" --input x --output y
-    [ "$SOUT" != $'ARG[formats]\nARG[squashfs-extract]\nARG[--manifest-cli]\nARG['"$(cd "$(dirname "$MS")" && pwd -P)"$'/analysis_manifest.py]\nARG[--input]\nARG[x]\nARG[--output]\nARG[y]' ] \
+    [ "$SOUT" != $'ARG[formats]\nARG[squashfs-extract]\nARG[--input]\nARG[x]\nARG[--output]\nARG[y]' ] \
       && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
   fi
   # B: wrong subcommand
@@ -167,10 +166,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     shim_run "$MS" --input x
     [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
   fi
-  # E: the manifest tool is no longer handed over (the sibling analysis_manifest.py)
-  if mk E 's#--manifest-cli "\$_RSDD_SELF/analysis_manifest.py" ##'; then
+  # E: the manifest tool path is handed over again (--manifest-cli ahead of the caller's arguments)
+  if mk E 's#squashfs-extract "\$@"#squashfs-extract --manifest-cli /nonexistent/analysis_manifest.py "$@"#'; then
     shim_run "$MS" --input x --output y
-    case "$SOUT" in *'ARG[--manifest-cli]'*) no "teeth E: mutant still passes --manifest-cli — THEATER" ;; *) ok "teeth E: --manifest-cli dropped -> forwarding check goes red" ;; esac
+    case "$SOUT" in *'ARG[--manifest-cli]'*) ok "teeth E: --manifest-cli handed over again -> forwarding check goes red" ;; *) no "teeth E: mutant passes no --manifest-cli — THEATER" ;; esac
   fi
   # F: the end-to-end group is real: a mutant that points the shim at the wrong command fails case 5
   if [ -z "$e2e_skip" ] && mk F 's#rsdd_exec formats squashfs-extract#rsdd_exec formats qnx6-read#'; then

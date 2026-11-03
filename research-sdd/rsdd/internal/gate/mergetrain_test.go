@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,9 +38,9 @@ type mtCase struct {
 }
 
 func mtHostEnv() []string {
-	return append(os.Environ(),
+	return gitfixture.Env(append(os.Environ(),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
-		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"))
 }
 
 func (c *mtCase) sh(dir string, name string, args ...string) string {
@@ -644,11 +645,13 @@ func statusesOf(receipt string) string {
 
 // TestMergeTrain pins the contract of each scenario on the port alone.
 func TestMergeTrain(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds git repositories and runs processes")
 	}
 	for _, sc := range mtScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			c := newMtCase(t)
 			r := c.runGo(sc.setup(c), nil)
 			if r.rc != sc.rc {

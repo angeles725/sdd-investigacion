@@ -7,6 +7,7 @@ package corpus
 import (
 	"errors"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -197,7 +198,11 @@ func archiveCases() []archiveCase {
 		archiveCase{name: "noargs", legacy: "11", build: good, args: func(*archiveFx, string) []string { return nil }, want: archiveWant{rc: 2}},
 		archiveCase{name: "lockedtree", legacy: "12", build: archiveGoodThen(func(f *archiveFx, d string) { f.mkdir(filepath.Join(d, "lockeddir")) }),
 			skip: archiveRootSkip, arm: archiveChmod("lockeddir", 0), disarm: archiveChmod("lockeddir", 0o755),
-			want: archiveWant{rc: 0, has: []string{`research-sdd-archive:`}}},
+			// an unlistable directory is a degraded verify-corrections (kit issue #2625) and a degraded scan-secrets (kit issue
+			// #2633), so the archive is REFUSED (3), not closed on an unchecked corpus
+			diverge:    archiveDiverge("stdout"),
+			want:       archiveWant{rc: 3, has: []string{`research-sdd-archive:`, `verify-corrections : DEGRADED .*cannot read directory .*/lockeddir: permission denied`, archiveSSDegradedRE, `REFUSED`}, lacks: []string{`scan-secrets +: ok`}},
+			legacyWant: archiveWant{rc: 3, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`, `REFUSED`}}},
 		archiveCase{name: "brokenlinter", legacy: "13", build: good,
 			farm: func(f *archiveFx, tb string) {
 				_ = os.Remove(filepath.Join(tb, "verify-state.sh"))
@@ -338,20 +343,34 @@ func archiveCases() []archiveCase {
 		switch m {
 		case "empty":
 			w = archiveWant{rc: 3, has: []string{`scan-secrets +: ERROR — the packaging list is EMPTY`}}
-		case "perm":
-			w = archiveWant{rc: 0, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`}, errHas: []string{`WARN: scan-secrets packaging list skipped 1 unreadable path\(s\)`}}
 		case "silent":
 			legacy = "17u"
 		}
-		add(archiveCase{name: "list-" + m, legacy: legacy, build: good, lenv: func(f *archiveFx) []string { return archiveFindStub(f, m) }, seam: archiveFindSeam(m), want: w})
+		c := archiveCase{name: "list-" + m, legacy: legacy, build: good, lenv: func(f *archiveFx) []string { return archiveFindStub(f, m) }, seam: archiveFindSeam(m), want: w}
+		if m == "perm" { // unscanned paths alone, with every other gate ok: the archive is refused (kit issue #2633)
+			c.diverge = archiveDiverge("stdout", "exit", "effect")
+			c.want = archiveWant{rc: 3, has: []string{`verify-corrections : ok`, archiveSSDegradedRE, `REFUSED`}, lacks: []string{`scan-secrets +: ok`},
+				errHas: []string{`WARN: scan-secrets packaging list skipped 1 unreadable path\(s\)`}}
+			c.legacyWant = archiveWant{rc: 0, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`}}
+		}
+		add(c)
 	}
 	add(
 		archiveCase{name: "list-fail-git", legacy: "17q", build: archiveGitClean(nil), lenv: func(f *archiveFx) []string { return archiveFindStub(f, "fail") }, seam: archiveFindSeam("fail"), want: listErr},
+		// the same unscanned path in a repository with commits goes through the combined working-tree + history verdict
+		archiveCase{name: "list-perm-git", legacy: "17q", build: archiveGitClean(nil), lenv: func(f *archiveFx) []string { return archiveFindStub(f, "perm") }, seam: archiveFindSeam("perm"),
+			diverge:    archiveDiverge("stdout", "exit", "effect"),
+			want:       archiveWant{rc: 3, has: []string{`verify-corrections : ok`, archiveSSDegradedRE, `REFUSED`}, lacks: []string{`scan-secrets +: ok`}},
+			legacyWant: archiveWant{rc: 0, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`}}},
 		archiveCase{name: "hint-root", legacy: "17r", build: archiveGitClean(func(f *archiveFx, d string) { f.write(filepath.Join(d, "notes.md"), "Leaked: AKIAIOSFODNN7EXAMPLE\n") }),
 			want: archiveWant{rc: 3, has: []string{`-print0 \| `, `scan-secrets\.sh --files-from -`, `scan-secrets\.sh --committed`}}},
 		archiveCase{name: "unreadable-dir", legacy: "17s", build: archiveGoodThen(func(f *archiveFx, d string) { f.write(filepath.Join(d, "locked", "inner.md"), "x\n") }),
 			skip: archiveRootSkip, arm: archiveChmod("locked", 0), disarm: archiveChmod("locked", 0o755),
-			want: archiveWant{rc: 0, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`}}},
+			// verify-corrections refuses a corpus it could not list (kit issue #2625: degraded, exit 1), and so does scan-secrets
+			// (kit issue #2633): both gates read the unreadable path as "could not look", never as a pass.
+			diverge:    archiveDiverge("stdout"),
+			want:       archiveWant{rc: 3, has: []string{`verify-corrections : DEGRADED .*cannot read directory .*/locked: permission denied`, archiveSSDegradedRE, `REFUSED`}, lacks: []string{`scan-secrets +: ok`}},
+			legacyWant: archiveWant{rc: 3, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`, `REFUSED`}}},
 		archiveCase{name: "unreadable-file", legacy: "17t", build: archiveGoodThen(func(f *archiveFx, d string) { f.write(filepath.Join(d, "notes.md"), "Leaked: AKIAIOSFODNN7EXAMPLE\n") }),
 			skip: archiveRootSkip, arm: archiveChmod("notes.md", 0), disarm: archiveChmod("notes.md", 0o644),
 			want: archiveWant{rc: 3, has: []string{`scan-secrets +: ERROR — scan-secrets.sh did not run cleanly \(exit 3\).*DEGRADED`}, lacks: []string{`scan-secrets +: ok`}}},
@@ -674,3 +693,19 @@ func realLibPath(name string) string {
 	p, _ := filepath.Abs(archiveKitRel + "/toolbelt/lib/" + name)
 	return p
 }
+
+// archiveUnscanned is the reason of kit issue #2633: a scan-secrets packaging list that skipped unreadable paths is a
+// degraded gate, where the legacy script printed "ok, N not scanned".
+const archiveUnscanned = "#2633: unscanned paths make scan-secrets DEGRADED, never ok"
+
+// archiveDiverge declares the fields the #2633 divergence changes.
+func archiveDiverge(fields ...string) []parity.Intended {
+	out := make([]parity.Intended, len(fields))
+	for i, f := range fields {
+		out[i] = parity.Intended{Field: f, Reason: archiveUnscanned}
+	}
+	return out
+}
+
+// archiveSSDegradedRE is the Go verdict line of a scan-secrets gate that could not read every path.
+const archiveSSDegradedRE = `scan-secrets +: DEGRADED — 1 unreadable path\(s\) not scanned; the corpus was NOT fully checked for secret values`

@@ -2,12 +2,13 @@ package verify
 
 import (
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 	"strings"
 )
 
 // The --json envelope of `verify registry` (research-sdd.verify-registry/v1), printed exactly as the script's
 // `jq -n` printed it: two-space indent, keys in construction order, strings escaped the way jq escapes them
-// (strings through jqString, the jq-compatible encoder shared with the kit-clean hook).
+// (strings through hookenv.JQString, the jq-compatible encoder shared by every hook).
 
 type regItem struct{ Kind, Severity, Target, Message string }
 
@@ -21,14 +22,14 @@ func registryEnvelope(allAbsent bool, c regCounts, items []regItem) string {
 	state, reason := "ok", "null"
 	switch {
 	case allAbsent:
-		state, reason = "absent-input", jqString("every registered target directory is absent on disk")
+		state, reason = "absent-input", hookenv.JQString("every registered target directory is absent on disk")
 		items = nil
 	case len(items) == 0:
-		state, reason = "no-match", jqString("targets reconciled, no findings")
+		state, reason = "no-match", hookenv.JQString("targets reconciled, no findings")
 	}
 	var b strings.Builder
 	b.WriteString("{\n  \"schema\": \"research-sdd.verify-registry/v1\",\n")
-	b.WriteString("  \"state\": " + jqString(state) + ",\n")
+	b.WriteString("  \"state\": " + hookenv.JQString(state) + ",\n")
 	b.WriteString("  \"counts\": {\n")
 	rows := []struct {
 		k string
@@ -53,10 +54,10 @@ func registryEnvelope(allAbsent bool, c regCounts, items []regItem) string {
 	b.WriteString("  \"items\": [\n")
 	for i, it := range items {
 		b.WriteString("    {\n")
-		b.WriteString("      \"kind\": " + jqString(it.Kind) + ",\n")
-		b.WriteString("      \"severity\": " + jqString(it.Severity) + ",\n")
-		b.WriteString("      \"target\": " + jqString(it.Target) + ",\n")
-		b.WriteString("      \"message\": " + jqString(it.Message) + "\n")
+		b.WriteString("      \"kind\": " + hookenv.JQString(it.Kind) + ",\n")
+		b.WriteString("      \"severity\": " + hookenv.JQString(it.Severity) + ",\n")
+		b.WriteString("      \"target\": " + hookenv.JQString(it.Target) + ",\n")
+		b.WriteString("      \"message\": " + hookenv.JQString(it.Message) + "\n")
 		if i == len(items)-1 {
 			b.WriteString("    }\n")
 		} else {

@@ -3,7 +3,10 @@
 # (The registry hook is Go now, `rsdd verify registry-hook`, kit issue #2363: its budget cases — cap, Summary, WARN
 # accounting, INFO counts, hint, ranking, multibyte cut — run on the same frozen reading in
 # research-sdd/rsdd/internal/verify, registryhook_fixture_test.go and testdata/registry-hook.)
-# Runs the two trimmed bash hooks (verify-tool-catalog, sweep-breakthroughs) against FROZEN
+# (The breakthroughs hook is Go now, `rsdd sweep breakthroughs --hook`, kit issue #2360: its budget cases — cap, Summary, the
+# 18 unindexed WARNs, the INFO counts, --full — run on the same frozen reading in research-sdd/rsdd/internal/sweep,
+# breakthroughs_budget_test.go and testdata/breakthroughs/hook.)
+# Runs the trimmed bash hook (verify-tool-catalog) against FROZEN
 # instrument outputs (tests/fixtures/sessionstart-budget/*.raw — a dated reading of the real fleet, sanitised,
 # never the live corpus) and asserts (a) a per-hook character cap on the hook's stdout and (b) that every
 # count the verbose output carried survives in the compact form (anti-silent-zero §7).
@@ -29,7 +32,7 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 echo "== sessionstart-budget.test.sh =="
 
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required" >&2; exit 2; }
-for f in verify-registry.raw verify-tool-catalog.raw sweep-breakthroughs.raw; do
+for f in verify-registry.raw verify-tool-catalog.raw; do
   [ -s "$FX/$f" ] || { echo "FATAL: fixture $FX/$f missing or empty" >&2; exit 2; }
 done
 
@@ -37,7 +40,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP"
 
 # Caps (characters of hook stdout) on the frozen fixture.
-CAP_CAT=700; CAP_BRK=900
+CAP_CAT=700
 
 # stage <hook-file> <instrument-name> <raw-fixture> — copies the hook next to a stub instrument that
 # replays the frozen raw output (rc 0). Hermetic: the real instrument and the live fleet never run.
@@ -84,8 +87,7 @@ count_lines() { printf '%s\n' "$2" | grep -cE -- "$1"; }
 run_cases() {
   local tb="$1" t="$2"
   stage "$tb/verify-tool-catalog-hook.sh"  verify-tool-catalog.sh  "$FX/verify-tool-catalog.raw"  "$t-cat"
-  stage "$tb/sweep-breakthroughs-hook.sh"  sweep-breakthroughs.sh  "$FX/sweep-breakthroughs.raw"  "$t-brk"
-  local C="$TMP/$t-cat/verify-tool-catalog-hook.sh" B="$TMP/$t-brk/sweep-breakthroughs-hook.sh"
+  local C="$TMP/$t-cat/verify-tool-catalog-hook.sh"
   local n o
 
   # Truncation is character-safe: multibyte characters straddling a cut point never yield invalid UTF-8,
@@ -119,18 +121,6 @@ run_cases() {
   [ "${cn:-x}" = "$nnames" ] \
     && ok "$t cat-4 collapsed line count ($cn) equals the name count ($nnames)" || no "$t cat-4 collapsed count '${cn:-}' != name count $nnames"
 
-  # ---- sweep-breakthroughs-hook ----
-  n="$(chars "$B")"
-  [ "$n" -le "$CAP_BRK" ] && ok "$t brk-1 breakthroughs hook <= $CAP_BRK chars (got $n)" || no "$t brk-1 breakthroughs hook over cap $CAP_BRK (got $n)"
-  o="$(ctx "$B")"
-  grep -qF "$(grep '^Summary:' "$FX/sweep-breakthroughs.raw")" <<<"$o" \
-    && ok "$t brk-2 Summary line kept verbatim" || no "$t brk-2 Summary line altered or missing"
-  grep -q '^WARN: 18 unindexed breakthrough' <<<"$o" \
-    && ok "$t brk-3 unindexed count (18) stated" || no "$t brk-3 unindexed count missing"
-  grep -q 'INFO: 15 target(s) not traversed (absent-input)' <<<"$o" && grep -q 'INFO: 2 corpus(es) empty-input, 15 no-match' <<<"$o" \
-    && ok "$t brk-4 absent / empty-input / no-match states all counted" || no "$t brk-4 a §7 state count is missing"
-  [ "$(count_lines '^WARN: unindexed breakthrough' "$(ctx "$B" --full)")" -eq 18 ] \
-    && ok "$t brk-5 --full still lists all 18 unindexed lines" || no "$t brk-5 --full lost per-breakthrough lines"
 }
 
 run_cases "$TB" main
@@ -181,9 +171,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # C: catalog — compaction skipped: per-tool WARN lines return.
   mut_tooth "C catalog-noncompact" $CAT $CATI "$FX/verify-tool-catalog.raw" "$CAP_CAT" \
     's/if \[ "\${1:-}" != "--full" \]; then  # COMPACT-GUARD/if false; then/'
-  # D: breakthroughs — unindexed collapse neutered: per-line WARNs pass through.
-  mut_tooth "D breakthroughs-uncollapsed" sweep-breakthroughs-hook.sh sweep-breakthroughs.sh "$FX/sweep-breakthroughs.raw" "$CAP_BRK" \
-    's/\^WARN: unindexed breakthrough\/ {/^WARN: XXunindexed breakthrough\/ {/'
 
   # H: catalog collapsed line drops a name while keeping the (8) count → cat-3 (scoped to the collapsed line) goes red.
   lost_tooth "H catalog-drops-a-name" $CAT $CATI "$FX/verify-tool-catalog.raw" 'fernflower' \

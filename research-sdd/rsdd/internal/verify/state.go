@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Port of research-sdd/toolbelt/verify-state.sh: the living-mirror consistency lint of a RESEARCH-STATE.md.
@@ -43,12 +45,12 @@ const usageLine = "usage: verify-state.sh <target-dir> [--focus <slug>]"
 
 // RunState is `rsdd verify state`.
 func RunState(args []string, s cli.Stdio) int {
-	fsx := fsView{cwd: s.Cwd}
+	fsx := fsView{View: fsview.View{Cwd: s.Cwd}}
 	target := ""
 	if len(args) > 0 {
 		target = args[0]
 	}
-	if !fsx.isDir(target) {
+	if !fsx.IsDir(target) {
 		fmt.Fprintln(s.Err, usageLine)
 		return cli.ExitUsage
 	}
@@ -62,12 +64,12 @@ func RunState(args []string, s cli.Stdio) int {
 	}
 	var states []string
 	if focus != "" {
-		abs := fsx.at(target)
+		abs := fsx.At(target)
 		p, _ := kit.ResolveStateFile(abs, kit.ResolveOptions{FollowDir: true, FocusSet: true, Focus: focus})
 		if abs != target {
 			p = strings.Replace(p, abs, target, 1)
 		}
-		if p == "" || !fsx.isFile(p) {
+		if p == "" || !fsx.IsFile(p) {
 			fmt.Fprintf(s.Err, "verify-state: no RESEARCH-STATE-%s.md found under %s\n", focus, target)
 			return cli.ExitUsage
 		}
@@ -100,7 +102,13 @@ type verifier struct {
 	s      cli.Stdio
 	fs     fsView
 	target string
+	// blockCounts memoizes countBlocks per directory and prefix: the corpus is read-only for the length of a run
+	// and every state file of one directory asked for the same listing and regexp filter (kit issue #2645).
+	blockCounts map[blockCountKey]string
+	mdListing   map[string][]string
 }
+
+type blockCountKey struct{ dir, prefix string }
 
 func (v *verifier) echo(format string, a ...any) { fmt.Fprintf(v.s.Out, format+"\n", a...) }
 
@@ -121,7 +129,7 @@ var (
 
 // checkState lints one state file; false means the run is inconsistent (the script's `rc=1`).
 func (v *verifier) checkState(state string) (consistent bool) {
-	v.echo("== verify-state: %s (target: %s) ==", basename(state), v.target)
+	v.echo("== verify-state: %s (target: %s) ==", shellx.BaseName(state), v.target)
 	frc := false
 	defer func() {
 		// A bash arithmetic error aborts the rest of this state's body (nothing more is printed for it, not even
@@ -136,13 +144,13 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		}
 	}()
 
-	raw, err := v.fs.read(state)
+	raw, err := v.fs.Read(state)
 	var lines []string
 	hasEnv := false
 	if err != nil {
 		fmt.Fprintln(v.s.Err, grepError(state, err)) // `grep -q` on an unreadable file: rc 2, "no envelope"
 	} else {
-		lines = recordLines(string(raw))
+		lines = shellx.RecordLines(string(raw))
 		for _, l := range lines {
 			if reEnvOpen.MatchString(l) {
 				hasEnv = true
@@ -169,7 +177,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	hasBacklog := false
 	for _, l := range lines {
-		if reBacklogAny.MatchString(l) {
+		if strings.HasPrefix(l, "##") && mayContainFold(l, "backlog") && reBacklogAny.MatchString(l) {
 			hasBacklog = true
 			break
 		}
@@ -183,7 +191,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	metric := ""
 	for _, l := range lines {
-		if reCoverageMetric.MatchString(l) {
+		if mayContainFold(l, "coverage metric") && reCoverageMetric.MatchString(l) {
 			metric = l
 			break
 		}
@@ -194,7 +202,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	coveredClaim := ""
 	for _, l := range lines {
-		if reCoveredBlocks.MatchString(l) {
+		if mayContainFold(l, "covered blocks") && reCoveredBlocks.MatchString(l) {
 			if d := reDigits.FindString(l); d != "" {
 				coveredClaim = d
 				break
@@ -202,7 +210,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		}
 	}
 
-	absState := v.fs.at(state)
+	absState := v.fs.At(state)
 	fp, _ := kit.DeriveFocusPrefix(absState)
 	fpfx := fp.Value
 	ondiskUnit := "block file(s) on disk"
@@ -226,7 +234,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 	if !v.validateBlockScope(bsPresent, eBS) {
 		frc, bsValid = true, false
 	}
-	dir := dirname(state)
+	dir := shellx.DirName(state)
 	global := v.countBlocks(dir, "")
 	sgAttributed := ""
 	sgDone := false
@@ -242,7 +250,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		ondisk = v.countBlocks(dir, fpfx)
 	case frange != "":
 		lo, hi := rangeVal.Lo, rangeVal.Hi
-		scan, _ := kit.ScanFocusRange(v.fs.at(dir), lo, hi, absState)
+		scan, _ := kit.ScanFocusRange(v.fs.At(dir), lo, hi, absState)
 		ondisk = fmt.Sprint(scan.Count)
 		frfiles = fmt.Sprint(scan.Files)
 		frname = "B" + frange[:strings.LastIndex(frange, "-")] + "–B" + frange[strings.Index(frange, "-")+1:]
@@ -269,7 +277,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 	eKSW := knownStaleWarns(lines)
 	kswHas := func(id string) bool {
 		for _, t := range strings.Split(eKSW, ",") {
-			if strings.Trim(t, wsClass) == id {
+			if strings.Trim(t, shellx.WsClass) == id {
 				return true
 			}
 		}
@@ -362,7 +370,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		}
 		dIPB := kit.InplaceBlockedCount(blockedBody(lines), rows.rowsText())
 		sum := arithSum(eGC, eInv, eBlocked, hDef, eReq, fmt.Sprint(dIPB))
-		if kg, ok := decimal(eKG); ok && sum != kg {
+		if kg, ok := shellx.Decimal(eKG); ok && sum != kg {
 			if dIPB > 0 {
 				v.echo("   WARN   envelope known_gaps=%s != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)+in_place_blocked(derived: %d open blocked backlog row(s) not in blocked_open)=%d — stale denominator; reconcile.", eKG, dIPB, sum)
 			} else {
@@ -412,8 +420,8 @@ func (v *verifier) checkState(state string) (consistent bool) {
 	}
 
 	idx := dir + "/INDEX.md"
-	if intGT(or(ondisk, "0"), 0) && v.fs.isFile(idx) {
-		if b, err := v.fs.read(idx); err == nil && matchesAnyLine(reIndexHolder, string(b)) {
+	if intGT(or(ondisk, "0"), 0) && v.fs.IsFile(idx) {
+		if b, err := v.fs.Read(idx); err == nil && matchesAnyLine(reIndexHolder, string(b)) {
 			if kswHas("p7-index-placeholder") {
 				v.echo("   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)")
 			} else {
@@ -483,11 +491,60 @@ func (v *verifier) validateBlockScope(present, bs string) bool {
 
 // countBlocks is `find DIR -maxdepth 1 -type f -name '*.md' | block_file_filter [PREFIX] | wc -l`.
 func (v *verifier) countBlocks(dir, prefix string) string {
+	key := blockCountKey{dir, prefix}
+	if n, ok := v.blockCounts[key]; ok {
+		return n
+	}
+	n := v.countBlocksUncached(dir, prefix)
+	if v.blockCounts == nil {
+		v.blockCounts = map[blockCountKey]string{}
+	}
+	v.blockCounts[key] = n
+	return n
+}
+
+// mdLines is the regularMarkdown listing of dir as the lines the block filter reads, listed once per run.
+func (v *verifier) mdLines(dir string) []string {
+	if l, ok := v.mdListing[dir]; ok {
+		return l
+	}
 	var b strings.Builder
 	for _, f := range v.fs.regularMarkdown(dir) {
 		b.WriteString(f + "\n")
 	}
-	out, _ := kit.FilterBlockFiles(kit.SplitLines(b.String()), false, prefix)
+	l := kit.SplitLines(b.String())
+	if v.mdListing == nil {
+		v.mdListing = map[string][]string{}
+	}
+	v.mdListing[dir] = l
+	return l
+}
+
+// literalPrefix reports whether a focus prefix is plain ERE literals ([A-Za-z0-9_-] only), for which a line can
+// match `(^|/)PREFIX(block|bloque)...` only if it contains PREFIX.
+func literalPrefix(p string) bool {
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func (v *verifier) countBlocksUncached(dir, prefix string) string {
+	lines := v.mdLines(dir)
+	if prefix != "" && literalPrefix(prefix) {
+		// A cheap necessary condition first: the POSIX regexp then runs only on the plausible lines (#2645).
+		var keep []string
+		for _, l := range lines {
+			if strings.Contains(l, prefix) {
+				keep = append(keep, l)
+			}
+		}
+		lines = keep
+	}
+	out, _ := kit.FilterBlockFiles(lines, false, prefix)
 	return fmt.Sprint(len(out))
 }
 
@@ -530,17 +587,17 @@ func deriveAttributedSG(lines []string) int {
 // knownStaleWarns is KSW-EXTRACT: the value of the envelope's known_stale_warns line.
 func knownStaleWarns(lines []string) string {
 	l, ok := scanEnvelope(lines, func(l string) bool {
-		return strings.HasPrefix(strings.TrimLeft(l, wsClass), "known_stale_warns:")
+		return strings.HasPrefix(strings.TrimLeft(l, shellx.WsClass), "known_stale_warns:")
 	})
 	if !ok {
 		return ""
 	}
-	val := strings.TrimPrefix(strings.TrimLeft(l, wsClass), "known_stale_warns:")
-	return strings.TrimRight(strings.TrimLeft(val, wsClass), wsClass)
+	val := strings.TrimPrefix(strings.TrimLeft(l, shellx.WsClass), "known_stale_warns:")
+	return strings.TrimRight(strings.TrimLeft(val, shellx.WsClass), shellx.WsClass)
 }
 
 func matchesAnyLine(re *regexp.Regexp, text string) bool {
-	return firstLineMatching(recordLines(text), re) != ""
+	return firstLineMatching(shellx.RecordLines(text), re) != ""
 }
 
 // firstLineMatching is `grep -E ... | head -1`.
@@ -559,21 +616,22 @@ func coverageDenominators(lines []string) []string {
 	inHist := false
 	var den []string
 	for _, l := range lines {
-		if reHistory.MatchString(asciiLower(l)) {
+		h2 := strings.HasPrefix(l, "##") // both heading regexps are anchored on "##"
+		if h2 && reHistory.MatchString(asciiLower(l)) {
 			inHist = true
 			continue
 		}
-		if reHeading2.MatchString(l) {
+		if h2 && reHeading2.MatchString(l) {
 			inHist = false
 		}
-		if inHist || !reCoverageLine.MatchString(l) {
+		if inHist || !mayContainFold(l, "closed", "coverage metric", "coverage (after") || !reCoverageLine.MatchString(l) {
 			continue
 		}
 		m := reRatio.FindString(l)
 		if m == "" {
 			continue
 		}
-		den = append(den, strings.TrimLeft(m[strings.LastIndex(m, "/")+1:], wsClass))
+		den = append(den, strings.TrimLeft(m[strings.LastIndex(m, "/")+1:], shellx.WsClass))
 	}
 	sort.SliceStable(den, func(i, j int) bool { return numLess(den[i], den[j]) })
 	var out []string
@@ -622,11 +680,11 @@ func arithSum(vals ...string) int64 {
 func (v *verifier) gapDrift(state string) {
 	dir := v.s.Env("RSDD_TOOLBELT_DIR")
 	gd := dir + "/check-gap-drift.sh"
-	if dir == "" || !v.fs.isFile(gd) {
+	if dir == "" || !v.fs.IsFile(gd) {
 		v.echo("   WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh; B<n>-G<m> rows were NOT compared with their block bullets")
 		return
 	}
-	out, rc := runMerged(v.s, v.fs.at(gd), v.target, state)
+	out, rc := runMerged(v.s, v.fs.At(gd), v.target, state)
 	typed := false
 	for _, l := range strings.Split(out, "\n") {
 		switch {

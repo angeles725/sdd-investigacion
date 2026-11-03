@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // sandbox is one test's world: a HOME, a PATH holding only the tools the scripts need, and a fixed git
@@ -58,7 +60,7 @@ func (sb *sandbox) environ() []string {
 func (sb *sandbox) git(dir string, args ...string) {
 	sb.t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = sb.environ()
+	cmd.Env = gitfixture.Env(sb.environ()) // no background maintenance racing the fixture (kit issue #2624)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		sb.t.Fatalf("git %v: %v: %s", args, err, out)
 	}
@@ -298,7 +300,7 @@ func TestKitCleanHookEnvelope(t *testing.T) {
 	stdout, _, rc := sb.run("verify", "kit-clean-hook", dirty)
 	wantCtx := hdrNotClean + "\n== verify-kit-clean: hdirty (branch: main) ==\n   working tree : DIRTY — uncommitted: 0 staged · 0 unstaged · 1 untracked\n   sync         : up to date with origin/main\n" +
 		"   verdict      : NOT clean — commit/stash + push before staging a retro (else mixed history)\n== exit 1 =="
-	want := "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": " + jqString(wantCtx) + "\n  }\n}\n"
+	want := "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": " + hookenv.JQString(wantCtx) + "\n  }\n}\n"
 	if stdout != want || rc != 0 {
 		t.Errorf("dirty: rc=%d got:\n%s\nwant:\n%s", rc, stdout, want)
 	}

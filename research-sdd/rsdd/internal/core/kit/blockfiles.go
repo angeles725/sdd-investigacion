@@ -16,11 +16,40 @@ var (
 	ErrBadPattern = errors.New("kit: bad pattern")
 )
 
-// The block-file ERE of lib/block-files.sh, with or without a focus prefix (THE one definition, kit U11).
+// The block-file ERE of lib/block-files.sh, with or without a focus prefix (THE one definition, kit U11). The slug
+// class is the only part that differs between the two locales the kit's scripts ran under: lib/block-files.sh
+// is C-locale (blockSlugC); verify-block's awk ran under the caller's UTF-8 locale (blockSlugUnicode, kit #2600:
+// kept as a pinned variant, see BlockFileNameUnicode). Both are derived from blockTail below.
 const (
-	blockTail     = `(block|bloque)[0-9]+(-[[:alnum:]_-]+)?\.md$`
+	blockSlugC       = `[[:alnum:]_-]`
+	blockSlugUnicode = `[\p{L}\p{N}_-]`
+)
+
+// blockTailFor is the tail of the ERE for one slug class: `(block|bloque)<N>[-slug].md` at the end of the line.
+// num is the number class: the C-locale tail must stay byte-identical to the grep ERE (the focus prefix is
+// interpolated unescaped in front of it, so an extra group would change how a stray `[` in a prefix parses); the
+// Unicode variants capture the number. Capture groups there: the kind, the number, the slug (with its dash).
+func blockTailFor(slug, num string) string {
+	return `(block|bloque)` + num + `(-` + slug + `+)?\.md$`
+}
+
+var (
+	blockTail     = blockTailFor(blockSlugC, `[0-9]+`)
 	blockNoPrefix = `(^|/)[^/]+-` + blockTail
 )
+
+// BlockFileNameUnicode matches a block file's basename with a Unicode slug: groups are the optional prefix (with its
+// trailing dash), the kind, the number and the slug. Leftmost-longest, like the awk it replaces.
+var BlockFileNameUnicode = unicodeRE(`^(.*-)?` + blockTailFor(blockSlugUnicode, `([0-9]+)`))
+
+// BlockPathUnicode matches a path whose last element is a canonical block file with a Unicode slug.
+var BlockPathUnicode = unicodeRE(`(^|/)[^/]+-` + blockTailFor(blockSlugUnicode, `([0-9]+)`))
+
+func unicodeRE(p string) *regexp.Regexp {
+	r := regexp.MustCompile(p)
+	r.Longest()
+	return r
+}
 
 var reBlock = regexp.MustCompilePOSIX(blockNoPrefix)
 

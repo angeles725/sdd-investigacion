@@ -197,6 +197,36 @@ func TestRunManifestValidatesAndVerifies(t *testing.T) {
 	}
 }
 
+// --manifest-cli is accepted and ignored: omitted, pointing at a path that does not exist or at a real file, the
+// run succeeds and publishes byte-identical evidence (the manifest steps run in process).
+func TestRunIgnoresManifestCLI(t *testing.T) {
+	r := newRig(t)
+	base := r.args("ref")
+	base = base[:len(base)-2] // drop --manifest-cli <path>
+	variants := map[string][]string{
+		"omitted":  append([]string{}, base...),
+		"missing":  append(append([]string{}, base...), "--manifest-cli", "/nonexistent/analysis_manifest.py"),
+		"existing": append(append([]string{}, base...), "--manifest-cli", r.manifestCLI),
+	}
+	var want []byte
+	for name, a := range variants {
+		a[3] = r.output("v-" + name)
+		code, stdout, stderr := r.run(a...)
+		if code != cli.ExitOK || stdout != "" || stderr != "" {
+			t.Fatalf("%s: code %d stdout %q stderr %q", name, code, stdout, stderr)
+		}
+		got, err := os.ReadFile(filepath.Join(r.output("v-"+name), "capa-evidence.v1.json"))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if want == nil {
+			want = got
+		} else if string(got) != string(want) {
+			t.Errorf("%s: evidence differs from the other variants", name)
+		}
+	}
+}
+
 // T14: a timeout still publishes evidence, status=failed, truncated and with a timeout limitation.
 func TestRunTimeoutPublishesFailedEvidence(t *testing.T) {
 	r := newRig(t)
@@ -306,7 +336,7 @@ func TestRunCleansStageOnFailure(t *testing.T) {
 	}
 }
 
-// Input validation order: caps first, then the output path, parent, collision, manifest-cli.
+// Input validation order: caps first, then the output path, parent, collision.
 func TestRunValidationOrderAndMessages(t *testing.T) {
 	r := newRig(t)
 	cases := []struct {
@@ -319,7 +349,6 @@ func TestRunValidationOrderAndMessages(t *testing.T) {
 		{"dotdot", []string{"--input", r.input(), "--output", r.outDir + "/../x", "--manifest-cli", r.input()}, "output must be a canonical path"},
 		{"backslash", []string{"--input", r.input(), "--output", r.outDir + `/a\b`, "--manifest-cli", r.input()}, "output must be a canonical path"},
 		{"parent missing", []string{"--input", r.input(), "--output", r.root + "/nodir/x", "--manifest-cli", r.input()}, "[Errno 2] No such file or directory: '" + r.root + "/nodir'"},
-		{"manifest missing", []string{"--input", r.input(), "--output", r.output("m"), "--manifest-cli", "/nonexist"}, "[Errno 2] No such file or directory: '/nonexist'"},
 	}
 	for _, c := range cases {
 		code, _, stderr := r.run(c.args...)

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // Differential tests of the in-process replacements for the external tools the script shelled out to (xargs,
@@ -119,7 +121,7 @@ func TestRealpathMatchesCoreutils(t *testing.T) {
 		"a/file", "a/./file", "a/b/../file", "toa/file", "tob/deep", "tob/../file", "a/rel", "abs", "loop1", "dangling", "dangling-in-dir",
 		"a/missing", "a/missing/x", "missing", "missing/x", "through-file", "a/file/", "a/file/x", "dot/a/file", "dotdot/" + filepath.Base(root) + "/a/file", ".", "a/..", "a/b/../..", "toa/../a", "toa/missing",
 	}
-	v := fsView{cwd: root}
+	v := fsView{View: fsview.View{Cwd: root}}
 	for _, p := range probes {
 		for _, in := range []string{p, filepath.Join(root, p), filepath.Join(root, p) + "/"} {
 			if strings.HasSuffix(in, "/") && in == filepath.Join(root, p)+"/" && strings.HasSuffix(p, "/") {
@@ -261,14 +263,14 @@ func TestGapDriftDegradedWithoutToolbelt(t *testing.T) {
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | B1-G1 text | w | pending |"))
 	got := sdGo(t, d, false, d)
-	if !strings.Contains(got.stdout, "WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh") {
-		t.Errorf("without RSDD_TOOLBELT_DIR the gap-drift check must say it did not run:\n%s", got.stdout)
+	if !strings.Contains(got.Stdout, "WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh") {
+		t.Errorf("without RSDD_TOOLBELT_DIR the gap-drift check must say it did not run:\n%s", got.Stdout)
 	}
 }
 
 // sdGoToolbelt runs the Go command with RSDD_TOOLBELT_DIR set to tb: the directory the shim hands over, where
 // check-gap-drift.sh is looked for.
-func sdGoToolbelt(t *testing.T, cwd, tb string, args ...string) observed {
+func sdGoToolbelt(t *testing.T, cwd, tb string, args ...string) observed.Run {
 	t.Helper()
 	env := append(sdEnviron(t.TempDir()), "RSDD_TOOLBELT_DIR="+tb)
 	get := func(k string) string {
@@ -285,7 +287,7 @@ func sdGoToolbelt(t *testing.T, cwd, tb string, args ...string) observed {
 	if rc == Stale {
 		rc = 1
 	}
-	return observed{out.String(), errb.String(), rc}
+	return observed.New(out.String(), errb.String(), rc)
 }
 
 // TestGapDriftCheckerOutcomes pins how the report treats check-gap-drift.sh (kit #2457; these were the bash
@@ -338,13 +340,13 @@ func TestGapDriftCheckerOutcomes(t *testing.T) {
 			sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), c.state)
 			got := sdGoToolbelt(t, d, c.tb(t), d)
 			for _, w := range c.want {
-				if !strings.Contains(got.stdout, w) {
-					t.Errorf("missing %q in:\n%s", w, got.stdout)
+				if !strings.Contains(got.Stdout, w) {
+					t.Errorf("missing %q in:\n%s", w, got.Stdout)
 				}
 			}
 			for _, w := range c.notWant {
-				if strings.Contains(got.stdout, w) {
-					t.Errorf("unexpected %q in:\n%s", w, got.stdout)
+				if strings.Contains(got.Stdout, w) {
+					t.Errorf("unexpected %q in:\n%s", w, got.Stdout)
 				}
 			}
 		})

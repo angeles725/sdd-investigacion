@@ -35,7 +35,7 @@ func TestParseArgsErrors(t *testing.T) {
 		want string
 	}{
 		{"ambiguous", []string{"--m", "x"}, "ambiguous option: --m could match --max-capabilities, --manifest-cli"},
-		{"missing all", nil, "the following arguments are required: --input, --output, --manifest-cli"},
+		{"missing all", nil, "the following arguments are required: --input, --output"},
 		{"missing value", []string{"--timeout"}, "argument --timeout: expected one argument"},
 		{"option as value", []string{"--input", "-a"}, "argument --input: expected one argument"},
 		{"dash dash as value", []string{"--timeout", "--", "5"}, "argument --timeout: expected one argument"},
@@ -44,7 +44,7 @@ func TestParseArgsErrors(t *testing.T) {
 		{"extra", append(append([]string{}, ok...), "extra"), "unrecognized arguments: extra"},
 		{"extra after dashes", append(append([]string{}, ok...), "--", "x"), "unrecognized arguments: -- x"},
 		{"unknown option reported after required", append(append([]string{}, ok...), "--unk=1", "x"), "unrecognized arguments: --unk=1 x"},
-		{"required wins over unknown", []string{"--foo"}, "the following arguments are required: --input, --output, --manifest-cli"},
+		{"required wins over unknown", []string{"--foo"}, "the following arguments are required: --input, --output"},
 		{"help with value", []string{"--help=3"}, "argument -h/--help: ignored explicit argument '3'"},
 		{"short help with =", []string{"-h=3"}, "argument -h/--help: ignored explicit argument '3'"},
 	}
@@ -170,6 +170,31 @@ func TestBindRulesInsertsBeforeSeparator(t *testing.T) {
 	}
 	if _, err := bindRules([]string{"bwrap"}, "/r"); err == nil {
 		t.Error("a prefix without the trailing -- is refused")
+	}
+}
+
+// A strict resolve of a regular file succeeds, and fails with "Not a directory" when something follows the file (a
+// further component). These are the only checks of that branch, kept now that --manifest-cli
+// (the strict resolve of a file) is ignored.
+func TestResolveStrictThroughRegularFile(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "plain")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolve(file, true, dir); err != nil || got != file {
+		t.Errorf("resolve(file) = %q, %v; want %q, nil", got, err, file)
+	}
+	for _, p := range []string{file + "/next", file + "/next/deeper"} {
+		if _, err := resolve(p, true, dir); err == nil || !strings.Contains(err.Error(), "Not a directory") {
+			t.Errorf("resolve(%q) error = %v, want a Not a directory error", p, err)
+		}
+	}
+	if got, err := resolve(dir+"/", true, dir); err != nil || got != dir {
+		t.Errorf("resolve(dir/) = %q, %v; want %q, nil", got, err, dir)
 	}
 }
 

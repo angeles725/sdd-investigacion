@@ -18,6 +18,7 @@ var updateBodies = flag.Bool("update-bodies", false, "rewrite the @@out frames o
 func TestRetrosBodiesDifferential(t *testing.T) {
 	for _, c := range readBodies(t, "testdata/golden/bodies.txt") {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			c.build(w)
 			w.same("report", w.run(), w.bash("sweep-retros.sh"))

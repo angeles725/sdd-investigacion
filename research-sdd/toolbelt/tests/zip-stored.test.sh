@@ -38,6 +38,13 @@ if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
     || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
 fi
 export RSDD_BIN
+# A guard stands in for rsdd where the shim's arguments are checked: it refuses (exit 9) any --manifest-cli and otherwise runs
+# the real binary, so a shim that hands the manifest tool path over again is caught (the Go commands accept and ignore the flag).
+RSDD_REAL_BIN="$RSDD_BIN"; export RSDD_REAL_BIN
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do [ "$a" = "--manifest-cli" ] && { echo "rsdd-guard: unexpected --manifest-cli" >&2; exit 9; }; done' \
+  'exec "$RSDD_REAL_BIN" "$@"' >"$ROOT/rsdd-guard" && chmod 755 "$ROOT/rsdd-guard"
+RSDD_BIN="$ROOT/rsdd-guard" "$SUT" --bogus >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ]; then ok "the shim hands no --manifest-cli to rsdd"; else no "the shim hands a --manifest-cli to rsdd (guard exit $rc)"; fi
 command -v python3 >/dev/null 2>&1 || { echo "FATAL: python3 not on PATH (fixtures and the manifest tool need it)" >&2; exit 2; }
 
 mkdir "$ROOT/in" "$ROOT/out" && chmod 755 "$ROOT/out" || exit 2
@@ -74,7 +81,7 @@ for x in p.rglob('*'): assert not x.is_symlink() and x.stat().st_uid==os.getuid(
 PY
 then ok "report, hashes, modes, and the closed tree are exact"; else no "published tree"; fi
 
-if python3 "$TB/analysis_manifest.py" verify --root "$ROOT/out/a" "$ROOT/out/a/analysis-manifest.v1.json" >/dev/null; then ok "the published analysis manifest verifies"; else no "manifest"; fi
+if "$RSDD_BIN" adapter manifest verify --root "$ROOT/out/a" "$ROOT/out/a/analysis-manifest.v1.json" >/dev/null; then ok "the published analysis manifest verifies"; else no "manifest"; fi
 
 bad=1
 for name in deflate traversal symlink duplicate payload; do
@@ -99,8 +106,9 @@ fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
 echo "-- teeth: zip-stored.sh shim mutation controls --"
-# a mutant of the shim must still find lib/rsdd-exec.sh and analysis_manifest.py: it lives in a throwaway kit skeleton
-KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib" && ln -s "$TB/analysis_manifest.py" "$KC/analysis_manifest.py"
+RSDD_BIN="$ROOT/rsdd-guard"; export RSDD_BIN   # every tooth run goes through the guard of the argument check above
+# a mutant of the shim must still find lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+KC="$ROOT/kitcopy"; mkdir -p "$KC" && ln -s "$TB/lib" "$KC/lib"
 # each tooth run publishes into a fresh name: the original and the mutant must not collide on one destination
 # and an exit 0 that did not publish this tool's report is exit 9 (a sibling command succeeding is not this command)
 printf '%s\n' '#!/usr/bin/env bash' 'out="$(mktemp -u "$2/toothXXXXXX")" || exit 2' '"$1" --input "$3" --output "$out"; rc=$?' \
@@ -114,6 +122,6 @@ tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC [tooth opts...]
 }
 tooth "shim dispatches to the sibling command" 's/rsdd_exec formats zip-stored/rsdd_exec formats zip-metadata/' 0 9
 tooth "shim drops the caller's arguments" 's/ "\$@"$//' 0 2
-tooth "shim drops the manifest tool" 's/--manifest-cli "\$_RSDD_SELF\/analysis_manifest.py" //' 0 2
+tooth "shim hands the manifest tool over again" 's/ "\$@"$/ --manifest-cli \/nonexistent\/analysis_manifest.py "$@"/' 0 9
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1

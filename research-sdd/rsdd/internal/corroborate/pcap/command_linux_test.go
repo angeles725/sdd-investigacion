@@ -157,6 +157,42 @@ func TestPayloadIsStoredAsADigestNotAsBytes(t *testing.T) {
 	}
 }
 
+// --manifest-cli is accepted and ignored: omitted, pointing at a path that does not exist or at a real file, the run
+// succeeds with the same output, and it needs no python3 on PATH (the rig's PATH holds none) because the manifest
+// steps run in process.
+func TestManifestCLIIsAcceptedAndIgnored(t *testing.T) {
+	for _, c := range commands {
+		t.Run(c.name, func(t *testing.T) {
+			hostReady(t)
+			variants := []struct {
+				name string
+				flag []string
+			}{
+				{"omitted", nil},
+				{"missing", []string{"--manifest-cli", "/nonexistent/analysis_manifest.py"}},
+				{"existing", []string{"--manifest-cli", manifestCLI(t)}},
+			}
+			var want []byte
+			r, cwd := newRig(t), workdir(t)
+			for _, v := range variants {
+				code, out, errs := goRun(c.run, cwd, r.env(""), append([]string{"--input", "in.pcap", "--output", "out-" + v.name}, v.flag...)...)
+				if code != 0 || out != "" || errs != "" {
+					t.Fatalf("%s: exit %d stdout %q stderr %q", v.name, code, out, errs)
+				}
+				got, err := os.ReadFile(filepath.Join(cwd, "out-"+v.name, c.json))
+				if err != nil {
+					t.Fatalf("%s: %v", v.name, err)
+				}
+				if want == nil {
+					want = got
+				} else if !bytes.Equal(got, want) {
+					t.Errorf("%s: evidence differs from the other variants", v.name)
+				}
+			}
+		})
+	}
+}
+
 func TestPublishedManifestValidatesAndItsHashesVerify(t *testing.T) {
 	for _, c := range commands {
 		t.Run(c.name, func(t *testing.T) {
@@ -322,7 +358,7 @@ func TestUsageErrorsExitTwoOnStderr(t *testing.T) {
 		args []string
 		want string
 	}{
-		{nil, "error: the following arguments are required: --input, --output, --manifest-cli\n"},
+		{nil, "error: the following arguments are required: --input, --output\n"},
 		{[]string{"--input", "a", "--output", "b", "--manifest-cli", "c", "--timeout-seconds", "x"}, "error: argument --timeout-seconds: invalid int value: 'x'\n"},
 		{[]string{"--input"}, "error: argument --input: expected one argument\n"},
 		{[]string{"--m", "1"}, "error: ambiguous option: --m could match --max-bytes,"},

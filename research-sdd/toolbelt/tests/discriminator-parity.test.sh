@@ -111,9 +111,26 @@ parity_ok "archive.sh site (blocks= maxdepth 1)" "$lib_shallow" "$lib_shallow"
 # verify-corrections.sh: maxdepth 3, all md except template/.git
 lib_corrections="$(find "$CORPUS" -maxdepth 3 -type f -name '*.md' \
   -not -name '*.template.md' -not -path '*/.git/*' 2>/dev/null | block_file_filter | sort || true)"
-parity_ok "verify-corrections.sh (maxdepth 3)" \
-  "$(printf '%s\n' "$lib_corrections" | wc -l | tr -d ' ')" \
-  "$(printf '%s\n' "$lib_corrections" | wc -l | tr -d ' ')"  # self-consistent check
+# Since kit issue #2625 verify-corrections.sh is a shim to `rsdd verify corrections`, whose discriminator is the Go
+# core/kit one. Real parity: every canonical file of a copy of the fixture declares a correction of a block that does
+# not exist, so the report carries one "declares a correction" WARN per block file the shim consulted; that count must
+# equal the lib's canonical count. (The Go differential test TestDiscoveryMatchesLegacyDiscriminator compares the file
+# lists themselves against the frozen lib.)
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  _dp_bin_dir="$(mktemp -d)"; trap 'rm -rf "$ROOT" "${_dp_bin_dir:-}"' EXIT
+  ( cd "$HERE/../../rsdd" && go build -o "$_dp_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$_dp_bin_dir/rsdd"
+fi
+VC="$ROOT/vc-corpus"; cp -r "$CORPUS" "$VC"
+while IFS= read -r _f; do printf '> Corrects [Block 99999].\n' > "$VC/${_f#"$CORPUS"/}"; done <<<"$lib_corrections"
+vc_count="$(bash "$TOOLBELT/verify-corrections.sh" "$VC" 2>&1 | grep -c 'declares a correction of \[Block 99999\]')"
+parity_ok "verify-corrections.sh shim (maxdepth 3): consults the lib's canonical files" \
+  "$vc_count" "$(printf '%s\n' "$lib_corrections" | wc -l | tr -d ' ')"
+# ...and a corpus of decoys only has no block files at all: exit 2.
+DC="$ROOT/decoys-only"; mkdir -p "$DC"; touch "$DC/blocked-notes.md" "$DC/block12.md" "$DC/bloque4.md"
+bash "$TOOLBELT/verify-corrections.sh" "$DC" >/dev/null 2>&1; dc_rc=$?
+[ "$dc_rc" = 2 ] && ok "verify-corrections.sh shim: decoys alone are not block files (exit 2)" || no "verify-corrections.sh shim: decoys-only corpus exited $dc_rc (want 2)"
 
 # The deep lib finds 6 canonicals (5 shallow + 1 nested)
 deep_count="$(printf '%s\n' "$lib_deep" | grep -c . 2>/dev/null || echo 0)"
@@ -171,19 +188,18 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     && tt "TOOTH-2: optional-prefix mutant passes block12.md decoy" 1 0 "$MD/t2.sh" --orig "$HELPER" \
          --good-lacks 'block12\.md' --bad-has 'block12\.md' -- "${FILTER_ARGV[@]}" "$CORPUS/block12.md"
 
-  # TOOTH-3: a consumer's `declare -F block_file_filter` guard is what turns a broken lib into a loud
-  # exit 1. Mutant = verify-corrections.sh without the guard; both copies sit beside an empty lib.
-  # Original: rc 1 + 'failed to define block_file_filter'. Mutant: proceeds past the missing filter, finds
-  # no block files and exits 2 ('no block files') — the late, misleading failure the guard prevents.
+  # TOOTH-3 (replaced by kit issue #2625): verify-corrections.sh no longer sources lib/block-files.sh and so has no
+  # `declare -F block_file_filter` guard; the discriminator is core/kit's. The loud failure on a broken lib is now the
+  # shim's own guard on lib/rsdd-exec.sh (SENTINEL-RSDD-EXEC-GUARD). Mutant = the shim without that guard line; both
+  # copies sit beside an EMPTY lib dir. Original: rc 2 + 'rsdd-unavailable'. Mutant: rsdd_exec is undefined, so the
+  # shell reports 'command not found' (rc 127) — the late, misleading failure the guard prevents.
   mkdir -p "$MD/orig/lib" "$MD/mut/lib"
-  printf '#!/usr/bin/env bash\n# intentionally empty — no block_file_filter defined\n' > "$MD/orig/lib/block-files.sh"
-  cp "$MD/orig/lib/block-files.sh" "$MD/mut/lib/block-files.sh"   # stage-libs-ok: copies the empty stub, not a toolbelt lib
   cp "$TOOLBELT/verify-corrections.sh" "$MD/orig/verify-corrections.sh"
   mk "TOOTH-3 mutant build" "$TOOLBELT/verify-corrections.sh" "$MD/mut/verify-corrections.sh" \
-    '/^declare -F block_file_filter .*failed to define block_file_filter/d' \
-    && tt "TOOTH-3: guard exits 1 on broken lib; without guard it proceeds" 1 2 "$MD/mut/verify-corrections.sh" \
-         --orig "$MD/orig/verify-corrections.sh" --good-has 'failed to define block_file_filter' \
-         --bad-lacks 'failed to define block_file_filter' --bad-has 'no block files' -- bash @SUT@ "$CORPUS"
+    '/SENTINEL-RSDD-EXEC-GUARD/d' \
+    && tt "TOOTH-3: shim guard exits 2 on a missing rsdd-exec.sh; without it the shell dies with 127" 2 127 "$MD/mut/verify-corrections.sh" \
+         --orig "$MD/orig/verify-corrections.sh" --good-has 'rsdd-unavailable' \
+         --bad-lacks 'rsdd-unavailable' --bad-has 'command not found' -- bash @SUT@ "$CORPUS"
 
   echo ""
   echo "  teeth passed: $t_pass  teeth failed: $t_fail"

@@ -48,6 +48,7 @@ func TestUpdateToolsGolden(t *testing.T) {
 func TestToolsGoldenDifferential(t *testing.T) {
 	for _, c := range readToolGold(t) {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			c.build(w)
 			got := auditGold{}

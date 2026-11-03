@@ -3,6 +3,7 @@ package gate
 import (
 	"bytes"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"io"
 	"os"
 	"os/exec"
@@ -111,7 +112,7 @@ func (w *rgWorld) gitAt(dir, date string, args ...string) string {
 	if date != "" {
 		env["GIT_AUTHOR_DATE"], env["GIT_COMMITTER_DATE"] = date, date
 	}
-	cmd.Env = envList(env)
+	cmd.Env = gitfixture.Env(envList(env))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		w.t.Fatalf("git %v: %v\n%s", args, err, out)

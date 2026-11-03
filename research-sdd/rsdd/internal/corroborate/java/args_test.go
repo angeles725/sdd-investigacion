@@ -14,7 +14,7 @@ func TestArgumentErrorsAreUsageErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no arguments", nil, "the following arguments are required: --decompile-wrapper, --manifest-module, --input, --output"},
+		{"no arguments", nil, "the following arguments are required: --decompile-wrapper, --input, --output"},
 		{"missing output", h.args(), "the following arguments are required: --output"},
 		{"unknown option", append(append([]string{}, full...), "--bogus"), "flag provided but not defined: -bogus"},
 		{"stray positional", append(append([]string{}, full...), "classfile-facts", "x.jar"), "unrecognized arguments: classfile-facts x.jar"},

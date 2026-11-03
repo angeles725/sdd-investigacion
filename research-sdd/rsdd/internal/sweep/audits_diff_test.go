@@ -78,6 +78,7 @@ func (w *world) sameAudits(what string, goRes, bashRes result) {
 func TestAuditsDifferential(t *testing.T) {
 	for _, sc := range auditScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			sc.setup(w)
 			w.sameAudits("report", w.runAudits(sc.args...), w.bashAudits("sweep-audits.sh", sc.args...))
@@ -112,6 +113,7 @@ func TestAuditsDifferentialOrder(t *testing.T) {
 func TestAuditsDifferentialThreshold(t *testing.T) {
 	for _, v := range []string{"7", "0", "-1", "+3", " 3", "3 ", "03", "08", "abc", "", "1.5", "99999999999999999999", "0x10"} {
 		t.Run("value "+v, func(t *testing.T) {
+			t.Parallel()
 			w := newWorld(t)
 			a := w.tgt("targetA")
 			for i, age := range []int{0, 2, 3, 4, 9} {

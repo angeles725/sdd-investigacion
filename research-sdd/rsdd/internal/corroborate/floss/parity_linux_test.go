@@ -71,6 +71,15 @@ toolbelt, legacy = sys.argv[1], sys.argv[2]
 sys.path.insert(0, toolbelt)
 spec = importlib.util.spec_from_file_location("legacy_floss", legacy)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+# The port accepts --manifest-cli and ignores it (the manifest steps run in process): the oracle's parser makes it
+# optional, the only difference from the legacy tool.
+_parser_orig = m._parser
+def _parser_optional():
+    p = _parser_orig()
+    for a in p._actions:
+        if a.dest == "manifest_cli": a.required = False
+    return p
+m._parser = _parser_optional
 out = []
 for case in json.load(sys.stdin):
     os.environ["COLUMNS"] = str(case["columns"])
@@ -79,7 +88,7 @@ for case in json.load(sys.stdin):
     try:
         with contextlib.redirect_stdout(o), contextlib.redirect_stderr(e):
             ns = m._parser().parse_args(case["args"])
-        res["ns"] = {"input": str(ns.input), "output": str(ns.output), "manifest_cli": str(ns.manifest_cli),
+        res["ns"] = {"input": str(ns.input), "output": str(ns.output), "manifest_cli": "" if ns.manifest_cli is None else str(ns.manifest_cli),
                      "timeout": str(ns.timeout), "max_strings": str(ns.max_strings), "max_string_len": str(ns.max_string_len)}
         res["code"] = 0
     except SystemExit as x:

@@ -28,5 +28,4 @@ RSDD_CORROBORATE_PROCYON="$(resolve_adapter procyon || true)"
 export RSDD_CORROBORATE_VINEFLOWER RSDD_CORROBORATE_CFR RSDD_CORROBORATE_PROCYON
 . "$_RSDD_SELF/lib/rsdd-exec.sh" 2>/dev/null || { printf 'degraded: rsdd-unavailable — rsdd-exec.sh missing beside %s\n' "$0" >&2; exit 2; }   # SENTINEL-RSDD-EXEC-GUARD
 rsdd_exec corroborate java \
-  --decompile-wrapper "${RSDD_DECOMPILE_WRAPPER:-$HERE/decompile-java.sh}" \
-  --manifest-module "$HERE/analysis_manifest.py" "$@"
+  --decompile-wrapper "${RSDD_DECOMPILE_WRAPPER:-$HERE/decompile-java.sh}" "$@"

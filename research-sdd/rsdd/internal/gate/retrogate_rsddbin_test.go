@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // The scenarios symlink the live toolbelt/verify-retro.sh, which is a shim over `rsdd retro verify` (kit issue #2586).
@@ -18,7 +20,13 @@ var (
 	rgBuildErr  error
 )
 
+// gateMinParallel is the floor for -test.parallel. Almost every test here waits on child processes (git, bash,
+// the frozen originals) rather than computing, so the default of GOMAXPROCS slots leaves a small runner idle while
+// its slots sit in wait(2); an explicit -parallel on the command line still wins.
+const gateMinParallel = 8
+
 func TestMain(m *testing.M) {
+	parallelfloor.Raise(gateMinParallel)
 	code := m.Run()
 	if rgBuiltBin != "" {
 		_ = os.RemoveAll(filepath.Dir(rgBuiltBin))

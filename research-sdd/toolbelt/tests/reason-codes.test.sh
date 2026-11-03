@@ -40,7 +40,7 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver loc
 REGISTRY="$HERE/../reason-codes.v1.md"
 TOOLBELT="$HERE/.."
 
-SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
+SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh stage-retro.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
 REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
 # A script that is only a rsdd-exec shim (kit issue #2435) emits its typed states from the Go command it runs. The Go
@@ -64,9 +64,13 @@ GO_SRC=(
   "sweep-retros-hook.sh=../rsdd/internal/sweep"
   "sweep-tools.sh=../rsdd/internal/sweep"
   "sweep-tools-hook.sh=../rsdd/internal/sweep"
+  "sweep-breakthroughs.sh=../rsdd/internal/sweep"
+  "sweep-breakthroughs-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "stage-retro.sh=../rsdd/internal/retro/stage"   # gitops.go, run.go and label.go print the degraded git and retro-not-readable lines (kit issue #2663)
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
+  "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -74,7 +78,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
-  resume-state.sh resume-render.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
+  resume-state.sh resume-render.sh verify-block.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
 GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
@@ -120,7 +124,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go" "sweep-tools.sh=tools*.go" "sweep-tools-hook.sh=tools*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go" "sweep-tools.sh=tools*.go" "sweep-tools-hook.sh=tools*.go" "sweep-breakthroughs.sh=breakthroughs*.go" "sweep-breakthroughs-hook.sh=breakthroughs*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
@@ -348,7 +352,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 # ignore and cannot swallow a later emission. Line numbers are not used: they drift with every edit.
 IC_WAIVERS=(
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:
@@ -627,6 +630,7 @@ mkfix() {
   printf '%s\n' 'printf '"'"'degraded: --issues-cache file not readable: %s\n'"'"' "$c" >&2' > "$d/scripts/reconcile-issues.sh"
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' >> "$d/scripts/reconcile-issues.sh"
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' > "$d/scripts/stage-retro-issues.sh"
+  printf '%s' 'echo "degraded: git fetch origin failed — cannot verify" >&2' > "$d/scripts/stage-retro.sh"
   printf '%s' 'echo "degraded: jq failed on $f — refusing"' > "$d/scripts/research-sdd-init.sh"
   printf '%s\n' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' \
     'echo "degraded: migrate-backlogs: cannot read $f — proposal not computed" >&2' > "$d/scripts/migrate-backlogs.sh"
@@ -643,6 +647,7 @@ mkfix() {
       '| `degraded: --issues-cache file not readable:` | degraded | reconcile-issues.sh | m4 | pass a readable file |' \
       '| `degraded: gh not found on PATH` | degraded | reconcile-issues.sh, stage-retro-issues.sh | m5 | install gh |' \
       '| `degraded: jq failed on` | degraded | research-sdd-init.sh | m6 | fix settings.json |' \
+      '| `degraded: git fetch origin failed` | degraded | stage-retro.sh | m13 | fix the remote |' \
       '| `degraded: migrate-backlogs: mktemp failed` | degraded | migrate-backlogs.sh | m10 | free TMPDIR space |' \
       '| `degraded: migrate-backlogs: cannot read` | degraded | migrate-backlogs.sh | m11 | fix the permissions |' \
       '| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh | m12 | install go |' \

@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"io"
 	"io/fs"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // archiveLegacyRunner and archiveLegacyInstall are set by archive_legacy_test.go, which is built only without the
@@ -34,8 +36,8 @@ import (
 var (
 	archiveLegacyRunner  func(t testing.TB, tb, cwd string, args, env []string) (string, string, int)
 	archiveLegacyInstall func(t testing.TB, tb string)
-	// archiveTestBin is archiveRsddBin, set by archive_shim_test.go (also built only without nodiff): the binary every
-	// run gets as RSDD_BIN. Under -tags nodiff it stays nil and archiveBaseEnv adds no RSDD_BIN.
+	// archiveTestBin is archiveRsddBin, set by archive_bin_test.go in both builds: the binary every
+	// run gets as RSDD_BIN.
 	archiveTestBin func(t testing.TB) string
 )
 
@@ -69,6 +71,13 @@ type archiveCase struct {
 	twice  bool                                  // run the command twice on the same tree, output concatenated
 	skip   func(f *archiveFx) string             // non-empty: skip with this reason
 	want   archiveWant
+	// diverge declares the fields (stdout, stderr, exit, effect = the resulting tree) where the Go archive intentionally
+	// differs from the frozen legacy script: a legacy defect fixed in Go, documented in
+	// tool-registry.d/research-sdd-archive.md. It is the testkit/parity model, judged by parity.Judge: an undeclared
+	// difference fails, and so does a declared field that no longer differs. A declaring case's golden is the Go side's,
+	// and the legacy side must still meet legacyWant, so the old behaviour the divergence replaces stays pinned.
+	diverge    []parity.Intended
+	legacyWant archiveWant
 }
 
 type archiveWant struct {
@@ -137,6 +146,7 @@ func (f *archiveFx) chtimes(p, day string) {
 func (f *archiveFx) gitEnv(date string) []string {
 	e := append(os.Environ(), "GIT_AUTHOR_NAME=tester", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=tester",
 		"GIT_COMMITTER_EMAIL=t@example.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	e = gitfixture.Env(e) // no background maintenance racing cp -a of the case tree (kit issue #2624)
 	if date != "" {
 		e = append(e, "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 	}
@@ -303,6 +313,7 @@ func archiveBaseEnv(t testing.TB, root string) []string {
 	t.Helper()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "TMPDIR=" + filepath.Join(root, "tmp")}
+	env = gitfixture.Env(env)
 	if archiveTestBin != nil {
 		env = append(env, "RSDD_BIN="+archiveTestBin(t))
 	}
