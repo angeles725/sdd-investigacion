@@ -38,6 +38,19 @@ func TestDifferentialErrorPaths(t *testing.T) {
 	})
 }
 
+// TestDifferentialEdgeCases runs every boundary text of extract_edges_test.go through the frozen script as well.
+func TestDifferentialEdgeCases(t *testing.T) {
+	for _, c := range edgeCases {
+		t.Run(c.name, func(t *testing.T) {
+			m := files("t-block100.md", c.text)
+			for _, n := range []int{1, 2, 3, 4, 5, 8, 9, 32, 402} {
+				m[blk("t", n)] = plain(n)
+			}
+			assertSame(t, c.name, corpus(t, m))
+		})
+	}
+}
+
 // assertSameArgs runs the oracle (in cwd when not empty) and the Go command with the same arguments.
 func assertSameArgs(t *testing.T, cwd string, args ...string) {
 	t.Helper()
