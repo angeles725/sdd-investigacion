@@ -51,6 +51,14 @@ func TestRunValidatesCapsInclusivelyAtOne(t *testing.T) {
 	if got := reaches(base()); !strings.Contains(got, "canonical path") {
 		t.Errorf("caps of 1: want the output-path refusal, got %q", got)
 	}
+	// Only a ".." part is refused: a canonical output passes the path check and fails later, for another reason.
+	for _, out := range []string{"b", "a/b", "./a/b"} {
+		o := base()
+		o.output = out
+		if got := reaches(o); strings.Contains(got, "canonical path") {
+			t.Errorf("output %q: refused as non-canonical: %q", out, got)
+		}
+	}
 	for name, mod := range map[string]func(*options){
 		"--timeout":        func(o *options) { o.timeout = zero },
 		"--max-strings":    func(o *options) { o.maxStrings = zero },
