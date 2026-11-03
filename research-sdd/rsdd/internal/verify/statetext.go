@@ -11,6 +11,22 @@ import (
 // every helper here names the awk or shell behaviour it reproduces. Classes are those of the C locale
 // ([[:space:]] is " \t\n\v\f\r"), matching what gawk and grep do on the ASCII the kit's markup uses.
 
+// mayContainFold is a cheap pre-filter for a (?i) regexp whose every match contains one of lits (lower-case ASCII
+// text): false means the regexp cannot match l, true means it may. The only non-ASCII characters Go's case folding
+// maps onto an ASCII letter are U+017F (to "s") and U+212A (to "k"); a line holding either is never filtered.
+func mayContainFold(l string, lits ...string) bool {
+	if strings.Contains(l, "ſ") || strings.Contains(l, "K") {
+		return true
+	}
+	low := asciiLower(l)
+	for _, lit := range lits {
+		if strings.Contains(low, lit) {
+			return true
+		}
+	}
+	return false
+}
+
 // asciiLower is awk tolower on ASCII (the only case the kit's tokens use).
 func asciiLower(s string) string {
 	for i := 0; i < len(s); i++ {
