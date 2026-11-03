@@ -60,16 +60,14 @@ GO_SRC=(
   "reconcile-issues.sh=../rsdd/internal/retro/reconcile"   # TOOTH-GOMAP2
   "sweep-audits.sh=../rsdd/internal/sweep"
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
+  "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
   verify-skill-drift.sh corroborate-kaitai.sh java-fidelity-experiment.sh ensure-remote.sh verify-kit-clean.sh scan-firmware.sh
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
-  hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh
-  retro-gate.sh)   # KNOWN GAP (#2583): internal/gate/retrogateseed.go:188,197,209 still print absent-input / unclassifiable WARNs
-# but #2564 dropped retro-gate.sh from those registry rows. Re-add it to the rows, then move it to GO_SRC
-# as "retro-gate.sh=../rsdd/internal/gate" (mapping it today turns the real-registry case red).
+  hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh)
 # The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
 GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
