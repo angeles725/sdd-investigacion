@@ -2,6 +2,7 @@ package verify
 
 import (
 	"bytes"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,7 +31,7 @@ func readRaw(t *testing.T, name string) string {
 // hookStdout is what RunRegistryHook prints for a registry report: the envelope around header and body.
 func hookStdout(body string, u awkChars) string {
 	var buf bytes.Buffer
-	writeSessionStart(&buf, hdrRegistryOK+"\n"+compactRegistry(body, u))
+	hookenv.WriteSessionStart(&buf, hdrRegistryOK+"\n"+compactRegistry(body, u))
 	return buf.String()
 }
 
