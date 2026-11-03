@@ -162,7 +162,7 @@ run_case "json: gh failing -> prs 0 beside prs_unknown 1 (never a bare zero)" jt
 run_case "json: jq/git missing -> rc 3 + typed degraded envelope"            jt_degr ""
 run_case "default: jq missing keeps rc 3 and empty stdout"                   jt_degr_plain ""
 if [ "$IS_SHIM" = 1 ]; then
-  printf '  SKIP  json: a failing jq envelope build -> rc 2: the Go port has no jq step (pinned by Go TestFractionalPRNumber)\n'
+  printf '  SKIP  json: a failing jq envelope build -> rc 2: the Go port has no jq step; its envelope-build failure (rc 2, empty stdout, "envelope build failed") is pinned by Go TestFractionalPRNumber, which feeds a PR number the envelope cannot hold\n'
 else
 run_case "json: a failing jq envelope build -> rc 2, empty stdout"           jt_jqfail ""
 fi
@@ -182,10 +182,11 @@ kinds_check() {
   fi
   docd="$(awk '/^### `research-sdd.resume-state\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
             | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
+  KINDS_CODE="$(printf '%s' "$code" | tr '\n' ' ')"; KINDS_DOC="$(printf '%s' "$docd" | tr '\n' ' ')"
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
 }
 if kinds_check "$SUT" "$DOC"; then ok "kinds: SUT item kinds == documented kinds (both directions)" "(the kinds the contract lists)"
-else no "kinds: code/doc kind sets differ" "(see kinds_check; the Go source is $GOSRC when the SUT is a shim)"; fi
+else no "kinds: code/doc kind sets differ" "(code: [${KINDS_CODE:-}] doc: [${KINDS_DOC:-}]; the Go source is $GOSRC when the SUT is a shim)"; fi
 jt_kinds() { kinds_check "$1" "$DOC"; }
 
 # --- TEETH (--prove-teeth): each mutant of the SUT must break the case that pins it.
