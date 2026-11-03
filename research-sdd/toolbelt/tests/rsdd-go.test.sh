@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Bridge suite for the Go module research-sdd/rsdd (go-port plan U0.1, kit issue #2271).
 # Runs `go test ./...` (through `make test`) in the module and reports each Go package as one case, so run-all.sh
 # carries the Go result in its `== N passed · M failed ==` summary contract.
 #
@@ -157,11 +156,12 @@ package_go_files() {
 
 # changed_go_files MODDIR BASE -> the shard unit of RSDD_TEETH_SHARD (kit issue #2573): the flat, LC_ALL=C-sorted
 # list ("./rel/file.go") of the non-test .go files gremlins mutates for a PR. A changed non-test file is a unit
-# (a deleted one is gone). A changed package whose only .go change is in _test.go contributes ALL its non-test
-# files: a test edit can change the kills of any of them, and dropping the package would be a silent zero.
+# (a deleted one is gone). A changed package with a changed _test.go, or with no changed non-test file left,
+# contributes ALL its non-test files: a test edit can change the kills of any of them (also when a non-test file
+# changed alongside), and dropping the package would be a silent zero.
 # _test.go files are never units (gremlins does not mutate them). Exit 3 as changed_go_packages.
 changed_go_files() {
-  local mod="$1" base="$2" f d lines pkgs p chg
+  local mod="$1" base="$2" f d lines pkgs p chg tpk
   lines="$(changed_paths "$mod" "$base")" || return 3
   pkgs="$(changed_go_packages "$mod" "$base")" || return 3
   chg="$(while IFS= read -r f; do
@@ -171,12 +171,17 @@ changed_go_files() {
     [ -f "$mod/$f" ] || continue
     echo "./$f"
   done <<<"$lines")"
+  tpk="$(while IFS= read -r f; do
+    case "$f" in *_test.go) d="$(dirname "$f")"; if [ "$d" = . ]; then echo .; else echo "./$d"; fi ;; esac
+  done <<<"$lines")"
   {
     [ -z "$chg" ] || echo "$chg"
     while IFS= read -r p; do
       [ -n "$p" ] || continue
-      # a package keeps its changed non-test files; with none (a test-only change) every non-test file is a unit
-      grep -qxF "$p" <<<"$(sed 's|/[^/]*$||' <<<"$chg")" || package_go_files "$mod" "$p"
+      # a package keeps its changed non-test files; a test edit, or no changed non-test file, brings every one
+      if grep -qxF "$p" <<<"$tpk" || ! grep -qxF "$p" <<<"$(sed 's|/[^/]*$||' <<<"$chg")"; then
+        package_go_files "$mod" "$p"
+      fi
     done <<<"$pkgs"
   } | LC_ALL=C sort -u
 }
@@ -412,32 +417,33 @@ selftest_teeth() {
   # LC_ALL=C sorted, are what RSDD_TEETH_SHARD splits; each package is then mutated only on its shard's files.
   local fm="$dir/files/mod" fl f7 sf1 sf2 sf3 un
   local fg=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -c user.name=t -c user.email=t@t -c init.defaultBranch=main -C "$dir/files")
-  mkdir -p "$fm"/{big,mid,tonly,sub/deep,testdata/t}
+  mkdir -p "$fm"/{big,mid,mix,tonly,sub/deep,testdata/t}
   for f in a b c d e f g h; do printf 'package big\n' > "$fm/big/$f.go"; done
   printf 'package big\n' > "$fm/big/a_test.go"; printf 'package mid\n' > "$fm/mid/m1.go"; printf 'package mid\n' > "$fm/mid/m2.go"
   printf 'package tonly\n' > "$fm/tonly/t1.go"; printf 'package tonly\n' > "$fm/tonly/t2.go"; printf 'package tonly\n' > "$fm/tonly/t1_test.go"
   printf 'package sub\n' > "$fm/sub/s.go"; printf 'package deep\n' > "$fm/sub/deep/d.go"; printf 'package t\n' > "$fm/testdata/t/t.go"
+  printf 'package mix\n' > "$fm/mix/x.go"; printf 'package mix\n' > "$fm/mix/y.go"; printf 'package mix\n' > "$fm/mix/x_test.go"
   printf 'package main\n' > "$fm/root.go"; printf 'package main\n' > "$fm/root2.go"; printf 'module m\n' > "$fm/go.mod"
   "${fg[@]}" init -q && "${fg[@]}" add -A && "${fg[@]}" commit -q --no-verify -m c1 || { no "file scope: scratch repo setup failed"; return 0; }
   "${fg[@]}" branch base
   for f in b c d e f g h; do printf '// edit\n' >> "$fm/big/$f.go"; done      # seven changed files in one package
-  printf '// edit\n' >> "$fm/big/a_test.go"                                   # a _test.go edit is never a unit
+  printf '// edit\n' >> "$fm/mix/x.go"; printf '// edit\n' >> "$fm/mix/x_test.go"   # mixed change: the test edit brings y.go too
   printf '// edit\n' >> "$fm/mid/m2.go"; printf 'package mid\n' > "$fm/mid/m3.go"   # tracked edit + untracked new file
   printf '// edit\n' >> "$fm/tonly/t1_test.go"                                # test-only package: every non-test file
   rm "$fm/sub/s.go"; printf '// edit\n' >> "$fm/sub/deep/d.go"; printf '// edit\n' >> "$fm/testdata/t/t.go"
   printf '// edit\n' >> "$fm/root2.go"
   fl="$(bash "$0" --teeth-files base "$fm")"; crc=$?
-  f7="$(printf '%s\n' ./big/b.go ./big/c.go ./big/d.go ./big/e.go ./big/f.go ./big/g.go ./big/h.go ./mid/m2.go ./mid/m3.go ./root2.go ./sub/deep/d.go ./tonly/t1.go ./tonly/t2.go)"
+  f7="$(printf '%s\n' ./big/b.go ./big/c.go ./big/d.go ./big/e.go ./big/f.go ./big/g.go ./big/h.go ./mid/m2.go ./mid/m3.go ./mix/x.go ./mix/y.go ./root2.go ./sub/deep/d.go ./tonly/t1.go ./tonly/t2.go)"
   if [ "$crc" -eq 0 ] && [ "$fl" = "$f7" ]; then
-    ok "file scope: changed non-test files are the units; _test.go, deleted, testdata and untouched files are not; a test-only package brings all its non-test files"
+    ok "file scope: changed non-test files are the units; _test.go, deleted, testdata and untouched files are not; a package with a test edit (test-only or mixed) brings all its non-test files"
   else no "file scope: got rc=$crc [$(tr '\n' ' ' <<<"$fl")]"; fi
   sf1="$(bash "$0" --shard-select 1/3 <<<"$fl" | tr '\n' ' ')"; sf2="$(bash "$0" --shard-select 2/3 <<<"$fl" | tr '\n' ' ')"
   sf3="$(bash "$0" --shard-select 3/3 <<<"$fl" | tr '\n' ' ')"
-  if [ "$sf1" = "./big/b.go ./big/e.go ./big/h.go ./root2.go ./tonly/t2.go " ] \
-     && [ "$sf2" = "./big/c.go ./big/f.go ./mid/m2.go ./sub/deep/d.go " ] \
-     && [ "$sf3" = "./big/d.go ./big/g.go ./mid/m3.go ./tonly/t1.go " ] \
+  if [ "$sf1" = "./big/b.go ./big/e.go ./big/h.go ./mix/x.go ./sub/deep/d.go " ] \
+     && [ "$sf2" = "./big/c.go ./big/f.go ./mid/m2.go ./mix/y.go ./tonly/t1.go " ] \
+     && [ "$sf3" = "./big/d.go ./big/g.go ./mid/m3.go ./root2.go ./tonly/t2.go " ] \
      && [ "$(sort <<<"$(tr ' ' '\n' <<<"$sf1$sf2$sf3" | grep .)")" = "$(sort <<<"$fl")" ]; then
-    ok "file shard: 1/3, 2/3 and 3/3 of thirteen files are a disjoint cover (union = every file), so one package spreads over all jobs"
+    ok "file shard: 1/3, 2/3 and 3/3 of fifteen files are a disjoint cover (union = every file), so one package spreads over all jobs"
   else no "file shard: wrong slices [$sf1] [$sf2] [$sf3]"; fi
   if [ "$(bash "$0" --shard-select 1/1 <<<"$fl")" = "$fl" ]; then ok "file shard: 1/1 keeps every file"; else no "file shard: 1/1 wrong"; fi
   un="$(bash "$0" --shard-select 3/4 <<<"./only/x.go")"
@@ -457,13 +463,15 @@ selftest_teeth() {
   local p1 p2 p3 tab=$'\t'
   p1="$(bash "$0" --teeth-plan 1/3 "$fm" <<<"$fl")"; p2="$(bash "$0" --teeth-plan 2/3 "$fm" <<<"$fl")"
   p3="$(bash "$0" --teeth-plan 3/3 "$fm" <<<"$fl")"
-  if [ "$p1" = ".${tab}/|^(root\.go)\$
-./big${tab}/|^(a\.go|c\.go|d\.go|f\.go|g\.go)\$
-./tonly${tab}/|^(t1\.go)\$" ] && [ "$p2" = "./big${tab}/|^(a\.go|b\.go|d\.go|e\.go|g\.go|h\.go)\$
+  if [ "$p1" = "./big${tab}/|^(a\.go|c\.go|d\.go|f\.go|g\.go)\$
+./mix${tab}/|^(y\.go)\$
+./sub/deep${tab}/" ] && [ "$p2" = "./big${tab}/|^(a\.go|b\.go|d\.go|e\.go|g\.go|h\.go)\$
 ./mid${tab}/|^(m1\.go|m3\.go)\$
-./sub/deep${tab}/" ] && [ "$p3" = "./big${tab}/|^(a\.go|b\.go|c\.go|e\.go|f\.go|h\.go)\$
+./mix${tab}/|^(x\.go)\$
+./tonly${tab}/|^(t2\.go)\$" ] && [ "$p3" = ".${tab}/|^(root\.go)\$
+./big${tab}/|^(a\.go|b\.go|c\.go|e\.go|f\.go|h\.go)\$
 ./mid${tab}/|^(m1\.go|m2\.go)\$
-./tonly${tab}/|^(t2\.go)\$" ]; then
+./tonly${tab}/|^(t1\.go)\$" ]; then
     ok "file plan: each shard runs gremlins once per package it holds, excluding that package's other files"
   else no "file plan: wrong [$p1] [$p2] [$p3]"; fi
   # Every changed file is mutated in exactly one shard: what a shard's runs do not exclude, over all shards.
