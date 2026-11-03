@@ -85,7 +85,7 @@ func TestParseTypedStates(t *testing.T) {
 		t.Errorf("empty input: %+v, want Empty and no records", got)
 	}
 	got := Parse("# title\n\nno table here\n")
-	if got.Empty || len(got.Records) != 0 || got.Rows() != 0 {
+	if got.Empty || len(got.Records) != 0 || got.count(KindRow) != 0 {
 		t.Errorf("text without gap rows: %+v, want not Empty and no records (no-match)", got)
 	}
 	for _, src := range []string{"| high | plain text | w | pending |\n", "| high | B1 no gap | w | pending |\n", "| high | b1-g1 lower | w | pending |\n",
@@ -95,8 +95,8 @@ func TestParseTypedStates(t *testing.T) {
 		}
 	}
 	mixed := Parse("| high | B1-G1 a | w | pending |\n| — | B1-G2 b | w | done |\n| high | B1-G3 c |\n")
-	if mixed.Rows() != 1 || mixed.Skipped() != 1 || mixed.Unparsed() != 1 {
-		t.Errorf("counts rows=%d skipped=%d unparsed=%d, want 1/1/1", mixed.Rows(), mixed.Skipped(), mixed.Unparsed())
+	if mixed.count(KindRow) != 1 || mixed.count(KindSkipped) != 1 || mixed.count(KindUnparsed) != 1 {
+		t.Errorf("counts rows=%d skipped=%d unparsed=%d, want 1/1/1", mixed.count(KindRow), mixed.count(KindSkipped), mixed.count(KindUnparsed))
 	}
 }
 
@@ -134,7 +134,7 @@ func TestBulletForms(t *testing.T) {
 		{"empty source", "", "B1-G2", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, found := Bullet(c.src, c.id)
+			got, found := ParseBullets(c.src).Text(c.id)
 			if got != c.want || found != c.found {
 				t.Errorf("Bullet = (%q, %v), want (%q, %v)", got, found, c.want, c.found)
 			}
@@ -184,8 +184,8 @@ func TestOverlap(t *testing.T) {
 
 func TestBlock(t *testing.T) {
 	for id, want := range map[string]string{"B50-G6": "50", "B1-G1": "1", "B007-G12": "007", "B9-G": "9", "weird": "weird"} {
-		if got := Block(id); got != want {
-			t.Errorf("Block(%q) = %q, want %q", id, got, want)
+		if got := blockOf(id); got != want {
+			t.Errorf("blockOf(%q) = %q, want %q", id, got, want)
 		}
 	}
 }
