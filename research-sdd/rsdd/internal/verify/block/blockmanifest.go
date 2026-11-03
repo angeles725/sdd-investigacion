@@ -7,14 +7,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // Section 11 of verify-block: SCRIPTS-MANIFEST (kit #1207, #1659, #2190). A preserved script cited under
 // sources/probes/ must be traceable to a row of a `sources/probes/**/SCRIPTS-MANIFEST.md` of the target, and the
 // row's sha256 must equal the file's. With no manifest at all the line is an INFO; with >= 1 manifest a cited script
 // without a valid row, or whose every row's sha256 differs from the file's, is a FAIL (MANIFEST!, exit 1). The row
-// parser is the port of lib/scripts-manifest.sh (scriptsManifestRows).
+// parser is the port of lib/scripts-manifest.sh (kit.ScriptsManifestRows).
 
 var vbMfCite = vbRe(`sources/probes/[A-Za-z0-9_./-]*\.(sh|ps1|py|java|js|rb|pl|bat|cmd|groovy|kts)\.?([^A-Za-z0-9_./-]|$)`)
 var vbMfTrail = vbRe(`[^A-Za-z0-9]+$`)
@@ -52,7 +52,7 @@ func (b *blockRun) sectionManifest() {
 func (b *blockRun) checkManifestCites(cites, files []string) {
 	var rows []string
 	for _, f := range files {
-		one, ok := b.scriptsManifestRows(b.target, f)
+		one, ok := kit.ScriptsManifestRows(b.fs.View, b.target, f)
 		if !ok {
 			b.echo("   ERROR: DEGRADED manifest parse failed (shared parser, under %s/sources/probes) — cited scripts NOT manifest-checked", b.target)
 			b.rc = 1
@@ -156,70 +156,4 @@ func (b *blockRun) findManifests(root string) (files []string, rc int) {
 	}
 	walk(root)
 	return files, rc
-}
-
-// scriptsManifestRows is scripts_manifest_rows <target> <manifest>: per valid row (a 64-hex sha cell) two
-// `<target-relative path><TAB><sha256 lowercase>` lines - the resolved cell and <manifest dir>/<basename>. ok is
-// false where the script returned 2 (unreadable manifest, or one outside the target).
-func (b *blockRun) scriptsManifestRows(target, mf string) ([]string, bool) {
-	if target == "" || mf == "" || !b.fs.IsFile(mf) || !b.fs.Readable(mf) {
-		return nil, false
-	}
-	for strings.Contains(target, "//") { // SM-SLASH
-		target = strings.ReplaceAll(target, "//", "/")
-	}
-	for strings.Contains(mf, "//") {
-		mf = strings.ReplaceAll(mf, "//", "/")
-	}
-	for strings.HasSuffix(target, "/") && strings.TrimSuffix(target, "/") != "" {
-		target = strings.TrimSuffix(target, "/")
-	}
-	if !strings.HasPrefix(mf, target+"/") {
-		return nil, false
-	}
-	md := strings.TrimPrefix(mf, target+"/")
-	md = strings.TrimSuffix(md, "/"+shellx.BaseName(md)) // ${md%/*}
-	src, err := b.fs.Read(mf)
-	if err != nil {
-		return nil, false
-	}
-	var rows []string
-	for _, line := range shellx.RecordLines(string(src)) {
-		if !strings.HasPrefix(strings.TrimLeft(line, shellx.WsClass), "|") {
-			continue
-		}
-		f := strings.Split(line, "|")
-		cellOf := func(i int) string {
-			if i >= len(f) {
-				return ""
-			}
-			return strings.Map(func(r rune) rune {
-				if r == '`' || strings.ContainsRune(shellx.WsClass, r) {
-					return -1
-				}
-				return r
-			}, f[i])
-		}
-		a, sha := cellOf(1), cellOf(2)
-		a = strings.TrimPrefix(a, "./")
-		if a != "" && len(sha) == 64 && isHex(sha) { // SM-ROW
-			full := md + "/" + a
-			if strings.HasPrefix(a, "sources/") {
-				full = a
-			}
-			parts := strings.Split(a, "/")
-			rows = append(rows, full+"\t"+strings.ToLower(sha), md+"/"+parts[len(parts)-1]+"\t"+strings.ToLower(sha))
-		}
-	}
-	return rows, true
-}
-
-func isHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
 }
