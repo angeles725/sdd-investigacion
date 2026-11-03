@@ -99,13 +99,7 @@ func auditAgeDays(v string) int64 {
 }
 
 // auditAgeDaysOf is `age_d` of an audit first added at epoch: whole days, a date in the future reading as 0.
-func auditAgeDaysOf(now, epoch int64) int64 {
-	ageS := now - epoch
-	if ageS < 0 {
-		ageS = 0
-	}
-	return ageS / 86400
-}
+func auditAgeDaysOf(now, epoch int64) int64 { return max(0, now-epoch) / 86400 }
 
 // auditEscalation is the tag of an audit aged ageD days against the threshold.
 func auditEscalation(ageD, threshold int64) string {
@@ -164,14 +158,7 @@ func sweepAudits(o options, s cli.Stdio, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "sweep-audits: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths\n")
 		return cli.ExitOperational
 	}
-	skipped, skippedNames := 0, ""
-	for _, w := range strings.Fields(strings.Join(skippedPaths, "\n")) { // `for s in $skipped` splits on whitespace
-		skipped++
-		if skippedNames != "" {
-			skippedNames += ", "
-		}
-		skippedNames += filepath.Base(w)
-	}
+	skipped, skippedNames := auditSkipped(skippedPaths)
 
 	now := s.Clock().Unix()
 	ageDays := auditAgeDays(s.Env("RSDD_RETRO_AGE_DAYS"))
@@ -180,7 +167,7 @@ func sweepAudits(o options, s cli.Stdio, out, errw io.Writer) int {
 	total, pending, absent := 0, 0, 0
 	var rows []auditRow
 	for _, p := range strings.Fields(strings.Join(usable, "\n")) { // `for p in $paths`
-		if st, err := os.Stat(p); err != nil || !st.IsDir() { // [ -d ] follows a symbolic link
+		if !isDirectory(p) {
 			fmt.Fprintf(out, "INFO: corpus not found (absent-input): %s\n", p)
 			absent++
 			continue
@@ -198,49 +185,92 @@ func sweepAudits(o options, s cli.Stdio, out, errw io.Writer) int {
 			seen[key] = true
 			total++
 			status := auditStatus(f)
-			if status == "applied" || status == "dismissed" {
+			if auditClosed(status) {
 				continue
 			}
 			pending++
 			epoch := addedEpoch(g, p, f, now)
 			ageD := auditAgeDaysOf(now, epoch)
-			if status == "" {
-				status = "none"
-			}
-			rows = append(rows, auditRow{epoch: epoch, file: f, target: p, claims: auditClaims(f), status: status,
+			rows = append(rows, auditRow{epoch: epoch, file: f, target: p, claims: auditClaims(f), status: auditStatusLabel(status),
 				age: strconv.FormatInt(ageD, 10), tag: auditEscalation(ageD, ageDays)})
 		}
 	}
 
+	sortAuditRows(rows)
+	writeAuditsReport(out, rows, auditTotals{pending: pending, total: total, absent: absent, skipped: skipped, skippedNames: skippedNames})
+	return cli.ExitOK
+}
+
+// auditTotals are the counters of one sweep, as the summary prints them.
+type auditTotals struct {
+	pending, total, absent, skipped int
+	skippedNames                    string
+}
+
+// writeAuditsReport prints the pending queue, the Summary: line and what follows it.
+func writeAuditsReport(out io.Writer, rows []auditRow, t auditTotals) {
+	for _, r := range rows {
+		fmt.Fprintf(out, "PENDING  %s\n", r.file)
+		fmt.Fprintf(out, "         target: %s  ·  ~%s audited claims  ·  status: %s  ·  age: %sd%s\n", r.target, r.claims, r.status, r.age, r.tag)
+	}
+	fmt.Fprintf(out, "\nSummary: %d pending / %d audits across targets.\n", t.pending, t.total)
+	if t.absent > 0 {
+		fmt.Fprintf(out, "INFO: %d target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\n", t.absent)
+	}
+	if t.skipped > 0 {
+		fmt.Fprintf(out, "WARN: %d target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: %s\n", t.skipped, t.skippedNames)
+	}
+	// "Nothing to review." only when nothing is pending AND no target was dropped for a truncated path. A target
+	// that is absent does not suppress it: the INFO line discloses it and the queue is genuinely empty.
+	if t.pending == 0 && t.skipped == 0 {
+		io.WriteString(out, "Nothing to review.\n")
+	}
+	if t.pending > 0 {
+		io.WriteString(out, "For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\n"+
+			"coverage gaps into the §8 backlog, then flip the marker to\n"+
+			"'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').\n")
+	}
+}
+
+// sortAuditRows is `sort -n -t$'\t' -k1,1`: oldest first by the numeric first-commit epoch, equal epochs in the
+// byte order of the whole row (the last-resort comparison of sort in the C locale).
+func sortAuditRows(rows []auditRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].epoch != rows[j].epoch {
 			return rows[i].epoch < rows[j].epoch
 		}
 		return rows[i].serial() < rows[j].serial()
 	})
-	for _, r := range rows {
-		fmt.Fprintf(out, "PENDING  %s\n", r.file)
-		fmt.Fprintf(out, "         target: %s  ·  ~%s audited claims  ·  status: %s  ·  age: %sd%s\n", r.target, r.claims, r.status, r.age, r.tag)
-	}
+}
 
-	fmt.Fprintf(out, "\nSummary: %d pending / %d audits across targets.\n", pending, total)
-	if absent > 0 {
-		fmt.Fprintf(out, "INFO: %d target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\n", absent)
+// auditSkipped counts the truncated targets and names them, `for s in $skipped` splitting on whitespace.
+func auditSkipped(paths []string) (count int, names string) {
+	for _, w := range strings.Fields(strings.Join(paths, "\n")) {
+		count++
+		if names != "" {
+			names += ", "
+		}
+		names += filepath.Base(w)
 	}
-	if skipped > 0 {
-		fmt.Fprintf(out, "WARN: %d target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: %s\n", skipped, skippedNames)
+	return count, names
+}
+
+// isDirectory is `[ -d p ]`: a symbolic link to a directory is one.
+func isDirectory(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// auditClosed reports a marker that closes an audit: only applied and dismissed do; any other word, or none,
+// leaves it pending.
+func auditClosed(status string) bool { return status == "applied" || status == "dismissed" }
+
+// auditStatusLabel is ${status:-none}.
+func auditStatusLabel(status string) string {
+	if status == "" {
+		return "none"
 	}
-	// "Nothing to review." only when nothing is pending AND no target was dropped for a truncated path. A target
-	// that is absent does not suppress it: the INFO line discloses it and the queue is genuinely empty.
-	if pending == 0 && skipped == 0 {
-		io.WriteString(out, "Nothing to review.\n")
-	}
-	if pending > 0 {
-		io.WriteString(out, "For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed\n"+
-			"coverage gaps into the §8 backlog, then flip the marker to\n"+
-			"'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed').\n")
-	}
-	return cli.ExitOK
+	return status
 }
 
 // auditStatus is retro_review_status of an audit: the status word of the marker in its leading block, "" when
