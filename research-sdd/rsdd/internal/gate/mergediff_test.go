@@ -44,6 +44,7 @@ func with(base []string, more ...string) []string {
 }
 
 func TestDifferentialAgainstLegacy(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("runs the frozen bash original")
 	}
