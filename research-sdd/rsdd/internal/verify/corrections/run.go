@@ -17,10 +17,15 @@ import (
 // operational failure (a block file that could not be read) reported as a typed `degraded:` line - 2 bad
 // arguments or no block files. The report is byte-identical to verify-corrections.sh's; the differences, all
 // by design, are listed in tool-registry.d/verify-corrections.md.
-func Run(args []string, s cli.Stdio) int { return run(args, s, os.ReadFile) }
+func Run(args []string, s cli.Stdio) int { return runFS(args, s, os.ReadFile, os.ReadDir) }
 
 // run is Run with the file reader injected, so a test can make a block file unreadable on any host.
 func run(args []string, s cli.Stdio, read func(string) ([]byte, error)) int {
+	return runFS(args, s, read, os.ReadDir)
+}
+
+// runFS is run with the directory lister injected as well.
+func runFS(args []string, s cli.Stdio, read func(string) ([]byte, error), readDir readDirFunc) int {
 	target := ""
 	if len(args) > 0 {
 		target = args[0]
@@ -29,12 +34,18 @@ func run(args []string, s cli.Stdio, read func(string) ([]byte, error)) int {
 		fmt.Fprintln(s.Err, "usage: verify-corrections.sh <target-dir>")
 		return cli.ExitUsage
 	}
-	blocks := listBlocks(target)
+	blocks, walkErrs := listBlocks(target, readDir)
+	if len(walkErrs) > 0 { // an unreadable directory is not "no block files" and not a partial corpus: nothing was proven
+		return degraded(s, "cannot read directory %s: %s", walkErrs[0].path, errText(walkErrs[0].err))
+	}
 	if len(blocks) == 0 {
 		fmt.Fprintf(s.Err, "verify-corrections: no block files under %s\n", target)
 		return cli.ExitUsage
 	}
-	c := newCheck(target, blocks, s, read)
+	c, err := newCheck(target, blocks, s, read, readDir)
+	if err != nil {
+		return degraded(s, "%s", err)
+	}
 	return c.run()
 }
 
@@ -51,13 +62,14 @@ type check struct {
 	focus   map[string]string
 
 	files map[string][]string // path -> lines, for the target reads
+	fatal error               // the first operational failure of a lookup; the run stops on it
 	nouns map[string]*regexp.Regexp
 
 	rc, unbound, negated, skipped, unchecked, ambiguous int
 	negnames, skipnames                                 string
 }
 
-func newCheck(target string, blocks []string, s cli.Stdio, read func(string) ([]byte, error)) *check {
+func newCheck(target string, blocks []string, s cli.Stdio, read func(string) ([]byte, error), readDir readDirFunc) (*check, error) {
 	c := &check{
 		target: target, blocks: blocks, s: s, read: read,
 		numfile: map[string]string{}, numany: map[string]string{}, numcnt: map[string]int{}, pfxset: map[string]bool{},
@@ -72,11 +84,12 @@ func newCheck(target string, blocks []string, s cli.Stdio, read func(string) ([]
 		c.numany[n] = f
 		c.pfxset[p] = true
 	}
-	c.focus = readFocuses(target, func(p string) (string, bool) {
+	var err error
+	c.focus, err = readFocuses(target, func(p string) (string, error) {
 		b, err := read(p)
-		return string(b), err == nil
-	})
-	return c
+		return string(b), err
+	}, readDir)
+	return c, err
 }
 
 // resolveSlug maps a focus slug to the block prefix of an existing block file, else to the FOCUSES.md row's
@@ -97,18 +110,28 @@ func (c *check) resolveSlug(slug string) string {
 	return c.focus[s]
 }
 
-// targetLines are the lines of a target block file, read once. A file that cannot be read has none, as the
-// legacy grep's swallowed error did.
+// targetLines are the lines of a target block file, read once. A file that cannot be read is an operational
+// failure (c.fatal), never "no backlink": the legacy grep swallowed that error and reported a false FAIL.
 func (c *check) targetLines(path string) []string {
 	if l, ok := c.files[path]; ok {
 		return l
 	}
 	var lines []string
-	if b, err := c.read(path); err == nil {
+	if b, err := c.read(path); err != nil {
+		if c.fatal == nil {
+			c.fatal = fmt.Errorf("cannot read target block %s: %s", filepath.Base(path), errText(err))
+		}
+	} else {
 		lines = splitRecords(string(b))
 	}
 	c.files[path] = lines
 	return lines
+}
+
+// degraded prints the typed operational-failure line and returns its exit code (1).
+func degraded(s cli.Stdio, format string, a ...any) int {
+	fmt.Fprintf(s.Err, "verify-corrections: degraded: "+format+"; the corpus was NOT checked\n", a...)
+	return cli.ExitOperational
 }
 
 func (c *check) noun(num string) *regexp.Regexp {
@@ -128,11 +151,13 @@ func (c *check) run() int {
 		_, num := blockKey(filepath.Base(f))
 		src, err := c.read(f)
 		if err != nil {
-			fmt.Fprintf(c.s.Err, "verify-corrections: degraded: extractor (awk) failed on %s; the corpus was NOT checked\n", filepath.Base(f))
-			return cli.ExitOperational
+			return degraded(c.s, "extractor (awk) failed on %s: %s", filepath.Base(f), errText(err))
 		}
 		for _, rec := range extract(string(src)) {
 			c.judge(f, num, rec)
+			if c.fatal != nil {
+				return degraded(c.s, "%s", c.fatal)
+			}
 		}
 	}
 	if c.unbound != 0 {
@@ -267,8 +292,9 @@ func (c *check) judge(f, cnum string, rec record) {
 		return
 	}
 	// Reciprocal backlink: the target file must carry a backlink-vocabulary word AND name B<c>/Block <c>.
-	if reciprocated(c.targetLines(tgt), cnum, c.noun(cnum)) {
-		return
+	lines := c.targetLines(tgt)
+	if c.fatal != nil || reciprocated(lines, cnum, c.noun(cnum)) {
+		return // a failed read is reported by the caller, never as a finding
 	}
 	if cls == "bare" || cls == "mixed" {
 		amb(fmt.Sprintf("%s with no reciprocal backlink in %s (advisory: a %s ref is checked, never refused)", rd, filepath.Base(tgt), adv))

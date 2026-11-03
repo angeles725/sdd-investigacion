@@ -4,6 +4,7 @@ package corrections
 
 import (
 	"math/rand"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -34,7 +35,10 @@ func TestDiscoveryMatchesLegacyDiscriminator(t *testing.T) {
 		t.Fatalf("legacy discovery: %v", err)
 	}
 	want := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-	got := listBlocks(dir)
+	got, derrs := listBlocks(dir, os.ReadDir)
+	if len(derrs) != 0 {
+		t.Fatalf("discovery errors: %v", derrs)
+	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") || len(got) < 6 {
 		t.Errorf("block files differ\n got: %v\nwant: %v", got, want)
 	}

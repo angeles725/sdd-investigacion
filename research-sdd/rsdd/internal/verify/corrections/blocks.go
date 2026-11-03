@@ -1,6 +1,9 @@
 package corrections
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"regexp"
 	"sort"
@@ -13,10 +16,12 @@ import (
 const maxDepth = 3
 
 // findFiles is `find <target> -maxdepth 3 -type f -name <match> -not -path '*/.git/*'`: the paths as find prints
-// them (the target as given, then "/" and the relative path), in directory order. Unreadable directories are
-// skipped silently, as find's 2>/dev/null did. Symlinks are not followed and are not regular files.
-func findFiles(target string, match func(name string) bool) []string {
+// them (the target as given, then "/" and the relative path), in directory order. A directory that cannot be listed is
+// returned in errs (the script skipped it silently, find 2>/dev/null), with the entries listed before the error kept.
+// Symlinks below the target are not followed and are not regular files.
+func findFiles(target string, match func(name string) bool, readDir readDirFunc) ([]string, []dirErr) {
 	var out []string
+	var errs []dirErr
 	join := func(dir, name string) string {
 		if strings.HasSuffix(dir, "/") {
 			return dir + name
@@ -25,9 +30,9 @@ func findFiles(target string, match func(name string) bool) []string {
 	}
 	var walk func(dir string, depth int)
 	walk = func(dir string, depth int) {
-		entries, err := os.ReadDir(dir)
+		entries, err := readDir(dir)
 		if err != nil {
-			return
+			errs = append(errs, dirErr{dir, err}) // the entries returned before the error are still walked
 		}
 		for _, e := range entries {
 			p := join(dir, e.Name())
@@ -45,7 +50,26 @@ func findFiles(target string, match func(name string) bool) []string {
 		}
 	}
 	walk(target, 1)
-	return out
+	return out, errs
+}
+
+// readDirFunc lists one directory; the tests inject failures through it.
+type readDirFunc func(dir string) ([]os.DirEntry, error)
+
+// dirErr is a directory the walk could not list (fully or partly).
+type dirErr struct {
+	path string
+	err  error
+}
+
+// errText is the cause of a failed file operation without the path os wraps around it, so a message that
+// already names the file does not name it twice.
+func errText(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
 }
 
 // isBlockCandidate is `-name '*.md' -not -name '*.template.md'`.
@@ -55,17 +79,17 @@ func isBlockCandidate(name string) bool {
 
 // listBlocks is the sorted list of canonical block files under target (the discriminator is core/kit's, the one
 // copy of lib/block-files.sh). The sort is bytewise, so the report order does not depend on the caller's locale.
-func listBlocks(target string) []string {
-	cand := findFiles(target, isBlockCandidate)
+func listBlocks(target string, readDir readDirFunc) ([]string, []dirErr) {
+	cand, errs := findFiles(target, isBlockCandidate, readDir)
 	if len(cand) == 0 {
-		return nil
+		return nil, errs
 	}
 	blocks, err := kit.FilterBlockFiles(cand, false, "")
 	if err != nil {
-		return nil
+		return nil, errs
 	}
 	sort.Strings(blocks)
-	return blocks
+	return blocks, errs
 }
 
 // blockKey is a block file name split into its focus prefix and its block number (leading zeros removed, at least
@@ -112,14 +136,14 @@ var reFocusPrefix = regexp.MustCompile(`([A-Za-z0-9][A-Za-z0-9._-]*)-(block|bloq
 // readFocuses maps focus slug -> block prefix from every FOCUSES.md under target (depth <= 3, sorted). Row shape:
 // | `slug` | status | state | `prefix-blockN.md` | question |   (the prefix is the `<prefix>-blockN` token of any
 // cell after the slug). A later row of the same slug wins.
-func readFocuses(target string, read func(string) (string, bool)) map[string]string {
+func readFocuses(target string, read func(string) (string, error), readDir readDirFunc) (map[string]string, error) {
 	m := map[string]string{}
-	files := findFiles(target, func(n string) bool { return n == "FOCUSES.md" })
+	files, _ := findFiles(target, func(n string) bool { return n == "FOCUSES.md" }, readDir) // a walk failure is reported by listBlocks, over the same tree
 	sort.Strings(files)
 	for _, fm := range files {
-		src, ok := read(fm)
-		if !ok {
-			continue
+		src, err := read(fm)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read focus map %s: %s", strings.TrimPrefix(fm, strings.TrimSuffix(target, "/")+"/"), errText(err))
 		}
 		for _, line := range kit.SplitLines(src) {
 			if !isTableLine(line) {
@@ -141,7 +165,7 @@ func readFocuses(target string, read func(string) (string, bool)) map[string]str
 			}
 		}
 	}
-	return m
+	return m, nil
 }
 
 // isTableLine is `grep -E '^[[:space:]]*\|'`.

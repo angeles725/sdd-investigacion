@@ -492,7 +492,7 @@ func TestLegacyDefectsFixed(t *testing.T) {
 			}
 			return readFile(p)
 		})
-		if code != 1 || errb.String() != "verify-corrections: degraded: extractor (awk) failed on t-block2.md; the corpus was NOT checked\n" || strings.Contains(out.String(), "== exit") || strings.Contains(out.String(), "ok ") {
+		if code != 1 || errb.String() != "verify-corrections: degraded: extractor (awk) failed on t-block2.md: permission denied; the corpus was NOT checked\n" || strings.Contains(out.String(), "== exit") || strings.Contains(out.String(), "ok ") {
 			t.Errorf("code %d\nstdout:\n%sstderr:\n%s", code, out.String(), errb.String())
 		}
 	})
