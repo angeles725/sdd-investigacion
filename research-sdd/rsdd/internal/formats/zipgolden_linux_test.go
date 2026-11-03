@@ -238,6 +238,9 @@ func storedInspectCases(t testing.TB) []storedCase {
 	paths := sortedValues(writeFixtures(t, dir, fixtures))
 	paths = append(paths, sortedValues(writeFixtures(t, dir, metaFixtures()))...)
 	paths = append(paths, mutants(t, dir, "good", fixtures["good.zip"])...)
+	if len(fixtures["nested"]) == 0 {
+		t.Fatal(`storedFixtures has no "nested" fixture: the nested mutants would be silently empty`)
+	}
 	paths = append(paths, mutants(t, dir, "nested", fixtures["nested"])...)
 	var cases []storedCase
 	for _, p := range paths {
@@ -483,6 +486,9 @@ func TestPyIntGolden(t *testing.T) {
 	}
 	for i, in := range pyIntInputs {
 		w := want[i]
+		if w.Input != in {
+			t.Fatalf("golden entry %d is for %q, the corpus has %q: regenerate the golden", i, w.Input, in)
+		}
 		v, err := pyInt(in)
 		if !w.OK {
 			if err == nil {
@@ -517,6 +523,9 @@ func TestPyPathGolden(t *testing.T) {
 		t.Fatalf("golden holds %d inputs, the corpus has %d", len(want), len(pyPathInputs))
 	}
 	for i, in := range pyPathInputs {
+		if want[i].Input != in {
+			t.Fatalf("golden entry %d is for %q, the corpus has %q: regenerate the golden", i, want[i].Input, in)
+		}
 		if got := pyName(in); got != want[i].Name {
 			t.Errorf("pyName(%q) = %q, oracle %q", in, got, want[i].Name)
 		}

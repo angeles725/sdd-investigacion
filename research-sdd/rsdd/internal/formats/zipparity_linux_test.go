@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -121,18 +120,26 @@ func TestZipStoredInspectParity(t *testing.T) {
 	checkZipGolden(t, "stored_inspect", got)
 }
 
-// TestZipNFCParity compares Go's NFC with the oracle's on every input the oracle's Unicode assigns (CI's
-// Python may be older or newer than the one that froze the golden: the comparison is on the intersection).
-// The golden is checked against the oracle only when both left the same inputs unassigned; TestZipNFCGolden
-// replays it through the Go code in the nodiff build either way.
+// TestZipNFCParity compares Go's NFC with the oracle's on every input the oracle's Unicode assigns. The golden is
+// frozen with the oldest supported Python (CI's 3.12) and checked against any oracle at least as new: on the inputs
+// the golden assigns, the oracle's answers must hash to the golden's digest. An oracle OLDER than the golden fails,
+// because it cannot judge the inputs it leaves unassigned. TestZipNFCGolden replays the golden in the nodiff build.
 func TestZipNFCParity(t *testing.T) {
 	t.Parallel()
 	inputs := nfcInputs()
 	want := runPy(t, "nfc", inputs)
+	update := os.Getenv("RSDD_UPDATE_GOLDEN") == "1"
+	var g zipNFCGold
+	if !update {
+		g = loadZipGolden[zipNFCGold](t, "nfc")[0]
+	}
 	var skip [][2]int
 	var d zipDigest
 	for i, in := range inputs {
 		if want[i].Cn {
+			if !update && !inSkip(g.Skip, i) {
+				t.Fatalf("input %d is unassigned in the oracle's Unicode but assigned in the golden: the oracle is older than the golden's Python (3.12)", i)
+			}
 			if n := len(skip); n > 0 && skip[n-1][1] == i-1 {
 				skip[n-1][1] = i
 			} else {
@@ -144,18 +151,14 @@ func TestZipNFCParity(t *testing.T) {
 		if got := zipNFC(in); got != py {
 			t.Errorf("input %d %+q: Go NFC %+q, oracle %+q", i, in, got, py)
 		}
-		d.add(py)
+		if update || !inSkip(g.Skip, i) {
+			d.add(py)
+		}
 	}
-	got := zipNFCGold{Inputs: len(inputs), Skip: skip, Digest: d.sum()}
-	if os.Getenv("RSDD_UPDATE_GOLDEN") == "1" {
-		checkZipGolden(t, "nfc", []zipNFCGold{got})
-		return
+	if update {
+		g.Skip = skip
 	}
-	if g := loadZipGolden[zipNFCGold](t, "nfc")[0]; !slices.Equal(g.Skip, got.Skip) {
-		t.Logf("the oracle's Unicode differs from the golden's (%d vs %d unassigned ranges): golden not compared", len(got.Skip), len(g.Skip))
-		return
-	}
-	checkZipGolden(t, "nfc", []zipNFCGold{got})
+	checkZipGolden(t, "nfc", []zipNFCGold{{Inputs: len(inputs), Skip: g.Skip, Digest: d.sum()}})
 }
 
 func TestZipDecodeParity(t *testing.T) {
