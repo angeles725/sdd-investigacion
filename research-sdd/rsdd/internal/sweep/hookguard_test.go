@@ -59,3 +59,26 @@ func TestAuditsHookPanicStillEmitsEnvelope(t *testing.T) {
 		t.Errorf("context %q", ctx)
 	}
 }
+
+func TestToolsHookPanicStillEmitsEnvelope(t *testing.T) {
+	w := newWorld(t)
+	a := w.tgt("targetA")
+	w.targets(a)
+	var out, errb bytes.Buffer
+	s := w.stdio(&out, &errb)
+	s.Env = func(string) string { panic("boom in the tools census") } // read while TARGETS.md is resolved
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				t.Fatalf("the panic escaped the hook: %v", p)
+			}
+		}()
+		if rc := runToolsHook(options{kit: w.kit, hook: true}, s, w.readFile()); rc != 0 {
+			t.Fatalf("rc=%d, want 0 (a hook never fails the session)", rc)
+		}
+	}()
+	ctx := decodeContext(t, out.String())
+	if !strings.HasPrefix(ctx, "Research-SDD tools sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\n") || !strings.Contains(ctx, "rsdd: internal-error: boom in the tools census") {
+		t.Errorf("context %q", ctx)
+	}
+}
