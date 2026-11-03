@@ -182,25 +182,36 @@ func TestPythonRowTimeoutKillIsProbeFailed(t *testing.T) {
 	wantRow(t, rep, "objdump", " UNUSABLE    "+e.bin+"/objdump (smoke test failed)")
 }
 
+// Each row sees its own timeout in RSDD_PROBE_TIMEOUT. Both timeouts are long, so a slow runner cannot stop a
+// stub before it writes its log (with a 0.3 s python timeout the docling stub was sometimes killed first).
 func TestPythonRowUsesItsOwnTimeoutAndEnv(t *testing.T) {
+	e := newDT(t)
+	e.env["RSDD_PROBE_TIMEOUT"] = "9"
+	e.env["RSDD_PYTHON_PROBE_TIMEOUT"] = "29"
+	e.tool("objdump", `printf '%s\n' "$RSDD_PROBE_TIMEOUT" > "$RSDD_LOG"`)
+	e.tool("docling", `printf '%s\n' "$RSDD_PROBE_TIMEOUT" > "$RSDD_LOG.py"`)
+	e.env["RSDD_LOG"] = e.root + "/log"
+	e.report()
+	for f, want := range map[string]string{"/log": "9\n", "/log.py": "29\n"} {
+		if b, _ := os.ReadFile(e.root + f); string(b) != want {
+			t.Errorf("%s = %q, want %q", f, b, want)
+		}
+	}
+}
+
+// A python row is stopped at RSDD_PYTHON_PROBE_TIMEOUT, not at the longer RSDD_PROBE_TIMEOUT. Only an upper
+// bound on wall time is asserted, so a loaded runner can only make the run slower, never make the stub miss.
+func TestPythonRowIsStoppedAtItsOwnTimeout(t *testing.T) {
 	e := newDT(t)
 	e.env["RSDD_PROBE_TIMEOUT"] = "9"
 	e.env["RSDD_PYTHON_PROBE_TIMEOUT"] = "0.3"
 	e.tool("marker_single", "sleep 5")
-	e.tool("objdump", `printf '%s\n' "$RSDD_PROBE_TIMEOUT" > "$RSDD_LOG"`)
-	e.tool("docling", `printf '%s\n' "$RSDD_PROBE_TIMEOUT" > "$RSDD_LOG.py"`)
-	e.env["RSDD_LOG"] = e.root + "/log"
 	start := time.Now()
 	rep := e.report()
 	if time.Since(start) > 5*time.Second {
 		t.Fatalf("the python row waited for RSDD_PROBE_TIMEOUT (9 s) instead of RSDD_PYTHON_PROBE_TIMEOUT")
 	}
 	wantRow(t, rep, "marker", " PROBE_FAILED "+e.bin+"/marker_single (probe error: exit 124)")
-	for f, want := range map[string]string{"/log": "9\n", "/log.py": "0.3\n"} {
-		if b, _ := os.ReadFile(e.root + f); string(b) != want {
-			t.Errorf("%s = %q, want %q", f, b, want)
-		}
-	}
 }
 
 func TestDefaultPythonTimeoutIs20(t *testing.T) {
