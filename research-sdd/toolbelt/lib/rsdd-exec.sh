@@ -30,6 +30,13 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   # _rsdd_exec_valid_hash TEXT — rc 0 when TEXT is exactly sha256:<64 lowercase hex>.
   _rsdd_exec_valid_hash() { [[ "$1" =~ ^sha256:[0-9a-f]{64}$ ]]; }
 
+  # _rsdd_exec_select [FIND-ACTION...] — the ONE definition of the hashed selection (README of
+  # rsdd/internal/commands/testdata/source-hash), run from inside the sources directory. The shell hash and the
+  # freshness fingerprint below both go through it, so they can never select different files.
+  _rsdd_exec_select() {
+    find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -path './testdata/*' ! -path '*/testdata/*' ! -name testdata "$@"
+  }
+
   # _rsdd_exec_shell_hash SRC — the source hash of the tree at SRC, computed in shell with the selection and the
   # manifest of rsdd/internal/commands/testdata/source-hash/README.md (find | LC_ALL=C sort | path NUL sha LF | sha256).
   # rc 0 sets _RSDD_EXEC_TREE; rc 1 sets _RSDD_EXEC_HWHY (the hash is UNAVAILABLE, never "fresh"): no sha256 tool, a
@@ -45,7 +52,7 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     if ! command -v find >/dev/null 2>&1 || ! command -v sort >/dev/null 2>&1; then _RSDD_EXEC_HWHY="find or sort not found"; return 1; fi
     while IFS= read -r -d '' p; do files+=("$p"); done < <(
       cd -- "$src" 2>/dev/null || { printf 'FIND-FAILED\0'; exit 0; }
-      { find . -type f \( -name '*.go' ! -name '*_test.go' -o -path ./go.mod -o -path ./go.sum -o -path './vendor/*' -o -path './embed/*' -o -path '*/embed/*' \) ! -path './testdata/*' ! -path '*/testdata/*' ! -name testdata -print0 2>/dev/null || printf 'FIND-FAILED\0'; } | LC_ALL=C sort -z)
+      { _rsdd_exec_select -print0 2>/dev/null || printf 'FIND-FAILED\0'; } | LC_ALL=C sort -z)
     # An empty selection is decided BEFORE any "${files[@]}" expansion: on bash < 4.4 that expansion is an unbound
     # variable error under the caller's `set -u`.
     if [ "${#files[@]}" -eq 0 ]; then _RSDD_EXEC_HWHY="no source files matched"; return 1; fi
@@ -87,15 +94,66 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     _RSDD_EXEC_HWHY="$why; go run rsdd-srchash failed"; return 1
   }
 
+  # _rsdd_exec_fingerprint SRC BIN — rc 0 sets _RSDD_EXEC_FP to a cheap fingerprint (stats only, no file is read) of the
+  # SAME selection as the hash plus the binary: per file the path, size, mtime, ctime and inode, hashed. The ctime is the
+  # load-bearing field: any content write moves it and `touch -d` cannot restore it, so an edit that keeps the size and
+  # puts the old mtime back still changes the fingerprint. rc 1 = the fingerprint cannot be computed (no GNU find
+  # -printf, no sha tool, a failed or empty listing, a missing binary); callers then run the full hash, never "fresh".
+  _rsdd_exec_fingerprint() {
+    local listing binline h
+    local -a sha
+    _RSDD_EXEC_FP=""
+    if command -v sha256sum >/dev/null 2>&1; then sha=(sha256sum)
+    elif command -v shasum >/dev/null 2>&1; then sha=(shasum -a 256 -b)
+    else return 1; fi
+    listing="$(cd -- "$1" 2>/dev/null || exit 1; set -o pipefail; _rsdd_exec_select -printf '%p\t%s\t%T@\t%C@\t%i\n' 2>/dev/null | LC_ALL=C sort)" || return 1
+    [ -n "$listing" ] || return 1
+    binline="$(find -L "$2" -maxdepth 0 -type f -printf '%p\t%s\t%T@\t%C@\t%i\n' 2>/dev/null)" || return 1
+    [ -n "$binline" ] || return 1
+    h="$(printf '%s\n%s\n' "$listing" "$binline" | "${sha[@]}" 2>/dev/null)" || return 1
+    [[ "${h:0:64}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    _RSDD_EXEC_FP="fp1:${h:0:64}"
+  }
+
+  # _rsdd_exec_fp_write STAMPFILE SRC BIN FP — record FP as "verified fresh" (best effort; a failure only costs the
+  # fast path). Racy-stamp guard: nothing is written while any selected file or the binary has a ctime within the last
+  # RSDD_EXEC_FP_SETTLE seconds (default 2, a non-negative integer; 0 disables the guard, for tests), because a second
+  # write inside the same filesystem timestamp tick would keep size and ctime identical to what FP recorded.
+  _rsdd_exec_fp_write() {
+    local stamp="$1" settle=2 ref tmp newer
+    if [ -n "${RSDD_EXEC_FP_SETTLE+x}" ]; then
+      if [[ "$RSDD_EXEC_FP_SETTLE" =~ ^[0-9]{1,6}$ ]]; then settle="$RSDD_EXEC_FP_SETTLE"; fi
+    fi
+    tmp="$(mktemp "${stamp}.XXXXXX" 2>/dev/null)" || return 1
+    if [ "$settle" -gt 0 ]; then
+      ref="$(mktemp "${stamp}.XXXXXX" 2>/dev/null)" || { rm -f -- "$tmp"; return 1; }
+      if ! touch -d "$settle seconds ago" "$ref" 2>/dev/null; then rm -f -- "$tmp" "$ref"; return 1; fi
+      newer="$(cd -- "$2" 2>/dev/null && _rsdd_exec_select -cnewer "$ref" -print -quit 2>/dev/null; find -L "$3" -maxdepth 0 -cnewer "$ref" -print -quit 2>/dev/null)" || newer="unknown"
+      rm -f -- "$ref"
+      if [ -n "$newer" ]; then rm -f -- "$tmp"; return 1; fi
+    fi
+    if printf '%s\n' "$4" >"$tmp" 2>/dev/null && mv -f -- "$tmp" "$stamp" 2>/dev/null; then return 0; fi
+    rm -f -- "$tmp"; return 1
+  }
+
   # _rsdd_exec_check BIN SRC — rc 0 fresh (BIN's `version --source-hash` equals the tree hash) · 1 stale (any other
   # answer, `sha256:unknown` and a non-zero exit included) · 2 cannot tell (sets _RSDD_EXEC_HWHY).
   _rsdd_exec_check() {
-    local got
+    local got fp="" stamp
     _RSDD_EXEC_GOT=""
+    # Fast path (#2599): the fingerprint is taken BEFORE the hash, so a change during the hash is never stamped. An
+    # equal stamp means "this exact state was already verified fresh"; anything else (no stamp, unreadable stamp, a
+    # fingerprint that cannot be computed) falls through to the full hash.
+    if _rsdd_exec_fingerprint "$2" "$1"; then
+      fp="$_RSDD_EXEC_FP"
+      stamp="$(cat -- "$(dirname -- "$1")/.rsdd-fp" 2>/dev/null)" || stamp=""
+      if [ -n "$stamp" ] && [ "$stamp" = "$fp" ]; then return 0; fi
+    fi
     _rsdd_exec_tree_hash "$2" || return 2
     got="$("$1" version --source-hash 2>/dev/null </dev/null)" || return 1
     _RSDD_EXEC_GOT="$got"
     [ "$got" = "$_RSDD_EXEC_TREE" ] || return 1
+    if [ -n "$fp" ]; then _rsdd_exec_fp_write "$(dirname -- "$1")/.rsdd-fp" "$2" "$1" "$fp" || true; fi
   }
 
   # _rsdd_exec_build KIT — rc 0 built · 3 <kit>/bin cannot be created or written · 1 the build failed (a failed
@@ -341,7 +399,16 @@ fi
 #          selection and manifest of rsdd/internal/commands/testdata/source-hash/README.md (one sha256sum, or
 #          `shasum -a 256`, over all files). Stale = any other answer: a different hash, `sha256:unknown`, a
 #          non-zero exit. The mtime of files plays no part: touching a file does not rebuild, a content change
-#          with an old mtime does. A binary that is missing or stale is rebuilt under an exclusive flock on
+#          with an old mtime does. FAST PATH (#2599): the full hash reads every selected file, so after a check that found the
+#          binary fresh the library writes <kit>/bin/.rsdd-fp, a hash of a stats-only listing of the SAME selection (path, size,
+#          mtime, ctime, inode, via GNU find -printf) plus the binary's own stats. A later call whose fingerprint equals the stamp
+#          skips the full hash. The ctime makes this safe where mtime would not be: a content write always moves it and
+#          `touch -d` cannot put it back, so an edit that keeps the size and restores the old mtime still changes the fingerprint
+#          (a touch also moves it and costs one full hash). An added, removed or renamed file changes the listing. The fingerprint is
+#          taken before the hash, and no stamp is written while a selected file or the binary has a ctime newer than
+#          RSDD_EXEC_FP_SETTLE seconds ago (default 2; non-negative integer; 0 = off, tests only), so two writes inside one
+#          timestamp tick cannot hide. A missing/unreadable/different stamp, or a fingerprint that cannot be computed (no GNU find
+#          -printf, no sha tool, empty listing), always falls back to the full hash - never to "fresh". A binary that is missing or stale is rebuilt under an exclusive flock on
 #          <kit>/bin/.rsdd.lock, with freshness RE-CHECKED once the lock is held (a shim that waited does not
 #          rebuild what another one just built; the fresh path takes no lock). The build stamps the hash:
 #          `go run ./cmd/rsdd-srchash .` then `CGO_ENABLED=0 go build -ldflags "-s -w -X <SOURCE_HASH_SYM>=<hash>" -o <tmp>
