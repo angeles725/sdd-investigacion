@@ -36,3 +36,24 @@ status-sync.sh     lines 1021-1367 (the whole --sync-state mode: render_envelope
 The S3 differential assembles head + section + blocked_body + blocked excerpt + derive + scan + counters + focuses +
 sync into one script (the original order, the unported sections between them absent) and appends an authored tail for
 the other modes. It runs the real script entry, so the pick, the argument checks and the sync run as one process.
+
+Slice S4 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main efa58ac2):
+
+status-degraded.sh lines 492-507 (the _rel_state / _blocked_degraded_files comment and both functions)
+                   sha256 af27d52518a51f374882447d311b5c8f1bdc3e09dd1f1aa6888ff48c4232e24f
+status-resolve.sh  lines 628-741 (resolve_next, queue_next, resolve_next_q)
+                   sha256 113ee0ac000aa3d340e0e50d88134edefa0049db8a256aad09a937328d61f68b
+status-bu.sh       lines 1368-1400 (_stop_exhausted, _BU_SUFFIX, _bu_compute)
+                   sha256 1af95128a84663368830907619e540ef896c31e902ab4c9c84fc1dffe1a81784
+status-next-a.sh   lines 1695-1840 (the --next block up to the retro-coverage helper: STALE gate, _gate_verify, _first_failure,
+                   _stale_line, the stopped-focus bypass, the RETRO-DUE scope)
+                   sha256 4ce38fb337eb8235143e429a857b9123faf3787afdffc65015df5f57b7c9bc7a
+status-next-b.sh   lines 1973-2045 (the RETRO-DUE loop, the DEGRADED gate, the aggregate walk, the scoped verdict, exit 0)
+                   sha256 ea8f515e34b461d6021b880a032db482bda73141980aa42317f3317b0f457134
+
+Lines 1841-1972 (_rd_covers_derive and its awk grammar) and 1401-1694 (issues_due_gate) belong to slice S5 and are NOT
+frozen here. The S4 differential assembles head + section + blocked_body + blocked + derive + degraded + scan + resolve +
+counters + focuses + bu + next-a, then two authored stand-ins defined inside the --next block (issues_due_gate prints
+`_stop_exhausted`; _rd_covers_derive keeps the declared counter), then next-b and an authored tail for the other modes. The
+Go side runs the same stand-ins through its seams. verify-state.sh is staged as a wrapper that re-executes the Go test
+binary as `rsdd verify state` (or prints a fixed report for the first-failure cases).

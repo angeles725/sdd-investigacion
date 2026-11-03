@@ -36,8 +36,10 @@ var (
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	if stageDir != "" {
-		_ = os.RemoveAll(stageDir)
+	for _, d := range []string{stageDir, s4Dir} {
+		if d != "" {
+			_ = os.RemoveAll(d)
+		}
 	}
 	os.Exit(code)
 }
