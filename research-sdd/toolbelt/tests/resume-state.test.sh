@@ -191,7 +191,7 @@ eq "15 --help exits 0 and prints usage on stdout" "$RC|$(grep -c '^usage:' <<<"$
 # 16. large repos: the final document must not travel through argv (ARG_MAX); a small stack ulimit shrinks it
 ( cd "$R" && for i in $(seq 1 700); do printf 'refs/heads/bulk/%0170d %s\n' "$i" "$(git rev-parse main)"; done \
   | while read -r ref sha; do git update-ref "$ref" "$sha"; done ) >/dev/null 2>&1
-OUT="$( ( ulimit -s 256; env -i PATH="$PATH" HOME="$HOME" timeout 120 bash "$SUT" --cwd "$R" --no-gh 2>"$TMP/err" ) )"; RC=$?
+OUT="$( ( ulimit -s 256; env -i PATH="$PATH" HOME="$HOME" ${RSDD_BIN:+RSDD_BIN="$RSDD_BIN"} timeout 120 bash "$SUT" --cwd "$R" --no-gh 2>"$TMP/err" ) )"; RC=$?
 eq "16 700 branches under a 256K stack limit: rc 0 and all listed" "$RC|$(jqe '[.branches[]|select(.name|startswith("bulk/"))]|length')" "0|700"
 ( cd "$R" && git for-each-ref --format='%(refname)' refs/heads/bulk | while read -r ref; do git update-ref -d "$ref"; done ) >/dev/null 2>&1
 

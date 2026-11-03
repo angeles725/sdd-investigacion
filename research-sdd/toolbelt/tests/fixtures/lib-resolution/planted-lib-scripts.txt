@@ -25,6 +25,7 @@ research-sdd-archive.sh
 research-sdd-init.sh
 research-sdd-status.sh
 resume-render.sh
+resume-state.sh
 retro-gate.sh
 return-token-gate.sh
 scan-secrets.sh
