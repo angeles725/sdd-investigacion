@@ -15,11 +15,11 @@ Mirror (Engram `odd/stage-retro-go/tasks`): pending, the mirror is written by th
 - S10 Exit codes unchanged where a caller can depend on them: 0 staged, 1 usage / helper, 2 excluded or already applied|dismissed, 3 dirty kit repo, 5 branch cannot be created or checked out, 6 fetch failed, 7 self-referential retro not on origin/main, 8 retro unreadable after checkout.
 
 ## Tasks
-- T1 (S3, S4) freeze the legacy script + libs sha-pinned, harness, cases, differential, RED — route inline — commit: pending
-- T2 (S1, S2, S5, S8) the port: plan/slug/sections/selfref/git steps/command, registered from `internal/retro/commands.go` — inline — commit: pending
-- T3 (S3, S7, S8) goldens recorded from the frozen script, go-only divergence tests — inline — commit: pending
-- T4 (S1, S5, S9) shim switch, shrunk bash suite, reason-codes, tool-registry — inline — commit: pending
-- T5 (S6) hand mutants under `-tags nodiff`, dead-code removal — inline — commit: pending
+- T1 (S3, S4) freeze the legacy script + libs sha-pinned, harness, cases, differential, RED — route inline — commit: d3e020e1 (oracle freeze)
+- T2 (S1, S2, S5, S8) the port: plan/slug/sections/selfref/git steps/command, registered from `internal/retro/commands.go` — inline — commit: 9ca47125
+- T3 (S3, S7, S8) goldens recorded from the frozen script, go-only divergence tests — inline — commit: c5c7d971, 95929636, fec1883a (nodiff edge tests)
+- T4 (S1, S5, S9) shim switch, shrunk bash suite, reason-codes, tool-registry — inline — commit: 777fd348 (suite shrink, script still live), 1532f06f (shim switch)
+- T5 (S6) hand mutants under `-tags nodiff`, dead-code removal — inline — commit: none (16 hand mutants killed in an out-of-repo copy, deleted; dead helpers dropped in 95929636)
 
 ## Case map (every case of `tests/stage-retro.test.sh`)
 Go tests live in `research-sdd/rsdd/internal/retro/stage`. "golden" = recorded from the frozen script by `TestDifferential`, replayed by `TestGoldenReplay` (case names `parity/<n>`).
@@ -35,7 +35,7 @@ Go tests live in `research-sdd/rsdd/internal/retro/stage`. "golden" = recorded f
 - 9 fetch failure -> parity/09-fetch-fails
 - 10, 10b branch at origin/main, no upstream -> parity/10-behind-origin (state records the upstream)
 - 11 checkout -b failure exit 5 -> parity/11-checkout-b-fails
-- 12 symlinked toolbelt -> `TestSymlinkedToolbeltResolvesRealKit` + shim e2e case 5b of the bash suite
+- 12 symlinked toolbelt -> `TestResolvedKitToolbeltStagesThroughTheKit` + shim e2e case 5b of the bash suite
 - 13 self-ref unpushed -> parity/13-selfref-unpushed
 - 14 existing branch held by another worktree -> parity/14-existing-branch-held
 - 15 stale branch predates the retro (exit 8) -> parity/15-stale-branch
