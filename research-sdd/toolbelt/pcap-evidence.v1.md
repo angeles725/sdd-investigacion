@@ -97,5 +97,5 @@ messages, over about a hundred scenarios compared against the frozen legacy scri
   one case. The captured bytes, the truncation and the `output-cap` error are the same.
 - Output that is not valid UTF-8 is decoded with one U+FFFD per ill-formed sequence (the `tshark -v` banner included,
   where the script crashed).
-- The analysis manifest is still created, validated and verified by `analysis_manifest.py`, run with `python3` from
-  `PATH`; its stdout and stderr are relayed.
+- The analysis manifest is created, validated and verified in process by `rsdd` (kit issue #2561): `python3` is no
+  longer required, and `--manifest-cli` is accepted and ignored.

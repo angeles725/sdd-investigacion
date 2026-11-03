@@ -192,8 +192,8 @@ differences, all stricter or crash-free:
   (UTF-16/32 included), a lone surrogate, and NaN, Infinity or a float beyond
   the double range end the run with `corroborate-floss: <reason>` and exit 2
   where the script printed a traceback and exited 1 (or published evidence).
-- The manifest tool is run with the `python3` found on `PATH` (the script used
-  its own interpreter); the integers `--timeout`, `--max-strings` and
+- The analysis manifest is built in process by `rsdd` (kit issue #2561; the
+  script ran the Python manifest tool with its own interpreter); the integers `--timeout`, `--max-strings` and
   `--max-string-len` keep Python's unbounded range, and beyond 4 300 digits are
   a usage error as in Python 3.12.
 - An explicit `--opt=--` value is kept as the text `--` (argparse drops it and
