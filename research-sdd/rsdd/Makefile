@@ -97,12 +97,20 @@ TEETH_EXCLUDE_ARG = $(if $(TEETH_EXCLUDE),--exclude-files '$(TEETH_EXCLUDE)' )
 # exit) with the same tags, memory cap and env; if that baseline fails the target prints the typed line
 # `teeth: DEGRADED — the unmutated package fails in a module-only copy: <pkg>` and exits 1 WITHOUT running gremlins, so a
 # read that bypasses kitroot can never turn into a silent all-KILLED report. TEETH_PKG=. is the whole module (./...).
+# The kit shims (verify-state.sh, verify-retro.sh, research-sdd-archive.sh ...) exec the rsdd binary, which a module-only
+# copy cannot build into the kit's bin/: unless the caller sets RSDD_BIN (run-all does) the recipe builds one into a temp
+# dir, exports it to the baseline and to gremlins' mutants, and removes it on exit.
 # Packages whose lived mutants are known debt are listed in teeth-debt.txt and judged by the bridge suite.
 TEETH_BASE_PKG = $(if $(filter .,$(TEETH_PKG)),./...,$(TEETH_PKG))
 TEETH_KIT      = "$$(cd .. && pwd)"
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU) RSDD_TEST_RESEARCH_SDD=$(TEETH_KIT); $(CAPPED) sh -c 'w=$$(mktemp -d) || exit 2; trap "rm -rf $$w" EXIT; mkdir "$$w/rsdd" && cp -R . "$$w/rsdd/" || exit 2; cd "$$w/rsdd" && go test -count=1 $(TEETH_BASE_PKG) >"$$w/baseline.out" 2>&1 || { tail -n 40 "$$w/baseline.out"; echo "teeth: DEGRADED — the unmutated package fails in a module-only copy: $(TEETH_PKG)"; exit 1; }'
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU) RSDD_TEST_RESEARCH_SDD=$(TEETH_KIT); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG)
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU) RSDD_TEST_RESEARCH_SDD=$(TEETH_KIT); \
+	if [ -z "$${RSDD_BIN:-}" ]; then rb="$$(mktemp -d)" || exit 2; trap 'rm -rf "$$rb"' EXIT; \
+	h="$$(go run ./cmd/rsdd-srchash .)" && go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o "$$rb/rsdd" ./cmd/rsdd \
+	|| { echo "teeth: DEGRADED — cannot build the rsdd binary the kit shims need (RSDD_BIN)"; exit 1; }; export RSDD_BIN="$$rb/rsdd"; fi; \
+	( $(CAPPED) sh -c 'w=$$(mktemp -d) || exit 2; trap "rm -rf $$w" EXIT; mkdir "$$w/rsdd" && cp -R . "$$w/rsdd/" || exit 2; cd "$$w/rsdd" && go test -count=1 $(TEETH_BASE_PKG) >"$$w/baseline.out" 2>&1 || { tail -n 40 "$$w/baseline.out"; echo "teeth: DEGRADED — the unmutated package fails in a module-only copy: $(TEETH_PKG)"; exit 1; }' ) || exit 1; \
+	( $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG) )
+
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \

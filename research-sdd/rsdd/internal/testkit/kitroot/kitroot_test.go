@@ -97,17 +97,15 @@ func TestMustReadsTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestMustPanicsNamingTheVariableWhenTheDirIsMissing(t *testing.T) {
+func TestMustReturnsTheUnresolvedSentinelNamingTheVariable(t *testing.T) {
 	t.Setenv(EnvVar, filepath.Join(t.TempDir(), "gone"))
-	defer func() {
-		r := recover()
-		msg, _ := r.(string)
-		if !strings.Contains(msg, EnvVar) {
-			t.Fatalf("Must panic = %v; want a message naming %s", r, EnvVar)
-		}
-	}()
-	Must()
-	t.Fatal("Must returned for a missing directory")
+	got := Must()
+	if got != Unresolved || !strings.Contains(got, EnvVar) {
+		t.Fatalf("Must = %q; want the sentinel %q naming %s", got, Unresolved, EnvVar)
+	}
+	if _, err := os.ReadFile(filepath.Join(got, "toolbelt", "x")); err == nil || !strings.Contains(err.Error(), EnvVar) {
+		t.Fatalf("reading below the sentinel: err = %v; want an error naming %s", err, EnvVar)
+	}
 }
 
 func TestDirInTreeIsTheRealKit(t *testing.T) {

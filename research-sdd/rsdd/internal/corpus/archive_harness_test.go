@@ -306,6 +306,9 @@ func archiveBaseEnv(t testing.TB, root string) []string {
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "TMPDIR=" + filepath.Join(root, "tmp")}
 	if archiveTestBin != nil {
 		env = append(env, "RSDD_BIN="+archiveTestBin(t))
+	} else if bin := os.Getenv("RSDD_BIN"); bin != "" {
+		// Under -tags nodiff (make teeth, run-all) nothing builds a binary here; the caller's RSDD_BIN is the one.
+		env = append(env, "RSDD_BIN="+bin)
 	}
 	return env
 }

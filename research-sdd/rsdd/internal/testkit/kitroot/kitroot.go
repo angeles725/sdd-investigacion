@@ -29,12 +29,18 @@ func Dir(tb testing.TB) string {
 	return d
 }
 
-// Must is Dir for package-level variables, which have no testing.TB to fail: an unresolvable directory panics with
-// the same message, so the package's test binary fails (naming EnvVar) instead of reading a wrong path.
+// Unresolved is the directory Must returns when the research-sdd directory cannot be found. It never exists, and its
+// name carries the cause, so a test that reads below it fails with "no such file ... set RSDD_TEST_RESEARCH_SDD".
+const Unresolved = "/kitroot-unresolved-set-" + EnvVar + "-to-the-research-sdd-directory"
+
+// Must is Dir for package-level variables, which have no testing.TB to fail. It must not panic: a test binary
+// re-executes itself as a helper process with a scrubbed environment (no EnvVar), and an init-time panic would kill
+// that child before it ran a line of its own. An unresolvable directory therefore yields Unresolved, so every read
+// below it fails naming EnvVar instead of reading a wrong path.
 func Must() string {
 	d, err := lookup()
 	if err != nil {
-		panic("kitroot: " + err.Error())
+		return Unresolved
 	}
 	return d
 }

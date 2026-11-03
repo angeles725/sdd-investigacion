@@ -425,14 +425,20 @@ selftest_teeth() {
   # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
   # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
   c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG -u TEETH_EXCLUDE make -n -C "$MOD" teeth 2>&1)"
-  if grep -q 'GOMAXPROCS=1 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./... >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \.$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=1 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./... >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \. \)$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
     ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
-  if grep -q 'GOMAXPROCS=3 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./internal/cli >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli$' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=3 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./internal/cli >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli \)$' <<<"$c"; then
     ok "teeth wiring: TEETH_WORKERS, TEETH_TEST_CPU and TEETH_PKG override"; else no "teeth wiring: override wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_PKG=./internal/cli TEETH_EXCLUDE=/ 2>&1)"
-  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli\$" <<<"$c"; then
+  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli \)\$" <<<"$c"; then
     ok "teeth wiring: TEETH_EXCLUDE passes gremlins --exclude-files before the package"; else no "teeth wiring: exclude wrong: $c"; fi
+  # The kit shims (verify-state.sh and the other rsdd_exec shims) need an rsdd binary; the recipe builds one unless the
+  # caller sets RSDD_BIN (run-all does), and the build stays ahead of the baseline and of gremlins.
+  c="$(env -u RSDD_BIN make -n -C "$MOD" teeth TEETH_PKG=./internal/cli 2>&1)"
+  if grep -q 'go build -ldflags .* -o "\$rb/rsdd" ./cmd/rsdd' <<<"$c" && grep -q 'export RSDD_BIN="\$rb/rsdd"' <<<"$c"; then
+    ok "teeth wiring: the recipe builds the rsdd binary into a temp dir and exports it as RSDD_BIN unless the caller set one"
+  else no "teeth wiring: RSDD_BIN build missing: $c"; fi
 
   # Package scoping on a scratch repo: the module is a subdirectory, so --relative matters.
   local r="$dir/scope" m="$dir/scope/mod"
@@ -1175,7 +1181,7 @@ scope_fixture() {
   else
     printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
   fi
-  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
+  local o; o="$(RSDD_BIN=fixture-skips-the-rsdd-build make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
   if ! grep -q '^Killed: ' <<<"$o"; then echo "ran=no"; return; fi
   local c="none"
   if grep -Eq 'LIVED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="LIVED"
@@ -1214,7 +1220,7 @@ guard_fixture() {
   printf 'package a\n\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
   if [ "$reader" = "env" ]; then src='os.Getenv("RSDD_TEST_RESEARCH_SDD") + "/kitmarker"'; else src='"../../kitmarker"'; fi
   printf 'package a\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestPos(t *testing.T) {\n\tif _, err := os.Stat(%s); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !Pos(5) || Pos(-1) || Pos(0) {\n\t\tt.Fatal("pos")\n\t}\n}\n' "$src" > "$w/a/a_test.go"
-  o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG=./a TEETH_WORKERS=2 2>&1 </dev/null)"
+  o="$(RSDD_BIN=fixture-skips-the-rsdd-build make -s -f "$mk" -C "$w" teeth TEETH_PKG=./a TEETH_WORKERS=2 2>&1 </dev/null)"
   if grep -q '^teeth: DEGRADED — the unmutated package fails in a module-only copy: ./a$' <<<"$o" && ! grep -q '^Killed: ' <<<"$o"; then echo "state=degraded"
   elif grep -q '^Killed: ' <<<"$o"; then echo "state=ran"
   else echo "state=none"; fi
@@ -1226,7 +1232,7 @@ gf_env="$(guard_fixture "$MOD/Makefile" env)"
 if [ "$gf_env" = "state=ran" ]; then
   ok "teeth guard: a test reading the kit through RSDD_TEST_RESEARCH_SDD passes the baseline and gremlins runs"
   # Tooth 1: a recipe without the baseline step lets the out-of-module read through: gremlins runs and reads all KILLED.
-  grep -v 'baseline.out' "$MOD/Makefile" > "$MUTDIR/Makefile.nobaseline"
+  sed 's/go test -count=1 \$(TEETH_BASE_PKG)/true/' "$MOD/Makefile" > "$MUTDIR/Makefile.nobaseline"
   if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.nobaseline"; then no "teeth guard tooth: the no-baseline mutant is identical to the Makefile"
   else
     gm="$(guard_fixture "$MUTDIR/Makefile.nobaseline" bypass)"
