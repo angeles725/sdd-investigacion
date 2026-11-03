@@ -209,15 +209,7 @@ func run(o options, s cli.Stdio, stage *string) (int, error) {
 			return 0, err
 		}
 	}
-	runRecord := map[string]any{
-		"started_at": isoZ(res.Started), "ended_at": isoZ(res.Ended), "duration_ms": res.Duration.Milliseconds(),
-		"exit_code": nil, "signal": nil,
-	}
-	if res.ReturnCode >= 0 {
-		runRecord["exit_code"] = res.ReturnCode
-	} else {
-		runRecord["signal"] = -res.ReturnCode
-	}
+	runRecord := runRecordOf(res)
 	runErrors := res.Errors()
 
 	// Read floss's JSON from the captured stdout with O_NOFOLLOW protection.
@@ -250,10 +242,7 @@ func run(o options, s cli.Stdio, stage *string) (int, error) {
 	inv["tool"] = recordMap(flossRec)
 
 	profile := profileMap()
-	completeness := "complete"
-	if len(allErrors) > 0 {
-		completeness = "failed"
-	}
+	completeness := completenessOf(allErrors)
 	spec := map[string]any{
 		"argv": cmd, "completeness": completeness, "environment": envMap(env), "errors": allErrors, "findings": []any{},
 		"input":             map[string]any{"detected_type": "PE/ELF binary", "path": "input/binary.bin"},
@@ -298,6 +287,27 @@ func probeVersion(s cli.Stdio, flossExe string) string {
 		return "unknown"
 	}
 	return pyFirstLine(line)
+}
+
+// runRecordOf is the run record of the evidence: exit_code for a normal exit, signal for a death by signal.
+func runRecordOf(res proc.Result) map[string]any {
+	rec := map[string]any{
+		"started_at": isoZ(res.Started), "ended_at": isoZ(res.Ended), "duration_ms": res.Duration.Milliseconds(),
+		"exit_code": nil, "signal": nil,
+	}
+	if res.ReturnCode >= 0 {
+		rec["exit_code"] = res.ReturnCode
+	} else {
+		rec["signal"] = -res.ReturnCode
+	}
+	return rec
+}
+
+func completenessOf(errs []string) string {
+	if len(errs) > 0 {
+		return "failed"
+	}
+	return "complete"
 }
 
 func configured(s cli.Stdio, key string) *string {
@@ -346,10 +356,10 @@ func clampBig(n *big.Int) int64 {
 
 func clampSeconds(n *big.Int) time.Duration {
 	const max = int64(100 * 365 * 24 * 3600)
-	if !n.IsInt64() || n.Int64() > max {
+	if !n.IsInt64() {
 		return time.Duration(max) * time.Second
 	}
-	return time.Duration(n.Int64()) * time.Second
+	return time.Duration(min(n.Int64(), max)) * time.Second
 }
 
 // isoZ is datetime.isoformat().replace("+00:00", "Z") for a UTC time: microseconds only when non-zero.
