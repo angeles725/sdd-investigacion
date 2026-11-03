@@ -193,8 +193,8 @@ func TestDifferentialStateRandom(t *testing.T) {
 		}
 		args := genCorpus(t, r, d)
 		o := sdCompare(t, fmt.Sprintf("seed %d", 1000+i), d, args...)
-		rcs[o.rc]++
-		for _, l := range strings.Split(o.stdout+o.stderr, "\n") {
+		rcs[o.RC]++
+		for _, l := range strings.Split(o.Stdout+o.Stderr, "\n") {
 			if f := strings.Fields(l); len(f) > 1 && (f[0] == "FAIL" || f[0] == "WARN" || f[0] == "INFO" || f[0] == "WARN:") {
 				kinds[strings.Join(f[:2], " ")+" "+strings.Join(f[2:min(len(f), 4)], " ")] = true
 			}

@@ -17,10 +17,10 @@ func TestDifferentialBlockUnreadable(t *testing.T) {
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "LC_ALL=C.UTF-8"}
 	want := bkLegacy(t, dir, args, env)
 	got := bkGo(dir, args, env)
-	if want.rc != got.rc || want.stdout != got.stdout {
-		t.Errorf("legacy and Go differ on an unreadable block:\n--- legacy rc=%d\n%s\n--- go rc=%d\n%s", want.rc, want.stdout, got.rc, got.stdout)
+	if want.RC != got.RC || want.Stdout != got.Stdout {
+		t.Errorf("legacy and Go differ on an unreadable block:\n--- legacy rc=%d\n%s\n--- go rc=%d\n%s", want.RC, want.Stdout, got.RC, got.Stdout)
 	}
-	if want.stderr == "" || got.stderr == "" {
-		t.Errorf("both sides must report the read failure on stderr: legacy %q, go %q", want.stderr, got.stderr)
+	if want.Stderr == "" || got.Stderr == "" {
+		t.Errorf("both sides must report the read failure on stderr: legacy %q, go %q", want.Stderr, got.Stderr)
 	}
 }

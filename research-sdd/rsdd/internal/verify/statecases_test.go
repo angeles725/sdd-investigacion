@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // Cases for `rsdd verify state`. The frozen legacy verify-state.sh (testdata/state-legacy, the bytes of the script
@@ -35,7 +36,7 @@ func sdEnviron(home string) []string {
 }
 
 // sdGo runs the Go command in cwd with the same environment and the legacy toolbelt (for check-gap-drift.sh).
-func sdGo(t *testing.T, cwd string, toolbelt bool, args ...string) observed {
+func sdGo(t *testing.T, cwd string, toolbelt bool, args ...string) observed.Run {
 	t.Helper()
 	env := sdEnviron(t.TempDir())
 	if toolbelt {
@@ -55,7 +56,7 @@ func sdGo(t *testing.T, cwd string, toolbelt bool, args ...string) observed {
 	if rc == Stale {
 		rc = 1
 	}
-	return observed{out.String(), errb.String(), rc}
+	return observed.New(out.String(), errb.String(), rc)
 }
 
 func sdWrite(t *testing.T, path, content string) {
@@ -644,7 +645,7 @@ func sdLoadGoldens(t *testing.T) map[string]sdGolden {
 }
 
 // sdScrub replaces the run-specific paths of an outcome with fixed placeholders.
-func sdScrub(t *testing.T, o observed, d string) sdGolden {
+func sdScrub(t *testing.T, o observed.Run, d string) sdGolden {
 	t.Helper()
 	var pairs []string
 	add := func(p, ph string) {
@@ -660,7 +661,7 @@ func sdScrub(t *testing.T, o observed, d string) sdGolden {
 	add(filepath.Dir(filepath.Dir(d)), "<T>")
 	add(filepath.Dir(d), "<P>")
 	r := strings.NewReplacer(pairs...)
-	return sdGolden{r.Replace(o.stdout), r.Replace(o.stderr), o.rc}
+	return sdGolden{r.Replace(o.Stdout), r.Replace(o.Stderr), o.RC}
 }
 
 // sdPrepare builds the corpus of a case under a fresh temp dir and returns it with the arguments.

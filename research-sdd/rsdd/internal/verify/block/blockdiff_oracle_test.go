@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // The bash oracle half of the `rsdd verify block` differential. Everything that needs the frozen legacy script
@@ -19,7 +21,7 @@ import (
 // Go-only half is replayed from testdata/block-goldens.json by TestBlockGoldens (blockcases_test.go).
 
 // bkLegacy runs the frozen script in cwd.
-func bkLegacy(t *testing.T, cwd string, args, env []string) observed {
+func bkLegacy(t *testing.T, cwd string, args, env []string) observed.Run {
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{filepath.Join(bkLegacyDir(t), "verify-block.sh")}, args...)...)
 	cmd.Dir = cwd
@@ -34,22 +36,22 @@ func bkLegacy(t *testing.T, cwd string, args, env []string) observed {
 		}
 		rc = ee.ExitCode()
 	}
-	return bkNormalize(t, observed{out.String(), errb.String(), rc})
+	return bkNormalize(t, observed.New(out.String(), errb.String(), rc))
 }
 
 // bkNormalize applies the intended differences to the legacy observation: bash prints "[: N: integer expression
 // expected" for a cited number beyond int64 (the comparison is false in both implementations; the message names
 // the script and a line and is not reproduced).
-func bkNormalize(t *testing.T, o observed) observed {
+func bkNormalize(t *testing.T, o observed.Run) observed.Run {
 	t.Helper()
 	var keep []string
-	for _, l := range strings.SplitAfter(o.stderr, "\n") {
+	for _, l := range strings.SplitAfter(o.Stderr, "\n") {
 		if strings.Contains(l, ": line ") && strings.HasSuffix(l, ": integer expression expected\n") {
 			continue
 		}
 		keep = append(keep, l)
 	}
-	o.stderr = strings.Join(keep, "")
+	o.Stderr = strings.Join(keep, "")
 	return o
 }
 
@@ -64,9 +66,9 @@ func TestDifferentialBlock(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir, cwd, args, env := bkMaterialize(t, c)
 			want := bkLegacy(t, cwd, args, env)
-			want.stdout = bkNormOCR(want.stdout)
+			want.Stdout = bkNormOCR(want.Stdout)
 			got := bkGo(cwd, args, env)
-			same(t, c.name+" "+strings.Join(c.args, " "), want, got)
+			observed.Same(t, c.name+" "+strings.Join(c.args, " "), want, got)
 			g := bkScrub(want, dir)
 			if update {
 				goldens[c.name] = g
@@ -171,9 +173,9 @@ func TestDifferentialBlockFuzz(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			_, cwd, _, env := bkMaterialize(t, c)
 			want := bkLegacy(t, cwd, args, env)
-			want.stdout = bkNormOCR(want.stdout)
+			want.Stdout = bkNormOCR(want.Stdout)
 			got := bkGo(cwd, args, env)
-			same(t, "fuzz "+strings.Join(body, "|"), want, got)
+			observed.Same(t, "fuzz "+strings.Join(body, "|"), want, got)
 		})
 	}
 }

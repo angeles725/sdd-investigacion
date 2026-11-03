@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // bkUnreadableBlock writes a canonical block with [CERT] markers and a cite, then removes every permission from it.
@@ -37,8 +39,8 @@ func bkUnreadableBlock(t *testing.T) (dir, block string) {
 func TestBlockUnreadableIsNeverClean(t *testing.T) {
 	dir, block := bkUnreadableBlock(t)
 	got := bkGo(dir, []string{filepath.Base(block), dir}, []string{"HOME=" + dir, "LC_ALL=C.UTF-8"})
-	if got.rc != 1 {
-		t.Errorf("rc = %d, want 1", got.rc)
+	if got.RC != 1 {
+		t.Errorf("rc = %d, want 1", got.RC)
 	}
 	for _, want := range []string{
 		"   ERROR: empty-digest scan DEGRADED (awk exit 2, no scan trailer) — block NOT checked for empty-input digests\n",
@@ -47,17 +49,17 @@ func TestBlockUnreadableIsNeverClean(t *testing.T) {
 		" · 1 degraded (correction sentences: 0;",
 		"== exit 1 ==\n",
 	} {
-		if !strings.Contains(got.stdout, want) {
-			t.Errorf("stdout lacks %q\n%s", want, got.stdout)
+		if !strings.Contains(got.Stdout, want) {
+			t.Errorf("stdout lacks %q\n%s", want, got.Stdout)
 		}
 	}
 	for _, clean := range []string{"(none — no unwaived cited hash", "(none — no unanchored ephemeral path", "(none — no correction sentence"} {
-		if strings.Contains(got.stdout, clean) {
+		if strings.Contains(got.Stdout, clean) {
 			t.Errorf("an unreadable block reported a clean section: %q", clean)
 		}
 	}
-	if !strings.Contains(got.stderr, "verify-block.sh: cannot read unread-block1.md: ") {
-		t.Errorf("stderr does not name the read failure: %q", got.stderr)
+	if !strings.Contains(got.Stderr, "verify-block.sh: cannot read unread-block1.md: ") {
+		t.Errorf("stderr does not name the read failure: %q", got.Stderr)
 	}
 }
 
@@ -75,14 +77,14 @@ func TestBlockLocaleIndependent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	run := func(loc string) observed {
+	run := func(loc string) observed.Run {
 		return bkGo(dir, []string{"x-block2.md", dir}, []string{"HOME=" + dir, "LC_ALL=" + loc})
 	}
 	utf8, c := run("C.UTF-8"), run("C")
-	if !strings.Contains(utf8.stdout, "BACKPTR?") {
-		t.Fatalf("fixture premise: no back-pointer candidate\n%s", utf8.stdout)
+	if !strings.Contains(utf8.Stdout, "BACKPTR?") {
+		t.Fatalf("fixture premise: no back-pointer candidate\n%s", utf8.Stdout)
 	}
 	if utf8 != c {
-		t.Errorf("the report depends on the locale:\n--- C.UTF-8\n%s\n--- C\n%s", utf8.stdout, c.stdout)
+		t.Errorf("the report depends on the locale:\n--- C.UTF-8\n%s\n--- C\n%s", utf8.Stdout, c.Stdout)
 	}
 }

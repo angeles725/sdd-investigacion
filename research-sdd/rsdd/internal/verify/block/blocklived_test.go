@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // Tests added for the gremlins mutants of this package that survived (PR #2598 teeth run). One rule per case or test,
@@ -235,7 +237,7 @@ func TestScanCorrectionsLivedEdges(t *testing.T) {
 
 // bkChmodRun runs the command on a corpus directory holding the given files, with the named ones made unreadable.
 // It skips when a mode-000 file is still readable (root).
-func bkChmodRun(t *testing.T, env map[string]string, args []string, files map[string]string, unreadable ...string) observed {
+func bkChmodRun(t *testing.T, env map[string]string, args []string, files map[string]string, unreadable ...string) observed.Run {
 	t.Helper()
 	d, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -274,12 +276,12 @@ func TestBacktickResolvesInLaterRootDespiteUnreadableEarlier(t *testing.T) {
 	got := bkChmodRun(t, map[string]string{"SOURCE_ROOT": "@D@/src"}, []string{"b.md"},
 		map[string]string{"b.md": bkLegend + "`x.go:2`\n", "x.go": "one\n", "src/x.go": "a\nb\nc\n"}, "x.go")
 	for _, want := range []string{"   ok      x.go:2\n", "   resolved 1 of 1 (0 extern, 0 failed)\n", "== exit 0 ==\n"} {
-		if !strings.Contains(got.stdout, want) {
-			t.Errorf("stdout lacks %q\n%s", want, got.stdout)
+		if !strings.Contains(got.Stdout, want) {
+			t.Errorf("stdout lacks %q\n%s", want, got.Stdout)
 		}
 	}
-	if strings.Contains(got.stdout, "DEGRADED") {
-		t.Errorf("a resolved cite must not read as degraded:\n%s", got.stdout)
+	if strings.Contains(got.Stdout, "DEGRADED") {
+		t.Errorf("a resolved cite must not read as degraded:\n%s", got.Stdout)
 	}
 }
 
@@ -291,10 +293,10 @@ func TestBackptrDegradedAndPresentIsNotNone(t *testing.T) {
 		"x-block1.md": "# Block 1\n",
 		"x-block2.md": "# Block 2\nsee Block 9\n",
 	}, "x-block1.md")
-	if strings.Contains(got.stdout, "(none — no correction sentence") {
-		t.Errorf("one degraded and one present candidate is not an empty section:\n%s", got.stdout)
+	if strings.Contains(got.Stdout, "(none — no correction sentence") {
+		t.Errorf("one degraded and one present candidate is not an empty section:\n%s", got.Stdout)
 	}
-	if want := "-- back-pointer: 0 possibly missing · 1 present · 0 ambiguous · 0 not found · 1 degraded (correction sentences: 2;"; !strings.Contains(got.stdout, want) {
-		t.Errorf("stdout lacks %q\n%s", want, got.stdout)
+	if want := "-- back-pointer: 0 possibly missing · 1 present · 0 ambiguous · 0 not found · 1 degraded (correction sentences: 2;"; !strings.Contains(got.Stdout, want) {
+		t.Errorf("stdout lacks %q\n%s", want, got.Stdout)
 	}
 }
