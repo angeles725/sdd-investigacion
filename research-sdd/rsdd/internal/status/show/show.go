@@ -23,13 +23,18 @@ type ctx struct {
 	corpus string
 
 	focCache map[string]string // _RSDD_FOC_TOK_CACHE: the FOCUSES.md token per (file, state basename)
+	buSuffix string            // _BU_SUFFIX: the [backlog-unreadable] qualifier of an exhausted STOP
+
+	blockedHook func(gap string) int // a test replaces the is_blocked read (0 blocked, 1 not, 2 unknown)
 }
 
 // tail is the part of the run after the pick. A slice that ports more sections replaces notPorted.
 type tail func(c *ctx) int
 
 // Run is `rsdd status show <target-dir> [flags]`.
-func Run(args []string, s cli.Stdio) int { return run(args, s, syncOr(notPorted)) }
+func Run(args []string, s cli.Stdio) int {
+	return run(args, s, syncOr(nextOr(pendingSeams, notPorted)))
+}
 
 // notPorted answers a run that got past the pick: the later sections are not in Go yet.
 func notPorted(c *ctx) int {
