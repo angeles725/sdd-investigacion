@@ -45,20 +45,61 @@ REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
 # A script that is only a rsdd-exec shim (kit issue #2435) emits its typed states from the Go command it runs. The Go
 # sources of that command are scanned as part of the script, so every registry row stays verified against a real emitter:
-# only the lines that CALL an emitter (errf / outf) are read, rewritten to `printf` so the shell rules above apply
-# unchanged; `//` comment lines and `_test.go` files are never emitters. A degraded: line that is not such a call is
-# reported (the extractor cannot read it). The shim itself is still scanned (rsdd-unavailable, the self-dir note).
-GO_EMITTERS=(stage-retro-issues.sh)
-GO_SRC_REL="../rsdd/internal/retro/stageissues"   # relative to the scanned toolbelt directory
+# only the lines that CALL an emitter (GO_CALL_RE) are read, rewritten to `printf` so the shell rules above apply
+# unchanged; `//` comment lines and `_test.go` files are never emitters. A degraded: line that is not such a call (and not
+# a regexp.MustCompile pattern, which matches a state rather than emitting one) is reported (the extractor cannot read it).
+# The shim itself is still scanned (rsdd-unavailable, the self-dir note).
+#
+# GO_SRC maps a script basename to its Go package, relative to the scanned toolbelt directory (kit issue #2583). The
+# command -> package lookup is not derivable from the shim (`gate retro` and `gate merge` share internal/gate;
+# `retro stage-issues` lives in internal/retro/stageissues), and a hand-written map re-breaks on the next port
+# (CLAUDE.md section 7), so go_unmapped fails on every rsdd_exec shim that is neither mapped here nor declared in
+# GO_NO_TYPED (shims checked to emit no registry state). An entry whose script is not a shim yet is ignored.
+GO_SRC=(
+  "stage-retro-issues.sh=../rsdd/internal/retro/stageissues"   # TOOTH-GOMAP
+  "reconcile-issues.sh=../rsdd/internal/retro/reconcile"   # TOOTH-GOMAP2
+  "sweep-audits.sh=../rsdd/internal/sweep"
+  "sweep-audits-hook.sh=../rsdd/internal/sweep"
+)
+GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
+  decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
+  verify-skill-drift.sh corroborate-kaitai.sh java-fidelity-experiment.sh ensure-remote.sh verify-kit-clean.sh scan-firmware.sh
+  zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
+  serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
+  hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh
+  retro-gate.sh)   # KNOWN GAP (#2583): internal/gate/retrogateseed.go:188,197,209 still print absent-input / unclassifiable WARNs
+# but #2564 dropped retro-gate.sh from those registry rows. Re-add it to the rows, then move it to GO_SRC
+# as "retro-gate.sh=../rsdd/internal/gate" (mapping it today turns the real-registry case red).
+# The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
+GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
-# go_shim SCRIPT_PATH — 0 when it is one of GO_EMITTERS and a shim
-go_shim() {
+# go_dir SCRIPT_PATH TOOLBELT_DIR — the mapped Go package directory of the script; rc 1 when unmapped
+go_dir() {
   local b e
   b="$(basename "$1")"
-  for e in "${GO_EMITTERS[@]}"; do
-    if [ "$b" = "$e" ] && grep -q 'rsdd_exec ' "$1" 2>/dev/null; then return 0; fi
+  for e in "${GO_SRC[@]}"; do
+    if [ "${e%%=*}" = "$b" ]; then printf '%s/%s\n' "$2" "${e#*=}"; return 0; fi
   done
   return 1
+}
+# go_is_shim SCRIPT_PATH — 0 when the script calls rsdd_exec on a non-comment line
+go_is_shim() { grep -Eq '^[^#]*rsdd_exec ' "$1" 2>/dev/null; }
+# go_shim SCRIPT_PATH — 0 when it is mapped in GO_SRC and a shim
+go_shim() { go_dir "$1" . >/dev/null && go_is_shim "$1"; }
+# go_unmapped DIR — one line per rsdd_exec shim under DIR (. lib maint) that is neither in GO_SRC nor in GO_NO_TYPED
+go_unmapped() {
+  local p b e ok
+  for p in "$1"/*.sh "$1"/lib/*.sh "$1"/maint/*.sh; do
+    [ -f "$p" ] || continue
+    b="$(basename "$p")"
+    [ "$b" = rsdd-exec.sh ] && continue
+    go_is_shim "$p" || continue
+    ok=0
+    for e in "${GO_SRC[@]}"; do [ "${e%%=*}" = "$b" ] && ok=1; done   # TOOTH-GOUNMAPPED
+    for e in "${GO_NO_TYPED[@]}"; do [ "$e" = "$b" ] && ok=1; done
+    [ "$ok" -eq 0 ] && printf '%s\n' "${p#"$1"/}"
+  done
+  return 0
 }
 # go_files DIR — the non-test Go sources of the command, one per line
 go_files() {
@@ -73,14 +114,14 @@ go_files() {
 go_view() {
   local f
   while IFS= read -r f; do
-    sed -nE '/^[[:space:]]*\/\//d; /(errf|outf)\(/ { s/(errf|outf)\(/printf /; p; }' "$f" || return 2
+    sed -nE "/^[[:space:]]*\/\//d; /regexp\.MustCompile/d; /$GO_CALL_RE/ { s/$GO_CALL_RE/ printf /; s/%[-+# 0-9.]*[vsdqxXtTcUeEfFgGbpow]/%s/g; p; }" "$f" || return 2   # TOOTH-GOCALLS (the %s rewrite: TOOTH-GOVERBS)
   done < <(go_files "$1")
 }
-# go_stray DIR — non-comment lines carrying `degraded: ` that are not an errf/outf call: LINENO:text per file
+# go_stray DIR — non-comment lines carrying `degraded: ` that are not an emit call: LINENO:text per file
 go_stray() {
   local f
   while IFS= read -r f; do
-    awk -v F="$(basename "$f")" '/^[[:space:]]*\/\// {next} index($0, "degraded: ") && !/(errf|outf)\(/ { print F ":" NR ":" $0 }' "$f" || return 2
+    F="$(basename "$f")" RE="$GO_CALL_RE" awk 'BEGIN { F = ENVIRON["F"]; RE = ENVIRON["RE"] } /^[[:space:]]*\/\// {next} /regexp\.MustCompile/ {next} index($0, "degraded: ") && $0 !~ RE { print F ":" NR ":" $0 }' "$f" || return 2   # TOOTH-GOSTRAYRE
   done < <(go_files "$1")
 }
 
@@ -183,9 +224,9 @@ rc_check() {
       printf 'DEGRADED: extracted zero degraded emit lines from %s (could not look)\n' "$s"; return 2
     fi
     if go_shim "$path"; then
-      gdir="$dir/$GO_SRC_REL"
+      gdir="$(go_dir "$path" "$dir")"
       if [ -z "$(go_files "$gdir")" ]; then
-        printf 'DEGRADED: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gdir"; return 2   # TOOTH-GOABSENT
+        printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gdir"; return 2   # TOOTH-GOABSENT
       fi
       gtoks="$(go_view "$gdir" | awk "$EXTRACT_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
       if [ -z "$gtoks" ]; then
@@ -193,7 +234,7 @@ rc_check() {
       fi
       toks="$toks"$'\n'"$gtoks"   # TOOTH-GOEMIT
       while IFS= read -r e; do
-        [ -n "$e" ] && finding "unclassifiable degraded: line in $s Go source ${e%%:*}:${e#*:} (not an errf/outf call)"   # TOOTH-GOSTRAY
+        [ -n "$e" ] && finding "unclassifiable degraded: line in $s Go source ${e%%:*}:${e#*:} (not a recognised emit call)"   # TOOTH-GOSTRAY
       done < <(go_stray "$gdir")
     fi
     uc="$(awk "$UNCLASS_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
@@ -220,6 +261,9 @@ rc_check() {
       esac
     done <<<"$toks"
   done
+  while IFS= read -r e; do   # an rsdd_exec shim the map does not know cannot be verified: never a silent skip (#2583)
+    [ -n "$e" ] && finding "rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: $e"   # TOOTH-GOUNMAPPED-FINDING
+  done < <(go_unmapped "$dir")
 
   for ((i = 0; i < n; i++)); do
     if [ "${classes[$i]}" = "degraded" ] && [ -z "${used[$i]:-}" ]; then
@@ -404,14 +448,17 @@ ic_check() {
   for p in "${files[@]}"; do
     go_shim "$p" || continue
     rel="${p#"$dir"/}"
-    gdir="$dir/$GO_SRC_REL"
+    gdir="$(go_dir "$p" "$dir")"
     if [ -z "$(go_files "$gdir")" ]; then
-      printf 'DEGRADED: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gdir"; return 2
+      printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gdir"; return 2
     fi
     nfiles=$((nfiles + 1))
     f="$(go_view "$gdir" | awk -v F="$rel" "$IC_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
     if [ -n "$f" ]; then all="$all$f"$'\n'; fi   # TOOTH-IC-GOOCC
   done
+  while IFS= read -r p; do   # an rsdd_exec shim the map does not know cannot be verified: never a silent skip (#2583)
+    [ -n "$p" ] && finding "rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: $p"   # TOOTH-IC-GOUNMAPPED
+  done < <(go_unmapped "$dir")
   for p in "$dir"/*.py "$dir"/lib/*.py; do
     [ -f "$p" ] || continue
     grep -qE '(absent-input|empty-input|unclassifiable|no-match)' "$p"; i=$?
@@ -961,6 +1008,63 @@ expect_ic "input scan: an input state emitted from the Go source is verified aga
 mkgoifix i_go_drop; printf '%s\n' 'package stageissues' 'func f() {}' > "$tmp/i_go_drop/rsdd/internal/retro/stageissues/run.go"
 expect_ic "input scan: a state dropped from the Go source fails (stale emitter)" 1 i_go_drop "stale emitter: row lists stage-retro-issues.sh but stage-retro-issues.sh never emits 'absent-input'"
 
+# --- Go emitters beyond errf/outf (kit issue #2583): reconcile-issues.sh emits via r.degrade / fmt.Errorf, mapped in GO_SRC
+mkgofix2() {
+  local d="$tmp/$1" g
+  mkfix "$1"
+  g="$d/rsdd/internal/retro/reconcile"; mkdir -p "$g"
+  printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec retro reconcile-issues --toolbelt "$_RSDD_SELF" "$@"' > "$d/scripts/reconcile-issues.sh"
+  printf '%s\n' 'package reconcile' '' \
+    'var reCode = regexp.MustCompile(`^degraded: (gh|jq)`)' \
+    'func f(r *run) error {' \
+    '	r.degrade("degraded: gh not found on PATH — install gh")' \
+    '	s := fmt.Sprintf("degraded: jq failed on %s — refusing", p)' \
+    '	r.degrade("degraded: git could not be run in %s (%v) — cannot verify", p, s)' \
+    '	return fmt.Errorf("degraded: --issues-cache file not readable: %s — pass a file", s)' \
+    '}' > "$g/run.go"
+  edit "$d/reg.md" 's#^\(| `degraded: jq failed on` | degraded | research-sdd-init.sh\) |#\1, reconcile-issues.sh |#'
+  edit "$d/reg.md" '/^| `degraded: jq failed on` /a\
+| `degraded: git could not be run in <v> (<v>)` | degraded | reconcile-issues.sh | m13 | fix git |'
+  edit "$d/reg.md" 's#^\(| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh\) |#\1, reconcile-issues.sh |#'
+  printf '%s\n' 'printf '"'"'degraded: rsdd-unavailable — %s\n'"'"' "$1" >&2' >> "$d/scripts/reconcile-issues.sh"
+}
+mkgofix2 go2_good
+expect "Go emitter: r.degrade / fmt.Errorf calls of a mapped shim are verified against the rows" 0 "$tmp/go2_good/reg.md" "$tmp/go2_good/scripts"
+mkgofix2 go2_unlisted
+printf '%s\n' 'func g(r *run) string { return fmt.Sprintf("degraded: new reconcile code %s — x", r.x) }' >> "$tmp/go2_unlisted/rsdd/internal/retro/reconcile/run.go"
+expect "Go emitter: a fmt.Sprintf code in a mapped package must be a registry row" 1 "$tmp/go2_unlisted/reg.md" "$tmp/go2_unlisted/scripts" 'unlisted code emitted by reconcile-issues.sh: degraded: new reconcile code'
+mkgofix2 go2_fprintf
+printf '%s\n' 'func g(out io.Writer) { fmt.Fprintf(out, "degraded: only fprintf sees this — x\n") }' >> "$tmp/go2_fprintf/rsdd/internal/retro/reconcile/run.go"
+expect "Go emitter: fmt.Fprintf is a recognised emit call" 1 "$tmp/go2_fprintf/reg.md" "$tmp/go2_fprintf/scripts" 'unlisted code emitted by reconcile-issues.sh: degraded: only fprintf sees this'
+mkgofix2 go2_absent; rm -rf "$tmp/go2_absent/rsdd"
+expect "Go emitter: a mapped shim whose Go dir is absent is DEGRADED absent-input" 2 "$tmp/go2_absent/reg.md" "$tmp/go2_absent/scripts" 'DEGRADED: absent-input: reconcile-issues.sh is a rsdd shim'
+mkgofix2 go2_unmapped
+printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec brand new-port "$@"' > "$tmp/go2_unmapped/scripts/brand-new-port.sh"
+expect "Go emitter: an rsdd_exec shim with no map entry fails, named" 1 "$tmp/go2_unmapped/reg.md" "$tmp/go2_unmapped/scripts" 'rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: brand-new-port.sh'
+# the input-class scan reads the same mapped packages (sweep-audits.sh via fmt.Fprintf)
+mkgoifix2() {
+  local d="$tmp/$1" g
+  mkifix "$1"
+  g="$d/rsdd/internal/sweep"; mkdir -p "$g"
+  printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec sweep audits "$@"' > "$d/tb/sweep-audits.sh"
+  printf '%s\n' 'package sweep' 'func f(out io.Writer, p string) {' \
+    '	fmt.Fprintf(out, "INFO: corpus not found (absent-input): %s\n", p)' \
+    '	fmt.Fprintln(out, "INFO: nothing to audit (empty-input)")' \
+    '	r.note("no-match: no audit matched — x")' \
+    '	r.fail("unclassifiable: 3 items")' '}' > "$g/audits.go"
+  edit "$d/reg.md" 's#^\(| `absent-input` | input | a.sh\) |#\1, sweep-audits.sh |#'
+  edit "$d/reg.md" 's#^\(| `empty-input` | input | a.sh, lib/b.sh\) |#\1, sweep-audits.sh |#'
+  edit "$d/reg.md" 's#^\(| `unclassifiable` | input | lib/b.sh\) |#\1, sweep-audits.sh |#'
+  edit "$d/reg.md" 's#^\(| `no-match` | input | lib/b.sh\) |#\1, sweep-audits.sh |#'
+}
+mkgoifix2 i_go2
+expect_ic "input scan: a fmt.Fprintf state of a mapped package is verified against the row" 0 i_go2
+mkgoifix2 i_go2_unmapped
+printf '%s\n' '#!/usr/bin/env bash' 'rsdd_exec brand new-port "$@"' > "$tmp/i_go2_unmapped/tb/brand-new-port.sh"
+expect_ic "input scan: an rsdd_exec shim with no map entry fails, named" 1 i_go2_unmapped 'rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: brand-new-port.sh'
+mkgoifix2 i_go2_absent; rm -rf "$tmp/i_go2_absent/rsdd"
+expect_ic "input scan: a mapped shim without its Go dir is DEGRADED absent-input" 2 i_go2_absent 'DEGRADED: absent-input: sweep-audits.sh is a rsdd shim'
+
 # --- 5. teeth: mutate the CHECKER (a copy of this suite) and require each defect to go unnoticed ----
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -1006,6 +1110,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth go-absent    go_absent  2 0 '/# TOOTH-GOABSENT/s/return 2/return 0/'
   tooth go-emit      go_solo    1 0 '/# TOOTH-GOEMIT/s/^\( *\)/\1: /'
   tooth go-testfile  go_test_only 0 1 '/# TOOTH-GOTESTFILE/d'
+  # Go emitters, kit issue #2583: the map, the unmapped-shim guard, and one tooth per emit-call alternative
+  tooth go-map       go_good    0 1 '/# TOOTH-GOMAP$/d'
+  tooth go-map2      go2_good   0 1 '/# TOOTH-GOMAP2$/d'
+  tooth go-map-absent go2_absent 2 1 '/# TOOTH-GOMAP2$/d'
+  tooth go-unmapped  go2_unmapped 1 0 '/# TOOTH-GOUNMAPPED-FINDING/s/finding /: /'
+  tooth go-call-degrade  go2_good 0 1 '/^GO_CALL_RE=/s/|\\.degrade//'
+  tooth go-call-errorf   go2_good 0 1 '/^GO_CALL_RE=/s/|fmt\\.Errorf//'
+  tooth go-call-sprintf  go2_good 0 1 '/^GO_CALL_RE=/s/|fmt\\.Sprintf//'
+  tooth go-call-errf     go_good  0 2 '/^GO_CALL_RE=/s/errf|//'
+  tooth go-verbs     go2_good   0 1 '/# TOOTH-GOCALLS/s,s/%\[-+# 0-9.\]\*\[vsdqxXtTcUeEfFgGbpow\]/%s/g; ,,'
+  tooth go-regexp-skip  go2_good 0 1 '/# TOOTH-GOSTRAYRE/s,/regexp\\.MustCompile/ {next} ,,'
   tooth zeroextract  d_zero     2 1 '/# TOOTH-ZEROEXTRACT/s/\[ -z "\$toks" \]/false/'
   tooth zerorows     d_norows   2 1 '/# TOOTH-ZEROROWS/s/\[ -z "\$rows" \]/false/'
   tooth comment-skip commented  0 1 '/# TOOTH-COMMENT/d'
@@ -1022,6 +1137,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-emitter     i_emitter1    1 0 '/# TOOTH-IC-EMITTER/s/finding /: /'
   ictooth ic-stalerow    i_stalerow1   1 0 '/# TOOTH-IC-STALEROW/s/finding /: /'
   ictooth ic-go-emit     i_go         0 1 '/# TOOTH-IC-GOOCC/s/then all=/then : /'
+  ictooth ic-go-unmapped i_go2_unmapped 1 0 '/# TOOTH-IC-GOUNMAPPED/s/finding /: /'
+  ictooth ic-go-fprintf  i_go2        0 1 '/^GO_CALL_RE=/s/|fmt\\.Fprintf//'
+  ictooth ic-go-fprintln i_go2        0 1 '/^GO_CALL_RE=/s/|fmt\\.Fprintln//'
+  ictooth ic-go-note     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.note//'
+  ictooth ic-go-fail     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.fail//'
+  ictooth ic-go-map      i_go2        0 1 '/"sweep-audits.sh=/d'
   ictooth ic-unclass     i_uncl        1 0 '/# TOOTH-IC-UNCLASS/s/finding /: /'
   ictooth ic-stalewaiver i_stalewaiver 1 0 '/# TOOTH-IC-STALEWAIVER/s/finding /: /'
   # ic-zerofiles mutates TWO guards on purpose: with only the zero-files guard off, the scan still reaches the
