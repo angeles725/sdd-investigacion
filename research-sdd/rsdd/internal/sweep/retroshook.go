@@ -3,11 +3,11 @@ package sweep
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/sweep-retros-hook.sh (kit issue #2359), `rsdd sweep retros --hook [--full]`:
@@ -36,9 +36,9 @@ var (
 
 func runRetrosHook(o options, s cli.Stdio) int {
 	var buf bytes.Buffer // one writer for both streams: the script's `2>&1`
-	res := sweepRetros(o, s, &buf, &buf)
-	ctx := hookContext(strings.TrimRight(buf.String(), "\n"), res.rc, o.fl)
-	writeSessionStart(s.Out, ctx)
+	var res sweepResult
+	rc := hookenv.Guard(&buf, func() int { res = sweepRetros(o, s, &buf, &buf); return res.rc })
+	hookenv.WriteSessionStart(s.Out, hookContext(strings.TrimRight(buf.String(), "\n"), rc, o.fl))
 	return cli.ExitOK
 }
 
@@ -91,12 +91,4 @@ func summaryFilter(out string) string {
 		}
 	}
 	return b.String()
-}
-
-// writeSessionStart prints the envelope exactly as
-// `jq -n --arg c "$ctx" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'` does:
-// two-space indent, keys in insertion order (not sorted), a trailing newline.
-// TODO(#2386): share with core/jsonout once it has the jq-compatible encoder.
-func writeSessionStart(w io.Writer, ctx string) {
-	fmt.Fprintf(w, "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": %s\n  }\n}\n", jqString(ctx))
 }
