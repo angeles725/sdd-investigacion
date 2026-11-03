@@ -132,11 +132,7 @@ func Identity(path string, maxBytes int64) (Ident, error) {
 	var total int64
 	buf := make([]byte, chunkSize)
 	for {
-		want := int64(len(buf))
-		if capped && maxBytes-total+1 < want {
-			want = maxBytes - total + 1
-		}
-		n, err := sysRead(fd, buf[:want])
+		n, err := sysRead(fd, buf)
 		if err != nil {
 			return Ident{}, &Error{Kind: ErrIO, Path: path, Err: err}
 		}
