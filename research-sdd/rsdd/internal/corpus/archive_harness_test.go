@@ -134,9 +134,16 @@ func (f *archiveFx) chtimes(p, day string) {
 	}
 }
 
+// archiveNoMaintenance turns off the background maintenance a git commit otherwise starts (`git maintenance run
+// --auto --detach`): it takes .git/objects/maintenance.lock and removes it later, racing the `cp -a` of the case
+// tree (kit issue #2624). Both the fixture git calls and the commands under test carry it.
+var archiveNoMaintenance = []string{"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false",
+	"GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0"}
+
 func (f *archiveFx) gitEnv(date string) []string {
 	e := append(os.Environ(), "GIT_AUTHOR_NAME=tester", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=tester",
 		"GIT_COMMITTER_EMAIL=t@example.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	e = append(e, archiveNoMaintenance...)
 	if date != "" {
 		e = append(e, "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date)
 	}
@@ -303,6 +310,7 @@ func archiveBaseEnv(t testing.TB, root string) []string {
 	t.Helper()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "TMPDIR=" + filepath.Join(root, "tmp")}
+	env = append(env, archiveNoMaintenance...)
 	if archiveTestBin != nil {
 		env = append(env, "RSDD_BIN="+archiveTestBin(t))
 	}
