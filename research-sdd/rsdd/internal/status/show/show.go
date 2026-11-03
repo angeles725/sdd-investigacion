@@ -29,7 +29,7 @@ type ctx struct {
 type tail func(c *ctx) int
 
 // Run is `rsdd status show <target-dir> [flags]`.
-func Run(args []string, s cli.Stdio) int { return run(args, s, notPorted) }
+func Run(args []string, s cli.Stdio) int { return run(args, s, syncOr(notPorted)) }
 
 // notPorted answers a run that got past the pick: the later sections are not in Go yet.
 func notPorted(c *ctx) int {
