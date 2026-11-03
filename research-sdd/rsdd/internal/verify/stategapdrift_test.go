@@ -66,9 +66,10 @@ func TestGapDriftReportOfAnUnlistableTarget(t *testing.T) {
 // only a short cut: forcing it open leaves the output unchanged, because the check itself reports NoRows silently.
 func TestGapDriftNotConsultedWithoutGapRows(t *testing.T) {
 	d := t.TempDir()
-	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | plain gap about cats | w | pending |"))
+	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "1", "investigable_open", "1", "requires_execution_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | plain gap about cats | w | pending |"))
 	sdWrite(t, filepath.Join(d, "x-block1.md"), "# b\n\n- **B1-G1** how do the widgets frobnicate the sprockets under load\n")
-	if got := sdGo(t, d, false, d); strings.Contains(got.Stdout, "gap-drift") {
-		t.Errorf("a state with no B<n>-G<m> row must not consult the drift check:\n%s", got.Stdout)
+	got := sdGo(t, d, false, d)
+	if got.RC != 0 || !strings.Contains(got.Stdout, "== verify-state: RESEARCH-STATE.md") || strings.Contains(got.Stdout, "gap-drift") {
+		t.Errorf("want a rendered report (rc 0) with no gap-drift line, got rc=%d:\n%s\nstderr:\n%s", got.RC, got.Stdout, got.Stderr)
 	}
 }
