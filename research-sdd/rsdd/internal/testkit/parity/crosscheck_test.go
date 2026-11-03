@@ -7,17 +7,22 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
-const (
-	kitTargetPaths = "../../../../toolbelt/lib/target-paths.sh"
-	kitTargetsMD   = "../../../../TARGETS.md"
-)
+// kitTargetPaths and kitTargetsMD are the legacy library and the real registry, read through kitroot so the
+// cross-check also runs in the module-only copy make teeth builds (kit issue #2592).
+func kitTargetPaths(t *testing.T) string {
+	return kitroot.Path(t, "toolbelt", "lib", "target-paths.sh")
+}
+
+func kitTargetsMD(t *testing.T) string { return kitroot.Path(t, "TARGETS.md") }
 
 // bashTargets runs the legacy target_paths_all and returns its token list.
 func bashTargets(t *testing.T, targetsMD, rh string) []string {
 	t.Helper()
-	lib, err := filepath.Abs(kitTargetPaths)
+	lib, err := filepath.Abs(kitTargetPaths(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +46,8 @@ func needBashAndLib(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available: cannot cross-check the Go TARGETS.md parser against target-paths.sh")
 	}
-	if _, err := os.Stat(kitTargetPaths); err != nil {
-		t.Skipf("legacy %s not found from the package dir (%v): cross-check not run", kitTargetPaths, err)
+	if _, err := os.Stat(kitTargetPaths(t)); err != nil {
+		t.Fatalf("legacy target-paths.sh not found (%v): set %s to the research-sdd directory", err, kitroot.EnvVar)
 	}
 }
 
@@ -69,15 +74,16 @@ func TestParseTargetsMatchesBashOnFixtures(t *testing.T) {
 
 func TestParseTargetsMatchesBashOnRealTargetsMD(t *testing.T) {
 	needBashAndLib(t)
-	if _, err := os.Stat(kitTargetsMD); err != nil {
-		t.Skipf("real TARGETS.md not found (%v)", err)
+	md := kitTargetsMD(t)
+	if _, err := os.Stat(md); err != nil {
+		t.Fatalf("real TARGETS.md not found (%v): set %s to the research-sdd directory", err, kitroot.EnvVar)
 	}
 	for _, rh := range []string{"/home/someone", "/srv/rh/"} {
-		want := bashTargets(t, kitTargetsMD, rh)
+		want := bashTargets(t, md, rh)
 		if len(want) == 0 {
 			t.Fatal("bash parsed 0 tokens from the real TARGETS.md: the cross-check would prove nothing")
 		}
-		got, err := ParseTargets(kitTargetsMD, rh)
+		got, err := ParseTargets(md, rh)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -857,7 +857,7 @@ d="$(bash "$0" --load-debt "$ROOT/debt-ok.txt")"; drc=$?
 if [ "$drc" -eq 0 ] && [ "$d" = $'./internal/cli\n./a' ]; then ok "debt list: comments and blank lines skipped, packages printed in order"
 else no "debt list: valid list wrong (rc=$drc): $d"; fi
 d="$(bash "$0" --load-debt "$MOD/teeth-debt.txt")"; drc=$?
-if [ "$drc" -eq 0 ] && grep -qx './internal/lint' <<<"$d" && grep -qx './internal/formats' <<<"$d"; then ok "debt list: the checked-in rsdd/teeth-debt.txt parses and names lint and formats"
+if [ "$drc" -eq 0 ] && grep -qx './internal/lint' <<<"$d" && grep -qx './internal/verify' <<<"$d" && ! grep -qx './internal/formats' <<<"$d"; then ok "debt list: the checked-in rsdd/teeth-debt.txt parses, names lint and verify, and no longer lists the paid formats"
 else no "debt list: checked-in list does not parse (rc=$drc): $d"; fi
 i=0
 for bad in 'internal/x #2592 reason long enough to pass' './internal/../x #2592 reason long enough to pass' './internal/x/ #2592 reason long enough to pass' \
