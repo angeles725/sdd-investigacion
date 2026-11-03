@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 )
 
 // Oracle-free unit tests of the pure helpers of `rsdd verify block`. The expected values are the ones the frozen
@@ -29,7 +31,7 @@ import (
 
 func TestVbLinesCountsLikeAwk(t *testing.T) {
 	d := t.TempDir()
-	v := fsView{cwd: d}
+	v := fsView{View: fsview.View{Cwd: d}}
 	for _, c := range []struct {
 		content string
 		end     int64
@@ -200,7 +202,7 @@ func TestJoinFind(t *testing.T) {
 }
 
 func TestSplitNonpathGuards(t *testing.T) {
-	b := &blockRun{fs: fsView{cwd: t.TempDir()}, target: t.TempDir()}
+	b := &blockRun{fs: fsView{View: fsview.View{Cwd: t.TempDir()}}, target: t.TempDir()}
 	np := func(cites ...string) string {
 		n, _ := b.splitNonpath(cites)
 		return strings.Join(n, "|")

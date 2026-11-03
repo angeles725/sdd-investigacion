@@ -5,6 +5,8 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Ports of the backlog readers of verify-state.sh: _backlog_rows (the awk mirrored from research-sdd-status.sh,
@@ -41,7 +43,7 @@ func backlogRows(src string, errw io.Writer) backlogStream {
 			}
 		}
 	)
-	for _, rec := range recordLines(src) {
+	for _, rec := range shellx.RecordLines(src) {
 		// Rule 1: /^## Gap-backlog( \([^)]+\))?$/
 		if reBacklogHeading.MatchString(rec) {
 			flushOOB()
@@ -273,7 +275,7 @@ func deriveDeferred(src string, errw io.Writer) int {
 		prv            string
 		n              int
 	)
-	for _, rec := range recordLines(src) {
+	for _, rec := range shellx.RecordLines(src) {
 		if strings.HasPrefix(rec, "## ") {
 			inBacklog = reBacklogHeading.MatchString(rec)
 			ex, tok, prv = 0, false, ""

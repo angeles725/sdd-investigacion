@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Port of research-sdd/toolbelt/verify-block.sh: the mechanical self-verify aid for a Research-SDD block
@@ -68,7 +70,7 @@ func (b *blockRun) echo(format string, a ...any) { fmt.Fprintf(b.s.Out, format+"
 
 // RunBlock is `rsdd verify block`.
 func RunBlock(args []string, s cli.Stdio) int {
-	b := &blockRun{s: s, fs: fsView{cwd: s.Cwd}, strictEP: true, backptr: "high"}
+	b := &blockRun{s: s, fs: fsView{View: fsview.View{Cwd: s.Cwd}}, strictEP: true, backptr: "high"}
 	// Ephemeral-path cites FAIL by default (kit #1660); only the exact value 0 opts out.
 	if s.Env("RSDD_STRICT_EPHEMERAL") == "0" {
 		b.strictEP = false
@@ -109,16 +111,16 @@ func RunBlock(args []string, s cli.Stdio) int {
 		return b.runPossibilitySweep(arg(1))
 	}
 	b.block = arg(0)
-	if !b.fs.isFile(b.block) {
+	if !b.fs.IsFile(b.block) {
 		fmt.Fprintln(s.Err, blockUsage)
 		return cli.ExitUsage
 	}
 	b.target = arg(1)
 	if b.target == "" {
-		b.target = dirname(b.block)
+		b.target = shellx.DirName(b.block)
 	}
-	if src, err := b.fs.read(b.block); err == nil {
-		b.lines = recordLines(string(src))
+	if src, err := b.fs.Read(b.block); err == nil {
+		b.lines = shellx.RecordLines(string(src))
 	} else {
 		// An unreadable block is never a clean one (CLAUDE.md §7): the scans that read it report DEGRADED and exit 1.
 		b.unreadable = true
@@ -128,7 +130,7 @@ func RunBlock(args []string, s cli.Stdio) int {
 	b.gitRoot = b.gitTopLevel()
 	b.targetRoot = b.deriveTargetRoot()
 
-	b.echo("== verify-block: %s (target: %s) ==", basename(b.block), b.target)
+	b.echo("== verify-block: %s (target: %s) ==", shellx.BaseName(b.block), b.target)
 	b.sectionTally()
 	b.sectionRatio()
 	b.sectionCites()
@@ -162,7 +164,7 @@ func (b *blockRun) physical(p string) (string, bool) {
 		abs = b.s.Cwd + "/" + p
 	}
 	abs = filepath.Clean(abs)
-	if !b.fs.isDir(abs) {
+	if !b.fs.IsDir(abs) {
 		return "", false
 	}
 	r, err := filepath.EvalSymlinks(abs)
@@ -181,11 +183,11 @@ func (b *blockRun) deriveTargetRoot() string {
 	}
 	c := ""
 	for d != "" && d != "/" {
-		if basename(d) == "corpus" {
-			c = dirname(d)
+		if shellx.BaseName(d) == "corpus" {
+			c = shellx.DirName(d)
 			break
 		}
-		d = dirname(d)
+		d = shellx.DirName(d)
 	}
 	if c != "" && c != "/" {
 		home := b.s.Env("HOME")

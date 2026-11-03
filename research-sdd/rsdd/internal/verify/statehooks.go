@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Port of the P8 section of verify-state.sh (kit issue #991): hook scripts that still carry template
@@ -23,8 +25,8 @@ import (
 // hookSet runs the scan once per target and writes its report lines to w.
 func hookSet(w io.Writer, fsx fsView, target string) {
 	hroot := target
-	if !fsx.isDir(hroot+"/.claude") && fsx.isDir(dirname(hroot)+"/.claude") {
-		hroot = dirname(hroot)
+	if !fsx.IsDir(hroot+"/.claude") && fsx.IsDir(shellx.DirName(hroot)+"/.claude") {
+		hroot = shellx.DirName(hroot)
 	}
 	rootOK := true
 	if canon, ok := fsx.canonDir(hroot); ok {
@@ -41,11 +43,11 @@ func hookSet(w io.Writer, fsx fsView, target string) {
 
 	for _, pair := range [][2]string{{hroot + "/.claude/settings.json", "settings.json"}, {hroot + "/.claude/settings.local.json", "settings.local.json"}} {
 		spath, label := pair[0], pair[1]
-		if !fsx.isFile(spath) {
+		if !fsx.IsFile(spath) {
 			continue
 		}
 		anySeen = true
-		raw, err := fsx.read(spath)
+		raw, err := fsx.Read(spath)
 		if err != nil {
 			fmt.Fprintf(w, "   unreadable   hook-set: %s at %s is not readable — cannot derive its hook commands\n", label, hroot)
 			anyRejected = true
@@ -70,7 +72,7 @@ func hookSet(w io.Writer, fsx fsView, target string) {
 			if tok != "" {
 				resolved = resolveHookPath(tok, hroot)
 			}
-			if resolved == "" || !fsx.isFile(resolved) {
+			if resolved == "" || !fsx.IsFile(resolved) {
 				fmt.Fprintf(w, "   WARN   hook-set: %s hook command could not be resolved to a script file (inspected: %s): %s\n", label, hroot, cmd)
 				anyRejected = true
 				continue
@@ -98,9 +100,9 @@ func hookSet(w io.Writer, fsx fsView, target string) {
 		}
 	}
 
-	if fsx.isDir(hdir) {
+	if fsx.IsDir(hdir) {
 		anySeen = true
-		if !fsx.readable(hdir) {
+		if !fsx.Readable(hdir) {
 			fmt.Fprintf(w, "   unreadable   hook-placeholder: .claude/hooks/ at %s is not readable — cannot inspect\n", hroot)
 			anyRejected = true
 		} else {
@@ -113,10 +115,10 @@ func hookSet(w io.Writer, fsx fsView, target string) {
 				}
 				res := rootCheck(fsx, hf, hroot)
 				if res.ok {
-					if fsx.isFile(res.path) {
+					if fsx.IsFile(res.path) {
 						combined = append(combined, res.path)
 						hooksN++
-					} else if fsx.isSymlink(hf) {
+					} else if fsx.IsSymlink(hf) {
 						fmt.Fprintf(w, "   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: %s\n", hf)
 						anyRejected = true
 					}
@@ -152,13 +154,13 @@ func hookSet(w io.Writer, fsx fsView, target string) {
 		if f == "" {
 			continue
 		}
-		body, err := fsx.read(f)
+		body, err := fsx.Read(f)
 		if err != nil {
-			fmt.Fprintf(w, "   unreadable   hook-placeholder: %s is not readable — cannot inspect for placeholders\n", basename(f))
+			fmt.Fprintf(w, "   unreadable   hook-placeholder: %s is not readable — cannot inspect for placeholders\n", shellx.BaseName(f))
 			continue
 		}
 		if nums, phs := placeholders(string(body)); len(nums) > 0 {
-			fmt.Fprintf(w, "   WARN   hook-placeholder: %s line(s) %s still has unreplaced placeholder(s): %s — adapt this hook for the target before use (inspected: %s)\n", basename(f), strings.Join(nums, ","), strings.Join(phs, " "), hroot)
+			fmt.Fprintf(w, "   WARN   hook-placeholder: %s line(s) %s still has unreplaced placeholder(s): %s — adapt this hook for the target before use (inspected: %s)\n", shellx.BaseName(f), strings.Join(nums, ","), strings.Join(phs, " "), hroot)
 		}
 	}
 }
@@ -169,11 +171,11 @@ var rePlaceholder = regexp.MustCompile(`<SUBJECT>|<KIT>|<TARGET>|<prefix>|<path 
 // template placeholder, and the distinct placeholders found on them (sorted).
 func placeholders(body string) (lineNums, found []string) {
 	seen := map[string]bool{}
-	for i, l := range recordLines(body) {
+	for i, l := range shellx.RecordLines(body) {
 		if !rePlaceholder.MatchString(l) {
 			continue
 		}
-		if strings.HasPrefix(strings.TrimLeft(l, wsClass), "#") {
+		if strings.HasPrefix(strings.TrimLeft(l, shellx.WsClass), "#") {
 			continue
 		}
 		lineNums = append(lineNums, fmt.Sprint(i+1))

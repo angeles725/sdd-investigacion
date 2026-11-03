@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Section 4 of verify-block: the OCR-provenance flag. A [CERT-doc] citation sourced from an OCR'd (scanned) PDF is
@@ -18,24 +20,24 @@ func (b *blockRun) sectionOCR() {
 	b.echo("-- OCR-provenance flag (reliability: ocr-lossy) --")
 	dir := b.target + "/sources/extracted"
 	lossy := 0
-	if b.fs.isDir(dir) {
+	if b.fs.IsDir(dir) {
 		for _, ext := range b.findDirMarkdown(dir) {
-			if !b.fs.isFile(ext) {
+			if !b.fs.IsFile(ext) {
 				continue
 			}
-			src, err := b.fs.read(ext)
+			src, err := b.fs.Read(ext)
 			if err != nil || !vbOCRTag.MatchString(string(src)) {
 				continue
 			}
-			name := basename(ext)
+			name := shellx.BaseName(ext)
 			stem := strings.TrimSuffix(name, ".md")
 			loose := stem
 			if parts := strings.Split(stem, "-"); len(parts) > 2 { // cut -d- -f1-2
 				loose = parts[0] + "-" + parts[1]
 			}
 			pdfBase := ""
-			if pdf := sourcePDF(recordLines(string(src))); pdf != "" {
-				pdfBase = vbStripExt(basename(pdf))
+			if pdf := sourcePDF(shellx.RecordLines(string(src))); pdf != "" {
+				pdfBase = vbStripExt(shellx.BaseName(pdf))
 			}
 			var hits []string
 			grepErr := 0
@@ -109,7 +111,7 @@ func dedupeByLine(hits []string) []string {
 
 // findDirMarkdown is `find DIR -maxdepth 1 -name '*.md'` in byte order (find's own order depends on the filesystem).
 func (b *blockRun) findDirMarkdown(dir string) []string {
-	f, err := os.Open(b.fs.at(dir))
+	f, err := os.Open(b.fs.At(dir))
 	if err != nil {
 		return nil
 	}

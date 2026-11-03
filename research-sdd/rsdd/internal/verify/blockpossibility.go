@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // POSSIBILITY-FIRST lint (METHODOLOGY section 1 trait, kit issues #1263-#1266): pf_scan of the script and the
@@ -80,17 +82,17 @@ func (b *blockRun) sectionPossibility() {
 
 // runPossibilitySweep is `verify-block.sh --possibility-sweep <corpus-dir>`.
 func (b *blockRun) runPossibilitySweep(dir string) int {
-	if !b.fs.isDir(dir) {
+	if !b.fs.IsDir(dir) {
 		fmt.Fprintln(b.s.Err, "usage: verify-block.sh --possibility-sweep <corpus-dir>")
 		return 2
 	}
 	total := 0
 	for _, f := range b.findMarkdown(dir) {
-		src, err := b.fs.read(f)
+		src, err := b.fs.Read(f)
 		if err != nil {
 			continue
 		}
-		for _, h := range pfScan(recordLines(string(src))) {
+		for _, h := range pfScan(shellx.RecordLines(string(src))) {
 			fmt.Fprintf(b.s.Out, "%s:%d: %s — %s\n", f, h.line, h.ph, cutBytes(trimTabs(h.tx), 120))
 			total++
 		}
@@ -107,7 +109,7 @@ func (b *blockRun) findMarkdown(dir string) []string {
 	var out []string
 	var walk func(p string)
 	walk = func(p string) {
-		f, err := os.Open(b.fs.at(p))
+		f, err := os.Open(b.fs.At(p))
 		if err != nil {
 			return
 		}
@@ -123,7 +125,7 @@ func (b *blockRun) findMarkdown(dir string) []string {
 			}
 		}
 	}
-	if st, err := os.Lstat(b.fs.at(dir)); err == nil && st.IsDir() {
+	if st, err := os.Lstat(b.fs.At(dir)); err == nil && st.IsDir() {
 		walk(dir)
 	} else if err == nil && st.Mode()&os.ModeSymlink != 0 {
 		// find without -H does not enter a start point that is a symlink, but `[ -d ]` followed it: nothing listed.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Ports of lib/blocked-rows.sh (blocked_rows_body, blocked_open_count) and of the blocked-section helpers of
@@ -43,17 +44,17 @@ var (
 // `- ` marker removed (sed -n 's/^[[:space:]]*-[[:space:]]*//p'), then the `[ — ]needs: ...` tail
 // (case-blind) cut, then the blanks trimmed. ok is false when the line is not a bullet at all.
 func bulletName(line string) (string, bool) {
-	rest := strings.TrimLeft(line, wsClass)
+	rest := strings.TrimLeft(line, shellx.WsClass)
 	if !strings.HasPrefix(rest, "-") {
 		return "", false
 	}
-	return trimName(strings.TrimLeft(rest[1:], wsClass)), true
+	return trimName(strings.TrimLeft(rest[1:], shellx.WsClass)), true
 }
 
 func trimName(s string) string {
 	s = reDashedNeeds.ReplaceAllString(s, "")
 	s = rePlainNeeds.ReplaceAllString(s, "")
-	return strings.Trim(s, wsClass)
+	return strings.Trim(s, shellx.WsClass)
 }
 
 // blockedNames is _blocked_names: one blocked gap NAME per bullet of the body (empty names dropped).

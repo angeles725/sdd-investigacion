@@ -90,7 +90,7 @@ func (b *blockRun) sectionCites() {
 		m := 0
 		for _, p := range probes {
 			m++
-			if b.fs.isFile(b.target + "/" + p) {
+			if b.fs.IsFile(b.target + "/" + p) {
 				b.probeOK++
 				b.echo("   probe   %s", p)
 				probeFound = true // P6-PROBE-FILE-CITE
@@ -197,18 +197,18 @@ func (b *blockRun) resolveArtifact(c string) {
 	i := strings.LastIndex(n, ":")
 	f, rng := n[:i], n[i+1:]
 	start, end := splitRange(rng)
-	if !b.fs.isFile(b.target + "/" + f) { // D6-PATH-FALLBACK: the cite may carry a path prefix elsewhere in the block
+	if !b.fs.IsFile(b.target + "/" + f) { // D6-PATH-FALLBACK: the cite may carry a path prefix elsewhere in the block
 		pat := vbRe(`(?i)[a-zA-Z0-9_./-]+/` + regexp.QuoteMeta(f))
 		for _, l := range b.lines {
 			if m := grepO(pat, l); len(m) > 0 {
-				if b.fs.isFile(b.target + "/" + m[0]) {
+				if b.fs.IsFile(b.target + "/" + m[0]) {
 					f = m[0]
 				}
 				break
 			}
 		}
 	}
-	if !b.fs.isFile(b.target + "/" + f) {
+	if !b.fs.IsFile(b.target + "/" + f) {
 		b.echo("   MISSING! %s  (evidence artifact not preserved)", c)
 		b.rc = 1
 		b.f++
@@ -274,7 +274,7 @@ func (b *blockRun) resolveBacktick(c string) {
 	resolve, first, tag, firstTag, cdeg := "", "", "", "", false
 	for _, r := range roots {
 		p := r.dir + "/" + f
-		if !b.fs.isFile(p) {
+		if !b.fs.IsFile(p) {
 			continue
 		}
 		if first == "" {
@@ -296,7 +296,7 @@ func (b *blockRun) resolveBacktick(c string) {
 	if resolve == "" && first != "" {
 		resolve, tag = first, firstTag
 	}
-	if resolve != "" && b.fs.isFile(resolve) {
+	if resolve != "" && b.fs.IsFile(resolve) {
 		okp := "ok      "
 		if tag != "" {
 			okp = "ok " + tag
@@ -323,7 +323,7 @@ func (b *blockRun) resolveBacktick(c string) {
 	// Unresolved cite.
 	if b.externCheck && strings.HasPrefix(f, "/") { // VB-EXTERN-CHECK
 		b.xa++
-		if !b.fs.isFile(f) || !b.fs.readableFile(f) {
+		if !b.fs.IsFile(f) || !b.fs.readableFile(f) {
 			b.echo("   extern  %s  (absolute path not found or unreadable — not script-verifiable)", c)
 			b.e++
 			return

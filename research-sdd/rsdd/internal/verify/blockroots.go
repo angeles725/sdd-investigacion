@@ -9,7 +9,7 @@ import (
 
 // exists is `[ -e p ]`, symlinks followed.
 func (v fsView) exists(p string) bool {
-	_, err := v.stat(p)
+	_, err := v.Stat(p)
 	return err == nil
 }
 
@@ -17,7 +17,7 @@ func (v fsView) exists(p string) bool {
 // not a terminator), reading no further than line END when END > 0 (then END is printed once the file reaches it).
 // ok is false where the counter fails (an unreadable file): a typed DEGRADED for the caller, never a verdict.
 func (v fsView) vbLines(p string, end int64) (n int64, ok bool) {
-	f, err := os.Open(v.at(p))
+	f, err := os.Open(v.At(p))
 	if err != nil {
 		return 0, false
 	}
@@ -45,4 +45,4 @@ func (v fsView) vbLines(p string, end int64) (n int64, ok bool) {
 }
 
 // readableFile is the `[ -r p ]` half of an absolute extern cite: the file can be opened for reading.
-func (v fsView) readableFile(p string) bool { return v.readable(p) }
+func (v fsView) readableFile(p string) bool { return v.Readable(p) }

@@ -6,6 +6,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Section 11 of verify-block: SCRIPTS-MANIFEST (kit #1207, #1659, #2190). A preserved script cited under
@@ -26,7 +28,7 @@ func (b *blockRun) sectionManifest() {
 	var files []string
 	frc := 0
 	probes := b.target + "/sources/probes"
-	if b.fs.isDir(probes) {
+	if b.fs.IsDir(probes) {
 		files, frc = b.findManifests(probes)
 		sort.Strings(files)
 	}
@@ -73,8 +75,8 @@ func (b *blockRun) checkManifestCites(cites, files []string) {
 			continue
 		}
 		have := "ABSENT"
-		if b.fs.isFile(b.target + "/" + c) {
-			data, err := b.fs.read(b.target + "/" + c)
+		if b.fs.IsFile(b.target + "/" + c) {
+			data, err := b.fs.Read(b.target + "/" + c)
 			if err != nil {
 				have = "UNREADABLE"
 			} else {
@@ -116,7 +118,7 @@ func (b *blockRun) haveSHATool() bool {
 			dir = "."
 		}
 		for _, tool := range []string{"sha256sum", "shasum"} {
-			if st, err := os.Stat(b.fs.at(dir + "/" + tool)); err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0 {
+			if st, err := os.Stat(b.fs.At(dir + "/" + tool)); err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0 {
 				return true
 			}
 		}
@@ -127,12 +129,12 @@ func (b *blockRun) haveSHATool() bool {
 // findManifests is `find ROOT -type f -name SCRIPTS-MANIFEST.md`: the paths as find prints them and find's exit
 // status (1 where a directory could not be read). A start point that is a symbolic link is not entered.
 func (b *blockRun) findManifests(root string) (files []string, rc int) {
-	if st, err := os.Lstat(b.fs.at(root)); err != nil || !st.IsDir() {
+	if st, err := os.Lstat(b.fs.At(root)); err != nil || !st.IsDir() {
 		return nil, 0
 	}
 	var walk func(p string)
 	walk = func(p string) {
-		f, err := os.Open(b.fs.at(p))
+		f, err := os.Open(b.fs.At(p))
 		if err != nil {
 			rc = 1
 			return
@@ -160,7 +162,7 @@ func (b *blockRun) findManifests(root string) (files []string, rc int) {
 // `<target-relative path><TAB><sha256 lowercase>` lines - the resolved cell and <manifest dir>/<basename>. ok is
 // false where the script returned 2 (unreadable manifest, or one outside the target).
 func (b *blockRun) scriptsManifestRows(target, mf string) ([]string, bool) {
-	if target == "" || mf == "" || !b.fs.isFile(mf) || !b.fs.readable(mf) {
+	if target == "" || mf == "" || !b.fs.IsFile(mf) || !b.fs.Readable(mf) {
 		return nil, false
 	}
 	for strings.Contains(target, "//") { // SM-SLASH
@@ -179,13 +181,13 @@ func (b *blockRun) scriptsManifestRows(target, mf string) ([]string, bool) {
 	if i := strings.LastIndex(md, "/"); i >= 0 {
 		md = md[:i]
 	}
-	src, err := b.fs.read(mf)
+	src, err := b.fs.Read(mf)
 	if err != nil {
 		return nil, false
 	}
 	var rows []string
-	for _, line := range recordLines(string(src)) {
-		if !strings.HasPrefix(strings.TrimLeft(line, wsClass), "|") {
+	for _, line := range shellx.RecordLines(string(src)) {
+		if !strings.HasPrefix(strings.TrimLeft(line, shellx.WsClass), "|") {
 			continue
 		}
 		f := strings.Split(line, "|")
@@ -194,7 +196,7 @@ func (b *blockRun) scriptsManifestRows(target, mf string) ([]string, bool) {
 				return ""
 			}
 			return strings.Map(func(r rune) rune {
-				if r == '`' || strings.ContainsRune(wsClass, r) {
+				if r == '`' || strings.ContainsRune(shellx.WsClass, r) {
 					return -1
 				}
 				return r

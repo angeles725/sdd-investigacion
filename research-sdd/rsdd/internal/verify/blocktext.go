@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Text primitives of `rsdd verify block`: the GNU grep / gawk / sort / cut behaviours the script leaned on.
@@ -149,7 +151,7 @@ func neuterRe(s string, re *regexp.Regexp) string {
 
 // shellInt is the integer a `[ A -op B ]` test reads: base 10 (leading zeros are not octal), failing on a value
 // outside int64 (bash prints "integer expression expected" and the test is false; the message is not reproduced).
-func shellInt(s string) (int64, bool) { return decimal(s) }
+func shellInt(s string) (int64, bool) { return shellx.Decimal(s) }
 
 // cutBytes is `cut -c1-n`: GNU cut counts bytes.
 func cutBytes(s string, n int) string {

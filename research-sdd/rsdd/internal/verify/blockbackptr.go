@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Section 12 of verify-block: the section-14 BACK-POINTER (kit #1962). A block that CORRECTS an earlier block must
@@ -278,7 +280,7 @@ func scanCorrections(lines []string, self int) (cands []bpCand, tr bpTrailer, rm
 func (b *blockRun) sectionBackptr() {
 	w, inf, amb, deg, okN, low := 0, 0, 0, 0, 0, 0
 	b.echo("-- §14 back-pointer (kit #1962: a block that corrects an earlier block must be pointed back to from it; advisory, exit unchanged) --")
-	base := basename(b.block)
+	base := shellx.BaseName(b.block)
 	m := bpFileName.FindStringSubmatch(base)
 	switch {
 	case b.backptr == "off":
@@ -291,7 +293,7 @@ func (b *blockRun) sectionBackptr() {
 	pfx := m[1]
 	self, _ := strconv.Atoi(strings.TrimLeft(m[3], "0"))
 	var dirs []string
-	for _, x := range []string{dirname(b.block), b.target} {
+	for _, x := range []string{shellx.DirName(b.block), b.target} {
 		p, ok := b.physical(x)
 		if !ok {
 			continue
@@ -389,19 +391,19 @@ func (b *blockRun) sectionBackptr() {
 		case len(cand) > 1: // BP-AMBIG
 			var names []string
 			for _, f := range cand {
-				names = append(names, basename(f))
+				names = append(names, shellx.BaseName(f))
 			}
 			state, msg = "ambig", fmt.Sprintf("   BACKPTR-AMBIGUOUS  line %d: block %s matches %d files (%s) — back-pointer NOT checked; disambiguate by hand", c.line, cl, len(cand), strings.Join(names, ", "))
 		default:
 			old := cand[0]
-			src, err := b.fs.read(old)
+			src, err := b.fs.Read(old)
 			switch {
-			case err != nil || !b.fs.readable(old): // BP-UNREADABLE
-				state, msg = "degraded", fmt.Sprintf("   DEGRADED backptr: line %d: block %s (%s) is unreadable — back-pointer NOT checked", c.line, cl, basename(old))
+			case err != nil || !b.fs.Readable(old): // BP-UNREADABLE
+				state, msg = "degraded", fmt.Sprintf("   DEGRADED backptr: line %d: block %s (%s) is unreadable — back-pointer NOT checked", c.line, cl, shellx.BaseName(old))
 			case bpPointer(ptr, string(src)): // BP-POINTER
-				state, msg = "ok", fmt.Sprintf("   backptr-ok  line %d: block %s (%s) points back to %s", c.line, cl, basename(old), slab)
+				state, msg = "ok", fmt.Sprintf("   backptr-ok  line %d: block %s (%s) points back to %s", c.line, cl, shellx.BaseName(old), slab)
 			default:
-				state, msg = "missing", fmt.Sprintf("   BACKPTR?  line %d: possible correction of block %s (%s); verify by hand, then consider a back-pointer to %s in %s (§14; advisory, exit unchanged) — sentence: \"%s\"", c.line, cl, basename(old), slab, basename(old), c.ex)
+				state, msg = "missing", fmt.Sprintf("   BACKPTR?  line %d: possible correction of block %s (%s); verify by hand, then consider a back-pointer to %s in %s (§14; advisory, exit unchanged) — sentence: \"%s\"", c.line, cl, shellx.BaseName(old), slab, shellx.BaseName(old), c.ex)
 			}
 		}
 		switch state {
@@ -435,7 +437,7 @@ func (b *blockRun) sectionBackptr() {
 
 // bpPointer is `grep -Eq PTR FILE`: some line of the file matches.
 func bpPointer(re *regexp.Regexp, src string) bool {
-	for _, l := range recordLines(src) {
+	for _, l := range shellx.RecordLines(src) {
 		if re.MatchString(l) {
 			return true
 		}
@@ -445,11 +447,11 @@ func bpPointer(re *regexp.Regexp, src string) bool {
 
 // fileSeries is _vb_bp_fser: R when the file's first `#` line is `# Block R<n>`, else N; rc 2 where it is unreadable.
 func fileSeries(b *blockRun, path string) (string, int) {
-	src, err := b.fs.read(path)
+	src, err := b.fs.Read(path)
 	if err != nil {
 		return "", 2
 	}
-	for _, l := range recordLines(string(src)) {
+	for _, l := range shellx.RecordLines(string(src)) {
 		if strings.HasPrefix(l, "#") {
 			if bpFileH1.MatchString(l) {
 				return "R", 0

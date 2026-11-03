@@ -41,7 +41,7 @@ func (b *blockRun) splitNonpath(bt []string) (nonpath, keep []string) {
 	for _, c := range cand {
 		hit := false
 		for _, r := range []string{b.target, b.gitRoot, b.targetRoot, b.sourceRoot} { // P973-NONPATH-EXISTS
-			if r != "" && b.fs.isFile(r+"/"+citeFile(c)) {
+			if r != "" && b.fs.IsFile(r+"/"+citeFile(c)) {
 				hit = true
 				break
 			}
