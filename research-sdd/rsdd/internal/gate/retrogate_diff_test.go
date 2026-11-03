@@ -45,11 +45,13 @@ func TestRetroFindParity(t *testing.T) {
 // every run and the same state files under <target>/.claude. The bash side also has to satisfy the scenario's own
 // checks, so an expectation written from reading the code cannot drift from what the original does.
 func TestRetroGateDifferential(t *testing.T) {
+	t.Parallel()
 	for _, c := range rgCases {
 		if c.goOnly {
 			continue
 		}
 		t.Run(c.id, func(t *testing.T) {
+			t.Parallel()
 			bash := c.execute(t, true)
 			port := c.execute(t, false)
 			t.Run("bash-satisfies-checks", func(t *testing.T) { c.check(t, bash) })

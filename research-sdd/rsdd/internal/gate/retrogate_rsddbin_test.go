@@ -1,9 +1,11 @@
 package gate
 
 import (
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -18,7 +20,20 @@ var (
 	rgBuildErr  error
 )
 
+// gateMinParallel is the floor for -test.parallel. Almost every test here waits on child processes (git, bash,
+// the frozen originals) rather than computing, so the default of GOMAXPROCS slots leaves a small runner idle while
+// its slots sit in wait(2); an explicit -parallel on the command line still wins.
+const gateMinParallel = 8
+
 func TestMain(m *testing.M) {
+	flag.Parse()
+	explicit := false
+	flag.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "test.parallel" })
+	if f := flag.Lookup("test.parallel"); f != nil && !explicit {
+		if n, err := strconv.Atoi(f.Value.String()); err == nil && n < gateMinParallel {
+			_ = f.Value.Set(strconv.Itoa(gateMinParallel))
+		}
+	}
 	code := m.Run()
 	if rgBuiltBin != "" {
 		_ = os.RemoveAll(filepath.Dir(rgBuiltBin))

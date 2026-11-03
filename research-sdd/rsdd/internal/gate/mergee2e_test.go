@@ -13,6 +13,7 @@ import (
 // `-tags nodiff` (gremlins), where it is what covers the runner.
 
 func TestRealRunnerEndToEnd(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("starts real processes")
 	}

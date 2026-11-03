@@ -67,12 +67,14 @@ func (c *mtCase) runBash(stage string, r mtRun) mtResult {
 }
 
 func TestMergeTrainDifferential(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds git repositories and runs processes")
 	}
 	stage := mtLegacyDir(t)
 	for _, sc := range mtScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			cb := newMtCase(t)
 			legacy := cb.runBash(stage, sc.setup(cb))
 			cg := newMtCase(t)

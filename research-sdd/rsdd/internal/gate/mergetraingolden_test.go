@@ -12,6 +12,7 @@ import (
 // bytes the differential test proves equal to the bash, so a change to a typed line or the receipt shows up as a
 // diff to review. Refresh with MERGETRAIN_UPDATE=1 go test -run MergeTrainGolden ./internal/gate/.
 func TestMergeTrainGolden(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds git repositories and runs processes")
 	}
@@ -24,6 +25,7 @@ func TestMergeTrainGolden(t *testing.T) {
 		}
 		n++
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			c := newMtCase(t)
 			r := c.runGo(sc.setup(c), nil)
 			got := fmt.Sprintf("rc: %d\n--- stdout\n%s--- stderr\n%s--- calls\n%s\n--- receipt\n%s--- left behind\n%s\n", r.rc, r.out, r.err, r.calls, r.receipt, r.post)

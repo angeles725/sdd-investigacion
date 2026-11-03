@@ -645,11 +645,13 @@ func statusesOf(receipt string) string {
 
 // TestMergeTrain pins the contract of each scenario on the port alone.
 func TestMergeTrain(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds git repositories and runs processes")
 	}
 	for _, sc := range mtScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
+			t.Parallel()
 			c := newMtCase(t)
 			r := c.runGo(sc.setup(c), nil)
 			if r.rc != sc.rc {
