@@ -18,7 +18,7 @@ Objective: port `research-sdd/toolbelt/reconcile-issues.sh` to Go in `internal/r
 - S8 Teeth. Lived 0 for internal/retro/reconcile under the CI-like PATH (python3 and jq present, bwrap absent); every oracle or differential test file is `!nodiff`.
 
 ## Tasks
-- T1 S1 S2 S3 S4 — slice 1: freeze the legacy oracle; core classification of one retro against --issues-cache (tracked / untracked / orphaned, legacy signature, delta forms, marker scope); Report/Render; differential plus goldens for those cases. Route: delegated writer (context backstop; parallel with CI watchers). Status: open.
+- T1 S1 S2 S3 S4 — slice 1: freeze the legacy oracle; core classification of one retro against --issues-cache (tracked / untracked / orphaned, legacy signature, delta forms, marker scope); Report/Render; differential plus goldens for those cases. Route: delegated writer (context backstop; parallel with CI watchers). Status: done (PR, commits 3de12808..e0aeba26; merge sha recorded on merge).
 - T2 S1 S4 — slice 2: --closed-cache: shipped / borderline / regressed, the closure-evidence grammar, git reachability (RECONCILE_ISSUES_MAIN_REF / _GIT_DIR), shallow-clone. Route: delegated writer. Status: open.
 - T3 S1 S2 S5 S6 S8 — slice 3: --all over TARGETS.md, live gh (LoadCache, per-retro re-verify), the `rsdd retro reconcile` command, shim, deletion of the bash suite with the case map, registry. Route: delegated writer. Status: open.
 - T4 S7 — fleet sweep and acceptance. Route: inline. Status: open.
@@ -27,3 +27,14 @@ Objective: port `research-sdd/toolbelt/reconcile-issues.sh` to Go in `internal/r
 - L1 (2026-11-01, user, verbatim): "Vamosa a trabajar con ODD + RDD(granted), si GENTLE-AI pide revision, dale permisos para que revise. Ahora vamos a realizar lo siguiente: Primero, necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en donde tener que hacer eso. [...] Trabajen con commit + push + pr + pr view + issues + merge, etc." Full text: go-port-lanes/ORIGINAL-PROMPT.md. Follow-up: "todo lo que se pueda pasar [...] para que nos ayude en el tema de los test, para que sea rapido" (port to Go whatever makes tests slow).
 - L2 (2026-11-02) s1 assigned this port to s2 ("it unblocks s4's #2549 going in-process"). s4 consumes only len(Untracked), Degraded != "", OutOfScopeMarker != "", ctx timeout -> unverified, and the error text. API accepted in package internal/retro/reconcile.
 - L3 (2026-11-02) Issue #2563 opened. Sizes on origin/main 31bb4be5: script 1,232 lines; suite 3,389 lines (207 cases).
+- L4 (2026-11-02) T1 delivered.
+  - Package `internal/retro/reconcile`, with 135 differential cases (core 27, input 18, forms 31, markers 16, layout 10, matrix 32). Legacy vs Go: 0 diffs.
+  - The goldens are replayed under nodiff.
+  - Deviations from S2/S3:
+    - `Options.GH` is `gh.Options`, because `core/gh` has no Runner.
+    - `KitRoot`, `Cwd` and `Env` were added. `Cwd` and `Env` are required (archtest: `os.Getwd`/`os.Getenv` only in `cli/stdio.go`).
+    - `Report` adds `Orphaned`, `Failure` and `Notes`.
+    - The grammar lives in `internal/core/retrogrammar`, moved there by #2490.
+    - `stageissues` keeps its signature builder and its table-row reader unexported, so the `Source retro:` prefix is built locally. Follow-up: export them from `stageissues`.
+  - RDD: commit af7790d7 (frozen oracle) was approved and acknowledged. Every other commit, and the af7790d7..e0aeba26 range (2,098 lines), read medium `under_budget`, so the slice stays pending.
+  - Impacted gate on e0aeba26: 186/186 suites, 13,165 cases, 0 failed, kit-tree 0.
