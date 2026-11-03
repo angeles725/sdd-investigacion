@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // The --json envelope of sweep-retros.sh (research-sdd.sweep-retros/v1, json-envelope.v1.md), written byte for
@@ -31,13 +32,13 @@ func retrosState(items, targets, absent, total int) (state string, reason *strin
 func writeRetrosEnvelope(w io.Writer, res sweepResult) {
 	var b strings.Builder
 	state, reason := retrosState(len(res.rows)+len(res.missing), res.targets, res.absent, res.total)
-	b.WriteString("{\n  \"schema\": " + jqString(retrosSchema) + ",\n  \"state\": " + jqString(state) + ",\n")
+	b.WriteString("{\n  \"schema\": " + hookenv.JQString(retrosSchema) + ",\n  \"state\": " + hookenv.JQString(state) + ",\n")
 	fmt.Fprintf(&b, "  \"counts\": {\n    \"targets\": %d,\n    \"targets_absent\": %d,\n    \"targets_skipped\": %d,\n    \"retros\": %d,\n    \"pending\": %d,\n    \"missing_retro\": %d\n  },\n",
 		res.targets, res.absent, res.skipped, res.total, res.pendingCnt, len(res.missing))
 	if reason == nil {
 		b.WriteString("  \"reason\": null,\n")
 	} else {
-		b.WriteString("  \"reason\": " + jqString(*reason) + ",\n")
+		b.WriteString("  \"reason\": " + hookenv.JQString(*reason) + ",\n")
 	}
 	if len(res.rows)+len(res.missing) == 0 {
 		b.WriteString("  \"items\": []\n}\n")
@@ -53,51 +54,16 @@ func writeRetrosEnvelope(w io.Writer, res sweepResult) {
 		}
 		warning := "null"
 		if r.deltaWarns != "" {
-			warning = jqString(r.deltaWarns)
+			warning = hookenv.JQString(r.deltaWarns)
 		}
-		items = append(items, "    {\n      \"kind\": \"pending-retro\",\n      \"file\": "+jqString(r.file)+",\n      \"target\": "+jqString(r.target)+
-			",\n      \"deltas\": "+deltas+",\n      \"deltas_state\": "+jqString(r.dk)+",\n      \"status\": "+jqString(r.status)+
+		items = append(items, "    {\n      \"kind\": \"pending-retro\",\n      \"file\": "+hookenv.JQString(r.file)+",\n      \"target\": "+hookenv.JQString(r.target)+
+			",\n      \"deltas\": "+deltas+",\n      \"deltas_state\": "+hookenv.JQString(r.dk)+",\n      \"status\": "+hookenv.JQString(r.status)+
 			",\n      \"age_days\": "+r.age+",\n      \"age_state\": \"counted\",\n      \"escalated\": "+fmt.Sprint(r.tag != "")+
 			",\n      \"warning\": "+warning+"\n    }")
 	}
 	for _, m := range res.missing {
-		items = append(items, "    {\n      \"kind\": \"missing-retro\",\n      \"target\": "+jqString(m)+"\n    }")
+		items = append(items, "    {\n      \"kind\": \"missing-retro\",\n      \"target\": "+hookenv.JQString(m)+"\n    }")
 	}
 	b.WriteString(strings.Join(items, ",\n") + "\n  ]\n}\n")
 	io.WriteString(w, b.String())
-}
-
-// jqString is jq's string encoding: the short escapes for " \ \b \f \n \r \t, \u00xx (lowercase hex) for the
-// other control characters and DEL, every other character as is (no <>& escaping, no U+2028), and U+FFFD for
-// each byte that is not valid UTF-8.
-// TODO(#2386): delete this private copy once core/jsonout has the jq-compatible encoder.
-func jqString(s string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:])
-		i += n
-		switch {
-		case r == '"':
-			b.WriteString(`\"`)
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\b':
-			b.WriteString(`\b`)
-		case r == '\f':
-			b.WriteString(`\f`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			fmt.Fprintf(&b, `\u%04x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
 }

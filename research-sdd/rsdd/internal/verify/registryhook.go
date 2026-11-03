@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/verify-registry-hook.sh, the SessionStart wrapper of verify registry:
@@ -59,30 +60,17 @@ func RunRegistryHook(args []string, s cli.Stdio) int {
 	var buf bytes.Buffer // one writer for both streams, so the order is the script's `2>&1`
 	sc := s
 	sc.Out, sc.Err = &buf, &buf
-	rc := runRegistryGuarded(regArgs, sc, &buf)
+	rc := hookenv.Guard(&buf, func() int { return RunRegistry(regArgs, sc) })
 	out := strings.TrimRight(buf.String(), "\n")
 	if rc != 0 {
-		writeSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
+		hookenv.WriteSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
 		return cli.ExitOK
 	}
 	if !full {
 		out = compactRegistry(out, localeCounts(s.Env))
 	}
-	writeSessionStart(s.Out, hdrRegistryOK+"\n"+out)
+	hookenv.WriteSessionStart(s.Out, hdrRegistryOK+"\n"+out)
 	return cli.ExitOK
-}
-
-// runRegistryGuarded runs the registry check and turns a panic inside it into an operational failure written to
-// buf, so the hook still emits its could-not-run envelope. Left to cli.Run's own recover, a panic would reach
-// only stderr and the SessionStart hook would say nothing at all (CLAUDE.md §7, kit issue #2610).
-func runRegistryGuarded(args []string, s cli.Stdio, buf *bytes.Buffer) (rc int) {
-	defer func() {
-		if p := recover(); p != nil {
-			fmt.Fprintf(buf, "rsdd: internal-error: %v\n", p)
-			rc = cli.ExitOperational
-		}
-	}()
-	return RunRegistry(args, s)
 }
 
 // awkChars is what awk's length() and substr() count: characters (gawk in a UTF-8 locale) when true, bytes

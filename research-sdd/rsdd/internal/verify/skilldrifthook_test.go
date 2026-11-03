@@ -5,6 +5,8 @@ package verify
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +21,7 @@ import (
 // envelopeOf is the SessionStart envelope the hook prints for ctx.
 func envelopeOf(ctx string) string {
 	var b bytes.Buffer
-	writeSessionStart(&b, ctx)
+	hookenv.WriteSessionStart(&b, ctx)
 	return b.String()
 }
 
@@ -175,7 +177,7 @@ func TestSkillDriftHookInvalidTimeoutIsAnnounced(t *testing.T) {
 func (w *sdWorld) git(dir string, args ...string) string {
 	w.t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(w.environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+	cmd.Env = gitfixture.Env(append(w.environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")) // no background maintenance racing the fixture (kit issue #2624)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		w.t.Fatalf("git %v: %v: %s", args, err, out)

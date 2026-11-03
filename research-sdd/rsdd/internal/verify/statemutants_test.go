@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 )
 
 // Oracle-free unit tests of the pure helpers of `rsdd verify state`. The expected values are the ones the frozen
@@ -35,23 +36,10 @@ func TestASCIICaseHelpersBoundaries(t *testing.T) {
 	}
 }
 
-func TestFirstWordAndDecimal(t *testing.T) {
+func TestFirstWord(t *testing.T) {
 	for in, want := range map[string]string{" x": "", "a b": "a", "ab": "ab", "": ""} {
 		if got := firstWord(in); got != want {
 			t.Errorf("firstWord(%q) = %q, want %q", in, got, want)
-		}
-	}
-	for _, c := range []struct {
-		in string
-		v  int64
-		ok bool
-	}{
-		{"0", 0, true}, {"09", 9, true}, {"9223372036854775807", 1<<63 - 1, true}, {"9223372036854775808", 0, false},
-		{"9223372036854775800", 9223372036854775800, true}, {"92233720368547758070", 0, false},
-		{"", 0, false}, {"1a", 0, false}, {"/", 0, false}, {":", 0, false}, {"-1", 0, false},
-	} {
-		if v, ok := decimal(c.in); v != c.v || ok != c.ok {
-			t.Errorf("decimal(%q) = %d,%v want %d,%v", c.in, v, ok, c.v, c.ok)
 		}
 	}
 }
@@ -169,14 +157,6 @@ func TestDecNumberStringMatchesJQ(t *testing.T) {
 	}
 }
 
-func TestDirnameBasename(t *testing.T) {
-	for in, want := range map[string]string{"/x": "/", "x": ".", "/a/b": "/a", "/": "/", "": ".", "a/b/": "a", "//x": "/", "a//b": "a"} {
-		if got := dirname(in); got != want {
-			t.Errorf("dirname(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestIsStateName(t *testing.T) {
 	for in, want := range map[string]bool{
 		"RESEARCH-STATE.md": true, "RESEARCH-STATE-auth.md": true, "RESEARCH-STATE": false, "RESEARCH-STATE.template.md": false,
@@ -207,7 +187,7 @@ func TestRealpathLiteralOutcomes(t *testing.T) {
 		}
 		return filepath.Join(root, fmt.Sprintf("c%d", n))
 	}
-	v := fsView{cwd: root}
+	v := fsView{View: fsview.View{Cwd: root}}
 	for _, c := range []struct {
 		in, want string
 		ok       bool
@@ -249,19 +229,14 @@ func TestRunMergedEnvironment(t *testing.T) {
 	}
 }
 
-func TestBasenameAndRegularMarkdown(t *testing.T) {
-	for in, want := range map[string]string{"": "", "/": "/", "//": "/", "a": "a", "a/b": "b", "a/b/": "b", "/a": "a"} {
-		if got := basename(in); got != want {
-			t.Errorf("basename(%q) = %q, want %q", in, got, want)
-		}
-	}
+func TestRegularMarkdown(t *testing.T) {
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "a.md"), "x")
 	sdWrite(t, filepath.Join(d, "b.txt"), "x")
 	if err := os.Symlink("a.md", filepath.Join(d, "link.md")); err != nil {
 		t.Fatal(err)
 	}
-	v := fsView{cwd: d}
+	v := fsView{View: fsview.View{Cwd: d}}
 	for _, dir := range []string{d, d + "/"} {
 		got := v.regularMarkdown(dir)
 		if want := []string{strings.TrimSuffix(dir, "/") + "/a.md"}; len(got) != 1 || got[0] != want[0] {
@@ -295,7 +270,7 @@ func TestFindStatesByteOrder(t *testing.T) {
 	for _, i := range []int{2, 8, 0, 7, 4, 5, 6, 1, 3} {
 		sdWrite(t, filepath.Join(d, rel[i]), "x")
 	}
-	got := fsView{cwd: d}.findStates(d)
+	got := fsView{View: fsview.View{Cwd: d}}.findStates(d)
 	want := make([]string, len(rel))
 	for i, r := range rel {
 		want[i] = d + "/" + r

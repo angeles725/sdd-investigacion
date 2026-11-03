@@ -3,22 +3,13 @@ package verify
 import (
 	"regexp"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
 // Text helpers shared by the verify-state port. The bash original reads the state file with awk, grep and sed;
 // every helper here names the awk or shell behaviour it reproduces. Classes are those of the C locale
 // ([[:space:]] is " \t\n\v\f\r"), matching what gawk and grep do on the ASCII the kit's markup uses.
-
-const wsClass = " \t\n\v\f\r" // [[:space:]]
-
-// recordLines splits src into awk records: "\n" terminates a record, a final fragment without one is still a
-// record, and an empty input has none.
-func recordLines(src string) []string {
-	if src == "" {
-		return nil
-	}
-	return strings.Split(strings.TrimSuffix(src, "\n"), "\n")
-}
 
 // asciiLower is awk tolower on ASCII (the only case the kit's tokens use).
 func asciiLower(s string) string {
@@ -114,33 +105,14 @@ func isInt(s string) bool {
 // intGT is `[ "$s" -gt n ]` for an is_int string: decimal, leading zeros ignored. A value beyond int64 makes
 // bash's test fail with an error (false); here it is the same false.
 func intGT(s string, n int64) bool {
-	v, ok := decimal(s)
+	v, ok := shellx.Decimal(s)
 	return ok && v > n
 }
 
 // intEQ is `[ "$s" -eq n ]`.
 func intEQ(s string, n int64) bool {
-	v, ok := decimal(s)
+	v, ok := shellx.Decimal(s)
 	return ok && v == n
-}
-
-func decimal(s string) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	var v int64
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		d := int64(c - '0')
-		if v > (1<<63-1-d)/10 {
-			return 0, false
-		}
-		v = v*10 + d
-	}
-	return v, true
 }
 
 // envelope markers: the awk patterns /<!-- research-state.v1 -->/ and /<!-- \/research-state.v1 -->/ (the dots

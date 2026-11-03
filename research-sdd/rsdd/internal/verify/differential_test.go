@@ -4,6 +4,7 @@ package verify
 
 import (
 	"bytes"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -267,7 +268,7 @@ func TestHookEnvelopeMatchesJq(t *testing.T) {
 			t.Fatal(err)
 		}
 		var got bytes.Buffer
-		writeSessionStart(&got, text)
+		hookenv.WriteSessionStart(&got, text)
 		if got.String() != string(want) {
 			t.Errorf("text %q (valid=%v):\n got %q\nwant %q", text, utf8.ValidString(text), got.String(), want)
 		}

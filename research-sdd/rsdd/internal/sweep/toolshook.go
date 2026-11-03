@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/sweep-tools-hook.sh (kit issue #2361), `rsdd sweep tools --hook`: the
@@ -17,7 +18,7 @@ import (
 //
 // The census runs in process (the script ran sweep-tools.sh with `2>&1`), so its stdout and stderr share one
 // buffer and keep the order they were written in. The seam is the pure function toolsHookContext. The envelope
-// is the one of the retro hook (writeSessionStart).
+// is hookenv.WriteSessionStart, and hookenv.Guard turns a panic in the census into the could-not-run context.
 
 const (
 	toolsHookFailedFmt  = "Research-SDD tools sweep could not run (exit %d — check TARGETS.md and lib/ helper):"
@@ -29,12 +30,13 @@ const (
 
 var reUnrecorded = regexp.MustCompile(`([0-9]+) unrecorded`)
 
-// TODO(#2610): wrap in the core panic guard once it lands
 func runToolsHook(o options, s cli.Stdio, read readFunc) int {
 	var buf bytes.Buffer // one writer for both streams: the script's `2>&1`
-	rc := sweepTools(o, s, &buf, &buf, read)
+	// sweepTools exits 1 only when the census could not run, so a panic (cli.ExitOperational, also 1) shares that
+	// header truthfully; no finished flag is needed, unlike kit-clean whose 1 means "dirty".
+	rc := hookenv.Guard(&buf, func() int { return sweepTools(o, s, &buf, &buf, read) })
 	if ctx, emit := toolsHookContext(strings.TrimRight(buf.String(), "\n"), rc); emit {
-		writeSessionStart(s.Out, ctx)
+		hookenv.WriteSessionStart(s.Out, ctx)
 	}
 	return cli.ExitOK
 }
