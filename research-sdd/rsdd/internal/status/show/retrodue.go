@@ -88,8 +88,8 @@ func (d *coverDeriver) run() (string, string) {
 			return d.keep("range-scoped focus %s", d.base)
 		}
 	}
-	newest := d.newestBlock()
-	if newest < 0 {
+	newest, found := d.newestBlock()
+	if !found {
 		return d.keep("no block files found for %s", d.base)
 	}
 	retros, rc := d.c.retroFiles() // RD-FIND-EXIT: a partial listing is never read as the complete retro set
@@ -116,28 +116,27 @@ func blockIDRE(prefix string) (*regexp.Regexp, int) {
 
 // newestBlock is the highest block id (at most nine digits) among the block files of this focus's scope, -1 when
 // there is none: the same file predicate as the on-disk block count.
-func (d *coverDeriver) newestBlock() int {
+func (d *coverDeriver) newestBlock() (int, bool) {
 	files := d.c.listBlockFiles(dirname(d.state), d.pfx)
 	re, g := blockIDRE(d.pfx)
 	if re == nil {
-		return -1
+		return 0, false
 	}
-	newest := -1
+	newest, found := 0, false
 	for _, f := range files {
 		m := re.FindStringSubmatch(path.Base(f))
 		if m == nil || len(m[g]) > 9 {
 			continue
 		}
-		if n, _ := strconv.Atoi(m[g]); n > newest {
-			newest = n
-		}
+		n, _ := strconv.Atoi(m[g])
+		newest, found = max(newest, n), true
 	}
-	return newest
+	return newest, found
 }
 
 // derive reads the coverage lines of the retros and applies the fail-closed rules.
 func (d *coverDeriver) derive(retros []string, newest int) (string, string) {
-	maxcov, nret, nbad, nover, nunsc := -1, 0, 0, 0, 0
+	maxcov, nret, nbad, nunsc, over := -1, 0, 0, 0, false
 	badlist := ""
 	for _, rf := range retros {
 		src, err := os.ReadFile(d.c.abs(rf))
@@ -157,7 +156,7 @@ func (d *coverDeriver) derive(retros []string, newest int) (string, string) {
 				nunsc++ // RD-UNSCOPED-IGNORED
 			case l.slug != "-" && l.slug != d.myslug:
 			case l.n > newest: // RD-OVER-RANGE
-				nover++
+				over = true
 				d.warn("covers_through B%d in %s exceeds newest block B%d on disk — value excluded (never clamped to 0)", l.n, path.Base(rf), newest)
 			case l.n > maxcov:
 				maxcov = l.n
@@ -175,7 +174,7 @@ func (d *coverDeriver) derive(retros []string, newest int) (string, string) {
 		return d.decl, ""
 	}
 	if maxcov < 0 {
-		if nbad+nover+nunsc == 0 {
+		if nbad == 0 && nunsc == 0 && !over {
 			d.warn("covers_through: absent in %d retro(s) — using declared blocks_since_retro: %s", nret, d.decl)
 		}
 		return d.decl, ""

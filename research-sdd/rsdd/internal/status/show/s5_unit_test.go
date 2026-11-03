@@ -387,8 +387,77 @@ func TestNewestBlockWithGroupsInThePrefix(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(root, n), nil, 0o644))
 	}
 	d := &coverDeriver{c: &ctx{s: cli.Stdio{Cwd: root, Err: &bytes.Buffer{}}, target: root}, state: root + "/RESEARCH-STATE-a(b).md", pfx: "a(b)-"}
-	if got := d.newestBlock(); got != 12 {
-		t.Errorf("newest block %d, want 12", got)
+	if got, found := d.newestBlock(); got != 12 || !found {
+		t.Errorf("newest block %d (found %v), want 12", got, found)
+	}
+}
+
+// The newest block reads at most 9 digits (a 10-digit id is skipped, as the script's {1,9} did), B0 is a block, and
+// no block file at all is "not found", distinct from block 0.
+func TestNewestBlockEdges(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		files []string
+		want  int
+		found bool
+	}{
+		{"nine digits are read", []string{"p-block999999999.md", "p-block3.md"}, 999999999, true},
+		{"ten digits are skipped", []string{"p-block1000000000.md", "p-block3.md"}, 3, true},
+		{"block zero is a block", []string{"p-block0.md"}, 0, true},
+		{"no block files", []string{"p-notes.md"}, 0, false},
+	} {
+		root := t.TempDir()
+		for _, n := range c.files {
+			must(t, os.WriteFile(filepath.Join(root, n), nil, 0o644))
+		}
+		d := &coverDeriver{c: &ctx{s: cli.Stdio{Cwd: root, Err: &bytes.Buffer{}}, target: root}, state: root + "/RESEARCH-STATE-p.md", pfx: "p-"}
+		if got, found := d.newestBlock(); got != c.want || found != c.found {
+			t.Errorf("%s: newest %d found %v, want %d %v", c.name, got, found, c.want, c.found)
+		}
+	}
+}
+
+// derive's fail-closed rules on retro coverage lines, through the typed lines they print: covers_through B0 is a real
+// coverage value, and the "absent in N retro(s)" line is printed only when NO line was skipped for any reason (one
+// malformed line plus one over-range line is still a skip, never "absent").
+func TestDeriveCoverageEdges(t *testing.T) {
+	for _, c := range []struct {
+		name, retro, wantEff string
+		wantErr             []string
+		notErr              string
+	}{
+		{"covers_through B0 counts", "covers_through: B0 focus=s\n", "5", []string{"overridden by retro coverage (covers_through B0, newest block B5 → 5)"}, "absent in"},
+		{"malformed plus over-range is not absent", "covers_through: Bx focus=s\ncovers_through: B9 focus=s\n", "20", []string{"malformed in", "exceeds newest block B5"}, "absent in"},
+		{"only over-range is not absent", "covers_through: B9 focus=s\n", "20", []string{"exceeds newest block B5"}, "absent in"},
+		{"nothing for this focus is absent", "covers_through: B2 focus=other\n", "20", []string{"covers_through: absent in 1 retro(s)"}, ""},
+	} {
+		root := t.TempDir()
+		rf := filepath.Join(root, "retros", "r1.md")
+		must(t, os.MkdirAll(filepath.Dir(rf), 0o755))
+		must(t, os.WriteFile(rf, []byte(c.retro), 0o644))
+		var errb bytes.Buffer
+		d := &coverDeriver{c: &ctx{s: cli.Stdio{Cwd: root, Err: &errb}, target: root}, decl: "20", errw: &errb, myslug: "s"}
+		eff, _ := d.derive([]string{rf}, 5)
+		if eff != c.wantEff {
+			t.Errorf("%s: effective %q, want %q (stderr %q)", c.name, eff, c.wantEff, errb.String())
+		}
+		for _, w := range c.wantErr {
+			if !strings.Contains(errb.String(), w) {
+				t.Errorf("%s: stderr lacks %q: %q", c.name, w, errb.String())
+			}
+		}
+		if c.notErr != "" && strings.Contains(errb.String(), c.notErr) {
+			t.Errorf("%s: stderr has %q: %q", c.name, c.notErr, errb.String())
+		}
+	}
+}
+
+// dirname is dirname(1) on the edges the slash handling decides.
+func TestDirnameEdges(t *testing.T) {
+	for in, want := range map[string]string{"/": "/", "///": "/", "/a": "/", "a": ".", "a/b/": "a", "/a/b": "/a", "a//b": "a", "": "."} {
+		if got := dirname(in); got != want {
+			t.Errorf("dirname(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
