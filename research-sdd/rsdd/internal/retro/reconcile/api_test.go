@@ -130,4 +130,3 @@ func TestCacheBodiesAndFileAgree(t *testing.T) {
 		t.Errorf("file cache and in-memory cache differ:\n%+v\n%+v", fromFile, fromBodies)
 	}
 }
-
