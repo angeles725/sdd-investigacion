@@ -83,7 +83,7 @@ func (a *audit) run() {
 	} else {
 		var err error
 		if bodies, err = a.cache.read(); err != nil {
-			r.degrade("degraded: %s", err.Error())
+			r.degrade("degraded: --issues-cache file not readable: %s", a.cache.path)
 			return
 		}
 	}
@@ -262,7 +262,7 @@ func (a *audit) classify(issueIDs []string) bool {
 			case a.closed != nil:
 				text, err := a.closed.read() // RECONCILE_ISSUES_CLOSED_CACHE_READ
 				if err != nil {
-					r.degrade("degraded: %s", err.Error())
+					r.degrade("degraded: --closed-cache file not readable: %s", a.closed.path)
 					return false
 				}
 				closedBodies = text

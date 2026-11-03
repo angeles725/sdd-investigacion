@@ -1,61 +1,31 @@
 #!/usr/bin/env bash
-# reconcile-issues.test.sh — TDD harness for reconcile-issues.sh.
+# reconcile-issues.test.sh — wiring suite for the reconcile-issues.sh compatibility shim (kit issue #2563).
 #
-# Covers: absent-input (file not found); empty-input (no delta section);
-# no-match (applied retro, no orphaned issues); tracked (stub returns matching
-# issue); untracked (stub returns no issue); orphaned (stub returns signature
-# for a now-shipped row); degraded (gh absent from PATH); --all over >=2 targets;
-# json-flag (gh called with --json body, not --template); gh-fail-degraded (gh
-# query returns non-zero → non-zero exit + typed degraded, never false untracked).
+# The script is a rsdd_exec shim over `rsdd retro reconcile`; the audit itself (every classification, the delta
+# grammar, the closed-issue classes, --all, live gh, the usage and probe states) is tested in Go, in
+# research-sdd/rsdd/internal/retro/reconcile, against the frozen legacy script (testdata/legacy): see the case map
+# in odd/tasks/reconcile-issues-go.md (Log, L6). This suite proves only the wiring the Go tests cannot see:
+#   1 the shim reaches the Go command and its stdout, stderr and exit code come back unchanged
+#   2 the kit root is the shim's own directory (--toolbelt), also through a symlink to the shim
+#   3 arguments pass through in order, including flags after the retro and --all
+#   4 gh is looked up on the caller's PATH (the live path)
+#   5 a missing lib/rsdd-exec.sh is a typed degraded (exit 2), never a silent pass
 #
 # Usage: reconcile-issues.test.sh                (run the suite)
-#        reconcile-issues.test.sh --prove-teeth  (run suite + mutation teeth)
+#        reconcile-issues.test.sh --prove-teeth  (run suite + mutation teeth on the shim)
 # Exit: 0 = all pass · 1 = failure · 2 = harness error
 
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../reconcile-issues.sh"
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-RETRO_STATUS_LIB="$HERE/../lib/retro-status.sh"
-[ -f "$RETRO_STATUS_LIB" ] || { echo "FATAL: retro-status helper not found" >&2; exit 2; }
-RETRO_GRAMMAR_LIB="$HERE/../lib/retro-grammar.sh"
-[ -f "$RETRO_GRAMMAR_LIB" ] || { echo "FATAL: retro-grammar helper not found" >&2; exit 2; }
-TARGET_PATHS_LIB="$HERE/../lib/target-paths.sh"
-[ -f "$TARGET_PATHS_LIB" ] || { echo "FATAL: target-paths helper not found" >&2; exit 2; }
+EXEC_LIB="$HERE/../lib/rsdd-exec.sh"
+[ -f "$EXEC_LIB" ] || { echo "FATAL: rsdd-exec helper not found" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-command -v awk  >/dev/null 2>&1 || { echo "FATAL: awk not on PATH" >&2; exit 2; }
-command -v grep >/dev/null 2>&1 || { echo "FATAL: grep not on PATH" >&2; exit 2; }
-command -v sed  >/dev/null 2>&1 || { echo "FATAL: sed not on PATH" >&2; exit 2; }
-JQ_BIN="$(type -P jq)"; [ -n "$JQ_BIN" ] || { echo "FATAL: jq not on PATH (the closed-issue gh stub runs the SUT's --jq through it)" >&2; exit 2; }
-
-# Pre-resolve coreutil paths for hermetic PATH construction in degraded test
-_AWK_BIN="$(type -P awk)"; _GREP_BIN="$(type -P grep)"
-_SED_BIN="$(type -P sed)"; _TR_BIN="$(type -P tr)"
-_DIRNAME_BIN="$(type -P dirname)"; _BASENAME_BIN="$(type -P basename)"
-_HEAD_BIN="$(type -P head)"; _SORT_BIN="$(type -P sort)"
-_CUT_BIN="$(type -P cut)"; _FIND_BIN="$(type -P find)"
-
-# mk_hermetic_bin <box>: populate $box/bin with essential coreutils but NO gh.
-mk_hermetic_bin() {
-  local box="$1"
-  mkdir -p "$box/bin"
-  ln -sf "$BASH_BIN"       "$box/bin/bash"
-  ln -sf "$_AWK_BIN"       "$box/bin/awk"
-  ln -sf "$_GREP_BIN"      "$box/bin/grep"
-  ln -sf "$_SED_BIN"       "$box/bin/sed"
-  ln -sf "$_TR_BIN"        "$box/bin/tr"
-  ln -sf "$_DIRNAME_BIN"   "$box/bin/dirname"
-  ln -sf "$_BASENAME_BIN"  "$box/bin/basename"
-  ln -sf "$_HEAD_BIN"      "$box/bin/head"
-  ln -sf "$_SORT_BIN"      "$box/bin/sort"
-  ln -sf "$_CUT_BIN"       "$box/bin/cut"
-  ln -sf "$_FIND_BIN"      "$box/bin/find"
-  # No gh symlink — that is the point of this helper
-}
 
 ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
-# Case 47 runs the stager shim, which runs the Go command: the caller's RSDD_BIN, else one build into the temp dir
-# (degraded, never a pass, without go).
+# The shim runs the Go command: the caller's RSDD_BIN, else one build into the temp dir (degraded, never a pass,
+# without go).
 if [ -z "${RSDD_BIN:-}" ]; then
   command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
   ( cd "$HERE/../../rsdd" && go build -o "$ROOT/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
@@ -66,77 +36,129 @@ pass=0; fail=0
 ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
-# ---------------------------------------------------------------------------
-# mkbox <name> [target-name]
-#   Builds a single-target hermetic sandbox.
+# mkbox <name> [shim]: a kit-shaped sandbox (shim + lib/rsdd-exec.sh, TARGETS.md registering the directory target-foo as reg-name, one pending retro
+# with rows 1 and 2) and a cache that tracks row 1 only. Prints the box path.
 mkbox() {
-  local name="$1" tgt="${2:-target-foo}"
-  local box="$ROOT/$name"
-  mkdir -p "$box/research-sdd/toolbelt/lib" "$box/rh/$tgt/retros" "$box/bin"
-  cp "$SUT"               "$box/research-sdd/toolbelt/reconcile-issues.sh"
-  cp "$RETRO_STATUS_LIB"  "$box/research-sdd/toolbelt/lib/retro-status.sh"
-  cp "$RETRO_GRAMMAR_LIB" "$box/research-sdd/toolbelt/lib/retro-grammar.sh"
-  cp "$TARGET_PATHS_LIB"  "$box/research-sdd/toolbelt/lib/target-paths.sh"
-  # `sleep` stub (kit issue #1784): never really waits; logs its argument so a test can read the backoff.
-  printf '#!%s\nprintf "%%s\\n" "$1" >> "%s/bin/sleep.log"\n' "$BASH_BIN" "$box" > "$box/bin/sleep"; chmod +x "$box/bin/sleep"
-  {
-    printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n'
-    printf '| 1 | %s | `%s` |\n' "$tgt" "$box/rh/$tgt"
-  } > "$box/research-sdd/TARGETS.md"
+  local shim="${2:-$SUT}" box="$ROOT/$1"
+  mkdir -p "$box/research-sdd/toolbelt/lib" "$box/rh/target-foo/retros" "$box/bin"
+  cp "$shim" "$box/research-sdd/toolbelt/reconcile-issues.sh"
+  cp "$EXEC_LIB" "$box/research-sdd/toolbelt/lib/rsdd-exec.sh"
+  printf '# targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | reg-name | `%s` |\n' "$box/rh/target-foo" > "$box/research-sdd/TARGETS.md"
+  printf '<!-- review-status: pending -->\n# retro\n\n## Proposed kit deltas\n\n| # | Proposed change | Target (file) | Evidence | Type | Priority |\n|---|---|---|---|---|---|\n| 1 | first change | CLAUDE.md | B1 | fix | HIGH |\n| 2 | second change | CLAUDE.md | B1 | fix | HIGH |\n' > "$box/rh/target-foo/retros/r.md"
+  printf 'Source retro: reg-name/retros/r.md · 1\n' > "$box/cache.txt"
   printf '%s' "$box"
 }
 
-# mk_retro <box> <target> <filename> <marker> <table-content>
-#   marker="-" for no leading comment.
-#   table-content="-" to skip the delta section entirely.
-#   table-content="" for an empty table.
-mk_retro() {
-  local box="$1" tgt="$2" fname="$3" marker="$4" table_content="$5"
-  local f="$box/rh/$tgt/retros/$fname"
-  {
-    [ "$marker" = "-" ] || printf '%s\n' "$marker"
-    if [ "$table_content" = "-" ]; then
-      printf '# retro\n\nNo proposed deltas here.\n'
-    else
-      printf '# retro\n\n## Proposed kit deltas\n\n'
-      printf '| # | Proposed change | Target (file) | Evidence | Type | Priority |\n'
-      printf '|---|---|---|---|---|---|\n'
-      [ -z "$table_content" ] || printf '%s\n' "$table_content"
-    fi
-  } > "$f"
-  printf '%s' "$f"
+# mkgh <box>: a gh on PATH that logs its calls and answers the open listing with row 1 of r.md.
+mkgh() {
+  printf '#!%s\nprintf "%%s\\n" "gh $*" >> "%s/gh.log"\ncase "$1 $2" in "auth status") exit 0 ;; "issue list") printf "Source retro: reg-name/retros/r.md · 1\\n\\036\\n" ;; esac\n' "$BASH_BIN" "$1" > "$1/bin/gh"
+  chmod +x "$1/bin/gh"
 }
 
-# run <box> [args...]
-#   Invoke the sandbox SUT; capture stdout+stderr into OUT, exit code into RC.
+# run <shim-path> <args...>: sets OUT (stdout), ERR (stderr) and RC. PATH keeps the real tools; the box's bin comes first.
 run() {
-  local box="$1"; shift
-  OUT="$(PATH="$box/bin:$PATH" \
-    "$BASH_BIN" "$box/research-sdd/toolbelt/reconcile-issues.sh" \
-    "$@" 2>&1)"; RC=$?
+  local shim="$1" box; shift
+  box="$(dirname "$shim")/../.."
+  local errf="$ROOT/stderr.txt"
+  OUT="$(cd "$box" && PATH="$box/bin:$PATH" "$BASH_BIN" "$shim" "$@" 2>"$errf")"; RC=$?
+  ERR="$(cat "$errf")"
 }
 
 echo "== reconcile-issues.test.sh =="
 
-# ---------------------------------------------------------------------------
-# 1 — ABSENT-INPUT: retro file not found → absent-input message, exit 1
-box="$(mkbox case-absent)"
-run "$box" "$box/rh/target-foo/retros/does-not-exist.md"
-if [ "$RC" = 1 ] && grep -qi 'absent-input' <<<"$OUT"; then
-  ok "1 absent-input: missing retro → exit 1 + absent-input message" "(exit $RC)"
+# 1 — the shim reaches the Go command; findings on stdout, exit 0.
+box="$(mkbox case-wiring)"
+run "$box/research-sdd/toolbelt/reconcile-issues.sh" --issues-cache "$box/cache.txt" "$box/rh/target-foo/retros/r.md"
+if [ "$RC" = 0 ] && [ "$OUT" = $'tracked: row 1 — open issue found in r.md\nuntracked: row 2 — no open issue found for this delta in r.md' ] \
+   && grep -q '^closed-lookup: skipped for r.md' <<<"$ERR"; then
+  ok "1 wiring: shim → rsdd retro reconcile; stdout, stderr and exit 0 come back" "(exit $RC)"
 else
-  no "1 absent-input: missing retro → exit 1 + absent-input message" "exit=$RC out=[$OUT]"
+  no "1 wiring: shim → rsdd retro reconcile" "rc=$RC out=[$OUT] err=[$ERR]"
+fi
+
+# 1b — the exit code of a typed failure comes back unchanged (absent-input = 1), stderr carries the typed state.
+run "$box/research-sdd/toolbelt/reconcile-issues.sh" --issues-cache "$box/cache.txt" "$box/rh/target-foo/retros/none.md"
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && grep -q '^absent-input: retro not found: ' <<<"$ERR"; then
+  ok "1b wiring: absent-input → exit 1 + typed stderr line" "(exit $RC)"
+else
+  no "1b wiring: absent-input → exit 1" "rc=$RC out=[$OUT] err=[$ERR]"
+fi
+
+# 2 — the kit root is the shim's own directory: TARGETS.md of the box names target-foo, so the signature matches;
+#     through a symlink to the shim the same box answers (the physical directory of the SHIM, not the link's).
+mkdir -p "$ROOT/elsewhere"
+ln -s "$box/research-sdd/toolbelt/reconcile-issues.sh" "$ROOT/elsewhere/reconcile-issues.sh"
+OUT="$(cd "$ROOT/elsewhere" && "$BASH_BIN" ./reconcile-issues.sh --issues-cache "$box/cache.txt" "$box/rh/target-foo/retros/r.md" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT"; then
+  ok "2 wiring: kit root = the shim's physical directory (also through a symlink)" "(exit $RC)"
+else
+  no "2 wiring: kit root through a symlink" "rc=$RC out=[$OUT]"
+fi
+
+# 3 — arguments pass through in order: flags after the retro, and --all with the fleet summary.
+run "$box/research-sdd/toolbelt/reconcile-issues.sh" "$box/rh/target-foo/retros/r.md" --issues-cache "$box/cache.txt"
+r3a="$RC|$OUT"
+run "$box/research-sdd/toolbelt/reconcile-issues.sh" --all --issues-cache "$box/cache.txt"
+if [ "${r3a%%|*}" = 0 ] && grep -q '^tracked: row 1' <<<"${r3a#*|}" && [ "$RC" = 0 ] \
+   && grep -q '^fleet-summary: tracked=1 untracked=1 shipped=0 borderline=0 regressed=0 orphaned=0 degraded=0 out-of-scope=0 retros=1$' <<<"$OUT"; then
+  ok "3 wiring: arguments pass through (flag after the retro; --all + fleet-summary)" "(exit $RC)"
+else
+  no "3 wiring: argument passthrough" "a=[$r3a] rc=$RC out=[$OUT]"
+fi
+run "$box/research-sdd/toolbelt/reconcile-issues.sh"
+if [ "$RC" = 1 ] && grep -q '^usage: reconcile-issues.sh <retro.md> | --all$' <<<"$ERR"; then
+  ok "3b wiring: no arguments → usage + exit 1" "(exit $RC)"
+else
+  no "3b wiring: no arguments → usage" "rc=$RC err=[$ERR]"
+fi
+
+# 4 — the live path finds gh on the caller's PATH (and nothing is asked of it with a cache).
+box4="$(mkbox case-live)"; mkgh "$box4"
+run "$box4/research-sdd/toolbelt/reconcile-issues.sh" "$box4/rh/target-foo/retros/r.md"
+if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT" && grep -q '^gh issue list --repo angeles725/sdd-investigacion --state open ' "$box4/gh.log"; then
+  ok "4 wiring: gh is looked up on PATH (live open listing)" "(exit $RC)"
+else
+  no "4 wiring: gh on PATH" "rc=$RC out=[$OUT] err=[$ERR] log=[$(cat "$box4/gh.log" 2>/dev/null)]"
+fi
+
+# 5 — a missing lib/rsdd-exec.sh is typed degraded + exit 2.
+box5="$(mkbox case-nolib)"; rm -f "$box5/research-sdd/toolbelt/lib/rsdd-exec.sh"
+run "$box5/research-sdd/toolbelt/reconcile-issues.sh" --issues-cache "$box5/cache.txt" "$box5/rh/target-foo/retros/r.md"
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — rsdd-exec.sh missing beside ' <<<"$ERR"; then
+  ok "5 wiring: missing rsdd-exec.sh → degraded rsdd-unavailable + exit 2" "(exit $RC)"
+else
+  no "5 wiring: missing rsdd-exec.sh" "rc=$RC out=[$OUT] err=[$ERR]"
+fi
+
+# 6 — the shim carries no audit logic of its own and only the one dispatch line.
+if [ "$(grep -c 'rsdd_exec ' "$SUT")" = 1 ] && grep -q '^rsdd_exec retro reconcile --toolbelt "\$_RSDD_SELF" "\$@"$' "$SUT" && [ "$(wc -l < "$SUT")" -le 12 ]; then
+  ok "6 wiring: the script is the rsdd_exec shim (one dispatch line, no audit logic)" "()"
+else
+  no "6 wiring: the script is the rsdd_exec shim" "lines=$(wc -l < "$SUT")"
 fi
 
 # ---------------------------------------------------------------------------
-# 2 — EMPTY-INPUT: no delta section → empty-input message, exit 0
-box="$(mkbox case-empty)"
-retro="$(mk_retro "$box" target-foo r-empty.md "<!-- review-status: pending -->" "-")"
-run "$box" "$retro"
-if [ "$RC" = 0 ] && grep -qi 'empty-input' <<<"$OUT"; then
-  ok "2 empty-input: no delta section → exit 0 + empty-input message" "(exit $RC)"
-else
-  no "2 empty-input: no delta section → exit 0 + empty-input message" "exit=$RC out=[$OUT]"
+# TEETH (negative controls for --prove-teeth): a broken shim must turn a wiring case red.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  echo "-- teeth: mutation controls on the shim --"
+  # tooth <label> <sed-expr> <case-pattern>: mutate a copy of the shim, run it in a fresh box, and require that the
+  # wiring case (cache + retro, tracked row 1) no longer holds.
+  tooth() {
+    local label="$1" expr="$2" mut="$ROOT/mutant-$1.sh" mb
+    sed "$expr" "$SUT" > "$mut"
+    if cmp -s "$mut" "$SUT"; then no "$label teeth" "the mutation changed nothing (anchor drifted)"; return; fi
+    mb="$(mkbox "teeth-$label" "$mut")"
+    run "$mb/research-sdd/toolbelt/reconcile-issues.sh" --issues-cache "$mb/cache.txt" "$mb/rh/target-foo/retros/r.md"
+    if [ "$RC" = 0 ] && grep -q '^tracked: row 1' <<<"$OUT"; then
+      no "$label teeth" "the mutant still passes the wiring case: THEATER (rc=$RC out=[$OUT])"
+    else
+      ok "$label teeth: mutant turns the wiring case red" "(exit $RC)"
+    fi
+  }
+  tooth T1-command 's/^rsdd_exec retro reconcile /rsdd_exec retro stage-issues /'
+  tooth T2-passthrough 's/ "\$@"$//'
+  tooth T3-toolbelt 's/ --toolbelt "\$_RSDD_SELF"//'
+  tooth T4-self-dir 's/_RSDD_SELF="\$(CDPATH='"''"' cd -- "\$(dirname -- "\$_rsdd_s")" \&\& pwd -P)"/_RSDD_SELF="\/nonexistent"/'
 fi
 
 echo "== $pass passed · $fail failed =="

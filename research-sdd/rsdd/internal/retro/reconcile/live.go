@@ -402,6 +402,12 @@ func (g *ghClient) retryPause(r *Report, stderr []byte) {
 	g.sleep(g.ctx, time.Duration(w)*time.Second)
 }
 
+// toolName and ghLogin are the fixed words of the two ProbeGH messages (the legacy script's text, byte for byte).
+const (
+	toolName = "reconcile-issues"
+	ghLogin  = "gh auth login"
+)
+
 // ProbeGH is the §7 degraded probe of a run without an --issues-cache: gh missing or not authenticated is a typed
 // degraded line (the caller exits 1), never a silent pass. "" = gh is usable. The error is operational only.
 func ProbeGH(o gh.Options) (string, error) {
@@ -410,9 +416,9 @@ func ProbeGH(o gh.Options) (string, error) {
 	case err != nil:
 		return "", fmt.Errorf("reconcile: %w", err)
 	case res.State == gh.StateMissing:
-		return "degraded: gh not found on PATH — install gh CLI to use reconcile-issues", nil
+		return fmt.Sprintf("degraded: gh not found on PATH — install gh CLI to use %s", toolName), nil
 	case res.State != gh.StateOK:
-		return "degraded: gh is not authenticated — run 'gh auth login'", nil
+		return fmt.Sprintf("degraded: gh is not authenticated — run '%s'", ghLogin), nil
 	}
 	return "", nil
 }

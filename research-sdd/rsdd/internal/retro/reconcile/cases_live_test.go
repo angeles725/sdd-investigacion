@@ -198,6 +198,15 @@ func liveCases() []dcase {
 		c("oldgh-date-followed-by-a-digit-is-undated", map[string]string{"closed.json": "[]", "api.json": "[]"}, both(oldGH, func(d *dcase) { d.retroFile = "2026-03-011-r.md" })),
 		c("oldgh-month-13-is-undated", map[string]string{"closed.json": "[]", "api.json": "[]"}, both(oldGH, func(d *dcase) { d.retroFile = "2026-13-01-r.md" })),
 		c("oldgh-listing-shared-by-both-signature-prefixes", map[string]string{"closed.json": "[]", "api.json": "[]"}, both(oldGH, legacy, func(d *dcase) { d.retroFile = "2026-03-01-r.md" })),
+		// The issue number of the old-gh fallback reaches the regressed line (bash case 46r).
+		{name: "live/oldgh-regressed-names-the-issue-number", live: true, repo: "fix", retroFile: curRetro,
+			retro: pending + tableHead + titledRows("1", title1),
+			files: map[string]string{"rh/target-foo/retros/" + laterRetro: pending + tableHead + titledRows("4", title1)},
+			env:   map[string]string{"GH_STUB_OLD_GH": "1"},
+			gh: map[string]string{
+				"closed.json": closedJSON(closedIssue(7, "", curSig("1")+"Commit: "+fixMain+"\n"+evTest)),
+				"api.json":    apiJSON([2]string{"7", "completed"}),
+			}},
 		c("oldgh-run-level-reload-uses-the-older-bound", map[string]string{
 			"closed.1.json": closedJSON(closedIssue(7, "", "Source retro: legacy-dir/retros/2026-03-01-r.md · 1\nCommit: "+fixMain+"\n"+evTest)),
 			"closed.2.json": closedJSON(closedIssue(8, "", "Source retro: reg-name/retros/2026-03-01-r.md · 2\nCommit: "+fixMain+"\n"+evTest)),

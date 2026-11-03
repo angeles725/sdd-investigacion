@@ -68,6 +68,10 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh)
+# GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
+# (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
+# still in the package's non-test sources, so a removed emission turns it stale again.
+GO_SHARED=("degraded: missing runtime dependency:|core/probe|../rsdd/internal/core/probe|missing runtime dependency: ")
 # The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
 GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
@@ -262,6 +266,21 @@ rc_check() {
   while IFS= read -r e; do   # an rsdd_exec shim the map does not know cannot be verified: never a silent skip (#2583)
     [ -n "$e" ] && finding "rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: $e"   # TOOTH-GOUNMAPPED-FINDING
   done < <(go_unmapped "$dir")
+  local sh scode slabel sdir slit grc
+  for sh in "${GO_SHARED[@]}"; do
+    IFS='|' read -r scode slabel sdir slit <<<"$sh"
+    idx=-1
+    for ((i = 0; i < n; i++)); do
+      if [ "${codes[$i]}" = "$scode" ]; then idx=$i; fi
+    done
+    [ "$idx" -ge 0 ] || continue
+    grc=0; grep -rqF --include='*.go' --exclude='*_test.go' -- "$slit" "$dir/$sdir" 2>/dev/null || grc=$?
+    if [ "$grc" -eq 0 ]; then
+      used[idx]=1; pairs="$pairs$idx:$slabel;"   # TOOTH-GOSHARED
+    elif [ "$grc" -ne 1 ] || [ ! -d "$dir/$sdir" ]; then
+      printf 'DEGRADED: absent-input: shared Go emitter %s for %s is not readable (%s)\n' "$slabel" "$scode" "$dir/$sdir"; return 2
+    fi
+  done
 
   for ((i = 0; i < n; i++)); do
     if [ "${classes[$i]}" = "degraded" ] && [ -z "${used[$i]:-}" ]; then
@@ -971,6 +990,15 @@ mkgofix() {
 }
 mkgofix go_good
 expect "Go emitter: the code emitted from the Go source is verified against the row" 0 "$tmp/go_good/reg.md" "$tmp/go_good/scripts"
+mkgofix go_shared; mkdir -p "$tmp/go_shared/rsdd/internal/core/probe"
+printf '%s\n' 'package probe' 'func (d *D) msg() string { return "missing runtime dependency: " + d.Tool }' > "$tmp/go_shared/rsdd/internal/core/probe/probe.go"
+edit "$tmp/go_shared/reg.md" '/^| `degraded: rsdd-unavailable`/a | `degraded: missing runtime dependency:` | degraded | core/probe | a required tool is absent | install the named dependency, then re-run the tool |'
+expect "Go shared emitter: a row emitted only by core/probe is verified against its source" 0 "$tmp/go_shared/reg.md" "$tmp/go_shared/scripts"
+mkgofix go_shared_gone; mkdir -p "$tmp/go_shared_gone/rsdd/internal/core/probe"; cp "$tmp/go_shared/reg.md" "$tmp/go_shared_gone/reg.md"
+printf '%s\n' 'package probe' 'func f() {}' > "$tmp/go_shared_gone/rsdd/internal/core/probe/probe.go"
+expect "Go shared emitter: the literal gone from core/probe makes the row stale" 1 "$tmp/go_shared_gone/reg.md" "$tmp/go_shared_gone/scripts" "stale row: degraded code never emitted by a scanned script: degraded: missing runtime dependency:"
+mkgofix go_shared_absent; cp "$tmp/go_shared/reg.md" "$tmp/go_shared_absent/reg.md"
+expect "Go shared emitter: an absent core/probe is a typed degraded, never a silent stale" 2 "$tmp/go_shared_absent/reg.md" "$tmp/go_shared_absent/scripts" "DEGRADED: absent-input: shared Go emitter core/probe"
 mkgofix go_drop
 printf '%s\n' 'package stageissues' 'func f(a *app) { a.errf("degraded: jq failed on %s — refusing\n", f) }' > "$tmp/go_drop/rsdd/internal/retro/stageissues/run.go"
 expect "Go emitter: a code dropped from the Go source fails (stale emitter)" 1 "$tmp/go_drop/reg.md" "$tmp/go_drop/scripts" "stale emitter: row lists stage-retro-issues.sh but stage-retro-issues.sh never emits 'degraded: gh not found on PATH'"
@@ -1103,6 +1131,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth mb-emitter    mb_emitter 1 0 '/# TOOTH-EMITTER/s/finding /: /'
   # Go emitters: dropping one code from the Go source must fail, and each guard of the Go scan has teeth
   tooth go-staleemit go_drop    1 0 '/# TOOTH-STALEEMIT/s/finding /: /'
+  tooth go-shared    go_shared  0 1 '/# TOOTH-GOSHARED/s/^.*$/      :/'
   tooth go-unlisted  go_unlisted 1 0 '/# TOOTH-UNLISTED/s/finding /: /'
   tooth go-stray     go_stray   1 0 '/# TOOTH-GOSTRAY/s/finding /: /'
   tooth go-absent    go_absent  2 0 '/# TOOTH-GOABSENT/s/return 2/return 0/'
