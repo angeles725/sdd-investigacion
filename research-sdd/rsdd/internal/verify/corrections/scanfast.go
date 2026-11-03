@@ -18,11 +18,12 @@ func skipBlanks(s string) int {
 	return i
 }
 
-// quoteStripEnd is reQuoteStrip's match end (`^[ \t]*(>[ \t]*)+`), or -1 when it does not match.
+// quoteStripEnd is the length of reQuoteStrip's match (`^[ \t]*(>[ \t]*)+`), 0 when it does not match: stripping
+// nothing and not matching are the same edit.
 func quoteStripEnd(s string) int {
 	i := skipBlanks(s)
 	if i >= len(s) || s[i] != '>' {
-		return -1
+		return 0
 	}
 	for i < len(s) && s[i] == '>' {
 		i++

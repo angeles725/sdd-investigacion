@@ -37,7 +37,7 @@ func TestScanFastEquivalentToRegexps(t *testing.T) {
 	r := rand.New(rand.NewSource(2635))
 	for i := 0; i < 200000; i++ {
 		s := gen(r)
-		wantQ := -1
+		wantQ := 0
 		if loc := refQuoteStrip.FindStringIndex(s); loc != nil {
 			wantQ = loc[1]
 		}
@@ -60,6 +60,30 @@ func TestScanFastEquivalentToRegexps(t *testing.T) {
 		}
 		if got, want := endsWord(s, "no", "nunca", "never", "tampoco"), refNegPre.MatchString(s); got != want {
 			t.Fatalf("endsWord(%q, neg) = %v, regexp %v", s, got, want)
+		}
+	}
+}
+
+// The generated inputs above never place a class-boundary byte where it decides the result, so the boundaries
+// are pinned here against the same reference regexps: every byte for the non-word class, and the digit, list
+// and verb-letter edges of startsBlock and matchVerb.
+func TestScanFastBoundaries(t *testing.T) {
+	nw := posix(`^` + nonWord + `$`)
+	for b := 0; b < 256; b++ {
+		if got, want := isNonWordByte(byte(b)), nw.MatchString(string([]byte{byte(b)})); got != want {
+			t.Errorf("isNonWordByte(%#x) = %v, nonWord %v", b, got, want)
+		}
+	}
+	for _, s := range []string{"0. a", "9. a", "10. a", "90) a", "09) a", "0/ a", "9: a", "1.", "1. ", "a. b", "/. a", ":. a"} {
+		want := refListHead.MatchString(s) || refHeading.MatchString(s) || refTableRow.MatchString(s)
+		if got := startsBlock(s); got != want {
+			t.Errorf("startsBlock(%q) = %v, regexps %v", s, got, want)
+		}
+	}
+	for _, s := range []string{"corrigz", "corriga", "corrig{", "corrig`", " corrigez x", "corrects"} {
+		ws, wl := match(refVerb, s)
+		if gs, gl := matchVerb(s); gs != ws || gl != wl {
+			t.Errorf("matchVerb(%q) = (%d,%d), regexp (%d,%d)", s, gs, gl, ws, wl)
 		}
 	}
 }

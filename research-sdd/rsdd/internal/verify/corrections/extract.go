@@ -91,9 +91,7 @@ type extractor struct {
 func extract(text string) []record {
 	x := &extractor{seen: map[string]bool{}}
 	for _, line := range splitRecords(text) {
-		if e := quoteStripEnd(line); e >= 0 {
-			line = line[e:]
-		}
+		line = line[quoteStripEnd(line):]
 		if isBlankLine(line) {
 			x.flush()
 			continue
