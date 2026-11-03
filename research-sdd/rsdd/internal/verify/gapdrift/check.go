@@ -143,7 +143,15 @@ func OpenCorpus(cwd, target string) (*Corpus, error) {
 	if !ok {
 		return nil, &Error{Kind: ErrListBlocks, Msg: "check-gap-drift: cannot list block files under " + target}
 	}
-	if blocks, err := kit.FilterBlockFiles(cand, false, ""); err == nil {
+	// A canonical block file name contains "-block" or "-bloque": a literal test is a cheap necessary condition, so the
+	// POSIX regexp of the discriminator runs only on the plausible candidates (kit issue #2645).
+	plausible := cand[:0:0]
+	for _, p := range cand {
+		if strings.Contains(p, "-block") || strings.Contains(p, "-bloque") {
+			plausible = append(plausible, p)
+		}
+	}
+	if blocks, err := kit.FilterBlockFiles(plausible, false, ""); err == nil {
 		c.blocks = blocks
 		sort.Strings(c.blocks)
 	} // ErrNoMatch / ErrEmptyInput: no block file at all, a legitimate state
