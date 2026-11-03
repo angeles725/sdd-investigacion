@@ -1,0 +1,9618 @@
+=== bl-basic4
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	m gap	pending** (note)
+low	done gap	✅ covered
+low	struck	~~dropped~~
+low	~~G9~~	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	m gap	pending** (note)
+low	done gap	✅ covered
+low	struck	~~dropped~~
+low	~~G9~~	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	m gap	pending** (note)
+low	done gap	✅ covered
+low	struck	~~dropped~~
+low	~~G9~~	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-basic5
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G1	pending
+medium	B1-G2	requires-execution
+low	B1-G3	blocked (requires-hw)
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G1	pending
+medium	B1-G2	requires-execution
+low	B1-G3	blocked (requires-hw)
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G1	pending
+medium	B1-G2	requires-execution
+low	B1-G3	blocked (requires-hw)
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bl-blocked-section
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+high	gap-b	pending
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+high	gap-b	pending
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+high	gap-b	pending
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bl-closed-class
+op 'backlog_rows'
+rc: 0
+--- stdout
+INVALID_PRIORITY	~~x
+INVALID_PRIORITY	~~~
+high	live gap	pending
+--- stderr
+backlog: unknown priority [~~x] in row: | ~~x | G4 | x | closed |
+backlog: unknown priority [~~~] in row: | ~~~ | G5 | x | closed |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+INVALID_PRIORITY	~~x
+INVALID_PRIORITY	~~~
+high	live gap	pending
+--- stderr
+backlog: unknown priority [~~x] in row: | ~~x | G4 | x | closed |
+backlog: unknown priority [~~~] in row: | ~~~ | G5 | x | closed |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	G1	✅ done
+~~	G3	closed
+INVALID_PRIORITY	~~x
+INVALID_PRIORITY	~~~
+—	G6	closed
+—	G7: note	covered
+—	G8 (later)	closed
+—	`**[G11]**`	closed
+—	G12·b	closed
+—	G13—b	closed
+high	live gap	pending
+--- stderr
+backlog: unknown priority [~~x] in row: | ~~x | G4 | x | closed |
+backlog: unknown priority [~~~] in row: | ~~~ | G5 | x | closed |
+WARN: em-dash priority on an OPEN row [pending] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G9 | x | pending |
+WARN: em-dash priority on an OPEN row [open**] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G10 | x | **Open** (n) |
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | a note | x | closed |
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | Gx | x | closed |
+WARN: em-dash priority on an OPEN row [queued] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G14 | x | queued |
+WARN: em-dash priority on an OPEN row [blocked] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G15 | x | blocked on hw |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G2	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+9
+--- stderr
+WARN: em-dash priority on an OPEN row [pending] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G9 | x | pending |
+WARN: em-dash priority on an OPEN row [open**] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G10 | x | **Open** (n) |
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | a note | x | closed |
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | Gx | x | closed |
+WARN: em-dash priority on an OPEN row [queued] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G14 | x | queued |
+WARN: em-dash priority on an OPEN row [blocked] — METHODOLOGY §8b: em-dash means closed only; row NOT counted (give it a real tier): | — | G15 | x | blocked on hw |
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-class-5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	~~B1-G1~~	parked
+deferred	B1-G2	parked
+deferred	B1-G3	✅
+~~	B1-G5	closed
+—	B1-G6	closed
+UNCOUNTED	—
+--- stderr
+WARN: malformed closed-class backlog row (6 cells, expected 5): | — | B1-G7 | f | x | closed | extra |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G4	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+WARN: malformed closed-class backlog row (6 cells, expected 5): | — | B1-G7 | f | x | closed | extra |
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-class-bad-width
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | ✅ |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | ✅ |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | ✅ |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-class-malformed
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	deferred
+UNCOUNTED	—
+UNCOUNTED	~~high~~
+high	live gap	pending
+--- stderr
+WARN: malformed closed-class backlog row (3 cells, expected 4): | deferred | G1 | x |
+WARN: malformed closed-class backlog row (5 cells, expected 4): | — | G2 | x | closed | y |
+WARN: malformed closed-class backlog row (3 cells, expected 4): | ~~high~~ | G3 | x |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | G1 | x |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | G1 | x |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | G1 | x |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: malformed closed-class backlog row (3 cells, expected 4): | deferred | G1 | x |
+WARN: malformed closed-class backlog row (5 cells, expected 4): | — | G2 | x | closed | y |
+WARN: malformed closed-class backlog row (3 cells, expected 4): | ~~high~~ | G3 | x |
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-class-outside
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog notes] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog notes] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	G1	✅
+—	G2	closed
+deferred	G3	✅
+—	G4	closed
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: near-miss gap-backlog heading [## Backlog notes] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-class-outside-header
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	G1	✅
+—	G2	closed
+~~	G3	closed
+--- stderr
+WARN: 3 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-closed-no-separator
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g5	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g5	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	G1	✅
+~~	G2	closed
+~~	G3	closed
+—	G4	closed
+high	g5	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-crlf
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	
+low	g2	
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	
+low	g2	
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	
+low	g2	
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	g3	
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: unrecognised Status token [] in gap: g1
+WARN: unrecognised Status token [] in gap: g2
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-crlf-heading
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-empty
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-empty-cells
+op 'backlog_rows'
+rc: 0
+--- stdout
+high		pending
+high	g2	
+high	g4	pending
+high		
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high		pending
+high	g2	
+high	g4	pending
+high		
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high		pending
+high	g2	
+high	g4	pending
+high		
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open		
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [] in gap: pending
+WARN: unrecognised Status token [] in gap: g2
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-escaped-pipe
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a|b	pending|more
+low	c\| d	pending
+low	e	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a|b	pending|more
+low	c\| d	pending
+low	e	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a|b	pending|more
+low	c\| d	pending
+low	e	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	f|g	parked|h
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+WARN: unrecognised Status token [pending|more] in gap: a|b
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-header-row-repeated-in-data
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-heading-qualifiers
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+high	e	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog ()] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (a))] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (x) y] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog(z)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+high	e	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog ()] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (a))] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (x) y] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog(z)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+high	e	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog ()] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (a))] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog (x) y] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Gap-backlog(z)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-indented-rows
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	pending
+INVALID_PRIORITY	see a
+INVALID_PRIORITY	prose
+--- stderr
+backlog: unknown priority [see a] in row: see a | b
+backlog: unknown priority [prose] in row:   prose | text | here | now
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	pending
+INVALID_PRIORITY	see a
+INVALID_PRIORITY	prose
+--- stderr
+backlog: unknown priority [see a] in row: see a | b
+backlog: unknown priority [prose] in row:   prose | text | here | now
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+low	g2	pending
+INVALID_PRIORITY	see a
+INVALID_PRIORITY	prose
+--- stderr
+backlog: unknown priority [see a] in row: see a | b
+backlog: unknown priority [prose] in row:   prose | text | here | now
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+WARN: unrecognised Status token [] in gap: see a
+WARN: unrecognised Status token [] in gap: prose
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-inplace-dual-id
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+low	AB. Builders de config del equipo (TBL_X/Y) — offsets de campo	blocked-on-tool: necesita decompilar x.exe · tried: y
+low	Builders de config — x	blocked (requires-tool)
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+low	AB. Builders de config del equipo (TBL_X/Y) — offsets de campo	blocked-on-tool: necesita decompilar x.exe · tried: y
+low	Builders de config — x	blocked (requires-tool)
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+low	AB. Builders de config del equipo (TBL_X/Y) — offsets de campo	blocked-on-tool: necesita decompilar x.exe · tried: y
+low	Builders de config — x	blocked (requires-tool)
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+2
+--- stderr
+=== bl-inplace-id-case
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	ab: Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	ab: Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	ab: Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-inplace-no-needs
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	AB. Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	AB. Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	AB. Builders — x	blocked-on-tool: y
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+1
+--- stderr
+=== bl-inplace-suite
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+low	blk-last	blocked
+low	~~blk-struck~~	blocked (requires-x)
+low	blk-closed	blocked ✅ closed
+low	colon	blocked: needs tool
+low	comma	blocked, see below
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+low	blk-last	blocked
+low	~~blk-struck~~	blocked (requires-x)
+low	blk-closed	blocked ✅ closed
+low	colon	blocked: needs tool
+low	comma	blocked, see below
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+medium	blk-first	blocked (requires-hardware)
+low	blk-mid	blocked-on-tool: needs a decompiler
+low	blk-last	blocked
+low	~~blk-struck~~	blocked (requires-x)
+low	blk-closed	blocked ✅ closed
+low	colon	blocked: needs tool
+low	comma	blocked, see below
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+9
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+5
+--- stderr
+=== bl-invalid-priority-counts
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	med
+--- stderr
+backlog: unknown priority [med] in row: | med | a | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	med
+--- stderr
+backlog: unknown priority [med] in row: | med | a | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	med
+~~	b	closed
+--- stderr
+backlog: unknown priority [med] in row: | med | a | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [] in gap: med
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-known-gaps-uncounted
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+--- stderr
+WARN: malformed backlog row (6 cells, expected 4 — a cell may contain a pipe): | high | a | b | c | d | e |
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | x | y | z |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+--- stderr
+WARN: malformed backlog row (6 cells, expected 4 — a cell may contain a pipe): | high | a | b | c | d | e |
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | x | y | z |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	done gap	✅ covered
+UNCOUNTED	high
+UNCOUNTED	1
+deferred	d	✅
+--- stderr
+WARN: malformed backlog row (6 cells, expected 4 — a cell may contain a pipe): | high | a | b | c | d | e |
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | x | y | z |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-list-item-guard
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-malformed-row
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+WARN: malformed backlog row (3 cells, expected 4 — a cell may contain a pipe): | high | g1 | x |
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): | high | g2 | x | pending | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g3 | x | covered | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g4 | x | Covered (a|b) |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+WARN: malformed backlog row (3 cells, expected 4 — a cell may contain a pipe): | high | g1 | x |
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): | high | g2 | x | pending | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g3 | x | covered | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g4 | x | Covered (a|b) |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	high
+UNCOUNTED	high
+high	live gap	pending
+--- stderr
+WARN: malformed backlog row (3 cells, expected 4 — a cell may contain a pipe): | high | g1 | x |
+WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): | high | g2 | x | pending | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g3 | x | covered | extra |
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g4 | x | Covered (a|b) |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-malformed-row-5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: malformed backlog row (4 cells, expected 5 — a cell may contain a pipe): | high | B1 | g1 | x |
+WARN: COVERED row has 6 cells in 5-col table (pipe in status cell) — review: | high | B2 | g2 | x | covered | y |
+WARN: malformed backlog row (6 cells, expected 5 — a cell may contain a pipe): | high | B3 | g3 | x | pending | y |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: malformed backlog row (4 cells, expected 5 — a cell may contain a pipe): | high | B1 | g1 | x |
+WARN: COVERED row has 6 cells in 5-col table (pipe in status cell) — review: | high | B2 | g2 | x | covered | y |
+WARN: malformed backlog row (6 cells, expected 5 — a cell may contain a pipe): | high | B3 | g3 | x | pending | y |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	high
+UNCOUNTED	high
+--- stderr
+WARN: malformed backlog row (4 cells, expected 5 — a cell may contain a pipe): | high | B1 | g1 | x |
+WARN: COVERED row has 6 cells in 5-col table (pipe in status cell) — review: | high | B2 | g2 | x | covered | y |
+WARN: malformed backlog row (6 cells, expected 5 — a cell may contain a pipe): | high | B3 | g3 | x | pending | y |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [bogus] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bogus | g2 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [bogus] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bogus | g2 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+UNCOUNTED	bogus
+deferred	g3	✅
+~~	g4	closed
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [bogus] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bogus | g2 | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-bogus-first
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	bogus
+UNCOUNTED	bogus
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-closed-first
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	deferred
+UNCOUNTED	~~high~~
+UNCOUNTED	high
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+WARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-no-header
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	high
+UNCOUNTED	bogus
+UNCOUNTED	bogus
+UNCOUNTED	deferred
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-no-separator
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-numeric
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog heading] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | g1 | x | pending |
+WARN: unknown priority [2] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 2 | g2 | x | pending |
+WARN: unknown priority [bold] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bold | g3 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog heading] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | g1 | x | pending |
+WARN: unknown priority [2] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 2 | g2 | x | pending |
+WARN: unknown priority [bold] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bold | g3 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	1
+UNCOUNTED	2
+UNCOUNTED	bold
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog heading] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: unknown priority [1] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 1 | g1 | x | pending |
+WARN: unknown priority [2] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | 2 | g2 | x | pending |
+WARN: unknown priority [bold] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | bold | g3 | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-oob-flush
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	n1	pending
+high	n2	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: near-miss gap-backlog heading [## Gap backlog (x)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	n1	pending
+high	n2	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: near-miss gap-backlog heading [## Gap backlog (x)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	n1	pending
+high	n2	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: near-miss gap-backlog heading [## Gap backlog (x)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-nearmiss-then-heading
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog one] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Backlog two] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog one] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Backlog two] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+high	d	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Backlog one] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: near-miss gap-backlog heading [## Backlog two] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-no-backlog
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-no-separator
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+low	g3	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+low	g3	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+low	g3	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-no-separator-unknown
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g5 | x | covered | y |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g5 | x | covered | y |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | low | g5 | x | covered | y |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | g6 | x |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | g6 | x |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | g6 | x |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-no-trailing-newline
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-non-ascii
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	Ñandú	pendiente
+INVALID_PRIORITY	ÉlevÉ
+high	g3 — x	pending ✅
+--- stderr
+backlog: unknown priority [ÉlevÉ] in row: | ÉLEVÉ | g2 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	Ñandú	pendiente
+INVALID_PRIORITY	ÉlevÉ
+high	g3 — x	pending ✅
+--- stderr
+backlog: unknown priority [ÉlevÉ] in row: | ÉLEVÉ | g2 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	Ñandú	pendiente
+INVALID_PRIORITY	ÉlevÉ
+high	g3 — x	pending ✅
+—	G1·	closed
+--- stderr
+backlog: unknown priority [ÉlevÉ] in row: | ÉLEVÉ | g2 | x | pending |
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | Ø1 | x | closed |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [pendiente] in gap: Ñandú
+WARN: unrecognised Status token [] in gap: ÉlevÉ
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+WARN: em-dash row whose Gap cell is not a gap id — treated as a note, NOT counted: | — | Ø1 | x | closed |
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-non-utf8
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g�1	pending
+INVALID_PRIORITY	�
+--- stderr
+backlog: unknown priority [�] in row: | � | g2 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g�1	pending
+INVALID_PRIORITY	�
+--- stderr
+backlog: unknown priority [�] in row: | � | g2 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g�1	pending
+INVALID_PRIORITY	�
+—	G1�x	closed
+--- stderr
+backlog: unknown priority [�] in row: | � | g2 | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [] in gap: �
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-5col
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	O1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	O1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	O1	pending
+deferred	O2	✅
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-bad-width
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	n2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	n2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	n2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-eof
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-header
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+low	oob2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+low	oob2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+high	oob1	pending
+low	oob2	pending
+--- stderr
+WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-next-heading-resets
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+low	o1	pending
+low	in	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+low	o1	pending
+low	in	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+low	o1	pending
+low	in	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-no-header
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-oob-no-separator
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-p-header-in-backlog
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	pr.
+low	g2	pending
+--- stderr
+backlog: unknown priority [pr.] in row: | Pr. | Gap | Type | Status |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	pr.
+low	g2	pending
+--- stderr
+backlog: unknown priority [pr.] in row: | Pr. | Gap | Type | Status |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+INVALID_PRIORITY	pr.
+low	g2	pending
+--- stderr
+backlog: unknown priority [pr.] in row: | Pr. | Gap | Type | Status |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+WARN: unrecognised Status token [] in gap: pr.
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-priority-header-bold
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-priority-header-forms
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a	pending
+high	b	pending
+high	c	pending
+--- stderr
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b
+WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-prose-pipe-rows
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-qualifier
+op 'backlog_rows'
+rc: 0
+--- stdout
+INVALID_PRIORITY	medium  (a (b) c)
+INVALID_PRIORITY	foo (bar)
+INVALID_PRIORITY	(x)
+INVALID_PRIORITY	low (a)(b)
+INVALID_PRIORITY	high (
+high	live gap	pending
+--- stderr
+WARN: non-conforming qualifier priority [high (ctx)] — strip the qualifier to "high" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [medium  (a (b) c)] in row: | medium  (a (b) c) | g2 | x | pending |
+backlog: unknown priority [foo (bar)] in row: | foo (bar) | g3 | x | pending |
+backlog: unknown priority [(x)] in row: | (x) | g4 | x | pending |
+WARN: non-conforming qualifier priority [deferred (y)] — strip the qualifier to "deferred" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [low (a)(b)] in row: | low (a)(b) | g6 | x | pending |
+backlog: unknown priority [high (] in row: | high ( | g7 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+INVALID_PRIORITY	medium  (a (b) c)
+INVALID_PRIORITY	foo (bar)
+INVALID_PRIORITY	(x)
+INVALID_PRIORITY	low (a)(b)
+INVALID_PRIORITY	high (
+high	live gap	pending
+--- stderr
+WARN: non-conforming qualifier priority [high (ctx)] — strip the qualifier to "high" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [medium  (a (b) c)] in row: | medium  (a (b) c) | g2 | x | pending |
+backlog: unknown priority [foo (bar)] in row: | foo (bar) | g3 | x | pending |
+backlog: unknown priority [(x)] in row: | (x) | g4 | x | pending |
+WARN: non-conforming qualifier priority [deferred (y)] — strip the qualifier to "deferred" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [low (a)(b)] in row: | low (a)(b) | g6 | x | pending |
+backlog: unknown priority [high (] in row: | high ( | g7 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+INVALID_PRIORITY	medium  (a (b) c)
+INVALID_PRIORITY	foo (bar)
+INVALID_PRIORITY	(x)
+INVALID_PRIORITY	low (a)(b)
+INVALID_PRIORITY	high (
+high	live gap	pending
+--- stderr
+WARN: non-conforming qualifier priority [high (ctx)] — strip the qualifier to "high" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [medium  (a (b) c)] in row: | medium  (a (b) c) | g2 | x | pending |
+backlog: unknown priority [foo (bar)] in row: | foo (bar) | g3 | x | pending |
+backlog: unknown priority [(x)] in row: | (x) | g4 | x | pending |
+WARN: non-conforming qualifier priority [deferred (y)] — strip the qualifier to "deferred" per METHODOLOGY §8b; row excluded from investigable_open until migrated
+backlog: unknown priority [low (a)(b)] in row: | low (a)(b) | g6 | x | pending |
+backlog: unknown priority [high (] in row: | high ( | g7 | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [] in gap: medium  (a (b) c)
+WARN: unrecognised Status token [] in gap: foo (bar)
+WARN: unrecognised Status token [] in gap: (x)
+WARN: unrecognised Status token [] in gap: low (a)(b)
+WARN: unrecognised Status token [] in gap: high (
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-requires-execution
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	r1	requires-execution
+high	r2	requires-execution-hw
+high	r3	requires-executionx
+high	r4	requires-execution (note)
+high	r5	requires-execution
+high	r6	pending (requires-execution)
+high	~~r7~~	requires-execution
+high	r8	requires-execution ✅
+high	r9	requires-execution ~~gone~~
+high	r10	requires-execution9
+high	r11	requires-execution.
+high	r12	requires-execution
+high	r13	requires-execution_x
+high	r14	requires-execution:x
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	r1	requires-execution
+high	r2	requires-execution-hw
+high	r3	requires-executionx
+high	r4	requires-execution (note)
+high	r5	requires-execution
+high	r6	pending (requires-execution)
+high	~~r7~~	requires-execution
+high	r8	requires-execution ✅
+high	r9	requires-execution ~~gone~~
+high	r10	requires-execution9
+high	r11	requires-execution.
+high	r12	requires-execution
+high	r13	requires-execution_x
+high	r14	requires-execution:x
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	r1	requires-execution
+high	r2	requires-execution-hw
+high	r3	requires-executionx
+high	r4	requires-execution (note)
+high	r5	requires-execution
+high	r6	pending (requires-execution)
+high	~~r7~~	requires-execution
+high	r8	requires-execution ✅
+high	r9	requires-execution ~~gone~~
+high	r10	requires-execution9
+high	r11	requires-execution.
+high	r12	requires-execution
+high	r13	requires-execution_x
+high	r14	requires-execution:x
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+8
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+14
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-retyped
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	rt-first	re-typed [block 141] — blocked-pending-native-gate
+low	rt-mid	retyped** (moved)
+low	rt-last	re-typed
+low	~~old gap~~	re-typed
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	rt-first	re-typed [block 141] — blocked-pending-native-gate
+low	rt-mid	retyped** (moved)
+low	rt-last	re-typed
+low	~~old gap~~	re-typed
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+medium	rt-first	re-typed [block 141] — blocked-pending-native-gate
+low	rt-mid	retyped** (moved)
+low	rt-last	re-typed
+low	~~old gap~~	re-typed
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-first]
+WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-mid]
+WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-last]
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-retyped-edges
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	rt1	re-typed
+high	pending-one	pending
+high	rt2	retyped-x
+high	none	re-type
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	rt1	re-typed
+high	pending-one	pending
+high	rt2	retyped-x
+high	none	re-type
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	rt1	re-typed
+high	pending-one	pending
+high	rt2	retyped-x
+high	none	re-type
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt1]
+WARN: re-typed row still carries "re-typed" — write its Status as the re-typed form "blocked (requires-<what>)" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt2]
+WARN: unrecognised Status token [re-type] in gap: none
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-separator-first-cell-colon
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	live gap	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-status-forms
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+high	g4	
+high	g5	a** b **c
+high	g6	pending** (uncovered by b7)
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+high	g4	
+high	g5	a** b **c
+high	g6	pending** (uncovered by b7)
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+high	g2	pending
+high	g3	pending
+high	g4	
+high	g5	a** b **c
+high	g6	pending** (uncovered by b7)
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+4
+--- stderr
+WARN: unrecognised Status token [] in gap: g4
+WARN: unrecognised Status token [a] in gap: g5
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+6
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-status-tokens
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	t1	pending
+high	t2	pending (uncovered by b7)
+high	t3	not pending
+high	t4	blocked (pending review)
+high	t5	blocked
+high	t6	blocked: needs tool
+high	t7	blocked, see below
+high	t8	blocked-on-tool: x
+high	t9	requires-execution (hw)
+high	t10	✅ covered
+high	t11	~~x~~
+high	t12	closed
+high	t13	[closed]
+high	t14	covered
+high	t15	[covered]
+high	t16	done
+high	t17	[done]
+high	t18	cubierto
+high	t19	[cubierto]
+high	t20	wip
+high	t21	in progress
+high	t22	blocked-onx
+high	t23	blockedx
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	t1	pending
+high	t2	pending (uncovered by b7)
+high	t3	not pending
+high	t4	blocked (pending review)
+high	t5	blocked
+high	t6	blocked: needs tool
+high	t7	blocked, see below
+high	t8	blocked-on-tool: x
+high	t9	requires-execution (hw)
+high	t10	✅ covered
+high	t11	~~x~~
+high	t12	closed
+high	t13	[closed]
+high	t14	covered
+high	t15	[covered]
+high	t16	done
+high	t17	[done]
+high	t18	cubierto
+high	t19	[cubierto]
+high	t20	wip
+high	t21	in progress
+high	t22	blocked-onx
+high	t23	blockedx
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	t1	pending
+high	t2	pending (uncovered by b7)
+high	t3	not pending
+high	t4	blocked (pending review)
+high	t5	blocked
+high	t6	blocked: needs tool
+high	t7	blocked, see below
+high	t8	blocked-on-tool: x
+high	t9	requires-execution (hw)
+high	t10	✅ covered
+high	t11	~~x~~
+high	t12	closed
+high	t13	[closed]
+high	t14	covered
+high	t15	[covered]
+high	t16	done
+high	t17	[done]
+high	t18	cubierto
+high	t19	[cubierto]
+high	t20	wip
+high	t21	in progress
+high	t22	blocked-onx
+high	t23	blockedx
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+WARN: unrecognised Status token [not] in gap: t3
+WARN: unrecognised Status token [wip] in gap: t20
+WARN: unrecognised Status token [in] in gap: t21
+WARN: unrecognised Status token [blocked-onx] in gap: t22
+WARN: unrecognised Status token [blockedx] in gap: t23
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+23
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+5
+--- stderr
+=== bl-struck-gap
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	~~G1~~	pending
+high	G2 ~~x~~	pending
+high	G3	requires-execution
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	~~G1~~	pending
+high	G2 ~~x~~	pending
+high	G3	requires-execution
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	~~G1~~	pending
+high	G2 ~~x~~	pending
+high	G3	requires-execution
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-tabs-in-cells
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+high	g	2	pending	note
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+high	g	2	pending	note
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+high	g	2	pending	note
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [2	pending	note] in gap: g
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-two-sections
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a	pending
+low	b	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a	pending
+low	b	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a	pending
+low	b	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-u2011-heading
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	a	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap‑backlog (prioritized)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	a	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap‑backlog (prioritized)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	a	pending
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap‑backlog (prioritized)] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-unknown-priority
+op 'backlog_rows'
+rc: 0
+--- stdout
+INVALID_PRIORITY	med
+INVALID_PRIORITY	urgent
+INVALID_PRIORITY	1
+high	live gap	pending
+--- stderr
+backlog: unknown priority [med] in row: | med | g1 | x | pending |
+backlog: unknown priority [urgent] in row: | urgent | g2 | x | pending |
+backlog: unknown priority [1] in row: | 1 | g3 | x | pending |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+INVALID_PRIORITY	med
+INVALID_PRIORITY	urgent
+INVALID_PRIORITY	1
+high	live gap	pending
+--- stderr
+backlog: unknown priority [med] in row: | med | g1 | x | pending |
+backlog: unknown priority [urgent] in row: | urgent | g2 | x | pending |
+backlog: unknown priority [1] in row: | 1 | g3 | x | pending |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+INVALID_PRIORITY	med
+INVALID_PRIORITY	urgent
+INVALID_PRIORITY	1
+high	live gap	pending
+--- stderr
+backlog: unknown priority [med] in row: | med | g1 | x | pending |
+backlog: unknown priority [urgent] in row: | urgent | g2 | x | pending |
+backlog: unknown priority [1] in row: | 1 | g3 | x | pending |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: unrecognised Status token [] in gap: med
+WARN: unrecognised Status token [] in gap: urgent
+WARN: unrecognised Status token [] in gap: 1
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-uppercase-priority
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	g1	pending
+medium	g2	pending
+low	g3	requires-execution
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	g1	pending
+medium	g2	pending
+low	g3	requires-execution
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	g1	pending
+medium	g2	pending
+low	g3	requires-execution
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-width-3
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== bl-width-6
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 6, only 4 or 5 supported): | deferred | g2 | a | b | c | d |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: deferred row skipped (table width 6, only 4 or 5 supported): | deferred | g2 | a | b | c | d |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 6, only 4 or 5 supported): | deferred | g2 | a | b | c | d |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== cov-basic
+op 'cov_ratio'
+rc: 0
+--- stdout
+3/5
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- **Coverage metric**: 3 / 5 closed
+- other 1/2
+--- stderr
+=== cov-bold-after
+op 'cov_ratio'
+rc: 0
+--- stdout
+5/6
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+* **Coverage metric** (x)**: 5/6
+--- stderr
+=== cov-empty-section
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+--- stderr
+=== cov-first-label-wins
+op 'cov_ratio'
+rc: 0
+--- stdout
+4/8
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- Coverage metric: n/a
+- Coverage metric: 4/8
+- Coverage metric: 1/2
+--- stderr
+=== cov-indent-and-plus
+op 'cov_ratio'
+rc: 0
+--- stdout
+6/7
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+   + Coverage metric: 6 / 7
+--- stderr
+=== cov-label-case
+op 'cov_ratio'
+rc: 0
+--- stdout
+10/20
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- COVERAGE METRIC: 10/20
+--- stderr
+=== cov-loose-long
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+WARN: RESEARCH-STATE.md: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: - the coverage metric is xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- the coverage metric is xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 3/4
+--- stderr
+=== cov-loose-no-ratio
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- the coverage metric is unknown
+--- stderr
+=== cov-loose-only
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+WARN: RESEARCH-STATE.md: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: - the coverage metric is 3/4 now
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- the coverage metric is 3/4 now
+--- stderr
+=== cov-no-ratio-label
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- Coverage metric:
+- see Coverage metric 3/4 in outline
+--- stderr
+=== cov-no-section
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+=== cov-not-anchored
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+WARN: RESEARCH-STATE.md: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: - Gap coverage metric: 3/4
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- Gap coverage metric: 3/4
+--- stderr
+=== cov-plain-equals
+op 'cov_ratio'
+rc: 0
+--- stdout
+7/9
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+Coverage metric = 7/9
+--- stderr
+=== cov-qualified
+op 'cov_ratio'
+rc: 0
+--- stdout
+2/4
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- **Coverage metric (this focus)**: 2 / 4 gaps
+--- stderr
+=== cov-tab-in-ratio
+op 'cov_ratio'
+rc: 0
+--- stdout
+3	/	5
+--- stderr
+
+op 'section' '## Coverage'
+rc: 0
+--- stdout
+- Coverage metric: 3	/	5
+--- stderr
+=== cov-warn-basename
+op 'cov_ratio'
+rc: 0
+--- stdout
+
+--- stderr
+WARN: RESEARCH-STATE.md: unrecognised coverage label — a line mentions the coverage metric with a ratio but does not start with the "Coverage metric:" label, so it is NOT read as the metric: - coverage metric 3/4
+=== def-barepipe
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	deferred
+--- stderr
+WARN: malformed closed-class backlog row (5 cells, expected 4): | deferred | B1-G1 a | x | ✅ done | y |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: deferred row skipped (5 cells, table width 4 — a bare pipe in a cell?): | deferred | B1-G1 a | x | ✅ done | y |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G2 b	parked
+--- stderr
+WARN: deferred row skipped (5 cells, table width 4 — a bare pipe in a cell?): | deferred | B1-G1 a | x | ✅ done | y |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: deferred row skipped (5 cells, table width 4 — a bare pipe in a cell?): | deferred | B1-G1 a | x | ✅ done | y |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+WARN: malformed closed-class backlog row (5 cells, expected 4): | deferred | B1-G1 a | x | ✅ done | y |
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-bold-priority-header
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G1	parked
+deferred-open	G2	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-bold-status
+op 'backlog_rows'
+rc: 0
+--- stdout
+INVALID_PRIORITY	**deferred**
+--- stderr
+backlog: unknown priority [**deferred**] in row: | **deferred** | G2 | x | parked |
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+INVALID_PRIORITY	**deferred**
+--- stderr
+backlog: unknown priority [**deferred**] in row: | **deferred** | G2 | x | parked |
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+INVALID_PRIORITY	**deferred**
+deferred	G3	✅
+--- stderr
+backlog: unknown priority [**deferred**] in row: | **deferred** | G2 | x | parked |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G1	parked**
+deferred-open	G4	
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: unrecognised Status token [] in gap: **deferred**
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-closed5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	~~B1-G1~~	parked
+deferred	B1-G2	~~dropped~~
+deferred	B1-G3	✅ done
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G4	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-crlf
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Gap-backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G1	
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-esc5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1	parked|more
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-first4
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G2 b	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G2 b	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G2 b	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-first5
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G2	pending
+high	B1-G3	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G2	pending
+high	B1-G3	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G2	pending
+high	B1-G3	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-header-then-prose
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-heading-reset
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G1	parked
+deferred-open	G3	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-last4
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G2 b	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G2 b	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G2 b	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G3 c	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-last5
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G2	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G2	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G2	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G3	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-mid4
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G1 a	pending
+high	B1-G3 c	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G2 b	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-mid5
+op 'backlog_rows'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G3	pending
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G3	pending
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+high	B1-G1	pending
+high	B1-G3	pending
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G2	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-mixed
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	B1-G2 b	✅ done
+deferred	B1-G5	✅ done
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+deferred-open	B1-G3 c	parked
+deferred-open	B1-G4	parked
+deferred-open	B1-G6	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-no-trailing-newline
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	G1	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-outside
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-outsidehdr
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Other backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Other backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: near-miss gap-backlog heading [## Other backlog] — expected "## Gap-backlog" or "## Gap-backlog (<label>)" per METHODOLOGY
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+deferred-open	B1-G2 n	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-scope5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	~~B1-G2 b~~	parked
+deferred	B1-G3 c	parked
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+2
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-single4
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1 a	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-single5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-struck5
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+deferred	B1-G2	parked
+--- stderr
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G1	parked
+--- stderr
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-wide6
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+UNCOUNTED	deferred
+--- stderr
+WARN: malformed closed-class backlog row (6 cells, expected 5): | deferred | B1-G1 | a | x | parked | extra |
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: deferred row skipped (6 cells, table width 5 — a bare pipe in a cell?): | deferred | B1-G1 | a | x | parked | extra |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+deferred-open	B1-G2	parked
+--- stderr
+WARN: deferred row skipped (6 cells, table width 5 — a bare pipe in a cell?): | deferred | B1-G1 | a | x | parked | extra |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+1
+--- stderr
+WARN: deferred row skipped (6 cells, table width 5 — a bare pipe in a cell?): | deferred | B1-G1 | a | x | parked | extra |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+WARN: malformed closed-class backlog row (6 cells, expected 5): | deferred | B1-G1 | a | x | parked | extra |
+
+op 'count_uncounted_rows'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== def-width-in-bad-table
+op 'backlog_rows'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '0'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'backlog_rows' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped
+
+op 'deferred_scan' '0'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | parked |
+
+op 'deferred_scan' '1'
+rc: 0
+--- stdout
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | parked |
+
+op 'count_deferred'
+rc: 0
+--- stdout
+0
+--- stderr
+WARN: deferred row skipped (table width 3, only 4 or 5 supported): | deferred | G1 | parked |
+
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_all_known_gaps'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 0
+--- stdout
+0
+--- stderr
+=== env-basic
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+12
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+12
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+shared-global
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 0
+--- stdout
+shared-global
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-blank-lines
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-crlf
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-empty
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-indent
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+12
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+12   x
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-key-like-prefix
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-marker-dot-wildcard
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-marker-indented
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-multi-field
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+3 4 5
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+a
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 0
+--- stdout
+a b
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-no-close
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+8
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+8
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+9
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 0
+--- stdout
+9
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-none
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-outside
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== env-pick
+op 'pick' '7' '5'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'pick' '' '5'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'pick' 'x' '5'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'pick' '' ''
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'pick' 'x' 'y'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'pick' '7x' '5'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'pick' '007' ''
+rc: 0
+--- stdout
+007
+--- stderr
+
+op 'pick' '-1' '4'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'pick' ' 3' '4'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'pick' '' '4 '
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'pick' '0' '9'
+rc: 0
+--- stdout
+0
+--- stderr
+=== env-raw-trailing-ws
+op 'env_raw' 'block_scope'
+rc: 0
+--- stdout
+a  b
+--- stderr
+
+op 'env_raw' 'next'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'env_raw' 'next2'
+rc: 0
+--- stdout
+x
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+a
+--- stderr
+=== env-two-blocks-first-wins
+op 'env_get' 'covered_blocks'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'env_raw' 'covered_blocks'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'env_get' 'known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'env_raw' 'known_gaps'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'env_get' 'deferred_open'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'deferred_open'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'nokey'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'nokey'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'block_scope'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'block_scope'
+rc: 1
+--- stdout
+--- stderr
+
+op 'env_get' 'next'
+rc: 0
+--- stdout
+--- stderr
+
+op 'env_raw' 'next'
+rc: 1
+--- stdout
+--- stderr
+=== foc-basic
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-gamma.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-gamma.md
+=== foc-crlf
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+=== foc-decorated-identity
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+stopped
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+v=stopped w=stopped
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-delta.md'
+rc: 0
+--- stdout
+planned
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-delta.md'
+rc: 0
+--- stdout
+v=planned w=planned
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a: unreadable/nonconforming status token [b]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a: unreadable/nonconforming status token [b]
+=== foc-decorated-status
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a1.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a1.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a2.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a2.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a3.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a3: unreadable/nonconforming status token [[stopped](x.md) later]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a3.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a3: unreadable/nonconforming status token [[stopped](x.md) later]
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a4.md'
+rc: 0
+--- stdout
+planned
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a4.md'
+rc: 0
+--- stdout
+v=planned w=planned
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a5.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a5.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a6.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a6: unreadable/nonconforming status token [[a](b) c]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a6.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a6: unreadable/nonconforming status token [[a](b) c]
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a7.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a7.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a8.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a8: unreadable/nonconforming status token []
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a8.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a8: unreadable/nonconforming status token []
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a9.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a9: unreadable/nonconforming status token [x]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a9.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a9: unreadable/nonconforming status token [x]
+=== foc-duplicate-headers-last-wins
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+stopped
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=stopped w=stopped
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-x.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-x.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-x.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-x.md
+=== foc-empty-file
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+=== foc-escaped-pipe
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token [pau|sed]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token [pau|sed]
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-al|pha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-al|pha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row gamma: unreadable/nonconforming status token [active|]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-gamma.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row gamma: unreadable/nonconforming status token [active|]
+=== foc-every-token
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a1.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a1.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a2.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a2.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a3.md'
+rc: 0
+--- stdout
+stopped
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a3.md'
+rc: 0
+--- stdout
+v=stopped w=stopped
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a4.md'
+rc: 0
+--- stdout
+planned
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a4.md'
+rc: 0
+--- stdout
+v=planned w=planned
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a5.md'
+rc: 0
+--- stdout
+bootstrapping
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a5.md'
+rc: 0
+--- stdout
+v=bootstrapping w=bootstrapping
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a6.md'
+rc: 0
+--- stdout
+reopened
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a6.md'
+rc: 0
+--- stdout
+v=reopened w=reopened
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a7.md'
+rc: 0
+--- stdout
+document
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a7.md'
+rc: 0
+--- stdout
+v=document w=document
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a8.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row a8: unreadable/nonconforming status token [closed]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a8.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row a8: unreadable/nonconforming status token [closed]
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a9.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-a9.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-fallback-phantom-cell
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token []
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token []
+=== foc-fallback-phantom-cell-space
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token []
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token []
+=== foc-file-is-directory
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 1
+--- stdout
+--- stderr
+=== foc-first-match-wins
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+=== foc-header-case
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-indent-and-trailing-blank
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-indented-header-quirk
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-indented-row-quirk
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-missing-file
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 1
+--- stdout
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+=== foc-no-focus-column
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-no-leading-pipe
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-no-outer-pipes
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-no-row
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-no-status-column
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row beta: no status column found
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row beta: no status column found
+=== foc-no-table
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+=== foc-no-trailing-pipe
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-nonconforming-then-valid
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token [halted]
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: unreadable/nonconforming status token [halted]
+=== foc-only-header
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-prose-pipe-line-is-header
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-separator-only-first
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== foc-separator-variants
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+=== foc-slug-forms
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'alpha'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'alpha'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-.md
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'other.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for other.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'other.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for other.md
+=== foc-state-file-column
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-x.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-x.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-x.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-x.md
+=== foc-state-file-only
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: no status column found
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: no status column found
+=== foc-status-col-beyond-row
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md row alpha: no status column found
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md row alpha: no status column found
+=== foc-status-fallback-next-column
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+=== foc-tab-indent-quirk
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v= w=
+--- stderr
+WARN: FOCUSES.md has no row for RESEARCH-STATE-alpha.md
+=== foc-trailing-blank-quirk
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+paused
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-beta.md'
+rc: 0
+--- stdout
+v=paused w=paused
+--- stderr
+=== foc-zero-cell-rows
+op '_read_focuses_tok_uncached' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+active
+--- stderr
+
+op '__into_twice' '<ROOT>/corpus/FOCUSES.md' 'RESEARCH-STATE-alpha.md'
+rc: 0
+--- stdout
+v=active w=active
+--- stderr
+=== req-absent
+op 'req_prose'
+rc: 1
+--- stdout
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- nothing here 3
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- nothing here 3
+--- stderr
+=== req-case
+op 'req_prose'
+rc: 0
+--- stdout
+12
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- REQUIRES-EXECUTION left = 12 (of 30)
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- REQUIRES-EXECUTION left = 12 (of 30)
+--- stderr
+=== req-digit-right-after-token
+op 'req_prose'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution7 left
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution7 left
+--- stderr
+=== req-first-line-without-number
+op 'req_prose'
+rc: 0
+--- stdout
+3
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution: none
+- requires-execution: 3
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution: none
+- requires-execution: 3
+--- stderr
+=== req-heading-prefix
+op 'req_prose'
+rc: 0
+--- stdout
+1
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution 1
+- requires-execution 2
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution 1
+- requires-execution 2
+--- stderr
+=== req-leading-zeros
+op 'req_prose'
+rc: 0
+--- stdout
+007
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution 007
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution 007
+--- stderr
+=== req-logosoft
+op 'req_prose'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+
+- **Open gaps — requires-execution (NO read-only; …, METHODOLOGY §8)**: **0 — AGOTADO.**
+- other
+
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+
+- **Open gaps — requires-execution (NO read-only; …, METHODOLOGY §8)**: **0 — AGOTADO.**
+- other
+
+--- stderr
+=== req-nested-parens
+op 'req_prose'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution (a (b) 5) n 6
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution (a (b) 5) n 6
+--- stderr
+=== req-no-number
+op 'req_prose'
+rc: 1
+--- stdout
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution: none
+- other 5
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution: none
+- other 5
+--- stderr
+=== req-no-section
+op 'req_prose'
+rc: 1
+--- stdout
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+--- stderr
+=== req-number-next-line-only
+op 'req_prose'
+rc: 1
+--- stdout
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution
+- 8 other
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution
+- 8 other
+--- stderr
+=== req-plain
+op 'req_prose'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- Open gaps — requires-execution: 4
+- more: 9
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- Open gaps — requires-execution: 4
+- more: 9
+--- stderr
+=== req-token-at-line-start
+op 'req_prose'
+rc: 0
+--- stdout
+9
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+requires-execution 9
+- x
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+requires-execution 9
+- x
+--- stderr
+=== req-token-twice
+op 'req_prose'
+rc: 0
+--- stdout
+4
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution requires-execution 4
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution requires-execution 4
+--- stderr
+=== req-two-groups
+op 'req_prose'
+rc: 0
+--- stdout
+7
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- (x) requires-execution (y) 7 (z)
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- (x) requires-execution (y) 7 (z)
+--- stderr
+=== req-unclosed-paren
+op 'req_prose'
+rc: 0
+--- stdout
+5
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+- requires-execution (open 5 and 6
+--- stderr
+
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+- requires-execution (open 5 and 6
+--- stderr
+=== section-multi
+op 'section' '## Stop control'
+rc: 0
+--- stdout
+a
+c
+### sub
+d
+--- stderr
+
+op 'stopctl'
+rc: 0
+--- stdout
+a
+c
+### sub
+d
+--- stderr
+
+op 'section' '## Other'
+rc: 0
+--- stdout
+b
+--- stderr
+
+op 'section' '## Nope'
+rc: 0
+--- stdout
+--- stderr
+=== sg-covered-blocks
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+3
+--- stderr
+=== sg-covered-blocks-boundaries
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+6
+--- stderr
+=== sg-covered-blocks-empty-falls-back
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-covered-blocks-multiline
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-empty
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+0
+--- stderr
+=== sg-history-block-column
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+3
+--- stderr
+=== sg-history-crlf
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-history-crlf-no-trailing-pipe
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-history-duplicate-block-header
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+1
+--- stderr
+=== sg-history-escaped-pipe
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+3
+--- stderr
+=== sg-history-header-case
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+1
+--- stderr
+=== sg-history-header-no-block
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-history-mixed-pipe-styles
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-history-no-ids
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+0
+--- stderr
+=== sg-history-no-leading-pipe
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+2
+--- stderr
+=== sg-history-padded-header
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+1
+--- stderr
+=== sg-history-short-row
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+1
+--- stderr
+=== sg-none
+op 'count_attributed_sg'
+rc: 0
+--- stdout
+0
+--- stderr
+=== unreadable-state
+op 'count_investigable'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_retyped_in_table'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_requires_execution'
+rc: 0
+--- stdout
+0
+--- stderr
+
+op 'count_uncounted_rows'
+rc: 1
+--- stdout
+0
+--- stderr
+
+op '__inplace'
+rc: 2
+--- stdout
+0
+--- stderr
+=== warn-inplace-blocked
+op 'warn_inplace_blocked' 'RESEARCH-STATE.md' '3'
+rc: 0
+--- stdout
+--- stderr
+sync-state: WARN: RESEARCH-STATE.md: 3 in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.
+
+op 'warn_inplace_blocked' 'f.md' '0'
+rc: 0
+--- stdout
+--- stderr
+
+op 'warn_inplace_blocked' 'f.md'
+rc: 0
+--- stdout
+--- stderr
+
+op 'warn_inplace_blocked' 'f.md' '-2'
+rc: 0
+--- stdout
+--- stderr
+
+op 'warn_inplace_blocked' 'f.md' '1'
+rc: 0
+--- stdout
+--- stderr
+sync-state: WARN: f.md: 1 in-place blocked row(s) (Status blocked / blocked-on-*) are open but not in blocked_open (section-derived) — NOT counted as closed in gaps_closed; move them to ## Blocked gaps (METHODOLOGY §21.1) so blocked_open and the known_gaps identity (verify-state CHECK H) agree.

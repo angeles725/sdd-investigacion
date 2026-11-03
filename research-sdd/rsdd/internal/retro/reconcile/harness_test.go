@@ -17,11 +17,6 @@ import (
 // target, rh/<target>/retros/ holding the retro, cache.txt the --issues-cache file). The legacy run and the Go
 // run use the SAME box, so paths in messages are equal; box paths are replaced by @BOX@ in every recorded output.
 
-// updateGoldens regenerates testdata/golden from the LEGACY script (needs bash): RECONCILE_UPDATE=1 go test
-// -run TestDifferential. An environment variable, not a flag: a flag only this package defines would fail the
-// other packages of a repo-wide run.
-func updateGoldens() bool { return os.Getenv("RECONCILE_UPDATE") == "1" }
-
 // dcase is one scenario.
 type dcase struct {
 	name string
@@ -46,6 +41,17 @@ type dcase struct {
 	prep func(t *testing.T, b *box)
 	// rel passes the retro as a bare file name with the retro's directory as the working directory.
 	rel bool
+	// closed is the --closed-cache content, passed only when useClosed; closedMissing points the flag at a file
+	// that does not exist.
+	closed        string
+	useClosed     bool
+	closedMissing bool
+	// repo selects the git fixture the audit verifies commits against ("" = none, the kit root is not a repository):
+	// "fix" (MAIN on origin/main, SIDE on a side branch) or "shallow" (a depth-1 clone of it).
+	repo string
+	// env is extra environment for both runs (@BOX@ is the box root); noGit puts a PATH without git in front.
+	env   map[string]string
+	noGit bool
 	// retroArg replaces the retro argument (@BOX@ is the box root); "" = the real retro path.
 	retroArg string
 }
@@ -56,6 +62,9 @@ type box struct {
 	cache string
 	cwd   string
 	arg   string // the retro argument as the command line carries it
+	// closedArg is the --closed-cache path ("" = flag not passed); env the extra environment.
+	closedArg string
+	env       map[string]string
 }
 
 // result is what one run produced, normalised.
@@ -103,6 +112,32 @@ func mkBox(t *testing.T, c dcase) *box {
 	if !c.cacheMissing {
 		mustWrite(t, b.cache, c.cache)
 	}
+	if c.useClosed {
+		b.closedArg = filepath.Join(root, "closed.txt")
+		if !c.closedMissing {
+			mustWrite(t, b.closedArg, c.closed)
+		}
+	}
+	b.env = map[string]string{}
+	switch c.repo {
+	case "":
+	case "fix":
+		makeFixRepo(t, filepath.Join(root, "fixrepo"))
+		b.env["RECONCILE_ISSUES_GIT_DIR"] = filepath.Join(root, "fixrepo")
+	case "shallow":
+		makeFixRepo(t, filepath.Join(root, "fixrepo"))
+		makeShallowClone(t, filepath.Join(root, "fixrepo"), filepath.Join(root, "shallow"))
+		b.env["RECONCILE_ISSUES_GIT_DIR"] = filepath.Join(root, "shallow")
+	default:
+		t.Fatalf("unknown repo fixture %q", c.repo)
+	}
+	if c.noGit {
+		makeNoGitBin(t, filepath.Join(root, "bin"))
+		b.env["PATH"] = filepath.Join(root, "bin")
+	}
+	for k, v := range c.env {
+		b.env[k] = box2(v, root, tgt)
+	}
 	for name, content := range c.files {
 		p := filepath.Join(root, name)
 		mustMkdir(t, filepath.Dir(p))
@@ -147,15 +182,27 @@ func (b *box) normalize(rc int, stdout, stderr string) result {
 // runGo runs the port on the box, the way the shim will: Run, then Render.
 func runGo(t *testing.T, b *box) result {
 	t.Helper()
-	rep, err := Run(context.Background(), Options{
+	o := Options{
 		Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd,
 		Env: func(k string) string {
-			if k == "HOME" {
+			if v, ok := b.env[k]; ok {
+				return v
+			}
+			switch k {
+			case "HOME":
 				return filepath.Join(b.root, "home")
+			case "PATH":
+				return os.Getenv("PATH")
+			case "LC_ALL":
+				return "C"
 			}
 			return ""
 		},
-	})
+	}
+	if b.closedArg != "" {
+		o.ClosedCache = ClosedFile(b.closedArg)
+	}
+	rep, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

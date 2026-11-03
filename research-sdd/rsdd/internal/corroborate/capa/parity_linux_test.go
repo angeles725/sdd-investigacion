@@ -25,7 +25,7 @@ import (
 
 const (
 	legacyScript = "testdata/legacy/corroborate_capa.py"
-	toolbeltDir  = "../../../../toolbelt"
+	toolbeltDir  = "../../core/adapter/testdata/frozen" // frozen oracle copies of the toolbelt adapter modules
 )
 
 // python312 is the interpreter the oracle must run under; a missing one FAILS (a skipped parity test proves nothing).

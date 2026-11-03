@@ -396,15 +396,15 @@ func TestCP437TableMatchesPython(t *testing.T) {
 	}
 }
 
-// stagedHelper copies the frozen helper into a fresh directory next to a `lib` link to the live toolbelt/lib (only
-// the script is frozen; the helpers it imports stay on main) and returns the copy's path.
+// stagedHelper copies the frozen helper into a fresh directory next to a `lib` link to the frozen core/adapter/testdata/frozen/lib (only
+// the script is frozen; the helpers it imports are frozen copies too) and returns the copy's path.
 func stagedHelper(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile(helperPath)
 	if err != nil {
 		t.Fatalf("the legacy helper is missing: %v", err)
 	}
-	lib, err := filepath.Abs("../../../../toolbelt/lib")
+	lib, err := filepath.Abs("../../core/adapter/testdata/frozen/lib")
 	if err != nil {
 		t.Fatal(err)
 	}

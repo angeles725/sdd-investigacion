@@ -13,13 +13,25 @@ type Cache struct {
 	path   string
 	bodies string
 	inline bool
+	flag   string
 }
 
 // CacheFile is a cache backed by the file the legacy --issues-cache names.
-func CacheFile(path string) *Cache { return &Cache{path: path} }
+func CacheFile(path string) *Cache { return &Cache{path: path, flag: "--issues-cache"} }
 
 // CacheBodies is a cache already in memory, shared by the audits of several retros.
-func CacheBodies(text string) *Cache { return &Cache{bodies: text, inline: true} }
+func CacheBodies(text string) *Cache {
+	return &Cache{bodies: text, inline: true, flag: "--issues-cache"}
+}
+
+// ClosedFile is a closed-issue cache backed by the file the legacy --closed-cache names: the bodies of the
+// issues closed AS COMPLETED (Options.ClosedCache).
+func ClosedFile(path string) *Cache { return &Cache{path: path, flag: "--closed-cache"} }
+
+// ClosedBodies is a closed-issue cache already in memory.
+func ClosedBodies(text string) *Cache {
+	return &Cache{bodies: text, inline: true, flag: "--closed-cache"}
+}
 
 // read is `$(cat file)`: NUL bytes dropped and every trailing newline removed.
 func (c *Cache) read() (string, error) {
@@ -27,7 +39,7 @@ func (c *Cache) read() (string, error) {
 	if !c.inline {
 		b, err := os.ReadFile(c.path)
 		if err != nil {
-			return "", fmt.Errorf("--issues-cache file not readable: %s", c.path)
+			return "", fmt.Errorf("%s file not readable: %s", c.flag, c.path)
 		}
 		text = string(b)
 	}

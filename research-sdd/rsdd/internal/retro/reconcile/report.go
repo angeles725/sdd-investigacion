@@ -20,6 +20,13 @@ type Report struct {
 	Untracked []Delta
 	Tracked   []Delta
 	Orphaned  []Delta
+	// Shipped are rows with no open issue whose issue was closed as completed AND whose closure evidence holds
+	// (Why = the cited commit that reaches the main ref); Borderline the same with incomplete evidence (Why = the
+	// reasons); Regressed the shipped rows proposed again as open deltas in a later retro (Why = the legacy line
+	// after "regressed: "). None of them is also Untracked.
+	Shipped    []Delta
+	Borderline []Delta
+	Regressed  []Delta
 	// Degraded is the "degraded: ..." line of a run that could not reach a verdict; "" = not degraded.
 	Degraded string
 	// OutOfScopeMarker is the "out-of-scope-marker: ..." line; "" = none.
