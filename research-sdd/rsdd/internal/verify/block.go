@@ -47,6 +47,7 @@ type blockRun struct {
 
 	block, target string
 	lines         []string // the block's records
+	unreadable    bool     // the block exists but could not be read
 	rc            int
 
 	strictEP    bool
@@ -118,6 +119,10 @@ func RunBlock(args []string, s cli.Stdio) int {
 	}
 	if src, err := b.fs.read(b.block); err == nil {
 		b.lines = recordLines(string(src))
+	} else {
+		// An unreadable block is never a clean one (CLAUDE.md §7): the scans that read it report DEGRADED and exit 1.
+		b.unreadable = true
+		fmt.Fprintf(s.Err, "verify-block.sh: cannot read %s: %v\n", b.block, err)
 	}
 	b.sourceRoot = s.Env("SOURCE_ROOT")
 	b.gitRoot = b.gitTopLevel()

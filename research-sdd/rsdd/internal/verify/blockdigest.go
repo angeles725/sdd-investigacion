@@ -53,7 +53,10 @@ func (b *blockRun) sectionEmptyDigest() {
 			rest = after
 		}
 	}
-	if n == 0 {
+	if b.unreadable { // VB-UNREADABLE: the script's awk exited 2 on the unreadable block; never a clean "(none)"
+		b.echo("   ERROR: empty-digest scan DEGRADED (awk exit 2, no scan trailer) — block NOT checked for empty-input digests")
+		b.rc = 1
+	} else if n == 0 {
 		b.echo("   (none — no unwaived cited hash equals the digest of empty input; waived: %d)", w)
 	} else {
 		b.echo("-- empty-input digests cited: %d (FAIL)", n)

@@ -110,6 +110,9 @@ func (b *blockRun) sectionEphemeral() {
 		b.echo("%s", l)
 	}
 	switch {
+	case b.unreadable: // VB-UNREADABLE
+		b.echo("   ERROR: ephemeral-path scan DEGRADED (awk exit 2, no scan trailer) — block NOT checked for ephemeral cites")
+		b.rc = 1
 	case c.n == 0:
 		b.echo("   (none — no unanchored ephemeral path cited; sha256-anchored: %d, ephemeral-ok: %d, invalid markers: %d)", c.a, c.k, c.i)
 	case b.strictEP:

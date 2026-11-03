@@ -25,6 +25,7 @@ import (
 //	find's path join ................................................... TestJoinFind
 //	P1721 / P1766 nonpath guards ....................................... TestSplitNonpathGuards
 //	BP-FORWARD / BP-LIST / BP-PROXIMITY / BP-CORRECTOR ................. TestScanCorrections*
+//	VB-UNREADABLE (an unreadable block is DEGRADED, exit 1) ............ TestBlockUnreadableIsNeverClean
 
 func TestVbLinesCountsLikeAwk(t *testing.T) {
 	d := t.TempDir()

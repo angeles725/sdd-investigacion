@@ -302,8 +302,12 @@ func (b *blockRun) sectionBackptr() {
 		dirs = append(dirs, p)
 	}
 	cands, tr, rmode := scanCorrections(b.lines, self)
-	if len(dirs) == 0 {
-		b.echo("   DEGRADED backptr: the sentence scan or the candidate directory failed (awk exit 0, 0 directories) — back-pointers NOT checked")
+	if b.unreadable || len(dirs) == 0 { // VB-UNREADABLE: the script's sentence scan exited 2 on an unreadable block
+		awkRC := 0
+		if b.unreadable {
+			awkRC = 2
+		}
+		b.echo("   DEGRADED backptr: the sentence scan or the candidate directory failed (awk exit %d, %d directories) — back-pointers NOT checked", awkRC, len(dirs))
 		deg++
 		cands, tr, rmode = nil, bpTrailer{}, false
 	}
