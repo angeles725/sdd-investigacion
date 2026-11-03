@@ -10,7 +10,7 @@
 # the cases run through it against the real Go binary (RSDD_BIN, else one build into the temp dir), the rules are also
 # pinned by the Go unit tests, and the mutants of the old awk program are replaced by `make teeth` on the Go source.
 #
-# Usage: verify-corrections-binding.test.sh   Exit: 0 all held · 1 regression · 2 harness.
+# Usage: verify-corrections-binding.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-corrections.sh"
@@ -337,6 +337,16 @@ out="$(LC_ALL=C bash "$SUT" "$d" 2>&1)"
 if ! grep -qE 'B9[34] corrects' <<<"$out" && grep -qE 'note +2 correction verb\(s\) in a non-assertive form' <<<"$out"; then ok "'CORRIGIÓ' / 'CORRIGIERON' (upper-case, C locale) are past tense → skipped and counted"
 else no "upper-past :: $(tr '\n' '|' <<<"$out")"; fi
 
+
+# NEGATIVE CONTROLS — mutate the SHIM (arguments dropped, exit code swallowed, wrong command); lib/vc-shim-teeth.sh.
+# The rules themselves are mutation-gated in Go (`make teeth`); this file's cases run through the shim.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # shellcheck source=lib/vc-shim-teeth.sh
+  . "$HERE/lib/vc-shim-teeth.sh"
+  vc_shim_teeth || exit 2
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

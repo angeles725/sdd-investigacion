@@ -14,7 +14,7 @@
 #   (The old case 8, the same corpus under mawk, is gone: the port has no awk. The mutants of the old awk program are
 #   replaced by `make teeth` on the Go source; the cases run through the shim against the real Go binary, RSDD_BIN.)
 #
-# Usage: verify-corrections-residuals.test.sh   Exit: 0 all held · 1 regression · 2 harness.
+# Usage: verify-corrections-residuals.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-corrections.sh"
@@ -196,6 +196,16 @@ d="$TMP/code-hard"; pblank "$d" aa 1; pmk "$d" aa 4 '# Block 4\n\n> Corrects [Bl
 if grep -qE '^ *AMBIG +B4 corrects \[Block 1\] .*cross-focus' < <(run "$d"); then ok "an explicit 'focus' word with an unresolvable slug stays a typed AMBIG"
 else no "code-hard :: $(run "$d" | tr '\n' '|')"; fi
 
+
+# NEGATIVE CONTROLS — mutate the SHIM (arguments dropped, exit code swallowed, wrong command); lib/vc-shim-teeth.sh.
+# The rules themselves are mutation-gated in Go (`make teeth`); this file's cases run through the shim.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  # shellcheck source=lib/vc-shim-teeth.sh
+  . "$HERE/lib/vc-shim-teeth.sh"
+  vc_shim_teeth || exit 2
+fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

@@ -106,42 +106,13 @@ if [ "$rc" = 2 ] && grep -q 'usage: verify-corrections.sh <target-dir>' <<<"$out
   ok "shim: no argument → usage on stderr, exit 2 (the binary's contract, unchanged)"
 else no "shim usage: exit $rc :: $out"; fi
 
-# NEGATIVE CONTROLS — mutate the SHIM; each mutant must lose the case that owns the property.
+# NEGATIVE CONTROLS — mutate the SHIM (arguments dropped, exit code swallowed, wrong command); lib/vc-shim-teeth.sh.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
-  # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
-  # nothing. A refused build is counted exactly once (mk_mut) and its tooth is skipped.
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  # A bad side that is only an exit code must not be a crash: these never read as a bite.
-  CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  # The mutants sit in $TMP beside a copy of rsdd-exec.sh (the shim sources lib/rsdd-exec.sh at its own dir).
-  mkdir -p "$TMP/lib"; cp "$HERE/../lib/rsdd-exec.sh" "$TMP/lib/rsdd-exec.sh"   # stage-libs-ok: the shim's one helper
-  d="$TMP/onedir"   # case 3's one-directional fixture: original exit 1 (FAIL)
-
-  echo "-- teeth: the shim drops the caller's arguments; the target is lost (usage, exit 2) --"
-  mutant="$TMP/verify-corrections.ARGS.sh"
-  if mk_mut "teeth: args dropped" "$SUT" "$mutant" 's/^rsdd_exec verify corrections "\$@"$/rsdd_exec verify corrections/'; then
-    tt "teeth: args-dropping shim loses the one-directional verdict (exit 2, not 1) → case 3 has teeth" 1 2 "$mutant" --orig "$SUT" \
-      --good-has '^ *FAIL' --bad-lacks '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
-  fi
-
-  echo "-- teeth: the shim swallows the binary's exit code (exit 0 after a FAIL) --"
-  mutant="$TMP/verify-corrections.RC.sh"
-  if mk_mut "teeth: rc swallowed" "$SUT" "$mutant" 's/^rsdd_exec verify corrections "\$@"$/rsdd_exec verify corrections "$@"; exit 0/'; then
-    tt "teeth: rc-swallowing shim reports success on a one-directional correction (exit 0) → case 3 has teeth" 1 0 "$mutant" --orig "$SUT" \
-      --good-has '^ *FAIL' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
-  fi
-
-  echo "-- teeth: the shim runs another command (verify registry) --"
-  mutant="$TMP/verify-corrections.CMD.sh"
-  if mk_mut "teeth: wrong command" "$SUT" "$mutant" 's/^rsdd_exec verify corrections /rsdd_exec verify registry /'; then
-    tt "teeth: wrong-command shim does not produce the corrections report → case 3 has teeth" 1 2 "$mutant" --orig "$SUT" \
-      --good-has '^ *FAIL' --bad-lacks '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
-  fi
+  # shellcheck source=lib/vc-shim-teeth.sh
+  . "$HERE/lib/vc-shim-teeth.sh"
+  vc_shim_teeth || exit 2
 fi
 
 echo "== $pass passed · $fail failed =="
