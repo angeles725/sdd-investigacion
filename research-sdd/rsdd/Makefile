@@ -108,7 +108,7 @@ teeth:
 	if [ -z "$${RSDD_BIN:-}" ]; then rb="$$(mktemp -d)" || exit 2; trap 'rm -rf "$$rb"' EXIT; \
 	h="$$(go run ./cmd/rsdd-srchash .)" && go build -ldflags "-s -w -X $(SOURCE_HASH_SYM)=$$h" -o "$$rb/rsdd" ./cmd/rsdd \
 	|| { echo "teeth: DEGRADED — cannot build the rsdd binary the kit shims need (RSDD_BIN)"; exit 1; }; export RSDD_BIN="$$rb/rsdd"; fi; \
-	( $(CAPPED) sh -c 'w=$$(mktemp -d) || exit 2; trap "rm -rf $$w" EXIT; mkdir "$$w/rsdd" && cp -R . "$$w/rsdd/" || exit 2; cd "$$w/rsdd" && go test -count=1 $(TEETH_BASE_PKG) >"$$w/baseline.out" 2>&1 || { grep "^FAIL[[:space:]]" "$$w/baseline.out"; tail -n 40 "$$w/baseline.out"; echo "teeth: DEGRADED — the unmutated package fails in a module-only copy: $(TEETH_PKG)"; exit 1; }' ) || exit 1; \
+	( $(CAPPED) sh -c 'w=$$(mktemp -d) || exit 2; trap "rm -rf \"$$w\"" EXIT; mkdir "$$w/rsdd" && cp -R . "$$w/rsdd/" || exit 2; cd "$$w/rsdd" && go test -count=1 $(TEETH_BASE_PKG) >"$$w/baseline.out" 2>&1 || { grep "^FAIL[[:space:]]" "$$w/baseline.out"; tail -n 40 "$$w/baseline.out"; echo "teeth: DEGRADED — the unmutated package fails in a module-only copy: $(TEETH_PKG)"; exit 1; }' ) || exit 1; \
 	( $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG) )
 
 
