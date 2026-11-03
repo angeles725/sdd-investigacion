@@ -125,8 +125,8 @@ func TestExecVerify(t *testing.T) {
 		t.Errorf("exit 0: rc=%d", rc)
 	}
 	script("kill -9 $$\n", 0o755)
-	if rc, _, _ := run(tb); rc != 128 {
-		t.Errorf("killed by a signal: rc=%d, want 128", rc)
+	if rc, _, _ := run(tb); rc != 137 {
+		t.Errorf("killed by SIGKILL: rc=%d, want 137", rc)
 	}
 }
 

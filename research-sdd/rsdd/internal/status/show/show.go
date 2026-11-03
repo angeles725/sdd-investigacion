@@ -25,6 +25,8 @@ type ctx struct {
 	focCache map[string]string // _RSDD_FOC_TOK_CACHE: the FOCUSES.md token per (file, state basename)
 	buSuffix string            // _BU_SUFFIX: the [backlog-unreadable] qualifier of an exhausted STOP
 
+	verifyDown string // why verify-state could not run (empty: it ran)
+
 	blockedHook func(gap string) int // a test replaces the is_blocked read (0 blocked, 1 not, 2 unknown)
 }
 

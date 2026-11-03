@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path"
 	"strings"
+	"syscall"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // The STALE gate of --next: refuse to hand out work on an internally inconsistent corpus. verify-state is the
@@ -29,7 +32,8 @@ func execVerify(args []string, s cli.Stdio) int {
 	cmd := exec.Command(dir+"/verify-state.sh", args...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Cwd, s.Out, s.Err
 	if s.Environ != nil {
-		cmd.Env = s.Environ()
+		// verify-state.sh is a shim that runs once per state file: it gets this binary as RSDD_BIN.
+		cmd.Env = kit.ShimEnv(s.Environ(), os.Executable)
 	}
 	err := cmd.Run()
 	var ee *exec.ExitError
@@ -40,7 +44,10 @@ func execVerify(args []string, s cli.Stdio) int {
 		if ee.Exited() {
 			return ee.ExitCode()
 		}
-		return 128 // killed by a signal: the shell reports 128+n
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return 128 + int(ws.Signal()) // killed by a signal: the shell reports 128+n (137 for SIGKILL)
+		}
+		return 128
 	case errors.Is(err, fs.ErrNotExist):
 		return 127
 	}
@@ -61,14 +68,35 @@ func (c *ctx) verifyReport(args []string) (string, int) {
 	s := c.s
 	s.Out, s.Err = &buf, io.Discard
 	rc := verifyState(args, s)
+	c.noteVerifyRC(rc)
 	return buf.String(), rc
+}
+
+// noteVerifyRC records that verify-state could not run (the shell's 127 and 126). The script turned that into a
+// STALE verdict, or let the stopped-focus bypass hand out a NEXT nobody verified; the port refuses instead (an
+// intended divergence, tool-registry.d/research-sdd-status.md).
+func (c *ctx) noteVerifyRC(rc int) {
+	if c.verifyDown != "" || (rc != 126 && rc != 127) {
+		return
+	}
+	dir := c.s.Env("RSDD_TOOLBELT_DIR")
+	switch {
+	case dir == "":
+		c.verifyDown = "RSDD_TOOLBELT_DIR is not set"
+	case rc == 127:
+		c.verifyDown = dir + "/verify-state.sh not found"
+	default:
+		c.verifyDown = dir + "/verify-state.sh is not executable"
+	}
 }
 
 // verifyOK is `verify-state.sh ... >/dev/null 2>&1`: true when the report is clean.
 func (c *ctx) verifyOK(args []string) bool {
 	s := c.s
 	s.Out, s.Err = io.Discard, io.Discard
-	return verifyState(args, s) == 0
+	rc := verifyState(args, s)
+	c.noteVerifyRC(rc)
+	return rc == 0
 }
 
 // staleGate is `if ! _gate_verify; then ...`: true when the run is over because it printed STALE. With --focus the
@@ -82,6 +110,9 @@ func (c *ctx) staleGate() bool {
 	}
 	if c.verifyOK(args) {
 		return false
+	}
+	if c.verifyDown != "" {
+		return true // no verdict: the caller reports the refusal
 	}
 	states := c.listStates()
 	// A stopped focus must have an active sibling to fall through to: a single-file corpus with a failing

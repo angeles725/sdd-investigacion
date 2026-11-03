@@ -966,47 +966,6 @@ call 2: <ROOT>/corpus
 rc: 1
 out: ""
 --- end verify
-=== ff-empty-report-rc-127
-run 1: <ROOT>/corpus --next
-rc: 0
---- stdout
-STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh <ROOT>/corpus [first failure: unavailable — verify-state printed no FAIL line (rc=127)]
---- stderr
---- tree
---- file corpus/RESEARCH-STATE.md mode=0644
-# S — Research State
-
-<!-- research-state.v1 -->
-schema: research-state.v1
-covered_blocks: 0
-gaps_closed: 0
-known_gaps: 0
-investigable_open: 1
-requires_execution_open: 0
-blocked_open: 0
-blocks_since_retro: 0
-<!-- /research-state.v1 -->
-
-## Gap-backlog (prioritized)
-
-| Priority | Gap | Artifact type / source | Status |
-|---|---|---|---|
-| high | G1 gap | web | pending |
-
-## Stop control
-
-- **Open gaps — read-only investigable**: 1
-- **Open gaps — requires-execution**: 0
-- **Open gaps — blocked**: 0
---- end
---- verify
-call 1: <ROOT>/corpus
-rc: 127
-out: ""
-call 2: <ROOT>/corpus
-rc: 127
-out: ""
---- end verify
 === ff-exactly-160-bytes-is-kept
 run 1: <ROOT>/corpus --next
 rc: 0

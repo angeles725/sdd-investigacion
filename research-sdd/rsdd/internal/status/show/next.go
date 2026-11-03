@@ -50,9 +50,24 @@ func (c *ctx) pendingSeam(what string) int {
 	return cli.ExitOperational
 }
 
-// listStates is `mapfile -t < <(list_state_files "$target")`, shown with the target as the caller wrote it.
+// listStateFiles is kit.ListStateFiles; a test replaces it to make the listing fail.
+var listStateFiles = kit.ListStateFiles
+
+// listable refuses a run whose state-file listing fails, instead of walking a partial list (the script ignored the
+// failure; an intended divergence, tool-registry.d/research-sdd-status.md): a typed line on stderr and exit 1, the
+// code the state-file pick failure uses. It answers true when the run may go on.
+func (c *ctx) listable() bool {
+	_, err := listStateFiles(c.abs(c.target))
+	if err != nil {
+		fmt.Fprintf(c.s.Err, "research-sdd-status: degraded: cannot list the state files under %s: %v\n", c.target, err)
+	}
+	return err == nil
+}
+
+// listStates is `mapfile -t < <(list_state_files "$target")`, shown with the target as the caller wrote it. The
+// run has already passed listable.
 func (c *ctx) listStates() []string {
-	all, _ := kit.ListStateFiles(c.abs(c.target))
+	all, _ := listStateFiles(c.abs(c.target))
 	out := make([]string, len(all))
 	for i, p := range all {
 		out[i] = c.show(p)
@@ -117,7 +132,14 @@ func (c *ctx) buCompute(files []string) {
 func (c *ctx) next(sm seams) int {
 	out := c.s.Out
 	pick := c.state // _ns_pick: the loops below reassign the global state
+	if !c.listable() {
+		return 1
+	}
 	if c.staleGate() {
+		if c.verifyDown != "" {
+			fmt.Fprintf(c.s.Err, "research-sdd-status: degraded: verify-state unavailable (%s)\n", c.verifyDown)
+			return 1
+		}
 		return 0
 	}
 	scoped := c.opts.focus != "" || c.opts.root

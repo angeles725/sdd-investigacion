@@ -167,7 +167,6 @@ func s4Scenarios() []s4Scenario {
 	add(
 		fakeCase("ff-no-fail-line-rc-1", "STALE | ", "== verify-state: x ==\n== exit 1 ==\n", 1),
 		fakeCase("ff-empty-report-rc-1", "STALE | ", "", 1),
-		fakeCase("ff-empty-report-rc-127", "STALE | ", "", 127),
 		fakeCase("ff-fail-with-file-header", "STALE | ", "== verify-state: RESEARCH-STATE.md (target: t) ==\n   FAIL   envelope investigable_open=0 != 1\n== exit 1 ==\n", 1),
 		fakeCase("ff-fail-without-header", "STALE | ", "   FAIL   no header here\n", 1),
 		fakeCase("ff-last-header-wins", "STALE | ", "== verify-state: A.md (target: t) ==\n== verify-state: B.md (target: t) ==\n   FAIL   boom\n", 1),

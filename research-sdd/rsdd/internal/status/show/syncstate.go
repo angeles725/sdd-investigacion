@@ -33,7 +33,10 @@ var counterOrder = strings.Fields(ownedCounters)
 // syncState is the whole mode. The scope guard and the blocked_open pre-pass run before the first write, so a
 // refusal never leaves a half-rewritten set of files.
 func (c *ctx) syncState() int {
-	states, _ := kit.ListStateFiles(c.abs(c.target))
+	if !c.listable() {
+		return 1
+	}
+	states, _ := listStateFiles(c.abs(c.target))
 	if c.opts.focus != "" || c.opts.root {
 		focused := c.state // ROOT-SYNC-SELECT: the root was resolved (and vetted) at startup
 		if !c.opts.root {
@@ -174,7 +177,7 @@ func (c *ctx) syncOne(blocked int) int {
 	// ROOT-CORPUS-WIDE: the un-suffixed root of a multi-focus corpus with no prefix or range is counted corpus-wide.
 	corpusWide := false
 	if base == "RESEARCH-STATE.md" && pfx.Value == "" && !ranged && scope != "shared-global" {
-		all, _ := kit.ListStateFiles(c.abs(c.target))
+		all, _ := listStateFiles(c.abs(c.target))
 		corpusWide = len(all) > 1
 	}
 
