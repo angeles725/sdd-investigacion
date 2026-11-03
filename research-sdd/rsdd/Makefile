@@ -89,8 +89,20 @@ TEETH_TEST_CPU ?= 1
 TEETH_PKG      ?= .
 TEETH_EXCLUDE  ?=
 TEETH_EXCLUDE_ARG = $(if $(TEETH_EXCLUDE),--exclude-files '$(TEETH_EXCLUDE)' )
+# Out-of-module reads (kit issue #2592): gremlins copies only this module into each mutant's work dir, so an untagged
+# test that reads a kit path outside it (../../toolbelt, templates/, install/) fails in every mutant and every mutant reads
+# KILLED, a vacuous "Lived: 0". Two defences. 1) Tests reach the kit through internal/testkit/kitroot, which honours
+# RSDD_TEST_RESEARCH_SDD; the recipe exports the absolute research-sdd path for the baseline and for gremlins' mutants.
+# 2) Before gremlins runs, the UNMUTATED package is tested in a module-only copy (a temp dir under TMPDIR, removed on
+# exit) with the same tags, memory cap and env; if that baseline fails the target prints the typed line
+# `teeth: DEGRADED — the unmutated package fails in a module-only copy: <pkg>` and exits 1 WITHOUT running gremlins, so a
+# read that bypasses kitroot can never turn into a silent all-KILLED report. TEETH_PKG=. is the whole module (./...).
+# Packages whose lived mutants are known debt are listed in teeth-debt.txt and judged by the bridge suite.
+TEETH_BASE_PKG = $(if $(filter .,$(TEETH_PKG)),./...,$(TEETH_PKG))
+TEETH_KIT      = "$$(cd .. && pwd)"
 teeth:
-	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG)
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU) RSDD_TEST_RESEARCH_SDD=$(TEETH_KIT); $(CAPPED) sh -c 'w=$$(mktemp -d) || exit 2; trap "rm -rf $$w" EXIT; mkdir "$$w/rsdd" && cp -R . "$$w/rsdd/" || exit 2; cd "$$w/rsdd" && go test -count=1 $(TEETH_BASE_PKG) >"$$w/baseline.out" 2>&1 || { tail -n 40 "$$w/baseline.out"; echo "teeth: DEGRADED — the unmutated package fails in a module-only copy: $(TEETH_PKG)"; exit 1; }'
+	@export GOFLAGS="$$GOFLAGS -tags=$(TEETHTAGS)" GOMAXPROCS=$(TEETH_TEST_CPU) RSDD_TEST_RESEARCH_SDD=$(TEETH_KIT); $(CAPPED) go run -exec=env $(GREMLINS) unleash --timeout-coefficient 6 --workers $(TEETH_WORKERS) $(TEETH_EXCLUDE_ARG)$(TEETH_PKG)
 
 cross:
 	h=$$(go run ./cmd/rsdd-srchash .) && \
