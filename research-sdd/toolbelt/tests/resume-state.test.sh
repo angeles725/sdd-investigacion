@@ -195,7 +195,22 @@ OUT="$( ( ulimit -s 256; env -i PATH="$PATH" HOME="$HOME" timeout 120 bash "$SUT
 eq "16 700 branches under a 256K stack limit: rc 0 and all listed" "$RC|$(jqe '[.branches[]|select(.name|startswith("bulk/"))]|length')" "0|700"
 ( cd "$R" && git for-each-ref --format='%(refname)' refs/heads/bulk | while read -r ref; do git update-ref -d "$ref"; done ) >/dev/null 2>&1
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+# resume-state.sh is an rsdd_exec shim since kit issue #2578: the guards below live in Go (internal/status/resume: golden,
+# unit and differential tests, mutation-checked there) and a bash mutant cannot reach them. Under --prove-teeth the mutants
+# of a shim are of the SHIM itself: a wrong dispatch and dropped arguments must each change what the suite pins.
+IS_SHIM=0; grep -q 'rsdd_exec' "$SUT" && IS_SHIM=1
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 1 ]; then
+  echo "-- teeth: resume-state shim mutants --"
+  _sd="$TMP/shim-teeth"; mkdir -p "$_sd"; ln -s "$HERE/../lib" "$_sd/lib"
+  want="$(PATH="$TMP/nogh" timeout 30 bash "$SUT" --cwd "$R" --no-gh --base-ref loose 2>/dev/null | jq -r '.base_ref' 2>/dev/null)"
+  for _m in "dispatch:s/rsdd_exec status resume-state/rsdd_exec status resume-render/" 'noargs:s/ "\$@"$//'; do
+    _n="${_m%%:*}"; sed "${_m#*:}" "$SUT" > "$_sd/$_n.sh"
+    if cmp -s "$SUT" "$_sd/$_n.sh"; then no "teeth shim-$_n: mutant is byte-identical to the shim, could not be built"; continue; fi
+    got="$(cd "$R" && PATH="$TMP/nogh" timeout 30 bash "$_sd/$_n.sh" --cwd "$R" --no-gh --base-ref loose 2>/dev/null | jq -r '.base_ref' 2>/dev/null)"
+    if [ "$want" = loose ] && [ "$got" != "$want" ]; then ok "teeth shim-$_n: mutant flips the assertion"; else no "teeth shim-$_n: mutant still satisfies the assertion (good=[$want] mutant=[$got]) — THEATER"; fi
+  done
+fi
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 0 ]; then
   echo "-- teeth: resume-state mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"

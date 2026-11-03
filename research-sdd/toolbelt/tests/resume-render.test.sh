@@ -100,9 +100,16 @@ REAL_JQ="$(command -v jq)"; mkdir -p "$TMP/badjq"
 # The stub scans EVERY argv word for the render program, so a reordered jq call cannot slip past it.
 printf '#!/bin/sh\nfor a in "$@"; do case "$a" in *"def cnt"*) echo "# Resume handoff"; echo "jq: error: boom" >&2; exit 5 ;; esac; done\nexec "%s" "$@"\n' "$REAL_JQ" > "$TMP/badjq/jq"
 chmod +x "$TMP/badjq/jq"; cp "$P" "$TMP/e6.json"
+# resume-render.sh is an rsdd_exec shim since kit issue #2578: the render is Go, with no jq program to fail. The render-failure
+# path (stdout empty, rc 2, typed message) is pinned by Go TestRepoFalseIsARenderFailure; the jq-stub case cannot reach it.
+IS_SHIM=0; grep -q 'rsdd_exec' "$SUT" && IS_SHIM=1
+if [ "$IS_SHIM" = 1 ]; then
+  printf '  SKIP  3q render failure through a failing jq: the Go port has no jq program (pinned by Go TestRepoFalseIsARenderFailure)\n'
+else
 SO="$(PATH="$TMP/badjq:$PATH" timeout 30 bash "$SUT" --json "$TMP/e6.json" 2>"$TMP/e6.err" </dev/null)"; RC=$?
 eq "3q render failure rc" "$RC" 2; eq "3q render failure stdout empty" "$SO" ""
 eq "3q typed message" "$(head -c 33 "$TMP/e6.err")" "resume-render.sh: render failed: "
+fi
 
 # 3r. missing keys are unknown; only an explicit null is "none"/"detached"
 jq 'del(.repo.remote)' "$P" > "$TMP/norem.json"; run --json "$TMP/norem.json"
@@ -164,6 +171,8 @@ eq "6d resume-state failure -> rc 2" "$RC" 2; has "6e failure message" "resume-s
 
 # 6f. resume-state.sh exiting 3 (DEGRADED) propagates as rc 3, not 2 (kit issue #1571): a stub sibling
 mkdir -p "$TMP/st3"; cp "$SUT" "$TMP/st3/resume-render.sh"
+# A copied shim finds its helper library beside itself: link the real one next to the copy.
+[ "$IS_SHIM" = 1 ] && ln -s "$HERE/../lib" "$TMP/st3/lib"
 printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$TMP/st3/resume-state.sh"
 OUT="$(timeout 30 bash "$TMP/st3/resume-render.sh" --no-gh 2>&1 </dev/null)"; RC=$?
 eq "6f  resume-state rc 3 propagates as rc 3" "$RC" 3; has "6g propagation names the failure" "resume-state.sh failed (rc 3)"
@@ -177,7 +186,23 @@ run --json "$FX/state-degraded.json"
 after="$(find "$FX" -type f | sort | xargs sha1sum 2>/dev/null)"
 eq "7  fixtures untouched" "$after" "$before"
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 1 ]; then
+  # The guards live in Go (internal/status/resume: golden, unit and differential tests, mutation-checked there). Here the
+  # mutants are of the SHIM: a wrong dispatch, dropped arguments and a dropped --toolbelt must each change what is pinned.
+  echo "-- teeth: resume-render shim mutants --"
+  MUT="$(mktemp -d)"; trap 'rm -rf "$TMP" "$MUT"' EXIT
+  mkdir -p "$MUT/s3"; ln -s "$HERE/../lib" "$MUT/s3/lib"
+  printf '#!/bin/sh\necho "DEGRADED: stub" >&2\nexit 3\n' > "$MUT/s3/resume-state.sh"
+  for _m in 'dispatch:s/rsdd_exec status resume-render/rsdd_exec status resume-state/' 'noargs:s/ "\$@"$//' 'notoolbelt:s/ --toolbelt "\$_RSDD_SELF"//'; do
+    _n="${_m%%:*}"; sed "${_m#*:}" "$SUT" > "$MUT/s3/$_n.sh"
+    if cmp -s "$SUT" "$MUT/s3/$_n.sh"; then no "teeth shim-$_n: mutant is byte-identical to the shim, could not be built"; continue; fi
+    # probe A: the stub sibling exits 3 and the shim must propagate it; probe B: --json FILE renders (rc 0)
+    OUT="$(timeout 30 bash "$MUT/s3/$_n.sh" --no-gh 2>&1 </dev/null)"; rcA=$?
+    OUT="$(timeout 30 bash "$MUT/s3/$_n.sh" --json "$FX/state-prs-ok.json" 2>&1 </dev/null)"; rcB=$?
+    if [ "$rcA" != 3 ] || [ "$rcB" != 0 ]; then ok "teeth shim-$_n: mutant flips an assertion (probe A rc $rcA, good 3; probe B rc $rcB, good 0)"; else no "teeth shim-$_n: mutant still satisfies both probes — THEATER"; fi
+  done
+fi
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 0 ]; then
   echo "-- teeth: resume-render mutants --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"

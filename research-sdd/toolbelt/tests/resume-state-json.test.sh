@@ -21,6 +21,10 @@ SUT="${RSJ_SUT:-$HERE/../resume-state.sh}"
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases" >&2; exit 2; }
 DOC="$HERE/../json-envelope.v1.md"
+# resume-state.sh is an rsdd_exec shim since kit issue #2578: the envelope is built by Go (internal/status/resume), so the
+# cases that read or mutate the script text read the Go source (kinds) or are SKIPped (a failing jq, bash mutants).
+IS_SHIM=0; grep -q 'rsdd_exec' "$SUT" && IS_SHIM=1
+GOSRC="$HERE/../../rsdd/internal/status/resume/state_out.go"
 [ -f "$DOC" ] || { echo "FATAL: contract doc not found: $DOC" >&2; exit 2; }
 GOLD="$HERE/fixtures/resume-state/json-envelope/default-output.golden"
 
@@ -157,7 +161,11 @@ run_case "json: gh ok -> pr items and counts.prs 2, prs_unknown 0"           jt_
 run_case "json: gh failing -> prs 0 beside prs_unknown 1 (never a bare zero)" jt_prsunk ""
 run_case "json: jq/git missing -> rc 3 + typed degraded envelope"            jt_degr ""
 run_case "default: jq missing keeps rc 3 and empty stdout"                   jt_degr_plain ""
+if [ "$IS_SHIM" = 1 ]; then
+  printf '  SKIP  json: a failing jq envelope build -> rc 2: the Go port has no jq step (pinned by Go TestFractionalPRNumber)\n'
+else
 run_case "json: a failing jq envelope build -> rc 2, empty stdout"           jt_jqfail ""
+fi
 run_case "json: operational failures (bad ref, not a repo) -> rc 2, empty stdout" jt_oper ""
 run_case "json: flag position does not matter"                               jt_flagpos ""
 run_case "json: --base-ref honoured in the repo item"                        jt_base ""
@@ -167,17 +175,31 @@ fi
 # 2 — STRUCTURAL: the item kinds the SUT can emit == the kinds json-envelope.v1.md documents (both directions).
 kinds_check() {
   local sut="$1" doc="$2" code docd
-  code="$(grep -oE '\{kind:"[a-z-]+"' "$sut" | sed -E 's/\{kind:"([a-z-]+)"/\1/' | sort -u)"
+  if [ "$IS_SHIM" = 1 ] && [ "$sut" = "$SUT" ]; then
+    code="$(grep -oE 'add\("[a-z-]+"' "$GOSRC" | sed -E 's/add\("([a-z-]+)"/\1/' | sort -u)"
+  else
+    code="$(grep -oE '\{kind:"[a-z-]+"' "$sut" | sed -E 's/\{kind:"([a-z-]+)"/\1/' | sort -u)"
+  fi
   docd="$(awk '/^### `research-sdd.resume-state\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
             | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
 }
-if kinds_check "$SUT" "$DOC"; then ok "kinds: SUT item kinds == documented kinds (both directions)" "($(grep -oE '\{kind:"[a-z-]+"' "$SUT" | sort -u | wc -l) kinds)"
-else no "kinds: code/doc kind sets differ" "code=[$(grep -oE '\{kind:"[a-z-]+"' "$SUT" | sort -u | tr '\n' ' ')]"; fi
+if kinds_check "$SUT" "$DOC"; then ok "kinds: SUT item kinds == documented kinds (both directions)" "(the kinds the contract lists)"
+else no "kinds: code/doc kind sets differ" "(see kinds_check; the Go source is $GOSRC when the SUT is a shim)"; fi
 jt_kinds() { kinds_check "$1" "$DOC"; }
 
 # --- TEETH (--prove-teeth): each mutant of the SUT must break the case that pins it.
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 1 ]; then
+  # The guards live in Go (internal/status/resume: golden, unit and differential tests, mutation-checked there). Here the
+  # mutants are of the SHIM: a wrong dispatch and dropped arguments must each break a case.
+  _sd="$ROOT/shim-teeth"; mkdir -p "$_sd"; ln -s "$HERE/../lib" "$_sd/lib"
+  for _m in "dispatch:s/rsdd_exec status resume-state/rsdd_exec status resume-render/" 'noargs:s/ "\$@"$//'; do
+    _n="${_m%%:*}"; sed "${_m#*:}" "$SUT" > "$_sd/$_n.sh"
+    if cmp -s "$SUT" "$_sd/$_n.sh"; then no "teeth JSON-shim-$_n: mutant is byte-identical to the shim, could not be built" ""; continue; fi
+    if jt_optin "$_sd/$_n.sh"; then no "teeth JSON-shim-$_n: mutant survived, case is THEATER" ""; else ok "teeth JSON-shim-$_n: mutant breaks the case (has teeth)" "()"; fi
+  done
+fi
+if [ "${1:-}" = "--prove-teeth" ] && [ "$IS_SHIM" = 0 ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
