@@ -35,10 +35,11 @@ func TestArchiveFixtureGitStartsNoBackgroundMaintenance(t *testing.T) {
 	}
 }
 
-// The commands under test run with the base env, so it carries the same two keys.
+// The commands under test run with the base env, so it carries the same settings.
 func TestArchiveBaseEnvTurnsBackgroundMaintenanceOff(t *testing.T) {
 	env := archiveBaseEnv(t, t.TempDir())
-	for _, kv := range archiveNoMaintenance {
+	for _, kv := range []string{"GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto",
+		"GIT_CONFIG_VALUE_1=0", "GIT_CONFIG_COUNT=2"} {
 		if !slices.Contains(env, kv) {
 			t.Errorf("base env lacks %q: %q", kv, env)
 		}
