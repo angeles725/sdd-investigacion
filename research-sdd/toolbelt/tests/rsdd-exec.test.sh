@@ -955,6 +955,7 @@ R="$(scen disagree_noflock "$LIB")"
 chk "flock absent + hash disagreement: first call runs the rebuilt binary" "$R" first '^o\| FAKE-NEW$'
 chk "flock absent + hash disagreement: first call prints the typed line" "$R" first '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — shell and go source hashes disagree$'
 nchk "flock absent + hash disagreement: the second call does not rebuild" "$R" second 'BUILDNOISE'
+nchk "flock absent + hash disagreement: the second call does not claim to rebuild (no flock notice)" "$R" second 'flock not found'
 chk "flock absent + hash disagreement: two consecutive calls build exactly once (no loop)" "$R" second '^GOCALLS=1$'
 pchk "flock absent + hash disagreement: a changed source costs exactly one more build" "$R" '^GOCALLS=2$'
 R="$(scen lockbusy "$LIB")"

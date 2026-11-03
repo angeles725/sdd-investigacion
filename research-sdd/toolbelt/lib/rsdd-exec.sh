@@ -137,7 +137,6 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
     local kit="$1" bin="$1/bin/rsdd" lock="$1/bin/.rsdd.lock" rc=0 crc locked=1
     _rsdd_exec_lock_wait
     if ! command -v flock >/dev/null 2>&1; then
-      echo "rsdd-exec: notice: flock not found; rebuilding without a lock" >&2
       locked=0
     else
       mkdir -p -- "$kit/bin" 2>/dev/null || return 3
@@ -153,6 +152,8 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
         if [ "$crc" -eq 0 ]; then exit 10; fi
         if [ "$crc" -eq 1 ] && _rsdd_exec_disagree_known "$kit"; then exit 11; fi
       fi
+      # The notice is printed only when an unlocked rebuild really starts, not when the re-check found nothing to do.
+      [ "$locked" -eq 1 ] || echo "rsdd-exec: notice: flock not found; rebuilding without a lock" >&2
       _rsdd_exec_build "$kit" || exit $?
       crc=0; _rsdd_exec_check "$bin" "$kit/rsdd" || crc=$?
       if [ "$crc" -eq 1 ] && [ -n "$_RSDD_EXEC_GOT" ]; then
