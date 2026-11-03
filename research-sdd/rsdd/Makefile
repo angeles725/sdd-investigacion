@@ -91,7 +91,8 @@ TEETH_EXCLUDE  ?=
 TEETH_EXCLUDE_ARG = $(if $(TEETH_EXCLUDE),--exclude-files '$(TEETH_EXCLUDE)' )
 # Out-of-module reads (kit issue #2592): gremlins copies only this module into each mutant's work dir, so an untagged
 # test that reads a kit path outside it (../../toolbelt, templates/, install/) fails in every mutant and every mutant reads
-# KILLED, a vacuous "Lived: 0". Two defences. 1) Tests reach the kit through internal/testkit/kitroot, which honours
+# KILLED, a vacuous "Lived: 0". Two defences. 1) Tests are to reach the kit through internal/testkit/kitroot (repointed
+# per package by the #2592 slices; the listed packages do not yet), which honours
 # RSDD_TEST_RESEARCH_SDD; the recipe exports the absolute research-sdd path for the baseline and for gremlins' mutants.
 # 2) Before gremlins runs, the UNMUTATED package is tested in a module-only copy (a temp dir under TMPDIR, removed on
 # exit) with the same tags, memory cap and env; if that baseline fails the target prints the typed line

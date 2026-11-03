@@ -1,8 +1,9 @@
 # Teeth debt list (kit issue #2592). One package per line: `<package> #<issue> <reason>`.
 #
 # Until #2592 these packages' untagged tests read kit paths outside the Go module, so gremlins' module-only work dir
-# made every mutant read KILLED (a vacuous "Lived: 0"). The reads now go through internal/testkit/kitroot, so
-# `make teeth` reports their real lived mutants. A lived mutant of a package listed here is printed as DEBT by the
+# made every mutant read KILLED (a vacuous "Lived: 0"). Their baselines now fail in the module-only copy, so `make
+# teeth` skips them as DEBT instead of reporting a false pass; once their reads go through internal/testkit/kitroot
+# (the #2592 repoint slices), `make teeth` reports their real lived mutants. A lived mutant of a package listed here is printed as DEBT by the
 # bridge (research-sdd/toolbelt/tests/rsdd-go.test.sh) and does not fail the run; a lived mutant of any other package
 # still fails. A listed package that reads Lived 0 is reported STALE: delete its line. Paying a package's debt means
 # killing its lived mutants with tests and removing its line, one package per change.
