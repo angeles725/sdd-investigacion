@@ -293,8 +293,12 @@ func archiveFarmStub(t testing.TB, tb, name, content string) {
 
 // ---- running -----------------------------------------------------------------------------------------------
 
-func archiveBaseEnv(root string) []string {
-	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC",
+// archiveBaseEnv carries RSDD_BIN: the gates the archive runs (verify-state.sh and the other rsdd shims) must use the
+// test's binary, never build one into the kit's bin/ (CI has none, and a case that stubs git makes that build fail,
+// so only the Go side reported "verify-state.sh did not run"; kit issue #2477).
+func archiveBaseEnv(t testing.TB, root string) []string {
+	t.Helper()
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC", "RSDD_BIN=" + archiveRsddBin(t),
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "TMPDIR=" + filepath.Join(root, "tmp")}
 }
 
@@ -433,7 +437,7 @@ func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveR
 	if c.cwd != nil {
 		cwd = c.cwd(f, d)
 	}
-	env := archiveBaseEnv(root)
+	env := archiveBaseEnv(t, root)
 	if c.env != nil {
 		env = append(env, c.env(f)...)
 	}

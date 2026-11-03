@@ -106,7 +106,7 @@ func TestArchiveShimMatchesLegacy(t *testing.T) {
 			d := tc.build(f)
 			pristine := filepath.Join(root, "pristine")
 			archiveCopy(t, f.cdir, pristine)
-			env := archiveBaseEnv(root)
+			env := archiveBaseEnv(t, root)
 			restore := func() { archiveWipe(t, f.cdir); archiveCopy(t, pristine, f.cdir) }
 
 			restore()
