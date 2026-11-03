@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os/exec"
 	"path"
-	"regexp"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
@@ -104,8 +103,6 @@ func (c *ctx) staleGate() bool {
 	return false // every failure came from a stopped focus: fall through to the aggregation
 }
 
-var envelopeMarker = regexp.MustCompile(`<!-- research-state.v1 -->`)
-
 // hasInvalidPriority is `grep -q '^INVALID_PRIORITY' < <(backlog_rows 2>/dev/null)`: an unparseable backlog is a
 // real failure for an ACTIVE focus (concealment hazard).
 func (c *ctx) hasInvalidPriority() bool {
@@ -118,15 +115,12 @@ func (c *ctx) hasInvalidPriority() bool {
 }
 
 // activeFocusStale mirrors verify-state CHECK B and CHECK D for a focus that still has investigable gaps: no
-// envelope, an investigable_open that is not the derived count, or declared full coverage (gaps_closed ==
+// envelope (an absent investigable_open), an investigable_open that is not the derived count, or declared full coverage (gaps_closed ==
 // known_gaps > 0). A focus with nothing investigable is genuinely stopped, and its stale envelope is bypassed.
 func (c *ctx) activeFocusStale() bool {
 	n, _ := c.countInvestigable()
 	if n == 0 {
 		return false
-	}
-	if !envelopeMarker.MatchString(c.stateText()) {
-		return true
 	}
 	if e, _ := c.envGet("investigable_open"); e != fmt.Sprint(n) {
 		return true
@@ -134,11 +128,8 @@ func (c *ctx) activeFocusStale() bool {
 	gc, _ := c.envGet("gaps_closed")
 	kg, _ := c.envGet("known_gaps")
 	k, ok := intOf(kg)
-	return gc != "" && kg != "" && isDigits(gc+kg) && ok && k > 0 && gc == kg
+	return ok && k > 0 && gc == kg
 }
-
-// isDigits is `grep -qE '^[0-9]+$'` over one value.
-func isDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 
 // staleLine prints the STALE line: in a multi-focus corpus (corpus-wide mode) it names the focuses whose own
 // verify-state fails, and it always ends with the first failing check and the file it belongs to (kit #1544).

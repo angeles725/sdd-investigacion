@@ -39,7 +39,7 @@ func (c *ctx) resolveNextWith(isBlocked func(gap string) int) (string, int) {
 			}
 			_, gap, st := tabRead(line)
 			// LEADING-TOKEN: bare or decorated `pending`, never "not pending" / "blocked (pending review)".
-			if gap == "" || strings.Contains(gap, "~~") || statusToken(st) != "pending" {
+			if strings.Contains(gap, "~~") || statusToken(st) != "pending" {
 				continue
 			}
 			switch isBlocked(gap) {

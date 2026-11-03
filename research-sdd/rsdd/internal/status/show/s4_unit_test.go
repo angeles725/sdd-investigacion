@@ -130,14 +130,6 @@ func TestExecVerify(t *testing.T) {
 	}
 }
 
-func TestIsDigits(t *testing.T) {
-	for in, want := range map[string]bool{"0": true, "007": true, "": false, "-1": false, "1a": false, " 1": false} {
-		if got := isDigits(in); got != want {
-			t.Errorf("isDigits(%q) = %v", in, got)
-		}
-	}
-}
-
 // The extractor at its byte edges: the cut is at 160 bytes, backs off continuation bytes and never splits a rune.
 func TestFirstFailureLineCut(t *testing.T) {
 	hdr := "== verify-state: f (target: t) ==\n   FAIL   "
@@ -145,6 +137,8 @@ func TestFirstFailureLineCut(t *testing.T) {
 		{"160 kept", strings.Repeat("b", 160), "f: " + strings.Repeat("b", 160)},
 		{"161 cut", strings.Repeat("b", 161), "f: " + strings.Repeat("b", 157) + "..."},
 		{"rune straddles", strings.Repeat("b", 156) + "€€€€", "f: " + strings.Repeat("b", 156) + "..."},
+		{"0x80 continuation byte is backed off too", strings.Repeat("b", 156) + "ĀĀĀ", "f: " + strings.Repeat("b", 156) + "..."},
+		{"0xBF continuation byte is backed off too", strings.Repeat("b", 156) + "¿¿¿", "f: " + strings.Repeat("b", 156) + "..."},
 		{"rune ends at the cut", strings.Repeat("b", 154) + "€€€€", "f: " + strings.Repeat("b", 154) + "€..."},
 		{"ascii after a rune", strings.Repeat("é", 78) + strings.Repeat("b", 10), "f: " + strings.Repeat("é", 78) + "b..."},
 	} {
