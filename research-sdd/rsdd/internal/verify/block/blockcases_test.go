@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/observed"
 )
 
 // Cases for `rsdd verify block`. testdata/block-cases.txt holds every invocation the three legacy bash suites
@@ -199,15 +200,15 @@ func bkGetenv(env []string) func(string) string {
 // bkImpl is the command under test (a variable so the RED run can point it at an empty command).
 var bkImpl = Run
 
-func bkGo(cwd string, args, env []string) observed {
+func bkGo(cwd string, args, env []string) observed.Run {
 	var out, errb bytes.Buffer
 	rc := bkImpl(args, cli.Stdio{In: strings.NewReader(""), Out: &out, Err: &errb, Env: bkGetenv(env), Environ: func() []string { return env },
 		Clock: func() time.Time { return time.Time{} }, Cwd: cwd})
-	return observed{out.String(), errb.String(), rc}
+	return observed.New(out.String(), errb.String(), rc)
 }
 
-func bkScrub(o observed, dir string) bkGolden {
-	return bkGolden{strings.ReplaceAll(o.stdout, dir, bkDirToken), strings.ReplaceAll(o.stderr, dir, bkDirToken), o.rc}
+func bkScrub(o observed.Run, dir string) bkGolden {
+	return bkGolden{strings.ReplaceAll(o.Stdout, dir, bkDirToken), strings.ReplaceAll(o.Stderr, dir, bkDirToken), o.RC}
 }
 
 func bkLoadGoldens(t *testing.T) map[string]bkGolden {
