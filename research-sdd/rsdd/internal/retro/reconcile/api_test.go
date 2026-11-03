@@ -78,7 +78,7 @@ func TestReportTypedStatesStayDistinct(t *testing.T) {
 
 func TestRunOperationalErrors(t *testing.T) {
 	b := mkBox(t, dcase{retro: pending + tableHead + rowsOf("1")})
-	base := Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd}
+	base := Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd, Env: noEnv}
 
 	nilCache := base
 	nilCache.IssuesCache = nil
@@ -102,11 +102,11 @@ func TestRunDeadlineIsWrapped(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancel()
 	<-ctx.Done()
-	_, err := Run(ctx, Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd})
+	_, err := Run(ctx, Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd, Env: noEnv})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want errors.Is(err, context.DeadlineExceeded)", err)
 	}
-	_, err = Run(context.Background(), Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd, Timeout: time.Nanosecond})
+	_, err = Run(context.Background(), Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd, Env: noEnv, Timeout: time.Nanosecond})
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Timeout: err = %v, want nil or a wrapped deadline", err)
 	}
@@ -115,7 +115,7 @@ func TestRunDeadlineIsWrapped(t *testing.T) {
 func TestCacheBodiesAndFileAgree(t *testing.T) {
 	c := dcase{retro: pending + tableHead + rowsOf("1", "2"), cache: sigs("target-foo", "r.md", "1")}
 	b := mkBox(t, c)
-	opts := Options{Retro: b.arg, KitRoot: b.root, Cwd: b.cwd}
+	opts := Options{Retro: b.arg, KitRoot: b.root, Cwd: b.cwd, Env: noEnv}
 	opts.IssuesCache = CacheFile(b.cache)
 	fromFile, err := Run(context.Background(), opts)
 	if err != nil {
@@ -128,5 +128,21 @@ func TestCacheBodiesAndFileAgree(t *testing.T) {
 	}
 	if !reflect.DeepEqual(fromFile, fromBodies) {
 		t.Errorf("file cache and in-memory cache differ:\n%+v\n%+v", fromFile, fromBodies)
+	}
+}
+
+// noEnv is an empty environment: the tests never read the host's.
+func noEnv(string) string { return "" }
+
+// Cwd and Env are required inputs (archtest: os.Getwd / os.Getenv only in cli/stdio.go): a caller that forgets
+// one gets ErrUsage, never the process's own working directory or environment.
+func TestRunRequiresCwdAndEnv(t *testing.T) {
+	for name, o := range map[string]Options{
+		"no cwd": {Retro: "r.md", KitRoot: "/k", Env: noEnv, IssuesCache: CacheBodies("")},
+		"no env": {Retro: "r.md", KitRoot: "/k", Cwd: "/", IssuesCache: CacheBodies("")},
+	} {
+		if _, err := Run(context.Background(), o); !errors.Is(err, ErrUsage) {
+			t.Errorf("%s: err = %v, want ErrUsage", name, err)
+		}
 	}
 }

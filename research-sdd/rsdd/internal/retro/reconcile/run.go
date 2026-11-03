@@ -32,9 +32,10 @@ type Options struct {
 	Timeout time.Duration
 	// KitRoot is the kit checkout holding research-sdd/TARGETS.md (the legacy "two directories above toolbelt").
 	KitRoot string
-	// Cwd resolves a relative Retro; "" = the process working directory.
+	// Cwd resolves a relative Retro. Required: the caller passes its cli.Stdio working directory (archtest
+	// forbids os.Getwd outside cli/stdio.go).
 	Cwd string
-	// Env reads the environment (RESEARCH_HOME, HOME for TARGETS.md paths); nil = os.Getenv.
+	// Env reads the environment (RESEARCH_HOME, HOME for TARGETS.md paths). Required, for the same reason.
 	Env func(string) string
 }
 
@@ -55,22 +56,15 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return Report{}, fmt.Errorf("%w: no retro given", ErrUsage)
 	case o.KitRoot == "":
 		return Report{}, fmt.Errorf("%w: no kit root given", ErrUsage)
+	case o.Cwd == "":
+		return Report{}, fmt.Errorf("%w: no working directory given", ErrUsage)
+	case o.Env == nil:
+		return Report{}, fmt.Errorf("%w: no environment reader given", ErrUsage)
 	case o.IssuesCache == nil:
 		return Report{}, fmt.Errorf("%w: a per-retro gh query (nil IssuesCache)", ErrNotInSlice)
 	}
-	cwd, env := o.Cwd, o.Env
-	if cwd == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return Report{}, fmt.Errorf("reconcile: working directory: %w", err)
-		}
-		cwd = wd
-	}
-	if env == nil {
-		env = os.Getenv
-	}
 	rep := &Report{}
-	if err := resolveAndAudit(rep, o, cwd, env); err != nil {
+	if err := resolveAndAudit(rep, o, o.Cwd, o.Env); err != nil {
 		return Report{}, err
 	}
 	if err := ctx.Err(); err != nil {
