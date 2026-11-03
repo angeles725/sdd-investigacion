@@ -167,7 +167,7 @@ func bkMaterialize(t *testing.T, c bkCase) (dir, cwd string, args, env []string)
 		for _, tool := range []string{"bash", "awk", "grep", "sed", "sort", "cut", "find", "git", "head", "tr", "wc", "basename", "dirname", "readlink", "cat"} {
 			p, err := exec.LookPath(tool)
 			if err != nil {
-				t.Skipf("%s is required by this test: %v", tool, err)
+				t.Fatalf("%s is required by this test: %v", tool, err)
 			}
 			if err := os.Symlink(p, filepath.Join(bin, tool)); err != nil {
 				t.Fatal(err)

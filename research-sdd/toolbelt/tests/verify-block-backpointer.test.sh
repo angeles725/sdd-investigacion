@@ -48,8 +48,9 @@ if [ "$rc" = 0 ] && grep -q 'back-pointer check off — --backptr=off' <<<"$o" &
 else no "BP-3 rc=$rc"; fi
 
 printf '# Block 3\n\nSee [Block 1] for context.\n\nThis refutes the earlier view somewhere in the old paragraph of Block 1 after a long distance %s.\n' "$(printf 'x%.0s' $(seq 1 90))" > "$c/x-block3.md"
+od="$(run "$c/x-block3.md")"
 o="$(run --backptr=all "$c/x-block3.md")"
-if grep -q '^-- back-pointer: ' <<<"$o" || grep -q '^   (none — no correction sentence' <<<"$o"; then ok "BP-4 --backptr=all is accepted and ends in a summary line"
+if [ "$o" != "$od" ] && grep -q '^-- back-pointer: ' <<<"$o"; then ok "BP-4 --backptr=all crosses the shim: the report differs from the default (high) one and ends in a summary line"
 else no "BP-4 :: $(grep -i back-pointer <<<"$o")"; fi
 
 printf '# t\n\nThis corrects Block 1.\n' > "$c/notes.md"
@@ -66,8 +67,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   printf '# Block 1 — old\n\nNothing points forward.\n' > "$c/x-block1.md"
   if mk_mut "teeth A: arguments dropped" "$SUT" "$TMP/vmutA.sh" 's/rsdd_exec verify block "\$@"/rsdd_exec verify block/'; then
     stage "$TMP/vmA" "$TMP/vmutA.sh"
-    mo="$(bash "$TMP/vmA/verify-block.sh" "$c/x-block2.md" 2>&1)"
-    if ! grep -q 'BACKPTR?' <<<"$mo"; then ok "teeth A: arguments dropped → no candidate, BP-1 would go RED"; else no "teeth A: mutant still reports"; fi
+    mo="$(bash "$TMP/vmA/verify-block.sh" "$c/x-block2.md" 2>&1)"; mrc=$?
+    if [ "$mrc" = 2 ] && grep -q "^usage: verify-block.sh " <<<"$mo" && ! grep -q 'BACKPTR?' <<<"$mo"; then ok "teeth A: arguments dropped → no candidate, BP-1 would go RED"; else no "teeth A: mutant still reports"; fi
   fi
 fi
 

@@ -42,8 +42,11 @@ if grep -q '^   (none — no bare feasibility verdict)$' <<<"$o"; then ok "PF-2 
 else no "PF-2 :: $(grep -i possib <<<"$o")"; fi
 
 mkdir -p "$TMP/corpus/sub"; cp "$TMP/bare.md" "$TMP/corpus/a.md"; cp "$TMP/ladder.md" "$TMP/corpus/sub/b.md"; printf 'no way to know\n' > "$TMP/corpus/sub/c.txt"
+sum_corpus(){ (cd "$TMP/corpus" && find . -type f -exec cksum {} + | LC_ALL=C sort); }
+before="$(sum_corpus)"
 o="$(bash "$TMP/tb/verify-block.sh" --possibility-sweep "$TMP/corpus" 2>"$TMP/e3")"; rc=$?
-if [ "$rc" = 0 ] && [ ! -s "$TMP/e3" ] && grep -q "^$TMP/corpus/a.md:8: not possible — It is not possible to recover the key from the firmware.$" <<<"$o" \
+after="$(sum_corpus)"
+if [ "$rc" = 0 ] && [ -n "$before" ] && [ "$before" = "$after" ] && [ ! -s "$TMP/e3" ] && grep -q "^$TMP/corpus/a.md:8: not possible — It is not possible to recover the key from the firmware.$" <<<"$o" \
    && grep -q '^== possibility-sweep: bare verdicts: 1 ==$' <<<"$o" && grep -q '^   Reopen each as a child gap ' <<<"$o"; then ok "PF-3 --possibility-sweep lists the bare verdicts of the corpus, read-only, exit 0"
 else no "PF-3 rc=$rc :: $o"; fi
 
@@ -59,8 +62,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   echo "-- teeth: each shim mutation must lose its case --"
   if mk_mut "teeth A: arguments dropped" "$SUT" "$TMP/vmutA.sh" 's/rsdd_exec verify block "\$@"/rsdd_exec verify block/'; then
     stage "$TMP/vmA" "$TMP/vmutA.sh"
-    mo="$(bash "$TMP/vmA/verify-block.sh" --possibility-sweep "$TMP/corpus" 2>&1)"
-    if ! grep -q 'possibility-sweep: bare verdicts' <<<"$mo"; then ok "teeth A: arguments dropped → no sweep, PF-3 would go RED"; else no "teeth A: mutant still sweeps"; fi
+    mo="$(bash "$TMP/vmA/verify-block.sh" --possibility-sweep "$TMP/corpus" 2>&1)"; mrc=$?
+    if [ "$mrc" = 2 ] && grep -q "^usage: verify-block.sh " <<<"$mo" && ! grep -q 'possibility-sweep: bare verdicts' <<<"$mo"; then ok "teeth A: arguments dropped → no sweep, PF-3 would go RED"; else no "teeth A: mutant still sweeps"; fi
   fi
 fi
 

@@ -76,7 +76,7 @@ func TestDifferentialBlock(t *testing.T) {
 	if update {
 		// A -run filter runs only some cases: writing those alone would drop every other golden. Refuse instead.
 		if n := len(bkAllCases(t)); len(goldens) != n {
-			t.Fatalf("RSDD_UPDATE_GOLDENS: %d of %d cases ran; re-record with the full case set (no -run filter)", len(goldens), n)
+			t.Fatalf("RSDD_UPDATE_GOLDENS: %d of %d cases recorded; re-record with the full case set (no -run filter, no failed case)", len(goldens), n)
 		}
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
