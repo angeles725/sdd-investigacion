@@ -16,7 +16,7 @@ Each spec is the verbatim slice-table row of issue #2549 (columns: slice, script
 
 ## Tasks
 - [x] T1 (S1) route: delegated — commits: 964ab5c0 (frozen head + goldens), b94b0ca7 (args, pick, --emit-token), 686dda46 (is_blocked); RED: replay failed on a stub (rc 99) for all 114 scenarios and is_blocked stub (rc 7) failed the replay
-- [ ] T2 (S2) route: inline — commit: pending
+- [x] T2 (S2) route: delegated — commits: 820a9467 (frozen excerpts + s2.golden), 85409c45 (backlog_rows, deferred_scan, counters, FOCUSES token); RED: TestReplayS2 failed on a stub for 182 of 182 scenarios (replay differs); no mode completed by S2 alone
 - [ ] T3 (S3) route: inline — commit: pending
 - [ ] T4 (S4) route: inline — commit: pending
 - [ ] T5 (S5) route: inline — commit: pending
@@ -27,3 +27,4 @@ Each spec is the verbatim slice-table row of issue #2549 (columns: slice, script
 ## Log
 - L1 (user, issue #2549 Goal): Port `research-sdd/toolbelt/research-sdd-status.sh` (2,642 lines, the largest bash in the kit) to Go as `rsdd status show`. This is the Phase 3 unit of the Go-port plan (`odd/tasks/go-port.md`, epic #2270). The script becomes an `rsdd_exec` shim.
 - L2 (2026-11-02): T1 is delegated to one bounded writer (named reason: the parent launched it as one unit of a chained delivery); the bash script stays authoritative until S8.
+- S2 (T2): readers ported as internal functions (no mode finishes with S2 alone: --sync-state is S3, --next S4, default report S6). Differential vs the frozen excerpts: 190 scenarios, Go and bash outputs equal (stdout, stderr, rc). gfm gap: FOCUSES reader trims-free quirk (READERS.md 7) is reproduced by prefixing/suffixing a pipe before gfm.SplitRow; the Block column reader needs an unstripped split that gfm lacks, kept local in blockColumnValues.
