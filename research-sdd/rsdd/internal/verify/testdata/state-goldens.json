@@ -1,0 +1,877 @@
+{
+ "backlog-alignment-colons": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "backlog-closed-class": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=1/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-covered-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: COVERED row has 5 cells in 4-col table (pipe in status cell) — review: | high | g | w | covered | extra |\n",
+  "rc": 0
+ },
+ "backlog-crlf": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=1/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=1 != 0 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Gap-backlog\r] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\n",
+  "rc": 1
+ },
+ "backlog-deferred-escaped-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=2/2 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-escaped-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-five-columns": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 2\n   envelope        : covered_blocks=0/0 · investigable_open=2/2 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: malformed backlog row (4 cells, expected 5 — a cell may contain a pipe): | low | G3 | three | b |\n",
+  "rc": 0
+ },
+ "backlog-five-columns-covered-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: COVERED row has 6 cells in 5-col table (pipe in status cell) — review: | high | G1 | one | a | covered | extra |\nWARN: malformed backlog row (6 cells, expected 5 — a cell may contain a pipe): | high | G2 | two | a | pending | extra |\nWARN: malformed backlog row (3 cells, expected 5 — a cell may contain a pipe): | high | G3 | three |\n",
+  "rc": 0
+ },
+ "backlog-four-columns-short-and-pending-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: malformed backlog row (5 cells, expected 4 — a cell may contain a pipe): | high | g | w | pending | extra |\nWARN: malformed backlog row (3 cells, expected 4 — a cell may contain a pipe): | high | g | w |\n",
+  "rc": 0
+ },
+ "backlog-heading-absent": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   ## Gap-backlog section absent — section must be present (even if empty). Add it and re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "backlog-high-row-before-separator": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-legacy-heading": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Backlog] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\n",
+  "rc": 0
+ },
+ "backlog-near-miss-heading": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Gap backlog] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\n",
+  "rc": 1
+ },
+ "backlog-near-miss-no-header": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Gap-backlog-extra] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\nWARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)\n",
+  "rc": 0
+ },
+ "backlog-near-miss-unknown-priority-first": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Gap-backlog-extra] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\nWARN: table under a near-miss backlog heading has no Priority header — its rows are NOT read (not a backlog, or add a Priority column)\n",
+  "rc": 0
+ },
+ "backlog-near-miss-with-header": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Backlog notes] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\nWARN: unknown priority [zzz] in near-miss backlog row — excluded from counts; not a METHODOLOGY §8b tier: | zzz | g | w | pending |\n",
+  "rc": 1
+ },
+ "backlog-oob-five-column-priority-table": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 2\n   envelope        : covered_blocks=0/0 · investigable_open=0/2 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 2 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",
+  "rc": 1
+ },
+ "backlog-oob-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",
+  "rc": 1
+ },
+ "backlog-oob-rows-eof": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "WARN: 1 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",
+  "rc": 1
+ },
+ "backlog-oob-six-column-priority-table": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: 2 backlog-format row(s) outside ## Gap-backlog section — move inside a ## Gap-backlog per METHODOLOGY §8b\n",
+  "rc": 0
+ },
+ "backlog-prose-with-pipes": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-qualifier-priority": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: non-conforming qualifier priority [high (ctx)] — strip the qualifier to \"high\" per METHODOLOGY §8b; row excluded from investigable_open until migrated\n",
+  "rc": 0
+ },
+ "backlog-separator-bad-width": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n",
+  "rc": 0
+ },
+ "backlog-six-columns": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n",
+  "rc": 0
+ },
+ "backlog-struck-priority-four-tildes": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-struck-priority-long": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "backlog-struck-priority-three-tildes": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   backlog NOT FULLY PARSEABLE — unknown priority value(s) found:\n          unknown priority value [~~~] — valid: high, medium, low, deferred\n          Fix the priority value(s) in the backlog, then re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "backlog: unknown priority [~~~] in row: | ~~~ | g | w | pending |\n",
+  "rc": 1
+ },
+ "backlog-tab-in-cells": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=1/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=1 != 0 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "backlog-table-without-priority-header": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: table outside a Gap-backlog section has no Priority header — high/medium/low rows ignored (not a backlog; METHODOLOGY §8b)\n",
+  "rc": 0
+ },
+ "backlog-three-column-table": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: backlog table has 3 columns (separator: |---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\n",
+  "rc": 0
+ },
+ "blocked-bullets": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 2\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=3/6 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=3 != 6 blocked entr(y/ies) — re-seed: --sync-state\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   5 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   5 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocked-child-gaps": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=2/8 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=2 != 8 blocked entr(y/ies) — re-seed: --sync-state\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocked-missing-tried-unblock": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=5/7 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=5 != 7 blocked entr(y/ies) — re-seed: --sync-state\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   5 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   2 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   WARN   1 blocked gap(s) with unblock: placed before needs: — the plan goes AFTER needs:/tried: (METHODOLOGY §21.1).\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocked-prose-form": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=1/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocked-wall-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=1/2 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=1 != 2 blocked entr(y/ies) — re-seed: --sync-state\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   2 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   2 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n   WARN   4 wall backlog row(s) missing an unblock: plan at the end of the Status cell (presence-only check; a row linked by name or gap ID to a ## Blocked gaps bullet is exempt) — METHODOLOGY §21.1.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocks-cannot-see-fail": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=4/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=4: no block file matches prefix 'auth-' — 1 block file(s) exist under other prefixes; if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocks-cannot-see-pass-warn": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope covered_blocks=0: declared 0 matches 0 focus-filtered on-disk — but 1 block file(s) exist under other prefixes (focus 'auth-' matches none); if the corpus uses shared block numbering across focuses, declare block_scope: shared-global then re-seed: --sync-state\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocks-history-escaped-pipe-before-block-column": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 1 block file(s) (shared-global, informational)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocks-prefixed-by-name": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 2 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/2 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocks-shared-global-from-history": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 1 block file(s) (shared-global, informational)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocks-shared-global-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 2 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=9/2 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 2 block file(s) (shared-global, informational)\n   FAIL   envelope covered_blocks=9 != 3 attributed block(s) under shared-global — re-seed: --sync-state\n   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while 2 block file(s) on disk — update the corpus index.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "blocks-shared-global-ok": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 3 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/3 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 3 block file(s) (shared-global, informational)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "blocks-shared-global-unverifiable": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 1 block file(s) (shared-global, informational)\n   INFO   covered_blocks unverifiable under shared-global: no attributed block ids listed\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "bulk-envelope-values": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "bullets-envelope-helper": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "coverage-bold-label": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 7/7\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "coverage-denominators": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 16/16\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   contradictory coverage denominators (05 vs 16 vs 26) — collapse to one canonical coverage number\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "coverage-denominators-same": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 1/5\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "coverage-header-shadow": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 9/10\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   contradictory coverage denominators (4 vs 10) — collapse to one canonical coverage number\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "coverage-line-without-ratio": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "covered-claim-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : 9 claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   'Covered blocks: 9' disagrees with 1 block file(s) on disk — refresh the mirror.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "covered-claim-suppressed": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : 9 claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   covered-blocks mismatch WARN suppressed (known_stale_warns: check-2-covered-blocks)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "dangling-state-symlink": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "grep: <D>/RESEARCH-STATE.md: No such file or directory\n",
+  "rc": 1
+ },
+ "deferred-oob-table-with-priority-header": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=1/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "deferred-oob-table-without-priority-header": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "deferred-row-before-separator": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=1/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "deferred-row-six-column-table": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\nWARN: deferred row skipped (table width 6, only 4 or 5 supported): | deferred | g | w | x | y | pending |\n",
+  "rc": 0
+ },
+ "deferred-rows-4col": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=1/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: deferred row skipped (3 cells, table width 4 — a bare pipe in a cell?): | deferred | g | w |\nWARN: deferred row skipped (5 cells, table width 4 — a bare pipe in a cell?): | deferred | g | w | p | q |\n",
+  "rc": 0
+ },
+ "deferred-rows-5col": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=1/2 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   FAIL   envelope deferred_open=1 != 2 deferred backlog gap(s) — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "dir-named-like-state": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "grep: <D>/RESEARCH-STATE.md: Is a directory\n",
+  "rc": 1
+ },
+ "empty-arg": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "empty-file": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-block-scope-bad": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   envelope block_scope=weird is not a legal value — must be 'per-focus' or 'shared-global'\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-block-scope-per-focus": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-block-scope-typo": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   envelope block_scope is present but unparseable — check for a missing space after the colon (e.g. 'block_scope:shared-global' must be 'block_scope: shared-global') — must be 'per-focus' or 'shared-global'\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-blocked-stale": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/1 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=0 != 1 blocked entr(y/ies) — re-seed: --sync-state\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   1 blocked gap(s) missing a tried: clause (alternatives considered + what measurement closed each) — document before closing as absent-input.\n   WARN   1 blocked gap(s) missing an unblock: line (unblock: <route> · owner: <who> · cost: <estimate>; presence-only check) — a wall is a waypoint; METHODOLOGY §21.1.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-bsr-bad": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocks_since_retro=x is not a valid non-negative integer — fix the value manually.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-bsr-ok": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-bsr-warn": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope blocks_since_retro=11 > 10 — §18 retro cadence exceeded; write a retro and reset to 0.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-consistent": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-covered-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=3/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=3 != 1 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-covered-missing": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=<none>/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=<missing> != 0 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-crlf": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "WARN: near-miss gap-backlog heading [## Gap-backlog (prioritized)\r] — expected \"## Gap-backlog\" or \"## Gap-backlog (<label>)\" per METHODOLOGY\n",
+  "rc": 0
+ },
+ "env-deferred-bad-widths": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope deferred_open=0 != 1 deferred backlog gap(s) — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "WARN: backlog table has 6 columns (separator: |---|---|---|---|---|---|) — only 4- or 5-column tables accepted per METHODOLOGY §8b; rows will be skipped\nWARN: deferred row skipped (table width 6, only 4 or 5 supported): | deferred | g | w | x | y | parked |\nWARN: deferred row skipped (5 cells, table width 4 — a bare pipe in a cell?): | deferred | g | w | parked | extra |\n",
+  "rc": 1
+ },
+ "env-deferred-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=5/1 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope deferred_open=5 != 1 deferred backlog gap(s) — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-deferred-missing": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/2 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope deferred_open missing while 2 deferred backlog gap(s) found — seed it: --sync-state\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-full-coverage-hazard": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope gaps_closed=4 == known_gaps=4 while 1 investigable gap(s) remain — premature-STOP hazard.\n   WARN   envelope known_gaps=4 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=5 — stale denominator; reconcile.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-identity-huge": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-identity-leading-zero-octal": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=0 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=8 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-identity-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=9 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=0 — stale denominator; reconcile.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-identity-octal-abort": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n== exit 0 ==\n",
+  "stderr": "verify-state.sh: line 1114: 08: value too great for base (error token is \"08\")\n",
+  "rc": 0
+ },
+ "env-identity-stale": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-identity-with-in-place-blocked": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=9 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)+in_place_blocked(derived: 2 open blocked backlog row(s) not in blocked_open)=3 — stale denominator; reconcile.\n   WARN   2 wall backlog row(s) missing an unblock: plan at the end of the Status cell (presence-only check; a row linked by name or gap ID to a ## Blocked gaps bullet is exempt) — METHODOLOGY §21.1.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-indented-keys": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-investigable-stale": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=0/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope investigable_open=0 != 1 NEXT-eligible pending gap(s) — re-seed: --sync-state\n          A stale investigable_open is the premature-STOP hazard; verify-state refuses to certify it.\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-no-space-after-colon": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=<none>/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope blocked_open=<missing> != 0 blocked entr(y/ies) — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-requires-exec-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=3/2 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=3 != 2 marked-open requires-execution backlog gap(s) — mirror hygiene; re-seed --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-requires-exec-not-int": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-requires-exec-zero-hazard": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/1 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope requires_execution_open=0 (build loop declared done) while 1 open requires-execution backlog gap(s) remain — premature build-STOP hazard; re-seed --sync-state.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-two-envelopes": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-undocumented-fail": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=7  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope undocumented_findings=7 > 6 — write the missing block(s), decrement to 0, re-seed: --sync-state. Memory is a MIRROR, not the record.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-undocumented-unparseable": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope undocumented_findings=<unparseable> is not a valid non-negative integer — the archive gate cannot check debt.\n          Correct the value manually in the envelope first (change it to a non-negative integer);\n          then re-seed with --sync-state. Running --sync-state without fixing the value first\n          will warn and carry the bad value forward — it will NOT zero it — but verify-state\n          will continue to FAIL until the value is a valid non-negative integer.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "env-undocumented-warn": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=4  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope undocumented_findings=4 > 3 — findings exist only in memory (no block); write the block(s) and decrement.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "env-undocumented-word": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=many  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope undocumented_findings=many is not a valid non-negative integer — the archive gate cannot check debt.\n          Correct the value manually in the envelope first (change it to a non-negative integer);\n          then re-seed with --sync-state. Running --sync-state without fixing the value first\n          will warn and carry the bad value forward — it will NOT zero it — but verify-state\n          will continue to FAIL until the value is a valid non-negative integer.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "flag-first": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "focus-absent": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE-zz.md found under <D>\n",
+  "rc": 2
+ },
+ "focus-absent-relative-target": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE-zz.md found under sub\n",
+  "rc": 2
+ },
+ "focus-empty-slug": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "focus-found": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focus-found-relative-target": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>/sub) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: sub) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focus-glob-slug": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focus-in-two-dirs": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focus-relative-target-no-envelope": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>/sub) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: sub) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh sub --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "focus-relative-target-unreadable": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>/sub) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: sub) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh sub --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "grep: sub/RESEARCH-STATE-auth.md: Permission denied\n",
+  "rc": 1
+ },
+ "focus-without-slug": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "focuses-prefix-cell": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 2 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/2 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=1 != 2 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "focuses-range": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 4 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/4 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=2 != 4 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "focuses-range-cannot-see": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=2 != 1 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "focuses-range-families-and-missing": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 3 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=3/3 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focuses-range-malformed": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "focuses-range-pass-warn": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=0 != 1 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "gap-drift-no-bullet-source": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   gap-drift: DEGRADED: 1 row(s) in scope but none could be compared (no_block=1 no_bullet=0 no_words=0) — this is not a clean result\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "gap-drift-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=1/1 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   WARN   gap-drift: DEGRADED: 1 row(s) in scope but none could be compared (no_block=0 no_bullet=1 no_words=0) — this is not a clean result\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "history-table-without-trailing-pipe": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 2 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=2/2 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   corpus total 2 block file(s) (shared-global, informational)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-absent": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-claude-in-parent": {
+  "stdout": "   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>/corpus) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-claude-in-parent-relative": {
+  "stdout": "   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: corpus) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-dir-clean": {
+  "stdout": "   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 1 file(s) (0 duplicate(s) removed; root: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-dir-empty": {
+  "stdout": "   INFO   hook-placeholder: no hooks found (empty) across .claude/settings.json, settings.local.json, and .claude/hooks/ (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-dir-is-symlink": {
+  "stdout": "   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: <D>/.claude/hooks\n   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-dir-only-dangling-and-settings-file": {
+  "stdout": "   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: <D>/.claude/hooks/dangling\n   INFO   hook-set: inspected 1 hook file(s) — settings.json: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: in.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-placeholders": {
+  "stdout": "   INFO   hook-set: inspected 2 hook file(s) — .claude/hooks/*: 2 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 2,4 still has unreplaced placeholder(s): <KIT> <TARGET> <path to binaries/decompiled output/source code of the system under study> <prefix> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: b.py line(s) 1 still has unreplaced placeholder(s): <SUBJECT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-and-dir-dedup": {
+  "stdout": "   WARN   hook-set: settings.local.json hook command could not be resolved to a script file (inspected: <D>): echo hi\n   WARN   hook-set: settings.local.json hook command resolves outside the target root (inspected: <D>) — refusing to read it (out-of-root): /etc/hostname\n   WARN   hook-set: settings.local.json hook command could not be resolved to a script file (inspected: <D>): ./missing.sh\n   INFO   hook-set: inspected 2 hook file(s) — settings.json: 1 file(s); settings.local.json: 2 file(s); .claude/hooks/*: 1 file(s) (2 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 1 still has unreplaced placeholder(s): <TARGET> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: x.py line(s) 1 still has unreplaced placeholder(s): <prefix> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-dotdot-and-escape": {
+  "stdout": "   WARN   hook-set: settings.json hook command resolves outside the target root (inspected: <D>) — refusing to read it (out-of-root): <T>/001/outside.sh\n   WARN   hook-set: settings.json hook command resolves outside the target root (inspected: <D>) — refusing to read it (out-of-root): <T>/001/outside.sh\n   INFO   hook-set: inspected 1 hook file(s) — settings.json: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: in.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-empty-and-null": {
+  "stdout": "   INFO   hook-placeholder: no hooks found (empty) across .claude/settings.json, settings.local.json, and .claude/hooks/ (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-malformed": {
+  "stdout": "   malformed   hook-set: settings.json at <D> is not valid JSON — cannot derive its hook commands\n   malformed   hook-set: settings.local.json at <D> is not valid JSON — cannot derive its hook commands\n   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-missing-target-and-dir-file": {
+  "stdout": "   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): bash $CLAUDE_PROJECT_DIR/missing.sh\n   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-nested-and-order": {
+  "stdout": "   INFO   hook-set: inspected 4 hook file(s) — settings.json: 4 file(s) (0 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: a.sh line(s) 1 still has unreplaced placeholder(s): <TARGET> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: b.sh line(s) 1 still has unreplaced placeholder(s): <TARGET> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: c.sh line(s) 1 still has unreplaced placeholder(s): <TARGET> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: z.sh line(s) 1 still has unreplaced placeholder(s): <TARGET> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-no-commands": {
+  "stdout": "   INFO   hook-placeholder: no hooks found (empty) across .claude/settings.json, settings.local.json, and .claude/hooks/ (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-non-string-commands": {
+  "stdout": "   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): [\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   \"x.sh\",\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   \"y\"\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): ]\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): true\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): {\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   \"k\": [\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):     1,\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):     {\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):       \"z\": null\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):     }\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   ],\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   \"e\": [],\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>):   \"o\": {}\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): }\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): 7\n   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-quoting": {
+  "stdout": "   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): a b 'c d\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): x.sh\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): -x --y z.sh\n   INFO   hook-set: inspected 2 hook file(s) — settings.json: 3 file(s) (1 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: h h.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n   WARN   hook-placeholder: q.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-settings-unresolvable-only": {
+  "stdout": "   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): echo hi\n   WARN   hook-set: settings.json hook command could not be resolved to a script file (inspected: <D>): 'unclosed quote x.sh\n   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-symlink-out-of-root": {
+  "stdout": "   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: <D>/.claude/hooks/dangling-inroot\n   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: <D>/.claude/hooks/dangling.sh\n   WARN   hook-set: .claude/hooks/ entry is a dangling or non-file symlink: <D>/.claude/hooks/dirlink\n   WARN   hook-set: .claude/hooks/ entry resolves outside the target root (inspected: <D>) — refusing to read it (out-of-root): <T>/002/evil.sh\n   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 2 file(s) (1 duplicate(s) removed; root: <D>)\n   WARN   hook-placeholder: ok.sh line(s) 1 still has unreplaced placeholder(s): <KIT> — adapt this hook for the target before use (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-unreadable-dir": {
+  "stdout": "   unreadable   hook-placeholder: .claude/hooks/ at <D> is not readable — cannot inspect\n   INFO   hook-placeholder: found-but-none-inspectable — every candidate hook was unresolved, out-of-root, degraded, unreadable, malformed, or a dangling/non-file symlink (see the report above); none could be inspected (inspected: <D>)\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "hooks-unreadable-settings": {
+  "stdout": "   unreadable   hook-set: settings.json at <D> is not readable — cannot derive its hook commands\n   INFO   hook-set: inspected 1 hook file(s) — .claude/hooks/*: 1 file(s) (0 duplicate(s) removed; root: <D>)\n   unreadable   hook-placeholder: u.sh is not readable — cannot inspect for placeholders\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "index-clean": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "index-placeholder": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while 1 block file(s) on disk — update the corpus index.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "index-placeholder-suppressed": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   INFO   INDEX.md placeholder WARN suppressed (known_stale_warns: p7-index-placeholder)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "invalid-priority": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   backlog NOT FULLY PARSEABLE — unknown priority value(s) found:\n          unknown priority value [med] — valid: high, medium, low, deferred\n          unknown priority value [bogus] — valid: high, medium, low, deferred\n          Fix the priority value(s) in the backlog, then re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "backlog: unknown priority [med] in row: | med | g | w | pending |\nbacklog: unknown priority [bogus] in row: | bogus | h | w | pending |\n",
+  "rc": 1
+ },
+ "invalid-priority-qualifier": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   backlog NOT FULLY PARSEABLE — unknown priority value(s) found:\n          unknown priority value [urgent (x)] — valid: high, medium, low, deferred\n          Fix the priority value(s) in the backlog, then re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "backlog: unknown priority [urgent (x)] in row: | urgent (x) | g | w | pending |\n",
+  "rc": 1
+ },
+ "no-args": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "no-envelope": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "no-state": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE*.md under <D>\n",
+  "rc": 2
+ },
+ "not-a-dir": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "range-corpus-cannot-see": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   no block file is numbered within B50–B60 while 8 block file(s) exist outside it — the range may be wrong (cannot-see: the count is 0, not a measured zero)\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 distinct block id(s) in B50–B60\n   backlog pending : 0\n   envelope        : covered_blocks=4/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=4: no block file is numbered within B50–B60 (FOCUSES.md range) — 8 block file(s) exist outside it; fix the range cell or declare block_scope: shared-global, then re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "range-corpus-cannot-see-declared-zero": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   no block file is numbered within B50–B60 while 8 block file(s) exist outside it — the range may be wrong (cannot-see: the count is 0, not a measured zero)\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 distinct block id(s) in B50–B60\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope covered_blocks=0: declared 0 matches 0 in-range on-disk — but 8 block file(s) exist outside B50–B60 (the range scopes none of them); fix the range cell or declare block_scope: shared-global, then re-seed: --sync-state\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "range-corpus-declared-matches-ids": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   B2–B4 mixes 2 block families that no other FOCUSES.md row claims (file counts: x=3 y=1) — all are counted as distinct block numbers; give a foreign family its own row (prefix or range) to exclude it\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 3 distinct block id(s) in B2–B4\n   backlog pending : 0\n   envelope        : covered_blocks=3/3 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "range-corpus-malformed-range": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   FOCUSES.md block-scope cell [B9–B3] is range-shaped but not the exact grammar B<a>–B<b> (en dash or hyphen, a <= b) — it scopes nothing (METHODOLOGY §16 Block-scope cell grammar)\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 8 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=7/8 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=7 != 8 block file(s) on disk — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "range-corpus-stale-corpus-wide-count": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   B2–B4 mixes 2 block families that no other FOCUSES.md row claims (file counts: x=3 y=1) — all are counted as distinct block numbers; give a foreign family its own row (prefix or range) to exclude it\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 3 distinct block id(s) in B2–B4\n   backlog pending : 0\n   envelope        : covered_blocks=7/3 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   envelope covered_blocks=7 != 3 distinct block ids in B2–B4 (4 block file(s)) — re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "range-corpus-unit-in-every-message": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-ops.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while 1 block file(s) on disk — update the corpus index.\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   WARN   B2–B4 mixes 2 block families that no other FOCUSES.md row claims (file counts: x=3 y=1) — all are counted as distinct block numbers; give a foreign family its own row (prefix or range) to exclude it\n-- summary --\n   coverage metric : <none>\n   covered blocks  : 9 claimed · 3 distinct block id(s) in B2–B4\n   backlog pending : 0\n   envelope        : covered_blocks=3/3 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=0/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   INDEX.md still contains template placeholders (e.g. <SUBJECT>, <YYYY-MM-DD>) while 3 distinct block id(s) in B2–B4 — update the corpus index.\n   WARN   'Covered blocks: 9' disagrees with 3 distinct block id(s) in B2–B4 — refresh the mirror.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "relative-target": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: .) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "relative-target-sub": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>/sub) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: sub) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "requires-execution-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=3/4 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=3 != 4 marked-open requires-execution backlog gap(s) — mirror hygiene; re-seed --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "retyped-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   re-typed in table : 2 — counted in no bucket\n   WARN   re-typed row still carries \"re-typed\" — write its Status as the re-typed form \"blocked (requires-<what>)\" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: first]\n   WARN   re-typed row still carries \"re-typed\" — write its Status as the re-typed form \"blocked (requires-<what>)\" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: third]\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "retyped-spelling-rows": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 1\n   envelope        : covered_blocks=0/0 · investigable_open=1/1 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   re-typed in table : 3 — counted in no bucket\n   WARN   re-typed row still carries \"re-typed\" — write its Status as the re-typed form \"blocked (requires-<what>)\" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-first]\n   WARN   re-typed row still carries \"re-typed\" — write its Status as the re-typed form \"blocked (requires-<what>)\" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-mid]\n   WARN   re-typed row still carries \"re-typed\" — write its Status as the re-typed form \"blocked (requires-<what>)\" per METHODOLOGY §8b (or move it to the Blocked-gaps section) [gap: rt-last]\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "several-states": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE-auth.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE-bad.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== verify-state: RESEARCH-STATE-db.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE-ui.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "stale-mirror": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 5/5\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 3\n   envelope        : covered_blocks=0/0 · investigable_open=3/3 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope known_gaps=5 != sum of declared counters (gaps_closed+investigable_open+blocked_open+deferred_open+requires_execution_open)=3 — stale denominator; reconcile.\n   FAIL   summary claims ALL 5 gaps closed, but the backlog lists 3 'pending' gap(s).\n          Stale mirror — this desync is what lets the loop emit a PREMATURE STOP. Refresh the\n          coverage metric (or reopen it) so it matches the backlog before honoring any STOP.\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "state-depth-three": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE*.md under <D>\n",
+  "rc": 2
+ },
+ "state-too-deep": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE*.md under <D>\n",
+  "rc": 2
+ },
+ "state-under-dot-git": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE*.md under <D>\n",
+  "rc": 2
+ },
+ "stop-control-forms": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   FAIL   stop-control prose 'read-only-investigable: 4' but backlog derives 0 investigable gap(s) — refresh the Stop control section and re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "stop-control-match": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : <none>\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=<none>/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   envelope requires_execution_open=<missing> is not an integer — seed it: --sync-state.\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "stop-control-prose-bold": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   stop-control prose 'read-only-investigable: 12' but backlog derives 0 investigable gap(s) — refresh the Stop control section and re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "stop-control-prose-match": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "stop-control-prose-mismatch": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   stop-control prose 'read-only-investigable: 5' but backlog derives 0 investigable gap(s) — refresh the Stop control section and re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "stop-control-prose-two-numbers": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   FAIL   stop-control prose 'read-only-investigable: 2\n14' but backlog derives 0 investigable gap(s) — refresh the Stop control section and re-seed: --sync-state\n== exit 1 ==\n",
+  "stderr": "",
+  "rc": 1
+ },
+ "stretch-complete": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "stretch-empty": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   ## Stretch goal section present but missing realistic: and stretch: line(s) — add them per the PROMPT-LOOP BOOTSTRAP template (kit #1268).\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "stretch-missing": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   WARN   ## Stretch goal section present but missing stretch: line(s) — add them per the PROMPT-LOOP BOOTSTRAP template (kit #1268).\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "symlink-and-nonregular-md": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 1 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=1/1 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "symlinked-target": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>-link) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "template-only": {
+  "stdout": "",
+  "stderr": "verify-state: no RESEARCH-STATE*.md under <D>\n",
+  "rc": 2
+ },
+ "trailing-slash-target": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>/) ==\n-- summary --\n   coverage metric : 0/0\n   covered blocks  : <none> claimed · 0 block file(s) on disk\n   backlog pending : 0\n   envelope        : covered_blocks=0/0 · investigable_open=0/0 · requires_execution_open=0/0 · blocked_open=0/0 · deferred_open=<none>/0 · undocumented_findings=<none>  (declared/derived; undocumented_findings is manually-maintained)\n   ok     envelope validated + summary consistent with the backlog.\n== exit 0 ==\n",
+  "stderr": "",
+  "rc": 0
+ },
+ "unknown-flag": {
+  "stdout": "",
+  "stderr": "usage: verify-state.sh <target-dir> [--focus <slug>]\n",
+  "rc": 2
+ },
+ "unreadable-state": {
+  "stdout": "   INFO   hook-placeholder: .claude/hooks/ not found and no settings.json/settings.local.json present (inspected: <D>) — no installed hooks to inspect\n== verify-state: RESEARCH-STATE.md (target: <D>) ==\n   FAIL   no research-state.v1 envelope — run: research-sdd-status.sh <D> --sync-state to seed it\n          Unmigrated state: the counts are not machine-validated, so --next returns STALE until seeded.\n== exit 1 ==\n",
+  "stderr": "grep: <D>/RESEARCH-STATE.md: Permission denied\n",
+  "rc": 1
+ }
+}

@@ -14,6 +14,12 @@ TB="$HERE/.."
 VS="$TB/verify-state.sh"; ST="$TB/research-sdd-status.sh"
 [ -f "$VS" ] && [ -f "$ST" ] || { echo "FATAL: SUT not found" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The Go binary the verify-state shim execs: the caller's RSDD_BIN, else one build into the temp dir.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$TMP/rsdd"
+fi
 RSDD_HOOK_WIRING_CEILING="$(dirname "$TMP")"; export RSDD_HOOK_WIRING_CEILING
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
@@ -97,19 +103,33 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   . "$HERE/lib/mutant.sh"
   MT="$TMP/mt"; mkdir -p "$MT"
   mk_tree() { local t="$MT/$1"; rm -rf "$t"; mkdir -p "$t"; cp -r "$TB/lib" "$t/lib"; cp "$TB"/*.sh "$t/"; printf '%s' "$t"; }
-  # tooth NAME FILE SEDEXPR FIXTURE WANT(stale|silent) — mutant must run to the envelope summary and flip the CHECK H outcome
+  # verify-state is a shim over the Go port (kit #2457) and no longer reads lib/focus-prefix.sh: the bucket it checks is
+  # derived in Go (internal/core/kit InplaceBlockedCount) and the `+ in_place` term of CHECK H is pinned by
+  # internal/verify TestDifferentialState/env-identity-with-in-place-blocked (the former tooth S, now a Go mutant).
+  # The lib still feeds research-sdd-status.sh --sync-state, so each lib mutant is run through a fresh --sync-state of a
+  # copy of the fixture and the UNMUTATED Go verify-state must then report a stale denominator.
+  # tooth NAME FILE SEDEXPR FIXTURE WANT(stale|silent) — the mutant's sync must flip the CHECK H outcome of the real report
   tooth() {
-    local name="$1" file="$2" expr="$3" fx="$4" want="$5" t o got=silent
+    local name="$1" file="$2" expr="$3" fx="$4" want="$5" t w o got=silent
     t="$(mk_tree "$name")"
     if ! mutant_sed "$TB/$file" "$t/$file" "$expr" >/dev/null 2>&1; then no "teeth $name: mutant unbuildable"; return; fi
-    o="$(bash "$t/verify-state.sh" "$fx" 2>/dev/null)"
+    w="$MT/fx-$name"; rm -rf "$w"; cp -r "$fx" "$w"
+    bash "$t/research-sdd-status.sh" "$w" --sync-state >/dev/null 2>&1
+    o="$(bash "$VS" "$w" 2>/dev/null)"
     grep -q 'envelope  *: covered_blocks' <<<"$o" || { no "teeth $name: mutant did not run to the envelope summary"; return; }
     stale "$o" && got=stale
     if [ "$got" = "$want" ]; then ok "teeth $name: mutant flips to '$want'"; else no "teeth $name: got '$got' (want mutant '$want') — THEATER"; fi
   }
-  tooth S verify-state.sh '/IDENTITY-REQ-VAR/ s/ + d_ipb//' "$TMP/a" stale
-  tooth C lib/focus-prefix.sh '/INPLACE-DUAL-GUARD/ s/continue/:/' "$TMP/e" stale
-  tooth I lib/focus-prefix.sh '/INPLACE-DUAL-ID-CASE/ s/continue/:/' "$TMP/e2" stale
+  # control: the unmutated sync of every fixture leaves the real report silent (a red control would make each tooth vacuous)
+  # --sync-state keeps a non-zero DECLARED gaps_closed, so the dual-listing fixtures are declared all-zero (derived, as rt1-rt3)
+  mkstate "$TMP/rtC" 0 0 0 0 --raw-bullet "blk-first — needs: a tool" "$PEND" "$DONE" "$B1"
+  mkstate "$TMP/rtI" 0 0 0 0 --raw-bullet '**AB. Offsets de campo** (X) — needs: a decompiler' "$PEND" "$DONE" "$DUALID"
+  for fx in rtC rtI rt2 e3; do
+    w="$MT/ctl-$fx"; rm -rf "$w"; cp -r "$TMP/$fx" "$w"; bash "$ST" "$w" --sync-state >/dev/null 2>&1
+    if stale "$(bash "$VS" "$w" 2>/dev/null)"; then no "teeth control $fx: unmutated sync then verify-state is already stale"; else ok "teeth control $fx: unmutated sync then verify-state is silent"; fi
+  done
+  tooth C lib/focus-prefix.sh '/INPLACE-DUAL-GUARD/ s/continue/:/' "$TMP/rtC" stale
+  tooth I lib/focus-prefix.sh '/INPLACE-DUAL-ID-CASE/ s/continue/:/' "$TMP/rtI" stale
   tooth T lib/focus-prefix.sh '/INPLACE-BLOCKED-TOKENS/ s/blocked-on-\*|//' "$TMP/rt2" stale
   tooth N lib/focus-prefix.sh 's/grep -iE .\^\[\[:space:\]\]\*-\[\[:space:\]\].\*needs:./grep -iE "^[[:space:]]*-[[:space:]]"/' "$TMP/e3" stale
 fi
