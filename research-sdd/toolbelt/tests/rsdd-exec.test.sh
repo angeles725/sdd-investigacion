@@ -47,12 +47,20 @@ setup_world() {   # LIB_PATH
   FLOCK_REAL="$(type -P flock)"
   printf '#!%s\nprintf "%%s\\n" "$*" >>"$FLOCK_LOG"\nexec "%s" "$@"\n' "$BASH_BIN" "$FLOCK_REAL" >"$FLOGD/flock"; chmod 755 "$FLOGD/flock"
   p="$(type -P jq)" && ln -s "$p" "$JQD/jq"
+  # SHALOGD: a sha256sum that logs its argv to $SHA_LOG (the full hash passes `-- <files>`, the fingerprint reads stdin) and
+  # runs the real one. BADFIND: a find that refuses -printf (BSD find, a broken stat) and otherwise runs the real one.
+  SHALOGD="$SCRATCH/shalogd"; BADFIND="$SCRATCH/badfind"; mkdir -p "$SHALOGD" "$BADFIND"; SHA_LOG="$SCRATCH/sha.log"; export SHA_LOG
+  printf '#!%s\nprintf "%%s\\n" "$*" >>"$SHA_LOG"\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P sha256sum)" >"$SHALOGD/sha256sum"; chmod 755 "$SHALOGD/sha256sum"
+  printf '#!%s\nfor a in "$@"; do [ "$a" = -printf ] && exit 1; done\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P find)" >"$BADFIND/find"; chmod 755 "$BADFIND/find"
+  # BADCN: a find whose source-tree scan (`find . ... -cnewer`) fails while the binary scan still works
+  BADCN="$SCRATCH/badcn"; mkdir -p "$BADCN"
+  printf '#!%s\nif [ "$1" = . ]; then for a in "$@"; do [ "$a" = -cnewer ] && exit 1; done; fi\nexec "%s" "$@"\n' "$BASH_BIN" "$(type -P find)" >"$BADCN/find"; chmod 755 "$BADCN/find"
   MK_SYM="$(awk '$1 == "SOURCE_HASH_SYM" && $2 == ":=" { print $3 }' "$HERE/../../rsdd/Makefile")"
   [ -n "$MK_SYM" ] || { echo "FATAL: SOURCE_HASH_SYM not found in rsdd/Makefile" >&2; exit 2; }
   H_OLD="sha256:$(printf '%064d' 0)"
   cat >"$SCRATCH/body" <<'EOF'
 #!/usr/bin/env bash
-if [ "$1" = version ] && [ "$2" = --source-hash ]; then echo "@HASH@"; exit "${FAKE_HASH_RC:-0}"; fi
+if [ "$1" = version ] && [ "$2" = --source-hash ]; then [ -z "${FAKE_HASH_SLEEP:-}" ] || sleep "$FAKE_HASH_SLEEP"; echo "@HASH@"; exit "${FAKE_HASH_RC:-0}"; fi
 echo "FAKE-@TAG@"
 printf 'n=%s\n' "$#"
 for a in "$@"; do printf 'arg=%q\n' "$a"; done
@@ -154,14 +162,14 @@ putbin() {   # TAG [HASH] [DATE] — fake rsdd at KIT/bin/rsdd; HASH = what `ver
   if [ -n "${3:-}" ]; then touch -d "$3" "$KIT/bin/rsdd"; fi
 }
 
-# dorun LABEL SCRIPT PM args... — PM go|gojq|nogojq|nogo|goNF (no flock)|nosha (go, no sha tool)|nosha_nogo|shasum (go, shasum only)|shasum_nogo|flog (go, flock logs argv to FLOCK_LOG).
+# dorun LABEL SCRIPT PM args... — PM shalog (go, sha256sum logs argv) | badfind (shalog, find refuses -printf) | go|gojq|nogojq|nogo|goNF (no flock)|nosha (go, no sha tool)|nosha_nogo|shasum (go, shasum only)|shasum_nogo|flog (go, flock logs argv to FLOCK_LOG).
 # Env knobs: GOMODE GOTAG GOHASH (what `go run rsdd-srchash` prints; default = the tree hash) SRCMODE=fail FAKE_RC
 # FAKE_HASH_RC READ_STDIN STDIN_FILE USE_RSDD_BIN DORUN_TIMEOUT
 dorun() {
   local label="$1" script="$2" pm="$3" p gh; shift 3
   case "$pm" in go) p="$GOBIN:$FARM" ;; gojq) p="$GOBIN:$FARM:$JQD" ;; nogojq) p="$FARM:$JQD" ;; goNF) p="$GOBIN:$FARMNF" ;;
     nosha) p="$GOBIN:$FARMNS" ;; nosha_nogo) p="$FARMNS" ;; shasum) p="$GOBIN:$FARMSHA" ;; shasum_nogo) p="$FARMSHA" ;;
-    flog) p="$GOBIN:$FLOGD:$FARM" ;; *) p="$FARM" ;; esac
+    flog) p="$GOBIN:$FLOGD:$FARM" ;; shalog) p="$GOBIN:$SHALOGD:$FARMNS" ;; badfind) p="$GOBIN:$BADFIND:$SHALOGD:$FARMNS" ;; badcn) p="$GOBIN:$BADCN:$SHALOGD:$FARMNS" ;; *) p="$FARM" ;; esac
   local sp="$KIT/toolbelt/$script"; case "$script" in /*) sp="$script" ;; esac
   if [ -n "${GOHASH+x}" ]; then gh="$GOHASH"; else gh="$(ref_hash "$KIT/rsdd")"; fi
   local -a ev=(PATH="$p" FAKE_GO_LOG="$SCRATCH/go.log" FAKE_GO_RUNLOG="$SCRATCH/run.log" FAKE_GO_LDLOG="$SCRATCH/ld.log" FAKE_GO_SYM="$MK_SYM"
@@ -250,6 +258,77 @@ sc_touched() {   # every source touched NOW (newer than the binary), same bytes:
   mkkit touched; putbin OLDBIN '' '2021-01-01 00:00:00'
   touch "$KIT/rsdd/go.mod" "$KIT/rsdd/go.sum" "$KIT/rsdd/cmd/rsdd/main.go" "$KIT/rsdd/internal/deep/deep.go"
   doshow touched shim.sh go x
+  probes
+}
+# --- the fingerprint fast path (#2599). RSDD_EXEC_FP_SETTLE=0 switches the racy-stamp guard off so a stamp is written at once;
+# the guard itself is tested by sc_fp_settle with the default. A shim run is "full" when the sha tool was given files.
+fpprobe() {   # FILEHASHES = full source hashes so far · STAMPFILE = is there a stamp
+  printf 'FILEHASHES=%s\n' "$(grep -c '^-- ' "$SHA_LOG" 2>/dev/null)"
+  printf 'STAMPFILE=%s\n' "$([ -f "$KIT/bin/.rsdd-fp" ] && echo yes || echo no)"
+  printf 'FPTMP=%s\n' "$(find "$KIT/bin" -maxdepth 1 -name '.rsdd-fp.*' 2>/dev/null | grep -c .)"
+}
+fp_warm() {   # NAME — a fresh binary, one shim run that verifies it and (settle 0) stamps the state
+  export RSDD_EXEC_FP_SETTLE=0; : >"$SHA_LOG"
+  mkkit "$1"; putbin OLDBIN
+  doshow warm shim.sh shalog x
+  fpprobe
+}
+sc_fp_fast() {   # unchanged tree: the second run takes the fast path (no full hash); a touch (ctime moves) hashes once more, still fresh
+  fp_warm fpfast
+  local before; before="$(grep -c '^-- ' "$SHA_LOG")"
+  doshow again shim.sh shalog x
+  fpprobe
+  printf 'AGAIN-NEW-HASHES=%s\n' "$(($(grep -c '^-- ' "$SHA_LOG") - before))"
+  touch "$KIT/rsdd/go.mod"
+  doshow touched shim.sh shalog x
+  fpprobe
+  probes
+}
+sc_fp_settle() {   # the DEFAULT settle window: files written a moment ago are not stamped (a same-tick second write could hide)
+  unset RSDD_EXEC_FP_SETTLE; : >"$SHA_LOG"
+  mkkit fpsettle; putbin OLDBIN
+  doshow warm shim.sh shalog x
+  fpprobe
+}
+sc_fp_stall() {   # the binary call stalls past the settle window: the guard still compares against the clock read BEFORE the fingerprint
+  export RSDD_EXEC_FP_SETTLE=3 FAKE_HASH_SLEEP=4; : >"$SHA_LOG"
+  mkkit fpstall; putbin OLDBIN
+  doshow stalled shim.sh shalog x
+  fpprobe
+  unset FAKE_HASH_SLEEP
+}
+sc_fp_gofallback() {   # a go-fallback hash (the shell hash refused a path) never earns a stamp: the selections may differ
+  export RSDD_EXEC_FP_SETTLE=0; : >"$SHA_LOG"
+  mkkit fpgo
+  printf 'package x\n' >"$KIT/rsdd/bad\\name.go"
+  putbin OLDBIN
+  doshow viago shim.sh go x
+  fpprobe
+  probes
+}
+sc_fp_scanfail() {   # the source-tree ctime scan fails: fail closed (no stamp), though the binary scan works and every file is old enough
+  export RSDD_EXEC_FP_SETTLE=1; : >"$SHA_LOG"
+  mkkit fpscan; putbin OLDBIN
+  sleep 1.3
+  doshow scanfail shim.sh badcn x
+  fpprobe
+}
+sc_fp_change() {   # VARIANT: edit | add | delete | rename | stampdir | stampjunk | badfind — a verified-fresh state then changes; the next run must rebuild
+  local v="$1" pm=shalog
+  fp_warm "fpc-$v"
+  case "$v" in
+    edit|stampdir|stampjunk|badfind)   # same size, old mtime restored: only the ctime tells
+      printf 'package maix\n' >"$KIT/rsdd/cmd/rsdd/main.go"; touch -d '2020-01-01 00:00:00' "$KIT/rsdd/cmd/rsdd/main.go" ;;&
+    stampdir) rm -f "$KIT/bin/.rsdd-fp"; mkdir "$KIT/bin/.rsdd-fp" ;;
+    stampjunk) printf 'fp1:not-a-fingerprint\n' >"$KIT/bin/.rsdd-fp" ;;
+    badfind) pm=badfind ;;
+    add) printf 'package deep\n' >"$KIT/rsdd/internal/deep/extra.go" ;;
+    delete) rm -f "$KIT/rsdd/internal/deep/deep.go" ;;
+    rename) mv "$KIT/rsdd/internal/deep/deep.go" "$KIT/rsdd/internal/deep/deep2.go" ;;
+  esac
+  doshow changed shim.sh "$pm" x
+  fpprobe
+  printf 'FINAL-STAMPDIR-ENTRIES=%s\n' "$(find "$KIT/bin/.rsdd-fp" -mindepth 1 2>/dev/null | grep -c .)"
   probes
 }
 sc_unselected() {   # changes outside the hashed set (a _test.go, testdata/, a README) never rebuild
@@ -679,6 +758,7 @@ if [ "${1:-}" = "--scenario" ]; then
   setup_world "$3"
   case "$2" in
     stale-*) sc_stale "${2#stale-}" ;;
+    fp_change-*) sc_fp_change "${2#fp_change-}" ;;
     weirdpath-*) sc_weirdpath "${2#weirdpath-}" ;;
     *) "sc_${2//-/_}" ;;
   esac
@@ -1111,6 +1191,36 @@ chk "kit root unresolvable (cd fails at source time) -> rc 2" "$R" nocd '^RC=2$'
 chk "kit root unresolvable -> degraded line" "$R" nocd '^e\| degraded: rsdd-unavailable — cannot resolve the kit root$'
 nchk "kit root unresolvable -> nothing on stdout" "$R" nocd '^o\| '
 
+# 3b. the fingerprint fast path (#2599)
+R="$(scen fp_fast "$LIB")"
+chk "fp: first run verifies with one full hash" "$R" warm '^FILEHASHES=1$'
+chk "fp: first run leaves a stamp" "$R" warm '^STAMPFILE=yes$'
+chk "fp: unchanged tree -> the binary runs" "$R" again '^o\| FAKE-OLDBIN$'
+chk "fp: unchanged tree -> NO second full hash (the fast path)" "$R" again '^AGAIN-NEW-HASHES=0$'
+chk "fp: touched file (ctime moves) -> one more full hash" "$R" touched '^FILEHASHES=2$'
+chk "fp: touched file, same bytes -> still fresh, binary runs" "$R" touched '^o\| FAKE-OLDBIN$'
+pchk "fp: nothing ever rebuilt on a fresh tree" "$R" '^GOCALLS=0$'
+R="$(scen fp_settle "$LIB")"
+chk "fp: default settle window -> files written just now are not stamped" "$R" warm '^STAMPFILE=no$'
+chk "fp: default settle window -> the run is still verified by the full hash" "$R" warm '^FILEHASHES=1$'
+for v in edit add delete rename stampdir stampjunk badfind; do
+  R="$(scen "fp_change-$v" "$LIB")"
+  chk "fp [$v]: a stamped fresh state then changed -> rebuilt, new binary runs" "$R" changed '^o\| FAKE-NEW$'
+  pchk "fp [$v]: exactly one go build" "$R" '^GOCALLS=1$'
+done
+R="$(scen fp_change-stampdir "$LIB")"
+chk "fp [stampdir]: the directory at the stamp path does not grow (no temp file moved into it)" "$R" changed '^FINAL-STAMPDIR-ENTRIES=0$'
+chk "fp [stampdir]: no .rsdd-fp.* temp file left in bin/" "$R" changed '^FPTMP=0$'
+R="$(scen fp_stall "$LIB")"
+chk "fp stall: the binary call outlasts the settle window, files written moments before the fingerprint -> no stamp" "$R" stalled '^STAMPFILE=no$'
+R="$(scen fp_gofallback "$LIB")"
+chk "fp go-fallback: proven fresh by the go hash -> the binary runs" "$R" viago '^o\| FAKE-OLDBIN$'
+pchk "fp go-fallback: the go hash really answered" "$R" '^SRCRUNS=1$'
+chk "fp go-fallback: a go-fallback hash earns no stamp" "$R" viago '^STAMPFILE=no$'
+R="$(scen fp_scanfail "$LIB")"
+chk "fp scan failure: a failing source ctime scan is treated as 'something is newer' -> no stamp" "$R" scanfail '^STAMPFILE=no$'
+chk "fp scan failure: the shim still runs the binary" "$R" scanfail '^o\| FAKE-OLDBIN$'
+
 # 12. overhead (report-only: wall-time assertions flake under load)
 OV="$ROOT/ov"; mkdir -p "$OV/k it/toolbelt/lib" "$OV/k it/bin"
 cp "$LIB" "$OV/k it/toolbelt/lib/rsdd-exec.sh"
@@ -1187,7 +1297,7 @@ mk unavailable-rebuilds 's#^        \*) echo "rsdd-exec: degraded: rsdd-source-h
   tt unavailable-rebuilds hash_unavailable --good-lacks 'rsdd-exec: notice: ' --bad-has 'rsdd-exec: notice: ' --bad-lacks "$CRASH"
 mk unavailable-silent 's#echo "rsdd-exec: degraded: rsdd-source-hash-unavailable — \$_RSDD_EXEC_HWHY" >&2 ;;#: ;;#' &&
   tt unavailable-silent hash_unavailable --good-has '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — ' --bad-lacks '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable' --bad-lacks "$CRASH"
-mk go-fallback-skipped 's#_rsdd_exec_go_hash "\$1" && return 0#false#' &&
+mk go-fallback-skipped 's#_rsdd_exec_go_hash "\$1" && { _RSDD_EXEC_HASHSRC=go; return 0; }#false#' &&
   tt go-fallback-skipped nosha --good-has '^SRCRUNS=1$' --bad-lacks '^SRCRUNS=1$' --bad-lacks "$CRASH"
 mk find-failure-reason 's#FIND-FAILED) _RSDD_EXEC_HWHY="scanning the sources failed"; return 1 ;;#FIND-FAILED) ;;#' &&
   tt find-failure-reason scan_fail --good-has 'scanning the sources failed' --bad-lacks 'scanning the sources failed' --bad-lacks "$CRASH"
@@ -1206,6 +1316,30 @@ mk fixture-sort 's#LC_ALL=C sort -z#LC_ALL=C sort -rz#' && tt fixture-sort fixtu
 mk fixture-nul "s|printf '%s\\\\0%s\\\\n'|printf '%s %s\\\\n'|" && tt fixture-nul fixture "${FXG[@]}"
 mk fixture-prefix 's|"${files\[i\]#./}"|"${files[i]}"|' && tt fixture-prefix fixture "${FXG[@]}"
 mk unselected-rebuilds "s# ! -name '\\*_test.go'##" && tt unselected-rebuilds unselected --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
+# --- the fingerprint fast path (#2599): each guard removed makes a stale binary run silently, or the fast path vanish
+FPB=(--good-has '^GOCALLS=1$' --bad-lacks '^GOCALLS=1$' --bad-lacks "$CRASH")
+mk fp-guard-removed 's#if \[ -n "\$stamp" \] \&\& \[ "\$stamp" = "\$fp" \]; then return 0; fi#if [ -n "$stamp" ]; then return 0; fi#' &&
+  tt fp-guard-removed fp_change-edit "${FPB[@]}"
+mk fp-ignores-ctime 's#%T@\\t%C@#%T@#' &&
+  tt fp-ignores-ctime fp_change-edit "${FPB[@]}"
+mk fp-ignores-listing 's#"\$listing" "\$binline"#"" "$binline"#' &&
+  tt fp-ignores-listing fp_change-add "${FPB[@]}"
+mk fp-failure-is-fresh 's#^    if _rsdd_exec_fingerprint "\$2" "\$1"; then#    _rsdd_exec_fingerprint "$2" "$1" || return 0\n    if true; then#' &&
+  tt fp-failure-is-fresh fp_change-badfind "${FPB[@]}"
+mk fp-stamp-unread-is-fresh 's#stamp="\$(cat -- "\$(dirname -- "\$1")/.rsdd-fp" 2>/dev/null)" || stamp=""#stamp="$(cat -- "$(dirname -- "$1")/.rsdd-fp" 2>/dev/null)" || stamp="$fp"#' &&
+  tt fp-stamp-unread-is-fresh fp_change-stampdir "${FPB[@]}"
+mk fp-ref-after-hash 's#"\$fp" "\$t0" || true#"$fp" "$EPOCHSECONDS" || true#' &&
+  tt fp-ref-after-hash fp_stall --good-has '^STAMPFILE=no$' --bad-lacks '^STAMPFILE=no$' --bad-lacks "$CRASH"
+mk fp-gofallback-stamped 's# \&\& \[ "\$_RSDD_EXEC_HASHSRC" = shell \]##' &&
+  tt fp-gofallback-stamped fp_gofallback --good-has '^STAMPFILE=no$' --bad-lacks '^STAMPFILE=no$' --bad-lacks "$CRASH"
+mk fp-dir-leak 's#\[ ! -d "\$stamp" \] || return 1#:#' &&
+  tt fp-dir-leak fp_change-stampdir --good-has '^FINAL-STAMPDIR-ENTRIES=0$' --bad-lacks '^FINAL-STAMPDIR-ENTRIES=0$' --bad-lacks "$CRASH"
+mk fp-scan-fails-open 's#|| n1="unknown"#|| n1=""#' &&
+  tt fp-scan-fails-open fp_scanfail --good-has '^STAMPFILE=no$' --bad-lacks '^STAMPFILE=no$' --bad-lacks "$CRASH"
+mk fp-no-settle 's#_RSDD_EXEC_SETTLE=2$#_RSDD_EXEC_SETTLE=0#' &&
+  tt fp-no-settle fp_settle --good-has '^STAMPFILE=no$' --bad-lacks '^STAMPFILE=no$' --bad-lacks "$CRASH"
+mk fp-never-used 's#if \[ -n "\$stamp" \] \&\& \[ "\$stamp" = "\$fp" \]; then return 0; fi#:#' &&
+  tt fp-never-used fp_fast --good-has '^AGAIN-NEW-HASHES=0$' --bad-lacks '^AGAIN-NEW-HASHES=0$' --bad-lacks "$CRASH"
 # --- the stamp
 mk stamp-dropped 's# -X \$_RSDD_EXEC_HASH_SYM=\$h##' &&
   tt stamp-dropped mismatch --good-has '^STAMP=sha256:[0-9a-f]{64}$' --bad-lacks '^STAMP=sha256:[0-9a-f]{64}$' --bad-lacks "$CRASH"
