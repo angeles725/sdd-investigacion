@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Bridge suite for the Go module research-sdd/rsdd (go-port plan U0.1, kit issue #2271).
 # Runs `go test ./...` (through `make test`) in the module and reports each Go package as one case, so run-all.sh
 # carries the Go result in its `== N passed · M failed ==` summary contract.
 #
@@ -161,7 +162,7 @@ package_go_files() {
 # changed alongside), and dropping the package would be a silent zero.
 # _test.go files are never units (gremlins does not mutate them). Exit 3 as changed_go_packages.
 changed_go_files() {
-  local mod="$1" base="$2" f d lines pkgs p chg tpk
+  local mod="$1" base="$2" f d lines pkgs p chg test_pkgs
   lines="$(changed_paths "$mod" "$base")" || return 3
   pkgs="$(changed_go_packages "$mod" "$base")" || return 3
   chg="$(while IFS= read -r f; do
@@ -171,7 +172,8 @@ changed_go_files() {
     [ -f "$mod/$f" ] || continue
     echo "./$f"
   done <<<"$lines")"
-  tpk="$(while IFS= read -r f; do
+  # test_pkgs: the package dirs ("." or "./rel", as changed_go_packages prints them) holding a changed _test.go.
+  test_pkgs="$(while IFS= read -r f; do
     case "$f" in *_test.go) d="$(dirname "$f")"; if [ "$d" = . ]; then echo .; else echo "./$d"; fi ;; esac
   done <<<"$lines")"
   {
@@ -179,7 +181,7 @@ changed_go_files() {
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       # a package keeps its changed non-test files; a test edit, or no changed non-test file, brings every one
-      if grep -qxF "$p" <<<"$tpk" || ! grep -qxF "$p" <<<"$(sed 's|/[^/]*$||' <<<"$chg")"; then
+      if grep -qxF "$p" <<<"$test_pkgs" || ! grep -qxF "$p" <<<"$(sed 's|/[^/]*$||' <<<"$chg")"; then
         package_go_files "$mod" "$p"
       fi
     done <<<"$pkgs"
