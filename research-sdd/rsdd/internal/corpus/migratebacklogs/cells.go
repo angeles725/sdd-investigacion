@@ -26,16 +26,17 @@ func parseRow(body string) (row, bool) {
 
 func (r row) String() string { return r.prefix + "|" + strings.Join(r.cells, "|") + r.rest }
 
-// set replaces the text of cell i and keeps its leading and trailing blanks. A cell of blanks only keeps them in
-// front of the new text.
+// set replaces the text of cell i and keeps its leading and trailing blanks. A cell of blanks only has no padding
+// of its own to keep: the text goes between single blanks.
 func (r *row) set(i int, text string) {
 	c := r.cells[i]
-	lead := c[:len(c)-len(strings.TrimLeft(c, blanks))]
-	trail := ""
-	if trimmed := strings.TrimRight(c, blanks); trimmed != "" {
-		trail = c[len(trimmed):]
+	trimmed := strings.TrimRight(c, blanks)
+	if strings.Trim(c, blanks) == "" {
+		r.cells[i] = " " + text + " "
+		return
 	}
-	r.cells[i] = lead + text + trail
+	lead := c[:len(c)-len(strings.TrimLeft(c, blanks))]
+	r.cells[i] = lead + text + c[len(trimmed):]
 }
 
 // isSepFirst is the legacy delimiter test: the FIRST cell alone decides (`^:?-+:?$`).

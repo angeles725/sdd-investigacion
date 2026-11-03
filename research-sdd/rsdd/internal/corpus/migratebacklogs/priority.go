@@ -111,7 +111,10 @@ func rewriteRow(r row, width int) (out row, reason string) {
 		if newStatus == "" {
 			newStatus = s
 		}
-		newStatus += " " + decor
+		if newStatus != "" {
+			newStatus += " "
+		}
+		newStatus += decor
 	}
 	out = row{prefix: r.prefix, cells: append([]string(nil), r.cells...), rest: r.rest}
 	if np != p {
