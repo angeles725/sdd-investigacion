@@ -1,4 +1,4 @@
-### verify-block (#2456)
+### verify-block (#2456)Shared-helper note (kit issue #2600): the Go block-file patterns and the scripts-manifest row reader have one definition each, in `internal/core/kit` (`blockfiles.go`, `scriptsmanifest.go`), shared with the other Go consumers; `lib/block-files.sh` and `lib/scripts-manifest.sh` still serve the bash scripts not yet ported (`clean-check.sh`), so a change to one of those libraries must be mirrored in `core/kit`. One pinned variant: the block-file slug class is `[[:alnum:]_-]` (C locale) in `lib/block-files.sh` and in `kit.BlockFileRE`, but verify block matches `[\p{L}\p{N}_-]` (`kit.BlockFileNameUnicode`, `kit.BlockPathUnicode`), because the script's `awk` ran under the caller's UTF-8 locale; both are derived from one tail (`blockTailFor`) and pinned by `blockpattern_test.go`, so a block file with a non-ASCII slug is canonical to verify block and not to the C-locale consumers. |
 
 | Tool | Description |
 |---|---|
