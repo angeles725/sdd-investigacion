@@ -17,10 +17,10 @@ Mirror (Engram `odd/migrate-backlogs-go/tasks`): pending, the mirror is written 
 - S12 Kept for callers: the unified-diff format (`PROPOSE <label> <file>` + `diff -u --label a/<rel> --label b/<rel>`), the `MANUAL <label> <reason> rows=<N> first-line=<L>` format, the typed `absent-input:` / `empty-input:` / `ok` / closing-summary lines, exit 0 inspected · 1 operational failure (typed `degraded:` on stderr) · 2 bad args or target not a directory.
 
 ## Tasks
-- T1 (S4, S5) freeze the script + `lib/state-files.sh` sha-pinned, harness, cases, differential, golden, RED — route inline — commit: pending
-- T2 (S1, S2, S3, S6, S7, S8) the port: scan, lines, cells, backlog, priority, focuses, manual, unidiff, command, registered from `internal/corpus/commands.go` — inline — commit: pending
-- T3 (S6, S7, S9) divergence and edge tests (go-only), read-only invariant — inline — commit: pending
-- T4 (S1, S6, S11) shim switch, shrunk bash suite, reason-codes, tool-registry, sibling suites repointed — inline — commit: pending
+- T1 (S4, S5) freeze the script + `lib/state-files.sh` sha-pinned, harness, cases, differential, golden, RED — route inline — commits: 603f86d8, 5b804637, 32b77244 (RED against the stub)
+- T2 (S1, S2, S3, S6, S7, S8) the port: scan, lines, cells, backlog, priority, focuses, manual, unidiff, command, registered from `internal/corpus/commands.go` — inline — commits: 272fa091, 7a57d258
+- T3 (S6, S7, S9) divergence and edge tests (go-only), read-only invariant — inline — commits: 85e72457, 9f12658e, 3d9bfe28
+- T4 (S1, S6, S11) shim switch, shrunk bash suite, reason-codes, tool-registry, sibling suites repointed — inline — commit: dc89dd42
 - T5 (S10) hand mutants under `-tags nodiff` in an out-of-repo copy — inline — commit: none
 
 ## Log
