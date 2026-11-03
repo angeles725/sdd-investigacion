@@ -139,6 +139,11 @@
     "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\ntracked: row 3 — open issue found in r.md\nuntracked: row 4 — no open issue found for this delta in r.md\n",
     "stderr": "closed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
   },
+  "form/alt-items-plus-unrec-heading-without-items": {
+    "rc": 0,
+    "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",
+    "stderr": "unclassifiable: proposal-like heading found but not in a countable delta form in @BOX@/rh/target-foo/retros/r.md — needs manual review\nclosed-lookup: skipped for r.md — --issues-cache without --closed-cache; rows with no open issue are not checked against closed issues\n"
+  },
   "form/blank-line-ends-no-table": {
     "rc": 0,
     "stdout": "untracked: row 1 — no open issue found for this delta in r.md\nuntracked: row 2 — no open issue found for this delta in r.md\n",

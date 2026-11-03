@@ -33,3 +33,35 @@ func TestTableIDs(t *testing.T) {
 		t.Errorf("tableIDs = %v, want %v (an empty id emits nothing, a blank line keeps the section, an H2 ends it)", got, want)
 	}
 }
+
+// TestIDBytesAtTheRangeEdges pins each range edge of the id alphabet and the byte just outside it.
+func TestIDBytesAtTheRangeEdges(t *testing.T) {
+	for _, c := range []byte("azAZ09_-") {
+		if !isIDByte(c) {
+			t.Errorf("isIDByte(%q) = false, want true", c)
+		}
+	}
+	for _, c := range []byte("`{@[/:. |") {
+		if isIDByte(c) {
+			t.Errorf("isIDByte(%q) = true, want false", c)
+		}
+	}
+	if got := leadingID("aZ09_-z:rest"); got != "aZ09_-z" {
+		t.Errorf("leadingID = %q", got)
+	}
+}
+
+// TestLowerASCIIFoldsOnlyAToZ: awk tolower in the C locale folds A..Z and nothing else.
+func TestLowerASCIIFoldsOnlyAToZ(t *testing.T) {
+	if got := lowerASCII("AZ@[ÁÉmixed"); got != "az@[ÁÉmixed" {
+		t.Errorf("lowerASCII = %q", got)
+	}
+}
+
+// TestFirstCellCompactDropsEveryBlank: the compact form removes every C-locale blank and keeps other runes.
+func TestFirstCellCompactDropsEveryBlank(t *testing.T) {
+	trimmed, compact := firstCell("|  D 1\t\vx  é | second |")
+	if trimmed != "D 1\t\vx  é" || compact != "D1xé" {
+		t.Errorf("firstCell = %q, %q", trimmed, compact)
+	}
+}

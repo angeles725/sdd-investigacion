@@ -1,7 +1,6 @@
 package reconcile
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,13 +29,10 @@ type audit struct {
 
 func (a *audit) run() {
 	r := a.rep
-	// `[ ! -r ]`: an existing but unreadable retro is not an empty one (every parse would see nothing).
-	f, err := os.Open(a.path)
-	if err == nil {
-		_ = f.Close()
-	}
+	// `[ ! -r ]`: an existing but unreadable retro is not an empty one (every parse would see nothing). Read
+	// fails on an unreadable file (os.ReadFile), so its error is that check.
 	doc, rerr := retrogrammar.Read(a.path)
-	if err != nil || rerr != nil {
+	if rerr != nil {
 		r.degrade("degraded: retro not readable: %s — cannot audit, no verdict", a.path)
 		return
 	}

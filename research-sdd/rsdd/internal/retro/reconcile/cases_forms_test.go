@@ -11,6 +11,7 @@ func formCases() []dcase {
 		{name: "form/numbered-items", retro: canon + "1. First numbered delta item. More text.\n2. Second numbered delta item.\n", cache: sigs("target-foo", "r.md", "1")},
 		{name: "form/h2-delta-entries", retro: pending + "## Delta A1 — HIGH — first title\n\nbody\n\n## Delta A2 — second title\n", cache: sigs("target-foo", "r.md", "A1")},
 		{name: "form/h3-proposals-list", retro: pending + "## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\n1. First thing to do here.\n2. Second thing to do.\n", cache: ""},
+		{name: "form/alt-items-plus-unrec-heading-without-items", retro: pending + "## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\n1. First thing to do here.\n2. Second thing to do.\n\n## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n", cache: ""},
 		{name: "form/unrec-heading-without-items", retro: pending + "## B. Campaign-8 kit-delta backlog (the overdue roll-up)\n\nsome prose, no table rows here\n", cache: ""},
 		{name: "form/unrec-h3-proposals-prose-only", retro: pending + "## A. THE DEFECT\n\n### Proposals (propose-never-apply) — make it automatic\n\nsome prose, no table rows here\n", cache: ""},
 		{name: "form/spanish-heading-table", retro: pending + "## PROPUESTA de deltas al kit (revisar antes de aplicar)\n\n" + tableHead[len("## Proposed kit deltas\n\n"):] + rowsOf("1", "2"), cache: sigs("target-foo", "r.md", "2")},

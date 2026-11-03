@@ -65,7 +65,7 @@ func firstCell(row string) (trimmed, compact string) {
 	}
 	cell = strings.ReplaceAll(cell, sent, "|")
 	compact = strings.Map(func(r rune) rune {
-		if r < 128 && strings.ContainsRune(cSpace, r) {
+		if strings.ContainsRune(cSpace, r) { // cSpace is ASCII, so no other rune is removed
 			return -1
 		}
 		return r
