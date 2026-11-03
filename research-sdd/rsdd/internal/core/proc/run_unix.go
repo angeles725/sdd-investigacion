@@ -55,15 +55,13 @@ func Run(spec Spec) (Result, error) {
 
 	res.Reason = watch(exited, c.hit, spec.Timeout)
 	stopErr := stopGroup(&g, cmd.Process.Pid, spec.grace())
-	if stopErr != nil {
-		_ = cmd.Process.Kill() // the leader only, through its pidfd-backed handle
-	}
+	// The leader only, through its pidfd-backed handle: after a refused stop it
+	// would keep Run waiting; after a clean stop it is gone and Kill is a no-op.
+	_ = cmd.Process.Kill()
 	<-exited
 	finishDrain(readers, drained, spec.grace())
 
-	if res.Reason == "" && c.reached() {
-		res.Reason = ReasonOutputCap
-	}
+	res.Reason = finalReason(res.Reason, c.reached())
 	res.Stdout, res.Stderr = c.output()
 	res.ReturnCode = returnCode(cmd.ProcessState)
 	res.Ended = spec.now()
