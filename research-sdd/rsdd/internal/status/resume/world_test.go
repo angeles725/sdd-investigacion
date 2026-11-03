@@ -227,12 +227,13 @@ func stubs(t testing.TB, w *world) {
 		must0(t, os.MkdirAll(filepath.Dir(p), 0o755))
 		must0(t, os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
 	}
-	// A git that logs the GIT_OPTIONAL_LOCKS it sees, then runs the real one.
+	// A git that logs, one line per call, the GIT_OPTIONAL_LOCKS it sees and its argv (fields separated by \x1f),
+	// then runs the real one.
 	real, err := exec.LookPath("git")
 	must0(t, err)
 	g := filepath.Join(w.root, "stubs", "gitlog", "git")
 	must0(t, os.MkdirAll(filepath.Dir(g), 0o755))
-	script := fmt.Sprintf("#!/bin/sh\necho \"${GIT_OPTIONAL_LOCKS-unset}\" >> \"%s\"\nexec \"%s\" \"$@\"\n", w.gitLog(), real)
+	script := fmt.Sprintf("#!/bin/sh\n{ printf '%%s' \"${GIT_OPTIONAL_LOCKS-unset}\"; printf '\\037%%s' \"$@\"; echo; } >> \"%s\"\nexec \"%s\" \"$@\"\n", w.gitLog(), real)
 	must0(t, os.WriteFile(g, []byte(script), 0o755))
 }
 
