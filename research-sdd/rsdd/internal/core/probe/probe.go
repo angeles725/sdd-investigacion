@@ -83,6 +83,10 @@ func (p *Prober) abs(path string) string {
 // isExec is `[ -x path ]`.
 func (p *Prober) isExec(path string) bool { return path != "" && accessExec(p.abs(path)) }
 
+// IsExec is `[ -x path ]` against the Prober's working directory, for a caller that must apply the same
+// executable test to a path it resolved (detect-tools) without re-deriving the access check.
+func (p *Prober) IsExec(path string) bool { return p.isExec(path) }
+
 // isFile is `[ -f path ]`.
 func (p *Prober) isFile(path string) bool {
 	fi, err := os.Stat(p.abs(path))

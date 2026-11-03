@@ -45,6 +45,40 @@ mkexec() {
 
 echo "== detect-tools.test.sh =="
 
+# detect-tools.sh is an rsdd_exec shim over `rsdd install detect-tools` (kit issue #2576). $RSDD_BIN wins; otherwise one
+# binary is built into the suite temp dir (never into the tree). A suite that cannot get rsdd says so with a typed
+# SKIP, or FAILS under RSDD_REQUIRE_GO=1.
+IS_SHIM=0
+if grep -q 'rsdd_exec' "$DETECT"; then
+  IS_SHIM=1
+  if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+    if ! command -v go >/dev/null 2>&1; then
+      why="go not in PATH"
+      [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+      if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+        echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+      fi
+      echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+      echo "== 0 passed · 0 failed =="; exit 0
+    fi
+    RSDD_BIN="$ROOT/rsdd"
+    ( cd "$HERE/../../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$ROOT/build.log" 2>&1 \
+      || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$ROOT/build.log" >&2; exit 2; }
+  fi
+  export RSDD_BIN
+fi
+# The sed mutants below edit the text of the SUT; a shim has none, so its guards are Go tests (internal/install, make
+# teeth) and only the harness-level controls (hermetic PATH, TMPDIR containment, dotnet IPC) run here; they are real
+# mutation controls of this suite, so the banner below names exactly that and no script mutant.
+MUT_SUT=0
+if [ "${1:-}" = "--prove-teeth" ]; then
+  if [ "$IS_SHIM" = 1 ]; then
+    echo "-- teeth: harness-level controls only (hermetic PATH, TMPDIR containment, dotnet IPC); sed mutants of the script are n/a, it is an rsdd_exec shim whose mutants live in internal/install Go teeth (make teeth)"
+  else
+    MUT_SUT=1
+  fi
+fi
+
 # Capture real PATH before any fixture manipulation (used by hermetic-path teeth).
 ORIG_PATH="$PATH"
 
@@ -185,6 +219,12 @@ else
      "rc=$rc_g msg=[$(cat "$stderr_g" 2>/dev/null)] line=[$vineflower_line]"
 fi
 
+if [ "$IS_SHIM" = 1 ]; then
+  # h forces rsdd_resolve_java_home to fail by redefining the bash function in a copy of lib/tool-env.sh; a shim has
+  # no such function. The Java secondary probe (a sleeping java reads PROBE_FAILED, not MISSING) is pinned in Go by
+  # internal/install TestJavaRows, with the resolver replaced there, and held to the frozen script by the differential.
+  echo "  SKIP  h Java secondary probe: detect-tools.sh is an rsdd_exec shim (pinned by internal/install TestJavaRows)"
+else
 # h — Java secondary probe: rsdd_resolve_java_home is force-failed via SHIM so detect-tools.sh
 # takes the secondary-probe branch.  A fake java in BIN_H sleeps longer than RSDD_PROBE_TIMEOUT
 # → rsdd_run_probe returns 124 → Java 21 row must show PROBE_FAILED, not MISSING.
@@ -229,6 +269,7 @@ else
   no "h Java secondary probe: shim+sleeping java → PROBE_FAILED" \
      "rc=$rc_h msg=[$(cat "$stderr_h" 2>/dev/null)] line=[$java_line_h]"
 fi
+fi # IS_SHIM
 
 # ── Cache-location contract (tests i, j, k) ──────────────────────────────────
 
@@ -405,7 +446,7 @@ else
 fi
 
 # ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   echo "-- teeth: mutation controls --"
 
   # Every sed mutant of the SUT is built through lib/mutant.sh (mutant_chain): a stage that matches
@@ -616,7 +657,7 @@ else
 fi
 
 # ── Teeth for il/il2 tests ───────────────────────────────────────────────────
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   # teeth-il: uses a shim lib where rsdd_resolve_dotnet_root always returns 1.
   # This simulates the old behavior (no DOTNET_ROOT set before probe).
   # The DOTNET_ROOT-sensitive stub will see no DOTNET_ROOT → exits 1 → UNUSABLE.
@@ -644,7 +685,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   # teeth-l (targets test l): mutant drops bwrap from require_label.
   # Mutation is applied to a COPY under $ROOT — never to $DETECT itself.
   MUTL="$ROOT/detect-mutl.sh"
@@ -717,7 +758,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   fi
 fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   # teeth-p (targets test p): mutant removes the [ deliverable / render ] section header.
   MUTP="$ROOT/detect-mutp.sh"
   if mutant_chain_or_count fail "teeth: detect-mutp.sh" "$DETECT" "$MUTP" \
@@ -817,7 +858,7 @@ else
   no "u report prints a row for each new hard-dep tool" "missing:$_u_missing"
 fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   echo "-- teeth: new hard-dep label mutations --"
 
   # teeth-t1 (targets test t): mutant drops capinfos from require_label.
@@ -934,7 +975,7 @@ if grep -qE '^  binwalk +WARN +RSDD_BINWALK=.*not executable' <<<"$out_bwn"; the
   ok "binwalk-major: RSDD_BINWALK set but not executable is a WARN, not a silent skip"
 else no "binwalk-major: RSDD_BINWALK not executable" "[$(grep -E '^  binwalk' <<<"$out_bwn" | head -3)]"; fi
 
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   MUT_BW="$ROOT/detect-mut-bw.sh"
   if mutant_chain_or_count fail "teeth: detect-mut-bw.sh" "$DETECT" "$MUT_BW" \
     's/elif \[ "\${bw_ver%%\.\*}" != "2" \]; then/elif false; then/'; then
@@ -1041,7 +1082,7 @@ if [ "$DIPE_RC" -eq 0 ] && [ "$DIPE_REACHED" -eq 1 ] && [ "$DIPE_N" -eq 0 ]; the
 else
   no "dipe-pwsh: pwsh probe must leave no clr-debug-pipe-pwsh-*" "rc=$DIPE_RC reached=$DIPE_REACHED pipes=$DIPE_N"
 fi
-if [ "${1:-}" = "--prove-teeth" ]; then
+if [ "$MUT_SUT" = 1 ]; then
   # teeth-dipe-pwsh: mutant removes the pwsh row's env (subshell export) in a COPY of detect-tools.sh.
   # The copy lives beside a symlink to the real lib/ so its `source $HERE/lib/tool-env.sh` resolves.
   MUT_DIPW_DIR="$ROOT/mut-dipw"; mkdir -p "$MUT_DIPW_DIR"
