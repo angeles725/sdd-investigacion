@@ -386,7 +386,7 @@ func TestZipStoredExtraction(t *testing.T) {
 	if _, staged := tree["archive.zip"]; staged {
 		t.Error("the staged archive must be removed")
 	}
-	zipVerifyManifest(t, out)
+	verifyInProcess(t, out)
 }
 
 func TestZipStoredDeterministic(t *testing.T) {

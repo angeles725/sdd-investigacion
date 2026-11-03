@@ -32,7 +32,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -171,14 +170,6 @@ func readJSON(t *testing.T, p string) map[string]any {
 		t.Fatalf("%s: %v", p, err)
 	}
 	return m
-}
-
-func verifyManifest(t *testing.T, out string) {
-	t.Helper()
-	cmd := exec.Command("python3", manifestCLI(t), "verify", "--root", out, filepath.Join(out, "analysis-manifest.v1.json"))
-	if b, err := cmd.CombinedOutput(); err != nil {
-		t.Errorf("analysis_manifest.py verify failed: %v\n%s", err, b)
-	}
 }
 
 // ---------------------------------------------------------------- refusals before any tool runs
@@ -779,7 +770,7 @@ func TestSquashfsEndToEnd(t *testing.T) {
 	if lim := arr(rep["limitations"]); len(lim) != 2 || lim[0] != "Tree validation rejects symlinks, special files, and hardlinks; semantic content is not analyzed." {
 		t.Errorf("limitations = %v", lim)
 	}
-	verifyManifest(t, out)
+	verifyInProcess(t, out)
 }
 
 func TestSquashfsManifestContent(t *testing.T) {
@@ -825,7 +816,7 @@ func TestSquashfsManifestContent(t *testing.T) {
 	if m["completeness"] != "complete" || len(arr(m["errors"])) != 0 || len(arr(m["findings"])) != 0 {
 		t.Errorf("completeness/errors/findings = %v/%v/%v", m["completeness"], m["errors"], m["findings"])
 	}
-	verifyManifest(t, out)
+	verifyInProcess(t, out)
 }
 
 func TestSquashfsManifestFailure(t *testing.T) {
