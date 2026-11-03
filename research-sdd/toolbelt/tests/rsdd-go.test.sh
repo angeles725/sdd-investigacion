@@ -165,8 +165,9 @@ classify_lived() {
 # run (`.`) the `FAIL<TAB><import path>` lines. Each one ON the teeth debt list is a loud DEBT line (its out-of-module
 # test reads are pending a repoint); any other, or a whole-module failure naming no package, is a FAIL (never SKIP).
 decide_baseline_fail() {
-  local f="$1" dpkg debtf dl drc modpath bad="" good="" p modroot
+  local f="$1" dpkg debtf dl drc modpath bad="" good="" p modroot whole=0
   dpkg="$(sed -n 's/^teeth: DEGRADED — the unmutated package fails in a module-only copy: //p' "$f" | head -n 1)"
+  [ "$dpkg" = "." ] && [ "${2-}" = "ALL" ] && whole=1
   modroot="${RSDD_GO_MOD:-$(dirname "$0")/../../rsdd}"
   debtf="${RSDD_TEETH_DEBT:-$modroot/teeth-debt.txt}"
   dl="$(load_debt "$debtf")"; drc=$?
@@ -189,6 +190,12 @@ decide_baseline_fail() {
   for p in $good; do
     echo "  DEBT  baseline fails in a module-only copy (out-of-module test reads, #2592 repoint pending): $p"
   done
+  if [ "$whole" -eq 1 ]; then
+    # The baseline stopped the WHOLE-module run before gremlins mutated any package, so this is not a verdict: the
+    # caller (teeth_whole_module) must still judge every other package. A bare PENDING reaching a caller that does not
+    # is a FAIL there (never a PASS).
+    echo "VERDICT: PENDING baseline-skip $good"; return 0
+  fi
   echo "VERDICT: PASS debt-only baseline-fail $(wc -w <<<"$good" | tr -d ' ') package(s) on the teeth debt list, none outside it (gremlins did not run for them)"
 }
 decide_gremlins() {
@@ -207,7 +214,7 @@ decide_gremlins() {
     return 0
   fi
   if [ -z "$counts" ] && grep -q -e '^teeth: DEGRADED — the unmutated package fails in a module-only copy: ' "$f"; then
-    decide_baseline_fail "$f"; return 0   # SENTINEL-BASELINE-DEBT
+    decide_baseline_fail "$f" "${3-}"; return 0   # SENTINEL-BASELINE-DEBT
   fi
   if [ -z "$counts" ]; then
     local why cause; why="$(tail -n 3 "$f" | tr '\n' ' ')"
@@ -347,6 +354,45 @@ teeth_plan() {
 # "$" anchor of an exclude regexp would otherwise vanish (make reads "$)" as a variable named ")").
 make_value() { printf '%s' "${1//\$/\$\$}"; }
 
+# teeth_whole_module MODDIR MAKEFILE SCRATCH -> sets `verdict` (and prints the report) for a whole-module teeth run.
+# One `make teeth` over the module; when its module-only BASELINE fails only in packages on the teeth debt list (kit
+# issue #2592), that run stopped before gremlins mutated ANY package, and gremlins' coverage step fails on a module
+# holding one failing package, so the remainder is judged package by package (`TEETH_PKG=./pkg TEETH_EXCLUDE=/`, the
+# per-PR shape) over every Go package except the skipped ones. The skipped packages stay loud DEBT lines and are named
+# in the PASS. A remainder that cannot be listed or run is a FAIL, never a PASS.
+teeth_whole_module() {
+  local mod="$1" mk="$2" sc="$3" out mrc skipped="" pk p ex one modpath
+  out="$sc/gremlins.out"
+  make -f "$mk" -C "$mod" teeth >"$out" 2>&1 </dev/null; mrc=$?
+  verdict="$(RSDD_GO_MOD="$mod" decide_gremlins "$out" "$mrc" ALL)"
+  echo "$verdict" | grep -v '^VERDICT:'
+  case "$verdict" in *"VERDICT: PENDING baseline-skip "*) ;; *) return 0 ;; esac
+  skipped="${verdict##*VERDICT: PENDING baseline-skip }"
+  modpath="$(awk '/^module /{print $2; exit}' "$mod/go.mod" 2>/dev/null)"
+  pk="$(cd "$mod" && GOTOOLCHAIN=local GOFLAGS='' go list -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... 2>"$sc/golist.err")"
+  if [ $? -ne 0 ] || [ -z "$modpath" ] || [ -z "$pk" ]; then
+    verdict="VERDICT: FAIL teeth: the baseline skipped [$skipped] and the remaining packages could not be listed (go list failed or found none)"
+    return 0
+  fi
+  echo "teeth: baseline fails in a module-only copy for [$skipped] (listed #2592 debt): gremlins skips only those; the remaining packages run one by one"
+  : > "$sc/verdicts.txt"
+  while IFS= read -r p; do
+    [ "$p" = "$modpath" ] && p="." || p="./${p#"$modpath"/}"
+    case " $skipped " in *" $p "*) continue ;; esac
+    if [[ "$p" == *[!A-Za-z0-9_./-]* ]]; then echo "VERDICT: FAIL [$p] package path has characters outside [A-Za-z0-9_./-]" >> "$sc/verdicts.txt"; continue; fi
+    ex="/"   # the package's own files only: a subpackage is its own run
+    make -f "$mk" -C "$mod" teeth TEETH_PKG="$p" TEETH_EXCLUDE="$ex" >"$out" 2>&1 </dev/null; mrc=$?
+    one="$(RSDD_GO_MOD="$mod" decide_gremlins "$out" "$mrc" "$p")"
+    echo "--- teeth: $p"
+    echo "$one" | grep -v '^VERDICT:'
+    echo "$one" | grep '^VERDICT:' | sed "s|^VERDICT: \([A-Z]*\) |VERDICT: \1 [$p] |" >> "$sc/verdicts.txt"
+  done <<<"$pk"
+  verdict="$(combine_verdicts "$sc/verdicts.txt")"
+  case "$verdict" in
+    "VERDICT: PASS"*) verdict="$verdict; skipped, baseline fails in a module-only copy (gremlins not run, listed #2592 debt): $skipped" ;;
+  esac
+}
+
 # changed_go_packages MODDIR BASE -> prints one Go package per line ("." or "./rel", sorted), for every package
 # under MODDIR with a .go file (test files included) changed between merge-base(BASE, HEAD) and the working
 # tree (tracked edits, deletions and untracked files). A package whose directory is gone or holds no .go
@@ -449,6 +495,13 @@ fi
 if [ "${1:-}" = "--teeth-files" ]; then
   [ -n "${2:-}" ] || { echo "FATAL: --teeth-files needs a BASE ref" >&2; exit 2; }
   changed_go_files "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$2"; exit $?
+fi
+
+if [ "${1:-}" = "--teeth-whole" ]; then
+  [ -f "${3:-}" ] && [ -d "${2:-}" ] || { echo "FATAL: --teeth-whole needs MODDIR MAKEFILE" >&2; exit 2; }
+  tw_sc="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go-tw.XXXXXX")" || exit 2
+  teeth_whole_module "$2" "$3" "$tw_sc"; rm -rf "$tw_sc"
+  echo "$verdict" | grep '^VERDICT:'; exit 0
 fi
 
 if [ "${1:-}" = "--teeth-exclude" ]; then
@@ -1042,8 +1095,9 @@ if grep -q '^VERDICT: FAIL teeth DEGRADED: the unmutated package fails in a modu
   ok "debt: an UNLISTED package whose module-only baseline fails is a typed DEGRADED FAIL (even without RSDD_REQUIRE_GO)"; else no "debt: unlisted baseline fail wrong: $g"; fi
 bl_deg . internal/cli a > "$ROOT/gr-bl-all-ok.out"
 g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
-if [ "$(grep -c '^  DEBT  baseline fails' <<<"$g")" -eq 2 ] && grep -q '^VERDICT: PASS debt-only baseline-fail 2 ' <<<"$g"; then
-  ok "debt: a whole-module baseline failure confined to listed packages is DEBT for each of them"; else no "debt: whole-module listed wrong: $g"; fi
+if [ "$(grep -c '^  DEBT  baseline fails' <<<"$g")" -eq 2 ] && grep -qx 'VERDICT: PENDING baseline-skip ./a ./internal/cli' <<<"$g" && ! grep -q 'VERDICT: PASS' <<<"$g"; then
+  ok "debt: a whole-module baseline failure confined to listed packages is DEBT for each of them and NOT a verdict (PENDING: the rest of the module still has to run)"
+else no "debt: whole-module listed wrong: $g"; fi
 bl_deg . internal/cli internal/zzz > "$ROOT/gr-bl-all-mixed.out"
 g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-mixed.out" 1 ALL)"
 if grep -q '^VERDICT: FAIL teeth DEGRADED: .*not on the teeth debt list: ./internal/zzz' <<<"$g" && ! grep -q 'baseline-fail' <<<"$g"; then
@@ -1251,7 +1305,7 @@ fi
 # to the debt classifier fails the listed package again; 8) one that drops the debt-list membership check (every
 # baseline failure is debt) lets an UNLISTED package's failing baseline through as a PASS.
 if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-route mutation" "$0" "$MUTDIR/rsdd-go-debt7.test.sh" \
-    's/decide_baseline_fail "\$f"; return 0 /: ; /'; then
+    's/decide_baseline_fail "\$f" "\${3-}"; return 0 /: ; /'; then
   if mutant_tooth "teeth: a decision that ignores the baseline DEGRADED line fails the listed package again" 0 0 \
       "$MUTDIR/rsdd-go-debt7.test.sh" --orig "$0" \
       --good-has 'VERDICT: PASS debt-only baseline-fail' --bad-has 'VERDICT: FAIL' -- \
@@ -1265,6 +1319,29 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-listed mutation" "$0"
       "$MUTDIR/rsdd-go-debt8.test.sh" --orig "$0" \
       --good-has 'VERDICT: FAIL teeth DEGRADED' --bad-has 'VERDICT: PASS debt-only' -- \
       env RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-unlisted.out" 1 ./internal/other; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# 9) a decision that treats a whole-module baseline failure like a per-package one reports PASS for a run in which
+# gremlins mutated nothing; 10) a whole-module run that ignores the remainder's verdicts passes over a lived mutant of an
+# unlisted package.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-whole mutation" "$0" "$MUTDIR/rsdd-go-debt9.test.sh" \
+    's/\[ "\$dpkg" = "\." \] \&\& \[ "\${2-}" = "ALL" \] \&\& whole=1/whole=0/'; then
+  if mutant_tooth "teeth: a whole-module baseline failure treated as a final PASS leaves the rest of the module unjudged" 0 0 \
+      "$MUTDIR/rsdd-go-debt9.test.sh" --orig "$0" \
+      --good-has 'VERDICT: PENDING baseline-skip' --bad-has 'VERDICT: PASS' -- \
+      env RSDD_GO_MOD="$MOD" RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if command -v go >/dev/null && wfx="$(whole_fixture_make LIVE)" \
+   && MUTANT_SYNTAX=bash mutant_chain_or_count fail "whole-remainder mutation" "$0" "$MUTDIR/rsdd-go-debt10.test.sh" \
+    's|verdict="\$(combine_verdicts "\$sc/verdicts.txt")"|verdict="VERDICT: PASS no lived mutants"|'; then
+  if mutant_tooth "teeth: ignoring the remainder's verdicts passes a lived mutant of an unlisted package" 0 0 \
+      "$MUTDIR/rsdd-go-debt10.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL' --bad-has 'VERDICT: PASS' -- \
+      env RSDD_BIN=fixture-skips-the-rsdd-build RSDD_TEETH_DEBT="$wfx/debt.txt" bash @SUT@ --teeth-whole "$wfx" "$MOD/Makefile"; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
@@ -1484,14 +1561,47 @@ else
     *) no "teeth file scope: excluding a.go want control=none sub>=1, got $sf_file" ;; esac
 fi
 
+# Whole-module run with a listed baseline failure (kit issue #2592): a fixture module with ./b reading outside the module
+# (its module-only baseline fails; ./b is on the debt list) and ./a testable. The skipped ./b must stay a DEBT line while
+# gremlins still judges ./a: a lived mutant of ./a FAILs the run, a killed one PASSes naming exactly what was skipped.
+whole_fixture_make() { # KILL|LIVE -> the path of a fixture module (its debt list is debt.txt in it)
+  local mode="$1" w
+  w="$(mktemp -d "$ROOT/whole-fx.XXXXXX")" || return 1
+  mkdir -p "$w/a" "$w/b"
+  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
+  printf 'package a\n\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
+  if [ "$mode" = "LIVE" ]; then
+    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
+  else
+    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) || Pos(0) || Pos(-1) {\n\t\tt.Fatal("pos")\n\t}\n}\n' > "$w/a/a_test.go"
+  fi
+  printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/b/b.go"
+  printf 'package b\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestNeg(t *testing.T) {\n\tif _, err := os.Stat("../../nope"); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n' > "$w/b/b_test.go"
+  printf './b #2592 fixture test reads outside the module for the remainder test\n' > "$w/debt.txt"
+  echo "$w"
+}
+whole_fixture() { # KILL|LIVE MAKEFILE -> the --teeth-whole report of the fixture
+  local w; w="$(whole_fixture_make "$1")" || { echo "ran=no"; return; }
+  RSDD_BIN=fixture-skips-the-rsdd-build RSDD_TEETH_DEBT="$w/debt.txt" bash "$0" --teeth-whole "$w" "$2" 2>&1
+}
+if [ "$sf" = "control=LIVED sub=0" ]; then
+  wf="$(whole_fixture LIVE "$MOD/Makefile")"
+  if grep -q '^  DEBT  baseline fails in a module-only copy (out-of-module test reads, #2592 repoint pending): ./b$' <<<"$wf" \
+     && grep -q '^  LIVED at a\.go:' <<<"$wf" && grep -q '^VERDICT: FAIL' <<<"$wf" && ! grep -q '^VERDICT: PASS' <<<"$wf"; then
+    ok "teeth whole module: a listed baseline failure (./b) is skipped but a lived mutant of ./a still FAILs the run"
+  else no "teeth whole module: want DEBT ./b + LIVED a.go + VERDICT: FAIL, got: $wf"; fi
+  wf="$(whole_fixture KILL "$MOD/Makefile")"
+  if grep -q '^  DEBT  baseline fails .*: ./b$' <<<"$wf" && grep -q '^VERDICT: PASS .*skipped, baseline fails in a module-only copy (gremlins not run, listed #2592 debt): ./b$' <<<"$wf"; then
+    ok "teeth whole module: with ./a's mutants killed the run PASSes and names exactly what was skipped (./b)"
+  else no "teeth whole module: want PASS naming ./b, got: $wf"; fi
+fi
+
 # Mutation testing (gremlins, pinned in the Makefile): the gate is zero LIVED mutants among covered ones.
 # RSDD_TEETH_BASE unset: the whole module. Set: only the packages changed vs that ref (see the header).
 t0=$SECONDS
 verdict=""
 if [ -z "${RSDD_TEETH_BASE:-}" ]; then
-  make -C "$MOD" teeth >"$ROOT/gremlins.out" 2>&1; mrc=$?
-  verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc" ALL)"
-  echo "$verdict" | grep -v '^VERDICT:'
+  teeth_whole_module "$MOD" "$MOD/Makefile" "$ROOT"
 else
   files="$(changed_go_files "$MOD" "$RSDD_TEETH_BASE")"; prc=$?
   if [ "$prc" -ne 0 ]; then
