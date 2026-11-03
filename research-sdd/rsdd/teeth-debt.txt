@@ -20,4 +20,3 @@
 ./internal/corroborate/kaitai #2592 untagged test reads a toolbelt/ fixture outside the module; real lived mutants not yet measured
 ./internal/corroborate/native #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured
 ./internal/corroborate/fidelity #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured
-./internal/formats #2592 repointed in PR #2588; its real teeth debt (Lived 130 measured on the fixed package) is paid separately
