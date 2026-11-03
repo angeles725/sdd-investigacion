@@ -1,0 +1,10 @@
+Frozen verbatim excerpts of research-sdd/toolbelt/research-sdd-status.sh at origin/main 31bb4be5
+(blob 7e734c53bc63f4337f26a3b39551da846d3f98c1, issue #2549 slice S1). The script stays authoritative until S8.
+
+status-head.sh     lines 1-287   (usage header, argument parsing and validation, --emit-token, state-file pick, BOOTSTRAP, helper sourcing)
+                   sha256 8d4482f0686616ab72c62da3ac1a3764f401f34462736b4c302939c07cf77545
+status-blocked.sh  lines 472-487 (blocked_names, is_blocked)
+                   sha256 d8dd62ccfe0d8441baabb06aa310f9d8163e4b681b56330d79456235cedb2cef
+
+The differential tests append a probe tail (authored, in the test) and stage the live toolbelt/lib beside the
+excerpt; the excerpt bytes themselves are never edited.
