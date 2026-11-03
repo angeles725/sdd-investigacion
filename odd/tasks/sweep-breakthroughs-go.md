@@ -11,12 +11,12 @@ Branch: worktree-agent-a1270f7aa2e001e58 · Delivery: Conventional Commits endin
 - S7 (latency): per-call latency of the shim against the old script is measured (first call, warm calls) and reported.
 
 ## Tasks
-- T1 (S1,S6) feature doc, frozen sha-pinned legacy oracle, pin test — inline — [ ]
-- T2 (S1,S2) scenario table + differential + RED against a stub — inline — [ ]
-- T3 (S1,S2,S3) implement `rsdd sweep breakthroughs` and `--hook` until 0 diffs — inline — [ ]
-- T4 (S1) goldens recorded from the frozen scripts + nodiff replay — inline — [ ]
-- T5 (S6) boundary unit tests + hand mutants — inline — [ ]
-- T6 (S4,S5,S7) shims, reduced bash suites, case map, registry, latency — inline — [ ]
+- T1 (S1,S6) feature doc, frozen sha-pinned legacy oracle, pin test — inline — [x]
+- T2 (S1,S2) scenario table + differential + RED against a stub — inline — [x]
+- T3 (S1,S2,S3) implement `rsdd sweep breakthroughs` and `--hook` until 0 diffs — inline — [x]
+- T4 (S1) goldens recorded from the frozen scripts + nodiff replay — inline — [x]
+- T5 (S6) boundary unit tests + hand mutants — inline — [x]
+- T6 (S4,S5,S7) shims, reduced bash suites, case map, registry, latency — inline — [x]
 
 ## Log
 - L1 (issue #2360 body, verbatim):
@@ -34,3 +34,4 @@ Branch: worktree-agent-a1270f7aa2e001e58 · Delivery: Conventional Commits endin
   - its `--prove-teeth` mutants (they sed the script body, which is a shim now): M1 -> "unindexed breakthrough"; M2 -> "drift marker removed"; M3 -> "absent corpus"; M4 -> "no-match corpus", TestBreakthroughsMarkerLines; M5 -> "missing TARGETS.md"; M6 -> "truncated path is skipped and named", TestBreakthroughsSummaryLines; M7 -> the portable-pointer scenarios, TestBreakthroughsLedgerPointers; M8-M11 -> "ampersand in RESEARCH_HOME", "trailing slash in RESEARCH_HOME", TestBreakthroughsResearchHomeOf; M12 -> the "exact line" scenarios, TestBreakthroughsPointerIndex; M13 -> "two pointers in one cell"; M14 -> "drift on the pointed line only", TestBreakthroughsCarriesMarker; M15 -> "two markers ledger points at the second"; M16/M17 -> "unreadable block is skipped loudly". The shim suites keep their own mutants (A-D report, A-E hook).
   - sweep-breakthroughs-hook.test.sh: 3 -> "unreadable ledger stops the run" hook rows and TestBreakthroughsHookContext (failure header); 4 -> every scenario's hook rows (header + context); 5 -> TestBreakthroughsSummaryFilter "absent per-target lines go, the aggregate points at --full"; 6 -> golden hookfull frames (TestBreakthroughsGoldenReplay), shim case 9; 7-8 -> "empty only", "no-match only"; 9 -> golden hookfull frames; 10 -> "both"; 11-12 -> the single-count rows ("empty from two" / "no-match from two" mutants); 13 -> "counted lines come last". The budget cases brk-1..brk-5 of sessionstart-budget.test.sh -> TestBreakthroughsBudget (frozen reading in testdata/breakthroughs/hook).
 - L5 intended divergences (documented in research-sdd/toolbelt/tool-registry.d/sweep-breakthroughs.md): (1) an unreadable BREAKTHROUGHS.md stops the run (exit 1) instead of reading as an empty ledger; (2) a symlinked target is traversed; (3) a zero-padded ledger pointer indexes the block; (4) a NUL / invalid-UTF-8 block is scanned line by line; (5) an unreadable pointed file is a typed WARN, not a lost marker; (6) no helper-missing exits; bytewise sort; ASCII whitespace; always-JSON hook.
+- L6 evidence: RED (stub command, differential + golden): see commit 840420f9/4c1a6593 history; mutants: 131 hand mutants over breakthroughs.go, breakthroughsledger.go, breakthroughsmarker.go, breakthroughshook.go (module-only copy outside the repo, `-tags nodiff`), all KILLED (two build-failing mutants replaced by compiling ones, both killed); copy deleted. Fleet sweep (35 TARGETS rows, C.UTF-8): report 56 lines, hook 6, hook --full 6, stdout/stderr/rc IDENTICAL to the frozen scripts (22 tagged, 19 unindexed, 0 drifted, 0 skipped-unreadable). Latency (RSDD_BIN set, fleet corpus, ms): report old first 37198 / warm 39843, shim first 5451 / warm 5860; hook old first 41821 / warm 35965, shim first 3153 / warm 3735.
