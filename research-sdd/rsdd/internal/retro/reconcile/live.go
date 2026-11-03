@@ -297,21 +297,29 @@ func (g *ghClient) stateReasonOf(r *Report, num string) (reason string, found, o
 	if !g.loadStateReasons(r, false) {
 		return "", false, false
 	}
-	for i := 0; i < 2; i++ {
-		for _, l := range g.sr.lines {
-			f := strings.Fields(l)
-			if len(f) > 0 && f[0] == num {
-				if len(f) > 1 {
-					reason = f[1]
-				}
-				return reason, true, true
+	if reason, found = g.cachedReason(num); found {
+		return reason, true, true
+	}
+	if !g.loadStateReasons(r, true) {
+		return "", false, false
+	}
+	reason, found = g.cachedReason(num)
+	return reason, found, true
+}
+
+// cachedReason is the first line of the cached listing that starts with num: the state_reason after it ("" for a
+// null one).
+func (g *ghClient) cachedReason(num string) (reason string, found bool) {
+	for _, l := range g.sr.lines {
+		f := strings.Fields(l)
+		if len(f) > 0 && f[0] == num {
+			if len(f) > 1 {
+				reason = f[1]
 			}
-		}
-		if i == 0 && !g.loadStateReasons(r, true) {
-			return "", false, false
+			return reason, true
 		}
 	}
-	return "", false, true
+	return "", false
 }
 
 // loadStateReasons is _load_state_reasons: ONE paginated `gh api repos/<repo>/issues?state=closed` call (REST
@@ -335,8 +343,8 @@ func (g *ghClient) loadStateReasons(r *Report, force bool) bool {
 	if cached != "" && here {
 		if cached == "none" {
 			eff = ""
-		} else if eff != "" && cached < eff {
-			eff = cached
+		} else {
+			eff = min(eff, cached) // an unbounded request stays unbounded ("" sorts first)
 		}
 	}
 	url := "repos/" + g.repo + "/issues?state=closed&per_page=100"

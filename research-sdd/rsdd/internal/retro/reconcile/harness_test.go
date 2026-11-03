@@ -295,6 +295,12 @@ func diffResult(want, got result) string {
 	if want.Stderr != got.Stderr {
 		sb.WriteString("stderr:\n  want " + quote(want.Stderr) + "\n  got  " + quote(got.Stderr) + "\n")
 	}
+	if want.GHLog != got.GHLog {
+		sb.WriteString("gh calls:\n  want " + quote(want.GHLog) + "\n  got  " + quote(got.GHLog) + "\n")
+	}
+	if want.Sleeps != got.Sleeps {
+		sb.WriteString("sleeps:\n  want " + quote(want.Sleeps) + "\n  got  " + quote(got.Sleeps) + "\n")
+	}
 	return sb.String()
 }
 

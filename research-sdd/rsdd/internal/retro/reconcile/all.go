@@ -49,8 +49,8 @@ func runAll(ctx context.Context, g *ghClient, sess *session, rep *Report, o Opti
 				for _, w := range res.Warnings {
 					rep.note("%s", w)
 				}
-				if err != nil && kit.RC(err) == 1 {
-					rep.note("%s", err.Error())
+				if msg, ok := nameFailureNote(err); ok {
+					rep.note("%s", msg)
 				}
 				if err != nil || res.Name == "" {
 					rep.degrade("degraded: cannot resolve a registered target name for %s (target_name_for_retro rc=%d)", rfile, kit.RC(err))
@@ -81,6 +81,15 @@ func runAll(ctx context.Context, g *ghClient, sess *session, rep *Report, o Opti
 	}
 	sess.shallowNote(rep)
 	rep.out("%s", fleet.Line())
+}
+
+// nameFailureNote is what target_name_for_retro leaves on stderr: its message for an operational failure (rc 1).
+// A retro with no registered ancestor (rc 2) and a clean run say nothing.
+func nameFailureNote(err error) (string, bool) {
+	if err != nil && kit.RC(err) == 1 {
+		return err.Error(), true
+	}
+	return "", false
 }
 
 // retroFiles is `find DIR -maxdepth 1 -name '*.md' -type f | sort`: the regular *.md files of the directory in

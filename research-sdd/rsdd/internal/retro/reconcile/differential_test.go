@@ -78,10 +78,12 @@ func TestDifferential(t *testing.T) {
 	recorded := map[string]result{}
 	t.Run("cases", func(t *testing.T) {
 		for _, c := range allCases() {
+			// Boxes (stub gh scripts) are written before any subtest runs: see TestGoldenReplay (ETXTBSY race).
+			legacyBox, goBox := mkBox(t, c), mkBox(t, c)
 			t.Run(c.name, func(t *testing.T) {
 				t.Parallel()
-				want := runLegacy(t, bash, mkBox(t, c))
-				got := runGo(t, mkBox(t, c))
+				want := runLegacy(t, bash, legacyBox)
+				got := runGo(t, goBox)
 				if d := diffResult(want, got); d != "" {
 					t.Errorf("Go differs from the legacy script:\n%s", d)
 				}
