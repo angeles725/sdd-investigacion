@@ -255,13 +255,23 @@ func pathFor(t testing.TB, w *world, flavour string) string {
 		return d
 	}
 	base := strings.Fields(baseTools)
+	// host is the host PATH behind a gh that fails as an unauthenticated gh does. The host's real gh is never run:
+	// it writes its state (home/.local/state/gh/device-id) into the world and may reach the network.
+	host := func() string {
+		d := filepath.Join(w.root, "paths", "host-gh")
+		if _, err := os.Stat(d); err != nil {
+			must0(t, os.MkdirAll(d, 0o755))
+			must0(t, os.WriteFile(filepath.Join(d, "gh"), []byte("#!/bin/sh\necho 'To get started with GitHub CLI, please run:  gh auth login' >&2\nexit 4\n"), 0o755))
+		}
+		return d + ":" + realPath
+	}
 	switch {
 	case flavour == "" || flavour == "real":
-		return realPath
+		return host()
 	case strings.HasPrefix(flavour, "gh:"):
 		return filepath.Join(w.root, "stubs", strings.TrimPrefix(flavour, "gh:")) + ":" + realPath
 	case flavour == "gitlog":
-		return filepath.Join(w.root, "stubs", "gitlog") + ":" + realPath
+		return filepath.Join(w.root, "stubs", "gitlog") + ":" + host()
 	case flavour == "noexec-gh":
 		d := tools("noexec-gh", append([]string{"git", "jq"}, base...)...)
 		must0(t, os.WriteFile(filepath.Join(d, "gh"), []byte("#!/bin/sh\necho '[]'\n"), 0o644))
