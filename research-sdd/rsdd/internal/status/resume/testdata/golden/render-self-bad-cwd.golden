@@ -1,0 +1,5 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: not a directory: @ROOT@/not-a-dir
+resume-render.sh: resume-state.sh failed (rc 2)

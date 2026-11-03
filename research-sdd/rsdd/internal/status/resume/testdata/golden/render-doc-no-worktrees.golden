@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-render.sh: malformed document: worktrees/branches must be arrays of objects, repo an object, prs null or an array of objects, base_ref a string

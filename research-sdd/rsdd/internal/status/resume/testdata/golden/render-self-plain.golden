@@ -1,0 +1,19 @@
+rc: 0
+--- stdout
+# Resume handoff
+
+Generated @T@ · repo `@ROOT@/r` · remote none configured
+Base: `main` @ b3ec3ae
+
+## Worktrees (1)
+- `@ROOT@/r` — branch `main` @ b3ec3ae · dirty 0 · untracked 1 · ahead 0 · behind 0
+
+## Loose branches (0)
+None: every local branch is checked out in a worktree.
+
+## Open PRs
+PR list unknown: skipped
+
+## Not derived
+Review receipts, in-flight workers and the next task have no git source; state them by hand.
+--- stderr
