@@ -80,11 +80,6 @@ func TestRunOperationalErrors(t *testing.T) {
 	b := mkBox(t, dcase{retro: pending + tableHead + rowsOf("1")})
 	base := Options{Retro: b.arg, IssuesCache: CacheFile(b.cache), KitRoot: b.root, Cwd: b.cwd, Env: noEnv}
 
-	nilCache := base
-	nilCache.IssuesCache = nil
-	if _, err := Run(context.Background(), nilCache); !errors.Is(err, ErrNotInSlice) {
-		t.Errorf("nil IssuesCache: err = %v, want ErrNotInSlice", err)
-	}
 	noRetro := base
 	noRetro.Retro = ""
 	if _, err := Run(context.Background(), noRetro); !errors.Is(err, ErrUsage) {

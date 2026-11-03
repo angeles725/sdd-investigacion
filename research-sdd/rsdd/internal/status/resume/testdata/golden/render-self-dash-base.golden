@@ -1,0 +1,5 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: --base-ref must not start with '-': -x
+resume-render.sh: resume-state.sh failed (rc 2)

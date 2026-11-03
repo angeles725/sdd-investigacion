@@ -1,0 +1,5 @@
+rc: 3
+--- stdout
+{"schema":"research-sdd.resume-state/v1","state":"degraded","reason":"git not found; cannot derive resume state","counts":{},"items":[]}
+--- stderr
+DEGRADED: git not found; cannot derive resume state

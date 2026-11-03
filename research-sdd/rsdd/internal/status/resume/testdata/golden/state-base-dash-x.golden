@@ -1,0 +1,4 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: --base-ref must not start with '-': -x

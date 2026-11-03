@@ -1,0 +1,5 @@
+rc: 2
+--- stdout
+--- stderr
+resume-state.sh: unknown argument: --bogus
+usage: resume-state.sh [--cwd DIR] [--base-ref REF] [--no-gh] [--json]

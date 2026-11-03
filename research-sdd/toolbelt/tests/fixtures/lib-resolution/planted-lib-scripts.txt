@@ -11,6 +11,7 @@ corroborate-native.sh
 corroborate-pcap.sh
 coverage-map.sh
 decompile-java.sh
+detect-tools.sh
 ensure-remote.sh
 install/research-sdd-install.sh
 java-fidelity-experiment.sh
@@ -25,6 +26,7 @@ research-sdd-archive.sh
 research-sdd-init.sh
 research-sdd-status.sh
 resume-render.sh
+resume-state.sh
 retro-gate.sh
 return-token-gate.sh
 scan-secrets.sh

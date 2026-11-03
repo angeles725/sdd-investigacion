@@ -12,7 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -149,7 +149,7 @@ func walkTree(root string, maxEntries int, maxBytes int64) ([]treeEntry, error) 
 			return nil, sqfsErrf("extracted path is not valid UTF-8: %s", pyRepr(e.Path))
 		}
 	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	slices.SortStableFunc(entries, func(a, b treeEntry) int { return strings.Compare(a.Path, b.Path) })
 	return entries, nil
 }
 
@@ -409,6 +409,9 @@ func treeBytes(root string, over int64) int64 {
 	return total
 }
 
+// overCap reports whether the tree under root holds more than limit bytes (exactly limit is within the cap).
+func overCap(root string, limit int64) bool { return treeBytes(root, limit) > limit }
+
 // runUnsquashfs runs unsquashfs inside a minimal bwrap: a wall-clock timeout, a per-file RLIMIT_FSIZE (set
 // by the rlimit helper, i.e. this binary re-executed as `rsdd __exec`) and a watchdog that kills the process
 // group when the aggregate bytes on disk pass the cap (~250 ms poll). stderr goes to stage/stderr.txt.
@@ -454,7 +457,7 @@ func runUnsquashfs(bwrap, unsquashfs, stage string, offset int64, timeoutSeconds
 			case <-stopWatchdog:
 				return
 			case <-tick.C:
-				if treeBytes(filepath.Join(stage, "extracted"), maxExtracted) > maxExtracted {
+				if overCap(filepath.Join(stage, "extracted"), maxExtracted) {
 					fired.Store(true)
 					kill()
 					return
@@ -472,9 +475,8 @@ func runUnsquashfs(bwrap, unsquashfs, stage string, offset int64, timeoutSeconds
 		reason = "timeout"
 		kill()
 	}
-	if reason != "" || fired.Load() {
-		kill()
-	}
+	// A timeout and a fired watchdog have already signalled the whole process group (kill is a group-wide
+	// SIGKILL), so no second signal is sent here.
 	<-done
 	close(stopWatchdog)
 	wg.Wait()
@@ -503,11 +505,7 @@ func snippetOf(raw []byte) string {
 	n := 0
 	for i := 0; i < len(raw) && n < 512; n++ {
 		r, w := utf8.DecodeRune(raw[i:])
-		if r == utf8.RuneError && w == 1 {
-			b.WriteRune('�')
-		} else {
-			b.WriteRune(r)
-		}
+		b.WriteRune(r) // an undecodable byte decodes to RuneError, which is U+FFFD
 		i += w
 	}
 	return strings.TrimSpace(b.String())
@@ -798,7 +796,18 @@ func writeCanonical(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	f := os.NewFile(uintptr(fd), path)
+	return writeSyncClose(os.NewFile(uintptr(fd), path), body)
+}
+
+// syncWriteCloser is the part of *os.File writeSyncClose uses (a seam for the failure paths).
+type syncWriteCloser interface {
+	io.Writer
+	Sync() error
+	Close() error
+}
+
+// writeSyncClose writes body, fsyncs and closes f; the file is closed on every path and the first failure wins.
+func writeSyncClose(f syncWriteCloser, body []byte) error {
 	if _, err := f.Write(body); err != nil {
 		f.Close()
 		return err
