@@ -1,0 +1,23 @@
+[
+{"Input":"1","OK":true,"Value":"1"},
+{"Input":"0","OK":true,"Value":"0"},
+{"Input":"-1","OK":true,"Value":"-1"},
+{"Input":"+5","OK":true,"Value":"5"},
+{"Input":" 7 ","OK":true,"Value":"7"},
+{"Input":"1_000","OK":true,"Value":"1000"},
+{"Input":"1__0","OK":false,"Value":""},
+{"Input":"_1","OK":false,"Value":""},
+{"Input":"1_","OK":false,"Value":""},
+{"Input":"0x10","OK":false,"Value":""},
+{"Input":"1e3","OK":false,"Value":""},
+{"Input":"","OK":false,"Value":""},
+{"Input":" ","OK":false,"Value":""},
+{"Input":"--1","OK":false,"Value":""},
+{"Input":"+-1","OK":false,"Value":""},
+{"Input":"٣","OK":true,"Value":"3"},
+{"Input":"12a","OK":false,"Value":""},
+{"Input":"9223372036854775807","OK":true,"Value":"9223372036854775807"},
+{"Input":"9223372036854775808","OK":true,"Value":"9223372036854775808"},
+{"Input":"-9223372036854775808","OK":true,"Value":"-9223372036854775808"},
+{"Input":"007","OK":true,"Value":"7"}
+]
