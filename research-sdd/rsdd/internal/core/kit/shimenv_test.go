@@ -60,20 +60,14 @@ func TestShimEnv(t *testing.T) {
 	}
 }
 
-// A nil environ is the process environment, as a nil exec.Cmd.Env is: passing cmd.Env must not strip PATH.
-func TestShimEnvNilIsTheProcessEnvironment(t *testing.T) {
-	t.Setenv("SHIMENV_PROBE", "inherited")
-	t.Setenv("RSDD_BIN", "")
-	self := func() (string, error) { return "/bin/sh", nil }
-	got := ShimEnv(nil, self)
-	if !slices.Contains(got, "SHIMENV_PROBE=inherited") {
-		t.Errorf("nil environ dropped the process environment: %q", got)
-	}
-	if v := lastRSDDBin(got); v == "" {
-		t.Errorf("no RSDD_BIN added to the process environment: %q", got)
-	}
-	failed := ShimEnv(nil, func() (string, error) { return "", errors.New("no executable") })
-	if !slices.Contains(failed, "SHIMENV_PROBE=inherited") {
-		t.Errorf("nil environ with a failing self dropped the process environment: %q", failed)
+// A nil environ stays nil, so exec.Cmd still inherits the parent's environment: `cmd.Env = ShimEnv(cmd.Env, ...)`
+// must not turn "inherit everything" into "only RSDD_BIN", whether self succeeds or fails.
+func TestShimEnvNilStaysNil(t *testing.T) {
+	ok := func() (string, error) { return "/bin/sh", nil }
+	fail := func() (string, error) { return "", errors.New("no executable") }
+	for _, self := range []func() (string, error){ok, fail} {
+		if got := ShimEnv(nil, self); got != nil {
+			t.Errorf("ShimEnv(nil) = %q, want nil (inherit the parent environment)", got)
+		}
 	}
 }
