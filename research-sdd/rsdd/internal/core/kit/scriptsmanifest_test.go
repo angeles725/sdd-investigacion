@@ -56,8 +56,10 @@ func TestScriptsManifestRowsEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, ok := ScriptsManifestRows(fsview.View{Cwd: root}, root, mf)
-	lo := strings.ToLower(ok64)
-	want := []string{"SCRIPTS-MANIFEST.md/good.sh\t" + lo, "SCRIPTS-MANIFEST.md/good.sh\t" + lo}
+	// One valid line gives TWO rows: the resolved cell (<manifest dir>/good.sh) and <manifest dir>/<basename>. A manifest
+	// at the target root has no "/" in its target-relative path, so its dir stays the whole path, as ${md%/*} does.
+	resolved, byBase := "SCRIPTS-MANIFEST.md/good.sh", "SCRIPTS-MANIFEST.md/good.sh"
+	want := []string{resolved + "\t" + strings.ToLower(ok64), byBase + "\t" + strings.ToLower(ok64)}
 	if !ok || !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %q ok=%v, want %q", got, ok, want)
 	}
