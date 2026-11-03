@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
-# sweep-audits-hook.test.sh — red-first harness for sweep-audits-hook.sh.
-# Covers: existence, executable, operational-failure banner, success header,
-#         absent-input collapse (default mode vs. --full),
-#         empty-input collapse (#974: per-target INFO lines → one counted summary),
-#         mutation proof.
+# sweep-audits-hook.test.sh — harness for sweep-audits-hook.sh, now a shim to `rsdd sweep audits --hook`
+# (kit issue #2577).
+#
+# Covers the SHIM contract: existence and the executable bit; the arguments handed to the binary (`sweep audits
+# --hook --kit <own kit>`, then every caller argument, `--full` included); output and exit code passed through; a
+# symlinked invocation; an unusable binary → the SessionStart DEGRADED headline and exit 0 (a hook never fails the
+# session), a missing lib → an announced line, never silence; and the real Go binary end to end on a mini kit
+# (the envelope, the collapsed summary, --full, the failure banner).
+# The filtering, the headers, the exit-0 rule and the envelope bytes are pinned in Go (rsdd/internal/sweep,
+# audits_hook_test.go, plus a differential against the frozen script and a golden recorded from it), not here.
+# The old suite stubbed sweep-audits.sh beside the hook; the sweep runs in process now, so that seam is gone and
+# the pure functions are tested directly. The map from every old case to its Go test is L3 of
+# odd/tasks/sweep-audits-go.md.
+# --prove-teeth mutates the SHIM (each mutant must lose its case); the Go source has its own mutation gate
+# (`make teeth` in research-sdd/rsdd).
+#
 # Exit: 0 all held · 1 regression · 2 harness error
-
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/stage-libs.sh
@@ -18,243 +28,148 @@ no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "== sweep-audits-hook.test.sh =="
 
-# 1. Existence
-[ -f "$SUT" ] \
-  && ok "1 hook exists at $SUT" \
-  || no "1 hook NOT found at $SUT"
+# 1. Existence and 2. executable
+[ -f "$SUT" ] && ok "1 hook exists at $SUT" || no "1 hook NOT found at $SUT"
+[ -f "$SUT" ] && [ -x "$SUT" ] && ok "2 hook is executable" || no "2 hook NOT executable (missing +x bit)"
+if [ ! -f "$SUT" ]; then echo "== $pass passed · $fail failed =="; exit 2; fi
 
-# 2. Executable
-[ -f "$SUT" ] && [ -x "$SUT" ] \
-  && ok "2 hook is executable" \
-  || no "2 hook NOT executable (missing +x bit)"
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+unset RSDD_RETRO_AGE_DAYS RESEARCH_HOME
 
-if [ ! -f "$SUT" ]; then
-  for n in 3 4 5 6; do no "$n (skipped: hook missing)"; done
-  echo "== $pass passed · $fail failed =="; exit 2
+# The real binary for the end-to-end cases: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
 fi
 
-# ---- Temp workspace ---------------------------------------------------------
-MUT=""; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
-
-# write_stub <exit_code> <output_text> — creates TMP/sweep-audits.sh + refreshes hook copy.
-write_stub() {
-  local rc="$1" txt="$2"
-  printf '%s\n' "$txt" > "$TMP/stub-out.txt"
-  printf '#!/usr/bin/env bash\ncat "%s"\nexit %s\n' "$TMP/stub-out.txt" "$rc" \
-    > "$TMP/sweep-audits.sh"
-  chmod +x "$TMP/sweep-audits.sh"
-  cp "$SUT" "$TMP/sweep-audits-hook.sh"
-  rsdd_stage_libs "$TMP"  # the hook sources lib/hook-emit.sh beside itself (#1877)
-  chmod +x "$TMP/sweep-audits-hook.sh"
+# stage_kit DEST [SHIM] — a mini kit: the hook shim (the real one, or a mutant) and every toolbelt lib (the shim
+# sources lib/rsdd-exec.sh and, when degraded, lib/hook-emit.sh). The toolbelt is DEST/toolbelt.
+stage_kit() {
+  mkdir -p "$1/toolbelt"
+  cp "${2:-$SUT}" "$1/toolbelt/sweep-audits-hook.sh"; chmod +x "$1/toolbelt/sweep-audits-hook.sh"
+  rsdd_stage_libs "$1/toolbelt" || exit 2
 }
-
-# Stub output simulating a sweep with 3 absent targets + aggregate line.
-# Matches what sweep-audits.sh already emits (it has the aggregate line since before §501).
-STUB_ABSENT='INFO: corpus not found (absent-input): /fake/path1
-INFO: corpus not found (absent-input): /fake/path2
-INFO: corpus not found (absent-input): /fake/path3
-
-Summary: 0 pending / 0 audits across targets.
-INFO: 3 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
-Nothing to review.'
-
-# 3. Operational failure (sweep exits non-zero) → "could not run" banner, NOT normal header.
-write_stub 1 "sweep-audits: cannot find TARGETS.md"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'could not run\|error\|exit 1' \
-  && ok "3 sweep failure (rc=1) → operational-failure banner emitted" \
-  || no "3 sweep failure → expected 'could not run' banner (exit=$RC out=[$OUT])"
-
-# 4. Success (sweep exits 0) → normal header present in output.
-write_stub 0 "TARGET  demo  · 0 open audits"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-<<<"$OUT" grep -qi 'pending audits\|§13' \
-  && ok "4 success (rc=0) → normal audit header emitted" \
-  || no "4 success → expected normal header (exit=$RC out=[$OUT])"
-
-# 5. Default mode collapses N per-target absent-input INFO lines to one counted line.
-#    The counted line must carry "run --full to list them." Per-target lines must be absent.
-#    RED before implementation: current hook has no filtering → per-target lines pass through,
-#    aggregate line keeps "see INFO lines above" (not "run --full").
-write_stub 0 "$STUB_ABSENT"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && <<<"$OUT" grep -q 'run --full to list them' \
-   && ! <<<"$OUT" grep -q 'corpus not found (absent-input):'; then
-  ok "5 default mode: 3 absent targets → aggregate counted line (run --full), no per-target lines"
-else
-  no "5 default mode: aggregate 'run --full' absent or per-target lines present (exit=$RC out=[$OUT])"
-fi
-
-# 6. --full passes per-target absent-input lines through unchanged (byte-identical passthrough).
-#    Regression guard: --full output must contain the per-target lines from the sweep.
-write_stub 0 "$STUB_ABSENT"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && <<<"$OUT" grep -q 'corpus not found (absent-input): /fake/path1'; then
-  ok "6 --full mode: per-target absent-input lines passed through"
-else
-  no "6 --full mode: per-target line NOT found in output (exit=$RC out=[$OUT])"
-fi
-
-# ---- Tests 7-8: empty-input collapse (#974) ---------------------------------
-
-# Stub output: 3 empty-input targets, NO absent targets (no aggregate absent line).
-# Exercises the END{} fallback for the empty-input summary.
-STUB_EMPTY='INFO: corpus exists, no audits found (empty-input): /fake/empty1
-INFO: corpus exists, no audits found (empty-input): /fake/empty2
-INFO: corpus exists, no audits found (empty-input): /fake/empty3
-
-Summary: 0 pending / 0 audits across targets.
-Nothing to review.'
-
-
-# 7. Default mode collapses N empty-input lines to one counted summary; per-target lines absent.
-#    Summary line must be present (anti-silent-zero §7: empty-input ≠ absent-input ≠ no-match).
-#    RED before implementation: current hook passes empty-input lines through unchanged.
-write_stub 0 "$STUB_EMPTY"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && ! <<<"$OUT" grep -q 'corpus exists, no audits found (empty-input):' \
-   && <<<"$OUT" grep -qF 'INFO: 3 corpus(es) empty-input — run --full to list them'; then
-  ok "7 default mode: 3 empty-input targets → no per-target lines, exact summary 'INFO: 3 corpus(es) empty-input — run --full to list them'"
-else
-  no "7 default mode: per-target empty-input lines still present OR exact summary missing (exit=$RC out=[$OUT])"
-fi
-
-# 8. --full mode passes per-target empty-input lines through unchanged.
-write_stub 0 "$STUB_EMPTY"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" --full 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && <<<"$OUT" grep -q 'corpus exists, no audits found (empty-input): /fake/empty1'; then
-  ok "8 --full mode: per-target empty-input lines passed through"
-else
-  no "8 --full mode: per-target empty-input line NOT found in output (exit=$RC out=[$OUT])"
-fi
-
-# 9. Single empty-input target (count=1): exact summary text 'INFO: 1 corpus(es) empty-input ...'.
-#    Verifies the counter works for the single-target edge case (count=1).
-_STUB_SINGLE_EMPTY='INFO: corpus exists, no audits found (empty-input): /fake/only-empty
-
-Summary: 0 pending / 0 audits across targets.
-Nothing to review.'
-write_stub 0 "$_STUB_SINGLE_EMPTY"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && ! <<<"$OUT" grep -qF 'corpus exists, no audits found (empty-input):' \
-   && <<<"$OUT" grep -qF 'INFO: 1 corpus(es) empty-input — run --full to list them'; then
-  ok "9 single empty-input target → exact summary 'INFO: 1 corpus(es) empty-input — run --full to list them'"
-else
-  no "9 single empty-input: exact summary missing or per-target line present (exit=$RC out=[$OUT])"
-fi
-
-# 10. Ordering robustness: per-target empty-input lines appear both BEFORE and AFTER the absent
-#     aggregate line. The hook must count ALL of them and emit the TOTAL in one summary at END.
-#     RED on current commit: piggyback emits with the partial count (ei=1 at piggyback time)
-#     and the emitted flag suppresses END{}, so ei_late is silently undercounted (§7 violation).
-_STUB_MIXED_EMPTY='INFO: corpus not found (absent-input): /fake/absent1
-INFO: corpus exists, no audits found (empty-input): /fake/ei_early
-
-Summary: 0 pending / 0 audits across targets.
-INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
-INFO: corpus exists, no audits found (empty-input): /fake/ei_late
-Nothing to review.'
-write_stub 0 "$_STUB_MIXED_EMPTY"
-OUT="$(bash "$TMP/sweep-audits-hook.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && ! <<<"$OUT" grep -qF 'corpus exists, no audits found (empty-input):' \
-   && <<<"$OUT" grep -qF 'INFO: 2 corpus(es) empty-input — run --full to list them'; then
-  ok "10 ordering robustness: 1 early + 1 late empty-input → TOTAL count=2 in one summary (END emission)"
-else
-  no "10 ordering robustness: expected 'INFO: 2 corpus(es) empty-input' but got wrong count or per-target lines present (exit=$RC out=[$OUT])"
-fi
-
-# ---- Teeth (mutation proof) -------------------------------------------------
-# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
-# Every mutant is built as a COPY of the SUT under $MUT (a temp dir outside the live tree) by the shared
-# lib/mutant.sh, which REFUSES an empty, byte-identical, syntax-broken or live-tree mutant and a dead sed
-# stage; each control then asserts the GOOD verdict on the original AND the SPECIFIC BAD verdict on the
-# mutant (exact rc on both sides: a crashing mutant is not teeth).
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-# mk_sed LABEL OUT EXPR...  build $OUT from $SUT with one sed stage per EXPR (mutant_chain refuses a dead
-# stage); a refusal is counted as a failure here, the helper itself never touches the counters.
-mk_sed(){
-  local out="$2"
-  mkdir -p "$(dirname "$out")"
-  mutant_chain_or_count fail "$1" "$SUT" "$out" "${@:3}" || return 1
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
-# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
-# Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line). The pre-migration
-# local helper matched patterns case-insensitively, so MUTANT_TOOTH_ICASE keeps that behaviour exactly.
-tooth(){
-  if MUTANT_TOOTH_ICASE=1 mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-}
-# hook_tooth LABEL GOOD_RC BAD_RC MUTANT [tooth opts] -- ARGV...   the hook locates its sweep stub next to
-# itself, so the stub currently in $TMP (set by write_stub for this scenario) is copied beside the mutant;
-# the ORIGINAL runs from $TMP's hook copy (also refreshed by write_stub).
-hook_tooth(){
-  local label="$1" grc="$2" brc="$3" mut="$4"; shift 4
-  cp "$TMP/sweep-audits.sh" "$(dirname "$mut")/sweep-audits.sh"
-  rsdd_stage_libs "$(dirname "$mut")"  # the mutant sources lib/hook-emit.sh beside itself (#1877)
-  tooth "$label" "$grc" "$brc" "$mut" --orig "$TMP/sweep-audits-hook.sh" "$@"
-}
+# ctx JSON — the decoded additionalContext of a SessionStart envelope.
+ctx() { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext'; }
 
+stage_kit "$TMP/kit"; SHIM="$TMP/kit/toolbelt/sweep-audits-hook.sh"
+PHYS="$(cd -P "$TMP/kit/toolbelt" && pwd -P)"
+
+# 3 — the binary gets `sweep audits --hook --kit <own kit>` and then the caller's arguments, byte for byte.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" --full >/dev/null 2>&1
+want="$(printf '%s\n' sweep audits --hook --kit "$PHYS/.." --full)"
+if [ "$(cat "$TMP/args")" = "$want" ]; then ok "3 binary called as 'sweep audits --hook --kit <own kit>' + the caller's arguments verbatim"
+else no "3 arguments differ: [$(tr '\n' '|' < "$TMP/args")]"; fi
+
+# 4 — output and exit code pass through unchanged.
+stub_bin 0 "from the binary
+"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ "$OUT" = "from the binary" ]; then ok "4 output and exit code pass through"; else no "4 passthrough differs (rc=$RC out=[$OUT])"; fi
+
+# 5 — invoked through a symlink in another directory, the shim still names its REAL kit.
+mkdir -p "$TMP/elsewhere"; ln -s "$SHIM" "$TMP/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(sed -n 5p "$TMP/args")" = "$PHYS/.." ]; then ok "5 symlinked shim → binary gets the physical own kit"; else no "5 symlink: args=[$(tr '\n' '|' < "$TMP/args")]"; fi
+
+# 6 — an unusable RSDD_BIN → exit 0 (a hook never fails the session), the typed degraded line on stderr and the
+# SessionStart DEGRADED headline on stdout.
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$SHIM" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" = 0 ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6" \
+   && [ "$(ctx "$OUT")" = "Research-SDD hooks DEGRADED: rsdd-unavailable — RSDD_BIN not executable: $TMP/does-not-exist" ]; then
+  ok "6 unusable RSDD_BIN → exit 0, typed degraded line, DEGRADED headline as additionalContext"
+else no "6 unusable binary: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
+
+# 7 — the shim's own lib missing → the missing-lib line on stdout, exit 0, never an empty stdout.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/sweep-audits-hook.sh"
+OUT="$(bash "$TMP/nolib/sweep-audits-hook.sh" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && [ "$OUT" = "Research-SDD hook: lib/rsdd-exec.sh missing beside $TMP/nolib/sweep-audits-hook.sh" ]; then
+  ok "7 missing rsdd-exec.sh → announced on stdout, exit 0"
+else no "7 missing lib: rc=$RC out=[$OUT]"; fi
+
+# ---- the real binary, end to end on the mini kit ----
+real() { env RSDD_BIN="$REAL_BIN" bash "$SHIM" "$@"; }
+T1="$TMP/t1"; mkdir -p "$T1/audits" "$TMP/empty1" "$TMP/empty2"
+printf '<!-- review-status: pending -->\n# audit\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | c1 | CONFIRMED |\n' > "$T1/audits/a1.md"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | `%s` |\n| 2 | t2 | `%s/absent` |\n| 3 | t3 | `%s/empty1` |\n| 4 | t4 | `%s/empty2` |\n' "$T1" "$TMP" "$TMP" "$TMP" > "$TMP/kit/TARGETS.md"
+
+# 8 — summary mode: a SessionStart envelope; the pending block, the absent target collapsed into the aggregate
+# line that points at --full, the two empty-input targets counted in one line, the header on the first line.
+OUT="$(real 2>"$TMP/err8")"; RC=$?
+C="$(ctx "$OUT")"
+if [ "$RC" = 0 ] && [ ! -s "$TMP/err8" ] && [ "$(printf '%s' "$OUT" | jq -r '.hookSpecificOutput.hookEventName')" = SessionStart ] \
+   && [ "$(head -n 1 <<<"$C")" = 'Research-SDD pending audits (per-target §13):' ] \
+   && grep -qF "PENDING  $T1/audits/a1.md" <<<"$C" && grep -q '^Summary: 1 pending / 1 audits across targets\.$' <<<"$C" \
+   && grep -q 'run --full to list them\.$' <<<"$C" && ! grep -q 'corpus not found' <<<"$C" \
+   && grep -qx 'INFO: 2 corpus(es) empty-input — run --full to list them' <<<"$C" && ! grep -q 'no audits found' <<<"$C"; then
+  ok "8 end to end: envelope, pending block, collapsed absent line, empty-input counted once"
+else no "8 summary mode: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
+
+# 9 — --full: the per-target INFO lines are back and the Summary: line is byte-identical to summary mode.
+OUTF="$(real --full 2>/dev/null)"; CF="$(ctx "$OUTF")"
+if grep -q '^INFO: corpus not found (absent-input): ' <<<"$CF" && [ "$(grep -c '^INFO: corpus exists, no audits found (empty-input): ' <<<"$CF")" = 2 ] \
+   && [ "$(grep '^Summary:' <<<"$CF")" = "$(grep '^Summary:' <<<"$C")" ]; then
+  ok "9 --full: per-target INFO lines passed through; Summary: byte-identical to summary mode"
+else no "9 --full: out=[$CF]"; fi
+
+# 10 — a sweep that cannot run (no TARGETS.md) → exit 0 and the failure banner with the sweep's own message.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+OUT="$(real 2>/dev/null)"; RC=$?
+KITPHYS="$(cd -P "$TMP/kit" && pwd -P)"
+if [ "$RC" = 0 ] && [ "$(ctx "$OUT")" = "Research-SDD audits sweep could not run (exit 1 — check TARGETS.md and lib/ helper):
+sweep-audits: cannot find $KITPHYS/TARGETS.md" ]; then
+  ok "10 failing sweep → exit 0 and the 'audits sweep could not run' banner"
+else no "10 failing sweep: rc=$RC out=[$OUT]"; fi
+mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
+
+# NEGATIVE CONTROL — each shim mutation must lose its case.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  MUT="$(mktemp -d)"
-  H='sweep-audits-hook.sh'
-  echo "-- teeth: hook must go red when rc-check is neutered --"
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Tooth A: mutant hook never checks rc — always takes the success path. Test 3 must go RED.
-  write_stub 1 "sweep-audits: cannot find TARGETS.md"
-  mk_sed "teeth A" "$MUT/A/$H" 's/if \[ "\$rc" -ne 0 \]/if false/' \
-    && hook_tooth "teeth A: rc-neutered mutant omits failure banner → test 3 would catch it (RED)" 0 0 "$MUT/A/$H" \
-         --good-has 'audits sweep could not run' --bad-lacks 'could not run|exit 1' \
-         --bad-has 'Research-SDD pending audits' -- bash @SUT@
-
-  echo "-- teeth B (§7 anti-silent-zero): neuter ABSENT-COLLAPSE-PRINT → absent targets silently dropped → test 5 RED --"
-  # Tooth B: mutant drops the 'print' from the aggregate absent-input block (keeps 'next').
-  write_stub 0 "$STUB_ABSENT"
-  mk_sed "teeth B" "$MUT/B/$H" 's/print; next  # ABSENT-COLLAPSE-PRINT/next  # ABSENT-COLLAPSE-DISABLED/' \
-    && hook_tooth "teeth B: ABSENT-COLLAPSE-PRINT neutered → absent targets silently dropped → test 5 RED" 0 0 "$MUT/B/$H" \
-         --good-has 'run --full to list them' --bad-lacks 'run --full to list them' \
-         --bad-has 'Nothing to review' -- bash @SUT@
-
-  echo "-- teeth C: invert full-guard condition → --full mode also filtered → test 6 RED --"
-  # Tooth C: the awk filter also runs in --full mode (condition becomes _full=1).
-  write_stub 0 "$STUB_ABSENT"
-  mk_sed "teeth C" "$MUT/C/$H" 's/\[ "\$_full" = 0 \]; then  # FULL-PASSTHROUGH-GUARD/[ "$_full" = 1 ]; then  # FULL-PASSTHROUGH-GUARD/' \
-    && hook_tooth "teeth C: full-guard inverted → per-target lines absent in --full → test 6 RED" 0 0 "$MUT/C/$H" \
-         --good-has 'corpus not found \(absent-input\): /fake/path1' \
-         --bad-lacks 'corpus not found \(absent-input\): /fake/path1' \
-         --bad-has 'Nothing to review' -- bash @SUT@ --full
-
-  echo "-- teeth D (#974): neuter EMPTY-COLLAPSE-COUNT → ei stays 0 → no summary → test 7 RED (anti-silent-zero) --"
-  # Tooth D: mutant drops ei++ from the EMPTY-COLLAPSE-COUNT line (keeps 'next').
-  STUB_EMPTY_LOCAL='INFO: corpus exists, no audits found (empty-input): /fake/empty1
-INFO: corpus exists, no audits found (empty-input): /fake/empty2
-INFO: corpus exists, no audits found (empty-input): /fake/empty3
-
-Summary: 0 pending / 0 audits across targets.
-Nothing to review.'
-  write_stub 0 "$STUB_EMPTY_LOCAL"
-  mk_sed "teeth D" "$MUT/D/$H" 's/ei++; next  # EMPTY-COLLAPSE-COUNT/next  # EMPTY-COLLAPSE-DISABLED/' \
-    && hook_tooth "teeth D: EMPTY-COLLAPSE-COUNT neutered → ei stays 0 → summary absent → test 7 RED (anti-silent-zero)" 0 0 "$MUT/D/$H" \
-         --good-has 'INFO: [0-9]+ corpus\(es\) empty-input — run --full to list them' \
-         --bad-lacks 'INFO: [0-9]+ corpus\(es\) empty-input' --bad-has 'Nothing to review' -- bash @SUT@
-
-  echo "-- teeth E (#974): neuter EMPTY-COLLAPSE-EMIT in END → no summary emitted → test 9 RED --"
-  # Tooth E: mutant replaces the EMPTY-COLLAPSE-EMIT printf line in END with a comment.
-  _STUB_TOOTH_E='INFO: corpus exists, no audits found (empty-input): /fake/tooth-e1
-
-Summary: 0 pending / 0 audits across targets.
-Nothing to review.'
-  write_stub 0 "$_STUB_TOOTH_E"
-  mk_sed "teeth E" "$MUT/E/$H" '/EMPTY-COLLAPSE-EMIT/s/.*/      # EMPTY-COLLAPSE-DISABLED/' \
-    && hook_tooth "teeth E: EMPTY-COLLAPSE-EMIT neutered → no summary emitted → test 9 RED" 0 0 "$MUT/E/$H" \
-         --good-has 'corpus\(es\) empty-input' --bad-lacks 'corpus\(es\) empty-input' \
-         --bad-has 'Nothing to review' -- bash @SUT@
+  # A: the hook mode is no longer asked for → case 3 (the binary would print the CLI report, not an envelope).
+  if mk_mut "teeth A: --hook dropped" "$SUT" "$TMP/mutA.sh" 's/ --hook --kit/ --kit/'; then
+    stage_kit "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/toolbelt/sweep-audits-hook.sh" >/dev/null 2>&1
+    if ! grep -qx -- '--hook' "$TMP/args"; then ok "teeth A: --hook dropped → case 3 would go RED"; else no "teeth A: mutant still passes --hook"; fi
+  fi
+  # B: the own kit is no longer handed over → case 3.
+  if mk_mut "teeth B: --kit dropped" "$SUT" "$TMP/mutB.sh" 's/ --kit "\$_RSDD_SELF\/\.\."//'; then
+    stage_kit "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/toolbelt/sweep-audits-hook.sh" >/dev/null 2>&1
+    if ! grep -qx -- '--kit' "$TMP/args"; then ok "teeth B: --kit dropped → case 3 would go RED"; else no "teeth B: mutant still passes --kit"; fi
+  fi
+  # C: the caller's arguments are dropped → case 3 (and --full in case 9 would no longer reach the binary).
+  if mk_mut "teeth C: arguments dropped" "$SUT" "$TMP/mutC.sh" 's/"\$@"$//'; then
+    stage_kit "$TMP/mC" "$TMP/mutC.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mC/toolbelt/sweep-audits-hook.sh" --full >/dev/null 2>&1
+    if ! grep -qx -- '--full' "$TMP/args"; then ok "teeth C: arguments dropped → case 3 would go RED"; else no "teeth C: mutant still passes the arguments"; fi
+  fi
+  # D: the hook runs as a plain exec (the degraded mode of rsdd_exec_hook is lost) → case 6 sees exit 2, no headline.
+  if mk_mut "teeth D: not a hook exec" "$SUT" "$TMP/mutD.sh" 's/rsdd_exec_hook sweep sweep audits/rsdd_exec sweep audits/'; then
+    stage_kit "$TMP/mD" "$TMP/mutD.sh"
+    OUTD="$(RSDD_BIN="$TMP/does-not-exist" bash "$TMP/mD/toolbelt/sweep-audits-hook.sh" 2>/dev/null)"; RCD=$?
+    if [ "$RCD" != 0 ] || [ -z "$OUTD" ]; then ok "teeth D: plain rsdd_exec loses the exit-0 DEGRADED headline → case 6 would go RED"; else no "teeth D: mutant still degrades like a hook"; fi
+  fi
+  # E: the missing-lib guard stripped → nothing announced → case 7.
+  if mk_mut "teeth E: guard removed" "$SUT" "$TMP/mutE.sh" 's/ 2>\/dev\/null || { printf .*exit 0; }//'; then
+    mkdir -p "$TMP/mE"; cp "$TMP/mutE.sh" "$TMP/mE/sweep-audits-hook.sh"
+    OUTE="$(bash "$TMP/mE/sweep-audits-hook.sh" 2>&1)"
+    if ! grep -q 'lib/rsdd-exec.sh missing beside' <<<"$OUTE"; then ok "teeth E: unguarded shim no longer announces a missing lib → case 7 would go RED"; else no "teeth E: mutant still announces"; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

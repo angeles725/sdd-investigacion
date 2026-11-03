@@ -555,12 +555,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # Tooth 9: the behavioural check bites — the cwd-derived resolution is restored in a COPY of one script.
   mkdir -p "$MUT/beh/tb/lib"
   cp "$TB"/lib/*.sh "$MUT/beh/tb/lib/"
-  sed -e 's#^_RSDD_SELF=.*#_RSDD_SELF="$(cd "$(dirname "$0")" \&\& pwd)"#' "$TB/sweep-audits-hook.sh" > "$MUT/beh/tb/sweep-audits-hook.sh"
-  if grep -q 'dirname "\$0"' "$MUT/beh/tb/sweep-audits-hook.sh"; then
-    if planted_run "$MUT/beh/tb" sweep-audits-hook.sh; then no "teeth behavioural: the \$0-based mutant did NOT execute the planted lib (the check has no teeth)"
+  sed -e 's#^_RSDD_SELF=.*#_RSDD_SELF="$(cd "$(dirname "$0")" \&\& pwd)"#' "$TB/sweep-breakthroughs-hook.sh" > "$MUT/beh/tb/sweep-breakthroughs-hook.sh"
+  if grep -q 'dirname "\$0"' "$MUT/beh/tb/sweep-breakthroughs-hook.sh"; then
+    if planted_run "$MUT/beh/tb" sweep-breakthroughs-hook.sh; then no "teeth behavioural: the \$0-based mutant did NOT execute the planted lib (the check has no teeth)"
     elif [ "$PR_WHY" = "planted lib executed" ]; then ok "teeth behavioural: a \$0-based mutant of a fixed script executes the planted lib → the behavioural check goes red"
     else no "teeth behavioural: the mutant was rejected for the WRONG reason: $PR_WHY"; fi
-  else no "teeth behavioural: mutant could not be built (no \$_RSDD_SELF assignment found in sweep-audits-hook.sh)"; fi
+  else no "teeth behavioural: mutant could not be built (no \$_RSDD_SELF assignment found in sweep-breakthroughs-hook.sh)"; fi
 
   # Tooth 10-13: F1 terminator class, quote-aware comment, marker word count, alias recording with flags.
   mk_sed "teeth terminators" "$MUT/term/$M" '/SENTINEL-LRL-F1$/ s/ \\t;)`|&\]/ \\t;)]/' \
