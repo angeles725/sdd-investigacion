@@ -36,6 +36,19 @@ func TestUnmatchedGlobCandidateStaysLiteral(t *testing.T) {
 	}
 }
 
+func TestDotnetProbeIsBoundedByTimeout(t *testing.T) {
+	e := newDT(t)
+	runtime := e.root + "/runtime"
+	if err := os.MkdirAll(runtime+"/shared/Microsoft.NETCore.App", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.tool("ilspycmd", `sleep 2; exit 0`) // would succeed if left to finish; the bound must end it first
+	d := newDetector([]string{"PATH=" + e.bin, "RSDD_PROBE_TIMEOUT=0.2"}, e.root)
+	if d.dotnetProbe(runtime, e.bin+"/ilspycmd") {
+		t.Fatal("a slow ilspycmd must be stopped by timeout(1) and read as unusable")
+	}
+}
+
 func TestNonExecutableTimeoutOnPathIsNotUsed(t *testing.T) {
 	e := newDT(t)
 	runtime := e.root + "/runtime"
