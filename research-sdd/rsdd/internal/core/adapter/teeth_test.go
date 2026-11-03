@@ -162,3 +162,25 @@ func TestStatOfTimestampsAndWriteAllError(t *testing.T) {
 		t.Errorf("writeAll on a bad fd = %v, want EBADF", err)
 	}
 }
+
+func TestWhichTrimsDirectoryAndAnchorsRelativeCandidates(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "sub", "tool")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// trailing separators on the directory part collapse to one
+	if got, ok := which(filepath.Join(dir, "sub")+"//tool", "", ""); !ok || got != exe {
+		t.Errorf("which with doubled separator = %q, %v; want %q", got, ok, exe)
+	}
+	// a relative candidate is checked against the injected cwd
+	if got, ok := which("tool", "sub", dir); !ok || got != "sub/tool" {
+		t.Errorf("which relative = %q, %v; want sub/tool", got, ok)
+	}
+}
