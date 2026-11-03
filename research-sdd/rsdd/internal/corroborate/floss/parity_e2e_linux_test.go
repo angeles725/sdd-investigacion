@@ -53,7 +53,7 @@ type outcome struct {
 func (w *world) both(t *testing.T, py, tag string, env map[string]string, args func(out string) []string) (legacy, port outcome) {
 	t.Helper()
 	pyOut, goOut := w.out("py-"+tag), w.out("go-"+tag)
-	so, se, code := pyRun(t, py, e2eProgram, "", w.envList(env), append([]string{absPath(t, "../../../../toolbelt"), absPath(t, legacyScript)}, args(pyOut)...)...)
+	so, se, code := pyRun(t, py, e2eProgram, "", w.envList(env), append([]string{absPath(t, "../../core/adapter/testdata/frozen"), absPath(t, legacyScript)}, args(pyOut)...)...)
 	legacy = outcome{code, strings.ReplaceAll(so, pyOut, "<OUT>"), strings.ReplaceAll(se, pyOut, "<OUT>")}
 	var o, e bytes.Buffer
 	port.code = Run(args(goOut), w.stdio(&o, &e, env))

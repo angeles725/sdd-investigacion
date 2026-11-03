@@ -22,6 +22,11 @@ import (
 //
 // Only a missing bash skips, with a message saying the port is NOT proven in that run.
 
+// updateGoldens regenerates testdata/golden from the LEGACY script (needs bash): RECONCILE_UPDATE=1 go test
+// -run TestDifferential. An environment variable, not a flag: a flag only this package defines would fail the
+// other packages of a repo-wide run.
+func updateGoldens() bool { return os.Getenv("RECONCILE_UPDATE") == "1" }
+
 func runLegacy(t *testing.T, bash string, b *box) result {
 	t.Helper()
 	tb := filepath.Join(b.root, "research-sdd", "toolbelt")
@@ -30,8 +35,18 @@ func runLegacy(t *testing.T, bash string, b *box) result {
 	for _, l := range []string{"retro-status", "retro-grammar", "target-paths"} {
 		copyFile(t, "testdata/legacy/lib/"+l+".sh", filepath.Join(tb, "lib", l+".sh"))
 	}
-	cmd := exec.Command(bash, filepath.Join(tb, "reconcile-issues.sh"), "--issues-cache", b.cache, b.arg)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "LC_ALL=C", "HOME=" + filepath.Join(b.root, "home"), "TMPDIR=" + b.root}
+	args := []string{filepath.Join(tb, "reconcile-issues.sh"), "--issues-cache", b.cache}
+	if b.closedArg != "" {
+		args = append(args, "--closed-cache", b.closedArg)
+	}
+	cmd := exec.Command(bash, append(args, b.arg)...)
+	env := map[string]string{"PATH": os.Getenv("PATH"), "LC_ALL": "C", "HOME": filepath.Join(b.root, "home"), "TMPDIR": b.root}
+	for k, v := range b.env {
+		env[k] = v
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	cmd.Dir = b.cwd
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se

@@ -12,7 +12,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
-// ErrNotInSlice marks a request the port does not serve yet (live gh, --all, the closed-issue classes); the
+// ErrNotInSlice marks a request the port does not serve yet (live gh, --all); the
 // legacy script still does. It is an operational error, never a verdict.
 var ErrNotInSlice = errors.New("reconcile: not in this slice of the port")
 
@@ -26,6 +26,9 @@ type Options struct {
 	// IssuesCache holds the pre-fetched open issue bodies. nil asks for a per-retro gh query, which is not in
 	// this slice (ErrNotInSlice).
 	IssuesCache *Cache
+	// ClosedCache holds the pre-fetched bodies of the issues closed AS COMPLETED (--closed-cache). nil with an
+	// IssuesCache means the closed-issue check is skipped and says so on stderr.
+	ClosedCache *Cache
 	// GH is the bounded gh launcher for the per-retro query (unused until live gh lands).
 	GH gh.Options
 	// Timeout bounds the whole audit; 0 = no bound beyond ctx.
@@ -64,7 +67,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return Report{}, fmt.Errorf("%w: a per-retro gh query (nil IssuesCache)", ErrNotInSlice)
 	}
 	rep := &Report{}
-	if err := resolveAndAudit(rep, o, o.Cwd, o.Env); err != nil {
+	if err := resolveAndAudit(ctx, rep, o); err != nil {
 		return Report{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -75,7 +78,8 @@ func Run(ctx context.Context, o Options) (Report, error) {
 
 // resolveAndAudit is the single-retro branch of the legacy main dispatch: validate the path (absent-input),
 // derive the target NAME exactly as stage-retro-issues.sh does (kit issue #1287), then audit.
-func resolveAndAudit(rep *Report, o Options, cwd string, env func(string) string) error {
+func resolveAndAudit(ctx context.Context, rep *Report, o Options) error {
+	cwd, env := o.Cwd, o.Env
 	retro := o.Retro
 	if abs := absPath(cwd, retro); !isRegular(abs) {
 		rep.fail("absent-input: retro not found: %s", retro)
@@ -106,7 +110,9 @@ func resolveAndAudit(rep *Report, o Options, cwd string, env func(string) string
 		}
 		rep.note("WARN: target directory '%s' not found in %s — using basename '%s'", targetDir, targetsMD, name)
 	}
-	(&audit{rep: rep, path: retro, base: filepath.Base(retro), target: name, cache: o.IssuesCache}).run()
+	sess := newSession(o.KitRoot, env)
+	(&audit{ctx: ctx, sess: sess, closed: o.ClosedCache, rep: rep, path: retro, base: filepath.Base(retro), target: name, cache: o.IssuesCache}).run()
+	sess.shallowNote(rep)
 	return nil
 }
 
