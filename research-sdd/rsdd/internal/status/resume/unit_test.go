@@ -350,6 +350,49 @@ func TestRenderIsReadOnlyAndStdinOptional(t *testing.T) {
 	}
 }
 
+// A first document of a full page followed by a second one is still not a countable list: truncated reads false.
+func TestFullPageThenSecondDocumentIsNotTruncated(t *testing.T) {
+	o := runGo(t, scn{name: "full-two", cmd: "resume-state", env: adHocPath(t, prCount(t, 1000)+"\necho '[]'")})
+	if doc := stateJSON(t, o); doc["prs_status"] != "ok" || doc["prs_truncated"] != false || len(doc["prs"].([]any)) != 1000 {
+		t.Errorf("status=%v truncated=%v", doc["prs_status"], doc["prs_truncated"])
+	}
+}
+
+// onPath is `command -v`: it prefers an executable file, settles for a non-executable one, and never a directory.
+func TestOnPath(t *testing.T) {
+	root := t.TempDir()
+	mk := func(rel string, mode os.FileMode) string {
+		p := filepath.Join(root, rel)
+		must0(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		must0(t, os.WriteFile(p, nil, mode))
+		return filepath.Dir(p)
+	}
+	execDir, plainDir := mk("x/tool", 0o755), mk("p/tool", 0o644)
+	dirOnly := filepath.Join(root, "d")
+	must0(t, os.MkdirAll(filepath.Join(dirOnly, "tool"), 0o755))
+	for _, tc := range []struct {
+		name string
+		env  []string
+		want bool
+	}{
+		{"executable", []string{"PATH=" + execDir}, true},
+		{"not executable is still found", []string{"PATH=" + plainDir}, true},
+		{"directory is not a program", []string{"PATH=" + dirOnly}, false},
+		{"absent", []string{"PATH=" + root}, false},
+		{"second entry", []string{"PATH=" + dirOnly + ":" + execDir}, true},
+		{"relative entry is under the working directory", []string{"PATH=x"}, true},
+		{"empty entry is the working directory", []string{"PATH=" + dirOnly + ":"}, false},
+		{"last PATH wins", []string{"PATH=" + dirOnly, "PATH=" + execDir}, true},
+	} {
+		if got := onPath(tc.env, root, "tool"); got != tc.want {
+			t.Errorf("%s: onPath = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if onPath([]string{"PATH=" + execDir}, root, "other") {
+		t.Error("a name that is not there was found")
+	}
+}
+
 func TestShortSHAAndCounts(t *testing.T) {
 	for _, tc := range []struct {
 		v    jv

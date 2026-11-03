@@ -51,10 +51,10 @@ func parseRenderArgs(args []string, s cli.Stdio) (a renderArgs, rc int) {
 			if i+1 >= len(args) {
 				return usage()
 			}
-			a.toolbelt = strings.TrimSuffix(args[i+1], "/")
+			a.toolbelt = args[i+1]
 			i += 2
 		case strings.HasPrefix(arg, "--toolbelt="):
-			a.toolbelt = strings.TrimSuffix(strings.TrimPrefix(arg, "--toolbelt="), "/")
+			a.toolbelt = strings.TrimPrefix(arg, "--toolbelt=")
 			i++
 		case arg == "--no-gh":
 			a.fwd = append(a.fwd, arg)
