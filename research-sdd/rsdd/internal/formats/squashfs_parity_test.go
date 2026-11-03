@@ -390,3 +390,11 @@ func TestSquashfsRealToolsRefusals(t *testing.T) {
 		})
 	}
 }
+
+func verifyManifest(t *testing.T, out string) {
+	t.Helper()
+	cmd := exec.Command("python3", manifestCLI(t), "verify", "--root", out, filepath.Join(out, "analysis-manifest.v1.json"))
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("analysis_manifest.py verify failed: %v\n%s", err, b)
+	}
+}
