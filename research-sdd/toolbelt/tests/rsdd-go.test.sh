@@ -37,6 +37,9 @@
 #                    exit 2 and print nothing on an invalid I/N.
 #   --combine-verdicts FILE
 #                    (internal) fold the VERDICT lines of FILE into one: any FAIL -> FAIL, else any SKIP -> SKIP.
+#   --part-plan PART PROVE
+#                    (internal) print `test=<0|1> teeth=<0|1>` for RSDD_BRIDGE_PART=PART with PROVE=1 when --prove-teeth is
+#                    set; exit 2 and print nothing on an unknown PART or on PART=teeth without --prove-teeth.
 #   --prove-teeth    one mutation control on a COPY of the module in $TMPDIR (never the live tree):
 #                    removing the panic boundary in internal/cli must turn the Go tests red, then gremlins runs.
 #                    Scope of the gremlins step:
@@ -57,6 +60,12 @@
 #                      (fewer files than shards) is the typed `teeth: 0 files in shard I/N` (ok); no changed file at
 #                      all keeps the `n/a` state above. Shards 2..N skip the whole-module `make test` (shard 1 runs
 #                      it: gremlins' own baseline run still tests each package it mutates).
+#                    RSDD_BRIDGE_PART (kit issue #2617) picks which half of the suite a CI job runs, so the whole-module work no
+#                    longer sits in front of shard 1's teeth: unset or `all` runs both halves (local runs, schedule and
+#                    workflow_dispatch, exactly as before); `test` runs only the whole-module `make test` and the
+#                    panic-boundary mutation control; `teeth` runs only the suite's own mutation controls and gremlins
+#                    (it needs --prove-teeth, else nothing would run) and never `make test`. Any other value is a typed
+#                    FAIL before anything runs. pull_request and push run `test` in its own job and `teeth` in the 3 shards.
 #                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
 #                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run (as GOMAXPROCS,
 #                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
@@ -258,6 +267,17 @@ parse_shard() {
   [ "$SHARD_N" -le 32 ] && [ "$SHARD_I" -le "$SHARD_N" ]
 }
 
+# resolve_part PART PROVE -> sets RUN_TEST and RUN_TEETH (kit issue #2617). Returns 1 for an unknown PART, and for
+# PART=teeth without --prove-teeth (PROVE=0): that job would run neither half, and a job that ran nothing must fail.
+resolve_part() {
+  case "$1" in
+    ""|all) RUN_TEST=1; RUN_TEETH=1 ;;
+    test) RUN_TEST=1; RUN_TEETH=0 ;;
+    teeth) [ "$2" = 1 ] || return 1; RUN_TEST=0; RUN_TEETH=1 ;;
+    *) return 1 ;;
+  esac
+}
+
 # select_shard I N -> stdin lines at 0-based positions p with p mod N == I-1 (a disjoint cover for every N).
 select_shard() {
   awk -v i="$1" -v n="$2" '(NR - 1) % n == i - 1' # SENTINEL-TEETH-SHARD-ASSIGN
@@ -299,6 +319,11 @@ if [ "${1:-}" = "--combine-verdicts" ]; then
   combine_verdicts "$2"; exit 0
 fi
 
+if [ "${1:-}" = "--part-plan" ]; then
+  resolve_part "${2:-}" "${3:-0}" || { echo "FATAL: --part-plan: bad RSDD_BRIDGE_PART [${2:-}] (all|test|teeth; teeth needs --prove-teeth)" >&2; exit 2; }
+  echo "test=$RUN_TEST teeth=$RUN_TEETH"; exit 0
+fi
+
 if [ "${1:-}" = "--shard-select" ]; then
   parse_shard "${2:-}" || { echo "FATAL: --shard-select needs I/N (N 1..32, I 1..N), got [${2:-}]" >&2; exit 2; }
   select_shard "$SHARD_I" "$SHARD_N"; exit $?
@@ -336,6 +361,7 @@ no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 # selftest_teeth DIR: the offline checks of the teeth wiring and scoping (no go, no gremlins). DIR is scratch.
 selftest_teeth() {
   local dir="$1" g c crc d
+  unset RSDD_BRIDGE_PART             # the CI part was resolved already; a nested `bash "$0"` below must not inherit it (kit issue #2617)
   export RSDD_GO_SELFTEST_NESTED=1   # every `bash "$0"` below is bounded: it can never reach the real Go run
   # Diagnostics: a failing baseline `go test` inside gremlins prints only `exit status 1`; the verdict must
   # still name the failing test even when it is further up than the last three lines.
@@ -424,6 +450,28 @@ selftest_teeth() {
   g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_TEETH_SHARD=1/3 RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
   if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_TEETH_SHARD=1/3 needs RSDD_TEETH_BASE' <<<"$g"; then
     ok "shard select: a shard without RSDD_TEETH_BASE (whole-module run) is a FAIL, not a silent full run"; else no "shard select: base-less shard not a FAIL (rc=$crc): $g"; fi
+
+  # Part selection (kit issue #2617): RSDD_BRIDGE_PART splits the suite into the whole-module `test` half and the
+  # `teeth` half so the CI test job and the 3 teeth shards run in parallel. --part-plan prints which halves run.
+  local pp
+  pp="$(bash "$0" --part-plan '' 0)$(bash "$0" --part-plan all 1)$(bash "$0" --part-plan test 0)$(bash "$0" --part-plan test 1)$(bash "$0" --part-plan teeth 1)"
+  if [ "$pp" = "test=1 teeth=1test=1 teeth=1test=1 teeth=0test=1 teeth=0test=0 teeth=1" ]; then
+    ok "part select: unset/all run both halves, test runs only make test, teeth runs only the teeth (never make test)"
+  else no "part select: wrong plans [$pp]"; fi
+  pp=ok
+  for d in bogus Test TEETH 'test ' ' teeth' 1 test,teeth; do
+    g="$(bash "$0" --part-plan "$d" 1 2>/dev/null)"; crc=$?
+    if [ "$crc" -ne 2 ] || [ -n "$g" ]; then pp="[$d] rc=$crc out=[$g]"; break; fi
+  done
+  bash "$0" --part-plan teeth 0 >/dev/null 2>&1; crc=$?
+  if [ "$pp" = ok ] && [ "$crc" -eq 2 ]; then ok "part select: an unknown part, and teeth without --prove-teeth (a job that runs nothing), exit 2 with no plan"
+  else no "part select: invalid part accepted: $pp / teeth-without-prove rc=$crc"; fi
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_BRIDGE_PART=bogus RSDD_TEETH_SHARD='' RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_BRIDGE_PART=bogus is not all|test|teeth' <<<"$g"; then
+    ok "part select: the suite fails on an invalid RSDD_BRIDGE_PART before running anything"; else no "part select: bad part not a FAIL (rc=$crc): $g"; fi
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_BRIDGE_PART=teeth RSDD_TEETH_SHARD='' RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_BRIDGE_PART=teeth .*without --prove-teeth' <<<"$g"; then
+    ok "part select: the teeth part without --prove-teeth is a FAIL, never a silent empty pass"; else no "part select: teeth without prove not a FAIL (rc=$crc): $g"; fi
 
   # File-level shard unit (kit issue #2573): the changed non-test .go files of all changed packages, flat and
   # LC_ALL=C sorted, are what RSDD_TEETH_SHARD splits; each package is then mutated only on its shard's files.
@@ -542,6 +590,20 @@ if [ -n "${RSDD_TEETH_SHARD+x}" ] && [ -n "${RSDD_TEETH_SHARD}" ]; then
   SHARDED=1
 fi
 
+# Part selection (kit issue #2617): a bad RSDD_BRIDGE_PART must never fall back to a full or an empty run.
+prove=0; [ "${1:-}" = "--prove-teeth" ] && prove=1
+BRIDGE_PART="${RSDD_BRIDGE_PART:-}"
+if ! resolve_part "${RSDD_BRIDGE_PART:-}" "$prove"; then
+  no "RSDD_BRIDGE_PART=${RSDD_BRIDGE_PART:-} is not all|test|teeth, or is teeth without --prove-teeth (the job would run nothing)"
+  echo "== $pass passed · $fail failed =="; exit 1
+fi
+# Resolved once: the self-tests below re-invoke this suite (without --prove-teeth), which must not inherit the part.
+unset RSDD_BRIDGE_PART
+# The whole-module `make test` runs in the `test` part; unpartitioned it keeps its old home, shard 1.
+SKIP_TEST=0
+if [ "$RUN_TEST" -eq 0 ]; then SKIP_TEST=1
+elif [ -z "$BRIDGE_PART" ] && [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; then SKIP_TEST=1; fi
+
 # Nested guard: selftest_teeth exports RSDD_GO_SELFTEST_NESTED, so a self-test (or a mutant copy of this suite run by
 # --prove-teeth) that re-invokes the suite can never reach the real `make test` / gremlins below. Two such chains of
 # unbounded `go test ./...` runs once drove a 16-core host to load 62 (kit issue #2573).
@@ -581,8 +643,8 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
 # is itself one failure, and zero tested packages is a failure (a silent zero proves nothing).
 # `make test` runs it so every test binary carries the Makefile's memory cap and timeout (see containment).
 out="$ROOT/gotest.out"
-if [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; then
-  echo "go test: whole-module run skipped in shard $SHARD_I/$SHARD_N (it runs in shard 1/$SHARD_N)"
+if [ "$SKIP_TEST" -eq 1 ]; then
+  echo "go test: whole-module run skipped (RSDD_BRIDGE_PART=${BRIDGE_PART:-unset}, sharded=$SHARDED; it runs in the test part, or in shard 1 when unpartitioned)"
   : > "$out"; rc=0
 else
   make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
@@ -598,7 +660,7 @@ if [ "$rc" -ne 0 ] && [ "$nfail" -eq 0 ]; then
   no "go test exited $rc with no per-package FAIL line (build/setup error); tail follows"
   tail -n 15 "$out"
 fi
-if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ] && ! { [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; }; then
+if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ] && [ "$SKIP_TEST" -eq 0 ]; then
   no "go test ran zero test packages - refusing to read that as a pass"
 fi
 if [ "$fail" -ne 0 ]; then tail -n 30 "$out"; fi
@@ -800,12 +862,49 @@ cp -a "$mod/." "$w/" || { echo "SETUP-FAILED: cannot copy module"; exit 9; }
 cp "$cli_go" "$w/internal/cli/cli.go" || { echo "SETUP-FAILED: cannot place file"; exit 9; }
 cd "$w" && go test -count=1 ./internal/cli/ 2>&1
 SH
-if MUTANT_SYNTAX=none mutant_chain_or_count fail "panic-boundary mutation" "$ORIG_GO" "$MUTDIR/cli.go" \
+if [ "$RUN_TEST" -eq 1 ] && MUTANT_SYNTAX=none mutant_chain_or_count fail "panic-boundary mutation" "$ORIG_GO" "$MUTDIR/cli.go" \
     's/if r := recover(); r != nil {/if r := interface{}(nil); r != nil {/'; then
   if mutant_tooth "teeth: removing the panic boundary turns the cli tests red" 0 1 \
       "$MUTDIR/cli.go" --orig "$ORIG_GO" \
       --good-has '^ok' --bad-has 'kaboom' --bad-lacks 'SETUP-FAILED|build failed|undefined:' -- \
       bash "$MUTDIR/run_cli_tests.sh" "$MOD" @SUT@; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# The `test` part ends here: the suite's own mutation controls and gremlins belong to the teeth jobs (kit issue #2617).
+if [ "$RUN_TEETH" -eq 0 ]; then
+  echo "teeth: skipped (RSDD_BRIDGE_PART=test; the teeth shards run it)"
+  echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]; exit $?
+fi
+
+# Teeth for the part selector (kit issue #2617). The suite is the SUT (`--part-plan PART PROVE`). Dropping the unknown-part
+# refusal lets a typo run both halves (the original exits 2, the mutant 0); letting the teeth part keep `make test`
+# loses the shard-budget fix (the original prints test=0 teeth=1, the mutant test=1); letting the test part keep the
+# teeth would run gremlins in the test job (the original prints test=1 teeth=0, the mutant teeth=1).
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "part-unknown mutation" "$0" "$MUTDIR/rsdd-go-part1.test.sh" \
+    's/^    \*) return 1 ;;$/    *) RUN_TEST=1; RUN_TEETH=1 ;;/'; then
+  if mutant_tooth "teeth: an unknown RSDD_BRIDGE_PART must be refused, not run as both halves" 2 0 \
+      "$MUTDIR/rsdd-go-part1.test.sh" --orig "$0" -- \
+      bash @SUT@ --part-plan bogus 1; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "part-teeth-runs-test mutation" "$0" "$MUTDIR/rsdd-go-part2.test.sh" \
+    's/RUN_TEST=0; RUN_TEETH=1 ;;/RUN_TEST=1; RUN_TEETH=1 ;;/'; then
+  if mutant_tooth "teeth: the teeth part must not run make test" 0 0 \
+      "$MUTDIR/rsdd-go-part2.test.sh" --orig "$0" \
+      --good-has 'test=0 teeth=1' --bad-has 'test=1 teeth=1' -- \
+      bash @SUT@ --part-plan teeth 1; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "part-test-runs-teeth mutation" "$0" "$MUTDIR/rsdd-go-part3.test.sh" \
+    's/test) RUN_TEST=1; RUN_TEETH=0 ;;/test) RUN_TEST=1; RUN_TEETH=1 ;;/'; then
+  if mutant_tooth "teeth: the test part must not run the teeth" 0 0 \
+      "$MUTDIR/rsdd-go-part3.test.sh" --orig "$0" \
+      --good-has 'test=1 teeth=0' --bad-has 'test=1 teeth=1' -- \
+      bash @SUT@ --part-plan test 1; then
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi

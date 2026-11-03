@@ -3,7 +3,10 @@ package resume
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -74,14 +77,92 @@ func TestEveryGitCallSeesOptionalLocksOff(t *testing.T) {
 	}
 	b, err := os.ReadFile(w.gitLog())
 	must0(t, err)
-	lines := strings.Fields(string(b))
-	if len(lines) < 10 {
-		t.Fatalf("expected a call per worktree and branch, the git wrapper logged %d", len(lines))
+	calls := gitCalls(t, b)
+	if len(calls) < 10 {
+		t.Fatalf("expected a call per worktree and branch, the git wrapper logged %d", len(calls))
 	}
-	for _, l := range lines {
-		if l != "0" {
-			t.Fatalf("a git call saw GIT_OPTIONAL_LOCKS=%s", l)
+	for _, c := range calls {
+		if c[0] != "0" {
+			t.Fatalf("a git call saw GIT_OPTIONAL_LOCKS=%s: %q", c[0], c[1:])
 		}
+	}
+}
+
+// gitCalls splits the git wrapper's log: one call per line, the GIT_OPTIONAL_LOCKS value then the argv.
+func gitCalls(t *testing.T, log []byte) [][]string {
+	t.Helper()
+	var calls [][]string
+	for _, l := range strings.Split(strings.TrimSuffix(string(log), "\n"), "\n") {
+		calls = append(calls, strings.Split(l, "\x1f"))
+	}
+	return calls
+}
+
+// gitSubcommand is the subcommand of one git argv: the first word that is neither an option nor the value of -C or -c.
+func gitSubcommand(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		switch a := argv[i]; {
+		case a == "-C" || a == "-c":
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			return a
+		}
+	}
+	return ""
+}
+
+// resume-state is read-only and offline: every git call it makes is one of these local, read-only subcommands, and
+// each of them runs (so the set is exact, not a subset that a dropped call would still satisfy). A fetch, pull,
+// ls-remote, push or any other subcommand fails the test.
+func TestGitSubcommandsAreExactlyTheReadOnlySet(t *testing.T) {
+	w := getWorld(t, "basic")
+	for _, gh := range []string{"--no-gh", ""} {
+		_ = os.Remove(w.gitLog())
+		args := []string{}
+		if gh != "" {
+			args = append(args, gh)
+		}
+		// Without --no-gh the host-gh stub on this PATH fails: the run degrades on gh, and every git call still runs.
+		sc := scn{name: "gitargv", cmd: "resume-state", path: "gitlog", args: args}
+		o := runGo(t, sc)
+		b, err := os.ReadFile(w.gitLog())
+		must0(t, err)
+		got := map[string]bool{}
+		for _, c := range gitCalls(t, b) {
+			got[gitSubcommand(c[1:])] = true
+		}
+		want := map[string]bool{"rev-parse": true, "config": true, "rev-list": true, "worktree": true, "status": true, "for-each-ref": true}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("args %q (rc %d): git subcommands %v, want exactly %v", args, o.rc, keys(got), keys(want))
+		}
+	}
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A sibling that cannot be spawned at all (no bash on PATH) is the shell's 127, the same failure line as a missing
+// script: the proc.Run error path, distinct from bash running and failing to find the file.
+func TestSiblingSpawnFailureIsRC127(t *testing.T) {
+	d := t.TempDir()
+	must0(t, os.WriteFile(filepath.Join(d, "resume-state.sh"), []byte("#!/bin/sh\necho '{}'\n"), 0o755))
+	onlyJQ := t.TempDir() // the presence check needs jq; bash is what is missing
+	jq, err := exec.LookPath("jq")
+	if err != nil {
+		t.Skip("jq not on PATH")
+	}
+	must0(t, os.Symlink(jq, filepath.Join(onlyJQ, "jq")))
+	sc := scn{name: "nobash", cmd: "resume-render", env: map[string]string{"PATH": onlyJQ}}
+	o := runGo(t, sc, "--toolbelt", d)
+	if o.rc != 2 || o.out != "" || o.err != "resume-render.sh: resume-state.sh failed (rc 127)\n" {
+		t.Errorf("unspawnable sibling: rc=%d stdout=%q stderr=%q", o.rc, o.out, o.err)
 	}
 }
 
