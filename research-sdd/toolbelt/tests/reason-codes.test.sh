@@ -62,6 +62,7 @@ GO_SRC=(
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -69,7 +70,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
-  resume-state.sh resume-render.sh)
+  resume-state.sh resume-render.sh verify-registry-hook.sh)   # the hook emits only the envelope of verify-registry.sh's states
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
@@ -318,7 +319,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 IC_WAIVERS=(
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:

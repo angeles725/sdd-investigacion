@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # sessionstart-budget.test.sh — SessionStart output budget (kit issue #1816, openspec/specs/kit-session-cost).
-# Runs the three trimmed hooks (verify-registry, verify-tool-catalog, sweep-breakthroughs) against FROZEN
+# (The registry hook is Go now, `rsdd verify registry-hook`, kit issue #2363: its budget cases — cap, Summary, WARN
+# accounting, INFO counts, hint, ranking, multibyte cut — run on the same frozen reading in
+# research-sdd/rsdd/internal/verify, registryhook_fixture_test.go and testdata/registry-hook.)
+# Runs the two trimmed bash hooks (verify-tool-catalog, sweep-breakthroughs) against FROZEN
 # instrument outputs (tests/fixtures/sessionstart-budget/*.raw — a dated reading of the real fleet, sanitised,
 # never the live corpus) and asserts (a) a per-hook character cap on the hook's stdout and (b) that every
 # count the verbose output carried survives in the compact form (anti-silent-zero §7).
@@ -34,7 +37,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 export TMPDIR="$TMP"
 
 # Caps (characters of hook stdout) on the frozen fixture.
-CAP_REG=1400; CAP_CAT=700; CAP_BRK=900
+CAP_CAT=700; CAP_BRK=900
 
 # stage <hook-file> <instrument-name> <raw-fixture> — copies the hook next to a stub instrument that
 # replays the frozen raw output (rc 0). Hermetic: the real instrument and the live fleet never run.
@@ -80,51 +83,20 @@ count_lines() { printf '%s\n' "$2" | grep -cE -- "$1"; }
 # run_suite <toolbelt-dir> <tag> — stages the three hooks from <toolbelt-dir> and runs every assertion.
 run_cases() {
   local tb="$1" t="$2"
-  stage "$tb/verify-registry-hook.sh"      verify-registry.sh      "$FX/verify-registry.raw"      "$t-reg"
   stage "$tb/verify-tool-catalog-hook.sh"  verify-tool-catalog.sh  "$FX/verify-tool-catalog.raw"  "$t-cat"
   stage "$tb/sweep-breakthroughs-hook.sh"  sweep-breakthroughs.sh  "$FX/sweep-breakthroughs.raw"  "$t-brk"
-  local R="$TMP/$t-reg/verify-registry-hook.sh" C="$TMP/$t-cat/verify-tool-catalog-hook.sh" B="$TMP/$t-brk/sweep-breakthroughs-hook.sh"
+  local C="$TMP/$t-cat/verify-tool-catalog-hook.sh" B="$TMP/$t-brk/sweep-breakthroughs-hook.sh"
   local n o
 
-  # ---- verify-registry-hook ----
-  n="$(chars "$R")"
-  [ "$n" -le "$CAP_REG" ] && ok "$t reg-1 registry hook <= $CAP_REG chars (got $n)" || no "$t reg-1 registry hook over cap $CAP_REG (got $n)"
-  o="$(ctx "$R")"
-  # Raw fixture carries the Summary line with every count; it must pass through whole.
-  grep -qF "$(grep '^Summary:' "$FX/verify-registry.raw")" <<<"$o" \
-    && ok "$t reg-2 Summary line (all counts) kept verbatim" || no "$t reg-2 Summary line altered or missing"
-  # No WARN is dropped without a count: shown WARN + omitted == total WARN in the raw output.
-  warn_accounting "$FX/verify-registry.raw" "$o" \
-    && ok "$t reg-3 WARN lines accounted for (shown $WA_SHOWN + omitted ${WA_OMITTED:-0} == $WA_TOTAL)" \
-    || no "$t reg-3 WARN accounting broken (shown $WA_SHOWN + omitted ${WA_OMITTED:-0} != $WA_TOTAL)"
-  # absent-input aggregate (distinct state) still visible.
-  grep -q '^INFO: 14 registered target(s) absent' <<<"$o" \
-    && ok "$t reg-4 absent-target INFO count kept" || no "$t reg-4 absent-target INFO count missing"
-  # per-row INFO lines are counted, not silently dropped.
-  grep -q '^INFO: 1 per-row INFO line(s) omitted' <<<"$o" \
-    && ok "$t reg-5 per-row INFO lines counted" || no "$t reg-5 per-row INFO count missing"
-  # --full is byte-identical to the instrument output (escape hatch).
-  [ "$(ctx "$R" --full)" = "Research-SDD registry check (TARGETS.md vs reality):
-$(cat "$FX/verify-registry.raw")" ] \
-    && ok "$t reg-6 --full passes instrument output unchanged" || no "$t reg-6 --full differs from instrument output"
-
-  # The absent-target remediation hint (last sentence of the long INFO line) must survive truncation.
-  grep -qF 'Verify RESEARCH_HOME (/fx/home) and that corpora exist at the registered paths.' <<<"$o" \
-    && ok "$t reg-7 absent-target remediation hint survives compact mode" || no "$t reg-7 absent-target hint truncated away"
-  # Fleet/kit-level WARNs are ranked ahead of per-target WARNs, so the cap can never hide them.
-  grep -q 'kit repo is NOT in its own TARGETS.md' <<<"$o" && grep -q 'master cell is 236 chars' <<<"$o" \
-    && ok "$t reg-8 kit-self-registration and oversized-row WARNs named under the cap" \
-    || no "$t reg-8 a kit-level WARN was hidden behind the cap"
   # Truncation is character-safe: multibyte characters straddling a cut point never yield invalid UTF-8,
-  # whatever the locale or awk (registry 100/110-char cuts, catalog 160-byte cut).
-  stage "$tb/verify-registry-hook.sh"     verify-registry.sh     "$FX/verify-registry-multibyte.raw"     "$t-regmb"
+  # whatever the locale or awk (catalog 160-byte cut; the registry hook is Go and has its own cases).
   stage "$tb/verify-tool-catalog-hook.sh" verify-tool-catalog.sh "$FX/verify-tool-catalog-multibyte.raw" "$t-catmb"
   local loc mb
   for loc in C C.UTF-8; do
-    mb="$(LC_ALL=$loc ctx "$TMP/$t-regmb/verify-registry-hook.sh"; LC_ALL=$loc ctx "$TMP/$t-catmb/verify-tool-catalog-hook.sh")"
+    mb="$(LC_ALL=$loc ctx "$TMP/$t-catmb/verify-tool-catalog-hook.sh")"
     utf8_clean "$mb" \
-      && ok "$t reg-9 multibyte cut stays valid UTF-8 under LC_ALL=$loc" \
-      || no "$t reg-9 invalid UTF-8 after a multibyte cut under LC_ALL=$loc"
+      && ok "$t cat-mb multibyte cut stays valid UTF-8 under LC_ALL=$loc" \
+      || no "$t cat-mb invalid UTF-8 after a multibyte cut under LC_ALL=$loc"
   done
 
   # ---- verify-tool-catalog-hook ----
@@ -205,13 +177,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     fi
   }
 
-  REG=verify-registry-hook.sh; REGI=verify-registry.sh; CAT=verify-tool-catalog-hook.sh; CATI=verify-tool-catalog.sh
-  # A: registry — WARN cap disabled (maxwarn huge) and truncation neutered: all verbose WARNs return.
-  mut_tooth "A registry-uncapped" $REG $REGI "$FX/verify-registry.raw" "$CAP_REG" \
-    's/-v maxwarn=6 -v wmax=100/-v maxwarn=999 -v wmax=9999/'
-  # B: registry — compact filter skipped entirely.
-  mut_tooth "B registry-noncompact" $REG $REGI "$FX/verify-registry.raw" "$CAP_REG" \
-    's/if \[ "\$_full" = 0 \]; then  # COMPACT-GUARD/if false; then/'
+  CAT=verify-tool-catalog-hook.sh; CATI=verify-tool-catalog.sh
   # C: catalog — compaction skipped: per-tool WARN lines return.
   mut_tooth "C catalog-noncompact" $CAT $CATI "$FX/verify-tool-catalog.raw" "$CAP_CAT" \
     's/if \[ "\${1:-}" != "--full" \]; then  # COMPACT-GUARD/if false; then/'
@@ -219,20 +185,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mut_tooth "D breakthroughs-uncollapsed" sweep-breakthroughs-hook.sh sweep-breakthroughs.sh "$FX/sweep-breakthroughs.raw" "$CAP_BRK" \
     's/\^WARN: unindexed breakthrough\/ {/^WARN: XXunindexed breakthrough\/ {/'
 
-  # E: count tooth — registry overflow notice removed: output stays under cap but WARN accounting (reg-3) must go red.
-  if mut_stage "E registry-silent-overflow" $REG $REGI "$FX/verify-registry.raw" '/# WARN-OVERFLOW/d'; then
-    if ! warn_accounting "$FX/verify-registry.raw" "$(ctx "$MUT_HOOK")"; then
-      ok "teeth E: overflow notice removed → accounting breaks ($WA_SHOWN + ${WA_OMITTED:-0} != $WA_TOTAL), reg-3 goes red"
-    else
-      no "teeth E: mutant still accounts for every WARN line"
-    fi
-  fi
-  # F: ranking restored to instrument order → kit-level WARNs fall behind the cap (reg-8).
-  lost_tooth "F registry-instrument-order" $REG $REGI "$FX/verify-registry.raw" 'kit repo is NOT in its own' \
-    's/pri\[++np\] = \$0; else oth/oth[++no] = $0; else oth/'
-  # G: tail-keeping neutered → plain truncation cuts the hint (reg-7).
-  lost_tooth "G registry-hint-truncated" $REG $REGI "$FX/verify-registry.raw" 'registered paths\.' \
-    's/return trunc(s, hmax) " " tail/return trunc(s, 170)/'
   # H: catalog collapsed line drops a name while keeping the (8) count → cat-3 (scoped to the collapsed line) goes red.
   lost_tooth "H catalog-drops-a-name" $CAT $CATI "$FX/verify-tool-catalog.raw" 'fernflower' \
     's/ | paste -sd, - | / | head -n 7 | paste -sd, - | /'
@@ -248,7 +200,6 @@ if [ "${1:-}" = "--prove-teeth" ]; then
       no "teeth $label: mutant output is still valid UTF-8 — the assertion does not bite"
     fi
   }
-  mb_tooth "I registry-byte-cut" $REG $REGI "$FX/verify-registry-multibyte.raw" 's/ | _utf8_trim)"  # UTF8-TRIM/)"/'
   mb_tooth "J catalog-byte-cut" $CAT $CATI "$FX/verify-tool-catalog-multibyte.raw" 's/| cut -c1-160 | _utf8_trim)"/| cut -c1-160)"/'
 fi
 
