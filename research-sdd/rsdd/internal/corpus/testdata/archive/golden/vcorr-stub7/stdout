@@ -1,0 +1,11 @@
+== research-sdd-archive: c  ·  corpus: (flat)  ·  DRY-RUN ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ERROR — verify-corrections.sh did not run (exit 7) — check it exists and is executable (override: --allow-unreciprocated-corrections)
+    scan-secrets  : ok
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c

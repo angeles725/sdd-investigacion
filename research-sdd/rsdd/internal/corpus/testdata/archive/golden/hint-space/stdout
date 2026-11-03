@@ -1,0 +1,14 @@
+== research-sdd-archive: hint space  ·  corpus: (flat) ==
+  -- gates --
+    verify-state   : ok
+    verify-sources : ok
+    verify-corrections : ok
+    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree (SECRETS DISCIPLINE)
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/hint space
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/hint space
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/hint space
+    find @ROOT@/work/case/hint\ space \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/hint\ space   # working tree (dirty/untracked/ignored — file scope: *.md + config)
+    @ROOT@/tb/scan-secrets.sh --committed @ROOT@/work/case/hint\ space   # + committed history
+    A secret in a git-ignored file still refuses (the gate reads the working tree as it sits on disk): move the
+    secret store OUTSIDE the target directory and keep only its path/structure in the corpus. There is no override.

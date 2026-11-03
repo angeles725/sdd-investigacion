@@ -11,6 +11,7 @@ import (
 // Commands is this domain's contribution to the command table. A unit adds
 // its entries here and never edits internal/commands.
 var Commands = []cli.Command{
+	{Name: "archive", Group: "corpus", Summary: archiveSummary, Run: archiveRun, PlainExit3: true}, // exit 3 = REFUSED
 	{Name: "catalog", Group: "corpus", Summary: "regenerate <corpus-root>/CATALOG.md from the corpus block files (<prefix>-block|bloque<N>[-suffix].md)", Run: catalog.Run},
 	{Name: "ensure-remote", Group: "corpus", Summary: "create a PRIVATE-by-construction GitHub remote for a corpus and push it", Run: ensureremote.Run, PlainExit3: true}, // 3 = no consent (bash contract), not degraded
 }

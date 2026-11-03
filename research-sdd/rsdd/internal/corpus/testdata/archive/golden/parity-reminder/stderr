@@ -1,0 +1,2 @@
+WARN: deliverable (codegen/) present but verify-parity was NOT run — deliverable↔block drift is unchecked;
+      if this is a token/color-based deliverable, run @ROOT@/tb/verify-parity.sh <deliverable> <block> before trusting this close.
