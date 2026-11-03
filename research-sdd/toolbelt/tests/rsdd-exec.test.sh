@@ -450,6 +450,16 @@ sc_disagree() {   # the Go stamp never equals the shell hash: ONE rebuild, one t
   GOHASH="$H_OLD" doshow third shim.sh go x
   probes
 }
+sc_disagree_noflock() {   # the same disagreement on a host without flock: still ONE rebuild, no loop (#2384 review)
+  mkkit disnf; putbin OLD "$H_OLD"
+  GOHASH="$H_OLD" doshow first shim.sh goNF x
+  probes
+  GOHASH="$H_OLD" doshow second shim.sh goNF x
+  probes
+  printf 'package deep\n// moved\n' >"$KIT/rsdd/internal/deep/deep.go"
+  GOHASH="$H_OLD" doshow third shim.sh goNF x
+  probes
+}
 sc_lockbusy() {   # the rebuild lock is held by someone else for longer than the wait
   local holder v
   for v in old none; do
@@ -941,6 +951,12 @@ nchk "shell/go hash disagreement: the second call does not rebuild" "$R" second 
 chk "shell/go hash disagreement: two consecutive calls build exactly once (no loop)" "$R" second '^GOCALLS=1$'
 chk "shell/go hash disagreement: a changed source after it is rebuilt again" "$R" third '^e\| BUILDNOISE-STDERR$'
 pchk "shell/go hash disagreement: the changed source costs exactly one more build" "$R" '^GOCALLS=2$'
+R="$(scen disagree_noflock "$LIB")"
+chk "flock absent + hash disagreement: first call runs the rebuilt binary" "$R" first '^o\| FAKE-NEW$'
+chk "flock absent + hash disagreement: first call prints the typed line" "$R" first '^e\| rsdd-exec: degraded: rsdd-source-hash-unavailable — shell and go source hashes disagree$'
+nchk "flock absent + hash disagreement: the second call does not rebuild" "$R" second 'BUILDNOISE'
+chk "flock absent + hash disagreement: two consecutive calls build exactly once (no loop)" "$R" second '^GOCALLS=1$'
+pchk "flock absent + hash disagreement: a changed source costs exactly one more build" "$R" '^GOCALLS=2$'
 R="$(scen lockbusy "$LIB")"
 if grep -q '^HANDSHAKE-TIMEOUT=' <<<"$R"; then no "lockbusy: lock holder started" "$(grep '^HANDSHAKE-TIMEOUT=' <<<"$R")"; else ok "lockbusy: lock holder started"; fi
 chk "lock busy + old binary -> the old binary runs" "$R" old '^o\| FAKE-OLD$'
@@ -1305,6 +1321,8 @@ mk testdata-file-kept "s# ! -name testdata##" &&
   tt testdata-file-kept testdata_file --good-has '^GOCALLS=0$' --bad-lacks '^GOCALLS=0$' --bad-lacks "$CRASH"
 mk disagree-loops 's#if \[ "\$crc" -eq 1 \] \&\& _rsdd_exec_disagree_known "\$kit"; then exit 11; fi#:#' &&
   tt disagree-loops disagree --good-has '^GOCALLS=2$' --bad-lacks '^GOCALLS=2$' --bad-lacks "$CRASH"
+mk noflock-skips-marker 's#      locked=0#      _rsdd_exec_build "$kit"; return#' &&
+  tt noflock-skips-marker disagree_noflock --good-lacks '^GOCALLS=3$' --bad-has '^GOCALLS=3$' --bad-lacks "$CRASH"
 mk disagree-unkeyed 's#\[ "\$marker" = "\$_RSDD_EXEC_GOT \$_RSDD_EXEC_TREE" \]#true#' &&
   tt disagree-unkeyed disagree --good-has '^GOCALLS=2$' --bad-lacks '^GOCALLS=2$' --bad-lacks "$CRASH"
 mk disagree-silent 's#if \[ "\$brc" -eq 11 \]; then brc=0; echo [^;]*; fi#if [ "$brc" -eq 11 ]; then brc=0; fi#' &&

@@ -129,21 +129,25 @@ if ! declare -F rsdd_exec >/dev/null 2>&1; then
   # _RSDD_EXEC_LOCKWAIT seconds. Freshness is re-checked after the lock is taken, so a shim that waited does not
   # rebuild what another one just built. After a build the shell hash is compared with the stamp just written; a
   # disagreement (the shell and Go selections differ) is recorded in <kit>/bin/.rsdd-disagree as "<stamp> <shell hash>"
-  # so the next calls do not rebuild in a loop.
+  # so the next calls do not rebuild in a loop. Without flock the same body runs unlocked, re-check and marker included,
+  # so a host with no flock (stock macOS) does not rebuild on every call either.
   # rc 0 built · 10 already fresh after the wait · 11 built but the shell hash disagrees with the stamp · 12 the lock
   # stayed busy · 1 build failed · 3 <kit>/bin not writable.
   _rsdd_exec_build_locked() {
-    local kit="$1" bin="$1/bin/rsdd" lock="$1/bin/.rsdd.lock" rc=0 crc
+    local kit="$1" bin="$1/bin/rsdd" lock="$1/bin/.rsdd.lock" rc=0 crc locked=1
     _rsdd_exec_lock_wait
     if ! command -v flock >/dev/null 2>&1; then
       echo "rsdd-exec: notice: flock not found; rebuilding without a lock" >&2
-      _rsdd_exec_build "$kit"; return
+      locked=0
+    else
+      mkdir -p -- "$kit/bin" 2>/dev/null || return 3
+      { : >>"$lock"; } 2>/dev/null || return 3
     fi
-    mkdir -p -- "$kit/bin" 2>/dev/null || return 3
-    { : >>"$lock"; } 2>/dev/null || return 3
     (
-      { exec {lfd}>>"$lock"; } 2>/dev/null || exit 3
-      flock -w "$_RSDD_EXEC_LOCKWAIT" "$lfd" || exit 12
+      if [ "$locked" -eq 1 ]; then
+        { exec {lfd}>>"$lock"; } 2>/dev/null || exit 3
+        flock -w "$_RSDD_EXEC_LOCKWAIT" "$lfd" || exit 12
+      fi
       if [ -f "$bin" ] && [ -x "$bin" ]; then
         crc=0; _rsdd_exec_check "$bin" "$kit/rsdd" || crc=$?
         if [ "$crc" -eq 0 ]; then exit 10; fi
@@ -344,7 +348,8 @@ fi
 #          racing shim never execs a half-written file); a failed stamp computation is a failed build. Build
 #          output goes to stderr only. If <kit>/bin cannot be created or written, the reason is `bin dir not
 #          writable: <dir>` (not `build failed`). Without `flock` the rebuild runs unlocked after one
-#          `rsdd-exec: notice: flock not found; rebuilding without a lock` line (the atomic rename keeps it safe).
+#          `rsdd-exec: notice: flock not found; rebuilding without a lock` line (the atomic rename keeps it safe); the
+#          re-check and the disagreement memory below apply to that unlocked rebuild too.
 #          The wait for that lock is bounded: `flock -w <seconds>`, default 120, overridden by the env var
 #          RSDD_EXEC_LOCK_WAIT (a positive integer; any other value gives one `rsdd-exec: notice: RSDD_EXEC_LOCK_WAIT
 #          must be a positive integer, got '<v>'; using 120` line and the default). When the lock stays busy: an
