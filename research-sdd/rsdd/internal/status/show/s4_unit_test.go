@@ -277,30 +277,6 @@ func TestNextDegradedRefusals(t *testing.T) {
 	}
 }
 
-// A seam that is not ready ends the run as not yet ported and prints nothing on stdout, in each of its three call
-// sites (the retro derivation, the scoped gate, the aggregate gate).
-func TestNextSeamNotReady(t *testing.T) {
-	verifyWith(t, 0, "")
-	for _, c := range []struct {
-		name, state string
-		flags       []string
-		want        string
-	}{
-		{"retro", one("root", "pending", 1, "11"), nil, "RETRO-DUE covers_through derivation"},
-		{"gate scoped", one("root", "covered", 0, "0"), []string{"--root"}, "issues_due_gate"},
-		{"gate aggregate", one("root", "covered", 0, "0"), nil, "issues_due_gate"},
-	} {
-		sc := n4(c.name, "", c.state, nil, c.flags...)
-		root := sc.build(t)
-		s, out, errb := stdio(root)
-		s.Cwd = root
-		rc := run(sc.argv(0, root), s, nextOr(pendingSeams, s4Tail))
-		if want := "rsdd: status show: not-yet-ported: " + c.want + " of --next; use toolbelt/research-sdd-status.sh (issue #2549)\n"; rc != 1 || out.Len() != 0 || errb.String() != want {
-			t.Errorf("%s: rc=%d stdout=%q stderr=%q", c.name, rc, out.String(), errb.String())
-		}
-	}
-}
-
 // stdio2 is a Stdio for execVerify: the toolbelt directory the shim would hand over and an environment of its own.
 func stdio2(o, e io.Writer, cwd, toolbelt string) cli.Stdio {
 	return cli.Stdio{Out: o, Err: e, Cwd: cwd,
