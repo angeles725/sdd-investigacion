@@ -48,7 +48,7 @@ options:
 		{"--timeout-seconds", "timeout_seconds", kindInt}, {"--max-bytes", "max_bytes", kindInt},
 		{"--max-streams", "max_streams", kindInt}, {"--manifest-cli", "manifest_cli", kindPath},
 	},
-	required: []string{"input", "output", "manifest_cli"},
+	required: []string{"input", "output"},
 }
 
 // streamIDs is sorted(set(int(x) for x in text.split() if x.strip().isdigit())): the distinct tcp.stream
@@ -92,7 +92,7 @@ func RunFlows(args []string, s cli.Stdio) int {
 	if done {
 		return code
 	}
-	c := &session{tool: flowsProg, s: s, manifestCLI: a.str["manifest_cli"]}
+	c := &session{tool: flowsProg, s: s}
 	defer c.cleanup()
 	a = a.withDefaults()
 	if a.num["max_streams"] == nil {

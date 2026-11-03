@@ -393,15 +393,21 @@ func TestSquashfsToolLookups(t *testing.T) {
 			mustNotExist(t, out, filepath.Join(parent, ".out.stage"))
 		})
 	}
-	t.Run("manifest cli missing", func(t *testing.T) {
+	// --manifest-cli is accepted and ignored: omitted or naming a path that does not exist, the run succeeds.
+	t.Run("manifest cli is ignored", func(t *testing.T) {
 		useTools(t, okExtraction)
 		parent := t.TempDir()
 		missing := filepath.Join(parent, "no-manifest.py")
-		rc, _, stderr := runSqfs(t, parent, sqfsArgs(good, filepath.Join(parent, "out"), "--manifest-cli", missing)...)
-		if want := "squashfs-extract: [Errno 2] No such file or directory: " + pyRepr(missing) + "\n"; rc != 2 || stderr != want {
-			t.Errorf("rc = %d stderr = %q, want %q", rc, stderr, want)
+		for tag, flag := range map[string][]string{"omitted": nil, "missing": {"--manifest-cli", missing}} {
+			out := filepath.Join(parent, "out-"+tag)
+			rc, _, stderr := runSqfs(t, parent, sqfsArgs(good, out, flag...)...)
+			if rc != 0 || stderr != "" {
+				t.Errorf("%s: rc = %d stderr = %q", tag, rc, stderr)
+			}
+			if _, err := os.Stat(filepath.Join(out, "analysis-manifest.v1.json")); err != nil {
+				t.Errorf("%s: %v", tag, err)
+			}
 		}
-		mustNotExist(t, filepath.Join(parent, "out"), filepath.Join(parent, ".out.stage"))
 	})
 }
 
@@ -411,13 +417,12 @@ func TestSquashfsUsage(t *testing.T) {
 	out := filepath.Join(parent, "out")
 	mf := manifestCLI(t)
 	for name, args := range map[string][]string{
-		"no args":         {},
-		"no input":        {"--output", out, "--manifest-cli", mf},
-		"no output":       {"--input", good, "--manifest-cli", mf},
-		"no manifest-cli": {"--input", good, "--output", out},
-		"bad int":         {"--input", good, "--output", out, "--manifest-cli", mf, "--max-entries", "many"},
-		"unknown flag":    {"--input", good, "--output", out, "--manifest-cli", mf, "--frobnicate"},
-		"positional":      {"--input", good, "--output", out, "--manifest-cli", mf, "extra"},
+		"no args":      {},
+		"no input":     {"--output", out, "--manifest-cli", mf},
+		"no output":    {"--input", good, "--manifest-cli", mf},
+		"bad int":      {"--input", good, "--output", out, "--manifest-cli", mf, "--max-entries", "many"},
+		"unknown flag": {"--input", good, "--output", out, "--manifest-cli", mf, "--frobnicate"},
+		"positional":   {"--input", good, "--output", out, "--manifest-cli", mf, "extra"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rc, stdout, stderr := runSqfs(t, parent, args...)
@@ -796,7 +801,7 @@ func TestSquashfsManifestContent(t *testing.T) {
 	exe, _ := os.Executable()
 	exe, _ = filepath.EvalSymlinks(exe)
 	argv := arr(m["argv"])
-	if len(argv) < 8 || argv[0] != exe || argv[1] != "formats" || argv[2] != "squashfs-extract" || argv[len(argv)-2] != "--manifest-cli" {
+	if len(argv) != 7 || argv[0] != exe || argv[1] != "formats" || argv[2] != "squashfs-extract" || argv[3] != "--input" || argv[5] != "--output" {
 		t.Errorf("argv = %v", argv)
 	}
 	tool := obj(m["tool"])

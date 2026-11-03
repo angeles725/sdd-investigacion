@@ -85,12 +85,18 @@ func legacyRun(t *testing.T, h *harness, py string, args []string) result {
 	t.Helper()
 	script, toolbelt := legacyScript(t)
 	// The script loads the manifest module it is handed: give it the real one, not the harness stub.
-	args = append([]string{}, args...)
-	for i := range args {
+	// The port accepts --manifest-module and ignores it, so the script always runs with the real module, whatever
+	// the arguments carried (including no flag at all).
+	real := filepath.Join(toolbelt, "analysis_manifest.py")
+	var rewritten []string
+	for i := 0; i < len(args); i++ {
 		if args[i] == "--manifest-module" && i+1 < len(args) {
-			args[i+1] = filepath.Join(toolbelt, "analysis_manifest.py")
+			i++
+			continue
 		}
+		rewritten = append(rewritten, args[i])
 	}
+	args = append([]string{"--manifest-module", real}, rewritten...)
 	argv := append([]string{"-I", "-B", script}, args...)
 	cmd := exec.Command(py, argv...)
 	cmd.Dir = h.root

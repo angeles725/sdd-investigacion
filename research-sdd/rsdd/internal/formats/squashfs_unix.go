@@ -624,13 +624,6 @@ func extractSquashfs(a squashfsOpts, s cli.Stdio, startedAt time.Time, stagePath
 		name == "" || name == "." || name == ".." || existsErr == nil || (lerr == nil && lfi.Mode()&fs.ModeSymlink != 0) {
 		return sqfsErrf("unsafe output destination")
 	}
-	manifestCLI, err := filepath.EvalSymlinks(pyPathJoin(s.Cwd, a.manifestCLI))
-	if err != nil {
-		return err
-	}
-	if manifestCLI, err = filepath.Abs(manifestCLI); err != nil {
-		return err
-	}
 	bwrapPath, ok := whichIn("bwrap", bwrapSearchPath)
 	if !ok {
 		return sqfsErrf("bwrap is required")
@@ -723,7 +716,7 @@ func extractSquashfs(a squashfsOpts, s cli.Stdio, startedAt time.Time, stagePath
 		"schema_version": "analysis-manifest.v1",
 		"input":          map[string]any{"path": sqfsSchema + ".json", "detected_type": "SquashFS v4 LE extraction report with source SHA-256"},
 		"tool":           map[string]any{"name": "squashfs-extract", "version": "1", "executable": launcher, "artifacts": []any{}},
-		"argv":           []any{launcher, "formats", "squashfs-extract", "--input", srcRec.Path, "--output", destination, "--manifest-cli", manifestCLI},
+		"argv":           []any{launcher, "formats", "squashfs-extract", "--input", srcRec.Path, "--output", destination},
 		"environment":    map[string]any{},
 		"run": map[string]any{"started_at": isoZ(startedAt), "ended_at": isoZ(endedAt),
 			"duration_ms": int64(float64(us) / 1e6 * 1000), "exit_code": 0, "signal": nil},
@@ -850,7 +843,7 @@ func lockModes(stage string) error {
 }
 
 // runManifestTool runs one analysis-manifest verb in process (core/adapter) and relays its output. The
-// validated --manifest-cli path is no longer executed.
+// --manifest-cli argument is accepted and ignored.
 func runManifestTool(s cli.Stdio, verb string, rest ...string) error {
 	if rc := adapter.ManifestRun(append([]string{verb}, rest...), s); rc != 0 {
 		return sqfsErrf("manifest %s failed (exit %d)", verb, rc)

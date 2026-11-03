@@ -12,13 +12,35 @@ import (
 	"testing"
 )
 
+// legacyBootstrap runs a frozen legacy script as __main__ with --manifest-cli optional and always pointing at the
+// real analysis_manifest.py (its first argument): the port accepts the flag and ignores it, so the oracle must not
+// depend on what the caller passed for it. Everything else is the legacy tool, unmodified (sys.argv[0] stays the
+// script, so argparse's prog is unchanged).
+const legacyBootstrap = `
+import argparse, runpy, sys
+from pathlib import Path
+manifest = sys.argv[1]
+sys.argv = sys.argv[2:]
+_add, _parse = argparse.ArgumentParser.add_argument, argparse.ArgumentParser.parse_args
+def add_argument(self, *a, **k):
+    if "--manifest-cli" in a: k["required"] = False
+    return _add(self, *a, **k)
+def parse_args(self, args=None, namespace=None):
+    ns = _parse(self, args, namespace)
+    if hasattr(ns, "manifest_cli"): ns.manifest_cli = Path(manifest)
+    return ns
+argparse.ArgumentParser.add_argument = add_argument
+argparse.ArgumentParser.parse_args = parse_args
+runpy.run_path(sys.argv[0], run_name="__main__")
+`
+
 func runLegacy(t *testing.T, tl tool, cwd string, loose bool, env []string, args []string) outcome {
 	t.Helper()
 	legacy, err := filepath.Abs(filepath.Join(legacyDir, tl.legacy))
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := append([]string{legacy}, args...)
+	full := append([]string{"-c", legacyBootstrap, manifestCLI(t), legacy}, args...)
 	cmd := exec.Command(python(t), full...)
 	cmd.Dir, cmd.Env = cwd, env
 	var out, errb bytes.Buffer

@@ -130,7 +130,7 @@ type squashfsOpts struct {
 	timeoutSeconds                   int64
 }
 
-const squashfsUsage = `usage: squashfs-extract --input INPUT --output OUTPUT --manifest-cli MANIFEST_CLI
+const squashfsUsage = `usage: squashfs-extract --input INPUT --output OUTPUT [--manifest-cli MANIFEST_CLI]
                        [--max-input-bytes N] [--max-extracted-bytes N] [--max-entries N]
                        [--timeout-seconds N]
 
@@ -138,7 +138,7 @@ Safe SquashFS extraction with post-extraction tree validation.
 
   --input             SquashFS image or firmware blob containing one
   --output            evidence directory to publish (must not exist; its parent must be private)
-  --manifest-cli      path of analysis_manifest.py
+  --manifest-cli      accepted and ignored (the manifest is built in process)
   --max-input-bytes   input size cap (default 536870912)
   --max-extracted-bytes  aggregate extracted size cap (default 268435456)
   --max-entries       tree entry cap (default 10000)
@@ -172,7 +172,7 @@ func parseSquashfsArgs(args []string, s cli.Stdio) (a squashfsOpts, code int, do
 	}
 	given := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	for _, name := range []string{"input", "output", "manifest-cli"} {
+	for _, name := range []string{"input", "output"} {
 		if !given[name] {
 			return usageErr("the following arguments are required: --%s", name)
 		}

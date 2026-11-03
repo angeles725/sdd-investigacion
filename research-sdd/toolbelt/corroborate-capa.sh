@@ -6,5 +6,5 @@ while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _
 if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
 _RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
 . "$_RSDD_SELF/lib/rsdd-exec.sh" 2>/dev/null || { printf 'degraded: rsdd-unavailable — rsdd-exec.sh missing beside %s\n' "$0" >&2; exit 2; }   # SENTINEL-RSDD-EXEC-GUARD
-# The manifest steps run in-process in Go; the path is still required and must exist (the legacy contract).
-rsdd_exec corroborate capa --manifest-cli "$_RSDD_SELF/analysis_manifest.py" "$@"
+# The analysis manifest is created, validated and verified in process by the Go command; no manifest tool path is passed.
+rsdd_exec corroborate capa "$@"

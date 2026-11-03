@@ -25,6 +25,22 @@ toolbelt, legacy = sys.argv[1], sys.argv[2]
 sys.path.insert(0, toolbelt)
 spec = importlib.util.spec_from_file_location("legacy_floss", legacy)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+# The port accepts --manifest-cli and ignores it (the manifest steps run in process): the legacy tool runs with the
+# flag optional and always pointing at the real analysis_manifest.py, whatever the caller passed.
+from pathlib import Path
+orig = m._parser
+def patched():
+    p = orig()
+    for a in p._actions:
+        if a.dest == "manifest_cli": a.required = False
+    parse = p.parse_args
+    def parse_args(av=None, *x, **k):
+        ns = parse(av, *x, **k)
+        ns.manifest_cli = Path(toolbelt) / "analysis_manifest.py"
+        return ns
+    p.parse_args = parse_args
+    return p
+m._parser = patched
 sys.exit(m.main(sys.argv[3:]))
 `
 
@@ -204,9 +220,6 @@ func TestParityRefusals(t *testing.T) {
 	dirInput := func(out string) []string {
 		return []string{"--input", w.root, "--output", out, "--manifest-cli", w.manifest}
 	}
-	noManifest := func(out string) []string {
-		return []string{"--input", w.input, "--output", out, "--manifest-cli", w.out("nope.py")}
-	}
 	wrapperEnv := map[string]string{"PATH": filepath.Join(w.root, "pybin") + ":" + w.root + ":/usr/bin:/bin", "RSDD_FLOSS": w.out("floss")}
 	cases := []struct {
 		name string
@@ -235,7 +248,6 @@ func TestParityRefusals(t *testing.T) {
 		{"bwrap-override-missing", map[string]string{"RSDD_BWRAP": w.out("nonexistent")}, w.args()},
 		{"input-missing", nil, noInput},
 		{"input-directory", nil, dirInput},
-		{"manifest-missing", nil, noManifest},
 	}
 	for i, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
