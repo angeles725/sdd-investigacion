@@ -2,7 +2,7 @@ package resume
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,11 +24,12 @@ func scrubbed(t testing.TB, sc scn, o outcome) outcome {
 	return outcome{o.rc, normalise(sc, w, o.out), normalise(sc, w, o.err)}
 }
 
-// snapshot hashes every path and every byte of a world's repositories (refs, index, config, objects, worktrees).
-func snapshot(t testing.TB, w *world) string {
+// snapshot hashes every path and every byte of a world's repositories (refs, index, config, objects, worktrees),
+// one hash per path so a change names the paths it touched.
+func snapshot(t testing.TB, w *world) map[string]string {
 	t.Helper()
 	skip := map[string]bool{"in": true, "paths": true, "stubs": true, "tmp": true, "gh-rec.txt": true, "gitlog.txt": true}
-	h := sha256.New()
+	out := map[string]string{}
 	err := filepath.WalkDir(w.root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -40,20 +41,38 @@ func snapshot(t testing.TB, w *world) string {
 			}
 			return nil
 		}
-		h.Write([]byte(rel + "\n"))
+		sum := d.Type().String()
 		if d.Type().IsRegular() {
 			b, err := os.ReadFile(p)
 			if err != nil {
 				return err
 			}
-			h.Write(b)
+			sum = fmt.Sprintf("%x", sha256.Sum256(b))
 		}
+		out[rel] = sum
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	return out
+}
+
+// changedPaths lists the paths added, removed or rewritten between two snapshots, sorted.
+func changedPaths(before, after map[string]string) []string {
+	var d []string
+	for p, h := range before {
+		if a, ok := after[p]; !ok || a != h {
+			d = append(d, p)
+		}
+	}
+	for p := range after {
+		if _, ok := before[p]; !ok {
+			d = append(d, p)
+		}
+	}
+	sort.Strings(d)
+	return d
 }
 
 func TestGolden(t *testing.T) {
@@ -67,7 +86,7 @@ func TestGolden(t *testing.T) {
 		order = append(order, k)
 	}
 	sort.Strings(order)
-	before := map[string]string{}
+	before := map[string]map[string]string{}
 	for _, k := range order {
 		before[k] = snapshot(t, getWorld(t, k))
 	}
@@ -89,8 +108,8 @@ func TestGolden(t *testing.T) {
 		})
 	}
 	for _, k := range order {
-		if after := snapshot(t, getWorld(t, k)); after != before[k] {
-			t.Errorf("world %s was modified by a read-only command", k)
+		if d := changedPaths(before[k], snapshot(t, getWorld(t, k))); len(d) > 0 {
+			t.Errorf("world %s was modified by a read-only command: %q", k, d)
 		}
 	}
 	entries, err := os.ReadDir(goldenDir)
