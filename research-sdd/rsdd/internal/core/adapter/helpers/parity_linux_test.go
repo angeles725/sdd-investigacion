@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !nodiff
 
 package helpers
 
@@ -28,7 +28,7 @@ type pyOut struct {
 	Stderr  string          `json:"stderr"`
 }
 
-const toolbeltDir = "../../../../../toolbelt"
+const toolbeltDir = "../testdata/frozen" // frozen oracle copies (core/adapter/testdata/frozen)
 
 func pythonPath(t *testing.T) string {
 	t.Helper()

@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-const toolbelt = "../../../../toolbelt"
+const toolbelt = "../../core/adapter/testdata/frozen" // frozen oracle copies of the toolbelt adapter modules
 
 // python is the interpreter the manifest tool and the oracle run under: python3.12 when installed (the version
 // the legacy tools are held to), else python3. A missing interpreter FAILS the test (a skipped test proves nothing).

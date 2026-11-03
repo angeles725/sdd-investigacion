@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 from typing import Any
-sys.path.insert(0, str(Path(__file__).resolve().parents[6] / "toolbelt"))  # frozen oracle copy: the only edit is this line (the lib/ it imports stays in toolbelt/)
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "core" / "adapter" / "testdata" / "frozen"))  # frozen oracle copy: the only edit is this line (adapter modules come from the frozen core/adapter copies)
 from lib.adapter_core import (
     AdapterError, executable, identity,
     refuse_privileged_execution,
