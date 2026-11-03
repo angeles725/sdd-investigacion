@@ -7,7 +7,7 @@
 # report prints a `WARN    possibility-first` line (advisory: exit code unchanged). `--possibility-sweep <dir>` lists
 # every bare verdict of a corpus, read-only, exit 0. The verdict phrases, the ladder rule, the measurement-language and
 # fence exemptions and the byte-wise 120-character excerpt are pinned in Go against the frozen bash script
-# (internal/verify, testdata/block-cases.txt); here only what crosses the shim.
+# (internal/verify/block, testdata/block-cases.txt); here only what crosses the shim.
 #
 # Usage: verify-block-possibility.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression.
 set -uo pipefail

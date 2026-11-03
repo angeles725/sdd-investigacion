@@ -6,7 +6,7 @@
 # `RN` in an R-numbered corpus) gets a candidate `BACKPTR?` when the cited block holds no pointer back; ADVISORY, the exit
 # code never changes; --backptr=high (default) | all | off. The sentence scan, the filters (neg, self, passive, noun,
 # corrector, far, list, forward), the two block-number series and the typed non-verdicts are pinned in Go: the frozen
-# bash script is run on every fixture of the old suite (internal/verify, testdata/block-cases.txt) and on hand-written
+# bash script is run on every fixture of the old suite (internal/verify/block, testdata/block-cases.txt) and on hand-written
 # ones, and must print the same bytes. What stays here: the flag and the exit code cross the shim unchanged, and the
 # canonical-name rule reaches the command.
 #

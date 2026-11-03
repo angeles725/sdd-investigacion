@@ -3,7 +3,7 @@
 #
 # verify-block.sh is a compatibility shim to `rsdd verify block`. Every check the old 2,800-line suite made on the
 # report (marker tally, citation resolution, digests, ephemeral paths, manifests, back-pointers, ...) now lives in the
-# Go package: internal/verify runs the frozen bash script (testdata/block-legacy) on every fixture the old suites used
+# Go package: internal/verify/block runs the frozen bash script (testdata/block-legacy) on every fixture the old suites used
 # (testdata/block-cases.txt, captured by running them) plus hand-written and generated ones, and asserts the same
 # stdout, stderr and exit code (`make test`; the Go mutation gate is `make teeth` in research-sdd/rsdd). What stays
 # here is what only the shim can show: the arguments, the environment and the exit codes cross the bash/Go boundary

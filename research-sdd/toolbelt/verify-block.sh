@@ -8,7 +8,7 @@
 # The report (marker tally, [INFER]/[CERT] ratio, [CERT] file:line citation resolution, possibility-first lint, OCR
 # provenance, empty-input digests, ephemeral-path cites, SCRIPTS-MANIFEST rows and the section-14 back-pointer check) is
 # produced by the binary, byte for byte as this script printed it; METHODOLOGY section 11 describes what it checks. The
-# frozen script and the libraries it sourced are the parity oracle of the Go differential tests (internal/verify,
+# frozen script and the libraries it sourced are the parity oracle of the Go differential tests (internal/verify/block,
 # testdata/block-legacy). Environment read: RSDD_STRICT_EPHEMERAL (only the exact value 0 opts out) and SOURCE_ROOT.
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
