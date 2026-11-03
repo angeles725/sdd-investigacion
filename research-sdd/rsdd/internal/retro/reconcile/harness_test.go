@@ -156,6 +156,12 @@ func mkBox(t *testing.T, c dcase) *box {
 		writeStubs(t, root, c.gh)
 		b.env["PATH"] = filepath.Join(root, "bin") + ":" + os.Getenv("PATH")
 	}
+	if !c.noGit && !c.noGH {
+		installGitLogger(t, root)
+		if b.env["PATH"] == "" {
+			b.env["PATH"] = filepath.Join(root, "bin") + ":" + os.Getenv("PATH")
+		}
+	}
 	for k, v := range c.env {
 		b.env[k] = box2(v, root, tgt)
 	}
@@ -266,6 +272,7 @@ func runGo(t *testing.T, b *box) result {
 		fmt.Fprintf(f, "%d\n", int(d/time.Second))
 	}}
 	rc := runCommand(append([]string{"--toolbelt", filepath.Join(b.root, "research-sdd", "toolbelt")}, b.args...), s, h)
+	checkToolCalls(t, b)
 	return b.normalize(rc, so.String(), se.String())
 }
 

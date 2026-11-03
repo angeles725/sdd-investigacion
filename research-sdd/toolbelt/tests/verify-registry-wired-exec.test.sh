@@ -301,10 +301,12 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if [ "$HAVE_JQ" = 1 ]; then
     lteeth RSDD-FAILURE-SILENT tc_rsdd_down '/# HW-EXEC-FALLBACK$/d'
   fi
-  steeth CALLSITE-REMOVED case_all sut 's/hook_wired_exec_report "\$p"/true/'
-  steeth UNVERIFIABLE-NOT-REPORTED case_unv sut 's/"\$_vr_we_kind" = "unverifiable"/"$_vr_we_kind" = "nope"/'
-  steeth DEDUP-EVENT-IGNORED case_dedup sut 's/ && \[ "\$_vr_we_x3" = "Stop" \]//'
-  steeth DEDUP-DROPPED case_dedup sut 's/\[ "\$_vr_nl_emitted" = 1 \]/[ "$_vr_nl_emitted" = 7 ]/'
+  # verify-registry.sh is a shim now (kit issue #2364): the wired-exec call site, the unverifiable arm and the dedup against
+  # hook-registered-never-loaded live in Go (internal/verify registrychecks.go), pinned by TestRegistryHookSections and
+  # the production differential; what stays in bash to mutate is the shim: its command and its kit hand-off.
+  steeth SHIM-COMMAND-WRONG case_all sut 's/verify registry/verify registryx/'
+  steeth SHIM-COMMAND-WRONG-DEDUP case_dedup sut 's/verify registry/verify registryx/'
+  steeth SHIM-KIT-DROPPED case_all sut 's/ --kit "\$KIT"//'
 fi
 
 echo "== $pass passed · $fail failed =="

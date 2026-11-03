@@ -42,7 +42,6 @@ import (
 
 const (
 	installVerifyMaxBytes = 4 << 20
-	staleBudget           = 3 * time.Second
 	hookDriftDetailMore   = "  (+%d more - run research-sdd-install.sh --verify for the full list)"
 )
 
@@ -114,6 +113,11 @@ func joinNL(text, line string) string {
 }
 
 func runSkillDriftHook(args []string, s cli.Stdio) int {
+	return runSkillDriftHookWith(args, s, defaultHookBudgets())
+}
+
+// runSkillDriftHookWith is runSkillDriftHook with its time budgets given.
+func runSkillDriftHookWith(args []string, s cli.Stdio, b hookBudgets) int {
 	here := ""
 	if len(args) > 0 {
 		here = args[0]
@@ -145,7 +149,7 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 	extra, vrc := "", 0
 	if executableOS(vcmd) {
 		var vnote string
-		extra, vrc, vnote = installVerify(vcmd, s)
+		extra, vrc, vnote = installVerify(vcmd, s, b)
 		if vnote != "" {
 			extra = joinNL(extra, vnote)
 		}
@@ -155,7 +159,7 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 
 	// 3. kit staleness
 	if s.Env("RESEARCH_SDD_KIT_STALE_CHECK") != "off" && vrc != 124 {
-		extra = applyKitStale(extra, vrc, here, s)
+		extra = applyKitStale(extra, vrc, here, s, b)
 	}
 
 	if rc == 0 && extra == "" {
@@ -179,8 +183,8 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 
 // installVerify runs `vcmd --verify` under the bound and returns the lines the hook surfaces (extra), the exit
 // code the shell would have seen (124 timed out) and the invalid-timeout note.
-func installVerify(vcmd string, s cli.Stdio) (extra string, vrc int, vnote string) {
-	vt := 10
+func installVerify(vcmd string, s cli.Stdio, b hookBudgets) (extra string, vrc int, vnote string) {
+	vt := b.verifyDefault
 	if raw, set := lookupEnv(s, "RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT"); set {
 		if n, ok := threshold(raw); ok && n >= 1 {
 			vt = n
@@ -196,7 +200,7 @@ func installVerify(vcmd string, s cli.Stdio) (extra string, vrc int, vnote strin
 	}
 	res, err := proc.Run(proc.Spec{
 		Argv: []string{vcmd, "--verify"}, Dir: s.Cwd, Env: environ,
-		Timeout: time.Duration(vt) * time.Second, MaxBytes: installVerifyMaxBytes, Now: s.Clock,
+		Timeout: b.verifyBound(vt), MaxBytes: installVerifyMaxBytes, Now: s.Clock,
 	})
 	vout := ""
 	switch {
@@ -291,8 +295,8 @@ func driftBlock(line string) []string {
 // than RESEARCH_SDD_KIT_STALE_MAX_DAYS (default 7). Own thresholds govern: install --verify's `kit status=behind`
 // line is dropped when this check measured the kit, except a diverged one, which stays and replaces the stale
 // line.
-func applyKitStale(extra string, vrc int, here string, s cli.Stdio) string {
-	st := kitStale(here, s)
+func applyKitStale(extra string, vrc int, here string, s cli.Stdio, b hookBudgets) string {
+	st := kitStale(here, s, b)
 	if st.state == "ok" || st.state == "stale" {
 		keep, diverged := "", false
 		for _, l := range strings.Split(extra, "\n") {
@@ -328,7 +332,7 @@ type staleResult struct {
 
 // kitStale is _rsdd_kit_stale. state is ok, stale or unknown; line is the stale line; note announces an
 // invalid threshold; deg is the verbose-only typed degraded line.
-func kitStale(here string, s cli.Stdio) staleResult {
+func kitStale(here string, s cli.Stdio, b hookBudgets) staleResult {
 	r := staleResult{state: "unknown"}
 	kmax, kdays := 20, 7
 	if raw, set := lookupEnv(s, "RESEARCH_SDD_KIT_STALE_MAX_COMMITS"); set {
@@ -349,7 +353,7 @@ func kitStale(here string, s cli.Stdio) staleResult {
 	if kdir == "" {
 		kdir = filepath.Join(here, "..")
 	}
-	m := measureKit(kdir, kmax, kdays, s)
+	m := measureKit(kdir, kmax, kdays, s, b.kitStale)
 	r.state, r.line = m.state, m.line
 	if s.Env("RESEARCH_SDD_KIT_STALE_VERBOSE") != "" && m.deg != "" {
 		r.deg = "verify kit-stale status=degraded reason=" + m.deg
@@ -360,10 +364,10 @@ func kitStale(here string, s cli.Stdio) staleResult {
 type kitMeasure struct{ state, line, deg string }
 
 // measureKit is _rk_measure: the git work, under one shared budget.
-func measureKit(kdir string, kmax, kdays int, s cli.Stdio) kitMeasure {
+func measureKit(kdir string, kmax, kdays int, s cli.Stdio, budget time.Duration) kitMeasure {
 	m := kitMeasure{state: "unknown"}
 	clock := s.Clock
-	deadline := clock().Add(staleBudget)
+	deadline := clock().Add(budget)
 	expired := false
 	run := func(dir string, args ...string) (string, error) {
 		g := gitRunner(s)
@@ -378,7 +382,7 @@ func measureKit(kdir string, kmax, kdays int, s cli.Stdio) kitMeasure {
 		return strings.TrimRight(string(out), "\n"), err
 	}
 	abandon := func() kitMeasure {
-		return kitMeasure{state: "unknown", deg: "git did not answer within 3s (check abandoned)"}
+		return kitMeasure{state: "unknown", deg: "git did not answer within " + budget.String() + " (check abandoned)"}
 	}
 
 	top, err := run(kdir, "rev-parse", "--show-toplevel")

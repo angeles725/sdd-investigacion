@@ -62,6 +62,7 @@ GO_SRC=(
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -69,7 +70,10 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
-  resume-state.sh resume-render.sh)
+  resume-state.sh resume-render.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
+# The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
+# sweep-retros-hook.sh shares sweep-retros.sh's status, which is itself suspect: retros.go prints absent-input INFO lines.
+GO_NO_TYPED+=(return-token-gate.sh sweep-retros-hook.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
 # (kit issue #2563): `code|row emitter label|package dir|literal`. The row counts as emitted only while the literal is
 # still in the package's non-test sources, so a removed emission turns it stale again.
@@ -86,8 +90,13 @@ go_dir() {
   done
   return 1
 }
-# go_is_shim SCRIPT_PATH — 0 when the script calls rsdd_exec on a non-comment line
-go_is_shim() { grep -Eq '^[^#]*rsdd_exec ' "$1" 2>/dev/null; }
+# The one shim pattern: a script is a rsdd shim when a non-comment line calls rsdd_exec or rsdd_exec_hook (kit issue #2597:
+# the hook form was read as bash, so its GO_SRC entry was never used and go_unmapped could not flag it).
+GO_SHIM_RE='^[^#]*rsdd_exec(_hook)? '
+# The registry input tokens, in one place: the Go assign/return rule (go_view) and the shell classifier (IC_AWK) share them.
+INPUT_TOKENS='absent-input|empty-input|unclassifiable|no-match'
+# go_is_shim SCRIPT_PATH — 0 when the script calls rsdd_exec / rsdd_exec_hook on a non-comment line
+go_is_shim() { grep -Eq "$GO_SHIM_RE" "$1" 2>/dev/null; }
 # go_shim SCRIPT_PATH — 0 when it is mapped in GO_SRC and a shim
 go_shim() { go_dir "$1" . >/dev/null && go_is_shim "$1"; }
 # go_unmapped DIR — one line per rsdd_exec shim under DIR (. lib maint) that is neither in GO_SRC nor in GO_NO_TYPED
@@ -105,28 +114,46 @@ go_unmapped() {
   done
   return 0
 }
-# go_files DIR — the non-test Go sources of the command, one per line
+# GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
+# AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
+# reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go")   # TOOTH-GOFILES
+# go_glob SCRIPT_PATH — the file glob of the script's Go sources
+go_glob() {
+  local b e
+  b="$(basename "$1")"
+  for e in "${GO_FILES[@]}"; do
+    if [ "${e%%=*}" = "$b" ]; then printf '%s\n' "${e#*=}"; return 0; fi
+  done
+  printf '%s\n' '*.go'
+}
+# go_files DIR [GLOB] — the non-test Go sources of the command, one per line
 go_files() {
-  local f
-  for f in "$1"/*.go; do
+  local f g="${2:-*.go}"
+  for f in "$1"/$g; do
     [ -f "$f" ] || continue
     case "$f" in *_test.go) continue ;; esac   # TOOTH-GOTESTFILE
     printf '%s\n' "$f"
   done
 }
-# go_view DIR — the emit lines of those sources as shell `printf` lines
-go_view() {
+# A Go port can also state an input class by assigning it (`state, reason = "no-match", ...`, `state := "..."`) or by
+# returning it (`return "absent-input", ...`), with no emit call around it (kit issue #2597). Such a non-comment line,
+# where the quoted token directly follows `=` or `return`, is kept verbatim (a `==` / `!=` comparison is kept too, and IC_AWK
+# classifies it as a consumer, so the one comparison rule lives in the awk classifier).
+GO_ASSIGN_RE="=[[:space:]]*\"($INPUT_TOKENS)\"|(^|[^[:alnum:]_])return[[:space:]]+\"($INPUT_TOKENS)\""
+# go_view DIR — the emit lines of those sources as shell `printf` lines (calls), plus the assign/return lines as they are
+go_view() {   # DIR [GLOB]
   local f
   while IFS= read -r f; do
-    sed -nE "/^[[:space:]]*\/\//d; /regexp\.MustCompile/d; /$GO_CALL_RE/ { s/$GO_CALL_RE/ printf /; s/%[-+# 0-9.]*[vsdqxXtTcUeEfFgGbpow]/%s/g; p; }" "$f" || return 2   # TOOTH-GOCALLS (the %s rewrite: TOOTH-GOVERBS)
-  done < <(go_files "$1")
+    sed -nE "/^[[:space:]]*\/\//d; /regexp\.MustCompile/d; /$GO_CALL_RE/ { s/$GO_CALL_RE/ printf /; s/%[-+# 0-9.]*[vsdqxXtTcUeEfFgGbpow]/%s/g; p; b; }; /$GO_ASSIGN_RE/p" "$f" || return 2   # TOOTH-GOCALLS (the %s rewrite: TOOTH-GOVERBS)
+  done < <(go_files "$1" "${2:-}")
 }
 # go_stray DIR — non-comment lines carrying `degraded: ` that are not an emit call: LINENO:text per file
-go_stray() {
+go_stray() {   # DIR [GLOB]
   local f
   while IFS= read -r f; do
     F="$(basename "$f")" RE="$GO_CALL_RE" awk 'BEGIN { F = ENVIRON["F"]; RE = ENVIRON["RE"] } /^[[:space:]]*\/\// {next} /regexp\.MustCompile/ {next} index($0, "degraded: ") && $0 !~ RE { print F ":" NR ":" $0 }' "$f" || return 2   # TOOTH-GOSTRAYRE
-  done < <(go_files "$1")
+  done < <(go_files "$1" "${2:-}")
 }
 
 # The extraction rule as an awk program (kept in one place; teeth mutate individual lines of it).
@@ -176,7 +203,7 @@ finding() { printf 'FINDING: %s\n' "$*"; nfind=$((nfind + 1)); }
 rc_check() {
   local reg="$1" dir="$2" rows s path toks tok req found idx i n
   local -a codes=() classes=() emits=() used=()
-  local c cl em ct lc pairs=';' uc e gdir gtoks
+  local c cl em ct lc pairs=';' uc e gdir gglob gtoks
   nfind=0
 
   if [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
@@ -229,17 +256,18 @@ rc_check() {
     fi
     if go_shim "$path"; then
       gdir="$(go_dir "$path" "$dir")"
-      if [ -z "$(go_files "$gdir")" ]; then
+      gglob="$(go_glob "$path")"
+      if [ -z "$(go_files "$gdir" "$gglob")" ]; then
         printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$s" "$gdir"; return 2   # TOOTH-GOABSENT
       fi
-      gtoks="$(go_view "$gdir" | awk "$EXTRACT_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
+      gtoks="$(go_view "$gdir" "$gglob" | awk "$EXTRACT_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
       if [ -z "$gtoks" ]; then
         printf 'DEGRADED: extracted zero degraded emit lines from the Go source of %s (could not look)\n' "$s"; return 2
       fi
       toks="$toks"$'\n'"$gtoks"   # TOOTH-GOEMIT
       while IFS= read -r e; do
         [ -n "$e" ] && finding "unclassifiable degraded: line in $s Go source ${e%%:*}:${e#*:} (not a recognised emit call)"   # TOOTH-GOSTRAY
-      done < <(go_stray "$gdir")
+      done < <(go_stray "$gdir" "$gglob")
     fi
     uc="$(awk "$UNCLASS_AWK" "$path")" || { printf 'DEGRADED: awk failed reading %s\n' "$path"; return 2; }
     if [ -n "$uc" ]; then
@@ -318,7 +346,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 IC_WAIVERS=(
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:
@@ -343,8 +370,9 @@ IC_WAIVERS=(
 #   UNCLASSIFIED  none of the above: the scanner cannot read it
 IC_AWK='
 BEGIN {
-  re = "(^|[^A-Za-z0-9_-])(absent-input|empty-input|unclassifiable|no-match)([^A-Za-z0-9_-]|$)"
+  re = "(^|[^A-Za-z0-9_-])(@INPUT_TOKENS@)([^A-Za-z0-9_-]|$)"
   q_assign = "=[ \t]*[\"\047]?$"
+  q_ret = "(^|[^[:alnum:]_])return[ \t]+[\"\047]?$"
   q_eq = "(==|!=|=~)[ \t]*[\"\047]?$"
   q_brk = "[^=!<>][ \t]=[ \t]*[\"\047]?$"
   re_br = "(^|[^[:alnum:]_])\\[\\[?[ \t]"
@@ -410,6 +438,7 @@ function mask(p,   i, n, ch, st, out, prev) {
     if (c == "" && prefix ~ /^[[:space:]]*\// && prefix !~ /\{/ && scan ~ /\/[[:space:]]*(\{|$)/) c = "consumer"   # TOOTH-IC-CONS-SLASH
     if (c == "" && scan ~ /(^|[^[:alnum:]_])(echo|printf)[[:space:]]/) c = "emit-echo"
     if (c == "" && prefix ~ q_assign) c = "emit-assign"   # TOOTH-IC-ASSIGN
+    if (c == "" && prefix ~ q_ret) c = "emit-return"   # TOOTH-IC-RETURN (a Go port returning a typed state)
     if (c == "" && pre == "(") c = "emit-marker"   # TOOTH-IC-MARKER
     if (c == "") c = "UNCLASSIFIED"
     gsub(/\t/, " ", line)
@@ -417,12 +446,14 @@ function mask(p,   i, n, ch, st, out, prev) {
   }
 }'
 
+IC_AWK="${IC_AWK//@INPUT_TOKENS@/"$INPUT_TOKENS"}"   # one token list for the awk classifier and the Go rule
+
 IC_REPORT=''
 # ic_check REGISTRY TOOLBELT_DIR — scans DIR/*.sh and DIR/lib/*.sh and DIR/maint/*.sh (maint tools are IN scope: a typed state they emit needs a registry row, prose mentions need a stale-detected waiver; maint/ may be absent, the report says how many files it held). rc 0 clean · 1 findings · 2 degraded.
 # Sets IC_REPORT to the coverage declaration (what was traversed, how each occurrence was classified).
 ic_check() {
   local reg="$1" dir="$2" rows p rel f ln tok cls txt w wf ws wr
-  local c cl em ct i n nfiles=0 nocc=0 key lst row_i e
+  local c cl em ct i n nfiles=0 nocc=0 key lst row_i e gdir gglob
   local n_counter=0 n_comment=0 n_consumer=0 n_emit=0 n_waived=0 n_py=0 n_maint_files=0
   local -a codes=() classes=() emits=() files=() usedw=() wv=()
   local pairs=';' all='' n_uncl=0
@@ -467,11 +498,12 @@ ic_check() {
     go_shim "$p" || continue
     rel="${p#"$dir"/}"
     gdir="$(go_dir "$p" "$dir")"
-    if [ -z "$(go_files "$gdir")" ]; then
+    gglob="$(go_glob "$p")"
+    if [ -z "$(go_files "$gdir" "$gglob")" ]; then
       printf 'DEGRADED: absent-input: %s is a rsdd shim but its Go source is absent or empty: %s\n' "$rel" "$gdir"; return 2
     fi
     nfiles=$((nfiles + 1))
-    f="$(go_view "$gdir" | awk -v F="$rel" "$IC_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
+    f="$(go_view "$gdir" "$gglob" | awk -v F="$rel" "$IC_AWK")" || { printf 'DEGRADED: could not read the Go source %s\n' "$gdir"; return 2; }
     if [ -n "$f" ]; then all="$all$f"$'\n'; fi   # TOOTH-IC-GOOCC
   done
   while IFS= read -r p; do   # an rsdd_exec shim the map does not know cannot be verified: never a silent skip (#2583)
@@ -479,7 +511,7 @@ ic_check() {
   done < <(go_unmapped "$dir")
   for p in "$dir"/*.py "$dir"/lib/*.py; do
     [ -f "$p" ] || continue
-    grep -qE '(absent-input|empty-input|unclassifiable|no-match)' "$p"; i=$?
+    grep -qE "($INPUT_TOKENS)" "$p"; i=$?
     if [ "$i" -gt 1 ]; then printf 'DEGRADED: grep failed reading %s\n' "$p"; return 2; fi
     if [ "$i" -eq 0 ]; then n_py=$((n_py + 1)); fi
   done
@@ -1092,6 +1124,52 @@ expect_ic "input scan: an rsdd_exec shim with no map entry fails, named" 1 i_go2
 mkgoifix2 i_go2_absent; rm -rf "$tmp/i_go2_absent/rsdd"
 expect_ic "input scan: a mapped shim without its Go dir is DEGRADED absent-input" 2 i_go2_absent 'DEGRADED: absent-input: sweep-audits.sh is a rsdd shim'
 
+# --- Go ports beyond calls (kit issue #2597): an rsdd_exec_hook shim, and a typed state ASSIGNED (or returned) in Go
+# mkgoifix3 NAME SHIM CMD ROW GOLINE... — an input-scan fixture: tb/SHIM runs CMD, internal/sweep holds GOLINEs, and the
+# registry row ROW (an input code) lists SHIM as an emitter
+mkgoifix3() {
+  local d="$tmp/$1" shim="$2" cmd="$3" row="$4" g
+  mkifix "$1"
+  g="$d/rsdd/internal/sweep"; mkdir -p "$g"
+  printf '%s\n' '#!/usr/bin/env bash' "$cmd" > "$d/tb/$shim"
+  shift 4
+  printf '%s\n' 'package sweep' 'func f() (state string, reason *string) {' "$@" '	return' '}' > "$g/audits.go"
+  [ "$row" = "-" ] || edit "$d/reg.md" "s#^\\(| \`$row\` | input | [^|]*[^ |]\\) |#\\1, $shim |#"   # row "-": the registry lists no row for the shim
+}
+HOOKCMD='rsdd_exec_hook sweep sweep audits --hook --kit "$_RSDD_SELF/.." "$@"'
+SHIMCMD='rsdd_exec sweep audits "$@"'
+STALE_NM="stale emitter: row lists sweep-audits.sh but sweep-audits.sh never emits 'no-match'"
+mkgoifix3 i_hook_emit sweep-audits-hook.sh "$HOOKCMD" empty-input '	fmt.Fprintln(out, "INFO: nothing to audit (empty-input)")'
+expect_ic "input scan: an rsdd_exec_hook shim mapped in GO_SRC is the row's emitter (#2597)" 0 i_hook_emit
+mkgoifix3 i_hook_stale sweep-audits-hook.sh "$HOOKCMD" empty-input '	_ = 1'
+expect_ic "input scan: a mapped rsdd_exec_hook shim whose Go dir stops emitting is a stale emitter (#2597)" 1 i_hook_stale "stale emitter: row lists sweep-audits-hook.sh but sweep-audits-hook.sh never emits 'empty-input'"
+mkgoifix3 i_hook_unmapped brand-new-hook.sh 'rsdd_exec_hook brand new-hook "$@"' empty-input '	_ = 1'
+expect_ic "input scan: an rsdd_exec_hook shim with no map entry fails, named (#2597)" 1 i_hook_unmapped 'rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: brand-new-hook.sh'
+mkgoifix3 i_go_assign sweep-audits.sh "$SHIMCMD" no-match '	state = "no-match"'
+expect_ic "input scan: a Go assignment of a typed state is an emit (#2597)" 0 i_go_assign
+mkgoifix3 i_go_assign_multi sweep-audits.sh "$SHIMCMD" no-match '	state, reason = "no-match", str("none matched")'
+expect_ic "input scan: a Go multi-assign of a typed state is an emit (#2597)" 0 i_go_assign_multi
+mkgoifix3 i_go_define sweep-audits.sh "$SHIMCMD" no-match '	state := "no-match"'
+expect_ic "input scan: a Go := definition of a typed state is an emit (#2597)" 0 i_go_define
+mkgoifix3 i_go_return sweep-audits.sh "$SHIMCMD" no-match '	return "no-match", str("none matched")'
+expect_ic "input scan: a Go return of a typed state is an emit (#2597)" 0 i_go_return
+mkgoifix3 i_go_assign_drop sweep-audits.sh "$SHIMCMD" no-match '	state = ""'
+expect_ic "input scan: the Go assignment dropped makes the row a stale emitter (#2597)" 1 i_go_assign_drop "$STALE_NM"
+mkgoifix3 i_go_assign_comment sweep-audits.sh "$SHIMCMD" no-match '	// state = "no-match"'
+expect_ic "input scan: a commented-out Go assignment is not an emit (#2597)" 1 i_go_assign_comment "$STALE_NM"
+mkgoifix3 i_go_compare sweep-audits.sh "$SHIMCMD" no-match '	if state == "no-match" { state = "" }'
+expect_ic "input scan: a Go == comparison of a typed state is not an emit (#2597)" 1 i_go_compare "$STALE_NM"
+# an unmapped hook shim that the registry does not list, so the unmapped finding is the only thing that can fail the scan
+mkgoifix3 i_hook_unmapped_solo brand-new-hook.sh 'rsdd_exec_hook brand new-hook "$@"' - '	_ = 1'
+expect_ic "input scan: an unmapped rsdd_exec_hook shim alone still fails the scan (#2597)" 1 i_hook_unmapped_solo 'rsdd shim with no GO_SRC entry and not in GO_NO_TYPED: brand-new-hook.sh'
+# GO_FILES: a sibling file of the same package (the retros port) is not an emitter of the audits shim
+mkgoifix3 i_go_files sweep-audits.sh "$SHIMCMD" empty-input '	fmt.Fprintln(out, "INFO: nothing to audit (empty-input)")'
+printf '%s\n' 'package sweep' 'func g() (string, *string) { return "no-match", nil }' > "$tmp/i_go_files/rsdd/internal/sweep/retrosjson.go"
+expect_ic "input scan: GO_FILES keeps a sibling file of the package out of the audits shim (#2597)" 0 i_go_files
+mkgoifix3 i_go_files_absent sweep-audits.sh "$SHIMCMD" empty-input '	_ = 1'
+mv "$tmp/i_go_files_absent/rsdd/internal/sweep/audits.go" "$tmp/i_go_files_absent/rsdd/internal/sweep/other.go"
+expect_ic "input scan: a GO_FILES glob matching no file is DEGRADED absent-input (#2597)" 2 i_go_files_absent 'DEGRADED: absent-input: sweep-audits.sh is a rsdd shim'
+
 # --- 5. teeth: mutate the CHECKER (a copy of this suite) and require each defect to go unnoticed ----
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
@@ -1171,6 +1249,17 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   ictooth ic-go-note     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.note//'
   ictooth ic-go-fail     i_go2        0 1 '/^GO_CALL_RE=/s/|\\.fail//'
   ictooth ic-go-map      i_go2        0 1 '/"sweep-audits.sh=/d'
+  # Go ports beyond calls (kit issue #2597): the hook pattern, the assign / return rule, the comment filter, the file glob
+  ictooth ic-hook-shim   i_hook_emit  0 1 '/^GO_SHIM_RE=/s/(_hook)?//'
+  ictooth ic-hook-unmapped i_hook_unmapped_solo 1 0 '/^GO_SHIM_RE=/s/(_hook)?//'
+  ictooth ic-go-assign   i_go_assign  0 1 '/^GO_ASSIGN_RE=/s/=\[\[:space:\]\]\*\\"(/=ZZ\\"(/'
+  ictooth ic-go-return   i_go_return  0 1 '/^GO_ASSIGN_RE=/s/return\[\[:space:\]\]+/returnZZ/'
+  ictooth ic-go-return-awk i_go_return 0 1 '/# TOOTH-IC-RETURN/s/prefix ~ q_ret/prefix ~ "ZZ"/'
+  # a Go == comparison is rejected by the awk consumer rule (q_eq), whose teeth are ic-cons-eq / ic-haz-eq above; a Go-only tooth
+  # cannot isolate it because the shell consumer lines of the fixture flip under the same mutation
+  ictooth ic-go-comment  i_go_assign_comment 1 0 '/# TOOTH-GOCALLS/s,/^\[\[:space:\]\]\*\\/\\//d; ,,'
+  ictooth ic-go-files    i_go_files   0 1 '/# TOOTH-GOFILES/s/^GO_FILES=(.*)   #/GO_FILES=()   #/'
+  ictooth ic-go-files-absent i_go_files_absent 2 1 '/# TOOTH-GOFILES/s/^GO_FILES=(.*)   #/GO_FILES=()   #/'
   ictooth ic-unclass     i_uncl        1 0 '/# TOOTH-IC-UNCLASS/s/finding /: /'
   ictooth ic-stalewaiver i_stalewaiver 1 0 '/# TOOTH-IC-STALEWAIVER/s/finding /: /'
   # ic-zerofiles mutates TWO guards on purpose: with only the zero-files guard off, the scan still reaches the

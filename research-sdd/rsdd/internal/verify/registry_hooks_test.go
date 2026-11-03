@@ -159,6 +159,18 @@ func TestRegistrySessionBudget(t *testing.T) {
 			"at least one SessionStart hook could not be measured")
 		wantNot(t, r.stdout, "produced no 'state:' line")
 	})
+	// Each rule fires without its usual partner (old bash cases 2129g and 2129d): a timed-out hook WARNs even when
+	// the meter reports state: ok, and a degraded hook never reads as truncated.
+	t.Run("timed-out-with-state-ok", func(t *testing.T) {
+		r := run(t, fakeHooks{budgetOK: true, budget: "hook b status=timed-out\nstate: ok\n"}, false)
+		want(t, r.stdout, "a SessionStart hook outlives its own configured timeout")
+		wantNot(t, r.stdout, "could not be measured", "more than 10,000 characters")
+	})
+	t.Run("degraded-only-is-not-truncated", func(t *testing.T) {
+		r := run(t, fakeHooks{budgetOK: true, budget: "hook c status=degraded(exit 1)\nstate: degraded\n"}, false)
+		want(t, r.stdout, "at least one SessionStart hook could not be measured")
+		wantNot(t, r.stdout, "more than 10,000 characters", "outlives its own configured timeout")
+	})
 	t.Run("no-state", func(t *testing.T) {
 		r := run(t, fakeHooks{budgetOK: true, budget: "crashed\n"}, false)
 		want(t, r.stdout, "produced no 'state:' line")

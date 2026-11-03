@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/retrogrammar"
 )
 
 // This file is the shared test harness. It carries no build tag: gremlins builds with -tags nodiff, and the case
@@ -29,6 +32,9 @@ type dcase struct {
 	args []string
 	// rel passes the retro as a bare file name with the retro's directory as the working directory.
 	rel bool
+	// unreadable makes the file unreadable: the legacy run chmods it to 0 (when the uid allows), the Go run injects
+	// a failing Options.Read, so the golden replay pins the branch for root too.
+	unreadable bool
 	// prep runs once on the box after it is built.
 	prep func(t *testing.T, b *box)
 }
@@ -36,6 +42,7 @@ type dcase struct {
 type box struct {
 	root, retro, cwd string
 	args             []string
+	unreadable       bool
 }
 
 // result is what one run produced, normalised.
@@ -72,6 +79,7 @@ func mkBox(t *testing.T, c dcase) *box {
 			b.args = append(b.args, strings.NewReplacer("@BOX@", root, "@RETRO@", b.retro).Replace(a))
 		}
 	}
+	b.unreadable = c.unreadable
 	if c.prep != nil {
 		c.prep(t, b)
 	}
@@ -100,13 +108,26 @@ func (b *box) normalize(rc int, stdout, stderr string) result {
 // runGo runs the port on the box, the way the command does: Run, then Render.
 func runGo(t *testing.T, b *box) result {
 	t.Helper()
-	rep, err := Run(context.Background(), Options{Args: b.args, Cwd: b.cwd})
+	o := Options{Args: b.args, Cwd: b.cwd}
+	if b.unreadable {
+		o.Read = unreadableRead
+	}
+	rep, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	var so, se bytes.Buffer
 	rc := rep.Render(&so, &se)
 	return b.normalize(rc, so.String(), se.String())
+}
+
+// unreadableRead is the Options.Read seam of an unreadable file: the real guards (absent input) first, then the
+// read failure retrogrammar.Read reports for a file it can stat but not open.
+func unreadableRead(path string) (*retrogrammar.Doc, error) {
+	if _, err := retrogrammar.Read(path); err != nil && !errors.Is(err, retrogrammar.ErrUnreadable) {
+		return nil, err
+	}
+	return nil, retrogrammar.ErrUnreadable
 }
 
 const goldenPath = "testdata/golden/cases.json"

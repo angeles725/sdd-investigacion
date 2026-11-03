@@ -25,13 +25,23 @@ SUT="${VRJ_SUT:-$HERE/../verify-registry.sh}"
 . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
 BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
+# verify-registry.sh is a shim to `rsdd verify registry` (kit issues #2362/#2364): the cases run it end to end against the
+# real Go binary (RSDD_BIN, else one build into the temp dir). The jq-degraded states (cases 3/7 of the old script) do not
+# exist in Go (no jq is run); the kind sets are checked against the Go source (case 9); the old script-internals
+# structural checks and teeth are gone with the script.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  _vrj_bin_dir="$(mktemp -d)"; trap 'rm -rf "${_vrj_bin_dir:-}"' EXIT   # cleaned even when the build below fails
+  ( cd "$HERE/../../rsdd" && go build -o "$_vrj_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$_vrj_bin_dir/rsdd"
+fi
 command -v jq >/dev/null 2>&1 || { echo "FATAL: jq required for the --json cases" >&2; exit 2; }
 for _l in retro-status target-paths block-files state-files corpus-markers hook-wiring; do
   [ -f "$HERE/../lib/$_l.sh" ] || { echo "FATAL: helper not found: $HERE/../lib/$_l.sh" >&2; exit 2; }
 done
 GOLD="$HERE/fixtures/verify-registry/json-envelope/default-output.golden"
 
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT" "${_vrj_bin_dir:-}"' EXIT
 # HERMETICITY: keep lib/hook-wiring.sh's git-root walk-up inside the sandbox (see verify-registry.test.sh).
 RSDD_HOOK_WIRING_CEILING="$(dirname "$ROOT")"; export RSDD_HOOK_WIRING_CEILING
 export RESEARCH_HOME="$ROOT/home"   # the INFO absent line prints it; keep the golden machine-independent
@@ -173,26 +183,6 @@ if [ "$_jrc" = 1 ] && [ -z "$_jo" ] && [ "$RC" = 0 ]; then
   ok "JSON op-failure: no usable target path → rc 1, empty stdout (default mode keeps rc 0)" "()"
 else no "JSON op-failure: no usable path" "json rc=$_jrc out=[$_jo] default rc=$RC"; fi
 
-# 7 — degraded: jq absent, jq without --rawfile, jq failing.
-kit="$(rich_kit j-degr)"; _np="$ROOT/j-nopath"; mkdir -p "$_np"; jrun "$kit" "$_np"
-if [ "$RC" = 3 ] && grep -q '^DEGRADED: jq not found' <<<"$JERR" \
-   && [ "$(jq_f '[.schema,.state]|join(",")')" = "research-sdd.verify-registry/v1,degraded" ] && [ "$(jq_f .reason)" != null ]; then
-  ok "JSON degraded: jq absent → typed degraded envelope, DEGRADED on stderr, rc 3" "()"
-else no "JSON degraded" "rc=$RC err=[$JERR] out=[$JOUT]"; fi
-_oj="$ROOT/j-oldjq-bin"; mkdir -p "$_oj"; _realjq="$(command -v jq)"
-printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = "--rawfile" ] && { echo "jq: Unknown option --rawfile" >&2; exit 2; }; done\nexec "%s" "$@"\n' "$_realjq" > "$_oj/jq"; chmod +x "$_oj/jq"
-jrun "$kit" "$_oj:$PATH"
-if [ "$RC" = 3 ] && grep -q '^DEGRADED: jq lacks --rawfile' <<<"$JERR" \
-   && [ "$(jq_f '[.schema,.state]|join(",")')" = "research-sdd.verify-registry/v1,degraded" ] && [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ]; then
-  ok "JSON old-jq: jq without --rawfile → typed degraded envelope, DEGRADED on stderr, rc 3" "()"
-else no "JSON old-jq" "rc=$RC err=[$JERR] out=[$JOUT]"; fi
-_stub="$ROOT/j-stub"; mkdir -p "$_stub"
-printf '#!/bin/sh\ncase "$*" in *_vr_probe*) exit 0;; esac\nexit 1\n' > "$_stub/jq"; chmod +x "$_stub/jq"
-jrun "$kit" "$_stub:$PATH"
-if [ "$RC" = 1 ] && [ -z "$JOUT" ] && grep -q 'envelope build failed' <<<"$JERR"; then
-  ok "JSON jq-failure: envelope build failure → rc 1, stderr message, empty stdout" "()"
-else no "JSON jq-failure" "rc=$RC out=[$JOUT] err=[$JERR]"; fi
-
 # 8 — an inherited accumulator must not inject items; a >128 KiB accumulator must reach jq without argv.
 kit="$(clean_kit j-env)"; export _json_items="kind=fake"$'\037'"severity=WARN"$'\037'"target=x"$'\037'"message=fabricated"$'\n'; jrun "$kit"; unset _json_items
 if [ "$(jq_f '[.state,(.items|length)]|join(",")')" = "no-match,0" ]; then
@@ -205,38 +195,39 @@ if [ "$RC" = 0 ] && [ "$(jq_f '[.state,(.items|map(select(.kind=="nonconform-fie
   ok "JSON argv: a ~200 KB finding (> MAX_ARG_STRLEN) → full envelope, no E2BIG" "()"
 else no "JSON argv: large accumulator" "rc=$RC err=[$(printf '%s' "$JERR" | head -c 200)] out=[$(printf '%s' "$JOUT" | head -c 100)]"; fi
 
-# 9 — STRUCTURAL: the kinds the SUT can emit == the kinds json-envelope.v1.md documents (both directions),
-#     and every `_vr_finding`/`_vr_record` call passes a kind and a SEV of WARN|INFO. kinds_check <sut> <doc> : rc 0 = holds.
+# 9 — STRUCTURAL: the kinds the Go command can emit == the kinds json-envelope.v1.md documents (both directions), and
+#     every finding/record call passes a kind and a SEV of WARN|INFO. kinds_check <go-src-dir> <doc> : rc 0 = holds.
+#     The kinds live in research-sdd/rsdd/internal/verify (registry*.go, tests excluded): `r.finding("kind", "SEV", ...)`
+#     and `r.record("kind", "SEV", ...)`.
 DOC="$HERE/../json-envelope.v1.md"
 [ -f "$DOC" ] || { echo "FATAL: contract doc not found: $DOC" >&2; exit 2; }
+GOSRC="$HERE/../../rsdd/internal/verify"
+[ -d "$GOSRC" ] || { echo "FATAL: Go source not found: $GOSRC" >&2; exit 2; }
 kinds_check() {
-  local sut="$1" doc="$2" calls wellformed code docd
-  # calls = every `_vr_finding` invocation (definition and comments excluded); wellformed = those of the exact shape KIND SEV "...
-  # _vr_record is the record-only helper (#1780): the absent-target item calls it directly; _vr_finding wraps it.
-  calls="$(grep -E '^[[:space:]]*_vr_(finding|record)[[:space:]]' "$sut" | grep -vcE '_vr_(finding|record)\(\)|^[[:space:]]*_vr_record "\$1" "\$2" "\$3" "\$4"$')"
-  wellformed="$(grep -cE '^[[:space:]]*_vr_(finding|record) [a-z][a-z-]* (WARN|INFO) "' "$sut")"
+  local dir="$1" doc="$2" calls wellformed code docd src f
+  # the non-test registry sources only: a _test.go fixture kind must never count (the gomut copy has no tests either)
+  src=""; for f in "$dir"/registry*.go; do case "$f" in *_test.go) ;; *) [ -f "$f" ] && src="$src$(cat "$f")
+" ;; esac; done
+  [ -n "$src" ] || return 1
+  # calls = every `r.finding(` / `r.record(` invocation (method definitions excluded); wellformed = those of the exact shape ("kind", "SEV",
+  calls="$(printf '%s' "$src" | grep -E '(^|[^A-Za-z0-9_])r\.(finding|record)\(' | grep -vc '^func ')"
+  wellformed="$(printf '%s' "$src" | grep -E '(^|[^A-Za-z0-9_])r\.(finding|record)\(' | grep -cE 'r\.(finding|record)\("[a-z][a-z-]*", "(WARN|INFO)",')"
   [ "$calls" -gt 0 ] && [ "$calls" = "$wellformed" ] || return 1
-  code="$(grep -E '^[[:space:]]*_vr_(finding|record) [a-z]' "$sut" | sed -E 's/^[[:space:]]*_vr_(finding|record) ([a-z-]+) .*/\2/' | sort -u)"
+  code="$(printf '%s' "$src" | grep -oE '(^|[^A-Za-z0-9_])r\.(finding|record)\("[a-z][a-z-]*"' | sed -E 's/^[^r]?r\.(finding|record)\("([a-z-]+)"/\2/' | sort -u)"
   docd="$(awk '/^### `research-sdd.verify-registry\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
             | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]
 }
-if kinds_check "$SUT" "$DOC"; then
-  ok "kinds: SUT _vr_finding/_vr_record kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(grep -cE '^[[:space:]]*_vr_(finding|record) [a-z]' "$SUT") call sites)"
-else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(grep -oE '^[[:space:]]*_vr_(finding|record) [a-z-]+' "$SUT" | awk '{print $2}' | sort -u | tr '\n' ' ')]"; fi
-
+# a copy of the non-test Go sources, for the teeth to mutate
+if kinds_check "$GOSRC" "$DOC"; then
+  ok "kinds: Go finding/record kinds == documented kinds (both directions), every call has SEV WARN|INFO" "($(cat "$GOSRC"/registry*.go | grep -cE '\br\.(finding|record)\(' ) call sites)"
+else no "kinds: code/doc kind sets differ or a call lacks a WARN|INFO severity" "code=[$(cat "$GOSRC"/registry*.go | grep -oE '\br\.(finding|record)\("[a-z-]+"' | sed -E 's/.*\("//; s/"//' | sort -u | tr '\n' ' ')]"; fi
 # 9b — #1780: unknown arguments are a usage error (exit 2, nothing on stdout, usage on stderr); the accumulator
 #      row encoding lives in ONE helper (_vr_record) and the target count is computed ONCE.
 argrej() { # argrej <kit> <args...> : rc 2, empty stdout, "usage" on stderr
   local k="$1" _ef; shift; _ef="$(mktemp "$ROOT/aerr.XXXXXX")"
   AOUT="$("$BASH_BIN" "$k/toolbelt/verify-registry.sh" "$@" 2>"$_ef")"; RC=$?; AERR="$(cat "$_ef")"; rm -f "$_ef"
   [ "$RC" = 2 ] && [ -z "$AOUT" ] && [[ "$AERR" == *"usage: verify-registry.sh"* ]]
-}
-structural_check() { # structural_check <sut> : one record writer, one count assignment, _vr_record defined
-  local sut="$1"
-  [ "$(grep -c '^_vr_record()' "$sut")" = 1 ] \
-    && [ "$(grep -c '_json_items="\${_json_items}' "$sut")" = 1 ] \
-    && [ "$(grep -c '_vr_ntargets=\$(' "$sut")" = 1 ]
 }
 kit="$(rich_kit j-argrej)"
 if argrej "$kit" --bogus && argrej "$kit" --json --bogus && argrej "$kit" positional && argrej "$kit" --JSON; then
@@ -246,8 +237,6 @@ run "$kit"; _plain="$OUT"; jrun "$kit"
 if [ "$RC" = 0 ] && [ "$(jq_f .schema)" = "research-sdd.verify-registry/v1" ] && [ "$(printf '%s\n' "$_plain" | grep -c .)" -gt 0 ]; then
   ok "args: no argument and --json keep working after the usage check" "()"
 else no "args: valid invocations broke" "rc=$RC"; fi
-if structural_check "$SUT"; then ok "structural: one _vr_record helper, one accumulator writer, one target-count assignment" "()"
-else no "structural: _vr_record missing, accumulator encoding duplicated, or target count computed twice" ""; fi
 
 # 10 — ENVELOPE per kind: one small fixture per kind that case 2 does not already cover (case 2 pins nonconform-field,
 #      hook-unwired, count-drift, no-corpus-marker, corpus-unresolvable, no-retros-wired, retro-drift, oversized-row,
@@ -303,73 +292,44 @@ kit="$(mkkit k-notreg)"; ext="$ROOT/k-notreg-ext"; mkcorpus "$ext/tA" 3 a; mkdir
 printf '# t\n\n| # | name | maturity | path |\n|---|---|---|---|\n| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$ext/tA" > "$kit/TARGETS.md"
 kcase kit-not-registered WARN "$(basename "$kit")" "$kit"
 
-# --- TEETH (--prove-teeth): each mutant of the SUT must break the case that pins it.
+# --- TEETH (--prove-teeth): the Go source has its own mutation gate (`make teeth` in research-sdd/rsdd); here each
+#     mutant of the doc/Go kind sets and of the SHIM must break the case that pins it.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
-  # jteeth <label> <case-fn> <sed-expr>... : build a mutant kit; the case-fn must report a break (rc != 0).
-  jteeth() {
-    local label="$1" fn="$2" mk mut pk; shift 2
-    # Control: the case must HOLD on the unmutated SUT first, else "mutant breaks the case" is vacuous.
-    pk="$(mkkit "jtp-$label")"
-    "$fn" "$pk" || { no "teeth JSON-$label: case FAILS on the unmutated SUT — tooth is vacuous" ""; return; }
-    mk="$(mkkit "jt-$label")"; mut="$ROOT/jt-$label.sh"
-    mutant_chain_or_count fail "teeth JSON-$label" "$SUT" "$mut" "$@" || return 0
-    cp "$mut" "$mk/toolbelt/verify-registry.sh"
-    if "$fn" "$mk"; then no "teeth JSON-$label: mutant survived — case is THEATER" ""; else ok "teeth JSON-$label: mutant breaks the case (has teeth)" "()"; fi
+  # gomut <label> <file> <sed-expr> : a copy of the Go sources in $ROOT/gomut-<label> with <file> mutated; prints the dir.
+  gomut() {
+    local d="$ROOT/gomut-$1"; mkdir -p "$d"; cp "$GOSRC"/registry*.go "$d/"; rm -f "$d"/*_test.go
+    mutant_chain_or_count fail "teeth JSON-$1" "$GOSRC/$2" "$d/$2.mut" "$3" || return 1
+    mv "$d/$2.mut" "$d/$2"; printf '%s' "$d"
   }
-  # Each case-fn rebuilds its own scenario around the mutated script (rc 0 = the case still holds).
-  with_sut() { cp "$1/toolbelt/verify-registry.sh" "$2/toolbelt/verify-registry.sh"; }
-  jt_rich()   { local k; k="$(rich_kit "$(basename "$1")-r")"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 0 ] && [ "$(printf '%s' "$JOUT" | jq -s length 2>/dev/null)" = 1 ] && [ "$(jq_f .state)" = ok ]; }
-  jt_items()  { local k; k="$(rich_kit "$(basename "$1")-i")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '.items|map(select(.kind=="count-drift"))|length')" = 1 ]; }
-  jt_counts() { local k; k="$(rich_kit "$(basename "$1")-c")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.counts.reconciled,.counts.count_drift,.counts.targets_skipped]|join(",")')" = "3,1,1" ]; }
-  jt_nomatch(){ local k; k="$(clean_kit "$(basename "$1")-n")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
-  jt_absent() { local k; k="$(mkkit "$(basename "$1")-a")"; printf '# t\n\n| # | n | m | p |\n|---|---|---|---|\n| 1 | a | mature (5 md) | `%s` |\n' "$ROOT/gone" > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 0 ] && [ "$(jq_f '[.state,(.items|length)]|join(",")')" = "absent-input,0" ]; }
-  jt_degr()   { jrun "$1" "$ROOT/j-nopath"; [ "$RC" = 3 ] && [ "$(jq_f .state)" = degraded ]; }
-  jt_oldjq()  { jrun "$1" "$ROOT/j-oldjq-bin:$PATH"; [ "$RC" = 3 ] && [ "$(jq_f .state)" = degraded ]; }
-  jt_exit1()  { local k; k="$(rich_kit "$(basename "$1")-x")"; with_sut "$1" "$k"; jrun "$k" "$ROOT/j-stub:$PATH"; [ "$RC" = 1 ] && [ -z "$JOUT" ]; }
-  jt_big()    { local k; k="$(mkkit "$(basename "$1")-b")"; local e; e="$ROOT/$(basename "$1")-b-ext"; mkcorpus "$e/tA" 5 a; write_targets "$k" "$e/tA::5 md / $(printf 'q%.0s' $(seq 1 200000))"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 0 ] && [ "$(jq_f .state)" = ok ]; }
-  jt_envinit(){ local k; k="$(clean_kit "$(basename "$1")-e")"; with_sut "$1" "$k"; _json_items="kind=fake"$'\037'"severity=WARN"$'\037'"target=x"$'\037'"message=f"$'\n' jrun "$k"; [ "$(jq_f .state)" = no-match ]; }
-  jt_nopaths(){ local k; k="$(mkkit "$(basename "$1")-p")"; printf '# t\n\n| # | name |\n|---|---|\n| 1 | nothing |\n' > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$RC" = 1 ] && [ -z "$JOUT" ]; }
-  jt_human()  { local k; k="$(rich_kit "$(basename "$1")-h")"; with_sut "$1" "$k"; run "$k"; [ "$(printf '%s\n' "$OUT" | gold_norm)" = "$(cat "$GOLD")" ]; }
-  jt_absitem(){ local k; k="$(rich_kit "$(basename "$1")-ai")"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '.items|map(select(.kind=="absent-target"))|length')" = 1 ]; }
-  jt_kinds()  { kinds_check "$1/toolbelt/verify-registry.sh" "$DOC"; }
-  jt_kcat()   { local k; k="$(cat_fix "$(basename "$1")-kc" 8 'Total: **5 bloques**' 5)"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.items[]|select(.kind=="catalog-stale")]|length')" = 1 ]; }
-  jt_knotreg(){ local k e; k="$(mkkit "$(basename "$1")-kn")"; e="$ROOT/$(basename "$1")-kn-ext"; mkcorpus "$e/tA" 3 a; mkdir -p "$e/tA/retros"; printf '# r\n' > "$e/tA/retros/r1.md"
-                printf '# t\n\n| # | name | maturity | path |\n|---|---|---|---|\n| 1 | t1 | mature (3 md / git yes) | `%s` |\n' "$e/tA" > "$k/TARGETS.md"; with_sut "$1" "$k"; jrun "$k"; [ "$(jq_f '[.items[]|select(.kind=="kit-not-registered")]|length')" = 1 ]; }
-  jteeth kindcode  jt_kinds   's/_vr_finding hook-unwired WARN/_vr_finding hook-unwired-x WARN/'
-  jteeth kindsev   jt_kinds   's/_vr_finding count-drift WARN/_vr_finding count-drift ERR/'
-  jteeth kindabs   jt_kinds   's/_vr_record absent-target INFO "/_vr_record absent-target-x INFO "/'
-  jteeth kindcat   jt_kcat    's/_vr_finding catalog-stale WARN/_vr_finding catalog-stale-x WARN/'
-  jteeth kindnotreg jt_knotreg 's/_vr_finding kit-not-registered WARN/_vr_finding kit-not-registered-x WARN/'
-  # Doc-side teeth: a documented kind removed / an undocumented kind added must break kinds_check against the SUT.
+  # kind renamed / severity changed / record renamed in the Go source → the structural case breaks.
+  for _t in 'kindcode|registrychecks.go|s/r.finding("hook-unwired", "WARN"/r.finding("hook-unwired-x", "WARN"/' \
+            'kindsev|registry.go|s/r.finding("count-drift", "WARN"/r.finding("count-drift", "ERR"/' \
+            'kindabs|registry.go|s/r.record("absent-target", "INFO"/r.record("absent-target-x", "INFO"/'; do
+    IFS='|' read -r _l _f _s <<<"$_t"
+    if _d="$(gomut "$_l" "$_f" "$_s")"; then
+      if ! kinds_check "$_d" "$DOC"; then ok "teeth JSON-$_l: mutated Go source breaks the kinds case (has teeth)" "()"; else no "teeth JSON-$_l: mutant survived — kinds case is THEATER" ""; fi
+    fi
+  done
+  # Doc-side teeth: a documented kind removed / an undocumented kind added must break kinds_check against the Go source.
   _dm1="$ROOT/doc-drop.md"; _dm2="$ROOT/doc-extra.md"
   sed '/^| `kit-not-registered` |/d' "$DOC" > "$_dm1"
   sed 's/^| `kit-not-registered` |/| `ghost-kind` | invented |\n| `kit-not-registered` |/' "$DOC" > "$_dm2"
-  if ! cmp -s "$DOC" "$_dm1" && ! kinds_check "$SUT" "$_dm1"; then ok "teeth JSON-docdrop: a kind missing from the doc breaks the structural case" "()"; else no "teeth JSON-docdrop: mutant survived — structural case is THEATER" ""; fi
-  if ! cmp -s "$DOC" "$_dm2" && ! kinds_check "$SUT" "$_dm2"; then ok "teeth JSON-docextra: an undocumented-in-code kind in the doc breaks the structural case" "()"; else no "teeth JSON-docextra: mutant survived — structural case is THEATER" ""; fi
-  jteeth mute      jt_rich   's/^  exec 3>&1 >\/dev\/null$/  exec 3>\&1/'
-  jteeth probe     jt_degr    's/command -v jq >\/dev\/null/command -v true >\/dev\/null/' 's/if ! jq -n --rawfile _vr_probe \/dev\/null 1 >\/dev\/null 2>&1; then/if false; then/'
-  jteeth oldjq     jt_oldjq   's/if ! jq -n --rawfile _vr_probe \/dev\/null 1/if ! jq -n 1/'
-  jteeth record    jt_items   's/^  \[ "\$VR_JSON" = 1 \] || return 0$/  return 0/'
-  jteeth counts    jt_counts  's/reconciled: \$checked/reconciled: 0/' 's/targets_skipped: \$tskipped/targets_skipped: 0/'
-  jteeth nomatch   jt_nomatch 's/else "no-match" end),/else "ok" end),/'
-  jteeth absentst  jt_absent  's/if \$allabsent then "absent-input"/if false then "absent-input"/'
-  jteeth absentempty jt_absent 's/| \. + {items: (if \.state == "absent-input" then \[\] else \$it end)}/| . + {items: $it}/'
-  jteeth argv      jt_big     's/--rawfile items <(printf .%s. "\$_json_items")/--arg items "$_json_items"/'
-  jteeth exit1     jt_exit1   's/--json envelope build failed" >&2; exit 1; }/--json envelope build failed" >\&2; exit 2; }/'
-  jteeth envinit   jt_envinit 's/^_json_items=""   # --json accumulator.*$/: # no init/'
-  jteeth nopaths   jt_nopaths 's/^  \[ "\$VR_JSON" = 1 \] && exit 1  # --json: a machine caller.*$/  : # mutated/'
-  jteeth absitem   jt_absitem 's/^          _vr_record absent-target INFO /          : absent-target INFO /'
-  jt_argrej() { local k; k="$(rich_kit "$(basename "$1")-ar")"; with_sut "$1" "$k"; argrej "$k" --bogus && argrej "$k" --json --bogus; }
-  jt_struct() { structural_check "$1/toolbelt/verify-registry.sh"; }
-  jteeth argrej    jt_argrej  's/ exit 2 ;;$/ ;;/'
-  jteeth argrejmsg jt_argrej  's/usage: verify-registry.sh \[--json\]/help: verify-registry.sh/'
-  jteeth structenc jt_struct  's/^          _vr_record absent-target INFO .*$/          _json_items="${_json_items}x"/'
-  jteeth structcnt jt_struct  's/^  if \[ "\$VR_JSON" = 1 \]; then _vr_json_emit true; exit 0; fi/  if [ "$VR_JSON" = 1 ]; then _vr_ntargets=$(true); _vr_json_emit true; exit 0; fi/'
-  jteeth structrec jt_struct  's/^_vr_record() {/_vr_recordx() {/'
-  jteeth finding   jt_human   's/^  printf .%s\\n. "\$2  \$4"$/  printf "%s\\n" "\$2 \$4"/'
+  if ! cmp -s "$DOC" "$_dm1" && ! kinds_check "$GOSRC" "$_dm1"; then ok "teeth JSON-docdrop: a kind missing from the doc breaks the structural case" "()"; else no "teeth JSON-docdrop: mutant survived — structural case is THEATER" ""; fi
+  if ! cmp -s "$DOC" "$_dm2" && ! kinds_check "$GOSRC" "$_dm2"; then ok "teeth JSON-docextra: an undocumented-in-code kind in the doc breaks the structural case" "()"; else no "teeth JSON-docextra: mutant survived — structural case is THEATER" ""; fi
+  # Shim teeth: the arguments dropped → --json ignored, the envelope cases lose their JSON.
+  if mutant_chain_or_count fail "teeth JSON-args" "$SUT" "$ROOT/jt-args.sh" 's/ "\$@"$//'; then
+    _mk="$(mkkit jt-args)"; cp "$ROOT/jt-args.sh" "$_mk/toolbelt/verify-registry.sh"; jrun "$_mk"
+    if ! jq -e . >/dev/null 2>&1 <<<"$JOUT"; then ok "teeth JSON-args: arguments dropped → no envelope (has teeth)" "()"; else no "teeth JSON-args: mutant still prints the envelope" ""; fi
+  fi
+  # Shim teeth: the kit hand-off dropped → the sandbox kit's own registry is not reconciled.
+  if mutant_chain_or_count fail "teeth JSON-kit" "$SUT" "$ROOT/jt-kit.sh" 's/ --kit "\$KIT"//'; then
+    _bk="$(clean_kit jt-kitb)"; jrun "$_bk"; _bt="$(jq_f '[.state,.counts.targets]|join(",")')"
+    _mk="$(clean_kit jt-kit)"; cp "$ROOT/jt-kit.sh" "$_mk/toolbelt/verify-registry.sh"; jrun "$_mk"
+    if [ -n "$_bt" ] && [ "$(jq_f '[.state,.counts.targets]|join(",")')" != "$_bt" ]; then ok "teeth JSON-kit: --kit dropped → another kit is reconciled (has teeth)" "()"; else no "teeth JSON-kit: mutant still reconciles the sandbox kit" ""; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="
