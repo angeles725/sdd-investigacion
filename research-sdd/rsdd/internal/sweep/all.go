@@ -33,7 +33,7 @@ import (
 //   - A script that ignores SIGTERM is killed after a grace period; `timeout` sent TERM only and waited forever.
 //   - A script killed by a signal is "killed by signal N" (the script said "exit 128+N").
 //   - RSDD_SWEEP_TIMEOUT must be a positive number of seconds (at most a year); anything else falls back to 30 s
-//     with a typed degraded line on stderr. The script passed it to `timeout`: "abc" failed all eight scripts
+//     with a warning line on stderr. The script passed it to `timeout`: "abc" failed all eight scripts
 //     with exit 125, "0" ran them unbounded and "2m" printed "timed out after 2ms".
 //   - Each script's output is bounded (allMaxBytes); reaching the bound stops the script as a typed failure.
 //   - A script that cannot be started is a typed FAIL banner (the script reported exit 127 from `timeout`).
@@ -45,6 +45,9 @@ type allConfig struct {
 	run      scriptRunner
 	maxBytes int
 }
+
+// defaultAllConfig is the real run: core/proc and the documented output bound.
+func defaultAllConfig() allConfig { return allConfig{run: proc.Run, maxBytes: allMaxBytes} }
 
 // RunAll is the `sweep all` command.
 func RunAll(args []string, s cli.Stdio) int {
@@ -66,7 +69,7 @@ func RunAll(args []string, s cli.Stdio) int {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitOperational
 	}
-	return sweepAll(kitDir+"/toolbelt", s, allConfig{run: proc.Run, maxBytes: allMaxBytes})
+	return sweepAll(kitDir+"/toolbelt", s, defaultAllConfig())
 }
 
 // sweepAll runs the eight scripts of toolbelt and prints the banners and the summary.

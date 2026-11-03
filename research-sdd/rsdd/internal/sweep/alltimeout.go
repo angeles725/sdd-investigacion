@@ -25,8 +25,8 @@ type sweepTimeout struct {
 }
 
 // parseSweepTimeout reads RSDD_SWEEP_TIMEOUT. An empty value is the default. A value that is not a positive
-// number of seconds (at most one year) is also the default, never an unbounded run, and comes with the typed
-// degraded line to print: the script handed such a value to `timeout`, which failed every script with exit 125
+// number of seconds (at most one year) is also the default, never an unbounded run, and comes with the
+// warning line to print: the script handed such a value to `timeout`, which failed every script with exit 125
 // (or, for 0, ran each one without any bound).
 func parseSweepTimeout(raw string) (sweepTimeout, string) {
 	def := sweepTimeout{defaultSweepTimeout, strconv.Itoa(int(defaultSweepTimeout / time.Second))}
@@ -41,5 +41,5 @@ func parseSweepTimeout(raw string) (sweepTimeout, string) {
 			}
 		}
 	}
-	return def, fmt.Sprintf("sweep-all: degraded: RSDD_SWEEP_TIMEOUT %q is not a positive number of seconds (at most one year) — using %s", raw, def.shown)
+	return def, fmt.Sprintf("sweep-all: warning: RSDD_SWEEP_TIMEOUT %q is not a positive number of seconds (at most one year) — using %s", raw, def.shown)
 }

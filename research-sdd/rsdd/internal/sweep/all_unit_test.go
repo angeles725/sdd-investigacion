@@ -55,9 +55,30 @@ func TestParseSweepTimeout(t *testing.T) {
 		if got.d != c.d || got.shown != c.shown || (warn != "") != c.warn {
 			t.Errorf("parseSweepTimeout(%q) = %v %q warn=%q; want %v %q warn=%v", c.raw, got.d, got.shown, warn, c.d, c.shown, c.warn)
 		}
-		if c.warn && !strings.HasPrefix(warn, "sweep-all: degraded: RSDD_SWEEP_TIMEOUT ") {
-			t.Errorf("parseSweepTimeout(%q) warning %q is not the typed degraded line", c.raw, warn)
+		if c.warn && !strings.HasPrefix(warn, "sweep-all: warning: RSDD_SWEEP_TIMEOUT ") {
+			t.Errorf("parseSweepTimeout(%q) warning %q is not the warning line", c.raw, warn)
 		}
+	}
+}
+
+// The warning is one exact line, with the rejected value quoted and the fallback named.
+func TestParseSweepTimeoutWarningText(t *testing.T) {
+	_, warn := parseSweepTimeout("abc")
+	want := `sweep-all: warning: RSDD_SWEEP_TIMEOUT "abc" is not a positive number of seconds (at most one year) — using 30`
+	if warn != want {
+		t.Errorf("warning = %q, want %q", warn, want)
+	}
+}
+
+// The real run is core/proc under the documented bound of 4 MiB per script.
+func TestAllDefaultConfig(t *testing.T) {
+	cfg := defaultAllConfig()
+	if cfg.maxBytes != 4<<20 || cfg.run == nil {
+		t.Errorf("defaultAllConfig() = %+v, want a runner and a 4 MiB bound", cfg)
+	}
+	res, err := cfg.run(proc.Spec{Argv: []string{"bash", "-c", "echo hi"}, Timeout: 10 * time.Second, MaxBytes: 100, Env: []string{"PATH=" + os.Getenv("PATH")}})
+	if err != nil || res.ReturnCode != 0 || string(res.Stdout) != "hi\n" {
+		t.Errorf("the default runner is not core/proc: %+v %v", res, err)
 	}
 }
 
@@ -175,6 +196,7 @@ func TestAllReportsEveryKindOfFailure(t *testing.T) {
 		allNames[4]: func() (proc.Result, error) { return proc.Result{}, &proc.SpawnError{Path: "bash", Err: boom} },
 		allNames[5]: func() (proc.Result, error) { return proc.Result{}, proc.ErrInvalidSpec },
 		allNames[6]: func() (proc.Result, error) { return proc.Result{ReturnCode: 0, Stdout: []byte("late\n")}, boom },
+		allNames[7]: func() (proc.Result, error) { return proc.Result{ReturnCode: -1}, nil },
 	}}
 	r := w.runWith(allConfig{run: rec.run, maxBytes: 77})
 	if r.rc != 1 || r.err != "" {
@@ -188,10 +210,10 @@ func TestAllReportsEveryKindOfFailure(t *testing.T) {
 		"\nFAIL  " + allNames[4] + " (cannot start: boom)\n",
 		"\nFAIL  " + allNames[5] + " (cannot run: proc: invalid spec)\n",
 		banner(allNames[6]) + "late\n\nFAIL  " + allNames[6] + " (its process group could not be stopped: boom)\n",
-		"\nPASS  " + allNames[7] + "\n",
+		"\nFAIL  " + allNames[7] + " (killed by signal 1)\n",
 		summaryHead + "  FAIL  " + allNames[0] + " (timed out)\n  FAIL  " + allNames[1] + " (output cap)\n  FAIL  " + allNames[2] + " (exit 124)\n" +
 			"  FAIL  " + allNames[3] + " (signal 11)\n  FAIL  " + allNames[4] + " (cannot start)\n  FAIL  " + allNames[5] + " (cannot run)\n" +
-			"  FAIL  " + allNames[6] + " (not stopped)\n  PASS  " + allNames[7] + "\n",
+			"  FAIL  " + allNames[6] + " (not stopped)\n  FAIL  " + allNames[7] + " (signal 1)\n",
 	} {
 		if !strings.Contains(r.out, want) {
 			t.Errorf("stdout lacks %q\nstdout:\n%s", want, r.out)
@@ -221,8 +243,8 @@ func TestAllTimeoutReachesTheRunner(t *testing.T) {
 		if r.rc != 0 {
 			t.Errorf("RSDD_SWEEP_TIMEOUT=%q: rc=%d, a bad timeout must not fail a passing sweep", c.raw, r.rc)
 		}
-		if got := strings.HasPrefix(r.err, "sweep-all: degraded: RSDD_SWEEP_TIMEOUT "); got != c.warn || (c.warn && strings.Count(r.err, "\n") != 1) {
-			t.Errorf("RSDD_SWEEP_TIMEOUT=%q: stderr %q, want the single degraded line=%v", c.raw, r.err, c.warn)
+		if got := strings.HasPrefix(r.err, "sweep-all: warning: RSDD_SWEEP_TIMEOUT "); got != c.warn || (c.warn && strings.Count(r.err, "\n") != 1) {
+			t.Errorf("RSDD_SWEEP_TIMEOUT=%q: stderr %q, want the single warning line=%v", c.raw, r.err, c.warn)
 		}
 	}
 }
@@ -242,6 +264,17 @@ func TestAllCommandLine(t *testing.T) {
 	e.Reset()
 	if rc := cli.Run(Commands, []string{"sweep", "all", "--kit", "kit", "ignored", "--json"}, w.stdio(&o, &e)); rc != 0 || !strings.Contains(o.String(), "PASS  "+allNames[7]+"\n") || e.Len() != 0 {
 		t.Errorf("relative kit: rc=%d stderr=%q", rc, e.String())
+	}
+
+	// Without --kit the kit is the one that holds toolbelt/sweep-all.sh, found like the other sweeps find theirs.
+	w = newWorld(t)
+	w.stubs(nil)
+	w.stub("sweep-all.sh", "exit 0")
+	w.env["RESEARCH_SDD_KIT"] = w.kit
+	o.Reset()
+	e.Reset()
+	if rc := cli.Run(Commands, []string{"sweep", "all"}, w.stdio(&o, &e)); rc != 0 || !strings.Contains(o.String(), "PASS  "+allNames[0]+"\n") || e.Len() != 0 {
+		t.Errorf("resolved kit: rc=%d stdout=%q stderr=%q", rc, o.String(), e.String())
 	}
 
 	w = newWorld(t) // no kit anywhere: HOME is an empty directory and RESEARCH_SDD_KIT is unset
