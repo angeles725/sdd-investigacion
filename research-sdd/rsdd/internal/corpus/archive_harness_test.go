@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // archiveLegacyRunner and archiveLegacyInstall are set by archive_legacy_test.go, which is built only without the
@@ -39,10 +40,10 @@ var (
 	archiveTestBin func(t testing.TB) string
 )
 
-const (
-	archiveGoldenDir = "testdata/archive/golden"
-	archiveKitRel    = "../../.."
-)
+const archiveGoldenDir = "testdata/archive/golden"
+
+// archiveKitRel is the research-sdd directory (absolute, via kitroot) despite the historical name.
+var archiveKitRel = kitroot.Must()
 
 var archiveClock = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
