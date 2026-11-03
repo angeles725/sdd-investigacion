@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/git"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // The repository fixture of the closure-evidence cases: a throwaway repo whose local ref origin/main holds
@@ -19,12 +20,14 @@ const (
 )
 
 func fixRunner(dir string) git.Runner {
-	return git.Runner{Env: []string{
+	// gitfixture.Env turns off the detached maintenance a commit starts (kit issue #2624), so t.TempDir's cleanup
+	// never races it.
+	return git.Runner{Env: gitfixture.Env([]string{
 		"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "LC_ALL=C",
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
 		"GIT_AUTHOR_DATE=2026-01-01T00:00:00+0000", "GIT_COMMITTER_DATE=2026-01-01T00:00:00+0000",
-	}}
+	})}
 }
 
 // buildFixRepo creates the fixture in dir and returns the ids of its two commits.

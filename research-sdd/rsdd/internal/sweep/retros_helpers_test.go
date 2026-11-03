@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 )
 
 // world is one hermetic sandbox: a kit directory holding TARGETS.md and the targets beside it. The clock of
@@ -137,7 +138,9 @@ func (w *world) touch(path string, d time.Duration) {
 func (w *world) git(dir string, extraEnv []string, args ...string) {
 	w.t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.email=t@example.com", "-c", "user.name=tester", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"}, args...)...)
-	cmd.Env = append(w.environ(), extraEnv...)
+	// gitfixture.Env turns off the detached maintenance a commit starts (kit issue #2624), so t.TempDir's cleanup
+	// never races it.
+	cmd.Env = gitfixture.Env(append(w.environ(), extraEnv...))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
