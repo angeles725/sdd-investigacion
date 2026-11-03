@@ -31,7 +31,7 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 # structural checks and teeth are gone with the script.
 if [ -z "${RSDD_BIN:-}" ]; then
   command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
-  _vrj_bin_dir="$(mktemp -d)"
+  _vrj_bin_dir="$(mktemp -d)"; trap 'rm -rf "${_vrj_bin_dir:-}"' EXIT   # cleaned even when the build below fails
   ( cd "$HERE/../../rsdd" && go build -o "$_vrj_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
   export RSDD_BIN="$_vrj_bin_dir/rsdd"
 fi
@@ -204,12 +204,16 @@ DOC="$HERE/../json-envelope.v1.md"
 GOSRC="$HERE/../../rsdd/internal/verify"
 [ -d "$GOSRC" ] || { echo "FATAL: Go source not found: $GOSRC" >&2; exit 2; }
 kinds_check() {
-  local dir="$1" doc="$2" calls wellformed code docd
+  local dir="$1" doc="$2" calls wellformed code docd src f
+  # the non-test registry sources only: a _test.go fixture kind must never count (the gomut copy has no tests either)
+  src=""; for f in "$dir"/registry*.go; do case "$f" in *_test.go) ;; *) [ -f "$f" ] && src="$src$(cat "$f")
+" ;; esac; done
+  [ -n "$src" ] || return 1
   # calls = every `r.finding(` / `r.record(` invocation (method definitions excluded); wellformed = those of the exact shape ("kind", "SEV",
-  calls="$(cat "$dir"/registry*.go 2>/dev/null | grep -E '\br\.(finding|record)\(' | grep -vc '^func ')"
-  wellformed="$(cat "$dir"/registry*.go 2>/dev/null | grep -E '\br\.(finding|record)\(' | grep -cE 'r\.(finding|record)\("[a-z][a-z-]*", "(WARN|INFO)",')"
+  calls="$(printf '%s' "$src" | grep -E '(^|[^A-Za-z0-9_])r\.(finding|record)\(' | grep -vc '^func ')"
+  wellformed="$(printf '%s' "$src" | grep -E '(^|[^A-Za-z0-9_])r\.(finding|record)\(' | grep -cE 'r\.(finding|record)\("[a-z][a-z-]*", "(WARN|INFO)",')"
   [ "$calls" -gt 0 ] && [ "$calls" = "$wellformed" ] || return 1
-  code="$(cat "$dir"/registry*.go | grep -oE '\br\.(finding|record)\("[a-z][a-z-]*"' | sed -E 's/^r\.(finding|record)\("([a-z-]+)"/\2/' | sort -u)"
+  code="$(printf '%s' "$src" | grep -oE '(^|[^A-Za-z0-9_])r\.(finding|record)\("[a-z][a-z-]*"' | sed -E 's/^[^r]?r\.(finding|record)\("([a-z-]+)"/\2/' | sort -u)"
   docd="$(awk '/^### `research-sdd.verify-registry\/v1`/{f=1;next} f&&/^### /{f=0} f' "$doc" \
             | sed -nE 's/^\| `([a-z][a-z-]*)` \| .*/\1/p' | grep -vx 'kind' | sort -u)"
   [ -n "$code" ] && [ -n "$docd" ] && [ "$code" = "$docd" ]

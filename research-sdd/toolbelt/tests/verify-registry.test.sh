@@ -29,7 +29,7 @@ BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PAT
 # The Go binary the shim execs: the caller's RSDD_BIN, else one build into the temp dir.
 if [ -z "${RSDD_BIN:-}" ]; then
   command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
-  _vr_bin_dir="$(mktemp -d)"
+  _vr_bin_dir="$(mktemp -d)"; trap 'rm -rf "${_vr_bin_dir:-}"' EXIT   # cleaned even when the build below fails
   ( cd "$HERE/../../rsdd" && go build -o "$_vr_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
   export RSDD_BIN="$_vr_bin_dir/rsdd"
 fi
@@ -2267,6 +2267,16 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # mut_kit <name> <mutant-script> : a sandbox kit like s-drift whose shim is the mutant.
   mut_kit() { local k; k="$(mkkit "$1")"; write_targets "$k" "$S_tgt::40 md"; cp "$2" "$k/toolbelt/verify-registry.sh"; printf '%s' "$k"; }
   echo "-- teeth: each shim mutation must lose its case --"
+  # Control first: the UNMUTATED shim, run the same way, must show each fragment, so a mutant that merely crashes or
+  # finds no binary can never read as a bite (an absence only counts when the original shows the fragment).
+  O_kit="$(mut_kit tm-O "$SUT")"
+  grep -qE "$S_DRIFT" <<<"$("$BASH_BIN" "$O_kit/toolbelt/verify-registry.sh" 2>&1)" \
+    || { no "teeth control: the unmutated shim does not report the sandbox drift (teeth A/C would be vacuous)"; }
+  grep -q 'research-sdd.verify-registry/v1' <<<"$("$BASH_BIN" "$O_kit/toolbelt/verify-registry.sh" --json 2>&1)" \
+    || { no "teeth control: the unmutated shim prints no --json envelope (teeth B would be vacuous)"; }
+  mkdir -p "$ROOT/mO"; cp "$SUT" "$ROOT/mO/verify-registry.sh"; "$BASH_BIN" "$ROOT/mO/verify-registry.sh" >/dev/null 2>"$ROOT/errO"
+  grep -q 'rsdd-exec.sh missing beside' "$ROOT/errO" \
+    || { no "teeth control: the unmutated shim does not announce a missing lib (teeth D would be vacuous)"; }
   # A: the kit hand-off dropped → the binary reconciles some other kit (or none): S1 loses the sandbox's drift.
   if mk_mut "teeth A: --kit dropped" "$SUT" "$ROOT/mutA.sh" 's/ --kit "\$KIT"//'; then
     A_kit="$(mut_kit tm-A "$ROOT/mutA.sh")"; A_OUT="$("$BASH_BIN" "$A_kit/toolbelt/verify-registry.sh" 2>&1)"
