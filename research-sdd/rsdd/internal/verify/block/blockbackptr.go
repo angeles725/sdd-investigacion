@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
 )
 
@@ -27,7 +28,7 @@ import (
 const bpVerb = `refut|corrig|correg|correcci|correct(s|ed|ing|ion)|supersed` // BP-VERBS
 
 var (
-	bpFileName  = vbRe(`^(.*-)?(block|bloque)([0-9]+)(-[\p{L}\p{N}_-]+)?\.md$`)
+	bpFileName  = kit.BlockFileNameUnicode
 	bpVerbRe    = vbRe(bpVerb)
 	bpSplit     = vbRe(`[.!?;]+[[:space:]]+`)
 	bpCorrigend = vbRe(`corrigend[a-z]*`)
@@ -51,7 +52,7 @@ var (
 	bpRHeading  = vbRe(`^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9]`)
 	bpListItem  = vbRe(`^[[:space:]]*([-*+]|[0-9]+[.)]|\|)`)
 	bpFileH1    = vbRe(`^#+[[:space:]]*(Block|Bloque)[[:space:]]+R[0-9]`)
-	bpBlockFile = vbRe(`(^|/)[^/]+-(block|bloque)[0-9]+(-[\p{L}\p{N}_-]+)?\.md$`)
+	bpBlockFile = kit.BlockPathUnicode
 )
 
 type bpCand struct {
