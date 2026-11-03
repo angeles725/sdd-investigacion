@@ -340,6 +340,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 8b. A failing detect-tools.sh (e.g. the rsdd shim exiting 2 with rsdd-unavailable, no cache written) must NOT let
+#     a STALE cache pass as the current inventory: a typed DEGRADED line carrying the reason, and no counts.
+# ---------------------------------------------------------------------------
+stub_kit8b="$TMP/stub-kit8b"
+mkdir -p "$stub_kit8b/toolbelt"
+printf '#!/usr/bin/env bash\necho "degraded: rsdd-unavailable — go not found" >&2\nexit 2\n' > "$stub_kit8b/toolbelt/detect-tools.sh"
+chmod +x "$stub_kit8b/toolbelt/detect-tools.sh"
+summary_home8b="$TMP/summary-home8b"
+mkdir -p "$summary_home8b"
+summary_script8b="$TMP/test-summary8b.sh"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -uo pipefail' \
+  "source \"$SUT\"" \
+  "SELF=\"$stub_install8\"" \
+  "KIT=\"$stub_kit8b\"" \
+  'apt_have() { return 0; }' \
+  'have()     { return 0; }' \
+  'node_ok()  { return 0; }' \
+  'sudo_n()   { return 100; }' \
+  "export RESEARCH_TOOLS_CACHE=\"$fixture_cache8\"" \
+  "main --home \"$summary_home8b\" --harness claude" \
+  > "$summary_script8b"
+out8b="$(bash "$summary_script8b" 2>&1)" || true
+if <<<"$out8b" grep -qE 'DEGRADED +detect-tools.sh exited 2: .*rsdd-unavailable — go not found' \
+   && ! <<<"$out8b" grep -qF 'AVAILABLE: 3' && <<<"$out8b" grep -qF 'tool inventory degraded'; then
+  ok "summary: detect-tools.sh failing (exit 2) with a stale cache present → typed DEGRADED with the reason, stale counts not shown"
+else
+  no "summary: a failing detect-tools.sh must degrade the inventory, not reuse the stale cache" "out=$(printf '%s' "$out8b" | grep 'SUMMARY\|DEGRADED' || true)"
+fi
+
+# ---------------------------------------------------------------------------
 # 9. Skill-deploy failure clears _baseline_ok: stub installer exits 1 →
 #    SUMMARY BASELINE DEGRADED + non-zero exit (issue #963).
 #    Reuses $stub_kit8 and $fixture_cache8 from case 8 setup above.

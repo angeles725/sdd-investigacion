@@ -68,11 +68,12 @@ if grep -q 'rsdd_exec' "$DETECT"; then
   export RSDD_BIN
 fi
 # The sed mutants below edit the text of the SUT; a shim has none, so its guards are Go tests (internal/install, make
-# teeth) and only the harness-level controls (hermetic PATH, TMPDIR containment, dotnet IPC) run here.
+# teeth) and only the harness-level controls (hermetic PATH, TMPDIR containment, dotnet IPC) run here; they are real
+# mutation controls of this suite, so the banner below names exactly that and no script mutant.
 MUT_SUT=0
 if [ "${1:-}" = "--prove-teeth" ]; then
   if [ "$IS_SHIM" = 1 ]; then
-    echo "  SKIP  teeth (sed mutants of detect-tools.sh): it is an rsdd_exec shim; the guards are pinned by internal/install tests (make teeth)"
+    echo "-- teeth: harness-level controls only (hermetic PATH, TMPDIR containment, dotnet IPC); sed mutants of the script are n/a, it is an rsdd_exec shim whose mutants live in internal/install Go teeth (make teeth)"
   else
     MUT_SUT=1
   fi

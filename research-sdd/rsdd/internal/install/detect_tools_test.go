@@ -59,7 +59,7 @@ func newDT(t *testing.T) *dt {
 	}
 	e.env = map[string]string{
 		"PATH": e.bin, "HOME": e.home, "RSDD_BREW_PREFIX": e.brew,
-		"RSDD_PROBE_TIMEOUT": "0.5", "RSDD_PYTHON_PROBE_TIMEOUT": "0.5",
+		"RSDD_PROBE_TIMEOUT": "1", "RSDD_PYTHON_PROBE_TIMEOUT": "1",
 		"RSDD_SYSTEM_PKGCONFIG_PATH": root + "/pkgconfig", "RESEARCH_SDD_TOOL_HOME": root + "/toolhome",
 		"RESEARCH_TOOLS_CACHE": root + "/cache.txt",
 	}
@@ -112,10 +112,14 @@ func (e *dt) run(args ...string) (stdout, stderr string, code int) {
 	var out, er bytes.Buffer
 	s := cli.Stdio{In: strings.NewReader(""), Out: &out, Err: &er, Environ: func() []string { return environ },
 		Env: func(k string) string { return e.env[k] }, Clock: func() time.Time { return dtClock }, Cwd: e.cwd}
-	code = runDetect(args, s, func(d *detector) {
-		d.root, d.javaHome, d.ghidraHome = e.root, e.javaHome, e.ghidraHome
-	})
+	code = runDetect(args, s, e.tweak)
 	return out.String(), er.String(), code
+}
+
+// tweak makes the detector see only the fixture: the fixed host paths (/usr/bin/..) live under the fixture root and the
+// Java and Ghidra resolvers answer from the fixture, never from the machine running the test.
+func (e *dt) tweak(d *detector) {
+	d.root, d.javaHome, d.ghidraHome = e.root, e.javaHome, e.ghidraHome
 }
 
 // report runs without arguments and returns stdout, failing on a non-zero exit.
@@ -748,6 +752,26 @@ func TestStatusOf(t *testing.T) {
 		if got := statusOf(rep, label); got != want {
 			t.Errorf("statusOf(%q) = %q, want %q", label, got, want)
 		}
+	}
+}
+
+// The script ran under `set -u`: an unset HOME aborted it with exit 1 ("HOME: unbound variable"); Go must not invent a
+// cache under "/.cache" and probe $HOME-relative candidates against the root. An EMPTY HOME is set and is allowed.
+func TestUnsetHomeFailsLikeBash(t *testing.T) {
+	e := newDT(t)
+	delete(e.env, "HOME")
+	delete(e.env, "RESEARCH_TOOLS_CACHE")
+	stdout, er, code := e.run("--quiet")
+	if code != 1 || stdout != "" || er != "detect-tools.sh: HOME: unbound variable\n" {
+		t.Fatalf("exit %d stdout %q stderr %q", code, stdout, er)
+	}
+	if _, err := os.Stat("/.cache/research-sdd/tool-capabilities.txt"); err == nil {
+		t.Fatal("a cache was written under /.cache")
+	}
+	e.env["HOME"] = ""
+	e.env["RESEARCH_TOOLS_CACHE"] = e.root + "/c.txt"
+	if _, er, code = e.run("--quiet"); code != 0 {
+		t.Fatalf("empty HOME is set: exit %d stderr %q", code, er)
 	}
 }
 

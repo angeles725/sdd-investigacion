@@ -83,6 +83,11 @@ func runDetect(args []string, s cli.Stdio, tweak func(*detector)) int {
 		}
 	}
 
+	// The script ran under `set -u`: an unset HOME ended it with exit 1. An empty HOME is set and allowed.
+	if _, set := d.env["HOME"]; !set {
+		fmt.Fprintf(s.Err, "%s: HOME: unbound variable\n", filepath.Base(prog))
+		return cli.ExitOperational
+	}
 	var errw bytes.Buffer
 	out := d.report(s.Clock(), &errw)
 	_, _ = s.Err.Write(errw.Bytes())

@@ -475,8 +475,14 @@ main() {
       # --quiet suppresses the per-tool table on stdout; the cache file holds the rows.
       # PROBE_FAILED counts as missing — include it in the MISSING/UNUSABLE tally.
       local cache_file="${RESEARCH_TOOLS_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/research-sdd/tool-capabilities.txt}"
-      bash "$detect" --quiet 2>/dev/null || true
-      if [ -f "$cache_file" ]; then
+      # A failing detect-tools.sh (the rsdd shim exits 2 with rsdd-unavailable and writes nothing) must not let an
+      # older cache pass as the current inventory: keep its reason and degrade instead of reading the cache.
+      local _detect_rc=0 _detect_err=""
+      { _detect_err="$(bash "$detect" --quiet 2>&1 1>&3)"; } 3>&1 || _detect_rc=$?
+      if [ "$_detect_rc" -ne 0 ]; then
+        printf '  DEGRADED  detect-tools.sh exited %d: %s\n' "$_detect_rc" "$(printf '%s' "$_detect_err" | head -n 1)"
+        _detect_ok=0
+      elif [ -f "$cache_file" ]; then
         local av_rc=0 mi_rc=0
         local _av_re='^[[:space:]]+[^[:space:]].*[[:space:]]AVAILABLE([[:space:]]|$)'  # SENTINEL-GREP-AV-ANCHOR
         av="$(grep -cE "$_av_re" "$cache_file" 2>/dev/null)" || av_rc=$?

@@ -19,9 +19,9 @@ import (
 
 // Differential test: the frozen toolbelt/detect-tools.sh (testdata/legacy/detect-tools, with the lib/tool-env.sh it
 // sources) and `rsdd install detect-tools` run on the same fixture and must agree on stdout, stderr, the exit code and
-// the cache file. Both sides see the real host's fixed paths (/usr/bin/..., /opt/ghidra*, /usr/lib/jvm), which they only
-// stat, so a case compares what the host offers on both sides alike. The fixtures that execute something pin it to
-// fakes on a private PATH. A missing bash FAILS the test: a skipped differential proves nothing.
+// the cache file. Both sides see only fixture paths: the frozen script runs from a copy whose hardcoded host paths
+// (/usr/bin/..., /opt/ghidra*, /usr/lib/jvm) point under the fixture root, and the Go side gets the same root, so no real
+// tool or Java runs. A missing bash FAILS the test: a skipped differential proves nothing.
 
 var dateField = regexp.MustCompile(`date: \S+`)
 
@@ -40,6 +40,37 @@ func legacyDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+// hostPaths are the absolute host locations the frozen script hardcodes. legacyScript points them at the fixture
+// root in a COPY (the oracle under testdata stays verbatim), so the script and the Go command, which gets the same
+// root through dt.tweak, probe only fixture paths.
+var hostPaths = []string{"/usr/bin/", "/usr/sbin/", "/usr/lib/", "/usr/share/", "/opt/ghidra", "/home/linuxbrew"}
+
+func (e *dt) legacyScript() string {
+	e.t.Helper()
+	dir := e.root + "/legacy"
+	if _, err := os.Stat(dir + "/detect-tools.sh"); err == nil {
+		return dir + "/detect-tools.sh"
+	}
+	if err := os.MkdirAll(dir+"/lib", 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	for _, f := range []string{"detect-tools.sh", "lib/tool-env.sh"} {
+		b, err := os.ReadFile(legacyDir(e.t) + "/" + f)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		s := string(b)
+		for _, p := range hostPaths {
+			s = strings.ReplaceAll(s, p, e.root+p)
+		}
+		s = strings.Replace(s, "#!"+e.root+"/usr/bin/env bash", "#!/usr/bin/env bash", 1)
+		if err := os.WriteFile(dir+"/"+f, []byte(s), 0o755); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	return dir + "/detect-tools.sh"
 }
 
 func (e *dt) environList() []string {
@@ -71,7 +102,7 @@ func (e *dt) legacy(args ...string) diffRes {
 		e.t.Fatalf("bash is required for the differential test: %v", err)
 	}
 	var out, er bytes.Buffer
-	c := exec.Command(bash, append([]string{legacyDir(e.t) + "/detect-tools.sh"}, args...)...)
+	c := exec.Command(bash, append([]string{e.legacyScript()}, args...)...)
 	c.Dir, c.Env, c.Stdout, c.Stderr = e.cwd, e.environList(), &out, &er
 	rc := 0
 	if err := c.Run(); err != nil {
@@ -91,7 +122,7 @@ func (e *dt) golang(args ...string) diffRes {
 	s := cli.Stdio{In: strings.NewReader(""), Out: &out, Err: &er, Environ: func() []string { return environ },
 		Env: func(k string) string { return e.env[k] }, Clock: time.Now, Cwd: e.cwd}
 	// the shim passes its own path as --prog; the legacy script prints $0, the path it was started with
-	code := runDetect(append([]string{"--prog", legacyDir(e.t) + "/detect-tools.sh"}, args...), s, nil)
+	code := runDetect(append([]string{"--prog", e.legacyScript()}, args...), s, e.tweak)
 	return diffRes{out.String(), er.String(), e.readCache(), code}
 }
 
@@ -122,6 +153,26 @@ func newDiff(t *testing.T) *dt {
 	e := newDT(t)
 	e.link(legacyCoreutils...)
 	return e
+}
+
+// Both sides resolve the fixed host paths under the fixture root: a fake planted at <root>/usr/bin/objdump is the tool
+// both report, and the machine's real /usr/bin/objdump is never what runs.
+func TestDiffFixedPathsAreTheFixtures(t *testing.T) {
+	e := newDiff(t)
+	e.tool(e.root+"/usr/bin/objdump", "exit 0")
+	e.tool(e.root+"/usr/sbin/unsquashfs", "exit 0")
+	want := []string{"AVAILABLE   " + e.root + "/usr/bin/objdump", "AVAILABLE   " + e.root + "/usr/sbin/unsquashfs"}
+	for side, r := range map[string]diffRes{"legacy": e.legacy(), "rsdd": e.golang()} {
+		for _, w := range want {
+			if !strings.Contains(r.out, w) {
+				t.Errorf("%s report lacks %q:\n%s", side, w, firstDiff(r.out, w))
+			}
+		}
+		if row := rowOf(r.out, "gdb"); !strings.Contains(row, "MISSING") {
+			t.Errorf("%s: gdb row %q — a real /usr/bin/gdb leaked in", side, row)
+		}
+	}
+	e.same("fixed-paths")
 }
 
 func TestDiffAllMissing(t *testing.T) {
