@@ -18,7 +18,7 @@ import (
 // oracle answers (RSDD_UPDATE_GOLDEN=1 rewrites them); the *Golden tests in zipgolden_linux_test.go replay them through the Go code
 // and stay inside the -tags nodiff build.
 
-// zipLegacyDir holds the retired zip_metadata.py / zip_stored.py themselves; zipToolbelt still holds analysis_manifest.py and
+// zipLegacyDir holds the retired zip_metadata.py / zip_stored.py themselves; zipToolbelt is the frozen copy of analysis_manifest.py and
 // lib/, which the frozen legacy tools import.
 const zipLegacyDir = "testdata/zip/legacy"
 
