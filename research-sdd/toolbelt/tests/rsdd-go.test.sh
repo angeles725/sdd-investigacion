@@ -1111,7 +1111,7 @@ g="$(RSDD_TEETH_DEBT="$ROOT/debt-bad1.txt" bash "$0" --decide-gremlins "$ROOT/gr
 if grep -q '^VERDICT: FAIL teeth debt list INVALID' <<<"$g"; then ok "debt: an invalid list FAILs a baseline failure too"
 else no "debt: baseline + invalid list wrong: $g"; fi
 g="$(RSDD_TEETH_DEBT="$MOD/teeth-debt.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
-for c in corpus budget maint lint gate retro/stageissues core/gfm core/probe core/reasons verify sweep corroborate/kaitai corroborate/native corroborate/fidelity testkit/parity; do
+for c in corpus budget maint lint gate retro/stageissues core/gfm core/probe core/reasons verify sweep corroborate/kaitai corroborate/native corroborate/fidelity; do
   if ! grep -qx "./internal/$c" <(bash "$0" --load-debt "$MOD/teeth-debt.txt"); then no "debt list: checked-in teeth-debt.txt lacks ./internal/$c"; fi
 done
 
