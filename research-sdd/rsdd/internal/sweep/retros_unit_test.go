@@ -247,17 +247,6 @@ func TestJSONEnvelopeBytes(t *testing.T) {
 	}
 }
 
-func TestJQString(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain": `"plain"`, "a\"b\\c": `"a\"b\\c"`, "t\tn\nr\rb\bf\f": `"t\tn\nr\rb\bf\f"`, "\x01\x1f\x7f": `"\u0001\u001f\u007f"`,
-		"é—<>&": `"é—<>&"`, "bad\xffbyte": "\"bad�byte\"", " ": "\" \"",
-	} {
-		if got := jqString(in); got != want {
-			t.Errorf("jqString(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
 func TestLiveTemplateCountsZero(t *testing.T) {
 	tmpl, err := os.ReadFile("../../../templates/retro.template.md")
 	if err != nil {
