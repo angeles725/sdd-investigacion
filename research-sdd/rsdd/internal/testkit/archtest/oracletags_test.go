@@ -12,20 +12,15 @@ import (
 // oracle made into unit or golden tests, teeth Lived 0), then delete the line.
 // A line whose file is fixed or gone fails TestOracleTagsRealTree as stale.
 var oracleAllow = map[string]string{
-	"internal/core/adapter/driver_helpers_test.go":       "python adapter oracle; session 1 core-consolidation T2",
-	"internal/core/adapter/helpers/parity_linux_test.go": "python adapter oracle; session 1 core-consolidation T2",
-	"internal/core/adapter/nfkc_test.go":                 "python adapter oracle; session 1 core-consolidation T2",
-	"internal/core/adapter/parity_linux_test.go":         "python adapter oracle; session 1 core-consolidation T2",
-	"internal/core/adapter/profile_test.go":              "python adapter oracle; session 1 core-consolidation T2",
-	"internal/core/hookwiring/differential_test.go":      "frozen bash oracle (testdata/legacy); follow-up issue",
-	"internal/corroborate/floss/world_test.go":           "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
-	"internal/corroborate/pcap/command_linux_test.go":    "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
-	"internal/formats/squashfs_test.go":                  "python oracle; PR B formats slice",
-	"internal/formats/zipcmd_linux_test.go":              "python oracle; PR B formats slice",
-	"internal/formats/zipparity_linux_test.go":           "python oracle; PR B formats slice",
-	"internal/gate/mergeharness_test.go":                 "frozen bash oracle (testdata/legacy); follow-up issue",
-	"internal/gate/mergetrain_test.go":                   "frozen bash oracle (testdata/legacy); follow-up issue",
-	"internal/lint/helpers_test.go":                      "frozen bash oracle (testdata/legacy); follow-up issue",
+	"internal/core/hookwiring/differential_test.go":   "frozen bash oracle (testdata/legacy); follow-up issue",
+	"internal/corroborate/floss/world_test.go":        "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
+	"internal/corroborate/pcap/command_linux_test.go": "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
+	"internal/formats/squashfs_test.go":               "python oracle; PR B formats slice",
+	"internal/formats/zipcmd_linux_test.go":           "python oracle; PR B formats slice",
+	"internal/formats/zipparity_linux_test.go":        "python oracle; PR B formats slice",
+	"internal/gate/mergeharness_test.go":              "frozen bash oracle (testdata/legacy); follow-up issue",
+	"internal/gate/mergetrain_test.go":                "frozen bash oracle (testdata/legacy); follow-up issue",
+	"internal/lint/helpers_test.go":                   "frozen bash oracle (testdata/legacy); follow-up issue",
 }
 
 func TestOracleTagsFixture(t *testing.T) {
