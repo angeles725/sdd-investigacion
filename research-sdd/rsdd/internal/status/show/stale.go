@@ -37,8 +37,8 @@ func execVerify(args []string, s cli.Stdio) int {
 	case err == nil:
 		return 0
 	case errors.As(err, &ee):
-		if code := ee.ExitCode(); code >= 0 {
-			return code
+		if ee.Exited() {
+			return ee.ExitCode()
 		}
 		return 128 // killed by a signal: the shell reports 128+n
 	case errors.Is(err, fs.ErrNotExist):

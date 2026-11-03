@@ -141,6 +141,7 @@ func TestFirstFailureLineCut(t *testing.T) {
 		{"0xBF continuation byte is backed off too", strings.Repeat("b", 156) + "¿¿¿", "f: " + strings.Repeat("b", 156) + "..."},
 		{"rune ends at the cut", strings.Repeat("b", 154) + "€€€€", "f: " + strings.Repeat("b", 154) + "€..."},
 		{"ascii after a rune", strings.Repeat("é", 78) + strings.Repeat("b", 10), "f: " + strings.Repeat("é", 78) + "b..."},
+		{"only continuation bytes back off to the start, as the awk's n>0", strings.Repeat("\x80", 200), "f: ..."},
 	} {
 		if got := firstFailureLine(hdr + c.text + "\n"); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
