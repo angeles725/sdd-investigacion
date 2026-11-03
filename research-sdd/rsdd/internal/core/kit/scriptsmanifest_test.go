@@ -39,3 +39,26 @@ func TestScriptsManifestRows(t *testing.T) {
 		t.Error("a manifest outside the target must be ok=false")
 	}
 }
+
+// The row rules at their edges: a line holding only the first cell (no sha cell at all, so the cell index is one past
+// the split) and a lone `|` yield no row and no panic; a sha cell is 64 hex digits in either case, and one non-hex
+// character, whatever side of a hex range it sits on, rejects the row.
+func TestScriptsManifestRowsEdges(t *testing.T) {
+	root := t.TempDir()
+	mf := filepath.Join(root, "SCRIPTS-MANIFEST.md")
+	ok64 := "0123456789abcdefABCDEF" + strings.Repeat("9", 42)
+	var src strings.Builder
+	src.WriteString("|only.sh\n|\n| good.sh | " + ok64 + " |\n")
+	for _, c := range []string{"/", ":", "@", "G", "`g", "g", "-"} {
+		src.WriteString("| bad" + c + ".sh | " + strings.Repeat("a", 63) + c[len(c)-1:] + " |\n")
+	}
+	if err := os.WriteFile(mf, []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := ScriptsManifestRows(fsview.View{Cwd: root}, root, mf)
+	lo := strings.ToLower(ok64)
+	want := []string{"SCRIPTS-MANIFEST.md/good.sh\t" + lo, "SCRIPTS-MANIFEST.md/good.sh\t" + lo}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %q ok=%v, want %q", got, ok, want)
+	}
+}

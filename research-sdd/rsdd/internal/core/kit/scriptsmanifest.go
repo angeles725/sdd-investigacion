@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"encoding/hex"
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
@@ -54,7 +55,7 @@ func ScriptsManifestRows(fs fsview.View, target, mf string) ([]string, bool) {
 		}
 		a, sha := cellOf(1), cellOf(2)
 		a = strings.TrimPrefix(a, "./")
-		if a != "" && len(sha) == 64 && isHex(sha) { // SM-ROW
+		if _, err := hex.DecodeString(sha); a != "" && len(sha) == 64 && err == nil { // SM-ROW: 64 hex digits, either case
 			full := md + "/" + a
 			if strings.HasPrefix(a, "sources/") {
 				full = a
@@ -64,14 +65,4 @@ func ScriptsManifestRows(fs fsview.View, target, mf string) ([]string, bool) {
 		}
 	}
 	return rows, true
-}
-
-func isHex(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
 }
