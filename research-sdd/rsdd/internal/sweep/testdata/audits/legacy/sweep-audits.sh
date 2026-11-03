@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# sweep-audits.sh — surface un-reviewed §13 audit reports across ALL research-sdd targets, so no
+# audit-delta (certainty or coverage) sits unacted-upon (METHODOLOGY §13). Mirror of sweep-retros.sh.
+#
+# An audit under <target>/audits/*.md is PENDING unless its top carries a marker:
+#   <!-- review-status: applied ... -->   or   <!-- review-status: dismissed ... -->
+# The maintainer runs this (manually or on a schedule) from anywhere; it reads the target list from
+# the kit's TARGETS.md. Read-only: it never edits anything. Audits act on the TARGET (§14 corrections
+# into the corpus + §8 backlog seeds), so — unlike retros — there is NO stage/branch/PR path here.
+#
+# Usage: research-sdd/toolbelt/sweep-audits.sh
+
+# -P/pwd -P: see research-sdd/toolbelt/verify-cd-physical.sh's own header for why (kit issue #1024).
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT="$(cd -P -- "$_RSDD_SELF/.." && pwd -P)"
+TARGETS_MD="$KIT/TARGETS.md"
+
+# Reuse the retro marker reader — its leading-comment-block scan is generic (retro-status.sh:23-36),
+# so it reads an audit's '<!-- review-status: ... -->' marker identically. Single source of truth.
+LIB="$_RSDD_SELF/lib/retro-status.sh"
+if [ ! -f "$LIB" ]; then
+  echo "sweep-audits: cannot find helper $LIB" >&2
+  exit 1
+fi
+# shellcheck source=lib/retro-status.sh
+. "$LIB"
+# Fail closed: existence of $LIB is not enough — the source must have DEFINED the reader. No `set -e`
+# here, so a failed/partial source would otherwise be swallowed and every audit read as 'none'.
+declare -F retro_review_status >/dev/null 2>&1 || { echo "sweep-audits: helper $LIB failed to define retro_review_status" >&2; exit 1; }
+
+# Shared target-path derivation (handles /abs and $RESEARCH_HOME/... forms).
+_sa_tp_lib="$_RSDD_SELF/lib/target-paths.sh"
+if [ ! -f "$_sa_tp_lib" ]; then
+  echo "sweep-audits: cannot find helper $_sa_tp_lib" >&2; exit 1
+fi
+# shellcheck source=lib/target-paths.sh
+. "$_sa_tp_lib"
+# Fail closed: source must DEFINE the function — a partial source is otherwise swallowed.
+declare -F target_paths_all >/dev/null 2>&1 || { echo "sweep-audits: helper $_sa_tp_lib failed to define target_paths_all" >&2; exit 1; }
+unset _sa_tp_lib
+
+if [ ! -f "$TARGETS_MD" ]; then
+  echo "sweep-audits: cannot find $TARGETS_MD" >&2
+  exit 1
+fi
+
+# Absolute target paths live in the TARGETS.md table as backtick-wrapped paths.
+# target_paths_all handles /abs and $RESEARCH_HOME/... forms; truncated '...' entries
+# pass through so the summary can WARN the sweep is PARTIAL.
+all_paths=$(target_paths_all "$TARGETS_MD")
+paths=$(printf '%s\n' "$all_paths" | grep -v '\.\.\.')
+skipped=$(printf '%s\n' "$all_paths" | grep '\.\.\.')
+# ANTI-SILENT-ZERO: zero usable paths is a loud error, not a silent empty run.
+if [ -z "$paths" ]; then
+  echo "sweep-audits: ERROR — no usable target paths in $TARGETS_MD" >&2
+  echo "sweep-audits: check TARGETS.md has backtick-wrapped absolute or \$RESEARCH_HOME/... paths" >&2
+  exit 1
+fi
+
+skipped_names=""; skipped_count=0
+for s in $skipped; do
+  skipped_count=$((skipped_count + 1))
+  skipped_names="${skipped_names:+$skipped_names, }$(basename "$s")"
+done
+
+# AGING (Feature #26): each PENDING audit is AGED from its git FIRST-COMMIT (added) date so a stale audit
+# can't sit unacted-upon; the queue is REORDERED oldest-first and items past a threshold are TAGGED ESCALATED.
+# This only SORTS + LABELS to help the human — it never auto-applies/auto-dismisses anything (propose-never-apply).
+now="$(date +%s)"
+age_days="${RSDD_RETRO_AGE_DAYS:-7}"   # ESCALATE pending items older than this many days (override via env)
+pending=0; total=0
+absent_targets=0   # count of target dirs not found on disk (§7 absent-input disclosure)
+pending_rows=()   # collected as "<epoch>\t<f>\t<p>\t<claims>\t<status>\t<age_d>\t<tag>" for oldest-first sort
+# Resolve audits RECURSIVELY (find "$p" -path '*/audits/*.md'), mirroring sweep-retros.sh's retro pass, so a
+# nested-corpus target that keeps its audits deeper (e.g. <target>/research/audits/*.md) is walked here too —
+# a flat "$p/audits/*.md" glob would miss them. DEDUP by canonical path so an audit reachable under more than
+# one listed target (overlapping $paths) or via more than one location is counted once. Index/manifest files
+# (AUDITS-INDEX.md / *-INDEX.md) are EXCLUDED (-not -iname '*index*.md'): they are generated tables of
+# contents, not audit reports — counting one as an audit would surface it as a bogus '~0 audited claims' item.
+declare -A rsdd_seen_audit=()
+for p in $paths; do
+  # Anti-silent-zero §7: distinguish absent-input from empty-input from no-match.
+  if [ ! -d "$p" ]; then
+    echo "INFO: corpus not found (absent-input): $p"
+    absent_targets=$((absent_targets + 1))
+    continue
+  fi
+  # Collect audit files for this target first to detect empty-input before processing.
+  # A two-pass approach (collect then iterate) lets us distinguish "dir exists, 0 audits"
+  # from "dir missing" — both produced silent zeros before this fix.
+  _sa_files=()
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && _sa_files+=("$_f")
+  done < <(find "$p" -maxdepth 4 -path '*/audits/*.md' -not -path '*/.git/*' -not -iname '*index*.md' 2>/dev/null)
+  if [ "${#_sa_files[@]}" -eq 0 ]; then
+    echo "INFO: corpus exists, no audits found (empty-input): $p"
+    continue
+  fi
+  for f in "${_sa_files[@]}"; do
+    [ -n "$f" ] || continue
+    key="$(realpath -- "$f" 2>/dev/null || printf '%s' "$f")"
+    [ -n "${rsdd_seen_audit[$key]:-}" ] && continue
+    rsdd_seen_audit[$key]=1
+    total=$((total + 1))
+    # Honor the marker only in the audit's LEADING HTML-comment block (see lib/retro-status.sh);
+    # a missing marker reads as pending, same as retros.
+    status=$(retro_review_status "$f")
+    case "$status" in
+      applied|dismissed) continue ;;
+    esac
+    pending=$((pending + 1))
+    claims=$(grep -cE '^\| *[0-9]+ \|' "$f" 2>/dev/null)
+    # Age from the git FIRST-COMMIT date of THIS file under its CURRENT path, falling back to file mtime when
+    # untracked or the dir is not a git repo — so a non-git target never crashes the sweep.
+    # NO --follow: rename-following is ~15x slower per call (same tradeoff as sweep-retros.sh; see comments
+    # there). Accepted tradeoff: a file RENAMED after creation is dated from its rename commit, not its
+    # original creation — rare for audit files, and a slow sweep is worse than an occasionally later date.
+    epoch=""
+    added="$(git -C "$p" log --no-renames --diff-filter=A --format=%aI -1 -- "$f" 2>/dev/null)"
+    [ -n "$added" ] && epoch="$(date -d "$added" +%s 2>/dev/null || echo '')"
+    [ -n "$epoch" ] || epoch="$(stat -c %Y "$f" 2>/dev/null || echo "$now")"
+    age_s=$(( now - epoch )); [ "$age_s" -lt 0 ] && age_s=0
+    age_d=$(( age_s / 86400 ))
+    tag=""; [ "$age_d" -gt "$age_days" ] && tag="  ·  ESCALATED (aged ${age_d}d)"
+    pending_rows+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$epoch" "$f" "$p" "${claims:-?}" "${status:-none}" "$age_d" "$tag")")
+  done
+done
+
+# Print the pending queue oldest-first (smallest first-commit epoch on top) so the most-stale audits lead.
+if [ "${#pending_rows[@]}" -gt 0 ]; then
+  while IFS=$'\t' read -r _ep f p claims status age_d tag; do
+    echo "PENDING  $f"
+    echo "         target: $p  ·  ~${claims} audited claims  ·  status: ${status}  ·  age: ${age_d}d${tag}"
+  done < <(printf '%s\n' "${pending_rows[@]}" | sort -n -t$'\t' -k1,1)
+fi
+
+echo ""
+echo "Summary: ${pending} pending / ${total} audits across targets."
+if [ "$absent_targets" -gt 0 ]; then
+  echo "INFO: ${absent_targets} target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above."
+fi
+if [ "$skipped_count" -gt 0 ]; then
+  echo "WARN: ${skipped_count} target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ${skipped_names}"
+fi
+# "Nothing to review." only when pending=0 AND no truncated-path skips. Absent-input targets (INFO
+# lines above + count below) do NOT suppress this message — the queue is genuinely empty regardless.
+if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then
+  echo "Nothing to review."
+fi
+# Pending-action guidance is printed ONLY when there are pending audits to act on (never at 0 pending).
+if [ "$pending" -gt 0 ]; then
+  echo "For each PENDING audit: apply §14 corrections (REFUTED/DOWNGRADED) into the corpus + seed"
+  echo "coverage gaps into the §8 backlog, then flip the marker to"
+  echo "'<!-- review-status: applied <date> · kit <sha> -->' (or 'dismissed')."
+fi
