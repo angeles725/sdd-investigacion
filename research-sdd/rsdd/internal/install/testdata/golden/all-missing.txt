@@ -1,0 +1,85 @@
+== Research-SDD tool capability report ==
+host:  · date: 2026-11-02T12:30:45Z · brew: <ROOT>/brew
+
+[ native / binary ]
+  Ghidra headless        MISSING     (not on PATH nor known install dirs)
+  radare2                MISSING     (not on PATH nor known install dirs)
+  objdump                MISSING     (not on PATH nor known install dirs)
+  readelf                MISSING     (not on PATH nor known install dirs)
+  nm                     MISSING     (not on PATH nor known install dirs)
+  strings                MISSING     (not on PATH nor known install dirs)
+
+[ hex ]
+  hexedit                MISSING     (not on PATH nor known install dirs)
+  bvi                    MISSING     (not on PATH nor known install dirs)
+
+[ dynamic / network / emulation ]
+  tshark                 MISSING     (not on PATH nor known install dirs)
+  tcpdump                MISSING     (not on PATH nor known install dirs)
+  capinfos               MISSING     (not on PATH nor known install dirs)
+  gdb                    MISSING     (not on PATH nor known install dirs)
+  gdb-multiarch          MISSING     (not on PATH nor known install dirs)
+  strace                 MISSING     (not on PATH nor known install dirs)
+  ltrace                 MISSING     (not on PATH nor known install dirs)
+  QEMU system            MISSING     (not on PATH nor known install dirs)
+  QEMU user-static       MISSING     (not on PATH nor known install dirs)
+  QEMU image             MISSING     (not on PATH nor known install dirs)
+
+[ java ]
+  Java 21                MISSING     (usable Java 21 + javap not found)
+  javap 21               MISSING     (usable Java 21 + javap not found)
+  Vineflower (jar)       MISSING     (jar not found; set the matching env var)
+  CFR (jar)              MISSING     (jar not found; set the matching env var)
+  Procyon (jar)          MISSING     (jar not found; set the matching env var)
+
+[ android ]
+  jadx                   MISSING     (not on PATH nor known install dirs)
+  apktool                MISSING     (not on PATH nor known install dirs)
+
+[ .net ]
+  ilspycmd               MISSING     (not on PATH nor known install dirs)
+  pwsh                   MISSING     (not on PATH nor known install dirs)
+
+[ firmware ]
+  binwalk                MISSING     (not on PATH nor known install dirs)
+  unblob                 MISSING     (not on PATH nor known install dirs)
+  kaitai-struct-compiler MISSING     (not on PATH nor known install dirs)
+  yara                   MISSING     (not on PATH nor known install dirs)
+  unsquashfs             MISSING     (not on PATH nor known install dirs)
+  Hyperscan pkg-config   MISSING     (libhs.pc not usable through pkg-config)
+
+[ docs / web ]
+  pdftotext              MISSING     (not on PATH nor known install dirs)
+  pdfinfo                MISSING     (not on PATH nor known install dirs)
+  tesseract              MISSING     (not on PATH nor known install dirs)
+  pandoc                 MISSING     (not on PATH nor known install dirs)
+  pymupdf4llm            MISSING     (<ROOT>/home/.local/share/research-sdd-tools/venv — extract-pdf.sh Tier 1)
+  ocrmypdf               MISSING     (not on PATH nor known install dirs)
+  marker                 MISSING     (not on PATH nor known install dirs)
+  docling                MISSING     (not on PATH nor known install dirs)
+
+[ deliverable / render ]
+  latex                  MISSING     (not on PATH nor known install dirs)
+  circuitikz             MISSING     (kpsewhich circuitikz.sty not found — install texlive-pictures)
+  ezdxf                  MISSING     (python3 -c "import ezdxf" failed — pip install ezdxf)
+
+[ python bytecode ]
+  pycdc                  MISSING     (not on PATH nor known install dirs)
+
+[ isolation / sandbox ]
+  bwrap (sandbox)        MISSING     (not on PATH nor known install dirs)
+
+[ triage / capability ]
+  capa                   MISSING     (not on PATH nor known install dirs)
+  floss                  MISSING     (not on PATH nor known install dirs)
+  diec                   MISSING     (not on PATH nor known install dirs)
+
+[ dynamic / instrumentation ]
+  frida                  MISSING     (not on PATH nor known install dirs)
+  frida-trace            MISSING     (not on PATH nor known install dirs)
+
+[ modify / patch ]
+  krak2                  MISSING     (not on PATH nor known install dirs)
+
+Note: AVAILABLE means the resolver found the tool AND its bounded validation passed.
+UNUSABLE means found but not runnable; MISSING means not detected.

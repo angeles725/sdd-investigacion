@@ -22,3 +22,17 @@ status-focuses.sh  lines 906-1019 (_read_focuses_tok_into, _read_focuses_tok_unc
 
 The S2 differential sources these four files, the frozen status-blocked.sh and the live lib/blocked-rows.sh, and
 calls one function per scenario op (s2_test.go).
+
+Slice S3 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main 7ed84a82):
+
+status-blocked-body.sh lines 295-295 (blocked_body)
+                   sha256 7b79bef7a9157d5d22c87c965d5fbb837833d4b1e4e1b7baf68139acc6821dab
+status-derive.sh   lines 488-491 (derive_blocked_open and its comment)
+                   sha256 9b33b56be9240e59034d9da99fac463aa45723809f7fa7fd93b5ec18ad713c8d
+status-sync.sh     lines 1021-1367 (the whole --sync-state mode: render_envelope, the scope guard, the blocked_open
+                   pre-pass, the per-file derivation and the atomic rewrite)
+                   sha256 eb75cf6f81131180bc516f8c2a451a7dff86c0f8fd14155072a25e0433d6bd64
+
+The S3 differential assembles head + section + blocked_body + blocked excerpt + derive + scan + counters + focuses +
+sync into one script (the original order, the unported sections between them absent) and appends an authored tail for
+the other modes. It runs the real script entry, so the pick, the argument checks and the sync run as one process.
