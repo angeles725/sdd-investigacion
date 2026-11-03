@@ -40,7 +40,7 @@ HERE="$(cd "$(dirname "$SELF")" && pwd)"  # LINT-CD-PHYSICAL-OK: test driver loc
 REGISTRY="$HERE/../reason-codes.v1.md"
 TOOLBELT="$HERE/.."
 
-SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
+SCRIPTS=(research-sdd-status.sh reconcile-issues.sh stage-retro-issues.sh stage-retro.sh research-sdd-init.sh migrate-backlogs.sh lib/rsdd-exec.sh)
 REQUIRED_INPUT=(absent-input empty-input unclassifiable)
 
 # A script that is only a rsdd-exec shim (kit issue #2435) emits its typed states from the Go command it runs. The Go
@@ -68,6 +68,7 @@ GO_SRC=(
   "sweep-breakthroughs-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "stage-retro.sh=../rsdd/internal/retro/stage"   # gitops.go, run.go and label.go print the degraded git and retro-not-readable lines (kit issue #2663)
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
 )
@@ -629,6 +630,7 @@ mkfix() {
   printf '%s\n' 'printf '"'"'degraded: --issues-cache file not readable: %s\n'"'"' "$c" >&2' > "$d/scripts/reconcile-issues.sh"
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' >> "$d/scripts/reconcile-issues.sh"
   printf '%s' 'echo "degraded: gh not found on PATH — install gh" >&2' > "$d/scripts/stage-retro-issues.sh"
+  printf '%s' 'echo "degraded: git fetch origin failed — cannot verify" >&2' > "$d/scripts/stage-retro.sh"
   printf '%s' 'echo "degraded: jq failed on $f — refusing"' > "$d/scripts/research-sdd-init.sh"
   printf '%s\n' 'echo "degraded: migrate-backlogs: mktemp failed" >&2' \
     'echo "degraded: migrate-backlogs: cannot read $f — proposal not computed" >&2' > "$d/scripts/migrate-backlogs.sh"
@@ -645,6 +647,7 @@ mkfix() {
       '| `degraded: --issues-cache file not readable:` | degraded | reconcile-issues.sh | m4 | pass a readable file |' \
       '| `degraded: gh not found on PATH` | degraded | reconcile-issues.sh, stage-retro-issues.sh | m5 | install gh |' \
       '| `degraded: jq failed on` | degraded | research-sdd-init.sh | m6 | fix settings.json |' \
+      '| `degraded: git fetch origin failed` | degraded | stage-retro.sh | m13 | fix the remote |' \
       '| `degraded: migrate-backlogs: mktemp failed` | degraded | migrate-backlogs.sh | m10 | free TMPDIR space |' \
       '| `degraded: migrate-backlogs: cannot read` | degraded | migrate-backlogs.sh | m11 | fix the permissions |' \
       '| `degraded: rsdd-unavailable` | degraded | lib/rsdd-exec.sh | m12 | install go |' \

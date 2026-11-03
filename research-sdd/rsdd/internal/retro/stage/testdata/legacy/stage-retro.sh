@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# stage-retro.sh — stage ONE pending §18 retro as a branch in the kit repo for supervised
+# review (METHODOLOGY §18). The SUPERVISOR (not the target run) runs this: it isolates each
+# proposal on its own branch so conflicts, duplication, and necessity are judged before merge.
+#
+# It does the GIT PLUMBING only — creating the branch and printing the deltas + next steps.
+# Applying the deltas is the supervisor's judgment (editing kit prose), never mechanical.
+#
+# Usage: research-sdd/toolbelt/stage-retro.sh <path-to-target/retros/<retro>.md>
+
+set -uo pipefail
+retro="${1:-}"
+if [ -z "$retro" ] || [ ! -f "$retro" ]; then
+  echo "usage: stage-retro.sh <path-to-retro.md>" >&2
+  exit 1
+fi
+
+# Kit repo root = two dirs up from toolbelt/. `cd -P` resolves PHYSICALLY, following any
+# symlink in the path — plain `cd` (no -P) tracks the LOGICAL path instead, so when toolbelt/
+# itself is a symlink (e.g. the profile installer's
+# <config_root>/research-sdd/profile/<name>/toolbelt -> <real kit>/research-sdd/toolbelt),
+# the trailing `..` components walk back up through the SYMLINK'S location on the logical
+# path, not through the real kit tree the symlink points at — landing on the profile
+# directory instead of the kit repo root. `pwd` needs no -P here: once `cd -P` has landed in
+# the physical directory, $PWD is already the real path.
+# RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
+_rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
+while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
+if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
+_RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
+KIT_REPO="$(cd -P -- "$_RSDD_SELF/../.." && pwd -P)"
+
+# Shared review-status reader — single source of truth for the marker logic (sweep-retros.sh and
+# stage-retro.sh both source it, so the leading-comment-block scan can never drift between them).
+# Same symlink hazard as KIT_REPO above — resolve physically.
+LIB="$_RSDD_SELF/lib/retro-status.sh"
+if [ ! -f "$LIB" ]; then
+  echo "stage-retro: cannot find helper $LIB" >&2
+  exit 1
+fi
+# shellcheck source=lib/retro-status.sh
+. "$LIB"
+# Fail closed: existence of $LIB is not enough — the source must have DEFINED the reader. This
+# script does NOT use `set -e`, so a failed/partial/syntax-broken source would otherwise be swallowed
+# and the review-status guard below would read an empty status, skip the applied|dismissed gate, and
+# perform the DESTRUCTIVE `git checkout -b`. Abort here, before ANY git mutation.
+declare -F retro_review_status >/dev/null 2>&1 || { echo "stage-retro: helper $LIB failed to define retro_review_status" >&2; exit 1; }
+
+# Opt-out scope guard: a file carrying '<!-- kit-retro: exclude -->' declares itself NOT a §18 kit
+# retro. Staging it would open a kit PR from the wrong scope (e.g. client-feedback retro targeting a
+# separate skill). Refuse before any git mutation, consistent with the applied|dismissed refusal.
+if retro_is_excluded "$retro"; then
+  echo "stage-retro: this file carries '<!-- kit-retro: exclude -->' and is not a §18 kit retro — nothing to stage." >&2
+  exit 2
+fi
+
+# review-status guard. Honor the marker only in the retro's LEADING HTML-comment block (see
+# lib/retro-status.sh) — a marker-shaped string deeper in the body must not gate staging.
+status=$(retro_review_status "$retro")
+case "$status" in
+  applied|dismissed)
+    echo "This retro is already '$status' — nothing to stage. (Use --force to re-stage.)" >&2
+    [ "${2:-}" = "--force" ] || exit 2 ;;
+esac
+
+# Derive target (dir holding retros/) and a slug from the filename.
+target_root="$(cd "$(dirname "$(dirname "$retro")")" 2>/dev/null && pwd)" || target_root="$(dirname "$(dirname "$retro")")"
+target=$(basename "$target_root")   # fallback label only (see the registered-name lookup below)
+# Label the branch / `Retro:` trailer with the SAME registered Target name stage-retro-issues.sh and
+# reconcile-issues.sh use (kit issue #1287 item 8): nearest registered ancestor via the shared lib
+# helper, so a nested <target>/corpus/retros retro is not labelled `corpus` and a target whose
+# registered name differs from its path basename is not labelled with the basename. The label only
+# names a branch and a commit trailer, so an unreadable / empty registry or an unregistered retro is
+# a loud WARN + basename fallback here (not the hard exit the issue-seeding scripts take): nothing
+# keyed on the name has been written yet. Resolved BEFORE any git mutation.
+TP_LIB="$_RSDD_SELF/lib/target-paths.sh"
+if [ ! -f "$TP_LIB" ]; then
+  echo "stage-retro: cannot find helper $TP_LIB" >&2
+  exit 1
+fi
+# shellcheck source=lib/target-paths.sh
+. "$TP_LIB"
+declare -F target_name_for_retro >/dev/null 2>&1 || { echo "stage-retro: helper $TP_LIB failed to define target_name_for_retro" >&2; exit 1; }
+_reg_name="$(target_name_for_retro "$KIT_REPO/research-sdd/TARGETS.md" "$retro")"
+_reg_rc=$?
+if [ "$_reg_rc" -eq 0 ] && [ -n "$_reg_name" ]; then
+  target="$_reg_name"
+elif [ "$_reg_rc" -eq 1 ]; then
+  # STAGE_RETRO_TARGET_NAME_RC1 (kit issue #1369 d): rc 1 is an OPERATIONAL failure (registry absent /
+  # unreadable / no path parsed / wrong RESEARCH_HOME / retro dir missing; the lib already printed the
+  # specific reason above). It is not "this retro is unregistered" (rc 2), so it is typed apart: the
+  # basename label may differ from the registered name the issue signatures use.
+  echo "WARN: target-name lookup FAILED (rc=1, operational — the registry could not be consulted, see the message above) for '$retro' — labelling with directory basename '$target', which may differ from the registered target name" >&2
+else
+  echo "WARN: no registered target name for '$retro' (target_name_for_retro rc=$_reg_rc) — labelling with directory basename '$target'" >&2
+fi
+slug=$(basename "$retro" .md | tr -c 'a-zA-Z0-9._-' '-' | sed 's/-\{2,\}/-/g;s/^-//;s/-$//')
+branch="retro/${target}-${slug}"
+
+# TRACEABILITY BACKLINK (Feature #27): build a `Retro:` commit trailer so the kit commit that applies these
+# deltas is traceable BACK to the exact source retro (the forward link — the retro's 'applied … · kit <sha>'
+# marker — already points kit-ward). Reverse ref = <target>/retros/<file>@<target-sha> (drop '@<sha>' when
+# the retro is untracked / git is unavailable). SUGGESTED message only — this script auto-commits nothing.
+retro_ref="${target}/retros/$(basename "$retro")"
+# Absolutize the retro path before the git log pathspec: `-C "$target_root"` is already absolute, but a
+# RELATIVE $retro pathspec is then resolved AGAINST that rebased cwd (not the original cwd), so it can miss
+# a genuinely tracked retro and silently drop the '@<sha>' suffix (misreporting it as untracked).
+# `cd -P`/`pwd -P` (not plain `pwd`): $KIT_REPO above is resolved PHYSICALLY, so a retro path that
+# reaches the kit repo through a symlink must resolve physically too, or the self-referential-target
+# guard's `case "$retro_abs" in "$KIT_REPO"/*)` below would never match and the guard would be skipped.
+retro_abs="$(cd -P "$(dirname "$retro")" 2>/dev/null && pwd)/$(basename "$retro")"
+retro_sha="$(git -C "$target_root" log -1 --format=%h -- "$retro_abs" 2>/dev/null)"
+[ -n "$retro_sha" ] && retro_ref="${retro_ref}@${retro_sha}"
+
+# The kit repo must be clean and on main before we branch.
+if [ -n "$(git -C "$KIT_REPO" status --porcelain)" ]; then
+  echo "kit repo has uncommitted changes — commit/stash them first, then re-run." >&2
+  exit 3
+fi
+
+echo ">> staging retro for supervised review"
+echo "   retro : $retro"
+echo "   target: $target"
+echo "   branch: $branch"
+echo ""
+
+git -C "$KIT_REPO" checkout -q main || { echo "cannot checkout main" >&2; exit 4; }
+git -C "$KIT_REPO" fetch -q origin || { echo "degraded: git fetch origin failed — cannot verify remote state; refusing to branch from a possibly stale base." >&2; exit 6; }
+# Do NOT pull into the shared checkout's main (CLAUDE.md §3 / §12.4) — the new branch is
+# created from origin/main directly below, so local main does not need to advance. This is
+# also why there is no "local main must be in sync with origin/main" guard here any more: the
+# retro branch never starts from local main (it always branches from origin/main, below), so
+# unpushed commits sitting on local main cannot bleed into it.
+
+# Self-referential-target guard: TARGETS.md can list the kit repo itself as a research target
+# (its own retros/ dir then lives INSIDE $KIT_REPO). Checking out origin/main below replaces
+# the ENTIRE working tree with that ref's content — if this retro was committed only to local
+# main (not yet pushed), it is absent from origin/main and vanishes from the worktree the
+# instant we check out $branch, before the sed below ever reads it. Catch that BEFORE any
+# checkout, not after: refuse and tell the supervisor to push it first.
+# EXISTENCE alone is not enough (RDD R4-selfref-guard-existence-only): origin/main can already
+# have a blob at this path from an EARLIER push, while local HEAD has since moved the same
+# path on to different content (edited the retro, or amended it) without pushing. Comparing
+# blob shas — not just presence — catches that: the clean-tree guard above already ran, so
+# HEAD's blob is exactly what is on disk right now.
+case "$retro_abs" in
+  "$KIT_REPO"/*)
+    _retro_rel_to_kit="${retro_abs#"$KIT_REPO"/}"
+    _retro_origin_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "origin/main:${_retro_rel_to_kit}" 2>/dev/null)"
+    _retro_head_blob="$(git -C "$KIT_REPO" rev-parse -q --verify "HEAD:${_retro_rel_to_kit}" 2>/dev/null)"
+    if [ -z "$_retro_origin_blob" ] || [ "$_retro_origin_blob" != "$_retro_head_blob" ]; then
+      echo "this retro lives inside the kit repo itself ($_retro_rel_to_kit) and origin/main does" >&2
+      echo "not have the SAME content as the local commit — staging would branch from origin/main" >&2
+      echo "and silently stage a stale (or entirely missing) version of this file." >&2
+      # kit issue #1031: word the advice per CASE — "push origin main" is wrong when the retro is
+      # not on local main at all, or when origin is the side that is ahead.
+      if [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ] \
+         && git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        echo "origin/main is AHEAD of local main: it has this retro, local main does not. Fast-forward" >&2
+        echo "local main first:  git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      elif [ -z "$_retro_head_blob" ] && [ -n "$_retro_origin_blob" ]; then
+        echo "local main and origin/main have DIVERGED: origin/main has this retro, local main does not." >&2
+        echo "Reconcile them (rebase or merge origin/main into local main), then re-stage." >&2
+      elif [ -z "$_retro_head_blob" ]; then
+        echo "this retro exists only on another branch (or is untracked): it is not committed on local" >&2
+        echo "main. Commit/merge it onto main first, then push:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+        echo "local main is AHEAD of origin/main. Push it first:  git -C \"$KIT_REPO\" push origin main" >&2
+      elif git -C "$KIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+        echo "origin/main is AHEAD of local main. Fast-forward local main first:" >&2
+        echo "    git -C \"$KIT_REPO\" merge --ff-only origin/main" >&2
+      else
+        echo "local main and origin/main have DIVERGED for this file. Reconcile them (rebase or merge)," >&2
+        echo "then push, before staging." >&2
+      fi
+      echo "...then re-run stage-retro.sh." >&2
+      exit 7
+    fi
+    ;;
+esac
+
+if git -C "$KIT_REPO" show-ref --quiet "refs/heads/$branch"; then
+  echo "branch $branch already exists — checking it out."
+  git -C "$KIT_REPO" checkout -q "$branch" \
+    || { echo "cannot check out existing branch $branch" >&2; exit 5; }
+else
+  # --no-track: never set origin/main as upstream (a bare `git push` could otherwise target main).
+  git -C "$KIT_REPO" checkout -q --no-track -b "$branch" origin/main \
+    || { echo "cannot create branch $branch from origin/main" >&2; exit 5; }
+fi
+
+# Defensive re-check: the reachability guard above only protects the NEW-branch-from-
+# origin/main path. A pre-existing $branch (the show-ref case above) can predate the retro —
+# e.g. a stale branch left over from an earlier, abandoned staging attempt — so checking it
+# out can still make $retro vanish from the worktree even though it IS reachable from the
+# current origin/main. Catch that here, for either checkout path, rather than printing an
+# empty deltas section and a --body-file pointing at a file that no longer exists.
+if [ ! -r "$retro" ]; then
+  echo "retro file $retro is not readable on branch $branch after checkout — refusing to" >&2
+  echo "print stale/empty deltas." >&2
+  # Switch back to main before exiting: `git branch -D $branch` refuses to delete the branch
+  # that is currently checked out (RDD R4-exit8-remediation-fails), so leaving the repo on
+  # $branch would make the remediation advice below fail the moment it is run. Best-effort —
+  # print the checkout as part of the advice too, in case this one somehow does not take.
+  # kit issue #1031: report the outcome TRUTHFULLY — never claim a switch that did not happen.
+  if git -C "$KIT_REPO" checkout -q main 2>/dev/null; then
+    echo "Switched back to main. If $branch is a stale leftover branch that predates this retro," >&2
+  else
+    echo "Could NOT switch back to main (the checkout failed) — the repo is still on $branch." >&2
+    echo "If $branch is a stale leftover branch that predates this retro," >&2
+  fi
+  echo "delete it: git -C \"$KIT_REPO\" checkout main && git -C \"$KIT_REPO\" branch -D $branch" >&2
+  exit 8
+fi
+
+echo ">> on branch $branch (from origin/main). Proposed deltas to review/apply:"
+echo ""
+# Both sed ranges use '^## ' (any level-2 heading) as the end address rather than a specific
+# section title. This bounds the output even when a section is renamed or reordered — if the
+# named end heading is absent, a specific-title range floods to EOF. The generic pattern
+# terminates at whatever heading follows, and sed '$d' still removes that closing heading line
+# so the output for a well-formed retro is identical to the specific-title approach.
+sed -n '/^## Proposed kit deltas/,/^## /p' "$retro" | sed '$d'
+echo ""
+sed -n '/^## Tools built, adapted, or outgrown/,/^## /p' "$retro" | sed '$d'
+echo ""
+echo ">> NEXT STEPS (supervisor):"
+echo "   1. Apply the ACCEPTED deltas to the kit files on THIS branch (skip duplicates/unneeded ones)."
+echo "   2. git -C \"$KIT_REPO\" add -A && git -C \"$KIT_REPO\" commit -m 'feat(kit): apply retro deltas from $target ($slug)' -m 'Retro: $retro_ref'"
+echo "   3. VALIDATE BEFORE MERGE (mandatory — the applier must NOT self-approve): launch an INDEPENDENT"
+echo "      fresh-context reviewer over the applied deltas. It verifies each as FAITHFUL / DRIFT /"
+echo "      HALLUCINATION / MISSING / DUPLICATE against this retro's proposed-deltas table + current kit"
+echo "      state. Fix any DRIFT/hallucination on the branch first; only a clean review earns the merge."
+echo "   4. gh -R \"\$(git -C \"$KIT_REPO\" remote get-url origin)\" pr create --fill --base main --head $branch \\"
+echo "        --title 'retro: $target $slug' --body-file \"$retro\""
+echo "   5. Review the PR (conflicts vs main, dup vs other open retro PRs, necessity). Merge = applied, close = dismissed."
+echo "   6. Mark the source retro: set '<!-- review-status: applied <date> · kit <sha> -->' (or dismissed) at its top."
+echo "   7. Clean up the staging branch and the review transaction:"
+echo "      After the PR is merged or closed:"
+echo "        git -C \"\$KIT_REPO\" branch -d $branch"
+echo "        git push origin --delete $branch   (if the remote branch still exists)"
+echo "      If 'gentle-ai review status' returns 'lineage_selection_required', run it first to"
+echo "      pick the right lineage, then validate: gentle-ai review validate --gate pre-commit"
+echo "      --cwd \"\$KIT_REPO\". Stale .git/gentle-ai/review-transactions/v2/<lineage>/ dirs can"
+echo "      be archived once their PR is closed — 36 accumulated because this step was missing."
