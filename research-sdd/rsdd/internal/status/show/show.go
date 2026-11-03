@@ -21,6 +21,8 @@ type ctx struct {
 	target string
 	state  string
 	corpus string
+
+	focCache map[string]string // _RSDD_FOC_TOK_CACHE: the FOCUSES.md token per (file, state basename)
 }
 
 // tail is the part of the run after the pick. A slice that ports more sections replaces notPorted.
