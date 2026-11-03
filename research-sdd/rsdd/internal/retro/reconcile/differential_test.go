@@ -35,16 +35,8 @@ func runLegacy(t *testing.T, bash string, b *box) result {
 	for _, l := range []string{"retro-status", "retro-grammar", "target-paths"} {
 		copyFile(t, "testdata/legacy/lib/"+l+".sh", filepath.Join(tb, "lib", l+".sh"))
 	}
-	args := []string{filepath.Join(tb, "reconcile-issues.sh"), "--issues-cache", b.cache}
-	if b.closedArg != "" {
-		args = append(args, "--closed-cache", b.closedArg)
-	}
-	cmd := exec.Command(bash, append(args, b.arg)...)
-	env := map[string]string{"PATH": os.Getenv("PATH"), "LC_ALL": "C", "HOME": filepath.Join(b.root, "home"), "TMPDIR": b.root}
-	for k, v := range b.env {
-		env[k] = v
-	}
-	for k, v := range env {
+	cmd := exec.Command(bash, append([]string{filepath.Join(tb, "reconcile-issues.sh")}, b.args...)...)
+	for k, v := range b.environ() {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Dir = b.cwd
