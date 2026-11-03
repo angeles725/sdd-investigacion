@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // This file is the shared test harness. It carries no build tag: gremlins builds with -tags nodiff, and the case
@@ -21,6 +22,12 @@ import (
 // A case runs in a BOX: a temp dir that looks like a kit checkout (research-sdd/TARGETS.md with one registered
 // target, rh/<target>/retros/ holding the retro, cache.txt the --issues-cache file). The legacy run and the Go
 // run use the SAME box, so paths in messages are equal; box paths are replaced by @BOX@ in every recorded output.
+
+// TestMain raises the default parallelism: the cases wait on subprocesses, and GOMAXPROCS=2 would cap them at 2.
+func TestMain(m *testing.M) {
+	parallelfloor.Raise(8)
+	os.Exit(m.Run())
+}
 
 // dcase is one scenario.
 type dcase struct {
