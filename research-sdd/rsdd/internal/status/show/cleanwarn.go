@@ -61,8 +61,8 @@ func (c *ctx) cleanCheckSecs() int {
 		return cleanCheckDefaultSecs
 	}
 	n, err := strconv.Atoi(stripped)
-	if err != nil || n > 1<<30 {
-		return 1 << 30 // a value timeout(1) takes as effectively unbounded
+	if err != nil {
+		n = 1 << 30
 	}
-	return n
+	return min(n, 1<<30) // 1<<30: a value timeout(1) takes as effectively unbounded
 }

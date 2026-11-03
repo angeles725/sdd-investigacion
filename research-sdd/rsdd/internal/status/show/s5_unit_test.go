@@ -134,7 +134,7 @@ func TestCleanCheckTimeoutNormalised(t *testing.T) {
 	for _, c := range []struct {
 		val  string
 		want time.Duration
-	}{{"", 20}, {"abc", 20}, {"0", 20}, {"00", 20}, {"-1", 20}, {"1.5", 20}, {"1e3", 20}, {"5", 5}, {"010", 10}, {"007", 7}, {"99999999999999999999", 1 << 30}} {
+	}{{"", 20}, {"abc", 20}, {"0", 20}, {"00", 20}, {"-1", 20}, {"1.5", 20}, {"1e3", 20}, {"5", 5}, {"010", 10}, {"007", 7}, {"99999999999999999999", 1 << 30}, {"1073741823", 1<<30 - 1}, {"1073741824", 1 << 30}, {"1073741825", 1 << 30}} {
 		var got time.Duration
 		st := gateStubs{cc: func(_, _ string, to time.Duration, _ cli.Stdio) probeResult { got = to; return probeResult{} }}
 		runStubbed(t, nil, map[string]string{"RSDD_STATUS_NO_CLEAN_CHECK": "0", "RSDD_STATUS_CLEAN_CHECK_TIMEOUT": c.val}, st)
@@ -423,8 +423,8 @@ func TestNewestBlockEdges(t *testing.T) {
 func TestDeriveCoverageEdges(t *testing.T) {
 	for _, c := range []struct {
 		name, retro, wantEff string
-		wantErr             []string
-		notErr              string
+		wantErr              []string
+		notErr               string
 	}{
 		{"covers_through B0 counts", "covers_through: B0 focus=s\n", "5", []string{"overridden by retro coverage (covers_through B0, newest block B5 → 5)"}, "absent in"},
 		{"malformed plus over-range is not absent", "covers_through: Bx focus=s\ncovers_through: B9 focus=s\n", "20", []string{"malformed in", "exceeds newest block B5"}, "absent in"},
@@ -532,6 +532,57 @@ func TestRunNextAnswersRetroDueAndTheExhaustedStop(t *testing.T) {
 		rc, out, errb = runWorld(t, st4("", "0", 0, "", row("high", "G1 done", "covered")), flags...)
 		if rc != 0 || out != stopExhausted+"\n" || strings.Contains(errb, "not-yet-ported") {
 			t.Errorf("%v: rc=%d stdout=%q stderr=%q", flags, rc, out, errb)
+		}
+	}
+}
+
+// knob takes a non-negative integer up to 1<<31 and falls back to the default for anything else.
+func TestKnobBounds(t *testing.T) {
+	for v, want := range map[string]int{"0": 0, "7": 7, "2147483648": 2147483648, "2147483649": 99, "-1": 99, "x": 99, "": 99} {
+		c := &ctx{s: cli.Stdio{Env: func(k string) string {
+			if k == "K" {
+				return v
+			}
+			return ""
+		}}}
+		if got := c.knob("K", 99); got != want {
+			t.Errorf("knob(%q) = %d, want %d", v, got, want)
+		}
+	}
+}
+
+// The aggregate budget is measured on the run's clock: with a clock that advances past a non-zero budget, the walk
+// stops before the first probe and names the budget in seconds. A run without a clock never sees time pass.
+func TestIssuesGateAggregateBudgetOnAnAdvancingClock(t *testing.T) {
+	oldG, oldR := ghList, reconcileRun
+	defer func() { ghList, reconcileRun = oldG, oldR }()
+	ghList = func(gh.Options, ...string) (gh.RunResult, error) {
+		return gh.RunResult{State: gh.StateError, RC: 1}, nil
+	}
+	probes := 0
+	reconcileRun = func([]string, time.Duration, cli.Stdio) probeResult { probes++; return probeResult{rc: 0} }
+	root := t.TempDir()
+	must(t, os.WriteFile(filepath.Join(root, "r.md"), []byte("review-status: pending\n"), 0o644))
+	env := map[string]string{"TMPDIR": root, "_IDG_AGGREGATE_BUDGET_SECS": "2"}
+	for _, c := range []struct {
+		name      string
+		clock     func() time.Time
+		exceeded  bool
+		wantProbe int
+	}{
+		{"advancing clock", func() func() time.Time {
+			at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			return func() time.Time { at = at.Add(3 * time.Second); return at }
+		}(), true, 0},
+		{"no clock", nil, false, 1},
+	} {
+		probes = 0
+		var errb bytes.Buffer
+		g := &issuesGate{c: &ctx{s: cli.Stdio{Cwd: root, Out: &bytes.Buffer{}, Err: &errb, Env: func(k string) string { return env[k] }, Clock: c.clock}}}
+		g.probe([]string{"r.md"})
+		has := strings.Contains(errb.String(), "WARN: aggregate reconcile budget (2s) exceeded — marking coverage unverified\n")
+		if has != c.exceeded || g.unverified != c.exceeded || probes != c.wantProbe {
+			t.Errorf("%s: exceeded line %v unverified %v probes %d, want %v %v %d\n%s", c.name, has, g.unverified, probes, c.exceeded, c.exceeded, c.wantProbe, errb.String())
 		}
 	}
 }
