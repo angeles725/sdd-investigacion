@@ -16,10 +16,25 @@
 #   --selftest-teeth (internal) run only the offline teeth-wiring self-checks (decide_gremlins diagnostics, the
 #                    Makefile `make -n teeth` wiring, package scoping on a scratch git repo, verdict combining);
 #                    needs make and git, never go or gremlins.
+#                    It exports RSDD_GO_SELFTEST_NESTED, and a suite run that sees it exits 2 before any go command:
+#                    a self-test (or a --prove-teeth mutant copy) that re-invokes the suite can never start real Go.
 #   --teeth-packages BASE [MODDIR]
 #                    (internal) print the Go packages (./rel, one per line) under MODDIR (default: the module)
 #                    whose .go files changed between merge-base(BASE, HEAD) and the working tree; exit 3 when
 #                    BASE cannot be resolved.
+#   --teeth-files BASE [MODDIR]
+#                    (internal) print the per-PR teeth units (kit issue #2573): the changed non-test .go files (./rel/f.go,
+#                    LC_ALL=C sorted) of every changed package; a package whose only change is a _test.go brings all its
+#                    non-test files. Exit 3 when BASE cannot be resolved.
+#   --teeth-exclude PKG [MODDIR]
+#                    (internal) read PKG's selected files on stdin, print the gremlins --exclude-files regexp that keeps
+#                    only them ("/" drops subpackages, ^(other\.go|...)$ the package's other non-test files).
+#   --teeth-plan I/N [MODDIR]
+#                    (internal) read the --teeth-files list on stdin, print shard I's gremlins runs: one "PKG<TAB>EXCLUDE"
+#                    line per package holding at least one of the shard's files.
+#   --shard-select I/N
+#                    (internal) print the lines read from stdin that belong to shard I of N (see RSDD_TEETH_SHARD);
+#                    exit 2 and print nothing on an invalid I/N.
 #   --combine-verdicts FILE
 #                    (internal) fold the VERDICT lines of FILE into one: any FAIL -> FAIL, else any SKIP -> SKIP.
 #   --prove-teeth    one mutation control on a COPY of the module in $TMPDIR (never the live tree):
@@ -27,16 +42,34 @@
 #                    Scope of the gremlins step:
 #                      RSDD_TEETH_BASE unset  whole-module `make teeth` (the nightly).
 #                      RSDD_TEETH_BASE=<ref>  (a git ref, e.g. origin/main, set for pull_request events) only the
-#                        Go packages whose .go files changed between merge-base(<ref>, HEAD) and the working tree,
-#                        one `make teeth TEETH_PKG=./<pkg> TEETH_EXCLUDE=/` each (only the files directly in <pkg>:
-#                        a changed subpackage is its own entry). Zero changed packages is the typed state
-#                        `teeth: n/a - no Go package changed vs <ref>` (ok, never teeth); an unresolvable <ref> is
-#                        FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
+#                        changed files (kit issue #2573): the --teeth-files units between merge-base(<ref>, HEAD) and
+#                        the working tree, run as one `make teeth TEETH_PKG=./<pkg> TEETH_EXCLUDE=<regexp>` per package
+#                        (--teeth-plan: only the selected files directly in <pkg>; a changed subpackage is its own
+#                        entry). Zero changed files is the typed state `teeth: n/a - no Go package changed vs <ref>`
+#                        (ok, never teeth); an unresolvable <ref> is FAIL under RSDD_REQUIRE_GO=1 and SKIP otherwise.
+#                        A change with no _test.go edit mutates only its changed files, not the whole package: the
+#                        package's unchanged sibling files are covered by the nightly whole-module run.
+#                    RSDD_TEETH_SHARD=I/N (kit issues #2568, #2573; needs RSDD_TEETH_BASE) splits that flat file list
+#                      across N CI jobs, so one large package spreads over all of them: after LC_ALL=C sorting, shard I
+#                      keeps the files at 0-based positions p with p mod N == I-1. N is 1..32 and I is 1..N, written
+#                      without leading zeros; any other value is a typed FAIL before anything runs, as is a shard with
+#                      no RSDD_TEETH_BASE (the whole-module nightly is never sharded). A shard whose slice is empty
+#                      (fewer files than shards) is the typed `teeth: 0 files in shard I/N` (ok); no changed file at
+#                      all keeps the `n/a` state above. Shards 2..N skip the whole-module `make test` (shard 1 runs
+#                      it: gremlins' own baseline run still tests each package it mutates).
 #                    TEETH_WORKERS (default 4, Makefile) bounds gremlins' parallel mutant workers (its default is
 #                    one per CPU) and TEETH_TEST_CPU (default 1) the CPUs of each mutant's test run (as GOMAXPROCS,
 #                    never gremlins --test-cpu, whose "-cpu N" argument makes every mutant read KILLED); both pass
 #                    through the environment to make.
 set -uo pipefail
+
+# Depth bound for the nested-guard self-test only (kit issue #2573): when RSDD_GO_NEST_DEPTH is set, every invocation
+# increments it and a second level refuses at once (exit 3). It is independent of RSDD_GO_SELFTEST_NESTED, so the
+# mutant that deletes that guard turns its self-test red instead of recursing without bound.
+if [ -n "${RSDD_GO_NEST_DEPTH:-}" ]; then
+  RSDD_GO_NEST_DEPTH=$(( RSDD_GO_NEST_DEPTH + 1 )); export RSDD_GO_NEST_DEPTH
+  if [ "$RSDD_GO_NEST_DEPTH" -ge 2 ]; then echo "FATAL: nested suite depth $RSDD_GO_NEST_DEPTH (RSDD_GO_NEST_DEPTH bound)" >&2; exit 3; fi
+fi
 
 # count_go_output FILE -> "pass=N fail=M": one count per `ok <pkg>` / `FAIL <pkg>` line of `go test`.
 # `?  <pkg> [no test files]` is neither; a `FAIL` with no package (summary line) is not counted.
@@ -109,18 +142,103 @@ decide_gremlins() {
   fi
 }
 
+# changed_paths MODDIR BASE -> every path (relative to MODDIR, one per line) changed between merge-base(BASE, HEAD)
+# and the working tree: tracked edits, deletions and untracked files. Exit 3: MODDIR is not in a git work tree or
+# BASE has no merge-base with HEAD (the callers type that state).
+changed_paths() {
+  local mod="$1" base="$2" top mb lines more
+  top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" rev-parse --show-toplevel 2>/dev/null)" || return 3
+  mb="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top" merge-base "$base" HEAD 2>/dev/null)" || return 3
+  lines="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" diff --name-only --no-renames --relative "$mb" -- .)" || return 3
+  more="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" ls-files --others --exclude-standard -- .)" || return 3
+  printf '%s\n%s\n' "$lines" "$more"
+}
+
+# package_go_files MODDIR PKG -> the non-test .go files directly in PKG ("./rel/file.go", LC_ALL=C sorted).
+package_go_files() {
+  local f dir="$1/${2#./}"
+  [ "$2" = "." ] && dir="$1"
+  for f in "$dir"/*.go; do
+    [ -f "$f" ] || continue
+    case "$f" in *_test.go) continue ;; esac
+    if [ "$2" = "." ]; then echo "./$(basename "$f")"; else echo "$2/$(basename "$f")"; fi
+  done | LC_ALL=C sort
+}
+
+# changed_go_files MODDIR BASE -> the shard unit of RSDD_TEETH_SHARD (kit issue #2573): the flat, LC_ALL=C-sorted
+# list ("./rel/file.go") of the non-test .go files gremlins mutates for a PR. A changed non-test file is a unit
+# (a deleted one is gone). A changed package with a changed _test.go, or with no changed non-test file left,
+# contributes ALL its non-test files: a test edit can change the kills of any of them (also when a non-test file
+# changed alongside), and dropping the package would be a silent zero.
+# _test.go files are never units (gremlins does not mutate them). Exit 3 as changed_go_packages.
+changed_go_files() {
+  local mod="$1" base="$2" f d lines pkgs p chg test_pkgs
+  lines="$(changed_paths "$mod" "$base")" || return 3
+  pkgs="$(changed_go_packages "$mod" "$base")" || return 3
+  chg="$(while IFS= read -r f; do
+    case "$f" in *_test.go) continue ;; *.go) ;; *) continue ;; esac
+    d="$(dirname "$f")"
+    case "/$d/" in */testdata/*|*/_*|*/.[!/]*) continue ;; esac
+    [ -f "$mod/$f" ] || continue
+    echo "./$f"
+  done <<<"$lines")"
+  # test_pkgs: the package dirs ("." or "./rel", as changed_go_packages prints them) holding a changed _test.go.
+  test_pkgs="$(while IFS= read -r f; do
+    case "$f" in *_test.go) d="$(dirname "$f")"; if [ "$d" = . ]; then echo .; else echo "./$d"; fi ;; esac
+  done <<<"$lines")"
+  {
+    [ -z "$chg" ] || echo "$chg"
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      # a package keeps its changed non-test files; a test edit, or no changed non-test file, brings every one
+      if grep -qxF "$p" <<<"$test_pkgs" || ! grep -qxF "$p" <<<"$(sed 's|/[^/]*$||' <<<"$chg")"; then
+        package_go_files "$mod" "$p"
+      fi
+    done <<<"$pkgs"
+  } | LC_ALL=C sort -u
+}
+
+# exclude_regexp MODDIR PKG -> reads the shard's files of PKG ("./rel/file.go") on stdin and prints the gremlins
+# --exclude-files regexp (matched on the path relative to PKG) that mutates only them: "/" drops every subpackage
+# file, and the package's other non-test files are listed as ^name\.go$ (a lone "/" when every file is selected).
+exclude_regexp() {
+  local mod="$1" pkg="$2" sel f b alts=""
+  sel="$(cat)"
+  while IFS= read -r f; do
+    grep -qxF "$f" <<<"$sel" && continue
+    b="$(basename "$f")"; b="${b//./\\.}"
+    alts="${alts:+$alts|}$b"
+  done < <(package_go_files "$mod" "$pkg")
+  if [ -n "$alts" ]; then echo "/|^($alts)\$"; else echo "/"; fi
+}
+
+# teeth_plan MODDIR I N -> reads the changed-file list (changed_go_files) on stdin and prints the gremlins runs of
+# shard I of N, one "PKG<TAB>EXCLUDE" line per package that holds at least one of the shard's files (LC_ALL=C order):
+# the files at 0-based positions p with p mod N == I-1 (select_shard), grouped by the package directory they sit in,
+# EXCLUDE being exclude_regexp of that package's selected files. Prints nothing when the shard's slice is empty.
+teeth_plan() {
+  local mod="$1" i="$2" n="$3" sel pk p f
+  sel="$(select_shard "$i" "$n")"
+  [ -n "$sel" ] || return 0
+  pk="$(while IFS= read -r f; do echo "${f%/*}"; done <<<"$sel" | LC_ALL=C sort -u)"
+  while IFS= read -r p; do
+    printf '%s\t%s\n' "$p" "$(while IFS= read -r f; do if [ "${f%/*}" = "$p" ]; then echo "$f"; fi; done <<<"$sel" \
+      | exclude_regexp "$mod" "$p")"
+  done <<<"$pk"
+}
+
+# make_value S -> S with every "$" doubled: a value given to make on its command line is expanded again, so the
+# "$" anchor of an exclude regexp would otherwise vanish (make reads "$)" as a variable named ")").
+make_value() { printf '%s' "${1//\$/\$\$}"; }
+
 # changed_go_packages MODDIR BASE -> prints one Go package per line ("." or "./rel", sorted), for every package
 # under MODDIR with a .go file (test files included) changed between merge-base(BASE, HEAD) and the working
 # tree (tracked edits, deletions and untracked files). A package whose directory is gone or holds no .go
 # file any more is skipped, as are testdata and _/. directories (the go tool ignores them). Exit 3: MODDIR
 # is not in a git work tree or BASE has no merge-base with HEAD (the caller types that state).
 changed_go_packages() {
-  local mod="$1" base="$2" top mb f d lines
-  top="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" rev-parse --show-toplevel 2>/dev/null)" || return 3
-  mb="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$top" merge-base "$base" HEAD 2>/dev/null)" || return 3
-  lines="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" diff --name-only --no-renames --relative "$mb" -- .)" || return 3
-  lines="$lines
-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" ls-files --others --exclude-standard -- .)" || return 3
+  local mod="$1" base="$2" f d lines
+  lines="$(changed_paths "$mod" "$base")" || return 3
   while IFS= read -r f; do
     case "$f" in *.go) ;; *) continue ;; esac
     d="$(dirname "$f")"
@@ -129,6 +247,20 @@ $(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE git -C "$mod" ls-files --oth
     compgen -G "$mod/$d/*.go" >/dev/null || continue
     if [ "$d" = "." ]; then echo "."; else echo "./$d"; fi
   done <<<"$lines" | LC_ALL=C sort -u
+}
+
+# parse_shard SPEC -> sets SHARD_I and SHARD_N, returns 0 only for I/N with N in 1..32 and I in 1..N, no leading
+# zeros, signs or blanks. The length checks come first so the arithmetic never sees an overflowing number.
+parse_shard() {
+  [[ "$1" =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]] || return 1
+  SHARD_I="${BASH_REMATCH[1]}"; SHARD_N="${BASH_REMATCH[2]}"
+  [ "${#SHARD_I}" -le 2 ] && [ "${#SHARD_N}" -le 2 ] || return 1
+  [ "$SHARD_N" -le 32 ] && [ "$SHARD_I" -le "$SHARD_N" ]
+}
+
+# select_shard I N -> stdin lines at 0-based positions p with p mod N == I-1 (a disjoint cover for every N).
+select_shard() {
+  awk -v i="$1" -v n="$2" '(NR - 1) % n == i - 1' # SENTINEL-TEETH-SHARD-ASSIGN
 }
 
 # combine_verdicts FILE -> one VERDICT line from the VERDICT lines of FILE: any FAIL -> FAIL, else any SKIP -> SKIP,
@@ -167,9 +299,29 @@ if [ "${1:-}" = "--combine-verdicts" ]; then
   combine_verdicts "$2"; exit 0
 fi
 
+if [ "${1:-}" = "--shard-select" ]; then
+  parse_shard "${2:-}" || { echo "FATAL: --shard-select needs I/N (N 1..32, I 1..N), got [${2:-}]" >&2; exit 2; }
+  select_shard "$SHARD_I" "$SHARD_N"; exit $?
+fi
+
 if [ "${1:-}" = "--teeth-packages" ]; then
   [ -n "${2:-}" ] || { echo "FATAL: --teeth-packages needs a BASE ref" >&2; exit 2; }
   changed_go_packages "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$2"; exit $?
+fi
+
+if [ "${1:-}" = "--teeth-files" ]; then
+  [ -n "${2:-}" ] || { echo "FATAL: --teeth-files needs a BASE ref" >&2; exit 2; }
+  changed_go_files "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$2"; exit $?
+fi
+
+if [ "${1:-}" = "--teeth-exclude" ]; then
+  [ -n "${2:-}" ] || { echo "FATAL: --teeth-exclude needs a PKG (./rel or .)" >&2; exit 2; }
+  exclude_regexp "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$2"; exit $?
+fi
+
+if [ "${1:-}" = "--teeth-plan" ]; then
+  parse_shard "${2:-}" || { echo "FATAL: --teeth-plan needs I/N (N 1..32, I 1..N), got [${2:-}]" >&2; exit 2; }
+  teeth_plan "${3:-$(cd "$(dirname "$0")/../../rsdd" && pwd)}" "$SHARD_I" "$SHARD_N"; exit $?
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -184,6 +336,7 @@ no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
 # selftest_teeth DIR: the offline checks of the teeth wiring and scoping (no go, no gremlins). DIR is scratch.
 selftest_teeth() {
   local dir="$1" g c crc d
+  export RSDD_GO_SELFTEST_NESTED=1   # every `bash "$0"` below is bounded: it can never reach the real Go run
   # Diagnostics: a failing baseline `go test` inside gremlins prints only `exit status 1`; the verdict must
   # still name the failing test even when it is further up than the last three lines.
   printf '%s\n' '--- FAIL: TestX (0.00s)' '    x_test.go:12: boom' 'FAIL' $'FAIL\texample.test/m/b\t0.005s' \
@@ -238,6 +391,118 @@ selftest_teeth() {
   bash "$0" --teeth-packages main "$dir" >/dev/null 2>&1; crc=$?
   if [ "$crc" -eq 3 ]; then ok "package scope: a directory outside any work tree exits 3"; else no "package scope: non-repo rc=$crc, want 3"; fi
 
+  # Shard selection (kit issue #2568): RSDD_TEETH_SHARD=I/N keeps the packages at 0-based positions p with
+  # p mod N == I-1 of the sorted changed list. Seven packages and N=3 put a package in the FIRST, MIDDLE and LAST
+  # position of every slice; --shard-select reads the list on stdin and prints the slice.
+  local pk7 s1 s2 s3 sx
+  pk7="$(printf '%s\n' ./a ./b ./c ./d ./e ./f ./g)"
+  s1="$(bash "$0" --shard-select 1/3 <<<"$pk7" | tr '\n' ' ')"; s2="$(bash "$0" --shard-select 2/3 <<<"$pk7" | tr '\n' ' ')"
+  s3="$(bash "$0" --shard-select 3/3 <<<"$pk7" | tr '\n' ' ')"
+  if [ "$s1" = "./a ./d ./g " ] && [ "$s2" = "./b ./e " ] && [ "$s3" = "./c ./f " ]; then
+    ok "shard select: 1/3, 2/3 and 3/3 of seven packages are the disjoint cover a,d,g / b,e / c,f"
+  else no "shard select: wrong slices [$s1] [$s2] [$s3]"; fi
+  s1="$(bash "$0" --shard-select 1/1 <<<"$pk7" | tr '\n' ' ')"
+  if [ "$s1" = "./a ./b ./c ./d ./e ./f ./g " ]; then ok "shard select: 1/1 keeps every package"; else no "shard select: 1/1 wrong [$s1]"; fi
+  s1="$(bash "$0" --shard-select 1/3 <<<"./only")"; s2="$(bash "$0" --shard-select 2/3 <<<"./only")"; s3="$(bash "$0" --shard-select 3/3 <<<"./only")"
+  if [ "$s1" = "./only" ] && [ -z "$s2" ] && [ -z "$s3" ]; then
+    ok "shard select: a single package lands in shard 1 only; N > packages leaves shards 2 and 3 empty"
+  else no "shard select: single package wrong [$s1] [$s2] [$s3]"; fi
+  sx=ok
+  for d in 0/3 4/3 1/0 3/2 abc 1/ /3 '' 1/2/3 -1/3 01/3 1/33 1/999999999999999999999 ' 1/3'; do
+    s1="$(bash "$0" --shard-select "$d" <<<"$pk7" 2>/dev/null)"; crc=$?
+    if [ "$crc" -ne 2 ] || [ -n "$s1" ]; then sx="[$d] rc=$crc out=[$s1]"; break; fi
+  done
+  if [ "$sx" = ok ]; then ok "shard select: invalid specs exit 2 and print no package (never a silent full or empty slice)"
+  else no "shard select: invalid spec accepted: $sx"; fi
+  # The whole suite refuses a bad or base-less shard before any go work: a typed FAIL, exit 1.
+  # A fake old `go` first on PATH bounds both calls: if a mutant accepted the selector the nested suite would stop
+  # at the toolchain gate (rc 0, a SKIP) instead of recursing into this self-test without end.
+  mkdir -p "$dir/fakego"; printf '#!/bin/sh\n[ "$1" = version ] && echo "go version go1.20.1 linux/amd64"\nexit 0\n' > "$dir/fakego/go"; chmod +x "$dir/fakego/go"
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_TEETH_SHARD=4/3 RSDD_TEETH_BASE=main bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_TEETH_SHARD=4/3 is not I/N' <<<"$g"; then
+    ok "shard select: the suite fails on an invalid RSDD_TEETH_SHARD before running anything"; else no "shard select: bad shard not a FAIL (rc=$crc): $g"; fi
+  g="$(PATH="$dir/fakego:$PATH" RSDD_REQUIRE_GO='' RSDD_TEETH_SHARD=1/3 RSDD_TEETH_BASE='' bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 1 ] && grep -q 'FAIL  RSDD_TEETH_SHARD=1/3 needs RSDD_TEETH_BASE' <<<"$g"; then
+    ok "shard select: a shard without RSDD_TEETH_BASE (whole-module run) is a FAIL, not a silent full run"; else no "shard select: base-less shard not a FAIL (rc=$crc): $g"; fi
+
+  # File-level shard unit (kit issue #2573): the changed non-test .go files of all changed packages, flat and
+  # LC_ALL=C sorted, are what RSDD_TEETH_SHARD splits; each package is then mutated only on its shard's files.
+  local fm="$dir/files/mod" fl f7 sf1 sf2 sf3 un
+  local fg=(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -c user.name=t -c user.email=t@t -c init.defaultBranch=main -C "$dir/files")
+  mkdir -p "$fm"/{big,mid,mix,tonly,sub/deep,testdata/t}
+  for f in a b c d e f g h; do printf 'package big\n' > "$fm/big/$f.go"; done
+  printf 'package big\n' > "$fm/big/a_test.go"; printf 'package mid\n' > "$fm/mid/m1.go"; printf 'package mid\n' > "$fm/mid/m2.go"
+  printf 'package tonly\n' > "$fm/tonly/t1.go"; printf 'package tonly\n' > "$fm/tonly/t2.go"; printf 'package tonly\n' > "$fm/tonly/t1_test.go"
+  printf 'package sub\n' > "$fm/sub/s.go"; printf 'package deep\n' > "$fm/sub/deep/d.go"; printf 'package t\n' > "$fm/testdata/t/t.go"
+  printf 'package mix\n' > "$fm/mix/x.go"; printf 'package mix\n' > "$fm/mix/y.go"; printf 'package mix\n' > "$fm/mix/x_test.go"
+  printf 'package main\n' > "$fm/root.go"; printf 'package main\n' > "$fm/root2.go"; printf 'module m\n' > "$fm/go.mod"
+  "${fg[@]}" init -q && "${fg[@]}" add -A && "${fg[@]}" commit -q --no-verify -m c1 || { no "file scope: scratch repo setup failed"; return 0; }
+  "${fg[@]}" branch base
+  for f in b c d e f g h; do printf '// edit\n' >> "$fm/big/$f.go"; done      # seven changed files in one package
+  printf '// edit\n' >> "$fm/mix/x.go"; printf '// edit\n' >> "$fm/mix/x_test.go"   # mixed change: the test edit brings y.go too
+  printf '// edit\n' >> "$fm/mid/m2.go"; printf 'package mid\n' > "$fm/mid/m3.go"   # tracked edit + untracked new file
+  printf '// edit\n' >> "$fm/tonly/t1_test.go"                                # test-only package: every non-test file
+  rm "$fm/sub/s.go"; printf '// edit\n' >> "$fm/sub/deep/d.go"; printf '// edit\n' >> "$fm/testdata/t/t.go"
+  printf '// edit\n' >> "$fm/root2.go"
+  fl="$(bash "$0" --teeth-files base "$fm")"; crc=$?
+  f7="$(printf '%s\n' ./big/b.go ./big/c.go ./big/d.go ./big/e.go ./big/f.go ./big/g.go ./big/h.go ./mid/m2.go ./mid/m3.go ./mix/x.go ./mix/y.go ./root2.go ./sub/deep/d.go ./tonly/t1.go ./tonly/t2.go)"
+  if [ "$crc" -eq 0 ] && [ "$fl" = "$f7" ]; then
+    ok "file scope: changed non-test files are the units; _test.go, deleted, testdata and untouched files are not; a package with a test edit (test-only or mixed) brings all its non-test files"
+  else no "file scope: got rc=$crc [$(tr '\n' ' ' <<<"$fl")]"; fi
+  sf1="$(bash "$0" --shard-select 1/3 <<<"$fl" | tr '\n' ' ')"; sf2="$(bash "$0" --shard-select 2/3 <<<"$fl" | tr '\n' ' ')"
+  sf3="$(bash "$0" --shard-select 3/3 <<<"$fl" | tr '\n' ' ')"
+  if [ "$sf1" = "./big/b.go ./big/e.go ./big/h.go ./mix/x.go ./sub/deep/d.go " ] \
+     && [ "$sf2" = "./big/c.go ./big/f.go ./mid/m2.go ./mix/y.go ./tonly/t1.go " ] \
+     && [ "$sf3" = "./big/d.go ./big/g.go ./mid/m3.go ./root2.go ./tonly/t2.go " ] \
+     && [ "$(sort <<<"$(tr ' ' '\n' <<<"$sf1$sf2$sf3" | grep .)")" = "$(sort <<<"$fl")" ]; then
+    ok "file shard: 1/3, 2/3 and 3/3 of fifteen files are a disjoint cover (union = every file), so one package spreads over all jobs"
+  else no "file shard: wrong slices [$sf1] [$sf2] [$sf3]"; fi
+  if [ "$(bash "$0" --shard-select 1/1 <<<"$fl")" = "$fl" ]; then ok "file shard: 1/1 keeps every file"; else no "file shard: 1/1 wrong"; fi
+  un="$(bash "$0" --shard-select 3/4 <<<"./only/x.go")"
+  if [ -z "$un" ] && [ "$(bash "$0" --shard-select 1/4 <<<"./only/x.go")" = "./only/x.go" ]; then
+    ok "file shard: a single file lands in shard 1 only; N > files leaves the other shards empty"
+  else no "file shard: single file wrong [$un]"; fi
+  # The exclusion regexp a package run passes to gremlins: subpackages ("/") plus the package's other non-test files.
+  un="$(bash "$0" --teeth-exclude ./big "$fm" <<<"$(printf '%s\n' ./big/b.go ./big/e.go ./big/h.go)")"
+  if [ "$un" = '/|^(a\.go|c\.go|d\.go|f\.go|g\.go)$' ]; then ok "file shard: a package run excludes subpackages and the package's other non-test files"
+  else no "file shard: wrong exclude [$un]"; fi
+  un="$(bash "$0" --teeth-exclude ./mid "$fm" <<<"$(printf '%s\n' ./mid/m1.go ./mid/m2.go ./mid/m3.go)")"
+  if [ "$un" = "/" ]; then ok "file shard: a package run with every file selected excludes only subpackages (the old shape)"
+  else no "file shard: full-package exclude wrong [$un]"; fi
+  un="$(bash "$0" --teeth-exclude . "$fm" <<<"./root.go")"
+  if [ "$un" = '/|^(root2\.go)$' ]; then ok "file shard: the root package run is scoped by file too"; else no "file shard: root exclude wrong [$un]"; fi
+  # The plan the teeth loop runs: one gremlins run per package holding a shard file, excluding its other files.
+  local p1 p2 p3 tab=$'\t'
+  p1="$(bash "$0" --teeth-plan 1/3 "$fm" <<<"$fl")"; p2="$(bash "$0" --teeth-plan 2/3 "$fm" <<<"$fl")"
+  p3="$(bash "$0" --teeth-plan 3/3 "$fm" <<<"$fl")"
+  if [ "$p1" = "./big${tab}/|^(a\.go|c\.go|d\.go|f\.go|g\.go)\$
+./mix${tab}/|^(y\.go)\$
+./sub/deep${tab}/" ] && [ "$p2" = "./big${tab}/|^(a\.go|b\.go|d\.go|e\.go|g\.go|h\.go)\$
+./mid${tab}/|^(m1\.go|m3\.go)\$
+./mix${tab}/|^(x\.go)\$
+./tonly${tab}/|^(t2\.go)\$" ] && [ "$p3" = ".${tab}/|^(root\.go)\$
+./big${tab}/|^(a\.go|b\.go|c\.go|e\.go|f\.go|h\.go)\$
+./mid${tab}/|^(m1\.go|m2\.go)\$
+./tonly${tab}/|^(t1\.go)\$" ]; then
+    ok "file plan: each shard runs gremlins once per package it holds, excluding that package's other files"
+  else no "file plan: wrong [$p1] [$p2] [$p3]"; fi
+  # Every changed file is mutated in exactly one shard: what a shard's runs do not exclude, over all shards.
+  un="$(for s in 1/3 2/3 3/3; do bash "$0" --teeth-plan "$s" "$fm" <<<"$fl" | while IFS="$tab" read -r p x; do
+      for f in "$fm/${p#./}"/*.go; do
+        f="${f##*/}"; case "$f" in *_test.go) continue ;; esac
+        grep -Eq "$x" <<<"$f" || echo "$p/$f"; done; done; done | sed 's|^\./\./|./|; s|^\.//|./|' | LC_ALL=C sort)"
+  if [ "$un" = "$(LC_ALL=C sort <<<"$fl")" ]; then ok "file plan: over all shards every changed file is mutated exactly once"
+  else no "file plan: mutated set [$(tr '\n' ' ' <<<"$un")] != changed files"; fi
+  if [ -z "$(bash "$0" --teeth-plan 3/4 "$fm" <<<"./only/x.go")" ]; then ok "file plan: an empty shard slice plans no run"
+  else no "file plan: empty slice planned a run"; fi
+  # The nested guard: a self-test that re-invokes the suite can never reach the real Go run.
+  mkdir -p "$dir/markgo"; printf '#!/bin/sh\ntouch "%s/markgo/RAN"\n[ "$1" = version ] && echo "go version go1.99.0 linux/amd64"\nexit 0\n' "$dir" > "$dir/markgo/go"
+  chmod +x "$dir/markgo/go"
+  g="$(PATH="$dir/markgo:$PATH" RSDD_TEETH_SHARD='' RSDD_TEETH_BASE='' RSDD_GO_NEST_DEPTH="${RSDD_GO_NEST_DEPTH:-0}" timeout 60 bash "$0" 2>&1)"; crc=$?
+  if [ "$crc" -eq 2 ] && grep -q 'RSDD_GO_SELFTEST_NESTED set' <<<"$g" && [ ! -e "$dir/markgo/RAN" ]; then
+    ok "nested guard: a self-test re-invoking the suite exits 2 before any go command runs"
+  else no "nested guard: rc=$crc ran=$([ -e "$dir/markgo/RAN" ] && echo yes || echo no): $(head -c 300 <<<"$g")"; fi
+
   # Verdict folding.
   printf 'VERDICT: PASS a\nVERDICT: SKIP b\n' > "$dir/v-skip"; printf 'VERDICT: PASS a\nVERDICT: FAIL 1 lived\nVERDICT: SKIP b\n' > "$dir/v-fail"
   printf 'VERDICT: PASS a\nVERDICT: PASS b\n' > "$dir/v-pass"; : > "$dir/v-none"
@@ -253,6 +518,36 @@ if [ "${1:-}" = "--selftest-teeth" ]; then
   ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go-st.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
   selftest_teeth "$ROOT"
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]; exit $?
+fi
+
+# Recursion guard: every internal mode is handled above, so any other first argument must stop here. Without this a
+# mistyped or not-yet-implemented internal mode (a self-test calls `bash "$0" --mode`) fell through to the real
+# `make test` and re-ran the self-tests, a fork-bomb-shaped chain of unbounded `go test ./...` runs.
+case "${1:-}" in
+  ""|--prove-teeth) ;;
+  *) echo "FATAL: unknown option [$1]: no internal mode by that name (refusing to fall through to the real Go run)" >&2; exit 2 ;;
+esac
+
+# Shard validation first: a bad selector must never fall back to a full or an empty run.
+SHARDED=0
+if [ -n "${RSDD_TEETH_SHARD+x}" ] && [ -n "${RSDD_TEETH_SHARD}" ]; then
+  if ! parse_shard "$RSDD_TEETH_SHARD"; then
+    no "RSDD_TEETH_SHARD=$RSDD_TEETH_SHARD is not I/N (N 1..32, I 1..N, no leading zeros)"
+    echo "== $pass passed · $fail failed =="; exit 1
+  fi
+  if [ -z "${RSDD_TEETH_BASE:-}" ]; then
+    no "RSDD_TEETH_SHARD=$RSDD_TEETH_SHARD needs RSDD_TEETH_BASE (the whole-module run is not sharded)"
+    echo "== $pass passed · $fail failed =="; exit 1
+  fi
+  SHARDED=1
+fi
+
+# Nested guard: selftest_teeth exports RSDD_GO_SELFTEST_NESTED, so a self-test (or a mutant copy of this suite run by
+# --prove-teeth) that re-invokes the suite can never reach the real `make test` / gremlins below. Two such chains of
+# unbounded `go test ./...` runs once drove a 16-core host to load 62 (kit issue #2573).
+if [ -n "${RSDD_GO_SELFTEST_NESTED:-}" ]; then
+  echo "FATAL: nested invocation from a self-test (RSDD_GO_SELFTEST_NESTED set): refusing to run the real Go suite" >&2
+  exit 2
 fi
 
 if ! command -v go >/dev/null 2>&1; then
@@ -286,8 +581,13 @@ ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rsdd-go.XXXXXX")"; trap 'rm -rf "$ROOT"' EXIT
 # is itself one failure, and zero tested packages is a failure (a silent zero proves nothing).
 # `make test` runs it so every test binary carries the Makefile's memory cap and timeout (see containment).
 out="$ROOT/gotest.out"
-make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
-rc=$?
+if [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; then
+  echo "go test: whole-module run skipped in shard $SHARD_I/$SHARD_N (it runs in shard 1/$SHARD_N)"
+  : > "$out"; rc=0
+else
+  make -s -C "$MOD" test TESTFLAGS=-count=1 >"$out" 2>&1
+  rc=$?
+fi
 counts="$(count_go_output "$out")"
 npass="${counts#pass=}"; npass="${npass%% *}"
 nfail="${counts##*fail=}"
@@ -298,7 +598,7 @@ if [ "$rc" -ne 0 ] && [ "$nfail" -eq 0 ]; then
   no "go test exited $rc with no per-package FAIL line (build/setup error); tail follows"
   tail -n 15 "$out"
 fi
-if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ]; then
+if [ "$npass" -eq 0 ] && [ "$nfail" -eq 0 ] && [ "$rc" -eq 0 ] && ! { [ "$SHARDED" -eq 1 ] && [ "$SHARD_I" -ne 1 ]; }; then
   no "go test ran zero test packages - refusing to read that as a pass"
 fi
 if [ "$fail" -ne 0 ]; then tail -n 30 "$out"; fi
@@ -469,7 +769,7 @@ g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)
 if grep -q '^VERDICT: FAIL gremlins did not run (rc=1, RSDD_REQUIRE_GO=1)' <<<"$g"; then
   ok "gremlins: tool unavailable under RSDD_REQUIRE_GO=1 -> FAIL"; else no "gremlins: required-unavailable case wrong: $g"; fi
 
-mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"
+mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"; unset RSDD_GO_SELFTEST_NESTED
 
 if [ "${1:-}" != "--prove-teeth" ]; then
   echo "== $pass passed · $fail failed =="; [ "$fail" -eq 0 ]
@@ -579,6 +879,55 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "merge-base mutation" "$0" "$MU
     pass=$((pass+1))
   else fail=$((fail+1)); fi
 fi
+# Shard teeth: the slice offset and the I<=N bound are each load-bearing.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "shard-offset mutation" "$0" "$MUTDIR/rsdd-go-so.test.sh" \
+    's/(NR - 1) % n == i - 1/(NR - 1) % n == i/'; then
+  if mutant_tooth "teeth: a shard slice shifted by one position is caught" 0 1 \
+      "$MUTDIR/rsdd-go-so.test.sh" --orig "$0" \
+      --good-has 'PASS  shard select: 1/3, 2/3 and 3/3' --bad-has 'FAIL  shard select: wrong slices' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "shard-bound mutation" "$0" "$MUTDIR/rsdd-go-sb.test.sh" \
+    's/ && \[ "\$SHARD_I" -le "\$SHARD_N" \]//'; then
+  if mutant_tooth "teeth: a shard selector with I > N accepted is caught" 0 1 \
+      "$MUTDIR/rsdd-go-sb.test.sh" --orig "$0" \
+      --good-has 'PASS  shard select: invalid specs' --bad-has 'FAIL  shard select: invalid spec accepted' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+# File-level shard teeth (kit issue #2573): the plan's slice offset, and a changed file silently dropped.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "file-offset mutation" "$0" "$MUTDIR/rsdd-go-fo.test.sh" \
+    's/sel="\$(select_shard "\$i" "\$n")"/sel="$(select_shard "$(( i % n + 1 ))" "$n")"/'; then
+  if mutant_tooth "teeth: a file plan shifted by one shard is caught" 0 1 \
+      "$MUTDIR/rsdd-go-fo.test.sh" --orig "$0" \
+      --good-has 'PASS  file plan: each shard runs gremlins once' --bad-has 'FAIL  file plan: wrong' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "file-dropped mutation" "$0" "$MUTDIR/rsdd-go-fd.test.sh" \
+    "s/^  } | LC_ALL=C sort -u\$/  } | LC_ALL=C sort -u | sed '\$d'/"; then
+  if mutant_tooth "teeth: a changed file dropped from every shard is caught" 0 1 \
+      "$MUTDIR/rsdd-go-fd.test.sh" --orig "$0" \
+      --good-has 'PASS  file scope: changed non-test files are the units' --bad-has 'FAIL  file scope: got rc=0' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+# Nested guard teeth: without RSDD_GO_SELFTEST_NESTED the self-test re-entry reaches go (bounded by RSDD_GO_NEST_DEPTH and
+# timeout 60, never a runaway) and its case goes red.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "nested-guard mutation" "$0" "$MUTDIR/rsdd-go-ng.test.sh" \
+    's/^if \[ -n "\${RSDD_GO_SELFTEST_NESTED:-}" \]; then$/if false; then/'; then
+  if mutant_tooth "teeth: a suite without the nested guard lets a self-test re-entry reach go" 0 1 \
+      "$MUTDIR/rsdd-go-ng.test.sh" --orig "$0" \
+      --good-has 'PASS  nested guard: a self-test re-invoking the suite exits 2' --bad-has 'FAIL  nested guard: rc=' -- \
+      env RSDD_GO_MOD="$MOD" bash @SUT@ --selftest-teeth; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
 # 3) a teeth recipe without --workers (gremlins' one-worker-per-CPU default) is caught by the wiring pin.
 if MUTANT_SYNTAX=none mutant_chain_or_count fail "workers-wiring mutation" "$MOD/Makefile" "$MUTDIR/Makefile.workers" \
     's/ --workers \$(TEETH_WORKERS)//'; then
@@ -670,6 +1019,12 @@ else
   fi
   case "$sf_sub" in "control=none sub="[1-9]*) ok "teeth shallow scope: a changed subpackage is still checked on its own (its LIVED mutant is reported)" ;;
     *) no "teeth shallow scope: changed subpackage want control=none sub>=1, got $sf_sub" ;; esac
+  # File-level scope (kit issue #2573): the plan's exclude regexp, through make_value, drops the excluded file's
+  # mutants. Excluding a.go (and not the subpackage, so gremlins still has mutants to report) removes the LIVED
+  # control and keeps b/b.go's; a regexp whose "$" make swallowed would not even compile (gremlins would not run).
+  sf_file="$(scope_fixture "$MOD/Makefile" ./a live "TEETH_EXCLUDE=$(make_value '^(a\.go)$')")"
+  case "$sf_file" in "control=none sub="[1-9]*) ok "teeth file scope: an excluded file's mutants are not run (a.go's LIVED control disappears, b/b.go's stays)" ;;
+    *) no "teeth file scope: excluding a.go want control=none sub>=1, got $sf_file" ;; esac
 fi
 
 # Mutation testing (gremlins, pinned in the Makefile): the gate is zero LIVED mutants among covered ones.
@@ -681,18 +1036,31 @@ if [ -z "${RSDD_TEETH_BASE:-}" ]; then
   verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
   echo "$verdict" | grep -v '^VERDICT:'
 else
-  pkgs="$(changed_go_packages "$MOD" "$RSDD_TEETH_BASE")"; prc=$?
+  files="$(changed_go_files "$MOD" "$RSDD_TEETH_BASE")"; prc=$?
   if [ "$prc" -ne 0 ]; then
     verdict="VERDICT: SKIP RSDD_TEETH_BASE=$RSDD_TEETH_BASE cannot be resolved (not a work tree, or no merge-base with HEAD)"
     [ "${RSDD_REQUIRE_GO:-}" = "1" ] && verdict="VERDICT: FAIL RSDD_TEETH_BASE=$RSDD_TEETH_BASE cannot be resolved (RSDD_REQUIRE_GO=1)"
-  elif [ -z "$pkgs" ]; then
+  elif [ -z "$files" ]; then
     echo "teeth: n/a — no Go package changed vs $RSDD_TEETH_BASE"
     ok "teeth: n/a — no Go package changed vs $RSDD_TEETH_BASE (not counted as teeth)"
     verdict="VERDICT: NA"
   else
-    echo "teeth scope: changed vs $RSDD_TEETH_BASE — $(wc -l <<<"$pkgs" | tr -d ' ') package(s): $(tr '\n' ' ' <<<"$pkgs")"
+    ntotal="$(wc -l <<<"$files" | tr -d ' ')"
+    si=1 sn=1; if [ "$SHARDED" -eq 1 ]; then si="$SHARD_I" sn="$SHARD_N"; fi
+    plan="$(teeth_plan "$MOD" "$si" "$sn" <<<"$files")"
+    if [ -z "$plan" ]; then
+      echo "teeth: 0 files in shard $si/$sn ($ntotal changed vs $RSDD_TEETH_BASE)"
+      ok "teeth: 0 files in shard $si/$sn (not counted as teeth)"
+      verdict="VERDICT: NA"
+    else
+    nsel="$(select_shard "$si" "$sn" <<<"$files" | wc -l | tr -d ' ')"
+    echo "teeth scope: changed vs $RSDD_TEETH_BASE — $nsel of $ntotal file(s)${RSDD_TEETH_SHARD:+ in shard $RSDD_TEETH_SHARD}, $(wc -l <<<"$plan" | tr -d ' ') package run(s): $(select_shard "$si" "$sn" <<<"$files" | tr '\n' ' ')"
     : > "$ROOT/verdicts.txt"
-    while IFS= read -r p; do
+    while IFS=$'\t' read -r p ex; do
+      # The exclude regexp reaches a single-quoted make argument: only file-name and regexp characters.
+      if [[ "$ex" == *[!A-Za-z0-9_./\|^\(\)\$\\-]* ]]; then
+        echo "VERDICT: FAIL [$p] exclude regexp has unexpected characters: $ex" >> "$ROOT/verdicts.txt"; continue
+      fi
       # The path reaches an unquoted $(TEETH_PKG) in the Makefile recipe: accept only plain package paths.
       case "$p" in
         .|./*) ;;
@@ -702,13 +1070,14 @@ else
         echo "VERDICT: FAIL [$p] package path has characters outside [A-Za-z0-9_./-]" >> "$ROOT/verdicts.txt"; continue
       fi
       # </dev/null: make must not read the package list this loop is consuming from stdin.
-      make -C "$MOD" teeth TEETH_PKG="$p" TEETH_EXCLUDE=/ >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
+      make -C "$MOD" teeth TEETH_PKG="$p" TEETH_EXCLUDE="$(make_value "$ex")" >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
       one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
       echo "--- teeth: $p"
       echo "$one" | grep -v '^VERDICT:'
       echo "$one" | grep '^VERDICT:' | sed "s|^VERDICT: \([A-Z]*\) |VERDICT: \1 [$p] |" >> "$ROOT/verdicts.txt"
-    done <<<"$pkgs"
+    done <<<"$plan"
     verdict="$(combine_verdicts "$ROOT/verdicts.txt")"
+    fi
   fi
 fi
 echo "gremlins wall time: $((SECONDS - t0))s"

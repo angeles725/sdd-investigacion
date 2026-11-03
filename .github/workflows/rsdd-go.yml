@@ -75,10 +75,21 @@ jobs:
     # toolbelt shards no longer run it) = `make test` + the panic-boundary mutation control + gremlins teeth.
     # It used to run inside every toolbelt shard run (469-729 s, 10 of 14 measured toolbelt failures) even when no
     # Go file changed. Same environment it had there.
+    # Kit issue #2568: a PR changing several packages ran its per-package gremlins serially and hit the 25 min cap (PR #2562:
+    # 7 packages, cancelled during the 7th). pull_request and push split those packages over 3 parallel jobs
+    # (RSDD_TEETH_SHARD=I/3). Kit issue #2573: the shard unit is the changed FILE, not the package (PR #2477 changed one
+    # package and its gremlins alone hit the cap), so even a one-package change spreads over the 3 jobs (file position mod 3).
+    # schedule/workflow_dispatch keep ONE unsharded whole-module job
+    # (matrix value 0), still named plain `rsdd-go-bridge`.
+    name: ${{ matrix.shard == 0 && 'rsdd-go-bridge' || format('rsdd-go-bridge ({0}/3)', matrix.shard) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '[0]' || '[1,2,3]') }}
     runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
     # pull_request and push scope gremlins to the changed packages (fits 25 min); schedule/workflow_dispatch run the whole
     # module: a verify-only whole-module run measured 2h54m locally (4 CPUs, heavy-run caps, 2026-11-02), so it gets
-    # 360 min (GitHub's maximum, ~2x margin) instead of sharding the suite, which has no shard mode.
+    # 360 min (GitHub's maximum, ~2x margin) in one unsharded job (the shard split above applies to the changed-file list only).
     timeout-minutes: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 360 || 25 }}
     env:
       # A missing Go toolchain must FAIL, never print a typed SKIP that reads as coverage (CLAUDE.md section 7).
@@ -87,6 +98,9 @@ jobs:
       # the target branch. On push the step below sets it to the pushed range; empty on schedule/dispatch, which keeps
       # the whole-module run.
       RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+      # Shard I of 3 on pull_request and push (the suite runs `make test` in shard 1 only); empty (unsharded) on
+      # schedule/workflow_dispatch, where matrix.shard is 0.
+      RSDD_TEETH_SHARD: ${{ matrix.shard != 0 && format('{0}/3', matrix.shard) || '' }}
     steps:
       - uses: actions/checkout@v5
         with:
