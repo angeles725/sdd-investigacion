@@ -1323,6 +1323,30 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-listed mutation" "$0"
   else fail=$((fail+1)); fi
 fi
 
+# Whole-module run with a listed baseline failure (kit issue #2592): a fixture module with ./b reading outside the module
+# (its module-only baseline fails; ./b is on the debt list) and ./a testable. The skipped ./b must stay a DEBT line while
+# gremlins still judges ./a: a lived mutant of ./a FAILs the run, a killed one PASSes naming exactly what was skipped.
+whole_fixture_make() { # KILL|LIVE -> the path of a fixture module (its debt list is debt.txt in it)
+  local mode="$1" w
+  w="$(mktemp -d "$ROOT/whole-fx.XXXXXX")" || return 1
+  mkdir -p "$w/a" "$w/b"
+  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
+  printf 'package a\n\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
+  if [ "$mode" = "LIVE" ]; then
+    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
+  else
+    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) || Pos(0) || Pos(-1) {\n\t\tt.Fatal("pos")\n\t}\n}\n' > "$w/a/a_test.go"
+  fi
+  printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/b/b.go"
+  printf 'package b\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestNeg(t *testing.T) {\n\tif _, err := os.Stat("../../nope"); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n' > "$w/b/b_test.go"
+  printf './b #2592 fixture test reads outside the module for the remainder test\n' > "$w/debt.txt"
+  echo "$w"
+}
+whole_fixture() { # KILL|LIVE MAKEFILE -> the --teeth-whole report of the fixture
+  local w; w="$(whole_fixture_make "$1")" || { echo "ran=no"; return; }
+  RSDD_BIN=fixture-skips-the-rsdd-build RSDD_TEETH_DEBT="$w/debt.txt" bash "$0" --teeth-whole "$w" "$2" 2>&1
+}
+
 # 9) a decision that treats a whole-module baseline failure like a per-package one reports PASS for a run in which
 # gremlins mutated nothing; 10) a whole-module run that ignores the remainder's verdicts passes over a lived mutant of an
 # unlisted package.
@@ -1561,29 +1585,6 @@ else
     *) no "teeth file scope: excluding a.go want control=none sub>=1, got $sf_file" ;; esac
 fi
 
-# Whole-module run with a listed baseline failure (kit issue #2592): a fixture module with ./b reading outside the module
-# (its module-only baseline fails; ./b is on the debt list) and ./a testable. The skipped ./b must stay a DEBT line while
-# gremlins still judges ./a: a lived mutant of ./a FAILs the run, a killed one PASSes naming exactly what was skipped.
-whole_fixture_make() { # KILL|LIVE -> the path of a fixture module (its debt list is debt.txt in it)
-  local mode="$1" w
-  w="$(mktemp -d "$ROOT/whole-fx.XXXXXX")" || return 1
-  mkdir -p "$w/a" "$w/b"
-  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
-  printf 'package a\n\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
-  if [ "$mode" = "LIVE" ]; then
-    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) {\n\t\tt.Fatal("5")\n\t}\n}\n' > "$w/a/a_test.go"
-  else
-    printf 'package a\n\nimport "testing"\n\nfunc TestPos(t *testing.T) {\n\tif !Pos(5) || Pos(0) || Pos(-1) {\n\t\tt.Fatal("pos")\n\t}\n}\n' > "$w/a/a_test.go"
-  fi
-  printf 'package b\n\nfunc Neg(x int) bool { return x < 0 }\n' > "$w/b/b.go"
-  printf 'package b\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestNeg(t *testing.T) {\n\tif _, err := os.Stat("../../nope"); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n' > "$w/b/b_test.go"
-  printf './b #2592 fixture test reads outside the module for the remainder test\n' > "$w/debt.txt"
-  echo "$w"
-}
-whole_fixture() { # KILL|LIVE MAKEFILE -> the --teeth-whole report of the fixture
-  local w; w="$(whole_fixture_make "$1")" || { echo "ran=no"; return; }
-  RSDD_BIN=fixture-skips-the-rsdd-build RSDD_TEETH_DEBT="$w/debt.txt" bash "$0" --teeth-whole "$w" "$2" 2>&1
-}
 if [ "$sf" = "control=LIVED sub=0" ]; then
   wf="$(whole_fixture LIVE "$MOD/Makefile")"
   if grep -q '^  DEBT  baseline fails in a module-only copy (out-of-module test reads, #2592 repoint pending): ./b$' <<<"$wf" \
