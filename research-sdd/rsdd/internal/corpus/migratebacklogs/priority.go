@@ -90,7 +90,7 @@ func planStatus(s, np string) (newStatus, reason string) {
 		return s[:i] + "pending" + s[i+len(tok):], ""
 	case ltok == "covered" || ltok == "closed" || ltok == "done":
 		return "", reasonBareClosure
-	case !(reKnownStatus.MatchString(ltok) || strings.HasPrefix(s, checkMark) || strings.HasPrefix(ltok, "~~") || strings.HasPrefix(lead, checkMark)):
+	case !(reKnownStatus.MatchString(ltok) || strings.HasPrefix(ltok, "~~") || strings.HasPrefix(lead, checkMark)):
 		return "", reasonUnknownStatus
 	}
 	return "", ""

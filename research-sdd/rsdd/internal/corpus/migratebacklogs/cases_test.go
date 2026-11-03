@@ -84,6 +84,7 @@ func allCases() []dcase {
 		dcase{name: "scan-symlinked-state-file", files: map[string]string{"real.txt": nobacklog}, links: map[string]string{"RESEARCH-STATE-l.md": "real.txt"}},
 		dcase{name: "scan-symlinked-dir-not-followed", files: map[string]string{"RESEARCH-STATE-a.md": nobacklog, "real/RESEARCH-STATE-in.md": nobacklog}, links: map[string]string{"link": "real"}},
 		dcase{name: "scan-dangling-symlink-degraded", files: map[string]string{"RESEARCH-STATE-a.md": nobacklog}, links: map[string]string{"RESEARCH-STATE-d.md": "missing.md"}},
+		dcase{name: "scan-suffix-needs-dot-md", files: map[string]string{"RESEARCH-STATE-a.md": nobacklog, "RESEARCH-STATE-xmd": nobacklog}},
 		dcase{name: "scan-dangling-focuses-degraded", files: map[string]string{"RESEARCH-STATE-a.md": nobacklog}, links: map[string]string{"FOCUSES.md": "missing.md"}},
 	)
 
@@ -98,6 +99,9 @@ func allCases() []dcase {
 		add(one("heading-"+h.name, state(h.heading, rowOK)))
 	}
 	add(
+		one("heading-backlog-glued-suffix", state("## Gap-backlogx", rowOK)),
+		one("status-single-tilde-unknown", state("## Gap-backlog", brow("high", "~x"))),
+		one("status-double-tilde-struck", state("## Gap-backlog", brow("high", "~~x~~"))),
 		one("heading-line-one", "## Gap backlog\n\n"+tblHdr+rowOK+"\n"),
 		one("heading-hash-not-heading", "# Gap backlog\n\n"+tblHdr+rowOK+"\n"),
 		one("heading-no-table-after-near", "# S\n\n## Backlog\n\nprose only\n"),
@@ -114,6 +118,7 @@ func allCases() []dcase {
 		dcase{name: "skeleton-document-focus-skipped", files: map[string]string{"RESEARCH-STATE-d.md": nobacklog, "FOCUSES.md": doc}},
 		dcase{name: "skeleton-active-focus-not-skipped", files: map[string]string{"RESEARCH-STATE-n.md": nobacklog, "FOCUSES.md": doc}},
 		dcase{name: "skeleton-document-root-not-skipped", files: map[string]string{"RESEARCH-STATE.md": nobacklog, "FOCUSES.md": focusesTable("| (root) | document | RESEARCH-STATE.md |")}},
+		dcase{name: "skeleton-document-focus-in-subdir-skipped", files: map[string]string{"s/RESEARCH-STATE-d.md": nobacklog, "s/FOCUSES.md": doc, "FOCUSES.md": focusesTable("| d | active | RESEARCH-STATE-d.md |")}},
 		dcase{name: "skeleton-focuses-in-other-dir-not-seen", files: map[string]string{"RESEARCH-STATE-d.md": nobacklog, "sub/FOCUSES.md": doc}},
 		one("skeleton-priority-table-outside-backlog", "# Q\n\n## Campaign queue\n\n| Priority | Name | State |\n|---|---|---|\n| high | x | pending |\n"),
 		one("skeleton-empty-section-only", "## Backlog\n"),
@@ -146,6 +151,7 @@ func allCases() []dcase {
 		docCase("doc-status-uppercase", focusesTable("| e | DOCUMENT | x |"), "e"),
 		docCase("doc-status-not-first-word", focusesTable("| e | (document) | x |"), "e"),
 		docCase("doc-row-shorter-than-status", "# F\n\n| Focus | Notes | Status |\n|---|---|---|\n| e | document\n", "e"),
+		docCase("doc-state-file-in-first-cell-not-matched", "# F\n\n| Focus | Status |\n|---|---|\n| RESEARCH-STATE-e.md | document |\n", "e"),
 		docCase("doc-first-cell-blank-row-skipped", "# F\n\n| Focus | Status |\n|---|---|\n|  | document |\n", "e"),
 		docCase("doc-delimiter-like-first-cell", "# F\n\n| Focus | Status |\n|---|---|\n| :-: | document |\n", ":-:"),
 		docCase("doc-header-only", "# F\n\n| Focus | Status |\n", "e"),

@@ -124,6 +124,11 @@
     "stdout": "ok e: nothing to migrate\nok FOCUSES: nothing to migrate\nmigrate-backlogs: 2 file(s) inspected · 0 with a mechanical proposal · 0 MANUAL line(s)\n",
     "stderr": ""
   },
+  "doc-state-file-in-first-cell-not-matched": {
+    "rc": 0,
+    "stdout": "PROPOSE e RESEARCH-STATE-e.md\n--- a/RESEARCH-STATE-e.md\n+++ b/RESEARCH-STATE-e.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL e empty-backlog-skeleton rows=1 first-line=0\nok FOCUSES: nothing to migrate\nmigrate-backlogs: 2 file(s) inspected · 1 with a mechanical proposal · 1 MANUAL line(s)\n",
+    "stderr": ""
+  },
   "doc-status-column-first-of-two": {
     "rc": 0,
     "stdout": "ok e: nothing to migrate\nok FOCUSES: nothing to migrate\nmigrate-backlogs: 2 file(s) inspected · 0 with a mechanical proposal · 0 MANUAL line(s)\n",
@@ -472,6 +477,11 @@
   "heading-backlog-de-gaps": {
     "rc": 0,
     "stdout": "PROPOSE x RESEARCH-STATE-x.md\n--- a/RESEARCH-STATE-x.md\n+++ b/RESEARCH-STATE-x.md\n@@ -1,6 +1,6 @@\n # S\n \n-## Backlog de gaps\n+## Gap-backlog\n \n | Priority | Gap | Artifact type / source | Status |\n |---|---|---|---|\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 0 MANUAL line(s)\n",
+    "stderr": ""
+  },
+  "heading-backlog-glued-suffix": {
+    "rc": 0,
+    "stdout": "MANUAL x unrecognised-backlog-heading rows=1 first-line=3\nmigrate-backlogs: 1 file(s) inspected · 0 with a mechanical proposal · 1 MANUAL line(s)\n",
     "stderr": ""
   },
   "heading-canon-ok": {
@@ -1044,6 +1054,11 @@
     "stdout": "PROPOSE (root) RESEARCH-STATE-.md\n--- a/RESEARCH-STATE-.md\n+++ b/RESEARCH-STATE-.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL (root) empty-backlog-skeleton rows=1 first-line=0\nPROPOSE a-b RESEARCH-STATE-a-b.md\n--- a/RESEARCH-STATE-a-b.md\n+++ b/RESEARCH-STATE-a-b.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL a-b empty-backlog-skeleton rows=1 first-line=0\nPROPOSE a.b RESEARCH-STATE-a.b.md\n--- a/RESEARCH-STATE-a.b.md\n+++ b/RESEARCH-STATE-a.b.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL a.b empty-backlog-skeleton rows=1 first-line=0\nPROPOSE a RESEARCH-STATE-a.md\n--- a/RESEARCH-STATE-a.md\n+++ b/RESEARCH-STATE-a.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL a empty-backlog-skeleton rows=1 first-line=0\nPROPOSE (root) RESEARCH-STATE.md\n--- a/RESEARCH-STATE.md\n+++ b/RESEARCH-STATE.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL (root) empty-backlog-skeleton rows=1 first-line=0\nPROPOSE (root) RESEARCH-STATE_u.md\n--- a/RESEARCH-STATE_u.md\n+++ b/RESEARCH-STATE_u.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL (root) empty-backlog-skeleton rows=1 first-line=0\nPROPOSE (root) RESEARCH-STATEx.md\n--- a/RESEARCH-STATEx.md\n+++ b/RESEARCH-STATEx.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL (root) empty-backlog-skeleton rows=1 first-line=0\nmigrate-backlogs: 7 file(s) inspected · 7 with a mechanical proposal · 7 MANUAL line(s)\n",
     "stderr": ""
   },
+  "scan-suffix-needs-dot-md": {
+    "rc": 0,
+    "stdout": "PROPOSE a RESEARCH-STATE-a.md\n--- a/RESEARCH-STATE-a.md\n+++ b/RESEARCH-STATE-a.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL a empty-backlog-skeleton rows=1 first-line=0\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 1 MANUAL line(s)\n",
+    "stderr": ""
+  },
   "scan-symlinked-dir-not-followed": {
     "rc": 0,
     "stdout": "PROPOSE a RESEARCH-STATE-a.md\n--- a/RESEARCH-STATE-a.md\n+++ b/RESEARCH-STATE-a.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL a empty-backlog-skeleton rows=1 first-line=0\nPROPOSE in real/RESEARCH-STATE-in.md\n--- a/real/RESEARCH-STATE-in.md\n+++ b/real/RESEARCH-STATE-in.md\n@@ -1,3 +1,8 @@\n # R\n \n no backlog\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL in empty-backlog-skeleton rows=1 first-line=0\nmigrate-backlogs: 2 file(s) inspected · 2 with a mechanical proposal · 2 MANUAL line(s)\n",
@@ -1082,6 +1097,11 @@
   "skeleton-after-other-sections": {
     "rc": 0,
     "stdout": "PROPOSE x RESEARCH-STATE-x.md\n--- a/RESEARCH-STATE-x.md\n+++ b/RESEARCH-STATE-x.md\n@@ -3,3 +3,8 @@\n ## Stop control\n \n - done\n+\n+## Gap-backlog\n+\n+| Priority | Gap | Artifact type / source | Status |\n+|---|---|---|---|\nMANUAL x empty-backlog-skeleton rows=1 first-line=0\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 1 MANUAL line(s)\n",
+    "stderr": ""
+  },
+  "skeleton-document-focus-in-subdir-skipped": {
+    "rc": 0,
+    "stdout": "ok d: nothing to migrate\nok FOCUSES: nothing to migrate\nok FOCUSES: nothing to migrate\nmigrate-backlogs: 3 file(s) inspected · 0 with a mechanical proposal · 0 MANUAL line(s)\n",
     "stderr": ""
   },
   "skeleton-document-focus-skipped": {
@@ -1284,6 +1304,11 @@
     "stdout": "PROPOSE x RESEARCH-STATE-x.md\n--- a/RESEARCH-STATE-x.md\n+++ b/RESEARCH-STATE-x.md\n@@ -4,4 +4,4 @@\n \n | Priority | Gap | Artifact type / source | Status |\n |---|---|---|---|\n-| high | G1 | web |   open   |\n+| high | G1 | web |   pending   |\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 0 MANUAL line(s)\n",
     "stderr": ""
   },
+  "status-double-tilde-struck": {
+    "rc": 0,
+    "stdout": "ok x: nothing to migrate\nmigrate-backlogs: 1 file(s) inspected · 0 with a mechanical proposal · 0 MANUAL line(s)\n",
+    "stderr": ""
+  },
   "status-indented-row": {
     "rc": 0,
     "stdout": "PROPOSE x RESEARCH-STATE-x.md\n--- a/RESEARCH-STATE-x.md\n+++ b/RESEARCH-STATE-x.md\n@@ -4,4 +4,4 @@\n \n | Priority | Gap | Artifact type / source | Status |\n |---|---|---|---|\n-   | critical | G1 | web | open |\n+   | high | G1 | web | pending |\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 0 MANUAL line(s)\n",
@@ -1317,6 +1342,11 @@
   "status-qualifier-moved-after-open": {
     "rc": 0,
     "stdout": "PROPOSE x RESEARCH-STATE-x.md\n--- a/RESEARCH-STATE-x.md\n+++ b/RESEARCH-STATE-x.md\n@@ -4,4 +4,4 @@\n \n | Priority | Gap | Artifact type / source | Status |\n |---|---|---|---|\n-| high (cross) | G1 | web | open note |\n+| high | G1 | web | pending note (cross) |\nmigrate-backlogs: 1 file(s) inspected · 1 with a mechanical proposal · 0 MANUAL line(s)\n",
+    "stderr": ""
+  },
+  "status-single-tilde-unknown": {
+    "rc": 0,
+    "stdout": "MANUAL x unknown-status-token rows=1 first-line=7\nmigrate-backlogs: 1 file(s) inspected · 0 with a mechanical proposal · 1 MANUAL line(s)\n",
     "stderr": ""
   },
   "status-trailing-blanks-after-pipe": {

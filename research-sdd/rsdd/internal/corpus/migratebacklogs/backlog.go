@@ -163,13 +163,13 @@ func migrateBacklog(lines []line, skipSkeleton bool) ([]line, []manualItem) {
 		}
 		out = append(out, l)
 	}
-	return appendSkeleton(out, c, renamed, skipSkeleton, &manual), manual
+	return appendSkeleton(out, c, skipSkeleton, &manual), manual
 }
 
 // appendSkeleton closes a file that has no backlog table: the empty canonical section is appended, always
 // paired with the manual finding (the rows are the operator's).
-func appendSkeleton(out []line, c classification, renamed, skip bool, manual *[]manualItem) []line {
-	if c.anyCanon || renamed || c.anyPrioTab {
+func appendSkeleton(out []line, c classification, skip bool, manual *[]manualItem) []line {
+	if c.anyCanon || c.anyPrioTab {
 		return out
 	}
 	if c.anyNear {
