@@ -1,12 +1,13 @@
 package formats
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -42,6 +43,10 @@ type stagedInput struct {
 	size         int64
 }
 
+// stageChunk is how many bytes the next read may ask for: the buffer, but never more than one byte past the
+// cap, so a source that grew is noticed without reading further than needed.
+func stageChunk(bufLen, limit, total int64) int64 { return min(bufLen, limit-total+1) }
+
 // stageInput copies the source into the stage as archive.zip through one descriptor, hashing it, and
 // refuses a source that changed while it was copied or that is larger than limit.
 func stageInput(source string, stage *os.Root, limit int64) (stagedInput, error) {
@@ -63,17 +68,17 @@ func stageInput(source string, stage *os.Root, limit int64) (stagedInput, error)
 	var total int64
 	buf := make([]byte, 1<<20)
 	for {
-		want := min(int64(len(buf)), limit-total+1)
+		want := stageChunk(int64(len(buf)), limit, total)
 		n, err := src.ReadAt(buf[:want], total)
-		if n > 0 {
-			total += int64(n)
-			if total > limit {
-				return stagedInput{}, &ZipError{Msg: "input exceeds max-input-bytes"}
-			}
-			digest.Write(buf[:n])
-			if _, werr := out.Write(buf[:n]); werr != nil {
-				return stagedInput{}, werr
-			}
+		// n == 0 (the end of the file) runs through here as a no-op: nothing is added, hashed or written, and
+		// total cannot exceed limit.
+		total += int64(n)
+		if total > limit {
+			return stagedInput{}, &ZipError{Msg: "input exceeds max-input-bytes"}
+		}
+		digest.Write(buf[:n])
+		if _, werr := out.Write(buf[:n]); werr != nil {
+			return stagedInput{}, werr
 		}
 		if err == io.EOF {
 			break
@@ -159,14 +164,17 @@ func inspectStored(r io.ReaderAt, size int64, lim storedLimits) (*ZipDirectory, 
 			return nil, nil, &ZipError{Msg: "entry path exceeds max-depth"}
 		}
 		conflict := declared[plain] || (!isDir && paths[plain] != "")
-		for j := 1; j < len(parts) && !conflict; j++ {
-			conflict = paths[strings.Join(parts[:j], "/")] == "file"
+		// The ancestors are parts[:1] .. parts[:len-1]; the entry's own path is never one of them (a
+		// declared "file" at the full path is already the declared[plain] conflict above).
+		ancestors := parts[:len(parts)-1]
+		for j := range ancestors {
+			conflict = conflict || paths[strings.Join(parts[:j+1], "/")] == "file"
 		}
 		if conflict {
 			return nil, nil, &ZipError{Msg: "duplicate or ancestor path conflict"}
 		}
-		for j := 1; j < len(parts); j++ {
-			if k := strings.Join(parts[:j], "/"); paths[k] == "" {
+		for j := range ancestors {
+			if k := strings.Join(parts[:j+1], "/"); paths[k] == "" {
 				paths[k] = "directory"
 			}
 		}
@@ -217,9 +225,9 @@ func inspectStored(r io.ReaderAt, size int64, lim storedLimits) (*ZipDirectory, 
 		ranges = append(ranges, span{dir.PrefixBytes + int64(item.LocalOffset), end})
 		records = append(records, storedEntry{entry: item, local: local, path: name, dir: isDir})
 	}
-	sort.Slice(ranges, func(a, b int) bool {
-		return ranges[a].start < ranges[b].start || ranges[a].start == ranges[b].start && ranges[a].end < ranges[b].end
-	})
+	// Two entries never share a start: equal local offsets mean one local header, so one raw name, which the
+	// duplicate-path check above already rejected. Ordering by start alone is therefore total.
+	slices.SortFunc(ranges, func(a, b span) int { return cmp.Compare(a.start, b.start) })
 	for i := 1; i < len(ranges); i++ {
 		if ranges[i].start < ranges[i-1].end {
 			return nil, nil, &ZipError{Msg: "entry ranges overlap"}

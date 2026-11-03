@@ -1265,9 +1265,16 @@ scratch_recon_f1e="$(mktemp -d)"
 mkdir -p "$scratch_recon_f1e/research-sdd/toolbelt/lib" "$scratch_recon_f1e/render/profile/general" \
   "$scratch_recon_f1e/rh/target-foo/retros"
 cp "$KITROOT/toolbelt/reconcile-issues.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/reconcile-issues.sh"
-cp "$KITROOT/toolbelt/lib/retro-status.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/lib/retro-status.sh"
-cp "$KITROOT/toolbelt/lib/retro-grammar.sh" "$scratch_recon_f1e/research-sdd/toolbelt/lib/retro-grammar.sh"
-cp "$KITROOT/toolbelt/lib/target-paths.sh"  "$scratch_recon_f1e/research-sdd/toolbelt/lib/target-paths.sh"
+# reconcile-issues.sh is an rsdd_exec shim over `rsdd retro reconcile` (kit issue #2563): the scratch toolbelt
+# carries the shim and the lib it sources (lib/rsdd-exec.sh); the grammar and TARGETS.md resolution are Go.
+cp "$KITROOT/toolbelt/lib/rsdd-exec.sh"     "$scratch_recon_f1e/research-sdd/toolbelt/lib/rsdd-exec.sh"
+# The binary: the caller's RSDD_BIN (run-all.sh exports one), else one build into $TMP. Without either, F1e prints
+# a typed SKIP below, never a pass.
+f1e_bin="${RSDD_BIN:-}"
+if [ -z "$f1e_bin" ] && command -v go >/dev/null 2>&1 \
+   && ( cd "$KITROOT/rsdd" && go build -o "$TMP/f1e-rsdd" ./cmd/rsdd ) >/dev/null 2>&1; then
+  f1e_bin="$TMP/f1e-rsdd"
+fi
 printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
   "$scratch_recon_f1e/rh/target-foo" > "$scratch_recon_f1e/research-sdd/TARGETS.md"
 ln -s "$scratch_recon_f1e/research-sdd/toolbelt" "$scratch_recon_f1e/render/profile/general/toolbelt"
@@ -1276,14 +1283,16 @@ real_retros_f1e="$scratch_recon_f1e/rh/target-foo/retros"  # captured BEFORE rm 
 # login, so an unauthenticated `gh auth status` would exit "degraded" here regardless of the -P
 # fix under test — an empty cache file means zero open issues, never touching gh at all.
 cache_recon_f1e="$scratch_recon_f1e/empty-issues-cache"; : > "$cache_recon_f1e"
-out_recon_f1e="$(bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_recon_f1e" 2>&1)"; rc_recon_f1e=$?
+out_recon_f1e="$(RSDD_BIN="$f1e_bin" bash "$scratch_recon_f1e/render/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_recon_f1e" 2>&1)"; rc_recon_f1e=$?
 rm -rf "$scratch_recon_f1e"
 # kit issue #1024 round 4, item 5: assert the exit code AND positive evidence the REAL TARGETS.md
 # (and the real target it names) was actually used — not just the absence of the negative
 # "absent-input" signal, which alone cannot distinguish "resolved correctly" from "resolved to
 # some OTHER wrong-but-still-existing path". The retros/ dir has no *.md files, so the real run
 # WARNs by name for it — that WARN naming the exact real path is the positive evidence.
-if [ "$rc_recon_f1e" -eq 0 ] && <<<"$out_recon_f1e" grep -qF "$real_retros_f1e"; then
+if [ -z "$f1e_bin" ]; then
+  printf '  SKIP  F1e: reconcile-issues.sh --all through a symlinked toolbelt/ (no rsdd binary: RSDD_BIN unset and no go; degraded, not a pass)\n'
+elif [ "$rc_recon_f1e" -eq 0 ] && <<<"$out_recon_f1e" grep -qF "$real_retros_f1e"; then
   ok "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ resolves the real kit root (exit 0, names the real retros/ path)"
 else
   no "F1e: reconcile-issues.sh --all through a symlinked toolbelt/ failed (rc=$rc_recon_f1e out=$out_recon_f1e)"
@@ -1505,23 +1514,24 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # a fully SYNTHETIC scratch kit (mktemp -d) — never a real render, whose toolbelt/ is a
   # SYMLINK to the real toolbelt/ — to avoid overwriting the live tracked script (that exact
   # mistake happened once while building this fix and was caught by F1e's own cross-check).
-  echo "-- teeth: revert reconcile-issues.sh's -P to plain cd/pwd; expect F1e to fail --"
+  # The script is now an rsdd_exec shim (kit issue #2563): the physical-path resolution (-P) it used to carry as a
+  # bash body is Go (kit.ResolveKit / EvalSymlinks in internal/retro/reconcile, pinned by its layout/* and all/*
+  # differential cases and the symlinked-toolbelt case). What the shim still owns is handing the Go command its own
+  # directory: `--toolbelt "$_RSDD_SELF"`. The representative tooth drops that pair, so the Go command has to find
+  # the kit on its own and F1e must go red.
+  echo "-- teeth: drop --toolbelt from the reconcile-issues.sh shim; expect F1e to fail --"
   recon_sut="$KITROOT/toolbelt/reconcile-issues.sh"
   mutant_recon_f1e="$(mktemp)"
-  sed -e 's/cd -P "\$(dirname "\$0")" \&\& pwd -P/cd "$(dirname "$0")" \&\& pwd/' \
-      -e 's/cd -P "\$_SCRIPT_DIR\/\.\.\/\.\." \&\& pwd -P/cd "$_SCRIPT_DIR\/..\/.." \&\& pwd/' \
-      "$recon_sut" > "$mutant_recon_f1e"
+  sed -e 's/ --toolbelt "\$_RSDD_SELF"//' "$recon_sut" > "$mutant_recon_f1e"
   if diff -q "$recon_sut" "$mutant_recon_f1e" >/dev/null 2>&1; then
-    no "teeth F1e pre-check: mutant = reconcile-issues.sh — -P pattern not found"
+    no "teeth F1e pre-check: mutant = reconcile-issues.sh — --toolbelt pair not found"
   else
-    ok "teeth F1e pre-check: mutant differs (-P reverted to plain cd/pwd)"
+    ok "teeth F1e pre-check: mutant differs (--toolbelt dropped from the shim)"
   fi
   scratch_f1e="$(mktemp -d)"
   mkdir -p "$scratch_f1e/toolbelt/lib" "$scratch_f1e/profile/general" "$scratch_f1e/rh/target-foo/retros"
   cp "$mutant_recon_f1e" "$scratch_f1e/toolbelt/reconcile-issues.sh"
-  cp "$KITROOT/toolbelt/lib/retro-status.sh"  "$scratch_f1e/toolbelt/lib/retro-status.sh"
-  cp "$KITROOT/toolbelt/lib/retro-grammar.sh" "$scratch_f1e/toolbelt/lib/retro-grammar.sh"
-  cp "$KITROOT/toolbelt/lib/target-paths.sh"  "$scratch_f1e/toolbelt/lib/target-paths.sh"
+  cp "$KITROOT/toolbelt/lib/rsdd-exec.sh"     "$scratch_f1e/toolbelt/lib/rsdd-exec.sh"
   printf '# test targets\n\n| # | Target | Path |\n|---|---|---|\n| 1 | target-foo | `%s` |\n' \
     "$scratch_f1e/rh/target-foo" > "$scratch_f1e/TARGETS.md"
   ln -s "$scratch_f1e/toolbelt" "$scratch_f1e/profile/general/toolbelt"
@@ -1529,11 +1539,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # round 5, CI fix) — an unauthenticated gh on CI must never turn this tooth's expected
   # "absent-input" symptom into an unrelated "degraded: gh is not authenticated" one.
   cache_f1e_teeth="$scratch_f1e/empty-issues-cache"; : > "$cache_f1e_teeth"
-  out_recon_f1e_teeth="$(bash "$scratch_f1e/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_f1e_teeth" 2>&1)"
-  if <<<"$out_recon_f1e_teeth" grep -qi 'absent-input.*TARGETS\.md'; then
-    ok "teeth: reverted mutant re-breaks reconcile-issues.sh through a symlinked toolbelt/ → F1e has teeth"
+  out_recon_f1e_teeth="$(RSDD_BIN="$f1e_bin" bash "$scratch_f1e/profile/general/toolbelt/reconcile-issues.sh" --all --issues-cache "$cache_f1e_teeth" 2>&1)"
+  if ! <<<"$out_recon_f1e_teeth" grep -qF "$scratch_f1e/rh/target-foo/retros"; then
+    ok "teeth: mutant without --toolbelt stops auditing the scratch kit through a symlinked toolbelt/ → F1e has teeth"
   else
-    no "teeth: reverted mutant still resolved TARGETS.md — F1e check is THEATER (out=$out_recon_f1e_teeth)"
+    no "teeth: mutant without --toolbelt still audited the scratch kit — F1e check is THEATER (out=$out_recon_f1e_teeth)"
   fi
   rm -rf "$scratch_f1e"
   rm -f "$mutant_recon_f1e"

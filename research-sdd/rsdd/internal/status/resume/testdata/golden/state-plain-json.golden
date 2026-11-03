@@ -1,0 +1,40 @@
+rc: 0
+--- stdout
+{
+  "schema": "research-sdd.resume-state/v1",
+  "state": "ok",
+  "reason": null,
+  "counts": {
+    "worktrees": 1,
+    "worktrees_missing": 0,
+    "worktrees_dirty": 0,
+    "branches": 0,
+    "prs": 0,
+    "prs_unknown": 1
+  },
+  "items": [
+    {
+      "kind": "repo",
+      "generated_at": "@T@",
+      "toplevel": "@ROOT@/r",
+      "remote": null,
+      "base_ref": "main",
+      "base_sha": "b3ec3ae6764fe2550e319afd8a0ca387bb8cb823",
+      "prs_status": "skipped",
+      "prs_truncated": null
+    },
+    {
+      "kind": "worktree",
+      "path": "@ROOT@/r",
+      "branch": "main",
+      "head": "b3ec3ae6764fe2550e319afd8a0ca387bb8cb823",
+      "exists": true,
+      "prunable": false,
+      "dirty": 0,
+      "untracked": 1,
+      "ahead": 0,
+      "behind": 0
+    }
+  ]
+}
+--- stderr
