@@ -179,3 +179,25 @@ func TestUTF8TrimDropsOnlyIncompleteSequences(t *testing.T) {
 		}
 	}
 }
+
+// panicHooks panics as soon as the run hands it the toolbelt, standing in for any bug inside the registry run.
+type panicHooks struct{ fakeHooks }
+
+func (panicHooks) setToolbelt(string) { panic("boom in the registry run") }
+
+// A panic inside the registry run must still reach the session as the could-not-run envelope (CLAUDE.md §7):
+// without the hook's own recover, cli.Run's recover prints to stderr and the SessionStart hook says nothing.
+func TestRegistryHookPanicStillEmitsEnvelope(t *testing.T) {
+	withHooks(t, panicHooks{})
+	k := newVRKit(t)
+	k.blocks("alpha", 3)
+	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(3 blocks)")))
+	ctx, raw, rc := k.runHook(nil)
+	if rc != 0 {
+		t.Fatalf("rc=%d, want 0 (a hook never fails the session)", rc)
+	}
+	want(t, ctx, fmt.Sprintf(hdrRegistryCouldNo, cli.ExitOperational), "internal-error: boom in the registry run")
+	if ctx == "" {
+		t.Fatalf("no SessionStart envelope; stdout %q", raw)
+	}
+}
