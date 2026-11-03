@@ -10,9 +10,17 @@
 #                    so the result never depends on a downloaded toolchain or ambient flags.
 #   --parse FILE     (internal) count the package results in a captured `go test` output: prints
 #                    `pass=N fail=M`, exit 1 when M > 0. The bridge's own counter is tested through it.
-#   --decide-gremlins FILE [RC]
+#   --decide-gremlins FILE [RC [PKG]]
 #                    (internal) print the gremlins verdict for a captured `make teeth` output and its exit
-#                    code RC (default 0); the bridge's gremlins parser is tested through it.
+#                    code RC (default 0); the bridge's gremlins parser is tested through it. PKG is the package the
+#                    run was scoped to ("ALL" = whole module): lived mutants of a package on the teeth debt list
+#                    (rsdd/teeth-debt.txt, override RSDD_TEETH_DEBT; kit issue #2592) are printed as DEBT and do not
+#                    fail; any other lived mutant fails; with PKG a listed package reading Lived 0 is reported STALE.
+#                    A captured `make teeth` whose unmutated package failed in the module-only copy (the typed
+#                    `teeth: DEGRADED - the unmutated package fails ...` line, no gremlins summary) is decided per failing
+#                    package: on the debt list -> a loud `DEBT  baseline fails ...` line and PASS debt-only baseline-fail;
+#                    not on it (or no package nameable) -> FAIL teeth DEGRADED, regardless of RSDD_REQUIRE_GO.
+#   --load-debt FILE (internal) print the packages of a teeth debt list, or `INVALID: ...` (rc 1 bad line, rc 2 unreadable).
 #   --selftest-teeth (internal) run only the offline teeth-wiring self-checks (decide_gremlins diagnostics, the
 #                    Makefile `make -n teeth` wiring, package scoping on a scratch git repo, verdict combining);
 #                    needs make and git, never go or gremlins.
@@ -110,6 +118,79 @@ fail_heads() {
   ' "$1"
 }
 
+# load_debt FILE -> the packages of the teeth debt list (kit issue #2592), one "./pkg" per line. Format, one entry per
+# line: `<package> #<issue> <reason>`; blank lines and lines starting with `#` are ignored. Typed states, never a
+# silent empty list: rc 2 + `INVALID: ... not readable` (absent-input), rc 1 + `INVALID: line N: ...` (a bad line:
+# package not a ./-relative path without `..`, issue ref not `#<digits>`, reason under 10 characters, duplicate).
+load_debt() {
+  [ -r "$1" ] || { echo "INVALID: debt list not readable: $1"; return 2; }
+  awk '
+    function bad(m) { printf "INVALID: line %d: %s\n", NR, m; err = 1; exit }
+    /^[[:space:]]*$/ || /^#/ { next }
+    {
+      pkg = $1; ref = $2; reason = $0; sub(/^[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]*/, "", reason)
+      if (pkg !~ /^\.\/[A-Za-z0-9_.\/-]+$/ || pkg ~ /\.\./ || pkg ~ /\/$/) bad("package [" pkg "] is not a ./-relative package path")
+      if (ref !~ /^#[0-9]+$/) bad("[" ref "] is not an issue reference like #2592")
+      if (length(reason) < 10) bad("reason for " pkg " is under 10 characters")
+      if (pkg in seen) bad("duplicate package " pkg)
+      seen[pkg] = 1; print pkg
+    }
+    END { if (err) exit 1 }' "$1"
+}
+
+# classify_lived FILE PKG DEBT_PACKAGES CHECK_STALE -> the report of the LIVED mutants of a captured gremlins output:
+# `U <line>` (package not on the debt list: a failure), `D <pkg> <line>` (debt), `STALE <pkg>` (a listed package with
+# no lived mutant, only when CHECK_STALE=1) and one final `N unlisted=<n> debt=<m>`. PKG is the package the run was
+# scoped to ("ALL" = whole module, "." = the root package); gremlins prints paths relative to it.
+classify_lived() {
+  awk -v pkgarg="$2" -v debtlist="$3" -v stale="$4" '
+    BEGIN { n = split(debtlist, arr, "\n"); for (i = 1; i <= n; i++) if (arr[i] != "") debt[arr[i]] = 1 }
+    / LIVED / && / at / {
+      p = $0; sub(/.* at /, "", p); sub(/:[0-9]+(:[0-9]+)?$/, "", p)
+      if (pkgarg != "." && pkgarg != "ALL") p = pkgarg "/" p
+      sub(/^\.\//, "", p)
+      d = p; if (d ~ /\//) sub(/\/[^\/]*$/, "", d); else d = "."
+      pk = (d == ".") ? "." : "./" d
+      line = $0; sub(/.* at /, "", line)
+      if (pk in debt) { dn++; lived[pk]++; print "D " pk " " line } else { un++; print "U " line }
+    }
+    END {
+      if (stale == 1) for (i = 1; i <= n; i++) if (arr[i] != "" && !(arr[i] in lived) && (pkgarg == "ALL" || arr[i] == pkgarg)) print "STALE " arr[i]
+      printf "N unlisted=%d debt=%d\n", un, dn
+    }' "$1"
+}
+
+# decide_baseline_fail FILE -> the verdict for a `make teeth` whose UNMUTATED package failed in the module-only copy
+# (kit issue #2592: the typed `teeth: DEGRADED` line). Failing packages: the run's own package, or for a whole-module
+# run (`.`) the `FAIL<TAB><import path>` lines. Each one ON the teeth debt list is a loud DEBT line (its out-of-module
+# test reads are pending a repoint); any other, or a whole-module failure naming no package, is a FAIL (never SKIP).
+decide_baseline_fail() {
+  local f="$1" dpkg debtf dl drc modpath bad="" good="" p modroot
+  dpkg="$(sed -n 's/^teeth: DEGRADED — the unmutated package fails in a module-only copy: //p' "$f" | head -n 1)"
+  modroot="${RSDD_GO_MOD:-$(dirname "$0")/../../rsdd}"
+  debtf="${RSDD_TEETH_DEBT:-$modroot/teeth-debt.txt}"
+  dl="$(load_debt "$debtf")"; drc=$?
+  if [ "$drc" -ne 0 ]; then
+    echo "VERDICT: FAIL teeth debt list INVALID (baseline failed in a module-only copy: $dpkg): ${dl#INVALID: }"; return 0
+  fi
+  if [ "$dpkg" = "." ]; then
+    modpath="$(awk '/^module /{print $2; exit}' "$modroot/go.mod" 2>/dev/null)"
+    dpkg="$(awk -F'\t' -v m="$modpath" 'm != "" && $1 == "FAIL" && ($2 == m || index($2, m "/") == 1) { p = substr($2, length(m) + 2); print (p == "" ? "." : "./" p) }' "$f" | sort -u)"
+  fi
+  if [ -z "$dpkg" ]; then
+    echo "VERDICT: FAIL teeth DEGRADED: the unmutated module fails in a module-only copy and no failing package could be named, so it cannot be shown to be teeth debt"; return 0
+  fi
+  while IFS= read -r p; do
+    if grep -qxF -e "$p" <<<"$dl"; then good="${good:+$good }$p"; else bad="${bad:+$bad }$p"; fi
+  done <<<"$dpkg"
+  if [ -n "$bad" ]; then
+    echo "VERDICT: FAIL teeth DEGRADED: the unmutated package fails in a module-only copy and is not on the teeth debt list: $bad"; return 0
+  fi
+  for p in $good; do
+    echo "  DEBT  baseline fails in a module-only copy (out-of-module test reads, #2592 repoint pending): $p"
+  done
+  echo "VERDICT: PASS debt-only baseline-fail $(wc -w <<<"$good" | tr -d ' ') package(s) on the teeth debt list, none outside it (gremlins did not run for them)"
+}
 decide_gremlins() {
   local f="$1" rc="$2" counts l
   counts="$(awk '
@@ -124,6 +205,9 @@ decide_gremlins() {
     echo "gremlins: no-mutants killed=0 lived=0"
     echo "VERDICT: PASS no-mutants (gremlins: No results to report.)"
     return 0
+  fi
+  if [ -z "$counts" ] && grep -q -e '^teeth: DEGRADED — the unmutated package fails in a module-only copy: ' "$f"; then
+    decide_baseline_fail "$f"; return 0   # SENTINEL-BASELINE-DEBT
   fi
   if [ -z "$counts" ]; then
     local why cause; why="$(tail -n 3 "$f" | tr '\n' ' ')"
@@ -143,9 +227,32 @@ decide_gremlins() {
   fi
   echo "gremlins: $counts"
   l="${counts#*lived=}"; l="${l%% *}"
-  if [ "$l" -gt 0 ]; then
-    awk '/ LIVED / && / at /{sub(/.* at /,""); print "  LIVED at " $0}' "$f"
-    echo "VERDICT: FAIL $l lived mutant(s) among the covered ones"
+  # PKG (3rd argument) is the package the run was scoped to ("ALL" = whole module). Its presence also turns on the
+  # stale-entry report of the teeth debt list; without it only the lived classification below uses the list.
+  local pkg="${3-}" debtf dl drc rep line un=0 dn=0
+  debtf="${RSDD_TEETH_DEBT:-${RSDD_GO_MOD:-$(dirname "$0")/../../rsdd}/teeth-debt.txt}"
+  if [ "$l" -eq 0 ] && [ -z "$pkg" ]; then
+    echo "VERDICT: PASS no lived mutants ($counts)"; return 0
+  fi
+  dl="$(load_debt "$debtf")"; drc=$?
+  if [ "$drc" -ne 0 ]; then
+    [ "$l" -gt 0 ] && awk '/ LIVED / && / at /{sub(/.* at /,""); print "  LIVED at " $0}' "$f"
+    echo "VERDICT: FAIL teeth debt list INVALID ($counts): ${dl#INVALID: }"
+    return 0
+  fi
+  rep="$(classify_lived "$f" "${pkg:-.}" "$dl" "$([ -n "$pkg" ] && echo 1 || echo 0)")"
+  while IFS= read -r line; do
+    case "$line" in
+      "U "*) echo "  LIVED at ${line#U }" ;;
+      "D "*) line="${line#D }"; echo "  DEBT  LIVED at ${line#* } (package ${line%% *} is on the teeth debt list)" ;;
+      "STALE "*) echo "  teeth debt: STALE entry ${line#STALE } reads Lived 0 - remove its line from teeth-debt.txt" ;;
+      "N "*) un="${line#*unlisted=}"; un="${un%% *}"; dn="${line##*debt=}" ;;
+    esac
+  done <<<"$rep"
+  if [ "$un" -gt 0 ]; then
+    echo "VERDICT: FAIL $un lived mutant(s) among the covered ones"
+  elif [ "$dn" -gt 0 ]; then
+    echo "VERDICT: PASS debt-only $dn lived mutant(s) on the teeth debt list, none outside it ($counts)"
   else
     echo "VERDICT: PASS no lived mutants ($counts)"
   fi
@@ -289,18 +396,23 @@ combine_verdicts() {
   awk '
     /^VERDICT: FAIL/ { f++; if (ff=="") ff=substr($0, 10) }
     /^VERDICT: SKIP/ { k++; if (kk=="") kk=substr($0, 10) }
-    /^VERDICT: PASS/ { p++; if ($3=="no-mutants") nm++ }
+    /^VERDICT: PASS/ { p++; if ($3=="no-mutants") nm++; if ($3=="debt-only") dbt++ }
     END {
       if (f > 0) printf "VERDICT: FAIL %d of %d package run(s) failed; first: %s\n", f, f+k+p, ff
       else if (k > 0) printf "VERDICT: SKIP %d of %d package run(s) skipped; first: %s\n", k, k+p, kk
-      else if (p > 0) printf "VERDICT: PASS no lived mutants in %d package run(s)%s\n", p, (nm > 0 ? "; no-mutants: " nm : "")
+      else if (p > 0) printf "VERDICT: PASS no lived mutants in %d package run(s)%s%s\n", p, (nm > 0 ? "; no-mutants: " nm : ""), (dbt > 0 ? "; debt-only: " dbt : "")
       else print "VERDICT: FAIL no package verdict to combine"
     }' "$1"
 }
 
 if [ "${1:-}" = "--decide-gremlins" ]; then
   [ -r "${2:-}" ] || { echo "FATAL: --decide-gremlins needs a readable FILE" >&2; exit 2; }
-  decide_gremlins "$2" "${3:-0}"; exit 0
+  decide_gremlins "$2" "${3:-0}" ${4:+"$4"}; exit 0
+fi
+
+if [ "${1:-}" = "--load-debt" ]; then
+  [ -n "${2:-}" ] || { echo "FATAL: --load-debt needs a FILE" >&2; exit 2; }
+  load_debt "$2"; exit $?
 fi
 
 if [ "${1:-}" = "--fail-heads" ]; then
@@ -377,14 +489,20 @@ selftest_teeth() {
   # Wiring (like the containment fixtures, read from the real Makefile): bounded workers and test CPUs, scoped path.
   # env -u: a TEETH_* value exported by the caller (CI tuning) must not break the pin of the Makefile defaults.
   c="$(env -u TEETH_WORKERS -u TEETH_TEST_CPU -u TEETH_PKG -u TEETH_EXCLUDE make -n -C "$MOD" teeth 2>&1)"
-  if grep -q 'GOMAXPROCS=1;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \.$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=1 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./... >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 4 \. \)$' <<<"$c" && ! grep -q -- '--test-cpu' <<<"$c"; then
     ok "teeth wiring: default is 4 workers, 1 test CPU, the whole module"; else no "teeth wiring: default wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_WORKERS=2 TEETH_TEST_CPU=3 TEETH_PKG=./internal/cli 2>&1)"
-  if grep -q 'GOMAXPROCS=3;' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli$' <<<"$c"; then
+  if grep -q 'GOMAXPROCS=3 RSDD_TEST_RESEARCH_SDD=' <<<"$c" && grep -q 'go test -count=1 ./internal/cli >' <<<"$c" && grep -Eq 'unleash --timeout-coefficient 6 --workers 2 \./internal/cli \)$' <<<"$c"; then
     ok "teeth wiring: TEETH_WORKERS, TEETH_TEST_CPU and TEETH_PKG override"; else no "teeth wiring: override wrong: $c"; fi
   c="$(make -n -C "$MOD" teeth TEETH_PKG=./internal/cli TEETH_EXCLUDE=/ 2>&1)"
-  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli\$" <<<"$c"; then
+  if grep -Eq -- "--workers [0-9]+ --exclude-files '/' \./internal/cli \)\$" <<<"$c"; then
     ok "teeth wiring: TEETH_EXCLUDE passes gremlins --exclude-files before the package"; else no "teeth wiring: exclude wrong: $c"; fi
+  # The kit shims (verify-state.sh and the other rsdd_exec shims) need an rsdd binary; the recipe builds one unless the
+  # caller sets RSDD_BIN (run-all does), and the build stays ahead of the baseline and of gremlins.
+  c="$(env -u RSDD_BIN make -n -C "$MOD" teeth TEETH_PKG=./internal/cli 2>&1)"
+  if grep -q 'go build -ldflags .* -o "\$rb/rsdd" ./cmd/rsdd' <<<"$c" && grep -q 'export RSDD_BIN="\$rb/rsdd"' <<<"$c"; then
+    ok "teeth wiring: the recipe builds the rsdd binary into a temp dir and exports it as RSDD_BIN unless the caller set one"
+  else no "teeth wiring: RSDD_BIN build missing: $c"; fi
 
   # Package scoping on a scratch repo: the module is a subdirectory, so --relative matters.
   local r="$dir/scope" m="$dir/scope/mod"
@@ -831,6 +949,118 @@ g="$(RSDD_REQUIRE_GO=1 bash "$0" --decide-gremlins "$ROOT/gr-unavailable.out" 1)
 if grep -q '^VERDICT: FAIL gremlins did not run (rc=1, RSDD_REQUIRE_GO=1)' <<<"$g"; then
   ok "gremlins: tool unavailable under RSDD_REQUIRE_GO=1 -> FAIL"; else no "gremlins: required-unavailable case wrong: $g"; fi
 
+# Teeth debt list (kit issue #2592): packages whose lived mutants are known debt are printed as DEBT and do not fail;
+# any other package keeps fail-on-lived; a listed package reading Lived 0 is reported STALE; a bad list is INVALID.
+printf '# comment\n\n./internal/cli #2592 reason long enough to pass\n./a #2592 another long enough reason\n' > "$ROOT/debt-ok.txt"
+printf './internal/other #2592 reason long enough to pass\n' > "$ROOT/debt-other.txt"
+d="$(bash "$0" --load-debt "$ROOT/debt-ok.txt")"; drc=$?
+if [ "$drc" -eq 0 ] && [ "$d" = $'./internal/cli\n./a' ]; then ok "debt list: comments and blank lines skipped, packages printed in order"
+else no "debt list: valid list wrong (rc=$drc): $d"; fi
+d="$(bash "$0" --load-debt "$MOD/teeth-debt.txt")"; drc=$?
+if [ "$drc" -eq 0 ] && grep -qx './internal/lint' <<<"$d" && grep -qx './internal/verify' <<<"$d" && ! grep -qx './internal/formats' <<<"$d"; then ok "debt list: the checked-in rsdd/teeth-debt.txt parses, names lint and verify, and no longer lists the paid formats"
+else no "debt list: checked-in list does not parse (rc=$drc): $d"; fi
+i=0
+for bad in 'internal/x #2592 reason long enough to pass' './internal/../x #2592 reason long enough to pass' './internal/x/ #2592 reason long enough to pass' \
+           './internal/x 2592 reason long enough to pass' './internal/x #2592 short' './internal/x #2592'; do
+  i=$((i+1)); printf '%s\n' "$bad" > "$ROOT/debt-bad$i.txt"
+  d="$(bash "$0" --load-debt "$ROOT/debt-bad$i.txt")"; drc=$?
+  if [ "$drc" -eq 1 ] && grep -q '^INVALID: line 1: ' <<<"$d"; then ok "debt list: INVALID line [$bad] -> typed INVALID, rc 1"
+  else no "debt list: bad line [$bad] not INVALID (rc=$drc): $d"; fi
+done
+printf './a #2592 reason long enough to pass\n./a #2592 reason long enough to pass\n' > "$ROOT/debt-dup.txt"
+d="$(bash "$0" --load-debt "$ROOT/debt-dup.txt")"; drc=$?
+if [ "$drc" -eq 1 ] && grep -q 'INVALID: line 2: duplicate package ./a' <<<"$d"; then ok "debt list: a duplicate package is INVALID"
+else no "debt list: duplicate not INVALID (rc=$drc): $d"; fi
+d="$(bash "$0" --load-debt "$ROOT/no-such-debt.txt")"; drc=$?
+if [ "$drc" -eq 2 ] && grep -q '^INVALID: debt list not readable' <<<"$d"; then ok "debt list: an absent file is a typed INVALID (rc 2), not an empty list"
+else no "debt list: absent file wrong (rc=$drc): $d"; fi
+# A lived mutant of a listed package is debt, of an unlisted one a failure, both in one run keep the failure.
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-lived.out" 0 ALL)"
+if grep -q '^VERDICT: PASS debt-only 1 lived' <<<"$g" && grep -q 'DEBT  LIVED at internal/cli/cli.go:161:73 (package ./internal/cli ' <<<"$g" && ! grep -q '^  LIVED at' <<<"$g"; then
+  ok "debt: a lived mutant of a listed package PASSes as debt-only and is still printed"; else no "debt: listed lived wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-other.txt" bash "$0" --decide-gremlins "$ROOT/gr-lived.out" 0 ALL)"
+if grep -q '^VERDICT: FAIL 1 lived' <<<"$g" && grep -q '^  LIVED at internal/cli/cli.go:161:73' <<<"$g"; then
+  ok "debt: a lived mutant of an UNLISTED package still FAILs"; else no "debt: unlisted lived wrong: $g"; fi
+cat > "$ROOT/gr-mixed.out" <<'CANNED'
+       LIVED CONDITIONALS_BOUNDARY at internal/cli/cli.go:161:73
+       LIVED CONDITIONALS_BOUNDARY at internal/lint/lint.go:9:2
+       LIVED CONDITIONALS_NEGATION at internal/cli/cli.go:20:4
+Killed: 5, Lived: 3, Not covered: 2
+Timed out: 0, Not viable: 0, Skipped: 0
+CANNED
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-mixed.out" 0 ALL)"
+if grep -q '^VERDICT: FAIL 1 lived' <<<"$g" && grep -q '^  LIVED at internal/lint/lint.go:9:2' <<<"$g" && [ "$(grep -c 'DEBT  LIVED' <<<"$g")" -eq 2 ]; then
+  ok "debt: listed and unlisted lived mutants in one run -> FAIL on the unlisted one, the listed two printed as DEBT"; else no "debt: mixed wrong: $g"; fi
+printf 'Killed: 5, Lived: 1, Not covered: 0\nTimed out: 0, Not viable: 0, Skipped: 0\n       LIVED CONDITIONALS_BOUNDARY at a.go:3:4\n' > "$ROOT/gr-pkg.out"
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-pkg.out" 0 ./a)"
+if grep -q '^VERDICT: PASS debt-only 1 lived' <<<"$g"; then ok "debt: paths of a package-scoped run are resolved against that package (./a + a.go -> ./a)"
+else no "debt: package-scoped path wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-pkg.out" 0 ./b)"
+if grep -q '^VERDICT: FAIL 1 lived' <<<"$g"; then ok "debt: the same output scoped to another package (./b + a.go -> ./b) is not debt"
+else no "debt: other-scope path wrong: $g"; fi
+# Stale entries: a listed package with no lived mutant is reported (never a failure).
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-timeouts.out" 0 ./internal/cli)"
+if grep -q '^VERDICT: PASS no lived' <<<"$g" && grep -q 'teeth debt: STALE entry ./internal/cli reads Lived 0' <<<"$g"; then
+  ok "debt: a listed package that reads Lived 0 is reported STALE and the run still PASSes"; else no "debt: stale (package run) wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-timeouts.out" 0 ./internal/other)"
+if ! grep -q 'STALE' <<<"$g"; then ok "debt: a package-scoped run reports only its own package as stale"; else no "debt: foreign stale: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-timeouts.out" 0 ALL)"
+if grep -q 'STALE entry ./internal/cli' <<<"$g" && grep -q 'STALE entry ./a ' <<<"$g"; then ok "debt: a whole-module run reports every listed package without a lived mutant as stale"
+else no "debt: stale (whole module) wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-timeouts.out" 0)"
+if grep -q '^VERDICT: PASS' <<<"$g" && ! grep -q 'STALE' <<<"$g"; then ok "debt: without a PKG argument no stale report is made"; else no "debt: PKG-less stale wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-bad1.txt" bash "$0" --decide-gremlins "$ROOT/gr-lived.out" 0 ALL)"
+if grep -q '^VERDICT: FAIL teeth debt list INVALID' <<<"$g"; then ok "debt: an invalid list FAILs the verdict (typed INVALID), never a silent fail-open"
+else no "debt: invalid list wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/no-such-debt.txt" bash "$0" --decide-gremlins "$ROOT/gr-lived.out" 0 ALL)"
+if grep -q '^VERDICT: FAIL teeth debt list INVALID .*not readable' <<<"$g"; then ok "debt: an absent list FAILs the verdict when it is needed"
+else no "debt: absent list wrong: $g"; fi
+printf 'VERDICT: PASS debt-only 2 lived mutant(s) on the teeth debt list, none outside it (killed=1 lived=2 timed_out=0 not_covered=0)\nVERDICT: PASS no lived mutants (killed=1 lived=0 timed_out=0 not_covered=0)\n' > "$ROOT/v-debt"
+g="$(bash "$0" --combine-verdicts "$ROOT/v-debt")"
+if grep -q '^VERDICT: PASS no lived mutants in 2 package run(s); debt-only: 1$' <<<"$g"; then ok "debt: the combined PASS counts the debt-only package runs"
+else no "debt: combined debt-only wrong: $g"; fi
+
+# Baseline failure of the unmutated package in a module-only copy (kit issue #2592): `make teeth` prints the typed
+# `teeth: DEGRADED - the unmutated package fails in a module-only copy: <pkg>` line and exits 1 before gremlins runs.
+# A package ON the debt list is loud DEBT and does not fail (its repoint is pending); an UNLISTED one stays a FAIL.
+mp="$(awk '/^module /{print $2; exit}' "$MOD/go.mod")"
+bl_deg() { # PKG FAILPKG... -> a captured `make teeth` output whose baseline failed
+  local pk="$1" fp; shift
+  printf '%s\n' '--- FAIL: TestReadsKit (0.00s)' '    k_test.go:3: open ../../toolbelt/x: no such file or directory' FAIL
+  for fp in "$@"; do printf 'FAIL\t%s/%s\t0.005s\n' "$mp" "$fp"; done
+  printf 'teeth: DEGRADED \xe2\x80\x94 the unmutated package fails in a module-only copy: %s\n' "$pk"
+}
+bl_deg ./internal/cli internal/cli > "$ROOT/gr-bl-listed.out"
+g="$(RSDD_REQUIRE_GO=1 RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-listed.out" 1 ./internal/cli)"
+if grep -q '^  DEBT  baseline fails in a module-only copy (out-of-module test reads, #2592 repoint pending): ./internal/cli$' <<<"$g" \
+   && grep -q '^VERDICT: PASS debt-only baseline-fail' <<<"$g"; then
+  ok "debt: a listed package whose module-only baseline fails is a loud DEBT line and PASSes"; else no "debt: listed baseline fail wrong: $g"; fi
+bl_deg ./internal/other internal/other > "$ROOT/gr-bl-unlisted.out"
+g="$(RSDD_REQUIRE_GO='' RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-unlisted.out" 1 ./internal/other)"
+if grep -q '^VERDICT: FAIL teeth DEGRADED: the unmutated package fails in a module-only copy and is not on the teeth debt list: ./internal/other' <<<"$g" \
+   && ! grep -q 'DEBT' <<<"$g"; then
+  ok "debt: an UNLISTED package whose module-only baseline fails is a typed DEGRADED FAIL (even without RSDD_REQUIRE_GO)"; else no "debt: unlisted baseline fail wrong: $g"; fi
+bl_deg . internal/cli a > "$ROOT/gr-bl-all-ok.out"
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
+if [ "$(grep -c '^  DEBT  baseline fails' <<<"$g")" -eq 2 ] && grep -q '^VERDICT: PASS debt-only baseline-fail 2 ' <<<"$g"; then
+  ok "debt: a whole-module baseline failure confined to listed packages is DEBT for each of them"; else no "debt: whole-module listed wrong: $g"; fi
+bl_deg . internal/cli internal/zzz > "$ROOT/gr-bl-all-mixed.out"
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-mixed.out" 1 ALL)"
+if grep -q '^VERDICT: FAIL teeth DEGRADED: .*not on the teeth debt list: ./internal/zzz' <<<"$g" && ! grep -q 'baseline-fail' <<<"$g"; then
+  ok "debt: a whole-module baseline failure that includes an unlisted package FAILs naming it"; else no "debt: whole-module mixed wrong: $g"; fi
+printf '%s\n' 'exit status 1' > "$ROOT/gr-bl-none.out"
+printf 'teeth: DEGRADED \xe2\x80\x94 the unmutated package fails in a module-only copy: .\n' >> "$ROOT/gr-bl-none.out"
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-none.out" 1 ALL)"
+if grep -q '^VERDICT: FAIL teeth DEGRADED: ' <<<"$g"; then
+  ok "debt: a whole-module baseline failure that names no package is a FAIL (cannot prove every failure is debt)"; else no "debt: whole-module no-package wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$ROOT/debt-bad1.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-listed.out" 1 ./internal/cli)"
+if grep -q '^VERDICT: FAIL teeth debt list INVALID' <<<"$g"; then ok "debt: an invalid list FAILs a baseline failure too"
+else no "debt: baseline + invalid list wrong: $g"; fi
+g="$(RSDD_TEETH_DEBT="$MOD/teeth-debt.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
+for c in corpus budget maint lint gate retro/stageissues core/gfm core/probe core/reasons verify sweep corroborate/kaitai corroborate/native corroborate/fidelity testkit/parity; do
+  if ! grep -qx "./internal/$c" <(bash "$0" --load-debt "$MOD/teeth-debt.txt"); then no "debt list: checked-in teeth-debt.txt lacks ./internal/$c"; fi
+done
+
 mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"; unset RSDD_GO_SELFTEST_NESTED
 
 if [ "${1:-}" != "--prove-teeth" ]; then
@@ -957,6 +1187,88 @@ if MUTANT_SYNTAX=bash mutant_chain_or_count fail "gremlins-no-mutants mutation" 
   else fail=$((fail+1)); fi
 fi
 
+# Teeth for the teeth debt list (kit issue #2592; the suite is the SUT: `--decide-gremlins FILE RC PKG`, `--load-debt FILE`).
+# 1) a classifier that never sees a package as debt fails the known debt again; 2) one that sees every package as debt
+# lets an unlisted package's lived mutant through; 3) a loader without the issue-reference check, or 4) without the
+# duplicate check, accepts a bad list; 5) a decision that never reports stale entries hides a fixed package; 6) a
+# classifier that ignores the run's package scope misreads "a.go" of ./a as the root package.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-never mutation" "$0" "$MUTDIR/rsdd-go-debt1.test.sh" \
+    's/if (pk in debt) {/if (0) {/'; then
+  if mutant_tooth "teeth: a classifier that never recognises debt fails the listed package again" 0 0 \
+      "$MUTDIR/rsdd-go-debt1.test.sh" --orig "$0" \
+      --good-has 'VERDICT: PASS debt-only' --bad-has 'VERDICT: FAIL' -- \
+      env RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-lived.out" 0 ALL; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-always mutation" "$0" "$MUTDIR/rsdd-go-debt2.test.sh" \
+    's/if (pk in debt) {/if (1) {/'; then
+  if mutant_tooth "teeth: a classifier that treats every package as debt lets an unlisted lived mutant pass" 0 0 \
+      "$MUTDIR/rsdd-go-debt2.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL 1 lived' --bad-has 'VERDICT: PASS debt-only' -- \
+      env RSDD_TEETH_DEBT="$ROOT/debt-other.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-lived.out" 0 ALL; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-ref mutation" "$0" "$MUTDIR/rsdd-go-debt3.test.sh" \
+    's/if (ref !~ [^)]*) bad(/if (0) bad(/'; then
+  if mutant_tooth "teeth: a loader without the issue-reference check accepts a line with no #issue" 1 0 \
+      "$MUTDIR/rsdd-go-debt3.test.sh" --orig "$0" \
+      --good-has 'INVALID: line 1' --bad-lacks 'INVALID' -- \
+      bash @SUT@ --load-debt "$ROOT/debt-bad4.txt"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-dup mutation" "$0" "$MUTDIR/rsdd-go-debt4.test.sh" \
+    's/if (pkg in seen) bad(/if (0) bad(/'; then
+  if mutant_tooth "teeth: a loader without the duplicate check accepts a package listed twice" 1 0 \
+      "$MUTDIR/rsdd-go-debt4.test.sh" --orig "$0" \
+      --good-has 'duplicate package' --bad-lacks 'INVALID' -- \
+      bash @SUT@ --load-debt "$ROOT/debt-dup.txt"; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-stale mutation" "$0" "$MUTDIR/rsdd-go-debt5.test.sh" \
+    's/print "STALE " arr\[i\]/print "NOSTALE"/'; then
+  if mutant_tooth "teeth: a decision that never reports stale entries hides a listed package that reads Lived 0" 0 0 \
+      "$MUTDIR/rsdd-go-debt5.test.sh" --orig "$0" \
+      --good-has 'STALE entry ./internal/cli' --bad-lacks 'STALE entry' -- \
+      env RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-timeouts.out" 0 ./internal/cli; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "debt-scope mutation" "$0" "$MUTDIR/rsdd-go-debt6.test.sh" \
+    's/if (pkgarg != "." \&\& pkgarg != "ALL") p = pkgarg "\/" p/if (0) p = pkgarg "\/" p/'; then
+  if mutant_tooth "teeth: a classifier that ignores the run's package scope misreads ./a/a.go as the root package" 0 0 \
+      "$MUTDIR/rsdd-go-debt6.test.sh" --orig "$0" \
+      --good-has 'VERDICT: PASS debt-only' --bad-has 'VERDICT: FAIL' -- \
+      env RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-pkg.out" 0 ./a; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
+# Teeth for the baseline-failure rule (kit issue #2592). 7) a decision that never routes the typed baseline DEGRADED line
+# to the debt classifier fails the listed package again; 8) one that drops the debt-list membership check (every
+# baseline failure is debt) lets an UNLISTED package's failing baseline through as a PASS.
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-route mutation" "$0" "$MUTDIR/rsdd-go-debt7.test.sh" \
+    's/decide_baseline_fail "\$f"; return 0 /: ; /'; then
+  if mutant_tooth "teeth: a decision that ignores the baseline DEGRADED line fails the listed package again" 0 0 \
+      "$MUTDIR/rsdd-go-debt7.test.sh" --orig "$0" \
+      --good-has 'VERDICT: PASS debt-only baseline-fail' --bad-has 'VERDICT: FAIL' -- \
+      env RSDD_REQUIRE_GO=1 RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-listed.out" 1 ./internal/cli; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+if MUTANT_SYNTAX=bash mutant_chain_or_count fail "baseline-listed mutation" "$0" "$MUTDIR/rsdd-go-debt8.test.sh" \
+    's/if grep -qxF -e "\$p" <<<"\$dl"; then good/if true; then good/'; then
+  if mutant_tooth "teeth: dropping the debt-list check lets an UNLISTED failing baseline PASS" 0 0 \
+      "$MUTDIR/rsdd-go-debt8.test.sh" --orig "$0" \
+      --good-has 'VERDICT: FAIL teeth DEGRADED' --bad-has 'VERDICT: PASS debt-only' -- \
+      env RSDD_TEETH_DEBT="$ROOT/debt-ok.txt" bash @SUT@ --decide-gremlins "$ROOT/gr-bl-unlisted.out" 1 ./internal/other; then
+    pass=$((pass+1))
+  else fail=$((fail+1)); fi
+fi
+
 # Teeth for the teeth wiring (the suite is the SUT: `--selftest-teeth` runs the offline checks, rc 1 on any FAIL).
 # 1) a decide_gremlins that no longer greps `--- FAIL` hides the failing test again; 2) a package scope that diffs
 # against BASE instead of merge-base(BASE, HEAD) reports changes the base made after the branch point.
@@ -1069,7 +1381,7 @@ scope_fixture() {
   else
     printf 'package b\n\nimport "testing"\n\nfunc TestNeg(t *testing.T) {\n\tif Neg(0) || !Neg(-1) || Neg(1) {\n\t\tt.Fatal("neg")\n\t}\n}\n' > "$w/a/b/b_test.go"
   fi
-  local o; o="$(make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
+  local o; o="$(RSDD_BIN=fixture-skips-the-rsdd-build make -s -f "$mk" -C "$w" teeth TEETH_PKG="$pkg" TEETH_WORKERS=2 "$@" 2>&1 </dev/null)"
   if ! grep -q '^Killed: ' <<<"$o"; then echo "ran=no"; return; fi
   local c="none"
   if grep -Eq 'LIVED CONDITIONALS_BOUNDARY at a\.go:' <<<"$o"; then c="LIVED"
@@ -1093,6 +1405,52 @@ if [ "$sf" = "control=LIVED sub=0" ]; then
       *) no "teeth scope tooth: --test-cpu mutant should read control=KILLED, got $sf2" ;; esac
   fi
 fi
+
+# Baseline guard (kit issue #2592): the unmutated package is tested in a module-only copy before gremlins runs. The
+# fixture's only test reads a marker file outside the module: "bypass" reads ../../kitmarker (a relative path out of
+# the module, which exists in the tree but not in the copy), "env" reads $RSDD_TEST_RESEARCH_SDD/kitmarker (what the
+# recipe exports: the parent of the module, here $ROOT). guard_fixture MAKEFILE READER prints "state=degraded" (the
+# typed DEGRADED line and no gremlins report), "state=ran" (gremlins reported) or "state=none".
+guard_fixture() {
+  local mk="$1" reader="$2" w o src
+  w="$(mktemp -d "$ROOT/guard-fx.XXXXXX")" || { echo "state=none"; return; }
+  : > "$ROOT/kitmarker"
+  mkdir -p "$w/a"
+  printf 'module fx\n\ngo 1.22\n' > "$w/go.mod"
+  printf 'package a\n\nfunc Pos(x int) bool { return x > 0 }\n' > "$w/a/a.go"
+  if [ "$reader" = "env" ]; then src='os.Getenv("RSDD_TEST_RESEARCH_SDD") + "/kitmarker"'; else src='"../../kitmarker"'; fi
+  printf 'package a\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestPos(t *testing.T) {\n\tif _, err := os.Stat(%s); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif !Pos(5) || Pos(-1) || Pos(0) {\n\t\tt.Fatal("pos")\n\t}\n}\n' "$src" > "$w/a/a_test.go"
+  o="$(RSDD_BIN=fixture-skips-the-rsdd-build make -s -f "$mk" -C "$w" teeth TEETH_PKG=./a TEETH_WORKERS=2 2>&1 </dev/null)"
+  if grep -q '^teeth: DEGRADED — the unmutated package fails in a module-only copy: ./a$' <<<"$o" && ! grep -q '^Killed: ' <<<"$o"; then echo "state=degraded"
+  elif grep -q '^Killed: ' <<<"$o"; then echo "state=ran"
+  else echo "state=none"; fi
+}
+gf_bypass="$(guard_fixture "$MOD/Makefile" bypass)"
+gf_env="$(guard_fixture "$MOD/Makefile" env)"
+[ "$gf_bypass" = "state=degraded" ] && ok "teeth guard: a test reading a path outside the module fails the module-only baseline -> typed DEGRADED, gremlins never runs" \
+  || no "teeth guard: bypassing read want state=degraded, got $gf_bypass"
+if [ "$gf_env" = "state=ran" ]; then
+  ok "teeth guard: a test reading the kit through RSDD_TEST_RESEARCH_SDD passes the baseline and gremlins runs"
+  # Tooth 1: a recipe without the baseline step lets the out-of-module read through: gremlins runs and reads all KILLED.
+  sed 's/go test -count=1 \$(TEETH_BASE_PKG)/true/' "$MOD/Makefile" > "$MUTDIR/Makefile.nobaseline"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.nobaseline"; then no "teeth guard tooth: the no-baseline mutant is identical to the Makefile"
+  else
+    gm="$(guard_fixture "$MUTDIR/Makefile.nobaseline" bypass)"
+    [ "$gm" = "state=ran" ] && ok "teeth guard tooth: without the baseline step the out-of-module read goes straight to gremlins (the vacuous KILLED of #2592)" \
+      || no "teeth guard tooth: no-baseline mutant should read state=ran, got $gm"
+  fi
+  # Tooth 2: a recipe that no longer exports RSDD_TEST_RESEARCH_SDD fails the baseline of a test that honours it.
+  sed 's/ RSDD_TEST_RESEARCH_SDD=\$(TEETH_KIT)//' "$MOD/Makefile" > "$MUTDIR/Makefile.noenv"
+  if cmp -s "$MOD/Makefile" "$MUTDIR/Makefile.noenv"; then no "teeth guard tooth: the no-env mutant is identical to the Makefile"
+  else
+    gm="$(guard_fixture "$MUTDIR/Makefile.noenv" env)"
+    [ "$gm" = "state=degraded" ] && ok "teeth guard tooth: without the exported RSDD_TEST_RESEARCH_SDD the kit read fails the baseline" \
+      || no "teeth guard tooth: no-env mutant should read state=degraded, got $gm"
+  fi
+elif [ "$gf_env" = "state=none" ]; then
+  if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then no "teeth guard: gremlins did not run on the env fixture (RSDD_REQUIRE_GO=1)"
+  else echo "SKIP: teeth guard: gremlins did not run on the env fixture"; fi
+else no "teeth guard: env reader want state=ran, got $gf_env"; fi
 
 # Per-PR scope (RSDD_TEETH_BASE): a changed package P mutates only the files directly in P (TEETH_EXCLUDE=/ drops every
 # file gremlins finds below a subdirectory); a subpackage that changed is in the list on its own. Here ./a/b has a
@@ -1132,7 +1490,7 @@ t0=$SECONDS
 verdict=""
 if [ -z "${RSDD_TEETH_BASE:-}" ]; then
   make -C "$MOD" teeth >"$ROOT/gremlins.out" 2>&1; mrc=$?
-  verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
+  verdict="$(decide_gremlins "$ROOT/gremlins.out" "$mrc" ALL)"
   echo "$verdict" | grep -v '^VERDICT:'
 else
   files="$(changed_go_files "$MOD" "$RSDD_TEETH_BASE")"; prc=$?
@@ -1170,7 +1528,7 @@ else
       fi
       # </dev/null: make must not read the package list this loop is consuming from stdin.
       make -C "$MOD" teeth TEETH_PKG="$p" TEETH_EXCLUDE="$(make_value "$ex")" >"$ROOT/gremlins.out" 2>&1 </dev/null; mrc=$?
-      one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc")"
+      one="$(decide_gremlins "$ROOT/gremlins.out" "$mrc" "$p")"
       echo "--- teeth: $p"
       echo "$one" | grep -v '^VERDICT:'
       echo "$one" | grep '^VERDICT:' | sed "s|^VERDICT: \([A-Z]*\) |VERDICT: \1 [$p] |" >> "$ROOT/verdicts.txt"
@@ -1182,6 +1540,7 @@ fi
 echo "gremlins wall time: $((SECONDS - t0))s"
 case "$verdict" in
   "VERDICT: NA") ;;
+  *"VERDICT: PASS"*"debt-only"*) ok "teeth: no lived mutant outside the teeth debt list (the DEBT lines above are known lived mutants, kit issue #2592)" ;;
   *"VERDICT: PASS"*) ok "teeth: gremlins found no lived mutant" ;;
   *"VERDICT: SKIP"*) echo "SKIP: ${verdict##*VERDICT: SKIP }" ;;
   *) no "teeth: gremlins: ${verdict##*VERDICT: }" ;;
