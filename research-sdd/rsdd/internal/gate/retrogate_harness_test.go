@@ -20,12 +20,11 @@ import (
 // verify-retro.sh, a stub stage-retro-issues.sh, a mock gh) and the fixture targets. A scenario builds its
 // fixtures through the world, returns the runs to make, and checks the results. The same scenario runs
 //   - against runRetro alone (retrogate_cases_test.go, no build tag: CI teeth build the package with `nodiff`),
-//   - against the frozen original testdata/legacy/retro-gate.sh too (retrogate_diff_test.go), which must agree on
+//   - against the frozen original script too (retrogate_diff_test.go, staged by retrogate_legacy_test.go), which must agree on
 //     stdout, stderr, the exit code and every state file, and must itself satisfy the scenario's own checks.
 // Nothing here needs python3 or bwrap; bash, git, find and jq are the only tools.
 
 const (
-	rgLegacy  = "testdata/legacy/retro-gate.sh"
 	rgLiveTB  = "../../../toolbelt"
 	rgSession = "202609050800"
 )
@@ -62,10 +61,9 @@ func newRGWorld(t *testing.T, bash bool) *rgWorld {
 	}
 	must(t, os.Symlink(live+"/lib", w.tb+"/lib"))
 	must(t, os.Symlink(live+"/verify-retro.sh", w.tb+"/verify-retro.sh"))
-	b, err := os.ReadFile(rgLegacy)
-	must(t, err)
-	w.write(w.tb+"/retro-gate.sh", string(b))
-	must(t, os.Chmod(w.tb+"/retro-gate.sh", 0o755))
+	if rgStageLegacy != nil {
+		rgStageLegacy(w)
+	}
 	w.seeder("printf '%s\\n' \"$*\" >> \"${SEED_LOG:-/dev/null}\"\nprintf 'summary: created=0 skipped-duplicate=0 skipped-shipped=0 skipped-wrong-kit=0\\n'\nexit 0\n")
 	w.script(w.stubs+"/gh", "exit 0\n")
 	return w
@@ -309,30 +307,19 @@ func (w *rgWorld) runGo(r rgRun) *rgRes {
 	return w.collect(r, out.String(), errb.String(), rc)
 }
 
-// runBash runs the frozen original exactly as the old suite did.
-func (w *rgWorld) runBash(r rgRun) *rgRes {
-	w.t.Helper()
-	bash, _ := exec.LookPath("bash")
-	cmd := exec.Command(bash, append([]string{w.tb + "/retro-gate.sh"}, r.args...)...)
-	cmd.Dir = w.root
-	cmd.Env = envList(w.envFor(r))
-	cmd.Stdin = strings.NewReader(r.stdin)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	rc := 0
-	if err := cmd.Run(); err != nil {
-		ee, ok := err.(*exec.ExitError)
-		if !ok {
-			w.t.Fatal(err)
-		}
-		rc = ee.ExitCode()
-	}
-	return w.collect(r, out.String(), errb.String(), rc)
-}
+// The bash side of the harness (staging and running the frozen original) lives in retrogate_legacy_test.go,
+// which is built without `nodiff` only: CI teeth build this package with `nodiff` and must never exec the oracle.
+var (
+	rgStageLegacy func(w *rgWorld)
+	rgRunBash     func(w *rgWorld, r rgRun) *rgRes
+)
 
 func (w *rgWorld) run(r rgRun) *rgRes {
 	if w.bash {
-		return w.runBash(r)
+		if rgRunBash == nil {
+			w.t.Fatal("a bash run needs retrogate_legacy_test.go, which -tags nodiff excludes")
+		}
+		return rgRunBash(w, r)
 	}
 	return w.runGo(r)
 }
