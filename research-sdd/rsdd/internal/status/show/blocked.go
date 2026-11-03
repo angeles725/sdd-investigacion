@@ -56,7 +56,7 @@ func blockedNames(body string) []string {
 			continue
 		}
 		name := strings.TrimLeft(rest[1:], cSpace)
-		if k := strings.Index(lowerASCII(name), "needs:"); k >= 0 {
+		if k := indexNeeds(name); k >= 0 {
 			name = trimDashBytes(strings.TrimRight(name[:k], cSpace))
 		}
 		if name = strings.Trim(name, cSpace); name != "" {
@@ -78,16 +78,16 @@ func trimDashBytes(s string) string {
 	return s[:w]
 }
 
-// lowerASCII lower-cases the ASCII letters only, byte for byte (the C locale of sed's I flag), so indexes into
-// the result are indexes into s.
-func lowerASCII(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 'a' - 'A'
+// indexNeeds is the byte index of the first "needs:" in s matched case-blind on the ASCII letters only (the C
+// locale of sed's I flag), or -1. Byte-wise, so the index is an index into s.
+func indexNeeds(s string) int {
+	const word = "needs"
+	for i := 0; i+len(word) < len(s); i++ {
+		if s[i+len(word)] == ':' && strings.EqualFold(s[i:i+len(word)], word) {
+			return i
 		}
 	}
-	return string(b)
+	return -1
 }
 
 // isBlocked is is_blocked: 0 the gap is blocked, 1 it is not, 2 the blocked status is UNKNOWN (the state file
