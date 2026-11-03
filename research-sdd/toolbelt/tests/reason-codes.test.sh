@@ -67,7 +67,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   verify-skill-drift.sh corroborate-kaitai.sh java-fidelity-experiment.sh ensure-remote.sh verify-kit-clean.sh scan-firmware.sh
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
-  hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh)
+  hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh verify-state.sh)
 # The emit calls the Go packages use: errf/outf (stageissues, gate), .degrade/.note/.fail (reconcile), fmt.* (sweep, reconcile).
 GO_CALL_RE='(errf|outf|\.degrade|\.note|\.fail|fmt\.Fprintf|fmt\.Fprintln|fmt\.Sprintf|fmt\.Errorf)\('
 
@@ -295,7 +295,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 # (a new real emission now hiding behind the substring) are both findings, so the list cannot become a blanket
 # ignore and cannot swallow a later emission. Line numbers are not used: they drift with every edit.
 IC_WAIVERS=(
-  'verify-state.sh|document before closing as absent-input|1|advice text inside a WARN line, not a typed state'
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'

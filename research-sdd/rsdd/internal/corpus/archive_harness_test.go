@@ -34,6 +34,9 @@ import (
 var (
 	archiveLegacyRunner  func(t testing.TB, tb, cwd string, args, env []string) (string, string, int)
 	archiveLegacyInstall func(t testing.TB, tb string)
+	// archiveTestBin is archiveRsddBin, set by archive_shim_test.go (also built only without nodiff): the binary every
+	// run gets as RSDD_BIN. Under -tags nodiff it stays nil and archiveBaseEnv adds no RSDD_BIN.
+	archiveTestBin func(t testing.TB) string
 )
 
 const (
@@ -293,9 +296,17 @@ func archiveFarmStub(t testing.TB, tb, name, content string) {
 
 // ---- running -----------------------------------------------------------------------------------------------
 
-func archiveBaseEnv(root string) []string {
-	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC",
+// archiveBaseEnv carries RSDD_BIN: the gates the archive runs (verify-state.sh and the other rsdd shims) must use the
+// test's binary, never build one into the kit's bin/ (CI has none, and a case that stubs git makes that build fail,
+// so only the Go side reported "verify-state.sh did not run"; kit issue #2477).
+func archiveBaseEnv(t testing.TB, root string) []string {
+	t.Helper()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "LC_ALL=C", "TZ=UTC",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "TMPDIR=" + filepath.Join(root, "tmp")}
+	if archiveTestBin != nil {
+		env = append(env, "RSDD_BIN="+archiveTestBin(t))
+	}
+	return env
 }
 
 func archiveEnvLookup(env []string) func(string) string {
@@ -433,7 +444,7 @@ func archiveRunCase(t *testing.T, c archiveCase, withLegacy bool) (leg *archiveR
 	if c.cwd != nil {
 		cwd = c.cwd(f, d)
 	}
-	env := archiveBaseEnv(root)
+	env := archiveBaseEnv(t, root)
 	if c.env != nil {
 		env = append(env, c.env(f)...)
 	}
