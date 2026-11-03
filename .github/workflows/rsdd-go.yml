@@ -73,6 +73,10 @@ jobs:
   rsdd-go-bridge:
     # Kit issue #2488: research-sdd/toolbelt/tests/rsdd-go.test.sh (tier `dedicated` in suite-tiers.txt, so the
     # toolbelt shards no longer run it) = `make test` + the panic-boundary mutation control + gremlins teeth.
+    # Kit issue #2617: `make test` + the panic-boundary control used to run in shard 1 before its teeth (#2598: its
+    # gremlins started ~9 min into the job and hit the 25 min cap). They now run in the separate `rsdd-go-test` job
+    # (RSDD_BRIDGE_PART=test), parallel to the shards, which run only the teeth (RSDD_BRIDGE_PART=teeth), so all three
+    # have the full budget. schedule/workflow_dispatch keep ONE job running both halves (matrix value 0).
     # It used to run inside every toolbelt shard run (469-729 s, 10 of 14 measured toolbelt failures) even when no
     # Go file changed. Same environment it had there.
     # Kit issue #2568: a PR changing several packages ran its per-package gremlins serially and hit the 25 min cap (PR #2562:
@@ -98,9 +102,11 @@ jobs:
       # the target branch. On push the step below sets it to the pushed range; empty on schedule/dispatch, which keeps
       # the whole-module run.
       RSDD_TEETH_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
-      # Shard I of 3 on pull_request and push (the suite runs `make test` in shard 1 only); empty (unsharded) on
-      # schedule/workflow_dispatch, where matrix.shard is 0.
+      # Shard I of 3 on pull_request and push; empty (unsharded) on schedule/workflow_dispatch, where matrix.shard is 0.
       RSDD_TEETH_SHARD: ${{ matrix.shard != 0 && format('{0}/3', matrix.shard) || '' }}
+      # Kit issue #2617: the shards run only the teeth half (never `make test`, which the rsdd-go-test job runs); the
+      # unsharded schedule/dispatch job runs both halves exactly as before (empty = all).
+      RSDD_BRIDGE_PART: ${{ matrix.shard != 0 && 'teeth' || '' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -131,4 +137,32 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-bridge-
       - name: rsdd-go.test.sh with mutation teeth
+        run: bash research-sdd/toolbelt/tests/rsdd-go.test.sh --prove-teeth
+
+  rsdd-go-test:
+    # Kit issue #2617: the whole-module `make test` and the panic-boundary mutation control of rsdd-go.test.sh, in their
+    # own job parallel to the rsdd-go-bridge teeth shards. pull_request and push only: schedule/workflow_dispatch run
+    # both halves inside the unsharded `rsdd-go-bridge` job. No gremlins here, so no RSDD_TEETH_BASE and no full history.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04 # temporary pin, see #2379 (bash 5.3 parity on ubuntu-26.04)
+    timeout-minutes: 25
+    env:
+      RSDD_REQUIRE_GO: "1"
+      RSDD_BRIDGE_PART: test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: research-sdd/rsdd/go.mod
+          cache: false # see the rsdd-go job: go.mod-only keys never refresh (kit issue #2488)
+      - name: Cache Go build and module caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-test-${{ hashFiles('research-sdd/rsdd/**/*.go', 'research-sdd/rsdd/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-
+      - name: rsdd-go.test.sh whole-module tests (RSDD_BRIDGE_PART=test)
         run: bash research-sdd/toolbelt/tests/rsdd-go.test.sh --prove-teeth

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/verify-registry-hook.sh, the SessionStart wrapper of verify registry:
@@ -59,16 +60,16 @@ func RunRegistryHook(args []string, s cli.Stdio) int {
 	var buf bytes.Buffer // one writer for both streams, so the order is the script's `2>&1`
 	sc := s
 	sc.Out, sc.Err = &buf, &buf
-	rc := RunRegistry(regArgs, sc)
+	rc := hookenv.Guard(&buf, func() int { return RunRegistry(regArgs, sc) })
 	out := strings.TrimRight(buf.String(), "\n")
 	if rc != 0 {
-		writeSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
+		hookenv.WriteSessionStart(s.Out, fmt.Sprintf(hdrRegistryCouldNo, rc)+"\n"+out)
 		return cli.ExitOK
 	}
 	if !full {
 		out = compactRegistry(out, localeCounts(s.Env))
 	}
-	writeSessionStart(s.Out, hdrRegistryOK+"\n"+out)
+	hookenv.WriteSessionStart(s.Out, hdrRegistryOK+"\n"+out)
 	return cli.ExitOK
 }
 

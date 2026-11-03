@@ -3,6 +3,7 @@ package show
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,23 +67,70 @@ func TestPickAcceptsAmbiguousAndAbsent(t *testing.T) {
 	}
 }
 
-// Run is the production entry: past the pick the later sections are not ported, which is a typed operational
-// failure and never a silent success.
-func TestRunPastThePickIsNotYetPorted(t *testing.T) {
+// verifyWith answers every verify-state call of one test with the given exit code and report.
+func verifyWith(t *testing.T, rc int, report string) {
+	t.Helper()
+	old := verifyState
+	t.Cleanup(func() { verifyState = old })
+	verifyState = func(_ []string, s cli.Stdio) int {
+		_, _ = io.WriteString(s.Out, report)
+		return rc
+	}
+}
+
+// runWorld runs the production entry over a corpus holding one state file.
+func runWorld(t *testing.T, state string, args ...string) (rc int, out, errb string) {
+	t.Helper()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "RESEARCH-STATE.md"), []byte(probeState), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "RESEARCH-STATE.md"), []byte(state), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"--next"} {
-		s, out, errb := stdio(root)
-		if rc := Run([]string{root, mode}, s); rc != cli.ExitOperational || out.Len() != 0 ||
-			errb.String() != "rsdd: status show: not-yet-ported: "+mode+" after the state-file pick; use toolbelt/research-sdd-status.sh (issue #2549)\n" {
-			t.Errorf("%s: rc=%d stdout=%q stderr=%q", mode, rc, out.String(), errb.String())
-		}
+	s, o, e := stdio(root)
+	rc = Run(append([]string{root}, args...), s)
+	return rc, strings.ReplaceAll(o.String(), root, "<ROOT>"), e.String()
+}
+
+// The default report is not ported yet: past the pick it is a typed operational failure, never a silent success.
+func TestRunDefaultReportIsNotYetPorted(t *testing.T) {
+	rc, out, errb := runWorld(t, probeState)
+	if rc != cli.ExitOperational || out != "" ||
+		errb != "rsdd: status show: not-yet-ported: status after the state-file pick; use toolbelt/research-sdd-status.sh (issue #2549)\n" {
+		t.Errorf("rc=%d stdout=%q stderr=%q", rc, out, errb)
 	}
-	s, out, errb := stdio(root)
-	if rc := Run([]string{root, "--next", "--emit-token"}, s); rc != 1 || !strings.Contains(out.String(), "return-token: unavailable (--next exited 1)") || !strings.Contains(errb.String(), "not-yet-ported") {
-		t.Errorf("emit-token over the unported --next: rc=%d stdout=%q stderr=%q", rc, out.String(), errb.String())
+}
+
+// --next is ported: through the production entry it answers the verdict (NEXT here) and --emit-token maps it.
+func TestRunNextIsPorted(t *testing.T) {
+	verifyWith(t, 0, "")
+	state := st4("", "0", -1, "", row("high", "G1 live", "pending"))
+	if rc, out, errb := runWorld(t, state, "--next"); rc != 0 || out != "NEXT | high | G1 live\n" || errb != "" {
+		t.Errorf("--next: rc=%d stdout=%q stderr=%q", rc, out, errb)
+	}
+	if rc, out, _ := runWorld(t, state, "--next", "--emit-token"); rc != 0 || out != "NEXT | high | G1 live\nreturn-token: next: G1 live\n" {
+		t.Errorf("--next --emit-token: rc=%d stdout=%q", rc, out)
+	}
+	verifyWith(t, 1, "== verify-state: RESEARCH-STATE.md (target: t) ==\n   FAIL   no research-state.v1 envelope\n")
+	if rc, out, _ := runWorld(t, probeState, "--next"); rc != 0 || out != "STALE | RESEARCH-STATE inconsistent — reconcile first: research-sdd-status.sh <ROOT> [first failure: RESEARCH-STATE.md: no research-state.v1 envelope]\n" {
+		t.Errorf("a state with no envelope is STALE: rc=%d stdout=%q", rc, out)
+	}
+}
+
+// The two sections the --next block calls into that belong to slice S5 end the run as not yet ported, typed and
+// operational, the moment a verdict needs them: a counter past the threshold, and the terminal exhausted STOP.
+func TestRunNextAnswersNotYetPortedAtTheS5Sections(t *testing.T) {
+	verifyWith(t, 0, "")
+	for _, c := range []struct{ name, state, section string }{
+		{"retro-due", st4("", "11", -1, "", row("high", "G1 live", "pending")), "RETRO-DUE covers_through derivation"},
+		{"exhausted-stop", st4("", "0", 0, "", row("high", "G1 done", "covered")), "issues_due_gate"},
+	} {
+		rc, out, errb := runWorld(t, c.state, "--next")
+		if want := "rsdd: status show: not-yet-ported: " + c.section + " of --next; use toolbelt/research-sdd-status.sh (issue #2549)\n"; rc != cli.ExitOperational || out != "" || errb != want {
+			t.Errorf("%s: rc=%d stdout=%q stderr=%q", c.name, rc, out, errb)
+		}
+		rc, out, _ = runWorld(t, c.state, "--next", "--root")
+		if rc != cli.ExitOperational || out != "" {
+			t.Errorf("%s --root: rc=%d stdout=%q", c.name, rc, out)
+		}
 	}
 }
 

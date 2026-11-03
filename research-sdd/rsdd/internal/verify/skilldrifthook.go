@@ -13,6 +13,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/git"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
@@ -43,6 +44,8 @@ import (
 const (
 	installVerifyMaxBytes = 4 << 20
 	hookDriftDetailMore   = "  (+%d more - run research-sdd-install.sh --verify for the full list)"
+	// hdrCannotRun heads the envelope of a hook whose own code panicked (kit issue #2610).
+	hdrCannotRun = "ERROR: research-sdd skill-drift hook could not run (internal error):"
 )
 
 var (
@@ -118,6 +121,15 @@ func runSkillDriftHook(args []string, s cli.Stdio) int {
 
 // runSkillDriftHookWith is runSkillDriftHook with its time budgets given.
 func runSkillDriftHookWith(args []string, s cli.Stdio, b hookBudgets) int {
+	var buf bytes.Buffer // only a panic writes here: the body prints its own envelope
+	if hookenv.Guard(&buf, func() int { return skillDriftHookBody(args, s, b) }) != cli.ExitOK {
+		hookenv.WriteSessionStart(s.Out, hdrCannotRun+"\n"+strings.TrimRight(buf.String(), "\n"))
+	}
+	return cli.ExitOK // a hook never fails the session
+}
+
+// skillDriftHookBody is the hook proper; runSkillDriftHookWith guards it against a panic.
+func skillDriftHookBody(args []string, s cli.Stdio, b hookBudgets) int {
 	here := ""
 	if len(args) > 0 {
 		here = args[0]
@@ -177,7 +189,7 @@ func runSkillDriftHookWith(args []string, s cli.Stdio, b hookBudgets) int {
 	if extra != "" {
 		out = joinNL(out, extra)
 	}
-	writeSessionStart(s.Out, msg+"\n"+out)
+	hookenv.WriteSessionStart(s.Out, msg+"\n"+out)
 	return cli.ExitOK
 }
 

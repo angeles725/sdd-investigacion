@@ -1,568 +1,172 @@
 #!/usr/bin/env bash
-# sweep-tools.test.sh — red-first harness for sweep-tools.sh + lib/target-paths.sh.
-# Covers: abs paths, $RESEARCH_HOME form, anti-silent-zero doctrine, T-row recording,
-# PARTIAL WARN, fail-closed lib, and mutation proof via --prove-teeth.
-# Exit: 0 = every assertion held · 1 = regression · 2 = harness error.
-
+# sweep-tools.test.sh — harness for sweep-tools.sh, now a shim to `rsdd sweep tools` (kit issue #2361).
+#
+# Covers the SHIM contract: existence and the executable bit; the arguments handed to the binary (`sweep tools
+# --kit <own kit>`, then every caller argument byte for byte, an empty one included); output and exit code passed
+# through; a symlinked invocation; the kit is the shim's, never the caller's cwd; a missing lib or an unusable
+# binary → a typed degraded line, never a silent pass; and the real Go binary end to end on a mini kit (one
+# unrecorded tool, a caller argument the script ignored, a missing TARGETS.md, no usable target path, and a bare kit
+# copy with neither bin/ nor Go sources).
+# Everything the script decided — the tool predicate, the library-module and dependency-directory rules, retro
+# T-row and ledger recording, the absent-input / empty-input / no-match states, the PARTIAL warning,
+# RESEARCH_HOME paths — is pinned in Go (research-sdd/rsdd/internal/sweep: a behaviour table, a
+# golden recorded from the frozen script, unit tests of every boundary, and a differential against the frozen
+# script). The map from every old case to its Go test is L3 of odd/tasks/sweep-tools-go.md.
+#
+# --prove-teeth mutates the SHIM (each mutant must lose its case); the Go source has its own mutation gate
+# (`make teeth` in research-sdd/rsdd).
+#
+# Usage: sweep-tools.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../sweep-tools.sh"
-LIB="$HERE/../lib/target-paths.sh"
-[ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-[ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
-BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-
-MUT=""; ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT" ${MUT:+"$MUT"}' EXIT
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
-ok() { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no() { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# the shim reads none of these; a stale value from the caller must not change a case
+unset RSDD_RETRO_AGE_DAYS RESEARCH_HOME
 
-mkkit() {
-  local kit="$ROOT/$1"
-  mkdir -p "$kit/toolbelt/lib"
-  cp "$SUT" "$kit/toolbelt/sweep-tools.sh"
-  cp "$LIB" "$kit/toolbelt/lib/target-paths.sh"
-  printf '%s' "$kit"
+# The Go binary the end-to-end cases run: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
+fi
+
+# stage_kit DEST [SHIM] — a mini kit: the shim (the real one, or a mutant) and lib/rsdd-exec.sh. The toolbelt is
+# DEST/toolbelt. No bin/ and no Go sources: the binary can only come from RSDD_BIN.
+stage_kit() {
+  mkdir -p "$1/toolbelt/lib"
+  cp "${2:-$SUT}" "$1/toolbelt/sweep-tools.sh"; chmod +x "$1/toolbelt/sweep-tools.sh"
+  cp "$HERE/../lib/rsdd-exec.sh" "$1/toolbelt/lib/" || exit 2   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 7
+}
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
 
-write_targets() {
-  local kit="$1"; shift
-  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-    local i=0 t
-    for t in "$@"; do i=$((i+1)); printf '| %d | t%d | `%s` |\n' "$i" "$i" "$t"; done
-  } > "$kit/TARGETS.md"
-}
+echo "== sweep-tools.test.sh =="
 
-mktool() {
-  local tgt="$1" name="$2"
-  mkdir -p "$tgt/tools"
-  printf '#!/usr/bin/env bash\n# tool %s\n' "$name" > "$tgt/tools/$name"
-  [ "${3:-}" = "--exec" ] && chmod +x "$tgt/tools/$name" || true
-}
+# 1 — the shim exists and is executable.
+[ -f "$SUT" ] && [ -x "$SUT" ] && ok "1 shim exists and is executable" || no "1 shim missing or not executable: $SUT"
 
-mkretro_trow() {
-  local tgt="$1" fname="$2" tool="$3"
-  mkdir -p "$tgt/retros"
-  { printf '<!-- review-status: applied 2026-01-01 -->\n# Retro\n\n'
-    printf '## Tools built, adapted, or outgrown\n\n'
-    printf '| # | CREATED | ADAPTED | OUTGREW | ORACLE | VERDICT |\n|---|---|---|---|---|---|\n'
-    printf '| T1 | `tools/%s` · purpose | — | — | — | keep-local |\n' "$tool"
-  } > "$tgt/retros/$fname"
-}
+stage_kit "$TMP/kit"; SHIM="$TMP/kit/toolbelt/sweep-tools.sh"
+PHYS="$(cd -P "$TMP/kit/toolbelt" && pwd -P)"
 
-run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-tools.sh" 2>&1)"; RC=$?; }
+# 2 — the binary gets `sweep tools --kit <own kit>` and then the caller's arguments, byte for byte.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" --json 'a b' '' '--x=*' >/dev/null 2>&1
+want="$(printf '%s\n' sweep tools --kit "$PHYS/.." --json 'a b' '' '--x=*')"
+if [ "$(cat "$TMP/args")" = "$want" ]; then ok "2 binary called as 'sweep tools --kit <own kit>' + the caller's arguments verbatim"
+else no "2 arguments differ: [$(tr '\n' '|' < "$TMP/args")]"; fi
 
-echo "== sweep-tools.test.sh (SUT: $(basename "$SUT")) =="
+# 3 — output and exit code pass through unchanged (stdout and the code are the binary's work).
+stub_bin 1 "from the binary
+"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 1 ] && [ "$OUT" = "from the binary" ]; then ok "3 output and exit code pass through"; else no "3 passthrough differs (rc=$RC out=[$OUT])"; fi
 
-# 1 — ABS PATH: one .py and one .sh → count 2, summary correct.
-kit="$(mkkit c1-abs)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"; mktool "$tgt" "extract.sh"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'TARGET.*targetA' <<<"$OUT" \
-   && grep -q 'tools: 2 found' <<<"$OUT" \
-   && grep -q 'Summary:.*2 tool(s).*1 target' <<<"$OUT"; then
-  ok "1 abs path + 2 tools → found, summary correct" "(exit $RC)"
-else
-  no "1 abs path + 2 tools → found, summary correct" "exit=$RC out=[$OUT]"
-fi
+# 4 — invoked through a symlink in another directory, the shim still names its REAL kit.
+mkdir -p "$TMP/elsewhere"; ln -s "$SHIM" "$TMP/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "4 symlinked shim → binary gets the physical own kit"; else no "4 symlink: args=[$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# 2 — $RESEARCH_HOME form: TARGETS.md carries the env-var token; SUT must expand it.
-kit="$(mkkit c2-rh)"; rh_base="$ROOT/rh-base"; tgt="$rh_base/targetB"
-mktool "$tgt" "probe.sh"
-write_targets "$kit" '$RESEARCH_HOME/targetB'
-OUT="$(RESEARCH_HOME="$rh_base" "$BASH_BIN" "$kit/toolbelt/sweep-tools.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && grep -q 'TARGET.*targetB' <<<"$OUT" \
-   && grep -q 'tools: 1 found' <<<"$OUT" \
-   && grep -q 'Summary:.*1 tool' <<<"$OUT"; then
-  ok "2 \$RESEARCH_HOME path form → expanded, tool found" "(exit $RC)"
-else
-  no "2 \$RESEARCH_HOME path form → expanded, tool found" "exit=$RC out=[$OUT]"
-fi
+# 5 — the kit is the shim's, never the caller's cwd.
+( cd "$TMP/elsewhere" && RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" >/dev/null 2>&1 )
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "5 the kit does not depend on the cwd"; else no "5 cwd leaked into the kit: [$(sed -n 4p "$TMP/args")]"; fi
 
-# 3 — NO tools/ directory → distinct INFO empty-input message (not "0 found" or silent skip).
-kit="$(mkkit c3-nodir)"; tgt="$kit/targetA"
-mkdir -p "$tgt"; write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qE 'INFO:.*no tools.*directory' <<<"$OUT" \
-   && ! grep -qE 'tools: [0-9]+ found' <<<"$OUT"; then
-  ok "3 no tools/ directory → INFO empty-input, no found count" "(exit $RC)"
-else
-  no "3 no tools/ directory → INFO empty-input, no found count" "exit=$RC out=[$OUT]"
-fi
+# 6 — an unusable RSDD_BIN → a typed degraded line on stderr, rc 2, nothing on stdout (the sweep could not run).
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$SHIM" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6"; then
+  ok "6 unusable RSDD_BIN → typed degraded line, rc 2"
+else no "6 unusable binary: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
 
-# 4 — tools/ EXISTS but EMPTY → INFO empty-input with 'exists but is empty', not 'no tools directory'.
-kit="$(mkkit c4-empty)"; tgt="$kit/targetA"
-mkdir -p "$tgt/tools"; write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qE 'INFO:.*exists but is empty' <<<"$OUT" \
-   && ! grep -qE 'INFO:.*no tools.*directory' <<<"$OUT"; then
-  ok "4 empty tools/ → INFO 'exists but is empty', not 'no tools directory'" "(exit $RC)"
-else
-  no "4 empty tools/ → INFO 'exists but is empty', not 'no tools directory'" "exit=$RC out=[$OUT]"
-fi
+# 7 — the shim's own lib missing → a typed degraded line, rc 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/sweep-tools.sh"
+OUT="$(bash "$TMP/nolib/sweep-tools.sh" 2>"$TMP/err7")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q "^degraded: rsdd-unavailable — rsdd-exec.sh missing beside $TMP/nolib/sweep-tools.sh\$" "$TMP/err7"; then
+  ok "7 missing rsdd-exec.sh → typed degraded line, rc 2"
+else no "7 missing lib: rc=$RC out=[$OUT] err=[$(cat "$TMP/err7")]"; fi
 
-# 5 — PREDICATE REJECTS. tools/ has a file that matches no extension and has no exec bit → must
-#     report count of rejects, not silently zero. A bare 0-tool count that could mean predicate
-#     rejection is a bug (anti-silent-zero).
-kit="$(mkkit c5-reject)"; tgt="$kit/targetA"
-mkdir -p "$tgt/tools"
-printf 'data\n' > "$tgt/tools/data.csv"   # not .py/.sh/.mjs/.js/.ts/.ps1, not executable
-mktool "$tgt" "real.py"
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'tools: 1 found' <<<"$OUT" \
-   && grep -qE '1 non-tool file' <<<"$OUT"; then
-  ok "5 predicate reject → count shown separately (anti-silent-zero)" "(exit $RC)"
-else
-  no "5 predicate reject → count shown separately (anti-silent-zero)" "exit=$RC out=[$OUT]"
-fi
+# ---- the real binary, end to end on the mini kit ----
+real() { env RSDD_BIN="$REAL_BIN" bash "$SHIM" "$@"; }
+T1="$TMP/t1"; mkdir -p "$T1/tools"
+printf '#!/usr/bin/env bash\n# tool\n' > "$T1/tools/scan.py"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | `%s` |\n' "$T1" > "$TMP/kit/TARGETS.md"
+KITPHYS="$(cd -P "$TMP/kit" && pwd -P)"
 
-# 6 — RETRO T-ROW RECORDING. One tool in a retro T-row, one not → 1 recorded (retro) / 1 unrecorded.
-kit="$(mkkit c6-recording)"; tgt="$kit/targetA"
-mktool "$tgt" "recorded.py"
-mktool "$tgt" "unrecorded.sh"
-mkretro_trow "$tgt" "r1.md" "recorded.py"
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'recorded (retro): 1' <<<"$OUT" \
-   && grep -q 'unrecorded: 1' <<<"$OUT" \
-   && grep -q 'Summary:.*2 tool(s).*1 recorded (retro).*1 unrecorded' <<<"$OUT"; then
-  ok "6 retro T-row → 1 recorded (retro), 1 unrecorded" "(exit $RC)"
-else
-  no "6 retro T-row → 1 recorded (retro), 1 unrecorded" "exit=$RC out=[$OUT]"
-fi
+# 8 — an unrecorded tool → the target block, the count and the Summary, exit 0, stderr empty.
+OUT="$(real 2>"$TMP/err8")"; RC=$?
+if [ "$RC" = 0 ] && grep -qx 'TARGET  t1' <<<"$OUT" && grep -qx '        tools: 1 found' <<<"$OUT" \
+   && grep -q '^Summary: 1 tool(s) across 1 target(s) · 0 recorded (retro) · 0 recorded (ledger) · 1 unrecorded\.$' <<<"$OUT" \
+   && [ ! -s "$TMP/err8" ]; then
+  ok "8 end to end: unrecorded tool counted, summary printed, exit 0"
+else no "8 end to end: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
 
-# 7 — MISSING TARGETS.md → exit non-zero, error message, no summary.
-kit="$(mkkit c7-notargets)"
-run "$kit"
-if [ "$RC" != 0 ] && grep -qi 'cannot find\|ERROR\|not found' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "7 missing TARGETS.md → error, no summary" "(exit $RC)"
-else
-  no "7 missing TARGETS.md → error, no summary" "exit=$RC out=[$OUT]"
-fi
+# 9 — a caller argument the script ignored is ignored: the output is byte for byte the one without it.
+OUT1="$(real 2>&1)"; OUT2="$(real --json extra 2>&1)"
+if [ -n "$OUT1" ] && [ "$OUT1" = "$OUT2" ]; then ok "9 end to end: unknown arguments are ignored, as the script did"; else no "9 arguments changed the report: [$OUT2]"; fi
 
-# 8 — ZERO RESOLVABLE PATHS. All paths are truncated '...' → zero usable paths → LOUD exit 1.
-kit="$(mkkit c8-zeropaths)"
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `/home/user/.../research` |\n'
-} > "$kit/TARGETS.md"
-run "$kit"
-if [ "$RC" != 0 ] && grep -qiE 'ERROR|no.*path|zero' <<<"$OUT"; then
-  ok "8 zero resolvable paths → loud exit 1" "(exit $RC)"
-else
-  no "8 zero resolvable paths → loud exit 1" "exit=$RC out=[$OUT]"
-fi
+# 10 — no TARGETS.md → exit 1 and the typed line naming the kit's physical path, no report.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+OUT="$(real 2>"$TMP/err10")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && [ "$(cat "$TMP/err10")" = "sweep-tools: cannot find $KITPHYS/TARGETS.md" ]; then
+  ok "10 missing TARGETS.md → exit 1, typed message, no report"
+else no "10 missing TARGETS.md: rc=$RC out=[$OUT] err=[$(cat "$TMP/err10")]"; fi
 
-# 9 — TRUNCATED PATH → PARTIAL WARN. One real target + one truncated '...' path → WARN.
-kit="$(mkkit c9-partial)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.sh"
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgt"
-  printf '| 2 | t2 | `/home/user/.../truncated` |\n'
-} > "$kit/TARGETS.md"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qE 'WARN:.*1 target\(s\) skipped.*PARTIAL' <<<"$OUT" \
-   && grep -q 'truncated' <<<"$OUT"; then
-  ok "9 truncated path → PARTIAL WARN, real target still processed" "(exit $RC)"
-else
-  no "9 truncated path → PARTIAL WARN, real target still processed" "exit=$RC out=[$OUT]"
-fi
+# 11 — a TARGETS.md with no usable path → exit 1 and the two typed ERROR lines (anti-silent-zero), no Summary.
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' > "$TMP/kit/TARGETS.md"
+OUT="$(real 2>"$TMP/err11")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && grep -qxF "sweep-tools: ERROR — no usable target paths in $KITPHYS/TARGETS.md" "$TMP/err11"; then
+  ok "11 no usable target path → exit 1, typed ERROR, no Summary"
+else no "11 no usable path: rc=$RC out=[$OUT] err=[$(cat "$TMP/err11")]"; fi
+rm -f "$TMP/kit/TARGETS.md"; mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
 
-# 10 — BROKEN LIB. target-paths.sh exists but defines no function → fail-closed abort.
-kit="$(mkkit c10-brokenlib)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"
-write_targets "$kit" "$tgt"
-printf '#!/usr/bin/env bash\n# broken: no function defined\n' > "$kit/toolbelt/lib/target-paths.sh"
-run "$kit"
-if [ "$RC" != 0 ] && grep -q 'failed to define target_paths_all' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "10 broken lib → fail-closed abort, no summary" "(exit $RC)"
-else
-  no "10 broken lib → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
-fi
+# 12 — a kit with NO bin/ and NO Go sources, RSDD_BIN set only for the shim under test: the report carries no
+# degraded line (the binary is the only thing the shim needs; it resolves nothing else).
+OUT="$(env -u RSDD_BIN RSDD_BIN="$REAL_BIN" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -qi 'degraded' <<<"$OUT" && grep -q '^Summary: 1 tool(s) across 1 target(s)' <<<"$OUT"; then
+  ok "12 a bare kit copy reports and prints no degraded line"
+else no "12 bare kit: rc=$RC out=[$OUT]"; fi
 
-# 11 — NO RETRO TOOLS TABLE. Retros exist but none has T-rows → distinct "no retro has a tools table".
-kit="$(mkkit c11-notable)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"
-mkdir -p "$tgt/retros"
-printf '<!-- review-status: applied 2026-01-01 -->\n# Retro\n\nNo tools table here.\n' \
-  > "$tgt/retros/r1.md"
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q 'no retro has a tools table' <<<"$OUT"; then
-  ok "11 retros exist but no T-table → distinct message" "(exit $RC)"
-else
-  no "11 retros exist but no T-table → distinct message" "exit=$RC out=[$OUT]"
-fi
-
-# 12 — LEDGER-ONLY. tools/README.md lists 2 tools; NO retro. Must report ledger recordings.
-kit="$(mkkit c12-ledger)"; tgt="$kit/targetA"
-mktool "$tgt" "ledger-tool.py"
-mktool "$tgt" "other-tool.sh"
-{ printf '| Tool | Path | Provenance |\n|---|---|---|\n'
-  printf '| ledger-tool.py | tools/ledger-tool.py | created |\n'
-  printf '| other-tool.sh | tools/other-tool.sh | created |\n'
-} > "$tgt/tools/README.md"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'recorded (ledger): 2' <<<"$OUT" \
-   && grep -q 'unrecorded: 0' <<<"$OUT" \
-   && grep -q 'Summary:.*2 tool(s).*2 recorded (ledger).*0 unrecorded' <<<"$OUT"; then
-  ok "12 ledger-only → 2 recorded (ledger), 0 unrecorded" "(exit $RC)"
-else
-  no "12 ledger-only → 2 recorded (ledger), 0 unrecorded" "exit=$RC out=[$OUT]"
-fi
-
-# 13 — BOTH SOURCES + no double-count. Tool A in retro AND ledger, B ledger-only, C neither.
-kit="$(mkkit c13-both)"; tgt="$kit/targetA"
-mktool "$tgt" "both.py"; mktool "$tgt" "ledger-only.sh"; mktool "$tgt" "neither.py"
-mkretro_trow "$tgt" "r1.md" "both.py"
-{ printf '| Tool | Path | Provenance |\n|---|---|---|\n'
-  printf '| both.py | tools/both.py | created |\n'
-  printf '| ledger-only.sh | tools/ledger-only.sh | created |\n'
-} > "$tgt/tools/README.md"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'recorded (retro): 1' <<<"$OUT" \
-   && grep -q 'recorded (ledger): 1' <<<"$OUT" \
-   && grep -q 'unrecorded: 1' <<<"$OUT" \
-   && grep -q 'Summary:.*3 tool(s).*1 recorded (retro).*1 recorded (ledger).*1 unrecorded' <<<"$OUT"; then
-  ok "13 retro+ledger, no double-count → 1 retro / 1 ledger / 1 unrecorded" "(exit $RC)"
-else
-  no "13 retro+ledger, no double-count → 1 retro / 1 ledger / 1 unrecorded" "exit=$RC out=[$OUT]"
-fi
-
-# 14 — LEDGER UNPARSEABLE. tools/README.md present but has no markdown table → WARN, no ledger count.
-kit="$(mkkit c14-noparseable)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"
-printf 'Tools are documented in ESTADO-SITIO.md.\n\nNo table here.\n' > "$tgt/tools/README.md"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qiE 'WARN.*README.*table|WARN.*ledger' <<<"$OUT" \
-   && ! grep -q 'recorded (ledger):' <<<"$OUT"; then
-  ok "14 unparseable ledger → WARN shown, no 'recorded (ledger):' count" "(exit $RC)"
-else
-  no "14 unparseable ledger → WARN shown, no 'recorded (ledger):' count" "exit=$RC out=[$OUT]"
-fi
-
-# 15 — DEPENDENCY DIRS EXCLUDED. tools/ has 2 real tools plus a node_modules/ full of .js/.py
-#      files (deps, not tools) — including an executable one. The census must NOT count them, so a
-#      stray `npm install` / `pip install` under tools/ cannot inflate the count (reproducible census).
-kit="$(mkkit c15-deps)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"; mktool "$tgt" "extract.sh"
-mkdir -p "$tgt/tools/node_modules/pkg" "$tgt/tools/__pycache__"
-printf 'x\n' > "$tgt/tools/node_modules/pkg/index.js"
-printf 'x\n' > "$tgt/tools/node_modules/pkg/dep.py"
-chmod +x "$tgt/tools/node_modules/pkg/dep.py"
-printf 'x\n' > "$tgt/tools/__pycache__/mod.cpython-314.pyc"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] && grep -q 'tools: 2 found' <<<"$OUT"; then
-  ok "15 dependency dirs (node_modules/__pycache__) excluded → 2 found, not inflated" "(exit $RC)"
-else
-  no "15 dependency dirs excluded → 2 found, not inflated" "exit=$RC out=[$OUT]"
-fi
-
-# 16 — LIB EXCLUSION (*_lib). tools/ has 1 top-level .py and a module_nav_lib/ subdir with 2 .py files.
-#      Library modules must be DISCLOSED separately, not counted in the tool total (§7 Part A).
-#      No double-disclosure: the lib count appears once; Summary reflects top-level tools only.
-kit="$(mkkit c16-lib)"; tgt="$kit/targetA"
-mktool "$tgt" "main_tool.py"
-mkdir -p "$tgt/tools/module_nav_lib"
-printf '#!/usr/bin/env python3\n# lib module\n' > "$tgt/tools/module_nav_lib/parser.py"
-printf '#!/usr/bin/env python3\n# lib module\n' > "$tgt/tools/module_nav_lib/scanner.py"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'tools: 1 found' <<<"$OUT" \
-   && grep -qE '2 library module' <<<"$OUT" \
-   && grep -q 'Summary:.*1 tool(s).*1 target' <<<"$OUT" \
-   && ! grep -qE 'tools: 3 found' <<<"$OUT"; then
-  ok "16 *_lib/ dir → 1 tool + 2 lib modules disclosed, Summary shows 1" "(exit $RC)"
-else
-  no "16 *_lib/ dir → 1 tool + 2 lib modules disclosed, Summary shows 1" "exit=$RC out=[$OUT]"
-fi
-
-# 16b — PACKAGE-INTERNAL EXCLUSION (__init__.py). tools/ has 1 top-level tool + a subdir
-#        with __init__.py (Python package). Package-internal .py files are library modules,
-#        not standalone tools.
-kit="$(mkkit c16b-pkg)"; tgt="$kit/targetA"
-mktool "$tgt" "main_tool.py"
-mkdir -p "$tgt/tools/my_package"
-printf '#!/usr/bin/env python3\n' > "$tgt/tools/my_package/__init__.py"
-printf '#!/usr/bin/env python3\n# helper\n' > "$tgt/tools/my_package/helper.py"
-write_targets "$kit" "$tgt"; run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'tools: 1 found' <<<"$OUT" \
-   && grep -qE '[0-9]+ library module' <<<"$OUT" \
-   && grep -q 'Summary:.*1 tool(s).*1 target' <<<"$OUT"; then
-  ok "16b __init__.py package subdir → package internals disclosed, not counted as tools" "(exit $RC)"
-else
-  no "16b __init__.py package subdir → package internals disclosed, not counted as tools" "exit=$RC out=[$OUT]"
-fi
-
-# 17 — ABSENT-INPUT THREE-STATE. One real target + one non-existent path in TARGETS.md.
-#      Must emit INFO per absent target, footer count, exit 0; real target still processed.
-kit="$(mkkit c17-absent)"; tgt="$kit/targetA"
-mktool "$tgt" "scan.py"
-write_targets "$kit" "$tgt" "$kit/nonexistent-target"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'INFO: corpus not found (absent-input):' <<<"$OUT" \
-   && grep -qE 'INFO:.*1 target.*not traversed.*absent-input' <<<"$OUT" \
-   && grep -q 'TARGET.*targetA' <<<"$OUT" \
-   && grep -q 'Summary:.*1 tool' <<<"$OUT"; then
-  ok "17 absent target → INFO per target + footer count, real target processed, exit 0" "(exit $RC)"
-else
-  no "17 absent target → INFO per target + footer count, real target processed, exit 0" "exit=$RC out=[$OUT]"
-fi
-
-# 18 — RETRO SCAN ERROR (site 133). A grep error while scanning retro files must emit a WARN
-#       instead of silently treating the retro as having no T-rows.
-#       Stubs grep so calls with pattern '^\| T[0-9]+' exit 2 (ENOMEM-class error).
-_st_real_grep=/usr/bin/grep
-_stub_st18="$ROOT/stub-bin-st18"; mkdir -p "$_stub_st18"
-cat > "$_stub_st18/grep" << STUB_ST18
-#!/usr/bin/env bash
-[ "\$#" -ge 2 ] && [ "\$2" = '^\| T[0-9]+' ] && exit 2
-exec "${_st_real_grep}" "\$@"
-STUB_ST18
-chmod +x "$_stub_st18/grep"
-kit18="$(mkkit c18-retro-err)"; tgt18="$kit18/targetA"
-mktool "$tgt18" "tool.sh"
-mkretro_trow "$tgt18" "retro1.md" "tool.sh"
-write_targets "$kit18" "$tgt18"
-OUT18="$(PATH="$_stub_st18:$PATH" "$BASH_BIN" "$kit18/toolbelt/sweep-tools.sh" 2>&1)"; RC18=$?
-if grep -q 'retro(s) unreadable during T-row scan' <<<"$OUT18"; then
-  ok "18 retro scan grep exit-2 → WARN emitted (not silent)" "(exit $RC18)"
-else
-  no "18 retro scan grep exit-2 not reported" "exit=$RC18 out=[$OUT18]"
-fi
-
-# 19 — LEDGER SCAN ERROR on SECOND grep (site 148, rc2). A grep error in the separator-filter
-#       stage must set ledger_status="error" and emit a WARN instead of silently counting 0.
-#       Stubs grep so the separator-filter call (pattern '^\|[[:space:]]*[-:]+[[:space:]]*\|') exits 2.
-_stub_st19="$ROOT/stub-bin-st19"; mkdir -p "$_stub_st19"
-cat > "$_stub_st19/grep" << STUB_ST19
-#!/usr/bin/env bash
-[ "\$#" -ge 2 ] && [ "\$2" = '^\|[[:space:]]*[-:]+[[:space:]]*\|' ] && exit 2
-exec "${_st_real_grep}" "\$@"
-STUB_ST19
-chmod +x "$_stub_st19/grep"
-kit19="$(mkkit c19-ledger-err)"; tgt19="$kit19/targetA"
-mktool "$tgt19" "scan.py"
-{ printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
-  > "$tgt19/tools/README.md"
-write_targets "$kit19" "$tgt19"
-OUT19="$(PATH="$_stub_st19:$PATH" "$BASH_BIN" "$kit19/toolbelt/sweep-tools.sh" 2>&1)"; RC19=$?
-if grep -q 'scan FAILED.*ledger count unavailable' <<<"$OUT19"; then
-  ok "19 ledger scan second-grep exit-2 (rc2) → WARN emitted (ledger_status=error)" "(exit $RC19)"
-else
-  no "19 ledger scan second-grep exit-2 not reported" "exit=$RC19 out=[$OUT19]"
-fi
-
-# 19b — LEDGER SCAN ERROR on FIRST grep (site 148, rc1). A grep error in the row-collect stage
-#        (PIPESTATUS[0]) must ALSO set ledger_status="error". Previously only rc2 ($?) was captured;
-#        this test proves PIPESTATUS[0] is now checked independently — §7.
-#        Stubs grep so the row-collect call (pattern '^\|' with flag -E) exits 2.
-_stub_st19b="$ROOT/stub-bin-st19b"; mkdir -p "$_stub_st19b"
-cat > "$_stub_st19b/grep" << STUB_ST19B
-#!/usr/bin/env bash
-[ "\$1" = "-E" ] && [ "\$2" = '^\|' ] && exit 2
-exec "${_st_real_grep}" "\$@"
-STUB_ST19B
-chmod +x "$_stub_st19b/grep"
-kit19b="$(mkkit c19b-ledger-rc1)"; tgt19b="$kit19b/targetA"
-mktool "$tgt19b" "scan.py"
-{ printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
-  > "$tgt19b/tools/README.md"
-write_targets "$kit19b" "$tgt19b"
-OUT19b="$(PATH="$_stub_st19b:$PATH" "$BASH_BIN" "$kit19b/toolbelt/sweep-tools.sh" 2>&1)"; RC19b=$?
-if grep -q 'scan FAILED.*ledger count unavailable' <<<"$OUT19b"; then
-  ok "19b ledger scan first-grep exit-2 (rc1) → WARN emitted (PIPESTATUS[0] captured)" "(exit $RC19b)"
-else
-  no "19b ledger scan first-grep exit-2 not reported (rc1 gap)" "exit=$RC19b out=[$OUT19b]"
-fi
-
-# Teeth (mutation proof): only when --prove-teeth is passed.
-# --- mutation-control helpers (kit issues #943, #1299) ---------------------------------------------
-# Every mutant is built as a COPY by the shared lib/mutant.sh, which REFUSES an empty, byte-identical,
-# syntax-broken or live-tree mutant and a dead sed stage; each control then asserts the GOOD verdict on
-# the original AND the SPECIFIC BAD verdict on the mutant (exact rc on both sides). Kit-level mutants live
-# in a COPY of the sandbox kit ($ROOT/<name>-mut); mutants of files that live under $ROOT are built under
-# $MUT (lib/mutant.sh treats the ORIG's own non-git directory as the live tree, so OUT may not sit beside it).
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_tooth mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
-# mk_sed LABEL OUT EXPR...  build $OUT from $MK_ORIG (default $SUT) with one sed stage per EXPR (mutant_chain
-# refuses a dead stage); a refusal is counted as a failure here, the helper never touches the counters.
-mk_sed(){
-  local orig="${MK_ORIG:-$SUT}" out="$2"
-  mkdir -p "$(dirname "$out")"
-  mutant_chain_or_count fail "$1" "$orig" "$out" "${@:3}" || return 1
-}
-# mk_verify LABEL OUT  validate a mutant built another way (heredoc), same refusals as mk_sed.
-mk_verify(){
-  mutant_built_or_count fail "$1" "${MK_ORIG:-$SUT}" "$2" || return 1
-}
-# mut_kit KIT NAME  copy a fully-prepared sandbox kit to $ROOT/NAME-mut and print its path.
-mut_kit(){ cp -R "$1" "$ROOT/$2-mut" && printf '%s' "$ROOT/$2-mut"; }
-# tooth LABEL GOOD_RC BAD_RC MUTANT [--orig PATH] [--good-has RE] [--bad-lacks RE] [--bad-has RE] -- ARGV...
-# Counting wrapper over the shared mutant_tooth (which prints its own PASS/FAIL line). The pre-migration
-# local helper matched patterns case-insensitively, so MUTANT_TOOTH_ICASE keeps that behaviour exactly.
-tooth(){
-  if MUTANT_TOOTH_ICASE=1 mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-}
-# kit_tooth LABEL KIT NAME EXPR GOOD_HAS BAD_LACKS BAD_HAS [-- env/argv prefix...]  sed-mutate toolbelt/sweep-tools.sh
-# in a copy of KIT and compare the original kit's script against the mutant's on the same fixtures.
-kit_tooth(){
-  local label="$1" kit="$2" name="$3" expr="$4" good="$5" lacks="$6" has="$7" mk; shift 7
-  mk="$(mut_kit "$kit" "$name")" || { no "$label: could not copy kit"; return 1; }
-  mk_sed "$label" "$mk/toolbelt/sweep-tools.sh" "$expr" \
-    && tooth "$label" 0 0 "$mk/toolbelt/sweep-tools.sh" --orig "$kit/toolbelt/sweep-tools.sh" \
-         --good-has "$good" --bad-lacks "$lacks" --bad-has "$has" -- "$@" "$BASH_BIN" @SUT@
-}
-
+# NEGATIVE CONTROL — each shim mutation must lose its case.
 if [ "${1:-}" = "--prove-teeth" ]; then
-  MUT="$(mktemp -d)"
-  # Tooth A: break extension matching → case-1 fixture (2 tools) must report 0, not 2.
-  kit_m="$(mkkit teeth-a)"; tgt_m="$kit_m/targetA"
-  mktool "$tgt_m" "scan.py"; mktool "$tgt_m" "extract.sh"
-  write_targets "$kit_m" "$tgt_m"
-  kit_tooth "teeth A: extension-broken mutant misses tools → case 1 goes red" "$kit_m" teeth-a \
-    's/\*\.py|\*\.sh|/NOMATCH|/' 'tools: 2 found' 'tools: 2 found' 'tools: 0 found'
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-  # Tooth C: break ledger matching → case-12 fixture (2 ledger-only tools) must report 0, not 2.
-  kit_c="$(mkkit teeth-c)"; tgt_c="$kit_c/targetA"
-  mktool "$tgt_c" "ledger-tool.py"; mktool "$tgt_c" "other-tool.sh"
-  { printf '| Tool | Path | Provenance |\n|---|---|---|\n'
-    printf '| ledger-tool.py | tools/ledger-tool.py | created |\n'
-    printf '| other-tool.sh | tools/other-tool.sh | created |\n'
-  } > "$tgt_c/tools/README.md"
-  write_targets "$kit_c" "$tgt_c"
-  kit_tooth "teeth C: ledger-match-broken mutant misses ledger → case 12 goes red" "$kit_c" teeth-c \
-    's/in_ledger=1/in_ledger=0/' 'recorded \(ledger\): 2' 'recorded \(ledger\): 2' 'recorded \(ledger\): 0'
-
-  # Tooth B: Form-1-only mutant lib (no $RESEARCH_HOME expansion) → case-2 must fail.
-  # $_b_stub is built once and shared with Tooth B-noarg below — no second copy.
-  kit_b="$(mkkit teeth-b)"; tgt_b="$ROOT/rh-base/targetB"
-  mktool "$tgt_b" "probe.sh"
-  write_targets "$kit_b" '$RESEARCH_HOME/targetB'
-  _b_stub="$ROOT/b-stripped-lib.sh"
-  cat > "$_b_stub" <<'B_STRIPPED'
-#!/usr/bin/env bash
-if ! declare -F target_paths_all >/dev/null 2>&1; then
-  target_paths_all() {
-    local f="${1:-}"
-    [ -n "$f" ] || { echo "target-paths: called with no argument" >&2; return 1; }  # TP-STUB-NOARG
-    [ -f "$f" ] || { echo "target-paths: cannot read ${f}" >&2; return 1; }
-    grep -oE '`/[^`]+`' "$f" 2>/dev/null | tr -d '`' | sort -u
-  }
-fi
-B_STRIPPED
-  mk_b="$(mut_kit "$kit_b" teeth-b)"
-  cp "$_b_stub" "$mk_b/toolbelt/lib/target-paths.sh"
-  MK_ORIG="$LIB" mk_verify "teeth B" "$mk_b/toolbelt/lib/target-paths.sh" \
-    && tooth "teeth B: Form-2-dropped mutant misses \$RESEARCH_HOME → case 2 goes red" 0 1 "$mk_b/toolbelt/sweep-tools.sh" \
-         --orig "$kit_b/toolbelt/sweep-tools.sh" --good-has 'tools: 1 found' --bad-lacks 'tools: 1 found' \
-         --bad-has 'no usable target paths' -- env "RESEARCH_HOME=$ROOT/rh-base" "$BASH_BIN" @SUT@
-
-  # Tooth B-noarg: $_b_stub (same file installed above) must match the real lib on no-arg.
-  # Parity: call target_paths_all from $_b_stub AND from the real lib with no arg;
-  # assert BOTH exit non-zero AND that stub stderr == lib stderr.
-  # Asserting lib rc non-zero: a lib that silently returns 0 with a message would pass parity
-  # (stub copies the wrong behaviour), making this check theater (#909).
-  echo "-- teeth B-noarg: Tooth B stripped stub no-arg parity with real lib; sed-mutant must break parity --"
-  _bna_lib_msg="$("$BASH_BIN" -c ". '$LIB'; target_paths_all" 2>&1)"; _bna_lib_rc=$?
-  _bna_stub_msg="$("$BASH_BIN" -c ". '$_b_stub'; target_paths_all" 2>&1)"; _bna_stub_rc=$?
-  if [ "$_bna_lib_rc" != 0 ] && [ "$_bna_stub_rc" != 0 ] && [ "$_bna_stub_msg" = "$_bna_lib_msg" ]; then
-    ok "teeth B-noarg: Tooth B stub (exit $_bna_stub_rc) matches lib (exit $_bna_lib_rc) on no-arg (parity)" "()"
-  else
-    no "teeth B-noarg: Tooth B stub diverges from lib on no-arg" "stub rc=$_bna_stub_rc msg=[$_bna_stub_msg] lib rc=$_bna_lib_rc msg=[$_bna_lib_msg]"
+  # A: the own kit is no longer handed over → case 2 (and the real binary would resolve some other kit).
+  if mk_mut "teeth A: --kit dropped" "$SUT" "$TMP/mutA.sh" 's/ --kit "\$_RSDD_SELF\/\.\."//'; then
+    stage_kit "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/toolbelt/sweep-tools.sh" --json >/dev/null 2>&1
+    if [ "$(sed -n 3p "$TMP/args")" != "--kit" ]; then ok "teeth A: --kit dropped → case 2 would go RED"; else no "teeth A: mutant still passes --kit"; fi
   fi
-  # Mutation: the TP-STUB-NOARG guard back to 'return 0'. GOOD = the stub's exact rc 1 with its message;
-  # BAD = exact rc 0 (a different non-zero rc would be a different mutation, not this one). Built under $MUT:
-  # the stub lives in $ROOT, which lib/mutant.sh would treat as the live tree for an OUT beside it.
-  MK_ORIG="$_b_stub" mk_sed "teeth B-noarg mutant" "$MUT/bna/stub.sh" '/# TP-STUB-NOARG/ s/.*/    [ -n "$f" ] || return 0/' \
-    && tooth "teeth B-noarg mutant: 'return 0' stub breaks parity → mutation has teeth" 1 0 "$MUT/bna/stub.sh" \
-         --orig "$_b_stub" --good-has 'called with no argument' --bad-lacks 'called with no argument' -- \
-         "$BASH_BIN" -c '. "$1"; target_paths_all' _ @SUT@
-
-  # Tooth D: strip the dependency-dir exclusions from the find → node_modules deps get counted →
-  #          case-15 fixture reports more than 2.
-  kit_d="$(mkkit teeth-d)"; tgt_d="$kit_d/targetA"
-  mktool "$tgt_d" "scan.py"; mktool "$tgt_d" "extract.sh"
-  mkdir -p "$tgt_d/tools/node_modules/pkg"
-  printf 'x\n' > "$tgt_d/tools/node_modules/pkg/index.js"
-  printf 'x\n' > "$tgt_d/tools/node_modules/pkg/dep.py"
-  write_targets "$kit_d" "$tgt_d"
-  kit_tooth "teeth D: exclude-stripped mutant counts node_modules deps → case 15 goes red" "$kit_d" teeth-d \
-    "s/-not -path '[^']*'//g" 'tools: 2 found' 'tools: 2 found' 'tools: [3-9] found'
-
-  # Tooth E: kill *_lib discriminator → lib modules get counted as tools →
-  #          case-16 fixture reports 3 tools instead of 1.
-  kit_e="$(mkkit teeth-e)"; tgt_e="$kit_e/targetA"
-  mktool "$tgt_e" "main_tool.py"
-  mkdir -p "$tgt_e/tools/module_nav_lib"
-  printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/parser.py"
-  printf '#!/usr/bin/env python3\n# lib\n' > "$tgt_e/tools/module_nav_lib/scanner.py"
-  write_targets "$kit_e" "$tgt_e"
-  kit_tooth "teeth E: *_lib-broken mutant counts lib modules as tools → case 16 goes red" "$kit_e" teeth-e \
-    's/[*]_lib) return 0/NOMATCH_LIB) return 0/' 'tools: 1 found' 'tools: 1 found' 'tools: [2-9] found'
-
-  # Tooth F: disable absent-input INFO → case-17 fixture must not find INFO line.
-  kit_f="$(mkkit teeth-f)"; tgt_f="$kit_f/targetA"
-  mktool "$tgt_f" "scan.py"
-  write_targets "$kit_f" "$tgt_f" "$kit_f/nonexistent-target"
-  kit_tooth "teeth F: absent-INFO-disabled mutant hides absent target → case 17 goes red" "$kit_f" teeth-f \
-    's/echo "INFO: corpus not found/true # disabled:/' 'INFO: corpus not found \(absent-input\):' \
-    'INFO: corpus not found \(absent-input\):' 'tools: 1 found'
-
-  # Tooth G: neutralize _st_chunk_rc so retro scan error passes silently → test 18 goes red.
-  echo "-- teeth G: neutralize _st_chunk_rc; retro-scan exit-2 must pass silently → test 18 goes red --"
-  kit_g="$(mkkit teeth-g)"; tgt_g="$kit_g/targetA"
-  mktool "$tgt_g" "tool.sh"
-  mkretro_trow "$tgt_g" "retro1.md" "tool.sh"
-  write_targets "$kit_g" "$tgt_g"
-  kit_tooth "teeth G: rc-zeroed mutant passes silently — retro-scan guard has teeth" "$kit_g" teeth-g \
-    's/_st_chunk_rc=\$?/_st_chunk_rc=0/' 'retro\(s\) unreadable during T-row scan' \
-    'retro\(s\) unreadable during T-row scan' 'Summary:' env "PATH=$_stub_st18:$PATH"
-
-  # Tooth H: zero BOTH rc1 and rc2 (simulates the pre-PIPESTATUS path that only sees $?) so any
-  #   pipeline error passes silently → test 19 (second-grep stub) goes red.
-  # Note: zeroing only rc2 is insufficient because a second-grep exit-2 causes SIGPIPE on the
-  # first grep (rc1→141), so rc1 alone would still trigger the WARN. Zeroing both proves that
-  # the PIPESTATUS capture is what lets pipeline errors surface.
-  echo "-- teeth H: zero both rcs (pre-PIPESTATUS path); second-grep exit-2 must pass silently → test 19 goes red --"
-  kit_h="$(mkkit teeth-h)"; tgt_h="$kit_h/targetA"
-  mktool "$tgt_h" "scan.py"
-  { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
-    > "$tgt_h/tools/README.md"
-  write_targets "$kit_h" "$tgt_h"
-  mk_h="$(mut_kit "$kit_h" teeth-h)"
-  mk_sed "teeth H" "$mk_h/toolbelt/sweep-tools.sh" \
-      's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' \
-      's/_st_ledger_rc2=\${_st_ledger_ps\[1\]}/_st_ledger_rc2=0/' \
-    && tooth "teeth H: both-rcs-zeroed mutant passes silently — PIPESTATUS capture has teeth" 0 0 "$mk_h/toolbelt/sweep-tools.sh" \
-         --orig "$kit_h/toolbelt/sweep-tools.sh" --good-has 'scan FAILED.*ledger count unavailable' \
-         --bad-lacks 'scan FAILED.*ledger count unavailable' --bad-has 'Summary:' -- \
-         env "PATH=$_stub_st19:$PATH" "$BASH_BIN" @SUT@
-
-  # Tooth H2: neutralize _st_ledger_rc1 (PIPESTATUS[0]) so first-grep error passes silently → test 19b goes red.
-  # This is the critical proof: a mutant that reads ONLY rc2 (ignoring rc1) goes RED under first-grep stub.
-  echo "-- teeth H2: neutralize _st_ledger_rc1; first-grep exit-2 must pass silently → test 19b goes red --"
-  kit_h2="$(mkkit teeth-h2)"; tgt_h2="$kit_h2/targetA"
-  mktool "$tgt_h2" "scan.py"
-  { printf '| Tool | Path | Provenance |\n|---|---|---|\n| scan.py | tools/scan.py | created |\n'; } \
-    > "$tgt_h2/tools/README.md"
-  write_targets "$kit_h2" "$tgt_h2"
-  kit_tooth "teeth H2: rc1-zeroed mutant passes silently — first-grep guard has teeth" "$kit_h2" teeth-h2 \
-    's/_st_ledger_rc1=\${_st_ledger_ps\[0\]}/_st_ledger_rc1=0/' 'scan FAILED.*ledger count unavailable' \
-    'scan FAILED.*ledger count unavailable' 'Summary:' env "PATH=$_stub_st19b:$PATH"
+  # B: the caller's arguments are dropped → case 2.
+  if mk_mut "teeth B: arguments dropped" "$SUT" "$TMP/mutB.sh" 's/"\$@"$//'; then
+    stage_kit "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/toolbelt/sweep-tools.sh" --json >/dev/null 2>&1
+    if ! grep -qx -- '--json' "$TMP/args"; then ok "teeth B: arguments dropped → case 2 would go RED"; else no "teeth B: mutant still passes the arguments"; fi
+  fi
+  # C: the shim runs the hook mode instead of the sweep → case 2 sees the wrong command.
+  if mk_mut "teeth C: wrong command" "$SUT" "$TMP/mutC.sh" 's/rsdd_exec sweep tools --kit/rsdd_exec sweep tools --hook --kit/'; then
+    stage_kit "$TMP/mC" "$TMP/mutC.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mC/toolbelt/sweep-tools.sh" >/dev/null 2>&1
+    if grep -qx -- '--hook' "$TMP/args"; then ok "teeth C: hook mode in the CLI shim → case 2 would go RED"; else no "teeth C: mutant does not pass --hook"; fi
+  fi
+  # D: the missing-lib guard stripped → no typed degraded line → case 7.
+  if mk_mut "teeth D: guard removed" "$SUT" "$TMP/mutD.sh" 's/ 2>\/dev\/null || { printf .*exit 2; }//'; then
+    mkdir -p "$TMP/mD"; cp "$TMP/mutD.sh" "$TMP/mD/sweep-tools.sh"
+    bash "$TMP/mD/sweep-tools.sh" >/dev/null 2>"$TMP/errD"
+    if ! grep -q 'rsdd-exec.sh missing beside' "$TMP/errD"; then ok "teeth D: unguarded shim no longer announces a missing lib → case 7 would go RED"; else no "teeth D: mutant still announces"; fi
+  fi
 fi
 
 echo "== $pass passed · $fail failed =="

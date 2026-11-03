@@ -5,6 +5,7 @@ package verify
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 // envelopeOf is the SessionStart envelope the hook prints for ctx.
 func envelopeOf(ctx string) string {
 	var b bytes.Buffer
-	writeSessionStart(&b, ctx)
+	hookenv.WriteSessionStart(&b, ctx)
 	return b.String()
 }
 

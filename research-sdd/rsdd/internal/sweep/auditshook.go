@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/sweep-audits-hook.sh (kit issue #2577), `rsdd sweep audits --hook [--full]`: the
@@ -24,8 +25,8 @@ const (
 
 func runAuditsHook(o options, s cli.Stdio) int {
 	var buf bytes.Buffer // one writer for both streams: the script's `2>&1`
-	rc := sweepAudits(o, s, &buf, &buf)
-	writeSessionStart(s.Out, auditsHookContext(strings.TrimRight(buf.String(), "\n"), rc, o.fl))
+	rc := hookenv.Guard(&buf, func() int { return sweepAudits(o, s, &buf, &buf) })
+	hookenv.WriteSessionStart(s.Out, auditsHookContext(strings.TrimRight(buf.String(), "\n"), rc, o.fl))
 	return cli.ExitOK
 }
 

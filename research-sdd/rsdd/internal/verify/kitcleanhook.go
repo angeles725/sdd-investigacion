@@ -3,11 +3,10 @@ package verify
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/hookenv"
 )
 
 // Port of research-sdd/toolbelt/verify-kit-clean-hook.sh, the SessionStart wrapper of verify kit-clean:
@@ -22,67 +21,35 @@ import (
 // Difference, by design: the script printed plain text when jq was missing; the envelope is built here with
 // no jq, so it is always the JSON contract of the harness.
 //
-// The envelope encoder is pinned to jq's output by differential_test.go; it moves to core/jsonout in #2386
-// (lib/hook-emit.sh stays bash: it is the degraded path when rsdd cannot run).
+// The envelope encoder (core/hookenv) is pinned to jq's output by differential_test.go; a panic inside the check
+// is turned into the could-not-run envelope by hookenv.Guard (kit issue #2610). lib/hook-emit.sh stays bash: it is
+// the degraded path when rsdd cannot run.
 
 const (
 	hdrNotClean = "Research-SDD KIT is NOT clean — commit/stash + push before staging §18 retros (else the retro branch/PR mixes unrelated history):"
+	hdrInternal = "Research-SDD kit-clean check could not run (internal error):"
 	hdrCouldNot = "Research-SDD kit-clean check could not run (exit %d — misconfigured path or not a git repo):"
 )
 
 // RunKitCleanHook is the `verify kit-clean-hook` command.
 func RunKitCleanHook(args []string, s cli.Stdio) int {
 	var buf bytes.Buffer // one writer for both streams, so the order is the script's `2>&1`
-	rc := kitClean(repoArg(args), s.Cwd, &buf, &buf, gitRunner(s))
+	finished := false
+	rc := hookenv.Guard(&buf, func() int {
+		r := kitClean(repoArg(args), s.Cwd, &buf, &buf, gitRunner(s))
+		finished = true
+		return r
+	})
 	if rc == 0 {
 		return cli.ExitOK
 	}
-	hdr := hdrNotClean
-	if rc != 1 {
+	hdr := hdrNotClean // exit 1 is a dirty kit, which is also the code a panic maps to: `finished` tells them apart
+	switch {
+	case !finished:
+		hdr = hdrInternal
+	case rc != 1:
 		hdr = fmt.Sprintf(hdrCouldNot, rc)
 	}
-	writeSessionStart(s.Out, hdr+"\n"+strings.TrimRight(buf.String(), "\n"))
+	hookenv.WriteSessionStart(s.Out, hdr+"\n"+strings.TrimRight(buf.String(), "\n"))
 	return cli.ExitOK
-}
-
-// writeSessionStart prints the envelope exactly as
-// `jq -n --arg c "$ctx" '{hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$c}}'` does:
-// two-space indent, keys in insertion order (not sorted), a trailing newline.
-func writeSessionStart(w io.Writer, ctx string) {
-	fmt.Fprintf(w, "{\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"SessionStart\",\n    \"additionalContext\": %s\n  }\n}\n", jqString(ctx))
-}
-
-// jqString is jq's string encoding: the short escapes for " \ \b \f \n \r \t, \u00xx (lowercase hex) for the
-// other control characters and DEL, every other character as is (no <>& escaping, no U+2028), and U+FFFD for
-// each byte that is not valid UTF-8.
-// TODO(#2386): delete this private copy once core/jsonout has the jq-compatible encoder.
-func jqString(s string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for i := 0; i < len(s); {
-		r, n := utf8.DecodeRuneInString(s[i:]) // an invalid byte decodes as U+FFFD, width 1: exactly jq's replacement
-		i += n
-		switch {
-		case r == '"':
-			b.WriteString(`\"`)
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\b':
-			b.WriteString(`\b`)
-		case r == '\f':
-			b.WriteString(`\f`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			fmt.Fprintf(&b, `\u%04x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
 }
