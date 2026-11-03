@@ -197,7 +197,8 @@ func archiveCases() []archiveCase {
 		archiveCase{name: "noargs", legacy: "11", build: good, args: func(*archiveFx, string) []string { return nil }, want: archiveWant{rc: 2}},
 		archiveCase{name: "lockedtree", legacy: "12", build: archiveGoodThen(func(f *archiveFx, d string) { f.mkdir(filepath.Join(d, "lockeddir")) }),
 			skip: archiveRootSkip, arm: archiveChmod("lockeddir", 0), disarm: archiveChmod("lockeddir", 0o755),
-			want: archiveWant{rc: 0, has: []string{`research-sdd-archive:`}}},
+			// an unlistable directory is a degraded verify-corrections (kit issue #2625), so the archive is REFUSED (3), not closed on an unchecked corpus
+			want: archiveWant{rc: 3, has: []string{`research-sdd-archive:`, `verify-corrections : DEGRADED .*cannot read directory .*/lockeddir: permission denied`, `REFUSED`}}},
 		archiveCase{name: "brokenlinter", legacy: "13", build: good,
 			farm: func(f *archiveFx, tb string) {
 				_ = os.Remove(filepath.Join(tb, "verify-state.sh"))
@@ -351,7 +352,9 @@ func archiveCases() []archiveCase {
 			want: archiveWant{rc: 3, has: []string{`-print0 \| `, `scan-secrets\.sh --files-from -`, `scan-secrets\.sh --committed`}}},
 		archiveCase{name: "unreadable-dir", legacy: "17s", build: archiveGoodThen(func(f *archiveFx, d string) { f.write(filepath.Join(d, "locked", "inner.md"), "x\n") }),
 			skip: archiveRootSkip, arm: archiveChmod("locked", 0), disarm: archiveChmod("locked", 0o755),
-			want: archiveWant{rc: 0, has: []string{`scan-secrets +: ok, 1 unreadable path\(s\) not scanned`}}},
+			// verify-corrections refuses a corpus it could not list (kit issue #2625: degraded, exit 1), so the archive is REFUSED (3);
+			// scan-secrets still accounts the unreadable path.
+			want: archiveWant{rc: 3, has: []string{`verify-corrections : DEGRADED .*cannot read directory .*/locked: permission denied`, `scan-secrets +: ok, 1 unreadable path\(s\) not scanned`, `REFUSED`}}},
 		archiveCase{name: "unreadable-file", legacy: "17t", build: archiveGoodThen(func(f *archiveFx, d string) { f.write(filepath.Join(d, "notes.md"), "Leaked: AKIAIOSFODNN7EXAMPLE\n") }),
 			skip: archiveRootSkip, arm: archiveChmod("notes.md", 0), disarm: archiveChmod("notes.md", 0o644),
 			want: archiveWant{rc: 3, has: []string{`scan-secrets +: ERROR — scan-secrets.sh did not run cleanly \(exit 3\).*DEGRADED`}, lacks: []string{`scan-secrets +: ok`}}},

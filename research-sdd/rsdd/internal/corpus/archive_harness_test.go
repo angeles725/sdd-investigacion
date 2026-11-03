@@ -35,8 +35,8 @@ import (
 var (
 	archiveLegacyRunner  func(t testing.TB, tb, cwd string, args, env []string) (string, string, int)
 	archiveLegacyInstall func(t testing.TB, tb string)
-	// archiveTestBin is archiveRsddBin, set by archive_shim_test.go (also built only without nodiff): the binary every
-	// run gets as RSDD_BIN. Under -tags nodiff it stays nil and archiveBaseEnv adds no RSDD_BIN.
+	// archiveTestBin is archiveRsddBin, set by archive_bin_test.go in both builds: the binary every
+	// run gets as RSDD_BIN.
 	archiveTestBin func(t testing.TB) string
 )
 
