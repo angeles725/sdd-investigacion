@@ -1,584 +1,171 @@
 #!/usr/bin/env bash
-# sweep-audits.test.sh — smoke harness for sweep-audits.sh (surfaces un-reviewed §13 audit reports
-# across research-sdd targets, METHODOLOGY §13). Mirror of sweep-retros.test.sh, scoped to the
-# audit-specific contract: it walks <target>/audits/*.md (not retros/), prints '~N audited claims',
-# closes with a 'Summary: <pending> pending / <total> audits' line, and — the new surface from
-# Discovery #1 — emits a 'WARN: … PARTIAL' line naming any target dropped for a truncated '...' path.
-# The review-status marker logic is shared (lib/retro-status.sh) and already pinned exhaustively by
-# retro-status.test.sh + sweep-retros.test.sh, so this suite only spot-checks it (pending/applied/none).
+# sweep-audits.test.sh — harness for sweep-audits.sh, now a shim to `rsdd sweep audits` (kit issue #2577).
 #
-# READ-ONLY on the SUT: it runs a throwaway COPY inside a sandbox kit so KIT=dirname/.. resolves
-# hermetically, with no external tool.
+# Covers the SHIM contract: existence and the executable bit; the arguments handed to the binary (`sweep audits
+# --kit <own kit>`, then every caller argument byte for byte, an empty one included); output and exit code passed
+# through; a symlinked invocation; the kit is the shim's, never the caller's cwd; a missing lib or an unusable
+# binary → a typed degraded line, never a silent pass; and the real Go binary end to end on a mini kit (a pending
+# audit, a caller argument the script ignored, a missing TARGETS.md, no usable target path, and a bare kit copy
+# with neither bin/ nor Go sources).
+# Everything the script decided — the marker grammar, the claim count, aging and ESCALATED, the oldest-first
+# order, the nested and index rules, the absent-input / empty-input / no-match states, the PARTIAL warning, the
+# all-clear gate, RESEARCH_HOME paths — is pinned in Go (research-sdd/rsdd/internal/sweep: a behaviour table, a
+# golden recorded from the frozen script, unit tests of every boundary, and a differential against the frozen
+# script). The map from every old case to its Go test is L3 of odd/tasks/sweep-audits-go.md.
 #
-# Usage: sweep-audits.test.sh
-# Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
-
+# --prove-teeth mutates the SHIM (each mutant must lose its case); the Go source has its own mutation gate
+# (`make teeth` in research-sdd/rsdd).
+#
+# Usage: sweep-audits.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=lib/stage-libs.sh
-. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../sweep-audits.sh"
-[ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-LIB="$HERE/../lib/retro-status.sh"           # shared marker reader the SUT sources
-[ -f "$LIB" ] || { echo "FATAL: helper not found: $LIB" >&2; exit 2; }
-TP_LIB="$HERE/../lib/target-paths.sh"        # shared path derivation the SUT now sources
-[ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
-
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
-ok() { printf '  PASS  %-58s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no() { printf '  FAIL  %-58s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# the shim reads none of these; a stale value from the caller must not change a case
+unset RSDD_RETRO_AGE_DAYS RESEARCH_HOME
 
-# mkkit <name> : lay down a runnable COPY of the SUT at <ROOT>/<name>/toolbelt/ so KIT=dirname/..
-# resolves inside the sandbox; echoes the kit dir. TARGETS.md goes at its top.
-mkkit() {
-  local kit="$ROOT/$1"
-  rsdd_stage_libs "$kit/toolbelt"   # every lib the SUT sources at $(dirname $0)/lib/ (retro-status, target-paths)
-  cp "$SUT" "$kit/toolbelt/sweep-audits.sh"
-  printf '%s' "$kit"
+# The Go binary the end-to-end cases run: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
+fi
+
+# stage_kit DEST [SHIM] — a mini kit: the shim (the real one, or a mutant) and lib/rsdd-exec.sh. The toolbelt is
+# DEST/toolbelt. No bin/ and no Go sources: the binary can only come from RSDD_BIN.
+stage_kit() {
+  mkdir -p "$1/toolbelt/lib"
+  cp "${2:-$SUT}" "$1/toolbelt/sweep-audits.sh"; chmod +x "$1/toolbelt/sweep-audits.sh"
+  cp "$HERE/../lib/rsdd-exec.sh" "$1/toolbelt/lib/" || exit 2   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 7
+}
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
 
-# write_targets <kit> <targetpath...> : minimal TARGETS.md carrying each target as a backtick-wrapped
-# absolute path — the only thing the SUT reads out of it.
-write_targets() {
-  local kit="$1"; shift
-  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-    local i=0 t
-    for t in "$@"; do i=$((i+1)); printf '| %d | t%d | `%s` |\n' "$i" "$i" "$t"; done
-  } > "$kit/TARGETS.md"
-}
+echo "== sweep-audits.test.sh =="
 
-# mkaudit <target> <filename> <marker-line|-> <nclaims> : write an audit with an optional top marker
-# and <nclaims> table rows shaped like '| <n> | ... |' (what the SUT counts as audited claims).
-mkaudit() {
-  local tgt="$1" fname="$2" marker="$3" nc="$4" i=0
-  mkdir -p "$tgt/audits"
-  {
-    [ "$marker" = "-" ] || printf '%s\n' "$marker"
-    printf '# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n'
-    while [ "$i" -lt "$nc" ]; do i=$((i+1)); printf '| %d | claim %d | CONFIRMED |\n' "$i" "$i"; done
-  } > "$tgt/audits/$fname"
-}
+# 1 — the shim exists and is executable.
+[ -f "$SUT" ] && [ -x "$SUT" ] && ok "1 shim exists and is executable" || no "1 shim missing or not executable: $SUT"
 
-run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?; }
+stage_kit "$TMP/kit"; SHIM="$TMP/kit/toolbelt/sweep-audits.sh"
+PHYS="$(cd -P "$TMP/kit/toolbelt" && pwd -P)"
 
-echo "== sweep-audits.test.sh (SUT: $(basename "$SUT")) =="
+# 2 — the binary gets `sweep audits --kit <own kit>` and then the caller's arguments, byte for byte.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" --json 'a b' '' '--x=*' >/dev/null 2>&1
+want="$(printf '%s\n' sweep audits --kit "$PHYS/.." --json 'a b' '' '--x=*')"
+if [ "$(cat "$TMP/args")" = "$want" ]; then ok "2 binary called as 'sweep audits --kit <own kit>' + the caller's arguments verbatim"
+else no "2 arguments differ: [$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# 1 — PENDING marker → surfaced with claim count + audit-specific summary wording.
-kit="$(mkkit c1-pending)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 3
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'a1.md' <<<"$OUT" \
-   && grep -q 'status: pending' <<<"$OUT" \
-   && grep -q '~3 audited claims' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
-  ok "1 pending audit → surfaced as PENDING (~3 claims)" "(exit $RC)"
-else
-  no "1 pending audit → surfaced as PENDING (~3 claims)" "exit=$RC out=[$OUT]"
-fi
+# 3 — output and exit code pass through unchanged (stdout and the code are the binary's work).
+stub_bin 1 "from the binary
+"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 1 ] && [ "$OUT" = "from the binary" ]; then ok "3 output and exit code pass through"; else no "3 passthrough differs (rc=$RC out=[$OUT])"; fi
 
-# 2 — APPLIED marker → excluded (counted in total, never printed PENDING, empty-queue path).
-kit="$(mkkit c2-applied)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 · kit deadbeef -->" 4
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'Summary: 0 pending / 1 audits' <<<"$OUT" \
-   && grep -q 'Nothing to review.' <<<"$OUT"; then
-  ok "2 applied audit → excluded, empty queue" "(exit $RC)"
-else
-  no "2 applied audit → excluded, empty queue" "exit=$RC out=[$OUT]"
-fi
+# 4 — invoked through a symlink in another directory, the shim still names its REAL kit.
+mkdir -p "$TMP/elsewhere"; ln -s "$SHIM" "$TMP/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "4 symlinked shim → binary gets the physical own kit"; else no "4 symlink: args=[$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# 3 — ABSENT marker → pending with 'status: none' (a missing marker reads as pending, like retros).
-kit="$(mkkit c3-nomarker)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "-" 2
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && grep -q 'status: none' <<<"$OUT"; then
-  ok "3 absent marker → pending, status: none" "(exit $RC)"
-else
-  no "3 absent marker → pending, status: none" "exit=$RC out=[$OUT]"
-fi
+# 5 — the kit is the shim's, never the caller's cwd.
+( cd "$TMP/elsewhere" && RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" >/dev/null 2>&1 )
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "5 the kit does not depend on the cwd"; else no "5 cwd leaked into the kit: [$(sed -n 4p "$TMP/args")]"; fi
 
-# 4 — MULTI-TARGET aggregation across two targets (one pending + one applied, plus one pending).
-kit="$(mkkit c4-multi)"; tgtA="$kit/targetA"; tgtB="$kit/targetB"
-mkaudit "$tgtA" "p.md"    "<!-- review-status: pending -->" 2
-mkaudit "$tgtA" "done.md" "<!-- review-status: applied 2026-01-01 -->" 5
-mkaudit "$tgtB" "p.md"    "<!-- review-status: pending -->" 1
-write_targets "$kit" "$tgtA" "$tgtB"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q 'Summary: 2 pending / 3 audits' <<<"$OUT"; then
-  ok "4 multi-target → 2 pending / 3 audits aggregated" "(exit $RC)"
-else
-  no "4 multi-target → 2 pending / 3 audits aggregated" "exit=$RC out=[$OUT]"
-fi
+# 6 — an unusable RSDD_BIN → a typed degraded line on stderr, rc 2, nothing on stdout (the sweep could not run).
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$SHIM" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6"; then
+  ok "6 unusable RSDD_BIN → typed degraded line, rc 2"
+else no "6 unusable binary: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
 
-# 5 — WARN on a truncated '...' path (Discovery #1). A target whose backtick path contains '...'
-#     is dropped from the walk, but the summary must WARN that the sweep is PARTIAL and NAME the
-#     skipped target (its basename). The real target still sweeps normally.
-kit="$(mkkit c5-warn)"; tgtA="$kit/targetA"; tgtDots="$kit/Honeywell...niagara-help"
-mkaudit "$tgtA" "a1.md" "<!-- review-status: pending -->" 1
-mkaudit "$tgtDots" "a1.md" "<!-- review-status: pending -->" 1   # exists on disk, still dropped
-write_targets "$kit" "$tgtA" "$tgtDots"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && [ -d "$tgtDots/audits" ] \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT" \
-   && grep -qE 'WARN: 1 target\(s\) skipped .* PARTIAL' <<<"$OUT" \
-   && grep -q 'Honeywell...niagara-help' <<<"$OUT"; then
-  ok "5 truncated '...' path → dropped, WARN names it, sweep PARTIAL" "(exit $RC)"
-else
-  no "5 truncated '...' path → dropped, WARN names it, sweep PARTIAL" "exit=$RC out=[$OUT]"
-fi
+# 7 — the shim's own lib missing → a typed degraded line, rc 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/sweep-audits.sh"
+OUT="$(bash "$TMP/nolib/sweep-audits.sh" 2>"$TMP/err7")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q "^degraded: rsdd-unavailable — rsdd-exec.sh missing beside $TMP/nolib/sweep-audits.sh\$" "$TMP/err7"; then
+  ok "7 missing rsdd-exec.sh → typed degraded line, rc 2"
+else no "7 missing lib: rc=$RC out=[$OUT] err=[$(cat "$TMP/err7")]"; fi
 
-# 6 — NO truncated paths → NO WARN (negative control: the WARN must not fire spuriously).
-kit="$(mkkit c6-nowarn)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 1
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] && ! grep -q 'WARN' <<<"$OUT" && ! grep -q 'PARTIAL' <<<"$OUT"; then
-  ok "6 no '...' paths → no WARN (negative control)" "(exit $RC)"
-else
-  no "6 no '...' paths → no WARN (negative control)" "exit=$RC out=[$OUT]"
-fi
+# ---- the real binary, end to end on the mini kit ----
+real() { env RSDD_BIN="$REAL_BIN" bash "$SHIM" "$@"; }
+T1="$TMP/t1"; mkdir -p "$T1/audits"
+printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | c1 | CONFIRMED |\n| 2 | c2 | CONFIRMED |\n' > "$T1/audits/a1.md"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | `%s` |\n' "$T1" > "$TMP/kit/TARGETS.md"
+KITPHYS="$(cd -P "$TMP/kit" && pwd -P)"
 
-# 7 — MISSING TARGETS.md → abort exit 1, no summary.
-kit="$(mkkit c7-notargets)"   # no write_targets → TARGETS.md absent
-run "$kit"
-if [ "$RC" = 1 ] && grep -qi 'cannot find' <<<"$OUT" && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "7 missing TARGETS.md → exit 1, no summary" "(exit $RC)"
-else
-  no "7 missing TARGETS.md → exit 1, no summary" "exit=$RC out=[$OUT]"
-fi
+# 8 — a pending audit → PENDING, its claim count, the Summary and the guidance, exit 0, stderr empty.
+OUT="$(real 2>"$TMP/err8")"; RC=$?
+if [ "$RC" = 0 ] && grep -qF "PENDING  $T1/audits/a1.md" <<<"$OUT" && grep -q '~2 audited claims' <<<"$OUT" \
+   && grep -q '^Summary: 1 pending / 1 audits across targets\.$' <<<"$OUT" && grep -q '^For each PENDING audit: ' <<<"$OUT" \
+   && [ ! -s "$TMP/err8" ]; then
+  ok "8 end to end: pending audit surfaced, claim count and summary, exit 0"
+else no "8 end to end: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
 
-# 8 — AGING / ESCALATION + oldest-first ordering (Feature #26). Two pending audits: one deep-past mtime, one
-#      fresh. Sandbox is not git → the SUT's git-first-commit lookup returns empty and FALLS BACK to file
-#      mtime — this case drives that fallback path specifically (git-first-commit itself IS hermetically
-#      fakeable via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE — see the sibling stage-retro.test.sh's `mkrepo` and
-#      research-sdd-archive.test.sh's `mkgood_git`, which already build hermetic git repos this way — a
-#      dedicated git-added-date case for audits is left as a follow-up, not driven here). With
-#      RSDD_RETRO_AGE_DAYS=1 the aged one is TAGGED 'ESCALATED (aged Nd)' and prints BEFORE the fresh one.
-kit="$(mkkit c8-aging)"; tgt="$kit/targetA"
-mkaudit "$tgt" "fresh.md" "<!-- review-status: pending -->" 1
-mkaudit "$tgt" "old.md"   "<!-- review-status: pending -->" 1
-touch -d '2000-01-01' "$tgt/audits/old.md"
-touch "$tgt/audits/fresh.md"
-write_targets "$kit" "$tgt"
-OUT="$(RSDD_RETRO_AGE_DAYS=1 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
-old_ln=$(grep -n 'old.md'   <<<"$OUT" | head -1 | cut -d: -f1)
-fresh_ln=$(grep -n 'fresh.md' <<<"$OUT" | head -1 | cut -d: -f1)
-if [ "$RC" = 0 ] \
-   && [ "$(grep -c 'ESCALATED (aged' <<<"$OUT")" = 1 ] \
-   && grep -q 'ESCALATED (aged' <<<"$(grep -A1 'old.md' <<<"$OUT")" \
-   && [ -n "$old_ln" ] && [ -n "$fresh_ln" ] && [ "$old_ln" -lt "$fresh_ln" ]; then
-  ok "8 aged pending audit → ESCALATED tag + sorted oldest-first (fresh not tagged)" "(exit $RC)"
-else
-  no "8 aged pending audit → ESCALATED tag + sorted oldest-first (fresh not tagged)" "old_ln=$old_ln fresh_ln=$fresh_ln out=[$OUT]"
-fi
+# 9 — a caller argument the script ignored is ignored: the output is byte for byte the one without it.
+OUT1="$(real 2>&1)"; OUT2="$(real --json extra 2>&1)"
+if [ -n "$OUT1" ] && [ "$OUT1" = "$OUT2" ]; then ok "9 end to end: unknown arguments are ignored, as the script did"; else no "9 arguments changed the report: [$OUT2]"; fi
 
-# 9 — NESTED-CORPUS layout: audits kept DEEPER than <target>/audits/. A nested-corpus target registers its
-#      ROOT in TARGETS.md but keeps its audits at <target>/research/audits/*.md. The PENDING loop must resolve
-#      audits RECURSIVELY (find "$p" -path '*/audits/*.md'), so a pending audit under research/audits/ is LISTED,
-#      counted, and AGED. Against the OLD flat "$p/audits/*.md" glob (d="$p/audits"; [ -d "$d" ] || continue)
-#      the target's flat audits/ dir does not exist → the loop 'continue'd and the audit was invisible. This
-#      case is RED on that code ('0 pending / 0 audits'), proving the teeth of the recursive fix.
-kit="$(mkkit c9-nested)"; tgt="$kit/targetA"
-mkaudit "$tgt/research" "n1.md" "<!-- review-status: pending -->" 3   # → $tgt/research/audits/n1.md (NOT $tgt/audits/)
-touch -d '2000-01-01' "$tgt/research/audits/n1.md"                    # deep past → must AGE + ESCALATE
-write_targets "$kit" "$tgt"                                           # registers the ROOT, not research/
-OUT="$(RSDD_RETRO_AGE_DAYS=1 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && [ ! -d "$tgt/audits" ] \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'research/audits/n1.md' <<<"$OUT" \
-   && grep -q '~3 audited claims' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT" \
-   && grep -q 'ESCALATED (aged' <<<"$OUT"; then
-  ok "9 nested research/audits/ layout → LISTED + AGED (recursive resolution)" "(exit $RC)"
-else
-  no "9 nested research/audits/ layout → LISTED + AGED (recursive resolution)" "exit=$RC out=[$OUT]"
-fi
+# 10 — no TARGETS.md → exit 1 and the typed line naming the kit's physical path, no report.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+OUT="$(real 2>"$TMP/err10")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && [ "$(cat "$TMP/err10")" = "sweep-audits: cannot find $KITPHYS/TARGETS.md" ]; then
+  ok "10 missing TARGETS.md → exit 1, typed message, no report"
+else no "10 missing TARGETS.md: rc=$RC out=[$OUT] err=[$(cat "$TMP/err10")]"; fi
 
-# 10 — INDEX/manifest files are EXCLUDED from the audit walk (Fix #38). A generated 'AUDITS-INDEX.md' sitting
-#      in audits/ is a table of contents, not a §13 audit report — it must NOT be counted or surfaced as a
-#      pending audit. A real pending audit alongside it still surfaces. The find now carries
-#      '-not -iname "*index*.md"'. RED on the old find (the index would count as a 2nd audit).
-kit="$(mkkit c10-index)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2            # a real pending audit
-printf '# Audits index\n\n| # | file |\n|---|---|\n| 1 | a1.md |\n' > "$tgt/audits/AUDITS-INDEX.md"  # generated index
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'a1.md' <<<"$OUT" \
-   && ! grep -q 'AUDITS-INDEX.md' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
-  ok "10 INDEX file in audits/ → excluded; real audit still listed" "(exit $RC)"
-else
-  no "10 INDEX file in audits/ → excluded; real audit still listed" "exit=$RC out=[$OUT]"
-fi
+# 11 — a TARGETS.md with no usable path → exit 1 and the two typed ERROR lines (anti-silent-zero), no Summary.
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' > "$TMP/kit/TARGETS.md"
+OUT="$(real 2>"$TMP/err11")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && grep -qxF "sweep-audits: ERROR — no usable target paths in $KITPHYS/TARGETS.md" "$TMP/err11"; then
+  ok "11 no usable target path → exit 1, typed ERROR, no Summary"
+else no "11 no usable path: rc=$RC out=[$OUT] err=[$(cat "$TMP/err11")]"; fi
+rm -f "$TMP/kit/TARGETS.md"; mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
 
-# 11 — FAIL-CLOSED on a broken target-paths helper. The SUT sources lib/target-paths.sh and
-#      the post-source declare-F check must abort when the function is not defined.
-#      RED before the retrofit: SUT ignores lib/target-paths.sh entirely and runs normally.
-kit="$(mkkit c11-broken-tp)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2
-write_targets "$kit" "$tgt"
-printf '#!/usr/bin/env bash\n# broken: sources cleanly but defines no target_paths_all\n' \
-  > "$kit/toolbelt/lib/target-paths.sh"
-run "$kit"
-if [ "$RC" != 0 ] \
-   && grep -q 'failed to define target_paths_all' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "11 broken target-paths helper → fail-closed abort, no summary" "(exit $RC)"
-else
-  no "11 broken target-paths helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
-fi
+# 12 — a kit with NO bin/ and NO Go sources, RSDD_BIN set only for the shim under test: the report carries no
+# degraded line (the binary is the only thing the shim needs; it resolves nothing else).
+OUT="$(env -u RSDD_BIN RSDD_BIN="$REAL_BIN" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -qi 'degraded' <<<"$OUT" && grep -q '^Summary: 1 pending / 1 audits' <<<"$OUT"; then
+  ok "12 a bare kit copy reports and prints no degraded line"
+else no "12 bare kit: rc=$RC out=[$OUT]"; fi
 
-# 12 — \$RESEARCH_HOME path form resolves. A TARGETS.md row written as \`\$RESEARCH_HOME/sub\`
-#      was invisible to the old backtick+slash grep; after the retrofit it expands and resolves.
-#      RED before retrofit: old grep sees nothing, summary is 0/0.
-kit="$(mkkit c12-rh-path)"
-_rh_base_a="$ROOT/rh_base_audit_$$"
-mkdir -p "$_rh_base_a"
-tgt="$_rh_base_a/rh_audit_target"
-mkaudit "$tgt" "a1.md" "<!-- review-status: pending -->" 2
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `$RESEARCH_HOME/rh_audit_target` |\n'
-} > "$kit/TARGETS.md"
-OUT="$(RESEARCH_HOME="$_rh_base_a" "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
-unset _rh_base_a
-if [ "$RC" = 0 ] \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
-  ok "12 \$RESEARCH_HOME path → expanded, audit surfaced" "(exit $RC)"
-else
-  no "12 \$RESEARCH_HOME path → expanded, audit surfaced" "exit=$RC out=[$OUT]"
-fi
-
-# 13 — ANTI-SILENT-ZERO: TARGETS.md with no backtick-wrapped paths → exit 1, ERROR message.
-#      RED before retrofit: inline grep returns empty, sweep exits 0 with empty counts.
-kit="$(mkkit c13-zeropaths)"
-printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' \
-  > "$kit/TARGETS.md"
-run "$kit"
-if [ "$RC" = 1 ] \
-   && grep -qi 'ERROR.*no usable target paths' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "13 no usable paths → exit 1, ERROR message, no summary" "(exit $RC)"
-else
-  no "13 no usable paths → exit 1, ERROR message, no summary" "exit=$RC out=[$OUT]"
-fi
-
-# 14 — RENAME TRADEOFF (accepted, --follow removed for performance). An audit is CREATED in an early
-#      commit under one name, then RENAMED in a later commit. Without --follow, git-log's
-#      diff-filter=A/added-date lookup dates the file from the RENAME commit, not its original
-#      creation — this is the documented, ACCEPTED tradeoff (mirrors sweep-retros.sh case 52 and the
-#      --follow removal in sweep-retros.sh for the same reason). This case is RED against a --follow'd
-#      SUT (the deep-past creation date would win and the audit would ESCALATE) and GREEN after
-#      --follow's removal (the recent rename date wins, under the age threshold, audit stays un-escalated).
-kit="$(mkkit c14-rename-tradeoff)"; tgt="$kit/targetA"
-mkdir -p "$tgt/audits"
-printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
-  > "$tgt/audits/orig.md"
-git -C "$tgt" init -q -b main
-git -C "$tgt" config user.email t@example.com
-git -C "$tgt" config user.name tester
-git -C "$tgt" add -A
-GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
-  git -C "$tgt" commit -q -m "add orig.md"
-git -C "$tgt" mv audits/orig.md audits/renamed.md
-GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
-  git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
-write_targets "$kit" "$tgt"
-OUT="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && ! grep -q 'ESCALATED (aged' <<<"$OUT"; then
-  ok "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "(exit $RC)"
-else
-  no "14 renamed-after-creation audit dated from rename commit, not original add (accepted --follow tradeoff)" "exit=$RC out=[$OUT]"
-fi
-
-# 14b — diff.renames=true must give the SAME answer as case 14 (kit issue #1401, defence in depth).
-#       NOTE: on git 2.55 the per-file pathspec stops rename pairing, so this behaviour pin cannot go
-#       RED for a flag-less call today; the structural guard 14c is the assertion that bites.
-kit="$(mkkit c14b-rename-true)"; tgt="$kit/targetA"
-mkdir -p "$tgt/audits"
-printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
-  > "$tgt/audits/orig.md"
-git -C "$tgt" init -q -b main
-git -C "$tgt" config user.email t@example.com
-git -C "$tgt" config user.name tester
-git -C "$tgt" config diff.renames true
-git -C "$tgt" add -A
-GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
-  git -C "$tgt" commit -q -m "add orig.md"
-git -C "$tgt" mv audits/orig.md audits/renamed.md
-GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
-  git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
-write_targets "$kit" "$tgt"
-OUT="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$kit/toolbelt/sweep-audits.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] && grep -q 'PENDING' <<<"$OUT" && ! grep -q 'ESCALATED (aged' <<<"$OUT"; then
-  ok "14b renamed audit dated from rename commit under diff.renames=true (same as case 14)" "(exit $RC)"
-else
-  no "14b renamed audit dated from rename commit under diff.renames=true (same as case 14)" "exit=$RC out=[$OUT]"
-fi
-
-# 14c — STRUCTURAL guard: every `git -C "$p" log ... --diff-filter=A` CODE line in the SUT carries
-#       --no-renames (comments stripped first, so a comment cannot satisfy it). Kit issue #1401.
-c14c_counts() {   # $1 = SUT path → "<total> <with --no-renames>"
-  local t o code
-  code="$(sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$1")"
-  t="$(grep -c 'git -C "\$p" log .*--diff-filter=A' <<<"$code")"
-  o="$(grep 'git -C "\$p" log .*--diff-filter=A' <<<"$code" | grep -c -- '--no-renames')"
-  printf '%s %s' "$t" "$o"
-}
-read -r _c14c_total _c14c_ok <<<"$(c14c_counts "$SUT")"
-if [ "$_c14c_total" -ge 1 ] && [ "$_c14c_total" = "$_c14c_ok" ]; then
-  ok "14c every 'git log --diff-filter=A' call in SUT passes --no-renames" "($_c14c_ok/$_c14c_total)"
-else
-  no "14c every 'git log --diff-filter=A' call in SUT must pass --no-renames" "total=$_c14c_total with-flag=$_c14c_ok"
-fi
-
-# 15 — skipped_count>0 (truncated '...' path) → "Nothing to review." ABSENT even when pending=0.
-#      RED before fix: current gate is `pending==0` only; a PARTIAL with no pending still prints
-#      "Nothing to review." which is false because the sweep did not inspect the skipped target.
-kit="$(mkkit c15-skip-clean)"; tgtA="$kit/targetA"
-mkaudit "$tgtA" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgtA"
-  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
-} > "$kit/TARGETS.md"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qE 'WARN: 1 target\(s\) skipped' <<<"$OUT" \
-   && ! grep -q 'Nothing to review.' <<<"$OUT"; then
-  ok "15 skipped_count>0 (PARTIAL, pending=0) → 'Nothing to review.' ABSENT" "(exit $RC)"
-else
-  no "15 skipped_count>0 → 'Nothing to review.' ABSENT — FAILED (skipped_count not gated)" "exit=$RC out=[$OUT]"
-fi
-
-# 16 — inverse control: no pending AND no skipped → "Nothing to review." PRESENT.
-#      §7 guard: if this control goes RED the gate is an always-suppress defect.
-kit="$(mkkit c16-no-skip-clean)"; tgt="$kit/targetA"
-mkaudit "$tgt" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
-write_targets "$kit" "$tgt"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -qiE 'PARTIAL' <<<"$OUT" \
-   && grep -q 'Nothing to review.' <<<"$OUT"; then
-  ok "16 no pending, no skip → 'Nothing to review.' PRESENT (inverse control)" "(exit $RC)"
-else
-  no "16 no pending, no skip → 'Nothing to review.' PRESENT — FAILED (always-suppress defect)" "exit=$RC out=[$OUT]"
-fi
-
-# 17 — ABSENT target dir → INFO absent-input line (§7 anti-silent-zero).
-#      Before fix: `[ -d "$p" ] || continue` silently drops the non-existent dir with no output.
-#      After fix:  an INFO absent-input line is emitted, and the present target still sweeps normally.
-#      RED before fix: `grep -q 'INFO.*absent-input'` fails (no output for absent dir).
-kit="$(mkkit c17-absent)"; tgtPresent="$kit/presentTarget"; tgtAbsent="$kit/nonexistent-dir-$$"
-mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
-write_targets "$kit" "$tgtPresent" "$tgtAbsent"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'INFO.*absent-input' <<<"$OUT" \
-   && grep -q "$tgtAbsent" <<<"$OUT" \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
-  ok "17 absent target dir → INFO absent-input; present target still swept" "(exit $RC)"
-else
-  no "17 absent target dir → INFO absent-input; present target still swept" "exit=$RC out=[$OUT]"
-fi
-
-# 18 — EMPTY target dir (exists but has no audits/*.md) → INFO empty-input line (§7 anti-silent-zero).
-#      Before fix: dir passes `[ -d ]`, find runs, while body never executes — silent zero for that target.
-#      After fix:  INFO empty-input line emitted when find returns 0 audit files.
-#      RED before fix: `grep -q 'INFO.*empty-input'` fails (no output for empty corpus).
-kit="$(mkkit c18-empty)"; tgtPresent="$kit/targetA"; tgtEmpty="$kit/emptyCorpus"
-mkdir -p "$tgtEmpty"   # exists on disk but contains no audits/*.md
-mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
-write_targets "$kit" "$tgtPresent" "$tgtEmpty"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'INFO.*empty-input' <<<"$OUT" \
-   && grep -q "$tgtEmpty" <<<"$OUT" \
-   && grep -q 'PENDING' <<<"$OUT" \
-   && grep -q 'Summary: 1 pending / 1 audits' <<<"$OUT"; then
-  ok "18 corpus exists, no audits → INFO empty-input; present target still swept" "(exit $RC)"
-else
-  no "18 corpus exists, no audits → INFO empty-input; present target still swept" "exit=$RC out=[$OUT]"
-fi
-
-# 19 — ABSENT target + 0 pending → "Nothing to review." PRESENT (absent_targets must not suppress it).
-#      Absent-input targets are disclosed via INFO lines; the review queue is still genuinely empty.
-#      "Nothing to review." must appear. Pending-action guidance must NOT appear (pending=0).
-#      RED if absent_targets gates "Nothing to review." (that was the regression caught by QA fleet gate).
-kit="$(mkkit c19-absent-clean)"; tgtAbsent="$kit/nonexistent-only-$$"
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgtAbsent"
-} > "$kit/TARGETS.md"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'INFO.*absent-input' <<<"$OUT" \
-   && grep -q 'Nothing to review.' <<<"$OUT" \
-   && ! grep -q 'For each PENDING audit' <<<"$OUT"; then
-  ok "19 absent target + 0 pending → 'Nothing to review.' PRESENT; guidance ABSENT" "(exit $RC)"
-else
-  no "19 absent target + 0 pending → 'Nothing to review.' PRESENT; guidance ABSENT" "exit=$RC out=[$OUT]"
-fi
-
-# ── Prove-teeth (--prove-teeth) ──────────────────────────────────────────────
-if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: neuter the applied|dismissed skip, expect an APPLIED audit to false-surface as PENDING --"
-  anchor='      applied|dismissed) continue ;;'
-  content="$(cat "$SUT")"
-  if [[ "$content" != *"$anchor"* ]]; then
-    no "teeth: locate applied|dismissed skip arm" "anchor not found — SUT drifted?"
-  else
-    kit="$(mkkit teeth-applied)"; tgt="$kit/targetA"
-    mkaudit "$tgt" "applied.md" "<!-- review-status: applied 2026-01-01 · kit deadbeef -->" 2
-    write_targets "$kit" "$tgt"
-    mutant="$kit/toolbelt/sweep-audits.sh"        # replace the sandbox copy with the mutant
-    neutered='      __teeth_never_matches__) continue ;;'
-    printf '%s\n' "${content/"$anchor"/"$neutered"}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
-    if grep -q 'PENDING' <<<"$outm"; then
-      ok "teeth: skip-neutered mutant false-surfaces applied audit as PENDING" "(case 2 has teeth)"
-    else
-      no "teeth: skip-neutered mutant should surface applied audit as PENDING" \
-         "mutant stayed quiet — case 2 is THEATER: [$outm]"
-    fi
-  fi
-
-  echo "-- teeth-skipped-gate-sa: remove &&skipped_count==0 conjunct; PARTIAL+0-pending must regain 'Nothing to review.' --"
-  # Gate is now 2 conjuncts: pending==0 AND skipped_count==0 (absent_targets no longer in gate).
-  skipped_anchor='if [ "$pending" -eq 0 ] && [ "$skipped_count" -eq 0 ]; then'
-  if [[ "$content" != *"$skipped_anchor"* ]]; then
-    no "teeth-skipped-gate-sa: locate skipped_count==0 conjunct in SUT" "anchor not found — gate not implemented"
-  else
-    kit="$(mkkit teeth-skipped-sa)"; tgtA="$kit/targetA"
-    mkaudit "$tgtA" "a1.md" "<!-- review-status: applied 2026-01-01 -->" 2
-    { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-      printf '| 1 | t1 | `%s` |\n' "$tgtA"
-      printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
-    } > "$kit/TARGETS.md"
-    mutant="$kit/toolbelt/sweep-audits.sh"
-    # Remove the skipped_count conjunct so the gate becomes `pending==0` only →
-    # PARTIAL+0-pending fires "Nothing to review." → case 15 goes RED.
-    # NOTE: bash ${content/pattern/repl} mishandles [ ] as glob metacharacters, so sed is used here.
-    sed 's/if \[ "\$pending" -eq 0 \] && \[ "\$skipped_count" -eq 0 \]; then/if [ "$pending" -eq 0 ]; then/' "$SUT" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
-    if grep -q 'Nothing to review.' <<<"$outm"; then
-      ok "teeth-skipped-gate-sa: conjunct removed → PARTIAL+0-pending regains 'Nothing to review.' (case 15 teeth)"
-    else
-      no "teeth-skipped-gate-sa: 'Nothing to review.' still absent after removing conjunct — case 15 has no teeth" \
-         "mutant=[$outm]"
-    fi
-  fi
-
-  echo "-- teeth(absent-input): suppress INFO emit; absent target must NOT be silently dropped (case 17 teeth) --"
-  absent_anchor='    echo "INFO: corpus not found (absent-input): $p"'
-  if [[ "$content" != *"$absent_anchor"* ]]; then
-    no "teeth(absent-input): locate absent-input INFO emit" "anchor not found — SUT drifted?"
-  else
-    kit="$(mkkit teeth-absent)"; tgtPresent="$kit/presentTarget"; tgtAbsent="$kit/nonexistent-dir-$$"
-    mkaudit "$tgtPresent" "a1.md" "<!-- review-status: pending -->" 2
-    write_targets "$kit" "$tgtPresent" "$tgtAbsent"
-    mutant="$kit/toolbelt/sweep-audits.sh"
-    neutered='    : # INFO suppressed by mutation'
-    printf '%s\n' "${content/"$absent_anchor"/"$neutered"}" > "$mutant"
-    outm="$("$BASH_BIN" "$mutant" 2>&1)"
-    # Check specifically for the PER-TARGET absent-input line (with the path), not the summary INFO
-    # which also contains "absent-input" but carries the count, not the path.
-    if ! grep -qF "INFO: corpus not found (absent-input): $tgtAbsent" <<<"$outm"; then
-      ok "teeth(absent-input): mutant silently drops absent dir — per-target INFO absent-input gone (case 17 has teeth)"
-    else
-      no "teeth(absent-input): per-target INFO still appears after suppression — case 17 is THEATER: [$outm]"
-    fi
-  fi
-
-  echo "-- teeth(guidance-gate): make guidance unconditional; 0-pending must NOT print pending-action guidance --"
-  # Use sed: bash ${content/...} mishandles [ ] as glob metacharacters.
-  kit="$(mkkit teeth-guidance)"; tgtAbsent="$kit/nonexistent-guidance-$$"
-  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-    printf '| 1 | t1 | `%s` |\n' "$tgtAbsent"
-  } > "$kit/TARGETS.md"
-  mutant="$kit/toolbelt/sweep-audits.sh"
-  # Mutation: remove the pending>0 gate so guidance is unconditional.
-  sed 's/if \[ "\$pending" -gt 0 \]; then/if true; then/' "$SUT" > "$mutant"
-  outm="$("$BASH_BIN" "$mutant" 2>&1)"
-  if grep -q 'For each PENDING audit' <<<"$outm"; then
-    ok "teeth(guidance-gate): unconditional mutant prints guidance at 0 pending (case 19 has teeth)"
-  else
-    no "teeth(guidance-gate): guidance still absent after removing gate — case 19 is THEATER: [$outm]"
-  fi
-
-  echo "-- teeth(rename-tradeoff): reintroduce --follow to added= lookup; renamed-after-creation audit must ESCALATE --"
-  follow_anchor='git -C "$p" log --no-renames --diff-filter=A --format=%aI -1 -- "$f"'
-  if [[ "$content" != *"$follow_anchor"* ]]; then
-    no "teeth(rename-tradeoff): locate added= git-log line" "anchor not found — SUT drifted?"
-  else
-    kit="$(mkkit teeth-rename-tradeoff)"; tgt="$kit/targetA"
-    mkdir -p "$tgt/audits"
-    printf '<!-- review-status: pending -->\n# audit\n\n## Audited claims\n\n| # | claim | verdict |\n|---|---|---|\n| 1 | some claim | CONFIRMED |\n' \
-      > "$tgt/audits/orig.md"
-    git -C "$tgt" init -q -b main
-    git -C "$tgt" config user.email t@example.com
-    git -C "$tgt" config user.name tester
-    git -C "$tgt" add -A
-    GIT_AUTHOR_DATE="2000-01-01T00:00:00" GIT_COMMITTER_DATE="2000-01-01T00:00:00" \
-      git -C "$tgt" commit -q -m "add orig.md"
-    git -C "$tgt" mv audits/orig.md audits/renamed.md
-    GIT_AUTHOR_DATE="$(date -u +%Y-%m-%d)T00:00:00" GIT_COMMITTER_DATE="$(date -u +%Y-%m-%d)T00:00:00" \
-      git -C "$tgt" commit -q -m "rename orig.md to renamed.md"
-    write_targets "$kit" "$tgt"
-    follow_replacement='git -C "$p" log --follow --no-renames --diff-filter=A --format=%aI -1 -- "$f"'
-    mutant="$kit/toolbelt/sweep-audits.sh"
-    printf '%s\n' "${content/"$follow_anchor"/"$follow_replacement"}" > "$mutant"
-    outm="$(RSDD_RETRO_AGE_DAYS=7 "$BASH_BIN" "$mutant" 2>&1)"
-    if grep -q 'ESCALATED (aged' <<<"$outm"; then
-      ok "teeth(rename-tradeoff): --follow mutant ESCALATES renamed-after-creation audit → case 14 has teeth"
-    else
-      no "teeth(rename-tradeoff): --follow mutant did not ESCALATE — case 14 is THEATER: [$outm]"
-    fi
-  fi
-fi
-
-# Teeth NR (kit issue #1401): drop --no-renames from the add-date call; structural case 14c must go RED.
+# NEGATIVE CONTROL — each shim mutation must lose its case.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  echo "-- teeth(no-renames): drop --no-renames from the add-date call; structural case 14c must go RED --"
-  _nr="$ROOT/teeth-nr.sh"; _nrc=0
-  mutant_sed "$SUT" "$_nr" 's/log --no-renames --diff-filter=A --format=%aI/log --diff-filter=A --format=%aI/' || _nrc=$?
-  if [ "$_nrc" != 0 ]; then
-    no "teeth(no-renames): build mutant" "mutant_sed refused (rc $_nrc) — anchor drifted?"
-  else
-    read -r _nr_t _nr_o <<<"$(c14c_counts "$_nr")"
-    if [ "$_nr_t" -ge 1 ] && [ "$_nr_t" != "$_nr_o" ]; then
-      ok "teeth(no-renames): flag-less add-date call breaks the structural guard (case 14c has teeth)" "($_nr_o/$_nr_t)"
-    else
-      no "teeth(no-renames): flag-less add-date call not detected — case 14c is THEATER" "total=$_nr_t with-flag=$_nr_o"
-    fi
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
+
+  # A: the own kit is no longer handed over → case 2 (and the real binary would resolve some other kit).
+  if mk_mut "teeth A: --kit dropped" "$SUT" "$TMP/mutA.sh" 's/ --kit "\$_RSDD_SELF\/\.\."//'; then
+    stage_kit "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/toolbelt/sweep-audits.sh" --json >/dev/null 2>&1
+    if [ "$(sed -n 3p "$TMP/args")" != "--kit" ]; then ok "teeth A: --kit dropped → case 2 would go RED"; else no "teeth A: mutant still passes --kit"; fi
   fi
-  # A trailing comment mentioning the flag must NOT satisfy the guard (comment stripping has teeth).
-  _nrc2="$ROOT/teeth-nr-comment.sh"; _nrc3=0
-  mutant_sed "$SUT" "$_nrc2" 's/^\(.*log \)--no-renames \(--diff-filter=A --format=%aI.*\)$/\1\2  # --no-renames/' || _nrc3=$?
-  if [ "$_nrc3" != 0 ]; then
-    no "teeth(no-renames-comment): build mutant" "mutant_sed refused (rc $_nrc3) — anchor drifted?"
-  else
-    read -r _nc_t _nc_o <<<"$(c14c_counts "$_nrc2")"
-    if [ "$_nc_t" -ge 1 ] && [ "$_nc_t" != "$_nc_o" ]; then
-      ok "teeth(no-renames-comment): trailing comment naming the flag does not satisfy 14c" "($_nc_o/$_nc_t)"
-    else
-      no "teeth(no-renames-comment): comment satisfied the guard — comment stripping is THEATER" "total=$_nc_t with-flag=$_nc_o"
-    fi
+  # B: the caller's arguments are dropped → case 2.
+  if mk_mut "teeth B: arguments dropped" "$SUT" "$TMP/mutB.sh" 's/"\$@"$//'; then
+    stage_kit "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/toolbelt/sweep-audits.sh" --json >/dev/null 2>&1
+    if ! grep -qx -- '--json' "$TMP/args"; then ok "teeth B: arguments dropped → case 2 would go RED"; else no "teeth B: mutant still passes the arguments"; fi
+  fi
+  # C: the shim runs the hook mode instead of the sweep → case 2 sees the wrong command.
+  if mk_mut "teeth C: wrong command" "$SUT" "$TMP/mutC.sh" 's/rsdd_exec sweep audits --kit/rsdd_exec sweep audits --hook --kit/'; then
+    stage_kit "$TMP/mC" "$TMP/mutC.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mC/toolbelt/sweep-audits.sh" >/dev/null 2>&1
+    if grep -qx -- '--hook' "$TMP/args"; then ok "teeth C: hook mode in the CLI shim → case 2 would go RED"; else no "teeth C: mutant does not pass --hook"; fi
+  fi
+  # D: the missing-lib guard stripped → no typed degraded line → case 7.
+  if mk_mut "teeth D: guard removed" "$SUT" "$TMP/mutD.sh" 's/ 2>\/dev\/null || { printf .*exit 2; }//'; then
+    mkdir -p "$TMP/mD"; cp "$TMP/mutD.sh" "$TMP/mD/sweep-audits.sh"
+    bash "$TMP/mD/sweep-audits.sh" >/dev/null 2>"$TMP/errD"
+    if ! grep -q 'rsdd-exec.sh missing beside' "$TMP/errD"; then ok "teeth D: unguarded shim no longer announces a missing lib → case 7 would go RED"; else no "teeth D: mutant still announces"; fi
   fi
 fi
 

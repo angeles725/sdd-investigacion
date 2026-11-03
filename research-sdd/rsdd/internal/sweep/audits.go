@@ -119,11 +119,9 @@ func addedDateArgs(f string) []string {
 // addedEpoch is the first-commit epoch of f, else its mtime (untracked, or a target that is not a repository),
 // else now.
 func addedEpoch(g git.Runner, p, f string, now int64) int64 {
-	if out, err := g.Run(p, addedDateArgs(f)...); err == nil {
-		if added := strings.TrimRight(string(out), "\n"); added != "" {
-			if t, err := time.Parse(time.RFC3339, added); err == nil {
-				return t.Unix()
-			}
+	if out, err := g.Run(p, addedDateArgs(f)...); err == nil { // an untracked file prints nothing, which does not parse
+		if t, err := time.Parse(time.RFC3339, strings.TrimRight(string(out), "\n")); err == nil {
+			return t.Unix()
 		}
 	}
 	if st, err := os.Stat(f); err == nil {
