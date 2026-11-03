@@ -14,16 +14,25 @@
 # plus #1847 (the passive/past-tense guard's word boundary is byte-based: a non-ASCII letter next to a verb is part of
 # the word) and #1835 item 4 (bare `B<N>` targets are checked as advisory AMBIG lines, never as a refusal).
 #
-# Usage: verify-corrections-precision.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness.
+# Since kit issue #2625 the script is a shim to `rsdd verify corrections`: the cases run through it against the real Go
+# binary (RSDD_BIN, else one build into the temp dir); the mutants of the old awk program are replaced by `make teeth`
+# on the Go source.
+#
+# Usage: verify-corrections-precision.test.sh   Exit: 0 all held · 1 regression · 2 harness.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-corrections.sh"
-# shellcheck source=lib/stage-libs.sh
-. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 FIX="$HERE/fixtures/verify-corrections"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 [ -d "$FIX/real-1868" ] || { echo "FATAL: fixture dir missing: $FIX/real-1868" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The Go binary the shim execs: the caller's RSDD_BIN, else one build into the temp dir.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  _vc_bin_dir="$(mktemp -d)"; trap 'rm -rf "${_vc_bin_dir:-}"' EXIT   # cleaned even when the build below fails
+  ( cd "$HERE/../../rsdd" && go build -o "$_vc_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$_vc_bin_dir/rsdd"
+fi
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" "${_vc_bin_dir:-}"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -374,270 +383,6 @@ for _loc in C C.utf8; do
   else no "backlink-boundary [$_loc] :: $bl_bad"; fi
 done
 
-# NEGATIVE CONTROLS — each mutant disables ONE rule and must flip exactly the case that owns it (a mutant that crashes, or
-# that merely differs, is theater: lib/mutant.sh refuses it).
-if [ "${1:-}" = "--prove-teeth" ]; then
-  # shellcheck source=lib/mutant.sh
-  . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth mutant_or_count mutant_chain_or_count || exit 2
-  mk_mut(){ mutant_chain_or_count fail "$@" || return 1; }
-  tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
-  CRASH="$(mutant_crash_re bash cmd tb awk)" || exit 2
-  rsdd_stage_libs "$TMP"   # mutants in $TMP source lib/block-files.sh at $(dirname $0)/lib/
-
-  echo "-- teeth (#1868 item 1): cross-focus qualifier --"
-  m="$TMP/vc.NOQUAL.sh"
-  if mk_mut "teeth: qualifier ignored" "$SUT" "$m" 's/else if (qcur != "") print "Q " n " " qcur " " qkind/else if (0) print "Q " n " " qcur " " qkind/'; then
-    tt "teeth: qualifier-blind mutant binds B8 to the colliding pi5-decoding-block5 (the real false FAIL)" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'B8 corrects \[Block 5\] but pi5-decoding' --bad-has 'B8 corrects \[Block 5\] but pi5-decoding-block5' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-    tt "teeth: qualifier-blind mutant checks aa-block1 for 'Corrects \`zz\` [Block 1]' (loses the zz gap)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'but zz-block1\.md' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/q-prefix"
-  fi
-  m="$TMP/vc.NOFOCUSES.sh"
-  if mk_mut "teeth: FOCUSES.md lookup" "$SUT" "$m" '/^  \[ -z "${focuspfx\[$s\]:-}" \] || /d'; then
-    tt "teeth: FOCUSES-blind mutant cannot resolve 'integration' (AMBIG instead of a verdict)" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'AMBIG +B8 ' --bad-has 'FAIL +B8 corrects \[Block 5\] but pi5-decoding-block5' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-  fi
-  m="$TMP/vc.GUESS.sh"
-  if mk_mut "teeth: unresolved qualifier" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \]; then/if false; then/'; then
-    tt "teeth: guessing mutant drops the typed AMBIG for an unresolvable qualifier" 0 0 "$m" --orig "$SUT" \
-      --good-has 'AMBIG +B4 corrects \[Block 1\] .*cross-focus' --bad-lacks 'AMBIG +B4|awk: ' -- bash @SUT@ "$TMP/q-ghost"
-  fi
-
-  echo "-- teeth (#1868 items 2-4): the typed ambiguous classes --"
-  m="$TMP/vc.NOOBJ.sh"
-  if mk_mut "teeth: object class" "$SUT" "$m" '/return "object"$/d'; then
-    tt "teeth: no-object mutant FAILs B74→B50 on the caller's mislabel (the real false FAIL)" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'FAIL +B74 ' --bad-has 'FAIL +B74 corrects \[Block 50\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-    tt "teeth: no-object mutant FAILs the bloque717 citation list" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B83 corrects \[Block 537\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/obj717"
-  fi
-  m="$TMP/vc.NOLOC.sh"
-  if mk_mut "teeth: locator class" "$SUT" "$m" '/return "locator"$/d'; then
-    tt "teeth: no-locator mutant FAILs B21→B16 on 'introducida junto a [Block 16]'" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'FAIL +B21 ' --bad-has 'FAIL +B21 corrects \[Block 16\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-  fi
-  m="$TMP/vc.NOASM.sh"
-  if mk_mut "teeth: assumption class" "$SUT" "$m" '/return "assumption"$/d'; then
-    tt "teeth: no-assumption mutant FAILs B139→B1 on the reader-assumption" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'FAIL +B139 ' --bad-has 'FAIL +B139 corrects \[Block 1\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-  fi
-  m="$TMP/vc.NOOBJPOST.sh"
-  if mk_mut "teeth: postfix object" "$SUT" "$m" 's/cls = classify(cl); postlist(pre)/cls = ""; postlist(pre)/'; then
-    tt "teeth: postfix-blind mutant FAILs B74→B50 (verb inside the parenthetical)" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'FAIL +B74 ' --bad-has 'FAIL +B74 corrects \[Block 50\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-  fi
-
-  echo "-- teeth (#1868 items 5-6): joined lists and backlink vocabulary --"
-  m="$TMP/vc.NOSLASH.sh"
-  if mk_mut "teeth: slash joiner" "$SUT" "$m" 's#(and|y|e|&|.\{2\})#(and|y|e|\&)#'; then
-    tt "teeth: no-slash mutant never checks [Block 10] of '[Block 9]/[Block 10]' (the real false negative)" 1 1 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B23 corrects \[Block 10\] ' --bad-has 'FAIL +B23 corrects \[Block 9\] ' --bad-lacks 'B23 corrects \[Block 10\]|awk: ' -- bash @SUT@ "$REAL"
-    tt "teeth: no-slash mutant loses the LAST ref of '[Block 1]/[Block 2]/[Block 3]'" 1 1 "$m" --orig "$SUT" \
-      --good-has 'B80 corrects \[Block 3\] ' --bad-has 'B80 corrects \[Block 1\] ' --bad-lacks 'B80 corrects \[Block 3\] |awk: ' -- bash @SUT@ "$TMP/slash"
-  fi
-  m="$TMP/vc.NOREFINE.sh"
-  if mk_mut "teeth: refinement vocabulary" "$SUT" "$m" "s/^_vc_backlink_re=.*/_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)'/"; then
-    tt "teeth: no-refinement mutant FAILs the real '§14 refinement ([Block 26])' backlink" 1 1 "$m" --orig "$SUT" \
-      --good-lacks 'FAIL +B26 ' --bad-has 'FAIL +B26 corrects \[Block 20\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$REAL"
-  fi
-
-  echo "-- teeth (#1835 item 4): bare B<N> --"
-  m="$TMP/vc.NOBARE.sh"
-  if mk_mut "teeth: bare class" "$SUT" "$m" 's/{ cls = "bare"; emit(bn); moreb(cl); done = 1 }/{ done = 0 }/'; then
-    tt "teeth: bare-blind mutant drops the AMBIG line for 'Corrects B292'" 0 0 "$m" --orig "$SUT" \
-      --good-has 'AMBIG +B300 corrects \[Block 292\] ' --bad-lacks 'AMBIG +B300|awk: ' -- bash @SUT@ "$TMP/bare"
-  fi
-  m="$TMP/vc.BAREREFUSE.sh"
-  if mk_mut "teeth: bare advisory" "$SUT" "$m" 's/^    elif \[ "$cls" = bare \] || \[ "$cls" = mixed \]; then$/    elif false; then/'; then
-    tt "teeth: refusing mutant turns the advisory bare ref into a FAIL (exit 1)" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B300 corrects \[Block 292\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare"
-  fi
-  m="$TMP/vc.PARTIAL.sh"
-  if mk_mut "teeth: ambiguous counts as partial" "$SUT" "$m" 's/_vc_partial=$((unchecked+ambiguous+negated))/_vc_partial=$unchecked/'; then
-    tt "teeth: ambiguous-blind verdict reads an unqualified ok over an AMBIG line" 0 0 "$m" --orig "$SUT" \
-      --good-has 'ok-partial' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/q-ghost"
-  fi
-
-  echo "-- teeth (#1847): byte-based word boundary --"
-  m="$TMP/vc.NOHIGH.sh"
-  if mk_mut "teeth: byte boundary (all classes)" "$SUT" "$m" 's/\\200-\\377//g'; then
-    tt "teeth: byte-based mutant reads 'pañse corrige' as the passive (loses the FAIL)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B70 corrects \[Block 8\] ' --bad-lacks 'B70 corrects|awk: ' -- bash @SUT@ "$TMP/nb-a"
-  fi
-  m="$TMP/vc.NOSE.sh"
-  if mk_mut "teeth: se boundary" "$SUT" "$m" 's/pre ~ \/(^|\[^a-z0-9_\\200-\\377\])se/pre ~ \/(^|[^a-z0-9_])se/'; then
-    tt "teeth: se-boundary mutant treats 'pañse corrige' as passive" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B70 corrects \[Block 8\] ' --bad-lacks 'B70 corrects|awk: ' -- bash @SUT@ "$TMP/nb-a"
-  fi
-  m="$TMP/vc.NOLEAD.sh"
-  if mk_mut "teeth: leading boundary" "$SUT" "$m" 's/(^|\[^a-z0-9_\\200-\\377\])(corrects/(^|[^a-z0-9_])(corrects/'; then
-    tt "teeth: lead-boundary mutant reads 'Nombreñcorrige' as a verb" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B71 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/nb-b"
-  fi
-  m="$TMP/vc.NOTRAIL.sh"
-  if mk_mut "teeth: trailing boundary" "$SUT" "$m" 's/else if (nb ~ \/\[0-9_\\200-\\377\]\/) {/else if (0) {/'; then
-    tt "teeth: trail-boundary mutant reads 'corrigeñ' as the verb (last position, no trailing newline)" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B72 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/nb-c"
-  fi
-  m="$TMP/vc.NOPASTEND.sh"
-  if mk_mut "teeth: past-tense word end" "$SUT" "$m" 's/if (substr(l, ve + 2, 1) ~ \/\[a-z0-9_\\200-\\377\]\/) {/if (0) {/'; then
-    tt "teeth: end-less mutant counts 'corrigióñ' as past tense" 0 0 "$m" --orig "$SUT" \
-      --good-lacks 'non-assertive' --bad-has 'non-assertive form' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/nb-d"
-  fi
-
-  echo "-- teeth (#1847 suggestions): corrigendum tag, named skipped note, correcting file --"
-  m="$TMP/vc.CGTAG.sh"
-  if mk_mut "teeth: corrigendum leading tag" "$SUT" "$m" 's/ \&\& inner !~ \/(block|bloque)\[ \\t\]\*\[0-9\]\///'; then
-    tt "teeth: tag-blind mutant declares the tag block (B90→B5) from 'CORRIGENDUM \`[Block 5]\` al [Block 6]'" 0 0 "$m" --orig "$SUT" \
-      --good-lacks 'B90 declares a correction of \[Block 5\]' --bad-has 'B90 declares a correction of \[Block 5\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-tag"
-  fi
-  m="$TMP/vc.ANON.sh"
-  if mk_mut "teeth: skipped names" "$SUT" "$m" 's/skipnames="${skipnames:+$skipnames, }B$c"; //'; then
-    tt "teeth: anonymous mutant omits the block names from the non-assertive note" 0 0 "$m" --orig "$SUT" \
-      --good-has ': B77, B78' --bad-lacks ': B77, B78|awk: ' -- bash @SUT@ "$TMP/na-name"
-  fi
-  m="$TMP/vc.NOCORR.sh"
-  if mk_mut "teeth: correcting file" "$SUT" "$m" 's/ \[correcting: $(basename "$f")\]//'; then
-    tt "teeth: file-less mutant drops '[correcting: <file>]' from the FAIL line" 1 1 "$m" --orig "$SUT" \
-      --good-has '\[correcting: fluke-block23\.md\]' --bad-lacks '\[correcting: |awk: ' -- bash @SUT@ "$REAL"
-  fi
-
-  echo "-- teeth (PR gate round): self-skip on the resolved file, soft slugs, list inheritance, narrow object, bare lists, refine shapes --"
-  m="$TMP/vc.SELFNUM.sh"
-  if mk_mut "teeth: self-skip by number" "$SUT" "$m" 's/\[ "$tgt" = "$f" \] \&\& continue/[ "$n" = "$c" ] \&\& continue/'; then
-    tt "teeth: number-based self-skip silently drops 'Corrects \`zz\` [Block 3]' inside aa-block3 (ok instead of FAIL)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B3 corrects \[Block 3\] but zz-block3' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/self-q"
-    tt "teeth: number-based self-skip drops the FOCUSES.md same-number ref too" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/self-focuses"
-  fi
-  m="$TMP/vc.NOSELF.sh"
-  if mk_mut "teeth: no self-skip" "$SUT" "$m" 's/\[ "$tgt" = "$f" \] \&\& continue/:/'; then
-    tt "teeth: no-self-skip mutant FAILs a genuine self-correction" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B3 corrects \[Block 3\] but aa-block3' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/self-ctl"
-  fi
-  m="$TMP/vc.NOSOFT.sh"
-  if mk_mut "teeth: soft slug fallback" "$SUT" "$m" 's/if \[ -z "$_vc_qp" \] \&\& { \[ "$qkind" = soft \] || \[ "$qkind" = lead \]; }; then _vc_soft="$qual"; qual=""; fi/:/'; then
-    tt "teeth: no-fallback mutant turns \"[Block 8] del \`loader\`\" into AMBIG cross-focus (was FAIL)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B90 corrects \[Block 8\] ' --bad-has 'AMBIG +B90 .*cross-focus' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/soft"
-  fi
-  m="$TMP/vc.ALLSOFT.sh"
-  if mk_mut "teeth: hard kind" "$SUT" "$m" 's/qkind = (qt ~ \/focus\/) ? "hard" : "soft"/qkind = "soft"/'; then
-    tt "teeth: all-soft mutant loses the AMBIG for an explicit 'of the \`ghost\` focus'" 0 1 "$m" --orig "$SUT" \
-      --good-has 'AMBIG +B4 .*cross-focus' --bad-has 'FAIL +B4 corrects \[Block 1\] but aa-block1' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/hard-ghost"
-  fi
-  m="$TMP/vc.QLIST.sh"
-  if mk_mut "teeth: list inherits qualifier" "$SUT" "$m" 's/more(cl); done = 1; qcur = ""; qkind = ""/qcur = ""; qkind = ""; more(cl); done = 1/'; then
-    tt "teeth: non-inheriting mutant resolves the LATER refs of '\`zz\` [Block 1] and [Block 2]' in the own prefix" 1 1 "$m" --orig "$SUT" \
-      --good-has 'but zz-block3\.md' --bad-lacks 'but zz-block3\.md|awk: ' -- bash @SUT@ "$TMP/qlist"
-  fi
-  m="$TMP/vc.BROADPOSS.sh"
-  if mk_mut "teeth: broad possessive" "$SUT" "$m" 's/\^\[ \\t\]\*(this|that|the|our|my)\[ \\t\]+(focus|caller|backlog|queue|session|run)(\\047/[a-z](\\047/'; then
-    tt "teeth: any-possessive mutant makes \"the decompiler's reading in [Block 8]\" AMBIG" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B91 corrects \[Block 8\] ' --bad-has 'AMBIG +B91 .*object' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/poss"
-  fi
-  m="$TMP/vc.NARROWPOSS.sh"
-  if mk_mut "teeth: process-noun possessive" "$SUT" "$m" 's/(focus|caller|backlog|queue|session|run)/(zzz)/'; then
-    tt "teeth: over-narrow mutant FAILs the bloque717 citation list again" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B83 corrects \[Block 537\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/obj717"
-  fi
-  m="$TMP/vc.NOBARELIST.sh"
-  if mk_mut "teeth: bare list" "$SUT" "$m" 's/ moreb(cl); done = 1 }/ done = 1 }/'; then
-    tt "teeth: first-bare-only mutant drops B12 and B15 of 'Corrects B6/B12 and B15'" 0 0 "$m" --orig "$SUT" \
-      --good-has 'AMBIG +B100 corrects \[Block 15\] ' --bad-lacks 'AMBIG +B100 corrects \[Block 15\] |awk: ' -- bash @SUT@ "$TMP/bare-list"
-  fi
-  m="$TMP/vc.BARESLASH.sh"
-  if mk_mut "teeth: bare list slash" "$SUT" "$m" 's/(and|y|e|&|.\{2\})\[ \\t\]\*b\[0-9\]/(and|y|e|\&)[ \\t]*b[0-9]/'; then
-    tt "teeth: slash-less bare list loses B12 of 'B6/B12'" 0 0 "$m" --orig "$SUT" \
-      --good-has 'AMBIG +B100 corrects \[Block 12\] ' --bad-lacks 'AMBIG +B100 corrects \[Block 12\] |awk: ' -- bash @SUT@ "$TMP/bare-list"
-  fi
-  m="$TMP/vc.BARESTOP.sh"
-  if mk_mut "teeth: bare list gap" "$SUT" "$m" 's/\^\[ \\t0-9.,-\]\*(and|y|e|&|.\{2\})\[ \\t\]\*b\[0-9\]+/[^b]*b[0-9]+/'; then
-    tt "teeth: gap-less bare list binds B7 behind '(see also'" 0 0 "$m" --orig "$SUT" \
-      --good-lacks 'AMBIG +B102 corrects \[Block 7\]' --bad-has 'AMBIG +B102 corrects \[Block 7\]' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/bare-stop"
-  fi
-  m="$TMP/vc.BAREREFINE.sh"
-  if mk_mut "teeth: refine shapes" "$SUT" "$m" "s/^_vc_backlink_re=.*/_vc_backlink_re='corrected|corregid[oa]s?|corrigend(um|a)|errat(um|a)|refined|refinement|refinad[oa]s?|refinamiento'/"; then
-    tt "teeth: bare-word refine vocabulary accepts 'Refinement planned, see B4' as a backlink" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B4 corrects \[Block 1\] ' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/refine-neg"
-  fi
-  m="$TMP/vc.TABSLUG.sh"
-  if mk_mut "teeth: tab slug" "$SUT" "$m" 's/\*\[:space:\]\]/* ]/'; then
-    tt "teeth: tab-blind mutant cannot resolve a tab-padded FOCUSES.md slug (falls back to the colliding own prefix)" 1 1 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B8 corrects \[Block 5\] but hb-block5' --bad-has 'FAIL +B8 corrects \[Block 5\] but pi5-block5' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-tab"
-  fi
-  m="$TMP/vc.REALFILE.sh"
-  if mk_mut "teeth: real file names in FOCUSES" "$SUT" "$m" 's/(block|bloque)(N|\[0-9\]+)/(block|bloque)N/'; then
-    tt "teeth: placeholder-only mutant cannot read a real <prefix>-block<N>.md cell" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B5 corrects \[Block 5\] but hb-block5' --bad-has 'ok +every declared' --bad-lacks 'but hb-block5|awk: ' -- bash @SUT@ "$TMP/self-focuses"
-  fi
-
-  echo "-- teeth (round 2): trailing list qualifier, no silent n==c drop --"
-  m="$TMP/vc.NOTRAILQ.sh"
-  if mk_mut "teeth: trailing qualifier" "$SUT" "$m" 's/if (!trailq(post)) trailq(substr(cl, listend(cl)))/trailq(post)/'; then
-    tt "teeth: first-ref-only qualifier lookup resolves the 2-list '[Block 1] and [Block 2] of the \`zz\` focus' in the own prefix" 1 0 "$m" --orig "$SUT" \
-      --good-has 'but zz-block2\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-aa"
-    tt "teeth: first-ref-only qualifier lookup, other prefix order (zz → aa)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'but aa-block2\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-zz"
-  fi
-  m="$TMP/vc.NOLISTEND.sh"
-  if mk_mut "teeth: listend walk" "$SUT" "$m" 's/pos += st + ln - 1; rest = substr(rest, st + ln)/break/'; then
-    tt "teeth: list-end walk stops at the first ref, so a 3-element list loses its trailing qualifier" 1 0 "$m" --orig "$SUT" \
-      --good-has 'but zz-block3\.md' --bad-lacks 'FAIL|awk: ' -- bash @SUT@ "$TMP/tq-3"
-  fi
-  m="$TMP/vc.SILENTSELF.sh"
-  if mk_mut "teeth: own-number AMBIG" "$SUT" "$m" 's/^amb() { echo/amb() { [ "$n" = "$c" ] \&\& return 0; echo/'; then
-    tt "teeth: number-based drop makes the own-number AMBIG object vanish (ok instead of ok-partial)" 0 0 "$m" --orig "$SUT" \
-      --good-has 'ok-partial +1 declared correction' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/selfamb1"
-  fi
-
-  echo "-- teeth (T12): corrigendum possessive of, tag bound, backlink word boundary --"
-  m="$TMP/vc.OFPOSS.sh"
-  if mk_mut "teeth: bare of" "$SUT" "$m" 's/if (!hasl \&\& lead ~/if (0 \&\& lead ~/'; then
-    tt "teeth: possessive-blind mutant declares B8→B33 from 'the corrigendum of [Block 33]'" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B8 corrects \[Block 33\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-of"
-  fi
-  m="$TMP/vc.POSSTYPED.sh"
-  if mk_mut "teeth: possessive typed" "$SUT" "$m" 's/print "A possessive " NDN; p = ve; continue/print "U"; p = ve; continue/'; then
-    tt "teeth: untyped mutant reads the possessive as bare unbound: ok-partial becomes an unqualified ok" 0 0 "$m" --orig "$SUT" \
-      --good-has 'ok-partial +1 declared' --good-lacks 'ok +every declared' --bad-has 'ok +every declared' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-of"
-  fi
-  m="$TMP/vc.PUNALT.sh"
-  if mk_mut "teeth: punctuation alternatives" "$SUT" "$m" 's/^_vc_pun="$(printf .*$/_vc_pun="NOPUNCT"/'; then
-    tt "teeth: punctuation-blind mutant FAILs '—corrected in B33' (and the typographic forms)" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL=C bash @SUT@ "$TMP/pun-all"
-  fi
-  m="$TMP/vc.PUNNOUN.sh"
-  if mk_mut "teeth: punctuation noun" "$SUT" "$m" 's/^_vc_noun_re="(^|\[^\[:alnum:\]_${_vc_hi}\]|${_vc_pun})"/_vc_noun_re="(^|[^[:alnum:]_${_vc_hi}])"/'; then
-    tt "teeth: punctuation-blind noun rule FAILs a quoted 'CORRECCION - [Block 33].'" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks "$CRASH" -- env LC_ALL=C bash @SUT@ "$TMP/pun-noun"
-  fi
-  m="$TMP/vc.OFTAG.sh"
-  if mk_mut "teeth: tagged of dropped" "$SUT" "$m" 's/PREP = "(al|a|to|of|for)"/PREP = "(al|a|to|for)"/'; then
-    tt "teeth: a preposition list without 'of' loses the tagged 'CORRIGENDUM [CERT] of [Block 32]'" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B107 corrects \[Block 32\] ' --bad-lacks 'B107 corrects|awk: ' -- bash @SUT@ "$TMP/cg-oftag"
-  fi
-  m="$TMP/vc.TAGMAX.sh"
-  if mk_mut "teeth: tag bound" "$SUT" "$m" 's/length(inner) <= TAGMAX/1/'; then
-    tt "teeth: unbounded-tag mutant declares B109→B32 from a long bracketed aside" 0 1 "$m" --orig "$SUT" \
-      --bad-has 'FAIL +B109 corrects \[Block 32\] ' --bad-lacks "$CRASH" -- bash @SUT@ "$TMP/cg-longtag"
-  fi
-  m="$TMP/vc.BLLEFT.sh"
-  if mk_mut "teeth: backlink left boundary" "$SUT" "$m" 's/^_vc_backlink_pre=.*$/_vc_backlink_pre="("/'; then
-    tt "teeth: boundary-less mutant reads 'uncorrected in B33' as the note (loses the FAIL)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- bash @SUT@ "$TMP/bl-u"
-  fi
-  m="$TMP/vc.BLHI.sh"
-  if mk_mut "teeth: backlink non-ASCII byte" "$SUT" "$m" 's/^_vc_backlink_pre=.*$/_vc_backlink_pre="(^|[^[:alnum:]])("/'; then
-    tt "teeth: byte-blind mutant reads 'pañcorrected in B33' as the note under LC_ALL=C (loses the FAIL)" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- env LC_ALL=C bash @SUT@ "$TMP/bl-n"
-  fi
-  m="$TMP/vc.NOUNHI.sh"
-  if mk_mut "teeth: noun non-ASCII byte" "$SUT" "$m" 's/_vc_noun_re="(^|\[^\[:alnum:\]_${_vc_hi}\]/_vc_noun_re="(^|[^[:alnum:]_]/'; then
-    tt "teeth: byte-blind noun mutant reads 'pañcorrección — [Block 33]' as the backlink under LC_ALL=C" 1 0 "$m" --orig "$SUT" \
-      --good-has 'FAIL +B33 corrects \[Block 8\] ' --bad-lacks 'B33 corrects|awk: ' -- env LC_ALL=C bash @SUT@ "$TMP/bl-nn"
-  fi
-fi
 
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] || exit 1

@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# verify-corrections.test.sh — RED-FIRST harness for verify-corrections.sh (§14 reciprocal-backlink lint).
+# verify-corrections.test.sh — harness for verify-corrections.sh (§14 reciprocal-backlink lint), a SHIM to
+# `rsdd verify corrections` (kit issue #2625): the cases run through the shim against the real Go binary (RSDD_BIN,
+# else one build into the temp dir). The report is pinned byte for byte against the frozen bash script by the Go
+# differential tests (research-sdd/rsdd/internal/verify/corrections) and the rules by Go unit tests; the mutation gate
+# of the Go source is `make teeth`. The old case 7b (every `${_vc_targets[@]}` expansion is nounset-safe) was a static
+# check of the bash source and is gone with it; its behaviour half (a corpus with no verb at all runs to its ok line)
+# stays. --prove-teeth mutates the SHIM (each mutant must lose its case).
 #
 # The load-bearing behaviour (retro delta): §14 says a correcting block must add a "corrected in BN" note to
 # the block it corrects (keep the original text, add the note). Today only the FORWARD half is written by
@@ -15,10 +21,15 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../verify-corrections.sh"
-# shellcheck source=lib/stage-libs.sh
-. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The Go binary the shim execs: the caller's RSDD_BIN, else one build into the temp dir.
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  _vc_bin_dir="$(mktemp -d)"; trap 'rm -rf "${_vc_bin_dir:-}"' EXIT   # cleaned even when the build below fails
+  ( cd "$HERE/../../rsdd" && go build -o "$_vc_bin_dir/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$_vc_bin_dir/rsdd"
+fi
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" "${_vc_bin_dir:-}"' EXIT
 pass=0; fail=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
@@ -79,27 +90,23 @@ if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out";
   ok "verb governs only the first ref: 'Corrects [8] … cf. [12]' → 12 not a target → exit 0"
 else no "cfref: exit $(code "$d") :: $(grep -iE 'fail' <<<"$out" | head -1)"; fi
 
-# 7 — EMPTY-ARRAY EXPANSION GUARD (#1840). Most block files have no correction verb, so `_vc_targets` is
-#     usually empty, and on bash 4.0–4.3 `"${_vc_targets[@]}"` under `set -u` aborts with "unbound variable".
-#     A bash-4.3 interpreter is not reliably available, so the contract is pinned two ways: (a) BEHAVIOUR — a
-#     corpus where NO block has a verb runs to its ok line (true on any bash); (b) STATIC — every expansion of
-#     the array is the guarded `${arr[@]+"${arr[@]}"}` form, and at least one expansion exists (a count of 0
-#     could not prove the lint looked, §7).
-# ONE definition of "unguarded": the static check and its tooth below both use it (the tooth used to copy the regex, so the two could drift).
-UNGUARDED_RE='(^|[^+])"\$\{!?_vc_targets\[@\]\}"'
-unguarded_count(){ grep -cE "$UNGUARDED_RE" "$1"; }
-expansion_count(){ grep -cE '\$\{_vc_targets\[@\]' "$1"; }
 d="$TMP/noverb"; mkdir -p "$d"
 printf '# Block 1\n\nNothing declared here.\n' > "$d/t-block1.md"; printf '# Block 2\n\nNor here.\n' > "$d/t-block2.md"
 out="$(bash "$SUT" "$d" 2>&1)"
 if [ "$(code "$d")" = 0 ] && grep -qE 'ok +every declared correction' <<<"$out" && ! grep -q 'unbound variable' <<<"$out"; then
   ok "corpus with no correction verb at all → ok line, no 'unbound variable' (empty-array path)"
 else no "noverb: exit $(code "$d") :: $(tr '\n' '|' <<<"$out")"; fi
-if [ "$(unguarded_count "$SUT")" = 0 ] && [ "$(expansion_count "$SUT")" -ge 1 ]; then
-  ok "every \${_vc_targets[@]} expansion is the nounset-safe guarded form (and at least one exists)"
-else no "guard: $(unguarded_count "$SUT") unguarded of $(expansion_count "$SUT") expansion(s)"; fi
 
-# NEGATIVE CONTROL — neuter the FAIL in a mutant; the one-directional fixture must then pass (exit 0).
+# 7 — NO VERB AT ALL (#1840) above: most block files have no correction verb; the corpus runs to its ok line. The
+#     old static half (every ${_vc_targets[@]} expansion is nounset-safe) checked the bash source and is gone with it.
+
+# 8 — the SHIM contract: arguments, exit code and report pass through the binary unchanged (usage → 2; no target → 2).
+out="$(bash "$SUT" 2>&1)"; rc=$?
+if [ "$rc" = 2 ] && grep -q 'usage: verify-corrections.sh <target-dir>' <<<"$out"; then
+  ok "shim: no argument → usage on stderr, exit 2 (the binary's contract, unchanged)"
+else no "shim usage: exit $rc :: $out"; fi
+
+# NEGATIVE CONTROLS — mutate the SHIM; each mutant must lose the case that owns the property.
 if [ "${1:-}" = "--prove-teeth" ]; then
   # Mutants are built by lib/mutant.sh (kit #1299), sourced ONLY on this path. It refuses an empty,
   # byte-identical, syntax-broken or live-tree mutant; mutant_chain also refuses a sed stage that matches
@@ -111,31 +118,29 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tt(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
   # A bad side that is only an exit code must not be a crash: these never read as a bite.
   CRASH="$(mutant_crash_re bash cmd tb)" || exit 2
-  # Stage lib/ (block-files.sh among it) into $TMP/lib/ so mutant scripts in $TMP can source it at $(dirname $0)/lib/.
-  rsdd_stage_libs "$TMP"
-  echo "-- teeth: neuter the reciprocal-backlink FAIL (rc=1 → rc=0); expect the one-directional fixture to pass --"
-  mutant="$TMP/verify-corrections.MUTANT.sh"
-  if mk_mut "teeth: rc-neutered" "$SUT" "$mutant" 's/rc=1/rc=0/g'; then
-    d="$TMP/onedir"   # reuse case 3's one-directional fixture: original exit 1 (FAIL), mutant exit 0
-    tt "teeth: rc-neutered mutant passes the one-directional corpus (exit 0) → case 3 has teeth" 1 0 "$mutant" --orig "$SUT" \
-      --good-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
+  # The mutants sit in $TMP beside a copy of rsdd-exec.sh (the shim sources lib/rsdd-exec.sh at its own dir).
+  mkdir -p "$TMP/lib"; cp "$HERE/../lib/rsdd-exec.sh" "$TMP/lib/rsdd-exec.sh"   # stage-libs-ok: the shim's one helper
+  d="$TMP/onedir"   # case 3's one-directional fixture: original exit 1 (FAIL)
+
+  echo "-- teeth: the shim drops the caller's arguments; the target is lost (usage, exit 2) --"
+  mutant="$TMP/verify-corrections.ARGS.sh"
+  if mk_mut "teeth: args dropped" "$SUT" "$mutant" 's/^rsdd_exec verify corrections "\$@"$/rsdd_exec verify corrections/'; then
+    tt "teeth: args-dropping shim loses the one-directional verdict (exit 2, not 1) → case 3 has teeth" 1 2 "$mutant" --orig "$SUT" \
+      --good-has '^ *FAIL' --bad-lacks '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
   fi
 
-  echo "-- teeth: revert first-ref binding (the verb governs EVERY ref in its clause, clause cut at neither ';' nor '. '); the cf-fixture must FAIL --"
-  bmutant="$TMP/verify-corrections.BINDMUTANT.sh"
-  if mk_mut "teeth: first-ref binding" "$SUT" "$bmutant" \
-       's/^          more(cl); done = 1; qcur = ""; qkind = ""$/          more(cl); done = 1; qcur = ""; qkind = ""; q = substr(cl, index(cl, "]") + 1); if (refnum(q) != "") emit(refnum(q))/' \
-       '/else if (c == ";") break/d' '/else if (c == "\." \&\&/d'; then
-    d="$TMP/cfref"   # reuse case 6's cf-fixture (block-12 has NO backlink): original exit 0 + ok line, mutant exit 1 + FAIL
-    tt "teeth: all-refs mutant demands a backlink in the cf-only block-12 (exit 1) → case 6 has teeth" 0 1 "$bmutant" --orig "$SUT" \
-      --good-has 'ok +every declared correction' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
+  echo "-- teeth: the shim swallows the binary's exit code (exit 0 after a FAIL) --"
+  mutant="$TMP/verify-corrections.RC.sh"
+  if mk_mut "teeth: rc swallowed" "$SUT" "$mutant" 's/^rsdd_exec verify corrections "\$@"$/rsdd_exec verify corrections "$@"; exit 0/'; then
+    tt "teeth: rc-swallowing shim reports success on a one-directional correction (exit 0) → case 3 has teeth" 1 0 "$mutant" --orig "$SUT" \
+      --good-has '^ *FAIL' --bad-has '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
   fi
 
-  echo "-- teeth: revert the empty-array guard (#1840); the static check must count an unguarded expansion --"
-  gmutant="$TMP/verify-corrections.GUARDMUTANT.sh"
-  if mk_mut "teeth: array guard" "$SUT" "$gmutant" 's/\${_vc_targets\[@\]+"\${!_vc_targets\[@\]}"}/"${!_vc_targets[@]}"/'; then
-    tt "teeth: unguarded mutant is counted by the static check (0 → 1)" 0 0 "$gmutant" --orig "$SUT" \
-      --good-has '^0$' --bad-has '^1$' --bad-lacks "$CRASH" -- env UG="$UNGUARDED_RE" bash -c 'grep -cE "$UG" "$1"; exit 0' _ @SUT@
+  echo "-- teeth: the shim runs another command (verify registry) --"
+  mutant="$TMP/verify-corrections.CMD.sh"
+  if mk_mut "teeth: wrong command" "$SUT" "$mutant" 's/^rsdd_exec verify corrections /rsdd_exec verify registry /'; then
+    tt "teeth: wrong-command shim does not produce the corrections report → case 3 has teeth" 1 2 "$mutant" --orig "$SUT" \
+      --good-has '^ *FAIL' --bad-lacks '^ *FAIL' --bad-lacks "$CRASH" -- bash @SUT@ "$d"
   fi
 fi
 
