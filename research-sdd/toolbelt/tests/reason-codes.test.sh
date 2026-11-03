@@ -74,7 +74,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
-  resume-state.sh resume-render.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
+  resume-state.sh resume-render.sh verify-block.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
 GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
 # GO_SHARED lists degraded rows whose emitter is a shared Go package that several ports call, not one shim's package
@@ -348,7 +348,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 # ignore and cannot swallow a later emission. Line numbers are not used: they drift with every edit.
 IC_WAIVERS=(
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:

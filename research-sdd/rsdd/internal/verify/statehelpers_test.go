@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 )
 
 // Differential tests of the in-process replacements for the external tools the script shelled out to (xargs,
@@ -119,7 +120,7 @@ func TestRealpathMatchesCoreutils(t *testing.T) {
 		"a/file", "a/./file", "a/b/../file", "toa/file", "tob/deep", "tob/../file", "a/rel", "abs", "loop1", "dangling", "dangling-in-dir",
 		"a/missing", "a/missing/x", "missing", "missing/x", "through-file", "a/file/", "a/file/x", "dot/a/file", "dotdot/" + filepath.Base(root) + "/a/file", ".", "a/..", "a/b/../..", "toa/../a", "toa/missing",
 	}
-	v := fsView{cwd: root}
+	v := fsView{View: fsview.View{Cwd: root}}
 	for _, p := range probes {
 		for _, in := range []string{p, filepath.Join(root, p), filepath.Join(root, p) + "/"} {
 			if strings.HasSuffix(in, "/") && in == filepath.Join(root, p)+"/" && strings.HasSuffix(p, "/") {
