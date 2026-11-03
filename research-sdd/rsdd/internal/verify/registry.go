@@ -24,10 +24,10 @@ import (
 // operational failure (TARGETS.md missing, no usable path, every registered directory absent in the default
 // mode), 2 usage. The report text and --json envelope are byte-identical to the script's.
 //
-// INCOMPLETE until U2.7c: the sections that need lib/hook-wiring.sh (hook claims, the wired-hook execute bit)
-// and verify-session-budget.sh run through registryHooks, whose production implementation is not available
-// yet. A run that had to skip any of them says so on stderr (`degraded: ... skipped`) and the shell script
-// stays in place (not a shim).
+// The sections that need lib/hook-wiring.sh (hook claims, the wired-hook execute bit) and
+// verify-session-budget.sh run through registryHooks (productionHooks: core/hookwiring in process, the
+// session-budget meter through SessionBudgetRunner). A run that had to skip any of them says so on stderr
+// (`degraded: ... skipped`): a skipped check is never a clean one.
 //
 // Differences, by design:
 //
@@ -103,7 +103,7 @@ func RunRegistry(args []string, s cli.Stdio) int {
 	}
 	rc := r.run(kitFlag)
 	if r.skipped > 0 {
-		fmt.Fprintf(s.Err, "verify-registry: degraded: %d hook-wiring/session-budget check(s) skipped; lib/hook-wiring.sh is not ported to Go yet (kit issues #2356, #2357, #2364), so this report is INCOMPLETE\n", r.skipped)
+		fmt.Fprintf(s.Err, "verify-registry: degraded: %d hook-wiring/session-budget check(s) skipped; the session-budget meter is not wired into this build, so this report is INCOMPLETE\n", r.skipped)
 	}
 	return rc
 }
@@ -180,6 +180,9 @@ func (r *registry) run(kitFlag string) int {
 		return cli.ExitOperational
 	}
 	r.toolbelt = r.kitRoot + "/toolbelt"
+	if t, ok := r.hooks.(toolbeltSetter); ok {
+		t.setToolbelt(r.toolbelt)
+	}
 	targetsMD := r.kitRoot + "/TARGETS.md"
 	if !isFileOS(targetsMD) {
 		fmt.Fprintf(r.s.Err, "verify-registry: cannot find %s\n", targetsMD)
