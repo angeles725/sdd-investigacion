@@ -17,6 +17,13 @@ SUT="$TOOLBELT/check-gap-drift.sh"
 VS="$TOOLBELT/verify-state.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# The Go binary the verify-state shim execs (kit #2457). A staged copy of the toolbelt sits outside the kit tree, so
+# the shim cannot derive the binary from its own path there: hand it over as RSDD_BIN (the caller's, else one build).
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$TMP/rsdd"
+fi
 # shellcheck source=lib/stage-libs.sh
 . "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a fixture toolbelt
 pass=0; fail=0
@@ -328,22 +335,10 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     grep -qF -- "$needle" <<<"$mo" && kept=kept
     if [ "$mrc" != "$grc" ] || [ "$kept" = lost ]; then ok "teeth $name: mutant flips the assertion (rc=$mrc, needle $kept)"
     else no "teeth $name: mutant still satisfies the assertion — THEATER"; fi; }
-  # vtooth <name> <sed-expr> <fixture> <verify-state dir kind: full|nochk> <needle> <present|absent>
-  # present = GOOD prints the needle, the mutant must lose it; absent = GOOD lacks it, the mutant must print it.
-  vtooth(){ local name="$1" expr="$2" fx="$3" kind="$4" needle="$5" mode="$6" d mo
-    d="$(mk_tree "$name")"
-    if ! mutant_sed "$TOOLBELT/verify-state.sh" "$d/verify-state.sh" "$expr" 2>/dev/null; then
-      no "teeth $name: could not build verify-state mutant"; return; fi
-    [ "$kind" = nochk ] && rm -f "$d/check-gap-drift.sh"
-    if [ "$kind" = stub ]; then printf '#!/usr/bin/env bash\necho boom >&2\nexit 2\n' > "$d/check-gap-drift.sh"; fi
-    if [ "$kind" = stub1 ]; then printf '#!/usr/bin/env bash\necho oops >&2\nexit 1\n' > "$d/check-gap-drift.sh"; fi
-    if [ "$kind" = nolib ]; then rm -f "$d/lib/gap-rows.sh"; fi
-    mo="$(bash "$d/verify-state.sh" "$fx" 2>&1)"
-    if [ "$mode" = present ]; then
-      grep -qF -- "$needle" <<<"$mo" && no "teeth $name: mutant still prints [$needle] — THEATER" || ok "teeth $name: mutant loses [$needle]"
-    else
-      grep -qF -- "$needle" <<<"$mo" && ok "teeth $name: mutant now prints [$needle]" || no "teeth $name: mutant still silent — THEATER"
-    fi; }
+  # The verify-state side (how the report treats the checker's output and failures) moved to Go with the port (kit #2457):
+  # verify-state.sh is a shim, so its former vs-* mutants (vs-warn-lines, vs-missing-checker, vs-failed-checker,
+  # vs-untyped-exit1, vs-missing-helper, vs-rows-guard) are now Go mutants killed by internal/verify
+  # TestGapDriftCheckerOutcomes (RED recorded in the PR).
 
   tooth bracket-form    lib/gap-rows.sh 's#\\\[?/,"",s)#/,"",s)#' "$TMP/forms" 0 "no_bullet=0"
   tooth id-digit-guard  lib/gap-rows.sh 's#substr(s,length(gid)+1,1) !~ /[[]0-9[]]/#1#' "$TMP/prefix" 0 "checked=1 suspects=0"
@@ -361,15 +356,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth pending-filter  check-gap-drift.sh 's/if \[ "\$all" -eq 0 \] && \[ "\$pend" != "pending" \]/if false/' "$TMP/allclosed" 0 "no pending B<n>-G<m> rows"
   tooth worktree-prune  check-gap-drift.sh 's# \\( -path "$target/.claude/worktrees" -o -name .git \\) -prune -o##' "$TMP/wt" 0 "NO-BLOCK B3-G1"
   tooth threshold-range check-gap-drift.sh 's/\[ "\$threshold" -le 100 \]/true/' "$TMP/clean" 2 "threshold" --threshold 101
-  vtooth vs-warn-lines  's@DRIFT\\?\*|UNPARSED\*) _gd_typed@DRIFT_NEVER*) _gd_typed@' "$TMP/vs-drift" full "gap-drift: DRIFT?" present
-  vtooth vs-missing-checker 's/if \[ ! -f "\$_gd" \]; then/if false; then/' "$TMP/vs-drift" nochk "check-gap-drift.sh not found" present
-  vtooth vs-failed-checker '/GAP-DRIFT-BROKEN/s/\[ "\$_gd_rc" -ge 2 \] || //' "$TMP/vs-drift" stub "check-gap-drift.sh failed (exit 2)" present
-  vtooth vs-untyped-exit1 '/GAP-DRIFT-BROKEN/s/ || { \[ "\$_gd_rc" -eq 1 \] && \[ "\$_gd_typed" -eq 0 \]; }//' "$TMP/vs-drift" stub1 "check-gap-drift.sh failed (exit 1)" present
-  vtooth vs-missing-helper '/GAP-DRIFT-BROKEN/s/\[ "\$_gd_rc" -ge 2 \] || //' "$TMP/vs-drift" nolib "gap-drift: degraded" present
   tooth pending-marker-row lib/gap-rows.sh 's/if (pr ~ \/^(—|~~|\[0-9\]+\$)\/ \&\& tolower(a\[n\]) !~ \/^pending\/)/if (pr ~ \/^(—|~~|[0-9]+$)\/)/' "$TMP/pendS-1" 1 "DRIFT? B5-G1"
   tooth helper-exit-code check-gap-drift.sh 's/failed to define gap_rows_parse" >&2; exit 2/failed to define gap_rows_parse" >\&2; exit 1/' "$TMP/badlib" 2 "failed to define"
   tooth flag-missing-value check-gap-drift.sh 's/\[ "\$#" -ge 2 \] || { _usage; exit 2; }/true/' "$TMP/clean" 2 "usage" --state
-  vtooth vs-rows-guard  '/GAP-DRIFT-ROWS-PRESENT/s/if grep -qE .* 2>\/dev\/null; then/if true; then/' "$TMP/vs-norows" nochk "check-gap-drift.sh not found" absent
 fi
 
 echo "== $pass passed · $fail failed =="

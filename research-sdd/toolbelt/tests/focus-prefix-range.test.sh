@@ -246,13 +246,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   }
   site_tooth SY research-sdd-status.sh '/RANGE-SYNC-COUNT/ s/cb=.*/cb=99/' sync 0 0 ' 99'
   site_tooth DI research-sdd-status.sh '/RANGE-DISPLAY-COUNT/ s/ondisk=.*/ondisk=99/' display 0 0 '99 on disk'
-  site_tooth VE verify-state.sh '/RANGE-VERIFY-COUNT/ s/ondisk=.*/ondisk=99/' verify 3 0 'covered_blocks=3 != 99'
   site_tooth WS research-sdd-status.sh '/# RANGE-REPORT/ s/focus_range_report [^;]*;/:;/' sync 0 1 'ABSENT:B9–B3'
-  site_tooth WV verify-state.sh '/# RANGE-REPORT/ s/focus_range_report [^;]*;/:;/' verify 7 1 'ABSENT:B9–B3'
-  site_tooth UN verify-state.sh '/# UNIT-SUMMARY/ s/\${_ondisk_unit}/block file(s) on disk/' verify 3 0 'ABSENT:distinct block id(s) in B2–B4'
+  # verify-state is a shim over the Go port (kit #2457): its former teeth VE (range count), WV (malformed-range report),
+  # UN (unit text), CS (cannot-see condition) and CM (CHECK A message) are Go mutants, killed by the internal/verify
+  # TestDifferentialState cases range-corpus-* (RED recorded in the PR). Cases 8c-8k above still run the shim.
   site_tooth CW research-sdd-status.sh 's/\[ -z "\$_sfpfx" \] \&\& \[ -z "\$_sfrange" \] \&\&/[ -z "$_sfpfx" ] \&\&/' sync 0 0 'CORPUS-WIDE'
-  FXSED='s/B2–B4/B50–B60/' site_tooth CS verify-state.sh '/RANGE-CANNOT-SEE-COND/ s/-gt 0 \]/-gt 999 ]/g' verify 4 0 'ABSENT:covered_blocks=4: no block file is numbered within'
-  site_tooth CM verify-state.sh '/RANGE-CHECK-A-MSG/ s/distinct block ids in/block file(s) on disk in/' verify 7 0 'ABSENT:distinct block ids in B2–B4 (4 block file(s))'
 fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]

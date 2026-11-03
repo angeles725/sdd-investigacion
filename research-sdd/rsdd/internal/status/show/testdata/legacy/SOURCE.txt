@@ -8,3 +8,17 @@ status-blocked.sh  lines 472-487 (blocked_names, is_blocked)
 
 The differential tests append a probe tail (authored, in the test) and stage the live toolbelt/lib beside the
 excerpt; the excerpt bytes themselves are never edited.
+
+Slice S2 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main 218e2a0b):
+
+status-section.sh  lines 290-291 (section, stopctl)
+                   sha256 f8147b3058c98ef4c3a681bd17118c3bd28c78fb05728171c2c2648c0ba4295e
+status-scan.sh     lines 513-626 (deferred_scan, count_deferred, backlog_rows)
+                   sha256 0ecc9f372f6887c5ba761f8cb1be8467e655ca5e39a16cf03d01e5d05773b243
+status-counters.sh lines 743-904 (count_investigable .. count_attributed_sg, req_prose, env_get, env_raw, cov_ratio, pick)
+                   sha256 f99d0a0f98bf3933deb4330fd033e632d5589c633c8b1a4a4243232a1aededaa
+status-focuses.sh  lines 906-1019 (_read_focuses_tok_into, _read_focuses_tok_uncached)
+                   sha256 96fdab930a06add9a5b4a16bb8f6ae06c5f698b79ad89b8751175a328512b1eb
+
+The S2 differential sources these four files, the frozen status-blocked.sh and the live lib/blocked-rows.sh, and
+calls one function per scenario op (s2_test.go).

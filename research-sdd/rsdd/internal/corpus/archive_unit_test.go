@@ -210,7 +210,7 @@ func TestArchiveGitLogCallsPassNoRenames(t *testing.T) {
 	}
 	d := f.path("c")
 	f.mkrunGit(d, true, "")
-	env := append(archiveBaseEnv(root), "PATH="+bin+":"+os.Getenv("PATH"))
+	env := append(archiveBaseEnv(t, root), "PATH="+bin+":"+os.Getenv("PATH"))
 	_, _, code := archiveRunGo(f.tb, root, []string{d, "--dry-run"}, env, nil)
 	if code != 0 {
 		t.Fatalf("exit %d", code)
@@ -244,7 +244,7 @@ func TestArchiveIndexIsTouchedWithTheStdioClock(t *testing.T) {
 	f.mkgood(d)
 	f.chtimes(filepath.Join(d, "INDEX.md"), "2001-01-01")
 	run := func(extra ...string) {
-		_, _, code := archiveRunGo(f.tb, root, append([]string{d}, extra...), archiveBaseEnv(root), nil)
+		_, _, code := archiveRunGo(f.tb, root, append([]string{d}, extra...), archiveBaseEnv(t, root), nil)
 		if code != 0 {
 			t.Fatalf("exit %d", code)
 		}

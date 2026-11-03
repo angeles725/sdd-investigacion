@@ -26,7 +26,9 @@ type pyRun struct {
 	Stderr   []byte   `json:"stderr"`
 }
 
-const toolbeltDir = "../../../../toolbelt"
+// toolbeltDir is the frozen oracle copy of the Python adapter modules (core consolidation, #2561), never the
+// live toolbelt, so the toolbelt modules can be deleted.
+const toolbeltDir = "../adapter/testdata/frozen"
 
 // runPy runs the real run_bounded through testdata/parity_driver.py. A
 // missing python3 FAILS the test: a skipped parity test proves nothing.

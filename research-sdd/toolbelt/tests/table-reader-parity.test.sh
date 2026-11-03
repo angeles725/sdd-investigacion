@@ -178,9 +178,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     probes "$t"; v="${PR[$watch]}"
     if [ "$v" != ok ]; then ok "teeth $name: mutant turns probe $watch red"; else no "teeth $name: probe $watch stays green on the mutant — THEATER"; fi
   }
-  tooth vs-backlog    verify-state.sh 'gsub(/\\\|/,"\001",line)  # BP-ESCAPED-PIPE' 'line=line  # BP-ESCAPED-PIPE' vs_inv
-  tooth vs-deferred   verify-state.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' vs_def
-  tooth vs-blockcol   verify-state.sh 'gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL' '$0=$0  # GFM-EP-BLOCKCOL' vs_blocks
+  # verify-state.sh is a shim over the Go port (kit #2457): its three escaped-pipe call sites are mutated in Go and
+  # killed by internal/verify TestDifferentialState cases backlog-escaped-pipe, backlog-deferred-escaped-pipe and
+  # blocks-history-escaped-pipe-before-block-column (RED recorded on the PR); the vs_* probes above still run the shim.
   tooth st-backlog    research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # BP-ESCAPED-PIPE' 'line=line  # BP-ESCAPED-PIPE' st_inv
   tooth st-deferred   research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-DEFERRED' 'line=line  # GFM-EP-DEFERRED' st_def
   tooth st-blockcol   research-sdd-status.sh 'gsub(/\\\|/, "\001")  # GFM-EP-BLOCKCOL' '$0=$0  # GFM-EP-BLOCKCOL' st_blocks

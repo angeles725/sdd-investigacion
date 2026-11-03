@@ -27,6 +27,15 @@ set -uo pipefail
 export RSDD_CLAUDE_PROJECTS_DIR="/nonexistent/rsdd-claude-history"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TOOLBELT="$HERE/.."
+# verify-state.sh is a shim to the Go `rsdd verify state` (kit issue #2457); its old awk program lives on, frozen, as the
+# parity oracle of the Go differential tests. The awk_eq probe keeps research-sdd-status.sh equal to that frozen copy.
+ORACLE="$HERE/../../rsdd/internal/verify/testdata/state-legacy/verify-state.sh"
+[ -f "$ORACLE" ] || { echo "FATAL: frozen oracle not found: $ORACLE" >&2; exit 2; }
+if [ -z "${RSDD_BIN:-}" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  _bin="$(mktemp -d)"; ( cd "$HERE/../../rsdd" && go build -o "$_bin/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  export RSDD_BIN="$_bin/rsdd"
+fi
 for f in verify-state.sh research-sdd-status.sh; do
   [ -f "$TOOLBELT/$f" ] || { echo "FATAL: SUT not found: $TOOLBELT/$f" >&2; exit 2; }
 done
@@ -124,15 +133,15 @@ probes() {
     esac
   done
   # the two awk blocks (deferred_scan / derive_deferred) are one program: byte-identical between their markers.
-  if ! cmp -s <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$t/research-sdd-status.sh") <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$t/verify-state.sh") \
-     || [ -z "$(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$t/verify-state.sh")" ]; then PR[awk_eq]="the DEF-AWK blocks differ (or are missing)"; fi
+  if ! cmp -s <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$t/research-sdd-status.sh") <(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$ORACLE") \
+     || [ -z "$(sed -n '/# DEF-AWK-START/,/# DEF-AWK-END/p' "$ORACLE")" ]; then PR[awk_eq]="the DEF-AWK blocks differ (or are missing)"; fi
 }
 declare -A DESC=(
   [st_count]="research-sdd-status.sh count_deferred: --sync-state derives the open 4- and 5-cell deferred rows (first/middle/last/single, closed forms excluded)"
   [vs_count]="verify-state.sh derive_deferred: the same cases derive the same deferred_open as research-sdd-status.sh"
   [queue]="research-sdd-status.sh --queue reader: every queued deferred row (4- or 5-cell) is recognised as deferred, none unknown"
   [warn]="a deferred row whose cell count differs from its table's width (bare pipe, 6+ cells) draws the typed WARN; well-formed rows draw none"
-  [awk_eq]="research-sdd-status.sh deferred_scan and verify-state.sh derive_deferred hold the byte-identical awk program"
+  [awk_eq]="research-sdd-status.sh deferred_scan and the frozen verify-state.sh derive_deferred (the Go port's oracle) hold the byte-identical awk program"
   [kg_sum]="known_gaps: closed rows + deferred_open stay one total (struck-Gap 5-column cases), and verify-state's sum check draws no WARN"
 )
 probes "$TOOLBELT"
@@ -159,16 +168,13 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     if [ "$v" != ok ]; then ok "teeth $name: mutant turns probe $watch red"; else no "teeth $name: probe $watch stays green on the mutant — THEATER"; fi
   }
   tooth st-width  research-sdd-status.sh 'if (cnt!=sc) {' 'if (0) {' st_count
-  tooth vs-width  verify-state.sh 'if (cnt!=sc) {' 'if (0) {' vs_count
   tooth st-warn   research-sdd-status.sh 'print "WARN: deferred row skipped (" cnt' 'print "" cnt' warn
   tooth st-status research-sdd-status.sh 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[4])  # DEF-STATUS-LAST' st_count
-  tooth vs-status verify-state.sh 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[4])  # DEF-STATUS-LAST' vs_count
   tooth st-scope  research-sdd-status.sh 'if (!ib && !tok) next' 'if (0) next' st_count
-  tooth vs-scope  verify-state.sh 'if (!ib && !tok) next' 'if (0) next' vs_count
   tooth st-closed research-sdd-status.sh '(sc==5 && index(a[3],"~~")) || index(st,"~~") || index(st,"✅")) next  # DEF-CLOSED' 'index(st,"~~") || index(st,"✅")) next  # DEF-CLOSED' st_count
-  tooth vs-closed verify-state.sh '(sc==5 && index(a[3],"~~")) || index(st,"~~") || index(st,"✅")) next  # DEF-CLOSED' 'index(st,"~~") || index(st,"✅")) next  # DEF-CLOSED' vs_count
+  # (the vs-width/status/scope/closed teeth mutated verify-state.sh's awk; that program is Go now, pinned by TestDifferentialState)
   tooth st-queue  research-sdd-status.sh '$(deferred_scan 1)' '$(true)' queue
-  tooth awk-eq    verify-state.sh 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[cnt]);  # DEF-STATUS-LAST' awk_eq
+  tooth awk-eq    research-sdd-status.sh 'st=tolower(a[cnt])  # DEF-STATUS-LAST' 'st=tolower(a[cnt]);  # DEF-STATUS-LAST' awk_eq
   # the known_gaps identity: backlog_rows must close a deferred row on the same markers deferred_scan uses (else the row is in neither bucket)
   tooth kg-closed research-sdd-status.sh 'if (p=="deferred") { if (!(index(a[2],"~~") || (sc==5 && index(a[3],"~~")) ||' 'if (p=="deferred") { if (!(index(a[2],"~~") ||' kg_sum
 fi
