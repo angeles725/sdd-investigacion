@@ -216,7 +216,7 @@ func auditScenarios() []auditScenario {
 			w.touch(a+"/audits/b.md", 8*day+time.Hour)
 			w.targets(a)
 		}, has: []string{"age: 7d\n", "age: 8d  ·  ESCALATED (aged 8d)"}},
-		{name: "non-numeric threshold never escalates", old: "(spot)", golden: true, setup: func(w *world) {
+		{name: "non-numeric threshold never escalates", old: "(spot)", setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.audit(a, "a1.md", auditPending, 1)
 			w.touch(a+"/audits/a1.md", deepPast)
