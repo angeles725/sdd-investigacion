@@ -96,7 +96,7 @@ func (w *rgWorld) baseEnv() map[string]string {
 		"PATH": w.stubs + ":" + os.Getenv("PATH"), "HOME": w.root + "/home", "LC_ALL": "C", "TMPDIR": w.root + "/tmp",
 		"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
-		"SEED_LOG": w.seedLog, "RSDD_CLAUDE_PROJECTS_DIR": "/nonexistent/rsdd-claude-history",
+		"SEED_LOG": w.seedLog, "RSDD_CLAUDE_PROJECTS_DIR": "/nonexistent/rsdd-claude-history", "RSDD_BIN": rgRsddBin(w.t),
 	}
 }
 

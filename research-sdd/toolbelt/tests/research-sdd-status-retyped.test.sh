@@ -111,23 +111,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   if mutant_sed "$ST" "$t/research-sdd-status.sh" '/RETYPED-COUNT/ s/n=\$((n+1))/:/' >/dev/null 2>&1; then
     grep -q '^  re-typed in table : 1' <<<"$(bash "$t/research-sdd-status.sh" "$d" 2>&1)" && no "teeth B: still counts — THEATER" || ok "teeth B: status counter frozen -> case 1a/5 bite"
   else no "teeth B: mutant unbuildable"; fi
-  t="$(mk_tree C)"
-  if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-COUNT/ s/n=\$((n+1))/:/' >/dev/null 2>&1; then
-    grep -q 're-typed in table : 1' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth C: still counts — THEATER" || ok "teeth C: verify-state counter frozen -> case 3a bites"
-  else no "teeth C: mutant unbuildable"; fi
-  t="$(mk_tree D)"
-  if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-TOKENS/ s/|retyped\*//' >/dev/null 2>&1; then
-    v="$(bash "$t/verify-state.sh" "$TMP/par-mid" 2>&1 | sed -n 's/^   re-typed in table : \([0-9]*\).*/\1/p')"
-    [ "${v:-0}" != "$(st_n "$TMP/par-mid")" ] && ok "teeth D: token drift breaks parity -> case 5.mid bites" || no "teeth D: parity unchanged — THEATER"
-  else no "teeth D: mutant unbuildable"; fi
-  t="$(mk_tree F)"
-  if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-WARN/ s/\[gap: \${_rt_gap}\]/[gap: ?]/' >/dev/null 2>&1; then
-    grep -q '\[gap: rt-first\]' <<<"$(bash "$t/verify-state.sh" "$TMP/wpar-three" 2>&1)" && no "teeth F: gap still named — THEATER" || ok "teeth F: verify-state WARN stops naming the gap -> case 5w bites"
-  else no "teeth F: mutant unbuildable"; fi
-  t="$(mk_tree E)"
-  if mutant_sed "$VS" "$t/verify-state.sh" '/RETYPED-WARN/ s/echo .*/:  # RETYPED-WARN [NEUTERED]/' >/dev/null 2>&1; then
-    grep -q 'WARN   re-typed row still carries' <<<"$(bash "$t/verify-state.sh" "$d" 2>&1)" && no "teeth E: WARN still emitted — THEATER" || ok "teeth E: verify-state WARN neutered -> case 3b bites"
-  else no "teeth E: mutant unbuildable"; fi
+  # verify-state is a shim over the Go port (kit #2457): its former teeth C (counter), D (token spelling), E (WARN) and
+  # F (gap named in the WARN) are Go mutants, killed by internal/verify TestDifferentialState/retyped-rows and
+  # /retyped-spelling-rows (RED recorded in the PR). Cases 3 and 5 above still run the shim end to end.
 fi
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ]
