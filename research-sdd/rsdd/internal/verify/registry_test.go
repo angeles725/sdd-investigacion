@@ -520,15 +520,26 @@ func TestRegistryJSON(t *testing.T) {
 	want(t, r.stdout, `"state": "no-match"`, `"reason": "targets reconciled, no findings"`, `"items": []`)
 }
 
-func TestRegistryUnportedHooks(t *testing.T) {
+// A check the hooks cannot run is counted and reported (the production cases are in registry_prod_test.go).
+func TestRegistrySkippedHooksAreReported(t *testing.T) {
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.put("alpha/.claude/settings.json", "{}\n")
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md / hook yes)")))
+	withHooks(t, skippingHooks{})
 	r := k.run(nil)
-	rcIs(t, r, 0)
-	want(t, r.stderr, "verify-registry: degraded: 2 hook-wiring/session-budget check(s) skipped; lib/hook-wiring.sh is not ported to Go yet")
+	rcIs(t, r, 1) // a check that could not run is an operational failure, never a clean report
+	want(t, r.stderr, "verify-registry: degraded: 2 hook-wiring/session-budget check(s) skipped;")
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")))
 	r = k.run(nil)
 	want(t, r.stderr, "1 hook-wiring/session-budget check(s) skipped") // the wired-exec scan of the .claude directory
 }
+
+// skippingHooks cannot run any check.
+type skippingHooks struct{}
+
+func (skippingHooks) StopWiringState(string) (string, bool)      { return "", false }
+func (skippingHooks) StopScriptState(string) (string, bool)      { return "", false }
+func (skippingHooks) StopLaunchState(string) (string, bool)      { return "", false }
+func (skippingHooks) WiredExecReport(string) ([]wiredExec, bool) { return nil, false }
+func (skippingHooks) SessionBudget(string) (string, bool)        { return "", false }

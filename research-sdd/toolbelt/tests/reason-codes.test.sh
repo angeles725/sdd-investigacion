@@ -62,6 +62,7 @@ GO_SRC=(
   "sweep-audits-hook.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -69,7 +70,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh sweep-retros.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
-  resume-state.sh resume-render.sh)
+  resume-state.sh resume-render.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
 # sweep-retros-hook.sh shares sweep-retros.sh's status, which is itself suspect: retros.go prints absent-input INFO lines.
 GO_NO_TYPED+=(return-token-gate.sh sweep-retros-hook.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)
@@ -116,7 +117,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
@@ -345,7 +346,6 @@ IC_TOKENS=(absent-input empty-input unclassifiable no-match)
 IC_WAIVERS=(
   'verify-sources.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
   'verify-block.sh|empty-input digests|2|names the empty-input DIGEST check (a hash of empty input), a different concept'
-  'verify-registry.sh|unclassifiable-blocks WARN|1|first mention of the same message whose noun phrase is recognised as an emit-marker later in this file'
 )
 
 # Classifier: one record per occurrence of a token on a non-comment line, tab separated:
