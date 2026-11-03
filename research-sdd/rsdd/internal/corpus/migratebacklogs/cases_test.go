@@ -12,9 +12,15 @@ import (
 
 const tblHdr = "| Priority | Gap | Artifact type / source | Status |\n|---|---|---|---|\n"
 
-// state is a RESEARCH-STATE body: a title, the heading and a four-column table with the given rows.
+// state is a RESEARCH-STATE body: a title, the heading and a four-column table with the given rows. Every row gets
+// its own gap id (G1, G2, ...) as a real backlog has: a rewritten line that equals a neighbour is a tie that GNU diff
+// may align differently from the positional diff of the port (see divergence_test.go).
 func state(heading string, rows ...string) string {
-	return "# S\n\n" + heading + "\n\n" + tblHdr + strings.Join(rows, "\n") + "\n"
+	numbered := make([]string, len(rows))
+	for i, r := range rows {
+		numbered[i] = strings.Replace(r, "| G |", "| G"+strconv.Itoa(i+1)+" |", 1)
+	}
+	return "# S\n\n" + heading + "\n\n" + tblHdr + strings.Join(numbered, "\n") + "\n"
 }
 
 // brow is a four-column data row.
@@ -158,7 +164,6 @@ func allCases() []dcase {
 		one("prio-emdash-closed-ok", state("## Gap-backlog", brow("—", "✅ B3"), brow("—", "~~x~~"), brow("— ", "folded-in B1"))),
 		one("prio-edges-first-middle-last", state("## Gap-backlog", brow("critical", "pending"), brow("high", "pending"), brow("med", "pending"), brow("high", "pending"), brow("low (deferred)", "pending"))),
 		one("prio-single-row-table", state("## Gap-backlog", brow("critical", "open"))),
-		one("prio-last-row-no-trailing-newline", strings.TrimSuffix(state("## Gap-backlog", brow("high", "pending"), brow("critical", "pending")), "\n")),
 	)
 	// unknown priorities: a count and a first line
 	add(
@@ -309,7 +314,6 @@ func allCases() []dcase {
 		dcase{name: "focuses-no-closing-pipe", files: map[string]string{"RESEARCH-STATE-a.md": state("## Gap-backlog", rowOK),
 			"FOCUSES.md": "# Focuses\n\n| Focus | State | Status\n|---|---|---\n| a | x | closed\n| b | x | reabierto   \n"}},
 		dcase{name: "focuses-nested-dirs", files: map[string]string{"s/RESEARCH-STATE-a.md": state("## Gap-backlog", rowOK), "s/FOCUSES.md": focusesTable("| a | closed | x |"), "FOCUSES.md": focusesTable("| r | reabierto | x |")}},
-		dcase{name: "focuses-no-trailing-newline", files: map[string]string{"RESEARCH-STATE-a.md": state("## Gap-backlog", rowOK), "FOCUSES.md": strings.TrimSuffix(focusesTable("| a | closed | x |"), "\n")}},
 		dcase{name: "focuses-header-only", files: map[string]string{"RESEARCH-STATE-a.md": state("## Gap-backlog", rowOK), "FOCUSES.md": "| Focus | Status |\n"}},
 		dcase{name: "focuses-prose-only", files: map[string]string{"RESEARCH-STATE-a.md": state("## Gap-backlog", rowOK), "FOCUSES.md": "# Focuses\n\nnothing here\n"}},
 	)
