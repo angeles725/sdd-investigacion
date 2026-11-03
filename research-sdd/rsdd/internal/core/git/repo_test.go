@@ -4,6 +4,7 @@ package git
 
 import (
 	"errors"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -26,10 +27,10 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("git is required: %v", err)
 	}
 	home := t.TempDir()
-	f := fixture{dir: filepath.Join(home, "repo"), r: Runner{Bin: bin, Env: []string{
+	f := fixture{dir: filepath.Join(home, "repo"), r: Runner{Bin: bin, Env: gitfixture.Env([]string{
 		"PATH=" + filepath.Dir(bin), "HOME=" + home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "LC_ALL=C",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid",
-	}}}
+	})}}
 	git := func(args ...string) string {
 		t.Helper()
 		out, err := f.r.Run(f.dir, args...)

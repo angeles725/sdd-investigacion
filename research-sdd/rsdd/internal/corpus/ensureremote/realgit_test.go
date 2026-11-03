@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"math/big"
 	"os"
 	"os/exec"
@@ -58,7 +59,7 @@ func (r *repo) git(args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.dir}, args...)...)
-	cmd.Env = r.env
+	cmd.Env = gitfixture.Env(r.env)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {

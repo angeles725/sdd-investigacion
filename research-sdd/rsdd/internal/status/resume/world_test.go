@@ -3,6 +3,7 @@ package resume
 import (
 	"bytes"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/gitfixture"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +69,7 @@ func (b *builder) env() []string {
 func (b *builder) git(dir string, args ...string) string {
 	b.t.Helper()
 	c := exec.Command("git", append([]string{"-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always"}, args...)...)
-	c.Dir, c.Env = dir, b.env()
+	c.Dir, c.Env = dir, gitfixture.Env(b.env())
 	out, err := c.CombinedOutput()
 	if err != nil {
 		b.t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
