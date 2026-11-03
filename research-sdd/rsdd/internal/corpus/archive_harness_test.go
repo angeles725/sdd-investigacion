@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"io"
 	"io/fs"
 	"os"
@@ -70,6 +71,13 @@ type archiveCase struct {
 	twice  bool                                  // run the command twice on the same tree, output concatenated
 	skip   func(f *archiveFx) string             // non-empty: skip with this reason
 	want   archiveWant
+	// diverge declares the fields (stdout, stderr, exit, effect = the resulting tree) where the Go archive intentionally
+	// differs from the frozen legacy script: a legacy defect fixed in Go, documented in
+	// tool-registry.d/research-sdd-archive.md. It is the testkit/parity model, judged by parity.Judge: an undeclared
+	// difference fails, and so does a declared field that no longer differs. A declaring case's golden is the Go side's,
+	// and the legacy side must still meet legacyWant, so the old behaviour the divergence replaces stays pinned.
+	diverge    []parity.Intended
+	legacyWant archiveWant
 }
 
 type archiveWant struct {

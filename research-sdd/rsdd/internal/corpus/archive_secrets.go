@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -111,18 +110,25 @@ func (e *archiveEnv) archiveSSDegradedNote(rc int) string {
 	return ""
 }
 
-func (e *archiveEnv) archiveSSUnreadNote() string {
-	if e.ssUnreadable > 0 {
-		return ", " + strconv.Itoa(e.ssUnreadable) + " unreadable path(s) not scanned"
+// archiveSSUnscanned prints the degraded verdict of a scan that skipped unreadable paths and fails the gate: a gate
+// that could not look at every path is never a pass (kit issue #2633, the same rule as AR-VCORR). It reports whether
+// it applied; ctx is the suffix of the working-tree-only verdict.
+func (e *archiveEnv) archiveSSUnscanned(ctx string) bool {
+	if e.ssUnreadable == 0 {
+		return false
 	}
-	return ""
+	e.say("    scan-secrets  : DEGRADED — %d unreadable path(s) not scanned; the corpus was NOT fully checked for secret values%s", e.ssUnreadable, ctx)
+	e.gateRC = 1
+	return true
 }
 
 // archiveSSWTOnlyVerdict is the verdict for a working-tree-only scan; ctx is the suffix for the ok/FAIL/ERROR lines.
 func (e *archiveEnv) archiveSSWTOnlyVerdict(ctx string) {
 	switch e.ssWTRC {
 	case 0:
-		e.say("    scan-secrets  : ok%s%s", ctx, e.archiveSSUnreadNote())
+		if !e.archiveSSUnscanned(ctx) {
+			e.say("    scan-secrets  : ok%s", ctx)
+		}
 	case 1:
 		e.say("    scan-secrets  : FAIL — a high-confidence secret VALUE leaked into the working tree%s (SECRETS DISCIPLINE)", ctx)
 		e.gateRC, e.ssLeakWT = 1, true
@@ -188,8 +194,9 @@ func (e *archiveEnv) archiveSecretsGate() {
 		case e.ssWTRC != 0 || histRC != 0:
 			e.say("    scan-secrets  : ERROR — did not run cleanly (working-tree rc=%d, committed-history rc=%d)%s — check git/awk/tr are available and $target has at least one commit", e.ssWTRC, histRC, e.archiveSSDegradedNote(e.ssWTRC))
 			e.gateRC = 1
+		case e.archiveSSUnscanned(""):
 		default:
-			e.say("    scan-secrets  : ok%s", e.archiveSSUnreadNote())
+			e.say("    scan-secrets  : ok")
 		}
 	}
 }

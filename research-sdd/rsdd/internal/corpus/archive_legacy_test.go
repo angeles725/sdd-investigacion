@@ -7,7 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
-	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,21 +96,28 @@ func TestArchiveCases(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			leg, gor, f, target := archiveRunCase(t, c, true)
-			archiveCheck(t, "legacy", c, f, target, *leg)
+			lc := c
+			if c.diverge != nil {
+				lc.want = c.legacyWant
+			}
+			archiveCheck(t, "legacy", lc, f, target, *leg)
 			archiveCheck(t, "go", c, f, target, gor)
 			archiveCheckFiles(t, "go", c, target, f)
-			for _, p := range []struct{ name, a, b string }{
-				{"stdout", leg.out, gor.out}, {"stderr", leg.err, gor.err},
-				{"exit", fmt.Sprint(leg.code), fmt.Sprint(gor.code)}, {"tree", leg.tree, gor.tree}} {
-				if p.a != p.b {
-					t.Errorf("legacy and Go differ on %s:\n--- legacy\n%s\n--- go\n%s", p.name, p.a, p.b)
-				}
+			_, probs := parity.Judge(archiveObserved(*leg), archiveObserved(gor), c.diverge)
+			for _, p := range probs {
+				t.Errorf("legacy and Go: %s", p)
+			}
+			golden := *leg // an intended divergence records the Go side; every undeclared field is equal anyway
+			if c.diverge != nil {
+				golden = gor
 			}
 			if *archiveUpdate {
-				archiveGoldenWrite(t, c.name, *leg, f.root)
+				archiveGoldenWrite(t, c.name, golden, f.root)
 				return
 			}
-			archiveCheckGolden(t, "legacy", c, *leg, f.root)
+			if c.diverge == nil {
+				archiveCheckGolden(t, "legacy", c, *leg, f.root)
+			}
 			archiveCheckGolden(t, "go", c, gor, f.root)
 		})
 	}
@@ -127,4 +134,9 @@ func archiveGoldenWrite(t *testing.T, name string, r archiveRes, root string) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// archiveObserved is one side's result in the testkit/parity shape; effect is the resulting tree.
+func archiveObserved(r archiveRes) parity.Observed {
+	return parity.Observed{Stdout: []byte(r.out), Stderr: []byte(r.err), Exit: r.code, Effect: []byte(r.tree)}
 }
