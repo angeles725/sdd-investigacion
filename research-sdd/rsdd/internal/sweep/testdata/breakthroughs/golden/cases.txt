@@ -1,0 +1,2664 @@
+@@case clean tagged and indexed
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case unindexed breakthrough
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 302
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 383
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 451
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case drift marker removed
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 466
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+WARN: drift — indexed block no longer carries the **Breakthrough:** marker: {root}/targetA/pfx-block1.md:7 (from BREAKTHROUGHS.md)
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 566
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed block no longer carries the **Breakthrough:** marker: {root}/targetA/pfx-block1.md:7 (from BREAKTHROUGHS.md)\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 616
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\nWARN: drift — indexed block no longer carries the **Breakthrough:** marker: {root}/targetA/pfx-block1.md:7 (from BREAKTHROUGHS.md)\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case drift block file gone
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 312
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/gone-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block9.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 440
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+WARN: drift — indexed block file no longer exists: {root}/targetA/gone-block1.md (from BREAKTHROUGHS.md)
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 540
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed block file no longer exists: {root}/targetA/gone-block1.md (from BREAKTHROUGHS.md)\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 590
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\nWARN: drift — indexed block file no longer exists: {root}/targetA/gone-block1.md (from BREAKTHROUGHS.md)\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case no-match corpus
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 273
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 372
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 422
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case absent corpus
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 72
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/nope` |
+
+@@rc 1
+0
+@@out 321
+INFO: corpus not found (absent-input): {root}/nope
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+INFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 420
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 471
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: corpus not found (absent-input): {root}/nope\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nINFO: 1 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case empty corpus
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@rc 1
+0
+@@out 235
+INFO: corpus exists, no block files (empty-input): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 375
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift.\nINFO: 1 corpus(es) empty-input — run --full to list them"
+  }
+}
+
+@@hookfull 384
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: corpus exists, no block files (empty-input): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case missing TARGETS.md
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@rc 1
+1
+@@out 0
+
+@@err 55
+sweep-breakthroughs: cannot find {root}/kit/TARGETS.md
+
+@@hook 248
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@hookfull 248
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@end
+@@case missing BREAKTHROUGHS.md
+@@dir targetA 0
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@rc 1
+1
+@@out 0
+
+@@err 61
+sweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md
+
+@@hook 254
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md"
+  }
+}
+
+@@hookfull 254
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md"
+  }
+}
+
+@@end
+@@case TARGETS.md is checked before the ledger
+@@rc 1
+1
+@@out 0
+
+@@err 55
+sweep-breakthroughs: cannot find {root}/kit/TARGETS.md
+
+@@hook 248
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@hookfull 248
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/TARGETS.md"
+  }
+}
+
+@@end
+@@case no usable target path
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 25
+# targets
+
+no table here
+
+@@rc 1
+1
+@@out 0
+
+@@err 175
+sweep-breakthroughs: ERROR — no usable target paths in {root}/kit/TARGETS.md
+sweep-breakthroughs: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths
+
+@@hook 369
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: ERROR — no usable target paths in {root}/kit/TARGETS.md\nsweep-breakthroughs: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths"
+  }
+}
+
+@@hookfull 369
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: ERROR — no usable target paths in {root}/kit/TARGETS.md\nsweep-breakthroughs: check TARGETS.md has backtick-wrapped absolute or $RESEARCH_HOME/... paths"
+  }
+}
+
+@@end
+@@case ledger is checked before the paths
+@@file kit/TARGETS.md 0 10
+# targets
+
+@@rc 1
+1
+@@out 0
+
+@@err 61
+sweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md
+
+@@hook 254
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md"
+  }
+}
+
+@@hookfull 254
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthroughs sweep could not run (exit 1 — check TARGETS.md and lib/ helper):\nsweep-breakthroughs: cannot find {root}/kit/BREAKTHROUGHS.md"
+  }
+}
+
+@@end
+@@case two targets one tagged one not
+@@dir targetA 0
+
+@@dir targetB 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 105
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `{root}/targetB` |
+
+@@file targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetB/pfx-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 273
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetB
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 372
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 422
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetB\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case tagged block first of three
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 309
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/a-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/a-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/b-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/c-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case tagged block middle of three
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 309
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/b-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/a-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/b-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/c-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case tagged block last of three
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 309
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/c-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/a-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/b-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/c-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case bare caps prose is not the marker
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 124
+# Block 1
+
+> BREAKTHROUGH: the pivot
+HITO: the decisive negative
+> note **Breakthrough:** inside
+**Breakthrough:** unquoted
+
+@@rc 1
+0
+@@out 273
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 372
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 422
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case bloque naming is recognized
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-bloque1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 303
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-bloque1.md:7
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 384
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-bloque1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 452
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-bloque1.md:7\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case files that are not blocks are ignored
+@@dir targetA 0
+
+@@dir targetA/sub 0
+
+@@dir targetA/sub/dir 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/block12.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/blocked-notes.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/pfx-block3-extra_name.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/pfx-block3.txt 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/sub/dir/deep-block2.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 424
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block3-extra_name.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/sub/dir/deep-block2.md:7
+
+Summary: 2 tagged breakthrough(s) across corpora · 2 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 416
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 2 tagged breakthrough(s) across corpora · 2 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 2 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block3-extra_name.md:7, dir/deep-block2.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 574
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block3-extra_name.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/sub/dir/deep-block2.md:7\n\nSummary: 2 tagged breakthrough(s) across corpora · 2 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case two tagged blocks one indexed
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 309
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/a-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/a-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/b-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 300
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/b-block1.md:7
+
+Summary: 2 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 381
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 2 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/b-block1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 449
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/b-block1.md:7\n\nSummary: 2 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case skeleton and short rows are skipped
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 519
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| — | _(no entries yet)_ | | `/nowhere/x-block1.md:3` | |
+| # | h | h | `/nowhere/y-block1.md:3` | |
+| - | h | h | `/nowhere/z-block1.md:3` | |
+| | h | h | `/nowhere/e-block1.md:3` | |
+| 1 | only | three |
+|:---|:---|:---|:---|:---|
+no pipe `/nowhere/n-block1.md:3`
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 273
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 372
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 422
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case truncated path is skipped and named
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 119
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+| 2 | t2 | `$RESEARCH_HOME/some/path/...` |
+
+@@file targetA/pfx-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 307
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+WARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ...
+
+@@err 0
+
+@@hook 406
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ...\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 456
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 target(s) skipped — truncated/unresolvable path in TARGETS.md; this sweep is PARTIAL: ..."
+  }
+}
+
+@@end
+@@case portable pointer in the only row
+@@dir rh 0
+
+@@dir rh/targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file rh/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 9
+{root}/rh
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case portable pointer in the last of two rows
+@@dir elsewhere 0
+
+@@dir rh 0
+
+@@dir rh/targetA 0
+
+@@file elsewhere/x-block1.md 0 22
+> **Breakthrough:** x
+
+@@file kit/BREAKTHROUGHS.md 0 379
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/elsewhere/x-block1.md:1` | key |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file rh/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 9
+{root}/rh
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case brace form of the portable pointer
+@@dir rh 0
+
+@@dir rh/targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 321
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `${RESEARCH_HOME}/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file rh/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 9
+{root}/rh
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case portable pointer is expanded in the drift pass
+@@dir rh 0
+
+@@dir rh/targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:3` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file rh/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 9
+{root}/rh
+@@rc 1
+0
+@@out 594
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/rh/targetA/pfx-block1.md:7
+WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/rh/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 674
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/rh/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 745
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/rh/targetA/pfx-block1.md:7\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/rh/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case ampersand in RESEARCH_HOME
+@@dir r&d 0
+
+@@dir r&d/targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file r&d/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 10
+{root}/r&d
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case trailing slash in RESEARCH_HOME
+@@dir rh 0
+
+@@dir rh/targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@file rh/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RESEARCH_HOME 10
+{root}/rh/
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case RESEARCH_HOME unset falls back to HOME
+@@dir home/targetA 0
+
+@@file home/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case trailing slash in HOME
+@@dir home/targetA 0
+
+@@file home/targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file kit/BREAKTHROUGHS.md 0 319
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `$RESEARCH_HOME/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 83
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `$RESEARCH_HOME/targetA` |
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case exact line: marker 5 is not pointer 57
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 312
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:57` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 62
+line
+line
+line
+line
+> **Breakthrough:** x
+line
+line
+line
+line
+
+@@rc 1
+0
+@@out 589
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:5
+WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:57 (from BREAKTHROUGHS.md)
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 672
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:57 (from BREAKTHROUGHS.md)\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:5 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 740
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:5\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:57 (from BREAKTHROUGHS.md)\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case exact line: marker 1 is not pointer 10
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 312
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:10` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 62
+> **Breakthrough:** x
+line
+line
+line
+line
+line
+line
+line
+line
+
+@@rc 1
+0
+@@out 589
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:1
+WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:10 (from BREAKTHROUGHS.md)
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 672
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:10 (from BREAKTHROUGHS.md)\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:1 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 740
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:1\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:10 (from BREAKTHROUGHS.md)\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case exact line: marker 1 pointer 1 is clean
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:1` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 62
+> **Breakthrough:** x
+line
+line
+line
+line
+line
+line
+line
+line
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case exact line: marker 7 is not pointer 70
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 312
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:70` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 62
+line
+line
+line
+line
+line
+line
+> **Breakthrough:** x
+line
+line
+
+@@rc 1
+0
+@@out 589
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7
+WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:70 (from BREAKTHROUGHS.md)
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 672
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:70 (from BREAKTHROUGHS.md)\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 740
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:70 (from BREAKTHROUGHS.md)\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case exact line: marker 7 pointer 7 is clean
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 62
+line
+line
+line
+line
+line
+line
+> **Breakthrough:** x
+line
+line
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case drift on the pointed line only
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:3` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 588
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7
+WARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+For each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.
+
+@@err 0
+
+@@hook 671
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:7 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 739
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:7\nWARN: drift — indexed line does not carry the **Breakthrough:** marker (block still has it elsewhere): {root}/targetA/pfx-block1.md:3 (from BREAKTHROUGHS.md)\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 1 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.\nFor each drifted row: verify the block still exists and carries the **Breakthrough:** field; update or remove the ledger row."
+  }
+}
+
+@@end
+@@case two pointers in one cell
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 342
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/a-block1.md:7` ; `{root}/targetA/b-block1.md:7` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/a-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file targetA/b-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 169
+
+Summary: 2 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 2 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 2 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case two markers ledger points at the second
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 311
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+| 1 | tgt | what | `{root}/targetA/pfx-block1.md:4` | key |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 58
+# B
+> **Breakthrough:** first
+
+> **Breakthrough:** second
+
+@@rc 1
+0
+@@out 169
+
+Summary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.
+Ledger consistent — all tagged breakthroughs indexed, no drift.
+
+@@err 0
+
+@@hook 315
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@hookfull 317
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\n\nSummary: 1 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 0 skipped-unreadable.\nLedger consistent — all tagged breakthroughs indexed, no drift."
+  }
+}
+
+@@end
+@@case two markers ledger points at neither
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 58
+# B
+> **Breakthrough:** first
+
+> **Breakthrough:** second
+
+@@rc 1
+0
+@@out 302
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:2
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 383
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:2 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 451
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:2\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case unreadable block is skipped loudly
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@env RSDD_TOOLS_TEST_UNREADABLE 28
+{root}/targetA/pfx-block1.md
+@@rc 1
+0
+@@out 286
+WARN: block file unreadable, marker scan skipped: {root}/targetA/pfx-block1.md
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA
+
+Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 1 skipped-unreadable.
+
+@@err 0
+
+@@hook 385
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: block file unreadable, marker scan skipped: {root}/targetA/pfx-block1.md\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 1 skipped-unreadable.\nINFO: 1 corpus(es) no-match — run --full to list them"
+  }
+}
+
+@@hookfull 435
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: block file unreadable, marker scan skipped: {root}/targetA/pfx-block1.md\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/targetA\n\nSummary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 1 skipped-unreadable."
+  }
+}
+
+@@end
+@@case marker allows blanks after the quote
+@@dir targetA 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 75
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/targetA` |
+
+@@file targetA/pfx-block1.md 0 55
+#
+>	 **Breakthrough:** tabbed
+>**Breakthrough:** tight
+
+@@rc 1
+0
+@@out 302
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:2
+
+Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 383
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nWARN: 1 unindexed breakthrough(s) not in BREAKTHROUGHS.md: targetA/pfx-block1.md:2 — add a row each (path:line); run --full for all"
+  }
+}
+
+@@hookfull 451
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/targetA/pfx-block1.md:2\n\nSummary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end
+@@case the hook collapses many lines
+@@dir e1 0
+
+@@dir e2 0
+
+@@dir n1 0
+
+@@dir t1 0
+
+@@dir t2 0
+
+@@dir t3 0
+
+@@dir t4 0
+
+@@dir t5 0
+
+@@dir t6 0
+
+@@dir t7 0
+
+@@file kit/BREAKTHROUGHS.md 0 251
+# Research-SDD — Breakthrough Ledger
+
+| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |
+|---|--------|----------------|-------------------------|---------------------------|
+| — | _(no entries yet)_ | | | |
+
+@@file kit/TARGETS.md 0 357
+# targets
+
+| # | name | path |
+|---|---|---|
+| 1 | t1 | `{root}/t1` |
+| 2 | t2 | `{root}/t2` |
+| 3 | t3 | `{root}/t3` |
+| 4 | t4 | `{root}/t4` |
+| 5 | t5 | `{root}/t5` |
+| 6 | t6 | `{root}/t6` |
+| 7 | t7 | `{root}/t7` |
+| 8 | t8 | `{root}/e1` |
+| 9 | t9 | `{root}/e2` |
+| 10 | t10 | `{root}/n1` |
+| 11 | t11 | `{root}/gone1` |
+| 12 | t12 | `{root}/gone2` |
+
+@@file n1/x-block1.md 0 138
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> Plain header line.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t1/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t2/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t3/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t4/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t5/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t6/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@file t7/x-block1.md 0 185
+# Block 1
+
+> Research of **module**: scope.
+>
+> Sources: file. Method: reading.
+>
+> **Breakthrough:** the technique that cracked it — details here.
+
+---
+
+## 1.1 — Section
+
+Content.
+
+@@rc 1
+0
+@@out 1291
+INFO: corpus exists, no block files (empty-input): {root}/e1
+INFO: corpus exists, no block files (empty-input): {root}/e2
+INFO: corpus not found (absent-input): {root}/gone1
+INFO: corpus not found (absent-input): {root}/gone2
+INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/n1
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t1/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t2/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t3/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t4/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t5/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t6/x-block1.md:7
+WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t7/x-block1.md:7
+
+Summary: 7 tagged breakthrough(s) across corpora · 7 unindexed · 0 drifted · 0 skipped-unreadable.
+INFO: 2 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.
+For each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer.
+
+@@err 0
+
+@@hook 634
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nSummary: 7 tagged breakthrough(s) across corpora · 7 unindexed · 0 drifted · 0 skipped-unreadable.\nINFO: 2 target(s) not traversed (absent-input) — corpus directory not found; run --full to list them.\nWARN: 7 unindexed breakthrough(s) not in BREAKTHROUGHS.md: t1/x-block1.md:7, t2/x-block1.md:7, t3/x-block1.md:7, t4/x-block1.md:7, t5/x-block1.md:7, +2 more — add a row each (path:line); run --full for all\nINFO: 2 corpus(es) empty-input, 1 no-match — run --full to list them"
+  }
+}
+
+@@hookfull 1452
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "Research-SDD breakthrough ledger sweep (§22):\nINFO: corpus exists, no block files (empty-input): {root}/e1\nINFO: corpus exists, no block files (empty-input): {root}/e2\nINFO: corpus not found (absent-input): {root}/gone1\nINFO: corpus not found (absent-input): {root}/gone2\nINFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): {root}/n1\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t1/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t2/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t3/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t4/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t5/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t6/x-block1.md:7\nWARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: {root}/t7/x-block1.md:7\n\nSummary: 7 tagged breakthrough(s) across corpora · 7 unindexed · 0 drifted · 0 skipped-unreadable.\nINFO: 2 target(s) not traversed (absent-input) — corpus directory not found; see INFO lines above.\nFor each unindexed breakthrough: add a row to BREAKTHROUGHS.md with the block path:line pointer."
+  }
+}
+
+@@end

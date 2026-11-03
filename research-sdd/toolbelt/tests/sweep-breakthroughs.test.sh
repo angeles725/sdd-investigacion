@@ -1,1345 +1,185 @@
 #!/usr/bin/env bash
-# sweep-breakthroughs.test.sh — red-first regression harness for sweep-breakthroughs.sh.
-# Verifies the WARN-only Breakthrough Ledger checker (METHODOLOGY §22): cross-checks
-# tagged blocks against BREAKTHROUGHS.md, WARNs on unindexed breakthroughs and drift,
-# and distinguishes absent-input / empty-input / no-match (§7 anti-silent-zero).
+# sweep-breakthroughs.test.sh — harness for sweep-breakthroughs.sh, now a shim to `rsdd sweep breakthroughs` (kit issue #2360).
 #
-# Usage: sweep-breakthroughs.test.sh
-#        sweep-breakthroughs.test.sh --prove-teeth  (run suite + mutation teeth proof)
-# Exit: 0 = every assertion held · 1 = a regression · 2 = harness error.
-
+# Covers the SHIM contract: existence and the executable bit; the arguments handed to the binary (`sweep breakthroughs
+# --kit <own kit>`, then every caller argument byte for byte, an empty one included); output and exit code passed
+# through; a symlinked invocation; the kit is the shim's, never the caller's cwd; a missing lib or an unusable
+# binary → a typed degraded line, never a silent pass; and the real Go binary end to end on a mini kit (one
+# unindexed breakthrough, a caller argument the script ignored, a missing TARGETS.md, a missing BREAKTHROUGHS.md, no
+# usable target path, and a bare kit copy with neither bin/ nor Go sources).
+# Everything the script decided — the marker form, the block-file filter, the ledger pointers and their line
+# matching, the drift pass, the absent-input / empty-input / no-match states, the PARTIAL warning, RESEARCH_HOME
+# paths — is pinned in Go (research-sdd/rsdd/internal/sweep: a behaviour table, a golden recorded from the frozen
+# script, unit tests of every boundary, and a differential against the frozen script). The map from every old case
+# to its Go test is L4 of odd/tasks/sweep-breakthroughs-go.md. The old mutation controls M1-M17 mutated the script
+# body, which is a shim now: each one is replaced by the Go test named in that map, and the Go source has its own
+# mutation gate (`make teeth` in research-sdd/rsdd).
+#
+# --prove-teeth mutates the SHIM (each mutant must lose its case).
+#
+# Usage: sweep-breakthroughs.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=lib/stage-libs.sh
-. "$HERE/lib/stage-libs.sh"   # rsdd_stage_libs: stage every toolbelt/lib file into a sandbox toolbelt
 SUT="$HERE/../sweep-breakthroughs.sh"
-[ -f "$SUT" ] || { echo "FATAL: script under test not found: $SUT" >&2; exit 2; }
-BASH_BIN="$(type -P bash)"; [ -n "$BASH_BIN" ] || { echo "FATAL: bash not on PATH" >&2; exit 2; }
-TP_LIB="$HERE/../lib/target-paths.sh"
-[ -f "$TP_LIB" ] || { echo "FATAL: target-paths helper not found: $TP_LIB" >&2; exit 2; }
-
-ROOT="$(mktemp -d)"; trap 'rm -rf "$ROOT"' EXIT
+[ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
-ok()   { printf '  PASS  %-60s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
-no()   { printf '  FAIL  %-60s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+# the shim reads none of these; a stale value from the caller must not change a case
+unset RSDD_RETRO_AGE_DAYS RESEARCH_HOME
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# The Go binary the end-to-end cases run: the caller's RSDD_BIN, else one build into the temp dir.
+REAL_BIN="${RSDD_BIN:-}"
+if [ -z "$REAL_BIN" ]; then
+  command -v go >/dev/null 2>&1 || { echo "FATAL: no rsdd binary: RSDD_BIN unset and go not found (degraded, not a pass)" >&2; exit 2; }
+  ( cd "$HERE/../../rsdd" && go build -o "$TMP/rsdd" ./cmd/rsdd ) || { echo "FATAL: go build ./cmd/rsdd failed" >&2; exit 2; }
+  REAL_BIN="$TMP/rsdd"
+fi
 
-# mkkit <name> : lay down a runnable COPY of the SUT at <ROOT>/<name>/toolbelt/
-# so the script's KIT=dirname/.. resolves inside the sandbox; echoes the kit dir.
-mkkit() {
-  local kit="$ROOT/$1"
-  rsdd_stage_libs "$kit/toolbelt"   # every lib the SUT sources (target-paths, block-files)
-  cp "$SUT" "$kit/toolbelt/sweep-breakthroughs.sh"
-  printf '%s' "$kit"
+# stage_kit DEST [SHIM] — a mini kit: the shim (the real one, or a mutant) and lib/rsdd-exec.sh. The toolbelt is
+# DEST/toolbelt. No bin/ and no Go sources: the binary can only come from RSDD_BIN.
+stage_kit() {
+  mkdir -p "$1/toolbelt/lib"
+  cp "${2:-$SUT}" "$1/toolbelt/sweep-breakthroughs.sh"; chmod +x "$1/toolbelt/sweep-breakthroughs.sh"
+  cp "$HERE/../lib/rsdd-exec.sh" "$1/toolbelt/lib/" || exit 2   # stage-libs-ok: the shim needs only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case 7
+}
+# stub_bin RC OUTPUT — a fake rsdd that records its arguments (one per line) in $TMP/args, prints OUTPUT, exits RC.
+stub_bin() {
+  printf '%s' "$2" > "$TMP/stub-out.txt"; : > "$TMP/args"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s"\ncat "%s"\nexit %s\n' "$TMP/args" "$TMP/stub-out.txt" "$1" > "$TMP/stub-rsdd"
+  chmod +x "$TMP/stub-rsdd"
 }
 
-# write_targets <kit> <targetpath...> : build a minimal TARGETS.md table.
-write_targets() {
-  local kit="$1"; shift
-  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-    local i=0 t
-    for t in "$@"; do i=$((i+1)); printf '| %d | t%d | `%s` |\n' "$i" "$i" "$t"; done
-  } > "$kit/TARGETS.md"
-}
+echo "== sweep-breakthroughs.test.sh =="
 
-# write_targets_portable <kit> <rel-tail>: TARGETS.md with $RESEARCH_HOME/<rel-tail> form.
-# Used by cases 31-33 to test portable-row expansion in target-paths.sh.
-write_targets_portable() {
-  local kit="$1" rel="$2"
-  { printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-    printf '| 1 | t1 | `$RESEARCH_HOME/%s` |\n' "$rel"
-  } > "$kit/TARGETS.md"
-}
+# 1 — the shim exists and is executable.
+[ -f "$SUT" ] && [ -x "$SUT" ] && ok "1 shim exists and is executable" || no "1 shim missing or not executable: $SUT"
 
-# write_breakthroughs <kit> [<row>...]: build BREAKTHROUGHS.md with the standard header
-# and any given rows; each row is a string '| N | target | what | how | memory |'.
-write_breakthroughs() {
-  local kit="$1"; shift
-  { printf '# Research-SDD — Breakthrough Ledger\n\n'
-    printf '| # | target | what (cracked) | how — block `path:line` | memory — engram topic-key |\n'
-    printf '|---|--------|----------------|-------------------------|---------------------------|\n'
-    printf '| — | _(no entries yet)_ | | | |\n'
-    for row in "$@"; do printf '%s\n' "$row"; done
-  } > "$kit/BREAKTHROUGHS.md"
-}
+stage_kit "$TMP/kit"; SHIM="$TMP/kit/toolbelt/sweep-breakthroughs.sh"
+PHYS="$(cd -P "$TMP/kit/toolbelt" && pwd -P)"
 
-# mkblock <dir> <filename> : write a minimal block file (NO breakthrough marker).
-mkblock() {
-  local dir="$1" fname="$2"
-  mkdir -p "$dir"
-  { printf '# Block 1\n\n'
-    printf '> Research of **module**: scope.\n>\n'
-    printf '> Sources: file. Method: reading.\n'
-    printf '\n---\n\n## 1.1 — Section\n\nContent.\n'
-  } > "$dir/$fname"
-}
+# 2 — the binary gets `sweep breakthroughs --kit <own kit>` and then the caller's arguments, byte for byte.
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" --json 'a b' '' '--x=*' >/dev/null 2>&1
+want="$(printf '%s\n' sweep breakthroughs --kit "$PHYS/.." --json 'a b' '' '--x=*')"
+if [ "$(cat "$TMP/args")" = "$want" ]; then ok "2 binary called as 'sweep breakthroughs --kit <own kit>' + the caller's arguments verbatim"
+else no "2 arguments differ: [$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# mkblock_tagged <dir> <filename> : write a block file WITH the Breakthrough marker.
-mkblock_tagged() {
-  local dir="$1" fname="$2"
-  mkdir -p "$dir"
-  { printf '# Block 1\n\n'
-    printf '> Research of **module**: scope.\n>\n'
-    printf '> Sources: file. Method: reading.\n>\n'
-    printf '> **Breakthrough:** the technique that cracked it — details here.\n'
-    printf '\n---\n\n## 1.1 — Section\n\nContent.\n'
-  } > "$dir/$fname"
-}
+# 3 — output and exit code pass through unchanged (stdout and the code are the binary's work).
+stub_bin 1 "from the binary
+"
+OUT="$(RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 1 ] && [ "$OUT" = "from the binary" ]; then ok "3 output and exit code pass through"; else no "3 passthrough differs (rc=$RC out=[$OUT])"; fi
 
-# run <kit> : invoke the sandbox copy of the SUT, capture stdout+stderr into OUT, exit into RC.
-run() { OUT="$("$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?; }
+# 4 — invoked through a symlink in another directory, the shim still names its REAL kit.
+mkdir -p "$TMP/elsewhere"; ln -s "$SHIM" "$TMP/elsewhere/link.sh"
+stub_bin 0 ""
+RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/elsewhere/link.sh" >/dev/null 2>&1
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "4 symlinked shim → binary gets the physical own kit"; else no "4 symlink: args=[$(tr '\n' '|' < "$TMP/args")]"; fi
 
-# run_env <kit> <rh> : like run, but passes RESEARCH_HOME=<rh> so portable-pointer tests work.
-run_env() { OUT="$(RESEARCH_HOME="$2" "$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?; }
+# 5 — the kit is the shim's, never the caller's cwd.
+( cd "$TMP/elsewhere" && RSDD_BIN="$TMP/stub-rsdd" bash "$SHIM" >/dev/null 2>&1 )
+if [ "$(sed -n 4p "$TMP/args")" = "$PHYS/.." ]; then ok "5 the kit does not depend on the cwd"; else no "5 cwd leaked into the kit: [$(sed -n 4p "$TMP/args")]"; fi
 
-# tagged_lineno <dir>/<file> : print the line number of the Breakthrough marker.
-tagged_lineno() { grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$1" | head -1 | cut -d: -f1; }
+# 6 — an unusable RSDD_BIN → a typed degraded line on stderr, rc 2, nothing on stdout (the sweep could not run).
+OUT="$(RSDD_BIN="$TMP/does-not-exist" bash "$SHIM" 2>"$TMP/err6")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q '^degraded: rsdd-unavailable — RSDD_BIN not executable: ' "$TMP/err6"; then
+  ok "6 unusable RSDD_BIN → typed degraded line, rc 2"
+else no "6 unusable binary: rc=$RC out=[$OUT] err=[$(cat "$TMP/err6")]"; fi
 
-echo "== sweep-breakthroughs.test.sh (SUT: $(basename "$SUT")) =="
+# 7 — the shim's own lib missing → a typed degraded line, rc 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/sweep-breakthroughs.sh"
+OUT="$(bash "$TMP/nolib/sweep-breakthroughs.sh" 2>"$TMP/err7")"; RC=$?
+if [ "$RC" = 2 ] && [ -z "$OUT" ] && grep -q "^degraded: rsdd-unavailable — rsdd-exec.sh missing beside $TMP/nolib/sweep-breakthroughs.sh\$" "$TMP/err7"; then
+  ok "7 missing rsdd-exec.sh → typed degraded line, rc 2"
+else no "7 missing lib: rc=$RC out=[$OUT] err=[$(cat "$TMP/err7")]"; fi
 
-# ---------------------------------------------------------------------------
-# 1 — CLEAN: tagged block + indexed row → no WARN, exit 0.
-# A block carrying the marker AND an entry in the ledger is healthy; the summary
-# must show 1 tagged and 0 unindexed, 0 drifted.
-kit="$(mkkit c1-clean)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | targetA | what | \`$tgt/pfx-block1.md:$ln\` | key |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "1 tagged+indexed block → clean, no WARN, 1 tagged 0 unindexed 0 drifted" "(exit $RC)"
-else
-  no "1 tagged+indexed block → clean, no WARN, 1 tagged 0 unindexed 0 drifted" "exit=$RC out=[$OUT]"
-fi
+# ---- the real binary, end to end on the mini kit ----
+real() { env RSDD_BIN="$REAL_BIN" bash "$SHIM" "$@"; }
+T1="$TMP/t1"; mkdir -p "$T1"
+printf '# Block 1\n\n> **Breakthrough:** cracked it\n' > "$T1/pfx-block1.md"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | `%s` |\n' "$T1" > "$TMP/kit/TARGETS.md"
+printf '| # | target | what | how |\n|---|---|---|---|\n' > "$TMP/kit/BREAKTHROUGHS.md"
+KITPHYS="$(cd -P "$TMP/kit" && pwd -P)"
 
-# 2 — UNINDEXED: tagged block with NO row in BREAKTHROUGHS.md → WARN.
-# The ledger is empty (only skeleton placeholder). The block carries the marker.
-kit="$(mkkit c2-unindexed)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"   # no rows — only placeholder
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
-   && grep -q '1 unindexed' <<<"$OUT"; then
-  ok "2 tagged+unindexed → WARN unindexed breakthrough" "(exit $RC)"
-else
-  no "2 tagged+unindexed → WARN unindexed breakthrough" "exit=$RC out=[$OUT]"
-fi
+# 8 — an unindexed breakthrough → the WARN, the Summary and the hint, exit 0, stderr empty.
+OUT="$(real 2>"$TMP/err8")"; RC=$?
+if [ "$RC" = 0 ] && grep -qxF "WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: $T1/pfx-block1.md:3" <<<"$OUT" \
+   && grep -q '^Summary: 1 tagged breakthrough(s) across corpora · 1 unindexed · 0 drifted · 0 skipped-unreadable\.$' <<<"$OUT" \
+   && [ ! -s "$TMP/err8" ]; then
+  ok "8 end to end: unindexed breakthrough warned, summary printed, exit 0"
+else no "8 end to end: rc=$RC out=[$OUT] err=[$(cat "$TMP/err8")]"; fi
 
-# 3 — DRIFT: ledger row whose block file no longer carries the marker → WARN drift.
-# The block file exists but does NOT have the marker; the ledger still points at it.
-kit="$(mkkit c3-drift)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"   # no marker
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | targetA | what | \`$tgt/pfx-block1.md:5\` | key |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*drift' <<<"$OUT" \
-   && grep -q '1 drifted' <<<"$OUT"; then
-  ok "3 indexed block missing marker → WARN drift" "(exit $RC)"
-else
-  no "3 indexed block missing marker → WARN drift" "exit=$RC out=[$OUT]"
-fi
+# 9 — a caller argument the script ignored is ignored: the output is byte for byte the one without it.
+OUT1="$(real 2>&1)"; OUT2="$(real --json extra 2>&1)"
+if [ -n "$OUT1" ] && [ "$OUT1" = "$OUT2" ]; then ok "9 end to end: unknown arguments are ignored, as the script did"; else no "9 arguments changed the report: [$OUT2]"; fi
 
-# 4 — DRIFT: ledger row whose block FILE no longer exists → WARN drift.
-kit="$(mkkit c4-drift-missing-file)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"   # create the dir/target
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | targetA | what | \`$tgt/pfx-block99.md:5\` | key |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*drift' <<<"$OUT" \
-   && grep -q '1 drifted' <<<"$OUT"; then
-  ok "4 indexed block file gone → WARN drift" "(exit $RC)"
-else
-  no "4 indexed block file gone → WARN drift" "exit=$RC out=[$OUT]"
-fi
+# 10 — no TARGETS.md → exit 1 and the typed line naming the kit's physical path, no report.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+OUT="$(real 2>"$TMP/err10")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && [ "$(cat "$TMP/err10")" = "sweep-breakthroughs: cannot find $KITPHYS/TARGETS.md" ]; then
+  ok "10 missing TARGETS.md → exit 1, typed message, no report"
+else no "10 missing TARGETS.md: rc=$RC out=[$OUT] err=[$(cat "$TMP/err10")]"; fi
+mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
 
-# 5 — NO-MATCH: corpus has block files but 0 tagged → INFO no-match (distinct from absent/empty).
-# Must NOT exit 1; must print an INFO line; summary shows 0 tagged.
-kit="$(mkkit c5-nomatch)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-mkblock "$tgt" "pfx-block2.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'INFO.*no tagged' <<<"$OUT" \
-   && grep -q '0 tagged' <<<"$OUT" \
-   && ! grep -q 'absent' <<<"$OUT" \
-   && ! grep -q 'empty' <<<"$OUT"; then
-  ok "5 blocks exist but 0 tagged → INFO no-match (not absent/empty)" "(exit $RC)"
-else
-  no "5 blocks exist but 0 tagged → INFO no-match (not absent/empty)" "exit=$RC out=[$OUT]"
-fi
+# 11 — no BREAKTHROUGHS.md → exit 1 and the typed line, no report.
+mv "$TMP/kit/BREAKTHROUGHS.md" "$TMP/ledger.keep"
+OUT="$(real 2>"$TMP/err11")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && [ "$(cat "$TMP/err11")" = "sweep-breakthroughs: cannot find $KITPHYS/BREAKTHROUGHS.md" ]; then
+  ok "11 missing BREAKTHROUGHS.md → exit 1, typed message, no report"
+else no "11 missing BREAKTHROUGHS.md: rc=$RC out=[$OUT] err=[$(cat "$TMP/err11")]"; fi
+mv "$TMP/ledger.keep" "$TMP/kit/BREAKTHROUGHS.md"
 
-# 6 — ABSENT-INPUT: target corpus dir does not exist → INFO absent (distinct from empty/no-match).
-# Must NOT exit 1; must print INFO absent.
-kit="$(mkkit c6-absent)"; tgt="$kit/targetA"
-# tgt is NOT created on disk
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'INFO.*absent' <<<"$OUT" \
-   && ! grep -q 'empty' <<<"$OUT" \
-   && ! grep -qi 'no tagged' <<<"$OUT"; then
-  ok "6 corpus dir absent → INFO absent (not empty/no-match)" "(exit $RC)"
-else
-  no "6 corpus dir absent → INFO absent (not empty/no-match)" "exit=$RC out=[$OUT]"
-fi
+# 12 — a TARGETS.md with no usable path → exit 1 and the typed ERROR line (anti-silent-zero), no Summary.
+mv "$TMP/kit/TARGETS.md" "$TMP/targets.keep"
+printf '# targets\n\n| # | name | path |\n|---|---|---|\n| 1 | t1 | /no/backticks |\n' > "$TMP/kit/TARGETS.md"
+OUT="$(real 2>"$TMP/err12")"; RC=$?
+if [ "$RC" = 1 ] && [ -z "$OUT" ] && grep -qxF "sweep-breakthroughs: ERROR — no usable target paths in $KITPHYS/TARGETS.md" "$TMP/err12"; then
+  ok "12 no usable target path → exit 1, typed ERROR, no Summary"
+else no "12 no usable path: rc=$RC out=[$OUT] err=[$(cat "$TMP/err12")]"; fi
+rm -f "$TMP/kit/TARGETS.md"; mv "$TMP/targets.keep" "$TMP/kit/TARGETS.md"
 
-# 7 — EMPTY-INPUT: corpus dir exists but has 0 block files → INFO empty (distinct from absent/no-match).
-kit="$(mkkit c7-empty)"; tgt="$kit/targetA"
-mkdir -p "$tgt"   # dir exists, but no *-block*.md files
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'INFO.*empty' <<<"$OUT" \
-   && ! grep -q 'absent' <<<"$OUT" \
-   && ! grep -qi 'no tagged' <<<"$OUT"; then
-  ok "7 corpus exists, 0 block files → INFO empty (not absent/no-match)" "(exit $RC)"
-else
-  no "7 corpus exists, 0 block files → INFO empty (not absent/no-match)" "exit=$RC out=[$OUT]"
-fi
+# 13 — a kit with NO bin/ and NO Go sources, RSDD_BIN set only for the shim under test: the report carries no
+# degraded line (the binary is the only thing the shim needs; it resolves nothing else).
+OUT="$(env -u RSDD_BIN RSDD_BIN="$REAL_BIN" bash "$SHIM" 2>&1)"; RC=$?
+if [ "$RC" = 0 ] && ! grep -qi 'degraded' <<<"$OUT" && grep -q '^Summary: 1 tagged breakthrough(s) across corpora' <<<"$OUT"; then
+  ok "13 a bare kit copy reports and prints no degraded line"
+else no "13 bare kit: rc=$RC out=[$OUT]"; fi
 
-# 8 — MISSING TARGETS.md → exit 1, no summary (operational failure).
-kit="$(mkkit c8-notargets)"   # no write_targets → TARGETS.md absent
-mkdir -p "$kit"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 1 ] \
-   && grep -qi 'cannot find' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "8 missing TARGETS.md → exit 1, no summary" "(exit $RC)"
-else
-  no "8 missing TARGETS.md → exit 1, no summary" "exit=$RC out=[$OUT]"
-fi
+# NEGATIVE CONTROL — each shim mutation must lose its case.
+if [ "${1:-}" = "--prove-teeth" ]; then
+  # shellcheck source=lib/mutant.sh
+  . "$HERE/lib/mutant.sh"
+  mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
+  mk_mut(){ rm -f -- "$3"; mutant_chain_or_count fail "$@" || return 1; }
+  echo "-- teeth: each shim mutation must lose its case --"
 
-# 9 — MISSING BREAKTHROUGHS.md → exit 1, no summary (operational failure).
-kit="$(mkkit c9-nobreakthroughs)"
-tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-write_targets "$kit" "$tgt"
-# BREAKTHROUGHS.md NOT written
-run "$kit"
-if [ "$RC" = 1 ] \
-   && grep -qi 'cannot find' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "9 missing BREAKTHROUGHS.md → exit 1, no summary" "(exit $RC)"
-else
-  no "9 missing BREAKTHROUGHS.md → exit 1, no summary" "exit=$RC out=[$OUT]"
-fi
-
-# 10 — BROKEN HELPER: target-paths.sh present but defines no function → fail-closed abort.
-kit="$(mkkit c10-broken-helper)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-printf '#!/usr/bin/env bash\n# broken helper: sources cleanly but defines no function\n' \
-  > "$kit/toolbelt/lib/target-paths.sh"
-run "$kit"
-if [ "$RC" != 0 ] \
-   && grep -qi 'failed to define target_paths_all' <<<"$OUT" \
-   && ! grep -q 'Summary:' <<<"$OUT"; then
-  ok "10 broken helper → fail-closed abort, no summary" "(exit $RC)"
-else
-  no "10 broken helper → fail-closed abort, no summary" "exit=$RC out=[$OUT]"
-fi
-
-# 11 — MULTI-TARGET: two targets, A has a tagged+indexed block, B has a block but 0 tagged.
-# Summary must aggregate across both: 1 tagged, 0 unindexed, 0 drifted; B gets an INFO no-match.
-kit="$(mkkit c11-multi)"; tgtA="$kit/targetA"; tgtB="$kit/targetB"
-mkblock_tagged "$tgtA" "pfx-block1.md"
-mkblock "$tgtB" "pfx-block1.md"
-ln=$(tagged_lineno "$tgtA/pfx-block1.md")
-write_targets "$kit" "$tgtA" "$tgtB"
-write_breakthroughs "$kit" "| 1 | targetA | what | \`$tgtA/pfx-block1.md:$ln\` | key |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -qi 'INFO.*no tagged' <<<"$OUT"; then
-  ok "11 multi-target: A clean, B no-match → 1 tagged 0 unindexed + INFO for B" "(exit $RC)"
-else
-  no "11 multi-target: A clean, B no-match → 1 tagged 0 unindexed + INFO for B" "exit=$RC out=[$OUT]"
-fi
-
-# 12 — LIST EDGE: single-element (one block file, tagged) → correctly detected and reported.
-kit="$(mkkit c12-single)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "12 single-element list → correctly handled" "(exit $RC)"
-else
-  no "12 single-element list → correctly handled" "exit=$RC out=[$OUT]"
-fi
-
-# 13 — LIST EDGE FIRST: tagged block is first among three; remaining are untagged. The FIRST
-# element in the block list must be detected. A trailing-newline issue (verify-registry lesson)
-# that skips the last element in a loop would NOT affect this case, but a first-element skip
-# would. Proves: the first element is not swallowed by the iteration.
-kit="$(mkkit c13-first)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"   # FIRST
-mkblock "$tgt" "pfx-block2.md"
-mkblock "$tgt" "pfx-block3.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && ! grep -qi 'WARN' <<<"$OUT"; then
-  ok "13 tagged block FIRST in list → detected (no WARN)" "(exit $RC)"
-else
-  no "13 tagged block FIRST in list → detected (no WARN)" "exit=$RC out=[$OUT]"
-fi
-
-# 14 — LIST EDGE LAST: tagged block is last among three. A trailing-newline issue that skips
-# the last element of the block list would leave the tagged block undetected and report
-# 'unindexed' even though the ledger row is present. Proves: no last-element skip.
-kit="$(mkkit c14-last)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-mkblock "$tgt" "pfx-block2.md"
-mkblock_tagged "$tgt" "pfx-block3.md"   # LAST (lexicographically largest name)
-ln=$(tagged_lineno "$tgt/pfx-block3.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block3.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && ! grep -qi 'WARN' <<<"$OUT"; then
-  ok "14 tagged block LAST in list → detected (no WARN, no last-element skip)" "(exit $RC)"
-else
-  no "14 tagged block LAST in list → detected (no WARN, no last-element skip)" "exit=$RC out=[$OUT]"
-fi
-
-# 15 — LIST EDGE MIDDLE: tagged block is middle among three.
-kit="$(mkkit c15-middle)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-mkblock_tagged "$tgt" "pfx-block2.md"   # MIDDLE
-mkblock "$tgt" "pfx-block3.md"
-ln=$(tagged_lineno "$tgt/pfx-block2.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block2.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && ! grep -qi 'WARN' <<<"$OUT"; then
-  ok "15 tagged block MIDDLE in list → detected (no WARN)" "(exit $RC)"
-else
-  no "15 tagged block MIDDLE in list → detected (no WARN)" "exit=$RC out=[$OUT]"
-fi
-
-# 16 — PROSE SIGNAL NOT RECOGNIZED: a block containing "BREAKTHROUGH" (bare caps) but NOT the
-# structured "> **Breakthrough:**" field must NOT be detected as tagged.
-# Proves the recognized-form comment is enforced: informal prose is excluded.
-kit="$(mkkit c16-prose)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-{ printf '# Block 1\n\n'
-  printf '> Research of **module**: scope.\n>\n'
-  printf '> Sources: file.\n'
-  printf '\n---\n\n## 1.1 — Section\n\nThis was a BREAKTHROUGH finding.\n'
-  printf 'The pivot came when we realized the key.\n'
-} > "$tgt/pfx-block1.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '0 tagged' <<<"$OUT" \
-   && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  ok "16 prose 'BREAKTHROUGH' → NOT recognized (only structured field counts)" "(exit $RC)"
-else
-  no "16 prose 'BREAKTHROUGH' → NOT recognized (only structured field counts)" "exit=$RC out=[$OUT]"
-fi
-
-# 17 — BLOQUE naming: block file named with 'bloque' (Spanish form) is recognized.
-# The gen-catalog discriminator matches both 'block' and 'bloque'.
-kit="$(mkkit c17-bloque)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-bloque1.md"
-ln=$(tagged_lineno "$tgt/pfx-bloque1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-bloque1.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "17 bloque naming convention → recognized block, tagged detected" "(exit $RC)"
-else
-  no "17 bloque naming convention → recognized block, tagged detected" "exit=$RC out=[$OUT]"
-fi
-
-# 18 — MULTIPLE TAGGED in ONE corpus: two tagged blocks, one indexed and one not.
-# Summary must show 2 tagged, 1 unindexed, 0 drifted; one WARN for the unindexed.
-kit="$(mkkit c18-two-tagged)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-mkblock_tagged "$tgt" "pfx-block2.md"
-ln1=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln1\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q '2 tagged' <<<"$OUT" \
-   && grep -q '1 unindexed' <<<"$OUT" \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  ok "18 two tagged, one unindexed → 2 tagged 1 unindexed 1 WARN" "(exit $RC)"
-else
-  no "18 two tagged, one unindexed → 2 tagged 1 unindexed 1 WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 19 — FINDING NEVER FAILS: unindexed and drift WARNs still exit 0.
-# Findings are WARN-only — a finding must not flip exit code to non-zero.
-kit="$(mkkit c19-exit0)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-mkblock "$tgt" "pfx-block2.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block99.md:5\` | k |"   # drift
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN' <<<"$OUT" \
-   && grep -q 'Summary:' <<<"$OUT"; then
-  ok "19 findings (unindexed + drift) never fail the run → exit 0" "(exit $RC)"
-else
-  no "19 findings (unindexed + drift) never fail the run → exit 0" "exit=$RC out=[$OUT]"
-fi
-
-# 20 — SKELETON PLACEHOLDER ROW: the '| — | ...' skeleton is skipped, not treated as an entry.
-# A ledger with only the skeleton row + no real entries must not produce drift WARNs.
-kit="$(mkkit c20-skeleton)"; tgt="$kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-write_targets "$kit" "$tgt"
-# write_breakthroughs always writes the skeleton row; no real rows added
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -qi 'WARN.*drift' <<<"$OUT" \
-   && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-  ok "20 skeleton placeholder row → not treated as a ledger entry, no drift/unindexed WARN" "(exit $RC)"
-else
-  no "20 skeleton placeholder row → not treated as a ledger entry, no drift/unindexed WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 21 — TRUNCATED PATH in TARGETS.md: a '...' path is filtered, sweep is PARTIAL.
-# Does not crash; prints WARN about partial sweep.
-kit="$(mkkit c21-dots)"; tgtA="$kit/targetA"
-mkblock "$tgtA" "pfx-block1.md"
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgtA"
-  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
-} > "$kit/TARGETS.md"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'PARTIAL\|skipped' <<<"$OUT"; then
-  ok "21 truncated '...' path → filtered, WARN PARTIAL" "(exit $RC)"
-else
-  no "21 truncated '...' path → filtered, WARN PARTIAL" "exit=$RC out=[$OUT]"
-fi
-
-# 22 — LEDGER-CONSISTENT: clean run (0 unindexed, 0 drifted, 0 skipped) → sentence present.
-# The script must emit "Ledger consistent — all tagged breakthroughs indexed, no drift."
-# when its own computed counts show a genuinely complete-and-clean sweep.
-kit="$(mkkit c22-ledger-clean)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -q 'Ledger consistent' <<<"$OUT"; then
-  ok "22 clean run → 'Ledger consistent' sentence present" "(exit $RC)"
-else
-  no "22 clean run → 'Ledger consistent' sentence present" "exit=$RC out=[$OUT]"
-fi
-
-# 23 — NO LEDGER-CONSISTENT SENTENCE on partial run (skipped_count > 0).
-# A sweep with skipped targets is not fully complete; the sentence must be ABSENT.
-# (Mutation M6 proves this assertion bites by removing the skipped_count guard.)
-kit="$(mkkit c23-ledger-partial)"; tgtA="$kit/targetA"
-mkblock_tagged "$tgtA" "pfx-block1.md"
-ln=$(tagged_lineno "$tgtA/pfx-block1.md")
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgtA"
-  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
-} > "$kit/TARGETS.md"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'Ledger consistent' <<<"$OUT"; then
-  ok "23 partial run (skipped > 0) → 'Ledger consistent' sentence absent" "(exit $RC)"
-else
-  no "23 partial run (skipped > 0) → 'Ledger consistent' sentence absent" "exit=$RC out=[$OUT]"
-fi
-
-# ---------------------------------------------------------------------------
-# Portable $RESEARCH_HOME pointer tests (§7 list edges: first, last, single row)
-# ---------------------------------------------------------------------------
-# In each case the corpus is at an absolute path (used in TARGETS.md for the scan);
-# the BREAKTHROUGHS.md ledger stores the pointer in $RESEARCH_HOME/... form.
-# RESEARCH_HOME is set to the kit root via run_env so the paths resolve correctly.
-# These cases cover the defect: without expansion the SUT reports "unindexed" and
-# "drift" on portable pointers even when the block exists and carries the marker.
-
-# 24 — portable $RESEARCH_HOME pointer in FIRST (and only) ledger row → clean, no WARN.
-# The corpus block is tagged; the ledger holds a $RESEARCH_HOME/... pointer to it.
-# Without the fix the SUT cannot match the expanded bf against the raw pointer → unindexed.
-kit="$(mkkit c24-portable-first)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln\` | k |"
-run_env "$kit" "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "24 portable \$RESEARCH_HOME pointer in first/only row → clean, no WARN" "(exit $RC)"
-else
-  no "24 portable \$RESEARCH_HOME pointer in first/only row → clean, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 25 — portable $RESEARCH_HOME pointer in LAST of two ledger rows → clean, no WARN.
-# Row 1 uses an absolute pointer; row 2 uses $RESEARCH_HOME/... (last-position edge case).
-kit="$(mkkit c25-portable-last)"; tgt="$kit/targetA"; tgtB="$kit/targetB"
-mkblock_tagged "$tgt" "pfx-block1.md"
-mkblock_tagged "$tgtB" "pfx-block2.md"
-ln1=$(tagged_lineno "$tgt/pfx-block1.md")
-ln2=$(tagged_lineno "$tgtB/pfx-block2.md")
-write_targets "$kit" "$tgt" "$tgtB"
-write_breakthroughs "$kit" \
-  "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln1\` | k |" \
-  "| 2 | tgtB | w | \`\$RESEARCH_HOME/targetB/pfx-block2.md:$ln2\` | k |"
-run_env "$kit" "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '2 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "25 portable pointer in last of two rows → clean, no WARN" "(exit $RC)"
-else
-  no "25 portable pointer in last of two rows → clean, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 26 — single-row ledger using ${RESEARCH_HOME} brace form → clean, no WARN.
-# Tests the ${RESEARCH_HOME}/... variant (CLAUDE.md §11) in a single-row ledger.
-kit="$(mkkit c26-brace-form)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\${RESEARCH_HOME}/targetA/pfx-block1.md:$ln\` | k |"
-run_env "$kit" "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "26 \${RESEARCH_HOME} brace form, single row → clean, no WARN" "(exit $RC)"
-else
-  no "26 \${RESEARCH_HOME} brace form, single row → clean, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 27 — portable pointer in drift pass: block HAS marker → no drift WARN.
-# Without the fix the SUT attempts [ ! -f "$RESEARCH_HOME/..." ] with the literal string,
-# which evaluates to true (file not found) and emits a spurious "drift" WARN.
-kit="$(mkkit c27-portable-nodrift)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln\` | k |"
-run_env "$kit" "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -qi 'WARN.*drift' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "27 portable pointer, block has marker → no spurious drift WARN" "(exit $RC)"
-else
-  no "27 portable pointer, block has marker → no spurious drift WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 28 — & in RESEARCH_HOME: awk's sub() treats & in the replacement as "matched text",
-# corrupting the expanded pointer.  The fix uses substr()/length() for literal insertion.
-kit="$(mkkit c28-amp-in-rh)"
-rh28="${ROOT}/rh28-amp&test"; tgt28="${rh28}/targetA"
-mkblock_tagged "$tgt28" "pfx-block1.md"
-ln28=$(tagged_lineno "$tgt28/pfx-block1.md")
-write_targets "$kit" "$tgt28"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln28\` | k |"
-run_env "$kit" "$rh28"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT"; then
-  ok "28 RESEARCH_HOME with & → pointer expanded literally, clean run" "(exit $RC)"
-else
-  no "28 RESEARCH_HOME with & → expected clean run" "exit=$RC out=[$OUT]"
-fi
-
-# 29 — trailing slash in RESEARCH_HOME: without %/ stripping, rh "/" concatenation in
-# awk yields // which does NOT match the corpus block path (grep -F is exact-string).
-kit="$(mkkit c29-trailing-slash)"
-rh29="${ROOT}/rh29-trailing/"
-tgt29="${ROOT}/rh29-trailing/targetA"
-mkblock_tagged "$tgt29" "pfx-block1.md"
-ln29=$(tagged_lineno "$tgt29/pfx-block1.md")
-write_targets "$kit" "$tgt29"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln29\` | k |"
-run_env "$kit" "$rh29"
-if [ "$RC" = 0 ] \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "29 RESEARCH_HOME trailing slash → normalized, no double slash, clean run" "(exit $RC)"
-else
-  no "29 RESEARCH_HOME trailing slash → expected clean run" "exit=$RC out=[$OUT]"
-fi
-
-# 30 — RESEARCH_HOME unset: SUT must fall back to $HOME for ledger-pointer expansion.
-# Uses HOME=$ROOT/fake-home (under the EXIT-trap dir) so cleanup is automatic and
-# the real $HOME is never touched.  mktemp under real $HOME is avoided entirely.
-kit="$(mkkit c30-home-fallback)"
-_rh30="$ROOT/fake-home"
-if ! mkdir -p "$_rh30"; then
-  no "30 RESEARCH_HOME unset → setup: mkdir fake-home failed" "rc=$?"
-else
-  tgt30="$_rh30/targetA"
-  mkblock_tagged "$tgt30" "pfx-block1.md"
-  ln30=$(tagged_lineno "$tgt30/pfx-block1.md")
-  write_targets "$kit" "$tgt30"
-  write_breakthroughs "$kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln30\` | k |"
-  OUT="$(HOME="$_rh30" env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  if [ "$RC" = 0 ] \
-     && ! grep -q 'WARN' <<<"$OUT" \
-     && grep -q '0 unindexed' <<<"$OUT"; then
-    ok "30 RESEARCH_HOME unset → \$HOME fallback, pointer expands via \$HOME, clean run" "(exit $RC)"
-  else
-    no "30 RESEARCH_HOME unset → expected clean run via \$HOME fallback" "exit=$RC out=[$OUT]"
+  # A: the own kit is no longer handed over → case 2 (and the real binary would resolve some other kit).
+  if mk_mut "teeth A: --kit dropped" "$SUT" "$TMP/mutA.sh" 's/ --kit "\$_RSDD_SELF\/\.\."//'; then
+    stage_kit "$TMP/mA" "$TMP/mutA.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mA/toolbelt/sweep-breakthroughs.sh" --json >/dev/null 2>&1
+    if [ "$(sed -n 3p "$TMP/args")" != "--kit" ]; then ok "teeth A: --kit dropped → case 2 would go RED"; else no "teeth A: mutant still passes --kit"; fi
+  fi
+  # B: the caller's arguments are dropped → case 2.
+  if mk_mut "teeth B: arguments dropped" "$SUT" "$TMP/mutB.sh" 's/"\$@"$//'; then
+    stage_kit "$TMP/mB" "$TMP/mutB.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mB/toolbelt/sweep-breakthroughs.sh" --json >/dev/null 2>&1
+    if ! grep -qx -- '--json' "$TMP/args"; then ok "teeth B: arguments dropped → case 2 would go RED"; else no "teeth B: mutant still passes the arguments"; fi
+  fi
+  # C: the shim runs the hook mode instead of the sweep → case 2 sees the wrong command.
+  if mk_mut "teeth C: wrong command" "$SUT" "$TMP/mutC.sh" 's/rsdd_exec sweep breakthroughs --kit/rsdd_exec sweep breakthroughs --hook --kit/'; then
+    stage_kit "$TMP/mC" "$TMP/mutC.sh"; stub_bin 0 ""
+    RSDD_BIN="$TMP/stub-rsdd" bash "$TMP/mC/toolbelt/sweep-breakthroughs.sh" >/dev/null 2>&1
+    if grep -qx -- '--hook' "$TMP/args"; then ok "teeth C: hook mode in the CLI shim → case 2 would go RED"; else no "teeth C: mutant does not pass --hook"; fi
+  fi
+  # D: the missing-lib guard stripped → no typed degraded line → case 7.
+  if mk_mut "teeth D: guard removed" "$SUT" "$TMP/mutD.sh" 's/ 2>\/dev\/null || { printf .*exit 2; }//'; then
+    mkdir -p "$TMP/mD"; cp "$TMP/mutD.sh" "$TMP/mD/sweep-breakthroughs.sh"
+    bash "$TMP/mD/sweep-breakthroughs.sh" >/dev/null 2>"$TMP/errD"
+    if ! grep -q 'rsdd-exec.sh missing beside' "$TMP/errD"; then ok "teeth D: unguarded shim no longer announces a missing lib → case 7 would go RED"; else no "teeth D: mutant still announces"; fi
   fi
 fi
 
-# 31 — portable TARGETS.md row + RESEARCH_HOME with trailing '/': target-paths.sh rh%/ fix
-# strips the trailing slash so the expanded path has no // (// mismatch breaks pointer lookup).
-# RED (pre-fix): target_paths_all returns rh//targetA; find returns path with // preserved;
-# grep -F for the absolute pointer (single /) finds no match → WARN: unindexed.
-_rh31="${ROOT}/rh31"
-mkdir -p "${_rh31}/targetA"
-mkblock_tagged "${_rh31}/targetA" "pfx-block1.md"
-_ln31="$(tagged_lineno "${_rh31}/targetA/pfx-block1.md")"
-kit="$(mkkit c31-tp-portable-slash)"
-write_targets_portable "$kit" "targetA"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh31}/targetA/pfx-block1.md:${_ln31}\` | k |"
-run_env "$kit" "${_rh31}/"   # trailing slash in RESEARCH_HOME
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "31 portable row + RESEARCH_HOME trailing slash → normalized, 1 tagged, 0 unindexed" "(exit $RC)"
-else
-  no "31 portable row + trailing-slash RH → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 32 — portable TARGETS.md row + HOME with trailing '/' (RESEARCH_HOME unset):
-# same rh%/ normalization must fire when falling back to $HOME.
-_rh32="${ROOT}/rh32"
-mkdir -p "${_rh32}/targetA"
-mkblock_tagged "${_rh32}/targetA" "pfx-block1.md"
-_ln32="$(tagged_lineno "${_rh32}/targetA/pfx-block1.md")"
-kit="$(mkkit c32-tp-portable-home-slash)"
-write_targets_portable "$kit" "targetA"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh32}/targetA/pfx-block1.md:${_ln32}\` | k |"
-OUT="$(HOME="${_rh32}/" env -u RESEARCH_HOME "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "32 portable row + HOME trailing slash (RH unset) → normalized via HOME, 1 tagged, 0 unindexed" "(exit $RC)"
-else
-  no "32 portable row + HOME trailing slash → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 33 — portable TARGETS.md row + '&' in RESEARCH_HOME: target-paths.sh must expand via
-# ENVIRON (not -v) so awk sub() never sees rh; substr()/length() replacement uses rh directly
-# without treatment of & as matched-text. RED (pre-fix sub() mutant): & corrupts the path.
-_rh33="${ROOT}/rh33&test"
-mkdir -p "${_rh33}/targetA"
-mkblock_tagged "${_rh33}/targetA" "pfx-block1.md"
-_ln33="$(tagged_lineno "${_rh33}/targetA/pfx-block1.md")"
-kit="$(mkkit c33-tp-portable-amp)"
-write_targets_portable "$kit" "targetA"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`${_rh33}/targetA/pfx-block1.md:${_ln33}\` | k |"
-run_env "$kit" "${_rh33}"
-if [ "$RC" = 0 ] \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && ! grep -q 'WARN' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "33 portable row + '&' in RESEARCH_HOME → ENVIRON expansion, 1 tagged, 0 unindexed" "(exit $RC)"
-else
-  no "33 portable row + '&' in RH → expected 1 tagged 0 unindexed 0 WARN" "exit=$RC out=[$OUT]"
-fi
-
-# ---------------------------------------------------------------------------
-# 34 — EXACT MATCH :5 vs :57: ledger pointer :57, block marker at line 5.
-# grep -F is a substring match: "file:5" matches inside "file:57", so the
-# pre-fix SUT incorrectly finds the block "indexed" and emits no WARN.
-# After fix (grep -xF full-line match) :5 ≠ :57 → WARN unindexed fires.
-# RED on origin/main (pre-fix): grep -F finds :5 as substring of :57 → no WARN.
-kit="$(mkkit c34-exact-line5)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
-  > "$tgt/pfx-block1.md"
-ln34=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$kit" "$tgt"
-# Ledger has wrong pointer :57; block marker is at :5
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:57\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
-   && grep -q '1 unindexed' <<<"$OUT"; then
-  ok "34 :5-vs-:57 exact match — ledger :57, block at :$ln34 → WARN unindexed" "(exit $RC)"
-else
-  no "34 :5-vs-:57 exact match — ledger :57, block at :$ln34 → WARN unindexed" "exit=$RC out=[$OUT]"
-fi
-
-# 35 — EXACT MATCH first-line :1 vs :10: block marker at line 1, ledger pointer :10.
-# grep -F substring match: "file:1" is in "file:10", so pre-fix SUT suppresses the WARN.
-# After fix: :1 ≠ :10 (full-line) → WARN unindexed fires.
-# RED on origin/main.
-kit="$(mkkit c35-exact-line1-vs10)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '> **Breakthrough:** first-line marker.\n\n---\n\nContent.\n' > "$tgt/pfx-block1.md"
-ln35=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$kit" "$tgt"
-# Ledger has wrong pointer :10; block marker is at :1 (first line)
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:10\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
-   && grep -q '1 unindexed' <<<"$OUT"; then
-  ok "35 first-line :1-vs-:10 — ledger :10, block at :$ln35 → WARN unindexed" "(exit $RC)"
-else
-  no "35 first-line :1-vs-:10 — ledger :10, block at :$ln35 → WARN unindexed" "exit=$RC out=[$OUT]"
-fi
-
-# 36 — CLEAN: marker at first line (line 1), ledger exact :1 → no WARN.
-# Proves the fix does NOT break a valid first-line pointer.
-kit="$(mkkit c36-exact-line1-clean)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '> **Breakthrough:** first-line marker.\n\n---\n\nContent.\n' > "$tgt/pfx-block1.md"
-ln36=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln36\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -qi 'WARN' <<<"$OUT" \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "36 first-line :$ln36 exact pointer → clean, no WARN" "(exit $RC)"
-else
-  no "36 first-line :$ln36 exact pointer → clean, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 37 — EXACT MATCH last-line :7 vs :70: block marker at last line (line 7), ledger :70.
-# grep -F substring match: "file:7" is in "file:70", so pre-fix SUT suppresses the WARN.
-# After fix: :7 ≠ :70 → WARN unindexed fires.
-# RED on origin/main.
-kit="$(mkkit c37-exact-lastline-vs70)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# Block 1\n\n---\n\nContent.\n\n> **Breakthrough:** last-line marker.\n' \
-  > "$tgt/pfx-block1.md"
-ln37=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$kit" "$tgt"
-# Ledger has wrong pointer :70; block marker is at :7 (last line)
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:70\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT" \
-   && grep -q '1 unindexed' <<<"$OUT"; then
-  ok "37 last-line :7-vs-:70 — ledger :70, block at :$ln37 → WARN unindexed" "(exit $RC)"
-else
-  no "37 last-line :7-vs-:70 — ledger :70, block at :$ln37 → WARN unindexed" "exit=$RC out=[$OUT]"
-fi
-
-# 38 — CLEAN: marker at last line, ledger exact pointer → no WARN.
-# Proves the fix does NOT break a valid last-line pointer.
-kit="$(mkkit c38-exact-lastline-clean)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# Block 1\n\n---\n\nContent.\n\n> **Breakthrough:** last-line marker.\n' \
-  > "$tgt/pfx-block1.md"
-ln38=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln38\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] \
-   && ! grep -qi 'WARN' <<<"$OUT" \
-   && grep -q '1 tagged' <<<"$OUT" \
-   && grep -q '0 unindexed' <<<"$OUT"; then
-  ok "38 last-line :$ln38 exact pointer → clean, no WARN" "(exit $RC)"
-else
-  no "38 last-line :$ln38 exact pointer → clean, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 39 — F1 (#948): the drift pass compares the pointer's LINE, not just the file. A ledger pointer
-# at a line that does not carry the marker (block still has it at :5) is drift against the ledger row.
-kit="$(mkkit c39-drift-line)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n\nMore.\n' > "$tgt/pfx-block1.md"
-ln39=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:7\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q '^Summary:' <<<"$OUT" \
-   && grep -q 'WARN: drift — indexed line does not carry' <<<"$OUT" \
-   && grep -q '1 drifted' <<<"$OUT"; then
-  ok "39 stale pointer :7 (marker at :$ln39) → drift against the ledger row" "(exit $RC)"
-else
-  no "39 stale pointer :7 (marker at :$ln39) → drift against the ledger row" "exit=$RC out=[$OUT]"
-fi
-
-# 40 — F2 (#948): two pointers in ONE ledger cell are all indexed (pre-fix: only the first).
-kit="$(mkkit c40-two-pointers)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"; mkblock_tagged "$tgt" "pfx-block2.md"
-ln40=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln40\` and \`$tgt/pfx-block2.md:$ln40\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q '2 tagged' <<<"$OUT" && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT" && ! grep -q 'WARN' <<<"$OUT"; then
-  ok "40 two pointers in one cell → both blocks indexed, no WARN" "(exit $RC)"
-else
-  no "40 two pointers in one cell → both blocks indexed, no WARN" "exit=$RC out=[$OUT]"
-fi
-
-# 41 — F3 (#948): a block with two markers is indexed when the ledger points at the SECOND one.
-kit="$(mkkit c41-second-marker)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt/pfx-block1.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:9\` | k |"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q '1 tagged' <<<"$OUT" && grep -q '0 unindexed' <<<"$OUT" \
-   && grep -q '0 drifted' <<<"$OUT" && ! grep -q 'WARN' <<<"$OUT"; then
-  ok "41 two markers, ledger points at the second → clean" "(exit $RC)"
-else
-  no "41 two markers, ledger points at the second → clean" "exit=$RC out=[$OUT]"
-fi
-
-# 42 — F3 (#948): two markers, ledger points at neither → exactly one unindexed WARN naming the first.
-kit="$(mkkit c42-two-markers-none)"; tgt="$kit/targetA"
-mkdir -p "$tgt"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt/pfx-block1.md"
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit"
-run "$kit"
-if [ "$RC" = 0 ] && grep -q '1 unindexed' <<<"$OUT" \
-   && grep -q "WARN: unindexed.*pfx-block1.md:5\$" <<<"$OUT"; then
-  ok "42 two markers, none indexed → one unindexed WARN at the first marker" "(exit $RC)"
-else
-  no "42 two markers, none indexed → one unindexed WARN at the first marker" "exit=$RC out=[$OUT]"
-fi
-
-# 43 — R3 (#948): a block whose marker scan fails (grep rc>1) is skipped LOUDLY: a typed WARN line, a
-# `skipped-unreadable` count in the Summary, and no "Ledger consistent" claim. A grep shim makes the
-# failure deterministic for any uid (chmod 000 would not bite as root); it fails only for the named file.
-SHIM="$ROOT/shim-bin"; mkdir -p "$SHIM"
-REAL_GREP="$(type -P grep)"
-printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in *unreadable-block1.md) exit 2;; esac; done\nexec %s "$@"\n' "$REAL_GREP" > "$SHIM/grep"
-chmod +x "$SHIM/grep"
-kit="$(mkkit c43-unreadable)"; tgt="$kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"; mkblock_tagged "$tgt" "unreadable-block1.md"
-ln43=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$kit" "$tgt"
-write_breakthroughs "$kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln43\` | k |"
-OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-if [ "$RC" = 0 ] && grep -q '^Summary:' <<<"$OUT" \
-   && grep -q "^WARN: block file unreadable, marker scan skipped: .*unreadable-block1.md\$" <<<"$OUT" \
-   && grep -q '1 skipped-unreadable' <<<"$OUT" && grep -q '1 tagged' <<<"$OUT" \
-   && ! grep -q 'Ledger consistent' <<<"$OUT"; then
-  ok "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "(exit $RC)"
-else
-  no "43 unreadable block → typed WARN + skipped-unreadable count, sibling still scanned" "exit=$RC out=[$OUT]"
-fi
-
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-echo ""
 echo "== $pass passed · $fail failed =="
-
-# ---------------------------------------------------------------------------
-# --prove-teeth mutation section
-# ---------------------------------------------------------------------------
-if [[ "${1:-}" != "--prove-teeth" ]]; then
-  [ "$fail" -eq 0 ] && exit 0 || exit 1
-fi
-
-echo ""
-echo "== --prove-teeth: mutation controls =="
-
-# MUTATION controls verify that each assertion in the test suite will actually go RED
-# when the SUT is mutated in the relevant way. Each mutation creates a temporary copy
-# of the SUT, injects a defect, and proves the corresponding case detects it.
-
-mut_pass=0; mut_fail=0
-mut_ok() { printf '  PASS  [teeth] %-56s %s\n' "$1" "${2:-}"; mut_pass=$((mut_pass+1)); }
-mut_no() { printf '  FAIL  [teeth] %-56s %s\n' "$1" "${2:-}"; mut_fail=$((mut_fail+1)); }
-
-MUTANT_DIR="$(mktemp -d)"; trap 'rm -rf "$ROOT" "$MUTANT_DIR"' EXIT
-
-# Mutant builds go through lib/mutant.sh (kit issue #1299), sourced only on this --prove-teeth path.
-# mutant_chain refuses a dead sed stage, an empty/identical/unparseable mutant and a mutant placed in
-# the live tree; a refused build is counted ONCE (mk_chain/mk_built) and its observation never runs.
-# The observations below stay as grep-on-captured-output (each mutant runs inside its own kit copy,
-# not as a bare argv run), so they are not expressible as mutant_tooth calls without a redesign.
-# shellcheck source=lib/mutant.sh
-. "$HERE/lib/mutant.sh"
-mutant_bootstrap mutant_chain mutant_built mutant_or_count mutant_chain_or_count mutant_built_or_count || exit 2
-
-# mk_chain LABEL ORIG OUT EXPR... / mk_built LABEL ORIG OUT — count a refused build exactly once.
-# OUT is removed first so a refused (dead-stage) build can never leave a stale file for the tooth.
-mk_chain() { rm -f -- "$3"; mutant_chain_or_count mut_fail "$@" || return 1; }
-mk_built() { mutant_built_or_count mut_fail "$@" || return 1; }
-
-mutant_n=0
-mutate_sut() {
-  # $1=label $2..=sed expressions (one stage each). Sets $mutant to a fresh mutant of $SUT.
-  local label="$1"; shift
-  mutant_n=$((mutant_n+1))
-  mutant="$MUTANT_DIR/sweep-breakthroughs-mutant-$mutant_n.sh"
-  mk_chain "[teeth] $label" "$SUT" "$mutant" "$@" || return 1
-  chmod +x "$mutant"
-}
-
-run_mutant() {
-  # Run a mutant SUT with its own kit copy.
-  local kit="$1" mutant="$2"
-  cp "$mutant" "$kit/toolbelt/sweep-breakthroughs.sh"
-  OUT="$("$BASH_BIN" "$kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-}
-
-# M1: Remove the unindexed-WARN emission → case 2 must go RED (no WARN printed).
-mut_kit="$(mkkit m1-unindexed)"; tgt="$mut_kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-write_targets "$mut_kit" "$tgt"
-write_breakthroughs "$mut_kit"
-# Mutation: comment out the unindexed WARN line
-if mutate_sut "remove-unindexed-warn" 's/echo "WARN: unindexed/# DISABLED: echo "WARN: unindexed/'; then
-  run_mutant "$mut_kit" "$mutant"
-  if ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-    mut_ok "M1 no-unindexed-warn → case 2 (unindexed block) goes RED" "(WARN absent on mutant)"
-  else
-    mut_no "M1 no-unindexed-warn → mutation not detected by case 2" "out=[$OUT]"
-  fi
-fi
-
-# M2: Remove the drift-WARN emission → case 3 must go RED (no drift WARN).
-mut_kit="$(mkkit m2-drift)"; tgt="$mut_kit/targetA"
-mkblock "$tgt" "pfx-block1.md"
-write_targets "$mut_kit" "$tgt"
-write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:5\` | k |"
-if mutate_sut "remove-drift-warn" 's/echo "WARN: drift/# DISABLED: echo "WARN: drift/'; then
-  run_mutant "$mut_kit" "$mutant"
-  if ! grep -qi 'WARN.*drift' <<<"$OUT"; then
-    mut_ok "M2 no-drift-warn → case 3 (drift) goes RED" "(WARN absent on mutant)"
-  else
-    mut_no "M2 no-drift-warn → mutation not detected by case 3" "out=[$OUT]"
-  fi
-fi
-
-# M3: Remove the absent-input label → absent corpus output no longer contains 'absent'.
-# Mutation: replace "(absent-input)" with "(DISABLED)" so the INFO line loses the 'absent' keyword.
-# Case 6 checks grep -qi 'INFO.*absent'; without "absent" in the output it goes RED.
-mut_kit="$(mkkit m3-nodist)"; tgt="$mut_kit/targetX"
-# tgt not created on disk → triggers absent-input path
-write_targets "$mut_kit" "$tgt"
-write_breakthroughs "$mut_kit"
-if mutate_sut "absent-label-removed" 's/(absent-input)/(DISABLED)/'; then
-  run_mutant "$mut_kit" "$mutant"
-  # Kit name and path contain no 'absent' — only the mutated INFO label carries it.
-  if ! grep -qi 'INFO.*absent' <<<"$OUT"; then
-    mut_ok "M3 absent-label removed → case 6 (absent-input) goes RED" "(absent keyword absent on mutant)"
-  else
-    mut_no "M3 absent-label removed → mutation not detected by case 6" "out=[$OUT]"
-  fi
-fi
-
-# M4: Skip marker check (never grep for Breakthrough) → tagged block reported as untagged.
-# A mutant that replaces the marker grep with a false test means no block is ever tagged.
-mut_kit="$(mkkit m4-no-marker)"; tgt="$mut_kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-ln=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$mut_kit" "$tgt"
-write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgt/pfx-block1.md:$ln\` | k |"
-# Mutation: replace the marker-found test (the grep status check) with 'false' (never tagged)
-# Only the 'if [ "$grc" -eq 0 ]; then' line is replaced (keeping its '; then'), so the mutant stays
-# valid bash; the scan itself still runs, only its verdict is discarded.
-if mutate_sut "no-marker-grep" 's/^\( *\)if \[ "\$grc" -eq 0 \]; then$/\1if false; then/'; then
-  # Exactly ONE line may differ from the SUT (the anchored 'if [ "$grc" -eq 0 ]' line).
-  m4_changed="$(diff "$SUT" "$mutant" | grep -c '^>')"
-  if [ "$m4_changed" -ne 1 ]; then
-    mut_no "M4 no-marker-grep mutant must change exactly one line" "changed=$m4_changed"
-  else
-    run_mutant "$mut_kit" "$mutant"
-    # With the mutation, the tagged block is never detected, so: 0 tagged, drift WARN or no-match INFO
-    if grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
-      mut_ok "M4 no-marker-grep → case 1 (clean) goes RED (0 tagged instead of 1)" "(1 tagged absent on mutant)"
-    else
-      mut_no "M4 no-marker-grep → mutation not detected by case 1" "out=[$OUT]"
-    fi
-  fi
-fi
-
-# M5: mute the "cannot find TARGETS_MD" echo → case 8 goes RED (no 'cannot find' in output).
-# The exit 1 guard remains, so exit code is still 1. But case 8 also asserts that 'cannot find'
-# appears in output — without the echo that assertion fails, proving the tooth.
-# Note: defense in depth keeps exit 1 via the empty-paths guard even if the explicit check
-# were removed — so the tooth must target the message, not just the exit code.
-mut_kit="$(mkkit m5-no-targets-echo)"
-write_breakthroughs "$mut_kit"
-# TARGETS.md absent
-if mutate_sut "mute-targets-echo" '/sweep-breakthroughs: cannot find.*TARGETS_MD/d'; then
-  run_mutant "$mut_kit" "$mutant"
-  if ! grep -qi 'cannot find' <<<"$OUT"; then
-    mut_ok "M5 muted-TARGETS-echo → case 8 goes RED (no 'cannot find' in output)" "(cannot find absent on mutant)"
-  else
-    mut_no "M5 muted-TARGETS-echo → mutation not detected by case 8" "out=[$OUT]"
-  fi
-fi
-
-# M6: Replace skipped_count -eq 0 with -ge 0 (always true) → sentence appears on partial runs.
-# Case 23 (partial run → sentence absent) must go RED.
-mut_kit="$(mkkit m6-ledger-no-skipped-guard)"; tgtA="$mut_kit/targetA"
-mkblock_tagged "$tgtA" "pfx-block1.md"
-ln=$(tagged_lineno "$tgtA/pfx-block1.md")
-{ printf '# targets\n\n| # | name | path |\n|---|---|---|\n'
-  printf '| 1 | t1 | `%s` |\n' "$tgtA"
-  printf '| 2 | t2 | `$RESEARCH_HOME/some/path/...` |\n'
-} > "$mut_kit/TARGETS.md"
-write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`$tgtA/pfx-block1.md:$ln\` | k |"
-# Mutation: change skipped_count -eq 0 to -ge 0 (always true for non-negative count)
-if mutate_sut "ledger-skipped-guard-bypass" 's/skipped_count" -eq 0/skipped_count" -ge 0/'; then
-  run_mutant "$mut_kit" "$mutant"
-  # With mutation, sentence appears even on partial sweeps → case 23 assertion (absent) fails
-  if grep -q 'Ledger consistent' <<<"$OUT"; then
-    mut_ok "M6 skipped-guard bypassed → case 23 (partial run) goes RED (sentence present)" "(sentence present on mutant)"
-  else
-    mut_no "M6 skipped-guard bypassed → mutation not detected by case 23" "out=[$OUT]"
-  fi
-fi
-
-# M7: Remove the $RESEARCH_HOME expansion from the ledger-pointer awk → portable pointers
-# are no longer expanded, so case 24 reports "unindexed" (should be clean) and case 27
-# reports spurious "drift" (file not found at literal $RESEARCH_HOME/... path).
-# Mutation: delete the pfx1/pfx2/if expansion block (substr/length approach) so pointers
-# are printed raw — the $RESEARCH_HOME/... string is never substituted.
-mut_kit="$(mkkit m7-no-rh-expansion)"; tgt="$mut_kit/targetA"
-mkblock_tagged "$tgt" "pfx-block1.md"
-lnm=$(tagged_lineno "$tgt/pfx-block1.md")
-write_targets "$mut_kit" "$tgt"
-write_breakthroughs "$mut_kit" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$lnm\` | k |"
-# Exact block range (first 'pfx1 =' line .. the first closing brace line after it): resolved from the
-# SUT, never an open-ended /a/,/b/d. An unresolved range counts ONE failure and the tooth never runs.
-m7_range="$(awk '/^          pfx1 = /{n=NR} n && NR>n && /^          }$/{print n "," NR; exit}' "$SUT")"
-if [ -z "$m7_range" ]; then
-  mut_no "M7 [teeth] could not resolve the pfx1..closing-brace range in the SUT (drifted?)"
-elif mutate_sut "no-rh-expansion" "${m7_range}d"; then
-  # Install the mutant into the kit, then run with RESEARCH_HOME set to the kit root.
-  cp "$mutant" "$mut_kit/toolbelt/sweep-breakthroughs.sh"
-  OUT="$(RESEARCH_HOME="$mut_kit" "$BASH_BIN" "$mut_kit/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  # Without expansion the ledger pointer stays raw "$RESEARCH_HOME/..." which never matches
-  # the expanded bf → "unindexed" WARN must appear (and/or "drift" from file-not-found).
-  if grep -qi 'WARN.*unindexed' <<<"$OUT" || grep -qi 'WARN.*drift' <<<"$OUT"; then
-    mut_ok "M7 expansion removed → case 24/27 portable pointer detects WARN on mutant" "(WARN present)"
-  else
-    mut_no "M7 expansion removed → no WARN on mutant; mutation not detected" "out=[$OUT]"
-  fi
-fi
-
-# M8: Re-introduce sub()-based expansion → & in RESEARCH_HOME corrupts the replacement
-# (awk treats & as "matched text"). The pfx/if fix must catch this; case 28 detects WARN.
-# Mutation: replace the correct pfx1/pfx2/if block with old sub() calls via awk transform.
-mut_kit_m8="$(mkkit m8-sub-amp)"
-rh_m8="${ROOT}/rh-m8-amp&test"; tgt_m8="${rh_m8}/targetA"
-mkblock_tagged "$tgt_m8" "pfx-block1.md"
-ln_m8=$(tagged_lineno "$tgt_m8/pfx-block1.md")
-write_targets "$mut_kit_m8" "$tgt_m8"
-write_breakthroughs "$mut_kit_m8" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln_m8\` | k |"
-mutant_m8="${MUTANT_DIR}/m8-sub-amp.sh"
-awk '
-  /^          pfx1 = / {
-    print "          sub(/^\\$\\{RESEARCH_HOME\\}\\//, rh \"/\", ptr)"
-    print "          sub(/^\\$RESEARCH_HOME\\//, rh \"/\", ptr)"
-    skip_until_close=1; next
-  }
-  skip_until_close {
-    if (/^          }$/) skip_until_close=0
-    next
-  }
-  { print }
-' "$SUT" > "$mutant_m8"
-if mk_built "[teeth] M8 sub()-expansion awk transform" "$SUT" "$mutant_m8"; then
-  chmod +x "$mutant_m8"
-  cp "$mutant_m8" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh"
-  OUT="$(RESEARCH_HOME="$rh_m8" "$BASH_BIN" "$mut_kit_m8/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  # sub() corrupts & in rh → pointer resolves to wrong path → unindexed+drift WARNs expected.
-  if grep -qi 'WARN' <<<"$OUT"; then
-    mut_ok "M8 sub()-expansion with & in RESEARCH_HOME → case 28 detects WARN" "(WARN present on mutant)"
-  else
-    mut_no "M8 sub()-expansion with & in RESEARCH_HOME → no WARN; mutation not detected" "out=[$OUT]"
-  fi
-fi
-
-# M9: Remove the trailing-slash normalization → RESEARCH_HOME ending with / produces //
-# in the expanded pointer; grep -F exact-match fails → unindexed WARN fires. Case 29 detects.
-# Mutation: delete the _sb_rh="${_sb_rh%/}" normalization line.
-mut_kit_m9="$(mkkit m9-no-slash-norm)"
-rh_m9="${ROOT}/rh-m9-trailing/"; tgt_m9="${ROOT}/rh-m9-trailing/targetA"
-mkblock_tagged "$tgt_m9" "pfx-block1.md"
-ln_m9=$(tagged_lineno "$tgt_m9/pfx-block1.md")
-write_targets "$mut_kit_m9" "$tgt_m9"
-write_breakthroughs "$mut_kit_m9" "| 1 | tgt | w | \`\$RESEARCH_HOME/targetA/pfx-block1.md:$ln_m9\` | k |"
-if mutate_sut "no-slash-norm" '/_sb_rh%\//d'; then
-  cp "$mutant" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh"
-  OUT="$(RESEARCH_HOME="$rh_m9" "$BASH_BIN" "$mut_kit_m9/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  # Without normalization pointer = /path//targetA/... which does not match /path/targetA/...
-  # (string comparison) → unindexed WARN fires.
-  if grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-    mut_ok "M9 trailing-slash not stripped → case 29 detects unindexed WARN on mutant" "(WARN present)"
-  else
-    mut_no "M9 trailing-slash not stripped → no WARN; mutation not detected" "out=[$OUT]"
-  fi
-fi
-
-# M10: Remove rh%/ normalization from target-paths.sh → portable TARGETS.md row +
-# RESEARCH_HOME with trailing slash → // in expanded path → find returns path with //
-# → pointer mismatch (absolute BREAKTHROUGHS.md pointer has single /) → WARN: unindexed.
-# Case 31 detects this: checks for '1 tagged' + no WARN + '0 unindexed'.
-echo "-- M10: remove rh%/ norm from target-paths.sh → case 31 (portable+trailing-slash) detects WARN --"
-_m10_rh="${ROOT}/rh-m10"
-mkdir -p "${_m10_rh}/targetA"
-mkblock_tagged "${_m10_rh}/targetA" "pfx-block1.md"
-_m10_ln="$(tagged_lineno "${_m10_rh}/targetA/pfx-block1.md")"
-kit_m10="$(mkkit m10-tp-norm)"
-write_targets_portable "$kit_m10" "targetA"
-write_breakthroughs "$kit_m10" "| 1 | tgt | w | \`${_m10_rh}/targetA/pfx-block1.md:${_m10_ln}\` | k |"
-# (d) control: kit has original target-paths.sh; trailing-slash RH must give '1 tagged' (no WARN).
-OUT_M10_CTRL="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"
-if grep -q '1 tagged' <<<"$OUT_M10_CTRL" && ! grep -q 'WARN' <<<"$OUT_M10_CTRL"; then
-  mut_ok "M10 (d) ctrl: SUT strips trailing slash (1 tagged, no WARN)"
-else mut_no "M10 (d) ctrl: SUT does not give expected result (M10 premise broken)" "out=[$OUT_M10_CTRL]"; fi
-# Mutant target-paths.sh: remove the rh%/ normalization lines (both functions). Built by
-# mutant_chain: it refuses a dead stage, an identical/empty mutant and a non-bash result, which
-# subsumes the former (a) differs-from-SUT and (b) bash -n checks (no echo assertions kept).
-if mk_chain "[teeth] M10 no-tp-norm" "$TP_LIB" "$kit_m10/toolbelt/lib/target-paths.sh" '/rh%\//d'; then
-  OUT="$(RESEARCH_HOME="${_m10_rh}/" "$BASH_BIN" "$kit_m10/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  if grep -q 'WARN' <<<"$OUT" || ! grep -q '1 tagged' <<<"$OUT"; then
-    mut_ok "M10 no-tp-norm → case 31 (portable row + trailing-slash RH) detects WARN or 0 tagged" "(mutation detected)"
-  else
-    mut_no "M10 no-tp-norm → case 31 not detecting norm removal" "out=[$OUT]"
-  fi
-fi
-
-# M11: Restore sub()-based awk expansion for pfx2 in target-paths.sh →
-# & in RESEARCH_HOME becomes matched-text in sub() replacement → corrupted path →
-# corpus directory not found (absent-input) → 0 tagged. Case 33 checks '1 tagged', detects.
-echo "-- M11: sub()-based expansion in target-paths.sh → case 33 (& in RH) detects corruption --"
-_m11_rh="${ROOT}/rh-m11&amp"
-mkdir -p "${_m11_rh}/targetA"
-mkblock_tagged "${_m11_rh}/targetA" "pfx-block1.md"
-_m11_ln="$(tagged_lineno "${_m11_rh}/targetA/pfx-block1.md")"
-kit_m11="$(mkkit m11-tp-subamp)"
-write_targets_portable "$kit_m11" "targetA"
-write_breakthroughs "$kit_m11" "| 1 | tgt | w | \`${_m11_rh}/targetA/pfx-block1.md:${_m11_ln}\` | k |"
-# (d) control: kit has original target-paths.sh; & in RESEARCH_HOME must give '1 tagged'.
-OUT_M11_CTRL="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"
-if grep -q '1 tagged' <<<"$OUT_M11_CTRL"; then
-  mut_ok "M11 (d) ctrl: SUT with & in RESEARCH_HOME gives 1 tagged (no & corruption)"
-else mut_no "M11 (d) ctrl: SUT does not give 1 tagged (M11 premise broken)" "out=[$OUT_M11_CTRL]"; fi
-# Mutant: replace substr()/length() pfx2 case with sub()-based expansion (reintroduces & bug).
-# char-class regex [$]RESEARCH_HOME[/] avoids \$ ambiguity; braces keep else branch valid.
-if mk_chain "[teeth] M11 sub()-expansion in target-paths.sh" "$TP_LIB" "$kit_m11/toolbelt/lib/target-paths.sh" \
-    's|print rh "/" substr($0, length(pfx2) + 1)|{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }|'; then
-  # (c) injected awk must parse on empty input (rc 0)
-  _m11_awk_rc=0; echo '' | awk '{ sub(/^[$]RESEARCH_HOME[/]/, rh "/"); print }' >/dev/null 2>&1 \
-    || _m11_awk_rc=$?
-  if [ "$_m11_awk_rc" -eq 0 ]; then mut_ok "M11 (c): injected awk parses on empty input"
-  else mut_no "M11 (c): injected awk has syntax error (crash-based theater)" "rc=$_m11_awk_rc"; fi
-  OUT="$(RESEARCH_HOME="${_m11_rh}" "$BASH_BIN" "$kit_m11/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  # Positive verdict: the mutant sweep must RUN to its Summary line (a crash prints none) and lose the tag.
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q '1 tagged' <<<"$OUT"; then
-    mut_ok "M11 sub()-expansion with & in RH → case 33 detects corruption (0 tagged)" "(1-tagged absent on mutant)"
-  else
-    mut_no "M11 sub()-expansion with & in RH → case 33 not detecting" "out=[$OUT]"
-  fi
-fi
-# Sabotage: old injection (no braces → orphan else) causes awk syntax error → crash.
-# Assert assertion (c) catches it: the broken program must return non-zero on parse.
-echo "-- M11 sabotage: old broken-awk injection caught by assertion (c) --"
-_sab11_rc=0
-echo '' | awk 'BEGIN { rh="" }
-  {
-    pfx2 = "$RESEARCH_HOME/"
-    if (substr($0, 1, length(pfx2)) == pfx2)
-      sub(/^\$RESEARCH_HOME\//,rh "/"); print
-    else
-      print
-  }' >/dev/null 2>&1 || _sab11_rc=$?
-if [ "$_sab11_rc" -ne 0 ]; then
-  mut_ok "M11 sabotage: crash-prone awk rejected by (c) parse check (theater blocked)"
-else
-  mut_no "M11 sabotage: old broken awk parsed — sabotage detection ineffective"
-fi
-
-# M12: Remove -x from grep -qxF → substring match reintroduced → :5 matches :57.
-# Case 34 (block at line 5, ledger :57) must go RED (no WARN unindexed on mutant).
-echo "-- M12: remove -x from grep -qxF → substring match, case 34 (:5 vs :57) detects WARN absent --"
-mut_kit_m12="$(mkkit m12-no-xflag)"; tgt_m12="$mut_kit_m12/targetA"
-mkdir -p "$tgt_m12"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
-  > "$tgt_m12/pfx-block1.md"
-ln_m12=$(grep -nE '^>[[:space:]]*\*\*Breakthrough:\*\*' "$tgt_m12/pfx-block1.md" | head -1 | cut -d: -f1)
-write_targets "$mut_kit_m12" "$tgt_m12"
-# Ledger wrong :57; block at :5
-write_breakthroughs "$mut_kit_m12" \
-  "| 1 | tgt | w | \`$tgt_m12/pfx-block1.md:57\` | k |"
-# (d) control: original SUT must give WARN unindexed (fixed behavior)
-OUT_M12_CTRL="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC_M12_CTRL=$?
-if [ "$RC_M12_CTRL" -eq 0 ] \
-   && grep -q '^Summary:' <<<"$OUT_M12_CTRL" \
-   && grep -qi 'WARN.*unindexed' <<<"$OUT_M12_CTRL"; then
-  mut_ok "M12 (d) ctrl: SUT gives WARN unindexed for wrong pointer (:$ln_m12 vs :57)"
-else
-  mut_no "M12 (d) ctrl: SUT does not give expected WARN — M12 premise broken" "out=[$OUT_M12_CTRL]"
-fi
-# Create mutant: remove -x from grep -qxF (mutant_chain verifies it differs from SUT and parses)
-if mutate_sut "remove-x-flag" 's/grep -qxF/grep -qF/'; then
-  cp "$mutant" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh"
-  OUT="$("$BASH_BIN" "$mut_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-  # Positive assertion: RC=0 AND Summary present AND WARN unindexed absent.
-  # Substring match makes "file:5" find "file:57" → no WARN → bug reproduced.
-  # A crash (RC≠0) or empty output must FAIL this assertion (not silently pass).
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -qi 'WARN.*unindexed' <<<"$OUT"; then
-    mut_ok "M12 grep -xF→-F: case 34 (:5 vs :57) goes RED (WARN absent on mutant)" "(no WARN on mutant)"
-  else
-    mut_no "M12 grep -xF→-F: mutation not detected by case 34" "rc=$RC out=[$OUT]"
-  fi
-fi
-# Sabotage: a crash-mutant (exit 99) must FAIL the positive assertion — proves
-# that RC=0 + Summary guards prevent crash-theater.
-echo "-- M12 sabotage: crash-mutant blocked by RC=0 + Summary guards --"
-_sab_m12="${MUTANT_DIR}/m12-crash.sh"
-printf '#!/usr/bin/env bash\nexit 99\n' > "$_sab_m12"
-chmod +x "$_sab_m12"
-sab_kit_m12="$(mkkit m12-sab-crash)"; tgt_sab12="$sab_kit_m12/targetA"
-mkdir -p "$tgt_sab12"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n' \
-  > "$tgt_sab12/pfx-block1.md"
-write_targets "$sab_kit_m12" "$tgt_sab12"
-write_breakthroughs "$sab_kit_m12" \
-  "| 1 | tgt | w | \`$tgt_sab12/pfx-block1.md:57\` | k |"
-cp "$_sab_m12" "$sab_kit_m12/toolbelt/sweep-breakthroughs.sh"
-OUT_SAB12="$("$BASH_BIN" "$sab_kit_m12/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC_SAB12=$?
-# Positive assertion evaluated against crash output:
-# RC_SAB12=99 → first condition fails → mut_no path → theater blocked.
-if [ "$RC_SAB12" -eq 0 ] \
-   && grep -q '^Summary:' <<<"$OUT_SAB12" \
-   && ! grep -qi 'WARN.*unindexed' <<<"$OUT_SAB12"; then
-  mut_no "M12 sabotage: crash passes positive assertion (theater NOT blocked)"
-else
-  mut_ok "M12 sabotage: crash blocked by RC=0 guard (theater blocked)" "(RC=$RC_SAB12)"
-fi
-
-# M13: F2 revert — while-loop over pointers back to a single if → case 40 (two pointers) goes RED.
-echo "-- M13: first-pointer-only ledger parse → case 40 detects unindexed WARN --"
-mut_kit_m13="$(mkkit m13-first-ptr)"; tgt_m13="$mut_kit_m13/targetA"
-mkblock_tagged "$tgt_m13" "pfx-block1.md"; mkblock_tagged "$tgt_m13" "pfx-block2.md"
-ln_m13=$(tagged_lineno "$tgt_m13/pfx-block1.md")
-write_targets "$mut_kit_m13" "$tgt_m13"
-write_breakthroughs "$mut_kit_m13" "| 1 | tgt | w | \`$tgt_m13/pfx-block1.md:$ln_m13\` and \`$tgt_m13/pfx-block2.md:$ln_m13\` | k |"
-if mutate_sut "first-pointer-only" 's/while (match(rest,/if (match(rest,/'; then
-  run_mutant "$mut_kit_m13" "$mutant"
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '1 unindexed' <<<"$OUT"; then
-    mut_ok "M13 first-pointer-only → case 40 goes RED (block2 unindexed)" "(1 unindexed on mutant)"
-  else mut_no "M13 first-pointer-only → mutation not detected" "rc=$RC out=[$OUT]"; fi
-fi
-
-# M14: F1 revert — per-line check disabled → case 39 (stale :7 pointer) goes RED (0 drifted).
-echo "-- M14: drift per-line check disabled → case 39 detects missing drift WARN --"
-mut_kit_m14="$(mkkit m14-no-line-check)"; tgt_m14="$mut_kit_m14/targetA"
-mkdir -p "$tgt_m14"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** found it.\n\n---\n\nContent.\n\nMore.\n' > "$tgt_m14/pfx-block1.md"
-write_targets "$mut_kit_m14" "$tgt_m14"
-write_breakthroughs "$mut_kit_m14" "| 1 | tgt | w | \`$tgt_m14/pfx-block1.md:7\` | k |"
-if mutate_sut "no-line-check" 's/if ! grep -qE .*<<<"\$ptext"; then/if false; then/'; then
-  run_mutant "$mut_kit_m14" "$mutant"
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '0 drifted' <<<"$OUT" \
-     && ! grep -q 'indexed line does not carry' <<<"$OUT"; then
-    mut_ok "M14 no-line-check → case 39 goes RED (0 drifted on mutant)" "(drift WARN absent)"
-  else mut_no "M14 no-line-check → mutation not detected" "rc=$RC out=[$OUT]"; fi
-fi
-
-# M15: F3 revert — only the first marker considered → case 41 (ledger at second marker) goes RED.
-echo "-- M15: first-marker-only scan → case 41 detects unindexed WARN --"
-mut_kit_m15="$(mkkit m15-first-marker)"; tgt_m15="$mut_kit_m15/targetA"
-mkdir -p "$tgt_m15"
-printf '# B\n\n> Scope.\n>\n> **Breakthrough:** first.\n\n---\n\n> **Breakthrough:** second.\n' > "$tgt_m15/pfx-block1.md"
-write_targets "$mut_kit_m15" "$tgt_m15"
-write_breakthroughs "$mut_kit_m15" "| 1 | tgt | w | \`$tgt_m15/pfx-block1.md:9\` | k |"
-if mutate_sut "first-marker-only" 's/\[ -n "\$first_lineno" \] || first_lineno="\$mlineno"/first_lineno="${first_lineno:-$mlineno}"; [ "$mlineno" = "$first_lineno" ] || continue/'; then
-  run_mutant "$mut_kit_m15" "$mutant"
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '1 unindexed' <<<"$OUT"; then
-    mut_ok "M15 first-marker-only → case 41 goes RED (second marker unindexed)" "(1 unindexed on mutant)"
-  else mut_no "M15 first-marker-only → mutation not detected" "rc=$RC out=[$OUT]"; fi
-fi
-
-# M16/M17: R3 — the unreadable-block branch. Both mutants run under the grep shim from case 43 and are
-# keyed on the typed output (WARN line / Summary field), never on the exit code.
-run_mutant_shim() { # kit mutant
-  cp "$2" "$1/toolbelt/sweep-breakthroughs.sh"
-  OUT="$(PATH="$SHIM:$PATH" "$BASH_BIN" "$1/toolbelt/sweep-breakthroughs.sh" 2>&1)"; RC=$?
-}
-echo "-- M16: unreadable WARN silenced → case 43 detects missing typed line --"
-mut_kit_m16="$(mkkit m16-silent-unreadable)"; tgt_m16="$mut_kit_m16/targetA"
-mkblock_tagged "$tgt_m16" "pfx-block1.md"; mkblock_tagged "$tgt_m16" "unreadable-block1.md"
-ln_m16=$(tagged_lineno "$tgt_m16/pfx-block1.md")
-write_targets "$mut_kit_m16" "$tgt_m16"
-write_breakthroughs "$mut_kit_m16" "| 1 | tgt | w | \`$tgt_m16/pfx-block1.md:$ln_m16\` | k |"
-if mutate_sut "silence-unreadable-warn" 's/echo "WARN: block file unreadable/: "WARN: block file unreadable/'; then
-  run_mutant_shim "$mut_kit_m16" "$mutant"
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && ! grep -q 'WARN: block file unreadable' <<<"$OUT"; then
-    mut_ok "M16 silenced unreadable WARN → case 43 goes RED (typed line absent)" "(WARN absent on mutant)"
-  else mut_no "M16 silenced unreadable WARN → mutation not detected" "rc=$RC out=[$OUT]"; fi
-fi
-echo "-- M17: unreadable counter dropped → case 43 detects 0 skipped-unreadable --"
-mut_kit_m17="$(mkkit m17-no-unreadable-count)"; tgt_m17="$mut_kit_m17/targetA"
-mkblock_tagged "$tgt_m17" "pfx-block1.md"; mkblock_tagged "$tgt_m17" "unreadable-block1.md"
-ln_m17=$(tagged_lineno "$tgt_m17/pfx-block1.md")
-write_targets "$mut_kit_m17" "$tgt_m17"
-write_breakthroughs "$mut_kit_m17" "| 1 | tgt | w | \`$tgt_m17/pfx-block1.md:$ln_m17\` | k |"
-if mutate_sut "drop-unreadable-counter" 's/skipped_unreadable=\$((skipped_unreadable + 1))/:/'; then
-  run_mutant_shim "$mut_kit_m17" "$mutant"
-  if [ "$RC" -eq 0 ] && grep -q '^Summary:' <<<"$OUT" && grep -q '0 skipped-unreadable' <<<"$OUT" \
-     && ! grep -q '1 skipped-unreadable' <<<"$OUT"; then
-    mut_ok "M17 dropped unreadable counter → case 43 goes RED (Summary shows 0)" "(0 skipped-unreadable on mutant)"
-  else mut_no "M17 dropped unreadable counter → mutation not detected" "rc=$RC out=[$OUT]"; fi
-fi
-
-total_fail=$(( fail + mut_fail ))
-total_pass=$(( pass + mut_pass ))
-echo ""
-echo "== $total_pass passed · $total_fail failed =="
-[ "$total_fail" -eq 0 ] && exit 0 || exit 1
+[ "$fail" -eq 0 ] || exit 1
