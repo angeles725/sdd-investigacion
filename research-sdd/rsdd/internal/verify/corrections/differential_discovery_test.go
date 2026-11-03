@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,7 @@ func TestDiscoveryMatchesLegacyDiscriminator(t *testing.T) {
 		m[n] = "x\n"
 	}
 	dir := corpus(t, m)
+	requireOracleHost(t)
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Fatalf("differential: bash not found: %v", err)
@@ -56,7 +58,7 @@ func TestGeneratorExercisesEveryOutcome(t *testing.T) {
 		want[k] = regexp.MustCompile(`(?m)` + k)
 	}
 	seen := map[string]bool{}
-	for seed := 1; seed <= 40; seed++ {
+	for seed := 1; seed <= generatedSeeds; seed++ {
 		o := runGo(corpus(t, genCorpus(rand.New(rand.NewSource(int64(seed))))))
 		for k, re := range want {
 			if re.MatchString(o.stdout) {
@@ -64,7 +66,12 @@ func TestGeneratorExercisesEveryOutcome(t *testing.T) {
 			}
 		}
 	}
+	kinds := make([]string, 0, len(want))
 	for k := range want {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds) // the failure output is deterministic
+	for _, k := range kinds {
 		if !seen[k] {
 			t.Errorf("no generated corpus produced /%s/", k)
 		}

@@ -75,9 +75,14 @@ func TestUsageAndDiscovery(t *testing.T) {
 	if o := runGo(d); o.code != 2 || o.stdout != "" || o.stderr != "verify-corrections: no block files under "+d+"\n" {
 		t.Errorf("no block files: %+v", o)
 	}
-	// Extra arguments are ignored, as the script only read $1.
-	if o := runGo(d, "extra"); o.code != 2 {
-		t.Errorf("extra argument: %+v", o)
+	// Extra arguments are ignored, as the script only read $1: on a corpus that SUCCEEDS the report is the same.
+	ok := corpus(t, files("t-block1.md", plain(1), "t-block2.md", "> Corrects [Block 1].\n", "t-block3.md", plain(3)))
+	base := runGo(ok)
+	if base.code != 1 || !strings.Contains(base.stdout, "FAIL   B2 corrects [Block 1]") {
+		t.Fatalf("the control corpus must produce a report: %+v", base)
+	}
+	if o := runGo(ok, "extra", "--more"); o != base {
+		t.Errorf("extra arguments changed the run:\n%+v\nvs\n%+v", o, base)
 	}
 }
 

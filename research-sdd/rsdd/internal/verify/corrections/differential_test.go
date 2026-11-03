@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -42,18 +43,63 @@ func fixtureFiles(t *testing.T, name string) map[string]string {
 	return m
 }
 
-func runLegacy(t *testing.T, dir string) observed {
+// The oracle (the frozen script) needs this host: bash, find, grep, sed, sort and the default `awk` being GNU awk
+// (gawk), all on PATH, and the C.UTF-8 locale (the script's second grep and its awk character handling follow the
+// caller's locale, so the oracle runs under LC_ALL=C.UTF-8, never the host's). A host lacking any of them FAILS
+// the differential with a typed message, never skips it: a skipped differential proves nothing (L5).
+var (
+	oracleOnce sync.Once
+	oracleErr  error
+)
+
+func requireOracleHost(t *testing.T) {
 	t.Helper()
+	oracleOnce.Do(func() {
+		for _, tool := range []string{"bash", "find", "grep", "sed", "sort", "awk"} {
+			if _, err := exec.LookPath(tool); err != nil {
+				oracleErr = fmt.Errorf("oracle tool %q not on PATH: %w", tool, err)
+				return
+			}
+		}
+		if out, err := exec.Command("awk", "--version").CombinedOutput(); err != nil || !strings.HasPrefix(string(out), "GNU Awk") {
+			oracleErr = fmt.Errorf("the default awk is not GNU awk (gawk): %q", strings.SplitN(string(out), "\n", 2)[0])
+			return
+		}
+		out, err := exec.Command("locale", "-a").Output()
+		if err != nil {
+			oracleErr = fmt.Errorf("cannot list locales (locale -a): %w", err)
+			return
+		}
+		for _, l := range strings.Fields(string(out)) {
+			if strings.EqualFold(strings.ReplaceAll(l, "-", ""), "C.UTF8") {
+				return
+			}
+		}
+		oracleErr = fmt.Errorf("the C.UTF-8 locale is not installed (locale -a lists none)")
+	})
+	if oracleErr != nil {
+		t.Fatalf("differential: the oracle host is incomplete; the Go port is NOT proven against verify-corrections.sh: %v", oracleErr)
+	}
+}
+
+// legacyScript is absolute and computed at init, while the working directory is still the package directory: a test
+// that changes directory (the relative-target case) must still find the oracle.
+var legacyScript, _ = filepath.Abs(filepath.Join("testdata", "legacy", "verify-corrections.sh"))
+
+// runLegacy runs the frozen script on dir.
+func runLegacy(t *testing.T, dir string) observed { return runLegacyArgs(t, "", dir) }
+
+// runLegacyArgs runs the frozen script with the given arguments, in cwd when it is not empty.
+func runLegacyArgs(t *testing.T, cwd string, args ...string) observed {
+	t.Helper()
+	requireOracleHost(t)
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Fatalf("differential: bash not found; the Go port is NOT proven against verify-corrections.sh: %v", err)
 	}
-	script, err := filepath.Abs(filepath.Join("testdata", "legacy", "verify-corrections.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(bash, script, dir)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "LANG=C.UTF-8"}
+	cmd := exec.Command(bash, append([]string{legacyScript}, args...)...)
+	cmd.Dir = cwd
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "LC_ALL=C.UTF-8"}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	code := 0
@@ -120,10 +166,7 @@ func TestDifferentialFixtures(t *testing.T) {
 // extractor distinguishes (verbs and their non-assertive/negated/noun forms, refs and joined lists, parentheticals,
 // bare B<N> refs, focus qualifiers, abbreviations, multi-byte text, reciprocal notes, FOCUSES.md rows).
 func TestDifferentialGenerated(t *testing.T) {
-	seeds := 12
-	if testing.Short() {
-		seeds = 10
-	}
+	seeds := generatedSeeds
 	for seed := 1; seed <= seeds; seed++ {
 		files := genCorpus(rand.New(rand.NewSource(int64(seed))))
 		dir := corpus(t, files)
