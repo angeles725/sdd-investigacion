@@ -3,15 +3,9 @@
     verify-state   : ok
     verify-sources : ok
     verify-corrections : ok
-    scan-secrets  : ok, 1 unreadable path(s) not scanned
-  -- consolidate --
-    catalog        : regenerated CATALOG.md (via kit generator (rsdd corpus catalog))
-    index          : touched INDEX.md
-  -- mirror facts (for the TARGETS.md row refresh; not applied here) --
-    blocks on disk : 1 · retros: 1 · iteration-history rows: 1
-  -- JUDGMENT follow-ups (NOT mechanizable — do these to complete the close) --
-    · SYNTHESIS block (§8, optional): author a focus-closing block consolidating this focus, if terminal.
-    · RETRO (§18): delegate a fresh-context retro agent → @ROOT@/work/case/c/retros/<date>-<focus>.md (review-status: pending).
-    · MIRROR: refresh this target's row in $KIT/TARGETS.md with the counts above (blocks=1, retros=1).
-    · COMMIT (corpus only): git -C @ROOT@/work/case/c add -A && git -C @ROOT@/work/case/c commit  (orchestrator artifacts stay gitignored, §15).
-  archived.
+    scan-secrets  : DEGRADED — 1 unreadable path(s) not scanned; the corpus was NOT fully checked for secret values
+  REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
+    @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c
+    @ROOT@/tb/verify-corrections.sh @ROOT@/work/case/c
+    find @ROOT@/work/case/c \( -name .git -type d \) -prune -o -type f -print0 | @ROOT@/tb/scan-secrets.sh --files-from - @ROOT@/work/case/c

@@ -70,6 +70,11 @@ type archiveCase struct {
 	twice  bool                                  // run the command twice on the same tree, output concatenated
 	skip   func(f *archiveFx) string             // non-empty: skip with this reason
 	want   archiveWant
+	// diverge names an intended divergence of the Go archive from the frozen legacy script (a legacy defect fixed in Go,
+	// pinned and documented in tool-registry.d/research-sdd-archive.md). The two sides are then not compared, the golden
+	// is the Go side's, and the legacy side must still meet legacyWant, so the divergence itself stays pinned.
+	diverge    string
+	legacyWant archiveWant
 }
 
 type archiveWant struct {

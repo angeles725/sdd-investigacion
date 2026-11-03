@@ -1,0 +1,5 @@
+### research-sdd-archive (#2633)
+
+| Tool | Description |
+|---|---|
+| `rsdd corpus archive <target-dir> [--focus <name>] [--dry-run] [--allow-unreciprocated-corrections]` | Intended divergence from the frozen legacy `research-sdd-archive.sh` (kit issue #2633): when the scan-secrets packaging list skipped unreadable paths, the gate prints `scan-secrets  : DEGRADED — N unreadable path(s) not scanned; the corpus was NOT fully checked for secret values` and the archive is REFUSED (exit 3). The legacy script printed `ok, N unreadable path(s) not scanned` and archived. A gate that could not look at every path is never a pass, which is the same rule AR-VCORR applies since kit issue #2625. This holds in the working-tree-only verdict and in the combined working-tree + committed-history verdict. There is no override: the secrets discipline is a hard invariant. Pinned by the archive cases `list-perm`, `list-perm-git` (unscanned paths alone, every other gate ok), `unreadable-dir` and `lockedtree`. Those cases carry `diverge` in `rsdd/internal/corpus/archive_cases_test.go`: the legacy side must still print the old line, and the golden is the Go side's. |

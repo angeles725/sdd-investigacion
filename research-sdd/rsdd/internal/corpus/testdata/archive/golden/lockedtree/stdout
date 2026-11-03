@@ -3,7 +3,7 @@
     verify-state   : ok
     verify-sources : ok
     verify-corrections : DEGRADED — verify-corrections.sh reported degraded: cannot read directory @ROOT@/work/case/c/lockeddir: permission denied; the corpus was NOT checked (override: --allow-unreciprocated-corrections)
-    scan-secrets  : ok, 1 unreadable path(s) not scanned
+    scan-secrets  : DEGRADED — 1 unreadable path(s) not scanned; the corpus was NOT fully checked for secret values
   REFUSED: reconcile the failing gate(s) before archiving. Run for detail:
     @ROOT@/tb/verify-state.sh @ROOT@/work/case/c
     @ROOT@/tb/verify-sources.sh @ROOT@/work/case/c

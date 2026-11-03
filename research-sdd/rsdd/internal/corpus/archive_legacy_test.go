@@ -96,6 +96,19 @@ func TestArchiveCases(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			leg, gor, f, target := archiveRunCase(t, c, true)
+			if c.diverge != "" {
+				lc := c
+				lc.want = c.legacyWant
+				archiveCheck(t, "legacy", lc, f, target, *leg)
+				archiveCheck(t, "go", c, f, target, gor)
+				archiveCheckFiles(t, "go", c, target, f)
+				if *archiveUpdate {
+					archiveGoldenWrite(t, c.name, gor, f.root)
+					return
+				}
+				archiveCheckGolden(t, "go", c, gor, f.root)
+				return
+			}
 			archiveCheck(t, "legacy", c, f, target, *leg)
 			archiveCheck(t, "go", c, f, target, gor)
 			archiveCheckFiles(t, "go", c, target, f)
