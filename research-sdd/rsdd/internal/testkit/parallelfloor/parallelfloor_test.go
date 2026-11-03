@@ -45,6 +45,34 @@ func TestRaise(t *testing.T) {
 	}
 }
 
+// counting is a flag.Value that records every Set, so a test can tell "left alone" from "rewritten to the same value".
+type counting struct {
+	v    string
+	sets int
+}
+
+func (c *counting) String() string     { return c.v }
+func (c *counting) Set(s string) error { c.v, c.sets = s, c.sets+1; return nil }
+
+// A value already at or above the floor is never rewritten, not merely rewritten to the same number.
+func TestRaiseLeavesAValueAtTheFloorUntouched(t *testing.T) {
+	for _, c := range []struct {
+		def      string
+		min      int
+		wantSets int
+	}{{"8", 8, 0}, {"9", 8, 0}, {"7", 8, 1}} {
+		v := &counting{v: c.def}
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.Var(v, flagName, "")
+		if err := raise(fs, c.min); err != nil {
+			t.Fatal(err)
+		}
+		if v.sets != c.wantSets {
+			t.Errorf("default %s, floor %d: %d Set call(s), want %d", c.def, c.min, v.sets, c.wantSets)
+		}
+	}
+}
+
 func TestRaiseWithoutTheFlagIsANoOp(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("other", "x", "")
