@@ -83,5 +83,7 @@ func s6Saturation() []s6Scenario {
 	sat("s-warn-total-counts-numbered-and-unnumbered-rows", "active (1 new gaps in last 3 iter)  [WARN: 1 of 6 rows unreadable (forms: x)]  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("1", "x"), it("2", "1"), it("3", "0"), it("4", "0"), it("bootstrap", "2"), it("reopen", "none")))
 	sat("s-angle-brackets-alone-are-a-placeholder", "insufficient history (1 iterations)", tbl(it("1", "0"), "| <> | d | 5 | n |"))
 	sat("s-a-lone-angle-bracket-is-not-a-placeholder", "insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 5 gaps — not yet an iteration", tbl(it("1", "0"), "| < | d | 5 | n |"))
+	sat("s-latest-unnumbered-row-is-the-last-one", "insufficient history (1 iterations)  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 7 gaps — not yet an iteration", tbl(it("1", "0"), it("bootstrap", "3"), it("synthesis", "7")))
+	sat("s-unnumbered-row-keeps-its-place-among-the-forms", "active (1 new gaps in last 3 iter)  [WARN: 2 of 6 rows unreadable (forms: aa,bb)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("1", "0"), it("synthesis", "aa"), it("3", "bb"), it("4", "0"), it("5", "0"), it("6", "1")))
 	return scs
 }

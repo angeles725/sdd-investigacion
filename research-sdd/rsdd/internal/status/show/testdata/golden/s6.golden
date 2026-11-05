@@ -6288,6 +6288,60 @@ blocks_since_retro: 0
 --- calls
 verify: <ROOT>/corpus
 --- end calls
+=== s-latest-unnumbered-row-is-the-last-one
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : insufficient history (1 iterations)  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 7 gaps — not yet an iteration
+  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Iteration history
+
+| Iter | Date | New gaps | Notes |
+|---|---|---|---|
+| 1 | 2026-01-01 | 0 | n |
+| bootstrap | 2026-01-01 | 3 | n |
+| synthesis | 2026-01-01 | 7 | n |
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
 === s-latest-unnumbered-row-seeded
 run 1: <ROOT>/corpus
 rc: 0
@@ -7840,6 +7894,63 @@ blocks_since_retro: 0
 |---|---|---|---|
 | 1 | 2026-01-01 | 3 | n |
 | 2 | 2026-01-01 | 0 | n |
+--- end
+--- calls
+verify: <ROOT>/corpus
+--- end calls
+=== s-unnumbered-row-keeps-its-place-among-the-forms
+run 1: <ROOT>/corpus
+rc: 0
+--- stdout
+== research-sdd-status: corpus  ·  corpus: (flat) ==
+  Stop hook       : absent-settings (checked: <ROOT>/corpus)
+  coverage metric : <none>
+  covered blocks  : <none> claimed · 0 on disk
+  pending backlog : high=1 medium=0 low=0
+  stop-control    : investigable=1 · requires-execution=0 · blocked=0
+  contradictions  : (no ledger)
+  saturation      : active (1 new gaps in last 3 iter)  [WARN: 2 of 6 rows unreadable (forms: aa,bb)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]
+  campaign        : S6-STANDIN state=RESEARCH-STATE.md focus=
+  next step       : NEXT | high | the root gap
+  --- consistency (verify-state.sh) ---
+--- stderr
+--- tree
+--- file corpus/RESEARCH-STATE.md mode=0644
+# S — Research State
+
+<!-- research-state.v1 -->
+schema: research-state.v1
+covered_blocks: 0
+gaps_closed: 0
+known_gaps: 0
+investigable_open: 1
+requires_execution_open: 0
+blocked_open: 0
+blocks_since_retro: 0
+<!-- /research-state.v1 -->
+
+## Gap-backlog (prioritized)
+
+| Priority | Gap | Artifact type / source | Status |
+|---|---|---|---|
+| high | the root gap | web | pending |
+
+## Stop control
+
+- **Open gaps — read-only investigable**: 1
+- **Open gaps — requires-execution**: 0
+- **Open gaps — blocked**: 0
+
+## Iteration history
+
+| Iter | Date | New gaps | Notes |
+|---|---|---|---|
+| 1 | 2026-01-01 | 0 | n |
+| synthesis | 2026-01-01 | aa | n |
+| 3 | 2026-01-01 | bb | n |
+| 4 | 2026-01-01 | 0 | n |
+| 5 | 2026-01-01 | 0 | n |
+| 6 | 2026-01-01 | 1 | n |
 --- end
 --- calls
 verify: <ROOT>/corpus
