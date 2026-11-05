@@ -7,7 +7,7 @@ or context-budget change from the #992 audit needs its own model-family profile
 This protocol does not itself build the `general` profile or the harness adapter selection —
 it is the measurement gate #993's proposal calls for: "decide per finding with evidence: a
 small eval (same target, same focus, N iterations) run on Claude and on Qwen". The instrument
-that scores a run is `research-sdd/toolbelt/score-loop-transcript.sh` (kit issue #993, WU5).
+that scores a run is `research-sdd/toolbelt/score-loop-transcript.sh` (kit issue #993, WU5), a shim over `rsdd eval score-loop` since the Go port.
 
 ## Fixed variables
 
