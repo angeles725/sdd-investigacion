@@ -136,3 +136,7 @@ func TestDifferentialS3(t *testing.T) {
 }
 
 func stripRoot(s, root string) string { return strings.ReplaceAll(s, root, "<ROOT>") }
+
+const s3TailBash = `
+printf 'S3-TAIL mode=%s\n' "$mode"
+`
