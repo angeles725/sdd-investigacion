@@ -24,6 +24,8 @@ func argCases() []scase {
 		{name: "env-grace-empty-is-default", env: envOf("RSDD_C4_AFTER_STOP_GRACE", ""), commits: twoBlocks},
 		{name: "env-range-cap-not-integer", env: envOf("RSDD_BLOCK_RANGE_CAP", "abc"), commits: twoBlocks},
 		{name: "env-range-cap-empty-is-default", env: envOf("RSDD_BLOCK_RANGE_CAP", ""), commits: twoBlocks},
+		{name: "env-grace-leading-zero-is-decimal", env: envOf("RSDD_C4_AFTER_STOP_GRACE", "010"), transcript: cleanRun(),
+			commits: append(append([]commit(nil), twoBlocks...), cm("00:34", "research(demo): B3 c")), intended: div(reasonOctal, "stdout")},
 		{name: "env-both-bad-grace-reported-first", env: envOf("RSDD_C4_AFTER_STOP_GRACE", "x", "RSDD_BLOCK_RANGE_CAP", "y"), commits: twoBlocks},
 		{name: "env-bad-grace-outranks-absent-corpus", corpus: "absent", env: envOf("RSDD_C4_AFTER_STOP_GRACE", "x")},
 		{name: "env-bad-grace-outranks-missing-transcript", args: []string{"--corpus", c, "--transcript", "{{S}}/nope"}, env: envOf("RSDD_C4_AFTER_STOP_GRACE", "x"), commits: twoBlocks},
@@ -32,7 +34,7 @@ func argCases() []scase {
 		{name: "corpus-is-a-file", corpus: "file"},
 		{name: "corpus-repo-without-commits"},
 		{name: "git-bad-base-ref", args: []string{"--corpus", c, "--base-ref", "not-a-real-ref"}, commits: twoBlocks},
-		{name: "git-absent-degrades-whole-instrument", env: envOf("PATH", "{{S}}/emptybin"), commits: twoBlocks},
-		{name: "git-absent-with-transcript", transcript: cleanRun(), env: envOf("PATH", "{{S}}/emptybin"), commits: twoBlocks},
+		{name: "git-absent-degrades-whole-instrument", tools: "git", commits: twoBlocks},
+		{name: "git-absent-with-transcript", transcript: cleanRun(), tools: "git", commits: twoBlocks},
 	}
 }

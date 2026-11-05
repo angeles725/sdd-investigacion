@@ -50,7 +50,7 @@ func shapeCases() []scase {
 		tr("shape-record-without-timestamp-skipped", jl(h, `{"type":"user","origin":{"kind":"human"}}`, a)),
 		tr("shape-timestamp-null-skipped", jl(h, `{"type":"user","origin":{"kind":"human"},"timestamp":null}`, a)),
 		tr("shape-timestamp-empty-dropped", jl(h, `{"type":"user","origin":{"kind":"human"},"timestamp":""}`, a)),
-		tr("shape-timestamp-number-dropped", jl(h, `{"type":"user","origin":{"kind":"human"},"timestamp":5}`, a)),
+		withDiv(tr("shape-timestamp-number-dropped", jl(h, `{"type":"user","origin":{"kind":"human"},"timestamp":5}`, a)), div(reasonTSNum, "stdout")),
 		tr("shape-type-number-not-assistant", jl(h, `{"type":7,"timestamp":"2026-06-01T00:12:00Z"}`, a)),
 		tr("shape-records-out-of-order", jl(a, h)),
 		tr("shape-equal-timestamps-keep-file-order", jl(h, asst(ts("00:25"), "first?"), asst(ts("00:25"), "second\nSTOP: x"))),

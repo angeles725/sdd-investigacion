@@ -24,10 +24,10 @@ func jqCases() []scase {
 		with("jq-override-runtime-error", envOf("RSDD_COMPACT_JQ", `.message.content | ascii_downcase`)),
 		with("jq-override-empty-value-is-default", envOf("RSDD_OPERATOR_INPUT_JQ", "")),
 		{name: "jq-absent-with-override", commits: twoBlocks, transcript: t, tools: "jq", env: envOf("RSDD_COMPACT_JQ", `.type=="system"`)},
-		{name: "jq-absent-without-override", commits: twoBlocks, transcript: t, tools: "jq"},
+		{name: "jq-absent-without-override", commits: twoBlocks, transcript: t, tools: "jq", intended: div(reasonJQ, "stdout")},
 		{name: "jq-absent-no-transcript-needs-nothing", commits: twoBlocks, tools: "jq"},
-		{name: "base64-absent-with-transcript", commits: twoBlocks, transcript: t, tools: "base64"},
+		{name: "base64-absent-with-transcript", commits: twoBlocks, transcript: t, tools: "base64", intended: div(reasonB64, "stdout")},
 		{name: "base64-absent-no-transcript-needs-nothing", commits: twoBlocks, tools: "base64"},
-		{name: "date-without-d-support", commits: twoBlocks, transcript: t, tools: "date"},
+		{name: "date-without-d-support", commits: twoBlocks, transcript: t, tools: "date", intended: div(reasonDate, "stdout", "stderr", "exit")},
 	}
 }

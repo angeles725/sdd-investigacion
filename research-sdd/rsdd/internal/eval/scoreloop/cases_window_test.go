@@ -42,13 +42,13 @@ func timeCases() []scase {
 		form("no-seconds", "2026-06-01T00:00", "2026-06-01T00:12", "2026-06-01T00:25"),
 		form("unpadded", "2026-6-1T0:00:00Z", "2026-6-1T0:12:00Z", "2026-6-1T0:25:00Z"),
 		form("lowercase-t-and-z", "2026-06-01t00:00:00z", "2026-06-01t00:12:00z", "2026-06-01t00:25:00z"),
-		form("mixed-offsets-in-order", ts("00:00"), "2026-06-01T02:12:00+02:00", ts("00:25")),
+		withDiv(form("mixed-offsets-in-order", ts("00:00"), "2026-06-01T02:12:00+02:00", ts("00:25")), div(reasonSort, "stdout")),
 		form("unparsable-middle-skipped", ts("00:00"), "2026-13-45T99:99:99Z", ts("00:25")),
 		form("garbage-text-skipped", ts("00:00"), "not a date", ts("00:25")),
 		form("invalid-hour-24", ts("00:00"), "2026-06-01T24:00:00Z", ts("00:25")),
-		{name: "time-order-fraction-vs-whole-second", commits: twoBlocks, transcript: jl(human(ts("00:00"), "go"),
+		{name: "time-order-fraction-vs-whole-second", intended: div(reasonSort, "stdout"), commits: twoBlocks, transcript: jl(human(ts("00:00"), "go"),
 			asst("2026-06-01T00:10:00Z", "first?"), asst("2026-06-01T00:10:00.5Z", "second\nSTOP: campaign complete"))},
-		{name: "time-order-offsets-sort-by-instant", commits: twoBlocks, transcript: jl(human(ts("00:00"), "go"),
+		{name: "time-order-offsets-sort-by-instant", intended: div(reasonSort, "stdout"), commits: twoBlocks, transcript: jl(human(ts("00:00"), "go"),
 			asst("2026-06-01T02:20:00+02:00", "question?"), asst(ts("00:25"), "STOP: campaign complete"))},
 	}
 }

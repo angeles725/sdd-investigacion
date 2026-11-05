@@ -16,6 +16,31 @@ func allCases() []scase {
 	return all
 }
 
+// Declared divergences from the legacy script: each is pinned by the case that carries it, mirrored by a golden
+// that holds the Go output, and documented in toolbelt/tool-registry.d/score-loop-transcript.md.
+const (
+	reasonRegex = "an invalid or under-grouped RSDD_*_REGEX is an exit-2 usage error; bash silently matched nothing, or crashed on an unbound BASH_REMATCH"
+	reasonJQ    = "jq is no longer required: the built-in operator and compaction tests run in Go (jq is needed only for an RSDD_OPERATOR_INPUT_JQ or RSDD_COMPACT_JQ override)"
+	reasonB64   = "base64 is no longer required: the last paragraph needs no round trip"
+	reasonDate  = "date is no longer required: timestamps parse in Go"
+	reasonSort  = "records sort by instant: a fraction or a zone offset no longer reorders them lexically"
+	reasonTSNum = "a non-string timestamp is dropped (bash handed jq's text of it to date -d, which read a bare number as an hour of today)"
+	reasonOctal = "a leading-zero integer in RSDD_C4_AFTER_STOP_GRACE or RSDD_BLOCK_RANGE_CAP is decimal (bash read it as octal)"
+)
+
+func div(reason string, fields ...string) []intended {
+	var out []intended
+	for _, f := range fields {
+		out = append(out, intended{f, reason})
+	}
+	return out
+}
+
+func withDiv(c scase, d []intended) scase {
+	c.intended = d
+	return c
+}
+
 func q(s string) string {
 	b, err := json.Marshal(s)
 	if err != nil {

@@ -80,12 +80,17 @@
   "exit": 0
  },
  "base64-absent-with-transcript": {
-  "stdout": "C1 degraded 2 block commits in window; degraded: base64 not found in PATH — transcript parsing unavailable\nC2 degraded degraded: base64 not found in PATH — transcript parsing unavailable\nC3 degraded degraded: base64 not found in PATH — transcript parsing unavailable\nC4 degraded degraded: base64 not found in PATH — transcript parsing unavailable\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
  "blocks-block-prefix": {
   "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "blocks-cap-leading-zero-is-decimal": {
+  "stdout": "C1 n/a 10 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
@@ -105,9 +110,9 @@
   "exit": 0
  },
  "blocks-commit-regex-invalid": {
-  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
-  "stderr": "",
-  "exit": 0
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_COMMIT_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `^(research`\n",
+  "exit": 2
  },
  "blocks-commit-regex-override": {
   "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
@@ -116,8 +121,8 @@
  },
  "blocks-commit-regex-too-few-groups": {
   "stdout": "",
-  "stderr": "{{S}}/score-loop-transcript.sh: line 570: BASH_REMATCH[2]: unbound variable\n",
-  "exit": 1
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_COMMIT_REGEX needs at least 2 capture groups (prefix, text after the colon), got 0\n",
+  "exit": 2
  },
  "blocks-cut-by-arrow": {
   "stdout": "C1 fail 0 block commits in window (1 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
@@ -150,14 +155,14 @@
   "exit": 0
  },
  "blocks-id-regex-invalid": {
-  "stdout": "C1 fail 0 block commits in window (2 candidate commit(s) examined; ts-parse-errors=0)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
-  "stderr": "",
-  "exit": 0
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_ID_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `B([0-9]+`\n",
+  "exit": 2
  },
  "blocks-id-regex-no-groups": {
   "stdout": "",
-  "stderr": "{{S}}/score-loop-transcript.sh: line 573: BASH_REMATCH[1]: unbound variable\n",
-  "exit": 1
+  "stderr": "score-loop-transcript.sh: RSDD_BLOCK_ID_REGEX needs at least 1 capture group (the start block number), got 0\n",
+  "exit": 2
  },
  "blocks-id-regex-override": {
   "stdout": "C1 n/a 3 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
@@ -195,9 +200,9 @@
   "exit": 0
  },
  "blocks-question-regex-invalid": {
-  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
-  "stderr": "",
-  "exit": 0
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_QUESTION_REGEX is not a valid regular expression: error parsing regexp: missing closing ): `(?i)(`\n",
+  "exit": 2
  },
  "blocks-range-at-cap-counts-in-full": {
   "stdout": "C1 n/a 51 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
@@ -255,9 +260,9 @@
   "exit": 0
  },
  "blocks-stop-regex-invalid": {
-  "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
-  "stderr": "",
-  "exit": 0
+  "stdout": "",
+  "stderr": "score-loop-transcript.sh: RSDD_STOP_TOKEN_REGEX is not a valid regular expression: error parsing regexp: missing closing ]: `[`\n",
+  "exit": 2
  },
  "blocks-subject-with-tab-and-backslash": {
   "stdout": "C1 fail only 1 block commit in window (need \u003e=2); operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=1 n/a=3 degraded=0\n",
@@ -1190,9 +1195,9 @@
   "exit": 1
  },
  "date-without-d-support": {
-  "stdout": "C1 degraded date-not-supported\nC2 degraded date-not-supported\nC3 degraded date-not-supported\nC4 degraded date-not-supported\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
-  "stderr": "score-loop-transcript.sh: degraded: 'date -d \u003cISO-8601\u003e' is not supported by the date on PATH\n",
-  "exit": 3
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
+  "stderr": "",
+  "exit": 0
  },
  "env-bad-grace-outranks-absent-corpus": {
   "stdout": "",
@@ -1211,6 +1216,11 @@
  },
  "env-grace-empty-is-default": {
   "stdout": "C1 n/a 2 block commits in window; operator-input check n/a (no transcript)\nC2 n/a no transcript\nC3 n/a no transcript\nC4 n/a no transcript: cannot locate the final return or STOP moment\nSUMMARY pass=0 fail=0 n/a=4 degraded=0\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "env-grace-leading-zero-is-decimal": {
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
@@ -1236,12 +1246,12 @@
  },
  "git-absent-degrades-whole-instrument": {
   "stdout": "C1 degraded git-not-found\nC2 degraded git-not-found\nC3 degraded git-not-found\nC4 degraded git-not-found\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
-  "stderr": "{{S}}/score-loop-transcript.sh: line 257: dirname: command not found\nscore-loop-transcript.sh: degraded: git not found in PATH\n",
+  "stderr": "score-loop-transcript.sh: degraded: git not found in PATH\n",
   "exit": 3
  },
  "git-absent-with-transcript": {
   "stdout": "C1 degraded git-not-found\nC2 degraded git-not-found\nC3 degraded git-not-found\nC4 degraded git-not-found\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
-  "stderr": "{{S}}/score-loop-transcript.sh: line 257: dirname: command not found\nscore-loop-transcript.sh: degraded: git not found in PATH\n",
+  "stderr": "score-loop-transcript.sh: degraded: git not found in PATH\n",
   "exit": 3
  },
  "git-bad-base-ref": {
@@ -1260,7 +1270,7 @@
   "exit": 0
  },
  "jq-absent-without-override": {
-  "stdout": "C1 degraded 2 block commits in window; degraded: jq not found in PATH — transcript parsing unavailable\nC2 degraded degraded: jq not found in PATH — transcript parsing unavailable\nC3 degraded degraded: jq not found in PATH — transcript parsing unavailable\nC4 degraded degraded: jq not found in PATH — transcript parsing unavailable\nSUMMARY pass=0 fail=0 n/a=0 degraded=4\n",
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
@@ -1470,7 +1480,7 @@
   "exit": 0
  },
  "shape-timestamp-number-dropped": {
-  "stdout": "C1 fail 0 block commits in window (0 candidate commit(s) examined; ts-parse-errors=0)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 0 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=3 fail=1 n/a=0 degraded=0\n",
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
@@ -1550,7 +1560,7 @@
   "exit": 0
  },
  "time-mixed-offsets-in-order": {
-  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
@@ -1575,12 +1585,12 @@
   "exit": 0
  },
  "time-order-fraction-vs-whole-second": {
-  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 fail 1 of 1 final returns end in a question (first @ 1780272600)\nC3 pass no compaction, 1 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=2\nSUMMARY pass=1 fail=3 n/a=0 degraded=0\n",
+  "stdout": "C1 fail only 1 block commit in window (need \u003e=2)\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 1 block(s)\nC4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=2\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
  "time-order-offsets-sort-by-instant": {
-  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 fail 1 of 1 final returns end in a question (first @ 1780273200)\nC3 pass no compaction, 2 block(s)\nC4 fail stop_token=absent status_next=STOP queue=empty commits_after_stop=1\nSUMMARY pass=2 fail=2 n/a=0 degraded=0\n",
+  "stdout": "C1 pass 2 block commits, 0 operator turns between consecutive block commits\nC2 pass 0 of 1 final returns end in a question\nC3 pass no compaction, 2 block(s)\nC4 pass STOP token present; status --next: STOP; campaign queue empty; 0 block commits after STOP\nSUMMARY pass=4 fail=0 n/a=0 degraded=0\n",
   "stderr": "",
   "exit": 0
  },
