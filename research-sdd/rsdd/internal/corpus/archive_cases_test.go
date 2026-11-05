@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"os"
 	"path/filepath"
@@ -686,7 +687,7 @@ func archiveFarmStubLib(t testing.TB, tb, name, body string) {
 }
 
 func realLibPath(name string) string {
-	p, _ := filepath.Abs(archiveKitRel + "/toolbelt/lib/" + name)
+	p := filepath.Join(kitroot.Must(), "toolbelt", "lib", name)
 	return p
 }
 

@@ -3,6 +3,7 @@ package corpus
 import (
 	"bytes"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,10 +129,7 @@ func TestArchivePSAScan(t *testing.T) {
 }
 
 func TestArchiveRetroHelpersMatchBash(t *testing.T) {
-	lib, err := filepath.Abs(archiveKitRel + "/toolbelt/lib/retro-status.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
+	lib := kitroot.Path(t, "toolbelt", "lib", "retro-status.sh")
 	dir := t.TempDir()
 	files := map[string]string{
 		"ok.md":        "<!-- review-status: pending -->\n# R\n",

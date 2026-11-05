@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"io"
 	"io/fs"
@@ -44,7 +45,6 @@ var (
 
 const (
 	archiveGoldenDir = "testdata/archive/golden"
-	archiveKitRel    = "../../.."
 )
 
 var archiveClock = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
@@ -240,8 +240,8 @@ func archiveFarm(t testing.TB, root string) string {
 	if err := os.MkdirAll(tb, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	real := archiveReal(t, archiveKitRel+"/toolbelt")
-	kit := archiveReal(t, archiveKitRel)
+	real := kitroot.Path(t, "toolbelt")
+	kit := kitroot.Dir(t)
 	ents, err := os.ReadDir(real)
 	if err != nil {
 		t.Fatal(err)

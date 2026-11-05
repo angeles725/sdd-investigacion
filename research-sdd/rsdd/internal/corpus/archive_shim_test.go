@@ -3,6 +3,7 @@
 package corpus
 
 import (
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +23,7 @@ func TestArchiveShimMatchesLegacy(t *testing.T) {
 		t.Skip("builds the rsdd binary")
 	}
 	bin := archiveRsddBin(t)
-	realTB := archiveReal(t, archiveKitRel+"/toolbelt")
+	realTB := kitroot.Path(t, "toolbelt")
 	shim := filepath.Join(realTB, "research-sdd-archive.sh")
 	for _, tc := range []struct {
 		name  string
@@ -91,7 +92,7 @@ func TestArchiveShimDegradesWithoutBinary(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
 	}
-	shim := filepath.Join(archiveReal(t, archiveKitRel+"/toolbelt"), "research-sdd-archive.sh")
+	shim := filepath.Join(kitroot.Path(t, "toolbelt"), "research-sdd-archive.sh")
 	c := exec.Command("bash", shim, t.TempDir())
 	c.Env = []string{"PATH=" + os.Getenv("PATH"), "RSDD_BIN=" + filepath.Join(t.TempDir(), "missing")}
 	var e strings.Builder
