@@ -14,6 +14,7 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // The pre-filters of kit issue #2645 may only drop lines their regexp could not match.
@@ -59,10 +60,7 @@ func BenchmarkRunStateCorpus(b *testing.B) {
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		b.Skipf("corpus %s is absent", dir)
 	}
-	toolbelt, err := filepath.Abs(filepath.Join("..", "..", "..", "toolbelt"))
-	if err != nil {
-		b.Fatal(err)
-	}
+	toolbelt := kitroot.Path(b, "toolbelt")
 	env := append(os.Environ(), "RSDD_TOOLBELT_DIR="+toolbelt)
 	get := func(k string) string {
 		for i := len(env) - 1; i >= 0; i-- {
