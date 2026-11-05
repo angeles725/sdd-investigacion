@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -99,36 +98,18 @@ func (d *coverDeriver) run() (string, string) {
 	return d.derive(retros, newest)
 }
 
-// blockIDRE is the `<prefix>(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$` test of the newest-block loop, anchored at the
-// base name; with no focus prefix the name needs a `.+-` before the marker.
-func blockIDRE(prefix string) (*regexp.Regexp, int) {
-	head := `^.+-`
-	if prefix != "" {
-		re, _ := grepERE(prefix)
-		head = `^` + re
-	}
-	re, err := regexp.CompilePOSIX(head + `(block|bloque)([0-9]+)(-[[:alnum:]_-]+)?\.md$`)
-	if err != nil {
-		return nil, 0
-	}
-	return re, re.NumSubexp() - 1 // the digits are the second-to-last group, whatever groups the prefix holds
-}
-
 // newestBlock is the highest block id (at most nine digits) among the block files of this focus's scope, -1 when
 // there is none: the same file predicate as the on-disk block count.
 func (d *coverDeriver) newestBlock() (int, bool) {
-	files := d.c.listBlockFiles(dirname(d.state), d.pfx)
-	re, g := blockIDRE(d.pfx)
-	if re == nil {
-		return 0, false
-	}
 	newest, found := 0, false
-	for _, f := range files {
-		m := re.FindStringSubmatch(path.Base(f))
-		if m == nil || len(m[g]) > 9 {
+	for _, f := range d.c.listBlockFiles(dirname(d.state), d.pfx) {
+		// The list holds only canonical block files of this prefix (kit.FilterBlockFiles), so the number is read with
+		// the one shared block pattern: its third group is the digits, whatever groups the focus prefix holds.
+		m := kit.BlockFileNameUnicode.FindStringSubmatch(path.Base(f))
+		if m == nil || len(m[3]) > 9 {
 			continue
 		}
-		n, _ := strconv.Atoi(m[g])
+		n, _ := strconv.Atoi(m[3])
 		newest, found = max(newest, n), true
 	}
 	return newest, found
