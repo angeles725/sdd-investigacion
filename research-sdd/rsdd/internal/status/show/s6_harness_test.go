@@ -33,16 +33,6 @@ const goldenS6 = goldenS2Dir + "s6.golden"
 
 type s6Scenario = s5Scenario
 
-// n6 is the one-state-file scenario over a corpus: corpus/RESEARCH-STATE.md plus extra files, one default run.
-func n6(name, want, state string, extra files, env map[string]string, flags ...string) s6Scenario {
-	return n5(name, want, state, extra, env, flags...)
-}
-
-// m6 is a scenario over an arbitrary file set (the target is {ROOT}/corpus).
-func m6(name, want string, f files, env map[string]string, flags ...string) s6Scenario {
-	return m5(name, want, f, env, flags...)
-}
-
 // ---- the stand-ins for slice S7 -----------------------------------------------------------------------------
 
 const (
