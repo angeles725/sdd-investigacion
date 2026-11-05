@@ -32,7 +32,7 @@ Any regular non-symlink file.  capa identifies formats automatically.
 ## Rules-Dir Bind Safety
 
 The default capa-rules directory lives under `/home`
-(`~/.local/share/capa-rules`), which `adapter_core.sandbox()`'s
+(`~/.local/share/capa-rules`), which `adapter.Sandbox`'s
 `_RO_INPUT_BLOCKED_ROOTS` mechanism blocks to prevent credential exposure.
 
 To make the rules readable inside the sandbox **without reopening the broad
@@ -51,7 +51,7 @@ The rules path is validated before any sandbox is launched (fail-closed):
 2. **Existence and type**: the path must exist and be a regular directory.
 3. **Scope guard** (`_rules_scope_guard`): rejects blocked system roots, paths at
    the `/home/<user>` level, and paths shallower than 3 components.  Mirrors
-   `venv_root_for()` in `adapter_helpers`.  `--rules ~/` fails before any FS walk.
+   `venv_root_for()` (Go: `core/adapter/helpers`).  `--rules ~/` fails before any FS walk.
 4. **Plausibility**: requires ≥ 50 `.yml` files OR a known structural subdir
    (`nursery/`, `lib/`, `host-interaction/`, …).  A stray `.yml` does not qualify.
 
@@ -67,7 +67,7 @@ The validated, resolved rules directory is bound read-only at
 the bwrap prefix.  capa is then invoked with `-r /tmp/rsdd/capa-rules`.
 
 This binding is local to `rsdd corroborate capa` (`rules.go`; not promoted to
-`adapter_helpers.bind_venv`) because it binds a **data directory**, not a tool
+`helpers` bind-venv) because it binds a **data directory**, not a tool
 venv, and the mount semantics are different: no `pyvenv.cfg` marker, no
 `bin/`-parent check, and the sandbox target path is fixed rather than mirroring
 the host path.
@@ -85,7 +85,7 @@ capa runs inside a hardened Bubblewrap sandbox:
 | Signal | `--die-with-parent` — sandbox killed on parent exit |
 
 The capa pipx venv (`~/.local/share/pipx/venvs/flare-capa`) is validated and
-bound read-only via `adapter_helpers.bind_venv`; no venv content is written.
+bound read-only via `helpers` bind-venv; no venv content is written.
 `/etc/passwd` and `/etc/group` are bound read-only via `etc_ro_bind_try`
 because vivisect calls `getpass.getuser()` → `pwd.getpwuid()`.
 
@@ -144,7 +144,7 @@ appended to `limitations` and `capabilities.truncated` is set to `true`.
   sorted by `(namespace, name)`.  The limitation string
   `"inventory truncated: capability cap N reached (total_count=M)"` is appended.
 - **Run-level caps** (timeout, output-cap, process-cap): when
-  `adapter_core.run_bounded` fires a resource cap, `run_truncation` maps it to
+  `proc.Run` (`core/proc`) fires a resource cap, `run_truncation` maps it to
   `capabilities.truncated: true` and a limitation string.  The fired cap is also
   present in `errors` (e.g. `"timeout"`).
 

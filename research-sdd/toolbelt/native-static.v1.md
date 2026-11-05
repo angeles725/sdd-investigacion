@@ -36,10 +36,10 @@ functions, truncation, limitations, errors, and the sibling manifest identity.
 | `limitations`, `errors` | Epistemic limits and machine-readable failures |
 
 `engine/analysis-manifest.v1.json` is created and validated only through the
-public `analysis_manifest.py` CLI and can be rechecked with:
+public `rsdd adapter manifest` CLI and can be rechecked with:
 
 ```sh
-python3 analysis_manifest.py verify --root evidence/native \
+rsdd adapter manifest verify --root evidence/native \
   evidence/native/engine/analysis-manifest.v1.json
 ```
 

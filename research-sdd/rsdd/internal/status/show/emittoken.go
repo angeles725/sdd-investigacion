@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // verdictPrefixes are the first-column verdict shapes --emit-token recognises (ET-VERDICT-PICK).
@@ -88,7 +87,7 @@ func stopToken(args []string, verdict string, s cli.Stdio, unavail func(string) 
 		return unavail("STOP carries [backlog-unreadable: N rows] — unread backlog rows must be reconciled before any STOP: campaign token") // ET-BU-NONTERMINAL
 	}
 	c := &ctx{s: s, target: args[0]}
-	states, err := kit.ListStateFiles(c.abs(c.target))
+	states, err := listStateFiles(c.abs(c.target))
 	if err != nil {
 		return unavail("STOP: cannot enumerate state files (" + err.Error() + ")")
 	}

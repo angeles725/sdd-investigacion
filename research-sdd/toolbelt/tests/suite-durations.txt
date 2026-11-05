@@ -16,7 +16,6 @@
 # shard totals drift apart; a stale weight only costs balance, never coverage.
 research-sdd/install/tests/kit-checkout-resolution.test.sh 17
 research-sdd/install/tests/research-sdd-install.test.sh 121
-research-sdd/toolbelt/tests/adapter-helpers.test.sh 1
 research-sdd/toolbelt/tests/adversarial-verdict.test.mjs 1
 research-sdd/toolbelt/tests/adversarial-verify.test.mjs 1
 research-sdd/toolbelt/tests/append-iteration-row.test.sh 5

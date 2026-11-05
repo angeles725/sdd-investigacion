@@ -404,10 +404,15 @@ func hasEnvOpen(text string) bool {
 
 // blockFileCount is `find "$(dirname "$state")" -maxdepth 1 -type f -name '*.md' | block_file_filter [prefix] | wc -l`.
 func (c *ctx) blockFileCount(prefix string) int {
-	dir := dirname(c.state)
+	return len(c.listBlockFiles(dirname(c.state), prefix))
+}
+
+// listBlockFiles is `find dir -maxdepth 1 -type f -name '*.md' | block_file_filter [prefix]`: the canonical block
+// files directly under dir, as dir/name. A directory that cannot be read lists none.
+func (c *ctx) listBlockFiles(dir, prefix string) []string {
 	ents, err := os.ReadDir(c.abs(dir))
 	if err != nil {
-		return 0
+		return nil
 	}
 	var lines []string
 	for _, e := range ents {
@@ -421,7 +426,7 @@ func (c *ctx) blockFileCount(prefix string) int {
 	if errors.Is(err, kit.ErrBadPattern) && unclosed { // grep's own complaint, on the script's stderr
 		fmt.Fprintln(c.s.Err, `grep: Unmatched ( or \(`)
 	}
-	return len(out)
+	return out
 }
 
 // grepERE adapts a prefix to Go's POSIX syntax where GNU grep -E differs for the faults a slug can carry: a lone

@@ -228,3 +228,10 @@ func TestDifferentialS4(t *testing.T) {
 	}
 	checkGolden(t, goldenS4, sections)
 }
+
+// The frozen script's side of the stand-ins: the two S5 functions, defined inside the --next block between the two
+// excerpts, and the tail that answers every other mode.
+const (
+	s4MidBash  = "  issues_due_gate() { _stop_exhausted; }\n  _rd_covers_derive() { _rd_eff=\"$2\"; _rd_note=\"\"; }\n"
+	s4TailBash = "\nprintf 'S4-TAIL mode=%s\\n' \"$mode\"\n"
+)
