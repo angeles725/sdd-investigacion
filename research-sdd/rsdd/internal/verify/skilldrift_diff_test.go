@@ -176,6 +176,7 @@ func (w *sdWorld) sameRun(args []string) {
 }
 
 func TestSkillDriftDifferential(t *testing.T) {
+	t.Parallel()
 	for _, sc := range sdScenarios(t) {
 		t.Run(sc.name, func(t *testing.T) {
 			if os.Geteuid() == 0 && strings.Contains(sc.name, "unreadable") {
@@ -193,6 +194,7 @@ func TestSkillDriftDifferential(t *testing.T) {
 
 // The kit reached through a symlink: both resolve it physically (cd -P), so the messages name the real paths.
 func TestSkillDriftDifferentialKitThroughASymlink(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.withBash()
 	w.deploy(claudeRel, "x\n")
@@ -212,6 +214,7 @@ func TestSkillDriftDifferentialKitThroughASymlink(t *testing.T) {
 
 // The script's header is its --help; the Go copy must be the same bytes.
 func TestSkillDriftHelpEqualsTheFrozenScriptHeader(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.withBash()
 	header, err := exec.Command("bash", "-c", `sed -n '3,32p' "$1" | sed 's/^# \{0,1\}//'`, "sh", filepath.Join(w.kit, "toolbelt", "verify-skill-drift.sh")).Output()
@@ -225,6 +228,7 @@ func TestSkillDriftHelpEqualsTheFrozenScriptHeader(t *testing.T) {
 
 // The compiled-in adapter table must be what the installer's adapters.sh declares: this reads the REAL file.
 func TestSkillDriftAdapterTableEqualsAdaptersSh(t *testing.T) {
+	t.Parallel()
 	adapters := filepath.Join(sdLiveKit(t), "install", "adapters.sh")
 	script := `. "$1"; echo "$RESEARCH_SDD_HARNESSES"; for h in $RESEARCH_SDD_HARNESSES; do
   printf '%s|%s|%s|%s\n' "$h" "$(rsdd_field "$h" config_root /H)" "$(rsdd_field "$h" skill_src_relkit)" "$(rsdd_field "$h" prompt_profile)"; done`
@@ -250,6 +254,7 @@ func TestSkillDriftAdapterTableEqualsAdaptersSh(t *testing.T) {
 // Declared difference: a renderer that cannot be started is reported with Go's error text, not the shell's
 // "Permission denied" line; the exit code, stdout and the closing ERROR line are the script's.
 func TestSkillDriftRenderNotExecutableDiffersOnlyInTheSpawnMessage(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.withBash()
 	w.withProfiles()

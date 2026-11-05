@@ -69,10 +69,14 @@ func lookupEnv(s cli.Stdio, key string) (string, bool) {
 	return "", false
 }
 
-// runeCut is `cut -c1-n`.
+// runeCut is `cut -c1-n`. A string of at most n runes comes back byte for byte, invalid UTF-8 included; only a
+// cut string goes through []rune (which turns an invalid byte into U+FFFD).
 func runeCut(s string, n int) string {
 	r := []rune(s)
-	return string(r[:min(len(r), n)])
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // sanitised is `printf %s "$v" | tr -cd '[:alnum:]._-' | cut -c1-30`.

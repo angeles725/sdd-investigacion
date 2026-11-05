@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"bytes"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -205,9 +206,7 @@ func TestArchiveGitLogCallsPassNoRenames(t *testing.T) {
 		t.Skip("git not found")
 	}
 	script := "#!/bin/bash\nprintf '%s\\n' \"$*\" >> '" + logf + "'\nexec '" + real + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	execfile.Write(t, filepath.Join(bin, "git"), script)
 	d := f.path("c")
 	f.mkrunGit(d, true, "")
 	env := append(archiveBaseEnv(t, root), "PATH="+bin+":"+os.Getenv("PATH"))
