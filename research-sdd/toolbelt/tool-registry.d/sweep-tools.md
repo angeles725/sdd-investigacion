@@ -4,6 +4,7 @@ Intended divergences of `rsdd sweep tools` (the Go port behind `sweep-tools.sh` 
 
 | Divergence | Legacy script | Port |
 |---|---|---|
+| Arguments other than `--json`, `--hook`, `--full` and `--kit DIR` (#2687) | Ignored: `sweep-tools.sh --jsno` (or any word) answered in plain text and exited 0, so a caller asking for another mode could not tell it got none. | Plain mode: usage error before any output, `sweep-tools: unsupported argument "<arg>"` on stderr, exit 2. Hook mode keeps the hook contract (exit 0, empty stderr): the same line under the hook's "could not run (exit 2 …)" header. The first problem in argument order is reported. `internal/sweep/args_test.go`. |
 | Dependency directories (`node_modules`, `__pycache__`, `.venv`, `.git`) | `find -not -path '*/<dir>/*'` matched the whole path, so a target that itself lived under a `.venv/` or `node_modules/` directory read as `tools/ directory exists but is empty`. | The exclusion is judged on the path below `tools/` only (`TestToolsFilesIgnoreTargetPrefix`, scenario "target under a dependency dir keeps its tools"). |
 | `tools/` that is a symbolic link to a directory | `find` listed the link and nothing under it: `exists but is empty`. | The link is followed (scenario "tools symlinked to a directory is followed"). |
 | Tool name in a retro T-row | `grep -qF "$base"`: a name starting with a dash was read as an option and never matched (and `dirname`/`grep` printed usage errors to stderr). | The name is a literal substring (scenario "tool name starting with a dash is found in a retro"). |

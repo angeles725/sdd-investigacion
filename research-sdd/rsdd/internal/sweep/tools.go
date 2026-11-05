@@ -43,8 +43,7 @@ import (
 func RunTools(args []string, s cli.Stdio) int {
 	o, err := parseOptions(args)
 	if err != nil {
-		fmt.Fprintf(s.Err, "sweep-tools: %v\n", err)
-		return cli.ExitUsage
+		return usageFailure(s, o, "tools", toolsHookFailedFmt, err)
 	}
 	if o.hook {
 		return runToolsHook(o, s, os.ReadFile)

@@ -219,7 +219,6 @@ func btScenarios() []btScenario {
 			w.unreadable(w.root + "/targetA/pfx-block1.md")
 		}, has: []string{"WARN: block file unreadable, marker scan skipped: {A}/pfx-block1.md\n", "Summary: 0 tagged breakthrough(s) across corpora · 0 unindexed · 0 drifted · 1 skipped-unreadable.\n"},
 			lacks: []string{"Ledger consistent"}, hook: []string{"WARN: block file unreadable, marker scan skipped"}},
-		{name: "unknown arguments are ignored", old: "(script ignored them)", setup: btOne(true, indexedRow), args: []string{"--nope", "extra"}, has: []string{btSummaryClean}},
 		{name: "marker allows blanks after the quote", old: "(spot)", golden: true, setup: func(w *world) {
 			a := w.tgt("targetA")
 			w.btText(a+"/pfx-block1.md", "#", ">\t **Breakthrough:** tabbed", ">**Breakthrough:** tight")
