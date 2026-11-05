@@ -733,18 +733,6 @@ func TestMergeTrainDegradedStderr(t *testing.T) {
 
 // TestMergeTrainKnobs pins the numeric environment knobs of the inlined kit-wait-merge and kit-gate.
 func TestMergeTrainKnobs(t *testing.T) {
-	cases := []struct {
-		v      string
-		def, n int
-	}{{"", 120, 120}, {"7", 120, 7}, {"abc", 120, 0}, {" 3 ", 5, 3}}
-	for _, k := range cases {
-		if got := intOr(k.v, k.def); got != k.n {
-			t.Errorf("intOr(%q,%d) = %d, want %d", k.v, k.def, got, k.n)
-		}
-	}
-	if atoi0("", 5) != 5 || atoi0("x", 5) != 0 {
-		t.Error("atoi0 default / non-number")
-	}
 	c := newMtCase(t)
 	c.mk(1)
 	c.env = append(c.env, "KIT_GATE_LOCK_TIMEOUT=abc")

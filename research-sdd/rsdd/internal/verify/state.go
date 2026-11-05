@@ -537,7 +537,7 @@ func literalPrefix(p string) bool {
 
 func (v *verifier) countBlocksUncached(dir, prefix string) string {
 	lines := v.mdLines(dir)
-	if prefix != "" && literalPrefix(prefix) {
+	if literalPrefix(prefix) { // an empty prefix is literal too: every line contains it
 		// A cheap necessary condition first: the POSIX regexp then runs only on the plausible lines (#2645).
 		var keep []string
 		for _, l := range lines {
@@ -603,11 +603,11 @@ func matchesAnyLine(re *regexp.Regexp, text string) bool {
 	return firstLineMatching(shellx.RecordLines(text), re, func(l string) bool { return strings.Contains(l, "<") }) != ""
 }
 
-// firstLineMatching is `grep -E ... | head -1`; may, when set, is a cheap necessary condition tested before the
-// regexp (kit issue #2645).
+// firstLineMatching is `grep -E ... | head -1`; may is a cheap necessary condition tested before the regexp
+// (kit issue #2645).
 func firstLineMatching(lines []string, re *regexp.Regexp, may func(string) bool) string {
 	for _, l := range lines {
-		if (may == nil || may(l)) && re.MatchString(l) {
+		if may(l) && re.MatchString(l) {
 			return l
 		}
 	}

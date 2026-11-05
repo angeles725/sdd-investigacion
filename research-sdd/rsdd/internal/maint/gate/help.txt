@@ -1,0 +1,21 @@
+# kit-gate.sh [--serial | --cmd CMD] [--state-dir DIR] [--lock-timeout SECONDS] <worktree> <label>
+#
+# Kit-maintenance tool (kit issue #2212): ONE serial full gate. A flock on <state-dir>/gate.lock makes concurrent
+# callers queue, so only one gate runs at a time on this machine (CLAUDE.md section 3: only a quiet-tree gate is
+# authoritative). The gate's output goes to <state-dir>/gate-<label>.log; the summary lines are echoed.
+# Default CMD (run with bash -c inside <worktree>): bash research-sdd/toolbelt/tests/run-all.sh -j 4 --prove-teeth
+# (the maintainer's established gate of record; -j 4 is the attributed parallel run, CLAUDE.md section 5).
+# --serial runs `run-all.sh --prove-teeth` with NO -j instead: serial is the CLAUDE.md section 5 REFERENCE for the
+# quiet-tree gate. Use it when a -j result is in doubt (a timing-only failure, a leak the -j attribution could not
+# pin), or when the machine is loaded. --serial cannot be combined with --cmd.
+# --lock-timeout SECONDS (env KIT_GATE_LOCK_TIMEOUT, default 14400): how long to wait for the gate lock.
+# Never edit this file in place while a gate that started from it is queued or running: bash reads a script
+# incrementally, so an in-place edit corrupts the live run. Copy, edit the copy, start new runs from it.
+#
+# Typed exit states (the gate's own rc is NOT passed through: it could collide with 2 or 3; it is in the log as
+# `gate rc=N` and in the `kit-gate: gate rc=N` line):
+#   0   the gate passed
+#   2   usage              bad arguments, a missing worktree, or a --state-dir inside the worktree
+#   3   degraded           flock or git missing: `degraded: missing runtime dependency: ...`
+#   16  gate-failed        the gate command exited non-zero
+#   22  gate-lock-timeout  the gate lock was not obtained within --lock-timeout

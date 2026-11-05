@@ -75,6 +75,7 @@ GO_SRC=(
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
   "check-gap-drift.sh=../rsdd/internal/verify/gapdrift"         # its own sub-package (kit issue #2645), so no GO_FILES glob is needed
   "score-loop-transcript.sh=../rsdd/internal/eval/scoreloop"   # c2.go and c4.go print the empty-input n/a reason (kit issue #993)
+  "kit-size-check.sh=../rsdd/internal/maint/sizecheck"   # classify.go names the empty-input state of the size verdict (kit issue #2212)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
@@ -82,6 +83,7 @@ GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pca
   zip-metadata.sh merge-gate.sh palette-lexicon-agents.sh serial-frame-analyze.sh squashfs-extract.sh
   serial-frame-capture.sh verify-session-budget.sh zip-stored.sh research-sdd-archive.sh
   hook-wiring.sh kit-merge-train.sh kit-rdd-drive.sh kit-rdd-start.sh detect-tools.sh verify-state.sh
+  kit-gate.sh kit-wait-merge.sh kit-pr-pipeline.sh
   resume-state.sh resume-render.sh verify-block.sh verify-registry-hook.sh)   # verify-registry-hook.sh emits only the envelope of verify-registry.sh's states
 # The rsdd_exec_hook shims the scan newly sees (kit issue #2597), checked to emit no registry input state of their own.
 GO_NO_TYPED+=(return-token-gate.sh verify-kit-clean-hook.sh verify-skill-drift-hook.sh)

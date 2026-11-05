@@ -34,6 +34,26 @@ mutant_cleanup_register "$T" || exit 2
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
 
+# The SUT is a compatibility shim over the Go binary (kit issue #2212): `rsdd maint size-check`. The suite is the
+# black-box check of the shim plus the Go command behind it. $RSDD_BIN wins; otherwise one binary is built into the
+# suite temp dir (never into the tree). The behaviour's mutation controls live in the Go tests
+# (internal/maint/sizecheck, `make teeth`); the controls at the end mutate the shim itself.
+if [ -z "${RSDD_BIN:-}" ] || [ ! -x "${RSDD_BIN:-}" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    why="go not in PATH"
+    [ -z "${RSDD_BIN:-}" ] || why="RSDD_BIN is not an executable file ($RSDD_BIN) and go is not in PATH"
+    if [ "${RSDD_REQUIRE_GO:-}" = "1" ]; then
+      echo "  FAIL  rsdd-unavailable: $why (RSDD_REQUIRE_GO=1)"; echo "== 0 passed · 1 failed =="; exit 1
+    fi
+    echo "SKIP rsdd-unavailable: $why (tool-missing; set RSDD_REQUIRE_GO=1 to fail instead)"
+    echo "== 0 passed · 0 failed =="; exit 0
+  fi
+  RSDD_BIN="$T/rsdd"
+  ( cd "$TB/../rsdd" && CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS='' GOWORK=off go build -o "$RSDD_BIN" ./cmd/rsdd ) >"$T/build.log" 2>&1 \
+    || { echo "FATAL: cannot build rsdd" >&2; tail -n 20 "$T/build.log" >&2; exit 2; }
+fi
+export RSDD_BIN
+
 pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass + 1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail + 1)); }
@@ -293,9 +313,7 @@ mkdir -p "$T/plain"
 OUT="$(cd "$T/plain" && GIT_CEILING_DIRECTORIES="$T" bash "$SUT" --base x 2>"$T/err")"; RC=$?; ERR="$(cat "$T/err")"
 check "d3 not a git work tree -> exit 2" both 2 degraded
 check "d3b says why" bash -c 'grep -Fq "not inside a git work tree" <<<"$0"' "$ERR"
-OUT="$(env PATH=/nonexistent "$BASH" "$SUT" --base x 2>"$T/err")"; RC=$?; ERR="$(cat "$T/err")"
-check "d4 git missing -> exit 2, typed" both 2 degraded
-check "d4b says git is not installed" bash -c 'grep -Fq "git is not installed" <<<"$0"' "$ERR"
+# d4 (git missing -> exit 2, typed) cannot run through the shim (it needs dirname on PATH): it is Go test TestGitMissingIsATypedDegradedState
 rorph="$(mkrepo rorph)"; cg "$rorph" checkout -q --orphan other; cg "$rorph" rm -rfq .; printf 'x\n' >"$rorph/f"; commit_all "$rorph"
 run "$rorph" --base main --head other
 check "d5 no merge base -> exit 2" both 2 degraded
@@ -338,10 +356,11 @@ check "h2 no temp leftovers after an over-budget --strict run" bash -c '[ -z "$(
 OUT="$(cd "$r400" && TMPDIR="$T/tmproot" bash "$SUT" --base nope 2>/dev/null)"; RC=$?
 check "h3 no temp leftovers after a degraded run" bash -c '[ -z "$(ls -A "$0")" ]' "$T/tmproot"
 
-# ---- mutation controls --------------------------------------------------------------------------------
+# ---- mutation controls (the shim itself; the behaviour's controls are the Go tests') ------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: each boundary, exclusion and state must be load-bearing --"
-  MUT="$T/mut"; mkdir -p "$MUT"
+  echo "-- teeth: the shim must dispatch to rsdd maint size-check with the caller's arguments --"
+  # a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+  KC="$T/kitcopy"; MUT="$KC/maint"; mkdir -p "$MUT" && ln -s "$TB/lib" "$KC/lib"
   cat >"$T/runner.sh" <<'EOS'
 cd "$1" || exit 99
 shift
@@ -351,68 +370,10 @@ EOS
   tt() { if mutant_tooth "$@"; then pass=$((pass + 1)); else fail=$((fail + 1)); fi; }
   # shellcheck disable=SC2016  # the sed expressions are literal text
   {
-    mk "m1 budget -le->-lt" "$SUT" "$MUT/m1.sh" 's/-le "\$BUDGET" \]; then state=ok/-lt "$BUDGET" ]; then state=ok/' \
-      && tt "m1 budget boundary: exactly 400 lines must stay ok" 0 0 "$MUT/m1.sh" --good-has "size: ok" --bad-lacks "size: ok" -- bash "$T/runner.sh" "$r400" @SUT@ --base base
-    mk "m2 hard -le->-lt" "$SUT" "$MUT/m2.sh" 's/-le "\$HARD" \]; then state=over-budget/-lt "$HARD" ]; then state=over-budget/' \
-      && tt "m2 hard-limit boundary: exactly 800 lines is over-budget, not refuse" 0 3 "$MUT/m2.sh" --good-has "size: over-budget" --bad-has "size: refuse" -- bash "$T/runner.sh" "$r800" @SUT@ --base base
-    mk "m3 fixtures exclusion" "$SUT" "$MUT/m3.sh" 's#^    research-sdd/toolbelt/tests/fixtures/\*) return 0 ;;#    nomatch/fixtures/*) return 0 ;;#' \
-      && tt "m3 fixture exclusion removed -> fixture lines counted" 0 0 "$MUT/m3.sh" --good-has "authored changed lines: 12 " --bad-lacks "authored changed lines: 12 " -- bash "$T/runner.sh" "$rfix" @SUT@ --base base
-    mk "m4 lockfile exclusion" "$SUT" "$MUT/m4.sh" 's#^    \*\.lock|.*) return 0 ;;#    nomatch-lock) return 0 ;;#' \
-      && tt "m4 lockfile exclusion removed -> lockfile lines counted" 0 0 "$MUT/m4.sh" --good-has "authored changed lines: 3 " --bad-lacks "authored changed lines: 3 " -- bash "$T/runner.sh" "$rlock" @SUT@ --base base
-    mk "m4b *.lock alternative" "$SUT" "$MUT/m4b.sh" 's#^    \*\.lock|#    nomatch.lock|#' \
-      && tt "m4b the *.lock alternative alone is load-bearing (Cargo.lock)" 0 0 "$MUT/m4b.sh" --good-has "400 line.s. in 4 file" --bad-lacks "400 line.s. in 4 file" -- bash "$T/runner.sh" "$rlock" @SUT@ --base base
-    mk "m5 40% strict" "$SUT" "$MUT/m5.sh" 's/-gt \$((authored \* 40))/-ge $((authored * 40))/' \
-      && tt "m5 hotspot threshold: exactly 40% must not be flagged" 0 0 "$MUT/m5.sh" --good-lacks "mechanical churn" --bad-has "mechanical churn" -- bash "$T/runner.sh" "$rc40" @SUT@ --base base
-    mk "m6 min lines" "$SUT" "$MUT/m6.sh" 's/\[ "\$tot" -ge 10 \]/[ "$tot" -ge 9 ]/' \
-      && tt "m6 hotspot minimum: 9 lines must not be flagged" 0 0 "$MUT/m6.sh" --good-lacks "mechanical churn" --bad-has "mechanical churn" -- bash "$T/runner.sh" "$rc9" @SUT@ --base base
-    mk "m7 share 80" "$SUT" "$MUT/m7.sh" 's/\$((best \* 100)) -ge \$((tot \* 80))/$((best * 100)) -ge $((tot * 70))/' \
-      && tt "m7 pattern share: 70% must not be flagged" 0 0 "$MUT/m7.sh" --good-lacks "mechanical churn" --bad-has "mechanical churn" -- bash "$T/runner.sh" "$rc7" @SUT@ --base base
-    mk "m8 all-excluded" "$SUT" "$MUT/m8.sh" 's/\[ "\$ex_files" -gt 0 \]/[ "$ex_files" -gt 999999 ]/' \
-      && tt "m8 all-excluded state removed -> reads as ok" 0 0 "$MUT/m8.sh" --good-has "size: all-excluded" --bad-lacks "size: all-excluded" -- bash "$T/runner.sh" "$rfo" @SUT@ --base base
-    mk "m9 empty-input" "$SUT" "$MUT/m9.sh" 's/if \[ "\$nentries" -eq 0 \]; then state=empty-input/if [ "$nentries" -eq -1 ]; then state=empty-input/' \
-      && tt "m9 empty-input state removed -> reads as ok" 0 0 "$MUT/m9.sh" --good-has "size: empty-input" --bad-lacks "size: empty-input" -- bash "$T/runner.sh" "$r400" @SUT@ --base base --head base
-    mk "m10 strict" "$SUT" "$MUT/m10.sh" 's/\[ "\$STRICT" -eq 0 \] || exitcode=3/true/' \
-      && tt "m10 --strict ignored -> over-budget exits 0" 3 0 "$MUT/m10.sh" --good-has "size: over-budget" -- bash "$T/runner.sh" "$r401" @SUT@ --base base --strict
-    mk "m11 unmeasured" "$SUT" "$MUT/m11.sh" 's/then U_paths+=("\$p"); continue; fi/then continue; fi/' \
-      && tt "m11 binary files no longer listed" 0 0 "$MUT/m11.sh" --good-has "unmeasured .binary.: 2 file" --bad-lacks "unmeasured .binary.: 2 file" -- bash "$T/runner.sh" "$rbin" @SUT@ --base base
-    mk "m12 rename" "$SUT" "$MUT/m12.sh" 's/R_rows+=("\$old -> \$p"); continue; fi/: ; fi/' \
-      && tt "m12 pure renames no longer recognised" 0 0 "$MUT/m12.sh" --good-has "pure renames .0 lines.: 2 file" --bad-lacks "pure renames .0 lines.: 2 file" -- bash "$T/runner.sh" "$rren" @SUT@ --base seed
-    mk "m13 base ref check" "$SUT" "$MUT/m13.sh" 's/^git rev-parse --verify --quiet "\${BASE}^{commit}".*$/:/' \
-      && tt "m13 bad base ref no longer named" 2 2 "$MUT/m13.sh" --good-has "base ref does not resolve to a commit" --bad-lacks "base ref does not resolve to a commit" -- bash "$T/runner.sh" "$r400" @SUT@ --base no-such-ref
-    mk "m14 pair key" "$SUT" "$MUT/m14.sh" 's#^    research-sdd/toolbelt/tests/\*\.test\.sh) .*$#    nomatch-pair) : ;;#' \
-      && tt "m14 test+SUT pairing removed -> pair split across chunks" 0 0 "$MUT/m14.sh" --good-has "chunk 3: 100 lines" --bad-lacks "chunk 3: 100 lines" -- bash "$T/runner.sh" "$rsp" @SUT@ --base base --budget 450 --hard-limit 900
-    mk "m15 chunk limit" "$SUT" "$MUT/m15.sh" 's/cur + tot\[k\] > B/cur + tot[k] > 99999/' \
-      && tt "m15 chunk budget ignored -> one giant chunk" 0 0 "$MUT/m15.sh" --good-has "chunk 3: 100 lines" --bad-lacks "chunk 3: 100 lines" -- bash "$T/runner.sh" "$rsp" @SUT@ --base base --budget 450 --hard-limit 900
-    mk "m16 hard default" "$SUT" "$MUT/m16.sh" 's/HARD=\$((BUDGET \* 2))/HARD=$((BUDGET * 3))/' \
-      && tt "m16 default hard-limit is 2 x budget (21 lines, budget 10 -> refuse)" 3 0 "$MUT/m16.sh" --good-has "size: refuse" --bad-has "size: over-budget" -- bash "$T/runner.sh" "$r21" @SUT@ --base base --budget 10
-    mk "m17 tab refusal" "$SUT" "$MUT/m17.sh" 's/) degrade "unsupported path (control character: tab, newline, CR...) in diff" ;; esac/) : ;; esac/' \
-      && tt "m17 tab-in-path guard removed" 2 0 "$MUT/m17.sh" --good-has "unsupported path" --bad-lacks "unsupported path" -- bash "$T/runner.sh" "$rtab" @SUT@ --base base
-    mk "m14b maint pairing" "$SUT" "$MUT/m14b.sh" 's#^    research-sdd/toolbelt/\*) .*$#    nomatch-sut) : ;;#' \
-      && tt "m14b a maint/ or lib/ SUT no longer pairs with its toolbelt test" 0 0 "$MUT/m14b.sh" --good-has "chunk 2: 400 lines" --bad-lacks "chunk 2: 400 lines" -- bash "$T/runner.sh" "$rpm" @SUT@ --base base --budget 450 --hard-limit 900
-    mk "m18 fixture logic" "$SUT" "$MUT/m18.sh" 's#^    research-sdd/toolbelt/tests/fixtures/\*\.sh|.*) return 1 ;;#    nomatch-logic) return 1 ;;#' \
-      && tt "m18 fixture scripts excluded again (30 -> 0)" 0 0 "$MUT/m18.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
-    mk "m18b fixture .py" "$SUT" "$MUT/m18b.sh" 's#|research-sdd/toolbelt/tests/fixtures/\*\.py##' \
-      && tt "m18b fixture .py no longer counted" 0 0 "$MUT/m18b.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
-    mk "m18c fixture .mjs" "$SUT" "$MUT/m18c.sh" 's#|research-sdd/toolbelt/tests/fixtures/\*\.mjs##' \
-      && tt "m18c fixture .mjs no longer counted" 0 0 "$MUT/m18c.sh" --good-has "authored changed lines: 30 " --bad-lacks "authored changed lines: 30 " -- bash "$T/runner.sh" "$rfx" @SUT@ --base base
-    mk "m19 unmeasured" "$SUT" "$MUT/m19.sh" 's/^elif \[ "\${#M_rows\[@\]}" -eq 0 \]; then state=unmeasured/elif false; then state=unmeasured/' \
-      && tt "m19 unmeasured state removed -> binary-only reads as ok" 0 0 "$MUT/m19.sh" --good-has "size: unmeasured" --bad-lacks "size: unmeasured" -- bash "$T/runner.sh" "$rbo" @SUT@ --base base
-    mk "m20 binary+excluded" "$SUT" "$MUT/m20.sh" 's/\[ "\${#R_rows\[@\]}" -eq 0 \]; then state=all-excluded/[ "${#R_rows[@]}" -eq 0 ] \&\& [ "${#U_paths[@]}" -eq 0 ]; then state=all-excluded/' \
-      && tt "m20 binary + excluded data no longer all-excluded" 0 0 "$MUT/m20.sh" --good-has "size: all-excluded" --bad-lacks "size: all-excluded" -- bash "$T/runner.sh" "$rbx" @SUT@ --base base
-    mk "m21 range dots" "$SUT" "$MUT/m21.sh" 's/^RANGE="\$BASE\.\.\.\$HEAD_REF"/RANGE="$BASE..$HEAD_REF"/' \
-      && tt "m21 two-dot range counts the advanced base (505, not 5)" 0 0 "$MUT/m21.sh" --good-has "authored changed lines: 5 " --bad-lacks "authored changed lines: 5 " -- bash "$T/runner.sh" "$radv" @SUT@ --base main --head feat
-    mk "m22 merge-base check" "$SUT" "$MUT/m22.sh" 's/^git merge-base .*$/:/' \
-      && tt "m22 merge-base check dropped" 2 2 "$MUT/m22.sh" --good-has "no merge base" --bad-lacks "no merge base" -- bash "$T/runner.sh" "$rorph" @SUT@ --base main --head other
-    mk "m23 unchecked hotspot" "$SUT" "$MUT/m23.sh" 's/H_unchecked+=("\$p"); continue/continue/' \
-      && tt "m23 failed hotspot diff silently skipped" 0 0 "$MUT/m23.sh" --good-has "hotspot: unchecked" --bad-lacks "hotspot: unchecked" -- env "PATH=$T/fakebin:$PATH" bash "$T/runner.sh" "$rc_pos" @SUT@ --base base
-    mk "m24 base-10 budget" "$SUT" "$MUT/m24.sh" 's/^BUDGET=\$((10#\$BUDGET))/BUDGET=$((BUDGET + 0))/' \
-      && tt "m24 octal-looking --budget 010 no longer base 10" 0 0 "$MUT/m24.sh" --good-has "budget 10, hard-limit 20" --bad-lacks "budget 10, hard-limit 20" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --budget 010
-    mk "m25 length cap" "$SUT" "$MUT/m25.sh" 's/\[ "\${#BUDGET}" -le 9 \]/true/' \
-      && tt "m25 over-long --budget no longer refused" 2 0 "$MUT/m25.sh" --good-has "at most 9 d" --bad-lacks "at most 9 d" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --budget 1234567890
-    mk "m26 empty hard-limit" "$SUT" "$MUT/m26.sh" "s/case \"\\\$HARD\" in ''|\\*\\[!0-9\\]\\*)/case \"\$HARD\" in *[!0-9]*)/" \
-      && tt "m26 empty --hard-limit silently accepted" 2 2 "$MUT/m26.sh" --good-has "--hard-limit must be" --bad-lacks "--hard-limit must be" -- bash "$T/runner.sh" "$r10" @SUT@ --base base --hard-limit ''
-    mk "m27 json control chars" "$SUT" "$MUT/m27.sh" 's/^  s=\${s\/\/\$.\\t.\/\\\\t}; .*$/  :/' 's/^  s=\${s\/\/\[\[:cntrl:\]\]\/?}$/  :/' \
-      && tt "m27 json escaping of control characters removed -> raw CR in the document" 0 0 "$MUT/m27.sh" --good-lacks "$(printf '\r')" --bad-has "$(printf '\r')" -- bash "$T/runner.sh" "$rcrl" @SUT@ --base base --format json
+    mk "s1 dispatch" "$SUT" "$MUT/s1.sh" 's/^rsdd_exec maint size-check /rsdd_exec maint gate /' \
+      && tt "s1 shim dispatches to the sibling command" 0 2 "$MUT/s1.sh" --good-has "size: over-budget" --bad-lacks "size: over-budget" -- bash "$T/runner.sh" "$r401" @SUT@ --base base
+    mk "s2 arguments" "$SUT" "$MUT/s2.sh" 's/^rsdd_exec maint size-check "\$@"$/rsdd_exec maint size-check/' \
+      && tt "s2 shim drops the caller's arguments" 0 2 "$MUT/s2.sh" --good-has "size: over-budget" --bad-lacks "size: over-budget" -- bash "$T/runner.sh" "$r401" @SUT@ --base base
   }
 fi
 

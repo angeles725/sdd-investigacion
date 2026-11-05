@@ -72,10 +72,7 @@ func lookupEnv(s cli.Stdio, key string) (string, bool) {
 // runeCut is `cut -c1-n`.
 func runeCut(s string, n int) string {
 	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n])
-	}
-	return s
+	return string(r[:min(len(r), n)])
 }
 
 // sanitised is `printf %s "$v" | tr -cd '[:alnum:]._-' | cut -c1-30`.
@@ -206,10 +203,7 @@ func installVerify(vcmd string, s cli.Stdio, b hookBudgets) (extra string, vrc i
 			vnote = "verify: invalid RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT='" + sanitised(raw) + "', using 10s"
 		}
 	}
-	var environ []string
-	if s.Environ != nil {
-		environ = s.Environ()
-	}
+	environ := s.Environment()
 	res, err := proc.Run(proc.Spec{
 		Argv: []string{vcmd, "--verify"}, Dir: s.Cwd, Env: environ,
 		Timeout: b.verifyBound(vt), MaxBytes: installVerifyMaxBytes, Now: s.Clock,
@@ -383,10 +377,7 @@ func measureKit(kdir string, kmax, kdays int, s cli.Stdio, budget time.Duration)
 	expired := false
 	run := func(dir string, args ...string) (string, error) {
 		g := gitRunner(s)
-		g.Timeout = deadline.Sub(clock())
-		if g.Timeout < time.Millisecond {
-			g.Timeout = time.Millisecond
-		}
+		g.Timeout = max(deadline.Sub(clock()), time.Millisecond)
 		out, err := g.Run(dir, args...)
 		if errors.Is(err, git.ErrTimeout) {
 			expired = true
@@ -450,10 +441,7 @@ func measureKit(kdir string, kmax, kdays int, s cli.Stdio, budget time.Duration)
 	age, haveAge := 0, false
 	if isFileOS(fh) {
 		if st, err := os.Stat(fh); err == nil {
-			age, haveAge = int((clock().Unix()-st.ModTime().Unix())/86400), true
-			if age < 0 {
-				age = 0
-			}
+			age, haveAge = max(int((clock().Unix()-st.ModTime().Unix())/86400), 0), true
 		}
 	}
 	switch {
@@ -481,10 +469,7 @@ func measureKit(kdir string, kmax, kdays int, s cli.Stdio, budget time.Duration)
 			ageText = strconv.Itoa(age)
 		}
 		tail := fmt.Sprintf("; behind=%s (max %d) fetch_age=%sd (max %dd); local refs, may understate", n, kmax, ageText, kdays)
-		room := 200 - len([]rune(head))
-		if room < 0 {
-			room = 0
-		}
+		room := max(200-len([]rune(head)), 0)
 		m.line = head + runeCut(tail, room)
 	}
 	return m
