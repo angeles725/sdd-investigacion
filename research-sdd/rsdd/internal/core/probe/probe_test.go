@@ -5,6 +5,7 @@ package probe
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/reasons"
@@ -88,4 +89,24 @@ func TestLookPath(t *testing.T) {
 		got, err := prober(d, d+"/b").LookPath("foo")
 		wantPath(t, got, err, d+"/b/foo")
 	})
+}
+
+// globNames is the shell glob dir+prefix*suffix: an entry equal to prefix+suffix matches (the * is empty), an
+// entry where prefix and suffix would have to overlap does not, and hidden entries never match.
+func TestGlobNamesMatchesLikeTheShell(t *testing.T) {
+	d := t.TempDir()
+	for _, n := range []string{"ab", "aba", "abba", "abxba", ".abba", "xab"} {
+		mkdir(t, d, n)
+	}
+	p := prober(t.TempDir(), d)
+	got := p.globNames(d+"/", "ab", "ba")
+	want := []string{d + "/abba", d + "/abxba"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("glob ab*ba = %q; want %q", got, want)
+	}
+	got = p.globNames(d+"/", "ab", "")
+	want = []string{d + "/ab", d + "/aba", d + "/abba", d + "/abxba"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("glob ab* = %q; want %q", got, want)
+	}
 }
