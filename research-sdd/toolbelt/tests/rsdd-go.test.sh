@@ -1133,9 +1133,12 @@ g="$(RSDD_TEETH_DEBT="$ROOT/debt-bad1.txt" bash "$0" --decide-gremlins "$ROOT/gr
 if grep -q '^VERDICT: FAIL teeth debt list INVALID' <<<"$g"; then ok "debt: an invalid list FAILs a baseline failure too"
 else no "debt: baseline + invalid list wrong: $g"; fi
 g="$(RSDD_TEETH_DEBT="$MOD/teeth-debt.txt" bash "$0" --decide-gremlins "$ROOT/gr-bl-all-ok.out" 1 ALL)"
-for c in corpus budget maint lint gate retro/stageissues core/gfm core/probe core/reasons verify sweep corroborate/kaitai corroborate/native corroborate/fidelity; do
-  if ! grep -qx "./internal/$c" <(bash "$0" --load-debt "$MOD/teeth-debt.txt"); then no "debt list: checked-in teeth-debt.txt lacks ./internal/$c"; fi
-done
+# The checked-in list loads completely: --load-debt returns exactly the file's package lines, read here with a plain
+# grep independent of the loader. Data-driven, so paying a package's debt (deleting its line, #2592) needs no edit here.
+want_debt="$(grep -oE '^\./internal/[^[:space:]]+' "$MOD/teeth-debt.txt" | LC_ALL=C sort)"
+got_debt="$(bash "$0" --load-debt "$MOD/teeth-debt.txt" | LC_ALL=C sort)"
+if [ "$want_debt" = "$got_debt" ]; then ok "debt list: --load-debt reads every package line of the checked-in teeth-debt.txt and nothing else"
+else no "debt list: checked-in teeth-debt.txt loads as [${got_debt//$'\n'/ }], its package lines are [${want_debt//$'\n'/ }]"; fi
 
 mkdir -p "$ROOT/st"; selftest_teeth "$ROOT/st"; unset RSDD_GO_SELFTEST_NESTED
 
