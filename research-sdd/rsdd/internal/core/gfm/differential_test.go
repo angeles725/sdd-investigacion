@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // Differential test: the REAL bash readers (testdata/diff-driver.sh) and the Go reader must produce equal
@@ -18,19 +20,14 @@ import (
 // research-sdd-status.sh count_open_contra, _read_focuses_tok_uncached, and the --sync-state derivations
 // deferred_open (DEF-AWK) and covered_blocks (Iteration-history Block column).
 
-const toolbeltRel = "../../../../toolbelt"
-
 func driver(t *testing.T) (tb, script string) {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("differential: bash not found in PATH; the Go reader is NOT proven against the kit's bash readers in this run")
 	}
-	tb, err := filepath.Abs(toolbeltRel)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tb = kitroot.Path(t, "toolbelt") // RSDD_TEST_RESEARCH_SDD in a module-only copy (make teeth)
 	if _, err := os.Stat(filepath.Join(tb, "lib", "gap-rows.sh")); err != nil {
-		t.Fatalf("differential: toolbelt not found at %s (%v); a moved package must update toolbeltRel, not skip", tb, err)
+		t.Fatalf("differential: toolbelt not found at %s (%v); set RSDD_TEST_RESEARCH_SDD, do not skip", tb, err)
 	}
 	script, _ = filepath.Abs(filepath.Join("testdata", "diff-driver.sh"))
 	return tb, script
