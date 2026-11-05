@@ -92,7 +92,7 @@ case_portable_default() {  # <kit> : the DEFAULT (portable, kit issue #2183) sca
 }
 
 echo "== research-sdd-init-hook-exec.test.sh =="
-K="$(mkkit k1)"
+K="$(mkkit k1)" || { echo "FATAL: cannot copy the kit under $TMP" >&2; exit 2; }
 case_scaffold "$K"          && ok "1 scaffold --wire makes all three hooks executable (templates at 644)" || no "1 scaffold hooks not all +x"
 case_wire_create "$K"       && ok "2 --wire repair creates all three hooks executable (templates at 644)" || no "2 wire-created hooks not all +x"
 case_rewire_warns "$K"      && ok "3 --wire over existing non-executable hooks WARNs on each, rewrites none" || no "3 re-wire must report non-executable hooks"
@@ -111,7 +111,7 @@ if [ "${1:-}" = "--prove-teeth" ]; then
     mut="$(mktemp "$TMP/mut-XXXXXX")" || { no "teeth $label: cannot create the mutant file"; return; }
     "$fn" "$K" || { no "teeth $label: case FAILS on the unmutated SUT — tooth is vacuous"; return; }
     mutant_chain_or_count fail "teeth $label" "$SUT" "$mut" "$@" || return 0
-    mk="$(mkkit m "$mut")"
+    mk="$(mkkit m "$mut")" || { no "teeth $label: cannot copy the mutant kit — no verdict"; return; }
     if "$fn" "$mk"; then no "teeth $label: mutant survived — case is THEATER"; else ok "teeth $label: mutant breaks the case (has teeth)"; fi
   }
   steeth SCAFFOLD-SS-CHMOD case_scaffold '/# WIRED-SS-CHMOD-SCAFFOLD/d'
