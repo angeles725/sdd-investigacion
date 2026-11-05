@@ -57,3 +57,17 @@ counters + focuses + bu + next-a, then two authored stand-ins defined inside the
 `_stop_exhausted`; _rd_covers_derive keeps the declared counter), then next-b and an authored tail for the other modes. The
 Go side runs the same stand-ins through its seams. verify-state.sh is staged as a wrapper that re-executes the Go test
 binary as `rsdd verify state` (or prints a fixed report for the first-failure cases).
+
+Slice S5 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main 13519fbb):
+
+status-cleanwarn.sh lines 360-408 (terminal_clean_warn and its comment: the no-garbage check an exhausted STOP runs)
+                   sha256 7fcf29133c3586887e569f2f5ad81aff5faadfafff9b2c30198a4e20fecdb082
+status-idg.sh      lines 1401-1693 (issues_due_gate and its comment)
+                   sha256 c865ce1278fcb03bfb7e7c1c873b6873297bfe7cd0c92a15596ef54fc25e597e
+status-covers.sh   lines 1841-1972 (_rd_covers_derive, its comment and the CV awk grammar)
+                   sha256 6b8344b83111c2bb03cf352c487216bbfd14564bd52d55fa026275a798cfc7cc
+
+The S5 differential assembles the S4 order with status-cleanwarn.sh after blocked-body, status-idg.sh after bu, and
+status-covers.sh in place of the S4 stand-ins, so the whole --next block runs as the script ran it. The toolbelt it
+runs in holds authored fakes of reconcile-issues.sh, clean-check.sh and verify-state.sh and a fake gh on PATH, each
+logging its argv; the port runs the same fakes (reconcile through its swappable command prefix).
