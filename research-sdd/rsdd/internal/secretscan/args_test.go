@@ -161,6 +161,29 @@ func TestToolbeltFindsTargetsMd(t *testing.T) {
 	}
 }
 
+func TestKitDirFromEnvironmentKit(t *testing.T) {
+	kitRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(kitRoot, "toolbelt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kitRoot, "TARGETS.md"), []byte("| t |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, _, _ := stdio(t.TempDir(), "")
+	s.Env = func(k string) string {
+		if k == "RESEARCH_SDD_KIT" {
+			return kitRoot
+		}
+		return ""
+	}
+	if got := kitDir(options{}, s); got != kitRoot {
+		t.Errorf("kitDir = %q, want %q", got, kitRoot)
+	}
+	if got := kitDir(options{toolbelt: filepath.Join(t.TempDir(), "absent")}, s); got != "" {
+		t.Errorf("an unresolvable --toolbelt gives no kit, got %q", got)
+	}
+}
+
 func TestCommandIsRegisteredUnderSecretsScan(t *testing.T) {
 	if len(Commands) != 1 || Commands[0].Group != "secrets" || Commands[0].Name != "scan" {
 		t.Fatalf("Commands = %+v", Commands)

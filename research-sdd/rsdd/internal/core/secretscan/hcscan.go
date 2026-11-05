@@ -24,12 +24,14 @@ func containsAny(data []byte, literals []string) bool {
 
 // lineAt returns the line of data that holds pos (without its newline).
 func lineAt(data []byte, pos int) []byte {
-	start := bytes.LastIndexByte(data[:pos], '\n') + 1
-	end := bytes.IndexByte(data[pos:], '\n')
-	if end < 0 {
-		return data[start:]
-	}
-	return data[start : pos+end]
+	start, end := lineBounds(data, pos)
+	return data[start:end]
+}
+
+// lineBounds is the [start, end) of the line of data that holds pos, newline excluded.
+func lineBounds(data []byte, pos int) (int, int) {
+	rest, _, _ := bytes.Cut(data[pos:], newline)
+	return bytes.LastIndexByte(data[:pos], '\n') + 1, pos + len(rest)
 }
 
 // scanHC returns every match of every rule, rule by rule and in file order, as `grep -o` prints them: each match is

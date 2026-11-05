@@ -1,7 +1,16 @@
 package secretscan
 
 import (
+	"strings"
 	"unicode/utf8"
+)
+
+// Character classes are string sets (membership by lookup) so no boundary comparison can drift unnoticed.
+const (
+	asciiLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	asciiDigits  = "0123456789"
+	identChars   = asciiLetters + asciiDigits + "_"
+	spaceChars   = " \t\n\v\f\r"
 )
 
 // The legacy advisory scan used PCRE:
@@ -26,17 +35,15 @@ func foldRune(r rune) rune {
 	return r
 }
 
-func isAlnum(b byte) bool {
-	return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
-}
+func isAlnum(b byte) bool { return strings.IndexByte(asciiLetters+asciiDigits, b) >= 0 }
 
 // isLetterRune is [A-Za-z] under /i: the ASCII letters plus the two folded letters.
 func isLetterRune(r rune) bool {
-	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == 0x17F || r == 0x212A
+	return strings.ContainsRune(asciiLetters, r) || r == 0x17F || r == 0x212A
 }
 
 // isSpace is PCRE \s without UCP: space, \t, \n, \v, \f, \r.
-func isSpace(b byte) bool { return b == ' ' || b >= '\t' && b <= '\r' }
+func isSpace(b byte) bool { return strings.IndexByte(spaceChars, b) >= 0 }
 
 // matchWord matches word (lower case) at line[i:] case-insensitively and returns the index after it.
 func matchWord(line []byte, i int, word string) (int, bool) {
@@ -79,24 +86,21 @@ func keywordEnd(line []byte, i int) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	if end < len(line) {
-		if r, _ := utf8.DecodeRune(line[end:]); isLetterRune(r) {
-			return 0, false
-		}
+	if r, _ := utf8.DecodeRune(line[end:]); isLetterRune(r) { // an empty tail decodes to RuneError: not a letter
+		return 0, false
 	}
 	return end, true
 }
 
 // skipIdent consumes [A-Za-z0-9_]* (plus the two folded letters) from i.
 func skipIdent(line []byte, i int) int {
-	for i < len(line) {
-		r, w := utf8.DecodeRune(line[i:])
-		if !(r < utf8.RuneSelf && (isAlnum(byte(r)) || r == '_') || r == 0x17F || r == 0x212A) {
-			break
+	for {
+		r, w := utf8.DecodeRune(line[i:]) // an empty tail decodes to RuneError, which ends the run
+		if !strings.ContainsRune(identChars, r) && r != 0x17F && r != 0x212A {
+			return i
 		}
 		i += w
 	}
-	return i
 }
 
 func skipSpace(line []byte, i int) int {
@@ -125,7 +129,7 @@ func valueAt(line []byte, i int) ([]byte, bool) {
 // advisoryValue returns the value of the first keyword assignment on the line that has one (a keyword whose
 // assignment has no value is skipped, as PCRE moves to the next start position).
 func advisoryValue(line []byte) ([]byte, bool) {
-	for i := 0; i < len(line); i++ {
+	for i := range line {
 		if i > 0 && isAlnum(line[i-1]) {
 			continue
 		}

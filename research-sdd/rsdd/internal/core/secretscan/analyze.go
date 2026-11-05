@@ -53,17 +53,13 @@ func analyze(data []byte, o analyzeOpts) analysis {
 // scanAdvisory returns the lines whose first keyword assignment carries a real-looking literal value.
 func scanAdvisory(data []byte, keepContent bool) []advHit {
 	var hits []advHit
-	line, last, lastLineEnd := 1, 0, -1
+	line, last, lastStart := 1, 0, -1
 	for _, loc := range keywordCandidate.FindAllIndex(data, -1) {
-		if loc[0] < lastLineEnd { // another keyword on a line already judged
+		start, end := lineBounds(data, loc[0])
+		if start == lastStart { // another keyword on a line already judged
 			continue
 		}
-		start := bytes.LastIndexByte(data[:loc[0]], '\n') + 1
-		end := len(data)
-		if i := bytes.IndexByte(data[loc[0]:], '\n'); i >= 0 {
-			end = loc[0] + i
-		}
-		lastLineEnd = end + 1
+		lastStart = start
 		content := data[start:end]
 		line += bytes.Count(data[last:start], newline)
 		last = start

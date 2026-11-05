@@ -1,10 +1,11 @@
 package secretscan
 
 import (
+	"cmp"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -31,10 +32,11 @@ func displayJoin(target, rel string) string {
 }
 
 func asciiLower(s string) string {
+	const upper, lower = "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
 	b := []byte(s)
 	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + ('a' - 'A')
+		if k := strings.IndexByte(upper, c); k >= 0 {
+			b[i] = lower[k]
 		}
 	}
 	return string(b)
@@ -84,12 +86,8 @@ func narrowRoot(target, abs string) string {
 	if len(found) == 0 {
 		return ""
 	}
-	sort.Slice(found, func(i, j int) bool {
-		di, dj := strings.Count(found[i], "/"), strings.Count(found[j], "/")
-		if di != dj {
-			return di < dj
-		}
-		return found[i] < found[j]
+	slices.SortFunc(found, func(a, b string) int { // shallowest first, then bytewise
+		return cmp.Or(cmp.Compare(strings.Count(a, "/"), strings.Count(b, "/")), strings.Compare(a, b))
 	})
 	if !strings.Contains(found[0], "/") {
 		return "" // the target itself holds a block file

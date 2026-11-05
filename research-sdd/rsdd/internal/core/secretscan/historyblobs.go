@@ -3,7 +3,7 @@ package secretscan
 import (
 	"bufio"
 	"io"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -16,7 +16,7 @@ type keyed struct{ key, disp string }
 
 // sortedUnique sorts by key (bytewise: the legacy relied on the caller's locale) and drops repeated keys.
 func sortedUnique(in []keyed) []string {
-	sort.Slice(in, func(i, j int) bool { return in[i].key < in[j].key })
+	slices.SortFunc(in, func(a, b keyed) int { return strings.Compare(a.key, b.key) })
 	var out []string
 	for i, k := range in {
 		if i == 0 || k.key != in[i-1].key {
@@ -37,7 +37,7 @@ func (s *session) scanBlobs(blobs blobSet) (findings, *stop) {
 	for sha := range blobs {
 		shas = append(shas, sha)
 	}
-	sort.Strings(shas)
+	slices.Sort(shas)
 	f := findings{leaks: make([][]string, len(rules))}
 	if len(shas) == 0 {
 		return f, nil
@@ -82,8 +82,8 @@ func readObject(r *bufio.Reader, sha string) ([]byte, bool) {
 	if len(f) != 3 || f[0] != sha || f[1] != "blob" {
 		return nil, false
 	}
-	n, err := strconv.Atoi(f[2])
-	if err != nil || n < 0 {
+	n, err := strconv.ParseUint(f[2], 10, 31) // a negative or oversized size is a parse error
+	if err != nil {
 		return nil, false
 	}
 	buf := make([]byte, n+1) // the content and the LF the protocol appends

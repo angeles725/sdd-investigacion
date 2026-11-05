@@ -35,9 +35,7 @@ func dirExcluded(dir string) bool {
 
 // pathInScope is the scope test of a whole relative path (a committed blob path or a listed entry).
 func pathInScope(rel string) bool {
-	dir, base := "", rel
-	if i := strings.LastIndexByte(rel, '/'); i >= 0 {
-		dir, base = rel[:i], rel[i+1:]
-	}
+	i := strings.LastIndexByte(rel, '/') // -1: no directory part, so dir is "" and base is the whole path
+	dir, base := rel[:max(i, 0)], rel[i+1:]
 	return nameInScope(base) && !dirExcluded(dir)
 }

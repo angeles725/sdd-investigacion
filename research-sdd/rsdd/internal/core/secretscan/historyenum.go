@@ -131,14 +131,12 @@ func (res *enumResult) addPath(sha, path string) {
 		return
 	}
 	path = strings.ReplaceAll(path, "\n", `\n`) // one report line per entry
-	if old, ok := res.Blobs[sha]; !ok || path < old {
-		res.Blobs[sha] = path
+	if old, ok := res.Blobs[sha]; ok {
+		path = min(path, old)
 	}
+	res.Blobs[sha] = path
 }
 
 func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
+	return s[:min(len(s), n)]
 }

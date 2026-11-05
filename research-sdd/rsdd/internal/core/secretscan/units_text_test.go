@@ -51,6 +51,34 @@ func TestAdvisoryValueBoundaries(t *testing.T) {
 		{"token1ſ = abc", "abc"},
 		{"password = aéb", "aéb"},
 		{"épassword = abc", "abc"},
+		{`toke`, ""},
+		{`passwor`, ""},
+		{`apike`, ""},
+		{`api`, ""},
+		{`api_`, ""},
+		{`api_ke`, ""},
+		{"0password = abc", ""},
+		{"9password = abc", ""},
+		{"apassword = abc", ""},
+		{"zpassword = abc", ""},
+		{"Apassword = abc", ""},
+		{"Zpassword = abc", ""},
+		{"/password = abc", "abc"},
+		{":password = abc", "abc"},
+		{"@password = abc", "abc"},
+		{"[password = abc", "abc"},
+		{"`password = abc", "abc"},
+		{"{password = abc", "abc"},
+		{"tokenz = abc", ""},
+		{"tokenZ = abc", ""},
+		{"tokena = abc", ""},
+		{"tokenA = abc", ""},
+		{"token9 = abc", "abc"},
+		{"token0 = abc", "abc"},
+		{"token_ = abc", "abc"},
+		{"tokenz1 = abc", ""},
+		{"password = \v\fabc", "abc"},
+		{"password =\r\nabc", "abc"},
 	} {
 		got, ok := advisoryValue([]byte(tc.line))
 		if tc.want == "" && ok || tc.want != "" && (!ok || string(got) != tc.want) {
@@ -154,5 +182,44 @@ func TestScanAdvisoryLineNumbersAndDedup(t *testing.T) {
 	}
 	if got := scanAdvisory([]byte(data), false); got[0].Content != "" {
 		t.Errorf("content kept without keepContent: %+v", got)
+	}
+}
+
+func TestKeywordOnNextLineIsJudgedSeparately(t *testing.T) {
+	t.Parallel()
+	// the second keyword starts the line right after the first: it is a new line, not "already judged"
+	hits := scanAdvisory([]byte("token = Abc12345\npassword = Def67890"), false)
+	if len(hits) != 2 || hits[0].Line != 1 || hits[1].Line != 2 {
+		t.Fatalf("hits = %+v", hits)
+	}
+}
+
+func TestAsciiLowerAndBlockFile(t *testing.T) {
+	t.Parallel()
+	if got := asciiLower("AZaz@[`{09\u00c9"); got != "azaz@[`{09\u00c9" {
+		t.Errorf("asciiLower = %q", got)
+	}
+	for name, want := range map[string]bool{
+		"A-BLOCK1.MD": true, "x-Bloque2.md": true, "block.md": true, "block.txt": false, "x.template.md": false,
+		"Z-block.md": true, "notes.md": false, "block.MD": true,
+	} {
+		if isBlockFile(name) != want {
+			t.Errorf("isBlockFile(%q) != %v", name, want)
+		}
+	}
+}
+
+func TestLineBoundsAndHasLetter(t *testing.T) {
+	t.Parallel()
+	d := []byte("ab\ncd\n\nef")
+	for pos, want := range map[int][2]int{0: {0, 2}, 1: {0, 2}, 3: {3, 5}, 6: {6, 6}, 7: {7, 9}, 9: {7, 9}} {
+		if s, e := lineBounds(d, pos); [2]int{s, e} != want {
+			t.Errorf("lineBounds(%d) = %d,%d want %v", pos, s, e, want)
+		}
+	}
+	for in, want := range map[string]bool{"": false, "1234": false, "1a": true, "a1": true, "Z": true, "A": true, "@[`{": false, "\u00e9": false} {
+		if hasLetter([]byte(in)) != want {
+			t.Errorf("hasLetter(%q) != %v", in, want)
+		}
 	}
 }
