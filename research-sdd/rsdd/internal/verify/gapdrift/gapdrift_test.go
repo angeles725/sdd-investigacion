@@ -23,6 +23,7 @@ func openCheck(t *testing.T, files map[string]string, st string, o Options) Resu
 }
 
 func TestTypedOutcomes(t *testing.T) {
+	t.Parallel()
 	blk := map[string]string{"t-block1.md": bullets1c}
 	for _, c := range []struct {
 		name  string
@@ -49,6 +50,7 @@ func TestTypedOutcomes(t *testing.T) {
 const bullets1c = "- **B1-G1** widgets frobnicate sprockets\n"
 
 func TestFindingsAreGroupedInReportOrder(t *testing.T) {
+	t.Parallel()
 	res := openCheck(t, map[string]string{"t-block1.md": bullets1c}, state(
 		row("urgent", "B1-G1 x", "pending"), row("high", "B2-G1 x y z", "pending"), row("high", "B1-G7 prose", "pending"),
 		row("high", "B1-G1 cats dogs birds", "pending"), row("high", "B1-G1 9.5.0", "pending")), Options{Threshold: 20})
@@ -71,6 +73,7 @@ func TestFindingsAreGroupedInReportOrder(t *testing.T) {
 }
 
 func TestThresholdIsDecimal(t *testing.T) {
+	t.Parallel()
 	// B1-G1 shares 1 of 2 words: 50 %. The script read 010 as octal 8 and 08 aborted its loop (D1).
 	files := map[string]string{"RESEARCH-STATE.md": state(row("high", "B1-G1 widgets cats", "pending")), "t-block1.md": bullets1c}
 	d := corpus(t, files)
@@ -86,6 +89,7 @@ func TestThresholdIsDecimal(t *testing.T) {
 }
 
 func TestWorktreePruneIsLiteral(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"RESEARCH-STATE.md":               state(row("high", "B5-G1 widgets", "pending")),
 		".claude/worktrees/w/t-block5.md": bullets1c,
@@ -113,6 +117,7 @@ func TestWorktreePruneIsLiteral(t *testing.T) {
 }
 
 func TestBlockFilesAreTriedInPathOrder(t *testing.T) {
+	t.Parallel()
 	// Both files define B1-G1; the bytewise-first path is the source (the script used readdir order, D3).
 	files := map[string]string{
 		"RESEARCH-STATE.md": state(row("high", "B1-G1 zebra yak", "pending")),
@@ -125,6 +130,7 @@ func TestBlockFilesAreTriedInPathOrder(t *testing.T) {
 }
 
 func TestUnparsedLineIsPrintedWhole(t *testing.T) {
+	t.Parallel()
 	d := corpus(t, map[string]string{"RESEARCH-STATE.md": "| high\t| B1-G1 x\t|\n", "t-block1.md": bullets1c}) // D4
 	got := runGo(d, d)
 	if !strings.Contains(got.stdout, "UNPARSED | high\t| B1-G1 x\t|\n") {
@@ -133,6 +139,7 @@ func TestUnparsedLineIsPrintedWhole(t *testing.T) {
 }
 
 func TestRowTextCutIsNinetyCharacters(t *testing.T) { // D5
+	t.Parallel()
 	text := strings.Repeat("ñ", 100)
 	d := corpus(t, map[string]string{"RESEARCH-STATE.md": state(row("high", "B1-G1 cats "+text, "pending")), "t-block1.md": "- **B1-G1** zzz yyy\n"})
 	out := runGo(d, d).stdout
@@ -145,6 +152,7 @@ func TestRowTextCutIsNinetyCharacters(t *testing.T) { // D5
 }
 
 func TestOperationalErrorsAreTyped(t *testing.T) {
+	t.Parallel()
 	d := corpus(t, map[string]string{"RESEARCH-STATE.md": state(row("high", "B1-G1 widgets", "pending")), "t-block1.md": bullets1c})
 	c, err := OpenCorpus(d, d)
 	if err != nil {
@@ -162,6 +170,7 @@ func TestOperationalErrorsAreTyped(t *testing.T) {
 }
 
 func TestCorpusIsReusedAcrossStates(t *testing.T) {
+	t.Parallel()
 	d := corpus(t, map[string]string{"t-block1.md": bullets1c})
 	c, err := OpenCorpus(d, d)
 	if err != nil {

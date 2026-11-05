@@ -10,6 +10,7 @@ func backlinkVerdict(t *testing.T, note string) int {
 }
 
 func TestVocabularyBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"—", "–", "‘", "’", "“", "”", "«", "»", "¿", "¡", "·"} {
 		t.Run("left boundary "+p, func(t *testing.T) {
 			if got := backlinkVerdict(t, p+"corrected in B82"); got != 0 {

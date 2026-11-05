@@ -11,6 +11,7 @@ import (
 // Each productionHooks method answers from core/hookwiring for a sandbox; the literals keep the mapping (field
 // order, ok flags) pinned when the differential is compiled out (nodiff, the mutation run).
 func TestProductionHooksAnswerFromHookwiring(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.put("w/.git/HEAD", "x\n")
 	k.put("w/.claude/hooks/retro-gate-stop.sh", "#!/bin/sh\n")

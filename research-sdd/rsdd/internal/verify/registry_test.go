@@ -57,6 +57,7 @@ func rcIs(t *testing.T, r vrResult, rc int) {
 }
 
 func TestRegistryUsage(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.targets(vrTable())
 	r := k.run(nil, "--bogus")
@@ -70,6 +71,7 @@ func TestRegistryUsage(t *testing.T) {
 }
 
 func TestRegistryOperational(t *testing.T) {
+	t.Parallel()
 	t.Run("targets-missing", func(t *testing.T) {
 		k := newVRKit(t)
 		r := k.run(nil)
@@ -118,6 +120,7 @@ func TestRegistryOperational(t *testing.T) {
 }
 
 func TestRegistryDrift(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 5)
 	k.put("alpha/retros/r1.md", "x\n")
@@ -162,6 +165,7 @@ func TestRegistryDrift(t *testing.T) {
 }
 
 func TestRegistryAbsent(t *testing.T) {
+	t.Parallel()
 	t.Run("rows", func(t *testing.T) {
 		k := newVRKit(t)
 		k.blocks("here", 1)
@@ -186,6 +190,7 @@ func TestRegistryAbsent(t *testing.T) {
 }
 
 func TestRegistryTruncated(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)"), "| 2 | cut | `@H@/long/path/...` | (1 md) | x | en |", "| 3 | mid | `@H@/mid...dle` | (1 md) | x | en |"))
@@ -196,6 +201,7 @@ func TestRegistryTruncated(t *testing.T) {
 }
 
 func TestRegistryMaturity(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	ok := "(1 md @2026-01-02, ACTIVE / 2 focuses / 3 runs / 4 retros + 1 corpus §18 / 2-of-5 gaps / git yes / git no / remote no / hook anything here / unregistered / registered-no-sessions)"
@@ -228,6 +234,7 @@ func TestRegistryMaturity(t *testing.T) {
 }
 
 func TestRegistryNC(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.put("tool/a.md", "x\n")
 	k.put("tool/b.md", "x\n")
@@ -253,6 +260,7 @@ func TestRegistryNC(t *testing.T) {
 }
 
 func TestRegistryNCTerminators(t *testing.T) {
+	t.Parallel()
 	// the nc flag ends at a space, '/', ';', ')' or '|'; a longer word is not the flag
 	for _, c := range []struct {
 		cell string
@@ -277,6 +285,7 @@ func TestRegistryNCTerminators(t *testing.T) {
 }
 
 func TestRegistryMarkers(t *testing.T) {
+	t.Parallel()
 	t.Run("no-marker", func(t *testing.T) {
 		k := newVRKit(t)
 		k.put("deep/research/RESEARCH-STATE.md", "s\n")
@@ -305,6 +314,7 @@ func TestRegistryMarkers(t *testing.T) {
 }
 
 func TestRegistryRetros(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.put("alpha/retros/r1.md", "# r\n")
@@ -364,6 +374,7 @@ func (k *vrKit) catalog(rel string, header string, rows int) {
 }
 
 func TestRegistryCatalog(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, header string
 		rows, blocks int
@@ -425,6 +436,7 @@ func TestRegistryCatalog(t *testing.T) {
 }
 
 func TestRegistryUnclassifiable(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.put("alpha/RESEARCH-STATE.md", "s\n")
 	for _, n := range []string{"block1.md", "bloque3.md", "block_07.md", "blocking-issues.md", "block-diagram.md", "bloques-pendientes.md", "roadblock.md", "p-block9.md.bak"} {
@@ -437,6 +449,7 @@ func TestRegistryUnclassifiable(t *testing.T) {
 }
 
 func TestRegistryNoRetros(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 3)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(3 md)")))
@@ -446,6 +459,7 @@ func TestRegistryNoRetros(t *testing.T) {
 }
 
 func TestRegistryRowHygiene(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	long := strings.Repeat("x", 30)
@@ -467,6 +481,7 @@ func TestRegistryRowHygiene(t *testing.T) {
 }
 
 func TestRegistryKitSelf(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.write("kit/TARGETS.md", "| 1 | alpha | `"+k.home+"/alpha` | (1 md) | x | en |\n")
@@ -480,6 +495,7 @@ func TestRegistryKitSelf(t *testing.T) {
 }
 
 func TestRegistryJSON(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 5)
 	k.put("alpha/retros/r.md", "x\n")

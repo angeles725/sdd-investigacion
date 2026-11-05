@@ -34,6 +34,7 @@ func gen(r *rand.Rand) string {
 }
 
 func TestScanFastEquivalentToRegexps(t *testing.T) {
+	t.Parallel()
 	r := rand.New(rand.NewSource(2635))
 	for i := 0; i < 200000; i++ {
 		s := gen(r)
@@ -68,6 +69,7 @@ func TestScanFastEquivalentToRegexps(t *testing.T) {
 // are pinned here against the same reference regexps: every byte for the non-word class, and the digit, list
 // and verb-letter edges of startsBlock and matchVerb.
 func TestScanFastBoundaries(t *testing.T) {
+	t.Parallel()
 	nw := posix(`^` + nonWord + `$`)
 	for b := 0; b < 256; b++ {
 		if got, want := isNonWordByte(byte(b)), nw.MatchString(string([]byte{byte(b)})); got != want {

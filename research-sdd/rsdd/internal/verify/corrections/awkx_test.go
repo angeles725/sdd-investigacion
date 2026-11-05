@@ -9,6 +9,7 @@ import (
 // position just past the end.
 
 func TestAsciiLower(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ in, want string }{
 		{"", ""}, {"abc", "abc"}, {"ABC", "abc"}, {"aBc", "abc"}, {"abC", "abc"}, {"Abc", "abc"}, {"@AZ[", "@az["},
 		{"a`{", "a`{"}, {"É", "É"}, {"xÉY", "xÉy"}, {"ZZ", "zz"},
@@ -20,6 +21,7 @@ func TestAsciiLower(t *testing.T) {
 }
 
 func TestSubstr(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		s    string
 		i, n int
@@ -40,6 +42,7 @@ func TestSubstr(t *testing.T) {
 }
 
 func TestMatchHelper(t *testing.T) {
+	t.Parallel()
 	re := regexp.MustCompile(`b+`)
 	if s, l := match(re, "aabbb"); s != 3 || l != 3 {
 		t.Errorf("match = %d,%d, want 3,3", s, l)
@@ -50,6 +53,7 @@ func TestMatchHelper(t *testing.T) {
 }
 
 func TestWordBytes(t *testing.T) {
+	t.Parallel()
 	for c := 0; c < 256; c++ {
 		b := byte(c)
 		want := b >= 'a' && b <= 'z' || b >= '0' && b <= '9' || b == '_' || b >= 0x80

@@ -132,6 +132,7 @@ func bkScanEdgeCase() bkCase {
 }
 
 func TestAwkSubstrTailEdges(t *testing.T) {
+	t.Parallel()
 	if got := awkSubstr("abc", 3, 1); got != "c" {
 		t.Errorf("awkSubstr at the last character = %q, want %q", got, "c")
 	}
@@ -147,6 +148,7 @@ func TestAwkSubstrTailEdges(t *testing.T) {
 }
 
 func TestLeadingSeparatorSplits(t *testing.T) {
+	t.Parallel()
 	if s, e := splitRange("-5"); s != "" || e != "5" {
 		t.Errorf("splitRange(-5) = %q,%q want empty start and 5 (${rng%%-*} / ${rng##*-})", s, e)
 	}
@@ -156,6 +158,7 @@ func TestLeadingSeparatorSplits(t *testing.T) {
 }
 
 func TestIsLowerAlnumUnderscoreEdges(t *testing.T) {
+	t.Parallel()
 	for _, c := range []byte("az09_") {
 		if !isLowerAlnumUnderscore(c) {
 			t.Errorf("%q is a word character", c)
@@ -169,6 +172,7 @@ func TestIsLowerAlnumUnderscoreEdges(t *testing.T) {
 }
 
 func TestScanCorrectionsLivedEdges(t *testing.T) {
+	t.Parallel()
 	scan := func(self int, lines ...string) ([]bpCand, bpTrailer) {
 		c, tr, _ := scanCorrections(lines, self)
 		return c, tr
@@ -273,6 +277,7 @@ func bkChmodRun(t *testing.T, env map[string]string, args []string, files map[st
 // A cite found in a later root is resolved even when an earlier root holds an unreadable file of that name: the
 // degraded line count is reported only when no root resolved the cite (BT-FIT-DEGRADED).
 func TestBacktickResolvesInLaterRootDespiteUnreadableEarlier(t *testing.T) {
+	t.Parallel()
 	got := bkChmodRun(t, map[string]string{"SOURCE_ROOT": "@D@/src"}, []string{"b.md"},
 		map[string]string{"b.md": bkLegend + "`x.go:2`\n", "x.go": "one\n", "src/x.go": "a\nb\nc\n"}, "x.go")
 	for _, want := range []string{"   ok      x.go:2\n", "   resolved 1 of 1 (0 extern, 0 failed)\n", "== exit 0 ==\n"} {
@@ -288,6 +293,7 @@ func TestBacktickResolvesInLaterRootDespiteUnreadableEarlier(t *testing.T) {
 // The back-pointer summary is printed when only some candidates are typed: one unreadable candidate file (degraded)
 // and one with a pointer (present) still make a non-empty section.
 func TestBackptrDegradedAndPresentIsNotNone(t *testing.T) {
+	t.Parallel()
 	got := bkChmodRun(t, nil, []string{"x-block9.md"}, map[string]string{
 		"x-block9.md": "# Block 9 — t\n\nThis corrects Block 1.\n\nThis corrects Block 2.\n",
 		"x-block1.md": "# Block 1\n",

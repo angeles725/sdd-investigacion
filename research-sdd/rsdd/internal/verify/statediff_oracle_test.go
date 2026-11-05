@@ -65,6 +65,7 @@ func sdNormalize(t *testing.T, o observed.Run) observed.Run {
 }
 
 func TestDifferentialState(t *testing.T) {
+	t.Parallel()
 	update := os.Getenv("RSDD_UPDATE_GOLDENS") != ""
 	goldens := map[string]sdGolden{}
 	if update {
@@ -159,6 +160,7 @@ func sdAlignSections(oracle, goOut string) string {
 }
 
 func TestAlignSections(t *testing.T) {
+	t.Parallel()
 	const h = "   INFO x\n"
 	a := "== verify-state: A.md (target: d) ==\n   ok a\n"
 	b := "== verify-state: B.md (target: d) ==\n   FAIL b\n"

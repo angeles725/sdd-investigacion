@@ -19,6 +19,7 @@ func readFocusesOf(t *testing.T, m map[string]string) map[string]string {
 }
 
 func TestReadFocuses(t *testing.T) {
+	t.Parallel()
 	row := func(slug, prefix string) string {
 		return "| `" + slug + "` | s | st | `" + prefix + "-blockN.md` | q |\n"
 	}
