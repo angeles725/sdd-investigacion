@@ -163,10 +163,7 @@ func carve(c config, s cli.Stdio, d deps) (stage string, err error) {
 	}
 	argv := append(sandbox(bwrap, stage, self), workerArgs(workerGuest, c, rec, bwrap, digest)...)
 	spec := launchSpec{argv: argv, dir: stage, self: self, timeout: time.Duration(c.timeout) * time.Second,
-		maxProcs: int(min(c.maxProcs, 1<<30)), memory: uint64(c.maxMemory) + runtimeAddressSpace, now: s.Clock}
-	if s.Environ != nil {
-		spec.env = s.Environ()
-	}
+		maxProcs: int(min(c.maxProcs, 1<<30)), memory: uint64(c.maxMemory) + runtimeAddressSpace, now: s.Clock, env: s.Environment()}
 	if err := d.launch(spec); err != nil {
 		return stage, err
 	}
