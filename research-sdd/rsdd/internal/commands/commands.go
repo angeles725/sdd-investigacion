@@ -15,6 +15,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corpus"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/corroborate"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/decompile"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/eval"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/extract"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/formats"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/gate"
@@ -79,6 +80,7 @@ func mustAssemble() []cli.Command {
 		{"corpus", corpus.Commands},
 		{"corroborate", corroborate.Commands},
 		{"decompile", decompile.Commands},
+		{"eval", eval.Commands},
 		{"extract", extract.Commands},
 		{"formats", formats.Commands},
 		{"gate", gate.Commands},
