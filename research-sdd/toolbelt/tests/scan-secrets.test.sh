@@ -1068,5 +1068,5 @@ if [ "${1:-}" = "--prove-teeth" ] && [ "$SUT_IS_SHIM" = 1 ]; then
   else no "teeth(shim-guard): could not build the mutant (refused by lib/mutant.sh)"; fi
 fi
 
-[ "$skips" -gt 0 ] && echo "== $pass passed · $fail failed · $skips skipped ==" || echo "== $pass passed · $fail failed =="
+echo "== $pass passed · $fail failed =="  # run-all parses only this exact form; per-case SKIP lines are counted by run-all itself
 [ "$fail" -eq 0 ] || exit 1
