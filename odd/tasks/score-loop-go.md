@@ -10,11 +10,12 @@ Runner: go test (internal/eval/...) + score-loop-transcript.test.sh --prove-teet
 - S5. Teeth: every logic branch is killed by a nodiff-visible unit or golden-replay test (freeze oracle outputs as goldens under testdata/), so `make teeth TEETH_PKG=./internal/eval/scoreloop` reads Lived 0 under a CI-like PATH (python3 and jq present, bwrap absent). RED executed: show the Go tests failing against a stub/empty implementation before GREEN.
 
 ## Tasks
-- [ ] T1 S1,S5 inline: freeze legacy + black-box case table + goldens + differential (stub Run, RED) - commit: pending
-- [ ] T2 S1,S2,S3,S5 inline: Go implementation (modular package) + unit tests, GREEN - commit: pending
-- [ ] T3 S4 inline: shim, suite adaptation, registries, docs, planted-lib list - commit: pending
-- [ ] T4 S5 inline: teeth Lived 0 under CI-like PATH, lint, cross build, bash suites - commit: pending
+- [x] T1 S1,S5 inline: freeze legacy + black-box case table + goldens + differential (stub Run, RED) - commit: 79a08772 (RED against the stub: TestGoldenReplay/c1-pass-no-operator-between)
+- [x] T2 S1,S2,S3,S5 inline: Go implementation (modular package) + unit tests, GREEN - commit: 139de6b3 (nodiff and differential green; unit tests units_*_test.go)
+- [x] T3 S4 inline: shim, suite adaptation, registries, docs, planted-lib list - commit: 79c366ae (shim suite 17/17 with --prove-teeth; reason-codes 106/0)
+- [x] T4 S5 inline: teeth Lived 0 under CI-like PATH, lint, cross build, bash suites - commit: f5969dd7 (teeth Lived 0, Killed 196, Not covered 27 = case-clause lines; staticcheck, cross build, archtest, bash suites green)
 
 ## Log
 - L1: "necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en donde tener que hacer eso."
+- L3 (2026-11-05): declared divergences D1-D8 live on their cases (intended + reason) and in tool-registry.d/score-loop-transcript.md. tests/reason-codes.test.sh needed one GO_SRC line (shim mapped to its Go package): a surface extension beyond the allowed list, forced by the new shim. score-loop-transcript.sh left the empty-input emitter row (the scanner reads only errf/outf calls; Go prints that reason through report.emit).
 - L2 (2026-11-05): worktree agent-acbd6f388bbe8f65a reset to origin/main 743af41e, branch feat/score-loop-go. Route: inline (one unit; I am the bounded writer, no Writer trigger).
