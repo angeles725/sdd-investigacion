@@ -119,8 +119,8 @@ func (a *app) ensureTargetLabel() {
 // single quote, then expands the result unquoted, so each label is its own argument.
 func labelFlags(labels string) []string {
 	parts := strings.Split(labels, ",")
-	if n := len(parts); n > 0 && parts[n-1] == "" {
-		parts = parts[:n-1]
+	if last := len(parts) - 1; parts[last] == "" { // Split returns at least one element
+		parts = parts[:last]
 	}
 	var out []string
 	for _, l := range parts {

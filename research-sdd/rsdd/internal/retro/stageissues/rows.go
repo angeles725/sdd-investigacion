@@ -131,7 +131,7 @@ func roleCell(f []string, k int) string {
 
 func removeSpace(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 128 && strings.ContainsRune(cSpace, r) {
+		if strings.ContainsRune(cSpace, r) { // cSpace is ASCII: no rune of 128 or more can match
 			return -1
 		}
 		return r
@@ -177,9 +177,7 @@ func headerRoles(prev string) (ct, cg, ce, cy, cp int) {
 	}
 	used := map[int]bool{ct: true}
 	for _, k := range []int{cg, ce, cy, cp} {
-		if k != 0 {
-			used[k] = true
-		}
+		used[k] = true // an unset role marks column 0, which no positional fallback asks about
 	}
 	if cg == 0 && 3 <= hn && !used[3] {
 		cg, used[3] = 3, true

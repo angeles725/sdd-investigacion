@@ -25,4 +25,5 @@ kh_rule() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$n" "$g" "$rc" "$o" "$t" "$op" >> "$SHIM_STATE/rules.tsv"
 }
 kh_drop() { rm -f -- "$KH_BIN/$1"; }
-kh_calls() { cat "$SHIM_STATE/calls.log"; }
+# the Go commands run `git -C <dir> ...` where the bash tools cd first: the call log names the git call as the bash did
+kh_calls() { sed -E 's/^git -C [^ ]+ /git /' "$SHIM_STATE/calls.log"; }
