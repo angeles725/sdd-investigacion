@@ -3,7 +3,6 @@ package secretscan
 import (
 	"io"
 	"os/exec"
-	"strings"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/probe"
 )
@@ -77,6 +76,3 @@ func gitText(g Git, dir string, args ...string) (string, int) {
 	b, _ := io.ReadAll(p.Stdout())
 	return string(b), p.Wait()
 }
-
-// firstLine is `$(cmd)` for a one-line answer: the output up to the first newline, trailing newlines cut.
-func firstLine(s string) string { return strings.TrimRight(s, "\n") }
