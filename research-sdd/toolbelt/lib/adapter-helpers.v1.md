@@ -1,11 +1,12 @@
 # adapter-helpers.v1 — Research-SDD Shared Adapter Helpers
 
-Contract for `lib/adapter_helpers.py`.  Higher-level helpers built on
-`adapter_core` primitives.  New adapters (floss, capa, kaitai) import
+Contract for the higher-level adapter helpers, implemented in Go by
+`rsdd/internal/core/adapter/helpers` (formerly `lib/adapter_helpers.py`), built on the
+`core/adapter` primitives.  New adapters (floss, capa, kaitai) import
 from here.  Item-24 migrates existing adapters by replacing inline
 duplications with these imports.
 
-**Dependency direction**: `adapter_helpers` → `adapter_core` (never reversed).
+**Dependency direction**: `core/adapter/helpers` → `core/adapter` (never reversed).
 This file is a library module, not an artifact adapter; no tool-registry row.
 
 ---
@@ -42,7 +43,7 @@ Assembles the envelope, writes it, runs the manifest-CLI tail, publishes.
 | `limitations` | `list[str]` | Human-readable limitation strings |
 | `errors` | `list[str]` | Tool error strings from `run_bounded()` |
 | `manifest_spec` | `dict` | Full `analysis-manifest.v1` spec (built by adapter) |
-| `manifest_cli` | `Path` | Absolute path to `analysis_manifest.py` |
+| `manifest_cli` | `Path` | Absolute path to the manifest CLI (`rsdd adapter manifest`) |
 | `destination` | `Path` | Final publish path (must not exist) |
 | `timeout` | `int` | Seconds for **every** manifest-CLI `subprocess.run` call.  Mandatory; default 60. |
 
@@ -84,7 +85,7 @@ omitted and symlinks are **not** rejected.  The guarantee is Linux-specific.
 **Importable constants**: `_PCAP_MAGIC` (frozenset of four libpcap magic
 byte variants) and `_PCAPNG_MAGIC` (pcapng Section Header Block type) are
 importable by item-24 adapters that need to replicate the same check inline
-(e.g. `from adapter_helpers import _PCAP_MAGIC, _PCAPNG_MAGIC`).
+(the Go `helpers` package holds the same two constants).
 
 ---
 
@@ -189,7 +190,7 @@ The `/home/<user>` case has exactly 3 path parts — one below the general
 
 ## `bind_venv(prefix, tool_exe, *, etc_ro_bind_try=(), writable=None) → list[str]`
 
-Extends a bwrap prefix (produced by `adapter_core.sandbox()`) with the
+Extends a bwrap prefix (produced by `adapter.Sandbox`) with the
 tool's Python venv read-only bind.  Raises `VenvBindError` (NOT `assert` —
 survives `python -O`) for every safety violation.
 
@@ -211,7 +212,7 @@ Only `/etc/passwd` and `/etc/group` are accepted:
 _ETC_BIND_TRY_ALLOWED = frozenset({"/etc/passwd", "/etc/group"})
 ```
 
-This is a **deliberate narrow exception** to `adapter_core._RO_INPUT_BLOCKED_ROOTS`
+This is a **deliberate narrow exception** to the `core/adapter` read-only input blocked roots
 (which blocks all of `/etc`).  vivisect (a floss dependency) calls
 `getpass.getuser() → pwd.getpwuid()` which requires `/etc/passwd`; the
 Python `grp` module requires `/etc/group`.  No other `/etc` paths are

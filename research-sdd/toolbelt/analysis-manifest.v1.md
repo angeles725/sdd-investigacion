@@ -1,14 +1,14 @@
 # Reproduce an analysis run with `analysis-manifest.v1`
 
-`analysis_manifest.py` records artifact and tool identities from supplied files and run metadata. It never launches the input artifact or the recorded tool.
+`rsdd adapter manifest` (Go: `rsdd/internal/core/adapter`, formerly `analysis_manifest.py`) records artifact and tool identities from supplied files and run metadata. It never launches the input artifact or the recorded tool.
 
 ## Quick path
 
 1. Preserve stdout, stderr, and every generated output below one analysis root.
 2. Write a creation spec using artifact-relative paths.
-3. Run `python3 analysis_manifest.py create --root <root> --spec <spec.json> --output <manifest.json>`. Add `--overwrite` only when replacing that path is intentional.
-4. Check structure with `python3 analysis_manifest.py validate <manifest.json>`.
-5. Rehash preserved files with `python3 analysis_manifest.py verify --root <root> <manifest.json>`.
+3. Run `rsdd adapter manifest create --root <root> --spec <spec.json> --output <manifest.json>`. Add `--overwrite` only when replacing that path is intentional.
+4. Check structure with `rsdd adapter manifest validate <manifest.json>`.
+5. Rehash preserved files with `rsdd adapter manifest verify --root <root> <manifest.json>`.
 
 ## Contract
 

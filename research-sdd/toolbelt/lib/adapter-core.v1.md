@@ -1,6 +1,7 @@
 # adapter-core.v1 — Research-SDD Shared Adapter Primitives
 
-Contract for `lib/adapter_core.py`. Adapters import from here instead of
+Contract for the shared adapter primitives, implemented in Go by `rsdd/internal/core/adapter`
+(and `core/proc`, `core/fsx`, `core/jsonout`; formerly `lib/adapter_core.py`). Adapters import from here instead of
 duplicating implementations inline.  Item-24 migrates shipped adapters via
 pure deletion + import (signatures are byte-compatible by design).
 

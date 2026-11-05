@@ -116,7 +116,7 @@ appended to `limitations` and `strings.truncated` (and the per-category
 - **Per-category `truncated`**: each category records `truncated: true`
   independently when `count > sampled` for that category.
 - **Run-level caps** (`--timeout`, output-cap, process-cap): when
-  `adapter_core.run_bounded` fires a resource cap, `run_truncation` maps it to
+  `proc.Run` (`core/proc`) fires a resource cap, `run_truncation` maps it to
   `strings.truncated: true` and a limitation string.  The fired cap is also
   present in `errors` (e.g. `"timeout"`).
 
