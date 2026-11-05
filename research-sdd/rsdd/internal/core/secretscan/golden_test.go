@@ -37,7 +37,8 @@ func loadGolden(t testing.TB) map[string]goldenEntry {
 	return m
 }
 
-// canon sorts the stdout lines of an unordered case (a multi-file walk reports in directory order).
+// canon sorts the stdout lines of an unordered case (a multi-file walk reports in directory order). Only the legacy
+// side of the differential goes through it; the golden of such a case holds the engine's exact output.
 func canon(c scase, o obs) obs {
 	if !c.unordered {
 		return o
@@ -58,8 +59,8 @@ func TestGoldenReplay(t *testing.T) {
 			if !ok {
 				t.Fatalf("case %q has no golden entry", c.name)
 			}
-			got := canon(c, newWorld(t, c).runGo(t))
-			exp := canon(c, obs{want.Stdout, want.Stderr, want.Exit})
+			got := newWorld(t, c).runGo(t) // exact: for an unordered case the golden pins the engine's own sorted order
+			exp := obs{want.Stdout, want.Stderr, want.Exit}
 			if got != exp {
 				t.Errorf("golden mismatch\nstdout want %q\n       got  %q\nstderr want %q\n       got  %q\nexit want %d got %d",
 					exp.stdout, got.stdout, exp.stderr, got.stderr, exp.exit, got.exit)

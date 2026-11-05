@@ -2,6 +2,7 @@ package secretscan
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,7 +103,28 @@ func newWorld(t testing.TB, c scase) *world {
 	if c.build != nil {
 		c.build(w)
 	}
+	w.c.unordered = w.c.unordered || walksSeveralFiles(w)
 	return w
+}
+
+// walksSeveralFiles reports whether a default-mode (working-tree walk) case holds two or more regular files the
+// walk would read. The legacy report order of such a walk is whatever `grep -r` got from readdir: it differs
+// between filesystems (a runner's ext4 hash order, a tmpfs, a different host), so the differential compares the
+// legacy side as a set of lines. Over-counting is harmless: it only widens the set comparison, and the golden still
+// freezes the engine's own exact (sorted) order for these cases. --files-from lists and history scans are ordered
+// by the list and by sort respectively in the legacy script, so they are never relaxed.
+func walksSeveralFiles(w *world) bool {
+	if w.c.mode != "" {
+		return false
+	}
+	n := 0
+	_ = filepath.WalkDir(w.corpus, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() && nameInScope(d.Name()) {
+			n++
+		}
+		return nil
+	})
+	return n >= 2
 }
 
 func (w *world) abs(rel string) string { return filepath.Join(w.corpus, rel) }

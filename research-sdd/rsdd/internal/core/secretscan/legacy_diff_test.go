@@ -81,7 +81,8 @@ func TestDifferentialAgainstLegacy(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			w := newWorld(t, c)
-			legacy, got := canon(c, w.runLegacy(t)), canon(c, w.runGo(t))
+			raw := w.runGo(t)
+			legacy, got := canon(w.c, w.runLegacy(t)), canon(w.c, raw)
 			var declared []parity.Intended
 			for _, d := range c.intended {
 				if d.reason == "" {
@@ -95,8 +96,8 @@ func TestDifferentialAgainstLegacy(t *testing.T) {
 				}
 			}
 			frozen := legacy
-			if len(c.intended) > 0 {
-				frozen = got
+			if len(c.intended) > 0 || w.c.unordered {
+				frozen = raw // a declared divergence, or an order the legacy script leaves to readdir: pin the engine's output
 			}
 			mu <- struct{}{}
 			golden[c.name] = goldenEntry{frozen.stdout, frozen.stderr, frozen.exit}

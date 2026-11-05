@@ -1150,7 +1150,7 @@
   "exit": 1
  },
  "narrow-block-at-root": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/x.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: corpus ==",
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/x.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },
@@ -1170,7 +1170,7 @@
   "exit": 0
  },
  "narrow-depth-four-too-deep": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — {{S}}/corpus/a/b/c/d/in.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: corpus ==",
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a/b/c/d/in.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },
@@ -1190,7 +1190,7 @@
   "exit": 1
  },
  "narrow-not-md-ext": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/in.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: corpus ==",
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },
@@ -1200,7 +1200,7 @@
   "exit": 1
  },
  "narrow-symlinked-target": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — link/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — link/sub/in.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: link ==",
+  "stdout": "== scan-secrets: link ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — link/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — link/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },
@@ -1350,7 +1350,7 @@
   "exit": 1
  },
  "scope-first-middle-last": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/z.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: corpus ==",
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/z.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },
@@ -1440,7 +1440,7 @@
   "exit": 1
  },
  "scope-two-files-both-leak": {
-  "stdout": "\n   (none)\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/b.md:1 (value redacted)\n-- high-confidence secret values --\n-- possible credential assignments (advisory) --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n== scan-secrets: corpus ==",
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/b.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
  },

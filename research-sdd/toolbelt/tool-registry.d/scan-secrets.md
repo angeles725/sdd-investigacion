@@ -26,7 +26,11 @@ Intended divergences from the retired script (each pinned by a declared case of 
   location and a stray fragment); a committed path with a leading blank keeps it (the `read` loop trimmed it); a hit on a line
   that also holds a NUL is reported once (the raw and the NUL-stripped scan each reported it).
 - **Order is C-locale.** History entries are sorted bytewise (the script's `sort -u` followed the caller's locale), a working-tree walk
-  reports in path order (the script: directory order), `--files-from` in list order.
+  reports in path order (the script: directory order, because `grep -r` reports in the order readdir returns, which differs between
+  filesystems and hosts), `--files-from` in list order. The differential therefore compares the legacy side of every multi-file
+  working-tree case as a sorted set of lines (`walksSeveralFiles` in `world_test.go`), while the golden of such a case freezes the
+  engine's exact sorted output, so the deterministic order stays pinned. History scans and `--files-from` are ordered by `sort` and
+  by the list in the script and are never relaxed.
 - **Corpus-root selection is bytewise.** Default mode narrows to the shallowest directory holding a `*block*.md` file; among equally
   deep candidates the legacy script chose with `sort -k2,2` in the caller's locale, so `b` or `B` won depending on `LC_ALL`. The
   engine picks the bytewise smallest (`B` before `a-` before `a_` before `b`), the same on every machine. Pinned by
