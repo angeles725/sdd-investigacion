@@ -58,10 +58,7 @@ var Command = cli.Command{
 // Run is the command.
 func Run(args []string, s cli.Stdio) int {
 	a := &app{s: s}
-	var env []string
-	if s.Environ != nil {
-		env = s.Environ()
-	}
+	env := s.Environment()
 	a.exec = osExec(env, s.Cwd, s.Env("PATH"))
 	a.have = func(name string) bool { _, ok := lookPath(s.Env("PATH"), name); return ok }
 	return a.main(args)
