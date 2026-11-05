@@ -22,7 +22,7 @@ version, normalized sorted signatures and entropy edges, caps, truncation, error
 and the verified `engine/analysis-manifest.v1.json` identity. Verify artifacts with:
 
 ```sh
-python3 analysis_manifest.py verify --root evidence/firmware \
+rsdd adapter manifest verify --root evidence/firmware \
   evidence/firmware/engine/analysis-manifest.v1.json
 ```
 

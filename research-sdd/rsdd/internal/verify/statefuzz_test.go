@@ -175,6 +175,7 @@ func genCorpus(t *testing.T, r *rand.Rand, d string) []string {
 }
 
 func TestDifferentialStateRandom(t *testing.T) {
+	t.Parallel()
 	n := 120
 	if s := os.Getenv("RSDD_STATE_FUZZ_N"); s != "" {
 		v, err := strconv.Atoi(s)

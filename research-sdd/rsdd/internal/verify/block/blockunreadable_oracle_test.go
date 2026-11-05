@@ -12,6 +12,7 @@ import (
 // stderr differs on purpose: the script let each awk/grep/cat print its own "Permission denied" (about twenty lines);
 // the port prints one line naming the read failure (tool-registry.d/verify-block.md).
 func TestDifferentialBlockUnreadable(t *testing.T) {
+	t.Parallel()
 	dir, block := bkUnreadableBlock(t)
 	args := []string{filepath.Base(block), dir}
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "LC_ALL=C.UTF-8"}

@@ -30,6 +30,7 @@ import (
 //	VB-UNREADABLE (an unreadable block is DEGRADED, exit 1) ............ TestBlockUnreadableIsNeverClean
 
 func TestVbLinesCountsLikeAwk(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	v := fsView{View: fsview.View{Cwd: d}}
 	for _, c := range []struct {
@@ -54,6 +55,7 @@ func TestVbLinesCountsLikeAwk(t *testing.T) {
 }
 
 func TestShellIntBounds(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		in string
 		v  int64
@@ -66,6 +68,7 @@ func TestShellIntBounds(t *testing.T) {
 }
 
 func TestSplitRange(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string][2]string{"5": {"5", "5"}, "2-9": {"2", "9"}, "01-1": {"01", "1"}} {
 		if s, e := splitRange(in); s != want[0] || e != want[1] {
 			t.Errorf("splitRange(%q) = %q,%q want %q,%q", in, s, e, want[0], want[1])
@@ -80,6 +83,7 @@ func TestSplitRange(t *testing.T) {
 }
 
 func TestGrepOWordStartBoundary(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		in   string
 		want []string
@@ -101,6 +105,7 @@ func TestGrepOWordStartBoundary(t *testing.T) {
 }
 
 func TestPfScanLadderBoundary(t *testing.T) {
+	t.Parallel()
 	route := func(n int) []string {
 		l := []string{"## S", "It is not possible to read it."}
 		for i := 1; i <= n; i++ {
@@ -128,6 +133,7 @@ func TestPfScanLadderBoundary(t *testing.T) {
 }
 
 func TestHasDigestBoundary(t *testing.T) {
+	t.Parallel()
 	d64, d63, d65 := strings.Repeat("a", 64), strings.Repeat("a", 63), strings.Repeat("a", 65)
 	for _, c := range []struct {
 		line string
@@ -140,6 +146,7 @@ func TestHasDigestBoundary(t *testing.T) {
 }
 
 func TestSkipScratch(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		tok  string
 		spad bool
@@ -156,6 +163,7 @@ func TestSkipScratch(t *testing.T) {
 }
 
 func TestCutBytes(t *testing.T) {
+	t.Parallel()
 	if got := cutBytes("abc", 3); got != "abc" {
 		t.Errorf("cutBytes at the limit = %q", got)
 	}
@@ -168,6 +176,7 @@ func TestCutBytes(t *testing.T) {
 }
 
 func TestDedupeByLine(t *testing.T) {
+	t.Parallel()
 	got := dedupeByLine([]string{"10:b", "2:a", "10:c", "2:z", "1:q"})
 	if strings.Join(got, "|") != "1:q|2:a|10:b" {
 		t.Errorf("dedupeByLine = %q (numeric order, first line seen kept)", got)
@@ -175,6 +184,7 @@ func TestDedupeByLine(t *testing.T) {
 }
 
 func TestSourcePDF(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		lines []string
 		want  string
@@ -194,6 +204,7 @@ func TestSourcePDF(t *testing.T) {
 }
 
 func TestJoinFind(t *testing.T) {
+	t.Parallel()
 	for _, c := range [][3]string{{"d", "f", "d/f"}, {"d/", "f", "d/f"}, {"/", "f", "/f"}, {"d//", "f", "d//f"}} {
 		if got := joinFind(c[0], c[1]); got != c[2] {
 			t.Errorf("joinFind(%q,%q) = %q want %q", c[0], c[1], got, c[2])
@@ -202,6 +213,7 @@ func TestJoinFind(t *testing.T) {
 }
 
 func TestSplitNonpathGuards(t *testing.T) {
+	t.Parallel()
 	b := &blockRun{fs: fsView{View: fsview.View{Cwd: t.TempDir()}}, target: t.TempDir()}
 	np := func(cites ...string) string {
 		n, _ := b.splitNonpath(cites)
@@ -216,6 +228,7 @@ func TestSplitNonpathGuards(t *testing.T) {
 }
 
 func TestScanCorrectionsFilters(t *testing.T) {
+	t.Parallel()
 	scan := func(self int, lines ...string) ([]bpCand, bpTrailer) {
 		c, tr, _ := scanCorrections(lines, self)
 		return c, tr
@@ -260,6 +273,7 @@ func TestScanCorrectionsFilters(t *testing.T) {
 }
 
 func TestAwkSubstr(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		s        string
 		start, n int

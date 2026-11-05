@@ -2210,8 +2210,8 @@ file appears to fail. (Evidence: target-local `tools/bog-cycles.py` (not shipped
 retro #1.)
 
 **Rule R5 — the content-addressed manifest `verify` is slow-only and never enters a fixture.**
-Suites that produce an `analysis-manifest.v1` (native, firmware, java) MUST keep `analysis_manifest.py
-verify` in the SLOW lane. It is not fixture-portable: `verify` re-resolves the tool launcher on the
+Suites that produce an `analysis-manifest.v1` (native, firmware, java) MUST keep `rsdd adapter manifest
+verify` (formerly `analysis_manifest.py verify`) in the SLOW lane. It is not fixture-portable: `verify` re-resolves the tool launcher on the
 LIVE machine and rehashes it (e.g. `/usr/bin/bwrap`, re-resolved from `PATH`, NOT stored in the
 fixture), so on any other machine it raises `file-backed tool identity changed` even when every file
 inside the fixture tree rehashes fine. The fast lane asserts only the normalized top-level report and

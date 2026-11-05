@@ -112,6 +112,7 @@ func withoutInterpreterNoise(s string) string {
 }
 
 func TestDifferentialOutcomes(t *testing.T) {
+	t.Parallel()
 	for _, c := range outcomeCases() {
 		t.Run(c.name, func(t *testing.T) {
 			dir := corpus(t, c.files)
@@ -124,6 +125,7 @@ func TestDifferentialOutcomes(t *testing.T) {
 }
 
 func TestDifferentialUnreadableInputs(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a mode 000 file is still readable, so the unreadable-input cases cannot be built")
 	}
@@ -160,6 +162,7 @@ func TestDifferentialUnreadableInputs(t *testing.T) {
 
 // TestDifferentialGenerated runs the seeded random corpora (genSeeds); the same corpora are recorded as goldens.
 func TestDifferentialGenerated(t *testing.T) {
+	t.Parallel()
 	for _, c := range generatedCases() {
 		assertSame(t, c.name, corpus(t, c.files), c.args...)
 	}
@@ -167,6 +170,7 @@ func TestDifferentialGenerated(t *testing.T) {
 
 // The frozen oracle is pinned by hash, so an edit to it cannot go unnoticed. Updating a hash is a deliberate act.
 func TestLegacyOracleIsPinned(t *testing.T) {
+	t.Parallel()
 	sums, err := os.ReadFile(filepath.Join("testdata", "legacy", "SHA256SUMS"))
 	if err != nil {
 		t.Fatal(err)

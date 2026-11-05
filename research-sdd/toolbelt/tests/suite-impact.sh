@@ -69,7 +69,7 @@ set -uo pipefail
 SELF_NAME="suite-impact"
 WIDE_THRESHOLD="${SUITE_IMPACT_WIDE_THRESHOLD-12}"   # validated below: a set-but-empty value is invalid, not "default"
 # Libraries every other thing leans on: a change escalates without measuring the closure.
-WIDE_NAMED="block-files.sh retro-status.sh retro-grammar.sh state-files.sh hook-emit.sh tool-env.sh target-paths.sh analysis_manifest.py adapter_core.py"
+WIDE_NAMED="block-files.sh retro-status.sh retro-grammar.sh state-files.sh hook-emit.sh tool-env.sh target-paths.sh"
 
 degraded() { echo "degraded: $SELF_NAME: $*" >&2; exit 2; }
 usage() { echo "usage: $SELF_NAME.sh --base <ref> [--head <ref>|--worktree] [--format list|report] [--repo DIR] [--manifest-dir DIR] [--tolerate-stale-manifest] | --audit | --deps-all | --deps <suite>" >&2; exit 2; }

@@ -20,6 +20,7 @@ func withBudgetRunner(t *testing.T, f func(args []string, s cli.Stdio) int) {
 }
 
 func TestRegistryProductionHooksRunWithoutSkipping(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.put("alpha/.claude/settings.json", "{}\n")

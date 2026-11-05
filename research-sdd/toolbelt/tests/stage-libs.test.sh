@@ -220,7 +220,7 @@ mkp() { printf '%s\n' "$2" > "$PLANT/$1.test.sh"; }
 mkp literal    'cp "$HERE/../lib/block-files.sh" "$box/lib/"'
 mkp literalto  'mkdir -p "$d/lib" && cp "$TOOLBELT/lib/tool-env.sh" "$d/lib/tool-env.sh"'
 mkp lnform     'ln -s "$HERE/../lib/state-files.sh" "$k/toolbelt/lib/state-files.sh"'
-mkp pyform     'cp "$TB/lib/adapter_core.py" "$T/toolbelt/lib"'
+mkp pyform     'cp "$TB/lib/kaitai_driver.py" "$T/toolbelt/lib"'
 mkp forloop    'for _l in retro-status target-paths; do cp "$HERE/../lib/$_l.sh" "$box/toolbelt/lib/$_l.sh"; done'
 mkp forsplit   $'for l in block-files.sh gap-rows.sh; do\n  cp "$KIT/lib/$l" "$tb/lib/"\ndone'
 mkp twolibs    'cp "$HERE/../lib/corpus-markers.sh" "$HERE/../lib/gh-visibility.sh" "$k/toolbelt/lib/"'

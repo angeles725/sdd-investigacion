@@ -6,6 +6,7 @@ import (
 )
 
 func TestCompactCountsCharactersUnderAUTF8Locale(t *testing.T) {
+	t.Parallel()
 	line := "WARN  " + strings.Repeat("é", 100) // 106 characters, 206 bytes
 	// bytes mode cuts at 97 bytes (6 + 91, the last é split) and the split sequence is dropped before "..."
 	if got, want := compactRegistry(line, false), "WARN  "+strings.Repeat("é", 45)+"...\n"; !strings.HasPrefix(got, want) {
