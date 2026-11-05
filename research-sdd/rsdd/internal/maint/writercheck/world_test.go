@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
@@ -73,7 +74,7 @@ func buildPristine(dir, root string) error {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
+		if err := writeExec(p, body); err != nil {
 			return err
 		}
 	}
@@ -133,9 +134,7 @@ func (k *kase) write(rel, body string) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		k.t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte(body), 0o755); err != nil {
-		k.t.Fatal(err)
-	}
+	execfile.Write(k.t, p, body)
 }
 
 // add appends body to rel (creating it).
@@ -194,3 +193,6 @@ func impactScript(t *testing.T) string {
 
 // norm replaces the case root by <R>, so two runs in different roots compare equal.
 func (k *kase) norm(s string) string { return strings.ReplaceAll(s, k.root, "<R>") }
+
+// writeExec writes an executable file before any test (and so any concurrent fork) exists.
+func writeExec(p, body string) error { return os.WriteFile(p, []byte(body), 0o755) }

@@ -44,14 +44,10 @@ func (k *kase) logFile(dir, suite string, bound bool, body string, worktree bool
 	if bound {
 		text = headerOf(k, worktree) + "\n" + body
 	}
-	name := strings.ReplaceAll(pfx+suite, "/", "__") + ".log"
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, logName(pfx+suite)), []byte(text), 0o644); err != nil {
 		k.t.Fatal(err)
 	}
 }
-
-// logName is the file name of a suite's log below tests/.
-func logName(suite string) string { return strings.ReplaceAll(pfx+suite, "/", "__") + ".log" }
 
 // chk is the common command line: --repo <clone> --base base, then extra.
 func chk(extra ...string) func(*kase) []string {
