@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parallelfloor"
 )
 
 // The differential: the frozen excerpts of research-sdd-status.sh (testdata/legacy, verbatim bytes of origin/main
@@ -36,6 +38,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// The scenarios wait on the frozen bash script; t.Parallel() alone runs only GOMAXPROCS of them at once.
+	parallelfloor.Raise(8)
 	code := m.Run()
 	for _, d := range []string{stageDir, s4Dir} {
 		if d != "" {

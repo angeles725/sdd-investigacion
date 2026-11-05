@@ -113,8 +113,5 @@ func parentAndFile(warn string) string {
 		p = p[i+len(lead):]
 	}
 	seg := strings.Split(p, "/")
-	if len(seg) >= 2 {
-		return seg[len(seg)-2] + "/" + seg[len(seg)-1]
-	}
-	return p
+	return strings.Join(seg[max(0, len(seg)-2):], "/")
 }
