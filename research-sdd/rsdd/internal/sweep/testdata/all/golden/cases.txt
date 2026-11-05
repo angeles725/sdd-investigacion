@@ -1,0 +1,2934 @@
+@@case all eight pass
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1568
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case each banner holds the script output
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1568
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case first script fails
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 1
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1586
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+FAIL  sweep-retros.sh (exit 1)
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  FAIL  sweep-retros.sh (exit 1)
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case second script fails
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 1
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1586
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+FAIL  sweep-audits.sh (exit 1)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (exit 1)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case last script fails with exit 3
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 3
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1586
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+FAIL  verify-skill-drift.sh (exit 3)
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  FAIL  verify-skill-drift.sh (exit 3)
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case exit codes are reported as they are
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 7
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 62
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 125
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 2
+
+@@file kit/toolbelt/sweep-tools.sh 0 54
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 255
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 127
+
+@@file kit/toolbelt/verify-registry.sh 0 58
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 126
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1692
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+FAIL  sweep-retros.sh (exit 2)
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+FAIL  sweep-audits.sh (exit 7)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+FAIL  sweep-breakthroughs.sh (exit 125)
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+FAIL  verify-registry.sh (exit 126)
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+FAIL  verify-kit-clean.sh (exit 127)
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+FAIL  sweep-tools.sh (exit 255)
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  FAIL  sweep-retros.sh (exit 2)
+  FAIL  sweep-audits.sh (exit 7)
+  FAIL  sweep-breakthroughs.sh (exit 125)
+  FAIL  verify-registry.sh (exit 126)
+  FAIL  verify-kit-clean.sh (exit 127)
+  FAIL  sweep-tools.sh (exit 255)
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case every script fails
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 1
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 1
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 1
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 1
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 1
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 1
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 1
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 1
+
+@@rc 1
+1
+@@out 1712
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+FAIL  sweep-retros.sh (exit 1)
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+FAIL  sweep-audits.sh (exit 1)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+FAIL  sweep-breakthroughs.sh (exit 1)
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+FAIL  verify-registry.sh (exit 1)
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+FAIL  verify-kit-clean.sh (exit 1)
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+FAIL  sweep-tools.sh (exit 1)
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+FAIL  verify-tool-catalog.sh (exit 1)
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+FAIL  verify-skill-drift.sh (exit 1)
+
+========================================
+== sweep-all summary
+========================================
+  FAIL  sweep-retros.sh (exit 1)
+  FAIL  sweep-audits.sh (exit 1)
+  FAIL  sweep-breakthroughs.sh (exit 1)
+  FAIL  verify-registry.sh (exit 1)
+  FAIL  verify-kit-clean.sh (exit 1)
+  FAIL  sweep-tools.sh (exit 1)
+  FAIL  verify-tool-catalog.sh (exit 1)
+  FAIL  verify-skill-drift.sh (exit 1)
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case stderr is merged into stdout in order
+@@file kit/toolbelt/sweep-audits.sh 0 67
+#!/usr/bin/env bash
+echo one
+echo two >&2
+echo three
+echo four >&2
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1566
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+one
+two
+three
+four
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a script that prints only to stderr
+@@file kit/toolbelt/sweep-audits.sh 0 38
+#!/usr/bin/env bash
+echo only-err >&2
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1556
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+only-err
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case output without a trailing newline
+@@file kit/toolbelt/sweep-audits.sh 0 40
+#!/usr/bin/env bash
+printf 'no newline'
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1557
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+no newline
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a silent script
+@@file kit/toolbelt/sweep-audits.sh 0 27
+#!/usr/bin/env bash
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1547
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a failing script keeps its output
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo before
+echo oops >&2
+exit 4
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1577
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+before
+oops
+
+FAIL  sweep-audits.sh (exit 4)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (exit 4)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case scripts run in the caller's directory
+@@file kit/toolbelt/sweep-audits.sh 0 24
+#!/usr/bin/env bash
+pwd
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1554
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+{root}
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case the environment reaches the scripts
+@@file kit/toolbelt/sweep-audits.sh 0 50
+#!/usr/bin/env bash
+echo "var=$RSDD_ALL_TEST_VAR"
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_ALL_TEST_VAR 11
+kept {root}
+@@rc 1
+0
+@@out 1563
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+var=kept {root}
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a script reads an empty stdin
+@@file kit/toolbelt/sweep-audits.sh 0 57
+#!/usr/bin/env bash
+n=$(cat | wc -c)
+echo "stdin=$((n))"
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1555
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stdin=0
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a script is run by bash without the execute bit
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+0
+@@out 1568
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case first script is missing
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1536
+
+========================================
+== sweep-retros.sh
+========================================
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  FAIL  sweep-retros.sh (not found)
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 78
+FAIL  sweep-retros.sh (script not found: {root}/kit/toolbelt/sweep-retros.sh)
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case last script is missing
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1524
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  FAIL  verify-skill-drift.sh (not found)
+
+@@err 90
+FAIL  verify-skill-drift.sh (script not found: {root}/kit/toolbelt/verify-skill-drift.sh)
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case no script exists
+@@rc 1
+1
+@@out 1260
+
+========================================
+== sweep-retros.sh
+========================================
+
+========================================
+== sweep-audits.sh
+========================================
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+
+========================================
+== verify-registry.sh
+========================================
+
+========================================
+== verify-kit-clean.sh
+========================================
+
+========================================
+== sweep-tools.sh
+========================================
+
+========================================
+== verify-tool-catalog.sh
+========================================
+
+========================================
+== verify-skill-drift.sh
+========================================
+
+========================================
+== sweep-all summary
+========================================
+  FAIL  sweep-retros.sh (not found)
+  FAIL  sweep-audits.sh (not found)
+  FAIL  sweep-breakthroughs.sh (not found)
+  FAIL  verify-registry.sh (not found)
+  FAIL  verify-kit-clean.sh (not found)
+  FAIL  sweep-tools.sh (not found)
+  FAIL  verify-tool-catalog.sh (not found)
+  FAIL  verify-skill-drift.sh (not found)
+
+@@err 676
+FAIL  sweep-retros.sh (script not found: {root}/kit/toolbelt/sweep-retros.sh)
+FAIL  sweep-audits.sh (script not found: {root}/kit/toolbelt/sweep-audits.sh)
+FAIL  sweep-breakthroughs.sh (script not found: {root}/kit/toolbelt/sweep-breakthroughs.sh)
+FAIL  verify-registry.sh (script not found: {root}/kit/toolbelt/verify-registry.sh)
+FAIL  verify-kit-clean.sh (script not found: {root}/kit/toolbelt/verify-kit-clean.sh)
+FAIL  sweep-tools.sh (script not found: {root}/kit/toolbelt/sweep-tools.sh)
+FAIL  verify-tool-catalog.sh (script not found: {root}/kit/toolbelt/verify-tool-catalog.sh)
+FAIL  verify-skill-drift.sh (script not found: {root}/kit/toolbelt/verify-skill-drift.sh)
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a directory is not a script
+@@dir kit/toolbelt/sweep-audits.sh 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@rc 1
+1
+@@out 1536
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (not found)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 78
+FAIL  sweep-audits.sh (script not found: {root}/kit/toolbelt/sweep-audits.sh)
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a hanging script is killed and the rest run
+@@file kit/toolbelt/sweep-audits.sh 0 46
+#!/usr/bin/env bash
+echo before-hang
+sleep 30
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_SWEEP_TIMEOUT 1
+1
+@@rc 1
+1
+@@out 1592
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+before-hang
+
+FAIL  sweep-audits.sh (timed out after 1s)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (timed out)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a hanging grandchild is killed with its script
+@@file kit/toolbelt/sweep-audits.sh 0 36
+#!/usr/bin/env bash
+sleep 30 &
+wait
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_SWEEP_TIMEOUT 1
+1
+@@rc 1
+1
+@@out 1580
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+
+FAIL  sweep-audits.sh (timed out after 1s)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (timed out)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a fractional timeout
+@@file kit/toolbelt/sweep-audits.sh 0 29
+#!/usr/bin/env bash
+sleep 30
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_SWEEP_TIMEOUT 3
+0.5
+@@rc 1
+1
+@@out 1582
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+
+FAIL  sweep-audits.sh (timed out after 0.5s)
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  FAIL  sweep-audits.sh (timed out)
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case a script within the timeout passes
+@@file kit/toolbelt/sweep-audits.sh 0 41
+#!/usr/bin/env bash
+sleep 0.1
+echo slept
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_SWEEP_TIMEOUT 1
+5
+@@rc 1
+0
+@@out 1553
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+slept
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
+@@case an empty timeout means the default
+@@file kit/toolbelt/sweep-audits.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-audits.sh
+exit 0
+
+@@file kit/toolbelt/sweep-breakthroughs.sh 0 60
+#!/usr/bin/env bash
+echo stub:sweep-breakthroughs.sh
+exit 0
+
+@@file kit/toolbelt/sweep-retros.sh 0 53
+#!/usr/bin/env bash
+echo stub:sweep-retros.sh
+exit 0
+
+@@file kit/toolbelt/sweep-tools.sh 0 52
+#!/usr/bin/env bash
+echo stub:sweep-tools.sh
+exit 0
+
+@@file kit/toolbelt/verify-kit-clean.sh 0 57
+#!/usr/bin/env bash
+echo stub:verify-kit-clean.sh
+exit 0
+
+@@file kit/toolbelt/verify-registry.sh 0 56
+#!/usr/bin/env bash
+echo stub:verify-registry.sh
+exit 0
+
+@@file kit/toolbelt/verify-skill-drift.sh 0 59
+#!/usr/bin/env bash
+echo stub:verify-skill-drift.sh
+exit 0
+
+@@file kit/toolbelt/verify-tool-catalog.sh 0 60
+#!/usr/bin/env bash
+echo stub:verify-tool-catalog.sh
+exit 0
+
+@@env RSDD_SWEEP_TIMEOUT 0
+
+@@rc 1
+0
+@@out 1568
+
+========================================
+== sweep-retros.sh
+========================================
+stub:sweep-retros.sh
+
+PASS  sweep-retros.sh
+
+========================================
+== sweep-audits.sh
+========================================
+stub:sweep-audits.sh
+
+PASS  sweep-audits.sh
+
+========================================
+== sweep-breakthroughs.sh
+========================================
+stub:sweep-breakthroughs.sh
+
+PASS  sweep-breakthroughs.sh
+
+========================================
+== verify-registry.sh
+========================================
+stub:verify-registry.sh
+
+PASS  verify-registry.sh
+
+========================================
+== verify-kit-clean.sh
+========================================
+stub:verify-kit-clean.sh
+
+PASS  verify-kit-clean.sh
+
+========================================
+== sweep-tools.sh
+========================================
+stub:sweep-tools.sh
+
+PASS  sweep-tools.sh
+
+========================================
+== verify-tool-catalog.sh
+========================================
+stub:verify-tool-catalog.sh
+
+PASS  verify-tool-catalog.sh
+
+========================================
+== verify-skill-drift.sh
+========================================
+stub:verify-skill-drift.sh
+
+PASS  verify-skill-drift.sh
+
+========================================
+== sweep-all summary
+========================================
+  PASS  sweep-retros.sh
+  PASS  sweep-audits.sh
+  PASS  sweep-breakthroughs.sh
+  PASS  verify-registry.sh
+  PASS  verify-kit-clean.sh
+  PASS  sweep-tools.sh
+  PASS  verify-tool-catalog.sh
+  PASS  verify-skill-drift.sh
+
+@@err 0
+
+@@hook 0
+
+@@hookfull 0
+
+@@end
