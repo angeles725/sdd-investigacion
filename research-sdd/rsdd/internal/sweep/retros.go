@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -155,7 +154,7 @@ func resolveKit(o options, s cli.Stdio) (string, error) {
 // huge value wraps, like bash arithmetic. ok=false is an octal the shell rejects.
 func graceSeconds(v string) (int64, bool) {
 	base := int64(10)
-	if len(v) > 1 && v[0] == '0' {
+	if strings.HasPrefix(v, "0") { // "0" reads the same in either base
 		base = 8
 	}
 	var n int64
@@ -284,12 +283,7 @@ func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 	}
 	prof.pend += prof.since(prof.t0)
 
-	sort.SliceStable(rows, func(i, j int) bool {
-		if rows[i].epoch != rows[j].epoch {
-			return rows[i].epoch < rows[j].epoch
-		}
-		return rows[i].serial() < rows[j].serial()
-	})
+	sortOldestFirst(rows, func(r pendingRow) int64 { return r.epoch }, pendingRow.serial)
 	for _, row := range rows {
 		fmt.Fprintf(out, "PENDING  %s\n", row.file)
 		if row.deltas == noSectionDeltas {
@@ -318,7 +312,6 @@ func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 	}
 
 	// Pass 2: MISSING-RETRO, with the waiver check.
-	missing := 0
 	waivedCount, waivedNames := 0, ""
 	prof.t0waiv = prof.mark()
 	for _, p := range paths {
@@ -340,23 +333,18 @@ func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 			if rg.IsExcluded(r.doc(rf)) {
 				continue
 			}
-			if m := r.epochOf(epochs, p, rf); m > nr {
-				nr = m
-			}
+			nr = max(nr, r.epochOf(epochs, p, rf))
 		}
 		prof.rn += prof.since(t)
 		nb := int64(0)
 		t = prof.mark()
 		blocks, _ := kit.FilterBlockFiles(findMarkdownFiles(p), false, "")
 		for _, bf := range blocks {
-			if m := r.epochOf(epochs, p, bf); m > nb {
-				nb = m
-			}
+			nb = max(nb, r.epochOf(epochs, p, bf))
 		}
 		prof.bn += prof.since(t)
-		if nb > 0 && nb > nr && now > nb+graceSecs {
+		if nb > nr && now > nb+graceSecs { // nr starts at 0, so nb > nr implies nb > 0
 			fmt.Fprintf(out, "MISSING-RETRO: %s advanced with no retro for the latest run\n", p)
-			missing++
 			res.missing = append(res.missing, p)
 		}
 	}
@@ -394,7 +382,7 @@ func sweepRetros(o options, s cli.Stdio, out, errw io.Writer) sweepResult {
 		wired, offRoot, unwired, absent, unreadable, wired+offRoot+unwired+absent+unreadable)
 	prof.wire = prof.since(prof.t0wire)
 
-	if pending == 0 && missing == 0 && res.skipped == 0 {
+	if pending == 0 && len(res.missing) == 0 && res.skipped == 0 {
 		io.WriteString(out, "Nothing to review.\n")
 	}
 	if prof.on {
@@ -518,10 +506,7 @@ func (r *retroRun) visit(f, p string) (row pendingRow, counted, pending bool) {
 			epoch = r.now
 		}
 	}
-	ageS := r.now - epoch
-	if ageS < 0 {
-		ageS = 0
-	}
+	ageS := max(0, r.now-epoch)
 	ageD := ageS / 86400
 	tag := ""
 	if ageD > r.ageDays {
@@ -599,10 +584,9 @@ func (r *retroRun) epochMap(p string) map[string]string {
 		return nil
 	}
 	m := map[string]string{}
-	out, err := r.git.Run(p, "log", "--no-renames", "--diff-filter=A", "--name-only", "--format=EPOCH:%ct")
-	if err != nil && len(out) == 0 {
-		return m
-	}
+	// A failed log (an empty repository, a timeout) leaves whatever it printed, possibly nothing: the loop below
+	// then adds nothing and every file is dated by mtime.
+	out, _ := r.git.Run(p, "log", "--no-renames", "--diff-filter=A", "--name-only", "--format=EPOCH:%ct")
 	ct := ""
 	for _, line := range strings.Split(string(bytes.TrimRight(out, "\n")), "\n") {
 		switch {
