@@ -39,6 +39,7 @@ func TestScrubTextBoundaries(t *testing.T) {
 		{"assignment with an empty value at end of line", "TOKEN=", "TOKEN=", 0},
 		{"assignment key stops before the equals sign", "TOKEN=abc", "TOKEN=<redacted>", 1},
 		{"rejected path candidate does not hide a later path", "a/home/x /home/y", "a/home/x <path>", 1},
+		{"a rejected candidate past index 1 keeps the later path's offset", "ab/home/x  /home/y", "ab/home/x  <path>", 1},
 	}
 	for _, c := range cases {
 		got, n := scrubText(c.in)
