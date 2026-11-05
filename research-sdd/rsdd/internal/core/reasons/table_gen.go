@@ -91,44 +91,26 @@ const (
 	DegradedJqNotFoundOnPATH Code = 42
 	// DegradedJqFailedOn is the registry row "degraded: jq failed on".
 	DegradedJqFailedOn Code = 43
-	// DegradedMigrateBacklogsRequiredToolVNotFound is the registry row "degraded: migrate-backlogs: required tool '<v>' not found".
-	DegradedMigrateBacklogsRequiredToolVNotFound Code = 44
-	// DegradedMigrateBacklogsCannotFindHelper is the registry row "degraded: migrate-backlogs: cannot find helper".
-	DegradedMigrateBacklogsCannotFindHelper Code = 45
-	// DegradedMigrateBacklogsHelperVFailedToDefineListStateFiles is the registry row "degraded: migrate-backlogs: helper <v> failed to define list_state_files".
-	DegradedMigrateBacklogsHelperVFailedToDefineListStateFiles Code = 46
-	// DegradedMigrateBacklogsMktempFailed is the registry row "degraded: migrate-backlogs: mktemp failed".
-	DegradedMigrateBacklogsMktempFailed Code = 47
 	// DegradedMigrateBacklogsCannotRead is the registry row "degraded: migrate-backlogs: cannot read".
-	DegradedMigrateBacklogsCannotRead Code = 48
-	// DegradedMigrateBacklogsAwkFailedOn is the registry row "degraded: migrate-backlogs: awk failed on".
-	DegradedMigrateBacklogsAwkFailedOn Code = 49
-	// DegradedMigrateBacklogsDiffFailedStatusVOn is the registry row "degraded: migrate-backlogs: diff failed (status <v>) on".
-	DegradedMigrateBacklogsDiffFailedStatusVOn Code = 50
-	// DegradedMigrateBacklogsVIsNotReadableTraversable is the registry row "degraded: migrate-backlogs: <v> is not readable/traversable".
-	DegradedMigrateBacklogsVIsNotReadableTraversable Code = 51
-	// DegradedMigrateBacklogsFindFailedWhileScanningVUnreadableSubdirectory is the registry row "degraded: migrate-backlogs: find failed while scanning <v> (unreadable subdirectory?)".
-	DegradedMigrateBacklogsFindFailedWhileScanningVUnreadableSubdirectory Code = 52
-	// DegradedMigrateBacklogsScanningVForRESEARCHSTATEMdFailedStatusV is the registry row "degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)".
-	DegradedMigrateBacklogsScanningVForRESEARCHSTATEMdFailedStatusV Code = 53
-	// DegradedMigrateBacklogsScanningVForFOCUSESMdFailedStatusV is the registry row "degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)".
-	DegradedMigrateBacklogsScanningVForFOCUSESMdFailedStatusV Code = 54
-	// DegradedMigrateBacklogsAwkFailedReading is the registry row "degraded: migrate-backlogs: awk failed reading".
-	DegradedMigrateBacklogsAwkFailedReading Code = 55
+	DegradedMigrateBacklogsCannotRead Code = 44
+	// DegradedMigrateBacklogsVIsNotReadableTraversableV is the registry row "degraded: migrate-backlogs: <v> is not readable/traversable (<v>)".
+	DegradedMigrateBacklogsVIsNotReadableTraversableV Code = 45
+	// DegradedMigrateBacklogsScanningVFailedV is the registry row "degraded: migrate-backlogs: scanning <v> failed (<v>)".
+	DegradedMigrateBacklogsScanningVFailedV Code = 46
 	// DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt is the registry row "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at".
-	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt Code = 56
+	DegradedSelfDirSymlinkResolutionIncompleteHopLimitOrReadlinkFailureAt Code = 47
 	// DegradedRsddUnavailable is the registry row "degraded: rsdd-unavailable".
-	DegradedRsddUnavailable Code = 57
+	DegradedRsddUnavailable Code = 48
 	// DegradedRsddSourceHashUnavailable is the registry row "degraded: rsdd-source-hash-unavailable".
-	DegradedRsddSourceHashUnavailable Code = 58
+	DegradedRsddSourceHashUnavailable Code = 49
 	// AbsentInput is the registry row "absent-input".
-	AbsentInput Code = 59
+	AbsentInput Code = 50
 	// EmptyInput is the registry row "empty-input".
-	EmptyInput Code = 60
+	EmptyInput Code = 51
 	// Unclassifiable is the registry row "unclassifiable".
-	Unclassifiable Code = 61
+	Unclassifiable Code = 52
 	// NoMatch is the registry row "no-match".
-	NoMatch Code = 62
+	NoMatch Code = 53
 )
 
 var table = []entry{
@@ -175,20 +157,11 @@ var table = []entry{
 	{text: "degraded: label '<v>' is missing on <v> and could not be created:", class: ClassDegraded, emitters: []string{"stage-retro-issues.sh"}, meaning: "the label is absent and creating it failed; no issue was created", continuation: "create the label by hand with `gh label create`, then re-run `stage-retro-issues.sh --apply`"},
 	{text: "degraded: jq not found on PATH", class: ClassDegraded, emitters: []string{"research-sdd-init.sh"}, meaning: "jq is absent, so settings.json cannot be wired", continuation: "install jq, then re-run `research-sdd-init.sh --wire`"},
 	{text: "degraded: jq failed on", class: ClassDegraded, emitters: []string{"research-sdd-init.sh"}, meaning: "jq failed on the settings file; success is not reported", continuation: "fix the settings.json syntax, then re-run `research-sdd-init.sh --wire`"},
-	{text: "degraded: migrate-backlogs: required tool '<v>' not found", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "a required tool (awk, diff or mktemp) is absent, so no proposal can be computed", continuation: "install the named tool, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: cannot find helper", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the shared state-file helper `lib/state-files.sh` next to the script is missing, so state files cannot be listed", continuation: "re-install or update the kit so the helper sits beside `migrate-backlogs.sh` under `lib/`, then re-run"},
-	{text: "degraded: migrate-backlogs: helper <v> failed to define list_state_files", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the state-file helper loaded but did not define `list_state_files`, so state files cannot be listed", continuation: "re-install or update the kit so `lib/state-files.sh` is intact, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: mktemp failed", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "no scratch directory could be created, so no proposal is computed", continuation: "free disk or TMPDIR space, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: cannot read", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "a state or FOCUSES file found by the scan is unreadable, so its proposal was not computed", continuation: "fix the file permissions, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: awk failed on", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "awk failed on a state or FOCUSES file, so its proposal was not computed", continuation: "run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: diff failed (status <v>) on", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "diff exited with status 2 or higher (trouble, not a difference) for a file, so its proposal was not computed", continuation: "run `diff` by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: <v> is not readable/traversable", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the target directory cannot be read or entered, so absent cannot be told from unreadable", continuation: "fix the target path or its permissions, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: find failed while scanning <v> (unreadable subdirectory?)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "find reported an error while scanning the target, so unreadable cannot be told from absent", continuation: "fix the permissions of the unreadable subdirectory, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: scanning <v> for RESEARCH-STATE*.md failed (status <v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the state-file scan failed; this is NOT the same as no state files", continuation: "run the scan by hand on the target, fix the cause, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: scanning <v> for FOCUSES.md failed (status <v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the FOCUSES.md scan failed, so the document-focus check has no verdict", continuation: "run `find` for FOCUSES.md by hand on the target, fix the cause, then re-run `migrate-backlogs.sh`"},
-	{text: "degraded: migrate-backlogs: awk failed reading", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "awk failed reading a FOCUSES.md, so the document-focus check was not computed", continuation: "run the same awk program by hand on the named file, fix the cause, then re-run `migrate-backlogs.sh`"},
+	{text: "degraded: migrate-backlogs: cannot read", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "a state or FOCUSES file found by the scan is unreadable (a dangling symlink, or no read permission), so its proposal was not computed and the run stops there with no closing summary", continuation: "fix the file or the link, then re-run `migrate-backlogs.sh`"},
+	{text: "degraded: migrate-backlogs: <v> is not readable/traversable (<v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the target directory cannot be listed, so absent cannot be told from unreadable", continuation: "fix the target path or its permissions, then re-run `migrate-backlogs.sh`"},
+	{text: "degraded: migrate-backlogs: scanning <v> failed (<v>)", class: ClassDegraded, emitters: []string{"migrate-backlogs.sh"}, meaning: "the corpus directory or a subdirectory of it could not be listed, so unreadable cannot be told from absent (nothing is reported before the scan completes)", continuation: "fix the permissions of the unreadable subdirectory named in parentheses, then re-run `migrate-backlogs.sh`"},
 	{text: "degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at", class: ClassDegraded, emitters: []string{"research-sdd-status.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "stage-retro.sh", "research-sdd-init.sh", "migrate-backlogs.sh", "lib/rsdd-exec.sh"}, meaning: "the shared RSDD-SELF-DIR idiom could not finish following the script's symlink chain (40-hop limit, or `readlink` missing/failing), so the script directory is the link's own directory and lib/ may not be found", continuation: "re-run with a `readlink` on PATH and a symlink chain of 40 hops or fewer, or invoke the script by its real path"},
-	{text: "degraded: rsdd-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "stage-retro.sh"}, meaning: "the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>`, `rebuild lock busy` (another rebuild held the lock past `RSDD_EXEC_LOCK_WAIT`, default 120 s, and no binary exists) or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line)", continuation: "install Go and re-run, or build a stamped binary by hand (`cd research-sdd/rsdd && make build`; a plain `go build` is unstamped and counts as stale), or point `RSDD_BIN` at an executable `rsdd`"},
+	{text: "degraded: rsdd-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh", "reconcile-issues.sh", "stage-retro-issues.sh", "stage-retro.sh", "migrate-backlogs.sh"}, meaning: "the Go `rsdd` binary could not be resolved for a ported shim; the reason follows ` — `: `RSDD_BIN not executable: <path>`, `go not found`, `build failed`, `bin dir not writable: <dir>`, `rebuild lock busy` (another rebuild held the lock past `RSDD_EXEC_LOCK_WAIT`, default 120 s, and no binary exists) or `no sources at <path>` (via `rsdd_exec` the call fails with rc 2; via `rsdd_exec_hook` it exits 0 with a per-event answer: `sweep` a SessionStart DEGRADED headline, `guard` a PreToolUse `ask` decision, `gate` a `branch=degraded` line)", continuation: "install Go and re-run, or build a stamped binary by hand (`cd research-sdd/rsdd && make build`; a plain `go build` is unstamped and counts as stale), or point `RSDD_BIN` at an executable `rsdd`"},
 	{text: "degraded: rsdd-source-hash-unavailable", class: ClassDegraded, emitters: []string{"lib/rsdd-exec.sh"}, meaning: "the source hash of `<kit>/rsdd` could not be computed in shell (no sha256 tool, a failed find, no source file, a path with a newline or a backslash, a sha tool that failed or answered out of step) nor by the `go run ./cmd/rsdd-srchash .` fallback (or go is absent), or a fresh rebuild still differs from the shell hash (`shell and go source hashes disagree`, remembered so it is not rebuilt in a loop); the reason follows ` — `; stderr line `rsdd-exec: degraded: rsdd-source-hash-unavailable — <reason>`, the existing binary runs unchanged (an unknown hash is never fresh and never triggers a rebuild), rc unaffected", continuation: "install a sha256 tool or Go, or remove the unusual source path, then re-run"},
 	{text: "absent-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "retro-gate.sh", "stage-retro-issues.sh", "sweep-audits.sh", "sweep-audits-hook.sh", "sweep-breakthroughs-hook.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-retros-hook.sh", "sweep-tools-hook.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-registry.sh", "verify-retro.sh", "verify-tool-catalog.sh"}, meaning: "the file or directory was not found or not traversable", continuation: "fix the path or restore the input, then re-run; do not read the result as zero"},
 	{text: "empty-input", class: ClassInput, emitters: []string{"coverage-map.sh", "focus-partition-audit.sh", "migrate-backlogs.sh", "reconcile-issues.sh", "score-loop-transcript.sh", "stage-retro-issues.sh", "sweep-audits.sh", "sweep-audits-hook.sh", "sweep-breakthroughs-hook.sh", "sweep-breakthroughs.sh", "sweep-retros.sh", "sweep-retros-hook.sh", "sweep-tools-hook.sh", "sweep-tools.sh", "verify-cd-physical.sh", "verify-tool-catalog.sh", "maint/kit-size-check.sh"}, meaning: "the input exists and is genuinely empty", continuation: "confirm the emptiness is real; nothing to repair"},

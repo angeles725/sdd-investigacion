@@ -191,8 +191,9 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   tooth st-contra     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-CONTRA' 'line=line  # GFM-EP-CONTRA' st_contra
   tooth st-foctok     research-sdd-status.sh 'gsub(/\\\|/,"\001",line)  # GFM-EP-FOCTOK' 'line=line  # GFM-EP-FOCTOK' st_foctok
   tooth fpa-rows      focus-partition-audit.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-FPA' 'line=line  # GFM-EP-FPA' fpa_rows
-  tooth mb-cells      migrate-backlogs.sh 'gsub(/\\\|/, "\001", body)  # GFM-EP-MIG-CELLS' 'body=body  # GFM-EP-MIG-CELLS' mb_status
-  tooth mb-doc        migrate-backlogs.sh 'gsub(/\\\|/, "\001", line)  # GFM-EP-MIG-DOC' 'line=line  # GFM-EP-MIG-DOC' mb_doc
+  # migrate-backlogs.sh is a shim over the Go port (kit #2684): its two escaped-pipe call sites (the cells of the FOCUSES.md
+  # rewrite and the document-focus lookup) are core/gfm SplitRow, mutated in Go and killed by internal/corpus/migratebacklogs
+  # cases focuses-escaped-pipes-kept and doc-escaped-pipe-in-row (TestGoldenReplay); the mb_* probes above still run the shim.
   tooth vsrc-hdr      verify-sources.sh 'gsub(/\\\|/, "\001")  # GFM-EP-VSRC' '$0=$0  # GFM-EP-VSRC' vsrc_hdr
   tooth vsrc-l4       verify-sources.sh '${_l4raw//\\\|/' '${_l4raw//ZZZZ/' vsrc_l4
   tooth vsrc-l5       verify-sources.sh '/^\|/ { gsub(/\\\|/,"\001"); v=$2;' '/^\|/ { v=$2;' vsrc_l5

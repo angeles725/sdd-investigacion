@@ -66,8 +66,10 @@ GO_SRC=(
   "sweep-tools-hook.sh=../rsdd/internal/sweep"
   "sweep-breakthroughs.sh=../rsdd/internal/sweep"
   "sweep-breakthroughs-hook.sh=../rsdd/internal/sweep"
+  "sweep-all.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "migrate-backlogs.sh=../rsdd/internal/corpus/migratebacklogs"   # run.go and scan.go print the degraded lines and the absent-input / empty-input states (kit issue #2684)
   "stage-retro.sh=../rsdd/internal/retro/stage"   # gitops.go, run.go and label.go print the degraded git and retro-not-readable lines (kit issue #2663)
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
@@ -125,7 +127,7 @@ go_unmapped() {
 # GO_FILES narrows a mapped package to some of its files, `script=glob` (kit issue #2597): internal/sweep holds the audits
 # AND the retros port, and a package-wide scan made sweep-audits.sh "emit" what retrosjson.go emits. An unlisted script
 # reads every non-test file of its package. A glob that matches no file is the same typed absent-input as an absent dir.
-GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go" "sweep-tools.sh=tools*.go" "sweep-tools-hook.sh=tools*.go" "sweep-breakthroughs.sh=breakthroughs*.go" "sweep-breakthroughs-hook.sh=breakthroughs*.go")   # TOOTH-GOFILES
+GO_FILES=("sweep-audits.sh=audits*.go" "sweep-audits-hook.sh=audits*.go" "verify-registry.sh=registry*.go" "sweep-retros.sh=retros*.go" "sweep-retros-hook.sh=retros*.go" "sweep-tools.sh=tools*.go" "sweep-tools-hook.sh=tools*.go" "sweep-breakthroughs.sh=breakthroughs*.go" "sweep-breakthroughs-hook.sh=breakthroughs*.go" "sweep-all.sh=all*.go")   # TOOTH-GOFILES
 # go_glob SCRIPT_PATH — the file glob of the script's Go sources
 go_glob() {
   local b e
