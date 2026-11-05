@@ -18,6 +18,8 @@ func TestParseUsageErrors(t *testing.T) {
 		{"one positional", []string{"wt"}, usage},
 		{"three positionals", []string{"wt", "l", "x"}, usage},
 		{"only options", []string{"--serial"}, usage},
+		{"a value flag with its value and nothing else", []string{"--state-dir", "d"}, usage},
+		{"--cmd with its value and nothing else", []string{"--cmd", "c"}, usage},
 		{"unknown option first", []string{"--bogus", "wt", "l"}, "unknown option --bogus"},
 		{"unknown option last", []string{"wt", "l", "--bogus"}, usage}, // a positional ended the options
 		{"unknown option after flags", []string{"--serial", "-x", "wt", "l"}, "unknown option -x"},

@@ -1,7 +1,9 @@
 package sizecheck
 
 import (
-	"sort"
+	"cmp"
+	"path"
+	"slices"
 	"strings"
 )
 
@@ -17,16 +19,9 @@ const toolbelt = "research-sdd/toolbelt/"
 // unitKey groups a test with the code it tests: a toolbelt test pairs with the SUT of the same basename anywhere under
 // research-sdd/toolbelt/ (maint/ and lib/ too).
 func unitKey(p string) string {
-	d, b := "", p
-	if i := strings.LastIndexByte(p, '/'); i >= 0 {
-		d, b = p[:i], p[i+1:]
-	}
-	stem := func(s string) string {
-		if i := strings.LastIndexByte(s, '.'); i >= 0 {
-			return s[:i]
-		}
-		return s
-	}
+	dir, b := path.Split(p)
+	d := strings.TrimSuffix(dir, "/")
+	stem := func(s string) string { return strings.TrimSuffix(s, path.Ext(s)) }
 	switch {
 	case strings.HasPrefix(p, toolbelt+"tests/") && strings.HasSuffix(p, ".test.sh"):
 		return toolbelt + strings.TrimSuffix(b, ".test.sh")
@@ -53,12 +48,8 @@ type unit struct {
 // chunk, and one larger than the budget gets a chunk of its own marked single-unit-over-budget.
 func split(files []fileRow, budget int) []chunk {
 	rows := append([]fileRow(nil), files...)
-	sort.SliceStable(rows, func(i, j int) bool { // `LC_ALL=C sort -k1,1 -k3,3`: unit key, then path
-		ki, kj := unitKey(rows[i].path), unitKey(rows[j].path)
-		if ki != kj {
-			return ki < kj
-		}
-		return rows[i].path < rows[j].path
+	slices.SortStableFunc(rows, func(a, b fileRow) int { // `LC_ALL=C sort -k1,1 -k3,3`: unit key, then path
+		return cmp.Or(strings.Compare(unitKey(a.path), unitKey(b.path)), strings.Compare(a.path, b.path))
 	})
 	var units []*unit
 	byKey := map[string]*unit{}

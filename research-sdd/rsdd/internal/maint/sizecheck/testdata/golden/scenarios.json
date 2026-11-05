@@ -1,0 +1,417 @@
+{
+ "all-excluded": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 0 (+0 -0) in 0 file(s)\nexcluded (generated/fixture/lockfile, not counted): 900 line(s) in 1 file(s)\n  excluded     900  research-sdd/toolbelt/tests/fixtures/ksc/wf.yml\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nsize: all-excluded\n",
+  "err": "",
+  "rc": 0
+ },
+ "at-budget": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 400 (+400 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     400  +400 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "at-hard": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 800 (+800 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     800  +800 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 800 lines (single-unit-over-budget)\n       800  src/a.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 0
+ },
+ "bad-base": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: base ref does not resolve to a commit: nope\n",
+  "rc": 2
+ },
+ "bad-base-json": {
+  "out": "{\"state\":\"degraded\",\"reason\":\"base ref does not resolve to a commit: nope\"}\n",
+  "err": "degraded: kit-size-check: base ref does not resolve to a commit: nope\n",
+  "rc": 2
+ },
+ "bad-head": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: head ref does not resolve to a commit: nope\n",
+  "rc": 2
+ },
+ "base-last": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --base needs a value\n",
+  "rc": 2
+ },
+ "base-missing": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: --base is required\n",
+  "rc": 2
+ },
+ "binary": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 2 file(s)\n  unmeasured  a.bin\n  unmeasured  zz.bin\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  z.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "binary-only": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 0 (+0 -0) in 0 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 1 file(s)\n  unmeasured  a.bin\npure renames (0 lines): 0 file(s)\nsize: unmeasured\n",
+  "err": "",
+  "rc": 0
+ },
+ "budget-1": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 1, hard-limit 2)\nauthored changed lines: 1 (+1 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       1  +1 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "budget-10": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 10, hard-limit 20)\nauthored changed lines: 10 (+10 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      10  +10 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "budget-10-digits": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --budget must be a positive integer of at most 9 digits: 1234567890\n",
+  "rc": 2
+ },
+ "budget-10-over": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 10, hard-limit 15)\nauthored changed lines: 11 (+11 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      11  +11 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 10 lines per chunk):\n  chunk 1: 11 lines (single-unit-over-budget)\n        11  src/a.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 0
+ },
+ "budget-10-refuse": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 10, hard-limit 15)\nauthored changed lines: 16 (+16 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      16  +16 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 10 lines per chunk):\n  chunk 1: 16 lines (single-unit-over-budget)\n        16  src/a.txt\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "budget-9-digits": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 999999999, hard-limit 1999999998)\nauthored changed lines: 2 (+2 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       2  +2 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "budget-empty": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --budget must be a positive integer: \n",
+  "rc": 2
+ },
+ "budget-last": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --budget needs a value\n",
+  "rc": 2
+ },
+ "budget-letters": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --budget must be a positive integer: x1\n",
+  "rc": 2
+ },
+ "budget-zero": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --budget must be a positive integer: 0\n",
+  "rc": 2
+ },
+ "deleted-file": {
+  "out": "kit-size-check: mid...HEAD (base mid, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 30 (+0 -30) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      30  +0 -30  gone.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "empty-base": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: --base is required\n",
+  "rc": 2
+ },
+ "empty-input": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 0 (+0 -0) in 0 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nsize: empty-input\n",
+  "err": "",
+  "rc": 0
+ },
+ "excluded-11": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 2 (+2 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 66 line(s) in 11 file(s)\n  excluded       1  research-sdd/toolbelt/tests/fixtures/ksc/fa.json\n  excluded       2  research-sdd/toolbelt/tests/fixtures/ksc/fb.json\n  excluded       3  research-sdd/toolbelt/tests/fixtures/ksc/fc.json\n  excluded       4  research-sdd/toolbelt/tests/fixtures/ksc/fd.json\n  excluded       5  research-sdd/toolbelt/tests/fixtures/ksc/fe.json\n  excluded       6  research-sdd/toolbelt/tests/fixtures/ksc/ff.json\n  excluded       7  research-sdd/toolbelt/tests/fixtures/ksc/fg.json\n  excluded       8  research-sdd/toolbelt/tests/fixtures/ksc/fh.json\n  excluded       9  research-sdd/toolbelt/tests/fixtures/ksc/fi.json\n  excluded      10  research-sdd/toolbelt/tests/fixtures/ksc/fj.json\n  ... and 1 more excluded file(s) (all counted in the total above)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       2  +2 -0  keep.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "excluded-exactly-10": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 2 (+2 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 55 line(s) in 10 file(s)\n  excluded       1  research-sdd/toolbelt/tests/fixtures/ksc/fa.json\n  excluded       2  research-sdd/toolbelt/tests/fixtures/ksc/fb.json\n  excluded       3  research-sdd/toolbelt/tests/fixtures/ksc/fc.json\n  excluded       4  research-sdd/toolbelt/tests/fixtures/ksc/fd.json\n  excluded       5  research-sdd/toolbelt/tests/fixtures/ksc/fe.json\n  excluded       6  research-sdd/toolbelt/tests/fixtures/ksc/ff.json\n  excluded       7  research-sdd/toolbelt/tests/fixtures/ksc/fg.json\n  excluded       8  research-sdd/toolbelt/tests/fixtures/ksc/fh.json\n  excluded       9  research-sdd/toolbelt/tests/fixtures/ksc/fi.json\n  excluded      10  research-sdd/toolbelt/tests/fixtures/ksc/fj.json\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       2  +2 -0  keep.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "files-26": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 351 (+351 -0) in 26 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      26  +26 -0  src/fz.txt\n      25  +25 -0  src/fy.txt\n      24  +24 -0  src/fx.txt\n      23  +23 -0  src/fw.txt\n      22  +22 -0  src/fv.txt\n      21  +21 -0  src/fu.txt\n      20  +20 -0  src/ft.txt\n      19  +19 -0  src/fs.txt\n      18  +18 -0  src/fr.txt\n      17  +17 -0  src/fq.txt\n      16  +16 -0  src/fp.txt\n      15  +15 -0  src/fo.txt\n      14  +14 -0  src/fn.txt\n      13  +13 -0  src/fm.txt\n      12  +12 -0  src/fl.txt\n      11  +11 -0  src/fk.txt\n      10  +10 -0  src/fj.txt\n       9  +9 -0  src/fi.txt\n       8  +8 -0  src/fh.txt\n       7  +7 -0  src/fg.txt\n       6  +6 -0  src/ff.txt\n       5  +5 -0  src/fe.txt\n       4  +4 -0  src/fd.txt\n       3  +3 -0  src/fc.txt\n       2  +2 -0  src/fb.txt\n  ... and 1 more file(s)\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "files-exactly-25": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 325 (+325 -0) in 25 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      25  +25 -0  src/fy.txt\n      24  +24 -0  src/fx.txt\n      23  +23 -0  src/fw.txt\n      22  +22 -0  src/fv.txt\n      21  +21 -0  src/fu.txt\n      20  +20 -0  src/ft.txt\n      19  +19 -0  src/fs.txt\n      18  +18 -0  src/fr.txt\n      17  +17 -0  src/fq.txt\n      16  +16 -0  src/fp.txt\n      15  +15 -0  src/fo.txt\n      14  +14 -0  src/fn.txt\n      13  +13 -0  src/fm.txt\n      12  +12 -0  src/fl.txt\n      11  +11 -0  src/fk.txt\n      10  +10 -0  src/fj.txt\n       9  +9 -0  src/fi.txt\n       8  +8 -0  src/fh.txt\n       7  +7 -0  src/fg.txt\n       6  +6 -0  src/ff.txt\n       5  +5 -0  src/fe.txt\n       4  +4 -0  src/fd.txt\n       3  +3 -0  src/fc.txt\n       2  +2 -0  src/fb.txt\n       1  +1 -0  src/fa.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "fixture-logic": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 40 (+40 -0) in 4 file(s)\nexcluded (generated/fixture/lockfile, not counted): 100 line(s) in 1 file(s)\n  excluded     100  research-sdd/toolbelt/tests/fixtures/ksc-logic/data.json\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      10  +10 -0  research-sdd/toolbelt/tests/fixtures/ksc-logic/helper.py\n      10  +10 -0  research-sdd/toolbelt/tests/fixtures/ksc-logic/mod.mjs\n      10  +10 -0  research-sdd/toolbelt/tests/fixtures/ksc-logic/shim.sh\n      10  +10 -0  research-sdd/toolbelt/tests/fixtures/ksc-logic/sub/deep.sh\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "fixtures-edges": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 12 (+12 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 500 line(s) in 1 file(s)\n  excluded     500  research-sdd/toolbelt/tests/fixtures/ksc/data.json\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       7  +7 -0  zzz.txt\n       5  +5 -0  aaa.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "format-bad": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --format must be report or json\n",
+  "rc": 2
+ },
+ "format-bad-then-unknown": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: unknown argument: --bogus\n",
+  "rc": 2
+ },
+ "format-json-then-base-last": {
+  "out": "{\"state\":\"degraded\",\"reason\":\"--base needs a value\"}\n",
+  "err": "degraded: kit-size-check: --base needs a value\n",
+  "rc": 2
+ },
+ "format-last": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --format needs a value\n",
+  "rc": 2
+ },
+ "hard-10-digits": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit must be a positive integer of at most 9 digits: 1234567890\n",
+  "rc": 2
+ },
+ "hard-9-digits": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 999999999)\nauthored changed lines: 2 (+2 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       2  +2 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hard-below": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit (9) must be \u003e= --budget (10)\n",
+  "rc": 2
+ },
+ "hard-empty": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit must be a positive integer: \n",
+  "rc": 2
+ },
+ "hard-eq-budget": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 400)\nauthored changed lines: 400 (+400 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     400  +400 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hard-last": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit needs a value\n",
+  "rc": 2
+ },
+ "hard-letters": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit must be a positive integer: -5\n",
+  "rc": 2
+ },
+ "hard-zero": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --hard-limit (0) must be \u003e= --budget (400)\n",
+  "rc": 2
+ },
+ "head-flag": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "head-last": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: --head needs a value\n",
+  "rc": 2
+ },
+ "help": {
+  "out": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\n",
+  "err": "",
+  "rc": 0
+ },
+ "help-after-bad": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: unknown argument: --bogus\n",
+  "rc": 2
+ },
+ "help-before-bad": {
+  "out": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\n",
+  "err": "",
+  "rc": 0
+ },
+ "help-short-after-flag": {
+  "out": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 60 (+60 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      50  +50 -0  m.sh\n      10  +10 -0  o.sh\nmechanical churn: m.sh holds 83% of the lines (50) and 100% of its added lines repeat one pattern: export RSDD_XN=S\n  consider an env/config switch or a separate mechanical PR (e.g. #2200: the RSDD_INIT_WIRING switch)\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-40pct-edge": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 100 (+100 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      60  +60 -0  o.sh\n      40  +40 -0  m.sh\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-crlf": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 25 (+25 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      20  +20 -0  m.sh\n       5  +5 -0  o.sh\nmechanical churn: m.sh holds 80% of the lines (20) and 100% of its added lines repeat one pattern: export RSDD_XN=S\r\n  consider an env/config switch or a separate mechanical PR (e.g. #2200: the RSDD_INIT_WIRING switch)\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-edge-80": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 15 (+15 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      10  +10 -0  m.sh\n       5  +5 -0  o.sh\nmechanical churn: m.sh holds 66% of the lines (10) and 80% of its added lines repeat one pattern: export RSDD_XN=S\n  consider an env/config switch or a separate mechanical PR (e.g. #2200: the RSDD_INIT_WIRING switch)\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-json": {
+  "out": "{\"state\":\"ok\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":false,\"authored\":50,\"added\":50,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[{\"path\":\"m.sh\",\"added\":50,\"deleted\":0,\"lines\":50}],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[{\"path\":\"m.sh\",\"lines\":50,\"percent_of_total\":100,\"pattern_share_percent\":100,\"pattern\":\"export RSDD_XN=S\"}],\"hotspots_unchecked\":[],\"split\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-just-below-80": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 15 (+15 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      10  +10 -0  m.sh\n       5  +5 -0  o.sh\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-single-quotes": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 20 (+20 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      20  +20 -0  m.sh\nmechanical churn: m.sh holds 100% of the lines (20) and 100% of its added lines repeat one pattern: export ZZ_XN=S\n  consider an env/config switch or a separate mechanical PR (e.g. #2200: the RSDD_INIT_WIRING switch)\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "hotspot-under-10": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 14 (+14 -0) in 2 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       9  +9 -0  m.sh\n       5  +5 -0  o.sh\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "json-empty": {
+  "out": "{\"state\":\"empty-input\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":false,\"authored\":0,\"added\":0,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[],\"hotspots_unchecked\":[],\"split\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "json-escapes": {
+  "out": "{\"state\":\"ok\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":false,\"authored\":3,\"added\":3,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[{\"path\":\"q\\\"uote\\\\back.txt\",\"added\":3,\"deleted\":0,\"lines\":3}],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[],\"hotspots_unchecked\":[],\"split\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "json-ok": {
+  "out": "{\"state\":\"ok\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":false,\"authored\":3,\"added\":3,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[{\"path\":\"src/a.txt\",\"added\":3,\"deleted\":0,\"lines\":3}],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[],\"hotspots_unchecked\":[],\"split\":[]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "last-flag-wins": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 50, hard-limit 100)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  src/a.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "lockfiles": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 600 line(s) in 6 file(s)\n  excluded     100  Cargo.lock\n  excluded     100  a/b/go.sum\n  excluded     100  go.sum\n  excluded     100  package-lock.json\n  excluded     100  web/pnpm-lock.yaml\n  excluded     100  x.lock\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  src/real.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "many-excluded": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 2 (+2 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 91 line(s) in 13 file(s)\n  excluded       1  research-sdd/toolbelt/tests/fixtures/ksc/a.json\n  excluded       2  research-sdd/toolbelt/tests/fixtures/ksc/b.json\n  excluded       3  research-sdd/toolbelt/tests/fixtures/ksc/c.json\n  excluded       4  research-sdd/toolbelt/tests/fixtures/ksc/d.json\n  excluded       5  research-sdd/toolbelt/tests/fixtures/ksc/e.json\n  excluded       6  research-sdd/toolbelt/tests/fixtures/ksc/f.json\n  excluded       7  research-sdd/toolbelt/tests/fixtures/ksc/g.json\n  excluded       8  research-sdd/toolbelt/tests/fixtures/ksc/h.json\n  excluded       9  research-sdd/toolbelt/tests/fixtures/ksc/i.json\n  excluded      10  research-sdd/toolbelt/tests/fixtures/ksc/j.json\n  ... and 3 more excluded file(s) (all counted in the total above)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       2  +2 -0  keep.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "many-files": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 465 (+465 -0) in 30 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n      30  +30 -0  src/fdb.txt\n      29  +29 -0  src/fcb.txt\n      28  +28 -0  src/fbb.txt\n      27  +27 -0  src/fab.txt\n      26  +26 -0  src/fza.txt\n      25  +25 -0  src/fya.txt\n      24  +24 -0  src/fxa.txt\n      23  +23 -0  src/fwa.txt\n      22  +22 -0  src/fva.txt\n      21  +21 -0  src/fua.txt\n      20  +20 -0  src/fta.txt\n      19  +19 -0  src/fsa.txt\n      18  +18 -0  src/fra.txt\n      17  +17 -0  src/fqa.txt\n      16  +16 -0  src/fpa.txt\n      15  +15 -0  src/foa.txt\n      14  +14 -0  src/fna.txt\n      13  +13 -0  src/fma.txt\n      12  +12 -0  src/fla.txt\n      11  +11 -0  src/fka.txt\n      10  +10 -0  src/fja.txt\n       9  +9 -0  src/fia.txt\n       8  +8 -0  src/fha.txt\n       7  +7 -0  src/fga.txt\n       6  +6 -0  src/ffa.txt\n  ... and 5 more file(s)\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 390 lines\n         1  src/faa.txt\n        27  src/fab.txt\n         2  src/fba.txt\n        28  src/fbb.txt\n         3  src/fca.txt\n        29  src/fcb.txt\n         4  src/fda.txt\n        30  src/fdb.txt\n         5  src/fea.txt\n         6  src/ffa.txt\n         7  src/fga.txt\n         8  src/fha.txt\n         9  src/fia.txt\n        10  src/fja.txt\n        11  src/fka.txt\n        12  src/fla.txt\n        13  src/fma.txt\n        14  src/fna.txt\n        15  src/foa.txt\n        16  src/fpa.txt\n        17  src/fqa.txt\n        18  src/fra.txt\n        19  src/fsa.txt\n        20  src/fta.txt\n        21  src/fua.txt\n        22  src/fva.txt\n        23  src/fwa.txt\n  chunk 2: 75 lines\n        24  src/fxa.txt\n        25  src/fya.txt\n        26  src/fza.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 0
+ },
+ "no-args": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: --base is required\n",
+  "rc": 2
+ },
+ "no-merge-base": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: no merge base between base and lone\n",
+  "rc": 2
+ },
+ "octal-looking": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 8, hard-limit 16)\nauthored changed lines: 9 (+9 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       9  +9 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 8 lines per chunk):\n  chunk 1: 9 lines (single-unit-over-budget)\n         9  src/a.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 0
+ },
+ "over": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 401 (+401 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     401  +401 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 401 lines (single-unit-over-budget)\n       401  src/a.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 0
+ },
+ "over-strict": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 401 (+401 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     401  +401 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 401 lines (single-unit-over-budget)\n       401  src/a.txt\nsize: over-budget\n",
+  "err": "",
+  "rc": 3
+ },
+ "over-strict-json": {
+  "out": "{\"state\":\"over-budget\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":true,\"authored\":401,\"added\":401,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[{\"path\":\"src/a.txt\",\"added\":401,\"deleted\":0,\"lines\":401}],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[],\"hotspots_unchecked\":[],\"split\":[{\"chunk\":1,\"lines\":401,\"note\":\"single-unit-over-budget\",\"files\":[\"src/a.txt\"]}]}\n",
+  "err": "",
+  "rc": 3
+ },
+ "pure-rename": {
+  "out": "kit-size-check: mid...HEAD (base mid, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 0 (+0 -0) in 0 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 1 file(s)\n  rename  old.txt -\u003e new.txt\nsize: unmeasured\n",
+  "err": "",
+  "rc": 0
+ },
+ "refuse": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 801 (+801 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     801  +801 -0  src/a.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 801 lines (single-unit-over-budget)\n       801  src/a.txt\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "rename-with-edit": {
+  "out": "kit-size-check: mid...HEAD (base mid, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 1 (+1 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       1  +1 -0  new.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "space-path": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  a dir/a file.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "split-dotfiles": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 900 (+900 -0) in 3 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     300  +300 -0  .cfg\n     300  +300 -0  research-sdd/toolbelt/tests/.hidden\n     300  +300 -0  research-sdd/toolbelt/tests/.other\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 300 lines\n       300  .cfg\n  chunk 2: 600 lines (single-unit-over-budget)\n       300  research-sdd/toolbelt/tests/.hidden\n       300  research-sdd/toolbelt/tests/.other\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "split-exact-fit": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 200, hard-limit 400)\nauthored changed lines: 401 (+401 -0) in 4 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     200  +200 -0  a/one.txt\n     100  +100 -0  b/two.txt\n     100  +100 -0  c/three.txt\n       1  +1 -0  d/four.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 200 lines per chunk):\n  chunk 1: 200 lines\n       200  a/one.txt\n  chunk 2: 200 lines\n       100  b/two.txt\n       100  c/three.txt\n  chunk 3: 1 lines\n         1  d/four.txt\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "split-json": {
+  "out": "{\"state\":\"over-budget\",\"base\":\"base\",\"head\":\"HEAD\",\"budget\":400,\"hard_limit\":800,\"strict\":false,\"authored\":600,\"added\":600,\"deleted\":0,\"excluded_lines\":0,\"excluded_files\":0,\"files\":[{\"path\":\"a/one.txt\",\"added\":300,\"deleted\":0,\"lines\":300},{\"path\":\"b/two.txt\",\"added\":300,\"deleted\":0,\"lines\":300}],\"excluded\":[],\"unmeasured\":[],\"renames\":[],\"hotspots\":[],\"hotspots_unchecked\":[],\"split\":[{\"chunk\":1,\"lines\":300,\"note\":\"\",\"files\":[\"a/one.txt\"]},{\"chunk\":2,\"lines\":300,\"note\":\"\",\"files\":[\"b/two.txt\"]}]}\n",
+  "err": "",
+  "rc": 0
+ },
+ "split-pairs": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 840 (+840 -0) in 6 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     300  +300 -0  research-sdd/toolbelt/maint/kit-foo.sh\n     250  +250 -0  research-sdd/toolbelt/tests/kit-foo.test.sh\n     100  +100 -0  docs/readme.md\n     100  +100 -0  research-sdd/toolbelt/lib/other.sh\n      50  +50 -0  pkg/tests/x.test.sh\n      40  +40 -0  pkg/x.go\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 190 lines\n       100  docs/readme.md\n        50  pkg/tests/x.test.sh\n        40  pkg/x.go\n  chunk 2: 550 lines (single-unit-over-budget)\n       300  research-sdd/toolbelt/maint/kit-foo.sh\n       250  research-sdd/toolbelt/tests/kit-foo.test.sh\n  chunk 3: 100 lines\n       100  research-sdd/toolbelt/lib/other.sh\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "split-single-over": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 955 (+955 -0) in 3 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n     500  +500 -0  a/one.txt\n     450  +450 -0  b/two.txt\n       5  +5 -0  c/tiny.txt\nsplit suggestion (test+SUT pairs kept together, \u003c= 400 lines per chunk):\n  chunk 1: 500 lines (single-unit-over-budget)\n       500  a/one.txt\n  chunk 2: 450 lines (single-unit-over-budget)\n       450  b/two.txt\n  chunk 3: 5 lines\n         5  c/tiny.txt\nsize: refuse\n",
+  "err": "",
+  "rc": 3
+ },
+ "tab-path": {
+  "out": "size: degraded\n",
+  "err": "degraded: kit-size-check: unsupported path (control character: tab, newline, CR...) in diff\n",
+  "rc": 2
+ },
+ "tab-path-json": {
+  "out": "{\"state\":\"degraded\",\"reason\":\"unsupported path (control character: tab, newline, CR...) in diff\"}\n",
+  "err": "degraded: kit-size-check: unsupported path (control character: tab, newline, CR...) in diff\n",
+  "rc": 2
+ },
+ "tie-order": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 15 (+15 -0) in 3 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       5  +5 -0  a.txt\n       5  +5 -0  b.txt\n       5  +5 -0  c.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "unicode-path": {
+  "out": "kit-size-check: base...HEAD (base base, head HEAD; budget 400, hard-limit 800)\nauthored changed lines: 3 (+3 -0) in 1 file(s)\nexcluded (generated/fixture/lockfile, not counted): 0 line(s) in 0 file(s)\nunmeasured (binary): 0 file(s)\npure renames (0 lines): 0 file(s)\nper-file (largest first):\n       3  +3 -0  é/ü.txt\nsize: ok\n",
+  "err": "",
+  "rc": 0
+ },
+ "unknown": {
+  "out": "size: degraded\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: unknown argument: --bogus\n",
+  "rc": 2
+ },
+ "unknown-json": {
+  "out": "{\"state\":\"degraded\",\"reason\":\"unknown argument: --bogus\"}\n",
+  "err": "kit-size-check.sh — pre-RDD size guard (kit issue #2214).\n\nMeasures the AUTHORED changed lines (additions + deletions) of `git diff --numstat \u003cbase\u003e...\u003chead\u003e`,\nnames mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to\nRDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.\n\nUsage: kit-size-check.sh --base \u003cref\u003e [--head \u003cref\u003e] [--budget N] [--hard-limit M] [--strict]\n                         [--format report|json]\n  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)\n  --head REF      default HEAD\n  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)\n  --hard-limit M  refuse above M, default 2 x budget; M must be \u003e= budget\n  --strict        over-budget exits 3 instead of 0\n  --format        report (default) or json\n\nVerdict (line `size: \u003cstate\u003e`, JSON field \"state\") and exit code:\n  ok            0 \u003c n \u003c= budget                     exit 0\n  over-budget   budget \u003c n \u003c= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion\n  refuse        n \u003e hard-limit                      exit 3; prints a split suggestion\n  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)\n  all-excluded  files changed, none measured, every one excluded data or binary  exit 0\n  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames\n                (0 lines is NOT \"small\": the binaries were not read)   exit 0\n  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: \u003cwhy\u003e`;\n                no merge base, git diff failed,             also bad usage; never read as a zero)\n                unsupported path\n\nExcluded from the count (printed as a separate total, never hidden): pure DATA under\nresearch-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy\ntests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,\npnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE\ncounted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.\nThe range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.\n\nSplit suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename\nanywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a\nchunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.\n\nMechanical-churn hotspot: a measured file with \u003e 40% of the authored lines, at least 10 non-blank added\nlines, where \u003e= 80% of them are the same line after replacing quoted strings with S and digit runs with N.\nThat shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate\nmechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).\n\nCounted on the form git reports: a line edited in place counts as 1 deleted + 1 added.\ndegraded: kit-size-check: unknown argument: --bogus\n",
+  "rc": 2
+ }
+}

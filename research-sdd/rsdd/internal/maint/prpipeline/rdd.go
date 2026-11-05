@@ -5,7 +5,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 )
@@ -91,16 +90,12 @@ func tailLines(log string) []string {
 			}
 		}
 	}
-	if len(keep) > driveTail {
-		keep = keep[len(keep)-driveTail:]
-	}
+	keep = keep[max(0, len(keep)-driveTail):]
 	return keep
 }
 
 // cut keeps the first n characters of a line.
 func cut(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n])
+	r := []rune(s)
+	return string(r[:min(n, len(r))])
 }

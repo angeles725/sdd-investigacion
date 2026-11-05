@@ -30,9 +30,7 @@ func writeSummary(out io.Writer, log string) {
 			hit = append(hit, ln)
 		}
 	}
-	if len(hit) > summaryMax {
-		hit = hit[len(hit)-summaryMax:]
-	}
+	hit = hit[max(0, len(hit)-summaryMax):]
 	for _, ln := range hit {
 		fmt.Fprintln(out, ln)
 	}

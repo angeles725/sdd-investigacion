@@ -21,8 +21,11 @@ archtest lets a domain import only the core tier, so gate (mergetrain) and maint
 - [x] T4 `rsdd maint pr-pipeline` (kit-pr-pipeline) (S1 S2 S3) · inline · commit: 5cad7bcd · 50-scenario differential green
 - [x] T5 `rsdd maint size-check` (kit-size-check) (S1 S2 S3) · inline · commit: 6b4d294b · 70-scenario differential green
 - [x] T6 shims, suites, registry / reason-codes / planted-lib docs (S4) · inline · commit: 121623c4 · 14 bash suites green with --prove-teeth
-- [ ] T7 teeth per package, RED evidence, checks (S5) · inline · commit: -
+- [x] T7 teeth per package, RED evidence, checks (S5) · inline · commit: see Log L3
 
 ## Log
 - L1 (2026-11-05, user, verbatim): "necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en donde tener que hacer eso."
 - L2: CodeGraph init refused by the harness worktree-isolation guard; normal tools used.
+- L3 (T7 evidence): teeth (CI-like PATH, no bwrap) Lived 0 for core/kitmaint, core/kitgate, core/kitwait, maint/gate, maint/waitmerge, maint/prpipeline, maint/sizecheck. ./internal/maint and ./internal/gate cannot run in a module-only copy (pre-existing tests read toolbelt fixtures outside the module: teeth DEGRADED), so the ./internal/maint line of teeth-debt.txt is KEPT. Lived mutants were killed with new tests (flock retry, SignalGroup grandchild, git empty dir, arg boundaries, restack ancestor rc, merge-gate resolution, size-check boundary scenarios) or removed by operator-free rewrites (slices/cmp/max/min).
+- L4 (removed bash cases -> Go): pr-pipeline "gate under flock", locktimeout scenario, standalone kit-gate lock timeout -> kitgate TestGateLockTimeout, gate TestLockTimeoutIsTypedNotAGateFailure, prpipeline TestGateLockTimeoutIsNotAGateFailure. kit-size-check d4 (git missing) -> sizecheck TestGitMissingIsATypedDegradedState. Bash mutants (16 pipeline, m1..m27 size-check) -> differential tests + goldens + make teeth; shims keep 2 shim teeth each.
+- L5: size-check differential also replays testdata/golden/scenarios.json under -tags nodiff (golden_test.go), so the mutation run has an oracle.

@@ -18,7 +18,7 @@ func Flock(f *os.File, seconds int, sleep func(time.Duration)) bool {
 		if err == nil {
 			return true
 		}
-		if err != syscall.EWOULDBLOCK && err != syscall.EINTR {
+		if !retryable(err) {
 			return false
 		}
 		if waited >= time.Duration(seconds)*time.Second {
@@ -41,6 +41,10 @@ func SignalGroup(c *exec.Cmd, kill bool) {
 		_ = syscall.Kill(-c.Process.Pid, sig)
 	}
 }
+
+// retryable is a non-blocking flock that failed only because the lock is held (or the call was interrupted): the
+// poll goes on. Any other error ends it.
+func retryable(err error) bool { return err == syscall.EWOULDBLOCK || err == syscall.EINTR }
 
 // ExitCode is the shell's code for a finished child: the status, or 128+N for signal N.
 func ExitCode(ps *os.ProcessState) int {

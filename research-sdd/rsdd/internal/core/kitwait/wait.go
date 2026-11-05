@@ -121,9 +121,7 @@ func mergeLoop(o *Opts) int {
 		mrc, mgout := o.MergeGate([]string{"--cwd", o.Wt, "--base-ref", o.Base, "--merge", o.PR})
 		mgout = strings.TrimRight(mgout, "\n")
 		lines := strings.Split(mgout, "\n")
-		if len(lines) > tailLines {
-			lines = lines[len(lines)-tailLines:]
-		}
+		lines = lines[max(0, len(lines)-tailLines):]
 		fmt.Fprintln(o.Out, strings.Join(lines, "\n"))
 		if o.Poll != nil {
 			o.Poll()

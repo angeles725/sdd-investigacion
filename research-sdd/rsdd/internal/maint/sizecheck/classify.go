@@ -1,8 +1,9 @@
 package sizecheck
 
 import (
+	"cmp"
 	"path"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -90,11 +91,8 @@ func classify(es []entry) tally {
 		t.files = append(t.files, fileRow{a + d, a, d, e.path, e.old})
 	}
 	// `LC_ALL=C sort -k1,1nr -k4,4`: most lines first, then the path bytewise
-	sort.SliceStable(t.files, func(i, j int) bool {
-		if t.files[i].lines != t.files[j].lines {
-			return t.files[i].lines > t.files[j].lines
-		}
-		return t.files[i].path < t.files[j].path
+	slices.SortStableFunc(t.files, func(a, b fileRow) int {
+		return cmp.Or(cmp.Compare(b.lines, a.lines), strings.Compare(a.path, b.path))
 	})
 	return t
 }

@@ -10,6 +10,9 @@ func TestParseUsageErrors(t *testing.T) {
 	}{
 		{"no arguments", nil, usageLine},
 		{"two positionals", []string{"w", "7"}, usageLine},
+		{"a value flag with its value and nothing else", []string{"--remote", "r"}, usageLine},
+		{"--consent granted and nothing else", []string{"--consent", "granted"}, usageLine},
+		{"--consent with a wrong value and nothing else", []string{"--consent", "no"}, "--consent takes the single value: granted"},
 		{"four positionals", []string{"w", "7", "b", "x"}, usageLine},
 		{"unknown option", []string{"--bogus", "w", "7", "b"}, "unknown option --bogus"},
 		{"unknown after a flag", []string{"--serial", "-x", "w", "7", "b"}, "unknown option -x"},

@@ -1,7 +1,9 @@
 package sizecheck
 
 import (
+	"cmp"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -77,10 +79,14 @@ func repeated(diff string) (total, best int, pattern string) {
 			counts[s]++
 		}
 	}
-	for k, c := range counts {
-		if c > best || (c == best && k < pattern) {
-			best, pattern = c, k
-		}
+	keys := make([]string, 0, len(counts))
+	for k := range counts {
+		keys = append(keys, k)
 	}
-	return total, best, pattern
+	slices.Sort(keys) // bytewise, so the first of the most common forms is the smallest
+	if len(keys) == 0 {
+		return total, 0, ""
+	}
+	pattern = slices.MaxFunc(keys, func(a, b string) int { return cmp.Compare(counts[a], counts[b]) })
+	return total, counts[pattern], pattern
 }

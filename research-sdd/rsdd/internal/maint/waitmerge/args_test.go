@@ -16,6 +16,8 @@ func TestParseUsageErrors(t *testing.T) {
 	}{
 		{"no arguments", nil, usage},
 		{"one positional", []string{"wt"}, usage},
+		{"--base-ref with its value and nothing else", []string{"--base-ref", "b"}, usage},
+		{"--expect-head with its value and nothing else", []string{"--expect-head", "h"}, usage},
 		{"three positionals", []string{"wt", "7", "x"}, usage},
 		{"unknown option first", []string{"--bogus", "wt", "7"}, "unknown option --bogus"},
 		{"unknown option after a flag", []string{"--base-ref", "b", "-x", "wt", "7"}, "unknown option -x"},
