@@ -12,6 +12,7 @@ import (
 // The frozen legacy bytes the registry differential tests run (testdata/legacy/registry and lib/hook-emit.sh)
 // are pinned by SHA256SUMS, so an edit to the oracle cannot go unnoticed. Updating a hash is a deliberate act.
 func TestRegistryLegacyOracleIsPinned(t *testing.T) {
+	t.Parallel()
 	sums, err := os.ReadFile(filepath.Join("testdata", "legacy", "registry", "SHA256SUMS"))
 	if err != nil {
 		t.Fatal(err)

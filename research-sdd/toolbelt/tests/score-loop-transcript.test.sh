@@ -1,914 +1,185 @@
 #!/usr/bin/env bash
+# score-loop-transcript.test.sh — shim contract of score-loop-transcript.sh (kit issue #993).
+#
+# score-loop-transcript.sh is a compatibility shim over `rsdd eval score-loop` (Go). The scorer's behaviour (C1-C4
+# verdicts, the window scan, the jq-shaped transcript reader, the status-script integration, every message byte and
+# exit code) is covered by the Go tests in research-sdd/rsdd/internal/eval/scoreloop: recorded goldens from the frozen
+# pre-port script (about 340 black-box cases), a live differential against it, unit tests per guard, and the declared
+# divergences (tool-registry.d/score-loop-transcript.md). This suite checks only what the shim itself owns: it passes
+# its own directory as `--toolbelt <dir>` before the caller's arguments, forwards arguments, the exit code and stderr
+# unchanged, degrades through rsdd-exec (typed, exit 2) when rsdd cannot run, and, when the runner hands it a built
+# binary (RSDD_BIN), reaches the real scorer end to end on a fixture corpus and transcript. Mutation controls under
+# --prove-teeth.
+#
+# The mutation controls of the retired bash suite sed the old script body (the matching seams of C1-C4); that body is
+# gone. Their Go replacements are named in the SKIP lines below.
+#
+# Exit: 0 all held · 1 regression · 2 harness error
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SUT="$HERE/../score-loop-transcript.sh"
+TOOLBELT="$(cd "$HERE/.." && pwd -P)"
+SUT="$TOOLBELT/score-loop-transcript.sh"
 FIX="$HERE/fixtures/score-loop"
-ROOT="$(mktemp -d)"
-trap 'rm -rf "$ROOT"' EXIT
+
 pass=0; fail=0
-ok(){ echo "  PASS  $1"; pass=$((pass+1)); }
-no(){ echo "  FAIL  $1"; fail=$((fail+1)); }
+ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
+no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# --- repo builder: mkrepo <dir> [<iso-date> <subject>]... -------------------------------------
-mkrepo() {
-  local dir="$1"; shift
-  git init -q "$dir"
-  git -C "$dir" config user.email t@example.com
-  git -C "$dir" config user.name t
-  local n=0 ts subj
+echo "== score-loop-transcript.test.sh =="
+
+[ -f "$SUT" ] && [ -x "$SUT" ] && [ -f "$TOOLBELT/lib/rsdd-exec.sh" ] || { echo "FATAL: absent-input: shim or lib/rsdd-exec.sh" >&2; exit 2; }
+command -v git >/dev/null 2>&1 || { echo "FATAL: absent-input: git not on PATH" >&2; exit 2; }
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+# A stand-in rsdd: prints one argument per line, says something on stderr and exits with a chosen code.
+STUB="$TMP/rsdd-stub"
+cat > "$STUB" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do printf 'ARG[%s]\n' "$a"; done
+echo "stub-stderr" >&2
+exit "${STUB_RC:-7}"
+EOF
+chmod +x "$STUB"
+
+# shim_run SHIM ARGS... -> runs SHIM against the stub rsdd; sets SOUT SERR SRC
+shim_run() { SOUT="$(RSDD_BIN="$STUB" STUB_RC="${STUB_RC:-7}" bash "$1" "${@:2}" 2>"$TMP/serr")"; SRC=$?; SERR="$(cat "$TMP/serr")"; }
+
+check_forward() {
+  local shim="$1" tag="$2" want
+  shim_run "$shim" --corpus 'a b' --since ''
+  want=$'ARG[eval]\nARG[score-loop]\nARG[--toolbelt]\nARG['"$(dirname "$shim")"$']\nARG[--corpus]\nARG[a b]\nARG[--since]\nARG[]'
+  if [ "$SOUT" = "$want" ]; then ok "$tag arguments reach rsdd verbatim after 'eval score-loop --toolbelt <own dir>' (spaces and an empty argument kept)"
+  else no "$tag arguments (out=[$SOUT])"; fi
+  if [ "$SRC" -eq 7 ]; then ok "$tag exit code of rsdd is the shim's exit code"; else no "$tag exit code (rc=$SRC)"; fi
+  if [ "$SERR" = "stub-stderr" ]; then ok "$tag stderr of rsdd passes through"; else no "$tag stderr (err=[$SERR])"; fi
+}
+
+check_degrade() {
+  local shim="$1" tag="$2" out rc
+  out="$(RSDD_BIN="$TMP/does-not-exist" bash "$shim" --corpus x 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && ! grep -q '^C1 ' <<< "$out"; then
+    ok "$tag rsdd cannot run -> typed 'degraded: rsdd-unavailable', exit 2, no verdict printed (never a clean 0)"
+  else no "$tag degrade (rc=$rc out=[$out])"; fi
+}
+
+check_forward "$SUT" "1"
+check_degrade "$SUT" "2"
+
+# 3. A shim whose lib/rsdd-exec.sh is missing says so and exits 2.
+mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/score-loop-transcript.sh"
+out="$(bash "$TMP/nolib/score-loop-transcript.sh" --corpus x 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && grep -qF 'degraded: rsdd-unavailable' <<< "$out" && grep -qF 'rsdd-exec.sh missing beside' <<< "$out"; then
+  ok "3 library missing -> 'rsdd-exec.sh missing beside <shim>', exit 2"
+else no "3 missing lib (rc=$rc out=[$out])"; fi
+
+# 4. The shim is the template and nothing else: no jq, date, base64, git or sed logic left behind.
+if grep -qF 'rsdd_exec eval score-loop --toolbelt "$_RSDD_SELF" "$@"' "$SUT" && ! grep -qE 'jq |date |base64|git |sed |BASH_REMATCH|research-sdd-status' "$SUT"; then
+  ok "4 shim body is 'rsdd_exec eval score-loop --toolbelt \"\$_RSDD_SELF\" \"\$@\"' with no jq / date / base64 / git logic left"
+else no "4 shim body"; fi
+
+# 5. End to end through the real binary (the runner builds one and exports RSDD_BIN; without it the shim would build
+# bin/rsdd inside the tree, which the kit-tree hermeticity check forbids). The corpus is a throwaway repo with a fixed
+# identity and no ambient git configuration; a stub status script stands in for research-sdd-status.sh.
+GENV=(GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com
+  GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com)
+g() { env "${GENV[@]}" git -c maintenance.auto=false -c gc.auto=0 "$@"; }
+# mkcorpus DIR [<iso-date> <subject>]... -> a git repo with one commit per pair
+mkcorpus() {
+  local d="$1" n=0; shift
+  g init -q "$d" || return 1
   while [ "$#" -ge 2 ]; do
-    ts="$1"; subj="$2"; shift 2
-    n=$((n+1))
-    echo "$n" > "$dir/f.txt"
-    git -C "$dir" add f.txt
-    GIT_AUTHOR_DATE="$ts" GIT_COMMITTER_DATE="$ts" git -C "$dir" commit -q -m "$subj" >/dev/null
+    n=$((n+1)); echo "$n" > "$d/f.txt"; g -C "$d" add f.txt
+    GIT_AUTHOR_DATE="$1" GIT_COMMITTER_DATE="$1" g -C "$d" commit -q -m "$2" || return 1
+    shift 2
   done
 }
-
-STUB_STOP="$FIX/stub-status-stop-empty.sh"
-STUB_NOTSTOP="$FIX/stub-status-not-stop.sh"
-STUB_STALE="$FIX/stub-status-stale.sh"
-STUB_FAILING="$FIX/stub-status-failing.sh"
-STUB_WARN_STDERR="$FIX/stub-status-warn-stderr.sh"
-STUB_NOQUEUE="$FIX/stub-status-stop-no-queue.sh"
-STUB_MULTIFOCUS_DRAINED="$FIX/stub-status-stop-multifocus-drained.sh"
-STUB_MULTIFOCUS_MIXED="$FIX/stub-status-stop-multifocus-mixed.sh"
-
-# --- fixture repos --------------------------------------------------------------------------
-mkrepo "$ROOT/continue" \
-  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b"
-
-mkrepo "$ROOT/continue-poststop" \
-  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b" \
-  "2026-06-01T00:30:00Z" "research(demo): B3 gap-c"
-
-mkrepo "$ROOT/compaction-survive" \
-  "2026-05-31T23:50:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:10:00Z" "research(demo): B2 gap-b"
-
-mkrepo "$ROOT/compaction-stall" \
-  "2026-05-31T23:50:00Z" "research(demo): B1 gap-a"
-
-mkrepo "$ROOT/one-block" \
-  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a"
-
-# span [00:10,00:20] in out-of-span.jsonl; B1 before it, B2 inside it.
-mkrepo "$ROOT/out-of-span-repo" \
-  "2026-06-01T00:05:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:15:00Z" "research(demo): B2 gap-b"
-
-# real-shape block-subject regression: a preamble before the block ref, an explicit
-# B<n>-B<m> range (weight 3), and a retro that only CITES a prior range in a trailing
-# parenthetical (must NOT be counted at all). Neutral synthetic subjects, not copied
-# from any real corpus.
-mkrepo "$ROOT/block-regex" \
-  "2026-06-01T00:05:00Z" "research(demo/wb-vendor-ux): bootstrap focus + B1054 synthetic palette WB" \
-  "2026-06-01T00:10:00Z" "research(demo/security-seams): B1161-B1163 SES10 — synthetic native RE" \
-  "2026-06-01T00:15:00Z" "research(demo/module-mechanics): §18 full-run retro (B867-B891, MM1-MM25)"
-
-# round 3: `block(` accepted alongside `research(`; `docs(` deliberately excluded (see script
-# header — a docs(retros): B<n>-B<m> retro-summary subject is indistinguishable from a genuine
-# multi-block docs(...) commit by the region-cut heuristic, unlike research(...)/block(...)).
-mkrepo "$ROOT/block-prefix" \
-  "2026-06-01T00:05:00Z" "block(demo-focus): B900 synthetic block commit"
-
-mkrepo "$ROOT/docs-prefix" \
-  "2026-06-01T00:05:00Z" "docs(demo-focus): B900 synthetic block commit"
-
-# round 3: an implausible range (span >50) must WARN and cap to weight 1, not explode N_BLOCKS.
-mkrepo "$ROOT/range-cap" \
-  "2026-06-01T00:05:00Z" "research(demo/security-seams): B1000-B1200 SES99 — synthetic implausible range"
-
-mkdir -p "$ROOT/no-git"
-
-# ============================================================================================
-# Bad args / operational failures
-# ============================================================================================
-rc=$(bash "$SUT" >/dev/null 2>&1; echo $?)
-[ "$rc" -eq 2 ] && ok "missing --corpus: exit 2 (bad args)" || no "missing --corpus: exit 2, got $rc"
-
-rc=$(bash "$SUT" --corpus "$ROOT/does-not-exist" >/dev/null 2>&1; echo $?)
-[ "$rc" -eq 1 ] && ok "corpus not found: exit 1 (operational)" || no "corpus not found: exit 1, got $rc"
-
-rc=$(bash "$SUT" --corpus "$ROOT/no-git" >/dev/null 2>&1; echo $?)
-[ "$rc" -eq 1 ] && ok "corpus not a git repo: exit 1 (operational)" || no "corpus not a git repo: exit 1, got $rc"
-
-rc=$(bash "$SUT" --corpus "$ROOT/continue" --transcript "$ROOT/nope.jsonl" >/dev/null 2>&1; echo $?)
-[ "$rc" -eq 2 ] && ok "missing --transcript file: exit 2 (bad args)" || no "missing --transcript file: exit 2, got $rc"
-
-rc=$(bash "$SUT" --corpus "$ROOT/continue" --bogus-flag >/dev/null 2>&1; echo $?)
-[ "$rc" -eq 2 ] && ok "unknown flag: exit 2 (bad args)" || no "unknown flag: exit 2, got $rc"
-
-# git log itself failing (a bad --base-ref) must exit 1 with the error surfaced, not swallowed.
-out="$(bash "$SUT" --corpus "$ROOT/continue" --base-ref not-a-real-ref 2>&1)"; rc=$?
-[ "$rc" -eq 1 ] && ok "bad --base-ref: exit 1 (git failure surfaced)" || no "bad --base-ref: exit 1, got $rc"
-grep -qi "git log failed" <<<"$out" && ok "bad --base-ref: stderr names the git failure" || no "bad --base-ref: stderr ($out)"
-
-# ============================================================================================
-# Without a transcript — C1 still counts commits (n/a for the operator-input sub-check);
-# C2/C3/C4 are all n/a (no transcript given at all).
-# ============================================================================================
-out="$(bash "$SUT" --corpus "$ROOT/continue" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && ok "no-transcript run: exit 0" || no "no-transcript run: exit 0, got $rc"
-grep -qE '^C1 n/a 2 block commits' <<<"$out" && ok "no-transcript: C1 counts 2 block commits, n/a" || no "no-transcript: C1 count ($out)"
-grep -qE '^C2 n/a no transcript$' <<<"$out" && ok "no-transcript: C2 n/a" || no "no-transcript: C2 n/a ($out)"
-grep -qE '^C3 n/a no transcript$' <<<"$out" && ok "no-transcript: C3 n/a" || no "no-transcript: C3 n/a ($out)"
-grep -qE '^C4 n/a no transcript' <<<"$out" && ok "no-transcript: C4 n/a" || no "no-transcript: C4 n/a ($out)"
-grep -qE '^SUMMARY pass=0 fail=0 n/a=4 degraded=0$' <<<"$out" && ok "no-transcript: summary" || no "no-transcript: summary ($out)"
-
-out="$(bash "$SUT" --corpus "$ROOT/one-block" 2>&1)"
-grep -qE '^C1 fail only 1 block commit' <<<"$out" && ok "one-block corpus: C1 fail (below threshold)" || no "one-block corpus: C1 ($out)"
-
-# ============================================================================================
-# Clean continuation — all four criteria pass. C3 is "no compaction" -> pass, not n/a.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && ok "continue-clean: exit 0" || no "continue-clean: exit 0, got $rc"
-grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$out" && ok "continue-clean: C1 pass" || no "continue-clean: C1 ($out)"
-grep -qE '^C2 pass 0 of 1 final returns' <<<"$out" && ok "continue-clean: C2 pass" || no "continue-clean: C2 ($out)"
-grep -qE '^C3 pass no compaction, 2 block\(s\)$' <<<"$out" && ok "continue-clean: C3 pass (no compaction is the best outcome)" || no "continue-clean: C3 ($out)"
-grep -qE '^C4 pass STOP token present' <<<"$out" && ok "continue-clean: C4 pass" || no "continue-clean: C4 ($out)"
-grep -qE '^SUMMARY pass=4 fail=0 n/a=0 degraded=0$' <<<"$out" && ok "continue-clean: summary" || no "continue-clean: summary ($out)"
-
-# ============================================================================================
-# False-positive-noise regression (item 1): tool_result, task-notification, peer, /loop
-# re-fires, and hook-feedback tags sit between the two block commits. None of them are a
-# genuine operator turn (origin.kind != "human"), so C1 must still pass.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/false-positive-noise.jsonl" 2>&1)"
-grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$out" \
-  && ok "false-positive-noise: C1 pass (noise correctly excluded)" || no "false-positive-noise: C1 ($out)"
-grep -qE '^C4 pass' <<<"$out" && ok "false-positive-noise: C4 pass" || no "false-positive-noise: C4 ($out)"
-
-# ============================================================================================
-# C1 fail — a genuine (origin.kind=human) operator turn lands between two block commits.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/operator-interrupt.jsonl" 2>&1)"
-grep -qE '^C1 fail 2 block commits but 1 of 1 gap' <<<"$out" && ok "operator-interrupt: C1 fail" || no "operator-interrupt: C1 ($out)"
-
-# ============================================================================================
-# Unrecognized transcript shape (round 3 BLOCKER — Opus reproduced, RDD approved with warnings):
-# a transcript that has no `.origin` field at all (another harness, or `jq -c 'del(.origin)'`
-# applied to a Claude Code one), or whose top-level `.type` never equals `"user"`/`"assistant"`
-# (a real Codex/reasonix rollout shape — `.type=="response_item"` with a NESTED `.payload.role`),
-# must degrade every criterion instead of silently scoring a false clean pass.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/origin-less.jsonl" 2>&1)"
-grep -qE '^C1 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "origin-less: C1 degraded (no record carries .origin)" || no "origin-less: C1 ($out)"
-grep -qE '^C2 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "origin-less: C2 degraded" || no "origin-less: C2 ($out)"
-grep -qE '^C3 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "origin-less: C3 degraded" || no "origin-less: C3 ($out)"
-grep -qE '^C4 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "origin-less: C4 degraded" || no "origin-less: C4 ($out)"
-grep -qE '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' <<<"$out" \
-  && ok "origin-less: summary" || no "origin-less: summary ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/unrecognized-rollout-shape.jsonl" 2>&1)"
-grep -qE '^C1 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "unrecognized-rollout-shape: C1 degraded (zero recognized operator AND assistant records)" \
-  || no "unrecognized-rollout-shape: C1 ($out)"
-grep -qE '^C4 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "unrecognized-rollout-shape: C4 degraded" || no "unrecognized-rollout-shape: C4 ($out)"
-
-# ============================================================================================
-# C2 — markdown-wrapped endings, final-paragraph scan (not just the physical last line), and
-# a Spanish ¿...? pair anywhere in the final paragraph.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/question-ending.jsonl" 2>&1)"
-grep -qE '^C2 fail 2 of 2 final returns end in a question' <<<"$out" && ok "question-ending: C2 fail" || no "question-ending: C2 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/question-paragraph.jsonl" 2>&1)"
-grep -qE '^C2 fail 2 of 2 final returns end in a question' <<<"$out" \
-  && ok "question-paragraph: C2 fail (mid-paragraph question + ¿...? both caught)" \
-  || no "question-paragraph: C2 ($out)"
-
-# ============================================================================================
-# C3 — structural compaction detection only (compact_boundary / isCompactSummary), and the
-# "no compaction found" outcome is a pass, not n/a.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/compaction-survive" \
-  --transcript "$FIX/compaction-survive.jsonl" 2>&1)"
-grep -qE '^C3 pass compaction detected; 1 block commit\(s\) before, 1 after' <<<"$out" \
-  && ok "compaction-survive: C3 pass" || no "compaction-survive: C3 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/compaction-stall" \
-  --transcript "$FIX/compaction-survive.jsonl" 2>&1)"
-grep -qE '^C3 fail compaction detected; 1 block commit\(s\) before, 0 after' <<<"$out" \
-  && ok "compaction-stall: C3 fail" || no "compaction-stall: C3 ($out)"
-
-# round 3: each structural arm isolated in its own fixture (a prior fixture carried BOTH
-# compact_boundary and isCompactSummary at once, so it could not prove either arm alone works).
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/compaction-survive" \
-  --transcript "$FIX/compaction-boundary-only.jsonl" 2>&1)"
-grep -qE '^C3 pass compaction detected' <<<"$out" \
-  && ok "compaction-boundary-only: compact_boundary alone is detected as compaction" \
-  || no "compaction-boundary-only: C3 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/compaction-survive" \
-  --transcript "$FIX/compaction-summary-only.jsonl" 2>&1)"
-grep -qE '^C3 pass compaction detected' <<<"$out" \
-  && ok "compaction-summary-only: isCompactSummary alone is detected as compaction" \
-  || no "compaction-summary-only: C3 ($out)"
-
-# ============================================================================================
-# C4 — markdown-wrapped STOP token; status disagrees; a block commit lands after STOP;
-# research-sdd-status.sh missing/failing/STALE all degrade rather than false-passing.
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/stop-wrapped.jsonl" 2>&1)"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "stop-wrapped: C4 pass (bold-wrapped STOP: tolerated)" || no "stop-wrapped: C4 ($out)"
-
-# kit issue #1107: a corpus that reaches campaign STOP without ever declaring a `## Campaign
-# queue` (METHODOLOGY §8c — the common case in real corpora) must not read as a vacuous C4
-# pass. "queue empty" is unverifiable when there is no queue to inspect at all, so this is a
-# distinct n/a state, not pass and not fail.
-out="$(RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 n/a no campaign queue declared' <<<"$out" \
-  && ok "no-queue-declared: C4 n/a (not a vacuous pass)" || no "no-queue-declared: C4 ($out)"
-
-# round 2 BLOCKER (kit issue #1107): a multi-focus corpus prints one LABELLED line per
-# queue-bearing focus (`campaign[alpha] :`, `campaign[beta]  :`), never a single bare
-# `campaign        :` line. C4 must read every matching line, not just the first.
-out="$(RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_DRAINED" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "multi-focus-drained: C4 pass (both labelled queues genuinely empty)" \
-  || no "multi-focus-drained: C4 ($out)"
-
-# A genuinely non-empty SIBLING queue must turn this into fail, not a false n/a (the bug the
-# BLOCKER reported: `head -n1` on an unmatched bracketed line hid the sibling's open queue).
-out="$(RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0' <<<"$out" \
-  && ok "multi-focus-mixed: C4 fail (sibling focus's non-empty queue is not hidden)" \
-  || no "multi-focus-mixed: C4 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_NOTSTOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 fail stop_token=present status_next=NOT-STOP' <<<"$out" \
-  && ok "continue-clean + not-stop status: C4 fail" || no "continue-clean + not-stop status: C4 ($out)"
-
-# round 3: the window now defaults to the transcript's own span, which would naturally exclude
-# a commit landing AFTER the transcript ended (2026-06-01T00:30Z, after continue-clean.jsonl's
-# 00:25Z end) before this check ever runs — --until is passed explicitly to widen the window and
-# still exercise the "commit after STOP" path (see the script header's "Usage" tradeoff note).
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-poststop" \
-  --transcript "$FIX/continue-clean.jsonl" --until "2026-06-01T01:00:00Z" 2>&1)"
-grep -qE '^C4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1' <<<"$out" \
-  && ok "commit after STOP: C4 fail" || no "commit after STOP: C4 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_STALE" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded research-sdd-status.sh --next reports STALE' <<<"$out" \
-  && ok "STALE status: C4 degraded (not a false pass)" || no "STALE status: C4 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$STUB_FAILING" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded research-sdd-status.sh failed' <<<"$out" \
-  && ok "failing status script: C4 degraded" || no "failing status script: C4 ($out)"
-
-out="$(RSDD_STATUS_SCRIPT="$ROOT/no-such-status.sh" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded research-sdd-status.sh not found' <<<"$out" \
-  && ok "missing status script: C4 degraded" || no "missing status script: C4 ($out)"
-
-# round 3 RDD fix: a stderr WARN from research-sdd-status.sh must never leak into the stdout
-# string that ^STOP/^STALE are matched against.
-out="$(RSDD_STATUS_SCRIPT="$STUB_WARN_STDERR" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "status-script stderr WARN does not break C4's STOP/STALE match" || no "stderr-separation: C4 ($out)"
-
-# round 3 RDD fix: @tsv's own escaping cannot round-trip text containing a literal "\n" and a
-# literal "\\" unambiguously in bash — last_para is now carried as base64, which can.
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/backslash-roundtrip.jsonl" 2>&1)"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "backslash-roundtrip: literal \\\\n and \\\\ do not corrupt the extracted STOP line" \
-  || no "backslash-roundtrip: C4 ($out)"
-
-# ============================================================================================
-# Transcript span (item 2): a block commit outside [first_ts, last_ts] degrades C1 and C3,
-# reporting the out-of-span count — never a silent false pass or fail. Since round 3 the window
-# defaults to the transcript's own span, so this test explicitly widens --since to still see the
-# out-of-window commit and exercise the degrade path (see script header "Usage" tradeoff note).
-# ============================================================================================
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/out-of-span-repo" \
-  --transcript "$FIX/out-of-span.jsonl" --since "2026-06-01T00:00:00Z" 2>&1)"
-grep -qE '^C1 degraded 1 of 2 block commit\(s\) outside transcript span' <<<"$out" \
-  && ok "out-of-span (explicit --since): C1 degraded" || no "out-of-span: C1 ($out)"
-grep -qE '^C3 degraded 1 of 2 block commit\(s\) outside transcript span' <<<"$out" \
-  && ok "out-of-span (explicit --since): C3 degraded" || no "out-of-span: C3 ($out)"
-grep -qE '^C2 pass' <<<"$out" && ok "out-of-span: C2 unaffected" || no "out-of-span: C2 ($out)"
-grep -qE '^C4 pass' <<<"$out" && ok "out-of-span: C4 unaffected" || no "out-of-span: C4 ($out)"
-
-# round 3 (new): with NO explicit window, the default now scopes to the transcript's own span,
-# so `git log` itself never returns the out-of-window commit — the out-of-span DEGRADE path
-# does not even need to fire; C1/C3 score cleanly on just the in-span commit.
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/out-of-span-repo" \
-  --transcript "$FIX/out-of-span.jsonl" 2>&1)"
-grep -qE '^C1 fail only 1 block commit in window' <<<"$out" \
-  && ok "default window = transcript span: git log itself excludes the out-of-window commit" \
-  || no "default-window-scoping: C1 ($out)"
-
-# ============================================================================================
-# Block-commit regex (item 8): a preamble before the block ref, a B<n>-B<m> range weighted as
-# (m-n+1) blocks, and a retro's trailing parenthetical range citation excluded entirely.
-# ============================================================================================
-out="$(bash "$SUT" --corpus "$ROOT/block-regex" 2>&1)"
-grep -qE '^C1 n/a 4 block commits in window' <<<"$out" \
-  && ok "block-regex: 1 (preamble) + 3 (range) + 0 (retro citation excluded) = 4" \
-  || no "block-regex: C1 ($out)"
-
-out="$(bash "$SUT" --corpus "$ROOT/block-prefix" 2>&1)"
-grep -qE '^C1 fail only 1 block commit in window' <<<"$out" \
-  && ok "block-prefix: block(...) subject counts (round 3)" || no "block-prefix: C1 ($out)"
-
-out="$(bash "$SUT" --corpus "$ROOT/docs-prefix" 2>&1)"
-grep -qE '^C1 fail 0 block commits' <<<"$out" \
-  && ok "docs-prefix: docs(...) subject deliberately excluded (round 3)" || no "docs-prefix: C1 ($out)"
-
-out="$(bash "$SUT" --corpus "$ROOT/range-cap" 2>&1)"
-grep -qE '^C1 fail only 1 block commit in window' <<<"$out" \
-  && ok "range-cap: implausible B1000-B1200 range capped to weight 1" || no "range-cap: C1 ($out)"
-grep -qi "WARN: implausible block range B1000-B1200" <<<"$out" \
-  && ok "range-cap: WARN emitted on stderr naming the commit" || no "range-cap: WARN ($out)"
-
-# ============================================================================================
-# --base-ref / --since actually narrow the window (restored — round 3 RDD warning: these were
-# missing from the round-2 suite). No transcript is given, so auto-scoping never applies.
-# ============================================================================================
-b1_sha="$(git -C "$ROOT/continue" log --format='%H' --grep='^research(demo): B1' -- . | head -n1)"
-out="$(bash "$SUT" --corpus "$ROOT/continue" --base-ref "$b1_sha" 2>&1)"
-grep -qE '^C1 fail only 1 block commit' <<<"$out" && ok "--base-ref scopes the window (B1 excluded)" || no "--base-ref scoping ($out)"
-
-out="$(bash "$SUT" --corpus "$ROOT/continue" --since "2026-06-01T00:15:00Z" 2>&1)"
-grep -qE '^C1 fail only 1 block commit' <<<"$out" && ok "--since scopes the window (B1 excluded)" || no "--since scoping ($out)"
-
-# ============================================================================================
-# Degraded states — malformed transcript JSON, and dependencies absent.
-# ============================================================================================
-printf '{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"hi"}}\nnot-json\n' \
-  > "$ROOT/malformed.jsonl"
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$ROOT/malformed.jsonl" 2>&1)"
-grep -qE '^C2 degraded degraded: transcript did not parse cleanly' <<<"$out" \
-  && ok "malformed transcript: C2 degraded" || no "malformed transcript: C2 ($out)"
-grep -qE '^C1 degraded 2 block commits in window; degraded:' <<<"$out" \
-  && ok "malformed transcript: C1 degraded (commit count still reported)" || no "malformed transcript: C1 ($out)"
-
-real_git="$(command -v git)"
-real_date="$(command -v date)"
-real_sort="$(command -v sort)"
-real_grep="$(command -v grep)"
-real_mktemp="$(command -v mktemp)"
-real_cat="$(command -v cat)"
-real_printf="$(command -v printf)"
-real_tail="$(command -v tail)"
-real_rm="$(command -v rm)"
-real_tr="$(command -v tr)"
-real_bash="$(command -v bash)"
-
-# round 3 RDD fix: `rm`/`tr` are what load_block_commits actually needs (temp-file cleanup, and
-# the git-log-failure error message) — a prior version of this isolated PATH omitted them, so a
-# "jq absent" test could pass for the wrong reason (a missing `rm`/`tr` masking the real check).
-mkdir -p "$ROOT/bin-nojq"
-for pair in "git:$real_git" "date:$real_date" "sort:$real_sort" "grep:$real_grep" \
-            "mktemp:$real_mktemp" "cat:$real_cat" "printf:$real_printf" "tail:$real_tail" \
-            "rm:$real_rm" "tr:$real_tr"; do
-  name="${pair%%:*}"; target="${pair#*:}"
-  [ -n "$target" ] && ln -sf "$target" "$ROOT/bin-nojq/$name"
-done
-out="$(PATH="$ROOT/bin-nojq" RSDD_STATUS_SCRIPT="$STUB_STOP" \
-  "$real_bash" "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C2 degraded degraded: jq not found in PATH' <<<"$out" \
-  && ok "jq absent (isolated PATH, git present): C2 degraded" || no "jq absent: C2 ($out)"
-grep -qE '^C1 degraded 2 block commits in window; degraded: jq not found' <<<"$out" \
-  && ok "jq absent: C1 degraded (commit count still reported)" || no "jq absent: C1 ($out)"
-
-mkdir -p "$ROOT/bin-nogit"
-for pair in "date:$real_date" "sort:$real_sort" "grep:$real_grep" "mktemp:$real_mktemp" \
-            "cat:$real_cat" "printf:$real_printf" "tail:$real_tail"; do
-  name="${pair%%:*}"; target="${pair#*:}"
-  [ -n "$target" ] && ln -sf "$target" "$ROOT/bin-nogit/$name"
-done
-out="$(PATH="$ROOT/bin-nogit" "$real_bash" "$SUT" --corpus "$ROOT/continue" 2>&1)"; rc=$?
-[ "$rc" -eq 3 ] && ok "git absent: exit 3 (degraded)" || no "git absent: exit 3, got $rc"
-grep -qE '^C1 degraded git-not-found$' <<<"$out" && ok "git absent: C1 degraded git-not-found" || no "git absent: C1 ($out)"
-grep -qE '^C4 degraded git-not-found$' <<<"$out" && ok "git absent: C4 degraded git-not-found" || no "git absent: C4 ($out)"
-
-# A `date` on PATH that cannot parse ISO-8601 with -d (e.g. BSD/macOS date) must degrade
-# the whole instrument (exit 3), not silently mis-parse every timestamp as unusable.
-mkdir -p "$ROOT/bin-nogitdate"
-cat > "$ROOT/bin-nogitdate/date" <<'FAKE_DATE'
-#!/usr/bin/env bash
-# Synthetic non-GNU `date`: ignores -d and always fails to produce an epoch.
-exit 1
-FAKE_DATE
-chmod +x "$ROOT/bin-nogitdate/date"
-for pair in "git:$real_git" "sort:$real_sort" "grep:$real_grep" "mktemp:$real_mktemp" \
-            "cat:$real_cat" "printf:$real_printf" "tail:$real_tail"; do
-  name="${pair%%:*}"; target="${pair#*:}"
-  [ -n "$target" ] && ln -sf "$target" "$ROOT/bin-nogitdate/$name"
-done
-out="$(PATH="$ROOT/bin-nogitdate" "$real_bash" "$SUT" --corpus "$ROOT/continue" 2>&1)"; rc=$?
-[ "$rc" -eq 3 ] && ok "date -d unsupported: exit 3 (degraded)" || no "date -d unsupported: exit 3, got $rc"
-grep -qE '^C1 degraded date-not-supported$' <<<"$out" \
-  && ok "date -d unsupported: C1 degraded date-not-supported" || no "date -d unsupported: C1 ($out)"
-
-# ============================================================================================
-# Issue #1017 follow-ups (after #1011)
-# ============================================================================================
-# Item 1: with the DEFAULT window (transcript span) the last_ts bound used to hide a block commit
-# landing seconds after the final STOP; C4 now looks past the span with its own unbounded query.
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-poststop" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1' <<<"$out" \
-  && ok "1017-1: default window — C4 still sees the block commit landing after STOP" || no "1017-1: C4 default window ($out)"
-grep -qE '^C1 pass 2 block commits' <<<"$out" \
-  && ok "1017-1: C1 keeps the transcript-span window (2 block commits, not widened)" || no "1017-1: C1 window ($out)"
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-poststop" \
-  --transcript "$FIX/continue-clean.jsonl" --until "2026-06-01T00:26:00Z" 2>&1)"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1017-1: an explicit --until bound is the operator's choice and is respected by C4" || no "1017-1: explicit --until ($out)"
-
-# Correction round (#1017 gate): a block committed in the SAME second as STOP counts; a commit seconds after
-# STOP fails; a commit far after STOP and outside the transcript span is another session's work — typed
-# `after_stop_unwitnessed=N`, C4 degraded (never fail); RSDD_C4_AFTER_STOP_GRACE (minutes) bounds "seconds after".
-mkrepo "$ROOT/samesec" \
-  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b" \
-  "2026-06-01T00:25:00Z" "research(demo): B3 gap-c"
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/samesec" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 fail .*commits_after_stop=1' <<<"$out" \
-  && ok "1017-B2: a block committed in the same second as STOP counts as after STOP" || no "1017-B2: same-second ($out)"
-mkrepo "$ROOT/much-later" \
-  "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:20:00Z" "research(demo): B2 gap-b" \
-  "2026-06-05T00:00:00Z" "research(demo): B3 other-session"
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded .*after_stop_unwitnessed=1' <<<"$out" && ! grep -qE '^C4 fail' <<<"$out" \
-  && ok "1017-B1: a commit days after STOP, outside the transcript span → degraded after_stop_unwitnessed=1, not fail" \
-  || no "1017-B1: unwitnessed commit ($out)"
-out="$(RSDD_C4_AFTER_STOP_GRACE=0 RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded .*after_stop_unwitnessed=1' <<<"$out" \
-  && ok "1017-B1: grace 0 → a commit 5 min after STOP is unwitnessed (grace is the bound)" || no "1017-B1: grace 0 ($out)"
-out="$(RSDD_C4_AFTER_STOP_GRACE=10000 RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 fail .*commits_after_stop=1' <<<"$out" \
-  && ok "1017-B1: a wide grace makes the late commit count as after STOP" || no "1017-B1: wide grace ($out)"
-out="$(RSDD_C4_AFTER_STOP_GRACE=abc bash "$SUT" --corpus "$ROOT/continue" 2>&1)"; rc=$?
-[ "$rc" -eq 2 ] && grep -q 'RSDD_C4_AFTER_STOP_GRACE' <<<"$out" \
-  && ok "1017-B1: a non-integer RSDD_C4_AFTER_STOP_GRACE is a bad-args exit 2" || no "1017-B1: bad grace rc=$rc ($out)"
-
-# Item 2: the unrecognized-shape guard must outrank C1's empty-window fast path, and arm 2 (zero
-# operator AND zero assistant records) must fire on its own when some record does carry .origin.
-mkrepo "$ROOT/zero-blocks" "2026-06-01T00:10:00Z" "chore: nothing block-shaped"
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/zero-blocks" \
-  --transcript "$FIX/unrecognized-rollout-shape.jsonl" 2>&1)"
-grep -qE '^C1 degraded unrecognized transcript shape' <<<"$out" \
-  && ok "1017-2: codex-shape transcript with 0 block commits → C1 degraded (guard outranks the empty-window fast path)" \
-  || no "1017-2: codex shape + 0 commits ($out)"
-cat >"$ROOT/origin-no-turns.jsonl" <<'JSONL'
-{"type":"system","origin":{"kind":"harness"},"timestamp":"2026-06-01T00:00:00Z"}
-{"type":"system","origin":{"kind":"harness"},"timestamp":"2026-06-01T00:20:00Z"}
-JSONL
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$ROOT/origin-no-turns.jsonl" 2>&1)"
-grep -qE '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' <<<"$out" \
-  && ok "1017-2: .origin present but zero user/assistant records → all four degraded (guard arm 2)" \
-  || no "1017-2: origin without turns ($out)"
-
-# Items 4/5 (documented limits, pinned): a headless transcript has no human turn and so no .origin
-# anywhere → unrecognized shape, degraded x4; a PARTIAL .origin (stripped from the human turn only)
-# still scores — the instrument cannot know the turn was human.
-cat >"$ROOT/headless.jsonl" <<'JSONL'
-{"type":"assistant","timestamp":"2026-06-01T00:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}
-{"type":"assistant","timestamp":"2026-06-01T00:25:00Z","message":{"role":"assistant","content":[{"type":"text","text":"done\nSTOP: campaign — done"}]}}
-JSONL
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" --transcript "$ROOT/headless.jsonl" 2>&1)"
-grep -qE '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' <<<"$out" \
-  && ok "1017-4: zero-human-turn (headless) transcript is degraded x4" || no "1017-4: headless ($out)"
-cat >"$ROOT/partial-origin.jsonl" <<'JSONL'
-{"type":"user","origin":{"kind":"peer"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"relay"}}
-{"type":"assistant","timestamp":"2026-06-01T00:05:00Z","message":{"role":"assistant","content":[{"type":"text","text":"block1 done"}]}}
-{"type":"user","timestamp":"2026-06-01T00:12:00Z","message":{"role":"user","content":"operator interrupt without origin"}}
-{"type":"assistant","timestamp":"2026-06-01T00:25:00Z","message":{"role":"assistant","content":[{"type":"text","text":"all clear\nSTOP: campaign — done"}]}}
-JSONL
-out="$(RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/continue" --transcript "$ROOT/partial-origin.jsonl" 2>&1)"
-grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$out" \
-  && ok "1017-5: KNOWN LIMIT pinned — a human turn stripped of .origin is invisible, C1 still passes" || no "1017-5: partial origin ($out)"
-
-# Item 6: timestamp conversion is batched, not one `date -d` per record.
-mkdir -p "$ROOT/bin-count"
-cat >"$ROOT/bin-count/date" <<SHIM
-#!/usr/bin/env bash
-echo x >>"$ROOT/date-calls"
-exec "$(command -v date)" "\$@"
-SHIM
-chmod +x "$ROOT/bin-count/date"
-mkrepo "$ROOT/speed" \
-  "2026-06-01T00:00:30Z" "research(demo): B1 gap-a" \
-  "2026-06-01T00:02:00Z" "research(demo): B2 gap-b"
-{
-  printf '%s\n' '{"type":"user","origin":{"kind":"human"},"timestamp":"2026-06-01T00:00:00Z","message":{"role":"user","content":"go"}}'
-  for ((i = 1; i <= 400; i++)); do
-    printf '{"type":"assistant","timestamp":"2026-06-01T00:%02d:%02dZ","message":{"role":"assistant","content":[{"type":"text","text":"step %d"}]}}\n' $((i / 60)) $((i % 60)) "$i"
-  done
-  printf '%s\n' '{"type":"assistant","timestamp":"2026-06-01T00:07:00Z","message":{"role":"assistant","content":[{"type":"text","text":"done\nSTOP: campaign — done"}]}}'
-} >"$ROOT/speed.jsonl"
-: >"$ROOT/date-calls"
-out="$(PATH="$ROOT/bin-count:$PATH" RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/speed" --transcript "$ROOT/speed.jsonl" 2>&1)"
-calls="$(wc -l <"$ROOT/date-calls")"
-[ "$calls" -lt 40 ] && ok "1017-6: 402 transcript records convert with $calls date calls (batched, not per record)" \
-  || no "1017-6: $calls date calls for 402 records"
-grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$out" && grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1017-6: batched conversion scores identically" || no "1017-6: batched scoring ($out)"
-# An unparsable timestamp must not shift the epochs of the records after it (alignment fallback).
-sed '3s/"timestamp":"[^"]*"/"timestamp":"0-not-a-date"/' "$ROOT/speed.jsonl" >"$ROOT/speed-bad.jsonl"
-out="$(PATH="$ROOT/bin-count:$PATH" RSDD_STATUS_SCRIPT="$STUB_STOP" bash "$SUT" --corpus "$ROOT/speed" --transcript "$ROOT/speed-bad.jsonl" 2>&1)"
-grep -qE '^C1 pass 2 block commits, 0 operator turns' <<<"$out" && grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1017-6: an unparsable timestamp is skipped without misaligning later records" || no "1017-6: bad timestamp ($out)"
-
-# Item 7a: base64 is probed like jq — absent → typed degraded, never a silent empty paragraph.
-real_jq="$(command -v jq)"
-mkdir -p "$ROOT/bin-nob64"
-for pair in "git:$real_git" "date:$real_date" "sort:$real_sort" "grep:$real_grep" \
-            "mktemp:$real_mktemp" "cat:$real_cat" "printf:$real_printf" "tail:$real_tail" \
-            "rm:$real_rm" "tr:$real_tr" "jq:$real_jq" "dirname:$(command -v dirname)" "cut:$(command -v cut)" "wc:$(command -v wc)" "head:$(command -v head)"; do
-  name="${pair%%:*}"; target="${pair#*:}"
-  [ -n "$target" ] && ln -sf "$target" "$ROOT/bin-nob64/$name"
-done
-out="$(PATH="$ROOT/bin-nob64" RSDD_STATUS_SCRIPT="$STUB_STOP" \
-  "$real_bash" "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C2 degraded degraded: base64 not found in PATH' <<<"$out" \
-  && ok "1017-7: base64 absent → C2 degraded naming base64" || no "1017-7: base64 absent ($out)"
-
-# Item 7b: the range-weight cap is a named, overridable constant.
-out="$(RSDD_BLOCK_RANGE_CAP=300 bash "$SUT" --corpus "$ROOT/range-cap" 2>&1)"
-grep -qE '^C1 n/a 201 block commits' <<<"$out" \
-  && ok "1017-7: RSDD_BLOCK_RANGE_CAP=300 lets a 201-block range count in full" || no "1017-7: range cap override ($out)"
-out="$(RSDD_BLOCK_RANGE_CAP=abc bash "$SUT" --corpus "$ROOT/range-cap" 2>&1)"; rc=$?
-[ "$rc" -eq 2 ] && grep -q 'RSDD_BLOCK_RANGE_CAP' <<<"$out" \
-  && ok "1017-7: a non-integer RSDD_BLOCK_RANGE_CAP is a bad-args exit 2" || no "1017-7: bad range cap rc=$rc ($out)"
-
-# Item 7c: the status script's own stderr survives into the degraded evidence.
-out="$(RSDD_STATUS_SCRIPT="$STUB_FAILING" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1)"
-grep -qE '^C4 degraded research-sdd-status.sh failed \(default exit=1, --next exit=1\): synthetic operational failure' <<<"$out" \
-  && ok "1017-7: failing status script — its stderr is kept in the C4 degraded evidence" || no "1017-7: status stderr ($out)"
-
-# Kit #1995: a QUALIFIED `--next` STOP is not a clean zero-open exhaustion. Every STOP form the status script
-# emits is enumerated here (research-sdd-status.sh: _stop_exhausted, IDG-UNVERIFIED-MARKER, the two `no active
-# focus` sites; outline_next_step's STOP is NOT reachable through --next, it is only a defensive whitelist entry) and each qualifier must surface in a typed C4 degraded line, never `pass`.
-STUB_QUAL="$FIX/stub-status-stop-qualified.sh"
-c4q() { STUB_STOP_LINE="$1" RSDD_STATUS_SCRIPT="$STUB_QUAL" bash "$SUT" --corpus "$ROOT/continue" \
-  --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 '; }
-chk_q() { # LABEL STOP_LINE QUALIFIER
-  local out; out="$(c4q "$2")"
-  if grep -qE '^C4 degraded STOP is qualified' <<<"$out" && grep -qF -- "$3" <<<"$out" && ! grep -qE '^C4 pass' <<<"$out"; then
-    ok "1995 $1: C4 degraded, qualifier named"
-  else no "1995 $1: C4 ($out)"; fi
-}
-chk_q "issue-coverage"       'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified]' '[issue-coverage: unverified]'
-chk_q "backlog-unreadable N" 'STOP | read-only-investigable exhausted (0) [backlog-unreadable: 29 rows]' '[backlog-unreadable: 29 rows]'
-chk_q "backlog-unverified"   'STOP | read-only-investigable exhausted (0) [backlog-unreadable: unverified]' '[backlog-unreadable: unverified]'
-chk_q "both qualifiers"      'STOP | read-only-investigable exhausted (0) [issue-coverage: unverified] [backlog-unreadable: 3 rows]' '[backlog-unreadable: 3 rows]'
-chk_q "no active focus"      'STOP | no active focus (2 declared stopped/paused in FOCUSES.md with open gaps)' 'no active focus'
-chk_q "no active focus + bu" 'STOP | no active focus (1 declared stopped/paused in FOCUSES.md with open gaps) [backlog-unreadable: 4 rows]' '[backlog-unreadable: 4 rows]'
-chk_q "unknown form"         'STOP | something the scorer never heard of' 'unrecognized STOP form'
-out="$(c4q 'STOP | outline fully covered (5/5)')"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1995 outline fully covered (defensive whitelist, unreachable via --next): C4 pass" || no "1995 outline covered: C4 ($out)"
-out="$(c4q 'STOP | read-only-investigable exhausted (0)')"
-grep -qE '^C4 pass STOP token present' <<<"$out" \
-  && ok "1995 bare exhausted STOP: C4 pass unchanged" || no "1995 bare STOP: C4 ($out)"
-# A qualified STOP followed by a block commit is still a fail (the commit-after-STOP signal outranks the qualifier).
-out="$(STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 2 rows]' RSDD_STATUS_SCRIPT="$STUB_QUAL" \
-  bash "$SUT" --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
-grep -qE '^C4 fail stop_token=present status_next=STOP queue=empty commits_after_stop=1' <<<"$out" \
-  && ok "1995 qualified STOP + commit after STOP: C4 fail" || no "1995 qualified+poststop: C4 ($out)"
-
-# The qualifier replaces only the pass / n-a outcomes: a declared NON-EMPTY queue still fails, an undeclared queue
-# is degraded (not n/a), and an empty queue is degraded (not pass).
-QSTOP='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 2 rows]'
-out="$(STUB_QUEUE_LINE='  campaign        : pending=1 active=1 done=2 bound-stopped=0 rejected=0' STUB_STOP_LINE="$QSTOP" RSDD_STATUS_SCRIPT="$STUB_QUAL" \
-  bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
-grep -qE '^C4 fail stop_token=present status_next=STOP queue=non-empty commits_after_stop=0' <<<"$out" \
-  && ok "1995 qualified STOP + non-empty queue: C4 fail (no downgrade to degraded)" || no "1995 qualified+non-empty: C4 ($out)"
-out="$(STUB_QUEUE_LINE='  campaign        : none (2 active focus(es), 0 with a queue)' STUB_STOP_LINE="$QSTOP" RSDD_STATUS_SCRIPT="$STUB_QUAL" \
-  bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" 2>&1 | grep -E '^C4 ')"
-grep -qE '^C4 degraded STOP is qualified.*\[backlog-unreadable: 2 rows\]' <<<"$out" \
-  && ok "1995 qualified STOP + undeclared queue: C4 degraded (not n/a)" || no "1995 qualified+undeclared: C4 ($out)"
-
-# Hermeticity (kit issue #2052): a normal run of the SUT leaves a private TMPDIR empty.
-hp="$ROOT/priv-tmp-normal"; mkdir -p "$hp"
-TMPDIR="$hp" bash "$SUT" --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl" >/dev/null 2>&1; hrc=$?
-if [ "$hrc" -ne 0 ]; then no "2052: normal run did not exit 0 (rc=$hrc), so the cleanup path was not exercised"
-elif [ ! -d "$hp" ]; then no "2052: private TMPDIR $hp is missing, so an empty count proves nothing"
-elif [ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ]; then ok "2052: normal SUT run (rc=0) leaves a private TMPDIR empty"
-else no "2052: normal run leaked $(find "$hp" -mindepth 1 | wc -l) entries"; fi
-
-# ============================================================================================
-# Mutation self-test (--prove-teeth): flip one matching seam per criterion, plus the two
-# round-2 seams explicitly called out (the operator origin.kind filter and the span check),
-# and confirm the assertion above goes red against the exact SUT bytes that would ship each
-# broken behavior.
-# ============================================================================================
+e2e_run() { E2E_OUT="$(env -i PATH="$PATH" HOME="$TMP" RSDD_BIN="$RSDD_BIN" RSDD_STATUS_SCRIPT="$FIX/stub-status-stop-empty.sh" "${GENV[@]}" bash "$1" "${@:2}" 2>"$TMP/e2e.err")"; E2E_RC=$?; E2E_ERR="$(cat "$TMP/e2e.err")"; }
+if [ -n "${RSDD_BIN:-}" ] && [ -x "$RSDD_BIN" ]; then
+  mkcorpus "$TMP/continue" "2026-06-01T00:10:00Z" "research(demo): B1 gap-a" "2026-06-01T00:20:00Z" "research(demo): B2 gap-b"
+  e2e_run "$SUT" --corpus "$TMP/continue" --transcript "$FIX/continue-clean.jsonl"
+  if [ "$E2E_RC" -eq 0 ] && grep -qE '^C1 pass 2 block commits, 0 operator turns' <<< "$E2E_OUT" \
+     && grep -qE '^C3 pass no compaction, 2 block\(s\)$' <<< "$E2E_OUT" && grep -qE '^SUMMARY pass=' <<< "$E2E_OUT"; then
+    ok "5a clean transcript through the real binary -> C1 and C3 pass with a SUMMARY line, exit 0"
+  else no "5a clean run (rc=$E2E_RC out=[$E2E_OUT] err=[$E2E_ERR])"; fi
+
+  e2e_run "$SUT" --corpus "$TMP/continue" --transcript "$FIX/operator-interrupt.jsonl"
+  if [ "$E2E_RC" -eq 0 ] && grep -qE '^C1 fail 2 block commits but 1 of 1 gap' <<< "$E2E_OUT"; then
+    ok "5b an operator turn between two block commits -> C1 fail (findings do not fail the run)"
+  else no "5b operator interrupt (rc=$E2E_RC out=[$E2E_OUT])"; fi
+
+  e2e_run "$SUT" --corpus "$TMP/continue" --transcript "$FIX/origin-less.jsonl"
+  if grep -qE '^C1 degraded unrecognized transcript shape' <<< "$E2E_OUT" && grep -qE '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' <<< "$E2E_OUT"; then
+    ok "5c a transcript of an unrecognised shape degrades every criterion instead of scoring a clean pass"
+  else no "5c unrecognised shape (rc=$E2E_RC out=[$E2E_OUT])"; fi
+
+  e2e_run "$SUT" --bogus
+  if [ "$E2E_RC" -eq 2 ] && grep -qF 'usage' <<< "$E2E_ERR" && [ -z "$E2E_OUT" ]; then ok "5d unknown option -> usage on stderr, exit 2"
+  else no "5d usage (rc=$E2E_RC err=[$E2E_ERR])"; fi
+
+  mkdir -p "$TMP/link/profile/research-sdd/profile/p"
+  ln -s "$TOOLBELT" "$TMP/link/profile/research-sdd/profile/p/toolbelt"
+  e2e_run "$TMP/link/profile/research-sdd/profile/p/toolbelt/score-loop-transcript.sh" --corpus "$TMP/continue" --transcript "$FIX/continue-clean.jsonl"
+  if [ "$E2E_RC" -eq 0 ] && grep -qE '^C1 pass 2 block commits' <<< "$E2E_OUT"; then
+    ok "5e invoked through a symlinked toolbelt dir (#1024 profile) still runs the scorer"
+  else no "5e symlinked toolbelt (rc=$E2E_RC out=[$E2E_OUT] err=[$E2E_ERR])"; fi
+else
+  printf '  SKIP  5 end to end: RSDD_BIN not set to an executable (run it through run-all.sh, which builds the binary once)\n'
+fi
+
+# ---- Teeth (mutation proof) -------------------------------------------------
 if [ "${1:-}" = "--prove-teeth" ]; then
-  # Mutants are built by lib/mutant.sh (kit issue #1299), sourced only on this path. mutant_chain
-  # refuses a dead sed stage, an empty/identical/unparseable mutant and one placed in the live tree;
-  # a refused build is counted ONCE (mk) and its tooth never runs. mutant_tooth runs the SAME argv on
-  # the original SUT and on the mutant (fresh corpus per run is not needed: the SUT only reads the
-  # fixtures) and demands EXACT exit codes plus an anchored typed C-line on each side. GOOD_RC/BAD_RC
-  # are the SUT's own exit codes: it is WARN-only about criteria, so both sides exit 0 and the bite
-  # is carried entirely by the anchored typed C-line asserted on each side (--good-has / --bad-has).
+  echo "-- teeth: mutation controls for score-loop-transcript.sh (shim) --"
+  # The retired controls sed the old script body, which is gone: each is a typed SKIP naming the Go test that replaces it
+  # (research-sdd/rsdd/internal/eval/scoreloop).
+  printf '  SKIP  teeth (old C1/C2/C3 matching seams) block-commit, question and compaction matching: TestGoldenReplay c1-*, c2-*, c3-* cases and TestWeigh, TestBuiltinVerdict, TestLastParagraph\n'
+  printf '  SKIP  teeth (old C4 seams) STOP token, status --next, queue and after-STOP rules: TestGoldenReplay c4-* cases and TestClassifyNext, TestParseQueue, TestC4Verdict, TestGraceDeadline\n'
+  printf '  SKIP  teeth (old degraded seams) dependency probes and unrecognised shapes: TestGoldenReplay jq-*, base64-*, date-*, shape-* cases and TestStatusRunnerProblems, TestJQRunner\n'
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
-  mutant_bootstrap mutant_chain mutant_tooth || exit 2
-  # mk NAME EXPR... — build $ROOT/score-loop-transcript.MUTANT-NAME.sh into $m; counts a refusal once.
+  # mk NAME SEDEXPR -> a mutant shim with the lib beside it in $TMP/mt/NAME; sets MS or returns 1
   mk() {
-    local name="$1"; shift
-    m="$ROOT/score-loop-transcript.MUTANT-$name.sh"
-    rm -f -- "$m"
-    mutant_chain "teeth-$name" "$SUT" "$m" "$@" || { fail=$((fail+1)); return 1; }
+    local d="$TMP/mt/$1"
+    mkdir -p "$d/lib" && cp "$TOOLBELT/lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh; staging every lib would hide the missing-lib case
+    if mutant_sed "$SUT" "$d/score-loop-transcript.sh" "$2" 2>/dev/null; then MS="$d/score-loop-transcript.sh"; return 0; fi
+    no "teeth $1: could not build mutant (pattern not found / refused by lib/mutant.sh)"; return 1
   }
-  # tt LABEL GOOD_RC BAD_RC [mutant_tooth opts] -- ARGV... — count the verdict once (mutant_tooth prints it).
-  tt() {
-    local label="$1" g="$2" b="$3"; shift 3
-    if mutant_tooth "$label" "$g" "$b" "$m" --orig "$SUT" "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi
-  }
-  # A crashing mutant must never read as a bite.
-  CRASH="$(mutant_crash_re bash py cmd)" || exit 2
-
-  echo "-- teeth-C1: neutralise the block-commit regex match; expect C1 to report 0 commits --"
-  if mk c1 's/"\$subj" =~ \$BLOCK_COMMIT_REGEX/"$subj" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
-    tt "teeth-C1: block-commit match neutralised → C1 collapses to 0 commits" 0 0 \
-      --good-has '^C1 n/a 2 block commits in window' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
-      bash @SUT@ --corpus "$ROOT/continue"
+  # A: arguments no longer forwarded
+  if mk A 's#^rsdd_exec eval score-loop --toolbelt "\$_RSDD_SELF" "\$@"#rsdd_exec eval score-loop --toolbelt "\$_RSDD_SELF"#'; then
+    shim_run "$MS" --corpus x
+    [[ "$SOUT" != *'ARG[--corpus]'* ]] && ok "teeth A: arguments dropped -> forwarding check goes red" || no "teeth A: mutant still forwards — THEATER"
   fi
-
-  echo "-- teeth-C2: neutralise the question regex match; expect C2 to flip to pass --"
-  if mk c2 's/"\$line" =~ \$QUESTION_REGEX/"$line" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
-    tt "teeth-C2: question match neutralised → C2 falsely reports pass" 0 0 \
-      --good-has '^C2 fail 2 of 2 final returns end in a question' --bad-has '^C2 pass 0 of 2' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/question-ending.jsonl"
+  # B: wrong subcommand
+  if mk B 's#^rsdd_exec eval score-loop #rsdd_exec eval score-loops #'; then
+    shim_run "$MS" --corpus x
+    [[ "$SOUT" != *'ARG[score-loop]'* ]] && ok "teeth B: wrong command name -> forwarding check goes red" || no "teeth B: mutant still forwards — THEATER"
   fi
-
-  echo "-- teeth-C3: neutralise compaction detection; expect C3 to flip to 'no compaction' pass --"
-  if mk c3 's/"\$is_cx" == "true"/"$is_cx" == "MUTANT_NEVER"/'; then
-    tt "teeth-C3: compaction detection neutralised → C3 falsely reports no compaction" 0 0 \
-      --good-has '^C3 pass compaction detected; 1 block commit\(s\) before, 1 after' --bad-has '^C3 pass no compaction' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/compaction-survive" \
-      --transcript "$FIX/compaction-survive.jsonl"
+  # C: the degraded path swallowed (library guard exits 0)
+  if mk C 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#'; then
+    mkdir -p "$TMP/mt/C-nolib"; cp "$MS" "$TMP/mt/C-nolib/score-loop-transcript.sh"
+    out="$(bash "$TMP/mt/C-nolib/score-loop-transcript.sh" --corpus x 2>&1)"; rc=$?
+    [ "$rc" -ne 2 ] && ok "teeth C: missing-library guard exits 0 -> case 3 goes red" || no "teeth C: mutant still exits 2 — THEATER"
   fi
-
-  echo "-- teeth-C4: neutralise the STOP-token regex match; expect C4 to flip to fail --"
-  if mk c4 's/"\$stop_line" =~ \$STOP_TOKEN_REGEX/"$stop_line" =~ ^NEVERMATCH_MUTANT_XYZ$/'; then
-    tt "teeth-C4: STOP-token match neutralised → C4 falsely reports fail" 0 0 \
-      --good-has '^C4 pass STOP token present' --bad-has '^C4 fail stop_token=absent' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
+  # D: the exit code is laundered
+  if mk D 's#^rsdd_exec eval score-loop --toolbelt "\$_RSDD_SELF" "\$@"#( rsdd_exec eval score-loop --toolbelt "$_RSDD_SELF" "$@" ); exit 0#'; then
+    shim_run "$MS" --corpus x
+    [ "$SRC" -ne 7 ] && ok "teeth D: exit code laundered to 0 -> exit-code check goes red" || no "teeth D: mutant still forwards rc 7 — THEATER"
   fi
-
-  echo "-- teeth-C4-undeclared-queue: force declared_queue always true; expect the no-queue-declared corpus to stop reporting n/a --"
-  if mk c4-undeclared-queue 's/if \[\[ -n "\${pend:-}" && -n "\${act:-}" \]\]; then/if true; then/'; then
-    tt "teeth-C4-undeclared-queue: declared_queue guard neutralised → no-queue corpus no longer reports n/a" 0 0 \
-      --good-has '^C4 n/a no campaign queue declared' --bad-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-lacks "^C4 n/a no campaign queue declared|$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_NOQUEUE" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
+  # E: the shim's own directory is no longer handed over (the Go command would have no toolbelt to find the status script in)
+  if mk E 's#--toolbelt "\$_RSDD_SELF" ##'; then
+    shim_run "$MS" --corpus x
+    [[ "$SOUT" != *'ARG[--toolbelt]'* ]] && ok "teeth E: --toolbelt dropped -> forwarding check goes red" || no "teeth E: mutant still passes --toolbelt — THEATER"
   fi
-
-  echo "-- teeth-C4-multifocus: reintroduce head -n1 on the campaign-line grep; expect a sibling focus's open queue to hide behind the first labelled line --"
-  if mk c4-multifocus "s@:')\"@:' | head -n1)\"@"; then
-    tt "teeth-C4-multifocus: head -n1 reintroduced → beta's non-empty queue is hidden behind alpha's drained line, false pass" 0 0 \
-      --good-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-has '^C4 pass' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
+  # F: end to end, a shim that hands the scorer another toolbelt cannot find research-sdd-status.sh: with no RSDD_STATUS_SCRIPT
+  # override the C4 line degrades instead of reading the real status output, so the real-binary case goes red
+  if [ -n "${RSDD_BIN:-}" ] && [ -x "$RSDD_BIN" ]; then
+    mkdir -p "$TMP/mt/F/lib"; cp "$TOOLBELT/lib/rsdd-exec.sh" "$TMP/mt/F/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh
+    if mutant_sed "$SUT" "$TMP/mt/F/score-loop-transcript.sh" 's#--toolbelt "\$_RSDD_SELF"#--toolbelt "/nonexistent-toolbelt/x"#' 2>/dev/null; then
+      F_OUT="$(env -i PATH="$PATH" HOME="$TMP" RSDD_BIN="$RSDD_BIN" "${GENV[@]}" bash "$TMP/mt/F/score-loop-transcript.sh" --corpus "$TMP/continue" --transcript "$FIX/continue-clean.jsonl" 2>/dev/null)"
+      T_OUT="$(env -i PATH="$PATH" HOME="$TMP" RSDD_BIN="$RSDD_BIN" "${GENV[@]}" bash "$SUT" --corpus "$TMP/continue" --transcript "$FIX/continue-clean.jsonl" 2>/dev/null)"
+      [ "$F_OUT" != "$T_OUT" ] && ok "teeth F: a wrong --toolbelt changes the scorer's output (C4 cannot reach the status script) -> end-to-end case goes red" || no "teeth F: mutant output identical — THEATER"
+    else no "teeth F: could not build mutant"; fi
   fi
-
-  echo "-- teeth-C4-nonempty-branch: force the empty-queue branch to always fire; expect a genuinely non-empty declared queue to falsely pass --"
-  if mk c4-nonempty-branch 's/elif \[\[ "\$empty_queue" -eq 1 \]\]; then/elif true; then/'; then
-    tt "teeth-C4-nonempty-branch: empty-queue check neutralised → a genuinely non-empty declared queue falsely passes" 0 0 \
-      --good-has '^C4 fail stop_token=present status_next=STOP queue=non-empty' --bad-has '^C4 pass' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_MULTIFOCUS_MIXED" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
-  fi
-
-  echo "-- teeth-operator-filter: drop the origin.kind clause; expect the false-positive noise to count as operator input again (item 9) --"
-  if mk operator-filter 's/(\.origin\.kind \/\/ \\"\\")==\\"human\\"/true/'; then
-    tt "teeth-operator-filter: origin.kind clause dropped → task-notification/tool_result noise wrongly counts as operator input again" 0 0 \
-      --good-has '^C1 pass 2 block commits, 0 operator turns' --bad-has '^C1 fail' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/false-positive-noise.jsonl"
-  fi
-
-  echo "-- teeth-span: neutralise the out-of-span degrade check; expect C1 to fall through to a normal (wrong) verdict --"
-  # The sed is global ('g'): both source sites must be neutralised, so count the substituted lines.
-  if mk span 's/"\$oos" -gt 0/"$oos" -gt 999999/g'; then
-    if [ "$(grep -c '"\$oos" -gt 999999' "$m")" -ge 2 ]; then
-      tt "teeth-span: span check neutralised → C1 falls through to an unwarranted fail instead of degraded" 0 0 \
-        --good-has '^C1 degraded 1 of 2 block commit\(s\) outside transcript span' --bad-has '^C1 fail 2 block commits but 1 of 1 gap' --bad-lacks "$CRASH" -- \
-        env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/out-of-span-repo" \
-        --transcript "$FIX/out-of-span.jsonl" --since "2026-06-01T00:00:00Z"
-    else
-      no "teeth-span: mutant build failed (both source lines not substituted)"
-    fi
-  fi
-
-  echo "-- teeth-unrecognized-shape: neutralise the guard; expect a del(.origin)-shaped transcript to score a false clean pass (round 3 BLOCKER) --"
-  # Neutralise both assignments that can ever set the guard to 1, forcing it to always read 0.
-  if mk unrecognized-shape 's/UNRECOGNIZED_SHAPE=1/UNRECOGNIZED_SHAPE=0/g'; then
-    if [ "$(grep -c 'UNRECOGNIZED_SHAPE=0' "$m")" -ge 3 ]; then
-      tt "teeth-unrecognized-shape: guard neutralised → origin-less transcript falsely scores a clean C1 pass" 0 0 \
-        --good-has '^C1 degraded unrecognized transcript shape' --bad-has '^C1 pass 2 block commits, 0 operator turns' --bad-lacks "$CRASH" -- \
-        env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
-        --transcript "$FIX/origin-less.jsonl"
-    else
-      no "teeth-unrecognized-shape: mutant build failed (source lines not substituted)"
-    fi
-  fi
-
-  echo "-- teeth-block-prefix: drop 'block' from the accepted prefix alternation; expect block(...) subjects to stop counting --"
-  if mk block-prefix 's/\^(research|block)\\(/^(research)\\(/'; then
-    tt "teeth-block-prefix: 'block' alternative dropped → block(...) subject no longer counts" 0 0 \
-      --good-has '^C1 fail only 1 block commit in window' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
-      bash @SUT@ --corpus "$ROOT/block-prefix"
-  fi
-
-  echo "-- teeth-range-cap: drop the cap; expect the implausible B1000-B1200 range to explode N_BLOCKS to 201 --"
-  if mk range-cap 's/if \[\[ "\$span" -gt "\$RANGE_CAP" \]\]; then/if [[ "$span" -gt 999999 ]]; then/'; then
-    tt "teeth-range-cap: cap dropped → the implausible range explodes N_BLOCKS to 201" 0 0 \
-      --good-has '^C1 fail only 1 block commit in window \(need >=2\)' --bad-has '^C1 n/a 201 block commits' --bad-lacks "$CRASH" -- \
-      bash @SUT@ --corpus "$ROOT/range-cap"
-  fi
-
-  echo "-- teeth-stderr-merge: re-merge status-script stderr into stdout; expect a stderr WARN to break the STOP match --"
-  if mk stderr-merge 's/2>"\$c4_err"/2>\&1/' 's/2>>"\$c4_err"/2>\&1/'; then
-    tt "teeth-stderr-merge: stderr re-merged into stdout → the WARN line breaks the STOP match" 0 0 \
-      --good-has '^C4 pass STOP token present' --bad-has '^C4 fail stop_token=present status_next=NOT-STOP' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_WARN_STDERR" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
-  fi
-
-  # --- Issue #1017 follow-ups ---------------------------------------------------------------
-  echo "-- teeth-1017-after-stop: drop C4's unbounded after-STOP scan; expect the default window to hide the post-STOP commit --"
-  if mk 1017-after-stop 's/^  if \[\[ "\$WINDOW_EXPLICIT" -eq 0 \]\]; then$/  if false; then/'; then
-    tt "teeth-1017-after-stop: scan removed → C4 passes with a block committed after STOP" 0 0 \
-      --good-has '^C4 fail .*commits_after_stop=1' --bad-has '^C4 pass STOP token present' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue-poststop" \
-      --transcript "$FIX/continue-clean.jsonl"
-  fi
-
-  echo "-- teeth-1017-guard-arm2: force guard arm 2 (zero operator AND zero assistant records) false --"
-  if mk 1017-guard-arm2 's/^  elif \[\[ "\${#OPERATOR_EPOCH\[@\]}" -eq 0 && "\${#FINAL_PARA\[@\]}" -eq 0 \]\]; then$/  elif false; then/'; then
-    tt "teeth-1017-guard-arm2: arm 2 disabled → a turn-less transcript is no longer degraded x4" 0 0 \
-      --good-has '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' --bad-has '^SUMMARY' --bad-lacks '^SUMMARY pass=0 fail=0 n/a=0 degraded=4$' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$ROOT/origin-no-turns.jsonl"
-  fi
-
-  echo "-- teeth-1017-guard-order: C1's guard moved behind the empty-window fast path --"
-  if mk 1017-guard-order '/^c1() {/,/^}/ s/if \[\[ "\$UNRECOGNIZED_SHAPE" -eq 1 \]\]; then/if [[ "$UNRECOGNIZED_SHAPE" -eq 1 \&\& "$N_BLOCKS" -gt 0 ]]; then/'; then
-    tt "teeth-1017-guard-order: guard behind the N_BLOCKS==0 path → a codex rollout with 0 commits reports a plain C1 fail" 0 0 \
-      --good-has '^C1 degraded unrecognized transcript shape' --bad-has '^C1 fail 0 block commits' --bad-lacks "$CRASH" -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/zero-blocks" \
-      --transcript "$FIX/unrecognized-rollout-shape.jsonl"
-  fi
-
-  # Harness for the batching teeth: prints how many `date` processes the run spawned.
-  cat >"$ROOT/h-calls.sh" <<HARNESS
-#!/usr/bin/env bash
-: >"$ROOT/date-calls"
-PATH="$ROOT/\${3:-bin-count}:\$PATH" RSDD_STATUS_SCRIPT="$STUB_STOP" bash "\$1" --corpus "$ROOT/speed" --transcript "\$2" >"$ROOT/h-calls.out" 2>&1
-echo "CALLS: \$(wc -l <"$ROOT/date-calls")"
-echo "C4: \$(grep -E '^C4 ' "$ROOT/h-calls.out" | cut -c1-60)"
-HARNESS
-  chmod +x "$ROOT/h-calls.sh"
-  # A `date` whose -f skips unparsable lines but exits 0 (a non-GNU implementation) — only the
-  # one-epoch-per-line check can catch the resulting shift.
-  mkdir -p "$ROOT/bin-lenient"
-  cat >"$ROOT/bin-lenient/date" <<LENIENT
-#!/usr/bin/env bash
-"$(command -v date)" "\$@"; rc=\$?
-[ "\$1" = -f ] && exit 0
-exit \$rc
-LENIENT
-  chmod +x "$ROOT/bin-lenient/date"
-  echo "-- teeth-1017-batch: disable the batched conversion; expect one date call per record --"
-  if mk 1017-batch 's/^      BATCH_EPOCHS=1$/      BATCH_EPOCHS=0/'; then
-    tt "teeth-1017-batch: batch disabled → ~400 date calls" 0 0 \
-      --good-has '^CALLS: [0-9]$|^CALLS: [123][0-9]$' --bad-has '^CALLS: [0-9]{3}' --bad-lacks "$CRASH" -- \
-      bash "$ROOT/h-calls.sh" @SUT@ "$ROOT/speed.jsonl"
-  fi
-  echo "-- teeth-1017-batch-align: trust the batch without the one-epoch-per-line check; expect misaligned epochs --"
-  if mk 1017-batch-align 's/^       \&\& \[\[ "\$(wc -l <"\$TS_EPOCHS")" -eq "\$(wc -l <"\$TS_LIST")" \]\]; then$/       \&\& true; then/'; then
-    tt "teeth-1017-batch-align: unchecked batch → an unparsable timestamp shifts every later epoch (STOP record lost)" 0 0 \
-      --good-has '^C4: C4 pass STOP token present' --bad-has '^C4: C4 (fail|n/a)' --bad-lacks "$CRASH" -- \
-      bash "$ROOT/h-calls.sh" @SUT@ "$ROOT/speed-bad.jsonl" bin-lenient
-  fi
-
-  echo "-- teeth-1017-base64: drop the base64 probe; expect a silent empty paragraph instead of a typed degrade --"
-  if mk 1017-base64 's/^  elif ! command -v base64 >\/dev\/null 2>&1; then$/  elif false; then/'; then
-    tt "teeth-1017-base64: probe removed → C2 no longer names the missing base64" 0 0 \
-      --good-has '^C2 degraded degraded: base64 not found in PATH' --bad-lacks '^C2 degraded degraded: base64 not found in PATH' -- \
-      env PATH="$ROOT/bin-nob64" RSDD_STATUS_SCRIPT="$STUB_STOP" "$real_bash" @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
-  fi
-
-  echo "-- teeth-1017-range-validate: drop the RSDD_BLOCK_RANGE_CAP integer check --"
-  if mk 1017-range-validate 's/^if \[\[ ! "\$RANGE_CAP" =~ \^\[0-9\]+\$ \]\]; then$/if false; then/'; then
-    tt "teeth-1017-range-validate: check removed → a non-integer cap is no longer a bad-args exit 2" 2 1 \
-      --good-has 'RSDD_BLOCK_RANGE_CAP must be' --bad-lacks 'RSDD_BLOCK_RANGE_CAP must be' -- \
-      env RSDD_BLOCK_RANGE_CAP=abc bash @SUT@ --corpus "$ROOT/range-cap"
-    # Hermeticity (kit issue #2052): this mutant aborts mid-scan (set -u on the non-integer cap) after the
-    # SUT has created its git-log temp file. An abnormal exit must still leave a private TMPDIR empty.
-    # Teeth-only: no real SUT path reaches that abort today (the cap is validated at the top of the SUT,
-    # the RANGE_CAP integer check), so the mutant is the only way to drive an abnormal exit here.
-    hp="$ROOT/priv-tmp-abort"; rm -rf "$hp"; mkdir -p "$hp"
-    habort="$(TMPDIR="$hp" RSDD_BLOCK_RANGE_CAP=abc bash "$m" --corpus "$ROOT/range-cap" --transcript "$FIX/continue-clean.jsonl" 2>&1 >/dev/null)"; hrc=$?
-    hl="teeth-1017-range-validate: abnormal SUT exit leaves TMPDIR empty"
-    if [ "$hrc" -eq 0 ] || ! grep -q 'unbound variable' <<<"$habort"; then
-      fail=$((fail+1)); echo "  FAIL  $hl — mutant did not abort with 'unbound variable' (rc=$hrc), abnormal path not exercised"
-    elif [ ! -d "$hp" ]; then
-      fail=$((fail+1)); echo "  FAIL  $hl — private TMPDIR $hp is missing, so an empty count proves nothing"
-    elif [ "$(find "$hp" -mindepth 1 | wc -l)" -eq 0 ]; then
-      pass=$((pass+1)); echo "  PASS  $hl (rc=$hrc, unbound variable)"
-    else
-      fail=$((fail+1)); echo "  FAIL  $hl — leaked $(find "$hp" -mindepth 1 | wc -l) entries"
-    fi
-  fi
-
-  echo "-- teeth-1017-status-stderr: drop the status script's stderr from the degraded evidence --"
-  if mk 1017-status-stderr 's/\${err_first:+: \$err_first}//'; then
-    tt "teeth-1017-status-stderr: stderr dropped → evidence no longer carries the status script's own message" 0 0 \
-      --good-has 'synthetic operational failure' --bad-has '^C4 degraded research-sdd-status.sh failed' --bad-lacks 'synthetic operational failure' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_FAILING" bash @SUT@ --corpus "$ROOT/continue" \
-      --transcript "$FIX/continue-clean.jsonl"
-  fi
-  # --- #1017 correction round: after-STOP grace / unwitnessed / same-second ---------------------
-  echo "-- teeth-1017-unwitnessed: classify every post-STOP commit as after STOP; expect the days-later commit to fail C4 --"
-  if mk 1017-unwitnessed 's/^    if \[\[ "\$WINDOW_EXPLICIT" -eq 1 || "\$e" -le "\$grace_end" || "\$e" -le "\$TRANSCRIPT_LAST_EPOCH" \]\]; then$/    if true; then/'; then
-    tt "teeth-1017-unwitnessed: no unwitnessed class → a days-later commit fails C4 instead of degrading" 0 0 \
-      --good-has '^C4 degraded .*after_stop_unwitnessed=1' --bad-has '^C4 fail' --bad-lacks '^C4 degraded' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1017-grace: ignore the grace window; expect a commit 5 min after STOP to read as unwitnessed --"
-  if mk 1017-grace 's/ || "\$e" -le "\$grace_end" || / || /'; then
-    tt "teeth-1017-grace: grace ignored → a commit 5 min after STOP degrades instead of failing" 0 0 \
-      --good-has '^C4 fail .*commits_after_stop=1' --bad-has '^C4 degraded' --bad-lacks '^C4 fail' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/continue-poststop" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1017-degrade: drop the unwitnessed degrade branch; expect a silent pass --"
-  if mk 1017-degrade 's/"\$unwitnessed" -gt 0 \]\]; then/"$unwitnessed" -gt 999999 ]]; then/'; then
-    tt "teeth-1017-degrade: branch removed → the unwitnessed commit is silently ignored (C4 n/a/pass)" 0 0 \
-      --good-has '^C4 degraded .*after_stop_unwitnessed=1' --bad-lacks '^C4 degraded' --bad-has '^C4 (pass|n/a)' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/much-later" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1017-same-second: strict -gt; expect the same-second commit to be missed --"
-  if mk 1017-same-second 's/^    \[\[ "\$e" -ge "\$stop_epoch" \]\] || continue$/    [[ "$e" -gt "$stop_epoch" ]] || continue/'; then
-    tt "teeth-1017-same-second: -gt → a block committed in the same second as STOP is not counted" 0 0 \
-      --good-has '^C4 fail .*commits_after_stop=1' --bad-has '^C4 pass' --bad-lacks '^C4 fail' -- \
-      env RSDD_STATUS_SCRIPT="$STUB_STOP" bash @SUT@ --corpus "$ROOT/samesec" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1995-qualified: drop the qualified-STOP branch; expect a qualified STOP to score pass again --"
-  if mk 1995-qualified 's/ && -n "\$stop_qualifier" \]\]; then$/ \&\& -n "${stop_qualifier:0:0}" ]]; then/'; then
-    tt "teeth-1995-qualified: branch disabled → a qualified STOP scores C4 pass" 0 0 \
-      --good-has '^C4 degraded STOP is qualified' --bad-lacks '^C4 degraded' --bad-has '^C4 pass' -- \
-      env STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 29 rows]' RSDD_STATUS_SCRIPT="$STUB_QUAL" bash @SUT@ --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1995-order: qualified branch placed before the queue checks; expect a non-empty queue to degrade --"
-  if mk 1995-order 's/^    if \[\[ "\$declared_queue" -eq 0 \]\]; then$/    if [[ -n "$stop_qualifier" ]]; then emit C4 degraded "STOP is qualified: $stop_qualifier"; elif [[ "$declared_queue" -eq 0 ]]; then/'; then
-    tt "teeth-1995-order: qualifier outranks the queue → a qualified STOP with a non-empty queue degrades instead of failing" 0 0 \
-      --good-has '^C4 fail .*queue=non-empty' --bad-lacks '^C4 fail' --bad-has '^C4 degraded' -- \
-      env STUB_QUEUE_LINE='  campaign        : pending=1 active=1 done=2 bound-stopped=0 rejected=0' STUB_STOP_LINE='STOP | read-only-investigable exhausted (0) [backlog-unreadable: 2 rows]' RSDD_STATUS_SCRIPT="$STUB_QUAL" bash @SUT@ --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1995-classify: treat every STOP as clean; expect an unknown form to score pass --"
-  if mk 1995-classify 's/^    if \[\[ "\$stop_rest" == "read-only-investigable exhausted (0)" || /    if true || [[ "$stop_rest" == "read-only-investigable exhausted (0)" || /'; then
-    tt "teeth-1995-classify: classifier bypassed → an unknown STOP form scores C4 pass" 0 0 \
-      --good-has '^C4 degraded .*unrecognized STOP form' --bad-lacks '^C4 degraded' --bad-has '^C4 pass' -- \
-      env STUB_STOP_LINE='STOP | something the scorer never heard of' RSDD_STATUS_SCRIPT="$STUB_QUAL" bash @SUT@ --corpus "$ROOT/continue" --transcript "$FIX/continue-clean.jsonl"
-  fi
-  echo "-- teeth-1017-grace-validate: drop the RSDD_C4_AFTER_STOP_GRACE integer check --"
-  if mk 1017-grace-validate 's/^if \[\[ ! "\$C4_GRACE_MIN" =~ \^\[0-9\]+\$ \]\]; then$/if false; then/'; then
-    tt "teeth-1017-grace-validate: check removed → a non-integer grace is no longer a bad-args exit 2" 2 0 \
-      --good-has 'RSDD_C4_AFTER_STOP_GRACE must be' --bad-lacks 'RSDD_C4_AFTER_STOP_GRACE must be' -- \
-      env RSDD_C4_AFTER_STOP_GRACE=abc bash @SUT@ --corpus "$ROOT/continue"
-  fi
-
 fi
 
 echo "== $pass passed · $fail failed =="

@@ -37,6 +37,7 @@ func bkUnreadableBlock(t *testing.T) (dir, block string) {
 // TestBlockUnreadableIsNeverClean: an unreadable block must not read as clean (CLAUDE.md §7). The scans that read it
 // report DEGRADED exactly as the script printed them, the run exits 1, and stderr names the read failure.
 func TestBlockUnreadableIsNeverClean(t *testing.T) {
+	t.Parallel()
 	dir, block := bkUnreadableBlock(t)
 	got := bkGo(dir, []string{filepath.Base(block), dir}, []string{"HOME=" + dir, "LC_ALL=C.UTF-8"})
 	if got.RC != 1 {
@@ -67,6 +68,7 @@ func TestBlockUnreadableIsNeverClean(t *testing.T) {
 // measures text in characters whatever the caller's locale, so LC_ALL=C (where the script's awk counted bytes) gives
 // the same report as C.UTF-8 on a block whose correction sentence is long and non-ASCII.
 func TestBlockLocaleIndependent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	long := strings.Repeat("é—", 70)
 	for name, body := range map[string]string{

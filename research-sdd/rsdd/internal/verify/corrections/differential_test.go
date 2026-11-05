@@ -155,6 +155,7 @@ func lineDiff(label, legacy, goOut string) string {
 }
 
 func TestDifferentialFixtures(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"blender-wrapped", "real-1868", "real-1874"} {
 		t.Run(name, func(t *testing.T) {
 			dir := corpus(t, fixtureFiles(t, name))
@@ -170,6 +171,7 @@ func TestDifferentialFixtures(t *testing.T) {
 // extractor distinguishes (verbs and their non-assertive/negated/noun forms, refs and joined lists, parentheticals,
 // bare B<N> refs, focus qualifiers, abbreviations, multi-byte text, reciprocal notes, FOCUSES.md rows).
 func TestDifferentialGenerated(t *testing.T) {
+	t.Parallel()
 	seeds := generatedSeeds
 	for seed := 1; seed <= seeds; seed++ {
 		files := genCorpus(rand.New(rand.NewSource(int64(seed))))

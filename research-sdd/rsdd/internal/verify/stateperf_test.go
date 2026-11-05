@@ -18,6 +18,7 @@ import (
 
 // The pre-filters of kit issue #2645 may only drop lines their regexp could not match.
 func TestMayContainFoldNeverDropsAMatch(t *testing.T) {
+	t.Parallel()
 	re := regexp.MustCompile(`(?i)gaps? closed|coverage metric`)
 	for _, l := range []string{
 		"", "plain", "Gaps CLOSED: 3", "gap closed", "COVERAGE METRIC: 1/2", "cloſed gaps cloſed", "gap cloSed",
@@ -30,6 +31,7 @@ func TestMayContainFoldNeverDropsAMatch(t *testing.T) {
 }
 
 func TestCountBlocksPrefixFilterMatchesPlainFilter(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	for _, n := range []string{"a-block1.md", "a-bloque2-x.md", "b-block1.md", "ab-block3.md", "notes.md", "a-block.md", "xa-block9.md"} {
 		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o644); err != nil {

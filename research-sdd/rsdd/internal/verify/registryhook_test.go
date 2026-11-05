@@ -41,6 +41,7 @@ func (k *vrKit) runHook(env map[string]string, args ...string) (ctx, raw string,
 }
 
 func TestRegistryHookHeadersAndExit(t *testing.T) {
+	t.Parallel()
 	t.Run("ok", func(t *testing.T) {
 		k := newVRKit(t)
 		k.blocks("alpha", 3)
@@ -80,6 +81,7 @@ func TestRegistryHookHeadersAndExit(t *testing.T) {
 }
 
 func TestRegistryHookFullPassesTheReportThrough(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 5)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(40 md)")))
@@ -95,6 +97,7 @@ func TestRegistryHookFullPassesTheReportThrough(t *testing.T) {
 }
 
 func TestCompactRegistryRules(t *testing.T) {
+	t.Parallel()
 	const tail = "Full detail: toolbelt/verify-registry.sh (or this hook with --full)."
 	compact := func(s string) string { return compactRegistry(s, false) }
 	warn := func(i int) string { return fmt.Sprintf("WARN  t%d — drift", i) }
@@ -162,6 +165,7 @@ func TestCompactRegistryRules(t *testing.T) {
 }
 
 func TestUTF8TrimDropsOnlyIncompleteSequences(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ in, out string }{
 		{"abc\xe2\x80...", "abc..."},                 // 3-byte lead + 1 continuation, cut before the dots
 		{"abc\xe2...", "abc..."},                     // lead alone

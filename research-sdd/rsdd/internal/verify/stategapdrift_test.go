@@ -12,6 +12,7 @@ import (
 // The drift check runs in process (kit issue #2645): no toolbelt directory is needed and the checker cannot be
 // "not found". The old subprocess tests of those paths are gone with the subprocess.
 func TestGapDriftRunsWithoutToolbelt(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "0", "investigable_open", "1", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | B1-G1 something wholly different about cats | w | pending |"))
 	sdWrite(t, filepath.Join(d, "x-block1.md"), "# b\n\n- **B1-G1** how do the widgets frobnicate the sprockets under load\n")
@@ -25,6 +26,7 @@ func TestGapDriftRunsWithoutToolbelt(t *testing.T) {
 // TestRelayGapDrift pins how the report treats the check's output and failures (these were the bash mutation
 // controls vs-warn-lines, vs-failed-checker, vs-untyped-exit1 and vs-rows-guard of check-gap-drift.test.sh).
 func TestRelayGapDrift(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		out  string
@@ -53,6 +55,7 @@ func TestRelayGapDrift(t *testing.T) {
 
 // A listing failure is the check's exit 2 with its own message, relayed as a degraded WARN.
 func TestGapDriftReportOfAnUnlistableTarget(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	v := &verifier{s: cli.Stdio{Cwd: d}, target: filepath.Join(d, "missing")}
 	out, rc := v.gapDriftReport(filepath.Join(d, "RESEARCH-STATE.md"), "")
@@ -65,6 +68,7 @@ func TestGapDriftReportOfAnUnlistableTarget(t *testing.T) {
 // would have drifted (the observable half of the old vs-rows-guard control). In process the guard in checkState is
 // only a short cut: forcing it open leaves the output unchanged, because the check itself reports NoRows silently.
 func TestGapDriftNotConsultedWithoutGapRows(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin(sdEnvelope("covered_blocks", "1", "investigable_open", "1", "requires_execution_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | plain gap about cats | w | pending |"))
 	sdWrite(t, filepath.Join(d, "x-block1.md"), "# b\n\n- **B1-G1** how do the widgets frobnicate the sprockets under load\n")

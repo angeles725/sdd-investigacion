@@ -14,6 +14,7 @@ import (
 // An unreadable TARGETS.md was read as empty: "no usable target paths", exit 0 in the default mode. It is degraded
 // input and fails operationally, in both modes, naming the file and the cause.
 func TestRegistryUnreadableTargetsIsDegradedNotClean(t *testing.T) {
+	t.Parallel()
 	for _, mode := range [][]string{nil, {"--json"}} {
 		k := newVRKit(t)
 		k.targets(vrTable())

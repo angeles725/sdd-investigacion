@@ -47,6 +47,7 @@ func TestBrewPrefix(t *testing.T) {
 		{"empty RSDD_BREW_PREFIX is skipped", []string{"RSDD_BREW_PREFIX=", "HOMEBREW_PREFIX=/h"}, "/h"},
 		{"brew --prefix stdout, trailing newlines cut, rc ignored", []string{"PATH=" + brew}, "/from/brew"},
 		{"linuxbrew directory last", []string{"PATH=" + d + "/none"}, d + "/home/linuxbrew/.linuxbrew"},
+		{"RSDD_PROBE_TIMEOUT=0 sets no limit, as timeout(1) does", []string{"PATH=" + brew, "RSDD_PROBE_TIMEOUT=0"}, "/from/brew"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -198,6 +199,7 @@ func TestTimeoutDuration(t *testing.T) {
 		{"1d", 24 * time.Hour, true},
 		{"0", 0, true},
 		{"1e300", math.MaxInt64, true},
+		{"9223372036.854775807", math.MaxInt64, true}, // v*1s is exactly 2^63 as a float64: the first value that saturates
 		{"", 0, false},
 		{"x", 0, false},
 		{"5q", 0, false},

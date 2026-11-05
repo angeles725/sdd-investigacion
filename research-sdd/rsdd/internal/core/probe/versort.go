@@ -28,11 +28,12 @@ func filePrefixLen(s string) int {
 	return prefix
 }
 
-// order ranks s[pos] for verrevcmp: end of string and '~' sort first, digits (handled numerically), then
-// letters, then every other byte.
+// order ranks s[pos] for verrevcmp, as gnulib's order() and its caller do: '~' sorts first, then the end of
+// the string and digits (both 0; they never meet, since a digit run is not compared here), then letters, then
+// every other byte.
 func order(s string, pos int) int {
 	if pos == len(s) {
-		return -1
+		return 0
 	}
 	switch c := s[pos]; {
 	case isDigit(c):
@@ -40,7 +41,7 @@ func order(s string, pos int) int {
 	case isAlpha(c):
 		return int(c)
 	case c == '~':
-		return -2
+		return -1
 	default:
 		return int(c) + 256
 	}

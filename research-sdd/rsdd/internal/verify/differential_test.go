@@ -141,6 +141,7 @@ func (sb *sandbox) states() map[string]string {
 }
 
 func TestKitCleanMatchesLegacy(t *testing.T) {
+	t.Parallel()
 	sb := newSandbox(t)
 	for name, dir := range sb.states() {
 		t.Run(name, func(t *testing.T) {
@@ -152,6 +153,7 @@ func TestKitCleanMatchesLegacy(t *testing.T) {
 // The default repository of the script is its own directory; the shim passes it, so the Go command given
 // that path must read the same repository.
 func TestKitCleanDefaultRepoMatchesLegacy(t *testing.T) {
+	t.Parallel()
 	sb := newSandbox(t)
 	for name, dir := range sb.states() {
 		if _, err := os.Stat(filepath.Join(dir, "verify-kit-clean.sh")); err != nil {
@@ -164,6 +166,7 @@ func TestKitCleanDefaultRepoMatchesLegacy(t *testing.T) {
 }
 
 func TestKitCleanHookMatchesLegacy(t *testing.T) {
+	t.Parallel()
 	sb := newSandbox(t)
 	for name, dir := range sb.states() {
 		hook := filepath.Join(dir, "verify-kit-clean-hook.sh")
@@ -189,6 +192,7 @@ func TestKitCleanHookMatchesLegacy(t *testing.T) {
 }
 
 func TestKitCleanStubbedGitMatchesLegacy(t *testing.T) {
+	t.Parallel()
 	sb := newSandbox(t)
 	cases := map[string]string{
 		"status-fails": `case "$*" in
@@ -244,6 +248,7 @@ esac
 
 // The envelope of the hook against jq itself, for the characters a git report can carry.
 func TestHookEnvelopeMatchesJq(t *testing.T) {
+	t.Parallel()
 	sb := newSandbox(t)
 	texts := []string{
 		"", "plain", "quote \" and \\ backslash", "tab\tcr\rnl\n", "ctrl \x01\x02\x08\x0b\x0c\x1b\x1f del \x7f",

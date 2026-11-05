@@ -8,6 +8,7 @@ import (
 )
 
 func TestBlockKeyBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, prefix, num string }{
 		{"-block1.md", "", "1"},      // the dash at index 0 is still a prefix separator
 		{"t-block12", "t", "12"},     // the digit run reaches the end of the name
@@ -24,6 +25,7 @@ func TestBlockKeyBoundaries(t *testing.T) {
 }
 
 func TestSplitReadFieldsEdges(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		in   string
 		want []string
@@ -38,6 +40,7 @@ func TestSplitReadFieldsEdges(t *testing.T) {
 }
 
 func TestReadFocusesRowWidth(t *testing.T) {
+	t.Parallel()
 	got := readFocusesOf(t, files("FOCUSES.md",
 		"| `three` | `aa-blockN.md` |\n"+ // 3 fields: the empty one before the first bar, the slug, one more cell
 			"| `two` |\n"+ // 2 fields: no cell after the slug
@@ -48,6 +51,7 @@ func TestReadFocusesRowWidth(t *testing.T) {
 }
 
 func TestNamesBlockEdges(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		line, c string
 		want    bool
@@ -64,6 +68,7 @@ func TestNamesBlockEdges(t *testing.T) {
 }
 
 func TestAbbrevEdges(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		l    string
 		i    int
@@ -86,6 +91,7 @@ func TestAbbrevEdges(t *testing.T) {
 
 // The ok-partial summary counts every kind of unchecked declaration exactly once.
 func TestUncheckedCountsAreExact(t *testing.T) {
+	t.Parallel()
 	partial := func(n int, amb, warn int) string {
 		return "   ok-partial " + strconv.Itoa(n) + " declared correction(s) NOT checked (ambiguous/missing target: " + strconv.Itoa(amb) + " AMBIG, " + strconv.Itoa(warn) + " WARN; 0 negated) — see WARN/AMBIG above\n"
 	}

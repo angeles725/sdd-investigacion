@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/reasons"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // pkgDir returns this package directory (located through the test file, not the working directory).
@@ -24,7 +25,7 @@ func pkgDir(t *testing.T) string {
 }
 
 func mdPath(t *testing.T) string {
-	return filepath.Join(pkgDir(t), "..", "..", "..", "..", "toolbelt", "reason-codes.v1.md")
+	return kitroot.Path(t, "toolbelt", "reason-codes.v1.md")
 }
 
 // mdRows counts and extracts registry rows with a method independent of the generator: a table row of the
@@ -198,6 +199,28 @@ func TestRenderRejectsWrongArgCountAndBadInput(t *testing.T) {
 		}
 		if err := reasons.Emit(&buf, c.c, c.args...); err == nil || buf.Len() != 0 {
 			t.Errorf("%s: Emit err=%v wrote %q; want an error and no output", c.name, err, buf.String())
+		}
+	}
+}
+
+// The error text names the expected count and the 1-based position of the bad argument, so a caller can fix
+// its call from the message alone.
+func TestRenderErrorTextNamesCountAndPosition(t *testing.T) {
+	const text = "degraded: gh issue list (closed) failed for <v> (exit <v>)"
+	two := lookup(t, text)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"too few", []string{"a"}, fmt.Sprintf("reasons: %q takes 2 argument(s), got 1", text)},
+		{"break in first", []string{"a\nb", "1"}, fmt.Sprintf("reasons: argument 1 of %q contains a line break", text)},
+		{"break in second", []string{"a", "1\r"}, fmt.Sprintf("reasons: argument 2 of %q contains a line break", text)},
+	}
+	for _, c := range cases {
+		_, err := reasons.Render(two, c.args...)
+		if err == nil || err.Error() != c.want {
+			t.Errorf("%s: err = %v; want %q", c.name, err, c.want)
 		}
 	}
 }

@@ -41,6 +41,7 @@ func runFailing(dir string, f fsFail) observed {
 var errBoom = errors.New("boom")
 
 func TestDegradedTargetBlock(t *testing.T) {
+	t.Parallel()
 	d := corpus(t, files("t-block1.md", plain(1), "t-block2.md", "> Corrects [Block 1].\n"))
 	o := runFailing(d, fsFail{read: func(p string, n int) error {
 		if strings.HasSuffix(p, "t-block1.md") && n == 2 { // the first read is the block loop's, the second the target lookup
@@ -55,6 +56,7 @@ func TestDegradedTargetBlock(t *testing.T) {
 }
 
 func TestDegradedExtractorPositions(t *testing.T) {
+	t.Parallel()
 	three := files("t-block1.md", plain(1), "t-block2.md", plain(2), "t-block3.md", plain(3))
 	for _, c := range []struct {
 		name, victim string
@@ -80,6 +82,7 @@ func TestDegradedExtractorPositions(t *testing.T) {
 }
 
 func TestDegradedFocusesFile(t *testing.T) {
+	t.Parallel()
 	d := corpus(t, files("t-block1.md", plain(1), "sub/FOCUSES.md", "| `a` | x | y | `hb-blockN.md` | q |\n"))
 	o := runFailing(d, fsFail{read: func(p string, n int) error {
 		if strings.HasSuffix(p, "FOCUSES.md") {
@@ -94,6 +97,7 @@ func TestDegradedFocusesFile(t *testing.T) {
 }
 
 func TestDegradedDirectoryWalk(t *testing.T) {
+	t.Parallel()
 	subFails := func(dir string) error {
 		if strings.HasSuffix(dir, "/sub") {
 			return errBoom
@@ -138,6 +142,7 @@ func TestDegradedDirectoryWalk(t *testing.T) {
 }
 
 func TestSymlinkedTargetIsFollowed(t *testing.T) {
+	t.Parallel()
 	// Intended difference from the script: `find <symlink>` did not descend into a symlinked root and the script
 	// exited 2 'no block files'; the Go port follows it, as `ls`, `cd` and every other caller of the path do.
 	real := corpus(t, files("t-block1.md", "corrected in B2\n", "t-block2.md", "> Corrects [Block 1].\n"))

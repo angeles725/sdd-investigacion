@@ -26,6 +26,7 @@ func render(recs []record) string {
 }
 
 func TestExtractRecords(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ name, text, want string }{
 		{"forward", "Corrects [Block 8] §2; cf. [Block 12].\n", "T 8\n"},
 		{"empty file", "", ""},

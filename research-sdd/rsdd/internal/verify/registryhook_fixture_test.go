@@ -36,6 +36,7 @@ func hookStdout(body string, u awkChars) string {
 }
 
 func TestRegistryHookBudgetOnFrozenFleetReading(t *testing.T) {
+	t.Parallel()
 	raw := readRaw(t, "verify-registry.raw")
 	for _, u := range []awkChars{false, true} {
 		out := hookStdout(raw, u)
@@ -76,6 +77,7 @@ func btoi(b bool) int {
 // reg-9: a multibyte character straddling a cut point never yields invalid UTF-8 (nor the U+FFFD the envelope encoder
 // would turn it into), whatever the locale's unit.
 func TestRegistryHookMultibyteCutStaysValidUTF8(t *testing.T) {
+	t.Parallel()
 	raw := readRaw(t, "verify-registry-multibyte.raw")
 	for _, u := range []awkChars{false, true} {
 		out := compactRegistry(raw, u)
