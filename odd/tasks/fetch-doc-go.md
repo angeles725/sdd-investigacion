@@ -19,13 +19,14 @@ S9. `fetch-doc.sh` is an rsdd_exec shim; toolbelt/tests/fetch-doc.test.sh passes
 S10. Go packages reach teeth Lived 0 (`make teeth TEETH_PKG=./internal/sources/...`).
 
 ## Tasks
-- [x] T1 S6,S8 core/srcregistry (rows, insert, retarget, sha helpers) — inline — commit: 3212305b
-- [x] T2 S1-S5,S7 download core (slug, redirect, download, place, fetchdoc) + differential oracle — inline — commit: b916f554, 524790f1
-- [x] T3 S7 divergence fixes + reason codes + registry docs — inline — commit: 524790f1 (fixes), c09d49ef (docs)
-- [x] T4 S9 shim + suite conversion — inline — commit: ee1998df
-- [x] T5 S10 teeth, gates — inline — commit: teeth slice (see log L3)
+- [x] T1 S6,S8 core/srcregistry (rows, insert, retarget, sha helpers) — inline — commit: 6864f446
+- [x] T2 S1-S5,S7 download core (slug, redirect, download, place, fetchdoc) + differential oracle — inline — commit: e17bc712, 9e3c4379, 8d8de8c0, 4cdd9282, 6d4fdbd5, 227d14d2, 7dcca564, 258c47ea
+- [x] T3 S7 divergence fixes + reason codes + registry docs — inline — commit: 7dcca564 (divergence fixes in the engine), a0dc8753 (docs and typed states)
+- [x] T4 S9 shim + suite conversion — inline — commit: c7cb5013, 2440d63a, 71cd0802
+- [x] T5 S10 teeth, gates — inline — commit: a845d219, eac0fb76 (verifier correction batch), plus the teeth edits folded into 6864f446..258c47ea
 
 ## Log
 L1 (2026-11-05, s1 orchestrator): Port fetch-doc.sh to Go (rsdd sources fetch-doc), improve and modularize, keep a shim; parity except declared divergences.
 L2 (2026-11-05, s1 orchestrator): extra requirement from s3: export from internal/sources/... (or internal/core when another domain needs it) a small documented API for verify-sources: parse SOURCES.md rows, document identity/sha256 helpers; name the exported functions in tool-registry.d/fetch-doc.md and the final reply. Decision: core tier, because archtest forbids domain->domain imports.
-L3 (2026-11-05): teeth per package, make teeth TEETH_PKG=./internal/sources/<pkg> via heavy-run (gremlins takes one directory, not a ... pattern): slug 0 lived, redirect 0, download 0, place 0, runner 0, fetchdoc 0, core/srcregistry 0. Equivalent mutants removed by simplifying code (Alive is signal-0 only, runner drops the fallback signal and the ExitCode guard, slug uses a safe() helper).
+L3 (2026-11-05): history split for the RDD lens budget (every commit under 1200 changed lines; final tree byte-identical to the earlier tip 554f8ebf, saved as branch backup-fetch-doc-554f8ebf). Teeth per package (make teeth TEETH_PKG=./internal/sources/<pkg> via heavy-run; gremlins takes one directory, not a ... pattern) reached Lived 0 for slug, redirect, download, place, runner, fetchdoc and core/srcregistry; equivalent mutants were removed by simplifying code (Alive signal-0 only, runner without the fallback signal and ExitCode guard, slug safe() helper).
+L4 (2026-11-05, s1 verifier BLOCK): a845d219 fixes make cross (unix-only process groups and kill(0) moved to *_unix.go with !unix stubs; the stale sweep keeps every pid off unix). eac0fb76 hashes the staged file before the install with a streaming sha256 (works on every OS, a hash failure leaves nothing placed), and settles queued signals at Block so one that arrived before the point of no return is honoured. Divergences and the .sources-md-* temp file are declared in tool-registry.d/fetch-doc.md.

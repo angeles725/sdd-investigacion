@@ -36,6 +36,27 @@ Intended divergences from the retired script (each pinned from both sides: `Test
 - **Test seam (test-only).** `FETCHDOC_TEST_SEAM=1` with `FETCHDOC_TEST_AT=install|after-fork` runs `FETCHDOC_TEST_CMD` with `$$`
   replaced by the pid; `HTML` is exported only in the web stages. Inert without the opt-in.
 
+- **Liveness of a part file's pid is `kill(pid, 0)`**, not `/proc/<pid>`: EPERM counts as alive, and a pid that does not name one
+  process (unparsable, `0`, negative, above 2^31-1) is kept, never swept. Off unix the answer is always "alive", so the stale
+  sweep deletes nothing without proof. Pinned by `TestAliveKeepsEveryPidThatDoesNotNameOneProcess`.
+- **A refused name never probes the downloader.** An invalid name, sub-directory or URL is refused (exit 2) before the curl/wget
+  availability check, so the usage error is the same on a host with neither tool; the script probed first and exited 3.
+- **The file is hashed before it is installed.** The staged part file is hashed and only then moved into `sources/`, so a hashing
+  failure leaves nothing placed and the next run is not refused with exit 4 (the script installed, then hashed). The hash is a
+  plain streaming `crypto/sha256` (`srcregistry.FileSHA256`), so it works on every OS. Pinned by
+  `TestHashFailureLeavesNothingPlacedInDocAndWebMode` through the `Deps.Hash` seam.
+- **A signal that reached the process before the install point is honoured.** `session.Block` settles every queued signal and the run
+  checks it right after, so the run exits 130/143 with nothing installed instead of completing with exit 0 (the script's trap could
+  lose the same signal in the window). A signal that arrives after the block is ignored until the row is written, as before.
+  Residual, declared: a signal delivered by the OS after `Block` returned but before the row is written is ignored by design.
+- **`.sources-md-*` is a transient file inside `sources/`.** The atomic replace of `SOURCES.md` writes a sibling temporary file
+  there and renames it over the registry; it is removed on every error path (create, write, chmod, rename) and never left behind
+  by a run that returns. Pinned by `TestWriteReplacesAtomicallyAndReportsARenameFailure`.
+- **The process runner is cross-platform.** Process groups (a cancel also stops what curl/pandoc started) exist on unix only;
+  elsewhere a cancel ends the child itself. `GOOS=windows` and `GOOS=darwin` builds of `rsdd` are part of `make cross`.
+- **The file modes are pinned from both sides.** `sources-md-keeps-its-mode` asserts the legacy 0600 (mktemp) against the Go 0644 /
+  preserved mode; the differential snapshot compares content only.
+
 Unchanged and pinned by the differential (52 scenarios, `testdata/legacy/fetch-doc.sh` is the frozen oracle): the curl argument
 shapes, the redirect rules and notices, the wget fallback, versioned `--replace` names, the stale part sweep, INT/TERM handling
 (130/143, whole process group cancelled, signals ignored from install until the row is written).

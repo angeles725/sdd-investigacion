@@ -590,9 +590,11 @@ if [ "$_rc47w" -eq 3 ] && grep -qi 'DEGRADED' "$TMP/err47w.txt"; then
 else no "R47w: rc=$_rc47w err='$(cat "$TMP/err47w.txt")'"; fi
 
 # ─── #1285 item 6: kit CLAUDE.md §9 — artifacts are English ───
-if ! grep -q 'falló' "$SUT"; then
-  ok "language: no Spanish 'falló' message left in fetch-doc.sh (§9)"
-else no "R48: fetch-doc.sh still contains the Spanish pdftoppm message"; fi
+# the messages live in the Go engine now (the shim holds none): scan its sources, and require the scan to find files
+_go_src="$HERE/../../rsdd/internal/sources"
+if [ -d "$_go_src" ] && [ -n "$(find "$_go_src" -name '*.go' | head -1)" ] && ! grep -rq 'falló' "$_go_src"; then
+  ok "language: no Spanish 'falló' message left in the Go engine of fetch-doc (§9)"
+else no "R48: the Go engine sources are missing or still contain the Spanish pdftoppm message ($_go_src)"; fi
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
