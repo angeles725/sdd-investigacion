@@ -7,7 +7,7 @@ func allCases() []scase {
 	var all []scase
 	for _, g := range [][]scase{
 		hcCases(), advCases(), scopeCases(), narrowCases(), ffCases(),
-		histBasicCases(), histEncodingCases(), histMetaCases(), histRefusalCases(),
+		histBasicCases(), histEncodingCases(), histMetaCases(), histRefusalCases(), histScopeCases(),
 	} {
 		all = append(all, g...)
 	}

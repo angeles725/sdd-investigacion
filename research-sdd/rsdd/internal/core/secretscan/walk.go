@@ -119,7 +119,7 @@ func walkSet(target, abs string) fileSet {
 			switch t := e.Type(); {
 			case t&fs.ModeSymlink != 0:
 			case t.IsDir():
-				if !excludedDirs[e.Name()] {
+				if !excludedDirs[e.Name()] && e.Name() != gitDir {
 					walk(filepath.Join(dir, e.Name()), r)
 				}
 			case t.IsRegular() && nameInScope(e.Name()):

@@ -127,7 +127,7 @@ func (s *session) enumerate() enumResult {
 
 // addPath keeps the smallest in-scope path of a live (non-deleted) blob.
 func (res *enumResult) addPath(sha, path string) {
-	if sha == "" || strings.Trim(sha, zeros) == "" || !pathInScope(path) {
+	if sha == "" || strings.Trim(sha, zeros) == "" || !committedInScope(path) {
 		return
 	}
 	path = strings.ReplaceAll(path, "\n", `\n`) // one report line per entry

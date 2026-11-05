@@ -369,6 +369,11 @@
   "stderr": "",
   "exit": 0
  },
+ "ff-config-dir-is-basename-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
  "ff-config-file-entry": {
   "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/deep/config.json:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
@@ -1039,6 +1044,56 @@
   "stderr": "",
   "exit": 1
  },
+ "hist-scope-config-dir": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-beside-clean-note": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-deep": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — a/b/c/config.bak/d/e/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-in-excluded-tree": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-config-dir-nested": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — app/config.old/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-name-not-component-start": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-config-without-dot-not-in-scope": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-dot-git-component-config": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — sub/.git/config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-dot-git-component-is-scanned": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — sub/.git/notes.md@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-excluded-dir-needs-trailing-slash": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a/cfr.md@f3b9d69:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
  "hist-show-signature-config": {
   "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
@@ -1413,5 +1468,15 @@
   "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/u.env:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n== exit 1 ==\n",
   "stderr": "",
   "exit": 1
+ },
+ "scope-wt-config-dir-is-basename-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-wt-dot-git-dir-never-entered": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
  }
 }
