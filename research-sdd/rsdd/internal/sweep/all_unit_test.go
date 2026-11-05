@@ -262,8 +262,19 @@ func TestAllCommandLine(t *testing.T) {
 
 	o.Reset()
 	e.Reset()
-	if rc := cli.Run(Commands, []string{"sweep", "all", "--kit", "kit", "ignored", "--json"}, w.stdio(&o, &e)); rc != 0 || !strings.Contains(o.String(), "PASS  "+allNames[7]+"\n") || e.Len() != 0 {
+	if rc := cli.Run(Commands, []string{"sweep", "all", "--kit", "kit"}, w.stdio(&o, &e)); rc != 0 || !strings.Contains(o.String(), "PASS  "+allNames[7]+"\n") || e.Len() != 0 {
 		t.Errorf("relative kit: rc=%d stderr=%q", rc, e.String())
+	}
+
+	// Intended divergence: the script ignored every other argument and still exited 0, so a caller asking for
+	// --json or --hook got plain text it could not detect. The port refuses it before any banner.
+	for _, extra := range []string{"--json", "--hook", "--full", "ignored"} {
+		o.Reset()
+		e.Reset()
+		want := "sweep-all: unsupported argument \"" + extra + "\" (usage: sweep all [--kit DIR])\n"
+		if rc := cli.Run(Commands, []string{"sweep", "all", "--kit", "kit", extra}, w.stdio(&o, &e)); rc != cli.ExitUsage || o.Len() != 0 || e.String() != want {
+			t.Errorf("%q: rc=%d stdout=%q stderr=%q, want rc=%d and %q before any banner", extra, rc, o.String(), e.String(), cli.ExitUsage, want)
+		}
 	}
 
 	// Without --kit the kit is the one that holds toolbelt/sweep-all.sh, found like the other sweeps find theirs.

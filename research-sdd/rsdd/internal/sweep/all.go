@@ -49,9 +49,27 @@ type allConfig struct {
 // defaultAllConfig is the real run: core/proc and the documented output bound.
 func defaultAllConfig() allConfig { return allConfig{run: proc.Run, maxBytes: allMaxBytes} }
 
+// parseAllOptions reads the one option of `sweep all`, --kit DIR. Unlike the script, which ignored every other
+// argument and still exited 0, any other argument (--json, --hook, a stray word) is a usage error: the aggregator
+// has no machine output, so a caller that asks for one must learn it did not get it.
+func parseAllOptions(args []string) (options, error) {
+	var o options
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--kit" {
+			return o, fmt.Errorf("unsupported argument %q (usage: sweep all [--kit DIR])", args[i])
+		}
+		if i+1 == len(args) {
+			return o, fmt.Errorf("--kit needs a directory")
+		}
+		i++
+		o.kit = args[i]
+	}
+	return o, nil
+}
+
 // RunAll is the `sweep all` command.
 func RunAll(args []string, s cli.Stdio) int {
-	o, err := parseOptions(args)
+	o, err := parseAllOptions(args)
 	if err != nil {
 		fmt.Fprintf(s.Err, "sweep-all: %v\n", err)
 		return cli.ExitUsage
