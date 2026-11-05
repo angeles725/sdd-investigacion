@@ -7,31 +7,31 @@ import (
 	"path"
 	"strings"
 
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 )
 
 // Port of the `--next` block of research-sdd-status.sh: the STALE gate, the RETRO-DUE check, the DEGRADED refusal
 // and the NEXT / STOP verdict, scoped to the picked state file (--root / --focus) or aggregated over every state
-// file. Two sections the block calls belong to a later slice and are reached through seams: the retro-coverage
-// derivation behind RETRO-DUE and issues_due_gate, which prints the exhausted STOP and may turn it into ISSUES-DUE.
+// file. The retro-coverage derivation behind RETRO-DUE (retrodue.go) and issues_due_gate, which prints the exhausted
+// STOP and may turn it into ISSUES-DUE (issuesdue.go), are reached through seams a test can replace.
 
 // retroThreshold is the §18 cadence: more blocks than this since the last retro is RETRO-DUE.
 const retroThreshold = 10
 
-// seams are the sections of the --next block that are not in Go yet. An ok of false ends the run as not yet ported.
+// seams are the two sections of the --next block a test may stand in for: the retro-coverage derivation behind
+// RETRO-DUE and the terminal gate of an exhausted walk.
 type seams struct {
 	// coversDerive is _rd_covers_derive: the retro-coverage view of a counter that would fire, as the effective
 	// counter and the RETRO-DUE suffix.
-	coversDerive func(c *ctx, state, declared string) (eff, note string, ok bool)
+	coversDerive func(c *ctx, state, declared string) (eff, note string)
 	// issuesGate is issues_due_gate: it prints the terminal verdict of an exhausted walk (STOP, or ISSUES-DUE).
-	issuesGate func(c *ctx) (ok bool)
+	issuesGate func(c *ctx)
 }
 
-// pendingSeams are the production seams until the slice that ports those sections lands.
-var pendingSeams = seams{
-	coversDerive: func(*ctx, string, string) (string, string, bool) { return "", "", false },
-	issuesGate:   func(*ctx) bool { return false },
+// liveSeams are the production sections.
+var liveSeams = seams{
+	coversDerive: (*ctx).coversDerive,
+	issuesGate:   (*ctx).issuesDueGate,
 }
 
 // nextOr answers --next and leaves every other mode to rest.
@@ -42,12 +42,6 @@ func nextOr(sm seams, rest tail) tail {
 		}
 		return rest(c)
 	}
-}
-
-// pendingSeam is the typed answer of a run that reached a section that is not ported yet.
-func (c *ctx) pendingSeam(what string) int {
-	fmt.Fprintf(c.s.Err, "rsdd: status show: not-yet-ported: %s of --next; use toolbelt/research-sdd-status.sh (issue #2549)\n", what)
-	return cli.ExitOperational
 }
 
 // listStateFiles is kit.ListStateFiles; a test replaces it to make the listing fail.
@@ -155,10 +149,7 @@ func (c *ctx) next(sm seams) int {
 		bsr, _ := c.envGet("blocks_since_retro")
 		note := ""
 		if retroFires(bsr) { // RD-COVERS-THROUGH: only a counter that would fire is cross-checked
-			var ok bool
-			if bsr, note, ok = sm.coversDerive(c, st, bsr); !ok {
-				return c.pendingSeam("RETRO-DUE covers_through derivation")
-			}
+			bsr, note = sm.coversDerive(c, st, bsr)
 		}
 		if retroFires(bsr) { // RD-THRESHOLD-CHECK
 			fmt.Fprintf(out, "RETRO-DUE | %s blocks since last retro (§18 threshold: %d)%s\n", bsr, retroThreshold, note)
@@ -172,9 +163,7 @@ func (c *ctx) next(sm seams) int {
 		switch {
 		case r == stopExhausted:
 			c.buCompute([]string{pick}) // BU-SCOPE
-			if !sm.issuesGate(c) {      // IDG-FOCUS-GATE
-				return c.pendingSeam("issues_due_gate")
-			}
+			sm.issuesGate(c)            // IDG-FOCUS-GATE
 		case rc == 3:
 			fmt.Fprintln(out, r)
 			return 3
@@ -219,8 +208,6 @@ func (c *ctx) next(sm seams) int {
 		fmt.Fprintf(out, "STOP | no active focus (%d declared stopped/paused in FOCUSES.md with open gaps)%s\n", skipGaps, c.buSuffix)
 		return 0
 	}
-	if !sm.issuesGate(c) {
-		return c.pendingSeam("issues_due_gate")
-	}
+	sm.issuesGate(c)
 	return 0
 }

@@ -11,4 +11,5 @@ var Commands = []cli.Command{
 	{Name: "audits", Group: "sweep", Summary: "pending section 13 audits of every target in TARGETS.md (port of sweep-audits.sh; --hook is the SessionStart hook)", Run: RunAudits},
 	{Name: "breakthroughs", Group: "sweep", Summary: "unindexed and drifted section 22 breakthroughs of every target in TARGETS.md (port of sweep-breakthroughs.sh; --hook is the SessionStart hook)", Run: RunBreakthroughs},
 	{Name: "tools", Group: "sweep", Summary: "tool census and ledger reconciliation of every target in TARGETS.md (port of sweep-tools.sh; --hook is the SessionStart hook)", Run: RunTools},
+	{Name: "all", Group: "sweep", Summary: "run the eight session-start sweep scripts in sequence, each under a timeout, with a PASS/FAIL banner per script (port of sweep-all.sh)", Run: RunAll},
 }

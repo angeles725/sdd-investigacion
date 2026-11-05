@@ -56,8 +56,8 @@ func maskTimes(b []byte) []byte {
 }
 
 // legacyScript puts the frozen script in a fresh directory next to a `lib` link to the frozen core/adapter copy, so it
-// imports the helpers (adapter_helpers, isolation_profile) the toolbelt still ships; it returns the script and
-// the toolbelt directory, whose analysis_manifest.py the script is handed. Only corroborate_java.py is frozen:
+// imports the helpers (adapter_helpers, isolation_profile) from that frozen copy (the toolbelt no longer ships
+// them); it returns the script and the frozen directory, whose analysis_manifest.py the script is handed. Only corroborate_java.py is frozen:
 // the adapter modules are frozen copies under core/adapter/testdata/frozen.
 func legacyScript(t *testing.T) (script, toolbelt string) {
 	t.Helper()

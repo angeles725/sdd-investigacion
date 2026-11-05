@@ -62,9 +62,9 @@ checks() {
   { grep -qE 'MAX_INJECT_CHARS = [0-9]+;' "$f" && [ "$(grep -oE 'MAX_INJECT_CHARS = [0-9]+' "$f" | grep -oE '[0-9]+')" -lt 8000 ]; } || echo "context-budget-under-8000"
   grep -q 'const next = freshState();' "$f" || echo "state-recomputed-every-session-start"
   grep -q 'if (!cur\.corpus) return done(false);' "$f" || echo "gates-only-on-corpus-target"
-  # sweep-all.sh's scripts (X.sh) <-> this file's SWEEP_HOOKS (X-hook.sh), both directions, each wrapper present
+  # sweep-all's scripts, listed in rsdd/internal/sweep/allscripts.go (X.sh) <-> this file's SWEEP_HOOKS (X-hook.sh), both directions, each wrapper present
   hooks_src="$(grep -oE '"[a-z-]+-hook"' "$f" | tr -d '"' | LC_ALL=C sort -u)"
-  hooks_all="$(grep -oE '\$TOOLBELT/[a-z-]+\.sh' "$KIT/toolbelt/sweep-all.sh" | sed 's|.*/||; s|\.sh$|-hook|' | LC_ALL=C sort -u)"
+  hooks_all="$(grep -oE '"[a-z-]+\.sh"' "$KIT/rsdd/internal/sweep/allscripts.go" | tr -d '"' | sed 's|\.sh$|-hook|' | LC_ALL=C sort -u)"
   { [ -n "$hooks_all" ] && [ "$hooks_src" = "$hooks_all" ]; } || echo "sweep-list-matches-sweep-all"
   for s in $hooks_src; do [ -f "$KIT/toolbelt/$s.sh" ] || echo "sweep-hook-exists-$s"; done
 }
@@ -74,7 +74,7 @@ if [ -z "$out" ]; then ok "structural: every invariant holds on research-sdd-hoo
 else no "structural: invariants broken: $(printf '%s' "$out" | tr '\n' ';')"; fi
 
 # positive control: the sweep-all parity extraction must actually see eight scripts (a silent zero would pass trivially)
-n_all="$(grep -oE '\$TOOLBELT/[a-z-]+\.sh' "$KIT/toolbelt/sweep-all.sh" | sort -u | wc -l)"
+n_all="$(grep -oE '"[a-z-]+\.sh"' "$KIT/rsdd/internal/sweep/allscripts.go" | sort -u | wc -l)"
 n_src="$(grep -oE '"[a-z-]+-hook"' "$SUT" | sort -u | wc -l)"
 if [ "$n_all" -ge 8 ] && [ "$n_src" = "$n_all" ]; then ok "structural: parity extraction saw $n_all sweep scripts and $n_src hook wrappers (not a silent zero)"
 else no "structural: parity extraction saw $n_all scripts / $n_src wrappers"; fi

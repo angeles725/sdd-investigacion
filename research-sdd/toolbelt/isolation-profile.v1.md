@@ -1,7 +1,7 @@
 # isolation-profile.v1 — Sandbox Security Posture Contract
 
 **Status**: active  
-**Authority**: `lib/isolation_profile.py` (construction), `analysis_manifest.py:382-385` (validation)
+**Authority**: `rsdd/internal/core/adapter/profile.go` (`MakeProfile`, construction), `rsdd/internal/core/adapter/manifest.go` (validation by `rsdd adapter manifest validate`); formerly `lib/isolation_profile.py` and `analysis_manifest.py`
 
 ## Purpose
 
@@ -11,7 +11,7 @@ document carries exactly one profile under the `"isolation_profile"` key.
 
 The profile is an immutable record — it documents what happened, not a policy
 input to a running sandbox.  The sandbox's actual security constraints are
-configured by `adapter_core.sandbox()` (bubblewrap arguments).  The profile
+configured by `adapter.Sandbox` (bubblewrap arguments).  The profile
 name must accurately reflect the sandbox posture actually used.
 
 ## Schema
@@ -37,14 +37,14 @@ name must accurately reflect the sandbox posture actually used.
 ### Invariant
 
 `target_execution` MUST be `false` for all Research-SDD corroboration
-adapters.  The construction authority (`make_profile`) enforces this at build
-time.  The `analysis_manifest.py` validator (line 384) enforces it again at
+adapters.  The construction authority (`adapter.MakeProfile`) enforces this at build
+time.  The `rsdd adapter manifest` validator enforces it again at
 read/validate time.  Any profile with `target_execution: true` MUST NOT
 appear in a corroboration manifest.
 
 ## Named profiles
 
-These profiles are defined as constants in `lib/isolation_profile.py`.
+These profiles are defined as constants in `core/adapter/profile.go` (`adapter.NamedProfiles()`).
 
 | Constant | `name` | `static_only` | `network_access` | Used by |
 |---|---|---|---|---|
@@ -60,34 +60,32 @@ These profiles are defined as constants in `lib/isolation_profile.py`.
 ## Dynamic profiles
 
 Adapters whose sandbox posture varies at runtime MUST NOT use a named constant.
-They MUST call `make_profile()` directly at the call site with the correct
+They MUST call `adapter.MakeProfile` directly at the call site with the correct
 runtime values.
 
 **Ghidra** (`corroborate_ghidra.py`): the `--isolated` flag controls whether
 network access is denied.
 
-```python
-from lib.isolation_profile import make_profile
-
-"isolation_profile": make_profile(
-    "bubblewrap-ghidra-static" if isolated else "test-only-untrusted-bwrap",
-    network_access=not isolated,
-)
+```go
+name := "test-only-untrusted-bwrap"
+if isolated {
+	name = "bubblewrap-ghidra-static"
+}
+prof, err := adapter.MakeProfile(name, true, !isolated, false) // name, staticOnly, networkAccess, targetExecution
+// "isolation_profile": prof.Map()
 ```
 
 ## Construction
 
-All isolation-profile dicts MUST be produced by `make_profile()`.  Inline
+All isolation-profile dicts MUST be produced by `adapter.MakeProfile` (formerly `make_profile()`).  Inline
 dict literals are prohibited.
 
-```python
-from lib.isolation_profile import make_profile, PROFILE_BWRAP_PCAP_OFFLINE
+```go
+// Use a named constant when the posture is fixed.
+"isolation_profile": adapter.NamedProfiles()["PROFILE_BWRAP_PCAP_OFFLINE"].Map()
 
-# Use a named constant when the posture is fixed.
-"isolation_profile": PROFILE_BWRAP_PCAP_OFFLINE
-
-# Call make_profile() when the posture varies at runtime.
-"isolation_profile": make_profile("my-adapter-profile", network_access=True)
+// Call MakeProfile when the posture varies at runtime.
+prof, err := adapter.MakeProfile("my-adapter-profile", true, true, false)
 ```
 
 ## Canonical JSON representation
@@ -104,7 +102,7 @@ is always alphabetically sorted:
 
 Some adapters record an `"isolation"` key (not `"isolation_profile"`) in their
 own evidence report using a different schema.  These are NOT managed by
-`lib/isolation_profile.py`:
+`core/adapter/profile.go`:
 
 - `squashfs_extract.py` — `"isolation"` key in `squashfs-extract.v1.json`
   uses `{bubblewrap, network_access, payload_execution, static_only}`
