@@ -1,104 +1,49 @@
 #!/usr/bin/env bash
-# fetch-doc.test.sh — RED-FIRST harness for fetch-doc.sh's reg() SOURCES.md registrar.
+# fetch-doc.test.sh — harness for fetch-doc.sh (downloads and registers external sources under TARGET/sources).
 #
-# The load-bearing behaviour (retro delta): reg() must insert a new source row at the END OF THE (first)
-# MARKDOWN TABLE, not blindly at EOF. A real SOURCES.md (the bootstrap template's own shape) carries trailing
-# prose sections (## Structure / ## Notes) AFTER the table; a blind `>> "$md"` appends new rows BELOW those
-# sections, splitting the document into two disconnected table fragments. The discriminating case feeds a
-# SOURCES.md whose table is followed by a `## Structure` section and asserts the new row lands ABOVE it
-# (inside the table). --prove-teeth reverts reg() to an EOF append and asserts the row then lands BELOW the
-# prose, proving the placement assertion is genuinely load-bearing and not theater.
-#
-# reg() is unit-tested by SOURCING fetch-doc.sh (its main dispatch is guarded), so no network fetch runs.
+# fetch-doc.sh is a compatibility shim over `rsdd sources fetch-doc` (Go). The black-box cases below run through it with
+# the stub curl/wget/pandoc on a private PATH (no network): redirect registration, the part-file and overwrite policy,
+# --replace archiving, cancellation by signal, the test seam, PDF/web integration and the snapshot names. The engine is
+# pinned in Go (research-sdd/rsdd/internal/sources/...: a differential against the frozen script, a golden replay, unit
+# tests, package teeth; internal/core/srcregistry for the SOURCES.md table). --prove-teeth mutates the SHIM (arguments,
+# command and group name, exit code, the library guard); the old controls that edited the retired script body, and the
+# cases that sourced its functions (reg, resolve_permanent_redirect, fetch_and_register, web_slug), are typed SKIPs
+# naming the Go tests that replace them.
 #
 # Usage: fetch-doc.test.sh [--prove-teeth]   Exit: 0 all held · 1 regression · 2 harness error (SUT missing).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SUT="$HERE/../fetch-doc.sh"
 [ -f "$SUT" ] || { echo "FATAL: SUT not found: $SUT" >&2; exit 2; }
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-pass=0; fail=0
+SUT_IS_SHIM=0; grep -q "rsdd_exec" "$SUT" && SUT_IS_SHIM=1
+MUT=""
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP" ${MUT:+"$MUT"}' EXIT
+pass=0; fail=0; skips=0
 ok(){ printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
+skip(){ printf '  SKIP  %s\n' "$1"; skips=$((skips+1)); }
+# --- mutation-control helpers (kit issues #943, #1299): lib/mutant.sh builds every mutant as a COPY (it refuses an empty,
+# byte-identical, syntax-broken or live-tree one) and mutant_tooth asserts the exact verdict of the original and the mutant.
+# shellcheck source=lib/mutant.sh
+. "$HERE/lib/mutant.sh"
+mutant_bootstrap mutant_sed mutant_tooth || exit 2
+MUT="$(mktemp -d)"
+tooth(){ if mutant_tooth "$@"; then pass=$((pass+1)); else fail=$((fail+1)); fi; }
+# The cases that sourced the script's functions moved to Go:
+#   1-5 (reg(): create, end-of-table insert, contiguity, no trailing prose, backslash cell)
+#         -> internal/core/srcregistry TestInsertRow*, TestParseRows*, TestFormatRowAndSafeCell and the differential
+#            cases doc-registry-with-trailing-prose, doc-backslash-url
+#   11-14, 16, 17, 19, 23-28, 30-35, 39, 40 (resolve_permanent_redirect called directly)
+#         -> internal/sources/redirect (TestFollowsOnlyPermanentRedirects, TestRefusesNonHTTPSchemeWithNotice,
+#            TestHopCapBoundsAChainAndALoop, TestHeadRefusedFallsBackToGet, TestConnectClassFailuresSkipTheGetRetry, ...)
+#   44b (fetch_and_register called directly) -> internal/sources/download tests
+#   71f-71i (web_slug sourced, no sha256 tool) -> internal/sources/slug tests, TestIntendedDivergences
 
-# slug_of <url> — the snapshot stem the SUT writes: asks the SUT's own web_slug (sourced), never a copied rule (#1904).
-# shellcheck source=../fetch-doc.sh
-slug_of(){ ( set +e; source "$SUT" >/dev/null 2>&1; web_slug "$1" ); }
-# runreg <script> <sdir> <file> <kind> <origin> <sha> — call reg() from <script> in an isolated subshell
-# (source defines the function; the guarded main never runs; set +e keeps a reg failure from killing us).
-# shellcheck source=../fetch-doc.sh
-runreg(){ local s="$1"; shift; ( set +e; source "$s" >/dev/null 2>&1; reg "$@" ); }
 # lineno <file> <fixed-string> — 1-based line number of the first line CONTAINING the string, or 0.
 lineno(){ awk -v s="$2" 'index($0,s){print NR; exit}' "$1"; }
 
 echo "== fetch-doc.test.sh (SUT: $(basename "$SUT")) =="
 
-# 1 — reg() CREATES SOURCES.md with the header when absent, and the new row is the last table line.
-d="$TMP/create/sources"; mkdir -p "$d"
-runreg "$SUT" "$d" "$d/datasheets/a.pdf" "datasheet" "https://x/a.pdf" "deadbeef"
-if [ -f "$d/SOURCES.md" ] \
-   && grep -q '^| File | Type |' "$d/SOURCES.md" \
-   && grep -q '| datasheets/a.pdf | datasheet | https://x/a.pdf |' "$d/SOURCES.md"; then
-  ok "reg() creates SOURCES.md with header + registers the row"
-else no "create: SOURCES.md not built as expected :: $(head -6 "$d/SOURCES.md" 2>/dev/null | tr '\n' '/')"; fi
-
-# 2 — CORE (retro delta): a SOURCES.md whose table is followed by a '## Structure' prose section — the new
-#     row must land ABOVE '## Structure' (end of table), NOT appended at EOF below it. RED before the fix.
-d="$TMP/trailing/sources"; mkdir -p "$d"
-cat > "$d/SOURCES.md" <<'EOF'
-# Preserved external sources
-
-| File | Type | Origin (URL) | Date (UTC) | sha256 | Blocks that cite it |
-|---|---|---|---|---|---|
-| datasheets/example.pdf | datasheet | https://... | 2026-06-28T00:00:00Z | abc123 | [Block K] |
-
-## Structure
-
-```
-sources/
-  datasheets/
-```
-EOF
-runreg "$SUT" "$d" "$d/manuals/new.pdf" "manuals" "https://y/new.pdf" "cafef00d"
-row_line="$(lineno "$d/SOURCES.md" 'manuals/new.pdf')"
-struct_line="$(lineno "$d/SOURCES.md" '## Structure')"
-if [ "$row_line" -gt 0 ] && [ "$struct_line" -gt 0 ] && [ "$row_line" -lt "$struct_line" ]; then
-  ok "new row inserted at END OF TABLE, above '## Structure' (row L$row_line < struct L$struct_line)"
-else no "trailing-prose: row L$row_line vs struct L$struct_line (want row < struct — appended below prose?)"; fi
-
-# 3 — the inserted row is CONTIGUOUS with the existing table (immediately after the last prior table row),
-#     so the two rows form ONE table, not two fragments.
-prev_line="$(lineno "$d/SOURCES.md" 'datasheets/example.pdf')"
-if [ "$row_line" = "$((prev_line + 1))" ]; then
-  ok "new row is contiguous with the existing table (L$row_line == L$prev_line + 1) — one table, no fragment"
-else no "contiguity: new row L$row_line, prior row L$prev_line (want L$((prev_line+1)))"; fi
-
-# 4 — NO trailing prose (table is the whole body): reg() still appends at the end (backward-compatible).
-d="$TMP/notrail/sources"; mkdir -p "$d"
-cat > "$d/SOURCES.md" <<'EOF'
-# Preserved external sources
-
-| File | Type | Origin (URL) | Date (UTC) | sha256 | Blocks that cite it |
-|---|---|---|---|---|---|
-| datasheets/first.pdf | datasheet | https://... | 2026-06-28T00:00:00Z | abc | [Block 1] |
-EOF
-runreg "$SUT" "$d" "$d/manuals/second.pdf" "manuals" "https://z/second.pdf" "b0b0"
-last="$(tail -1 "$d/SOURCES.md")"
-if grep -q 'manuals/second.pdf' <<<"$last"; then
-  ok "no trailing prose → row appended at end of table (last line), backward-compatible"
-else no "no-trail: last line is '$last' (want the new row)"; fi
-
-# 5 — CORE (retro delta / FIX): a source VALUE containing a BACKSLASH must be written BYTE-IDENTICALLY.
-#     `awk -v newrow="$row"` subjects the value to awk's C-style escape processing (\t → TAB, \b → backspace),
-#     so a basename/URL with a backslash is MANGLED in the SOURCES.md cell — diverging from the literal value
-#     verify-sources.sh later cross-checks. Passing via the environment (ENVIRON["newrow"], no -v) preserves
-#     it verbatim. RED before the fix: the written cell differs from the input origin.
-d="$TMP/backslash/sources"; mkdir -p "$d"
-bsurl='https://ex/a\test\back.pdf'   # literal backslash-t and backslash-b — the exact escape trap
-runreg "$SUT" "$d" "$d/datasheets/x.pdf" "datasheet" "$bsurl" "feed"
-if grep -qF "$bsurl" "$d/SOURCES.md"; then
-  ok "backslash-bearing source value written byte-identically (no awk -v escape corruption)"
-else no "backslash corrupted: row=$(grep -F 'datasheets/x.pdf' "$d/SOURCES.md" | head -1)"; fi
 
 # ─── redirect-resolution tests (Tests 11-31+): PR #1155 round-2/round-3 design ────────
 # Register the URL reached through PERMANENT redirects (301/308) only — the retro D4 scenario
@@ -320,77 +265,8 @@ runchain(){ local mode="$1" dir="$2" url="$3"; shift 3
   PATH="$stubbin:$PATH" bash "$SUT" ${RC_REPLACE:+--replace} "$mode" "$url" "$dir" "$@" >/dev/null 2>"$TMP/runchain.err"
 }
 # origin_of <sources-md> <needle> — the Origin (URL) cell of the row whose File cell matches <needle>.
+
 origin_of(){ awk -F' \\| ' -v n="$2" '$0 ~ n {gsub(/^\| */,"",$1); print $3; exit}' "$1" 2>/dev/null; }
-# runresolve <script> <url> — call resolve_permanent_redirect() from <script> DIRECTLY (source,
-# guarded main never runs — same technique as runreg()), with the stub curl on PATH and the
-# current $STUB_* controls exported. Tests the pure resolution logic in isolation from the
-# download/wget-fallback layer, which would otherwise MASK a broken guard (an internal empty-URL
-# bug gets silently recovered by the wget fallback at the pipeline level — see case 17 below) and
-# so cannot prove the guard itself is load-bearing. Wrapped in `timeout` (round-3 RS3): a genuine
-# redirect LOOP or a broken hop-bound must not hang the test suite — the timeout, not a passing
-# assertion, is what catches those mutants (see runresolve_bounded below for the ones that need
-# the actual exit code).
-# shellcheck source=../fetch-doc.sh
-runresolve(){ local s="$1" url="$2"
-  ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" 2>/dev/null )
-}
-# runresolve_err <script> <url> <errfile> — like runresolve, but PRESERVES resolve's own stderr
-# into <errfile> (truncated first) instead of discarding it, for tests asserting NOTICE content.
-runresolve_err(){ local s="$1" url="$2" errfile="$3" _out
-  : > "$errfile"
-  _out="$( ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" ) 2>"$errfile" )"
-  printf '%s' "$_out"
-}
-# runresolve_bounded <script> <url> <out-var> <rc-var> — like runresolve_err, but ALSO captures
-# the exit code into <rc-var> (round-3 RS3: a `while true` or dropped-increment mutant makes the
-# resolve genuinely never return on a redirect LOOP fixture — `timeout`'s kill, exit 124, is the
-# signal that the hop bound stopped protecting us; the real SUT must return 0 well inside the cap).
-runresolve_bounded(){ local s="$1" url="$2" _outvar="$3" _rcvar="$4" _out _rc errfile="$TMP/bounded.err"
-  : > "$errfile"
-  _out="$( ( set +e; PATH="$stubbin:$PATH"; export PATH
-    timeout 8 bash -c 'set -e; source "$1" >/dev/null 2>&1; resolve_permanent_redirect "$2"' _ "$s" "$url" ) 2>"$errfile" )"
-  _rc=$?
-  printf -v "$_outvar" '%s' "$_out"
-  printf -v "$_rcvar" '%s' "$_rc"
-}
-
-# 11 — a chain of TWO permanent redirects (301, 301) resolves fully; the FINAL permanently-
-#      resolved URL is returned, not the typed URL and not any intermediate hop.
-STUB_ROUTES=$'http://s11.example/a 301 http://s11.example/b\nhttp://s11.example/b 301 http://s11.example/c'
-export STUB_ROUTES
-got11="$(runresolve "$SUT" "http://s11.example/a")"
-if [ "$got11" = "http://s11.example/c" ]; then
-  ok "resolve: permanent-redirect chain (301→301) resolves to the final URL"
-else no "R11: expected http://s11.example/c, got '$got11'"; fi
-
-# 12 — CORE (design decision): permanent redirect (301) THEN a temporary one (302, to a
-#      short-lived signed URL) — resolves to the LAST PERMANENT URL, never the signed target and
-#      never the originally typed one (a genuine permanent redirect DID happen first).
-STUB_ROUTES=$'http://s12.example/a 301 http://s12.example/permanent\nhttp://s12.example/permanent 302 http://cdn.example/signed?sig=deadbeef&exp=60'
-export STUB_ROUTES
-got12="$(runresolve "$SUT" "http://s12.example/a")"
-if [ "$got12" = "http://s12.example/permanent" ]; then
-  ok "resolve: permanent-then-temporary chain stops at the last PERMANENT url, not the signed target"
-else no "R12: expected http://s12.example/permanent, got '$got12'"; fi
-
-# 13 — CORE (design decision, R4): the FIRST hop is already a temporary redirect (302) straight to
-#      a signed URL — resolves to the ORIGINALLY TYPED url, unchanged (never the signed target).
-STUB_ROUTES='http://s13.example/a 302 http://cdn.example/signed?sig=cafef00d'
-export STUB_ROUTES
-got13="$(runresolve "$SUT" "http://s13.example/a")"
-if [ "$got13" = "http://s13.example/a" ]; then
-  ok "resolve: immediate temporary redirect resolves to the ORIGINAL typed URL, not the signed target"
-else no "R13: expected http://s13.example/a, got '$got13'"; fi
-
-# 14 — baseline regression: no redirect at all (plain 200) — resolves to the typed URL unchanged.
-STUB_ROUTES=""
-export STUB_ROUTES
-got14="$(runresolve "$SUT" "http://s14.example/plain")"
-if [ "$got14" = "http://s14.example/plain" ]; then
-  ok "resolve: no redirect (200) resolves to the typed URL unchanged"
-else no "R14: expected http://s14.example/plain, got '$got14'"; fi
 
 # 15 — R1: full pipeline, WEB mode — applies the SAME permanent-redirect-only resolution as doc
 #      mode and registers the RESOLVED url in SOURCES.md (wiring check: web mode must actually
@@ -399,38 +275,12 @@ d15="$TMP/rr-15/target"; mkdir -p "$d15"
 STUB_ROUTES='http://s15.example/a 301 http://s15.example/moved'
 export STUB_ROUTES
 runchain web "$d15" "http://s15.example/a"
-slug15="$(slug_of "http://s15.example/a")"
+slug15="s15.example_a"
 got15="$(origin_of "$d15/sources/SOURCES.md" "$slug15")"
 if [ "$got15" = "http://s15.example/moved" ]; then
   ok "web: R1 — same permanent-redirect resolution applies in web mode (wiring)"
 else no "R15: expected http://s15.example/moved, got '$got15' (err: $(cat "$TMP/runchain.err"))"; fi
 
-# 16 — S1a: the PROBE request itself fails outright (simulated network error, BOTH the HEAD
-#      probe and its GET fallback) — must not crash; resolves to the ORIGINAL typed URL (the
-#      last known-good URL before the failed hop) and names it in a stderr notice (round-3 RS5).
-STUB_ROUTES=""; STUB_PROBE_FAIL_URL="http://s16.example/a"
-export STUB_ROUTES STUB_PROBE_FAIL_URL
-got16="$(runresolve_err "$SUT" "http://s16.example/a" "$TMP/r16.err")"
-unset STUB_PROBE_FAIL_URL
-if [ "$got16" = "http://s16.example/a" ] && grep -qi 'redirect probe failed' "$TMP/r16.err"; then
-  ok "resolve: S1a — a failed redirect PROBE falls back to the typed URL, no crash, with a notice"
-else no "R16: expected http://s16.example/a + probe-fail notice, got '$got16' err='$(cat "$TMP/r16.err")'"; fi
-
-# 17 — S1b (§7 silent-zero) — CORE: a 301 response with NO Location header (malformed) must not
-#      advance to an empty URL. Tested at the FUNCTION level, not the pipeline: the pipeline's own
-#      wget-fallback safety net (S2) would silently recover an internal empty-URL bug by falling
-#      back to $URL anyway, masking whether THIS guard specifically is load-bearing.
-#      N1 (plain-suite pin): the LOC-GUARD itself is SILENT on this case (no stderr notice at
-#      all) — the SCHEME-GUARD right below it would ALSO refuse an empty Location (it does not
-#      match http://*|https://*), but WITH ITS OWN "refused non-http(s)" notice. Asserting that
-#      notice is ABSENT here pins which guard actually fired, distinctly from --prove-teeth's
-#      mutant-only distinction (round-3 N1, closed properly in round 4).
-STUB_ROUTES='http://s17.example/a 301 -'
-export STUB_ROUTES
-got17="$(runresolve_err "$SUT" "http://s17.example/a" "$TMP/r17.err")"
-if [ "$got17" = "http://s17.example/a" ] && [ -n "$got17" ] && ! grep -qi 'refused non-http' "$TMP/r17.err"; then
-  ok "resolve: S1b — a 301 with no Location does not resolve to an empty URL (loc-guard is silent here, not the scheme guard)"
-else no "R17: expected non-empty 'http://s17.example/a' + no scheme-refusal notice, got '$got17' err='$(cat "$TMP/r17.err")'"; fi
 
 # 18 — S2 (doc): the actual DOWNLOAD fails after a permanent redirect resolved — wget fallback
 #      registers the TYPED url (never the resolved-but-undownloadable one) and announces the
@@ -451,22 +301,12 @@ STUB_ROUTES='http://s18b.example/a 301 http://s18b.example/resolved'; STUB_DOWNL
 export STUB_ROUTES STUB_DOWNLOAD_FAIL
 runchain web "$d18b" "http://s18b.example/a"
 unset STUB_DOWNLOAD_FAIL
-slug18b="$(slug_of "http://s18b.example/a")"
+slug18b="s18b.example_a"
 got18b="$(origin_of "$d18b/sources/SOURCES.md" "$slug18b")"
 if [ "$got18b" = "http://s18b.example/a" ] && grep -qi 'wget fallback' "$TMP/runchain.err"; then
   ok "web: S2 — wget fallback registers the typed URL and announces the reversion on stderr"
 else no "R18b: expected typed URL + stderr notice, got origin='$got18b' err='$(cat "$TMP/runchain.err")'"; fi
 
-# 19 — bounded hop loop: a chain of exactly 3 permanent redirects resolves fully under the
-#      default cap (max_hops=10) — the positive baseline the hop-bound teeth mutant diffs
-#      against (a mutant lowering the cap below 3 must stop short of the final hop).
-STUB_ROUTES=$'http://s19.example/a 301 http://s19.example/h1\nhttp://s19.example/h1 301 http://s19.example/h2\nhttp://s19.example/h2 301 http://s19.example/h3'
-export STUB_ROUTES
-got19="$(runresolve "$SUT" "http://s19.example/a")"
-if [ "$got19" = "http://s19.example/h3" ]; then
-  ok "resolve: a 3-hop permanent chain resolves fully under the default (10) hop cap"
-else no "R19: expected http://s19.example/h3, got '$got19'"; fi
-unset STUB_ROUTES
 
 # 20 — S3 structural check: a total download failure's curl diagnostic must reach stderr (not be
 #      redirected to /dev/null) — a silent "empty body" with no reason is a debugging regression.
@@ -516,74 +356,6 @@ if grep -qF 'fetch-doc: registered http://s21.example/moved (permanent redirect 
   ok "doc: notice fires exactly once, after a successful download, naming both URLs"
 else no "R22: notice missing or duplicated :: $(cat "$TMP/runchain.err")"; fi
 
-# 23 — RS4: 308 (permanent, like 301) resolves the SAME way a 301 chain does — the
-#      SENTINEL-PERMANENT-ONLY case pattern must include BOTH, not just 301.
-STUB_ROUTES='http://s23.example/a 308 http://s23.example/moved'
-export STUB_ROUTES
-got23="$(runresolve "$SUT" "http://s23.example/a")"
-if [ "$got23" = "http://s23.example/moved" ]; then
-  ok "resolve: 308 (permanent) redirect resolves the same as 301"
-else no "R23: expected http://s23.example/moved, got '$got23'"; fi
-
-# 24 — RS4: 303 (temporary, like 302) stops resolution — registers the typed URL, never the
-#      redirect target.
-STUB_ROUTES='http://s24.example/a 303 http://cdn.example/signed-303'
-export STUB_ROUTES
-got24="$(runresolve "$SUT" "http://s24.example/a")"
-if [ "$got24" = "http://s24.example/a" ]; then
-  ok "resolve: 303 (temporary) redirect stops resolution, like 302"
-else no "R24: expected http://s24.example/a, got '$got24'"; fi
-
-# 25 — RS4: 307 (temporary, like 302) stops resolution too.
-STUB_ROUTES='http://s25.example/a 307 http://cdn.example/signed-307'
-export STUB_ROUTES
-got25="$(runresolve "$SUT" "http://s25.example/a")"
-if [ "$got25" = "http://s25.example/a" ]; then
-  ok "resolve: 307 (temporary) redirect stops resolution, like 302"
-else no "R25: expected http://s25.example/a, got '$got25'"; fi
-
-# 26 — CORE (round-3 security hardening): a permanent-redirect response whose Location has a
-#      NON-http(s) scheme (file:, javascript:, data:, ...) is REFUSED outright — never followed,
-#      regardless of the 301/308 code. Only http/https Location targets ever advance the chain.
-STUB_ROUTES='http://s26.example/a 301 file:///etc/passwd'
-export STUB_ROUTES
-got26="$(runresolve_err "$SUT" "http://s26.example/a" "$TMP/r26.err")"
-if [ "$got26" = "http://s26.example/a" ] && grep -qi 'refused non-http' "$TMP/r26.err"; then
-  ok "resolve: security — a non-http(s) redirect scheme is refused, keeping the last good URL"
-else no "R26: expected http://s26.example/a + refusal notice, got '$got26' err='$(cat "$TMP/r26.err")'"; fi
-
-# 26b — the same guard AFTER at least one legitimate permanent hop: resolves to the LAST
-#       PERMANENT (already-resolved) URL, not the typed one and not the refused target — proving
-#       "last good" is not always merely "the original".
-STUB_ROUTES=$'http://s26b.example/a 301 http://s26b.example/mid\nhttp://s26b.example/mid 301 javascript:alert(1)'
-export STUB_ROUTES
-got26b="$(runresolve_err "$SUT" "http://s26b.example/a" "$TMP/r26b.err")"
-if [ "$got26b" = "http://s26b.example/mid" ] && grep -qi 'refused non-http' "$TMP/r26b.err"; then
-  ok "resolve: security — scheme refusal after a real hop keeps the last PERMANENT url, not the typed one"
-else no "R26b: expected http://s26b.example/mid + refusal notice, got '$got26b' err='$(cat "$TMP/r26b.err")'"; fi
-
-# 27 — RS1: a server that answers HEAD with 405 (Method Not Allowed) is NOT treated as a dead
-#      end — the probe retries with a GET (capped to a 0-byte range) and still resolves correctly.
-STUB_ROUTES='http://s27.example/a 301 http://s27.example/moved'; STUB_HEAD_FAIL_URL='http://s27.example/a'
-export STUB_ROUTES STUB_HEAD_FAIL_URL
-got27="$(runresolve "$SUT" "http://s27.example/a")"
-unset STUB_HEAD_FAIL_URL
-if [ "$got27" = "http://s27.example/moved" ]; then
-  ok "resolve: RS1 — a HEAD-405 response falls back to a GET probe and still resolves correctly"
-else no "R27: expected http://s27.example/moved, got '$got27'"; fi
-
-# 28 — CORE (round-3 RS3): a genuine redirect LOOP (A permanently redirects to B, B permanently
-#      redirects back to A) must TERMINATE — the hop cap is the ONLY thing that stops it, since
-#      no other break condition (temporary redirect, bad scheme, missing Location, probe failure)
-#      is ever reached. Must complete well inside the `timeout` wrapper, return a non-empty URL,
-#      and name the hop cap on stderr.
-STUB_ROUTES=$'http://loop.example/a 301 http://loop.example/b\nhttp://loop.example/b 301 http://loop.example/a'
-export STUB_ROUTES
-runresolve_bounded "$SUT" "http://loop.example/a" got28 rc28
-# shellcheck disable=SC2154  # got28/rc28 are assigned indirectly via printf -v inside runresolve_bounded
-if [ "$rc28" = "0" ] && [ -n "$got28" ] && grep -qi 'hop cap' "$TMP/bounded.err"; then
-  ok "resolve: RS3 — a genuine redirect loop terminates via the hop cap, not by hanging"
-else no "R28: expected rc=0 + non-empty + hop-cap notice, got rc=$rc28 out='$got28' err='$(cat "$TMP/bounded.err")'"; fi
 
 # 29 — CORE (round-3 RS2): '-L' on the download is load-bearing. A 301 (permanent) THEN a 302
 #      (temporary, to the real content) — SOURCES.md registers the PERMANENT stop, but the
@@ -597,78 +369,6 @@ if grep -qF 'stub body for http://s29.example/final-content' "$d29/sources/datas
   ok "doc: RS2 — -L follows the temporary hop to fetch the FINAL content, not the redirect page"
 else no "R29: downloaded body is not the final content :: $(cat "$d29/sources/datasheets/r29.html" 2>/dev/null || echo MISSING)"; fi
 
-# 30 — nit (round-1 N2 / round-3): a literal '|' in a Location header must be percent-encoded
-#      (%7C) BEFORE it becomes part of the resolved/registered URL — a raw '|' would shift the
-#      SOURCES.md row's column count.
-STUB_ROUTES='http://s30.example/a 301 http://s30.example/a|b'
-export STUB_ROUTES
-got30="$(runresolve "$SUT" "http://s30.example/a")"
-if [ "$got30" = "http://s30.example/a%7Cb" ]; then
-  ok "resolve: nit — a literal | in the Location is percent-encoded (%7C) before resolving"
-else no "R30: expected http://s30.example/a%7Cb, got '$got30'"; fi
-
-# 31 — RS5: a probe failure AT HOP >= 2 (after at least one successful permanent hop) keeps the
-#      LAST PERMANENT url, never reverting to the originally typed one — matches the updated
-#      METHODOLOGY §5 wording exactly (round-3 doctrine fix).
-STUB_ROUTES='http://s31.example/a 301 http://s31.example/mid'; STUB_PROBE_FAIL_URL='http://s31.example/mid'
-export STUB_ROUTES STUB_PROBE_FAIL_URL
-got31="$(runresolve_err "$SUT" "http://s31.example/a" "$TMP/r31.err")"
-unset STUB_PROBE_FAIL_URL
-if [ "$got31" = "http://s31.example/mid" ] && grep -qi 'redirect probe failed' "$TMP/r31.err"; then
-  ok "resolve: RS5 — a probe failure after a real hop keeps the last PERMANENT url + notice"
-else no "R31: expected http://s31.example/mid + probe-fail notice, got '$got31' err='$(cat "$TMP/r31.err")'"; fi
-unset STUB_ROUTES
-
-# 32 — N2: HEAD answers 403 (not a redirect, not 2xx) — falls back to GET, which correctly
-#      reports the real 301 redirect target (some CDN/S3 fronts answer HEAD differently than GET).
-STUB_HEAD_ROUTES='http://s32.example/a 403 -'
-STUB_ROUTES='http://s32.example/a 301 http://s32.example/moved'
-export STUB_HEAD_ROUTES STUB_ROUTES
-got32="$(runresolve "$SUT" "http://s32.example/a")"
-unset STUB_HEAD_ROUTES
-if [ "$got32" = "http://s32.example/moved" ]; then
-  ok "resolve: N2 — HEAD-403 falls back to GET, which reports the real redirect"
-else no "R32: expected http://s32.example/moved, got '$got32'"; fi
-
-# 33 — N2: same divergence with HEAD-404.
-STUB_HEAD_ROUTES='http://s33.example/a 404 -'
-STUB_ROUTES='http://s33.example/a 301 http://s33.example/moved'
-export STUB_HEAD_ROUTES STUB_ROUTES
-got33="$(runresolve "$SUT" "http://s33.example/a")"
-unset STUB_HEAD_ROUTES
-if [ "$got33" = "http://s33.example/moved" ]; then
-  ok "resolve: N2 — HEAD-404 falls back to GET, which reports the real redirect"
-else no "R33: expected http://s33.example/moved, got '$got33'"; fi
-
-# 34 — CORE (round-4 N3): a CONNECT-stage HEAD failure (curl exit 7 — could not connect) is NOT
-#      retried via GET — costs exactly ONE probe attempt for this hop, not two, since retrying an
-#      unreachable host would just double the wait for nothing.
-STUB_ROUTES=""; STUB_HEAD_CONNECT_FAIL_URL='http://s34.example/a'
-_pcf34="$TMP/probe-count-34.txt"; : > "$_pcf34"
-STUB_PROBE_COUNT_FILE="$_pcf34"
-export STUB_ROUTES STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-got34="$(runresolve "$SUT" "http://s34.example/a")"
-unset STUB_HEAD_CONNECT_FAIL_URL STUB_PROBE_COUNT_FILE
-n34="$(grep -c '^http://s34\.example/a$' "$_pcf34")"
-if [ "$got34" = "http://s34.example/a" ] && [ "$n34" = "1" ]; then
-  ok "resolve: N3 — a connect-stage HEAD failure skips the GET-fallback retry (1 probe attempt)"
-else no "R34: expected typed URL + 1 probe attempt, got '$got34' attempts=$n34"; fi
-
-# 35 — N3 contrast: an ordinary fallback-triggering HEAD answer (405, NOT a connect failure) DOES
-#      retry via GET — 2 probe attempts FOR THIS SPECIFIC HOP (HEAD + GET-fallback), confirming
-#      34's "1" is a real distinction and not an artifact of the counting mechanism. Counted per-
-#      URL rather than as a chain total, since the chain legitimately probes the NEXT hop too
-#      once this one resolves (a separate, expected attempt against a different URL).
-STUB_ROUTES='http://s35.example/a 301 http://s35.example/moved'; STUB_HEAD_FAIL_URL='http://s35.example/a'
-_pcf35="$TMP/probe-count-35.txt"; : > "$_pcf35"
-STUB_PROBE_COUNT_FILE="$_pcf35"
-export STUB_ROUTES STUB_HEAD_FAIL_URL STUB_PROBE_COUNT_FILE
-got35="$(runresolve "$SUT" "http://s35.example/a")"
-unset STUB_HEAD_FAIL_URL STUB_PROBE_COUNT_FILE
-n35="$(grep -c '^http://s35\.example/a$' "$_pcf35")"
-if [ "$got35" = "http://s35.example/moved" ] && [ "$n35" = "2" ]; then
-  ok "resolve: N3 contrast — a 405 HEAD DOES retry via GET (2 probe attempts)"
-else no "R35: expected resolved URL + 2 probe attempts, got '$got35' attempts=$n35"; fi
 
 # 36 — CORE (round-4 N4): a successful permanent-redirect resolve followed by an EMPTY download
 #      body must NOT print the "registered X (permanent redirect from Y)" notice — the empty-
@@ -723,61 +423,17 @@ printf '#!/usr/bin/env bash\nr="$(%s "$@")" || exit $?\nprintf "%%s\\n" "$r" >> 
 MKTEMP_LOG="$TMP/mklog37b.txt" PATH="$mklog37b:$PATH" TMPDIR="$d37b_tmpdir" runchain web "$d37b" "http://s37b.example/a" || _rc37b=$?
 _made37b="$(awk -v p="$d37b_tmpdir/" 'index($0,p)==1{n++} END{print n+0}' "$TMP/mklog37b.txt")"
 unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-slug37b="$(slug_of "http://s37b.example/a")"
+slug37b="s37b.example_a"
 _row37b=false
 [ -f "$d37b/sources/SOURCES.md" ] && grep -q "$slug37b" "$d37b/sources/SOURCES.md" && _row37b=true
 _leaked37b="$(find "$d37b_tmpdir" -type f 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_made37b" -ge 1 ] && [ "$_leaked37b" = "0" ] \
+if [ "$_rc37b" -ne 0 ] && ! $_row37b && [ "$_leaked37b" = "0" ] \
    && grep -qi 'wget fallback ALSO failed' "$TMP/runchain.err" \
    && ! grep -qi 'registered requested URL' "$TMP/runchain.err"; then
   ok "web: RDD/R1 — wget ALSO failing registers nothing and leaks NO temp HTML file"
 else no "R37b: rc=$_rc37b row=$_row37b made-in-tmpdir=$_made37b leaked=$_leaked37b err='$(cat "$TMP/runchain.err")'"; fi
 unset STUB_ROUTES
 
-# 39 — CORE (round-5 N2'/N3'): curl exit 28 with %{time_connect}=0 (the connect phase never
-#      completed — a "blackhole"/unreachable host) is STILL treated as connect-class: no
-#      GET-fallback retry, exactly like exit 6/7.
-STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL='http://s39.example/a'
-_pcf39="$TMP/probe-count-39.txt"; : > "$_pcf39"
-STUB_PROBE_COUNT_FILE="$_pcf39"
-export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
-got39="$(runresolve "$SUT" "http://s39.example/a")"
-unset STUB_HEAD_BLACKHOLE_URL STUB_PROBE_COUNT_FILE
-n39="$(grep -c '^http://s39\.example/a$' "$_pcf39")"
-if [ "$got39" = "http://s39.example/a" ] && [ "$n39" = "1" ]; then
-  ok "resolve: N2'/N3' — exit 28 with time_connect=0 (blackhole) still skips the GET-fallback retry"
-else no "R39: expected typed URL + 1 probe attempt, got '$got39' attempts=$n39"; fi
-
-# 40 — CORE (round-5 N2'/N3'): curl exit 28 with a NONZERO %{time_connect} (connected, then the
-#      RESPONSE hung past --max-time) is NOT treated as connect-class — the host IS reachable,
-#      so the GET-fallback retry IS attempted, and correctly resolves the real redirect.
-STUB_ROUTES='http://s40.example/a 301 http://s40.example/moved'; STUB_HEAD_HANG_URL='http://s40.example/a'
-_pcf40="$TMP/probe-count-40.txt"; : > "$_pcf40"
-STUB_PROBE_COUNT_FILE="$_pcf40"
-export STUB_ROUTES STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-got40="$(runresolve "$SUT" "http://s40.example/a")"
-unset STUB_HEAD_HANG_URL STUB_PROBE_COUNT_FILE
-n40="$(grep -c '^http://s40\.example/a$' "$_pcf40")"
-if [ "$got40" = "http://s40.example/moved" ] && [ "$n40" = "2" ]; then
-  ok "resolve: N2'/N3' — exit 28 with a nonzero time_connect (hung, not blackhole) DOES retry via GET"
-else no "R40: expected http://s40.example/moved + 2 probe attempts, got '$got40' attempts=$n40"; fi
-unset STUB_ROUTES
-
-# 40b/40c — #1285 item 5: the OTHER spellings of "the connect phase never completed" — a bare `0`
-#      and an EMPTY time_connect — must also skip the GET-fallback retry (exactly 1 probe attempt).
-for _tc in "0" ""; do
-  _lbl="${_tc:-empty}"
-  STUB_ROUTES=""; STUB_HEAD_BLACKHOLE_URL="http://s40-$_lbl.example/a"; STUB_HEAD_BLACKHOLE_TIME_CONNECT="$_tc"
-  _pcf40x="$TMP/probe-count-40-$_lbl.txt"; : > "$_pcf40x"; STUB_PROBE_COUNT_FILE="$_pcf40x"
-  export STUB_ROUTES STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
-  got40x="$(runresolve "$SUT" "http://s40-$_lbl.example/a")"
-  unset STUB_HEAD_BLACKHOLE_URL STUB_HEAD_BLACKHOLE_TIME_CONNECT STUB_PROBE_COUNT_FILE
-  n40x="$(grep -c "^http://s40-$_lbl\.example/a\$" "$_pcf40x")"
-  if [ "$got40x" = "http://s40-$_lbl.example/a" ] && [ "$n40x" = "1" ]; then
-    ok "resolve: #1285 — exit 28 with time_connect='${_tc}' ($_lbl) skips the GET-fallback retry"
-  else no "R40x[$_lbl]: expected typed URL + 1 probe attempt, got '$got40x' attempts=$n40x"; fi
-done
-unset STUB_ROUTES
 
 # ─── #1285 item 1: a failed re-fetch must leave an already-registered file byte-identical ───
 # mkexisting <dir> <name> — seed sources/datasheets/<name> with known evidence; echo its path.
@@ -856,32 +512,10 @@ if [ "$_rc43y" -eq 0 ] && [ "$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')
   ok "doc: #1285 — wget-only path skips redirect resolution and registers the requested URL (effective URL unknown)"
 else no "R43y: rc=$_rc43y origin='$(origin_of "$d43y/sources/SOURCES.md" 'r43y\.pdf')' err='$(cat "$TMP/err43y.txt")'"; fi
 
-# 44w — #1285 review: web mode writes the snapshot ATOMICALLY. A pandoc that dies mid-write and a cp
-#      that dies mid-write must leave an EXISTING snapshot byte-identical, with no part-file debris.
-wfail="$TMP/webfail-bin"; mkdir -p "$wfail"
-cat > "$wfail/pandoc" <<'STUBEOF'
-#!/usr/bin/env bash
-out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-[ -n "$out" ] && printf 'PARTIAL-PANDOC' > "$out"
-exit 1
-STUBEOF
-cat > "$wfail/cp" <<'STUBEOF'
-#!/usr/bin/env bash
-for a in "$@"; do last="$a"; done
-printf 'PARTIAL-CP' > "$last"
-exit 1
-STUBEOF
-chmod +x "$wfail/pandoc" "$wfail/cp"
-d44w="$TMP/rr-44w/target"; mkdir -p "$d44w/sources/web-snapshots"
-slug44w="$(slug_of "http://s44w.example/a")"
-f44w="$d44w/sources/web-snapshots/$slug44w.md"; printf 'REGISTERED-EVIDENCE\n' > "$f44w"
-STUB_ROUTES=""; export STUB_ROUTES
-_rc44w=0; PATH="$wfail:$stubbin:$PATH" bash "$SUT" --replace web "http://s44w.example/a" "$d44w" >/dev/null 2>"$TMP/err44w.txt" || _rc44w=$?
-_debris44w="$(find "$d44w/sources/web-snapshots" -type f ! -name "$slug44w.md" | wc -l | tr -d ' ')"
-if [ "$_rc44w" -ne 0 ] && [ "$(sum_of "$f44w")" = "$EVID_SUM" ] && [ "$_debris44w" = "0" ]; then
-  ok "web: #1285 — a failing pandoc+cp leaves an existing snapshot byte-identical, no part-file debris"
-else no "R44w: rc=$_rc44w sum=$(sum_of "$f44w") debris=$_debris44w"; fi
-unset STUB_ROUTES
+skip "R44w: a pandoc plus cp that die mid-write: cp is no longer a dependency (the fallback copy is in process); atomic placement is pinned by internal/sources/place tests and the differential web pandoc-fail scenarios"
+skip "R48b: the English pdftoppm failure message lives in the Go source, exercised by the differential OCR scenarios (pdftoppm-fail)"
+skip "R60: a TERM during install+register is deferred (slow sha256sum stub): the hash is computed in process now; the window is fetchdoc TestSignalAfterTheInstallPointIsIgnoredSoRowAndBytesAgree"
+skip "R66: TERM during mktemp leaks no temp file: the Go command runs no mktemp; TMPDIR stays clean after a cancel in fetchdoc TestSignalMidConversionKillsPandocAndInstallsNothing"
 
 # 44 — positive control: a SUCCESSFUL re-fetch replaces the file with the new bytes (the part-file
 #      move actually happens) and leaves no part file behind.
@@ -893,18 +527,7 @@ if [ "$_rc44" -eq 0 ] && grep -qF 'stub body for http://s44.example/a' "$f44" &&
   ok "doc: #1285 — a successful re-fetch replaces the file and leaves no part file"
 else no "R44: rc=$_rc44 body='$(cat "$f44" 2>/dev/null)' debris=$_debris44"; fi
 unset STUB_ROUTES
-
-# 44b — fetch_and_register called DIRECTLY (no main dispatch, so no EXIT trap): when curl and wget
-#      both fail it must clean up its OWN part file (in-function cleanup, independent of the trap).
-d44b="$TMP/rr-44b"; mkdir -p "$d44b"
-STUB_ROUTES=""; STUB_DOWNLOAD_FAIL=1; STUB_WGET_FAIL=1; export STUB_ROUTES STUB_DOWNLOAD_FAIL STUB_WGET_FAIL
-# shellcheck source=../fetch-doc.sh
-( set +e; PATH="$stubbin:$PATH"; export PATH; source "$SUT" >/dev/null 2>&1
-  fetch_and_register "http://s44b.example/a" "$d44b/out.html" >/dev/null 2>&1 )
-unset STUB_DOWNLOAD_FAIL STUB_WGET_FAIL STUB_ROUTES
-if [ -z "$(find "$d44b" -type f)" ]; then
-  ok "fetch_and_register: curl+wget failure leaves no part file even without the main-dispatch trap"
-else no "R44b: debris: $(find "$d44b" -type f | tr '\n' ' ')"; fi
+skip "R44b: fetch_and_register called directly cleans its own part file: internal/sources/download TestWgetFailureModesNameTheirCause, TestCurlFailureFallsBackToWgetOnTheTypedURL"
 
 # ─── #1285 item 2: trap cleanup ───
 # 45 — SIGTERM mid-download (doc): the partial bytes are removed and the registered file survives.
@@ -970,9 +593,6 @@ else no "R47w: rc=$_rc47w err='$(cat "$TMP/err47w.txt")'"; fi
 if ! grep -q 'falló' "$SUT"; then
   ok "language: no Spanish 'falló' message left in fetch-doc.sh (§9)"
 else no "R48: fetch-doc.sh still contains the Spanish pdftoppm message"; fi
-if grep -q 'pdftoppm failed' "$SUT"; then
-  ok "language: the pdftoppm failure message is English"
-else no "R48b: English pdftoppm failure message not found"; fi
 
 # ─── doc-mode PDF integration tests (run the SUT as a process; no network) ─────────────
 # Guards: curl for file:// fetching (wget cannot fetch file:// URLs), file(1) for PDF
@@ -1080,36 +700,8 @@ if [ "$_rc71e1" -eq 0 ] && [ "$_rc71e2" -eq 0 ] && [ "$n71e" = "2" ] && [ "$rows
 else no "R71e: rc=$_rc71e1/$_rc71e2 files=$n71e rows=$rows71e :: $(cat "$TMP/runchain.err")"; fi
 unset STUB_ROUTES
 # 71f — boundary: a slug of exactly 80 chars is unchanged (no -<hex>); exactly 81 is hashed and the name is 80 chars
-x80="$(printf 'a%.0s' $(seq 1 80))"
-s80="$(slug_of "http://$x80")"; s81="$(slug_of "http://${x80}a")"
-if [ "$s80" = "$x80" ] && [ "${#s81}" -eq 80 ] && [[ "$s81" =~ -[0-9a-f]{12}$ ]] && [ "$s81" != "${x80:0:80}" ]; then
-  ok "web: #1904 — 80-char slug unchanged, 81-char slug hashed to an 80-char name"
-else no "R71f: s80='$s80' s81='$s81' (${#s81})"; fi
-# 71g — the scheme is dropped from the slug but hashed: http vs https long URLs get different names
-if [ "$(slug_of "http://$x80/z")" != "$(slug_of "https://$x80/z")" ]; then ok "web: #1904 — scheme is part of the hash (http/https long URLs differ)"
-else no "R71g: http and https long URLs share a name"; fi
-# 71h — no sha256 tool (sha256sum AND shasum hidden): typed DEGRADED, exit 3, nothing written, BEFORE any write
-nosha="$TMP/nosha-bin"; mkdir -p "$nosha"
-for _t in bash mkdir basename sed cut date awk mktemp mv rm file grep cat dirname tr; do
-  _p="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_p" "$nosha/$_t"
-done
-ln -sf "$stubbin/curl" "$nosha/curl"
-for _m in "web http://s71h.example/a" "doc http://s71h.example/a.pdf"; do
-  d71h="$TMP/r71h-${_m%% *}/target"; mkdir -p "$d71h"
-  _rc71h=0; PATH="$nosha" "$nosha/bash" "$SUT" ${_m%% *} "${_m#* }" "$d71h" >/dev/null 2>"$TMP/err71h.txt" || _rc71h=$?
-  if [ "$_rc71h" -eq 3 ] && grep -q 'DEGRADED: no sha256 tool' "$TMP/err71h.txt" \
-     && [ -z "$(find "$d71h" -type f)" ]; then ok "${_m%% *}: #1904 — no sha256 tool → typed DEGRADED, exit 3, nothing written"
-  else no "R71h(${_m%% *}): rc=$_rc71h err='$(cat "$TMP/err71h.txt")' files=$(find "$d71h" -type f | wc -l)"; fi
-done
-# 71i — shasum alone is enough (sha256sum hidden, shasum present): long-URL name still derived
-if command -v shasum >/dev/null 2>&1; then
-  ln -sf "$(command -v shasum)" "$nosha/shasum"; _p="$(command -v perl)" && ln -sf "$_p" "$nosha/perl"
-  _s71i="$(PATH="$nosha" bash -c 'source "$1" >/dev/null 2>&1; web_slug "$2"' _ "$SUT" "http://$x80/long-tail-xyz")"
-  if [[ "$_s71i" =~ -[0-9a-f]{12}$ ]]; then ok "web: #1904 — shasum -a 256 fallback derives the same kind of name"
-  else no "R71i: shasum fallback produced '$_s71i'"; fi
-  rm -f "$nosha/shasum" "$nosha/perl"
-else printf '  SKIP  R71i: shasum not available\n'; fi
-
+skip "R71f, R71g: the web_slug 80/81-char boundary and scheme-in-hash are pinned in Go: internal/sources/slug TestWebBoundaryAt80, TestWebHashCoversTheSchemeAndTheFullURL"
+skip "R71h, R71i: no sha256 tool is no longer a dependency (the hash is computed in process): fetchdoc TestIntendedDivergences/no-sha256-tool-is-not-a-dependency"
 
 # ─── doc-mode empty-body guard (Tests 9–10) ──────────────────────────────────
 # A 200-with-empty-body must NOT be registered in SOURCES.md (§7 false-success fix).
@@ -1139,7 +731,7 @@ else
   _rc10=0
   bash "$SUT" web "file://$_empty_html" "$d10" \
     >/dev/null 2>"$TMP/err10.txt" || _rc10=$?
-  _slug10="$(slug_of "file://$_empty_html")"
+  _slug10="web-snapshot"   # the only snapshot a refused fetch could leave (its name is derived inside the command)
   _dest10="$d10/sources/web-snapshots/$_slug10.md"
   _row10=false
   [ -f "$d10/sources/SOURCES.md" ] && grep -q "$_slug10" "$d10/sources/SOURCES.md" && _row10=true
@@ -1241,7 +833,7 @@ rm -f "$d55/sources/datasheets/live.pdf.fetchdoc-part.$$"
 # R56 — web mode follows the same policy: refuse without --replace (exit 4), keep old bytes with it.
 d56="$TMP/rr-56/target"; mkdir -p "$d56"
 STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1
-slug56="$(slug_of "http://s56.example/page")"
+slug56="s56.example_page"
 f56="$d56/sources/web-snapshots/$slug56.md"; old12_56="$(sha12 "$f56")"
 _rc56=0; STUB_ROUTES="" sut web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56=$?
 _rc56s=0; STUB_ROUTES="" STUB_DOWNLOAD_FAIL=1 STUB_WGET_FAIL=1 sut --replace web "http://s56.example/page" "$d56" >/dev/null 2>&1 || _rc56s=$?
@@ -1278,25 +870,6 @@ if [ "$_rc59" = "0" ] && <<<"$(grep -F 'http://s59.example/B' "$md59")" grep -qF
    && <<<"$(grep -F 'http://s59.example/A' "$md59")" grep -qF '| datasheets/r59.pdf |' && grep -qi 'different sha' "$TMP/err59.txt"; then
   ok "doc: #1313 B2 — --replace retargets only the row whose sha matches the archived bytes and warns about the other"
 else no "R59: rc=$_rc59 rows='$(grep 'r59' "$md59" | cut -d'|' -f2,4 | tr '\n' '/')' err='$(cat "$TMP/err59.txt")'"; fi
-
-# R60 — N2: INT/TERM arriving while the file is installed and registered is deferred, so the run completes WITH its row
-#       (no new bytes without a row). A slow sha256sum stub widens the install window deterministically.
-slowsha="$TMP/slowsha-bin"; mkdir -p "$slowsha"; _realsha="$(command -v sha256sum)"
-printf '#!/usr/bin/env bash\n[ -n "${SLOWSHA_MARK:-}" ] && : > "$SLOWSHA_MARK"\nsleep 1\nexec %s "$@"\n' "$_realsha" > "$slowsha/sha256sum"; chmod +x "$slowsha/sha256sum"
-# run_slow_term <script> <dir> — runs a fresh doc fetch with the slow sha256sum, sends TERM to the script pid once it is
-# in the install window, echoes its exit code.
-run_slow_term(){
-  local script="$1" dir="$2" pid rc=0; rm -f "$TMP/slow60.mark"
-  STUB_ROUTES="" SLOWSHA_MARK="$TMP/slow60.mark" PATH="$slowsha:$stubbin:$PATH" bash "$script" doc "http://s60.example/a" "$dir" datasheets r60.pdf >/dev/null 2>&1 &
-  pid=$!
-  for _ in $(seq 1 100); do [ -e "$TMP/slow60.mark" ] && break; sleep 0.1; done
-  kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || rc=$?
-  echo "$rc"
-}
-d60="$TMP/rr-60/target"; mkdir -p "$d60"; _rc60="$(run_slow_term "$SUT" "$d60")"
-if [ -e "$TMP/slow60.mark" ] && [ "$_rc60" = "0" ] && [ -e "$d60/sources/datasheets/r60.pdf" ] && grep -q 'r60.pdf' "$d60/sources/SOURCES.md" 2>/dev/null; then
-  ok "doc: #1313 N2 — a TERM during install+register is deferred: the run completes with file AND row"
-else no "R60: rc=$_rc60 file=$([ -e "$d60/sources/datasheets/r60.pdf" ] && echo y || echo n) row=$(grep -c r60 "$d60/sources/SOURCES.md" 2>/dev/null)"; fi
 
 # R61 — N4: the download child runs in its own process group and the whole GROUP is killed, so the grandchild
 #       (the stub's sleep, standing in for a curl/wget helper) dies too — pkill -P of the direct child is not enough.
@@ -1350,7 +923,7 @@ else no "R62: rc=$_rc62/$_rc62l err='$(cat "$TMP/err62.txt")'"; fi
 # R63 — N8: web --replace SUCCEEDS: old snapshot kept under a versioned name, new content registered, rows consistent.
 d63="$TMP/rr-63/target"; mkdir -p "$d63"
 STUB_ROUTES="" sut web "http://s63.example/page" "$d63" >/dev/null 2>&1
-slug63="$(slug_of "http://s63.example/page")"
+slug63="s63.example_page"
 f63="$d63/sources/web-snapshots/$slug63.md"; o12_63="$(sha12 "$f63")"; osum63="$(sum_of "$f63")"
 _rc63=0; STUB_ROUTES="" STUB_BODY='<p>changed upstream</p>' sut --replace web "http://s63.example/page" "$d63" >/dev/null 2>"$TMP/err63.txt" || _rc63=$?
 md63="$d63/sources/SOURCES.md"
@@ -1382,31 +955,6 @@ _part65="$(find "$d65/sources" -name '*.fetchdoc-part.*' | wc -l | tr -d ' ')"
 if [ "$rc65" = "143" ] && [ ! -e "$TMP/done65.marker" ] && [ "$_part65" = "0" ] && [ "$(sum_of "$f65")" = "$EVID_SUM" ] && [ ! -e "$d65/sources/SOURCES.md" ]; then
   ok "doc: #1354 N5 — TERM between the fork and DL_PID=\$! still cancels the download (exit 143, no orphan, no debris)"
 else no "R65: rc=$rc65 orphan-finished=$([ -e "$TMP/done65.marker" ] && echo y || echo n) parts=$_part65"; fi
-
-# R66 — N5b: TERM delivered WHILE mktemp (the download's stdout capture file) is running must not leak that file.
-#       A mktemp stub TERMs the script (pid read from a pidfile; the script is exec'd so the pid is stable) once, then
-#       creates the file for real. fired=y proves the signal really landed inside the window (non-vacuous).
-mkbin="$TMP/mktemp-term-bin"; mkdir -p "$mkbin"; _realmktemp="$(command -v mktemp)"
-cat > "$mkbin/mktemp" <<EOF
-#!/usr/bin/env bash
-if [ -n "\${MKTEMP_TERM_PIDFILE:-}" ] && [ ! -e "\$MKTEMP_TERM_PIDFILE.fired" ]; then : > "\$MKTEMP_TERM_PIDFILE.fired"; kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")"; fi
-exec $_realmktemp "\$@"
-EOF
-chmod +x "$mkbin/mktemp"
-# run_mktemp_term <script> <dir> <tmpdir> <probe-count-file> — echoes the exit code.
-run_mktemp_term(){
-  local script="$1" dir="$2" tdir="$3" pcf="$4" rc=0
-  rm -f "$TMP/pid66" "$TMP/pid66.fired"; : > "$pcf"
-  STUB_ROUTES="" STUB_PROBE_COUNT_FILE="$pcf" MKTEMP_TERM_PIDFILE="$TMP/pid66" TMPDIR="$tdir" PATH="$mkbin:$stubbin:$PATH" \
-    bash -c 'echo $$ > "$MKTEMP_TERM_PIDFILE"; exec bash "$0" doc http://s66.example/a "$1" datasheets r66.pdf' "$script" "$dir" >/dev/null 2>&1 || rc=$?
-  echo "$rc"
-}
-d66="$TMP/rr-66/target"; mkdir -p "$d66"; t66="$TMP/rr-66-tmp"; mkdir -p "$t66"
-rc66="$(run_mktemp_term "$SUT" "$d66" "$t66" "$TMP/probe66.txt")"
-_leak66="$(find "$t66" -mindepth 1 | wc -l | tr -d ' ')"
-if [ -e "$TMP/pid66.fired" ] && [ "$rc66" = "143" ] && [ "$_leak66" = "0" ] && [ ! -s "$TMP/probe66.txt" ] && [ ! -e "$d66/sources/SOURCES.md" ]; then
-  ok "doc: #1354 N5 — TERM during mktemp leaks no temp file and starts no download (exit 143)"
-else no "R66: fired=$([ -e "$TMP/pid66.fired" ] && echo y || echo n) rc=$rc66 leaked=$_leak66 probes=$(wc -l < "$TMP/probe66.txt")"; fi
 
 # R67 — N6: a concurrent run on the same NAME lands its file AFTER this run's preflight_dest but BEFORE its install.
 #       Without --replace the second run must REFUSE (exit 4): the other run's bytes stay, nothing is archived,
@@ -1441,7 +989,7 @@ else no "R67d: rc=$_rc67d files=$(find "$d67d/sources" -type f | tr '\n' ' ')"; 
 
 # R67c — web mode shares the contract.
 d67c="$TMP/rr-67c/target"; mkdir -p "$d67c/sources/web-snapshots"
-slug67c="$(slug_of "http://s67c.example/page")"
+slug67c="s67c.example_page"
 _rc67c=0
 STUB_ROUTES="" FETCHDOC_TEST_SEAM=1 FETCHDOC_TEST_AT=install FETCHDOC_TEST_CMD='printf "OTHER-RUN\n" > "$DEST"' \
   PATH="$stubbin:$PATH" bash "$SUT" web "http://s67c.example/page" "$d67c" >/dev/null 2>&1 || _rc67c=$?
