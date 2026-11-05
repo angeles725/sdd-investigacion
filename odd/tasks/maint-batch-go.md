@@ -15,12 +15,12 @@ archtest lets a domain import only the core tier, so gate (mergetrain) and maint
 - maint/gate, maint/waitmerge, maint/prpipeline, maint/sizecheck: one command each; gate/mergetrain consumes core/kitgate + core/kitwait in process.
 
 ## Tasks
-- [ ] T1 shared extraction core/kitmaint + core/kitgate + core/kitwait; mergetrain consumes it (S3) · inline · commit: -
-- [ ] T2 `rsdd maint gate` (kit-gate) (S1 S2 S3) · inline · commit: -
-- [ ] T3 `rsdd maint wait-merge` (kit-wait-merge) (S1 S2 S3) · inline · commit: -
-- [ ] T4 `rsdd maint pr-pipeline` (kit-pr-pipeline) (S1 S2 S3) · inline · commit: -
-- [ ] T5 `rsdd maint size-check` (kit-size-check) (S1 S2 S3) · inline · commit: -
-- [ ] T6 shims, suites, registry / reason-codes / planted-lib / durations docs (S4) · inline · commit: -
+- [x] T1 shared extraction core/kitmaint + core/kitgate + core/kitwait; mergetrain consumes it (S3) · inline · commit: 66f26be4 · internal/gate ok (131 s)
+- [x] T2 `rsdd maint gate` (kit-gate) (S1 S2 S3) · inline · commit: 29bae3f2 · 34-scenario differential green
+- [x] T3 `rsdd maint wait-merge` (kit-wait-merge) (S1 S2 S3) · inline · commit: ac1775d7 · 41-scenario differential green
+- [x] T4 `rsdd maint pr-pipeline` (kit-pr-pipeline) (S1 S2 S3) · inline · commit: 5cad7bcd · 50-scenario differential green
+- [x] T5 `rsdd maint size-check` (kit-size-check) (S1 S2 S3) · inline · commit: 6b4d294b · 70-scenario differential green
+- [x] T6 shims, suites, registry / reason-codes / planted-lib docs (S4) · inline · commit: 121623c4 · 14 bash suites green with --prove-teeth
 - [ ] T7 teeth per package, RED evidence, checks (S5) · inline · commit: -
 
 ## Log
