@@ -75,6 +75,7 @@ GO_SRC=(
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed
   "check-gap-drift.sh=../rsdd/internal/verify/gapdrift"         # its own sub-package (kit issue #2645), so no GO_FILES glob is needed
   "score-loop-transcript.sh=../rsdd/internal/eval/scoreloop"   # c2.go and c4.go print the empty-input n/a reason (kit issue #993)
+  "scan-secrets.sh=../rsdd/internal/core/secretscan"           # the engine behind rsdd secrets scan; its DEGRADED lines are typed there
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
   decompile-java.sh corroborate-bacnet.sh corroborate-capa.sh corroborate-firmware.sh qnx6-read.sh corroborate-floss.sh
