@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Ported to Go: `rsdd sweep all`. Compatibility shim (removed in phase 8, kit issue #2270; ported in #2664).
 # sweep-all.sh — aggregator: run all eight canonical Research-SDD session-start sweep scripts
 # in sequence, capture each exit status, print a clear per-script PASS/FAIL banner, and exit
 # non-zero if ANY script failed.
@@ -10,85 +11,18 @@
 #
 # Each script runs INDEPENDENTLY: a failure or timeout is captured and reported, but NEVER
 # aborts the remaining scripts. All eight always run. Exit is non-zero if ANY failed.
-#
-# Timeout: each script is run under `timeout $RSDD_SWEEP_TIMEOUT` (default 30 s, mirroring
-# the Claude SessionStart hook timeouts of 15–30 s).
-# A killed script is reported as FAIL (timed out) and the remaining scripts still run.
-#
-# Read-only / degrade-to-silence invariants:
-#   - All eight underlying scripts are read-only audits; sweep-all.sh never mutates anything.
-#   - A missing or non-executable script is reported as FAIL; the others still run.
-#   - Stderr from each script is merged into stdout so all output is visible.
+# The eight scripts are listed in rsdd/internal/sweep/allscripts.go (tests/sweep-all.test.sh checks them against the
+# kit's registered SessionStart hooks). Stderr of each script is merged into stdout; a missing script is a FAIL.
 #
 # Usage: toolbelt/sweep-all.sh
 # Exit : 0 all eight scripts passed · non-zero at least one script failed or timed out
-# Env  : RSDD_SWEEP_TIMEOUT  per-script timeout in seconds (default 30)
-
-set -uo pipefail
-
+# Env  : RSDD_SWEEP_TIMEOUT  per-script timeout in seconds (default 30; a value that is not a positive number
+#                            of seconds falls back to 30 with a warning line on stderr)
+# The toolbelt run is this script's own checkout, passed explicitly because the binary cannot see this file's directory.
 # RSDD-SELF-DIR (kit #1675): own directory from BASH_SOURCE with symlinks followed - never $0 or the caller's cwd.
 _rsdd_s="${BASH_SOURCE[0]}"; _rsdd_n=0
 while [ -L "$_rsdd_s" ] && [ "$_rsdd_n" -lt 40 ]; do _rsdd_n=$((_rsdd_n + 1)); _rsdd_t="$(readlink -- "$_rsdd_s")" || break; case "$_rsdd_t" in /*) _rsdd_s="$_rsdd_t" ;; *) _rsdd_s="$(dirname -- "$_rsdd_s")/$_rsdd_t" ;; esac; done
 if [ -L "$_rsdd_s" ]; then echo "${0##*/}: degraded: self-dir symlink resolution incomplete (hop limit or readlink failure) at $_rsdd_s" >&2; fi
 _RSDD_SELF="$(CDPATH='' cd -- "$(dirname -- "$_rsdd_s")" && pwd -P)"; unset _rsdd_s _rsdd_n _rsdd_t
-TOOLBELT="$_RSDD_SELF"
-
-SCRIPTS=(
-  "$TOOLBELT/sweep-retros.sh"
-  "$TOOLBELT/sweep-audits.sh"
-  "$TOOLBELT/sweep-breakthroughs.sh"
-  "$TOOLBELT/verify-registry.sh"
-  "$TOOLBELT/verify-kit-clean.sh"
-  "$TOOLBELT/sweep-tools.sh"
-  "$TOOLBELT/verify-tool-catalog.sh"
-  "$TOOLBELT/verify-skill-drift.sh"
-)
-
-TIMEOUT="${RSDD_SWEEP_TIMEOUT:-30}"
-
-overall=0
-results=()
-
-for script in "${SCRIPTS[@]}"; do
-  name="$(basename "$script")"
-  echo ""
-  echo "========================================"
-  echo "== $name"
-  echo "========================================"
-
-  if [ ! -f "$script" ]; then
-    echo "FAIL  $name (script not found: $script)" >&2
-    overall=1
-    results+=("FAIL  $name (not found)")
-    continue
-  fi
-
-  rc=0
-  timeout "$TIMEOUT" bash "$script" 2>&1 || rc=$?
-
-  if [ "$rc" -eq 0 ]; then
-    echo ""
-    echo "PASS  $name"
-    results+=("PASS  $name")
-  elif [ "$rc" -eq 124 ]; then
-    echo ""
-    echo "FAIL  $name (timed out after ${TIMEOUT}s)"
-    results+=("FAIL  $name (timed out)")
-    overall=1
-  else
-    echo ""
-    echo "FAIL  $name (exit $rc)"
-    results+=("FAIL  $name (exit $rc)")
-    overall=1
-  fi
-done
-
-echo ""
-echo "========================================"
-echo "== sweep-all summary"
-echo "========================================"
-for r in "${results[@]}"; do
-  echo "  $r"
-done
-
-exit "$overall"
+. "$_RSDD_SELF/lib/rsdd-exec.sh" 2>/dev/null || { printf 'degraded: rsdd-unavailable — rsdd-exec.sh missing beside %s\n' "$0" >&2; exit 2; }   # SENTINEL-RSDD-EXEC-GUARD
+rsdd_exec sweep all --kit "$_RSDD_SELF/.." "$@"
