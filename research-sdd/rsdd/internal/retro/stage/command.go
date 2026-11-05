@@ -30,10 +30,7 @@ func RunCommand(args []string, s cli.Stdio) int {
 	if !ok {
 		return 1
 	}
-	var environ []string
-	if s.Environ != nil {
-		environ = s.Environ()
-	}
+	environ := s.Environment()
 	return Run(Options{Args: args, KitRoot: kitRoot, Cwd: s.Cwd, Getenv: s.Env, Environ: environ, Out: s.Out, Err: s.Err})
 }
 
