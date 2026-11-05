@@ -37,7 +37,7 @@ func modeScenarios() []scenario {
 			return []string{"--repo", k.dir, "--base", "base", "--format", "json", "--teeth-log", k.logs(false, "a.test.sh", "multi.test.sh")}
 		}, nil, 0},
 		{"json-escapes", func(k *kase) {
-			k.add(ts+"/writer-check-waivers.txt", "research-sdd/toolbelt/tests/q\"x.test.sh quote\\back\n")
+			k.add(ts+"/writer-check-waivers.txt", "q\"x\\back\n")
 			k.add(alpha, "pkill a\n")
 			k.commit("c")
 		}, chk("--format", "json"), nil, 1},
