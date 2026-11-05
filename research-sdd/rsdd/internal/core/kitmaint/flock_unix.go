@@ -1,6 +1,6 @@
 //go:build unix
 
-package gate
+package kitmaint
 
 import (
 	"os"
@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// mtFlock is `flock -w SECONDS fd`: an exclusive lock on f, polled every 50 ms for at most SECONDS seconds
-// (0 tries once). It reports whether the lock was taken.
-func mtFlock(f *os.File, seconds int, sleep func(time.Duration)) bool {
+// Flock is `flock -w SECONDS fd`: an exclusive lock on f, polled every 50 ms for at most SECONDS seconds (0 tries
+// once). It reports whether the lock was taken.
+func Flock(f *os.File, seconds int, sleep func(time.Duration)) bool {
 	const step = 50 * time.Millisecond
 	for waited := time.Duration(0); ; waited += step {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
@@ -28,11 +28,11 @@ func mtFlock(f *os.File, seconds int, sleep func(time.Duration)) bool {
 	}
 }
 
-// mtProcAttr puts the gate command in its own process group so a signal reaches whatever it started.
-func mtProcAttr(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
+// ProcAttr puts the command in its own process group so a signal reaches whatever it started.
+func ProcAttr(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
 
-// mtSignalGroup sends TERM (KILL when kill) to the gate command's process group.
-func mtSignalGroup(c *exec.Cmd, kill bool) {
+// SignalGroup sends TERM (KILL when kill) to the command's process group.
+func SignalGroup(c *exec.Cmd, kill bool) {
 	sig := syscall.SIGTERM
 	if kill {
 		sig = syscall.SIGKILL
@@ -42,8 +42,8 @@ func mtSignalGroup(c *exec.Cmd, kill bool) {
 	}
 }
 
-// mtExitCode is the shell's code for a finished child: the status, or 128+N for signal N.
-func mtExitCode(ps *os.ProcessState) int {
+// ExitCode is the shell's code for a finished child: the status, or 128+N for signal N.
+func ExitCode(ps *os.ProcessState) int {
 	if ps == nil {
 		return 127
 	}
