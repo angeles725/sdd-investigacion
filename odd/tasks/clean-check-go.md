@@ -22,11 +22,13 @@ Branch: feat/clean-check-go. Delivery: work-unit commits, no push, no PR. Test r
 - S8: Teeth: Lived 0 for ./internal/hygiene/... and ./internal/core/cleancheck.
 
 ## Tasks
-- T1 (S5,S7) RED tests + frozen legacy oracle + stubs: inline, e341b73a (RED: 86 differential cases fail against the stub, exit 70)
-- T2 (S1-S5) engine core/cleancheck: inline, e341b73a
-- T3 (S1,S3,S6) command + shim + suite conversion: inline, 6190a357 (command) + slice 3 (shim, suite)
-- T4 (S7,S8) docs, reason codes, teeth: inline, slice 3 (registry, reason codes; teeth core Lived 0, hygiene Lived 0)
+- T1 (S5,S7) RED tests + frozen legacy oracle: inline, done, 52ed70a4 (RED: 86 differential cases fail against the stub, exit 70)
+- T2 (S1-S5) engine core/cleancheck: inline, done, 155766d1 + 776267c0 (tests 4a4dd261, 00b61339)
+- T3 (S1,S3,S6) command, shim, suite conversion: inline, done, 3a714105 + 16fafbf1
+- T4 (S7,S8) docs, reason codes, teeth: inline, done, 16fafbf1; verifier corrections: inline, f0d307e6 + the close-out commit
 
 ## Log
 - L1: Port clean-check.sh to Go (rsdd hygiene clean-check), improve and modularize, keep a shim; parity except declared divergences.
 - L2: (s1 coordinator) the engine exports ONE entry taking options and returning a typed result (verdict, ordered stdout/stderr lines, exit code, typed absent and degraded states); the command only parses flags, calls it and writes the lines.
+- L3: teeth (heavy-run, GOTMPDIR gotmp-cc): core/cleancheck first run Killed 439, Lived 0, Not covered 26, Timed out 2 (log /home/cristian/.cache/rsdd-logs/s1/cc/teeth-core.log); hygiene/cleancheck Killed 25, Lived 0 (teeth-hyg2.log). After the verifier corrections a run under load (race running alongside) showed Lived 54, 46 in glob.go (teeth-core2.log); a quiet rerun is teeth-core3.log.
+- L4: verifier BLOCK corrections, RED then GREEN in f0d307e6: TestFileSumStreamsLargeFiles RED "allocated 300 MiB"; TestRelativePathsUseOptionsCwd RED (stale-backup warn missing, evidence walked against the process cwd); TestZeroNowIsATypedRefusal RED (nil pointer panic in scanStaleTmp); TestSymlinkedProbesAreNotFollowed RED ("manifest outside the target was read"); TestOutputCapIsNotACompleteListing RED ("exit 0 cut at the cap: rc 0, want 125"). GREEN: go test default and nodiff, -race, make lint, make cross, clean-check.test.sh --prove-teeth 133/0.

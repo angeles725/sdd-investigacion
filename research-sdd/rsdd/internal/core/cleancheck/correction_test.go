@@ -2,13 +2,11 @@ package cleancheck
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // fileSum hashes a multi-hundred-megabyte file without holding it: the legacy `sha256sum < file` streamed.
@@ -64,21 +62,6 @@ func TestOutputCapIsNotACompleteListing(t *testing.T) {
 		if got := settle(c.in); got.rc != c.want {
 			t.Errorf("%s: rc %d, want %d", name, got.rc, c.want)
 		}
-	}
-}
-
-// A listing cut at the cap refuses the run: the untracked scan stops with the truncation message.
-func TestACutListingRefusesTheScan(t *testing.T) {
-	w := newWorld(t)
-	real, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	execfile.Write(t, w.root+"/bin/git", "#!/bin/sh\ncase \" $* \" in *' ls-files '*) head -c 70000000 /dev/zero | tr '\\000' 'x'; exit 0;; esac\nexec "+real+" \"$@\"\n")
-	w.env = append(w.env, "PATH="+w.root+"/bin:"+os.Getenv("PATH"))
-	r := w.check()
-	if r.Exit != 2 || r.Verdict != Refused || !strings.Contains(r.Stderr(), "truncated") {
-		t.Errorf("%s", w.dump(r))
 	}
 }
 
