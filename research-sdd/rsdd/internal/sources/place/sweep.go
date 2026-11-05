@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/srcregistry"
 )
@@ -62,15 +60,4 @@ func partPid(name string) (string, bool) {
 		return "", false
 	}
 	return pid, true
-}
-
-// Alive is positive liveness: the pid answers signal 0 (EPERM, another user's process, still means alive).
-// An unparsable pid is assumed alive: debris is only removed on proof.
-func Alive(pid string) bool {
-	n, err := strconv.Atoi(pid)
-	if err != nil {
-		return true
-	}
-	err = syscall.Kill(n, 0)
-	return err == nil || err == syscall.EPERM
 }

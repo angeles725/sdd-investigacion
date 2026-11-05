@@ -12,8 +12,6 @@ import (
 	"io"
 	"os/exec"
 	"syscall"
-
-	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/proc"
 )
 
 // NotFound is the exit status of a program that cannot be started, as a shell reports it.
@@ -48,17 +46,16 @@ func (e Exec) Run(ctx context.Context, argv []string, stdout, stderr io.Writer) 
 	cmd := exec.Command(path, argv[1:]...)
 	cmd.Env = e.Env
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	proc.SetNewGroup(cmd)
+	isolate(cmd)
 	if err := cmd.Start(); err != nil {
 		return NotFound
 	}
-	var g proc.Group
-	g.Record(cmd.Process.Pid)
+	terminate := terminator(cmd)
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = g.Signal(cmd.Process.Pid, syscall.SIGTERM) // the child leads its own group (SetNewGroup)
+			terminate()
 		case <-done:
 		}
 	}()
