@@ -1017,8 +1017,11 @@ d="$(bash "$0" --load-debt "$ROOT/debt-ok.txt")"; drc=$?
 if [ "$drc" -eq 0 ] && [ "$d" = $'./internal/cli\n./a' ]; then ok "debt list: comments and blank lines skipped, packages printed in order"
 else no "debt list: valid list wrong (rc=$drc): $d"; fi
 d="$(bash "$0" --load-debt "$MOD/teeth-debt.txt")"; drc=$?
-if [ "$drc" -eq 0 ] && grep -qx './internal/lint' <<<"$d" && grep -qx './internal/verify' <<<"$d" && ! grep -qx './internal/formats' <<<"$d"; then ok "debt list: the checked-in rsdd/teeth-debt.txt parses, names lint and verify, and no longer lists the paid formats"
-else no "debt list: checked-in list does not parse (rc=$drc): $d"; fi
+# Data-driven: the loader must print exactly the file's package lines, so a PR that pays a package's debt (deletes its
+# line) never has to edit this suite. The loader itself is pinned by the fixture cases around this one.
+want_debt="$(awk '!/^#/ && NF { print $1 }' "$MOD/teeth-debt.txt")"; wrc=$?
+if [ "$drc" -eq 0 ] && [ "$wrc" -eq 0 ] && [ "$d" = "$want_debt" ] && ! grep -qx './internal/formats' <<<"$d"; then ok "debt list: the checked-in rsdd/teeth-debt.txt parses to exactly its package lines, in order, and no longer lists the paid formats"
+else no "debt list: checked-in list does not parse to its package lines (rc=$drc awk=$wrc): got [$d] want [$want_debt]"; fi
 i=0
 for bad in 'internal/x #2592 reason long enough to pass' './internal/../x #2592 reason long enough to pass' './internal/x/ #2592 reason long enough to pass' \
            './internal/x 2592 reason long enough to pass' './internal/x #2592 short' './internal/x #2592'; do
