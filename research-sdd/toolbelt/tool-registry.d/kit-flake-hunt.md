@@ -16,5 +16,6 @@ Intended divergences from the bash tool (each pinned by a Go test in `divergence
 | `--out` that cannot be created is one typed line `degraded: kit-flake-hunt: cannot create output directory <dir>` | the bash also leaked `mkdir`'s own message |
 | without `--repo` the hunt takes the kit checkout around the working directory (nearest ancestor holding `research-sdd/toolbelt`, else the directory itself); the shim passes its own checkout first | the Go command cannot see where the shim lives |
 | a TERM or INT also removes the TMPDIR of the suite it stopped | the bash left `<out>/tmp/<run>-<n>` behind |
+| an INT stops the hunt even when it was started with SIGINT ignored (for example backgrounded with `&` from a non-interactive script): the command installs its own INT/TERM handler | the bash inherited the ignored SIGINT and ran to completion |
 | `awk`, `date`, `mktemp`, `grep`, `sed` and `sort` are no longer dependencies; only `bash`, `timeout` and `nproc` are probed | the log judging, the timestamp and the directory handling are Go now |
 
