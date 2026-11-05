@@ -67,6 +67,8 @@ func (c *ctx) onDisk() int {
 	if rng.State == kit.RangeOK {
 		s, err := kit.ScanFocusRange(c.abs(c.corpus), rng.Lo, rng.Hi, c.abs(c.state)) // RANGE-DISPLAY-COUNT
 		if err != nil {
+			// The range was derived but the scan could not complete (an unreadable corpus): the count reads 0
+			// here, and the RANGE-REPORT diagnostics above are what tell the operator why.
 			return 0
 		}
 		return s.Count

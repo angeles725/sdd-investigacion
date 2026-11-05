@@ -32,11 +32,11 @@ func commandFound(bin string, environ []string, dir string) bool {
 			path = v
 		}
 	}
-	for _, dir := range strings.Split(path, ":") {
-		if dir == "" {
-			dir = "."
+	for _, entry := range strings.Split(path, ":") {
+		if entry == "" {
+			entry = "."
 		}
-		if exec(dir + "/" + bin) {
+		if exec(entry + "/" + bin) {
 			return true
 		}
 	}
