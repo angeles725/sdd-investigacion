@@ -722,11 +722,9 @@ PY
 SH
 
   local out_dir="$tmp/out"
-  local man="$toolbelt/analysis_manifest.py"
   ANALYZE_HEADLESS="$tmp/gh/support/analyzeHeadless" \
   JAVA_HOME="$tmp/jdk" \
   RSDD_BWRAP="/usr/bin/bwrap" \
-  RSDD_MANIFEST_CLI="$man" \
   RSDD_TEST_ONLY_UNTRUSTED_BWRAP=0 \
     bash "$toolbelt/corroborate-ghidra.sh" \
       --input "$tmp/target.bin" --output "$out_dir" \

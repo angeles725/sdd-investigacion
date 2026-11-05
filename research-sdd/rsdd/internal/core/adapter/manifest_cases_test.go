@@ -14,7 +14,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/jsonout"
 )
 
-// stdFixture builds the artifact tree of analysis-manifest.test.sh.
+// stdFixture builds the artifact tree of the retired analysis-manifest.test.sh.
 func stdFixture(w *world) {
 	w.bytes("sample.bin", []byte("input\x00bytes"), 0o644)
 	w.file("bin/tool", "#!/bin/false\n", 0o700)

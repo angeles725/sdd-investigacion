@@ -13,8 +13,8 @@ import (
 // A line whose file is fixed or gone fails TestOracleTagsRealTree as stale.
 var oracleAllow = map[string]string{
 	"internal/core/hookwiring/differential_test.go":   "frozen bash oracle (testdata/legacy); follow-up issue",
-	"internal/corroborate/floss/world_test.go":        "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
-	"internal/corroborate/pcap/command_linux_test.go": "runs the live analysis_manifest.py; goes with its deletion (core-consolidation T3)",
+	"internal/corroborate/floss/world_test.go":        "runs the frozen analysis_manifest.py oracle (core/adapter/testdata/frozen); follow-up issue",
+	"internal/corroborate/pcap/command_linux_test.go": "runs the frozen analysis_manifest.py oracle (core/adapter/testdata/frozen); follow-up issue",
 	"internal/gate/mergeharness_test.go":              "frozen bash oracle (testdata/legacy); follow-up issue",
 	"internal/gate/mergetrain_test.go":                "frozen bash oracle (testdata/legacy); follow-up issue",
 	"internal/lint/helpers_test.go":                   "frozen bash oracle (testdata/legacy); follow-up issue",
