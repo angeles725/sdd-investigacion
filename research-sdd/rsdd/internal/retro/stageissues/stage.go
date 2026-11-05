@@ -210,7 +210,7 @@ func (a *app) stage() int {
 			a.errf("no-match: delta section found but all rows are shipped (skipped: %d)\n", a.skippedShipped)
 		}
 	}
-	a.uncReport(sprintf("none: %d row(s) examined", a.open+a.skippedShipped+a.skippedWrongKit+a.unclassifiable))
+	a.uncReport(sprintf("none: %d row(s) examined", a.open+a.skippedShipped+a.skippedWrongKit)) // a row-level unclassifiable also counts in uncN, so the zero text is never printed with one
 	a.printSummaries()
 	return a.finalExit()
 }

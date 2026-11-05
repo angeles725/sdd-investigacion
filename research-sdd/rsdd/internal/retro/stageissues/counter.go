@@ -1,10 +1,12 @@
 package stageissues
 
 import (
+	"cmp"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,7 +55,7 @@ func coverLines(lines []string) []coverLine {
 		v := strings.TrimLeft(strings.TrimPrefix(l, "covers_through:"), " \t")[1:] // after the B
 		n := v[:digitsLen(v)]
 		slug := "-"
-		if i := strings.LastIndex(v, "focus="); i >= 0 {
+		if i := strings.LastIndex(v, "focus="); i != -1 {
 			slug = strings.TrimRight(v[i+len("focus="):], " \t")
 		}
 		if len(n) > 9 {
@@ -124,20 +126,21 @@ func (a *app) counterRoot() string {
 	if err != nil {
 		return root
 	}
-	best := -1
+	var hits []string // the registered roots that contain the retro
 	for _, p := range kit.PairsAll(src, a.env) {
 		if p.Expanded == "" {
 			continue
 		}
 		x, ok := a.physDir(p.Expanded)
-		if !ok {
-			continue
-		}
-		if strings.HasPrefix(retroDir+"/", x+"/") && len(x) > best {
-			best, root = len(x), x
+		if ok && strings.HasPrefix(retroDir+"/", x+"/") {
+			hits = append(hits, x)
 		}
 	}
-	return root
+	if len(hits) == 0 {
+		return root
+	}
+	// the nearest ancestor is the longest root; equal lengths are the same path, so the pick among them is moot
+	return slices.MaxFunc(hits, func(x, y string) int { return cmp.Compare(len(x), len(y)) })
 }
 
 // physDir is `cd -P p && pwd -P` from the caller's cwd.
@@ -162,13 +165,13 @@ func (a *app) printCounterReset() {
 	cvroot := a.counterRoot()
 	sfiles := stateFiles(cvroot)
 	nsf := len(sfiles)
-	nv, nm := 0, 0
+	anyValid, nm := false, 0
 	for _, cl := range coverLines(a.doc.Raw) {
 		if cl.malformed {
 			nm++
 			continue
 		}
-		nv++
+		anyValid = true
 		val, slug := cl.n, cl.slug
 		var hit string
 		if slug == "-" {
@@ -215,7 +218,7 @@ func (a *app) printCounterReset() {
 	if nm > 0 {
 		a.warnf("WARN: covers_through: malformed — %d line(s) in %s (want `covers_through: B<n>` with a number) — ignored\n", nm, rb)
 	}
-	if nv == 0 && nm == 0 {
+	if !anyValid && nm == 0 {
 		a.warnf("note: covers_through: absent in %s — no blocks_since_retro reset proposed\n", rb)
 	}
 }
