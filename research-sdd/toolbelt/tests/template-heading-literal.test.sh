@@ -44,7 +44,7 @@ NAMES="$(mktemp)"; trap 'rm -f "$NAMES"' EXIT
 {
   # (a) static: headings the toolbelt matches that no template necessarily carries as a real heading.
   #     Gap-backlog..Campaign queue/Dismissed file types/History: matched by verify-state.sh,
-  #     research-sdd-status.sh, migrate-backlogs.sh, census-target.sh, research-sdd-archive.sh
+  #     research-sdd-status.sh, migrate-backlogs (rsdd corpus migrate-backlogs; the .sh is a shim), census-target.sh, research-sdd-archive.sh
   #     (some via patterns the section-arg grep in (b) cannot see, e.g. awk /^## .../ regexes).
   #     Proposed kit deltas / Tools built... / Proposed delta / Summary of proposed delta: retro
   #     headings matched by stage-retro.sh, verify-retro.sh and lib/retro-grammar.sh.

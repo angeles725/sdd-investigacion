@@ -69,6 +69,7 @@ GO_SRC=(
   "sweep-all.sh=../rsdd/internal/sweep"
   "retro-gate.sh=../rsdd/internal/gate"   # retrogateseed.go prints the absent-input / unclassifiable WARNs
   "verify-retro.sh=../rsdd/internal/retro/verifyretro"   # render.go prints the absent-input ERRORs
+  "migrate-backlogs.sh=../rsdd/internal/corpus/migratebacklogs"   # run.go and scan.go print the degraded lines and the absent-input / empty-input states (kit issue #2684)
   "stage-retro.sh=../rsdd/internal/retro/stage"   # gitops.go, run.go and label.go print the degraded git and retro-not-readable lines (kit issue #2663)
   "verify-registry.sh=../rsdd/internal/verify"   # registry.go prints unclassifiable-blocks (kit issue #2364)
   "verify-corrections.sh=../rsdd/internal/verify/corrections"   # its own sub-package (kit issue #2625), so no GO_FILES glob is needed

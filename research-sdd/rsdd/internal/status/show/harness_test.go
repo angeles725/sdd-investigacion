@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -102,13 +101,6 @@ func probeTail(c *ctx) int {
 	return 0
 }
 
-// probeTailBash is the same tail for the frozen excerpt, appended by the differential test.
-const probeTailBash = `
-if [ -n "${PROBE_SILENT:-}" ]; then exit 0; fi
-if [ -n "${PROBE_VERDICT:-}" ]; then printf '%s\n' "$PROBE_VERDICT"; exit "${PROBE_RC:-0}"; fi
-printf 'PICKED state=%s corpus=%s mode=%s focus=%s emit=%d all=%d queue=%d root=%d only=%s only_set=%d stall=%d\n' "$state" "$corpus" "$mode" "$focus_slug" "$emit_token" "$all_flag" "$queue_flag" "$root_flag" "$only_list" "$only_set" "$stall_minutes"
-`
-
 func runGo(t testing.TB, sc scenario, root string) outcome {
 	t.Helper()
 	var out, errb bytes.Buffer
@@ -152,20 +144,6 @@ func parseGolden(t testing.TB, path string) map[string]string {
 		out[name] = "=== " + strings.TrimSuffix(sec, "\n") + "\n"
 	}
 	return out
-}
-
-// joinGolden is the file written by -update: sections in name order.
-func joinGolden(sections map[string]string) string {
-	names := make([]string, 0, len(sections))
-	for n := range sections {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	var b strings.Builder
-	for _, n := range names {
-		b.WriteString(sections[n])
-	}
-	return b.String()
 }
 
 func skipIfRoot(t *testing.T, sc scenario) {

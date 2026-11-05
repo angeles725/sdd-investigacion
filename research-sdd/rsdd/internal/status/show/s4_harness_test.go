@@ -51,19 +51,9 @@ func m4(name, want string, f files, flags ...string) s4Scenario {
 // s4Seams are the stand-ins for the S5 sections: the declared counter is kept, and the gate prints the STOP line
 // every exhausted run ends in (the script's own `_stop_exhausted`).
 var s4Seams = seams{
-	coversDerive: func(_ *ctx, _, declared string) (string, string, bool) { return declared, "", true },
-	issuesGate: func(c *ctx) bool {
-		fmt.Fprintf(c.s.Out, "%s%s\n", stopExhausted, c.buSuffix)
-		return true
-	},
+	coversDerive: func(_ *ctx, _, declared string) (string, string) { return declared, "" },
+	issuesGate:   func(c *ctx) { fmt.Fprintf(c.s.Out, "%s%s\n", stopExhausted, c.buSuffix) },
 }
-
-// The frozen script's side of the stand-ins: the two S5 functions, defined inside the --next block between the two
-// excerpts, and the tail that answers every other mode.
-const (
-	s4MidBash  = "  issues_due_gate() { _stop_exhausted; }\n  _rd_covers_derive() { _rd_eff=\"$2\"; _rd_note=\"\"; }\n"
-	s4TailBash = "\nprintf 'S4-TAIL mode=%s\\n' \"$mode\"\n"
-)
 
 func s4Tail(c *ctx) int {
 	fmt.Fprintf(c.s.Out, "S4-TAIL mode=%s\n", c.opts.mode)
