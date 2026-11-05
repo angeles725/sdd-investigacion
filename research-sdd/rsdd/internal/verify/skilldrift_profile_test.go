@@ -47,6 +47,7 @@ func profileWorld(t *testing.T) *sdWorld {
 }
 
 func TestSkillDriftProfileInSyncAndRenderDirStates(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	dir := w.installProfile(piRel, "general")
 	w.wantRun([]string{"--harness", "pi"}, "", "", 0)
@@ -77,6 +78,7 @@ func TestSkillDriftProfileInSyncAndRenderDirStates(t *testing.T) {
 }
 
 func TestSkillDriftProfileDivergedSkillWinsOverTheRenderDirCheck(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	dir := w.installProfile(piRel, "general")
 	w.deploy(piRel, "hand edited\n")
@@ -88,6 +90,7 @@ func TestSkillDriftProfileDivergedSkillWinsOverTheRenderDirCheck(t *testing.T) {
 }
 
 func TestSkillDriftProfileSelection(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.installProfile(piRel, "general")
 	live, err := os.ReadFile(filepath.Join(w.kit, "skills", "research-sdd", "SKILL.md"))
@@ -108,6 +111,7 @@ func TestSkillDriftProfileSelection(t *testing.T) {
 }
 
 func TestSkillDriftUnknownProfile(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	for _, p := range []string{"bogus", "../profiles/general", "Gen", "general/"} {
@@ -119,6 +123,7 @@ func TestSkillDriftUnknownProfile(t *testing.T) {
 }
 
 func TestSkillDriftRenderFailureIsCouldNotRunAndLeavesNoTempDir(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.deploy(piRel, "whatever\n")
 	w.put(filepath.Join(w.kit, "toolbelt", "render-profile.sh"), "#!/usr/bin/env bash\necho boom >&2\nexit 5\n", 0o755)
@@ -133,6 +138,7 @@ func TestSkillDriftRenderFailureIsCouldNotRunAndLeavesNoTempDir(t *testing.T) {
 }
 
 func TestSkillDriftNoTempDirIsLeftBehindOnAnyPath(t *testing.T) {
+	t.Parallel()
 	w := profileWorld(t)
 	w.installProfile(piRel, "general")
 	w.installProfile(gentleRel, "general")
@@ -146,6 +152,7 @@ func TestSkillDriftNoTempDirIsLeftBehindOnAnyPath(t *testing.T) {
 }
 
 func TestSkillDriftPiAgentHomeOverride(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	custom := filepath.Join(w.root, "pi-agent")
 	w.put(filepath.Join(custom, "skills", "research-sdd", "SKILL.md"), sdKitSkill, 0o644)
@@ -165,6 +172,7 @@ func TestSkillDriftPiAgentHomeOverride(t *testing.T) {
 }
 
 func TestSkillDriftPiOverrideThatIsNotAbsoluteFailsEveryField(t *testing.T) {
+	t.Parallel()
 	w := newSDWorld(t)
 	w.deploy(claudeRel, sdKitSkill)
 	for _, bad := range []string{"relative/dir", "/", "//", "."} {

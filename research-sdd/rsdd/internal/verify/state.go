@@ -604,7 +604,7 @@ func matchesAnyLine(re *regexp.Regexp, text string) bool {
 }
 
 // firstLineMatching is `grep -E ... | head -1`; may is a cheap necessary condition tested before the regexp
-// (kit issue #2645).
+// (kit issue #2645). may must be non-nil: every caller passes a pre-filter, so there is no regexp-only mode.
 func firstLineMatching(lines []string, re *regexp.Regexp, may func(string) bool) string {
 	for _, l := range lines {
 		if may(l) && re.MatchString(l) {

@@ -72,6 +72,8 @@ func TestRuneCutCountsRunesNotBytes(t *testing.T) {
 		want string
 	}{
 		{"", 3, ""}, {"abc", 3, "abc"}, {"abcd", 3, "abc"}, {"ééé", 2, "éé"}, {"ab", 0, ""},
+		// invalid UTF-8 survives unless the string is cut: exactly n runes, and fewer, come back byte for byte
+		{"a\xff", 2, "a\xff"}, {"a\xff", 5, "a\xff"}, {"a\xffbc", 2, "a\uFFFD"},
 	} {
 		if got := runeCut(c.in, c.n); got != c.want {
 			t.Errorf("runeCut(%q, %d) = %q, want %q", c.in, c.n, got, c.want)

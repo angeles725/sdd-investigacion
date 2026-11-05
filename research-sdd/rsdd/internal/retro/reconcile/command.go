@@ -77,10 +77,7 @@ func runCommand(args []string, s cli.Stdio, h hooks) int {
 		errf("usage: reconcile-issues.sh <retro.md> | --all")
 		return 1
 	}
-	var environ []string
-	if s.Environ != nil {
-		environ = s.Environ()
-	}
+	environ := s.Environment()
 	ghOpts := gh.Options{Env: environ, Default: ghDefaultBound, Now: s.Clock}
 	// §7 degraded probe: gh is only required when no --issues-cache is supplied.
 	if issues == "" {

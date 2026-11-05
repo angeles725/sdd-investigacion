@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // Differential test of `verify registry-hook`: the frozen verify-registry-hook.sh (with the frozen verify-registry.sh
@@ -28,10 +30,14 @@ func (k *vrKit) installLegacyHook() {
 		}
 		k.write(dst, string(b))
 	}
-	// the hook execs $here/verify-registry.sh, so the copy installed by installLegacy needs its execute bit
-	if err := os.Chmod(filepath.Join(k.kit, "toolbelt", "verify-registry.sh"), 0o755); err != nil {
+	// the hook execs $here/verify-registry.sh, so the copy installed by installLegacy is rewritten as an executable,
+	// under the fork lock (ETXTBSY, testkit/execfile)
+	script := filepath.Join(k.kit, "toolbelt", "verify-registry.sh")
+	b, err := os.ReadFile(script)
+	if err != nil {
 		k.t.Fatal(err)
 	}
+	execfile.Write(k.t, script, string(b))
 }
 
 // runLegacyHook runs the frozen hook; its output is the envelope on stdout (the hook exits 0 always).

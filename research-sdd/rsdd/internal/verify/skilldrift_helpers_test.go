@@ -15,6 +15,8 @@ import (
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // sdWorld is one skill-drift test's world: a mini kit (install/adapters.sh frozen from the oracle, a kit
@@ -91,6 +93,10 @@ func (w *sdWorld) put(abs, text string, mode os.FileMode) string {
 	w.t.Helper()
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		w.t.Fatal(err)
+	}
+	if mode == 0o755 { // a stub the test execs: written under the fork lock (ETXTBSY, testkit/execfile)
+		execfile.Write(w.t, abs, text)
+		return abs
 	}
 	if err := os.WriteFile(abs, []byte(text), mode); err != nil {
 		w.t.Fatal(err)
