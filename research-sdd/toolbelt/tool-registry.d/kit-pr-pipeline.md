@@ -11,7 +11,7 @@ Intended divergences from the bash tools (each pinned by a Go test; everything e
 | all four | a degraded exit 3 also writes `DEGRADED: <why>` to stderr | the rsdd process contract: every exit 3 names its reason on stderr |
 | all four | stdout appears when the command returns, not line by line | rsdd buffers stdout so a panic never leaves a fragment that reads as a result |
 | gate, pipeline | the gate lock is taken in process (`flock(2)` on `<state-dir>/gate.lock`), no `flock` child runs; `flock` stays a probed dependency | one less process to lose a signal in; a held lock is tested for real (`TestGateLockTimeoutIsNotAGateFailure`) |
-| gate, pipeline | INT and TERM are forwarded to the gate's process group and the run ends `kit-gate: interrupted: the gate was stopped by a signal`, exit 16 | the bash left the gate command running after the tool died |
+| gate, pipeline | INT and TERM are forwarded to the gate's process group and the run ends `kit-pr-pipeline: interrupted: #<pr>: the gate was stopped by a signal; CI and merge were not attempted` (the standalone `rsdd maint gate` prints `kit-gate: interrupted: the gate was stopped by a signal`), exit 16 | the bash left the gate command running after the tool died |
 | gate | an overflowing `--lock-timeout` is clamped instead of failing; `--cmd ''` runs `:` and passes | the bash handed both to `flock -w` / `bash -c` with undefined results |
 | gate, pipeline | git runs as `git -C <worktree>` instead of after a `cd` | no process-wide working directory; the differential tests drop the `-C` from the call log |
 | pipeline | python3 is no longer a probed dependency | nothing in the pipeline runs it any more |

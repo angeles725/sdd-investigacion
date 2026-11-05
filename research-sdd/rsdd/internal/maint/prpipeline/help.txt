@@ -41,6 +41,7 @@
 #   rdd-start-error     14   the review could not be started
 #   consent-required    15   the consent envelope was printed; re-run with --consent granted
 #   gate-failed         16   the gate exited non-zero; CI and merge were not attempted
+#   interrupted         16   INT or TERM stopped the gate (its process group was signalled and gate.lock released); CI and merge were not attempted
 #   gate-lock-timeout   22   the gate lock was not obtained in time (another gate is running); not a gate failure
 #   ci-failed           17   a CI check failed
 #   merge-degraded      18   merge-gate stayed degraded through every try

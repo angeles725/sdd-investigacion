@@ -186,7 +186,7 @@ func TestPipelineDifferential(t *testing.T) {
 				t.Fatalf("exit codes: legacy %d, go %d, scenario wants %d\nlegacy out=%q err=%q\ngo out=%q err=%q", legacy.RC, port.rc, sc.want, legacy.Out, legacy.Err, port.out, port.err)
 			}
 			for _, d := range [][3]string{
-				{"stdout", wb.Norm(strings.Replace(legacy.Out, "gentle-ai python3, flock", "gentle-ai, flock", 1)), wg.Norm(port.out)}, // help: python3 is no longer a dependency
+				{"stdout", wb.Norm(strings.Replace(legacy.Out, "gentle-ai python3, flock", "gentle-ai, flock", 1)), wg.Norm(helpLegacy(port.out))}, // help: python3 is no longer a dependency, and `interrupted` is new
 				{"stderr", wb.Norm(legacy.Err), wg.Norm(port.err)},
 				{"calls", wb.Norm(lcalls), wg.Norm(gcalls)},
 				{"state", snapshot(wb), snapshot(wg)},
@@ -200,4 +200,15 @@ func TestPipelineDifferential(t *testing.T) {
 			}
 		})
 	}
+}
+
+// helpLegacy drops the one help line the legacy script cannot have: the `interrupted` state is new in the port.
+func helpLegacy(out string) string {
+	var keep []string
+	for _, l := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(l, "#   interrupted ") {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, "\n")
 }

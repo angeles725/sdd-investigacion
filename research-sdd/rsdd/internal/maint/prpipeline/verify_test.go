@@ -73,6 +73,9 @@ func TestMissingMergeGateIsDegradedBeforePolling(t *testing.T) {
 	r := goRun(t, w, []string{"--state-dir", w.Dir + "/st", w.Wt, "7", "b"}, "KIT_MERGE_GATE=/nonexistent/merge-gate.sh")
 	want := "kit-wait-merge: degraded: merge-gate.sh not found: /nonexistent/merge-gate.sh\n" +
 		"kit-pr-pipeline: degraded: kit-wait-merge.sh reported a missing dependency\n"
+	if r.err != "DEGRADED: merge-gate.sh not found: /nonexistent/merge-gate.sh\n" {
+		t.Errorf("stderr must name the reason: %q", r.err)
+	}
 	if r.rc != 3 || !strings.HasSuffix(r.out, want) || strings.Contains(w.Calls(), "gh pr checks") {
 		t.Errorf("%+v calls=%q", r, w.Calls())
 	}
@@ -85,6 +88,9 @@ func TestUnknownBinaryIsDegradedBeforePolling(t *testing.T) {
 	r := goRun(t, w, []string{"--state-dir", w.Dir + "/st", w.Wt, "7", "b"}, "KIT_MERGE_GATE=")
 	want := "kit-wait-merge: degraded: merge-gate.sh not found: the rsdd binary (the default merge gate) cannot be located\n" +
 		"kit-pr-pipeline: degraded: kit-wait-merge.sh reported a missing dependency\n"
+	if r.err != "DEGRADED: merge-gate.sh not found: the rsdd binary (the default merge gate) cannot be located\n" {
+		t.Errorf("stderr must name the reason: %q", r.err)
+	}
 	if r.rc != 3 || !strings.HasSuffix(r.out, want) || strings.Contains(w.Calls(), "gh pr checks") {
 		t.Errorf("%+v calls=%q", r, w.Calls())
 	}

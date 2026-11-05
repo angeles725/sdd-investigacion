@@ -16,6 +16,7 @@
   | `dirty-tree` | 24 | commit or stash the tracked changes, then re-run |
   | `restack-error` | 25 | read the git error above (the merge failed without a conflict), fix by hand, then re-run |
   | `gate-failed` | 16 | read `<state-dir>/gate-pr<N>.log`, fix, then re-run (`--serial` for the section 5 reference run) |
+  | `interrupted` | 16 | the gate was stopped by INT/TERM and gate.lock was released; re-run when ready (CI and merge were not attempted) |
   | `gate-lock-timeout` | 22 | another gate holds the lock; re-run when it finishes, or raise `--lock-timeout` on `kit-gate.sh` |
   | `ci-failed` | 17 | read the printed failing check, fix, push, then re-run |
   | `merge-degraded` | 18 | fix the failure merge-gate printed (`merge-gate: degraded: ...`), then re-run `kit-wait-merge.sh` |

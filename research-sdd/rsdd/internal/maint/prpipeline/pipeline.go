@@ -193,6 +193,7 @@ func (p *pipeline) wait() int {
 	script := p.s.Env("KIT_MERGE_GATE")
 	if missing := kitwait.MergeGateMissing(script, p.d.self, p.wt); missing != "" {
 		fmt.Fprintf(p.s.Out, "%s: degraded: merge-gate.sh not found: %s\n", kitwait.Tool, missing)
+		fmt.Fprintf(p.s.Err, "DEGRADED: merge-gate.sh not found: %s\n", missing)
 		return p.fail(cli.ExitDegraded, "degraded", "kit-wait-merge.sh reported a missing dependency")
 	}
 	if script != "" {
