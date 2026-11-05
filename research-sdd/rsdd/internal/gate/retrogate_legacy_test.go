@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 )
 
 // rgLegacy is the frozen original retro-gate.sh, sha-pinned by the differential.
@@ -21,8 +23,7 @@ func init() {
 func stageLegacyRetroGate(w *rgWorld) {
 	b, err := os.ReadFile(rgLegacy)
 	must(w.t, err)
-	w.write(w.tb+"/retro-gate.sh", string(b))
-	must(w.t, os.Chmod(w.tb+"/retro-gate.sh", 0o755))
+	execfile.Write(w.t, w.tb+"/retro-gate.sh", string(b))
 }
 
 // runLegacyRetroGate runs the frozen original exactly as the old suite did.
