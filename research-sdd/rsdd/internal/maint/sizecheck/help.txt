@@ -1,0 +1,44 @@
+kit-size-check.sh — pre-RDD size guard (kit issue #2214).
+
+Measures the AUTHORED changed lines (additions + deletions) of `git diff --numstat <base>...<head>`,
+names mechanical-churn hotspots, and refuses or warns above the review budget BEFORE the diff goes to
+RDD / adversarial review. Read-only: it only runs `git diff` / `git rev-parse` and never writes to the repo.
+
+Usage: kit-size-check.sh --base <ref> [--head <ref>] [--budget N] [--hard-limit M] [--strict]
+                         [--format report|json]
+  --base REF      required; the diff is REF...HEAD (merge-base form, like a PR)
+  --head REF      default HEAD
+  --budget N      authored-line budget, default 400 (CLAUDE.md section 6)
+  --hard-limit M  refuse above M, default 2 x budget; M must be >= budget
+  --strict        over-budget exits 3 instead of 0
+  --format        report (default) or json
+
+Verdict (line `size: <state>`, JSON field "state") and exit code:
+  ok            0 < n <= budget                     exit 0
+  over-budget   budget < n <= hard-limit            exit 0, exit 3 with --strict; prints a split suggestion
+  refuse        n > hard-limit                      exit 3; prints a split suggestion
+  empty-input   the diff lists no file at all       exit 0  (distinct from all-excluded)
+  all-excluded  files changed, none measured, every one excluded data or binary  exit 0
+  unmeasured    nothing measured and nothing excluded: only binary files and/or pure renames
+                (0 lines is NOT "small": the binaries were not read)   exit 0
+  degraded      no git, not a work tree, bad ref,   exit 2  (stderr: `degraded: kit-size-check: <why>`;
+                no merge base, git diff failed,             also bad usage; never read as a zero)
+                unsupported path
+
+Excluded from the count (printed as a separate total, never hidden): pure DATA under
+research-sdd/toolbelt/tests/fixtures/** (the *.json fixtures and the merge-gate workflow copy
+tests/fixtures/merge-gate/wf-real-toolbelt-tests.yml) and lockfiles (*.lock, package-lock.json,
+pnpm-lock.yaml, go.sum). Fixture *.sh / *.py / *.mjs (stubs, shims, helpers) are reviewed logic and ARE
+counted. Binary files (numstat `-`) are listed as unmeasured. Pure renames/moves are listed with 0 lines.
+The range is BASE...HEAD (merge-base form): commits that only advanced BASE after the fork are not counted.
+
+Split suggestion: units are packed first-fit in path order. A test pairs with the SUT of the same basename
+anywhere under research-sdd/toolbelt/ (maint/, lib/ too). A unit larger than the budget on its own gets a
+chunk marked `single-unit-over-budget`: the suggestion cannot split it, so that chunk exceeds the budget.
+
+Mechanical-churn hotspot: a measured file with > 40% of the authored lines, at least 10 non-blank added
+lines, where >= 80% of them are the same line after replacing quoted strings with S and digit runs with N.
+That shape is one repeated edit, not 400 lines of thought: prefer an env/config switch or a separate
+mechanical PR (kit #2200: the RSDD_INIT_WIRING switch kept a wiring change out of every hook file).
+
+Counted on the form git reports: a line edited in place counts as 1 deleted + 1 added.

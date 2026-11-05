@@ -3,6 +3,7 @@ package stageissues
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -187,11 +188,7 @@ func (a *app) uncReport(zeroState string) {
 }
 
 func sortInts(v []int) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
+	slices.Sort(v)
 }
 
 // fingerprintInput is the `awk -F'\037' 'NF { print $2 "\037" $3 }'` stream cksum reads: each record's head and

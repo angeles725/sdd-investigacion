@@ -12,7 +12,6 @@
 ./internal/maint #2592 untagged tests read the kit-pr-pipeline fixtures outside the module; real lived mutants not yet measured
 ./internal/lint #2592 untagged tests read the lint-block fixtures outside the module; real lived mutants not yet measured
 ./internal/gate #2592 untagged tests read toolbelt/ fixtures outside the module; real lived mutants not yet measured
-./internal/retro/stageissues #2592 untagged tests read the stage-retro-issues fixtures outside the module; real lived mutants not yet measured
 ./internal/core/gfm #2592 untagged differential test reads toolbelt/ outside the module; real lived mutants not yet measured
 ./internal/verify #2592 untagged tests borrow kit files outside the module; real lived mutants not yet measured
 ./internal/corroborate/kaitai #2592 untagged test reads a toolbelt/ fixture outside the module; real lived mutants not yet measured
