@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kitmaint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/probe"
 )
 
@@ -74,6 +75,7 @@ type train struct {
 	s    cli.Stdio
 	d    mtDeps
 	env  []string
+	kr   *kitmaint.Runner
 	repo string
 
 	base, state, gateCmd       string
@@ -100,6 +102,7 @@ type train struct {
 
 func runMergeTrain(args []string, s cli.Stdio, d mtDeps) (code int) {
 	g := &train{s: s, d: d, env: s.Environ(), pin: map[string]string{}, pcwd: map[string]string{}, rows: map[string]*mtRow{}}
+	g.kr = g.newRunner()
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(mtExit); ok {
@@ -351,45 +354,14 @@ func mtSortedKeys(m map[string]string) []string {
 	return out
 }
 
-func isDir(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
-}
+func isDir(p string) bool { return kitmaint.IsDir(p) }
 
-func (g *train) abs(p string) string {
-	if strings.HasPrefix(p, "/") {
-		return p
-	}
-	return g.s.Cwd + "/" + p
-}
+func (g *train) abs(p string) string { return kitmaint.Abs(g.s.Cwd, p) }
 
 // resolveDir is `cd -- DIR && pwd -P`.
-func (g *train) resolveDir(p string) (string, error) {
-	return filepath.EvalSymlinks(filepath.Clean(g.abs(p)))
-}
+func (g *train) resolveDir(p string) (string, error) { return kitmaint.ResolveDir(g.s.Cwd, p) }
 
 // physPath is kit_phys_path: the physical path of P even when P does not exist yet.
-func (g *train) physPath(p string) (string, error) {
-	p = g.abs(p)
-	rest := ""
-	for !isDir(p) && p != "/" {
-		rest = "/" + p[strings.LastIndex(p, "/")+1:] + rest
-		p = p[:strings.LastIndex(p, "/")]
-		if p == "" {
-			p = "/"
-		}
-	}
-	d, err := filepath.EvalSymlinks(filepath.Clean(p))
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(d, "/") + rest, nil
-}
+func (g *train) physPath(p string) (string, error) { return kitmaint.PhysPath(g.s.Cwd, p) }
 
-func (g *train) stateDir() string {
-	base := g.s.Env("XDG_STATE_HOME")
-	if base == "" {
-		base = g.s.Env("HOME") + "/.local/state"
-	}
-	return base + "/research-sdd/pipeline"
-}
+func (g *train) stateDir() string { return kitmaint.StateDir(g.s.Env) }

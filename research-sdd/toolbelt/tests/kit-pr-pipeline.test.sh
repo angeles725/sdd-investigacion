@@ -20,7 +20,7 @@ FIX="$HERE/fixtures/kit-pr-pipeline"
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh" || exit 2
 mutant_bootstrap mutant_sed mutant_tooth || exit 2
-for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-maint-common.sh kit-rdd-start.sh kit-rdd-drive.sh; do
+for f in kit-pr-pipeline.sh kit-gate.sh kit-wait-merge.sh kit-rdd-start.sh kit-rdd-drive.sh; do
   [ -f "$MAINT/$f" ] || { echo "FATAL: SUT not found: $MAINT/$f" >&2; exit 2; }
 done
 TMP="$(mktemp -d)" || exit 2
@@ -54,13 +54,14 @@ OUT=''; RC=0; CALLS=''
 STAGE="$MAINT"
 
 happy_rules() { # defaults, appended AFTER a case's own rules (the first matching rule wins)
-  kh_rule git 'fetch*' 0
-  kh_rule git 'merge-base --is-ancestor*' 1
-  kh_rule git 'merge -q --no-edit*' 0
-  kh_rule git 'push*' 0
-  kh_rule git 'status --porcelain*' 0
-  kh_rule git 'ls-files -u*' 0
-  kh_rule git 'rev-parse --short HEAD' 0 head.txt
+  kh_rule git '*fetch*' 0
+  kh_rule git '*merge-base --is-ancestor*' 1
+  kh_rule git '*merge -q --no-edit*' 0
+  kh_rule git '*push*' 0
+  kh_rule git '*status --porcelain*' 0
+  kh_rule git '*ls-files -u*' 0
+  kh_rule git '*merge --abort*' 0
+  kh_rule git '*rev-parse --short HEAD' 0 head.txt
   kh_rule gentle-ai 'review assess*' 0 assess-due.json
   kh_rule gentle-ai 'review status --cwd /x --contract*' 0 status-start.json
   kh_rule gentle-ai 'review start --cwd /x --contract*' 0 consent.json
@@ -86,15 +87,14 @@ run_pipeline() {
   printf '#!/usr/bin/env bash\necho "RUNALL $*" >> "$SHIM_STATE/calls.log"\n' > "$KH_WT/research-sdd/toolbelt/tests/run-all.sh"
   case "$name" in
     happy|dry|nogate|sizecheck-ok|sizefail|usage-state-in-repo|usage-state-link|serial|defaultgate) ;;
-    conflict) kh_rule git 'merge -q --no-edit*' 1; kh_rule git 'ls-files -u*' 0 unmerged.txt ;;
-    mergeerr) kh_rule git 'merge -q --no-edit*' 1 ;;
-    badbase) kh_rule git 'merge-base --is-ancestor*' 128 ;;
-    dirty) kh_rule git 'status --porcelain*' 0 dirty.txt ;;
+    conflict) kh_rule git '*merge -q --no-edit*' 1; kh_rule git '*ls-files -u*' 0 unmerged.txt ;;
+    mergeerr) kh_rule git '*merge -q --no-edit*' 1 ;;
+    badbase) kh_rule git '*merge-base --is-ancestor*' 128 ;;
+    dirty) kh_rule git '*status --porcelain*' 0 dirty.txt ;;
     driveconsent) kh_rule gentle-ai 'review status --cwd /x --lineage*' 0 consent.json ;;
-    locktimeout) kh_rule flock '*' 1 ;;
-    fetchfail) kh_rule git 'fetch*' 1 ;;
-    pushfail) kh_rule git 'push*' 1 ;;
-    pushblip) kh_rule git 'push*' 1 - 1 ;;
+    fetchfail) kh_rule git '*fetch*' 1 ;;
+    pushfail) kh_rule git '*push*' 1 ;;
+    pushblip) kh_rule git '*push*' 1 - 1 ;;
     consent-none) ;;
     notdue) kh_rule gentle-ai 'review assess*' 0 assess-notdue.json ;;
     rdd-stop) kh_rule gentle-ai 'review status --cwd /x --lineage*' 0 status-stop-budget.json ;;
@@ -114,7 +114,7 @@ run_pipeline() {
   extra=("${extra[@]//@WT@/"$KH_WT"}")   # a literal @WT@ in an argument stands for this case's worktree
   extra=("${extra[@]//@LINK@/"$KH_CASE/wtlink"}")
   case "$name" in
-    happy|nogate|sizecheck-ok|sizefail|fetchfail|mergeerr|badbase|dirty|driveconsent|locktimeout|pushfail|pushblip|conflict|cifail|degraded-then-ok|degraded-forever|review-due|rdd-stop|rdd-correction|notdue|rdd-err|nogh|noflock)
+    happy|nogate|sizecheck-ok|sizefail|fetchfail|mergeerr|badbase|dirty|driveconsent|pushfail|pushblip|conflict|cifail|degraded-then-ok|degraded-forever|review-due|rdd-stop|rdd-correction|notdue|rdd-err|nogh|noflock)
       extra=(--consent granted --gate-cmd "$GATE_OK" "${extra[@]}") ;;
     consent-none|dry) extra=(--gate-cmd "$GATE_OK" "${extra[@]}") ;;
     defaultgate) extra=(--consent granted "${extra[@]}") ;;
@@ -151,8 +151,6 @@ if [ -n "$a" ] && [ -n "$i" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c
    && [ "$e" -lt "$f" ] && [ "$f" -lt "$g" ] && [ "$g" -lt "$h" ] && [ "$h" -lt "$i" ]; then
   ok "call order: fetch < restack < push < assess < granted START < acknowledge < gate < CI wait < merge-gate"
 else no "call order wrong: [$a $b $c $d $e $f $g $h $i] calls=[$CALLS]"; fi
-if grep -qE '^flock -w [0-9]+ 9$' <<<"$CALLS" && [ "$(nth '^flock -w')" -lt "$g" ]; then ok "the gate ran under the flock (flock before the gate command)"
-else no "gate not under flock: calls=[$CALLS]"; fi
 if grep -qE "^merge-gate.sh --cwd $KH_WT --base-ref origin/main --merge 7" <<<"$CALLS"; then ok "merge-gate is called with --cwd <worktree> --base-ref origin/main --merge <pr>"
 else no "merge-gate args: calls=[$CALLS]"; fi
 if [ -s "$KH_CASE/xdg/research-sdd/pipeline/rdd-7.json" ] && [ -e "$KH_CASE/xdg/research-sdd/pipeline/gate.lock" ]; then
@@ -247,10 +245,6 @@ if [ "$RC" = 15 ] && [[ "$OUT" == *'gentle-ai review start --cwd /x --consent de
   ok "a consent envelope met by the driver is relayed in FULL (no truncation), rc 15"
 else no "driveconsent rc=$RC out=[$OUT]"; fi
 
-run_pipeline locktimeout
-if [ "$RC" = 22 ] && [[ "$OUT" == *'kit-pr-pipeline: gate-lock-timeout'* ]] && [ -z "$(nth '^GATE-RAN')" ] && [ -z "$(nth '^gh pr checks')" ]; then
-  ok "a gate lock that cannot be taken in time -> rc 22 gate-lock-timeout (not gate-failed), CI not reached"
-else no "locktimeout rc=$RC out=[$OUT]"; fi
 run_pipeline defaultgate
 if [ "$RC" = 0 ] && grep -qxF 'RUNALL -j 4 --prove-teeth' <<<"$CALLS"; then ok "the default gate is run-all.sh -j 4 --prove-teeth"
 else no "default gate: rc=$RC calls=[$CALLS]"; fi
@@ -273,7 +267,7 @@ plan_steps="$(grep -c '^kit-pr-pipeline: plan:' <<<"$OUT")"
 if [ "$plan_steps" -ge 6 ]; then ok "the dry-run plan lists restack, push, RDD, gate, CI and merge"; else no "plan steps=$plan_steps out=[$OUT]"; fi
 
 run_pipeline nogate --no-gate
-if [ "$RC" = 0 ] && [ -z "$(nth '^GATE-RAN')" ] && [ -z "$(nth '^flock')" ] && [ -n "$(nth '^gh pr checks')" ]; then ok "--no-gate skips the gate (no flock, no gate command) and goes on to CI"
+if [ "$RC" = 0 ] && [ -z "$(nth '^GATE-RAN')" ] && [ -n "$(nth '^gh pr checks')" ]; then ok "--no-gate skips the gate (no flock, no gate command) and goes on to CI"
 else no "nogate rc=$RC calls=[$CALLS]"; fi
 
 run_pipeline sizecheck-ok --size-check 'echo SIZE-RAN >> "$SHIM_STATE/calls.log"'
@@ -295,19 +289,14 @@ OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$MAINT/kit-pr-pipeline.sh" 2>&1)"; RC
 if [ "$RC" = 2 ]; then ok "missing arguments -> rc 2 usage"; else no "usage rc=$RC"; fi
 
 # ---- kit-gate.sh on its own ----
-kh_init "$TMP"; kh_rule flock '*' 0; kh_rule git 'rev-parse --short HEAD' 0 head.txt
+kh_init "$TMP"; kh_rule flock '*' 0; kh_rule git '*rev-parse --short HEAD' 0 head.txt
 OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$MAINT/kit-gate.sh" --state-dir "$KH_CASE/st" --cmd 'echo GATE-RAN >> "$SHIM_STATE/calls.log"; echo "AGGREGATE RESULT: 3 passed"; exit 7' "$KH_WT" lbl 2>&1)"; RC=$?
 CALLS="$(kh_calls)"
 if [ "$RC" = 16 ] && [[ "$OUT" == *'AGGREGATE RESULT'* ]]; then ok "kit-gate: any failing gate exits 16 (never the gate's own rc, which could collide with 2/3) and prints the summary"; else no "kit-gate rc=$RC out=[$OUT]"; fi
-if [ "$(nth '^flock -w [0-9]+ 9$')" = 1 ] && [ "$(nth '^GATE-RAN')" -gt 1 ] && grep -q 'gate rc=7' "$KH_CASE/st/gate-lbl.log" && grep -q '^head abc1234' "$KH_CASE/st/gate-lbl.log"; then
-  ok "kit-gate: flock first, then the gate; log holds the head and 'gate rc=7'"
+if [ "$(nth '^GATE-RAN')" -ge 1 ] && grep -q 'gate rc=7' "$KH_CASE/st/gate-lbl.log" && grep -q '^head abc1234' "$KH_CASE/st/gate-lbl.log"; then
+  ok "kit-gate: the gate runs; its log holds the head and 'gate rc=7'"
 else no "kit-gate log/order: calls=[$CALLS] log=[$(cat "$KH_CASE/st/gate-lbl.log" 2>/dev/null)]"; fi
-kh_init "$TMP"; kh_rule flock '*' 1; kh_rule git 'rev-parse --short HEAD' 0 head.txt
-OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$MAINT/kit-gate.sh" --state-dir "$KH_CASE/st" --lock-timeout 5 --cmd true "$KH_WT" lbl 2>&1)"; RC=$?
-CALLS="$(kh_calls)"
-if [ "$RC" = 22 ] && [[ "$OUT" == *'kit-gate: gate-lock-timeout'* ]] && grep -qxF 'flock -w 5 9' <<<"$CALLS"; then ok "kit-gate: flock -w <timeout> failing -> rc 22 gate-lock-timeout"
-else no "kit-gate lock timeout rc=$RC out=[$OUT] calls=[$CALLS]"; fi
-kh_init "$TMP"; kh_rule flock '*' 0; kh_rule git 'rev-parse --short HEAD' 0 head.txt
+kh_init "$TMP"; kh_rule flock '*' 0; kh_rule git '*rev-parse --short HEAD' 0 head.txt
 mkdir -p "$KH_WT/research-sdd/toolbelt/tests"
 printf '#!/usr/bin/env bash\necho "RUNALL $*" >> "$SHIM_STATE/calls.log"\n' > "$KH_WT/research-sdd/toolbelt/tests/run-all.sh"
 OUT="$(cd "$KH_WT" && PATH="$KH_BIN" bash "$MAINT/kit-gate.sh" --state-dir "$KH_CASE/st" --serial "$KH_WT" lbl 2>&1)"; RC=$?
@@ -354,37 +343,20 @@ if [ "${1:-}" != "--prove-teeth" ]; then
 fi
 [ "$fail" -eq 0 ] || { echo "== $pass passed · $fail failed (teeth skipped) =="; exit 1; }
 
-echo "-- teeth: kit-pr-pipeline mutation controls --"
+echo "-- teeth: kit-pr-pipeline shim mutation controls --"
+# The behaviour's mutation controls live in the Go tests (internal/maint/{prpipeline,gate,waitmerge}, internal/core/kit*,
+# `make teeth`); the SUTs here are shims, so the controls below mutate the shim itself. A mutant of the pipeline shim
+# must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton next to $TMP/lib.
 n=0
-# tooth LABEL FILE SED_EXPR GOOD_RC BAD_RC SCENARIO [mutant_tooth opts...]
-# Stages a copy of maint/ in a temp dir, mutates FILE there (mutant_sed refuses an empty, identical or
-# syntax-broken mutant), and runs the scenario once against the real tools and once against the staged ones:
-# the scenario takes the path of the tool under test and uses its directory.
-tooth() {
-  local label="$1" file="$2" expr="$3" g="$4" b="$5" sc="$6"; shift 6
+tooth() { # LABEL SED_EXPR GOOD_RC BAD_RC SCENARIO [tooth opts...]
+  local label="$1" expr="$2" g="$3" b="$4" sc="$5"; shift 5
   local st="$TMP/stage.$((n += 1))"
-  mkdir -p "$st" && cp "$MAINT"/* "$st"/ && rm -f "$st/$file"
-  if ! mutant_sed "$MAINT/$file" "$st/$file" "$expr"; then no "tooth $label: mutant refused"; return; fi
+  mkdir -p "$st" && cp "$MAINT"/* "$st"/ && rm -f "$st/kit-pr-pipeline.sh"
+  if ! mutant_sed "$MAINT/kit-pr-pipeline.sh" "$st/kit-pr-pipeline.sh" "$expr"; then no "tooth $label: mutant refused"; return; fi
   chmod +x "$st"/*.sh
-  if mutant_tooth "tooth $label" "$g" "$b" "$st/$file" --orig "$MAINT/$file" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
+  if mutant_tooth "tooth $label" "$g" "$b" "$st/kit-pr-pipeline.sh" --orig "$MAINT/kit-pr-pipeline.sh" "$@" -- bash "$SELF" --scenario "$sc" @SUT@; then pass=$((pass+1)); else fail=$((fail+1)); fi
 }
-P=kit-pr-pipeline.sh; W=kit-wait-merge.sh; G=kit-gate.sh; C=kit-maint-common.sh
-tooth "restack conflict no longer aborts" $P 's/^    git merge --abort$/    true/' 11 11 conflict --good-has 'git merge --abort' --bad-lacks 'git merge --abort'
-tooth "consent always passed" $P 's/^\[ "\$consent" = granted \] \&\& start_args/true \&\& start_args/' 15 0 consent-none --bad-has 'kit-pr-pipeline: merged'
-tooth "gate failure ignored" $P 's/kit_fail 16 gate-failed/true gate-failed/' 16 0 gatefail --bad-has 'kit-pr-pipeline: merged'
-tooth "CI failure ignored" $W 's/kit_fail 17 ci-failed/true ci-failed/' 17 0 cifail --bad-has 'merge-gate.sh --cwd'
-tooth "push not retried" $P 's/kit_retry 3 git push/kit_retry 1 git push/' 0 12 pushblip
-tooth "degraded merge-gate not retried" $W 's/if \[ "\$mrc" -eq 3 \]; then last=degraded/if false; then last=degraded/' 0 19 degraded-then-ok
-tooth "dry-run guard removed" $P 's/^if \[ "\$dry_run" = 1 \]; then/if false; then/' 0 0 dry --good-lacks 'git fetch' --bad-has 'git fetch -q origin'
-tooth "size-check failure ignored" $P 's/kit_fail 20 size-check-failed/true size-check-failed/' 20 0 sizefail --bad-has 'kit-pr-pipeline: merged'
-tooth "dependency probe blind" $C 's/command -v "\$d" >\/dev\/null 2>&1 ||/true ||/' 3 19 nogh
-tooth "gate not under flock" $G 's/^flock -w "\$lock_timeout" 9 /true /' 0 0 happy --good-has 'flock -w' --bad-lacks 'flock -w'
-tooth "gate failure exits 0" $G 's/^exit "\$gate_exit"$/exit 0/' 16 0 gatefail --bad-has 'kit-pr-pipeline: merged'
-tooth "lock timeout reported as gate failure" $G 's/kit_fail 22 gate-lock-timeout/kit_fail 16 gate-failed/' 22 16 locktimeout
-tooth "merge failure always called a conflict" $P 's/^  if \[ -n "\$(git ls-files -u)" \]; then$/  if true; then/' 25 11 mergeerr
-tooth "dirty tree check removed" $P 's/kit_fail 24 dirty-tree/true dirty-tree/' 24 0 dirty --bad-has 'kit-pr-pipeline: merged'
-tooth "bad base ref treated as behind" $P 's/kit_fail 23 bad-base-ref/true bad-base-ref/' 23 0 badbase --bad-has 'kit-pr-pipeline: merged'
-tooth "consent envelope truncated" $P 's/^    if \[ "\$drc" -eq 15 \]; then cat "\$drive_log"; else/    if false; then cat "$drive_log"; else/' 15 15 driveconsent --good-has 'native review runs' --bad-lacks 'native review runs'
-tooth "state dir compared lexically" $P 's/state_phys="\$(kit_phys_path "\$state")"/state_phys="$state"/' 2 15 usage-state-link
+tooth "shim dispatches to the sibling command" 's/^rsdd_exec maint pr-pipeline /rsdd_exec maint gate /' 0 2 happy --bad-lacks 'kit-pr-pipeline: merged'
+tooth "shim drops the caller's arguments" 's/^rsdd_exec maint pr-pipeline "\$@"$/rsdd_exec maint pr-pipeline/' 0 2 happy --bad-lacks 'kit-pr-pipeline: merged'
 echo "== $pass passed · $fail failed =="
 [ "$fail" -eq 0 ] && exit 0 || exit 1
