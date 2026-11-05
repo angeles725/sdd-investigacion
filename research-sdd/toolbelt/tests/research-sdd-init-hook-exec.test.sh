@@ -24,9 +24,11 @@ pass=0; fail=0
 ok() { printf '  PASS  %s\n' "$1"; pass=$((pass+1)); }
 no() { printf '  FAIL  %s\n' "$1"; fail=$((fail+1)); }
 
-# mkkit <name> [<sut>] : a private kit copy (toolbelt/ + templates/) with every template at mode 644.
+# mkkit <name> [<sut>] : a private kit copy (toolbelt/ + templates/) with every template at mode 644, in a fresh
+# mktemp dir (never a reused one: a name collision would copy a kit into an existing kit, #2695).
 mkkit() {
-  local k="$TMP/$1" sut="${2:-$SUT}"
+  local k sut="${2:-$SUT}"
+  k="$(mktemp -d "$TMP/$1-XXXXXX")" || return 1
   mkdir -p "$k/toolbelt"
   cp -R "$HERE/../lib" "$k/toolbelt/lib"
   cp "$HERE/../return-token-gate.sh" "$HERE/../verify-skill-drift-hook.sh" "$k/toolbelt/" 2>/dev/null || :
@@ -38,17 +40,18 @@ mkkit() {
 H_SS=".claude/hooks/research-protocol.sh"; H_STOP=".claude/hooks/retro-gate-stop.sh"; H_PK=".claude/hooks/pkill-guard.sh"
 
 case_scaffold() {   # <kit> : fresh scaffold --wire -> all three hooks executable
-  local d="$TMP/sc-$RANDOM"; mkdir -p "$d"
+  local d; d="$(mktemp -d "$TMP/sc-XXXXXX")" || return 1
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "hook exec" --scaffold --wire --absolute >"$d.out" 2>&1 || return 1
   [ -x "$d/$H_SS" ] && [ -x "$d/$H_STOP" ] && [ -x "$d/$H_PK" ]
 }
 case_wire_create() {  # <kit> : --wire on a corpus with NO hooks creates all three executable
-  local d="$TMP/wc-$RANDOM"; mkdir -p "$d"; : > "$d/INDEX.md"
+  local d; d="$(mktemp -d "$TMP/wc-XXXXXX")" || return 1; : > "$d/INDEX.md"
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --wire --absolute --subject "hook exec" >"$d.out" 2>&1 || return 1
   [ -x "$d/$H_SS" ] && [ -x "$d/$H_STOP" ] && [ -x "$d/$H_PK" ]
 }
 case_rewire_warns() {  # <kit> : --wire over EXISTING non-executable hooks: each is named in a WARN, none rewritten
-  local d="$TMP/rw-$RANDOM" h before
+  local d h before
+  d="$(mktemp -d "$TMP/rw-XXXXXX")" || return 1
   mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
   for h in "$H_SS" "$H_STOP" "$H_PK"; do printf '#!/usr/bin/env bash\n# hand-adapted\nexit 0\n' > "$d/$h"; chmod 644 "$d/$h"; done
   before="$(cat "$d/$H_SS" "$d/$H_STOP" "$d/$H_PK" | cksum)"
@@ -60,13 +63,13 @@ case_rewire_warns() {  # <kit> : --wire over EXISTING non-executable hooks: each
   [ "$before" = "$(cat "$d/$H_SS" "$d/$H_STOP" "$d/$H_PK" | cksum)" ]
 }
 case_scaffold_keep_warns() {  # <kit> : scaffold over an existing non-executable SessionStart hook (kept) is reported
-  local d="$TMP/sk-$RANDOM"; mkdir -p "$d/.claude/hooks"
+  local d; d="$(mktemp -d "$TMP/sk-XXXXXX")" || return 1; mkdir -p "$d/.claude/hooks"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$d/$H_SS"; chmod 644 "$d/$H_SS"
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --scaffold --wire >"$d.out" 2>&1
   grep -qF "WARN: $d/$H_SS is not executable" "$d.out" && [ ! -x "$d/$H_SS" ]
 }
 case_kit_script_warns() {  # <kit> : a kit script wired as a bare command (gate, drift hook) without +x is reported
-  local d="$TMP/ks-$RANDOM"; mkdir -p "$d"
+  local d; d="$(mktemp -d "$TMP/ks-XXXXXX")" || return 1
   chmod 644 "$1/toolbelt/return-token-gate.sh" "$1/toolbelt/verify-skill-drift-hook.sh"
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --scaffold --wire >"$d.out" 2>&1
   chmod 755 "$1/toolbelt/return-token-gate.sh" "$1/toolbelt/verify-skill-drift-hook.sh"
@@ -74,7 +77,8 @@ case_kit_script_warns() {  # <kit> : a kit script wired as a bare command (gate,
     && grep -qF "WARN: kit script $1/toolbelt/verify-skill-drift-hook.sh is not executable" "$d.out"
 }
 case_exec_kept_silent() {  # <kit> : EXECUTABLE existing hooks (and executable kit scripts) draw no not-executable WARN
-  local d="$TMP/es-$RANDOM" h
+  local d h
+  d="$(mktemp -d "$TMP/es-XXXXXX")" || return 1
   mkdir -p "$d/.claude/hooks"; : > "$d/INDEX.md"
   for h in "$H_SS" "$H_STOP" "$H_PK"; do printf '#!/usr/bin/env bash\nexit 0\n' > "$d/$h"; chmod 755 "$d/$h"; done
   chmod 755 "$1/toolbelt/return-token-gate.sh" "$1/toolbelt/verify-skill-drift-hook.sh"
@@ -82,13 +86,13 @@ case_exec_kept_silent() {  # <kit> : EXECUTABLE existing hooks (and executable k
   grep -qF 'kept: ' "$d.out" && ! grep -qF 'is not executable' "$d.out"
 }
 case_portable_default() {  # <kit> : the DEFAULT (portable, kit issue #2183) scaffold --wire makes the SessionStart hook and the kit-run.sh runner executable
-  local d="$TMP/pd-$RANDOM"; mkdir -p "$d"
+  local d; d="$(mktemp -d "$TMP/pd-XXXXXX")" || return 1
   bash "$1/toolbelt/research-sdd-init.sh" "$d" --corpus flat --prefix t --subject "hook exec" --scaffold --wire >"$d.out" 2>&1 || return 1
   [ -x "$d/$H_SS" ] && [ -x "$d/tools/hooks/kit-run.sh" ] && [ ! -e "$d/$H_STOP" ] && [ ! -e "$d/$H_PK" ]
 }
 
 echo "== research-sdd-init-hook-exec.test.sh =="
-K="$(mkkit k1)"
+K="$(mkkit k1)" || { echo "FATAL: cannot copy the kit under $TMP" >&2; exit 2; }
 case_scaffold "$K"          && ok "1 scaffold --wire makes all three hooks executable (templates at 644)" || no "1 scaffold hooks not all +x"
 case_wire_create "$K"       && ok "2 --wire repair creates all three hooks executable (templates at 644)" || no "2 wire-created hooks not all +x"
 case_rewire_warns "$K"      && ok "3 --wire over existing non-executable hooks WARNs on each, rewrites none" || no "3 re-wire must report non-executable hooks"
@@ -103,10 +107,11 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   mutant_bootstrap mutant_chain mutant_or_count mutant_chain_or_count || exit 2
   # steeth <label> <case-fn> <sed-expr>... : the case passes on the real SUT; on the mutant it must fail.
   steeth() {
-    local label="$1" fn="$2" mut="$TMP/mut-$RANDOM" mk; shift 2
+    local label="$1" fn="$2" mut mk; shift 2
+    mut="$(mktemp "$TMP/mut-XXXXXX")" || { no "teeth $label: cannot create the mutant file"; return; }
     "$fn" "$K" || { no "teeth $label: case FAILS on the unmutated SUT — tooth is vacuous"; return; }
     mutant_chain_or_count fail "teeth $label" "$SUT" "$mut" "$@" || return 0
-    mk="$(mkkit "m-$RANDOM" "$mut")"
+    mk="$(mkkit m "$mut")" || { no "teeth $label: cannot copy the mutant kit — no verdict"; return; }
     if "$fn" "$mk"; then no "teeth $label: mutant survived — case is THEATER"; else ok "teeth $label: mutant breaks the case (has teeth)"; fi
   }
   steeth SCAFFOLD-SS-CHMOD case_scaffold '/# WIRED-SS-CHMOD-SCAFFOLD/d'
