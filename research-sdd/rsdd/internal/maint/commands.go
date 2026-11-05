@@ -5,6 +5,7 @@ package maint
 import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/gate"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint/waitmerge"
 )
 
 // Commands is this domain's contribution to the command table. A unit adds
@@ -12,5 +13,6 @@ import (
 var Commands = []cli.Command{
 	{Name: "rdd-start", Group: "maint", Summary: "assess the committed range and start the native review (explicit consent)", Run: RddStart},
 	{Name: "gate", Group: "maint", Summary: "run ONE serial full gate under a flock, log it and echo its summary (kit-gate)", Run: gate.Run},
+	{Name: "wait-merge", Group: "maint", Summary: "wait for a PR's CI, run the merge gate and confirm it merged (kit-wait-merge)", Run: waitmerge.Run},
 	{Name: "rdd-drive", Group: "maint", Summary: "follow the provider-issued review transitions to acknowledgement", Run: RddDrive},
 }

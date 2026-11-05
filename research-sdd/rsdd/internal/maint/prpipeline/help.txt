@@ -1,0 +1,52 @@
+# kit-pr-pipeline.sh [options] <worktree> <pr> <remote-branch>
+#
+# Kit-maintenance tool (kit issue #2212; outside the research toolbelt core): take one open kit PR to merged:
+#   restack onto the base -> push -> [size-check hook] -> RDD (native review) -> ONE flock'd full gate
+#   -> CI wait -> merge-gate --merge.
+# Each step is also callable on its own: kit-rdd-start.sh, kit-rdd-drive.sh, kit-gate.sh, kit-wait-merge.sh.
+#
+# Options:
+#   --consent granted   record the maintainer's STANDING grant to start the native review for this candidate.
+#                       Never inferred: without it the provider's consent envelope is printed in full and the
+#                       run stops with consent-required (exit 15).
+#   --serial            run the gate serially: `run-all.sh --prove-teeth` with NO -j. Serial is the CLAUDE.md
+#                       section 5 reference for the quiet-tree gate; the default stays `-j 4 --prove-teeth`
+#                       (the maintainer's gate of record, with -j attribution). Use --serial when a -j result is in
+#                       doubt (timing-only failure, unattributed leak) or the machine is loaded. Not with --gate-cmd.
+#   --no-gate           skip the full gate (a hook point: an impacted-suite gate, #2201, runs it instead)
+#   --gate-cmd CMD      run CMD (bash -c, inside the worktree) as the gate instead of the full
+#                       `run-all.sh -j 4 --prove-teeth` (hook point for #2201 / the merge train #2213)
+#   --size-check CMD    run CMD (bash -c, inside the worktree; env KIT_PR, KIT_WORKTREE) before RDD; a non-zero
+#                       exit stops with size-check-failed (hook point for #2214; absent = no-op)
+#   --state-dir DIR     state (rdd-<pr>.json, gate.lock, gate-<label>.log); default
+#                       ${XDG_STATE_HOME:-$HOME/.local/state}/research-sdd/pipeline; refused inside the worktree
+#   --base-ref REF      restack base and RDD base (default origin/main)
+#   --remote NAME       remote to fetch and push (default origin)
+#   --dry-run           print the plan (`kit-pr-pipeline: plan: ...`); mutate nothing, call no git/gh/gentle-ai
+# Environment: KIT_RETRY_SLEEP (retry backoff base, default 5 s) and, for kit-wait-merge.sh, KIT_POLL_SLEEP,
+# KIT_POLL_MAX, KIT_MERGE_SLEEP, KIT_MERGE_TRIES, KIT_MERGE_GATE.
+#
+# Typed exit states (the last line is `kit-pr-pipeline: <state>: ...`; registered in reason-codes.d/kit-pr-pipeline.md):
+#   state              exit  meaning
+#   merged               0   the PR merged
+#   usage                2   bad arguments, missing worktree, or a state dir inside the worktree
+#   degraded             3   a runtime dependency is missing (git gh gentle-ai python3, flock unless --no-gate)
+#   restack-conflict    11   the merge of the base left unmerged paths; it was aborted, nothing was pushed
+#   bad-base-ref        23   the base ref does not resolve (git merge-base failed); nothing was merged or pushed
+#   dirty-tree          24   tracked files have uncommitted changes; stopped before any fetch, merge or push
+#   restack-error       25   the merge failed WITHOUT unmerged paths (not a conflict); nothing was pushed
+#   push-failed         12   fetch/push still failing after 3 tries (fetch failure is fetch-failed, 21)
+#   rdd-not-approved    13   the review stopped short of acknowledgement: `rdd-stop: <reason_code>` is printed
+#                            (correction_required, lens_context_budget_exceeded, ...); no automatic recovery
+#   rdd-start-error     14   the review could not be started
+#   consent-required    15   the consent envelope was printed; re-run with --consent granted
+#   gate-failed         16   the gate exited non-zero; CI and merge were not attempted
+#   gate-lock-timeout   22   the gate lock was not obtained in time (another gate is running); not a gate failure
+#   ci-failed           17   a CI check failed
+#   merge-degraded      18   merge-gate stayed degraded through every try
+#   not-merged          19   merge-gate refused or the PR is still not MERGED
+#   size-check-failed   20   the --size-check hook exited non-zero
+#   fetch-failed        21   `git fetch` still failing after 3 tries
+#   (rdd-not-due is informational: no review is due, the pipeline goes on; kit-rdd-start.sh itself exits 10)
+# Never edit this file, or a sibling tool, in place while a pipeline started from it is running: bash reads a
+# script incrementally, so an in-place edit corrupts the live run. Copy, edit the copy, start new runs from it.
