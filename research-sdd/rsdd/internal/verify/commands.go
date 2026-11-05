@@ -6,6 +6,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/block"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/corrections"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/gapdrift"
 )
 
 // Commands is this domain's contribution to the command table. A unit adds
@@ -18,5 +19,6 @@ var Commands = []cli.Command{
 	{Name: "registry", Group: "verify", Summary: "reconcile TARGETS.md against the corpora on disk (port of verify-registry.sh)", Run: RunRegistry},
 	{Name: "registry-hook", Group: "verify", Summary: "SessionStart hook: emit the compact registry check (--full for the whole report)", Run: RunRegistryHook},
 	{Name: "corrections", Group: "verify", Summary: "section-14 reciprocal-backlink lint of a corpus (port of verify-corrections.sh)", Run: corrections.Run},
+	{Name: "gap-drift", Group: "verify", Summary: "flag backlog rows whose text drifted from their child-gap bullet (port of check-gap-drift.sh)", Run: gapdrift.Run},
 	{Name: "skill-drift", Group: "verify", Summary: "is a deployed SKILL.md the kit's source (port of verify-skill-drift.sh; --hook is the SessionStart hook)", Run: RunSkillDrift},
 }

@@ -1,0 +1,23 @@
+# Teeth debt list (kit issue #2592). One package per line: `<package> #<issue> <reason>`.
+#
+# Until #2592 these packages' untagged tests read kit paths outside the Go module, so gremlins' module-only work dir
+# made every mutant read KILLED (a vacuous "Lived: 0"). Their baselines now fail in the module-only copy, so `make
+# teeth` skips them as DEBT instead of reporting a false pass; once their reads go through internal/testkit/kitroot
+# (the #2592 repoint slices), `make teeth` reports their real lived mutants. A lived mutant of a package listed here is printed as DEBT by the
+# bridge (research-sdd/toolbelt/tests/rsdd-go.test.sh) and does not fail the run; a lived mutant of any other package
+# still fails. A listed package that reads Lived 0 is reported STALE: delete its line. Paying a package's debt means
+# killing its lived mutants with tests and removing its line, one package per change.
+./internal/corpus #2592 untagged archive tests read the kit outside the module; real lived mutants not yet measured
+./internal/budget #2592 untagged tests read toolbelt/ and install/ outside the module; real lived mutants not yet measured
+./internal/maint #2592 untagged tests read the kit-pr-pipeline fixtures outside the module; real lived mutants not yet measured
+./internal/lint #2592 untagged tests read the lint-block fixtures outside the module; real lived mutants not yet measured
+./internal/gate #2592 untagged tests read toolbelt/ fixtures outside the module; real lived mutants not yet measured
+./internal/retro/stageissues #2592 untagged tests read the stage-retro-issues fixtures outside the module; real lived mutants not yet measured
+./internal/core/gfm #2592 untagged differential test reads toolbelt/ outside the module; real lived mutants not yet measured
+./internal/core/probe #2592 untagged parity test reads toolbelt/ outside the module; real lived mutants not yet measured
+./internal/core/reasons #2592 untagged test reads toolbelt/reason-codes.v1.md outside the module; real lived mutants not yet measured
+./internal/verify #2592 untagged tests borrow kit files outside the module; real lived mutants not yet measured
+./internal/sweep #2592 untagged test reads templates/ outside the module; real lived mutants not yet measured
+./internal/corroborate/kaitai #2592 untagged test reads a toolbelt/ fixture outside the module; real lived mutants not yet measured
+./internal/corroborate/native #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured
+./internal/corroborate/fidelity #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured

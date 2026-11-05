@@ -2,19 +2,16 @@ package verify
 
 import (
 	"cmp"
-	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/cli"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/fsview"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/kit"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/core/shellx"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/verify/gapdrift"
 )
 
 // Port of research-sdd/toolbelt/verify-state.sh: the living-mirror consistency lint of a RESEARCH-STATE.md.
@@ -25,21 +22,21 @@ import (
 // FAIL line was printed), 2 bad arguments, no state file or an absent --focus slug. The report is byte-identical
 // to the script's, stdout and stderr. Differences, by design:
 //
-//   - The toolbelt directory (where check-gap-drift.sh lives) cannot be seen by a binary: the shim passes it in
-//     RSDD_TOOLBELT_DIR. Without it the gap-drift check reports its own typed "not found" WARN.
+//   - The child-gap drift check (check-gap-drift.sh) runs in process, through internal/verify/gapdrift: the block files
+//     are listed and read once per run instead of once per state file. Its WARN lines are the script's; the checker
+//     can no longer be "not found" (RSDD_TOOLBELT_DIR is not read) and is not bounded by a timeout. Where the script
+//     itself differs from the Go check, see the package doc of gapdrift.
 //   - jq, xargs and realpath are not run; their behaviour is reproduced in process (see statehooks.go), so the
 //     "jq not found" and "realpath not found" degraded reports of the P8 scan cannot occur.
 //   - The helper libraries cannot be missing, so the script's exit-1 "cannot find helper" guards do not exist,
 //     and neither do the "degraded" branches that report a failed awk or grep (counting cannot fail here).
 //   - stdout is released when the command ends, stderr as it happens: a caller merging both streams sees the
-//     stderr lines first. The check-gap-drift.sh run is bounded (gapDriftTimeout); the script has no bound.
+//     stderr lines first.
 //   - An envelope integer with a leading zero is read as octal in the known_gaps identity sum, as bash does; a
 //     digit 8 or 9 in one aborts that state's remaining checks with bash's own message (prefixed "verify-state.sh: line N:").
 
 // Stale is the code RunState returns for an inconsistent state; the command table maps it to the legacy 1.
 const Stale = 10
-
-const gapDriftTimeout = 5 * time.Minute
 
 const usageLine = "usage: verify-state.sh <target-dir> [--focus <slug>]"
 
@@ -106,6 +103,10 @@ type verifier struct {
 	// and every state file of one directory asked for the same listing and regexp filter (kit issue #2645).
 	blockCounts map[blockCountKey]string
 	mdListing   map[string][]string
+	// gapCorp is the drift check's block-file corpus of the target, opened once per run (kit issue #2645).
+	gapCorp   *gapdrift.Corpus
+	gapErr    error
+	gapOpened bool
 }
 
 type blockCountKey struct{ dir, prefix string }
@@ -430,7 +431,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		}
 	}
 
-	if prose := firstLineMatching(lines, reSCProse); prose != "" {
+	if prose := firstLineMatching(lines, reSCProse, func(l string) bool { return mayContainFold(l, "investigable") }); prose != "" {
 		var nums []string
 		for _, m := range reSCNumber.FindAllString(prose, -1) {
 			nums = append(nums, reDigits.FindString(m)) // m is `investigable:` plus one run of digits
@@ -463,7 +464,7 @@ func (v *verifier) checkState(state string) (consistent bool) {
 
 	for _, l := range lines {
 		if reGapRows.MatchString(l) {
-			v.gapDrift(state)
+			v.gapDrift(state, src)
 			break
 		}
 	}
@@ -597,13 +598,14 @@ func knownStaleWarns(lines []string) string {
 }
 
 func matchesAnyLine(re *regexp.Regexp, text string) bool {
-	return firstLineMatching(shellx.RecordLines(text), re) != ""
+	return firstLineMatching(shellx.RecordLines(text), re, func(l string) bool { return strings.Contains(l, "<") }) != ""
 }
 
-// firstLineMatching is `grep -E ... | head -1`.
-func firstLineMatching(lines []string, re *regexp.Regexp) string {
+// firstLineMatching is `grep -E ... | head -1`; may, when set, is a cheap necessary condition tested before the
+// regexp (kit issue #2645).
+func firstLineMatching(lines []string, re *regexp.Regexp, may func(string) bool) string {
 	for _, l := range lines {
-		if re.MatchString(l) {
+		if (may == nil || may(l)) && re.MatchString(l) {
 			return l
 		}
 	}
@@ -675,56 +677,54 @@ func arithSum(vals ...string) int64 {
 	return int64(sum)
 }
 
-// gapDrift delegates to check-gap-drift.sh beside the script (WARN-only; a missing or failing checker is a typed
-// degraded WARN, never silence).
-func (v *verifier) gapDrift(state string) {
-	dir := v.s.Env("RSDD_TOOLBELT_DIR")
-	gd := dir + "/check-gap-drift.sh"
-	if dir == "" || !v.fs.IsFile(gd) {
-		v.echo("   WARN   gap-drift: degraded — check-gap-drift.sh not found beside verify-state.sh; B<n>-G<m> rows were NOT compared with their block bullets")
-		return
+// gapDrift runs the child-gap drift check in process (WARN-only; a failing check is a typed degraded WARN, never
+// silence). The block-file listing and every block file are read once per target for the whole run, not once per state
+// file as the check-gap-drift.sh subprocess did (kit issue #2645).
+func (v *verifier) gapDrift(state, src string) {
+	out, rc := v.gapDriftReport(state, src)
+	relayGapDrift(v.echo, out, rc)
+}
+
+// gapDriftReport is the check's merged report (trailing newlines removed) and exit code: what the script printed
+// on stdout and stderr, and its exit status.
+func (v *verifier) gapDriftReport(state, src string) (string, int) {
+	corpus, err := v.gapCorpus()
+	if err == nil {
+		var res gapdrift.Result
+		if res, err = corpus.Check(src, state, gapdrift.Options{Threshold: gapdrift.DefaultThreshold}); err == nil {
+			var b strings.Builder
+			res.Render(&b)
+			return cmdSubst(b.String()), res.ExitCode()
+		}
 	}
-	out, rc := runMerged(v.s, v.fs.At(gd), v.target, state)
+	return cmdSubst(err.Error()), cli.ExitUsage
+}
+
+// gapCorpus is the block-file side of the target, opened once per run.
+func (v *verifier) gapCorpus() (*gapdrift.Corpus, error) {
+	if v.gapOpened {
+		return v.gapCorp, v.gapErr
+	}
+	v.gapCorp, v.gapErr = gapdrift.OpenCorpus(v.s.Cwd, v.target)
+	v.gapOpened = true
+	return v.gapCorp, v.gapErr
+}
+
+// relayGapDrift turns the check's report into WARN lines: each finding line (DRIFT?, UNPARSED, DEGRADED) is relayed,
+// and a failure of the check itself (exit 2, or exit 1 with no finding line) is a typed degraded WARN.
+func relayGapDrift(echo func(format string, a ...any), out string, rc int) {
 	typed := false
 	for _, l := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(l, "DRIFT?") || strings.HasPrefix(l, "UNPARSED"):
 			typed = true
-			v.echo("   WARN   gap-drift: %s — copy the child-gap text verbatim from the block bullet (METHODOLOGY §7)", l)
+			echo("   WARN   gap-drift: %s — copy the child-gap text verbatim from the block bullet (METHODOLOGY §7)", l)
 		case strings.HasPrefix(l, "DEGRADED"):
-			v.echo("   WARN   gap-drift: %s", l)
+			echo("   WARN   gap-drift: %s", l)
 		}
 	}
 	if rc >= 2 || (rc == 1 && !typed) {
 		first, _, _ := strings.Cut(out, "\n")
-		v.echo("   WARN   gap-drift: degraded — check-gap-drift.sh failed (exit %d): %s", rc, first)
+		echo("   WARN   gap-drift: degraded — check-gap-drift.sh failed (exit %d): %s", rc, first)
 	}
-}
-
-// runMerged runs `bash script target --state state` with stdout and stderr merged in order ("2>&1") and returns
-// the output (trailing newlines removed) and the exit code. The script receives the paths as the caller wrote
-// them and runs in the working directory, as it did when the shell ran it.
-func runMerged(s cli.Stdio, script, target, state string) (string, int) {
-	ctx, cancel := context.WithTimeout(context.Background(), gapDriftTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", script, target, "--state", state)
-	cmd.Dir = s.Cwd
-	cmd.Env = []string{}
-	if s.Environ != nil {
-		cmd.Env = s.Environ()
-	}
-	var buf strings.Builder
-	cmd.Stdout, cmd.Stderr = &buf, &buf
-	err := cmd.Run()
-	rc := 0
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			rc = ee.ExitCode()
-		} else if os.IsNotExist(err) {
-			rc = 127
-		} else {
-			rc = 126
-		}
-	}
-	return cmdSubst(buf.String()), rc
 }
