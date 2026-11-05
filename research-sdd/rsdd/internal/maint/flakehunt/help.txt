@@ -1,0 +1,49 @@
+kit-flake-hunt.sh — run test suites repeatedly under bounded synthetic CPU load and report every suite that
+failed at least once (a load flake), so timing flakes are found before they fail a gate (kit issue #2209;
+incident #2197: a teeth case failed at exactly its 5000 ms ceiling under load and cost four full gates).
+
+Usage: kit-flake-hunt.sh [--repo DIR] [--runs K] [--load N] [--load-timeout S] [--suite-timeout S]
+                         [--suites FILE | --suite PATH ...] [--tier core|all] [--prove-teeth]
+                         [--out DIR] [--evidence-url URL] [--file-issues[=apply]]
+
+  --repo DIR          kit checkout to hunt in (default: the kit checkout around the working directory). Suites
+                      run with DIR as cwd, so the pre-fix tree of an incident can be replayed. `gh` also runs
+                      with DIR as cwd, so issues go to that checkout's remote.
+  --runs K            passes over the selected suites (default 3, integer >= 1).
+  --load N            busy-loop workers (default nproc/2, min 1; 0 = no load).
+  --load-timeout S    every worker is wrapped in `timeout S` and also stopped by process group when the command
+                      exits or is interrupted (never by name). Default: the hunt's longest possible duration,
+                      runs x suites x suite-timeout + 300 s. A worker found dead before a suite starts is
+                      `degraded: load expired at run R` (exit 2): a suite measured without load would read as stable.
+  --suite-timeout S   per-suite bound (default 900); a suite past it is recorded TIMEOUT and counts as a failure.
+  --suites FILE       one suite path per line (blank lines and #-comments skipped); --suite PATH is repeatable.
+                      Paths are relative to the repo or absolute. Without either, the suites run-all.sh would run
+                      (`run-all.sh --list-suites`). `*.test.mjs` suites run under `node` (probed only when one is
+                      selected) and never get --prove-teeth, as in run-all.sh.
+  --tier core|all     default all. `core` is tried as `run-all.sh --list-suites --tier core`; a runner that
+                      rejects --tier gets the full list and a `note:` line says so.
+  --prove-teeth       pass --prove-teeth to every shell suite.
+  --out DIR           results directory (default under ${XDG_STATE_HOME:-$HOME/.local/state}/research-sdd/
+                      flake-hunt/<timestamp>-<pid>). Refused, before anything is created or removed, when its
+                      resolved path is the repo or inside it, or when it already exists and is not empty. The
+                      command never deletes a directory it did not create (only its own per-suite TMPDIRs).
+  --evidence-url URL  an http(s) URL (e.g. the CI run) written as an `evidence: URL` line into every issue body;
+                      anything else is refused (exit 2) before anything runs.
+  --file-issues       print the exact `gh issue create|comment` it WOULD run per flaky or broken suite (dry).
+  --file-issues=apply actually run it. An open issue whose title starts with `flake: <suite file> ` is commented
+                      on, never duplicated; a failed search files nothing. Label: type:bug.
+
+A suite PASSes like in run-all.sh: exit 0 AND a `== N passed · M failed ==` line with M=0 and N>0 (no line, a
+malformed line, M>0 or 0/0 is FAIL). Exit 0 with a `SKIP:` line is SKIP. Each suite gets its own TMPDIR under
+<out>/tmp, removed afterwards, and sees FLAKE_HUNT_RUN (1-based), FLAKE_HUNT_SUITE and FLAKE_HUNT_OUT. GH_TOKEN and
+GITHUB_TOKEN are removed from a suite's environment; only gh keeps them.
+
+Output: <out>/results.tsv = `<run>\t<suite>\t<PASS|FAIL|SKIP|TIMEOUT>\t<first FAIL line>` per run per suite,
+<out>/logs/<run>-<n>.log, <out>/issue-<suite file>.md per filed suite, then per suite
+`flaky: <suite> failed X/K — <line>` (failed in some runs), `broken: <suite> failed K/K — <line>` (failed in EVERY
+run: a defect, not a flake; with --runs 1 a failure cannot be told from a flake and reads as broken) and the totals
+line `Flake hunt: runs=K suites=M load=N flaky=F broken=B stable=S skipped=P`.
+
+Exit: 0 clean · 1 at least one flaky or broken suite · 2 degraded or bad usage (a missing timeout/nproc/node/bash,
+no run-all.sh, no suites selected, an unreadable suite list, a refused --out, expired load, a failed issue search,
+or nothing measured because every suite skipped): a degraded run is not a clean hunt · 143/130 after TERM/INT.

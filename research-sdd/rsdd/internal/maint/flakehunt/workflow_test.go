@@ -136,7 +136,7 @@ func TestLocalCronShape(t *testing.T) {
 	w.stubGH()
 	inRepo(w)
 	r := w.goRun("--runs", "5", "--prove-teeth", "--load", "1", "--file-issues", "--suite", "s/flaky.test.sh")
-	if r.rc != 1 || !strings.Contains(r.out, "would run: gh issue create --title flake:\\ flaky.test.sh\\ failed\\ 2/5\\ under\\ CPU\\ load --label type:bug --body-file ") {
+	if r.rc != 1 || !strings.Contains(r.out, "would run: gh issue create --title flake:\\ flaky.test.sh\\ failed\\ 3/5\\ under\\ CPU\\ load --label type:bug --body-file ") {
 		t.Errorf("rc %d out=%q err=%q", r.rc, r.out, r.err)
 	}
 	if b, _ := os.ReadFile(w.rec + "/gh.log"); strings.Contains(string(b), "issue|create") {

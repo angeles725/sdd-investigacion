@@ -103,3 +103,9 @@ func loadScenarios() []scenario {
 		}, args: sl("--runs", "1", "--load", "0", "--load-timeout", "1", "--suite", "s/first.test.sh", "--suite", "s/stable.test.sh")},
 	}
 }
+
+// divergent marks a scenario whose output is a declared divergence (see scenario.diverges).
+func (sc scenario) divergent() scenario {
+	sc.diverges = true
+	return sc
+}

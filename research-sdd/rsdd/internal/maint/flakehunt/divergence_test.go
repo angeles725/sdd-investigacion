@@ -72,6 +72,17 @@ func TestWithoutRepoTheKitCheckoutAroundTheWorkingDirectoryIsHunted(t *testing.T
 	}
 }
 
+func TestAnOutPathThatCannotBeCreatedIsOneTypedLine(t *testing.T) {
+	w := newWorld(t)
+	w.standard()
+	w.file("ext/old.txt", "x")
+	r := w.goRun("--repo", w.repo, "--out", w.root+"/ext/old.txt", "--runs", "1", "--load", "0", "--suite", "s/stable.test.sh")
+	want := "degraded: kit-flake-hunt: cannot create output directory " + w.root + "/ext/old.txt\n"
+	if r.rc != 2 || r.err != want {
+		t.Errorf("rc %d err=%q, want %q (the bash also leaked mkdir's own message)", r.rc, r.err, want)
+	}
+}
+
 func TestWithoutRepoOrKitLayoutTheWorkingDirectoryIsHunted(t *testing.T) {
 	w := newWorld(t)
 	w.standard()

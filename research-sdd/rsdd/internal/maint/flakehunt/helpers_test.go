@@ -14,7 +14,7 @@ import (
 )
 
 // tools are linked into a world's PATH: the legacy script and the fake suites need exactly these.
-var tools = []string{"bash", "env", "timeout", "nproc", "date", "mkdir", "rm", "rmdir", "grep", "dirname", "basename",
+var pathTools = []string{"bash", "env", "timeout", "nproc", "date", "mkdir", "rm", "rmdir", "grep", "dirname", "basename",
 	"readlink", "cat", "sleep", "sed", "sort", "mktemp", "wc", "tr", "head", "tail", "awk", "seq", "touch", "ls", "ps",
 	"pwd", "cut", "uniq", "printf", "true", "false", "sh"}
 
@@ -43,7 +43,7 @@ func newWorld(t *testing.T) *world {
 			t.Fatal(err)
 		}
 	}
-	for _, tool := range tools {
+	for _, tool := range pathTools {
 		for _, d := range []string{"/usr/local/bin", "/usr/bin", "/bin"} {
 			if fi, err := os.Stat(d + "/" + tool); err == nil && !fi.IsDir() {
 				_ = os.Symlink(d+"/"+tool, w.bin+"/"+tool)

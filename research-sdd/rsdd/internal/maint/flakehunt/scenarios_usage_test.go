@@ -74,7 +74,7 @@ func outScenarios() []scenario {
 		out("out-relative", "relout", "", 0),
 		out("out-dotdot-below-missing", "@W@/nx/../y", "", 2),
 		out("out-dot-below-missing", "@W@/nx/./y", "", 2),
-		out("out-is-a-file", "@W@/ext/old.txt", "", 2),
+		out("out-is-a-file", "@W@/ext/old.txt", "", 2).divergent(),
 		{name: "xdg-state-home", raw: true, setup: std, want: 0, env: sl("XDG_STATE_HOME=@W@/xdg"),
 			args: sl("--repo", "@R@", "--runs", "1", "--load", "0", "--suite", "s/stable.test.sh")},
 		{name: "home-state-default", raw: true, setup: std, want: 0,
