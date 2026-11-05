@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"os"
 	"os/exec"
@@ -46,9 +47,7 @@ func init() {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(tb, "research-sdd-archive.sh"), b, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		execfile.Write(t, filepath.Join(tb, "research-sdd-archive.sh"), string(b))
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/execfile"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/parity"
 	"io"
 	"io/fs"
@@ -299,9 +300,7 @@ func archiveFarmStub(t testing.TB, tb, name, content string) {
 	t.Helper()
 	p := filepath.Join(tb, name)
 	_ = os.Remove(p)
-	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	execfile.Write(t, p, content) // under the fork lock: a parallel test's fork cannot hold it open (ETXTBSY)
 }
 
 // ---- running -----------------------------------------------------------------------------------------------

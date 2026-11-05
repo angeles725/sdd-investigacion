@@ -49,6 +49,7 @@ func (w *sdWorld) wantHookWith(b hookBudgets, ctx string) {
 
 // The production budgets, pinned without sleeping: every other timing test runs on injected short ones.
 func TestSkillDriftHookProductionBudgetDefaults(t *testing.T) {
+	t.Parallel()
 	want := hookBudgets{verifyUnit: time.Second, verifyDefault: 10, kitStale: 3 * time.Second}
 	if got := defaultHookBudgets(); got != want {
 		t.Errorf("defaultHookBudgets() = %+v, want %+v", got, want)
@@ -119,6 +120,7 @@ func killAll(t *testing.T, pids []int) {
 // H4e: a grandchild that keeps the stdout pipe open must not make the hook wait for it, and the bound is
 // reported as a timeout. The grandchild is also gone afterwards (the whole group is stopped).
 func TestSkillDriftHookStalledGrandchildHoldingStdoutIsBounded(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	pidFile := filepath.Join(w.root, "grandchild.pid")
 	w.installStub("sleep 60 &\necho $! >" + pidFile + "\nexec sleep 60")
@@ -146,6 +148,7 @@ func TestSkillDriftHookStalledGrandchildHoldingStdoutIsBounded(t *testing.T) {
 // the hook's own processes by command line; the Go hook runs in the caller's process and has no watchdog, so
 // what can leak is what the stub started. The check is by the pids the test's stubs recorded.
 func TestSkillDriftHookFastFinishesLeaveNoDescendants(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	pidFile := filepath.Join(w.root, "bg.pids")
 	w.installStub("sleep 300 >/dev/null 2>&1 &\necho $! >>" + pidFile + "\nexit 0")
@@ -166,6 +169,7 @@ func TestSkillDriftHookFastFinishesLeaveNoDescendants(t *testing.T) {
 // H4o: a verify that finishes inside the bound is never reported as timed out. A timeout seen only after the
 // bound really elapsed is legitimate on a loaded host and is not counted.
 func TestSkillDriftHookFastVerifyIsNeverReportedTimedOut(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	w.installStub("sleep 0.02")
 	w.env["RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT"] = "1"
@@ -201,6 +205,7 @@ const behindLine = "verify kit status=behind by 3"
 // K16: a git that never answers is cut off by ONE shared 3 s budget; the state is unknown, so install
 // --verify's own behind line is kept; verbose says the check was abandoned.
 func TestSkillDriftHookHangingGitIsCutOffByTheSharedBudget(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	w.gitKit(25)
 	w.installStub("echo '" + behindLine + "'")
@@ -218,6 +223,7 @@ func TestSkillDriftHookHangingGitIsCutOffByTheSharedBudget(t *testing.T) {
 // The budget is shared, not per call: a git that answers every call in 0.5 s (inside the 0.6 s budget each)
 // still exhausts it by the second call, and the check is abandoned instead of finishing after ~2.5 s.
 func TestSkillDriftHookSlowGitSpendsOneBudgetNotOnePerCall(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	w.gitKit(25)
 	w.installStub("echo '" + behindLine + "'")
@@ -233,6 +239,7 @@ func TestSkillDriftHookSlowGitSpendsOneBudgetNotOnePerCall(t *testing.T) {
 // K19, K19b: a failing `rev-parse --git-path FETCH_HEAD` must not become "<kit>/" (a path that always looks
 // fresh): the state is unknown and install --verify's behind line is kept; verbose types the failure.
 func TestSkillDriftHookFailedGitPathLookupIsUnknownNotFresh(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	w.gitKit(3)
 	w.installStub("echo '" + behindLine + "'")
@@ -247,6 +254,7 @@ func TestSkillDriftHookFailedGitPathLookupIsUnknownNotFresh(t *testing.T) {
 // FETCH_HEAD. The "cannot read the age" branch needs a FETCH_HEAD that exists as a file yet fails os.Stat a
 // moment later, which a test cannot arrange.)
 func TestSkillDriftHookUnknownFetchAgeLetsTheCountGovern(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	kit := w.gitKit(25)
 	if err := os.Remove(filepath.Join(kit, ".git", "FETCH_HEAD")); err != nil {
@@ -263,6 +271,7 @@ func TestSkillDriftHookUnknownFetchAgeLetsTheCountGovern(t *testing.T) {
 // K13b: a never-fetched clone whose .git/config is 10 days old stays silent: the config's mtime is not an age
 // source (any git config write resets it).
 func TestSkillDriftHookConfigMtimeIsNotAnAgeSource(t *testing.T) {
+	t.Parallel()
 	w := hookWorld(t)
 	kit := w.gitKit(0)
 	if err := os.Remove(filepath.Join(kit, ".git", "FETCH_HEAD")); err != nil {
