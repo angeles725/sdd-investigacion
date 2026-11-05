@@ -114,7 +114,6 @@ func (sb *sandbox) run(args ...string) (stdout, stderr string, rc int) {
 }
 
 func TestKitCleanReports(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	clean := sb.repo("clean", true, nil)
 	dirty := sb.repo("dirty", true, nil)
@@ -190,7 +189,6 @@ func (sb *sandbox) stubGit(name, body string) string {
 }
 
 func TestKitCleanGitStatusFailureIsNotClean(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	sb.env["PATH"] = sb.stubGit("stub-status", `case "$*" in
   *rev-parse*--show-toplevel*) echo /tmp/fake-root; exit 0 ;;
@@ -213,7 +211,6 @@ esac
 }
 
 func TestKitCleanCountersContradiction(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	sb.env["PATH"] = sb.stubGit("stub-contra", `case "$*" in
   *rev-parse*--show-toplevel*) echo /tmp/fake-r11; exit 0 ;;
@@ -236,7 +233,6 @@ esac
 // Kit issue #1820: a SessionStart read must never take index.lock, so every git run carries GIT_OPTIONAL_LOCKS=0
 // whatever the caller's environment says.
 func TestKitCleanEveryGitCallCarriesOptionalLocksZero(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	realGit, _ := exec.LookPath("git")
 	logf := filepath.Join(sb.home, "git.log")
@@ -267,7 +263,6 @@ exec `+realGit+` "$@"
 }
 
 func TestKitCleanDefaultsToWorkingDirectory(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	d := sb.repo("cwdrepo", true, nil)
 	var out, errb bytes.Buffer
@@ -281,7 +276,6 @@ func TestKitCleanDefaultsToWorkingDirectory(t *testing.T) {
 }
 
 func TestKitCleanGitMissingIsTypedDegraded(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	d := sb.repo("nogit", true, nil)
 	sb.env["PATH"] = filepath.Join(sb.home, "empty-bin")
@@ -292,7 +286,6 @@ func TestKitCleanGitMissingIsTypedDegraded(t *testing.T) {
 }
 
 func TestKitCleanHookEnvelope(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	clean := sb.repo("hclean", true, nil)
 	dirty := sb.repo("hdirty", true, nil)
@@ -321,7 +314,6 @@ func TestKitCleanHookEnvelope(t *testing.T) {
 // GIT_CONFIG_COUNT with its GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> pairs, and GIT_CONFIG_PARAMETERS (what
 // `git -c` hands its children). A count without its pairs makes git die, which read as "not a git repo".
 func TestKitCleanHonoursGitConfigEnvironment(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	clean := sb.repo("clean", true, nil)
 	hidden := sb.repo("hidden", true, nil)

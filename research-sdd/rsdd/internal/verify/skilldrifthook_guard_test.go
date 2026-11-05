@@ -14,7 +14,6 @@ import (
 // #2610). The seam is the environment lookup, which every run reads (the drift check and then the install
 // --verify command), so the panic is always reached.
 func TestSkillDriftHookPanicStillEmitsEnvelope(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	var out, errb bytes.Buffer
 	s := w.stdio(&out, &errb)

@@ -16,7 +16,6 @@ import (
 // kit issue #2610). The seam is the environment lookup: gitRunner reads it before the first git call, so it is
 // always reached.
 func TestKitCleanHookPanicStillEmitsEnvelope(t *testing.T) {
-	t.Parallel()
 	sb := newSandbox(t)
 	d := sb.repo("p", true, nil)
 	var out, errb bytes.Buffer

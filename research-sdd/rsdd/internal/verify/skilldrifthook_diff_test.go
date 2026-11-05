@@ -171,7 +171,6 @@ func hookScenarios() []hookScenario {
 }
 
 func TestSkillDriftHookDifferential(t *testing.T) {
-	t.Parallel()
 	for _, sc := range hookScenarios() {
 		t.Run(sc.name, func(t *testing.T) {
 			w := newSDWorld(t)

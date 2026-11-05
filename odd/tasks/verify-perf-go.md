@@ -12,7 +12,7 @@ Objective: make `rsdd verify corrections` and `rsdd verify state` fast on the la
 
 - T3 (S2) port check-gap-drift.sh + lib/gap-rows.sh to Go (core/gaprows typed parser + gap-drift command), repoint verify state gapDrift in process — route: delegated writer — status: done, PR #2681 merged 743af41e (Closes #2645)
 
-- T4 (internal/verify test time, #2665 class) TestMain parallelfloor.Raise(8) in verify, block, corrections, gapdrift + t.Parallel on 221/235 tests (14 that swap or chdir package globals stay serial, picked by go/ast) + reGapRows comment; also fixes #2690 (block cases under /tmp) — route: inline — status: committed on test/verify-parallel-floor (heavy-run, lane GOTMPDIR: verify 245.5→84.9 s, block 202 FAIL→47.0 s, corrections 26.2→8.8 s, gapdrift 9.3→4.5 s; -race clean)
+- T4 (internal/verify test time, #2665 class) TestMain parallelfloor.Raise(8) in verify, block, corrections, gapdrift + t.Parallel on 160/235 tests (14 that swap or chdir, plus the 61 skilldrift/kitclean tests that write and exec stubs: ETXTBSY, CI exit 126; parallel again after testkit/execfile #2697/#2698 package globals stay serial, picked by go/ast) + reGapRows comment; also fixes #2690 (block cases under /tmp) — route: inline — status: committed on test/verify-parallel-floor (heavy-run, lane GOTMPDIR: verify 245.5→84.9 s, block 202 FAIL→47.0 s, corrections 26.2→8.8 s, gapdrift 9.3→4.5 s; -race clean)
 
 - T5 (#2592 repoint, s3-owned teeth-debt packages; one package per change, delete its teeth-debt.txt line in the same commit, kill revealed lived mutants; never touch rsdd-go.test.sh combine_verdicts, s1 #2683): ./internal/verify, then ./internal/core/gfm, then ./internal/corpus — route: TBD per package — status: after T4
 

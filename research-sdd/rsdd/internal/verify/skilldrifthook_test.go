@@ -58,7 +58,6 @@ func hookWorld(t *testing.T) *sdWorld {
 }
 
 func TestSkillDriftHookIsSilentWhenNothingNeedsSaying(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.wantHook("") // nothing deployed
 	w.deploy(claudeRel, sdKitSkill)
@@ -68,7 +67,6 @@ func TestSkillDriftHookIsSilentWhenNothingNeedsSaying(t *testing.T) {
 }
 
 func TestSkillDriftHookDriftAndCouldNotRun(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.deploy(claudeRel, "stale\n")
 	w.wantHook(hdrStale + "\n" +
@@ -82,7 +80,6 @@ func TestSkillDriftHookDriftAndCouldNotRun(t *testing.T) {
 }
 
 func TestSkillDriftHookSurfacesInstallVerifyFindings(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.installStub(`cat <<'EOF'
 verify harness=pi status=degraded reason=no-profiles
@@ -100,7 +97,6 @@ EOF`)
 }
 
 func TestSkillDriftHookTypedLinesAreCutTo170Characters(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	long := "verify harness=pi status=degraded " + strings.Repeat("x", 300)
 	w.installStub("echo '" + long + "'")
@@ -108,7 +104,6 @@ func TestSkillDriftHookTypedLinesAreCutTo170Characters(t *testing.T) {
 }
 
 func TestSkillDriftHookDriftBlock(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.installStub(`echo 'verify harness=claude status=drift drifted=a.md,(extra: TARGETS.md -> /x),b.md,c.md,d.md,e.md kept-hand-edit=f.md,g.md'
 echo 'verify harness=pi status=drift drifted=only.md'
@@ -126,7 +121,6 @@ echo 'verify harness=gentle-shell status=drift no-members-field'`)
 }
 
 func TestSkillDriftHookDriftBlockWidths(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	ent, kept := strings.Repeat("e", 400), strings.Repeat("k", 400)
 	w.installStub("echo 'verify harness=claude status=drift drifted=" + ent + " kept-hand-edit=" + kept + "'\necho 'verify harness=pi status=drift " + ent + "'")
@@ -138,7 +132,6 @@ func TestSkillDriftHookDriftBlockWidths(t *testing.T) {
 }
 
 func TestSkillDriftHookInstallVerifyFailureIsNeverSilent(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.installStub("echo 'nothing typed'; exit 3")
 	w.wantHook(hdrInstall + "\nverify: install --verify exited 3 with no typed line")
@@ -151,7 +144,6 @@ func TestSkillDriftHookInstallVerifyFailureIsNeverSilent(t *testing.T) {
 }
 
 func TestSkillDriftHookInstallVerifyIsBounded(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.installStub("exec sleep 30")
 	w.env["RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT"] = "1"
@@ -163,7 +155,6 @@ func TestSkillDriftHookInstallVerifyIsBounded(t *testing.T) {
 }
 
 func TestSkillDriftHookInvalidTimeoutIsAnnounced(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	for raw, shown := range map[string]string{"": " (empty)", "abc": "='abc'", "0": "='0'", "10s": "='10s'", "-1": "='-1'", "1234567": "='1234567'", ".5": "='.5'"} {
 		w.env["RESEARCH_SDD_INSTALL_VERIFY_TIMEOUT"] = raw
@@ -227,7 +218,6 @@ func (w *sdWorld) ageFetchHead(kit string, days int) {
 }
 
 func TestSkillDriftHookKitStaleness(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	kit := w.gitKit(3)
 	w.wantHook("") // 3 behind, a fresh fetch: within both thresholds
@@ -283,7 +273,6 @@ func TestSkillDriftHookKitStaleness(t *testing.T) {
 
 // The thresholds are "more than": exactly the limit is not stale, one past it is.
 func TestSkillDriftHookKitStalenessLimitsAreExclusive(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	kit := w.gitKit(2)
 	w.env["RESEARCH_SDD_KIT_STALE_MAX_COMMITS"] = "2"
@@ -316,7 +305,6 @@ func (w *sdWorld) hookContext() string {
 }
 
 func TestSkillDriftHookKitStalenessFallsBackToOriginMain(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	kit := w.gitKit(2)
 	w.git(kit, "branch", "--unset-upstream")
@@ -325,7 +313,6 @@ func TestSkillDriftHookKitStalenessFallsBackToOriginMain(t *testing.T) {
 }
 
 func TestSkillDriftHookKitStalenessUnmeasurableIsSilentUnlessVerbose(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	notGit := filepath.Join(w.root, "tarball")
 	if err := os.MkdirAll(notGit, 0o755); err != nil {
@@ -352,7 +339,6 @@ func TestSkillDriftHookKitStalenessUnmeasurableIsSilentUnlessVerbose(t *testing.
 }
 
 func TestSkillDriftHookKitStalenessGitMissingIsTyped(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	delete(w.env, "RESEARCH_SDD_KIT_STALE_CHECK")
 	w.env["RESEARCH_SDD_KIT_STALE_VERBOSE"] = "1"
@@ -367,7 +353,6 @@ func TestSkillDriftHookKitStalenessGitMissingIsTyped(t *testing.T) {
 }
 
 func TestSkillDriftHookInvalidStaleThresholdsAreAnnounced(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	delete(w.env, "RESEARCH_SDD_KIT_STALE_CHECK")
 	w.env["RESEARCH_SDD_KIT_DIR"] = w.kit
@@ -377,7 +362,6 @@ func TestSkillDriftHookInvalidStaleThresholdsAreAnnounced(t *testing.T) {
 }
 
 func TestSkillDriftHookKitStaleCheckOffSkipsIt(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.gitKit(5)
 	w.env["RESEARCH_SDD_KIT_STALE_MAX_COMMITS"] = "1"
@@ -388,14 +372,12 @@ func TestSkillDriftHookKitStaleCheckOffSkipsIt(t *testing.T) {
 // A killed install --verify reads as the shell's 128+signal. (The frozen script prints the same envelope, plus
 // the shell's own "Killed" job notice on stderr, which is why this is not in the differential.)
 func TestSkillDriftHookInstallKilledBySignal(t *testing.T) {
-	t.Parallel()
 	w := hookWorld(t)
 	w.installStub("kill -9 $$")
 	w.wantHook(hdrInstall + "\nverify: install --verify exited 137 with no typed line")
 }
 
 func TestSkillDriftHookResolvesTheKitWhenNoDirIsGiven(t *testing.T) {
-	t.Parallel()
 	// an unresolvable kit never fails the session: silence, exit 0
 	w := hookWorld(t)
 	var out, errb bytes.Buffer
