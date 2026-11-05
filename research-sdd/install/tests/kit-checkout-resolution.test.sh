@@ -174,7 +174,8 @@ if [ "${1:-}" = "--prove-teeth" ]; then
   # An adapters mutant is swapped into the temp install copy (the installer sources adapters.sh by its own
   # dir), a REAL pi install runs through it, and the SAME _launcher_check as L1 must reject the result.
   _swap_check() { # <label> <sed-expr> <expected: pass|fail> [claude]
-    local m="$TMP/adapters.mut.sh" bak="$TMP/adapters.orig.sh" th="$TMP/t-$RANDOM"
+    local m="$TMP/adapters.mut.sh" bak="$TMP/adapters.orig.sh" th
+    th="$(mktemp -d "$TMP/t-XXXXXX")" || { no "teeth: $1 cannot create a temp home — no verdict"; return; }
     cp "$MKI/adapters.sh" "$bak"
     if ! mutant_sed "$HERE/../adapters.sh" "$m" "$2"; then no "teeth: $1 mutant could not be built"; return; fi
     cp "$m" "$MKI/adapters.sh"; mkdir -p "$th"

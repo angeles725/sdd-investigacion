@@ -152,7 +152,7 @@ func scanCorpus(out io.Writer, p string, index pointerIndex, read readFunc, t *b
 		fmt.Fprintf(out, "INFO: corpus exists, no block files (empty-input): %s\n", p)
 		return
 	}
-	tagged := 0
+	anyTagged := false
 	for _, bf := range files {
 		data, err := read(bf)
 		if err != nil {
@@ -164,14 +164,14 @@ func scanCorpus(out io.Writer, p string, index pointerIndex, read readFunc, t *b
 		if len(marks) == 0 {
 			continue
 		}
-		tagged++
+		anyTagged = true
 		t.tagged++
 		if !index.indexes(bf, marks) {
 			fmt.Fprintf(out, "WARN: unindexed breakthrough — tagged block not in BREAKTHROUGHS.md: %s:%d\n", bf, marks[0])
 			t.unindexed++
 		}
 	}
-	if tagged == 0 {
+	if !anyTagged {
 		fmt.Fprintf(out, "INFO: no tagged breakthroughs in corpus (no-match — expected while back-fill pending): %s\n", p)
 	}
 }
