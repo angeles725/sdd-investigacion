@@ -19,18 +19,19 @@ func (c *ctx) nextStepLine(doc docCycle, dgNames string) {
 	if doc.mode == docOutline {
 		nsDoc = doc.nextStep(c)
 	}
-	switch {
-	case strings.HasPrefix(nsDoc, "NEXT") || strings.HasPrefix(nsDoc, "BOOTSTRAP"):
+	if strings.HasPrefix(nsDoc, "NEXT") || strings.HasPrefix(nsDoc, "BOOTSTRAP") {
 		fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, nsDoc)
-	case dgNames != "":
-		fmt.Fprintf(c.s.Out, "%sDEGRADED (blocked-rows derivation unreadable for %s — a next gap or a paused-focus count derived from it would be inflated)\n", nextPad, dgNames)
-	default:
-		gap := c.gapRun()
-		if nsDoc != "" && strings.HasPrefix(gap, "STOP") {
-			gap = nsDoc
-		}
-		fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, gap)
+		return
 	}
+	if dgNames != "" {
+		fmt.Fprintf(c.s.Out, "%sDEGRADED (blocked-rows derivation unreadable for %s — a next gap or a paused-focus count derived from it would be inflated)\n", nextPad, dgNames)
+		return
+	}
+	gap := c.gapRun()
+	if nsDoc != "" && strings.HasPrefix(gap, "STOP") {
+		gap = nsDoc
+	}
+	fmt.Fprintf(c.s.Out, "%s%s\n", nextPad, gap)
 }
 
 // gapRun is _ns_gap_run: the gap-centric verdict across EVERY focus (not just the picked one). A stopped or paused

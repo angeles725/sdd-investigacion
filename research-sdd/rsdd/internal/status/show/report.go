@@ -90,11 +90,11 @@ func (c *ctx) report(sm sections) int {
 // contradictionsLine is the contradictions line (and its WARN) of the report.
 func (c *ctx) contradictionsLine() {
 	ledgers := c.contraLedgers()
-	switch {
-	case len(ledgers) == 0:
+	if len(ledgers) == 0 {
 		fmt.Fprintln(c.s.Out, "  contradictions  : (no ledger)")
 		return
-	case len(ledgers) > 1:
+	}
+	if len(ledgers) > 1 {
 		fmt.Fprintf(c.s.Err, "WARN: multiple CONTRADICTIONS*.md ledgers under %s — counting all %d\n", c.corpus, len(ledgers))
 	}
 	if n := c.countOpenContra(ledgers); n > 0 {

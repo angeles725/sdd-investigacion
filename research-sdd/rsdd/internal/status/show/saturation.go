@@ -3,7 +3,7 @@ package show
 import (
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -80,13 +80,15 @@ func (c *ctx) saturationLine() string {
 // sortByKey is `sort -t TAB -k1,1n` over the records' lines (stable: `-s`) or not (ties broken on the whole line).
 func sortByKey(recs []iterRec, stable bool) []iterRec {
 	out := append([]iterRec(nil), recs...)
-	less := func(a, b iterRec) bool {
+	slices.SortStableFunc(out, func(a, b iterRec) int {
 		if d := numCmp(a.sk, b.sk); d != 0 {
-			return d < 0
+			return d
 		}
-		return !stable && a.line() < b.line()
-	}
-	sort.SliceStable(out, func(i, j int) bool { return less(out[i], out[j]) })
+		if stable {
+			return 0
+		}
+		return strings.Compare(a.line(), b.line())
+	})
 	return out
 }
 

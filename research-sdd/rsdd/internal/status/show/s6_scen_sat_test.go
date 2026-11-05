@@ -79,5 +79,9 @@ func s6Saturation() []s6Scenario {
 	sat("s-unterminated-final-row", "active (1 new gaps in last 3 iter)", "\n## Iteration history\n\n"+itHdr+"\n|---|---|---|---|\n"+it("1", "0")+"\n"+it("2", "1")+"\n"+it("3", "0"))
 	sat("s-large-counts", "active (3000000 new gaps in last 3 iter)", tbl(it("1", "1000000"), it("2", "1000000"), it("3", "1000000")))
 	sat("s-gaps-with-leading-zeros", "active (12 new gaps in last 3 iter)", tbl(it("1", "007"), it("2", "0"), it("3", "+05")))
+	sat("s-unnumbered-row-sorts-by-its-position", "active (1 new gaps in last 3 iter)  [WARN: 2 of 5 rows unreadable (forms: i1,s)]  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("3", "0"), it("4", "1"), it("5", "0"), it("1", "i1"), it("synthesis", "s")))
+	sat("s-warn-total-counts-numbered-and-unnumbered-rows", "active (1 new gaps in last 3 iter)  [WARN: 1 of 6 rows unreadable (forms: x)]  [2 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]", tbl(it("1", "x"), it("2", "1"), it("3", "0"), it("4", "0"), it("bootstrap", "2"), it("reopen", "none")))
+	sat("s-angle-brackets-alone-are-a-placeholder", "insufficient history (1 iterations)", tbl(it("1", "0"), "| <> | d | 5 | n |"))
+	sat("s-a-lone-angle-bracket-is-not-a-placeholder", "insufficient history (1 iterations)  [1 unnumbered row(s) (bootstrap/reopen/synthesis) excluded from the window]  · latest unnumbered row seeded 5 gaps — not yet an iteration", tbl(it("1", "0"), "| < | d | 5 | n |"))
 	return scs
 }

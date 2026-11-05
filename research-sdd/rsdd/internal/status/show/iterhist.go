@@ -94,17 +94,20 @@ func iterRow(cells []string, ngcol, seq int) iterRec {
 		kind, sk = "row", idx[:n]
 	}
 	rec := iterRec{kind: kind, sk: sk, status: "bad"}
-	lc := lowerASCII(cell)
-	switch v := strings.TrimPrefix(cell, "+"); {
-	case cell == "":
+	if cell == "" {
 		rec.val = "(empty)"
-	case leadingDigits(v) > 0:
-		rec.status, rec.val = "ok", awkInt(v[:leadingDigits(v)])
-	case strings.HasPrefix(lc, "none") || strings.HasPrefix(lc, "ningun") || strings.HasPrefix(lc, "ningún"): // NG-NONE
-		rec.status, rec.val = "ok", "0"
-	default:
-		rec.val = clipTab(cell)
+		return rec
 	}
+	v := strings.TrimPrefix(cell, "+")
+	if n := leadingDigits(v); n > 0 {
+		rec.status, rec.val = "ok", awkInt(v[:n])
+		return rec
+	}
+	if lc := lowerASCII(cell); strings.HasPrefix(lc, "none") || strings.HasPrefix(lc, "ningun") || strings.HasPrefix(lc, "ningún") { // NG-NONE
+		rec.status, rec.val = "ok", "0"
+		return rec
+	}
+	rec.val = clipTab(cell)
 	return rec
 }
 

@@ -76,6 +76,7 @@ func s6Header() []s6Scenario {
 		os6("h-coverage-metric-spaces-removed", "  coverage metric : 5/8", cov("- Coverage metric: 5 / 8"), nil, nil),
 		os6("h-coverage-no-section", "  coverage metric : <none>", base, nil, nil),
 		os6("h-coverage-section-without-the-lines", "  covered blocks  : <none> claimed", cov("nothing here"), nil, nil),
+		os6("h-covered-blocks-number-at-the-start-of-the-line", "  covered blocks  : 7 claimed", cov("7 covered blocks"), nil, nil),
 		os6("h-covered-blocks-case-insensitive", "  covered blocks  : 12 claimed", cov("COVERED BLOCKS: 12 of 20"), nil, nil),
 		os6("h-covered-blocks-first-number", "  covered blocks  : 1 claimed", cov("Covered blocks (B1-B9): 7 claimed, 9 total"), nil, nil),
 		os6("h-covered-blocks-first-line-without-digits", "  covered blocks  : 4 claimed", cov("Covered blocks: none yet", "covered blocks again: 4"), nil, nil),
