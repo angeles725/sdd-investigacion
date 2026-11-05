@@ -1,6 +1,6 @@
 ### kit-pr-pipeline
 
-- `kit-pr-pipeline: <state>` (maint/kit-pr-pipeline.sh, kit-gate.sh, kit-wait-merge.sh, kit issue #2212): the PR
+- `kit-pr-pipeline: <state>` (maint/kit-pr-pipeline.sh, kit-gate.sh, kit-wait-merge.sh: shims to `rsdd maint pr-pipeline`, `gate`, `wait-merge`; kit issue #2212): the PR
   pipeline ends in one typed state, each with its own exit code and exactly one continuation. It relays the RDD
   states in `reason-codes.d/kit-rdd.md` (`rdd-not-approved` 13, `rdd-start-error` 14, `consent-required` 15, `degraded` 3).
   `tests/kit-pr-pipeline.test.sh` pins them; `maint/` is not a scanned directory, so they are listed here and not
