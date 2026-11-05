@@ -113,7 +113,10 @@ func underEvidence(rel string) bool {
 // whose mtime is older than the retention age. A matching directory is listed once: its contents are not.
 func (r *run) staleBackups(dir string) ([]string, bool) {
 	start := dir
-	if p, err := filepath.EvalSymlinks(dir); err == nil {
+	if !strings.HasPrefix(start, "/") {
+		start = r.o.Cwd + "/" + start // walked against Options.Cwd; the printed paths keep the name that was given
+	}
+	if p, err := filepath.EvalSymlinks(start); err == nil {
 		start = p // a symlinked evidence directory is read through, not mistaken for an empty one
 	}
 	var stale []string

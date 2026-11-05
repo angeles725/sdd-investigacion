@@ -3,6 +3,7 @@ package cleancheck
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"strings"
 
@@ -24,13 +25,19 @@ func (p probes) hasCopy(path string) bool {
 	return ok && p.shas[sum]
 }
 
+// fileSum is the sha256 of the file, streamed: an artifact of any size is hashed in constant memory, as
+// `sha256sum < file` did. A file that cannot be opened or read has no sum.
 func fileSum(path string) (string, bool) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "", false
 	}
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:]), true
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", false
+	}
+	return hex.EncodeToString(h.Sum(nil)), true
 }
 
 // readProbes reads the manifests and hashes the files under sources/probes. A scan that fails is a refused run
@@ -38,7 +45,9 @@ func fileSum(path string) (string, bool) {
 func (r *run) readProbes() (probes, bool) {
 	p := probes{manifested: map[string]bool{}, shas: map[string]bool{}}
 	root := r.targetP + "/sources/probes"
-	if !isDir("", root) {
+	// find <dir> -type f does not follow a symlinked <dir>: a sources/probes that links elsewhere has no files, and
+	// reading through it would trust what lies outside the target.
+	if fi, err := r.lstat(root); err != nil || !fi.IsDir() {
 		return p, true
 	}
 	var manifests, files []string

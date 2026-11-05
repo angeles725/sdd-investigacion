@@ -51,3 +51,10 @@ dependency):
   unreadable block `grep: <path>: Permission denied`; any other error text is Go's. Git's own stderr (an unreadable directory under
   `ls-files`) is forwarded exactly as before.
 - **Bounded children.** Every git run has a ten-minute ceiling and a 64 MiB output cap; the script had neither.
+- **Hashing is streamed.** The script's `sha256sum < file` read any size in constant memory; the engine does the same
+  (`io.Copy` into a hash), pinned by `TestFileSumStreamsLargeFiles`.
+- **A git listing cut at the output cap is a refused scan** (`git ls-files failed or was truncated ...`, exit 2), the
+  guarantee the script's RC marker gave; pinned by `TestOutputCapIsNotACompleteListing`.
+- **A symlinked `sources/probes` is not followed**, as `find <dir> -type f` did not (`TestSymlinkedProbesAreNotFollowed`).
+- **In-process contract.** Every relative path is resolved against `Options.Cwd` (`TestRelativePathsUseOptionsCwd`);
+  a nil `Options.Now` is a typed refusal, never a panic (`TestZeroNowIsATypedRefusal`).

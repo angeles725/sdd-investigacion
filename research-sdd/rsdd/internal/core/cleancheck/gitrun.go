@@ -55,10 +55,18 @@ func (r *run) git(args ...string) gitRes {
 	if err != nil {
 		return gitRes{rc: 127, err: err.Error()}
 	}
+	return settle(out)
+}
+
+// settle turns a bounded run into the exit status the callers test. A run stopped by its timeout or cut at the output
+// cap is never a success, even when git itself exited 0: its listing is incomplete, which the script's RC marker caught.
+func settle(out proc.Result) gitRes {
 	res := gitRes{out: string(out.Stdout), err: string(out.Stderr), rc: out.ReturnCode}
 	switch {
 	case out.Reason == proc.ReasonTimeout:
 		res.rc = 124
+	case out.Reason == proc.ReasonOutputCap:
+		res.rc = 125
 	case out.ReturnCode < 0:
 		res.rc = 128 - out.ReturnCode
 	}

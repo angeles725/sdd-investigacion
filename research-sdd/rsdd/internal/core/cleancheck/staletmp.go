@@ -17,6 +17,9 @@ func olderThan(now time.Time, mtime time.Time, limitMinutes int64) bool {
 // ageIn is `$(( (now - mtime) / unit ))` in whole units, with the unit's suffix, or "unknown" when the entry's own
 // mtime cannot be read (it vanished since it was listed).
 func (r *run) ageIn(path string, unitSeconds int64, suffix string) string {
+	if !strings.HasPrefix(path, "/") {
+		path = r.o.Cwd + "/" + path // a relative path is relative to Options.Cwd, not the process
+	}
 	info, err := r.lstat(path)
 	if err != nil {
 		return "unknown"

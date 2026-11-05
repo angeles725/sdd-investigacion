@@ -16,9 +16,15 @@ import (
 // never change the verdict. A run that stopped early (Refused, or git missing) has no Summary line.
 //
 // Check reads nothing from the process: the working directory, the environment (git, TMPDIR) and the clock are in
-// Options. It runs only git, and only to read.
+// Options, and every relative path is resolved against Options.Cwd. Options.Now is required: a nil clock is a typed
+// refusal (Refused, exit 2, no Summary), never a panic; the rsdd command supplies the process clock. It runs only git,
+// and only to read.
 func Check(o Options) Result {
 	r := newRun(o)
+	if o.Now == nil {
+		r.refuse("Options.Now is required (the command layer supplies the clock)")
+		return r.res
+	}
 	r.settleScratchpad()
 	if r.resolveInputs() && r.resolveBase() && r.loadKeep() && r.scanUntracked() && r.scanStaleTmp() {
 		if r.scan() {
