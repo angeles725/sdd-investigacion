@@ -72,8 +72,8 @@ func execCleanCheck(script, target string, timeout time.Duration, s cli.Stdio) p
 // boundedRun is core/proc over argv in the caller's directory and environment.
 func boundedRun(argv []string, timeout, grace time.Duration, s cli.Stdio) probeResult {
 	var env []string
-	if s.Environ != nil {
-		env = kit.ShimEnv(s.Environ(), os.Executable)
+	if environ := s.Environment(); environ != nil {
+		env = kit.ShimEnv(environ, os.Executable)
 	}
 	res, err := proc.Run(proc.Spec{Argv: argv, Dir: s.Cwd, Env: env, Timeout: timeout, MaxBytes: execMaxBytes, Grace: grace, Now: s.Clock})
 	var spawn *proc.SpawnError
@@ -112,11 +112,7 @@ func (c *ctx) toolbeltFile(name string) (string, bool) {
 // ghOptions is the gh call of the batch prefetch: the caller's environment and working directory, the bound of
 // _IDG_RECONCILE_TIMEOUT_SECS (default 15 s, as the per-retro probes).
 func (c *ctx) ghOptions() gh.Options {
-	var env []string
-	if c.s.Environ != nil {
-		env = c.s.Environ()
-	}
-	return gh.Options{Env: env, Dir: c.s.Cwd, Knob: "_IDG_RECONCILE_TIMEOUT_SECS", Default: idgDefaultTimeout, Now: c.s.Clock}
+	return gh.Options{Env: c.s.Environment(), Dir: c.s.Cwd, Knob: "_IDG_RECONCILE_TIMEOUT_SECS", Default: idgDefaultTimeout, Now: c.s.Clock}
 }
 
 // shellExit is the "exit N" a failed gh call is reported with: the shell code, never 0 for a failure.

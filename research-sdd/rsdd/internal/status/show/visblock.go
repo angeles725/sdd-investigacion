@@ -34,10 +34,7 @@ func (c *ctx) remoteVisibility() (degraded bool) {
 	if _, err := os.Stat(dir + "/.git"); err != nil {
 		return false
 	}
-	var environ []string
-	if c.s.Environ != nil {
-		environ = c.s.Environ()
-	}
+	environ := c.s.Environment()
 	remotes, err := git.Runner{Env: environ, Now: c.s.Clock}.Remotes(dir)
 	if errors.Is(err, git.ErrMissing) {
 		fmt.Fprintf(c.s.Out, "degraded: remote-visibility: git not found — cannot read the remotes of %s\n", c.target)
