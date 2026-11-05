@@ -65,8 +65,6 @@ func jqJoinPart(v any) (string, error) {
 // lastParagraph is the last contiguous run of non-empty lines (a line of only blanks is not empty), or "".
 func lastParagraph(text string) string {
 	trimmed := strings.TrimRight(text, "\n")
-	if i := strings.LastIndex(trimmed, "\n\n"); i >= 0 {
-		return trimmed[i+2:]
-	}
-	return strings.TrimLeft(trimmed, "\n")
+	parts := strings.Split(trimmed, "\n\n")
+	return strings.TrimLeft(parts[len(parts)-1], "\n")
 }
