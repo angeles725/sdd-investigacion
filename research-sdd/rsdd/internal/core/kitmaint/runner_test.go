@@ -111,15 +111,14 @@ func TestMissingDepsAndProbe(t *testing.T) {
 	if m := MissingDeps(env, bin, "gone", "present", "also-gone"); strings.Join(m, ",") != "gone,also-gone" {
 		t.Errorf("missing = %v, want the absent ones in order", m)
 	}
-	var out bytes.Buffer
-	if !ProbeDeps(&out, "kit-x", env, bin, "present") || out.Len() != 0 {
-		t.Errorf("complete and silent expected: %q", out.String())
+	var out, errb bytes.Buffer
+	if !ProbeDeps(&out, &errb, "kit-x", env, bin, "present") || out.Len() != 0 || errb.Len() != 0 {
+		t.Errorf("complete and silent expected: %q %q", out.String(), errb.String())
 	}
-	out.Reset()
-	if ProbeDeps(&out, "kit-x", env, bin, "a-gone", "present", "b-gone") {
+	if ProbeDeps(&out, &errb, "kit-x", env, bin, "a-gone", "present", "b-gone") {
 		t.Error("a missing dependency must return false")
 	}
-	if out.String() != "kit-x: degraded: missing runtime dependency: a-gone b-gone\n" {
-		t.Errorf("line = %q", out.String())
+	if out.String() != "kit-x: degraded: missing runtime dependency: a-gone b-gone\n" || errb.String() != "DEGRADED: missing runtime dependency: a-gone b-gone\n" {
+		t.Errorf("stdout %q stderr %q", out.String(), errb.String())
 	}
 }

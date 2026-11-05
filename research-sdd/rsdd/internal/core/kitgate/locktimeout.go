@@ -15,7 +15,7 @@ const MsgBadLockTimeout = "--lock-timeout must be a number of seconds"
 // maxLockSeconds bounds a timeout too long for an int: the lock is then waited for as long as one can be.
 const maxLockSeconds = 1<<31 - 1
 
-// ValidLockTimeout is `case "$v" in ''|*[!0-9]*) refuse`: one or more digits.
+// ValidLockTimeout is true for one or more digits (the bash refused an empty value and any non-digit).
 func ValidLockTimeout(v string) bool { return v != "" && kitmaint.AllDigits(v) }
 
 // lockSeconds reads a valid timeout. Improvement over the bash (whose flock refused a value past its own range with
