@@ -1,0 +1,1482 @@
+{
+ "adv-all-alpha-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-all-digit-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-and-hc-together": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:2 (credential-looking assignment; value redacted)\n-- summary: 1 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "adv-api-key-dash": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-api-key-underscore": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-apikey": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-apikey-after-sep-no-key": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-bracket-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-camel-prefix-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-camel-substring-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-crlf-line": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-digit-after-keyword": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-digit-before-keyword-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-eight-chars-yes": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-ellipsis-char-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-ellipsis-three-dots-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-empty-value-quote-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-first-keyword-no-value-second-has": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hash-char-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hex-31-not-hash-warns": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hex-65-not-hash-warns": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hex-bare-token-warns": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hex-with-hash-word-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-hex-with-sha256-cited-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-kelvin-sign-token": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-keyword-in-code-fence": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:2 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-keyword-in-path-colon-content": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-keyword-only-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-long-s-secret": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-markdown-link-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-multi-assignment": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-no-spaces-around": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-operator-missing-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-paren-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-passwd": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-password-colon": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-password-literal": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-angle-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-brace-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-pct-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-star-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-var-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-xx-two-yes": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-placeholder-xxx-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-secret": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-seven-chars-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-single-quote": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-snake-aws-secret": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-snake-embedded-upper": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-snake-trailing-ident": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-superstring-passwordless-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-superstring-secretariat-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-superstring-tokenizer-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-tab-before-op": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-token": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-two-warn-lines-order": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:2 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 2 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-underscore-before-keyword": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-uppercase": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-value-stops-at-comma": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-value-stops-at-semicolon": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-warn-cap-200": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:2 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:3 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:4 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:5 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:6 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:7 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:8 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:9 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:10 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:11 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:12 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:13 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:14 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:15 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:16 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:17 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:18 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:19 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:20 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:21 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:22 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:23 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:24 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:25 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:26 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:27 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:28 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:29 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:30 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:31 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:32 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:33 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:34 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:35 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:36 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:37 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:38 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:39 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:40 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:41 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:42 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:43 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:44 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:45 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:46 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:47 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:48 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:49 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:50 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:51 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:52 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:53 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:54 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:55 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:56 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:57 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:58 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:59 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:60 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:61 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:62 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:63 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:64 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:65 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:66 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:67 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:68 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:69 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:70 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:71 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:72 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:73 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:74 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:75 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:76 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:77 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:78 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:79 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:80 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:81 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:82 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:83 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:84 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:85 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:86 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:87 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:88 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:89 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:90 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:91 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:92 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:93 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:94 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:95 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:96 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:97 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:98 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:99 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:100 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:101 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:102 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:103 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:104 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:105 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:106 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:107 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:108 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:109 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:110 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:111 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:112 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:113 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:114 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:115 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:116 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:117 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:118 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:119 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:120 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:121 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:122 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:123 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:124 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:125 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:126 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:127 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:128 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:129 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:130 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:131 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:132 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:133 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:134 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:135 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:136 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:137 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:138 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:139 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:140 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:141 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:142 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:143 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:144 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:145 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:146 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:147 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:148 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:149 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:150 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:151 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:152 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:153 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:154 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:155 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:156 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:157 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:158 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:159 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:160 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:161 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:162 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:163 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:164 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:165 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:166 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:167 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:168 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:169 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:170 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:171 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:172 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:173 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:174 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:175 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:176 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:177 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:178 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:179 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:180 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:181 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:182 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:183 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:184 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:185 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:186 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:187 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:188 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:189 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:190 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:191 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:192 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:193 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:194 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:195 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:196 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:197 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:198 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:199 (credential-looking assignment; value redacted)\n   WARN    {{S}}/corpus/notes.md:200 (credential-looking assignment; value redacted)\n   (5 more advisory warning(s) not shown: capped at 200)\n-- summary: 0 high-confidence leak(s) · 200 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-changeme-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-example-capital-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-example-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-none-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-null-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-placeholder-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-redacted-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-test-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-todo-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-your-dash-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "adv-word-your-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-advisory-warn": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/a.md:1 (credential-looking assignment; value redacted)\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-all-out-of-scope": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 0 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-config-dir-is-basename-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-config-file-entry": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/deep/config.json:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-empty-entries-between": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 2 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/c.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-entry-dangling-symlink": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 0 in scope · 1 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-entry-directory": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 1 in scope · 1 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-entry-dot": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry has a '.', '..' or empty path component: {{S}}/corpus/./a.md\n",
+  "exit": 3
+ },
+ "ff-entry-dotdot": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry has a '.', '..' or empty path component: {{S}}/corpus/x/../a.md\n",
+  "exit": 3
+ },
+ "ff-entry-double-slash": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry has a '.', '..' or empty path component: {{S}}/corpus/x//a.md\n",
+  "exit": 3
+ },
+ "ff-entry-missing": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry does not exist (vanished since the list was built?): {{S}}/corpus/gone.md\n",
+  "exit": 3
+ },
+ "ff-entry-outside-target": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry is outside the target ({{S}}/corpus): /etc/passwd.md\n",
+  "exit": 3
+ },
+ "ff-entry-relative": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry is outside the target ({{S}}/corpus): a.md\n",
+  "exit": 3
+ },
+ "ff-entry-symlink-before-leak": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 1 in scope · 1 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-entry-symlink-dir": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry is outside the target or reached through a symlinked directory: {{S}}/corpus/link/a.md\n",
+  "exit": 3
+ },
+ "ff-entry-symlink-skipped": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 0 in scope · 1 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-entry-unreadable": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from in-scope entry is not readable: {{S}}/corpus/a.md\n",
+  "exit": 3
+ },
+ "ff-entry-unreadable-out-of-scope-ok": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 0 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-excluded-dir-entry": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 0 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-first-entry-leaks": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 3 listed · 3 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/c.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-last-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/c.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-list-absent": {
+  "stdout": "",
+  "stderr": "usage: --files-from list file not found or unreadable: {{S}}/no-such-list\n",
+  "exit": 2
+ },
+ "ff-list-empty": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from list is empty (0 bytes) — an empty file set is not a clean scan\n",
+  "exit": 3
+ },
+ "ff-list-is-directory": {
+  "stdout": "",
+  "stderr": "usage: --files-from list file not found or unreadable: {{S}}\n",
+  "exit": 2
+ },
+ "ff-list-only-empty-entries": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 0 listed · 0 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-middle-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-newline-in-name": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a\\nb.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-newline-name-not-split": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry does not exist (vanished since the list was built?): {{S}}/corpus/a.md\n{{S}}/corpus/c.md\n",
+  "exit": 3
+ },
+ "ff-no-narrowing": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-no-trailing-nul": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 2 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-nul-file-in-list": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-nul-file-with-token": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-order-follows-list": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 2 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/c.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-single-clean": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "ff-stdin": {
+  "stdout": "== scan-secrets: corpus ==\n-- file set: 2 listed · 2 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "ff-stdin-bad-entry": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from entry has a '.', '..' or empty path component: {{S}}/corpus/../x.md\n",
+  "exit": 3
+ },
+ "ff-stdin-empty": {
+  "stdout": "",
+  "stderr": "DEGRADED: --files-from list is empty (0 bytes) — an empty file set is not a clean scan\n",
+  "exit": 3
+ },
+ "ff-target-via-symlink": {
+  "stdout": "== scan-secrets: link ==\n-- file set: 1 listed · 1 in scope · 0 skipped (not a regular file) — explicit --files-from list, no corpus narrowing\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-all-seven-rules": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:2 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:3 (value redacted)\n   LEAK!   Slack token — {{S}}/corpus/notes.md:4 (value redacted)\n   LEAK!   Google API key — {{S}}/corpus/notes.md:5 (value redacted)\n   LEAK!   OpenAI-style key — {{S}}/corpus/notes.md:6 (value redacted)\n   LEAK!   JWT — {{S}}/corpus/notes.md:7 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 7 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-aws-15-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-aws-akia": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-aws-asia": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-aws-longer-still-matches": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-aws-lowercase-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-clean": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-crlf": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:2 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-empty-file": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-gh-35-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-gh-gho": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-gh-ghp": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   WARN    {{S}}/corpus/notes.md:1 (credential-looking assignment; value redacted)\n-- summary: 1 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-gh-ghr": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-gh-ghs": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-gh-ghu": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-gh-ghx-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-google": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   Google API key — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-google-34-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-hex-dump-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-jwt": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   JWT — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-jwt-short-part-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-jwt-two-parts-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-latin1-byte-same-line": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-leak-cap-50": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:2 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:3 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:4 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:5 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:6 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:7 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:8 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:9 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:10 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:11 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:12 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:13 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:14 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:15 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:16 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:17 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:18 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:19 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:20 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:21 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:22 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:23 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:24 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:25 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:26 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:27 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:28 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:29 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:30 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:31 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:32 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:33 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:34 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:35 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:36 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:37 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:38 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:39 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:40 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:41 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:42 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:43 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:44 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:45 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:46 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:47 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:48 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:49 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:50 (value redacted)\n   (5 more AWS access/session key id hit(s) not shown: capped at 50 per rule)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 50 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-long-line": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-no-trailing-newline": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:2 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-pem-bare": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-pem-ec-spaces": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-pem-four-dashes-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-pem-lowercase-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-pem-openssh": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-pem-public-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-pem-rsa": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — {{S}}/corpus/notes.md:2 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-sha256-citation-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-sk": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   OpenAI-style key — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-sk-19-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-sk-dash-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-slack-9-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-slack-xoxb": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   Slack token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-slack-xoxs": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   Slack token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-slack-xoxz-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hc-three-lines-line-numbers": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:3 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:5 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-two-rules-one-line": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hc-two-tokens-one-line": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-advisory-and-leak": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@72d282b:1 (value redacted)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:2 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-advisory-order-bytewise": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:10 (credential-looking assignment; value redacted)\n   WARN    notes.md:9 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 2 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-advisory-uppercase": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:1 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-advisory-warn": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:1 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-all-seven-rules": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — notes.md@a9ec056:1 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@a9ec056:2 (value redacted)\n   LEAK!   GitHub token — notes.md@a9ec056:3 (value redacted)\n   LEAK!   Slack token — notes.md@a9ec056:4 (value redacted)\n   LEAK!   Google API key — notes.md@a9ec056:5 (value redacted)\n   LEAK!   OpenAI-style key — notes.md@a9ec056:6 (value redacted)\n   LEAK!   JWT — notes.md@a9ec056:7 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 7 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-author-name-token": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 3 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-aws": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@4a74775:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-clean": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-commit-encoding-utf16": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 7 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-commit-message-many-commits-line-numbers": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 15 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-commit-message-multiline": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 9 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-commit-message-token": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 6 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-commit-message-two-tokens-one-line": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 6 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-committer-name-token": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 4 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-conf-ini-properties-cfg": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — a.conf@05c61e9:1 (value redacted)\n   LEAK!   GitHub token — b.ini@d7effe3:1 (value redacted)\n   LEAK!   OpenAI-style key — c.properties@f80e0ed:1 (value redacted)\n   LEAK!   JWT — d.cfg@3dc1d27:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 4 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-corrupt-blob": {
+  "stdout": "",
+  "stderr": "DEGRADED: git cat-file blob 811161c failed — committed blob scan aborted\n",
+  "exit": 3
+ },
+ "hist-deleted-from-head": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — notes.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-diff-merges-off-evil-merge": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — evil.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-empty-commit-only": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-excluded-dir-only-degraded": {
+  "stdout": "",
+  "stderr": "DEGRADED: 0 in-scope blobs found but rev-list|diff-tree produced output — filter pipeline may have failed silently\n",
+  "exit": 3
+ },
+ "hist-excluded-dir-plus-clean": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-git-absent": {
+  "stdout": "",
+  "stderr": "DEGRADED: git not found — --committed mode requires git\n",
+  "exit": 3
+ },
+ "hist-gitlink-at-md-path": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-graft-file-env": {
+  "stdout": "",
+  "stderr": "DEGRADED: GIT_GRAFT_FILE is set — scan scope may diverge from what git push will send.\n          Unset GIT_GRAFT_FILE before scanning.\n",
+  "exit": 3
+ },
+ "hist-graft-file-env-empty-ok": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-grafts-empty-file-ok": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-grafts-nonempty": {
+  "stdout": "",
+  "stderr": "DEGRADED: .git/info/grafts is non-empty — scan scope may diverge from what git push will send.\n          Remove or empty .git/info/grafts before scanning.\n",
+  "exit": 3
+ },
+ "hist-latin1-byte-same-line": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — notes.md@5da1ca4:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-log-output-encoding-utf16": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   LEAK!   [commit msg] line 6 (value redacted)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-many-hits-cap": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@35ccf94:10 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:11 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:12 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:13 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:14 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:15 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:16 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:17 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:18 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:19 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:1 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:20 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:21 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:22 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:23 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:24 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:25 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:26 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:27 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:28 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:29 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:2 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:30 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:31 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:32 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:33 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:34 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:35 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:36 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:37 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:38 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:39 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:3 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:40 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:41 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:42 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:43 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:44 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:45 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:46 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:47 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:48 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:49 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:4 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:50 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:51 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:52 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:53 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:54 (value redacted)\n   LEAK!   AWS access/session key id — notes.md@35ccf94:55 (value redacted)\n   (5 more AWS access/session key id hit(s) not shown: capped at 50 per rule)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 50 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-merge-commit": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — b.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-missing-commit-object": {
+  "stdout": "",
+  "stderr": "DEGRADED: rev-list|diff-tree enumeration failed (rc=128 0) — cannot enumerate committed blobs\n",
+  "exit": 3
+ },
+ "hist-nested-config": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a/config.yaml@f3b9d69:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-nested-credentials": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a/credentials@f3b9d69:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-nested-env": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a/b/.env.prod@f3b9d69:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-no-commits": {
+  "stdout": "",
+  "stderr": "DEGRADED: {{S}}/corpus has no commits — --committed mode requires at least one commit\n",
+  "exit": 3
+ },
+ "hist-not-a-repository": {
+  "stdout": "",
+  "stderr": "DEGRADED: {{S}}/corpus is not a git repository — --committed mode requires a git repo\n",
+  "exit": 3
+ },
+ "hist-nul-in-matching-line": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@763d317:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-nul-md-advisory": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:2 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-nul-md-token": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@6110a66:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-out-of-scope-only-degraded": {
+  "stdout": "",
+  "stderr": "DEGRADED: 0 in-scope blobs found but rev-list|diff-tree produced output — filter pipeline may have failed silently\n",
+  "exit": 3
+ },
+ "hist-path-leading-colon": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — :notes.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-path-leading-colon-nested": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — :dir/x.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-path-leading-colon-with-clean-sibling": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — :notes.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-path-with-newline": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a\\nb.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-path-with-pipe": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a|b\\1.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-path-with-space-and-leading-space": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token —  lead.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-pem-crlf-latin1": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — notes.md@f70494e:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-pem-first-dash-pattern": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   PEM PRIVATE KEY block — notes.md@9a800a3:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-redacted-uncommitted-still-leaks": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — notes.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-renamed-out-of-scope": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — n.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-replace-ref-hides-secret-commit": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-same-blob-decompiled-and-zz": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — zz.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-same-blob-excluded-and-inscope": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — notes.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-same-blob-two-inscope-smallest-path": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — aa.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-beside-clean-note": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-deep": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — a/b/c/config.bak/d/e/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-dir-in-excluded-tree": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-config-dir-nested": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — app/config.old/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-config-name-not-component-start": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-config-without-dot-not-in-scope": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-scope-dot-git-component-config": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — sub/.git/config.d/x.txt@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-dot-git-component-is-scanned": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — sub/.git/notes.md@f6d5d1c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-scope-excluded-dir-needs-trailing-slash": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a/cfr.md@f3b9d69:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-show-signature-config": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — a.md@811161c:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-subdirectory-target": {
+  "stdout": "",
+  "stderr": "DEGRADED: corpus/sub is a subdirectory of its git repo (repo root: {{S}}/corpus).\n          Pass the repo root to scan the full committed history — pathspecs evaluated\n          from a subdirectory silently miss all files outside {{S}}/corpus/sub.\n",
+  "exit": 3
+ },
+ "hist-symlink-blob": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@5c1b430:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-symlink-target-text": {
+  "stdout": "",
+  "stderr": "DEGRADED: 0 in-scope blobs found but rev-list|diff-tree produced output — filter pipeline may have failed silently\n",
+  "exit": 3
+ },
+ "hist-two-rules-one-line": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@e9f0b5a:1 (value redacted)\n   LEAK!   GitHub token — notes.md@e9f0b5a:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-two-tokens-one-line-one-entry": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — notes.md@f94a21d:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-two-versions-one-file": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   WARN    notes.md:1 (credential-looking assignment; value redacted)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 1 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-uncommitted-secret-not-seen": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "hist-utf16be-env": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — .env@02dfedf:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-utf16le-env": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — .env@ae6a3a2:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "hist-utf32le-env": {
+  "stdout": "== scan-secrets --committed: corpus ==\n-- mode: committed — scanning ALL committed history reachable from HEAD (files + commit messages)\n-- high-confidence secret values --\n   LEAK!   GitHub token — .env@e7a3c66:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- commit messages (full history) --\n   (none)\n-- binary files: cat-file blob scan; every blob NUL-stripped and re-scanned unconditionally (B6) — UTF-16/UTF-32 tokens caught --\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-block-at-root": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/x.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-block-in-sub-outside-unscanned": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: sub/\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-bloque-lowercase": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: sub/\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-bloque-uppercase": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: sub/\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "narrow-depth-four-too-deep": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a/b/c/d/in.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-depth-three": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a/b/c/in.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-depth-two": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: a/b/\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a/b/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-inside-dotgit-dir-ignored": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-not-md-ext": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — {{S}}/corpus/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-shallowest-wins": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: z/\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/z/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-symlinked-target": {
+  "stdout": "== scan-secrets: link ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — link/notes.md:1 (value redacted)\n   LEAK!   AWS access/session key id — link/sub/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-template-never-anchors": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/notes.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "narrow-tie-lexical": {
+  "stdout": "== scan-secrets: corpus ==\n-- corpus root: b/\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/b/in.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-banner-other-target-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-cfg": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/app.cfg:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-conf": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/app.conf:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-config-bare-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-config-json": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/config.json:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-credentials": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/credentials:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-credentials-ext-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dangling-symlink": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-cfr": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-decompiled": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-dotgit": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-excluded-name-as-file": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-jadx": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-node-modules": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-procyon": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-similar-name-kept": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/node_modules2/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-dir-venv": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-venv-dot": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dir-vineflower": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-dot-slash-target": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — ./corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-double-slash-target": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-empty-corpus": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-env-bare": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/.env:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-env-local": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/.env.local:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-env-suffix": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/prod.env:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-file-named-with-newline": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a\\nb.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-file-named-with-space-and-colon": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/my notes: v1.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-first-middle-last": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/z.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-ini": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/app.ini:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-live-install-banner": {
+  "stdout": "== scan-secrets: corpus ==\n-- target registered LIVE-INSTALL: SECRETS DISCIPLINE is a hard invariant here (zero secrets exfiltrated).\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-markdown-ext-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-md": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-md-only-dot": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-nested-md": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/docs/deep/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-nul-byte-clean": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-nul-byte-file": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/bin.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-nul-two-files": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 2 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 2 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-only-out-of-scope": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-properties": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/app.properties:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-relative-target": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-sh-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-symlink-dir-not-followed": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/realdir/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-symlink-file-skipped": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-target-named-cfr": {
+  "stdout": "== scan-secrets: cfr ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/cfr/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-trailing-slash-target": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — corpus/a.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-two-files-both-leak": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   AWS access/session key id — {{S}}/corpus/a.md:1 (value redacted)\n   LEAK!   GitHub token — {{S}}/corpus/b.md:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 2 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-txt-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-unreadable-dir": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n",
+  "stderr": "DEGRADED: grep read error (rc=2) scanning for 'PEM PRIVATE KEY block' — an unreadable in-scope file? scan incomplete\n",
+  "exit": 3
+ },
+ "scope-unreadable-file": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n",
+  "stderr": "DEGRADED: grep read error (rc=2) scanning for 'PEM PRIVATE KEY block' — an unreadable in-scope file? scan incomplete\n",
+  "exit": 3
+ },
+ "scope-uppercase-md-no": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-utf16le-token": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   LEAK!   GitHub token — {{S}}/corpus/u.env:1 (value redacted)\n-- possible credential assignments (advisory) --\n   (none)\n-- ⚠ 1 in-scope file(s) contain a NUL byte and were SKIPPED by the text scan — inspect manually.\n-- summary: 1 high-confidence leak(s) · 0 advisory warning(s) · 1 binary-skipped --\n== exit 1 ==\n",
+  "stderr": "",
+  "exit": 1
+ },
+ "scope-wt-config-dir-is-basename-only": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ },
+ "scope-wt-dot-git-dir-never-entered": {
+  "stdout": "== scan-secrets: corpus ==\n-- high-confidence secret values --\n   (none)\n-- possible credential assignments (advisory) --\n   (none)\n-- summary: 0 high-confidence leak(s) · 0 advisory warning(s) · 0 binary-skipped --\n   clean IN SCOPE — no secret values in *.md/config files. NOT scanned: non-.md sources/ artifacts\n   (decompiled code, snapshots) + vendored trees + Bearer/Basic headers + all-alpha literals — judge those yourself.\n== exit 0 ==\n",
+  "stderr": "",
+  "exit": 0
+ }
+}
