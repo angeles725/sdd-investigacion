@@ -76,6 +76,7 @@ GO_SRC=(
   "check-gap-drift.sh=../rsdd/internal/verify/gapdrift"         # its own sub-package (kit issue #2645), so no GO_FILES glob is needed
   "score-loop-transcript.sh=../rsdd/internal/eval/scoreloop"   # c2.go and c4.go print the empty-input n/a reason (kit issue #993)
   "scan-secrets.sh=../rsdd/internal/core/secretscan"           # the engine behind rsdd secrets scan; its DEGRADED lines are typed there
+  "fetch-doc.sh=../rsdd/internal/sources/fetchdoc"   # exe.go and ocr.go print the typed DEGRADED / not-installed lines (kit issue #2270)
   "kit-size-check.sh=../rsdd/internal/maint/sizecheck"   # classify.go names the empty-input state of the size verdict (kit issue #2212)
 )
 GO_NO_TYPED=(corroborate-java.sh corroborate-ghidra.sh corroborate-native.sh pcap-flows.sh corroborate-pcap.sh lint-block.sh
