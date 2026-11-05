@@ -10,10 +10,11 @@ Risk: item 3 (a CLI others consume: the writer checklist, CLAUDE.md §4).
 - S5: `kit-writer-check` shares its name-kill verdict list with the PreToolUse hook; `tests/fixtures/kit-writer-check/name-kill-corpus.txt` and `production-paths.txt` are the frozen contract (CLAUDE.md §4) — keep both readers in agreement, and `--classify` in step with `.github/scripts/parse-red-evidence.cjs`. Contract files stay read-only.
 
 ## Tasks
-- T1 (S1-S5) port + oracle + differential/goldens + shim + registry/reason-codes docs · route: delegated writer (parallel units, writer trigger a) · status: open
+- T1 (S1-S5) port + oracle + differential/goldens + shim + registry/reason-codes docs · route: delegated writer (parallel units, writer trigger a) · status: done on feat/writer-check-go (oracle+scenarios, port, unit/corpus/divergence tests, goldens, shim+docs); two files outside the writer's surface still need one line each: tests/reason-codes.test.sh (GO_NO_TYPED) and tests/fixtures/lib-resolution/planted-lib-exclusions.txt
 - T2 (S3) teeth Lived 0 + impacted gate · route: parent via heavy-run · status: open
 - T3 (S5) RDD per commit; independent verifier when the Risk line names item 5 · status: open
 
 ## Log
 - L1 (user, verbatim excerpt): "necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos que el codgio de progrmaacion sea modular ... Trabajen con commit + push + pr + pr view + issues + merge, etc."
 - L2 2026-11-05: s1 assigned maint batch 2 to s2; PLAN sent, s3 no CONFLICT.
+- L3 2026-11-05 (writer): S1-S5 covered. Intended divergences are listed in toolbelt/tool-registry.d/kit-writer-check.md and pinned by Go tests; the behaviour's mutation controls moved to the Go package, the bash suite's --prove-teeth now mutates the shim.
