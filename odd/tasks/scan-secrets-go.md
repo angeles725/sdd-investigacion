@@ -10,15 +10,17 @@ Objective: port toolbelt/scan-secrets.sh (SECURITY scanner) to Go, engine in int
 
 ## Tasks
 - T1 (S1-S5) feature doc - route: inline - status: done - commit: (this commit)
-- T2 (S1) freeze legacy script under testdata/legacy - route: inline - status: pending
-- T3 (S1, S2, S3) engine core/secretscan + domain command + registration - route: inline - status: pending
-- T4 (S1) differential harness + golden corpus - route: inline - status: pending
-- T5 (S3) corpus archive calls the engine in process - route: inline - status: pending
-- T6 (S4) shim, suite, registries, planted-lib lists - route: inline - status: pending
-- T7 (S5) teeth per package - route: inline - status: pending
+- T2 (S1) freeze legacy script under testdata/legacy - route: inline - status: done - commit: 246b86a1
+- T3 (S1, S2, S3) engine core/secretscan + domain command + registration - route: inline - status: done - commits: 70bdd1ce, 4c14e105, c1d69a2d, 99d218f3
+- T4 (S1) differential harness + golden corpus - route: inline - status: done - commits: 750c5979, 8b4f67c5 (RED vs empty implementation: red1.log, hc-pem-rsa legacy 299 bytes vs rsdd 0)
+- T5 (S3) corpus archive calls the engine in process - route: inline - status: done - commit: f0210f45 (corpus goldens byte-identical)
+- T6 (S4) shim, suite, registries, planted-lib lists - route: inline - status: done - commit: a685cb55
+- T7 (S5) teeth per package - route: inline - status: done - commits: 76079d6d, f1d45041. core/secretscan Killed 268 Lived 0; secretscan Killed 30 Lived 0 (CI-like PATH, bwrap absent). ./internal/corpus: unmutated copy fails in a module-only copy (pre-existing teeth-debt.txt entry #2592, test reads the kit outside the module), not measurable.
 
 ## Log
 - L1: "necesitamos pasar todo lo que tenemos python a GO, todo lo que se pueda mejorar, necesitamos que se mejore el codigo, optimizacion de codigo, necesitamos que el codgio de progrmaacion sea modular, paraq ue en caso de tengamos que modificar algo, anadir algo sepamos en donde tener que hacer eso."
 - L2: "package named internal/secretscan because a global deny rule blocks directories named secrets (s1 decision)"
 - L3 (finding): archtest forbids a domain importing another domain, and internal/corpus must call the scan in process, so the engine lives in internal/core/secretscan (core tier) and internal/secretscan is the thin domain package (commands.go, strict parser). The branch name feat/scan-secrets-go pre-existed as a stale ref at c0ccf0c2 with no unique commits; it was reset to origin/main.
+- L5 (T6 evidence): suite against the shim 93 passed, 0 failed, 3 skipped (typed SKIPs name the Go tests of the old mutant blocks); shim teeth A/B/D/E/C bite. reason-codes GO_SRC row added (scan-secrets.sh -> internal/core/secretscan); planted-lib list already held scan-secrets.sh; suite-durations row 4 s.
+- L6 (removed bash case -> Go test): 25, 26, FF18 -> TestGoldenReplay scope-unreadable-file, scope-unreadable-dir, ff-entry-unreadable, scope-nul-two-files, scope-nul-byte-clean; 47, 48, 59, 70 -> TestCommittedScanNeedsOnlyGit; 71, 72, 73 -> TestValidHeaderBoundaries, TestEnumerateFailsClosed (+ TestShapeHelpers); old mutant blocks -> TestAdvisoryValueBoundaries, TestAcceptValueRules, TestScanHCLineNumbersAndNULStrip, TestScanAdvisoryLineNumbersAndDedup plus the golden corpus.
 - L4 (finding): the local grep is ugrep 7.8.4, not GNU grep; legacy output order of a multi-file walk is readdir order, so the Go walk is sorted by path and the differential compares such cases as line sets.

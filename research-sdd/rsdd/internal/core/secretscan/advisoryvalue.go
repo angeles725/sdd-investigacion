@@ -40,7 +40,7 @@ func acceptValue(val, content []byte) bool {
 }
 
 func hasLetter(b []byte) bool {
-	return bytes.IndexAny(b, asciiLetters) >= 0
+	return bytes.ContainsAny(b, asciiLetters)
 }
 
 func hasDigit(b []byte) bool { return bytes.ContainsAny(b, "0123456789") }
