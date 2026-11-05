@@ -247,6 +247,7 @@ func bkLoadGoldens(t *testing.T) map[string]bkGolden {
 
 // TestBlockGoldens replays the Go command on every case against the frozen outcome of the legacy script.
 func TestBlockGoldens(t *testing.T) {
+	t.Parallel()
 	goldens := bkLoadGoldens(t)
 	cases := bkAllCases(t)
 	if len(cases) == 0 {

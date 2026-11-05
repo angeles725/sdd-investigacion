@@ -39,6 +39,7 @@ func nonEmptyLines(s string) []string {
 }
 
 func TestXargsTokensMatchGNUXargs(t *testing.T) {
+	t.Parallel()
 	need(t, "xargs")
 	inputs := []string{
 		"", " ", "a", "a b", "  a\tb\nc  ", `a "b c" d`, `a 'b c' d`, `a\ b`, `a\"b`, `"a"'b'c`, `''`, `""`, `a '' b`,
@@ -62,6 +63,7 @@ func TestXargsTokensMatchGNUXargs(t *testing.T) {
 }
 
 func TestSettingsCommandsMatchJQ(t *testing.T) {
+	t.Parallel()
 	jq := need(t, "jq")
 	docs := []string{
 		``, ` `, `null`, `{}`, `{"hooks":null}`, `{"hooks":false}`, `{"hooks":{}}`, `{"hooks":"x"}`, `{"hooks":[{"command":"a.sh"}]}`,
@@ -93,6 +95,7 @@ func TestSettingsCommandsMatchJQ(t *testing.T) {
 }
 
 func TestRealpathMatchesCoreutils(t *testing.T) {
+	t.Parallel()
 	rp := need(t, "realpath")
 	root := t.TempDir()
 	mk := func(p, content string) {
@@ -144,6 +147,7 @@ func TestRealpathMatchesCoreutils(t *testing.T) {
 }
 
 func TestChildGapNegationWindow(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		line string
 		open bool // an entry that carries needs: and is not closed counts
@@ -186,6 +190,7 @@ func TestChildGapNegationWindow(t *testing.T) {
 }
 
 func TestArithSumIsBashArithmetic(t *testing.T) {
+	t.Parallel()
 	if got := arithSum("1", "2", "010"); got != 11 {
 		t.Errorf("1+2+010 = %d, want 11 (010 is octal)", got)
 	}
@@ -202,6 +207,7 @@ func TestArithSumIsBashArithmetic(t *testing.T) {
 }
 
 func TestBacklogRowsStreamsAndWarnings(t *testing.T) {
+	t.Parallel()
 	src := strings.Join([]string{
 		"## Gap-backlog",
 		"| Priority | Gap | Type | Status |",
@@ -235,6 +241,7 @@ func TestBacklogRowsStreamsAndWarnings(t *testing.T) {
 }
 
 func TestStateExitMapAndUsage(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "RESEARCH-STATE.md"), sdJoin("# s", "coverage metric: 1/1", sdEnvelope("covered_blocks", "0", "investigable_open", "0", "blocked_open", "0"), "## Gap-backlog", sdTable4+"| high | g | w | pending |"))
 	run := func(args ...string) (int, string, string) {

@@ -677,6 +677,7 @@ func sdPrepare(t *testing.T, c sdCase) (d string, args []string) {
 
 // TestStateGoldens replays every case through the Go command and compares with the frozen oracle outcome.
 func TestStateGoldens(t *testing.T) {
+	t.Parallel()
 	goldens := sdLoadGoldens(t)
 	seen := map[string]bool{}
 	for _, c := range sdCases() {

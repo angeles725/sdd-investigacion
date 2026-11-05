@@ -65,6 +65,7 @@ func runRules(t *testing.T, rules []rule) {
 const okLine = `(?m)^   ok     every declared correction has its reciprocal 'corrected in BN' backlink\.$`
 
 func TestUsageAndDiscovery(t *testing.T) {
+	t.Parallel()
 	if o := runGo(); o.code != 2 || o.stderr != "usage: verify-corrections.sh <target-dir>\n" || o.stdout != "" {
 		t.Errorf("no argument: %+v", o)
 	}
@@ -87,6 +88,7 @@ func TestUsageAndDiscovery(t *testing.T) {
 }
 
 func TestBlockDiscovery(t *testing.T) {
+	t.Parallel()
 	declares := "# B\n\n> Corrects [Block 99].\n"
 	d := corpus(t, files(
 		"a-block1.md", declares, // depth 1
@@ -111,6 +113,7 @@ func TestBlockDiscovery(t *testing.T) {
 }
 
 func TestReportOrderIsBytewise(t *testing.T) {
+	t.Parallel()
 	m := files("b-block1.md", "# 1\n> Corrects [Block 9].\n", "B-block2.md", "# 2\n> Corrects [Block 9].\n", "a-block3.md", "# 3\n> Corrects [Block 9].\n")
 	o := runCorpus(t, m)
 	i2, i3, i1 := strings.Index(o.stdout, "B2 "), strings.Index(o.stdout, "B3 "), strings.Index(o.stdout, "B1 ")
@@ -120,6 +123,7 @@ func TestReportOrderIsBytewise(t *testing.T) {
 }
 
 func TestReciprocalBacklink(t *testing.T) {
+	t.Parallel()
 	runRules(t, []rule{
 		{"1 reciprocated", files("t-block33.md", "# Block 33\n\n> Corrects [Block 8] §2 on Docker.\n", "t-block8.md", "# Block 8\n\nClaim.\n\n> Note: corrected in B33.\n"),
 			0, []string{okLine, `(?m)^== verify-corrections: [^ ]+ ==$`, `(?m)^== exit 0 ==$`}, []string{`FAIL`}},
@@ -137,6 +141,7 @@ func TestReciprocalBacklink(t *testing.T) {
 }
 
 func TestClauseBinding(t *testing.T) {
+	t.Parallel()
 	runRules(t, []rule{
 		{"1 parenthetical postfix verb", files("t-block3.md", plain(3), "t-block9.md", plain(9), "t-block30.md", "# 30\n\n> Connects [Block 3] (the premise this corrects), see [Block 9].\n"),
 			1, []string{`FAIL +B30 corrects \[Block 3\] `}, []string{`B30 corrects \[Block 9\]`}},
@@ -168,6 +173,7 @@ func TestClauseBinding(t *testing.T) {
 }
 
 func TestLists(t *testing.T) {
+	t.Parallel()
 	declared := func(o observed, from int, nums ...int) []string {
 		var missing []string
 		for _, n := range nums {
@@ -210,6 +216,7 @@ func TestLists(t *testing.T) {
 }
 
 func TestNonAssertiveNegatedAndUnbound(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{"Se corrige [Block 8] en la siguiente iteración.", "Si no se corrige [Block 8], el error persiste.", "El bloque anterior corrigió [Block 8] en su momento.", "Los autores corrigieron [Block 8] después."} {
 		t.Run("skipped "+s, func(t *testing.T) {
 			o := runCorpus(t, files("t-block8.md", plain(8), "t-block70.md", "# 70\n\n> "+s+"\n"))
@@ -265,6 +272,7 @@ func TestNonAssertiveNegatedAndUnbound(t *testing.T) {
 }
 
 func TestVocabulary(t *testing.T) {
+	t.Parallel()
 	notes := []string{"CORRIGENDUM [Bloque 82]", "Corrigenda: see B82", "Erratum (B82)", "Errata — Block 82", "Corregida en B82", "corregidos por Bloque 82", "corrected in B82", "corregido en B82",
 		"Refined in B82 (scope only).", "Refinamiento (B82): el alcance cambia.", "§14 refinement (2026-09-27, [Block 82]): narrower.", "refinado en B82", "_corrected in B82_", "—corrected in B82", "“corregido en B82”",
 		"corrected in b082", "corrected in Bloque  082", "CORRECCIÓN — [Block 82].", "**Correction (2026-01-01) — [Bloque 82] §4.1.**", "Correction [Block 82];"}
@@ -301,6 +309,7 @@ func TestVocabulary(t *testing.T) {
 }
 
 func TestCorrigendum(t *testing.T) {
+	t.Parallel()
 	declares := []string{"CORRIGENDUM `[CERT]` al [Bloque 8] §2.", "CORRIGENDUM al [Bloque 8].", "Corrigenda a [Block 8].", "CORRIGENDUM [CERT] to [Block 8].", "corrigendum of `[CERT]` [Block 8].",
 		"CORRIGENDUM for [Block 8]: §8.2 overstated.", "CORRIGENDUM to the [Block 8]", "CORRIGENDUM to `[CERT]` [Block 8]", "Corrigenda of `[CERT]` [Bloque 8]."}
 	for _, s := range declares {
@@ -352,6 +361,7 @@ func TestCorrigendum(t *testing.T) {
 }
 
 func TestPrefixScope(t *testing.T) {
+	t.Parallel()
 	for _, own := range []string{"aa", "zz"} {
 		other := map[string]string{"aa": "zz", "zz": "aa"}[own]
 		t.Run("own prefix wins: "+own, func(t *testing.T) {
@@ -402,6 +412,7 @@ func TestPrefixScope(t *testing.T) {
 }
 
 func TestQualifiers(t *testing.T) {
+	t.Parallel()
 	runRules(t, []rule{
 		{"1 qualifier names an existing prefix", files(blk("aa", 4), "> Corrects `zz` [Block 1] §1.2.\n", blk("aa", 1), "corrected in B4.\n", blk("zz", 1), plain(1)), 1, []string{`but zz-block1\.md `}, nil},
 		{"2 after-ref form", files(blk("aa", 4), "> Corrects [Block 1] of the `zz` focus.\n", blk("aa", 1), plain(1), blk("zz", 1), "corrected in B4.\n"), 0, []string{okLine}, nil},
@@ -435,6 +446,7 @@ func TestQualifiers(t *testing.T) {
 }
 
 func TestAmbiguousClasses(t *testing.T) {
+	t.Parallel()
 	runRules(t, []rule{
 		{"1 locator", files("t-block16.md", plain(16), "t-block21.md", "- Corrects the claim introducida junto a [Block 16] (dashboard).\n"), 0, []string{`AMBIG  B21 corrects \[Block 16\] — locator reference`}, []string{`FAIL`}},
 		{"2 locator control", files("t-block16.md", plain(16), "t-block21.md", "- Corrects the calendar claim introduced in [Block 16] (dashboard).\n"), 1, []string{`FAIL +B21 corrects \[Block 16\] `}, nil},
@@ -451,6 +463,7 @@ func TestAmbiguousClasses(t *testing.T) {
 }
 
 func TestBareReferences(t *testing.T) {
+	t.Parallel()
 	runRules(t, []rule{
 		{"1 unreciprocated bare ref is advisory", files("t-block292.md", plain(292), "t-block5.md", "corrected in B300.\n", "t-block300.md", "> Corrects B292 §292.6 and B5 §5.1.\n"), 0,
 			[]string{`(?m)^   AMBIG  B300 corrects \[Block 292\] — bare B292 reference with no reciprocal backlink in t-block292\.md \(advisory: a bare ref is checked, never refused\); NOT checked`}, []string{`FAIL`, `AMBIG +B300 corrects \[Block 5\]`}},
@@ -468,6 +481,7 @@ func TestBareReferences(t *testing.T) {
 }
 
 func TestLegacyDefectsFixed(t *testing.T) {
+	t.Parallel()
 	t.Run("D1 block numbers beyond 64 bits are compared as digits", func(t *testing.T) {
 		huge := "99999999999999999999999999"
 		o := runCorpus(t, files("t-block7.md", "> Corrects [Block "+huge+"].\n", "t-block"+huge+".md", plain(1)))

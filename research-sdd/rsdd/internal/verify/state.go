@@ -462,6 +462,8 @@ func (v *verifier) checkState(state string) (consistent bool) {
 		v.echo("   WARN   contradictory coverage denominators (%s) — collapse to one canonical coverage number", strings.Join(denoms, " vs "))
 	}
 
+	// A short cut, not the row parser (gapDrift parses the rows itself): it skips the check, and the corpus open it
+	// needs, for a file with no gap row, so an unopenable corpus only warns where a row cites it.
 	for _, l := range lines {
 		if reGapRows.MatchString(l) {
 			v.gapDrift(state, src)

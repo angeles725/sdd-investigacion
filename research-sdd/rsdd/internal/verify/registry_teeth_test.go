@@ -22,6 +22,7 @@ func summaryLine(checked, absent, drift, retro, unres, over, attn int) string {
 }
 
 func TestRegistryCountersExact(t *testing.T) {
+	t.Parallel()
 	const noCountDrift, noRetroDrift = "For each count drift", "For each retro drift"
 	cases := []struct {
 		name    string
@@ -143,6 +144,7 @@ func TestRegistryCountersExact(t *testing.T) {
 // A corpus with no block file and no candidate names is not "unclassifiable", and a small corpus needs no retro
 // feedback wiring: neither finding fires on a count of zero (or on a count within the tolerance).
 func TestRegistryZeroUnclassifiableAndSmallCorpusAreQuiet(t *testing.T) {
+	t.Parallel()
 	t.Run("empty-corpus", func(t *testing.T) {
 		k := newVRKit(t)
 		k.put("alpha/RESEARCH-STATE.md", "s\n")
@@ -169,6 +171,7 @@ func TestRegistryZeroUnclassifiableAndSmallCorpusAreQuiet(t *testing.T) {
 }
 
 func TestRegistryAbsentNamesAndMore(t *testing.T) {
+	t.Parallel()
 	absent := func(n int) string {
 		k := newVRKit(t)
 		k.blocks("here", 1)
@@ -191,6 +194,7 @@ func TestRegistryAbsentNamesAndMore(t *testing.T) {
 
 // A master row of exactly three '|'-separated fields (no closing pipe) still names itself in the lint.
 func TestRegistryRowHygieneThreeFieldRow(t *testing.T) {
+	t.Parallel()
 	k := newVRKit(t)
 	k.blocks("alpha", 1)
 	k.targets(vrTable(vrRow("1", "alpha", "alpha", "(1 md)")) + "| 7 | longnamehere\n")
@@ -200,6 +204,7 @@ func TestRegistryRowHygieneThreeFieldRow(t *testing.T) {
 }
 
 func TestRegistryKitFlag(t *testing.T) {
+	t.Parallel()
 	t.Run("missing-directory-after-last-flag", func(t *testing.T) {
 		k := newVRKit(t)
 		k.targets(vrTable())
@@ -275,6 +280,7 @@ func TestRegistryHookScriptCheckOnlyForWiredStates(t *testing.T) {
 }
 
 func TestGitConfigCountEnvBoundaries(t *testing.T) {
+	t.Parallel()
 	envOf := func(m map[string]string) cli.Stdio { return cli.Stdio{Env: func(k string) string { return m[k] }} }
 	t.Run("count-at-the-bound-keeps-its-pairs", func(t *testing.T) {
 		got := gitConfigCountEnv(envOf(map[string]string{"GIT_CONFIG_COUNT": "1000", "GIT_CONFIG_KEY_0": "a.b", "GIT_CONFIG_VALUE_0": "v", "GIT_CONFIG_KEY_999": "c.d", "GIT_CONFIG_VALUE_999": "w"}))

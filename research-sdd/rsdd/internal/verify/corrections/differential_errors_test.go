@@ -40,6 +40,7 @@ func TestDifferentialErrorPaths(t *testing.T) {
 
 // TestDifferentialEdgeCases runs every boundary text of extract_edges_test.go through the frozen script as well.
 func TestDifferentialEdgeCases(t *testing.T) {
+	t.Parallel()
 	for _, c := range edgeCases {
 		t.Run(c.name, func(t *testing.T) {
 			m := files("t-block100.md", c.text)

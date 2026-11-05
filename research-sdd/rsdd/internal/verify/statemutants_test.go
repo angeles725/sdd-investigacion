@@ -17,6 +17,7 @@ import (
 // mutation run (nodiff) kills the boundary and negation mutants of the helpers.
 
 func TestASCIICaseHelpersBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ in, lower, upper string }{
 		{"@AZ[`az{", "@az[`az{", "@AZ[`AZ{"},
 		{"A", "a", "A"},
@@ -36,6 +37,7 @@ func TestASCIICaseHelpersBoundaries(t *testing.T) {
 }
 
 func TestFirstWord(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{" x": "", "a b": "a", "ab": "ab", "": ""} {
 		if got := firstWord(in); got != want {
 			t.Errorf("firstWord(%q) = %q, want %q", in, got, want)
@@ -44,6 +46,7 @@ func TestFirstWord(t *testing.T) {
 }
 
 func TestEnvFieldToleratesBlankEnvelopeLines(t *testing.T) {
+	t.Parallel()
 	lines := []string{"<!-- research-state.v1 -->", "", "   ", "gaps_closed:", "covered_blocks: 3", "<!-- /research-state.v1 -->"}
 	if got := envField(lines, "covered_blocks"); got != "3" {
 		t.Errorf("envField = %q, want 3", got)
@@ -57,6 +60,7 @@ func TestEnvFieldToleratesBlankEnvelopeLines(t *testing.T) {
 }
 
 func TestByteClassBoundaries(t *testing.T) {
+	t.Parallel()
 	word, lowerAlnum := "AZaz09_-", "az09"
 	for c := 0; c < 256; c++ {
 		b := byte(c)
@@ -70,6 +74,7 @@ func TestByteClassBoundaries(t *testing.T) {
 }
 
 func TestHasWordNegationWindow(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		s, w string
 		want bool
@@ -99,6 +104,7 @@ func TestHasWordNegationWindow(t *testing.T) {
 }
 
 func TestMissingUnblockEntries(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name, body string
 		miss, ord  int
@@ -124,6 +130,7 @@ func TestMissingUnblockEntries(t *testing.T) {
 }
 
 func TestNumLessAndArithSum(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		a, b string
 		want bool
@@ -143,6 +150,7 @@ func TestNumLessAndArithSum(t *testing.T) {
 }
 
 func TestDecNumberStringMatchesJQ(t *testing.T) {
+	t.Parallel()
 	// jq 1.8 `jq -c .` of each literal.
 	for in, want := range map[string]string{
 		"1": "1", "1.0": "1.0", "1e2": "1E+2", "1e-2": "0.01", "0.5": "0.5", "0.05": "0.05", "0.000001": "0.000001",
@@ -157,6 +165,7 @@ func TestDecNumberStringMatchesJQ(t *testing.T) {
 }
 
 func TestIsStateName(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]bool{
 		"RESEARCH-STATE.md": true, "RESEARCH-STATE-auth.md": true, "RESEARCH-STATE": false, "RESEARCH-STATE.template.md": false,
 		"RESEARCH-STATE-x.template.md": false, "RESEARCH-STAT.md": false, "xRESEARCH-STATE.md": false, "RESEARCH-STATE.txt": false, "": false,
@@ -168,6 +177,7 @@ func TestIsStateName(t *testing.T) {
 }
 
 func TestRealpathLiteralOutcomes(t *testing.T) {
+	t.Parallel()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -214,6 +224,7 @@ func TestRealpathLiteralOutcomes(t *testing.T) {
 }
 
 func TestRegularMarkdown(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	sdWrite(t, filepath.Join(d, "a.md"), "x")
 	sdWrite(t, filepath.Join(d, "b.txt"), "x")
@@ -233,6 +244,7 @@ func TestRegularMarkdown(t *testing.T) {
 }
 
 func TestJqQuoteMatchesJQ(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	jqQuote(&b, "a\"b\\c\nd\re\tf\bg\fh\x01\x1f\x7f \u00e9<&>")
 	if want := `"a\"b\\c\nd\re\tf\bg\fh\u0001\u001f\u007f é<&>"`; b.String() != want {
@@ -245,6 +257,7 @@ func TestJqQuoteMatchesJQ(t *testing.T) {
 // entries (c, zz, a, sub, e, RESEARCH-STATE.md, b, d) are neither byte order nor its reverse, so a filesystem
 // that lists by creation (ext4 without dir_index) or newest-first (tmpfs) cannot hand back byte order by chance.
 func TestFindStatesByteOrder(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	rel := []string{
 		"RESEARCH-STATE-a.md", "RESEARCH-STATE-b.md", "RESEARCH-STATE-c.md", "RESEARCH-STATE-d.md",

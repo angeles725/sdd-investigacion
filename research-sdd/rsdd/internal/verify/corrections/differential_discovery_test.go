@@ -16,6 +16,7 @@ import (
 // TestDiscoveryMatchesLegacyDiscriminator: the block files the Go port consults are exactly what the frozen
 // `find ... | block_file_filter | sort` of the script selected, decoys and depth limit included.
 func TestDiscoveryMatchesLegacyDiscriminator(t *testing.T) {
+	t.Parallel()
 	m := map[string]string{}
 	for _, n := range []string{
 		"tema3-block1.md", "tema3-block2.md", "pref-bloque5.md", "ab-block10-extra.md", "retros/sub-block3.md", "a/b/c-block4.md", "a/b/c/d-block5.md",
@@ -50,6 +51,7 @@ func TestDiscoveryMatchesLegacyDiscriminator(t *testing.T) {
 // shapes: across the seeds every report line kind and every typed ambiguity must occur, so a rule that stopped
 // being generated is a failure, not a silently green differential.
 func TestGeneratorExercisesEveryOutcome(t *testing.T) {
+	t.Parallel()
 	want := map[string]*regexp.Regexp{}
 	for _, k := range []string{`^   FAIL   `, `^   WARN   B\d+ declares a correction of \[Block \d+\] but no block-\d+ file exists on disk`, `no block-\d+ file exists in its prefix '[^']+' and the number is ambiguous`,
 		`AMBIG  .*the verb governs a non-block object`, `AMBIG  .*locator reference`, `AMBIG  .*reader-assumption`, `AMBIG  .*possessive 'corrigendum of`, `AMBIG  .*joined-list reference`,
