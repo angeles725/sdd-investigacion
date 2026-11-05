@@ -35,7 +35,7 @@ type tail func(c *ctx) int
 
 // Run is `rsdd status show <target-dir> [flags]`.
 func Run(args []string, s cli.Stdio) int {
-	return run(args, s, syncOr(nextOr(liveSeams, notPorted)))
+	return run(args, s, syncOr(nextOr(liveSeams, defaultOr(liveSections, notPorted))))
 }
 
 // notPorted answers a run that got past the pick: the later sections are not in Go yet.

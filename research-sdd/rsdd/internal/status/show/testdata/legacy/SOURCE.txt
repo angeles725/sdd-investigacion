@@ -71,3 +71,20 @@ The S5 differential assembles the S4 order with status-cleanwarn.sh after blocke
 status-covers.sh in place of the S4 stand-ins, so the whole --next block runs as the script ran it. The toolbelt it
 runs in holds authored fakes of reconcile-issues.sh, clean-check.sh and verify-state.sh and a fake gh on PATH, each
 logging its argv; the port runs the same fakes (reconcile through its swappable command prefix).
+
+Slice S6 (issue #2549), same blob 7e734c53bc63f4337f26a3b39551da846d3f98c1 (unchanged at origin/main f070d486):
+
+status-iter.sh     lines 296-358 (inv_count, the contradictions ledger readers contra_ledgers / count_open_contra, and the
+                   iteration-history parser iter_gaps_rows)
+                   sha256 461fd9686fd0bd4bb0d8a279f942e5524118ac0e40427c2ecb426d4eb5d9777b
+status-saturation.sh lines 410-468 (saturation_line and its comment)
+                   sha256 70f63fc30f70c86aaad0c96ce59d426ae754dc04796c7b79966859b6c1bfdcad
+status-report.sh   lines 2456-2642 (the default report: header, Stop hook, counters, retyped, contradictions, the remote
+                   visibility block, saturation, the next-step walk and the consistency footer)
+                   sha256 bd5355cb0529033065ee444c2991b3df9342d9de291c56d66166b2179cee8f8c
+
+The S6 differential assembles the S5 order with status-iter.sh after blocked-body, status-saturation.sh after cleanwarn,
+and status-report.sh last. Lines 2046-2455 (the §8c campaign queue, campaign_status_block, and the document-cycle
+outline with its _doc_mode detection) belong to slice S7 and are NOT frozen here: an authored stand-in defines
+campaign_status_block, outline_summary / outline_line / outline_next_step and the _doc_mode flags, in the same words
+as the Go seams (s6_harness_test.go). verify-state.sh and gh are authored fakes that log their argv.
