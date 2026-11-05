@@ -37,10 +37,6 @@ var (
 	stageErr  error
 )
 
-// seamMu serializes the Go runs that swap the package-level seams (the S5 differential swaps verifyState and the
-// gh/reconcile seams), so its scenarios can run in parallel. S2-S4 swap no seam and take no lock.
-var seamMu sync.Mutex
-
 func TestMain(m *testing.M) {
 	// The scenarios wait on the frozen bash script; t.Parallel() alone runs only GOMAXPROCS of them at once.
 	parallelfloor.Raise(8)

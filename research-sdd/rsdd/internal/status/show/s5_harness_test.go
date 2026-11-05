@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,6 +192,11 @@ func (r *s5Replay) cleanCheck(_, target string, _ time.Duration, _ cli.Stdio) pr
 }
 
 // runGoS5 runs the port over one world. The seams are swapped for the run and restored after it.
+// seamMu serializes the Go runs that swap the package-level seams (the S5 differential swaps verifyState and the
+// gh/reconcile seams), so its scenarios can run in parallel. S2-S4 swap no seam and take no lock.
+// It lives in this untagged file: the -tags nodiff build (make teeth) drops diff_test.go.
+var seamMu sync.Mutex
+
 func runGoS5(t testing.TB, sc s5Scenario, root string, e s5Env, d s5Drive) []outcome {
 	t.Helper()
 	seamMu.Lock()
