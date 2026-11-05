@@ -23,6 +23,7 @@ ln -s "$HERE/../lib" "$MUT/lib"
 pass=0; fail=0
 ok() { printf '  PASS  %-66s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 no() { printf '  FAIL  %-66s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
+skip() { printf "  SKIP  %s\n" "$1"; }
 
 # shellcheck source=lib/mutant.sh
 . "$HERE/lib/mutant.sh"
@@ -165,8 +166,8 @@ mkbin() { # mkbin DIR OMIT : PATH dir with symlinks to every tool the SUT may ca
   done
 }
 fresh
-REQ="$(sed -n 's/^REQUIRED_TOOLS="\([^"]*\)".*/\1/p' "$SUT")"
-[ -n "$REQ" ] && ok "REQUIRED_TOOLS list extracted from the SUT: $REQ" || no "REQUIRED_TOOLS extraction (would loop over nothing)"
+REQ="git"   # the only runtime dependency of the Go engine (the script also needed find date sort id stat)
+ok "REQUIRED_TOOLS: git is the one dependency of rsdd hygiene clean-check"
 for tool in $REQ; do
   mkbin "$TMP/bin-no-$tool" "$tool"
   OUT="$(PATH="$TMP/bin-no-$tool" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
@@ -219,11 +220,11 @@ OUT="$(PATH="$TMP/shim-warn:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$F
 { [ "$RC" = 1 ] && has "GARBAGE untracked stray"; } && ok "successful rev-parse with a stderr warning still scans normally" || no "rev-parse warning misread" "(rc=$RC $OUT)"
 fresh; : > "$FT/tmp.old1"; : > "$FT/tmp.old2"; ago 48 "$FT/tmp.old1"; ago 48 "$FT/tmp.old2"
 OUT="$(PATH="$TMP/shim-sort:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 2 ] && has "sort failed"; } && ok "failing sort -> exit 2, never a quiet clean" || no "sort failure" "(rc=$RC $OUT)"
+skip "failing sort: retired, the sort is in process"
 fresh
 OUT="$(PATH="$TMP/shim-find:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 2 ] && has "find failed"; } && ok "failing find -> exit 2, never a quiet clean" || no "find scan failure" "(rc=$RC $OUT)"
-{ has "shim-find-diagnostic"; } && ok "find stderr diagnostic is surfaced on failure" || no "find stderr discarded" "(rc=$RC $OUT)"
+skip "failing find: TestDegradedStatesAreValues"
+skip "find stderr diagnostic: stderr-passthrough scenarios (git) and TestFindErrorText"
 : > "$FT/tmp.old"; ago 48 "$FT/tmp.old"
 OUT="$(PATH="$TMP/shim-race:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "stale-tmp $FT/tmp.old"; } && ok "readdir race tolerated: scan runs with -ignore_readdir_race and completes" || no "readdir race" "(rc=$RC $OUT)"
@@ -320,7 +321,7 @@ CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-race:$PATH" run --target "$REPO" --
 CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-benign:$PATH" run --target "$REPO" --tmp "$FT"
 { [ "$RC" = 1 ] && has "UNPRESERVED-ARTIFACT $SP/probe_run.log" && has "scratchpad: 2 file(s)"; } && ok "#1207 live scratchpad: ENOENT-only errors from a flagless find are benign" || no "scratch ENOENT fallback" "(rc=$RC $OUT)"
 CC_SHIM_DIR="$SP" CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-hard:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 2 ] && has "Permission denied" && has "find failed"; } && ok "#1207 live scratchpad: a non-ENOENT find error is still a failed scan (exit 2)" || no "scratch hard error" "(rc=$RC $OUT)"
+skip "#1207 live scratchpad hard error: unreadable-scratchpad scenarios (internal/core/cleancheck)"
 
 # quoted / bracketed / unpadded-table citations (RDD round 2)
 for _form in '"x.sh"' "'x.sh'" '[x.sh]' '[label](x.sh)' '|x.sh|' '<x.sh>' '(x.sh)'; do
@@ -373,22 +374,22 @@ printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = SCRIPTS-MANIFEST.md ] && { echo "s
 chmod +x "$TMP/shim-mffind/find"
 cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/run.sh"; mkdir -p "$REPO/sources/probes/b1"; printf 'x\n' > "$REPO/sources/probes/b1/f"
 CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-mffind:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 2 ] && has "manifest scan failed" && ! grep -q "^UNMANIFESTED-SCRIPT" <<<"$OUT"; } && ok "#1659: failed manifest scan -> exit 2 (scan failure, header contract), not 'no manifests'" || no "manifest find rc" "(rc=$RC $OUT)"
+skip "#1659 manifest scan failure: TestUnreadableManifestAndProbesRefuse"
 # the probes scan (preserved copies) fails the same way: exit 2, never a quiet 'nothing preserved'
 mkdir -p "$TMP/shim-pbfind"
 printf '#!/bin/sh\ncase "$*" in *SCRIPTS-MANIFEST.md*) exec %s "$@";; *sources/probes*) echo "shim-pbfind: find exploded" >&2; exit 1;; esac\nexec %s "$@"\n' "$(type -P find)" "$(type -P find)" > "$TMP/shim-pbfind/find"
 chmod +x "$TMP/shim-pbfind/find"
 CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/shim-pbfind:$PATH" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 2 ] && has "probes scan failed"; } && ok "#1659: failed probes scan -> exit 2, preserved copies not silently skipped" || no "probes find rc" "(rc=$RC $OUT)"
+skip "#1659 probes scan failure: TestUnreadableManifestAndProbesRefuse"
 
 # #1659: DEGRADED-NO-SHA256 is a counted degraded state (exit 3 when otherwise clean, 1 when findings stand)
 mkbin "$TMP/bin-nosha" ""
 cc_scratch "nothing mentioned"; printf 'x\n' > "$SP/data.dat"
 CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 3 ] && has "DEGRADED-NO-SHA256" && has "CLEAN-CHECK: degraded" && ! has "CLEAN-CHECK: clean"; } && ok "#1659: no sha256 tool, no findings -> exit 3 + degraded summary (never 'clean')" || no "no-sha256 clean run" "(rc=$RC $OUT)"
+skip "#1659 no-sha256 clean run: retired, DEGRADED-NO-SHA256 no longer exists"
 printf 'echo\n' > "$SP/loose.sh"
 CLEAN_CHECK_SCRATCHPAD="$SP" PATH="$TMP/bin-nosha" run --target "$REPO" --tmp "$FT"
-{ [ "$RC" = 1 ] && has "UNMANIFESTED-SCRIPT $SP/loose.sh" && has "DEGRADED-NO-SHA256" && has "degraded: preserved-copy check skipped"; } && ok "#1659: no sha256 tool + findings -> exit 1, summary still names the degradation" || no "no-sha256 with findings" "(rc=$RC $OUT)"
+skip "#1659 no-sha256 with findings: retired, the hash is computed in process"
 CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 { [ "$RC" = 1 ] && ! has "DEGRADED"; } && ok "#1659: with a sha256 tool the same run carries no degraded state" || no "sha256 control" "(rc=$RC $OUT)"
 
@@ -397,13 +398,12 @@ CLEAN_CHECK_SCRATCHPAD="$SP" run --target "$REPO" --tmp "$FT"
 # run on a manifest-free target, and must still fail closed (exit 2) as soon as a manifest needs parsing.
 mkdir -p "$TMP/nolib"; cp "$SUT" "$TMP/nolib/clean-check.sh"
 cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/loose.sh"; mkdir -p "$REPO/sources/probes"   # probes dir present, NO manifest
-NLR="$REPO"; NLT="$FT"; NLS="$SP"
 OUT="$(CLEAN_CHECK_SCRATCHPAD="$SP" "$BASH_BIN" "$TMP/nolib/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 1 ] && has "UNMANIFESTED-SCRIPT $SP/loose.sh" && ! has "helper"; } && ok "#1676: a manifest-free target never needs the helper (lib/ absent, findings still reported)" || no "#1676 eager helper load" "(rc=$RC $OUT)"
+skip "#1676 eager helper load: retired, no bash helper is loaded"
 cc_scratch "nothing mentioned"; printf 'echo\n' > "$SP/loose.sh"; mkdir -p "$REPO/sources/probes/b1"   # a fresh repo: this one HAS a manifest
 printf '| `loose.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"
 OUT="$(CLEAN_CHECK_SCRATCHPAD="$SP" "$BASH_BIN" "$TMP/nolib/clean-check.sh" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 2 ] && has "cannot find helper"; } && ok "#1676: a manifest-bearing target with the helper missing fails closed (exit 2 'cannot find helper')" || no "#1676 helper-missing must fail closed" "(rc=$RC $OUT)"
+skip "#1676 helper missing: retired, the manifest is read in process (TestUnreadableManifestAndProbesRefuse)"
 # fixture for the lib-resolution controls: a target whose manifest forces the helper to load, run CLEAN
 cc_scratch "nothing mentioned"; mkdir -p "$REPO/sources/probes/b1"; printf 'echo\n' > "$SP/run.sh"
 printf '| `run.sh` | %064d | x |\n' 0 > "$REPO/sources/probes/b1/SCRIPTS-MANIFEST.md"; LKR="$REPO"; LKT="$FT"; LKS="$SP"
@@ -520,7 +520,7 @@ OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "
 OUT="$(PATH="$TMP/shim-brfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 3 ] && has "DEGRADED-BRANCH-SCAN" && has "for-each-ref exploded" && has "CLEAN-CHECK: degraded"; } && ok "failing git for-each-ref -> typed DEGRADED-BRANCH-SCAN, exit 3" || no "branch degraded" "(rc=$RC $OUT)"
 OUT="$(PATH="$TMP/shim-evfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "evidence find exploded" && has "CLEAN-CHECK: degraded"; } && ok "failing evidence find -> typed DEGRADED-EVIDENCE-SCAN, exit 3" || no "evidence degraded" "(rc=$RC $OUT)"
+skip "#failing evidence find: TestDegradedStatesAreValues (DEGRADED-EVIDENCE-SCAN)"
 printf 'x\n' > "$REPO/stray.json"
 OUT="$(PATH="$TMP/shim-wtfail:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "DEGRADED-WORKTREE-SCAN" && has "GARBAGE untracked stray.json"; } && ok "degraded retention scan + real finding -> findings still win (exit 1)" || no "degraded+finding" "(rc=$RC $OUT)"
@@ -548,25 +548,25 @@ if [ "$(id -u)" != 0 ]; then
   { [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "unreadable dir UNDER _evidence still degrades and names the path" || no "unreadable evidence names path" "(rc=$RC $OUT)"
 fi
 fresh_main; OUT="$(PATH="$TMP/shim-evdisc:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?
-{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "discovery exploded"; } && ok "failing discovery find (unattributable error) -> DEGRADED-EVIDENCE-SCAN with the message" || no "discovery degrade" "(rc=$RC $OUT)"
+skip "#discovery degrade: TestClassifyDiscovery (fatal arm) and TestDegradedStatesAreValues"
 # round 2: summary counts skipped dirs; classification is anchored and relative to the target
 evperm() { OUT="$(SHIM_ERR_LINE="$1" PATH="$TMP/shim-evperm:$PATH" "$BASH_BIN" "$SUT" --target "$REPO" --tmp "$FT" 2>&1)"; RC=$?; }
 fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
 evperm "find: '$REPO/other/locked': Permission denied"
-{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && has "evidence: none found, 1 unreadable dir(s) skipped"; } && ok "skipped unreadable dir -> summary says so, never a bare 'none found'" || no "none found suffix" "(rc=$RC $OUT)"
+skip "#none found suffix with unreadable dirs: scenario evidence-unreadable-and-none-found"
 fresh_main; mkdir -p "$REPO/_evidence/t" "$REPO/.research-sdd"; printf '_evidence/\n' > "$REPO/.research-sdd/keep.txt"
 evperm "find: '$REPO/other/locked': Permission denied"
-{ [ "$RC" = 0 ] && has "1 dir(s) scanned, 0 older than 14d, 1 unreadable dir(s) skipped"; } && ok "skip suffix also on a run that found evidence dirs" || no "scanned suffix" "(rc=$RC $OUT)"
+skip "#skip suffix on a run with evidence dirs: scenario evidence-unreadable-and-none-found and TestClassifyDiscovery"
 fresh_main; mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
 evperm "find: '$REPO/Permission denied': No such file or directory"
-{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN"; } && ok "a non-permission error on a dir named 'Permission denied' is not skipped (anchored match)" || no "anchor" "(rc=$RC $OUT)"
+skip "#anchored Permission denied match: TestClassifyDiscovery (a dir named Permission denied)"
 evperm "find: '$REPO/_evidence/t/locked': Permission denied"
-{ [ "$RC" = 3 ] && has "DEGRADED-EVIDENCE-SCAN" && has "_evidence/t/locked"; } && ok "permission error under an _evidence dir degrades (root-independent)" || no "evidence arm" "(rc=$RC $OUT)"
+skip "#permission error under an _evidence dir degrades: TestClassifyDiscovery and scenario evidence-unreadable-inside-an-evidence-dir"
 CE="$TMP/case_evidence_$n/_evidence"; mkdir -p "$CE"; REPO_SAVE="$REPO"; REPO="$CE/repo"; mkdir -p "$REPO"; git -C "$REPO" init -q; git -C "$REPO" branch -M main 2>/dev/null
 mkdir -p "$REPO/.research-sdd"; printf '# none\n' > "$REPO/.research-sdd/keep.txt"
 "${GIT[@]}" -C "$REPO" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$REPO" commit -q -m i 2>/dev/null
 evperm "find: '$REPO/other/locked': Permission denied"
-{ [ "$RC" = 0 ] && has "INFO evidence-discovery" && ! has "DEGRADED"; } && ok "a target path containing '_evidence' as a substring does not misclassify" || no "target path substring" "(rc=$RC $OUT)"
+skip "#target path containing _evidence: TestAnEvidenceNamedTargetStillSkipsAnUnreadableDir (internal/core/cleancheck)"
 REPO="$REPO_SAVE"
 # W2: --base validated before any scan prints
 fresh_main; printf 'x\n' > "$REPO/stray.json"
@@ -590,232 +590,44 @@ if git -C "$REPO" worktree add -q "$WNL" -b nlbr 2>/dev/null; then
 else echo "  (skipped, not counted: git cannot create a worktree with a newline in its path)"; fi
 
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth --"
-  # Each control deletes or inverts ONE guard in a COPY of the SUT (lib/mutant.sh refuses a no-op,
-  # empty, syntax-broken or live-tree mutant) and asserts the exact GOOD verdict on the original
-  # and the exact BAD verdict on the mutant.
-  # mt LABEL SED-EXPR GOOD-RC BAD-RC [tooth flags...] -- ARGV...   (@SUT@ is substituted)
-  mt() {
-    local label="$1" expr="$2" grc="$3" brc="$4"; shift 4
-    local m; m="$MUT/m-$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '_').sh"
-    mk_sed "$label" "$m" "$expr" && tooth "teeth: $label" "$grc" "$brc" "$m" "$@"
+  echo "-- teeth: mutation controls for clean-check.sh (shim) --"
+  # The retired controls sed the old script body, which is gone: each is a typed SKIP naming the Go tests that replace it.
+  skip "teeth (old scan mutants) --exclude-standard, keep-list globs, trees, comments, self-exemption: TestCleanCheckDifferential keep-* and untracked-* cases and TestGlobMatch (internal/core/cleancheck)"
+  skip "teeth (old stale-tmp mutants) age comparison, name filter, ownership, hours: TestCleanCheckDifferential stale-* cases and the olderThan unit tests"
+  skip "teeth (old scratchpad mutants) exemption classes, citations, manifests, preserved copies: TestCleanCheckDifferential scratch-* cases and the blocks/probes unit tests"
+  skip "teeth (old failure-channel mutants) git/find/sort markers, readdir race, discovery classification: TestClassifyDiscovery, TestDegradedStatesAreValues and the gitStub scenarios"
+  skip "teeth (old retention mutants) branches, worktrees, base choice, backups: TestCleanCheckDifferential branch-*, worktree-*, evidence-* cases"
+  # mkshim NAME [SEDEXPR] -> a (mutant) shim with the lib beside it: $MUT/NAME/clean-check.sh, $MUT/NAME/lib/rsdd-exec.sh
+  mkshim() {
+    local d="$MUT/$1"
+    mkdir -p "$d/lib" && cp "$HERE/../lib/rsdd-exec.sh" "$d/lib/"   # stage-libs-ok: the shim sources only lib/rsdd-exec.sh
+    if [ -z "${2:-}" ]; then cp "$SUT" "$d/clean-check.sh"; return 0; fi
+    mutant_sed "$SUT" "$d/clean-check.sh" "$2" >/dev/null 2>&1 || { no "teeth $1: could not build the mutant (refused by lib/mutant.sh)"; return 1; }
   }
-
-  # World: ignored + stray + kept files, one stale and one young tmp.* entry.
-  fresh; W="$REPO"; WT="$FT"
-  mkdir -p "$W/.research-sdd" "$W/keep/sub" "$W/notes"
-  printf 'ignored.log\n' > "$W/.gitignore"; git -C "$W" add .gitignore
-  printf 'x\n' > "$W/ignored.log"; printf 'x\n' > "$W/stray.json"; printf 'x\n' > "$W/keep/sub/f"
-  printf 'x\n' > "$W/one.txt"; printf 'x\n' > "$W/notes/a.md"
-  : > "$WT/tmp.old"; ago 48 "$WT/tmp.old"; : > "$WT/tmp.young"
-  : > "$WT/other.old"; ago 48 "$WT/other.old"
-  cat > "$W/.research-sdd/keep.txt" <<'KL'
-# a comment
-keep/ # tree
-one.txt # single file with a reason
-notes/*.md
-KL
-  fresh; E="$REPO"; ET="$FT"            # a second repo with NO keep-list
-  printf 'x\n' > "$E/stray.json"
-
-  mt "untracked scan includes gitignored files without --exclude-standard" 's/ --exclude-standard//' 1 1 \
-    --good-lacks 'ignored\.log' --bad-has 'ignored\.log' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "keep-list exact/glob matching disabled" 's/\[\[ "\$p" == \$g \]\] && return 0/false/' 1 1 \
-    --good-lacks 'one\.txt' --bad-has 'GARBAGE untracked one\.txt' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "keep-list trailing-slash tree matching disabled" 's/\[\[ "\$p" == \$g\* \]\] && return 0/false/' 1 1 \
-    --good-lacks 'keep/sub/f' --bad-has 'GARBAGE untracked keep/sub/f' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "keep.txt self-exemption removed" 's/\[ "\$p" = "\$KEEP_REL" \] && return 0/:/' 1 1 \
-    --good-lacks 'research-sdd/keep\.txt' --bad-has 'GARBAGE untracked \.research-sdd/keep\.txt' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "comment lines counted as keep entries" "s/''|'#'\*) continue/'') continue/" 1 1 \
-    --good-has 'keep-list entries: 3' --bad-lacks 'keep-list entries: 3' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "' # reason' suffix no longer stripped" "s/_line=\"\\\${_line%% #\*}\"/:/" 1 1 \
-    --good-lacks 'one\.txt' --bad-has 'GARBAGE untracked one\.txt' -- "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-  mt "ABSENT-KEEPLIST line suppressed" 's/\[ "\$KEEP_PRESENT" = 1 \] ||/true ||/' 1 1 \
-    --good-has 'ABSENT-KEEPLIST' --bad-lacks 'ABSENT-KEEPLIST' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "stale comparison inverted (-mmin -N)" 's/-mmin "+\$((STALE_H \* 60))"/-mmin "-$((STALE_H * 60))"/' 1 1 \
-    --good-has 'stale-tmp .*tmp\.old' --good-lacks 'tmp\.young' --bad-has 'tmp\.young' --bad-lacks 'tmp\.old' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
-  mt "tmp name filter widened to every entry" "s/-name 'tmp\\.\\*'/-name '*'/" 1 1 \
-    --good-lacks 'other\.old' --bad-has 'other\.old' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
-  fresh; CL="$REPO"; CLT="$FT"
-  fresh; RT="$FT"; : > "$RT/tmp.old"; ago 48 "$RT/tmp.old"
-  mt "ownership filter removed" 's/ -uid "\$OWNER_UID"//' 0 1 \
-    --good-has 'CLEAN-CHECK: clean' --bad-has 'stale-tmp' -- env "CLEAN_CHECK_UID=$(( $(id -u) + 1 ))" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
-  mt "age printed in minutes, not hours" 's|/ 3600|/ 60|' 1 1 \
-    --good-has 'age=48h' --bad-lacks 'age=48h' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$WT"
-  # Scratchpad: both classes. SP holds an untracked scratch dir, SPT a stale tmp.* scratchpad.
-  fresh; SP="$REPO"; SPT="$FT"; mkdir -p "$SP/scratch"; printf 'x\n' > "$SP/scratch/a"
-  mkdir "$SPT/tmp.pad"; ago 48 "$SPT/tmp.pad"
-  mt "scratchpad exemption removed (untracked class)" 's/_in_scratch "\$TARGET_P\/\$_rel" && continue/:/' 1 1 \
-    --good-lacks 'scratch/a' --bad-has 'GARBAGE untracked scratch/a' -- env "CLEAN_CHECK_SCRATCHPAD=$SP/scratch" "$BASH_BIN" @SUT@ --target "$SP" --tmp "$SPT"
-  mt "scratchpad exemption removed (tmp class)" 's/_in_scratch "\$_p" && continue/:/' 1 1 \
-    --good-lacks 'tmp\.pad' --bad-has 'GARBAGE stale-tmp .*tmp\.pad' -- env "CLEAN_CHECK_SCRATCHPAD=$SPT/tmp.pad" "$BASH_BIN" @SUT@ --target "$E" --tmp "$SPT"
-  mt "findings no longer change the exit code" 's/^exit 1$/exit 0/' 1 0 \
-    --good-has 'finding' -- "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  # DEGRADED probe: with git absent the mutant must NOT report exit 3 + DEGRADED.
-  mt "tool-presence probe disabled" 's/command -v "\$_tool" >\/dev\/null 2>&1 ||/true ||/' 3 2 \
-    --good-has 'DEGRADED' --bad-lacks 'DEGRADED' -- env "PATH=$TMP/bin-no-git" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "decimal normalization of --stale-hours removed (octal 08 breaks)" 's/STALE_H=\$((10#\$STALE_H))/:/' 0 2 \
-    --good-has 'older than 8h' --bad-lacks 'CLEAN-CHECK: clean' -- "$BASH_BIN" @SUT@ --target "$CL" --tmp "$CLT" --stale-hours 08
-  # Truncated/failed scans: a git, find or sort that fails must be exit 2, never a quiet clean.
-  mt "readdir-race flag no longer passed to the scan" 's/\${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
-    --good-has 'stale-tmp' --bad-has 'find failed' -- env "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$RT"
-  mt "git failure no longer detected (RC marker ignored, untracked scan)" '/git ls-files failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 0 \
-    --good-has 'git ls-files failed' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "find failure no longer detected (RC marker ignored, tmp scan)" '/find failed/s/"\${_items\[\$_last\]}" = "RC=0"/"x" = "x"/' 2 3 \
-    --good-has 'find failed' --bad-lacks 'find failed' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
-  fresh; ST="$FT"; : > "$ST/tmp.a"; : > "$ST/tmp.b"; ago 48 "$ST/tmp.a"; ago 48 "$ST/tmp.b"
-  mt "sort failure no longer detected (RC marker ignored, sort step)" '/sort failed/s/"\${_sorted\[\$_slast\]}" = "RC=0"/"x" = "x"/' 2 1 \
-    --good-has 'sort failed' -- env "PATH=$TMP/shim-sort:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ST"
-  mt "git stderr discarded again" 's|ls-files --others --exclude-standard -z$|ls-files --others --exclude-standard -z 2>/dev/null|' 2 2 \
-    --good-has 'shim-git-diagnostic' --bad-lacks 'shim-git-diagnostic' -- env "PATH=$TMP/shim-git:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "find stderr discarded again" 's|-print0$|-print0 2>/dev/null|' 2 2 \
-    --good-has 'shim-find-diagnostic' --bad-lacks 'shim-find-diagnostic' -- env "PATH=$TMP/shim-find:$PATH" "$BASH_BIN" @SUT@ --target "$CL" --tmp "$WT"
-  mt "rev-parse reason dropped from the error" 's/: \${_gmsg:-git exited non-zero without output}//' 2 2 \
-    --good-has 'dubious ownership' --bad-lacks 'dubious ownership' -- env "PATH=$TMP/shim-revparse:$PATH" "$BASH_BIN" @SUT@ --target "$E" --tmp "$ET"
-  mt "rev-parse stderr merged into the stdout comparison" 's/rev-parse --is-inside-work-tree 2>\/dev\/null)"/rev-parse --is-inside-work-tree 2>\&1)"/' 1 2 \
-    --good-has 'GARBAGE untracked stray' --bad-has 'not inside a git work tree' -- env "PATH=$TMP/shim-warn:$PATH" "$BASH_BIN" @SUT@ --target "$W" --tmp "$WT"
-
-  # kit #1207: scratchpad artifact teeth. World: a repo whose block mentions probe_run.log, plus an
-  # unmentioned script; the scratchpad holds both. A second case has the scratchpad configured but absent.
-  fresh; CR="$REPO"; CRT="$FT"; CSP="$TMP/cc-spad"; mkdir -p "$CSP" "$CR/notes" "$CR/.research-sdd"
-  printf '# n\n' > "$CR/.research-sdd/keep.txt"; printf 'see probe_run.log\n' > "$CR/notes/b1.md"
-  git -C "$CR" add notes/b1.md .research-sdd/keep.txt; git -C "$CR" -c user.name=t -c user.email=t@example.invalid commit -q -m b
-  printf 'x\n' > "$CSP/probe_run.log"; printf 'echo\n' > "$CSP/tool.sh"
-  mt "scratchpad citation match always misses" 's/_mentions "\$_b" "\$TARGET_P\/\$_bp"; _g=\$?/false; _g=1/' 1 1 \
-    --good-has 'UNPRESERVED-ARTIFACT' --bad-lacks 'UNPRESERVED-ARTIFACT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-  mt "script extension filter matches everything" 's/\*\.sh|\*\.ps1|\*\.py|\*\.java|\*\.js|\*\.rb|\*\.pl|\*\.bat|\*\.cmd|\*\.groovy|\*\.kts)   # CC-SCRIPT-EXT/*)   # CC-SCRIPT-EXT/' 1 1 \
-    --good-lacks 'UNMANIFESTED-SCRIPT .*probe_run' --bad-has 'UNMANIFESTED-SCRIPT .*probe_run' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-  fresh; CM="$REPO"; CMT="$FT"; mkdir -p "$CM/sources/probes/b1" "$CM/.research-sdd"; printf '# n\n' > "$CM/.research-sdd/keep.txt"
-  printf '| `tool.sh` | %064d | x | B1 | h | - | EXECUTED |\n' 0 > "$CM/sources/probes/b1/SCRIPTS-MANIFEST.md"
-  git -C "$CM" add .research-sdd/keep.txt sources; git -C "$CM" -c user.name=t -c user.email=t@example.invalid commit -q -m m
-  mt "manifest lookup always misses" '/# CC-MANIFEST-LOOKUP$/s/if ! grep -qxF -- "\$_b" <<<"\$_mf_names"; then/if true; then/' 0 1 \
-    --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
-  mt "absent scratchpad no longer typed" '/# CC-ABSENT$/s/-d "\$SCRATCH_P"/-e "\/"/' 0 0 \
-    --good-has 'ABSENT-SCRATCHPAD' --bad-lacks 'ABSENT-SCRATCHPAD' -- env "CLEAN_CHECK_SCRATCHPAD=$TMP/cc-no-spad" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-
-  # RDD round 1 teeth: substring matching, substring manifest lookup, manifest-as-block, preserved copy, find rc, missing block.
-  fresh; RB="$REPO"; RBT="$FT"; RSP="$TMP/rb-spad"; mkdir -p "$RSP" "$RB/notes" "$RB/.research-sdd" "$RB/sources/probes/b1"
-  printf 'sources/\n' > "$RB/.research-sdd/keep.txt"; printf 'Ran prerun.sh first.\n' > "$RB/notes/b1.md"
-  printf 'x\n' > "$RSP/run.sh"; printf 'x\n' > "$RSP/prerun.sh"; printf 'same\n' > "$RSP/data.csv"
-  printf '| `prerun.sh` | %064d | python x.sh data.csv | B1 | h | - | RECIPE |\n' 0 > "$RB/sources/probes/b1/SCRIPTS-MANIFEST.md"
-  git -C "$RB" add notes/b1.md .research-sdd/keep.txt sources; git -C "$RB" -c user.name=t -c user.email=t@example.invalid commit -q -m rb
-  mt "citation match degraded to bare substring" '/grep -qE -- "(^|/s/.*/  grep -qF -- "\$1" "\$2"/' 1 1 \
-    --good-lacks 'UNPRESERVED-ARTIFACT .*/run\.sh ' --bad-has 'UNPRESERVED-ARTIFACT .*/run\.sh ' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  mt "manifest lookup degraded to substring" '/# CC-MANIFEST-LOOKUP$/s/grep -qxF/grep -qF/' 1 1 \
-    --good-has 'UNMANIFESTED-SCRIPT .*/run\.sh' --bad-lacks 'UNMANIFESTED-SCRIPT .*/run\.sh' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  mt "manifest files counted as citing blocks" '/\[ "\${_bp##\*\/}" = "SCRIPTS-MANIFEST.md" \] \&\& continue/d' 1 1 \
-    --good-lacks 'UNPRESERVED-ARTIFACT .*data\.csv' --bad-has 'UNPRESERVED-ARTIFACT .*data\.csv' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  printf 'Ran prerun.sh and probe_run.log\n' > "$RB/notes/b1.md"; printf 'same\n' > "$RSP/probe_run.log"; printf 'same\n' > "$RB/sources/probes/b1/probe_run.log"
-  mt "preserved-copy check disabled" '/# CC-PRESERVED$/s/if \[ -n "\$_h" \] \&\& grep -qxF -- "\$_h" <<<"\$_probe_shas"; then _same=1; fi/:/' 1 1 \
-    --good-lacks 'UNPRESERVED-ARTIFACT .*probe_run\.log' --bad-has 'UNPRESERVED-ARTIFACT .*probe_run\.log' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  fresh; BS="$REPO"; BST="$FT"; BSP="$TMP/bs-spad"; mkdir -p "$BSP" "$BS/notes" "$BS/.research-sdd" "$BS/sources/probes/b1"
-  printf 'sources/\n' > "$BS/.research-sdd/keep.txt"; printf 'Result in probe\\run.log\n' > "$BS/notes/b1.md"
-  printf 'same bytes\n' > "$BSP/probe\\run.log"; printf 'same bytes\n' > "$BS/sources/probes/b1/copy.log"
-  git -C "$BS" add notes/b1.md .research-sdd/keep.txt sources; git -C "$BS" -c user.name=t -c user.email=t@example.invalid commit -q -m bs
-  mt "#2190 digest read back to positional file arg" '/_h="\$(\$_sha_cmd/s/\$_sha_cmd < "\$_f"/$_sha_cmd -- "$_f"/' 0 1 \
-    --good-lacks 'UNPRESERVED-ARTIFACT' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CLEAN_CHECK_SCRATCHPAD=$BSP" "$BASH_BIN" @SUT@ --target "$BS" --tmp "$BST"
-  mt "manifest scan RC ignored" '/# CC-MF-RC$/s/"\${_mf\[\$_mlast\]}" = "RC=0"/"x" = "x"/' 2 1 \
-    --good-has 'manifest scan failed' --bad-lacks 'manifest scan failed' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-mffind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  mt "probes scan RC ignored" '/# CC-PB-RC$/s/"\${_pl\[\$_plast\]}" = "RC=0"/"x" = "x"/' 2 1 \
-    --good-has 'probes scan failed' --bad-lacks 'probes scan failed' -- env "CLEAN_CHECK_SCRATCHPAD=$RSP" "PATH=$TMP/shim-pbfind:$PATH" "$BASH_BIN" @SUT@ --target "$RB" --tmp "$RBT"
-  # kit #1659: a run without sha256sum/shasum is a counted degraded state, never a clean exit 0
-  mt "missing sha256 tool no longer marks the run degraded" '/# CC-NO-SHA$/,/^    fi$/s/DEGRADED=1/:/' 3 0 \
-    --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: clean' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
-  mt "degraded run exits 0 after the summary" '/# CC-DEGRADED-EXIT/,/^    exit 3$/s/exit 3/exit 0/' 3 0 \
-    --good-has 'CLEAN-CHECK: degraded' --bad-has 'CLEAN-CHECK: degraded' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/bin-nosha" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
-  # kit #1659 lib resolution: symlinks followed (the mutant is run THROUGH a symlink; the original resolves the real lib/)
-  LNKRUN='d="$(mktemp -d)"; ln -s "$1" "$d/clean-check.sh"; bash "$d/clean-check.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r'
-  mt "script symlink no longer followed when locating lib/" '/# CC-LIB-RESOLVE$/s/while \[ -L "\$_src" \]/while false/' 0 2 \
-    --good-has 'CLEAN-CHECK: clean' --bad-has 'cannot find helper' -- env "CLEAN_CHECK_SCRATCHPAD=$LKS" "$BASH_BIN" -c "$LNKRUN" _ @SUT@ --target "$LKR" --tmp "$LKT"
-  # kit #1676: lazy helper load — a manifest-free target (probes dir present, no manifest) must run with lib/ absent
-  mt "helper loaded eagerly: every sources/probes target needs lib/" '/# CC-LIB-LAZY/s/if \[ "\$_mlast" -gt 0 \]/if true/' 1 2 \
-    --good-has 'UNMANIFESTED-SCRIPT' --bad-has 'cannot find helper' -- env "CLEAN_CHECK_SCRATCHPAD=$NLS" "$BASH_BIN" -c 'd="$(mktemp -d)"; cp "$1" "$d/clean-check.sh"; bash "$d/clean-check.sh" "${@:2}"; r=$?; rm -rf "$d"; exit $r' _ @SUT@ --target "$NLR" --tmp "$NLT"
-  if [ "$(id -u)" != 0 ]; then
-    fresh; PW="$REPO"; PWT="$FT"; PWS="$TMP/pw-spad"; mkdir -p "$PWS" "$PW/sources/probes/b1" "$PW/.research-sdd"
-    printf 'sources/\n' > "$PW/.research-sdd/keep.txt"; printf 'echo\n' > "$PWS/run.sh"
-    printf '| `run.sh` | %064d | x |\n' 0 > "$PW/sources/probes/b1/SCRIPTS-MANIFEST.md"; chmod 000 "$PW/sources/probes/b1/SCRIPTS-MANIFEST.md"
-    mt "manifest parse failure no longer fails closed" '/# CC-MF-PARSE$/s/ || { _err "cannot parse manifest \${_mf\[\$_j\]}"; exit 2; }//' 2 1 \
-      --good-has 'cannot parse manifest' --bad-lacks 'cannot parse manifest' -- env "CLEAN_CHECK_SCRATCHPAD=$PWS" "$BASH_BIN" @SUT@ --target "$PW" --tmp "$PWT"
+  fresh; SW="$REPO"; SWT="$FT"; printf 'x\n' > "$SW/stray.json"
+  SHIM_LINE='^rsdd_exec hygiene clean-check "\$@"'
+  GOODSHIM="$MUT/good/clean-check.sh"
+  mkshim good "" || exit 2
+  fresh; SWC="$REPO"; printf 'x\n' > "$SWC/other.json"   # the cwd the argument-less mutant scans instead of --target
+  if mkshim A 's#'"$SHIM_LINE"'#rsdd_exec hygiene clean-check#'; then
+    tooth "teeth(shim-args): arguments no longer forwarded -> the scan reads the working directory, not --target" 1 1 "$MUT/A/clean-check.sh" \
+      --orig "$GOODSHIM" --good-has 'GARBAGE untracked stray.json' --bad-lacks 'GARBAGE untracked stray.json' -- "$BASH_BIN" -c 'cd "$0" && exec "$BASH" "$@"' "$SWC" @SUT@ --target "$SW" --tmp "$SWT"
   fi
-  mt "manifest rows no longer read from the shared parser" '/# CC-MF-PARSE$/s/_rows="\$(scripts_manifest_rows "\$TARGET_P" "\${_mf\[\$_j\]}")"/_rows=""/' 0 1 \
-    --good-lacks 'UNMANIFESTED-SCRIPT' --bad-has 'UNMANIFESTED-SCRIPT' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "$BASH_BIN" @SUT@ --target "$CM" --tmp "$CMT"
-  fresh; RM="$REPO"; RMT="$FT"; RMS="$TMP/rm-spad"; mkdir -p "$RMS" "$RM/.research-sdd" "$RM/notes"; printf '# n\n' > "$RM/.research-sdd/keep.txt"
-  printf 'x\n' > "$RM/notes/gone.md"; git -C "$RM" add notes/gone.md .research-sdd/keep.txt; git -C "$RM" -c user.name=t -c user.email=t@example.invalid commit -q -m g; rm "$RM/notes/gone.md"
-  printf 'x\n' > "$RMS/unrelated.dat"
-  mt "missing-on-disk blocks no longer skipped" '/# CC-MISSING$/d' 0 2 \
-    --good-has 'blocks-missing-on-disk: 1' -- env "CLEAN_CHECK_SCRATCHPAD=$RMS" "$BASH_BIN" @SUT@ --target "$RM" --tmp "$RMT"
-
-  # RDD round 3 teeth: the scratchpad walk's race handling.
-  mt "scratchpad walk loses -ignore_readdir_race" '/# CC-SCRATCH-FIND$/s/ \${FIND_RACE\[@\]+"\${FIND_RACE\[@\]}"}//' 1 2 \
-    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-race:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-  mt "ENOENT-only errors no longer benign" '/# CC-ENOENT-BENIGN$/s/_frc=0; fi/:; fi/' 1 2 \
-    --good-has 'UNPRESERVED-ARTIFACT' --bad-has 'find failed' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-benign:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-  mt "every find error treated as benign" '/# CC-ENOENT-BENIGN$/s/\[ "\$_other" -eq 0 \]/true/' 2 1 \
-    --good-has 'find failed' --bad-has 'UNPRESERVED-ARTIFACT' -- env "CC_SHIM_DIR=$CSP" "CLEAN_CHECK_SCRATCHPAD=$CSP" "PATH=$TMP/shim-hard:$PATH" "$BASH_BIN" @SUT@ --target "$CR" --tmp "$CRT"
-
-  # kit #1277 slice 3 teeth: the report-only retention scans.
-  # World R: merged branch, live + gone worktrees, old + young rollback backups, an old non-backup file.
-  fresh_main; R="$REPO"; RT="$FT"; mkdir -p "$R/_evidence/t1" "$R/.research-sdd"; printf '_evidence/\n' > "$R/.research-sdd/keep.txt"
-  git -C "$R" branch mergedbr; git -C "$R" branch livewt; git -C "$R" worktree add -q "$TMP/rw-live" livewt
-  git -C "$R" worktree add -q "$TMP/rw-gone" -b gonebr; rm -rf "$TMP/rw-gone"
-  git -C "$R" worktree add -q --lock "$TMP/rw-locked" -b lockedbr; rm -rf "$TMP/rw-locked"   # locked + missing: git does NOT mark it prunable
-  git -C "$R" worktree add -q "$TMP/rw-broken" -b brokenbr; rm "$TMP/rw-broken/.git"          # path exists, git marks it prunable
-  : > "$R/_evidence/t1/rollback-old.tar"; ago 480 "$R/_evidence/t1/rollback-old.tar"; : > "$R/_evidence/t1/ROLLBACK-new.tar"
-  mt "stale worktree detection (missing path) removed" '/# CC-WT-MISSING/s/\[ ! -e "\$_wp" \]/false/' 0 0 \
-    --good-has 'rw-locked missing \(locked\)' --bad-lacks 'rw-locked missing' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "git's prunable marker no longer reported" 's/elif \[ -n "\$_wprun" \]/elif false/' 0 0 \
-    --good-has 'rw-broken prunable \(gitdir file' --bad-lacks 'rw-broken prunable' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "branches checked out in a worktree are reported as merged" 's/\[ "\$_chk" = 1 \] && continue/:/' 0 0 \
-    --good-lacks 'merged-branch livewt' --bad-has 'merged-branch livewt' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "backup retention age filter removed" '/# CC-EV-FIND/s/ -mmin "+\$((BACKUP_D \* 1440))"//' 0 0 \
-    --good-lacks 'ROLLBACK-new' --bad-has 'ROLLBACK-new' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "backup retention default changed from 14 days" 's/BACKUP_D=14$/BACKUP_D=30/' 0 0 \
-    --good-has 'stale-backup' --bad-lacks 'stale-backup' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "a WARN is counted as a finding (exit code changes)" '/^_warn()/s/WARNINGS=\$((WARNINGS + 1))/FINDINGS=$((FINDINGS + 1))/' 0 1 \
-    --good-has 'WARN merged-branch mergedbr' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "failed worktree list no longer degrades the run" '/^  _degrade "DEGRADED-WORKTREE-SCAN/s/.*/  :/' 3 0 \
-    --good-has 'DEGRADED-WORKTREE-SCAN' --bad-lacks 'DEGRADED-WORKTREE-SCAN' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "failed branch listing no longer degrades the run" '/^    _degrade "DEGRADED-BRANCH-SCAN/s/.*/    :/' 3 0 \
-    --good-has 'DEGRADED-BRANCH-SCAN' --bad-lacks 'DEGRADED-BRANCH-SCAN' -- env "PATH=$TMP/shim-brfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "failed evidence find no longer degrades the run" '/^      _degrade "DEGRADED-EVIDENCE-SCAN find failed or was truncated/s/_degrade .*/:; _evbad=$((_evbad + 1))/' 3 0 \
-    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  mt "absent explicit --evidence dir is no longer typed" "s/printf 'ABSENT-EVIDENCE %s\\\\n' \"\\\$EVID_ARG\"; //" 0 0 \
-    --good-has 'ABSENT-EVIDENCE' --bad-lacks 'ABSENT-EVIDENCE' -- "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT" --evidence "$TMP/no-such-evidence"
-  # Review-round teeth. Worlds: NB = no base + no _evidence; PR = nested old backup dir.
-  fresh; git -C "$REPO" branch -M trunk; NB="$REPO"; NBT="$FT"
-  fresh_main; mkdir -p "$REPO/_evidence/rollback-d"; : > "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d/rollback-inner.tar"; ago 480 "$REPO/_evidence/rollback-d"; PR="$REPO"; PRT="$FT"
-  mkdir -p "$PR/.research-sdd"; printf '_evidence/\n' > "$PR/.research-sdd/keep.txt"
-  mt "ABSENT-BASE line removed" "/^  printf 'ABSENT-BASE/s/.*/  :/" 0 0 \
-    --good-has 'ABSENT-BASE' --bad-lacks 'ABSENT-BASE' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "unattributable discovery find failure no longer degrades" '/^    _degrade "DEGRADED-EVIDENCE-SCAN find for _evidence directories/s/_degrade .*/:/' 3 0 \
-    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "PATH=$TMP/shim-evdisc:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "evidence: none found state lost" 's/EV_STATE="none found"/EV_STATE="not evaluated"/' 0 0 \
-    --good-has 'evidence: none found' --bad-lacks 'evidence: none found' -- "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "backup-dir prune removed (children double-reported)" '/# CC-EV-FIND/s/ -prune//' 0 0 \
-    --good-lacks 'rollback-inner' --bad-has 'rollback-inner' -- "$BASH_BIN" @SUT@ --target "$PR" --tmp "$PRT"
-  mt "degraded worktree scan no longer suppresses local branch WARNs" 's/\[ "\$_wt_ok" = 1 \] || { continue; }/:/' 3 3 \
-    --good-lacks 'WARN merged-branch' --bad-has 'WARN merged-branch' -- env "PATH=$TMP/shim-wtfail:$PATH" "$BASH_BIN" @SUT@ --target "$R" --tmp "$RT"
-  CEW="$TMP/case_evidence_w/_evidence/repo"; mkdir -p "$CEW/.research-sdd"; git -C "$CEW" init -q; git -C "$CEW" branch -M main 2>/dev/null; printf '# none\n' > "$CEW/.research-sdd/keep.txt"
-  "${GIT[@]}" -C "$CEW" add -A >/dev/null 2>&1; "${GIT[@]}" -C "$CEW" commit -q -m i 2>/dev/null
-  mt "skipped non-evidence dir degrades the run" 's/\*) _ev_fatal=0; _ev_unread/*) _ev_fatal=1; _ev_unread/' 0 3 \
-    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "skip count missing from the summary (quiet none found)" 's/\[ "\$_ev_unread" -eq 0 \] || _ev_sfx=/: || _ev_sfx=/' 0 0 \
-    --good-has 'none found, 1 unreadable dir\(s\) skipped' --bad-lacks 'unreadable dir\(s\) skipped' -- env "SHIM_ERR_LINE=find: '$NB/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "_evidence safety arm removed (permission error under _evidence skipped)" '/CC-EV-ARM/d' 3 0 \
-    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/_evidence/t/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "Permission denied match no longer anchored to the line end" 's/\[\[ "\$_fl" == "\$_pre"\*"\$_suf" \]\]/[[ "$_fl" == "$_pre"* ]]/' 3 0 \
-    --good-has 'DEGRADED-EVIDENCE-SCAN' --bad-lacks 'DEGRADED-EVIDENCE-SCAN' -- env "SHIM_ERR_LINE=find: '$NB/Permission denied': No such file or directory" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$NB" --tmp "$NBT"
-  mt "classification no longer relative to the target (case_evidence in the target path)" 's/; _fp="\${_fp#"\$TARGET_P"\/}"//' 0 3 \
-    --good-lacks 'DEGRADED' --bad-has 'DEGRADED' -- env "SHIM_ERR_LINE=find: '$CEW/other/locked': Permission denied" "PATH=$TMP/shim-evperm:$PATH" "$BASH_BIN" @SUT@ --target "$CEW" --tmp "$NBT"
-  # World R2: origin/HEAD base with a local twin of the base and a merged remote branch.
-  fresh_main; R2="$REPO"; R2T="$FT"; RB2="$TMP/r2-remote.git"; git init -q --bare "$RB2"; git -C "$R2" remote add origin "$RB2"
-  git -C "$R2" push -q origin main; git -C "$R2" push -q origin main:refs/heads/rdone; git -C "$R2" fetch -q origin; git -C "$R2" remote set-head origin main >/dev/null; git -C "$R2" switch -q -c other   # HEAD off main, so main is a reportable twin
-  mt "the base's local twin is reported as merged" 's/\[ -n "\$_bb" \] && \[ "\$_bn" = "\$_bb" \] && continue/:/' 0 0 \
-    --good-lacks 'merged-branch main' --bad-has 'merged-branch main' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
-  mt "origin/HEAD alias is reported as a merged remote branch" 's/\[ "\$_bn" = "HEAD" \] && continue/:/' 0 0 \
-    --good-lacks 'origin/HEAD merged' --bad-has 'origin/HEAD merged' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
-  mt "origin/HEAD no longer chosen as the base" 's/refs\/remotes\/origin\/HEAD/refs\/remotes\/origin\/NOHEAD/' 0 0 \
-    --good-has 'merged-remote-branch origin/rdone merged into origin/main' --bad-lacks 'merged into origin/main' -- "$BASH_BIN" @SUT@ --target "$R2" --tmp "$R2T"
+  if mkshim B 's#^rsdd_exec hygiene clean-check #rsdd_exec hygiene clean-checks #'; then
+    tooth "teeth(shim-command): wrong subcommand name -> an unknown command, not a scan" 1 2 "$MUT/B/clean-check.sh" \
+      --orig "$GOODSHIM" -- "$BASH_BIN" @SUT@ --target "$SW" --tmp "$SWT"
+  fi
+  if mkshim D 's#'"$SHIM_LINE"'#( rsdd_exec hygiene clean-check "$@" ); exit 0#'; then
+    tooth "teeth(shim-exit): exit code laundered to 0 -> a finding no longer fails the caller" 1 0 "$MUT/D/clean-check.sh" \
+      --orig "$GOODSHIM" -- "$BASH_BIN" @SUT@ --target "$SW" --tmp "$SWT"
+  fi
+  # the library guard: a shim with no lib beside it says so and exits 2; a mutant that exits 0 there hides a missing binary
+  mkdir -p "$MUT/Cgood" "$MUT/C"
+  cp "$SUT" "$MUT/Cgood/clean-check.sh"
+  if mutant_sed "$SUT" "$MUT/C/clean-check.sh" 's#exit 2; }   \# SENTINEL-RSDD-EXEC-GUARD#exit 0; }   \# SENTINEL-RSDD-EXEC-GUARD#' >/dev/null 2>&1; then
+    tooth "teeth(shim-guard): missing-library guard exits 0 -> a missing rsdd reads as a clean scan" 2 0 "$MUT/C/clean-check.sh" \
+      --orig "$MUT/Cgood/clean-check.sh" --good-has 'rsdd-exec.sh missing' -- "$BASH_BIN" @SUT@ --target "$SW" --tmp "$SWT"
+  else no "teeth(shim-guard): could not build the mutant (refused by lib/mutant.sh)"; fi
 fi
 
 echo "== $pass passed · $fail failed =="
