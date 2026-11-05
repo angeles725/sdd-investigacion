@@ -14,7 +14,6 @@
 ./internal/gate #2592 untagged tests read toolbelt/ fixtures outside the module; real lived mutants not yet measured
 ./internal/core/gfm #2592 untagged differential test reads toolbelt/ outside the module; real lived mutants not yet measured
 ./internal/verify #2592 untagged tests borrow kit files outside the module; real lived mutants not yet measured
-./internal/sweep #2592 untagged test reads templates/ outside the module; real lived mutants not yet measured
 ./internal/corroborate/kaitai #2592 untagged test reads a toolbelt/ fixture outside the module; real lived mutants not yet measured
 ./internal/corroborate/native #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured
 ./internal/corroborate/fidelity #2592 untagged test reads toolbelt/ fixtures outside the module; real lived mutants not yet measured
