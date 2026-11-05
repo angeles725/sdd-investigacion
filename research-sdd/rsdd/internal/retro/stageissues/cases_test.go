@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/testkit/kitroot"
 )
 
 // allCases is the scenario table shared by the differential and the golden test. The groups live in cases_*.go.
@@ -91,12 +93,13 @@ func (c dcase) withEnv(kv ...string) dcase {
 	return c
 }
 
-// fixtureDir holds the retro fixtures the old suite and its sibling suites share.
-const fixtureDir = "../../../../toolbelt/tests/fixtures/stage-retro-issues"
+// fixtureDir is the kit-relative directory of the retro fixtures the old suite and its sibling suites share. It is
+// read through kitroot so a module-only copy (the teeth run) still finds it.
+var fixtureDir = filepath.Join("toolbelt", "tests", "fixtures", "stage-retro-issues")
 
 func fixture(t testing.TB, name string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(fixtureDir, name))
+	data, err := os.ReadFile(filepath.Join(kitroot.Dir(t), fixtureDir, name))
 	if err != nil {
 		t.Fatalf("fixture %s: %v (a moved fixture dir must update fixtureDir, not skip)", name, err)
 	}

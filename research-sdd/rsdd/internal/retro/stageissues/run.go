@@ -150,17 +150,16 @@ func (a *app) charLen(s string) int {
 // cutChars is ${s:0:n}: the first n characters (bytes under a non-UTF-8 locale).
 func (a *app) cutChars(s string, n int) string {
 	if !a.utf8 {
-		if n > len(s) {
-			n = len(s)
+		return s[:min(n, len(s))]
+	}
+	c := 0
+	for i := range s { // i is the start of each character; an invalid byte is one character, as in a UTF-8 shell
+		if c == n {
+			return s[:i]
 		}
-		return s[:n]
+		c++
 	}
-	i := 0
-	for c := 0; c < n && i < len(s); c++ {
-		_, w := utf8.DecodeRuneInString(s[i:])
-		i += w
-	}
-	return s[:i]
+	return s
 }
 
 func (a *app) main(args []string) (rc int) {
