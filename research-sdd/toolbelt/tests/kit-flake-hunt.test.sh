@@ -2,12 +2,13 @@
 # kit-flake-hunt.test.sh — behaviour + mutation-control suite for maint/kit-flake-hunt.sh
 # (kit issue #2209: hunt load flakes by running suites repeatedly under bounded CPU load).
 #
-# Every behaviour is a SCENARIO function that takes the SUT path and prints `SCEN-OK` or
-# `SCEN-BAD: <why>`. The suite runs each scenario against the real SUT; --prove-teeth re-runs the
-# same scenarios (`--scenario NAME SUT`) against single-edit mutants of the SUT and requires the
-# mutant to go red for the right reason (lib/mutant.sh refuses a mutant that is empty, identical,
-# not valid bash or written into the live tree). Fake suites live in a per-scenario temp dir; the
-# `gh` binary is always a shim, so nothing here can create a real issue.
+# The SUT is a compatibility shim over the Go binary (`rsdd maint flake-hunt`); the behaviour is pinned twice: by
+# the Go tests (internal/maint/flakehunt: a differential against the frozen legacy script, one test per
+# .github/workflows/flake-hunt.yml shape, `make teeth`) and by the SCENARIOS below, which drive the shim end to end.
+# Every behaviour is a SCENARIO function that takes the SUT path and prints `SCEN-OK` or `SCEN-BAD: <why>`.
+# --prove-teeth re-runs scenarios (`--scenario NAME SUT`) against single-edit mutants of the SHIM (lib/mutant.sh
+# refuses a mutant that is empty, identical, not valid bash or written into the live tree). Fake suites live in a
+# per-scenario temp dir; the `gh` binary is always a shim, so nothing here can create a real issue.
 #
 # Usage: kit-flake-hunt.test.sh [--prove-teeth]      Exit: 0 all held · 1 regression · 2 harness error.
 set -uo pipefail
@@ -394,7 +395,19 @@ sc_evidence() ( setup; sut="$1"; issue_setup
   [ "$RC" -eq 2 ] || bad "bad --evidence-url: exit $RC, want 2 [$OUTPUT]" || exit 1
   echo SCEN-OK )
 
-SCENARIOS=(classify clean brokenonly tsv timeout skip prove survivors interrupt loadbound edges degraded tier xdg issues_dry issues_apply issues_edges summary nothing outguard node expiry loaddefault tmpdir tokens evidence)
+sc_shimrepo() ( setup; sut="$1"; mkstandard "$R"
+  # without --repo the shim hunts ITS OWN checkout: lay out research-sdd/toolbelt/{maint,lib} around the suites
+  K="$W/kit"; mkdir -p "$K/research-sdd/toolbelt/maint" "$K/s"
+  cp "$R/s/stable.test.sh" "$K/s/"; ln -s "$HERE/../lib" "$K/research-sdd/toolbelt/lib"
+  cp "$sut" "$K/research-sdd/toolbelt/maint/kit-flake-hunt.sh"
+  OUTPUT="$(cd "$W" && bash "$K/research-sdd/toolbelt/maint/kit-flake-hunt.sh" --out "$W/os" --runs 1 --load 0 --suite s/stable.test.sh 2>&1)"; RC=$?
+  [ "$RC" -eq 0 ] && grep -qxF 'Flake hunt: runs=1 suites=1 load=0 flaky=0 broken=0 stable=1 skipped=0' <<<"$OUTPUT" || bad "no --repo: rc=$RC [$OUTPUT]" || exit 1
+  # a caller's own --repo comes later and wins
+  OUTPUT="$(cd "$W" && bash "$K/research-sdd/toolbelt/maint/kit-flake-hunt.sh" --repo "$R" --out "$W/ot" --runs 1 --load 0 --suite s/flaky.test.sh 2>&1)"; RC=$?
+  [ "$RC" -eq 1 ] || bad "caller --repo ignored: rc=$RC [$OUTPUT]" || exit 1
+  echo SCEN-OK )
+
+SCENARIOS=(classify clean brokenonly tsv timeout skip prove survivors interrupt loadbound edges degraded tier xdg issues_dry issues_apply issues_edges summary nothing outguard node expiry loaddefault tmpdir tokens evidence shimrepo)
 SCEN_DESC=(
   "classification: stable/flaky/broken/skip lines, totals, exit 1"
   "a clean hunt exits 0 with zero flaky"
@@ -422,6 +435,7 @@ SCEN_DESC=(
   "each suite gets its own TMPDIR under the out dir, removed afterwards"
   "suites run without GH_TOKEN/GITHUB_TOKEN while gh keeps GH_TOKEN"
   "--evidence-url lands in the issue body; absent without the flag; a non-URL is refused"
+  "without --repo the shim hunts its own checkout; a caller's --repo wins"
 )
 
 if [ "${1:-}" = "--scenario" ]; then
@@ -443,57 +457,29 @@ for i in "${!SCENARIOS[@]}"; do
   elif [ "$(tail -n 1 <<<"$res")" = "SCEN-OK" ]; then ok "${SCEN_DESC[$i]}"; else no "${SCEN_DESC[$i]} :: $(grep -m1 '^SCEN-BAD' <<<"$res" || echo "${res:0:300}")"; fi
 done
 
+
 if [ "${1:-}" = "--prove-teeth" ]; then
-  echo "-- teeth: each single-edit mutant of the SUT must turn its scenario red (SCEN-BAD), not crash --"
+  echo "-- teeth: the shim must dispatch to rsdd maint flake-hunt with its checkout and the caller's arguments --"
   # shellcheck source=lib/mutant.sh
   . "$HERE/lib/mutant.sh"
   mutant_bootstrap mutant_chain_or_count mutant_tooth mutant_crash_re mutant_cleanup_register || exit 2
   MT="$(mktemp -d)"; mutant_cleanup_register "$MT" || exit 2
   CRASH="$(mutant_crash_re bash cmd)" || exit 2
+  # a mutant of the shim must still find ../lib/rsdd-exec.sh: it lives in a throwaway kit skeleton
+  KM="$MT/research-sdd/toolbelt"; mkdir -p "$KM/maint" && ln -s "$HERE/../lib" "$KM/lib"
   # teeth <label> <scenario> <sed-expr>: the original must print SCEN-OK (rc 0), the mutant SCEN-BAD (rc 1).
   teeth() {
-    local m="$MT/$1.sh"
+    local m="$KM/maint/$1.sh"
     if mutant_chain_or_count fail "teeth: $1" "$SUT_DEFAULT" "$m" "$3"; then
       if mutant_tooth "teeth: $1" 0 1 "$m" --orig "$SUT_DEFAULT" --good-has 'SCEN-OK' --bad-has 'SCEN-BAD' --bad-lacks "$CRASH" -- bash "$SELF" --scenario "$2" @SUT@; then
         pass=$((pass+1)); else fail=$((fail+1)); fi
     fi
   }
-  teeth broken-never-reported classify 's/^  elif \[ "\$f" -eq "\$RUNS" \]; then$/  elif [ "$f" -eq 999999 ]; then/'
-  teeth flaky-exit-code classify 's/^rc_out=0; \[ \$((flaky + broken)) -eq 0 \] || rc_out=1$/rc_out=0/'
-  teeth broken-exit-zero brokenonly 's/^rc_out=0; \[ \$((flaky + broken)) -eq 0 \] || rc_out=1$/rc_out=0; [ "$flaky" -eq 0 ] || rc_out=1/'
-  teeth load-pids-untracked expiry 's/LOAD_PIDS+=("\$!"); //'
-  teeth expiry-unchecked expiry 's/if ! load_alive; then/if false; then/'
-  teeth exit-trap-removed survivors 's/^trap cleanup EXIT$/:/'
-  # (no mutant for the explicit TERM/INT traps: bash runs the EXIT trap on a fatal signal anyway, so removing them is behaviour-neutral)
-  teeth cleanup-kills-nothing interrupt 's/\[ -z "\$p" \] || kill_group "\$p"/:/'
-  teeth timeout-status-lost timeout 's/then st=TIMEOUT/then st=PASS/'
-  teeth suite-timeout-unbounded timeout 's/exec timeout "\$SUITE_TIMEOUT" "\${runner\[@\]}"/exec "${runner[@]}"/'
-  teeth skip-not-detected skip "s/if grep -q '\\^SKIP:' \"\\\$log\"; then/if false; then/"
-  teeth prove-teeth-dropped prove 's/args=(--prove-teeth)/args=()/'
-  teeth results-not-written tsv 's/"\$first" >>"\$RESULTS"/"$first" >\/dev\/null/'
-  teeth last-line-dropped edges '0,/|| \[ -n "\$_l" \]/s///'
-  teeth load-unbounded loadbound 's/timeout "\$LOAD_TIMEOUT" bash -c/bash -c/'
-  teeth load-timeout-constant loaddefault 's/^\[ -n "\$LOAD_TIMEOUT" \] || LOAD_TIMEOUT=.*$/[ -n "$LOAD_TIMEOUT" ] || LOAD_TIMEOUT=14400/'
-  teeth empty-list-passes degraded 's/^\[ "\${#SUITES\[@\]}" -gt 0 \] || die/: || die/'
-  teeth nproc-not-probed degraded 's/for _dep in bash timeout nproc; do/for _dep in bash timeout; do/'
-  teeth out-in-repo-allowed outguard 's|case "\$OUT/" in "\$REPO"/\*) die|case "$OUT/" in "/nonexistent-never"/*) die|'
-  teeth out-nonempty-allowed outguard 's/^if \[ -d "\$OUT" \] \&\& ! dir_empty "\$OUT"; then die .*$/:/'
-  teeth summary-not-required summary 's/elif first="\$(pass_problem "\$log")"; then st=FAIL/elif false; then st=FAIL/'
-  teeth nothing-measured-passes nothing 's/if \[ \$((flaky + broken + stable)) -eq 0 \]; then/if false; then/'
-  teeth tmpdir-not-cleaned tmpdir 's/^    rm -rf -- "\$st_tmp"$/    :/'
-  teeth tmpdir-shared tmpdir 's/export TMPDIR="\$st_tmp" //'
-  teeth mjs-not-under-node node 's/runner=(node "\$p")/runner=(bash "$p")/'
-  teeth node-probe-dropped node 's/command -v node >\/dev\/null 2>&1 || die/true || die/'
-  teeth tier-note-dropped tier 's/echo "note: run-all.sh rejected/echo "xnote: run-all.sh rejected/'
-  teeth dry-mode-applies issues_dry 's/^    if \[ "\$FILE_MODE" = apply \]; then$/    if [ -n "$FILE_MODE" ]; then/'
-  teeth dedupe-ignored issues_dry 's/^    if \[ -n "\$existing" \]; then$/    if false; then/'
-  teeth prefix-match-loosened issues_dry 's/"flake: \$base "\*)/*"$base"*)/'
-  teeth gh-wrong-cwd issues_dry 's/listing="\$(cd -- "\$REPO" \&\& gh issue list/listing="$(gh issue list/'
-  teeth broken-not-filed issues_edges 's/broken=\$((broken + 1)); ISSUE_LIST+=("\$s"); KIND\[\$s\]=broken/broken=$((broken + 1)); KIND[$s]=broken/'
-  teeth tokens-not-unset tokens 's/ \&\& unset GH_TOKEN GITHUB_TOKEN//'
-  teeth evidence-not-in-body evidence 's/^    if \[ -n "\$EVIDENCE_URL" \]; then printf .evidence: %s.n. "\$EVIDENCE_URL" >>"\$body"; fi$/    :/'
-  teeth evidence-url-unchecked evidence 's/^case "\$EVIDENCE_URL" in .*$/:/'
-  teeth failed-search-files-anyway issues_apply 's/if \[ "\$FILE_MODE" = apply \]; then echo "degraded: kit-flake-hunt: gh issue search/if false; then echo "degraded: kit-flake-hunt: gh issue search/'
+  # (the behaviour's own controls are the Go tests': `make teeth` in research-sdd/rsdd)
+  teeth shim-dispatch classify 's/^rsdd_exec maint flake-hunt /rsdd_exec maint gate /'
+  teeth shim-arguments-dropped classify 's/ "\$@"$//'
+  teeth shim-checkout-dropped shimrepo 's/^\(rsdd_exec maint flake-hunt\) --repo ".*pwd -P)"/\1/'
+  teeth shim-checkout-wrong-level shimrepo '/^rsdd_exec/s#/\.\./\.\./\.\.#/../..#'
 fi
 
 echo "== $pass passed · $fail failed =="

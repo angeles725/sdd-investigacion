@@ -83,6 +83,20 @@ func TestAnOutPathThatCannotBeCreatedIsOneTypedLine(t *testing.T) {
 	}
 }
 
+func TestOnlyBashTimeoutAndNprocAreNeeded(t *testing.T) {
+	w := newWorld(t)
+	w.suite("pure.test.sh", `printf '== 1 passed · 0 failed ==\n'`)
+	for _, tool := range pathTools {
+		if tool != "bash" && tool != "timeout" && tool != "nproc" {
+			_ = os.Remove(w.bin + "/" + tool)
+		}
+	}
+	r := w.goRun("--repo", w.repo, "--out", w.root+"/o1", "--runs", "2", "--load", "1", "--load-timeout", "20", "--suite", "s/pure.test.sh")
+	if r.rc != 0 || !strings.Contains(r.out, "stable=1 ") {
+		t.Errorf("rc %d out=%q err=%q (awk, date, grep, sed, sort and mktemp are not needed any more)", r.rc, r.out, r.err)
+	}
+}
+
 func TestWithoutRepoOrKitLayoutTheWorkingDirectoryIsHunted(t *testing.T) {
 	w := newWorld(t)
 	w.standard()

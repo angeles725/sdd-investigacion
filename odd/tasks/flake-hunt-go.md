@@ -10,7 +10,7 @@ Risk: item 5 (CI: flake-hunt.yml) and item 3.
 - S5: `kit-flake-hunt` is called from `.github/workflows/flake-hunt.yml` (Risk item 5, CI): the shim keeps every flag, exit code and output path the workflow uses; escalate in RDD and run an independent verifier.
 
 ## Tasks
-- T1 (S1-S5) port + oracle + differential/goldens + shim + registry/reason-codes docs · route: delegated writer (parallel units, writer trigger a) · status: open
+- T1 (S1-S5) port + oracle + differential/goldens + shim + registry/reason-codes docs · route: delegated writer (parallel units, writer trigger a) · status: done on feat/flake-hunt-go (commits 54eb7916 oracle+differential, 58c29762 load/signal/workflow/divergence pins, ff9739c5 Go port, then shim+docs); covers S1 (flake-hunt half), S2, S3, S4, S5; reason-codes.test.sh needs the one-token GO_NO_TYPED edit (outside the writer's surface)
 - T2 (S3) teeth Lived 0 + impacted gate · route: parent via heavy-run · status: open
 - T3 (S5) RDD per commit; independent verifier when the Risk line names item 5 · status: open
 
