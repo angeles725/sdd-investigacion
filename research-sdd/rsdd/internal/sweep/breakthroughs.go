@@ -50,8 +50,7 @@ import (
 func RunBreakthroughs(args []string, s cli.Stdio) int {
 	o, err := parseOptions(args)
 	if err != nil {
-		fmt.Fprintf(s.Err, "sweep-breakthroughs: %v\n", err)
-		return cli.ExitUsage
+		return usageFailure(s, o, "breakthroughs", btHookFailedFmt, err)
 	}
 	if o.hook {
 		return runBreakthroughsHook(o, s, os.ReadFile)

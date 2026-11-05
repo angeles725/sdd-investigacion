@@ -25,6 +25,7 @@ import (
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/maint"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/niagara"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/retro"
+	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/secretscan"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/serial"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/status"
 	"github.com/angeles725/sdd-investigacion/research-sdd/rsdd/internal/sweep"
@@ -90,6 +91,7 @@ func mustAssemble() []cli.Command {
 		{"maint", maint.Commands},
 		{"niagara", niagara.Commands},
 		{"retro", retro.Commands},
+		{"secretscan", secretscan.Commands},
 		{"serial", serial.Commands},
 		{"status", status.Commands},
 		{"sweep", sweep.Commands},

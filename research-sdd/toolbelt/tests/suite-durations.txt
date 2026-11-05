@@ -109,6 +109,7 @@ research-sdd/toolbelt/tests/run-all-cache.test.sh 203
 research-sdd/toolbelt/tests/run-all-shard.test.sh 12
 research-sdd/toolbelt/tests/run-all.test.sh 118
 research-sdd/toolbelt/tests/scan-firmware.test.sh 1
+research-sdd/toolbelt/tests/scan-secrets.test.sh 4
 research-sdd/toolbelt/tests/scan-vendor-leak.test.sh 8
 research-sdd/toolbelt/tests/score-loop-transcript.test.sh 35
 research-sdd/toolbelt/tests/scripts-manifest.test.sh 1
