@@ -25,7 +25,7 @@ func (s *scorer) c2() {
 		s.rep.emit("C2", statusDegraded, "unrecognized transcript shape")
 		return
 	case len(f.FinalParas) == 0:
-		s.rep.emit("C2", statusNA, "transcript has no assistant final messages (empty-input)")
+		s.rep.noFinals("C2")
 		return
 	}
 	matches, first := 0, -1

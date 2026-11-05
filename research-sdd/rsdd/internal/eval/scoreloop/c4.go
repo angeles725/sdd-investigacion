@@ -25,7 +25,7 @@ func (s *scorer) c4() {
 		s.rep.emit("C4", statusDegraded, "unrecognized transcript shape")
 		return
 	case len(f.FinalParas) == 0:
-		s.rep.emit("C4", statusNA, "transcript has no assistant final messages (empty-input)")
+		s.rep.noFinals("C4")
 		return
 	case !readable(s.statusScript):
 		s.rep.emit("C4", statusDegraded, fmt.Sprintf("research-sdd-status.sh not found or not readable at %s", s.statusScript))

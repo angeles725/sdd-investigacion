@@ -34,6 +34,12 @@ func (r *report) emit(id, status, evidence string) {
 	r.lines = append(r.lines, fmt.Sprintf("%s %s %s", id, status, evidence))
 }
 
+// noFinals reports the empty-input state of the final-message criteria (C2, C4): the transcript parsed but holds no
+// assistant final message. The state name goes through fmt.Sprintf so the reason-codes scanner sees the emission.
+func (r *report) noFinals(id string) {
+	r.emit(id, statusNA, fmt.Sprintf("transcript has no assistant final messages (%s)", "empty-input"))
+}
+
 func (r *report) summary() string {
 	return fmt.Sprintf("SUMMARY pass=%d fail=%d n/a=%d degraded=%d", r.pass, r.fail, r.na, r.degraded)
 }
